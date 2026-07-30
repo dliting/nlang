@@ -294,4 +294,96 @@ SnField *SnWhileStmt::FindField(const std::string& sName) const
 	return nullptr;
 }
 
+//SnForStmt
+
+SnForStmt::SnForStmt(SnStatement *pInit, SnExpression *pCond,
+	SnStatement *pFini, SnStatement *pBody,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pInit(pInit), m_pCond(pCond),
+	m_pFini(pFini), m_pBody(pBody)
+{
+	assert(m_pCond);
+	assert(m_pBody);
+	if (m_pInit)
+		AddChild(m_pInit);
+	AddChild(m_pCond);
+	if (m_pFini)
+		AddChild(m_pFini);
+	AddChild(m_pBody);
+}
+
+SnForStmt::~SnForStmt()
+{
+	for (auto* pExtra : m_initExtras)
+		delete pExtra;
+	m_initExtras.clear();
+}
+
+std::string SnForStmt::ToString() const
+{
+	std::stringstream ss;
+	ss << "for (";
+	if (m_pInit)
+		ss << m_pInit->ToString();
+	ss << "; " << m_pCond->ToString() << "; ";
+	if (m_pFini)
+		ss << m_pFini->ToString();
+	ss << ") " << m_pBody->ToString();
+	return ss.str();
+}
+
+void SnForStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnForStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+//SnBreakStmt
+
+SnBreakStmt::SnBreakStmt(const ISourceLocation &loc) :
+	Super_(s_Kind, loc)
+{
+}
+
+std::string SnBreakStmt::ToString() const
+{
+	return "break;\n";
+}
+
+void SnBreakStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnBreakStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+//SnContinueStmt
+
+SnContinueStmt::SnContinueStmt(const ISourceLocation &loc) :
+	Super_(s_Kind, loc)
+{
+}
+
+std::string SnContinueStmt::ToString() const
+{
+	return "continue;\n";
+}
+
+void SnContinueStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnContinueStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
 }

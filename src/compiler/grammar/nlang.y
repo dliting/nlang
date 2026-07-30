@@ -65,6 +65,9 @@ using namespace nlang;
 	nlang::SnAssignStmt *					v_pAssignStmt;
 	nlang::SnIfStmt *						v_pIfStmt;
 	nlang::SnWhileStmt *					v_pWhileStmt;
+	nlang::SnForStmt *						v_pForStmt;
+	nlang::SnBreakStmt *					v_pBreakStmt;
+	nlang::SnContinueStmt *				v_pContinueStmt;
 	std::vector<nlang::SnLocalDeclStmt::LocalDecl> * v_pLocalDeclList;
     nlang::PtrList<nlang::SnField> *		v_pMemberList;
 	nlang::SnField *						v_pField;
@@ -101,7 +104,10 @@ using namespace nlang;
 %type <v_pFunction>				Function FunctionHeader
 %type <v_pParagraph>			Paragraph FunctionBody
 %type <v_pStatementList>		StatementList
-%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt IfStmt WhileStmt
+%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt IfStmt WhileStmt InitFor FiniFor
+%type <v_pForStmt>		ForStmt
+%type <v_pBreakStmt>		BreakStmt
+%type <v_pContinueStmt>	ContinueStmt
 %type <v_pLocalDeclList>		LocalDeclList
 
 %start CompileUnit
@@ -386,6 +392,15 @@ Statement:	';' {
 			WhileStmt {
 				$$ = $1;
 			} |
+			ForStmt {
+				$$ = $1;
+			} |
+			BreakStmt {
+				$$ = $1;
+			} |
+			ContinueStmt {
+				$$ = $1;
+			} |
 			Paragraph {
 				$$ = $1;
 			} |
@@ -453,6 +468,55 @@ Reference: EN's WhileStmt (compiler_bak/grammer/nlang.y:561).
 */
 WhileStmt:	KT_While '(' Expression ')' Statement {
 				$$ = EnNew(SnWhileStmt($3, $5, @1));
+			} ;
+
+/*
+For loop statement.
+Reference: EN's ForStmt (compiler_bak/grammer/nlang.y:569).
+*/
+ForStmt:	KT_For '(' InitFor ';' Expression ';' FiniFor ')' Statement {
+				$$ = EnNew(SnForStmt($3, $5, $7, $9, @1));
+			} ;
+
+InitFor:	{
+				/* on empty */
+				$$ = nullptr;
+			} |
+			NameExpr LocalDeclList {
+				$$ = EnNew(SnLocalDeclStmt($1, $2, @1));
+			} |
+			InvokeExpr {
+				$$ = EnNew(SnInvokeStmt($1, @1));
+			} |
+			IdentifierExpr '=' Expression {
+				$$ = EnNew(SnAssignStmt($1, $3, @1));
+			} ;
+
+FiniFor:	{
+				/* on empty */
+				$$ = nullptr;
+			} |
+			InvokeExpr {
+				$$ = EnNew(SnInvokeStmt($1, @1));
+			} |
+			IdentifierExpr '=' Expression {
+				$$ = EnNew(SnAssignStmt($1, $3, @1));
+			} ;
+
+/*
+Break statement.
+Reference: EN's BreakStmt (compiler_bak/grammer/nlang.y:624).
+*/
+BreakStmt:	KT_Break ';' {
+				$$ = EnNew(SnBreakStmt(@1));
+			} ;
+
+/*
+Continue statement.
+Reference: EN's ContinueStmt (compiler_bak/grammer/nlang.y:628).
+*/
+ContinueStmt:	KT_Continue ';' {
+				$$ = EnNew(SnContinueStmt(@1));
 			} ;
 
 NodeFlags:	NodeFlags NodeFlag {

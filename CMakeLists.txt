@@ -52,6 +52,7 @@ add_subdirectory(src/compiler)
 add_subdirectory(src/vm)
 add_subdirectory(src/tools/ncc)
 add_subdirectory(src/tools/nvm)
+add_subdirectory(src/tools/ndisasm)
 
 if(NLANG_BUILD_IDE)
     add_subdirectory(src/tools/nide)

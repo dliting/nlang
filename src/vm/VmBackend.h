@@ -35,6 +35,14 @@ private:
 
     CompiledModule m_compiledModule;
 
+    //Per-loop code generation context.
+    //Reference: EN's Compiler::NestBreaks/NestContinues (Compiler.h:108-111).
+    struct LoopContext {
+        std::vector<size_t> breakJumps;
+        std::vector<size_t> continueJumps;
+    };
+    std::vector<LoopContext> m_loopStack;
+
     //Per-function code generation context.
     //Layout of the local variable frame (all slots are VALUE_SIZE=4 bytes):
     //  [params...] [returnSlot] [tempSlot] [tempSlot2] [callParamBase(8 slots)] [user locals...]

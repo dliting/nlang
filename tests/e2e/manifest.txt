@@ -63,3 +63,17 @@ while_with_local 15
 # --- type coercion ---
 cast_float_to_int 3
 cast_int_to_float 7
+
+# --- for loop ---
+for_loop 45
+for_break 10
+for_continue 25
+for_assign_init 45
+for_empty_init_fini 45
+
+# --- while + break/continue ---
+while_break 10
+while_continue 25
+
+# --- nested loops ---
+nested_loop_break 15

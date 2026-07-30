@@ -67,6 +67,7 @@ src/runtime/               - Runtime implementation
 src/compiler/              - Compiler implementation (grammar, generated, builder)
 src/vm/                    - VM backend implementation
 src/tools/ncc/             - Command-line compiler
+src/tools/ndisasm/         - Bytecode disassembler
 src/tools/nide/            - Qt5 IDE
 ```
 

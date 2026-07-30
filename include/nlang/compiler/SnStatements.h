@@ -295,4 +295,78 @@ private:
 	SnStatement *m_pBody;
 };
 
+/*
+For loop statement.
+Reference: EN's ForStmt (SeStatements.h:470).
+*/
+class NLANG_COMPILER_API SnForStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ForStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnForStmt(SnStatement *pInit, SnExpression *pCond,
+		SnStatement *pFini, SnStatement *pBody,
+		const ISourceLocation &loc);
+
+	~SnForStmt() override;
+
+	SnStatement *Init() const { return m_pInit; }
+	SnExpression *Cond() const { return m_pCond; }
+	SnStatement *Fini() const { return m_pFini; }
+	SnStatement *Body() const { return m_pBody; }
+
+	//Decomposition extras: AssignStmts from init LocalDeclStmt decomposition.
+	//Reference: EN's ForStmt child list contains decomposed AssignStmts.
+	std::vector<SnAssignStmt*> &InitExtras() { return m_initExtras; }
+	const std::vector<SnAssignStmt*> &InitExtras() const { return m_initExtras; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnStatement *m_pInit;
+	SnExpression *m_pCond;
+	SnStatement *m_pFini;
+	SnStatement *m_pBody;
+	std::vector<SnAssignStmt*> m_initExtras;
+};
+
+/*
+Break statement.
+Reference: EN's BreakStmt (SeStatements.h:596).
+*/
+class NLANG_COMPILER_API SnBreakStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_BreakStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	explicit SnBreakStmt(const ISourceLocation &loc);
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+};
+
+/*
+Continue statement.
+Reference: EN's ContinueStmt (SeStatements.h:617).
+*/
+class NLANG_COMPILER_API SnContinueStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ContinueStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	explicit SnContinueStmt(const ISourceLocation &loc);
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+};
+
 } //namespace nlang

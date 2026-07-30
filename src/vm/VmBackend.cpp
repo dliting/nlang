@@ -471,8 +471,10 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //Reference: EN's WhileStmt::DoCompile (SeStatements.cpp:468).
     if (kind == NK_WhileStmt) {
         auto& whileStmt = static_cast<SnWhileStmt&>(stmt);
-        //Mark loop start
         size_t loopStart = emitter.CurrentOffset();
+
+        m_loopStack.push_back(LoopContext{});
+
         //Evaluate condition to tempSlot
         EmitExpression(*whileStmt.Cond(), emitter, m_currFunc->tempSlot);
         //JumpIfNot to end of loop
@@ -480,14 +482,107 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         size_t jumpToEnd = emitter.CurrentOffset();
         emitter.EmitUint16(0);  //placeholder for target
         emitter.EmitUint16(m_currFunc->tempSlot);  //local offset to check
+        m_loopStack.back().breakJumps.push_back(jumpToEnd);
+
         //Loop body
         EmitStatement(*whileStmt.Body(), emitter);
+
         //Jump back to loop start
         emitter.Emit(OpCode::OP_Jump);
         emitter.EmitUint16(static_cast<uint16_t>(loopStart));
-        //Fixup jump-to-end
-        size_t endPos = emitter.CurrentOffset();
-        emitter.PatchUint16(jumpToEnd, static_cast<uint16_t>(endPos));
+
+        //Fixup jumps
+        size_t loopEnd = emitter.CurrentOffset();
+        auto& ctx = m_loopStack.back();
+        for (size_t pos : ctx.breakJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
+        //Reference: EN's WhileStmt continue jumps back to locStart (condition check)
+        for (size_t pos : ctx.continueJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(loopStart));
+
+        m_loopStack.pop_back();
+        return;
+    }
+
+    //For loop statement.
+    //Reference: EN's ForStmt::DoCompile (SeStatements.cpp:546).
+    if (kind == NK_ForStmt) {
+        auto& forStmt = static_cast<SnForStmt&>(stmt);
+
+        //1. Compile init part (before loop context)
+        if (forStmt.Init())
+            EmitStatement(*forStmt.Init(), emitter);
+        //Compile decomposed init AssignStmts
+        for (auto* pExtra : forStmt.InitExtras())
+            EmitStatement(*pExtra, emitter);
+
+        //2. Loop start
+        size_t loopStart = emitter.CurrentOffset();
+
+        //3. Enter loop context (reference: EN's LoopStmt::Compile)
+        m_loopStack.push_back(LoopContext{});
+
+        //4. Condition check
+        EmitExpression(*forStmt.Cond(), emitter, m_currFunc->tempSlot);
+        emitter.Emit(OpCode::OP_JumpIfNot);
+        size_t jumpToEnd = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        m_loopStack.back().breakJumps.push_back(jumpToEnd);
+
+        //5. Loop body
+        EmitStatement(*forStmt.Body(), emitter);
+
+        //6. Continue target: fini part
+        size_t continueTarget = emitter.CurrentOffset();
+
+        //7. Compile fini part
+        if (forStmt.Fini())
+            EmitStatement(*forStmt.Fini(), emitter);
+
+        //8. Jump back to loop start
+        emitter.Emit(OpCode::OP_Jump);
+        emitter.EmitUint16(static_cast<uint16_t>(loopStart));
+
+        //9. Loop end
+        size_t loopEnd = emitter.CurrentOffset();
+
+        //10. Fixup jumps (reference: EN's FixDirectJumps)
+        auto& ctx = m_loopStack.back();
+        for (size_t pos : ctx.breakJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
+        for (size_t pos : ctx.continueJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
+
+        m_loopStack.pop_back();
+        return;
+    }
+
+    //Break statement.
+    //Reference: EN's BreakStmt::Compile (SeStatements.cpp:860).
+    if (kind == NK_BreakStmt) {
+        if (m_loopStack.empty()) {
+            //Error: break not in loop
+            return;
+        }
+        emitter.Emit(OpCode::OP_Jump);
+        size_t jumpPos = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder
+        m_loopStack.back().breakJumps.push_back(jumpPos);
+        return;
+    }
+
+    //Continue statement.
+    //Reference: EN's ContinueStmt::Compile (SeStatements.cpp:886).
+    if (kind == NK_ContinueStmt) {
+        if (m_loopStack.empty()) {
+            //Error: continue not in loop
+            return;
+        }
+        emitter.Emit(OpCode::OP_Jump);
+        size_t jumpPos = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder
+        m_loopStack.back().continueJumps.push_back(jumpPos);
         return;
     }
 }

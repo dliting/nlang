@@ -216,6 +216,108 @@ public:
 		sn.Body()->Accept(*m_pVisitor);
 	}
 
+	/*
+	For loop statement.
+	Reference: EN's ForStmt::DoResolve (SeStatements.cpp:611).
+	*/
+	void Access(SnForStmt &sn)
+	{
+		assert(m_pVisitor);
+
+		//1. Handle init part
+		//Reference: EN's CompositeStatement::DoResolve + LocalDeclStmt::ResolveItem
+		if (sn.Init() && sn.Init()->Kind() == NK_LocalDeclStmt) {
+			auto& decl = static_cast<SnLocalDeclStmt&>(*sn.Init());
+			decl.Type()->Accept(*m_pVisitor);
+			if (decl.Type()->IsResolved()) {
+				auto *pTypeField = decl.Type()->Field();
+				auto pParent = sn.Parent();
+				SnParagraph *pParagraph = nullptr;
+				while (pParent) {
+					if (pParent->Kind() == NK_Paragraph) {
+						pParagraph = static_cast<SnParagraph *>(pParent);
+						break;
+					}
+					pParent = pParent->Parent();
+				}
+				for (auto& d : decl.Decls()) {
+					auto *pLocal = new SnLocalVar(d.name, pTypeField,
+						*decl.Location());
+					if (pParagraph) {
+						pParagraph->AddLocal(d.name, pLocal);
+					}
+					if (d.pInitExpr) {
+						auto *pLeft = new SnIdentifierExpr(
+							new std::string(d.name), *decl.Location());
+						auto *pAssign = new SnAssignStmt(
+							pLeft, d.pInitExpr, *decl.Location());
+						sn.InitExtras().push_back(pAssign);
+
+						//Resolve expressions using the Paragraph as
+						//context, since pAssign is not in the AST
+						//child list and has no parent for
+						//FindFieldInAncestor to walk up.
+						if (pParagraph) {
+							m_ExprResolver.Resolve(*pLeft,
+								*pParagraph, *m_pCurrType, ERF_None);
+							m_ExprResolver.Resolve(*d.pInitExpr,
+								*pParagraph, *m_pCurrType, ERF_None);
+
+							//Type coercion (same as Access(SnAssignStmt)).
+							auto* pLeftField2 = pLeft->IsResolved()
+								? pLeft->Field() : nullptr;
+							if (pLeftField2) {
+								auto* pTgt = pLeftField2->EvalDataType();
+								auto* pSrc = d.pInitExpr->EvalDataType();
+								if (pTgt && pSrc) {
+									auto ci = GetCastInfo(pSrc, pTgt);
+									auto iExpr = pAssign->Children().find(
+										pAssign->m_pRight);
+									if (m_ExprResolver.FixupExprType(
+											iExpr, ci))
+										pAssign->m_pRight =
+											&static_cast<SnCastExpr&>(
+												*iExpr);
+								}
+							}
+							pAssign->AddFlags(NF_Resolved);
+						}
+
+						d.pInitExpr = nullptr;
+					}
+					}
+			}
+		} else if (sn.Init()) {
+			sn.Init()->Accept(*m_pVisitor);
+		}
+
+		//2. Resolve condition
+		sn.Cond()->Accept(*m_pVisitor);
+
+		//3. Resolve body
+		sn.Body()->Accept(*m_pVisitor);
+
+		//4. Resolve fini
+		if (sn.Fini())
+			sn.Fini()->Accept(*m_pVisitor);
+	}
+
+	/*
+	Break statement.
+	Reference: EN's BreakStmt::DoResolve (SeStatements.cpp:876) — no-op.
+	*/
+	void Access(SnBreakStmt &sn)
+	{
+	}
+
+	/*
+	Continue statement.
+	Reference: EN's ContinueStmt::DoResolve (SeStatements.cpp:902) — no-op.
+	*/
+	void Access(SnContinueStmt &sn)
+	{
+	}
+
 	void Access(SnParagraph &sn)
 	{
 		assert(m_pVisitor);
