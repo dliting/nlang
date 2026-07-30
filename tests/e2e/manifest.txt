@@ -1,0 +1,65 @@
+# NLang Phase 2 end-to-end tests
+# Format: test_name expected_exit_code
+
+# --- Basic return ---
+return_literal 42
+
+# --- Variable declaration ---
+var_decl_init 10
+var_reassign 20
+
+# --- Arithmetic ---
+arithmetic_add 30
+arithmetic_sub 7
+arithmetic_mul 42
+arithmetic_div 5
+arithmetic_mod 2
+all_int_ops 1
+
+# --- Comparison ---
+compare_ops 1
+
+# --- Logical ---
+logical_ops 1
+unary_neg 1
+
+# --- if/else ---
+if_true 1
+if_false 0
+if_else_false 2
+if_else_true 2
+nested_if 1
+var_arith_if 30
+
+# --- while loop ---
+while_loop 55
+while_if_nested 9
+
+# --- float ---
+float_arith_cmp 1
+float_div 1
+
+# --- function call ---
+func_call 7
+func_recursive 120
+func_chained 20
+func_with_if 20
+func_fibonacci 8
+func_while 55
+
+# --- nested blocks ---
+nested_block_var 10
+deep_nested_block 6
+
+# --- multi-variable declaration ---
+multi_var_decl 7
+
+# --- negative values ---
+negative_value 5
+
+# --- while with locals ---
+while_with_local 15
+
+# --- type coercion ---
+cast_float_to_int 3
+cast_int_to_float 7

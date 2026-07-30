@@ -1,0 +1,32 @@
+适用于 .NET Framework MSBuild 版本 17.14.40+3e7442088
+
+  nlang_runtime.vcxproj -> E:\cases\nlang\build\src\runtime\Release\nlang_runtime.lib
+  ModuleBuilder.cpp
+E:\cases\nlang\include\nlang\compiler\SnStatements.h(1,1): warning C4819: 该文件包含不能在当前代码页(936)中表示的字符。请将该文件保存为 Unicode 格式以防止数据丢失 [E:\cases\nlang\build\src\compiler\nlang_compiler.vcxproj]
+  (编译源文件“../../../src/compiler/ModuleBuilder.cpp”)
+  
+E:\cases\nlang\src\compiler\builder\StatementResolver.hpp(1,1): warning C4819: 该文件包含不能在当前代码页(936)中表示的字符。请将该文件保存为 Unicode 格式以防止数据丢失 [E:\cases\nlang\build\src\compiler\nlang_compiler.vcxproj]
+  (编译源文件“../../../src/compiler/ModuleBuilder.cpp”)
+  
+E:\cases\nlang\src\compiler\builder\StatementResolver.hpp(131,23): error C2259: “nlang::SnLocalVar”: 无法实例化抽象类 [E:\cases\nlang\build\src\compiler\nlang_compiler.vcxproj]
+  (编译源文件“../../../src/compiler/ModuleBuilder.cpp”)
+      E:\cases\nlang\include\nlang\compiler\SnStatements.h(24,26):
+      参见“nlang::SnLocalVar”的声明
+      E:\cases\nlang\src\compiler\builder\StatementResolver.hpp(131,23):
+      由于下列成员:
+      E:\cases\nlang\src\compiler\builder\StatementResolver.hpp(131,23):
+      “nlang::ImmutableNodeList *nlang::Node::ChildrenPtr(void) const”: 是抽象的
+      E:\cases\nlang\include\nlang\runtime\Node.h(159,29):
+      参见“nlang::Node::ChildrenPtr”的声明
+  
+E:\cases\nlang\src\compiler\builder\StatementResolver.hpp(131,33): error C2259: “nlang::SnLocalVar”: 无法实例化抽象类 [E:\cases\nlang\build\src\compiler\nlang_compiler.vcxproj]
+  (编译源文件“../../../src/compiler/ModuleBuilder.cpp”)
+      E:\cases\nlang\include\nlang\compiler\SnStatements.h(24,26):
+      参见“nlang::SnLocalVar”的声明
+      E:\cases\nlang\src\compiler\builder\StatementResolver.hpp(131,33):
+      由于下列成员:
+      E:\cases\nlang\src\compiler\builder\StatementResolver.hpp(131,33):
+      “nlang::ImmutableNodeList *nlang::Node::ChildrenPtr(void) const”: 是抽象的
+      E:\cases\nlang\include\nlang\runtime\Node.h(159,29):
+      参见“nlang::Node::ChildrenPtr”的声明
+  

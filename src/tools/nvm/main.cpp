@@ -1,0 +1,35 @@
+#include "ModuleLoader.h"
+#include "VmExecutor.h"
+#ifdef _WIN32
+#include <crtdbg.h>
+#include <windows.h>
+#endif
+#include <iostream>
+#include <string>
+
+using namespace nlang;
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: nvm <module.nmod>\n";
+        return 1;
+    }
+
+#ifdef _WIN32
+    SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG | _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
+
+    CompiledModule module = ModuleLoader::Load(argv[1]);
+    VmExecutor executor;
+    int result = executor.Execute(module);
+    //On Windows, static destructors from the runtime library can
+    //corrupt the process exit code. ExitProcess() bypasses this.
+#ifdef _WIN32
+    ExitProcess(static_cast<UINT>(result));
+#else
+    return result;
+#endif
+}

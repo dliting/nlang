@@ -1,0 +1,9 @@
+int double_it(int x) {
+    return x * 2;
+}
+
+int main() {
+    int a = double_it(5);
+    int b = double_it(a);
+    return b;
+}

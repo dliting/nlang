@@ -1,0 +1,56 @@
+#include "BytecodeOps.h"
+
+namespace nlang {
+
+static const char* s_OpCodeNames[] = {
+    "return",
+    "jump",
+    "jump_if_not",
+    "stop",
+    "const_i32",
+    "const_f32",
+    "const_str",
+    "const_zero",
+    "var_local",
+    "assign",
+    "cast_i2f",
+    "cast_f2i",
+    "add_i32",
+    "sub_i32",
+    "mul_i32",
+    "div_i32",
+    "mod_i32",
+    "neg_i32",
+    "add_f32",
+    "sub_f32",
+    "mul_f32",
+    "div_f32",
+    "neg_f32",
+    "less_i32",
+    "le_i32",
+    "gt_i32",
+    "ge_i32",
+    "eq_i32",
+    "ne_i32",
+    "less_f32",
+    "le_f32",
+    "gt_f32",
+    "ge_f32",
+    "eq_f32",
+    "ne_f32",
+    "and",
+    "or",
+    "not",
+    "call",
+    "para_end",
+    "debug",
+};
+
+const char* OpCodeName(OpCode op) {
+    auto idx = static_cast<size_t>(op);
+    if (idx < static_cast<size_t>(OpCode::OP_Count))
+        return s_OpCodeNames[idx];
+    return "unknown";
+}
+
+} // namespace nlang
