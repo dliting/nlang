@@ -67,6 +67,9 @@ using namespace nlang;
 	nlang::SnWhileStmt *					v_pWhileStmt;
 	nlang::SnDoStmt *						v_pDoStmt;
 	nlang::SnForStmt *						v_pForStmt;
+	nlang::SnSwitchStmt *					v_pSwitchStmt;
+	nlang::SnCaseClause *					v_pCaseClause;
+	std::vector<nlang::SnCaseClause*> *		v_pCaseClauseList;
 	nlang::SnBreakStmt *					v_pBreakStmt;
 	nlang::SnContinueStmt *				v_pContinueStmt;
 	std::vector<nlang::SnLocalDeclStmt::LocalDecl> * v_pLocalDeclList;
@@ -103,11 +106,14 @@ using namespace nlang;
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr
 %type <v_pExpressionList>		ConcreteParamList
 %type <v_pFunction>				Function FunctionHeader
-%type <v_pParagraph>			Paragraph FunctionBody
+%type <v_pParagraph>			Paragraph FunctionBody DefaultCase
 %type <v_pStatementList>		StatementList
 %type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt IfStmt WhileStmt InitFor FiniFor
 %type <v_pForStmt>		ForStmt
 %type <v_pDoStmt>		DoStmt
+%type <v_pSwitchStmt>	SwitchStmt
+%type <v_pCaseClause>	CaseClause
+%type <v_pCaseClauseList>	CaseClauseList
 %type <v_pBreakStmt>		BreakStmt
 %type <v_pContinueStmt>	ContinueStmt
 %type <v_pLocalDeclList>		LocalDeclList
@@ -400,6 +406,9 @@ Statement:	';' {
 			ForStmt {
 				$$ = $1;
 			} |
+			SwitchStmt {
+				$$ = $1;
+			} |
 			BreakStmt {
 				$$ = $1;
 			} |
@@ -532,6 +541,34 @@ ContinueStmt:	KT_Continue ';' {
 				$$ = EnNew(SnContinueStmt(@1));
 			} ;
 
+/*
+Switch statement.
+Reference: EN's SwitchStmt (compiler_bak/grammer/nlang.y:598).
+*/
+SwitchStmt:	KT_Switch '(' Expression ')' '{' CaseClauseList DefaultCase '}' {
+			$$ = EnNew(SnSwitchStmt($3, $6, $7, @1));
+		} ;
+
+CaseClauseList:	CaseClauseList CaseClause {
+				$1->push_back($2);
+				$$ = $1;
+			} |
+			{
+				/*on empty */
+				$$ = EnNew(std::vector<SnCaseClause*>());
+			} ;
+
+CaseClause:	KT_Case Expression ':' StatementList {
+			$$ = EnNew(SnCaseClause($2, $4, @1));
+		} ;
+
+DefaultCase:	{
+				/*on empty */
+				$$ = nullptr;
+			} |
+			KT_Default ':' StatementList {
+				$$ = EnNew(SnParagraph($3, @1));
+			} ;
 NodeFlags:	NodeFlags NodeFlag {
 				const NodeBits toAdd = $2;
 				if (($1  &toAdd) != 0)

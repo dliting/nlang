@@ -409,6 +409,24 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         case OpCode::OP_ParaEnd:
             break;
 
+        case OpCode::OP_Switch: {
+            //Read the switch value local offset — no action needed,
+            //the switch value is already in the local slot.
+            //Reference: EN's I_Base_Switch.
+            reader.ReadUint16();
+            break;
+        }
+
+        case OpCode::OP_Case: {
+            //Read the jump-to-next-handler offset.
+            //Reference: EN's I_Base_Case.
+            //The jump target is patched by FixChainedJumps at compile time.
+            //At runtime, we just read and skip the placeholder — the actual
+            //branching is done by OP_JumpIfNot after the condition code.
+            reader.ReadUint16();
+            break;
+        }
+
         case OpCode::OP_DebugInfo: {
             reader.ReadUint16();
             break;

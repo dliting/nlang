@@ -64,6 +64,13 @@ enum class OpCode : uint8_t {
     OP_CallFunc,        // uint16 func_index, uint16 call_param_base; call function, result to pResult
     OP_ParaEnd,         // mark end of parameter evaluation
 
+    // === Switch/case ===
+    //Reference: EN's I_Base_Switch/I_Base_Case (Compiler.h).
+    OP_Switch,          // uint16 switch_local_offset (the switch value slot)
+    OP_Case,            // uint16 jump_to_next (placeholder, patched by FixChainedJumps)
+                        // After OP_Case: condition comparison code + OP_JumpIfNot to next case,
+                        // then case body code.
+
     // === Debug ===
     OP_DebugInfo,       // uint16 info
 

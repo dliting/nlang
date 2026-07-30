@@ -624,6 +624,106 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         m_loopStack.back().continueJumps.push_back(jumpPos);
         return;
     }
+
+    //Switch statement.
+    //Reference: EN's SwitchStmt::DoCompile (SeStatements.cpp:725).
+    if (kind == NK_SwitchStmt) {
+        auto& switchStmt = static_cast<SnSwitchStmt&>(stmt);
+
+        //1. Allocate a dedicated slot for the switch value.
+        //This slot must not be overwritten by case condition compilation.
+        uint16_t switchSlot = m_currFunc->nextOffset;
+        m_currFunc->nextOffset += VALUE_SIZE;
+
+        //2. Compile the switch expression to switchSlot
+        EmitExpression(*switchStmt.Cond(), emitter, switchSlot);
+
+        //3. Emit OP_Switch with the switch value's local offset
+        emitter.Emit(OpCode::OP_Switch);
+        emitter.EmitUint16(switchSlot);
+
+        //4. Enter loop context (break jumps out of switch)
+        m_loopStack.push_back(LoopContext{});
+
+        //5. Compile each case clause
+        //Reference: EN's SwitchStmt::DoCompile — for each case, emit
+        //I_Base_Case + jump-to-next-handler placeholder + condition + body.
+        std::vector<size_t> nextJumps;
+        std::vector<size_t> caseStartOffsets;
+
+        for (auto* pCase : switchStmt.Cases()) {
+            //Record this case's start offset
+            size_t caseStart = emitter.CurrentOffset();
+            caseStartOffsets.push_back(caseStart);
+
+            //Emit OP_Case with jump-to-next-handler placeholder
+            emitter.Emit(OpCode::OP_Case);
+            size_t jumpToNext = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder, patched by FixChainedJumps
+            nextJumps.push_back(jumpToNext);
+
+            //Compile condition: switch_value == case_constant
+            //Load switch value from dedicated slot to tempSlot2
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(switchSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+            //Compile case constant to tempSlot
+            EmitExpression(*pCase->Cond(), emitter, m_currFunc->tempSlot);
+            //Compare: tempSlot2 == tempSlot → result in tempSlot2
+            emitter.Emit(OpCode::OP_Equal_i32);
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+            emitter.EmitUint16(m_currFunc->tempSlot);
+            //If not equal, jump to next case handler
+            emitter.Emit(OpCode::OP_JumpIfNot);
+            size_t condJumpPos = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder, same target as nextJump
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+            nextJumps.push_back(condJumpPos);
+
+            //Compile case body
+            EmitStatement(*pCase->Body(), emitter);
+        }
+
+        //5. Mark locCaseEnd (after all cases, before default)
+        size_t locCaseEnd = emitter.CurrentOffset();
+
+        //6. Compile default clause
+        if (switchStmt.Default())
+            EmitStatement(*switchStmt.Default(), emitter);
+
+        //7. Mark locEnd (after default)
+        size_t locEnd = emitter.CurrentOffset();
+
+        //8. FixChainedJumps: patch nextJumps so each case's jumps point
+        //to the next case's start. The last case's jumps point to
+        //default (if present) or switch end.
+        //Reference: EN's Compiler::FixChainedJumps (Compiler.h:86).
+        {
+            size_t caseCount = caseStartOffsets.size();
+            for (size_t i = 0; i < caseCount; ++i) {
+                uint16_t target;
+                if (i + 1 < caseCount)
+                    target = static_cast<uint16_t>(caseStartOffsets[i + 1]);
+                else
+                    target = static_cast<uint16_t>(
+                        switchStmt.Default() ? locCaseEnd : locEnd);
+
+                //Each case has 2 entries in nextJumps: jumpToNext and condJumpPos
+                size_t baseIdx = i * 2;
+                emitter.PatchUint16(nextJumps[baseIdx], target);
+                emitter.PatchUint16(nextJumps[baseIdx + 1], target);
+            }
+        }
+
+        //9. Fix break jumps (jump to switch end)
+        auto& ctx = m_loopStack.back();
+        for (size_t pos : ctx.breakJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(locEnd));
+
+        m_loopStack.pop_back();
+        return;
+    }
 }
 
 uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,

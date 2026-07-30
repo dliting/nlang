@@ -192,6 +192,24 @@ static void DisassembleFunction(const CompiledFunction& func,
             break;
         }
 
+        //uint16 switch_local_offset
+        case OpCode::OP_Switch: {
+            uint16_t off = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << off << "\n";
+            break;
+        }
+
+        //uint16 jump_to_next
+        case OpCode::OP_Case: {
+            uint16_t next = reader.ReadUint16();
+            char nextBuf[16];
+            snprintf(nextBuf, sizeof(nextBuf), "%04x", static_cast<unsigned>(next));
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " ->" << nextBuf << "\n";
+            break;
+        }
+
         default:
             std::cout << "    " << offsetBuf << ": unknown_op("
                       << static_cast<int>(op) << ")\n";

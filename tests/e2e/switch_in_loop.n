@@ -1,0 +1,11 @@
+int main() {
+    int r = 0;
+    for (int i = 1; i <= 3; i = i + 1) {
+        switch (i) {
+            case 1: r = r + 10; break;
+            case 2: r = r + 20; break;
+            case 3: r = r + 30; break;
+        }
+    }
+    return r;
+}

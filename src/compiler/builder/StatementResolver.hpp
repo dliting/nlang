@@ -329,6 +329,31 @@ public:
 	{
 	}
 
+	/*
+	Switch statement.
+	Reference: EN's SwitchStmt::DoResolve (SeStatements.cpp:824).
+	*/
+	void Access(SnSwitchStmt &sn)
+	{
+		assert(m_pVisitor);
+		sn.Cond()->Accept(*m_pVisitor);
+		for (auto* pCase : sn.Cases())
+			pCase->Accept(*m_pVisitor);
+		if (sn.Default())
+			sn.Default()->Accept(*m_pVisitor);
+	}
+
+	/*
+	Case clause.
+	Reference: EN's CondClause::Resolve (SeStatements.cpp:197).
+	*/
+	void Access(SnCaseClause &sn)
+	{
+		assert(m_pVisitor);
+		sn.Cond()->Accept(*m_pVisitor);
+		sn.Body()->Accept(*m_pVisitor);
+	}
+
 	void Access(SnParagraph &sn)
 	{
 		assert(m_pVisitor);

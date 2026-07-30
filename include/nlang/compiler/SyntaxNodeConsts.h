@@ -30,6 +30,8 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(WhileStmt)				/* while loop statement */			\
 	MACRO_IMPL(DoStmt)					/* do-while loop statement */		\
 	MACRO_IMPL(ForStmt)				/* for loop statement */				\
+	MACRO_IMPL(SwitchStmt)			/* switch statement */					\
+	MACRO_IMPL(CaseClause)			/* case clause */						\
 	MACRO_IMPL(BreakStmt)				/* break statement */					\
 	MACRO_IMPL(ContinueStmt)			/* continue statement */				\
 	MACRO_IMPL(Paragraph)				/* paragraph */						

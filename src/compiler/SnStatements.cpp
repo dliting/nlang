@@ -414,4 +414,82 @@ SnField *SnContinueStmt::FindField(const std::string& sName) const
 	return nullptr;
 }
 
+//SnCaseClause
+
+SnCaseClause::SnCaseClause(SnExpression *pCond,
+	PtrList<SnStatement> *pStmts, const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, loc), m_pCond(pCond),
+	m_pBody(new SnParagraph(UniquePtrList<SnStatement>(pStmts), loc)),
+	m_upChildren(new ImmutableNodeList())
+{
+	assert(m_pCond);
+	AddChild(m_pCond);
+	AddChild(m_pBody);
+}
+
+std::string SnCaseClause::ToString() const
+{
+	return "case " + m_pCond->ToString() + ": " + m_pBody->ToString();
+}
+
+void SnCaseClause::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnCaseClause::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+ImmutableNodeList *SnCaseClause::ChildrenPtr() const
+{
+	return m_upChildren.get();
+}
+
+//SnSwitchStmt
+
+SnSwitchStmt::SnSwitchStmt(SnExpression *pCond,
+	std::vector<SnCaseClause*> *pCases,
+	SnParagraph *pDefault, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pCond(pCond),
+	m_upCases(pCases), m_pDefault(pDefault)
+{
+	assert(m_pCond);
+	AddChild(m_pCond);
+	for (auto* pCase : *m_upCases)
+		AddChild(pCase);
+	if (m_pDefault)
+		AddChild(m_pDefault);
+}
+
+SnSwitchStmt::~SnSwitchStmt()
+{
+	//Case clauses are added as children via AddChild, so they are
+	//owned by the child list and will be deleted by Node's destructor.
+	//m_upCases is just a reference vector for direct access.
+}
+
+std::string SnSwitchStmt::ToString() const
+{
+	std::stringstream ss;
+	ss << "switch (" << m_pCond->ToString() << ") {\n";
+	for (auto* pCase : *m_upCases)
+		ss << pCase->ToString();
+	if (m_pDefault)
+		ss << "default: " << m_pDefault->ToString();
+	ss << "}\n";
+	return ss.str();
+}
+
+SnField *SnSwitchStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+void SnSwitchStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
 }

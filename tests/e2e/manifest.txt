@@ -83,3 +83,11 @@ while_continue 25
 
 # --- nested loops ---
 nested_loop_break 15
+
+# --- switch/case ---
+switch_basic 20
+switch_default 30
+switch_break 10
+switch_no_default 0
+switch_in_loop 60
+switch_with_block 15

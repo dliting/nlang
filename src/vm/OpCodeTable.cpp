@@ -43,6 +43,8 @@ static const char* s_OpCodeNames[] = {
     "not",
     "call",
     "para_end",
+    "switch",
+    "case",
     "debug",
 };
 

@@ -1,0 +1,14 @@
+int main() {
+    int x = 2;
+    int r = 0;
+    switch (x) {
+        case 1: r = 100; break;
+        case 2: {
+            int y = 5;
+            r = y * 3;
+            break;
+        }
+        default: r = 999;
+    }
+    return r;
+}

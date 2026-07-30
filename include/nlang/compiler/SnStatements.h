@@ -394,4 +394,63 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 };
 
+/*
+Case clause in a switch statement.
+Reference: EN's CondClause (SeStatements.h:141).
+*/
+class NLANG_COMPILER_API SnCaseClause : public SyntaxNode
+{
+	typedef SyntaxNode Super_;
+public:
+	static const NodeKind	s_Kind			= NK_CaseClause;
+	static const NodeBits	s_DefaultFlags	= NF_NONE;
+
+	SnCaseClause(SnExpression *pCond, PtrList<SnStatement> *pStmts,
+		const ISourceLocation &loc);
+
+	SnExpression *Cond() const { return m_pCond; }
+	SnParagraph *Body() const { return m_pBody; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	ImmutableNodeList *ChildrenPtr() const override;
+	SnExpression *m_pCond;
+	SnParagraph *m_pBody;
+	std::unique_ptr<ImmutableNodeList> m_upChildren;
+};
+
+/*
+Switch statement.
+Reference: EN's SwitchStmt (SeStatements.h:522).
+*/
+class NLANG_COMPILER_API SnSwitchStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_SwitchStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnSwitchStmt(SnExpression *pCond,
+		std::vector<SnCaseClause*> *pCases,
+		SnParagraph *pDefault,
+		const ISourceLocation &loc);
+
+	~SnSwitchStmt() override;
+
+	SnExpression *Cond() const { return m_pCond; }
+	std::vector<SnCaseClause*> &Cases() { return *m_upCases; }
+	const std::vector<SnCaseClause*> &Cases() const { return *m_upCases; }
+	SnParagraph *Default() const { return m_pDefault; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnExpression *m_pCond;
+	std::unique_ptr<std::vector<SnCaseClause*>> m_upCases;
+	SnParagraph *m_pDefault;
+};
+
 } //namespace nlang
