@@ -504,6 +504,45 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         return;
     }
 
+    //Do-while loop statement.
+    //Reference: EN's DoStmt::DoCompile (SeStatements.cpp:507).
+    if (kind == NK_DoStmt) {
+        auto& doStmt = static_cast<SnDoStmt&>(stmt);
+
+        m_loopStack.push_back(LoopContext{});
+
+        //1. Loop body (executed at least once)
+        size_t loopStart = emitter.CurrentOffset();
+        EmitStatement(*doStmt.Body(), emitter);
+
+        //2. Continue target: condition check
+        size_t continueTarget = emitter.CurrentOffset();
+
+        //3. Condition check
+        EmitExpression(*doStmt.Cond(), emitter, m_currFunc->tempSlot);
+        emitter.Emit(OpCode::OP_JumpIfNot);
+        size_t jumpToEnd = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        m_loopStack.back().breakJumps.push_back(jumpToEnd);
+
+        //4. Jump back to loop start
+        emitter.Emit(OpCode::OP_Jump);
+        emitter.EmitUint16(static_cast<uint16_t>(loopStart));
+
+        //5. Loop end, fixup jumps
+        size_t loopEnd = emitter.CurrentOffset();
+        auto& ctx = m_loopStack.back();
+        for (size_t pos : ctx.breakJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
+        //Reference: EN's DoStmt continue jumps to locCondition
+        for (size_t pos : ctx.continueJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
+
+        m_loopStack.pop_back();
+        return;
+    }
+
     //For loop statement.
     //Reference: EN's ForStmt::DoCompile (SeStatements.cpp:546).
     if (kind == NK_ForStmt) {

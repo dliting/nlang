@@ -28,6 +28,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(AssignStmt)				/* assignment statement */			\
 	MACRO_IMPL(IfStmt)					/* if/else statement */				\
 	MACRO_IMPL(WhileStmt)				/* while loop statement */			\
+	MACRO_IMPL(DoStmt)					/* do-while loop statement */		\
 	MACRO_IMPL(ForStmt)				/* for loop statement */				\
 	MACRO_IMPL(BreakStmt)				/* break statement */					\
 	MACRO_IMPL(ContinueStmt)			/* continue statement */				\

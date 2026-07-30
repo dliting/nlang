@@ -35,6 +35,12 @@ var_arith_if 30
 while_loop 55
 while_if_nested 9
 
+# --- do-while loop ---
+do_while 45
+do_while_break 10
+do_while_continue 25
+do_while_once 1
+
 # --- float ---
 float_arith_cmp 1
 float_div 1

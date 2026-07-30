@@ -294,6 +294,34 @@ SnField *SnWhileStmt::FindField(const std::string& sName) const
 	return nullptr;
 }
 
+//SnDoStmt
+
+SnDoStmt::SnDoStmt(SnExpression *pCond, SnStatement *pBody,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pCond(pCond), m_pBody(pBody)
+{
+	assert(m_pCond);
+	assert(m_pBody);
+	AddChild(m_pCond);
+	AddChild(m_pBody);
+}
+
+std::string SnDoStmt::ToString() const
+{
+	return "do " + m_pBody->ToString() + "while (" +
+		m_pCond->ToString() + ");\n";
+}
+
+void SnDoStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnDoStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
 //SnForStmt
 
 SnForStmt::SnForStmt(SnStatement *pInit, SnExpression *pCond,

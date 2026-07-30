@@ -65,6 +65,7 @@ using namespace nlang;
 	nlang::SnAssignStmt *					v_pAssignStmt;
 	nlang::SnIfStmt *						v_pIfStmt;
 	nlang::SnWhileStmt *					v_pWhileStmt;
+	nlang::SnDoStmt *						v_pDoStmt;
 	nlang::SnForStmt *						v_pForStmt;
 	nlang::SnBreakStmt *					v_pBreakStmt;
 	nlang::SnContinueStmt *				v_pContinueStmt;
@@ -106,6 +107,7 @@ using namespace nlang;
 %type <v_pStatementList>		StatementList
 %type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt IfStmt WhileStmt InitFor FiniFor
 %type <v_pForStmt>		ForStmt
+%type <v_pDoStmt>		DoStmt
 %type <v_pBreakStmt>		BreakStmt
 %type <v_pContinueStmt>	ContinueStmt
 %type <v_pLocalDeclList>		LocalDeclList
@@ -392,6 +394,9 @@ Statement:	';' {
 			WhileStmt {
 				$$ = $1;
 			} |
+			DoStmt {
+				$$ = $1;
+			} |
 			ForStmt {
 				$$ = $1;
 			} |
@@ -469,6 +474,14 @@ Reference: EN's WhileStmt (compiler_bak/grammer/nlang.y:561).
 WhileStmt:	KT_While '(' Expression ')' Statement {
 				$$ = EnNew(SnWhileStmt($3, $5, @1));
 			} ;
+
+/*
+Do-while loop statement.
+Reference: EN's DoStmt (compiler_bak/grammer/nlang.y:565).
+*/
+DoStmt:	KT_Do Statement KT_While '(' Expression ')' ';' {
+			$$ = EnNew(SnDoStmt($5, $2, @1));
+		} ;
 
 /*
 For loop statement.

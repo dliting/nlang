@@ -217,6 +217,17 @@ public:
 	}
 
 	/*
+	Do-while loop statement.
+	Reference: EN's DoStmt::DoResolve — same as WhileStmt.
+	*/
+	void Access(SnDoStmt &sn)
+	{
+		assert(m_pVisitor);
+		sn.Body()->Accept(*m_pVisitor);
+		sn.Cond()->Accept(*m_pVisitor);
+	}
+
+	/*
 	For loop statement.
 	Reference: EN's ForStmt::DoResolve (SeStatements.cpp:611).
 	*/

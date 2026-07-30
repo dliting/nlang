@@ -296,6 +296,31 @@ private:
 };
 
 /*
+Do-while loop statement.
+Reference: EN's DoStmt (SeStatements.h:449).
+*/
+class NLANG_COMPILER_API SnDoStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_DoStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnDoStmt(SnExpression *pCond, SnStatement *pBody,
+		const ISourceLocation &loc);
+
+	SnExpression *Cond() const { return m_pCond; }
+	SnStatement *Body() const { return m_pBody; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnExpression *m_pCond;
+	SnStatement *m_pBody;
+};
+
+/*
 For loop statement.
 Reference: EN's ForStmt (SeStatements.h:470).
 */
