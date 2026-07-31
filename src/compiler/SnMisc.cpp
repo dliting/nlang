@@ -6,6 +6,7 @@ This file define the implementation of miscellaneous syntax node types.
 #include "SnMisc.h"
 #include "SyntaxNodeVisitor.h"
 #include "BuildEnvironment.h"
+#include <nlang/compiler/SnTypes.h>
 
 namespace nlang
 {
@@ -112,6 +113,7 @@ bool SnNamespace::AllowMember(NodeKind k) const
 	{
 	case NK_Function:
 	case NK_Namespace:
+	case NK_EnumDecl:
 		return true;
 	default:
 		return IsBuiltinType(k) && (Name() == GLOBAL_NAMESPACE_NAME);
@@ -132,6 +134,82 @@ SnField * SnNamespace::EvalDataType() const
 {
 	return SnType::Instance();
 }
+
+//--- SnEnumMember ---
+
+SnEnumMember::SnEnumMember(std::string *pName, SnExpression *pValue,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, loc),
+	m_pValueExpr(pValue), m_value(0),
+	m_upChildren(new ImmutableNodeList())
+{
+	if (m_pValueExpr)
+		AddChild(m_pValueExpr);
+}
+
+SnEnumMember::~SnEnumMember()
+{
+}
+
+SnField *SnEnumMember::EvalDataType() const
+{
+	return SnBuiltinDataType::InstanceOf(NK_Int32);
+}
+
+SnField *SnEnumMember::FindField(const std::string&) const
+{
+	return nullptr;
+}
+
+void SnEnumMember::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnEnumMember::ToString() const
+{
+	return Name() + " = " + std::to_string(m_value);
+}
+
+ImmutableNodeList *SnEnumMember::ChildrenPtr() const
+{
+	return m_upChildren.get();
+}
+
+//--- SnEnumDecl ---
+
+SnEnumDecl::SnEnumDecl(std::string *pName, UniquePtrList<SnEnumMember> upMembers,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, loc),
+	m_upMembers(CreateChildFields(upMembers, this))
+{
+}
+
+SnEnumDecl::~SnEnumDecl()
+{
+}
+
+SnField *SnEnumDecl::EvalDataType() const
+{
+	return SnBuiltinDataType::InstanceOf(NK_Int32);
+}
+
+SnField *SnEnumDecl::FindField(const std::string& sName) const
+{
+	return m_upMembers->find(sName);
+}
+
+void SnEnumDecl::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnEnumDecl::ToString() const
+{
+	return "enum " + Name();
+}
+
+//--- SnUsing ---
 
 SnUsing::SnUsing(SnNameExpr *pPath, const ISourceLocation &loc) :
 	Super_(s_Kind, FA_Public, NF_NONE, loc), m_pPath(pPath),

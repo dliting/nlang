@@ -1,10 +1,10 @@
 #include "VmBackend.h"
+#include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnStatements.h>
 #include <nlang/compiler/SnExtraTypes.h>
-#include <nlang/compiler/SnMisc.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <cassert>
@@ -79,6 +79,14 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
     }
 }
 
+//Map compile-time type kind to runtime type kind.
+//Enum types are int32 at runtime.
+uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
+    if (!pType) return NK_Int32;
+    auto k = pType->Kind();
+    return k == NK_EnumDecl ? NK_Int32 : static_cast<uint8_t>(k);
+}
+
 void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
 
@@ -90,8 +98,7 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     // Allocate slots for parameters
     for (auto& param : func.Params()) {
         AllocLocal(param.Name(), VALUE_SIZE,
-                   static_cast<uint8_t>(param.EvalDataType()
-                       ? param.EvalDataType()->Kind() : NK_Int32),
+                   RuntimeTypeKind(param.EvalDataType()),
                    true);
     }
     compiledFunc.paramCount = static_cast<uint16_t>(func.Params().size());
@@ -180,6 +187,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     if (kind == NK_IdentifierExpr) {
         auto& idExpr = static_cast<SnIdentifierExpr&>(expr);
         auto* field = idExpr.Field();
+        if (field && field->Kind() == NK_EnumMember) {
+            //Enum member constant — emit the resolved integer value.
+            auto* pEnumMember = static_cast<SnEnumMember*>(field);
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(pEnumMember->Value());
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
         if (field) {
             uint16_t offset = FindLocal(field->Name());
             emitter.Emit(OpCode::OP_VarLocal);
@@ -249,6 +265,16 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     // Member expression - delegate to inner
     if (kind == NK_MemberExpr) {
         auto& member = static_cast<SnMemberExpr&>(expr);
+        auto* field = member.Field();
+        if (field && field->Kind() == NK_EnumMember) {
+            //Enum member constant (e.g. Color.Red).
+            auto* pEnumMember = static_cast<SnEnumMember*>(field);
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(pEnumMember->Value());
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
         auto* inner = member.Inner();
         if (inner && inner->Kind() == NK_InvokeExpr) {
             EmitExpression(*static_cast<SnExpression*>(inner), emitter, resultOffset);
@@ -416,7 +442,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     if (kind == NK_LocalDeclStmt) {
         auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
         auto* evalType = decl.Type()->Field();
-        uint8_t typeKind = evalType ? static_cast<uint8_t>(evalType->Kind()) : NK_Int32;
+        uint8_t typeKind = RuntimeTypeKind(evalType);
         for (auto& local : decl.Decls()) {
             AllocLocal(local.name, VALUE_SIZE, typeKind, false);
         }

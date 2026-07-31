@@ -1,0 +1,11 @@
+enum Dir { North, South, East, West }
+int main() {
+    Dir d = Dir.East;
+    int r = 0;
+    switch (d) {
+        case Dir.North: r = 1; break;
+        case Dir.South: r = 2; break;
+        default: r = 3;
+    }
+    return r;
+}

@@ -1,0 +1,4 @@
+enum Num { A, B, C = 10, D }
+int main() {
+    return Num.A + Num.B + Num.C + Num.D;
+}

@@ -72,6 +72,9 @@ using namespace nlang;
 	std::vector<nlang::SnCaseClause*> *		v_pCaseClauseList;
 	nlang::SnBreakStmt *					v_pBreakStmt;
 	nlang::SnContinueStmt *				v_pContinueStmt;
+	nlang::SnEnumDecl *					v_pEnumDecl;
+	nlang::SnEnumMember *				v_pEnumMember;
+	nlang::PtrList<nlang::SnEnumMember> *	v_pEnumMemberList;
 	std::vector<nlang::SnLocalDeclStmt::LocalDecl> * v_pLocalDeclList;
     nlang::PtrList<nlang::SnField> *		v_pMemberList;
 	nlang::SnField *						v_pField;
@@ -117,6 +120,9 @@ using namespace nlang;
 %type <v_pBreakStmt>		BreakStmt
 %type <v_pContinueStmt>	ContinueStmt
 %type <v_pLocalDeclList>		LocalDeclList
+%type <v_pEnumDecl>			EnumDecl
+%type <v_pEnumMember>		EnumMember
+%type <v_pEnumMemberList>	EnumMemberList
 
 %start CompileUnit
 
@@ -317,6 +323,9 @@ NamespaceMember:	Namespace {
 						$$ = $1;
 					} |
 					Function {
+						$$ = $1;
+					} |
+					EnumDecl {
 						$$ = $1;
 					} ;
 
@@ -569,6 +578,29 @@ DefaultCase:	{
 			KT_Default ':' StatementList {
 				$$ = EnNew(SnParagraph($3, @1));
 			} ;
+/*
+Enum type declaration.
+*/
+EnumDecl:	KT_Enum TT_Identifier '{' EnumMemberList '}' {
+				$$ = EnNew(SnEnumDecl($2, $4, @1));
+			} ;
+
+EnumMemberList:	EnumMemberList ',' EnumMember {
+				$1->push_back($3);
+				$$ = $1;
+			} |
+			EnumMember {
+				$$ = EnNew(PtrList<SnEnumMember>());
+				$$->push_back($1);
+			} ;
+
+EnumMember:	TT_Identifier {
+			$$ = EnNew(SnEnumMember($1, nullptr, @1));
+			} |
+			TT_Identifier '=' Expression {
+				$$ = EnNew(SnEnumMember($1, $3, @1));
+			} ;
+
 NodeFlags:	NodeFlags NodeFlag {
 				const NodeBits toAdd = $2;
 				if (($1  &toAdd) != 0)

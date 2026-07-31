@@ -1,0 +1,10 @@
+enum Color { Red, Green, Blue }
+int main() {
+    Color c = Color.Green;
+    switch (c) {
+        case Color.Red: return 1;
+        case Color.Green: return 2;
+        case Color.Blue: return 3;
+    }
+    return 0;
+}

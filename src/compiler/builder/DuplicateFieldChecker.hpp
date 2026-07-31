@@ -29,10 +29,13 @@ public:
 		CheckFields(sn.Params().NameDict());
 	}
 
-	//Default action.
+	void Access(SnEnumDecl &sn)
+	{
+		CheckFields(sn.Members().NameDict());
+	}
+
 	void Access(SyntaxNode &sn)
 	{
-		//TODO: enum types and class types.
 	}
 private:
 	template <class NAME_DICT_T>

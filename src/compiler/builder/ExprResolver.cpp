@@ -118,8 +118,8 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	{
 		//The outer expression is a type or a namespace.
 		//e.g., "MyClass", "MyNamespace", "int", etc.
-		auto &fieldExpr = static_cast<SnFieldExpr &>(snMember);
-		m_pContext = static_cast<SnField *>(fieldExpr.Field());
+		auto &outerFieldExpr = static_cast<SnFieldExpr &>(*snMember.Outer());
+		m_pContext = static_cast<SnField *>(outerFieldExpr.Field());
 	}
 
 	//Resolve inner expression.
@@ -315,8 +315,13 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 {
 	if (&source == &target)
 		return 0;
-	if (source.IsPrimitiveType() && target.IsPrimitiveType())
-		return std::abs(source.Kind() - target.Kind());
+	auto srcKind = source.Kind();
+	auto tgtKind = target.Kind();
+	//Enum types are int32 at runtime.
+	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
+	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
+	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
+		return std::abs(srcKind - tgtKind);
 	//TODO: other types.
 	return -1;
 }

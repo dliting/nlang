@@ -1,0 +1,5 @@
+enum Status { Ok = 0, Error = 10, Unknown = 20 }
+int main() {
+    int x = Status.Error;
+    return x;
+}

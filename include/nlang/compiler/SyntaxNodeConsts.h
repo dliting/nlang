@@ -22,6 +22,8 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(MemberExpr)				/* member access expression  */		\
 	MACRO_IMPL(CastExpr)				/* type cast expression  */			\
 	MACRO_IMPL(BinaryExpr)				/* binary/unary operator expression */\
+	MACRO_IMPL(EnumDecl)				/* enum type declaration */			\
+	MACRO_IMPL(EnumMember)				/* enum member constant */			\
 	MACRO_IMPL(ReturnStmt)				/* return statement */				\
 	MACRO_IMPL(InvokeStmt)				/* invoke statement */				\
 	MACRO_IMPL(LocalDeclStmt)			/* local variable declaration */		\
@@ -34,7 +36,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(CaseClause)			/* case clause */						\
 	MACRO_IMPL(BreakStmt)				/* break statement */					\
 	MACRO_IMPL(ContinueStmt)			/* continue statement */				\
-	MACRO_IMPL(Paragraph)				/* paragraph */						
+	MACRO_IMPL(Paragraph)				/* paragraph */
 
 //#define COMPILE_ONLY_NODE_TYPE_DECL(MACRO_IMPL)							\
 //	MACRO_IMPL(LiteralExpr)				/* literal constant expression */	\
@@ -55,7 +57,7 @@ typedef NodeBits SyntaxNodeBits;
 //	MACRO_IMPL(BreakStmt)				/* break statement */				\
 //	MACRO_IMPL(ContinueStmt) 			/* continue statement */			\
 //	MACRO_IMPL(Using)					/* using directive */				\
-//	MACRO_IMPL(Identifier)				/* identifier */			
+//	MACRO_IMPL(Identifier)				/* identifier */
 
 #define SYNTAX_NODE_DECL(MACRO_IMPL) \
 	RUNTIME_NODE_DECL(MACRO_IMPL) \
@@ -66,7 +68,7 @@ enum CompNodeKind: NodeKind
 {
 	NK_BEFOR = NK_RT_END,
 #define MACRO_IMPL(T) NK_##T,
-	COMPILE_ONLY_NODE_DECL(MACRO_IMPL)	
+	COMPILE_ONLY_NODE_DECL(MACRO_IMPL)
 	NK_CP_END
 #undef MACRO_IMPL
 };
@@ -99,21 +101,21 @@ const NodeBits NF_IMPORTED_SYMBOL = NF_Imported | NF_Resolved;
 static_assert(NF_CP_END < NODE_FLAG_LIMIT, "Syntax node flag definition error.");
 
 //RnField searching flags.
-enum FieldSearchFlag 
+enum FieldSearchFlag
 {
 	FS_SearchInParent		= 0x01,
 	FS_PrivateAccess		= 0x02,
 	FS_ProtectedAccess		= 0x04,
 	FS_DontSearchInSuper	= 0x08,
 	//Search in using namespaces
-	FS_SearchInUsing		= 0x10	
+	FS_SearchInUsing		= 0x10
 };
 
 //Bits combination of field searching flags.
 typedef uint8 FieldSearchFlagSet;
 
 static const FieldSearchFlagSet FSS_PublicMember = 0;
-static const FieldSearchFlagSet FSS_Everywhere = 
+static const FieldSearchFlagSet FSS_Everywhere =
 	FS_PrivateAccess | FS_SearchInParent | FS_SearchInUsing;
 
 }

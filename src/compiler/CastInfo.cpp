@@ -43,8 +43,17 @@ void TypeCastInfo::CalcCastKind()
 		m_Kind = TCK_None;
 		return;
 	}
-	const auto k = s_CastTable[m_pSource->Kind()][m_pTarget->Kind()];
-	//TODO: class cast.
+	auto srcKind = m_pSource->Kind();
+	auto tgtKind = m_pTarget->Kind();
+	//Enum types are int32 at runtime — treat them as NK_Int32 for casting.
+	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
+	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
+	if (srcKind >= NK_DT_COUNT || tgtKind >= NK_DT_COUNT)
+	{
+		m_Kind = TCK_None;
+		return;
+	}
+	const auto k = s_CastTable[srcKind][tgtKind];
 	m_Kind = k;
 }
 

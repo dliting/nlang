@@ -92,3 +92,9 @@ switch_no_default 0
 switch_in_loop 60
 switch_with_block 15
 switch_continue 9
+
+# --- enum ---
+enum_switch 2
+enum_explicit 10
+enum_mixed 22
+enum_default 3

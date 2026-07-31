@@ -90,6 +90,61 @@ private:
 
 class SnNameExpr;
 
+//An enum member constant (e.g. Red = 0 in enum Color { Red, Green, Blue }).
+class NLANG_COMPILER_API SnEnumMember : public SnField
+{
+	typedef SnField Super_;
+public:
+	static const NodeKind	s_Kind			= NK_EnumMember;
+	static const NodeBits	s_DefaultFlags	= NF_Field | NF_Const;
+public:
+	SnEnumMember(std::string *pName, SnExpression *pValue,
+		const ISourceLocation &loc);
+
+	~SnEnumMember() override;
+
+	int32_t Value() const { return m_value; }
+	void SetValue(int32_t v) { m_value = v; }
+	SnExpression *ValueExpr() const { return m_pValueExpr; }
+
+	SnField *EvalDataType() const override;
+	SnField *FindField(const std::string&) const override;
+	void Accept(ISyntaxNodeVisitor&) override;
+	std::string ToString() const override;
+private:
+	ImmutableNodeList *ChildrenPtr() const override;
+	SnExpression *m_pValueExpr;	 //explicit value expression (may be nullptr)
+	int32_t m_value;			 //resolved value
+	std::unique_ptr<ImmutableNodeList> m_upChildren;
+};
+
+//An enum type declaration.
+//Inherits SnCompoundField to hold SnEnumMember children and support FindField.
+class NLANG_COMPILER_API SnEnumDecl : public SnCompoundField
+{
+	typedef SnCompoundField Super_;
+public:
+	static const NodeKind	s_Kind			= NK_EnumDecl;
+	static const NodeBits	s_DefaultFlags	= NF_Type | NF_Field | NF_Plain;
+	typedef ChildFieldList<SnEnumMember> MemberList;
+public:
+	SnEnumDecl(std::string *pName, UniquePtrList<SnEnumMember> upMembers,
+		const ISourceLocation &loc);
+
+	~SnEnumDecl() override;
+
+	MemberList &Members() { return *m_upMembers; }
+	const MemberList &Members() const { return *m_upMembers; }
+
+	//enum values are int32 at runtime.
+	SnField *EvalDataType() const override;
+	SnField *FindField(const std::string&) const override;
+	void Accept(ISyntaxNodeVisitor&) override;
+	std::string ToString() const override;
+private:
+	std::unique_ptr<MemberList> m_upMembers;
+};
+
 //The "using" directive in nlang.
 class NLANG_COMPILER_API SnUsing : public SyntaxNode
 {

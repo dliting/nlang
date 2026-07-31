@@ -28,7 +28,7 @@ public:
 		assert(m_pVisitor);
 		for (auto& field : sn.Members())
 		{
-			if (CanBeFuncParent(field.Kind()) || field.Kind() == NK_Function)
+			if (CanBeFuncParent(field.Kind()) || field.Kind() == NK_Function || field.Kind() == NK_EnumDecl)
 				field.Accept(*m_pVisitor);
 		}
 	}
@@ -363,7 +363,47 @@ public:
 		}
 	}
 
-	void Access(SyntaxNode &sn)
+	/*
+	Enum type declaration.
+	Resolve enum member values: auto-increment or explicit assignment.
+	*/
+	void Access(SnEnumDecl &sn)
+	{
+		assert(m_pVisitor);
+		int32_t nextValue = 0;
+		for (auto &member : sn.Members())
+		{
+			if (member.ValueExpr())
+			{
+				member.ValueExpr()->Accept(*m_pVisitor);
+				//Only support integer literal values for enum members.
+				if (member.ValueExpr()->IsResolved()
+					&& member.ValueExpr()->EvalDataType()
+					&& member.ValueExpr()->EvalDataType()->Kind() == NK_Int32)
+				{
+					auto *pLit = dynamic_cast<SnLiteralExpr*>(member.ValueExpr());
+					if (pLit)
+					{
+						nextValue = pLit->Value().Get<int32_t>();
+						member.SetValue(nextValue);
+						nextValue++;
+					}
+				}
+			}
+			else
+			{
+				member.SetValue(nextValue);
+				nextValue++;
+			}
+		}
+		sn.AddFlags(NF_Resolved);
+	}
+
+	void Access(SnEnumMember &sn)
+	{
+	}
+
+		void Access(SyntaxNode &sn)
 	{
 		//Fallback for unhandled node types.
 	}

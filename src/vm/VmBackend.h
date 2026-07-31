@@ -7,6 +7,7 @@
 namespace nlang {
 
 class SnExpression;
+class SnField;
 class SnStatement;
 class SnFunction;
 
@@ -29,6 +30,7 @@ private:
                         uint16_t resultOffset);
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);
 
+    static uint8_t RuntimeTypeKind(SnField* pType);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
     uint16_t FindLocal(const std::string& name) const;
