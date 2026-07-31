@@ -599,9 +599,12 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
     //Break statement.
     //Reference: EN's BreakStmt::Compile (SeStatements.cpp:860).
+    //Break exits the innermost enclosing switch or loop.
     if (kind == NK_BreakStmt) {
         if (m_loopStack.empty()) {
-            //Error: break not in loop
+            //This should be caught by an earlier validation pass.
+            //Reference: EN's BreakStmt::Compile checks NestBreaks.
+            assert(!"break statement not in loop or switch");
             return;
         }
         emitter.Emit(OpCode::OP_Jump);
@@ -613,15 +616,23 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
     //Continue statement.
     //Reference: EN's ContinueStmt::Compile (SeStatements.cpp:886).
+    //Continue targets the innermost enclosing *loop*, not switch.
     if (kind == NK_ContinueStmt) {
-        if (m_loopStack.empty()) {
-            //Error: continue not in loop
+        //Walk the stack to find the nearest actual loop (not switch).
+        //Reference: EN's ContinueStmt skips switch contexts.
+        auto it = m_loopStack.rbegin();
+        while (it != m_loopStack.rend() && it->isSwitch)
+            ++it;
+        if (it == m_loopStack.rend()) {
+            //This should be caught by an earlier validation pass.
+            //Reference: EN's ContinueStmt::Compile checks NestContinues.
+            assert(!"continue statement not in loop");
             return;
         }
         emitter.Emit(OpCode::OP_Jump);
         size_t jumpPos = emitter.CurrentOffset();
         emitter.EmitUint16(0);  //placeholder
-        m_loopStack.back().continueJumps.push_back(jumpPos);
+        it->continueJumps.push_back(jumpPos);
         return;
     }
 
@@ -638,12 +649,16 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //2. Compile the switch expression to switchSlot
         EmitExpression(*switchStmt.Cond(), emitter, switchSlot);
 
-        //3. Emit OP_Switch with the switch value's local offset
+        //3. Emit OP_Switch with the switch value's local offset.
+        //Note: OP_Switch is a marker opcode (no runtime effect beyond reading
+        //the operand). It aids disassembly and could be given runtime semantics
+        //in a future optimization (e.g. jump-table dispatch).
         emitter.Emit(OpCode::OP_Switch);
         emitter.EmitUint16(switchSlot);
 
-        //4. Enter loop context (break jumps out of switch)
+        //4. Enter switch context (break jumps out of switch)
         m_loopStack.push_back(LoopContext{});
+        m_loopStack.back().isSwitch = true;
 
         //5. Compile each case clause
         //Reference: EN's SwitchStmt::DoCompile — for each case, emit
@@ -656,7 +671,11 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             size_t caseStart = emitter.CurrentOffset();
             caseStartOffsets.push_back(caseStart);
 
-            //Emit OP_Case with jump-to-next-handler placeholder
+            //Emit OP_Case with jump-to-next-handler placeholder.
+            //Note: OP_Case is a marker opcode. Its uint16 operand is patched by
+            //FixChainedJumps but never used at runtime (branching is done by
+            //OP_JumpIfNot). A future optimization could merge OP_Case with the
+            //condition check into a single opcode.
             emitter.Emit(OpCode::OP_Case);
             size_t jumpToNext = emitter.CurrentOffset();
             emitter.EmitUint16(0);  //placeholder, patched by FixChainedJumps

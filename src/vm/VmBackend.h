@@ -40,6 +40,7 @@ private:
     struct LoopContext {
         std::vector<size_t> breakJumps;
         std::vector<size_t> continueJumps;
+        bool isSwitch = false;  //true for switch contexts, false for loops
     };
     std::vector<LoopContext> m_loopStack;
 
