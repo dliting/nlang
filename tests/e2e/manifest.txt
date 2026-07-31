@@ -98,3 +98,5 @@ enum_switch 2
 enum_explicit 10
 enum_mixed 22
 enum_default 3
+enum_param 1
+enum_to_int 2

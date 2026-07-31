@@ -107,7 +107,7 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     if (func.HasReturn() && func.ReturnType()) {
         auto* retType = func.ReturnType()->Field();
         compiledFunc.returnTypeKind = retType
-            ? static_cast<uint16_t>(retType->Kind()) : 0;
+            ? static_cast<uint16_t>(RuntimeTypeKind(retType)) : 0;
         ctx.returnSlot = ctx.nextOffset;
         ctx.nextOffset += VALUE_SIZE;
     }
@@ -249,6 +249,8 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         if (sourceType && targetType) {
             NodeKind srcKind = sourceType->Kind();
             NodeKind dstKind = targetType->Kind();
+            if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
+            if (dstKind == NK_EnumDecl) dstKind = NK_Int32;
             if (srcKind == NK_Int32 && dstKind == NK_Float) {
                 emitter.Emit(OpCode::OP_CastIntToFloat);
                 emitter.Emit(OpCode::OP_Assign);

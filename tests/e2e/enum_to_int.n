@@ -1,0 +1,6 @@
+enum Color { Red, Green, Blue }
+int main() {
+    Color c = Color.Blue;
+    int x = c;
+    return x;
+}
