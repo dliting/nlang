@@ -108,3 +108,10 @@ string_eq 1
 string_ne 1
 string_param 3
 string_empty 0
+string_eq_concat 1
+string_ne_concat 1
+string_return 5
+string_concat_length 11
+string_reassign 3
+string_loop_concat 3
+string_var_concat 4

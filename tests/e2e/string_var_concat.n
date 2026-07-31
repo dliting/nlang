@@ -1,0 +1,1 @@
+int main() { string a = "ab"; string b = "cd"; string c = a + b; return c.length(); }

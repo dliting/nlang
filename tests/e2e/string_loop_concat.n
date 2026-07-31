@@ -1,0 +1,1 @@
+int main() { string s = ""; int i = 0; while (i < 3) { s = s + "a"; i = i + 1; } return s.length(); }

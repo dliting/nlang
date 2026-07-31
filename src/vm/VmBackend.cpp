@@ -93,6 +93,7 @@ uint16_t VmBackend::AddStringConstant(const std::string& s) {
         if (pool[i] == s)
             return i;
     }
+    assert(pool.size() < UINT16_MAX && "string constant pool overflow");
     pool.push_back(s);
     return static_cast<uint16_t>(pool.size() - 1);
 }

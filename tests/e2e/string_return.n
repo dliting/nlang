@@ -1,0 +1,2 @@
+string greet() { return "hello"; }
+int main() { string s = greet(); return s.length(); }

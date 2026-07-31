@@ -499,6 +499,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&idx, locals + src, sizeof(idx));
             int32_t len = 0;
             if (idx >= 0 && static_cast<size_t>(idx) < m_stringPool.size())
+                //TODO: For UTF-8 support, count code points instead of bytes.
                 len = static_cast<int32_t>(m_stringPool[static_cast<size_t>(idx)].size());
             std::memcpy(locals + dst, &len, sizeof(len));
             break;

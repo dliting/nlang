@@ -1,0 +1,1 @@
+int main() { string s = "hello"; int l = s.length(); return l + s.length(); }

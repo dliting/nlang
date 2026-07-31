@@ -1,0 +1,1 @@
+int main() { string a = "hello" + " world"; string b = "hello world"; if (a == b) { return 1; } return 0; }

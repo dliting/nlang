@@ -1,0 +1,1 @@
+int main() { string s = "abc"; s = "def"; return s.length(); }
