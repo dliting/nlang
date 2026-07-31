@@ -119,7 +119,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		//The outer expression is a type or a namespace.
 		//e.g., "MyClass", "MyNamespace", "int", etc.
 		auto &outerFieldExpr = static_cast<SnFieldExpr &>(*snMember.Outer());
-		m_pContext = static_cast<SnField *>(outerFieldExpr.Field());
+		auto* pOuterField = static_cast<SnField *>(outerFieldExpr.Field());
+		m_pContext = pOuterField;
+		//For non-data fields (e.g. local variables) that have an
+		//EvalDataType but are not IsDataExpr, use EvalDataType
+		//instead so string method resolution works.
+		if (pOuterField && !pOuterField->IsTypeField())
+			m_pContext = snMember.Outer()->EvalDataType();
 	}
 
 	//Resolve inner expression.
@@ -127,6 +133,23 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	AddFlags(ERF_SearchInParentOnly);
 	auto pInnerExpr = snMember.Inner();
 	assert(pInnerExpr);
+
+	//Builtin string methods: s.length(), etc.
+	if (m_pContext && m_pContext->Kind() == NK_String
+		&& pInnerExpr->Kind() == NK_InvokeExpr)
+	{
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+		const auto& name = invoke.CalleeName();
+		if (name == "length" && invoke.Params().begin() == invoke.Params().end())
+		{
+			pInnerExpr->AddFlags(NF_Resolved);
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.AddFlags(NF_Resolved);
+			m_pContext = pSavedContext;
+			return;
+		}
+	}
+
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
 		ResolveFieldExprAs(snMember, pInnerExpr->Field());

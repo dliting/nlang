@@ -71,6 +71,12 @@ enum class OpCode : uint8_t {
                         // After OP_Case: condition comparison code + OP_JumpIfNot to next case,
                         // then case body code.
 
+    // === String operations ===
+    OP_Concat_str,      // uint16 dst, uint16 src — string concatenation
+    OP_Eq_str,          // uint16 lhs, uint16 rhs — string equality
+    OP_Ne_str,          // uint16 lhs, uint16 rhs — string inequality
+    OP_StrLen,          // uint16 dst, uint16 src — string length → int32
+
     // === Debug ===
     OP_DebugInfo,       // uint16 info
 

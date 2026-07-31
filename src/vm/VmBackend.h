@@ -34,6 +34,7 @@ private:
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
     uint16_t FindLocal(const std::string& name) const;
+    uint16_t AddStringConstant(const std::string& s);
 
     CompiledModule m_compiledModule;
 

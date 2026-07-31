@@ -45,6 +45,10 @@ static const char* s_OpCodeNames[] = {
     "para_end",
     "switch",
     "case",
+    "concat_str",
+    "eq_str",
+    "ne_str",
+    "strlen",
     "debug",
 };
 

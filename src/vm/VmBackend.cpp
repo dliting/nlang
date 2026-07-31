@@ -87,6 +87,16 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     return k == NK_EnumDecl ? NK_Int32 : static_cast<uint8_t>(k);
 }
 
+uint16_t VmBackend::AddStringConstant(const std::string& s) {
+    auto& pool = m_compiledModule.stringConstants;
+    for (uint16_t i = 0; i < static_cast<uint16_t>(pool.size()); ++i) {
+        if (pool[i] == s)
+            return i;
+    }
+    pool.push_back(s);
+    return static_cast<uint16_t>(pool.size() - 1);
+}
+
 void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
 
@@ -173,7 +183,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(resultOffset);
         } else if (typeKind == NK_String) {
-            emitter.Emit(OpCode::OP_ConstZero);
+            auto* pStr = lit.Value().Data().m_String;
+            std::string sVal = pStr ? *pStr : "";
+            uint16_t poolIdx = AddStringConstant(sVal);
+            emitter.Emit(OpCode::OP_ConstString);
+            emitter.EmitUint16(poolIdx);
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(resultOffset);
         } else {
@@ -278,7 +292,19 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             return;
         }
         auto* inner = member.Inner();
+        //String builtin methods: s.length()
         if (inner && inner->Kind() == NK_InvokeExpr) {
+            auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+            auto* outerType = member.Outer()->EvalDataType();
+            if (outerType && outerType->Kind() == NK_String
+                && invoke.CalleeName() == "length")
+            {
+                EmitExpression(*member.Outer(), emitter, resultOffset);
+                emitter.Emit(OpCode::OP_StrLen);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(resultOffset);
+                return;
+            }
             EmitExpression(*static_cast<SnExpression*>(inner), emitter, resultOffset);
         }
         return;
@@ -329,10 +355,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
 
         auto* evalType = bin.Left()->EvalDataType();
         bool isFloat = evalType && evalType->Kind() == NK_Float;
+        bool isString = evalType && evalType->Kind() == NK_String;
 
         switch (op) {
         case SnBinaryExpr::OP_Add:
-            emitter.Emit(isFloat ? OpCode::OP_Add_f32 : OpCode::OP_Add_i32);
+            if (isString)
+                emitter.Emit(OpCode::OP_Concat_str);
+            else
+                emitter.Emit(isFloat ? OpCode::OP_Add_f32 : OpCode::OP_Add_i32);
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;
@@ -377,12 +407,18 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_Equal:
-            emitter.Emit(isFloat ? OpCode::OP_Equal_f32 : OpCode::OP_Equal_i32);
+            if (isString)
+                emitter.Emit(OpCode::OP_Eq_str);
+            else
+                emitter.Emit(isFloat ? OpCode::OP_Equal_f32 : OpCode::OP_Equal_i32);
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_NotEqual:
-            emitter.Emit(isFloat ? OpCode::OP_NotEqual_f32 : OpCode::OP_NotEqual_i32);
+            if (isString)
+                emitter.Emit(OpCode::OP_Ne_str);
+            else
+                emitter.Emit(isFloat ? OpCode::OP_NotEqual_f32 : OpCode::OP_NotEqual_i32);
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;

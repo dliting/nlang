@@ -100,3 +100,11 @@ enum_mixed 22
 enum_default 3
 enum_param 1
 enum_to_int 2
+
+# --- string ---
+string_length 5
+string_concat 11
+string_eq 1
+string_ne 1
+string_param 3
+string_empty 0

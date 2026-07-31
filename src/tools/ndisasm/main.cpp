@@ -210,6 +210,18 @@ static void DisassembleFunction(const CompiledFunction& func,
             break;
         }
 
+        //String operations: uint16 lhs/or dst, uint16 rhs/or src
+        case OpCode::OP_Concat_str:
+        case OpCode::OP_Eq_str:
+        case OpCode::OP_Ne_str:
+        case OpCode::OP_StrLen: {
+            uint16_t a = reader.ReadUint16();
+            uint16_t b = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << a << " " << b << "\n";
+            break;
+        }
+
         default:
             std::cout << "    " << offsetBuf << ": unknown_op("
                       << static_cast<int>(op) << ")\n";

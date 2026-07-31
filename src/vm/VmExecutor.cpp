@@ -11,6 +11,12 @@ int VmExecutor::Execute(const CompiledModule& module) {
     m_currModule = &module;
     m_recurseDepth = 0;
 
+    //Initialize string pool from module's string constants.
+    m_stringPool = module.stringConstants;
+    //Pool index 0 is reserved for the empty string.
+    if (m_stringPool.empty())
+        m_stringPool.emplace_back("");
+
     const CompiledFunction& mainFunc = module.functions[mainIdx];
     std::vector<uint8_t> locals(mainFunc.localsSize, 0);
     int32_t result = 0;
@@ -57,6 +63,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
 
         case OpCode::OP_ConstZero: {
             std::memset(pResult, 0, sizeof(int32_t));
+            break;
+        }
+
+        case OpCode::OP_ConstString: {
+            uint16_t poolIdx = reader.ReadUint16();
+            int32_t idx = static_cast<int32_t>(poolIdx);
+            std::memcpy(pResult, &idx, sizeof(idx));
             break;
         }
 
@@ -429,6 +442,65 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
 
         case OpCode::OP_DebugInfo: {
             reader.ReadUint16();
+            break;
+        }
+
+        case OpCode::OP_Concat_str: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            int32_t idxA, idxB;
+            std::memcpy(&idxA, locals + dst, sizeof(idxA));
+            std::memcpy(&idxB, locals + src, sizeof(idxB));
+            std::string result;
+            if (idxA >= 0 && static_cast<size_t>(idxA) < m_stringPool.size())
+                result = m_stringPool[static_cast<size_t>(idxA)];
+            if (idxB >= 0 && static_cast<size_t>(idxB) < m_stringPool.size())
+                result += m_stringPool[static_cast<size_t>(idxB)];
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(std::move(result));
+            std::memcpy(locals + dst, &newIdx, sizeof(newIdx));
+            break;
+        }
+
+        case OpCode::OP_Eq_str: {
+            uint16_t lhs = reader.ReadUint16();
+            uint16_t rhs = reader.ReadUint16();
+            int32_t idxA, idxB;
+            std::memcpy(&idxA, locals + lhs, sizeof(idxA));
+            std::memcpy(&idxB, locals + rhs, sizeof(idxB));
+            const std::string& a = (idxA >= 0 && static_cast<size_t>(idxA) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(idxA)] : m_stringPool[0];
+            const std::string& b = (idxB >= 0 && static_cast<size_t>(idxB) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(idxB)] : m_stringPool[0];
+            int32_t r = (a == b) ? 1 : 0;
+            std::memcpy(locals + lhs, &r, sizeof(r));
+            break;
+        }
+
+        case OpCode::OP_Ne_str: {
+            uint16_t lhs = reader.ReadUint16();
+            uint16_t rhs = reader.ReadUint16();
+            int32_t idxA, idxB;
+            std::memcpy(&idxA, locals + lhs, sizeof(idxA));
+            std::memcpy(&idxB, locals + rhs, sizeof(idxB));
+            const std::string& a = (idxA >= 0 && static_cast<size_t>(idxA) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(idxA)] : m_stringPool[0];
+            const std::string& b = (idxB >= 0 && static_cast<size_t>(idxB) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(idxB)] : m_stringPool[0];
+            int32_t r = (a != b) ? 1 : 0;
+            std::memcpy(locals + lhs, &r, sizeof(r));
+            break;
+        }
+
+        case OpCode::OP_StrLen: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            int32_t idx;
+            std::memcpy(&idx, locals + src, sizeof(idx));
+            int32_t len = 0;
+            if (idx >= 0 && static_cast<size_t>(idx) < m_stringPool.size())
+                len = static_cast<int32_t>(m_stringPool[static_cast<size_t>(idx)].size());
+            std::memcpy(locals + dst, &len, sizeof(len));
             break;
         }
 

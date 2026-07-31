@@ -1,0 +1,2 @@
+int len(string s) { return s.length(); }
+int main() { return len("abc"); }
