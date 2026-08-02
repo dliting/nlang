@@ -115,3 +115,51 @@ string_concat_length 11
 string_reassign 3
 string_loop_concat 3
 string_var_concat 4
+
+# --- struct ---
+struct_basic 42
+struct_float 1
+struct_string_field 5
+struct_param 30
+struct_field_cond 1
+struct_enum_field 1
+struct_return 7
+struct_multi_inst 15
+struct_nested 7
+struct_nested_assign 10
+struct_nested_param 5
+struct_nested_mixed 42
+
+# --- class ---
+class_basic 42
+class_method 30
+class_param 30
+class_constructor 7
+class_null 1
+class_nested 10
+class_return 7
+class_struct_field 42
+class_inherit_simple 42
+class_inherit 8
+class_virtual 2
+class_virtual_fields 42
+class_deep_inherit 42
+class_null_field 42
+class_this_inherit 8
+class_field_null_init 10
+class_super_ctor 42
+class_null_check 1
+class_data_only 42
+class_virtual_param_count 2
+class_deep_ctor 42
+class_override 2
+class_no_ctor 42
+
+# --- struct-class interop ---
+struct_class_field 42
+struct_class_field_copy 99
+
+# --- GC ---
+gc_loop_alloc 4950
+gc_reuse 597
+gc_chain 501

@@ -37,13 +37,13 @@ void VmBackend::GenerateData(SnNamespace& root) {
 void VmBackend::GenerateStatements(SnNamespace& root) {
     RegisterStructs(root);
     RegisterClasses(root);
+    ResolveStructClassRefs();
     RegisterFunctions(root);
     PopulateClassMethods(root);
     GenerateAllBytecode(root);
 }
 
 void VmBackend::RegisterStructs(SnNamespace& root) {
-    std::vector<std::vector<std::string>> structFieldTypeNames;
     auto registerStruct = [&](SnStructDecl& sn) {
         CompiledStruct cs;
         cs.name = sn.Name();
@@ -55,13 +55,14 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
             uint16_t ftk = RuntimeTypeKind(fieldType);
             cs.fieldTypeKinds.push_back(ftk);
             cs.fieldStructIndices.push_back(0xFFFF);
-            if (ftk == RTK_Struct && fieldType)
+            cs.fieldClassIndices.push_back(0xFFFF);
+            if ((ftk == RTK_Struct || ftk == RTK_Class) && fieldType)
                 typeNames.push_back(fieldType->Name());
             else
                 typeNames.push_back("");
         }
         m_compiledModule.structs.push_back(std::move(cs));
-        structFieldTypeNames.push_back(std::move(typeNames));
+        m_structFieldTypeNames.push_back(std::move(typeNames));
     };
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_StructDecl)
@@ -74,11 +75,13 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
         }
     }
     //Resolve fieldStructIndices now that all structs are registered.
+    //fieldClassIndices are resolved later by ResolveStructClassRefs
+    //(after RegisterClasses, since classes are not yet registered here).
     for (size_t si = 0; si < m_compiledModule.structs.size(); ++si) {
         auto& cs = m_compiledModule.structs[si];
-        auto& typeNames = structFieldTypeNames[si];
+        auto& typeNames = m_structFieldTypeNames[si];
         for (size_t i = 0; i < typeNames.size(); ++i) {
-            if (!typeNames[i].empty()) {
+            if (!typeNames[i].empty() && cs.fieldTypeKinds[i] == RTK_Struct) {
                 int idx = m_compiledModule.FindStruct(typeNames[i]);
                 if (idx >= 0)
                     cs.fieldStructIndices[i] = static_cast<uint16_t>(idx);
@@ -168,6 +171,20 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                             cc.fieldStructIndices[i] = static_cast<uint16_t>(idx);
                     }
                 }
+            }
+        }
+    }
+}
+
+void VmBackend::ResolveStructClassRefs() {
+    for (size_t si = 0; si < m_compiledModule.structs.size(); ++si) {
+        auto& cs = m_compiledModule.structs[si];
+        auto& typeNames = m_structFieldTypeNames[si];
+        for (size_t i = 0; i < typeNames.size(); ++i) {
+            if (!typeNames[i].empty() && cs.fieldTypeKinds[i] == RTK_Class) {
+                int idx = m_compiledModule.FindClass(typeNames[i]);
+                if (idx >= 0)
+                    cs.fieldClassIndices[i] = static_cast<uint16_t>(idx);
             }
         }
     }
@@ -1413,6 +1430,12 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
         for (size_t i = 0; i < st.fieldCount; ++i) {
             fs.write(reinterpret_cast<const char*>(&st.fieldStructIndices[i]),
                      sizeof(st.fieldStructIndices[i]));
+        }
+
+        //Field class indices
+        for (size_t i = 0; i < st.fieldCount; ++i) {
+            fs.write(reinterpret_cast<const char*>(&st.fieldClassIndices[i]),
+                     sizeof(st.fieldClassIndices[i]));
         }
     }
 

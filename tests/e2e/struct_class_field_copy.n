@@ -1,0 +1,14 @@
+class Node { public int value; }
+struct Wrapper { Node ref; }
+int mutate(Wrapper w) {
+	w.ref.value = 99;
+	return w.ref.value;
+}
+int main() {
+	Node n = new Node();
+	n.value = 42;
+	Wrapper w;
+	w.ref = n;
+	mutate(w);
+	return w.ref.value;
+}

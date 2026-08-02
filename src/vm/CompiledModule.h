@@ -27,6 +27,7 @@ struct CompiledStruct {
     std::vector<std::string> fieldNames;
     std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
+    std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
 };
 
 struct CompiledFunction {

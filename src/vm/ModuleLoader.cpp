@@ -67,6 +67,113 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
             fs.read(reinterpret_cast<char*>(func.bytecode.data()), bcSize);
     }
 
+    // Struct descriptors
+    uint32_t structCount;
+    fs.read(reinterpret_cast<char*>(&structCount), sizeof(structCount));
+    mod.structs.resize(structCount);
+
+    for (uint32_t i = 0; i < structCount; ++i) {
+        auto& st = mod.structs[i];
+
+        uint32_t stNameLen;
+        fs.read(reinterpret_cast<char*>(&stNameLen), sizeof(stNameLen));
+        st.name.resize(stNameLen);
+        fs.read(st.name.data(), stNameLen);
+
+        fs.read(reinterpret_cast<char*>(&st.fieldCount),
+                sizeof(st.fieldCount));
+
+        st.fieldNames.resize(st.fieldCount);
+        for (uint16_t j = 0; j < st.fieldCount; ++j) {
+            uint32_t fnLen;
+            fs.read(reinterpret_cast<char*>(&fnLen), sizeof(fnLen));
+            st.fieldNames[j].resize(fnLen);
+            fs.read(st.fieldNames[j].data(), fnLen);
+        }
+
+        st.fieldTypeKinds.resize(st.fieldCount);
+        for (uint16_t j = 0; j < st.fieldCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&st.fieldTypeKinds[j]),
+                    sizeof(st.fieldTypeKinds[j]));
+        }
+
+        st.fieldStructIndices.resize(st.fieldCount);
+        for (uint16_t j = 0; j < st.fieldCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&st.fieldStructIndices[j]),
+                    sizeof(st.fieldStructIndices[j]));
+        }
+
+        st.fieldClassIndices.resize(st.fieldCount);
+        for (uint16_t j = 0; j < st.fieldCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&st.fieldClassIndices[j]),
+                    sizeof(st.fieldClassIndices[j]));
+        }
+    }
+
+    // Class descriptors
+    uint32_t classCount;
+    fs.read(reinterpret_cast<char*>(&classCount), sizeof(classCount));
+    mod.classes.resize(classCount);
+
+    for (uint32_t i = 0; i < classCount; ++i) {
+        auto& cc = mod.classes[i];
+
+        uint32_t ccNameLen;
+        fs.read(reinterpret_cast<char*>(&ccNameLen), sizeof(ccNameLen));
+        cc.name.resize(ccNameLen);
+        fs.read(cc.name.data(), ccNameLen);
+
+        fs.read(reinterpret_cast<char*>(&cc.fieldCount),
+                sizeof(cc.fieldCount));
+        fs.read(reinterpret_cast<char*>(&cc.superClassIdx),
+                sizeof(cc.superClassIdx));
+
+        cc.fieldNames.resize(cc.fieldCount);
+        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
+            uint32_t fnLen;
+            fs.read(reinterpret_cast<char*>(&fnLen), sizeof(fnLen));
+            cc.fieldNames[j].resize(fnLen);
+            fs.read(cc.fieldNames[j].data(), fnLen);
+        }
+
+        cc.fieldTypeKinds.resize(cc.fieldCount);
+        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&cc.fieldTypeKinds[j]),
+                    sizeof(cc.fieldTypeKinds[j]));
+        }
+
+        cc.fieldStructIndices.resize(cc.fieldCount);
+        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&cc.fieldStructIndices[j]),
+                    sizeof(cc.fieldStructIndices[j]));
+        }
+
+        cc.fieldClassIndices.resize(cc.fieldCount);
+        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&cc.fieldClassIndices[j]),
+                    sizeof(cc.fieldClassIndices[j]));
+        }
+
+        cc.fieldAccess.resize(cc.fieldCount);
+        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&cc.fieldAccess[j]),
+                    sizeof(cc.fieldAccess[j]));
+        }
+
+        //Method indices
+        uint16_t methodCount;
+        fs.read(reinterpret_cast<char*>(&methodCount), sizeof(methodCount));
+        cc.methodIndices.resize(methodCount);
+        for (uint16_t j = 0; j < methodCount; ++j) {
+            fs.read(reinterpret_cast<char*>(&cc.methodIndices[j]),
+                    sizeof(cc.methodIndices[j]));
+        }
+
+        //Constructor index
+        fs.read(reinterpret_cast<char*>(&cc.constructorIdx),
+                sizeof(cc.constructorIdx));
+    }
+
     return mod;
 }
 

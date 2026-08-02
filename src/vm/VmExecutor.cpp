@@ -1,5 +1,6 @@
 #include "VmExecutor.h"
 #include <cstring>
+#include <cstdio>
 
 namespace nlang {
 
@@ -16,6 +17,19 @@ int VmExecutor::Execute(const CompiledModule& module) {
     //Pool index 0 is reserved for the empty string.
     if (m_stringPool.empty())
         m_stringPool.emplace_back("");
+
+    //Initialize struct heap with sentinel at index 0.
+    m_structHeap.clear();
+    m_structHeap.emplace_back();  //empty slot at index 0
+
+    //Initialize GC state.
+    m_slotKinds.clear();
+    m_slotKinds.push_back(0);    //sentinel
+    m_slotStructIdx.clear();
+    m_slotStructIdx.push_back(0);
+    m_freeList.clear();
+    m_gcPending = false;
+    m_callStack.clear();
 
     const CompiledFunction& mainFunc = module.functions[mainIdx];
     std::vector<uint8_t> locals(mainFunc.localsSize, 0);
@@ -36,6 +50,17 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         RecurseGuard(size_t &d) : depth(d) { ++depth; }
         ~RecurseGuard() { --depth; }
     } guard(m_recurseDepth);
+
+    //Push call frame for GC root set. RAII pop on exit.
+    m_callStack.push_back({locals, func.localsSize, pResult, &func});
+    struct FrameGuard {
+        std::vector<CallFrame>& stack;
+        FrameGuard(std::vector<CallFrame>& s) : stack(s) {}
+        ~FrameGuard() { stack.pop_back(); }
+    } frameGuard(m_callStack);
+
+    //Safepoint: function entry is a natural GC point (tempSlot is empty).
+    CheckGCSafepoint();
 
     BytecodeReader reader(func.bytecode.data(), func.bytecode.size());
 
@@ -391,6 +416,10 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
 
         case OpCode::OP_Jump: {
             int16_t target = reader.ReadInt16();
+            //Loop back-edge safepoint: if jumping backward, this is a loop
+            //iteration. Check GC here (tempSlot is consumed at this point).
+            if (static_cast<size_t>(target) <= reader.CurrentOffset())
+                CheckGCSafepoint();
             reader.Seek(static_cast<size_t>(target));
             break;
         }
@@ -505,10 +534,368 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
+        case OpCode::OP_AllocStruct: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t structIdx = reader.ReadUint16();
+            uint16_t fieldCount = reader.ReadUint16();
+            int32_t heapIdx = AllocStructOnHeap(structIdx);
+            std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
+            m_gcPending = true;
+            break;
+        }
+
+        case OpCode::OP_LoadField: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t obj = reader.ReadUint16();
+            uint16_t fieldOff = reader.ReadUint16();
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, locals + obj, sizeof(heapIdx));
+            int32_t fieldIdx = static_cast<int32_t>(fieldOff / 4);
+            if (heapIdx < 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size()
+                || fieldIdx < 0
+                || static_cast<size_t>(fieldIdx) >= m_structHeap[static_cast<size_t>(heapIdx)].size())
+                throw std::runtime_error("NLang VM: struct field access out of bounds");
+            int32_t val = m_structHeap[static_cast<size_t>(heapIdx)][static_cast<size_t>(fieldIdx)];
+            std::memcpy(locals + dst, &val, sizeof(val));
+            break;
+        }
+
+        case OpCode::OP_StoreField: {
+            uint16_t obj = reader.ReadUint16();
+            uint16_t fieldOff = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, locals + obj, sizeof(heapIdx));
+            int32_t fieldIdx = static_cast<int32_t>(fieldOff / 4);
+            int32_t val;
+            std::memcpy(&val, locals + src, sizeof(val));
+            if (heapIdx < 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size()
+                || fieldIdx < 0
+                || static_cast<size_t>(fieldIdx) >= m_structHeap[static_cast<size_t>(heapIdx)].size())
+                throw std::runtime_error("NLang VM: struct field store out of bounds");
+            m_structHeap[static_cast<size_t>(heapIdx)][static_cast<size_t>(fieldIdx)] = val;
+            break;
+        }
+
+        case OpCode::OP_New: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t classIdx = reader.ReadUint16();
+            int32_t heapIdx = AllocClassOnHeap(classIdx);
+            std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
+            m_gcPending = true;
+            break;
+        }
+
+        case OpCode::OP_CallMethodDirect: {
+            uint16_t funcIndex = reader.ReadUint16();
+            uint16_t callParamBase = reader.ReadUint16();
+            if (funcIndex >= m_currModule->functions.size())
+                throw std::runtime_error("NLang VM: invalid function index in CallMethodDirect");
+            const CompiledFunction& callee = m_currModule->functions[funcIndex];
+            std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+            uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+            if (paramBytes > 0 && paramBytes <= callee.localsSize)
+                std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
+            ExecuteFunction(callee, pResult, calleeLocals.data());
+            break;
+        }
+
+        case OpCode::OP_CallMethod: {
+            //Virtual method dispatch — name-based lookup (like EN's
+            //I_Base_CallVirtualFunc + FindFunctionChecked).
+            uint16_t methodNameIdx = reader.ReadUint16();
+            uint16_t callParamBase = reader.ReadUint16();
+            if (methodNameIdx >= m_currModule->stringConstants.size())
+                throw std::runtime_error("NLang VM: invalid method name string index");
+            const std::string& methodName = m_currModule->stringConstants[methodNameIdx];
+            //Get this from callParamBase[0].
+            int32_t thisHeapIdx;
+            std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+            if (thisHeapIdx <= 0 || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+                throw std::runtime_error("NLang VM: null reference in CallMethod");
+            //Read classIdx from object slot[0].
+            int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
+            if (classIdx < 0 || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
+                throw std::runtime_error("NLang VM: invalid class index in object header");
+            //Walk class hierarchy to find the method by name.
+            int funcIndex = -1;
+            int searchClassIdx = classIdx;
+            while (searchClassIdx >= 0 && searchClassIdx < static_cast<int>(m_currModule->classes.size())) {
+                const auto& cc = m_currModule->classes[static_cast<size_t>(searchClassIdx)];
+                for (uint16_t idx : cc.methodIndices) {
+                    if (idx < m_currModule->functions.size()
+                        && m_currModule->functions[idx].name == methodName) {
+                        funcIndex = idx;
+                        break;
+                    }
+                }
+                if (funcIndex >= 0) break;
+                searchClassIdx = cc.superClassIdx;
+            }
+            if (funcIndex < 0)
+                throw std::runtime_error("NLang VM: method not found: " + methodName);
+            const CompiledFunction& callee = m_currModule->functions[static_cast<size_t>(funcIndex)];
+            std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+            uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+            if (paramBytes > 0 && paramBytes <= callee.localsSize)
+                std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
+            ExecuteFunction(callee, pResult, calleeLocals.data());
+            break;
+        }
+
+        case OpCode::OP_CallIntrinsic: {
+            uint16_t intrinsicId = reader.ReadUint16();
+            uint16_t callParamBase = reader.ReadUint16();
+            //Phase 3c will implement full intrinsic dispatch.
+            //For now, throw since no intrinsics are registered yet.
+            (void)intrinsicId;
+            (void)callParamBase;
+            throw std::runtime_error("NLang VM: intrinsic calls not yet implemented");
+        }
+
+        //Hard crash on null — consistent with Java NPE / C# NullReferenceException.
+        //EN uses "safe null" (skip + default), but we prefer fail-fast for bug detection.
+        case OpCode::OP_NullCheck: {
+            uint16_t obj = reader.ReadUint16();
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, locals + obj, sizeof(heapIdx));
+            if (heapIdx <= 0)
+                throw std::runtime_error("NLang VM: null reference error");
+            break;
+        }
+
+        case OpCode::OP_CopyStruct: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            uint16_t structIdx = reader.ReadUint16();
+            int32_t srcHeapIdx;
+            std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
+            int32_t newHeapIdx = DeepCopyStruct(srcHeapIdx, structIdx);
+            std::memcpy(locals + dst, &newHeapIdx, sizeof(newHeapIdx));
+            break;
+        }
+
         default:
             throw std::runtime_error(
                 std::string("NLang VM: unknown opcode ") +
                 std::to_string(static_cast<int>(op)));
+        }
+    }
+}
+
+int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
+    if (structIdx >= m_currModule->structs.size())
+        throw std::runtime_error("NLang VM: invalid struct index in AllocStruct");
+    const auto& cs = m_currModule->structs[structIdx];
+    int32_t heapIdx;
+    if (!m_freeList.empty()) {
+        heapIdx = m_freeList.back();
+        m_freeList.pop_back();
+        m_structHeap[static_cast<size_t>(heapIdx)].assign(cs.fieldCount, 0);
+        m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Struct;
+        m_slotStructIdx[static_cast<size_t>(heapIdx)] = structIdx;
+    } else {
+        heapIdx = static_cast<int32_t>(m_structHeap.size());
+        m_structHeap.emplace_back(cs.fieldCount, 0);
+        m_slotKinds.push_back(RTK_Struct);
+        m_slotStructIdx.push_back(structIdx);
+    }
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        if (cs.fieldTypeKinds[i] == RTK_Struct
+            && cs.fieldStructIndices[i] != 0xFFFF) {
+            int32_t innerIdx = AllocStructOnHeap(cs.fieldStructIndices[i]);
+            m_structHeap[static_cast<size_t>(heapIdx)][i] = innerIdx;
+        }
+    }
+    return heapIdx;
+}
+
+int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
+    if (classIdx >= m_currModule->classes.size())
+        throw std::runtime_error("NLang VM: invalid class index in AllocClassOnHeap");
+    const auto& cc = m_currModule->classes[classIdx];
+    int32_t heapIdx;
+    if (!m_freeList.empty()) {
+        heapIdx = m_freeList.back();
+        m_freeList.pop_back();
+        m_structHeap[static_cast<size_t>(heapIdx)].assign(cc.fieldCount + 1, 0);
+        m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Class;
+        m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
+    } else {
+        heapIdx = static_cast<int32_t>(m_structHeap.size());
+        m_structHeap.emplace_back(cc.fieldCount + 1, 0);
+        m_slotKinds.push_back(RTK_Class);
+        m_slotStructIdx.push_back(0);
+    }
+    m_structHeap[static_cast<size_t>(heapIdx)][0] = static_cast<int32_t>(classIdx);
+    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
+        if (cc.fieldTypeKinds[i] == RTK_Struct
+            && cc.fieldStructIndices[i] != 0xFFFF) {
+            int32_t innerIdx = AllocStructOnHeap(cc.fieldStructIndices[i]);
+            m_structHeap[static_cast<size_t>(heapIdx)][i + 1] = innerIdx;
+        }
+    }
+    return heapIdx;
+}
+
+int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
+    if (srcHeapIdx < 0 || static_cast<size_t>(srcHeapIdx) >= m_structHeap.size())
+        throw std::runtime_error("NLang VM: invalid struct heap index in CopyStruct");
+    if (structIdx >= m_currModule->structs.size())
+        throw std::runtime_error("NLang VM: invalid struct index in CopyStruct");
+    const auto& cs = m_currModule->structs[structIdx];
+    auto srcSlotCopy = m_structHeap[static_cast<size_t>(srcHeapIdx)];
+    int32_t newHeapIdx;
+    if (!m_freeList.empty()) {
+        newHeapIdx = m_freeList.back();
+        m_freeList.pop_back();
+        m_structHeap[static_cast<size_t>(newHeapIdx)] = srcSlotCopy;
+        m_slotKinds[static_cast<size_t>(newHeapIdx)] = RTK_Struct;
+        m_slotStructIdx[static_cast<size_t>(newHeapIdx)] = structIdx;
+    } else {
+        newHeapIdx = static_cast<int32_t>(m_structHeap.size());
+        m_structHeap.push_back(srcSlotCopy);
+        m_slotKinds.push_back(RTK_Struct);
+        m_slotStructIdx.push_back(structIdx);
+    }
+    //Deep-copy struct-typed fields. Class-typed fields are shallow-copied
+    //(reference semantics — the index value is copied as-is).
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        if (cs.fieldTypeKinds[i] == RTK_Struct
+            && cs.fieldStructIndices[i] != 0xFFFF) {
+            int32_t innerSrcIdx = srcSlotCopy[i];
+            int32_t innerNewIdx = DeepCopyStruct(innerSrcIdx,
+                cs.fieldStructIndices[i]);
+            m_structHeap[static_cast<size_t>(newHeapIdx)][i] = innerNewIdx;
+        }
+    }
+    return newHeapIdx;
+}
+
+//GC implementation.
+
+void VmExecutor::CheckGCSafepoint() {
+    if (m_gcPending && m_structHeap.size() > m_gcThreshold) {
+        m_gcPending = false;
+        CollectGarbage();
+    }
+}
+
+void VmExecutor::CollectGarbage() {
+    MarkPhase();
+    SweepPhase();
+}
+
+void VmExecutor::MarkPhase() {
+    m_markBits.assign(m_structHeap.size(), false);
+    for (auto& frame : m_callStack) {
+        for (auto& ld : frame.func->locals) {
+            if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class)
+                continue;
+            int32_t val;
+            std::memcpy(&val, frame.locals + ld.offset, sizeof(val));
+            if (val <= 0 || static_cast<size_t>(val) >= m_slotKinds.size())
+                continue;
+            if (m_slotKinds[val] == RTK_Class)
+                MarkObject(val);
+            else if (m_slotKinds[val] == RTK_Struct)
+                MarkStruct(val);
+        }
+        if (frame.pResult) {
+            uint8_t retKind = frame.func->returnTypeKind;
+            if (retKind == RTK_Class || retKind == RTK_Struct) {
+                int32_t val;
+                std::memcpy(&val, frame.pResult, sizeof(val));
+                if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()) {
+                    if (m_slotKinds[val] == RTK_Class)
+                        MarkObject(val);
+                    else if (m_slotKinds[val] == RTK_Struct)
+                        MarkStruct(val);
+                }
+            }
+        }
+    }
+}
+
+void VmExecutor::MarkObject(int32_t heapIdx) {
+    if (m_markBits[heapIdx]) return;
+    m_markBits[heapIdx] = true;
+    int32_t classIdx = m_structHeap[heapIdx][0];
+    auto& cc = m_currModule->classes[classIdx];
+    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
+        int32_t refIdx = m_structHeap[heapIdx][i + 1];
+        if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
+            continue;
+        if (cc.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
+            MarkObject(refIdx);
+        else if (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
+            MarkStruct(refIdx);
+    }
+}
+
+void VmExecutor::MarkStruct(int32_t heapIdx) {
+    if (m_markBits[heapIdx]) return;
+    m_markBits[heapIdx] = true;
+    uint16_t structIdx = m_slotStructIdx[heapIdx];
+    auto& cs = m_currModule->structs[structIdx];
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        int32_t refIdx = m_structHeap[heapIdx][i];
+        if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
+            continue;
+        if (cs.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
+            MarkObject(refIdx);
+        else if (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
+            MarkStruct(refIdx);
+    }
+}
+
+void VmExecutor::SweepPhase() {
+    m_freeList.clear();
+    for (size_t i = 1; i < m_structHeap.size(); ++i) {
+        if (m_slotKinds[i] == 0) continue;
+        if (!m_markBits[i]) {
+            if (m_slotKinds[i] == RTK_Class)
+                FreeOwnedStructs(static_cast<int32_t>(i));
+            if (m_slotKinds[i] == RTK_Struct)
+                FreeNestedStructs(static_cast<int32_t>(i), m_slotStructIdx[i]);
+            m_structHeap[i].clear();
+            m_slotKinds[i] = 0;
+            m_freeList.push_back(static_cast<int32_t>(i));
+        }
+    }
+}
+
+void VmExecutor::FreeOwnedStructs(int32_t heapIdx) {
+    int32_t classIdx = m_structHeap[heapIdx][0];
+    auto& cc = m_currModule->classes[classIdx];
+    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
+        if (cc.fieldTypeKinds[i] == RTK_Struct
+            && cc.fieldStructIndices[i] != 0xFFFF) {
+            int32_t structSlotIdx = m_structHeap[heapIdx][i + 1];
+            if (structSlotIdx > 0 && static_cast<size_t>(structSlotIdx) < m_slotKinds.size()
+                && m_slotKinds[structSlotIdx] == RTK_Struct) {
+                FreeNestedStructs(structSlotIdx, cc.fieldStructIndices[i]);
+                m_structHeap[structSlotIdx].clear();
+                m_slotKinds[structSlotIdx] = 0;
+                m_freeList.push_back(structSlotIdx);
+            }
+        }
+    }
+}
+
+void VmExecutor::FreeNestedStructs(int32_t heapIdx, uint16_t structIdx) {
+    auto& cs = m_currModule->structs[structIdx];
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        if (cs.fieldTypeKinds[i] == RTK_Struct
+            && cs.fieldStructIndices[i] != 0xFFFF) {
+            int32_t nestedIdx = m_structHeap[heapIdx][i];
+            if (nestedIdx > 0 && static_cast<size_t>(nestedIdx) < m_slotKinds.size()
+                && m_slotKinds[nestedIdx] == RTK_Struct) {
+                FreeNestedStructs(nestedIdx, cs.fieldStructIndices[i]);
+                m_structHeap[nestedIdx].clear();
+                m_slotKinds[nestedIdx] = 0;
+                m_freeList.push_back(nestedIdx);
+            }
         }
     }
 }

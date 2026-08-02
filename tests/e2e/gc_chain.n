@@ -1,0 +1,14 @@
+class Node { public int value; public Node next; }
+int main() {
+	Node current = new Node();
+	current.value = 1;
+	int i = 0;
+	while (i < 500) {
+		Node n = new Node();
+		n.value = i + 2;
+		current.next = n;
+		current = n;
+		i = i + 1;
+	}
+	return current.value;
+}

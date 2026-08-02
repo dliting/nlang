@@ -35,6 +35,7 @@ private:
     //Future evolution: each phase can become an Accessor for multi-backend support.
     void RegisterStructs(SnNamespace& root);
     void RegisterClasses(SnNamespace& root);
+    void ResolveStructClassRefs();
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
@@ -47,6 +48,7 @@ private:
 
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+    std::vector<std::vector<std::string>> m_structFieldTypeNames;
 
     //Per-loop code generation context.
     //Reference: EN's Compiler::NestBreaks/NestContinues (Compiler.h:108-111).
