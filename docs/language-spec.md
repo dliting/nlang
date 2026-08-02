@@ -300,7 +300,9 @@ NLang uses a mark-sweep garbage collector for class objects:
    exceeds the threshold. Safepoints are function entry and loop back-edges.
 2. **Mark phase**: Precise scan via `LocalDescriptor` — only slots with
    `typeKind == RTK_Class || RTK_Struct` are scanned. No conservative
-   byte-scanning (decoupled from stack frame physical layout).
+   byte-scanning (decoupled from stack frame physical layout). Marking uses
+   an iterative worklist (not recursive) to avoid stack overflow on deep
+   object chains.
 3. **Sweep phase**: Unmarked class objects are freed. Class-owned struct
    fields (value semantics) are freed with their owning class. Class fields
    (reference semantics) are freed independently by GC if unreachable.

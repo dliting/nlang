@@ -36,10 +36,10 @@ private:
     //     Why: decouples GC from stack frame physical layout (VALUE_SIZE, alignment).
     //  3. m_slotStructIdx parallel array for struct type identification.
     //     Why: struct objects have no type header; smaller change than adding one.
+    //  4. Iterative mark with worklist, not recursive.
+    //     Why: avoids stack overflow on deep object chains (e.g. linked lists).
     void CollectGarbage();
     void MarkPhase();
-    void MarkObject(int32_t heapIdx);
-    void MarkStruct(int32_t heapIdx);
     void SweepPhase();
     void FreeOwnedStructs(int32_t heapIdx);
     void FreeNestedStructs(int32_t heapIdx, uint16_t structIdx);
@@ -69,7 +69,6 @@ private:
     //Call frame stack for GC root set identification.
     struct CallFrame {
         uint8_t* locals;
-        uint16_t localsSize;
         uint8_t* pResult;
         const CompiledFunction* func;
     };

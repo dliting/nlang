@@ -52,7 +52,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
     } guard(m_recurseDepth);
 
     //Push call frame for GC root set. RAII pop on exit.
-    m_callStack.push_back({locals, func.localsSize, pResult, &func});
+    m_callStack.push_back({locals, pResult, &func});
     struct FrameGuard {
         std::vector<CallFrame>& stack;
         FrameGuard(std::vector<CallFrame>& s) : stack(s) {}
@@ -415,22 +415,22 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         case OpCode::OP_Jump: {
-            int16_t target = reader.ReadInt16();
+            uint16_t target = reader.ReadUint16();
             //Loop back-edge safepoint: if jumping backward, this is a loop
             //iteration. Check GC here (tempSlot is consumed at this point).
-            if (static_cast<size_t>(target) <= reader.CurrentOffset())
+            if (target <= reader.CurrentOffset())
                 CheckGCSafepoint();
-            reader.Seek(static_cast<size_t>(target));
+            reader.Seek(target);
             break;
         }
 
         case OpCode::OP_JumpIfNot: {
-            int16_t target = reader.ReadInt16();
+            uint16_t target = reader.ReadUint16();
             uint16_t localOff = reader.ReadUint16();
             int32_t cond;
             std::memcpy(&cond, locals + localOff, sizeof(cond));
             if (!cond)
-                reader.Seek(static_cast<size_t>(target));
+                reader.Seek(target);
             break;
         }
 
@@ -788,6 +788,8 @@ void VmExecutor::CollectGarbage() {
 
 void VmExecutor::MarkPhase() {
     m_markBits.assign(m_structHeap.size(), false);
+    //Identify root references from all call frames and push to worklist.
+    std::vector<int32_t> worklist;
     for (auto& frame : m_callStack) {
         for (auto& ld : frame.func->locals) {
             if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class)
@@ -796,56 +798,59 @@ void VmExecutor::MarkPhase() {
             std::memcpy(&val, frame.locals + ld.offset, sizeof(val));
             if (val <= 0 || static_cast<size_t>(val) >= m_slotKinds.size())
                 continue;
-            if (m_slotKinds[val] == RTK_Class)
-                MarkObject(val);
-            else if (m_slotKinds[val] == RTK_Struct)
-                MarkStruct(val);
+            if (!m_markBits[val]) {
+                m_markBits[val] = true;
+                worklist.push_back(val);
+            }
         }
         if (frame.pResult) {
             uint8_t retKind = frame.func->returnTypeKind;
             if (retKind == RTK_Class || retKind == RTK_Struct) {
                 int32_t val;
                 std::memcpy(&val, frame.pResult, sizeof(val));
-                if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()) {
-                    if (m_slotKinds[val] == RTK_Class)
-                        MarkObject(val);
-                    else if (m_slotKinds[val] == RTK_Struct)
-                        MarkStruct(val);
+                if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
+                    && !m_markBits[val]) {
+                    m_markBits[val] = true;
+                    worklist.push_back(val);
                 }
             }
         }
     }
-}
-
-void VmExecutor::MarkObject(int32_t heapIdx) {
-    if (m_markBits[heapIdx]) return;
-    m_markBits[heapIdx] = true;
-    int32_t classIdx = m_structHeap[heapIdx][0];
-    auto& cc = m_currModule->classes[classIdx];
-    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
-        int32_t refIdx = m_structHeap[heapIdx][i + 1];
-        if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
-            continue;
-        if (cc.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
-            MarkObject(refIdx);
-        else if (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
-            MarkStruct(refIdx);
-    }
-}
-
-void VmExecutor::MarkStruct(int32_t heapIdx) {
-    if (m_markBits[heapIdx]) return;
-    m_markBits[heapIdx] = true;
-    uint16_t structIdx = m_slotStructIdx[heapIdx];
-    auto& cs = m_currModule->structs[structIdx];
-    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
-        int32_t refIdx = m_structHeap[heapIdx][i];
-        if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
-            continue;
-        if (cs.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
-            MarkObject(refIdx);
-        else if (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
-            MarkStruct(refIdx);
+    //Iteratively trace references until worklist is empty.
+    while (!worklist.empty()) {
+        int32_t idx = worklist.back();
+        worklist.pop_back();
+        if (m_slotKinds[idx] == RTK_Class) {
+            int32_t classIdx = m_structHeap[idx][0];
+            auto& cc = m_currModule->classes[classIdx];
+            for (uint16_t i = 0; i < cc.fieldCount; ++i) {
+                int32_t refIdx = m_structHeap[idx][i + 1];
+                if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
+                    continue;
+                if ((cc.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
+                    || (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)) {
+                    if (!m_markBits[refIdx]) {
+                        m_markBits[refIdx] = true;
+                        worklist.push_back(refIdx);
+                    }
+                }
+            }
+        } else if (m_slotKinds[idx] == RTK_Struct) {
+            uint16_t structIdx = m_slotStructIdx[idx];
+            auto& cs = m_currModule->structs[structIdx];
+            for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+                int32_t refIdx = m_structHeap[idx][i];
+                if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
+                    continue;
+                if ((cs.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
+                    || (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)) {
+                    if (!m_markBits[refIdx]) {
+                        m_markBits[refIdx] = true;
+                        worklist.push_back(refIdx);
+                    }
+                }
+            }
+        }
     }
 }
 

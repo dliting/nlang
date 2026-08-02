@@ -228,6 +228,16 @@ reference tracing. Options:
 
 The parallel array is the smaller, safer change.
 
+**4. Iterative mark with worklist, not recursive**
+
+Recursive MarkObject/MarkStruct can overflow the C++ call stack on deep object
+chains (e.g., a linked list with 500+ nodes). The iterative approach uses a
+`vector<int32_t>` worklist: MarkPhase identifies root references and pushes
+them to the worklist, then processes entries iteratively until the worklist
+is empty. Each entry's child references are pushed to the worklist if not
+already marked. This bounds memory usage to O(reachable objects) with no
+risk of stack overflow.
+
 ### GC Algorithm
 
 ```
@@ -245,25 +255,14 @@ MarkPhase():
   for each CallFrame:
     for each LocalDescriptor with typeKind in {RTK_Class, RTK_Struct}:
       read heap index from frame.locals + ld.offset
-      if valid: MarkObject or MarkStruct
+      if valid and not marked: set mark bit, push to worklist
     if pResult has reference return type:
       read heap index from pResult
-      if valid: MarkObject or MarkStruct
-
-MarkObject(heapIdx):
-  if already marked: return
-  set mark bit
-  for each field of the class:
-    if field is RTK_Class: MarkObject(field value)
-    if field is RTK_Struct: MarkStruct(field value)
-
-MarkStruct(heapIdx):
-  if already marked: return
-  set mark bit
-  look up structIdx from m_slotStructIdx[heapIdx]
-  for each field of the struct:
-    if field is RTK_Class: MarkObject(field value)
-    if field is RTK_Struct: MarkStruct(field value)
+      if valid and not marked: set mark bit, push to worklist
+  while worklist not empty:
+    pop entry from worklist
+    if class: for each field, push unmarked reference children
+    if struct: for each field, push unmarked reference children
 
 SweepPhase():
   clear free list
