@@ -24,16 +24,158 @@ void VmBackend::OnModuleCreate(Module& module) {
 }
 
 void VmBackend::GenerateTypes(SnNamespace& root) {
-    // Phase 2: no type layout needed beyond basic types
+    //VmBackend uses multi-pass compilation in GenerateStatements (register types,
+    //then functions, then generate code). Type and data registration happen there,
+    //not in these separate phases. LLVM backend uses these phases differently
+    //because LLVM IR supports forward references.
 }
 
 void VmBackend::GenerateData(SnNamespace& root) {
-    // Phase 2: no data layout needed beyond function registration
+    //See GenerateTypes comment.
 }
 
 void VmBackend::GenerateStatements(SnNamespace& root) {
-    // Phase 1: Register all function names so FindFunction works for
-    // forward references and recursion.
+    RegisterStructs(root);
+    RegisterClasses(root);
+    RegisterFunctions(root);
+    PopulateClassMethods(root);
+    GenerateAllBytecode(root);
+}
+
+void VmBackend::RegisterStructs(SnNamespace& root) {
+    std::vector<std::vector<std::string>> structFieldTypeNames;
+    auto registerStruct = [&](SnStructDecl& sn) {
+        CompiledStruct cs;
+        cs.name = sn.Name();
+        cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
+        std::vector<std::string> typeNames;
+        for (auto& field : sn.Members()) {
+            cs.fieldNames.push_back(field.Name());
+            auto* fieldType = field.EvalDataType();
+            uint16_t ftk = RuntimeTypeKind(fieldType);
+            cs.fieldTypeKinds.push_back(ftk);
+            cs.fieldStructIndices.push_back(0xFFFF);
+            if (ftk == RTK_Struct && fieldType)
+                typeNames.push_back(fieldType->Name());
+            else
+                typeNames.push_back("");
+        }
+        m_compiledModule.structs.push_back(std::move(cs));
+        structFieldTypeNames.push_back(std::move(typeNames));
+    };
+    for (auto& member : root.Members()) {
+        if (member.Kind() == NK_StructDecl)
+            registerStruct(static_cast<SnStructDecl&>(member));
+        else if (CanBeFuncParentEx(member.Kind())) {
+            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
+                if (child.Kind() == NK_StructDecl)
+                    registerStruct(static_cast<SnStructDecl&>(child));
+            }
+        }
+    }
+    //Resolve fieldStructIndices now that all structs are registered.
+    for (size_t si = 0; si < m_compiledModule.structs.size(); ++si) {
+        auto& cs = m_compiledModule.structs[si];
+        auto& typeNames = structFieldTypeNames[si];
+        for (size_t i = 0; i < typeNames.size(); ++i) {
+            if (!typeNames[i].empty()) {
+                int idx = m_compiledModule.FindStruct(typeNames[i]);
+                if (idx >= 0)
+                    cs.fieldStructIndices[i] = static_cast<uint16_t>(idx);
+            }
+        }
+    }
+}
+
+void VmBackend::RegisterClasses(SnNamespace& root) {
+    //Map from class name to SnClassDecl* for post-registration resolution.
+    std::unordered_map<std::string, SnClassDecl*> declMap;
+    auto registerClass = [&](SnClassDecl& sn) {
+        CompiledClass cc;
+        cc.name = sn.Name();
+        cc.superClassIdx = -1;
+        //Collect inherited fields: walk from root ancestor to direct parent,
+        //collecting each ancestor's own fields (not their inherited fields).
+        std::vector<SnClassDecl*> ancestors;
+        auto* pSuper = sn.SuperClass();
+        while (pSuper) {
+            ancestors.push_back(pSuper);
+            pSuper = pSuper->SuperClass();
+        }
+        //Add fields from root ancestor first (reversed order)
+        for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+            for (auto& member : (*it)->Members()) {
+                if (member.Kind() == NK_ClassField) {
+                    auto& cf = static_cast<SnClassField&>(member);
+                    cc.fieldNames.push_back(cf.Name());
+                    auto* fieldType = cf.EvalDataType();
+                    uint16_t ftk = fieldType ? RuntimeTypeKind(fieldType) : RTK_Int32;
+                    cc.fieldTypeKinds.push_back(ftk);
+                    cc.fieldStructIndices.push_back(0xFFFF);
+                    cc.fieldClassIndices.push_back(0xFFFF);
+                    cc.fieldAccess.push_back(static_cast<uint8_t>(cf.Access()));
+                }
+            }
+        }
+        //Collect own fields
+        for (auto& member : sn.Members()) {
+            if (member.Kind() == NK_ClassField) {
+                auto& cf = static_cast<SnClassField&>(member);
+                cc.fieldNames.push_back(cf.Name());
+                auto* fieldType = cf.EvalDataType();
+                uint16_t ftk = fieldType ? RuntimeTypeKind(fieldType) : RTK_Int32;
+                cc.fieldTypeKinds.push_back(ftk);
+                cc.fieldStructIndices.push_back(0xFFFF);
+                cc.fieldClassIndices.push_back(0xFFFF);
+                cc.fieldAccess.push_back(static_cast<uint8_t>(cf.Access()));
+            }
+        }
+        cc.fieldCount = static_cast<uint16_t>(cc.fieldNames.size());
+        declMap[sn.Name()] = &sn;
+        m_compiledModule.classes.push_back(std::move(cc));
+    };
+    for (auto& member : root.Members()) {
+        if (member.Kind() == NK_ClassDecl)
+            registerClass(static_cast<SnClassDecl&>(member));
+        else if (CanBeFuncParentEx(member.Kind())) {
+            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
+                if (child.Kind() == NK_ClassDecl)
+                    registerClass(static_cast<SnClassDecl&>(child));
+            }
+        }
+    }
+    //Resolve superClassIdx and fieldClassIndices (requires all classes registered).
+    for (auto& cc : m_compiledModule.classes) {
+        auto it = declMap.find(cc.name);
+        if (it == declMap.end()) continue;
+        auto* pDecl = it->second;
+        if (pDecl->SuperClass()) {
+            int idx = m_compiledModule.FindClass(pDecl->SuperClass()->Name());
+            cc.superClassIdx = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
+        }
+        for (size_t i = 0; i < cc.fieldNames.size(); ++i) {
+            auto* pField = pDecl->FindField(cc.fieldNames[i]);
+            if (pField && pField->Kind() == NK_ClassField) {
+                auto* ft = pField->EvalDataType();
+                if (ft) {
+                    if (cc.fieldTypeKinds[i] == RTK_Class) {
+                        int idx = m_compiledModule.FindClass(ft->Name());
+                        if (idx >= 0)
+                            cc.fieldClassIndices[i] = static_cast<uint16_t>(idx);
+                    } else if (cc.fieldTypeKinds[i] == RTK_Struct) {
+                        int idx = m_compiledModule.FindStruct(ft->Name());
+                        if (idx >= 0)
+                            cc.fieldStructIndices[i] = static_cast<uint16_t>(idx);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void VmBackend::RegisterFunctions(SnNamespace& root) {
+    m_funcIndexMap.clear();
+    size_t funcRegIdx = 0;
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(member);
@@ -42,7 +184,8 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
             CompiledFunction cf;
             cf.name = func.Name();
             m_compiledModule.functions.push_back(std::move(cf));
-        } else if (CanBeFuncParent(member.Kind())) {
+            m_funcIndexMap[&func] = funcRegIdx++;
+        } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
                     auto& func = static_cast<SnFunction&>(child);
@@ -51,12 +194,38 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
                     CompiledFunction cf;
                     cf.name = func.Name();
                     m_compiledModule.functions.push_back(std::move(cf));
+                    m_funcIndexMap[&func] = funcRegIdx++;
                 }
             }
         }
     }
+}
 
-    // Phase 2: Generate bytecode for each function.
+void VmBackend::PopulateClassMethods(SnNamespace& root) {
+    for (auto& member : root.Members()) {
+        if (member.Kind() == NK_ClassDecl) {
+            auto& sn = static_cast<SnClassDecl&>(member);
+            int ccIdx = m_compiledModule.FindClass(sn.Name());
+            if (ccIdx < 0) continue;
+            auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
+            cc.methodIndices.clear();
+            cc.constructorIdx = 0xFFFF;
+            for (auto& child : sn.Members()) {
+                if (child.Kind() == NK_Function) {
+                    auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
+                    if (it != m_funcIndexMap.end()) {
+                        uint16_t funcIdx = static_cast<uint16_t>(it->second);
+                        cc.methodIndices.push_back(funcIdx);
+                        if (child.Name() == sn.Name())
+                            cc.constructorIdx = funcIdx;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void VmBackend::GenerateAllBytecode(SnNamespace& root) {
     size_t funcIdx = 0;
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_Function) {
@@ -65,7 +234,7 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
                 continue;
             GenerateFunction(func, funcIdx);
             ++funcIdx;
-        } else if (CanBeFuncParent(member.Kind())) {
+        } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
                     auto& func = static_cast<SnFunction&>(child);
@@ -80,11 +249,58 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
 }
 
 //Map compile-time type kind to runtime type kind.
-//Enum types are int32 at runtime.
+//Enum types are int32 at runtime. Struct types use RTK_Struct.
 uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
-    if (!pType) return NK_Int32;
+    if (!pType) return RTK_Int32;
     auto k = pType->Kind();
-    return k == NK_EnumDecl ? NK_Int32 : static_cast<uint8_t>(k);
+    if (k == NK_EnumDecl) return RTK_Int32;
+    if (k == NK_StructDecl) return RTK_Struct;
+    if (k == NK_ClassDecl) return RTK_Class;
+    return static_cast<uint8_t>(k);
+}
+
+//Returns field offset in bytes, or -1 if not found.
+static int FindFieldOffset(SnStructDecl& structDecl, const std::string& fieldName) {
+    uint16_t off = 0;
+    for (auto& sf : structDecl.Members()) {
+        if (sf.Name() == fieldName)
+            return off;
+        off += VALUE_SIZE;
+    }
+    return -1;
+}
+
+//Returns class field offset in bytes (including +4 for classIdx slot), or -1.
+//Object layout: [classIdx, root_ancestor_fields..., parent_fields..., own_fields...]
+//Slot[0] = classIdx (4 bytes, used for runtime virtual dispatch via OP_CallMethod).
+//Slot[1..N] = data fields (4 bytes each, offset starts at VALUE_SIZE=4).
+//Compile-time offset here must match runtime AllocClassOnHeap in VmExecutor.
+static int FindClassFieldOffset(SnClassDecl& classDecl, const std::string& fieldName) {
+    //Collect ancestor chain from root to direct parent
+    std::vector<SnClassDecl*> ancestors;
+    auto* pSuper = classDecl.SuperClass();
+    while (pSuper) {
+        ancestors.push_back(pSuper);
+        pSuper = pSuper->SuperClass();
+    }
+    //Search from root ancestor to direct parent (reversed order)
+    uint16_t off = VALUE_SIZE; //skip classIdx slot
+    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+        for (auto& member : (*it)->Members()) {
+            if (member.Kind() == NK_ClassField && member.Name() == fieldName)
+                return off;
+            if (member.Kind() == NK_ClassField)
+                off += VALUE_SIZE;
+        }
+    }
+    //Search in this class (after all parent fields)
+    for (auto& member : classDecl.Members()) {
+        if (member.Kind() == NK_ClassField && member.Name() == fieldName)
+            return off;
+        if (member.Kind() == NK_ClassField)
+            off += VALUE_SIZE;
+    }
+    return -1;
 }
 
 uint16_t VmBackend::AddStringConstant(const std::string& s) {
@@ -106,13 +322,20 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     ctx.nextOffset = 0;
     m_currFunc = &ctx;
 
+    // If this is a class method, allocate slot 0 for the 'this' pointer.
+    bool isMethod = func.Parent() && func.Parent()->Kind() == NK_ClassDecl;
+    if (isMethod) {
+        AllocLocal("__this", VALUE_SIZE, RTK_Class, true);
+    }
+
     // Allocate slots for parameters
     for (auto& param : func.Params()) {
         AllocLocal(param.Name(), VALUE_SIZE,
                    RuntimeTypeKind(param.EvalDataType()),
                    true);
     }
-    compiledFunc.paramCount = static_cast<uint16_t>(func.Params().size());
+    compiledFunc.paramCount = static_cast<uint16_t>(
+        func.Params().size() + (isMethod ? 1 : 0));
 
     // Return type
     if (func.HasReturn() && func.ReturnType()) {
@@ -236,13 +459,37 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             for (auto& param : invoke.Params()) {
                 uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
                 EmitExpression(param, emitter, paramOffset);
+                //If the parameter is a struct type, deep-copy it so the
+                //callee gets its own heap slot tree.
+                auto* paramType = param.EvalDataType();
+                if (paramType && RuntimeTypeKind(paramType) == RTK_Struct) {
+                    int structIdx = m_compiledModule.FindStruct(paramType->Name());
+                    //Copy from paramOffset to a temp, then back.
+                    //We need a temp slot that won't conflict.
+                    //Use tempSlot as intermediate.
+                    emitter.Emit(OpCode::OP_CopyStruct);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(paramOffset);
+                    emitter.EmitUint16(structIdx >= 0
+                        ? static_cast<uint16_t>(structIdx) : 0);
+                    //Move the new heap index back to paramOffset
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(paramOffset);
+                }
                 ++paramIdx;
             }
         }
 
         // Find function index
-        int funcIndex = m_compiledModule.FindFunction(
-            callee ? callee->Name() : invoke.CalleeName());
+        int funcIndex = -1;
+        if (callee) {
+            auto it = m_funcIndexMap.find(callee);
+            if (it != m_funcIndexMap.end())
+                funcIndex = static_cast<int>(it->second);
+        }
+        //callee == null means unresolved invoke — skip (compiler should have reported error)
         if (funcIndex >= 0) {
             emitter.Emit(OpCode::OP_CallFunc);
             emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
@@ -279,7 +526,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
-    // Member expression - delegate to inner
+    // Member expression - struct field access or delegate to inner
     if (kind == NK_MemberExpr) {
         auto& member = static_cast<SnMemberExpr&>(expr);
         auto* field = member.Field();
@@ -292,11 +539,87 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(resultOffset);
             return;
         }
+        //Struct field access (e.g. pt.x, pt.inner.x)
+        auto* outerType = member.Outer()->EvalDataType();
+        if (outerType && outerType->Kind() == NK_StructDecl) {
+            auto* structDecl = static_cast<SnStructDecl*>(outerType);
+            //Evaluate outer expression to resultOffset (gets heap index)
+            EmitExpression(*member.Outer(), emitter, resultOffset);
+            //Find the field's offset within the struct
+            auto* inner = member.Inner();
+            if (inner && inner->Kind() == NK_IdentifierExpr) {
+                auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                int off = FindFieldOffset(*structDecl, fieldName);
+                if (off < 0) return; //should not happen after type resolution
+                emitter.Emit(OpCode::OP_LoadField);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(static_cast<uint16_t>(off));
+            }
+            return;
+        }
+        //Class field access (e.g. obj.x, obj.y)
+        if (outerType && outerType->Kind() == NK_ClassDecl) {
+            auto* classDecl = static_cast<SnClassDecl*>(outerType);
+            //Evaluate outer expression to resultOffset (gets heap index)
+            EmitExpression(*member.Outer(), emitter, resultOffset);
+            //Null check
+            emitter.Emit(OpCode::OP_NullCheck);
+            emitter.EmitUint16(resultOffset);
+            auto* inner = member.Inner();
+            if (inner && inner->Kind() == NK_IdentifierExpr) {
+                auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                int off = FindClassFieldOffset(*classDecl, fieldName);
+                if (off < 0) return;
+                emitter.Emit(OpCode::OP_LoadField);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(static_cast<uint16_t>(off));
+            } else if (inner && inner->Kind() == NK_InvokeExpr) {
+                //Class method call
+                auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+                //Evaluate args to call param area (slot 0 = this)
+                uint16_t paramIdx = 1;
+                for (auto& param : invoke.Params()) {
+                    uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
+                    EmitExpression(param, emitter, paramOffset);
+                    ++paramIdx;
+                }
+                //Copy this to callParamBase[0]
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                //Find the method function
+                auto* callee = invoke.Callee();
+                bool isVirtual = callee && callee->ContainFlags(NF_Virtual);
+                if (isVirtual) {
+                    //Virtual method dispatch — name-based lookup at runtime
+                    //(like EN's I_Base_CallVirtualFunc + FindFunctionChecked)
+                    uint16_t nameIdx = AddStringConstant(callee->Name());
+                    emitter.Emit(OpCode::OP_CallMethod);
+                    emitter.EmitUint16(nameIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                } else if (callee) {
+                    //Non-virtual (final) method — direct call by function index
+                    //(like EN's I_Base_CallFinalFunc + NFunction*)
+                    auto it = m_funcIndexMap.find(callee);
+                    if (it != m_funcIndexMap.end()) {
+                        emitter.Emit(OpCode::OP_CallMethodDirect);
+                        emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                        emitter.EmitUint16(m_currFunc->callParamBase);
+                    }
+                }
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_ParaEnd);
+            }
+            return;
+        }
         auto* inner = member.Inner();
         //String builtin methods: s.length()
         if (inner && inner->Kind() == NK_InvokeExpr) {
             auto& invoke = static_cast<SnInvokeExpr&>(*inner);
-            auto* outerType = member.Outer()->EvalDataType();
             if (outerType && outerType->Kind() == NK_String
                 && invoke.CalleeName() == "length")
             {
@@ -314,8 +637,64 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     // Name expression - delegate
     if (kind == NK_NameExpr) {
         auto& nameExpr = static_cast<SnNameExpr&>(expr);
-        if (nameExpr.Expr())
+        if (nameExpr.Expr()) {
             EmitExpression(*nameExpr.Expr(), emitter, resultOffset);
+        }
+        return;
+    }
+
+    // New expression - object instantiation
+    if (kind == NK_NewExpr) {
+        auto& newExpr = static_cast<SnNewExpr&>(expr);
+        auto* pClassDecl = newExpr.ClassDecl();
+        if (!pClassDecl) {
+            emitter.Emit(OpCode::OP_ConstZero);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
+        int classIdx = m_compiledModule.FindClass(pClassDecl->Name());
+        if (classIdx < 0) {
+            emitter.Emit(OpCode::OP_ConstZero);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
+        emitter.Emit(OpCode::OP_New);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(static_cast<uint16_t>(classIdx));
+        //Call constructor if present (direct class only, using pre-computed index).
+        //Ancestor constructors are NOT called because NLang has no super()
+        //syntax to pass arguments to them.
+        uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
+        if (ctorIdx != 0xFFFF) {
+            uint16_t paramIdx = 1; //slot 0 = this
+            for (auto& param : newExpr.Args()) {
+                if (param.Kind() == NK_NameExpr) continue;
+                uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
+                EmitExpression(param, emitter, paramOffset);
+                ++paramIdx;
+            }
+            //Copy this (new object heap index) to callParamBase[0]
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(resultOffset);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            emitter.Emit(OpCode::OP_CallMethodDirect);
+            emitter.EmitUint16(ctorIdx);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            emitter.Emit(OpCode::OP_ParaEnd);
+        }
+        return;
+    }
+
+    // This expression - reads the implicit first parameter
+    if (kind == NK_ThisExpr) {
+        //this is the first parameter (offset 0)
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(0);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
         return;
     }
 
@@ -483,7 +862,19 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         auto* evalType = decl.Type()->Field();
         uint8_t typeKind = RuntimeTypeKind(evalType);
         for (auto& local : decl.Decls()) {
-            AllocLocal(local.name, VALUE_SIZE, typeKind, false);
+            uint16_t offset = AllocLocal(local.name, VALUE_SIZE, typeKind, false);
+            //For struct types, emit OP_AllocStruct to allocate on heap.
+            if (typeKind == RTK_Struct && evalType) {
+                int structIdx = m_compiledModule.FindStruct(evalType->Name());
+                if (structIdx >= 0) {
+                    auto& cs = m_compiledModule.structs[structIdx];
+                    emitter.Emit(OpCode::OP_AllocStruct);
+                    emitter.EmitUint16(offset);
+                    emitter.EmitUint16(static_cast<uint16_t>(structIdx));
+                    emitter.EmitUint16(cs.fieldCount);
+                }
+            }
+            //Class types start as null (0) — no allocation needed.
         }
         return;
     }
@@ -492,13 +883,91 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //Reference: EN's AssignStmt::Compile (SeStatements.cpp:313).
     if (kind == NK_AssignStmt) {
         auto& assign = static_cast<SnAssignStmt&>(stmt);
-        //Left side must be an identifier resolved to a local variable
         if (assign.Left()->Kind() == NK_IdentifierExpr) {
             auto& idExpr = static_cast<SnIdentifierExpr&>(*assign.Left());
             auto* field = idExpr.Field();
             if (field) {
                 uint16_t offset = FindLocal(field->Name());
-                EmitExpression(*assign.Right(), emitter, offset);
+                auto* varType = field->EvalDataType();
+                if (varType && RuntimeTypeKind(varType) == RTK_Struct) {
+                    //Struct assignment: evaluate right to temp, then deep-copy.
+                    EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
+                    int structIdx = m_compiledModule.FindStruct(varType->Name());
+                    emitter.Emit(OpCode::OP_CopyStruct);
+                    emitter.EmitUint16(offset);
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(structIdx >= 0
+                        ? static_cast<uint16_t>(structIdx) : 0);
+                } else {
+                    EmitExpression(*assign.Right(), emitter, offset);
+                }
+            }
+        } else if (assign.Left()->Kind() == NK_MemberExpr) {
+            //Struct or class field assignment
+            auto& memberExpr = static_cast<SnMemberExpr&>(*assign.Left());
+            auto* outerType = memberExpr.Outer()->EvalDataType();
+            if (outerType && outerType->Kind() == NK_ClassDecl) {
+                //Class field assignment: reference semantics, no deep copy
+                auto* classDecl = static_cast<SnClassDecl*>(outerType);
+                auto* inner = memberExpr.Inner();
+                if (inner->Kind() != NK_IdentifierExpr) return;
+                auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                int fieldOffInt = FindClassFieldOffset(*classDecl, fieldName);
+                if (fieldOffInt < 0) return;
+                uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
+                //Evaluate right side to tempSlot2
+                EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
+                //Evaluate outer to tempSlot (class object heap index)
+                EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(m_currFunc->tempSlot);
+                emitter.Emit(OpCode::OP_StoreField);
+                emitter.EmitUint16(m_currFunc->tempSlot);
+                emitter.EmitUint16(fieldOff);
+                emitter.EmitUint16(m_currFunc->tempSlot2);
+            } else if (outerType && outerType->Kind() == NK_StructDecl) {
+                auto* structDecl = static_cast<SnStructDecl*>(outerType);
+                //Find the field's offset and type
+                auto* inner = memberExpr.Inner();
+                if (inner->Kind() != NK_IdentifierExpr) return;
+                auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                int fieldOffInt = FindFieldOffset(*structDecl, fieldName);
+                if (fieldOffInt < 0) return;
+                uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
+                SnField* fieldType = nullptr;
+                for (auto& sf : structDecl->Members()) {
+                    if (sf.Name() == fieldName) {
+                        fieldType = sf.EvalDataType();
+                        break;
+                    }
+                }
+                //Evaluate right side to tempSlot2
+                EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
+                if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct) {
+                    //Struct-to-struct field assignment: deep-copy first
+                    int fieldStructIdx = m_compiledModule.FindStruct(
+                        fieldType->Name());
+                    emitter.Emit(OpCode::OP_CopyStruct);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(fieldStructIdx >= 0
+                        ? static_cast<uint16_t>(fieldStructIdx) : 0);
+                    //Evaluate outer to tempSlot2 (parent struct's heap index)
+                    EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot2);
+                    //Store the new heap index into the parent's field
+                    emitter.Emit(OpCode::OP_StoreField);
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(fieldOff);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                } else {
+                    //Primitive/enum/string field assignment
+                    //Evaluate outer to tempSlot (parent struct's heap index)
+                    EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
+                    emitter.Emit(OpCode::OP_StoreField);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(fieldOff);
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                }
             }
         }
         return;
@@ -912,6 +1381,98 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
         if (bcSize > 0)
             fs.write(reinterpret_cast<const char*>(func.bytecode.data()),
                      bcSize);
+    }
+
+    // Struct descriptors
+    uint32_t structCount = static_cast<uint32_t>(
+        m_compiledModule.structs.size());
+    fs.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
+
+    for (auto& st : m_compiledModule.structs) {
+        uint32_t stNameLen = static_cast<uint32_t>(st.name.size());
+        fs.write(reinterpret_cast<const char*>(&stNameLen), sizeof(stNameLen));
+        fs.write(st.name.c_str(), stNameLen);
+
+        fs.write(reinterpret_cast<const char*>(&st.fieldCount),
+                 sizeof(st.fieldCount));
+
+        //Field names
+        for (size_t i = 0; i < st.fieldCount; ++i) {
+            uint32_t fnLen = static_cast<uint32_t>(st.fieldNames[i].size());
+            fs.write(reinterpret_cast<const char*>(&fnLen), sizeof(fnLen));
+            fs.write(st.fieldNames[i].c_str(), fnLen);
+        }
+
+        //Field type kinds
+        for (size_t i = 0; i < st.fieldCount; ++i) {
+            fs.write(reinterpret_cast<const char*>(&st.fieldTypeKinds[i]),
+                     sizeof(st.fieldTypeKinds[i]));
+        }
+
+        //Field struct indices
+        for (size_t i = 0; i < st.fieldCount; ++i) {
+            fs.write(reinterpret_cast<const char*>(&st.fieldStructIndices[i]),
+                     sizeof(st.fieldStructIndices[i]));
+        }
+    }
+
+    // Class descriptors
+    uint32_t classCount = static_cast<uint32_t>(
+        m_compiledModule.classes.size());
+    fs.write(reinterpret_cast<const char*>(&classCount), sizeof(classCount));
+
+    for (auto& cc : m_compiledModule.classes) {
+        uint32_t nameLen = static_cast<uint32_t>(cc.name.size());
+        fs.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
+        fs.write(cc.name.c_str(), nameLen);
+
+        fs.write(reinterpret_cast<const char*>(&cc.fieldCount),
+                 sizeof(cc.fieldCount));
+        fs.write(reinterpret_cast<const char*>(&cc.superClassIdx),
+                 sizeof(cc.superClassIdx));
+
+        //Field names
+        for (size_t i = 0; i < cc.fieldCount; ++i) {
+            uint32_t fnLen = static_cast<uint32_t>(cc.fieldNames[i].size());
+            fs.write(reinterpret_cast<const char*>(&fnLen), sizeof(fnLen));
+            fs.write(cc.fieldNames[i].c_str(), fnLen);
+        }
+
+        //Field type kinds
+        for (size_t i = 0; i < cc.fieldCount; ++i) {
+            fs.write(reinterpret_cast<const char*>(&cc.fieldTypeKinds[i]),
+                     sizeof(cc.fieldTypeKinds[i]));
+        }
+
+        //Field struct indices
+        for (size_t i = 0; i < cc.fieldCount; ++i) {
+            fs.write(reinterpret_cast<const char*>(&cc.fieldStructIndices[i]),
+                     sizeof(cc.fieldStructIndices[i]));
+        }
+
+        //Field class indices
+        for (size_t i = 0; i < cc.fieldCount; ++i) {
+            fs.write(reinterpret_cast<const char*>(&cc.fieldClassIndices[i]),
+                     sizeof(cc.fieldClassIndices[i]));
+        }
+
+        //Field access
+        for (size_t i = 0; i < cc.fieldCount; ++i) {
+            fs.write(reinterpret_cast<const char*>(&cc.fieldAccess[i]),
+                     sizeof(cc.fieldAccess[i]));
+        }
+
+        //Method indices
+        uint16_t methodCount = static_cast<uint16_t>(cc.methodIndices.size());
+        fs.write(reinterpret_cast<const char*>(&methodCount), sizeof(methodCount));
+        for (size_t i = 0; i < cc.methodIndices.size(); ++i) {
+            fs.write(reinterpret_cast<const char*>(&cc.methodIndices[i]),
+                     sizeof(cc.methodIndices[i]));
+        }
+
+        //Constructor index
+        fs.write(reinterpret_cast<const char*>(&cc.constructorIdx),
+                 sizeof(cc.constructorIdx));
     }
 
     fs.close();

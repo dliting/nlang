@@ -30,6 +30,15 @@ private:
                         uint16_t resultOffset);
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);
 
+    //Compilation phases (called by GenerateStatements in order).
+    //Each phase corresponds to a distinct compilation pass over the AST.
+    //Future evolution: each phase can become an Accessor for multi-backend support.
+    void RegisterStructs(SnNamespace& root);
+    void RegisterClasses(SnNamespace& root);
+    void RegisterFunctions(SnNamespace& root);
+    void PopulateClassMethods(SnNamespace& root);
+    void GenerateAllBytecode(SnNamespace& root);
+
     static uint8_t RuntimeTypeKind(SnField* pType);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
@@ -37,6 +46,7 @@ private:
     uint16_t AddStringConstant(const std::string& s);
 
     CompiledModule m_compiledModule;
+    std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
 
     //Per-loop code generation context.
     //Reference: EN's Compiler::NestBreaks/NestContinues (Compiler.h:108-111).

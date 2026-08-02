@@ -1,5 +1,6 @@
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
+#include "SnMisc.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 
@@ -13,7 +14,10 @@ void ExprResolveAccessor::Access(SnLiteralExpr &sn)
 
 void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 {
-	assert(!nameExpr.IsResolved());
+	if (nameExpr.IsResolved())
+	{
+		return;
+	}
 
 	auto pFieldExpr = nameExpr.Expr();
 	assert(pFieldExpr);
@@ -28,22 +32,17 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 {
 	if (idExpr.IsResolved())
 	{
-		//Builtin types have been resolve during parsing, but not verified.
 		if (!idExpr.PostResolveCheck(m_Env))
 			idExpr.RemoveFlags(NF_Resolved);
 		return;
 	}
 
-	//Search starting from the expression's context (parent node), not from
-	//the enclosing function. This ensures local variables declared in nested
-	//Paragraphs are found before falling through to function-level scope.
 	SnField *pField;
 	pField = FindFieldInAncestor(idExpr.Name(), *m_pContext, *m_pAccessor,
 		Flags());
 
 	if (!pField && ContainFlags(ERF_IgnoreUsings))
 	{
-		//Search in the using list.
 		assert(idExpr.Usings());
 		pField = FindFieldInUsings(idExpr.Name(), *idExpr.Usings(),
 			*m_pAccessor);
@@ -63,7 +62,6 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 {
 	assert(!snInvoke.IsResolved());
 
-	//Resolve concrete parameters.
 	if (!ResolveExpressionList(snInvoke.Params()))
 		return;
 
@@ -102,33 +100,25 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 {
 	assert(!snMember.IsResolved());
 
-	//Resolve outer expression.
 	auto pOuterExpr = snMember.Outer();
 	assert(pOuterExpr);
 	pOuterExpr->Accept(*m_pVisitor);
 	if (!pOuterExpr->IsResolved())
 		return;
 
-	auto pSavedContext	= m_pContext;
+	auto pSavedContext = m_pContext;
 
-	//Set the context type by outer expression.
 	if (snMember.Outer()->IsDataExpr())
 		m_pContext = snMember.Outer()->EvalDataType();
 	else
 	{
-		//The outer expression is a type or a namespace.
-		//e.g., "MyClass", "MyNamespace", "int", etc.
 		auto &outerFieldExpr = static_cast<SnFieldExpr &>(*snMember.Outer());
 		auto* pOuterField = static_cast<SnField *>(outerFieldExpr.Field());
 		m_pContext = pOuterField;
-		//For non-data fields (e.g. local variables) that have an
-		//EvalDataType but are not IsDataExpr, use EvalDataType
-		//instead so string method resolution works.
 		if (pOuterField && !pOuterField->IsTypeField())
 			m_pContext = snMember.Outer()->EvalDataType();
 	}
 
-	//Resolve inner expression.
 	SCOPED_FLAG_RESETER(*this);
 	AddFlags(ERF_SearchInParentOnly);
 	auto pInnerExpr = snMember.Inner();
@@ -154,24 +144,21 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	if (pInnerExpr->IsResolved())
 		ResolveFieldExprAs(snMember, pInnerExpr->Field());
 
-	m_pContext = pSavedContext; 
+	m_pContext = pSavedContext;
 }
 
 void ExprResolveAccessor::Access(SnCastExpr &sn)
 {
-	//TODO:
 }
 
 void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 {
 	assert(!sn.IsResolved());
 
-	//Resolve left operand
 	sn.Left()->Accept(*m_pVisitor);
 	if (!sn.Left()->IsResolved())
 		return;
 
-	//Resolve right operand (if binary)
 	if (sn.Right())
 	{
 		sn.Right()->Accept(*m_pVisitor);
@@ -179,8 +166,6 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 			return;
 	}
 
-	//The result type is the same as the left operand for arithmetic ops.
-	//For comparison and logical ops, the result is int32.
 	auto op = sn.Op();
 	if (op == SnBinaryExpr::OP_Less || op == SnBinaryExpr::OP_LessEqual ||
 		op == SnBinaryExpr::OP_Greater || op == SnBinaryExpr::OP_GreaterEqual ||
@@ -198,6 +183,81 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 	sn.AddFlags(NF_Resolved);
 }
 
+void ExprResolveAccessor::Access(SnNewExpr &sn)
+{
+	assert(!sn.IsResolved());
+
+	auto pClassName = sn.ClassName();
+	assert(pClassName);
+	pClassName->Accept(*m_pVisitor);
+	if (!pClassName->IsResolved())
+		return;
+
+	auto pClassField = pClassName->Field();
+	if (!pClassField || pClassField->Kind() != NK_ClassDecl)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"\"%s\" is not a class type.", pClassName->ToString().c_str());
+		return;
+	}
+
+	auto pClassDecl = static_cast<SnClassDecl*>(pClassField);
+	sn.ClassDecl(pClassDecl);
+	sn.EvalDataType(pClassDecl);
+	sn.AddFlags(NF_Resolved);
+
+	if (!ResolveExpressionList(sn.Args()))
+		return;
+}
+
+void ExprResolveAccessor::Access(SnThisExpr &sn)
+{
+	assert(!sn.IsResolved());
+
+	auto pContext = m_pContext;
+	while (pContext)
+	{
+		if (pContext->Kind() == NK_Function)
+		{
+			auto pParent = pContext->Parent();
+			if (pParent && pParent->Kind() == NK_ClassDecl)
+			{
+				auto pClassDecl = static_cast<SnClassDecl*>(pParent);
+				sn.EvalDataType(pClassDecl);
+				sn.AddFlags(NF_Resolved);
+				return;
+			}
+		}
+		pContext = pContext->Parent();
+	}
+	m_Env.Log(CLL_Error, sn.Location(),
+		"'this' can only be used inside a class method.");
+}
+
+void ExprResolveAccessor::Access(SnClassDecl &sn)
+{
+	//Resolve super class reference.
+	if (sn.SuperName())
+	{
+		sn.SuperName()->Accept(*m_pVisitor);
+		if (sn.SuperName()->IsResolved())
+		{
+			auto pSuperField = sn.SuperName()->Field();
+			if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
+				sn.SuperClass(static_cast<SnClassDecl*>(pSuperField));
+			else
+				m_Env.Log(CLL_Error, sn.SuperName()->Location(),
+					"\"%s\" is not a class type.", sn.SuperName()->ToString().c_str());
+		}
+	}
+	sn.AddFlags(NF_Resolved);
+}
+
+void ExprResolveAccessor::Access(SnClassField &sn)
+{
+	//Class field type resolution is handled by StatementResolver.
+}
+
 void ExprResolveAccessor::ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)
 {
 	assert(pField && !expr.IsResolved());
@@ -209,7 +269,7 @@ void ExprResolveAccessor::ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)
 		return;
 	}
 
-	expr.EvalDataType(pField->EvalDataType()); //Would be null if is void type.
+	expr.EvalDataType(pField->EvalDataType());
 	expr.AddFlags(NF_Resolved);
 	return;
 }
@@ -228,7 +288,7 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 	return FindFieldInAncestor(sName, *pParent, accessor, flags);
 }
 
-SnField *ExprResolveAccessor::FindFieldInUsings(std::string &sName, 
+SnField *ExprResolveAccessor::FindFieldInUsings(std::string &sName,
 	const UsingList &usings, const SnField & accessor)
 {
 	for (auto pUsing : usings)
@@ -262,46 +322,65 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 {
 	const bool bSearchInAncestor = !ContainFlags(ERF_SearchInParentOnly);
 	int nDistance = -1;
-	bool bFoundByName = false; //Is there a function with the given name?
-	SyntaxNode *pParent = m_pContext;
+	bool bFoundByName = false;
 	auto &sFuncName = invoke.CalleeName();
+
+	//Search a single scope's NameDict for matching functions.
+	auto searchScope = [&](SnFunctionParentField& parent) -> FindFuncResult {
+		auto range = parent.Members().NameDict().equal_range(sFuncName);
+		for (auto iField = range.first; iField != range.second; ++iField) {
+			SnField *pField = iField->second;
+			if (pField->Kind() != NK_Function)
+				continue;
+
+			auto pFunc = static_cast<SnFunction *>(pField);
+			if (!pFunc->AllowAccess(*m_pAccessor))
+				continue;
+
+			if (!bFoundByName)
+			{
+				bFoundByName = true;
+				pFuncFound = pFunc;
+			}
+
+			const int n = CalcDistanceOfParams(invoke.Params(), pFunc->Params());
+			if (n < 0)
+				continue;
+			if (n == 0)
+			{
+				pFuncFound = pFunc;
+				return FFR_ExactMatch;
+			}
+			if (nDistance < 0 || nDistance > n)
+			{
+				pFuncFound = pFunc;
+				nDistance = n;
+			}
+		}
+		return FFR_FuncNameNotFound;
+	};
+
+	SyntaxNode *pParent = m_pContext;
 	while (pParent)
 	{
-		if (CanBeFuncParent(pParent->Kind()))
+		if (CanBeFuncParentEx(pParent->Kind()))
 		{
-			auto pParentType = static_cast<SnFunctionParentField *>(pParent);
-			auto range = pParentType->Members().NameDict().equal_range(sFuncName);
-			for (auto iField = range.first; iField != range.second; ++iField)
+			auto pParentType = static_cast<SnFunctionParentField*>(pParent);
+			if (searchScope(*pParentType) == FFR_ExactMatch)
+				return FFR_ExactMatch;
+
+			//For class contexts, also search the inheritance chain
+			//when the method is not found in the current class's Members().
+			if (pParent->Kind() == NK_ClassDecl && !bFoundByName)
 			{
-				SnField *pField = iField->second;
-				if (pField->Kind() != NK_Function)
-					continue;
-
-				auto pFunc = static_cast<SnFunction *>(pField);
-				if (!pFunc->AllowAccess(*m_pAccessor))
-					continue;
-
-				if (!bFoundByName)
+				auto *pSuper = static_cast<SnClassDecl*>(pParent)->SuperClass();
+				while (pSuper && !bFoundByName)
 				{
-					bFoundByName = true;
-					pFuncFound = pFunc;
+					if (searchScope(*pSuper) == FFR_ExactMatch)
+						return FFR_ExactMatch;
+					pSuper = pSuper->SuperClass();
 				}
-
-				const int n = CalcDistanceOfParams(invoke.Params(), pFunc->Params());
-				if (n < 0)
-					continue;
-				if (n == 0)
-				{
-					pFuncFound = pFunc;
-					return FFR_ExactMatch;
-				}
-				//n > 0
-				if (nDistance > n)
-				{
-					pFuncFound = pFunc;
-					nDistance = n;
-				}
-			} //for
+			}
 			if (!bSearchInAncestor)
 				break;
 		}
@@ -315,7 +394,7 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 }
 
 int ExprResolveAccessor::CalcDistanceOfParams(
-	const SnExpressionList &concretParams, 
+	const SnExpressionList &concretParams,
 	const SnFunction::ParamList &formalParams) const
 {
 	int nDistance = 0;
@@ -323,13 +402,17 @@ int ExprResolveAccessor::CalcDistanceOfParams(
 	auto iFormalEnd = formalParams.end();
 	for (auto &concret : concretParams)
 	{
-		if (!concret.EvalDataType() || !iFormal->EvalDataType()) 
-			return -1; //invalid parameters.
-		if (iFormal == iFormalEnd) 
-			return -1; //# of params mismatch.
+		if (!concret.EvalDataType() || !iFormal->EvalDataType())
+			return -1;
+		if (iFormal == iFormalEnd)
+			return -1;
 		nDistance +=
 			CalcTypeDistance(*concret.EvalDataType(), *iFormal->EvalDataType());
+		++iFormal;
 	}
+	//Too few arguments — formal params remaining
+	if (iFormal != iFormalEnd)
+		return -1;
 	return nDistance;
 }
 
@@ -340,12 +423,32 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 		return 0;
 	auto srcKind = source.Kind();
 	auto tgtKind = target.Kind();
-	//Enum types are int32 at runtime.
 	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
 	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
+	if (srcKind == NK_StructDecl && tgtKind == NK_StructDecl)
+		return (&source == &target) ? 0 : -1;
+	if (srcKind == NK_StructDecl || tgtKind == NK_StructDecl)
+		return -1;
+	if (srcKind == NK_ClassDecl && tgtKind == NK_ClassDecl)
+	{
+		if (&source == &target)
+			return 0;
+		auto *pSrc = static_cast<const SnClassDecl*>(&source);
+		auto *pParent = pSrc->SuperClass();
+		int depth = 1;
+		while (pParent)
+		{
+			if (pParent == &target)
+				return depth;
+			pParent = pParent->SuperClass();
+			++depth;
+		}
+		return -1;
+	}
+	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
+		return -1;
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
 		return std::abs(srcKind - tgtKind);
-	//TODO: other types.
 	return -1;
 }
 
@@ -384,24 +487,13 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 		return false;
 	}
 
-	/*
-	castInfo.Kind() == TCK_Auto
-	Create a cast expression and replace the expression at iSrcExpr.
-	e.g., "foo = bar" become "foo = cast<type of foo>(bar)", where
-	bar is the source expression.
-	*/
 	auto pSrcParent = srcExpr.Parent();
 	assert(pSrcParent);
 
-	/*
-	The source expression must be removed firstly from its old parent, since it 
-	will be a child of our new cast expression.
-	*/
 	auto iInsertPos = RemoveChildFrom(iSrcExpr, *pSrcParent);
 	assert(srcExpr.Location());
 	auto pCastExpr =
 		new SnCastExpr(&srcExpr, castInfo, *srcExpr.Location());
-	//Replace pSrcExpr with pCastExpr.
 	iSrcExpr = InsertChildInto(iInsertPos, pCastExpr, *pSrcParent);
 	return true;
 }
@@ -419,7 +511,6 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 			return ResolveDataType(*dataField.Type(), outerType);
 		}
 
-		//Resolve function return type.
 		auto pReturnType = static_cast<SnFunction &>(sn).ReturnType();
 		if (pReturnType)
 		{
@@ -446,8 +537,6 @@ bool ExprResolver::ResolveDataType(SnNameExpr &typeExpr, SnField &outerType)
 
 bool ExprResolver::ResolveChildFields(SnField & sn)
 {
-	//Recursively resolve the children of a type field.
-	//Note: Fields in statements will not be resolved here.
 	bool bOK = true;
 	for (auto &child : sn.Children())
 	{
