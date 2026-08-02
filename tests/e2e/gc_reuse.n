@@ -1,16 +1,17 @@
 class Container { public int x; public int y; }
 int main() {
-	int i = 0;
-	Container last = new Container();
-	last.x = 0;
-	last.y = 0;
-	while (i < 200) {
-		Container c = new Container();
-		c.x = i;
-		c.y = i * 2;
-		last.x = c.x;
-		last.y = c.y;
-		i = i + 1;
-	}
-	return last.x + last.y;
+    int i = 0;
+    Container last = new Container();
+    last.x = 0;
+    last.y = 0;
+    while (i < 20) {
+        Container c = new Container();
+        c.x = i;
+        c.y = i * 2;
+        last.x = c.x;
+        last.y = c.y;
+        i = i + 1;
+    }
+    //last.x = 19, last.y = 38, total = 57
+    return last.x + last.y;
 }

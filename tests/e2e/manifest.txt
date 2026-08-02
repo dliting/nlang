@@ -160,6 +160,6 @@ struct_class_field 42
 struct_class_field_copy 99
 
 # --- GC ---
-gc_loop_alloc 4950
-gc_reuse 597
-gc_chain 501
+gc_loop_alloc 190
+gc_reuse 57
+gc_chain 21

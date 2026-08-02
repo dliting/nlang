@@ -29,7 +29,7 @@ private:
     int32_t AllocClassOnHeap(uint16_t classIdx);
 
     //GC: mark-sweep garbage collection.
-    //Design decisions (see docs/superpowers/specs/ phase 5 plan):
+    //Design decisions (see docs/vm-architecture.md for full rationale):
     //  1. Safepoint-triggered, not allocation-point-triggered.
     //     Why: avoids tracking tempSlot/tempSlot2 references in MarkPhase.
     //  2. Precise scan via LocalDescriptor, not conservative byte scan.
