@@ -60,6 +60,8 @@ public:
 		assert(false && "Require implementation.");
 	}
 
+	void Access(SnArrayTypeExpr &) {}
+
 	llvm::Type *GetPointerType()
 	{
 		static auto ptrType = llvm::Type::getInt8PtrTy(m_Env.MetaContext());

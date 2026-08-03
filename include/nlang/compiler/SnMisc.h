@@ -145,6 +145,123 @@ private:
 	std::unique_ptr<MemberList> m_upMembers;
 };
 
+//A struct field declaration (e.g. "int x" in struct Point { int x; int y; }).
+//Inherits SnField like SnEnumMember.
+class NLANG_COMPILER_API SnStructField : public SnField
+{
+	typedef SnField Super_;
+public:
+	static const NodeKind	s_Kind			= NK_StructField;
+	static const NodeBits	s_DefaultFlags	= NF_Field | NF_Data;
+public:
+	SnStructField(SnFieldExpr *pType, std::string *pName,
+		const ISourceLocation &loc);
+
+	~SnStructField() override;
+
+	SnFieldExpr *Type() const { return m_pType; }
+
+	SnField *EvalDataType() const override;
+	bool IsArrayType() const override;
+	SnField *FindField(const std::string&) const override;
+	void Accept(ISyntaxNodeVisitor&) override;
+	std::string ToString() const override;
+private:
+	ImmutableNodeList *ChildrenPtr() const override;
+	SnFieldExpr *m_pType;
+	std::unique_ptr<ImmutableNodeList> m_upChildren;
+};
+
+	//A struct type declaration (e.g. struct Point { int x; int y; }).
+//Inherits SnCompoundField to hold SnStructField children and support FindField.
+class NLANG_COMPILER_API SnStructDecl : public SnCompoundField
+{
+	typedef SnCompoundField Super_;
+public:
+	static const NodeKind	s_Kind			= NK_StructDecl;
+	static const NodeBits	s_DefaultFlags	= NF_Type | NF_Field | NF_Plain;
+	typedef ChildFieldList<SnStructField> MemberList;
+public:
+	SnStructDecl(std::string *pName, UniquePtrList<SnStructField> upMembers,
+		const ISourceLocation &loc);
+
+	~SnStructDecl() override;
+
+	MemberList &Members() { return *m_upMembers; }
+	const MemberList &Members() const { return *m_upMembers; }
+
+	size_t FieldCount() const { return m_upMembers->size(); }
+
+	//Struct type IS the type — returns itself.
+	SnField *EvalDataType() const override;
+	SnField *FindField(const std::string&) const override;
+	void Accept(ISyntaxNodeVisitor&) override;
+	std::string ToString() const override;
+private:
+	std::unique_ptr<MemberList> m_upMembers;
+};
+
+//A class field declaration (e.g. "int x" in class Point { int x; int y; }).
+//Similar to SnStructField but with access control (public/private/protected).
+class NLANG_COMPILER_API SnClassField : public SnField
+{
+	typedef SnField Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ClassField;
+	static const NodeBits	s_DefaultFlags	= NF_Field | NF_Data;
+public:
+	SnClassField(SnFieldExpr *pType, std::string *pName, FieldAccessType access,
+		const ISourceLocation &loc);
+
+	~SnClassField() override;
+
+	SnFieldExpr *Type() const { return m_pType; }
+	FieldAccessType Access() const { return m_access; }
+
+	SnField *EvalDataType() const override;
+	bool IsArrayType() const override;
+	SnField *FindField(const std::string&) const override;
+	void Accept(ISyntaxNodeVisitor&) override;
+	std::string ToString() const override;
+private:
+	ImmutableNodeList *ChildrenPtr() const override;
+	SnFieldExpr *m_pType;
+	FieldAccessType m_access;
+	std::unique_ptr<ImmutableNodeList> m_upChildren;
+};
+
+//A class type declaration (e.g. class Point { int x; int y; int sum() { ... } }).
+//Inherits SnFunctionParentField to hold both SnClassField and SnFunction members.
+class NLANG_COMPILER_API SnClassDecl : public SnFunctionParentField
+{
+	typedef SnFunctionParentField Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ClassDecl;
+	static const NodeBits	s_DefaultFlags	= NF_Type | NF_Field | NF_Plain;
+public:
+	SnClassDecl(std::string *pName, SnFieldExpr *pSuper,
+		PtrList<SnField> *pMembers, const ISourceLocation &loc);
+
+	~SnClassDecl() override;
+
+	//Super class (parent) access.
+	SnFieldExpr *SuperName() const { return m_pSuper; }
+	SnClassDecl *SuperClass() const { return m_pSuperClass; }
+	void SuperClass(SnClassDecl *pSuper) { m_pSuperClass = pSuper; }
+
+	//Count data fields (ClassField only, not Function members).
+	size_t FieldCount() const;
+
+	//Class type IS the type — returns itself.
+	SnField *EvalDataType() const override;
+	SnField *FindField(const std::string&) const override;
+	void Accept(ISyntaxNodeVisitor&) override;
+	std::string ToString() const override;
+private:
+	SnFieldExpr *m_pSuper;
+	SnClassDecl *m_pSuperClass;
+};
+
 //The "using" directive in nlang.
 class NLANG_COMPILER_API SnUsing : public SyntaxNode
 {
@@ -154,7 +271,7 @@ public:
 	static const NodeKind	s_Kind			= NK_Using;
 	static const NodeBits	s_DefaultFlags  = NF_NONE;
 public:
-	SnUsing(SnNameExpr *pPath, const ISourceLocation &loc);
+	SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc);
 
 	~SnUsing() override;
 
@@ -164,7 +281,7 @@ public:
 		return m_pNamespace;
 	}
 
-	SnNameExpr *Path() const
+	SnFieldExpr *Path() const
 	{
 		return m_pPath;
 	}
@@ -178,7 +295,7 @@ protected:
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
 	//The unresolved namespace path.
-	SnNameExpr *m_pPath;
+	SnFieldExpr *m_pPath;
 	SnNamespace *m_pNamespace;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };

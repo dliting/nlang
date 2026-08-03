@@ -153,7 +153,7 @@ SnField * SnInvokeStmt::FindField(const std::string& sName) const
 
 //SnLocalDeclStmt
 
-SnLocalDeclStmt::SnLocalDeclStmt(SnNameExpr *pType,
+SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 	std::vector<LocalDecl> *pDecls, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pType(pType), m_upDecls(pDecls)
 {
@@ -230,6 +230,36 @@ void SnAssignStmt::Accept(nlang::ISyntaxNodeVisitor &v)
 }
 
 SnField *SnAssignStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+//SnSubscriptAssignStmt
+
+SnSubscriptAssignStmt::SnSubscriptAssignStmt(SnExpression *pArray,
+	SnExpression *pIndex, SnExpression *pValue, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pArray(pArray), m_pIndex(pIndex), m_pValue(pValue)
+{
+	assert(m_pArray);
+	assert(m_pIndex);
+	assert(m_pValue);
+	AddChild(m_pArray);
+	AddChild(m_pIndex);
+	AddChild(m_pValue);
+}
+
+std::string SnSubscriptAssignStmt::ToString() const
+{
+	return m_pArray->ToString() + "[" + m_pIndex->ToString() + "] = " +
+		m_pValue->ToString() + ";\n";
+}
+
+void SnSubscriptAssignStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnSubscriptAssignStmt::FindField(const std::string& sName) const
 {
 	return nullptr;
 }

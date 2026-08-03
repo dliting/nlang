@@ -43,6 +43,8 @@ public:
 
 	void Access(SnNameExpr &);
 
+	void Access(SnArrayTypeExpr &);
+
 	void Access(SnIdentifierExpr &);
 
 	void Access(SnInvokeExpr &);
@@ -53,6 +55,23 @@ public:
 
 	//Resolve binary/unary operator expression.
 	void Access(SnBinaryExpr &);
+
+	//Resolve new expression.
+	void Access(SnNewExpr &);
+	//Resolve new array expression.
+	void Access(SnNewArrayExpr &);
+
+	//Resolve subscript expression.
+	void Access(SnSubscriptExpr &);
+
+	//Resolve this expression.
+	void Access(SnThisExpr &);
+
+	//Resolve class declaration.
+	void Access(SnClassDecl &);
+
+	//Resolve class field.
+	void Access(SnClassField &);
 
 	//Default action.
 	void Access(SyntaxNode &)
@@ -179,7 +198,7 @@ public:
 	}
 private:
 
-	bool ResolveDataType(SnNameExpr & typeExpr, SnField & outerType);
+	bool ResolveDataType(SnFieldExpr & typeExpr, SnField & outerType);
 
 	bool ResolveChildFields(SnField & sn);
 	ExprResolveAccessor m_Accessor;

@@ -28,7 +28,7 @@ public:
 		assert(m_pVisitor);
 		for (auto& field : sn.Members())
 		{
-			if (CanBeFuncParent(field.Kind()) || field.Kind() == NK_Function || field.Kind() == NK_EnumDecl)
+			if (CanBeFuncParentEx(field.Kind()) || field.Kind() == NK_Function || field.Kind() == NK_EnumDecl || field.Kind() == NK_StructDecl || field.Kind() == NK_ClassDecl)
 				field.Accept(*m_pVisitor);
 		}
 	}
@@ -93,19 +93,17 @@ public:
 		m_ExprResolver.Resolve(sn, *sn.Parent(), *m_pCurrType, ERF_None);
 	}
 
-	/*
-	Local variable declaration.
-	Reference: EN's LocalDeclStmt::DoResolve (SeStatements.cpp:232).
-	*/
 	void Access(SnLocalDeclStmt &sn)
 	{
 		assert(m_pVisitor);
-		//Resolve the type name
-		sn.Type()->Accept(*m_pVisitor);
+		//Resolve the type expression via ExprResolver, not the
+		//StatementResolver visitor (which doesn't have Access for type
+		//expressions). This is critical for SnArrayTypeExpr which would
+		//hit the empty Access(SnArrayTypeExpr&) and never resolve.
+		m_ExprResolver.Resolve(*sn.Type(), *sn.Parent(), *m_pCurrType, ERF_None);
 		if (!sn.Type()->IsResolved())
 			return;
 
-		//Find the parent paragraph to register locals
 		auto pParent = sn.Parent();
 		SnParagraph *pParagraph = nullptr;
 		while (pParent)
@@ -120,52 +118,34 @@ public:
 		if (!pParagraph)
 			return;
 
-		//Register each local variable using SnLocalVar (a lightweight
-		//descriptor that references the resolved type without owning it
-		//via AddChild). SnFormalParam cannot be used here because its
-		//constructor calls AddChild on the type expression, which would
-		//fail — the type expr is already owned by SnLocalDeclStmt.
-		//
-		//Decomposition pattern (Reference: EN's LocalDeclStmt::ResolveItem,
-		//SeStatements.cpp:261): declarations with initializers are split into
-		//variable registration + AssignStmt. This ensures all assignment
-		//semantics (type coercion, etc.) go through a single code path.
 		auto *pTypeField = sn.Type()->Field();
+		auto bIsArray = sn.Type()->IsArrayType();
 		for (auto &decl : sn.Decls())
 		{
 			auto *pLocal = new SnLocalVar(decl.name, pTypeField,
 				*sn.Location());
+			if (bIsArray)
+				pLocal->SetArrayType(true);
 			pParagraph->AddLocal(decl.name, pLocal);
 
 			if (decl.pInitExpr)
 			{
-				//Decomposition: create AssignStmt for the initializer.
-				//Reference: EN's LocalDeclStmt::ResolveItem
-				//(SeStatements.cpp:261).
 				auto *pLeft = new SnIdentifierExpr(
 					new std::string(decl.name), *sn.Location());
 				auto *pAssign = new SnAssignStmt(
 					pLeft, decl.pInitExpr, *sn.Location());
 
-				//Insert right after this LocalDeclStmt in the Paragraph.
-				//Use Node::InsertChild at the position after &sn.
 				auto iPos = pParagraph->Children().find(&sn);
 				++iPos;
 				pParagraph->InsertChild(iPos, pAssign);
 
-				//Immediately resolve the new AssignStmt.
 				pAssign->Accept(*m_pVisitor);
 
-				//The init expression is now owned by the AssignStmt.
 				decl.pInitExpr = nullptr;
 			}
 		}
 	}
 
-	/*
-	Assignment statement.
-	Reference: EN's AssignStmt::DoResolve (SeStatements.cpp:306).
-	*/
 	void Access(SnAssignStmt &sn)
 	{
 		if (sn.IsResolved())
@@ -174,14 +154,18 @@ public:
 		sn.Left()->Accept(*m_pVisitor);
 		sn.Right()->Accept(*m_pVisitor);
 
-		//Type coercion: if the right-hand expression's type differs from
-		//the left-hand variable's type, insert a CastExpr.
-		//Reference: EN's AssignStmt::DoResolve (SeStatements.cpp:306).
-		auto* pLeftField = sn.Left()->Kind() == NK_IdentifierExpr
-			? static_cast<SnIdentifierExpr&>(*sn.Left()).Field() : nullptr;
-		if (!pLeftField)
-			return;
-		auto* pTargetType = pLeftField->EvalDataType();
+		SnField* pTargetType = nullptr;
+		if (sn.Left()->Kind() == NK_IdentifierExpr)
+		{
+			auto* pLeftField = static_cast<SnIdentifierExpr&>(*sn.Left()).Field();
+			if (!pLeftField)
+				return;
+			pTargetType = pLeftField->EvalDataType();
+		}
+		else if (sn.Left()->Kind() == NK_MemberExpr)
+		{
+			pTargetType = sn.Left()->EvalDataType();
+		}
 		auto* pSourceType = sn.Right()->EvalDataType();
 		if (!pTargetType || !pSourceType)
 			return;
@@ -192,10 +176,6 @@ public:
 		sn.AddFlags(NF_Resolved);
 	}
 
-	/*
-	If/else statement.
-	Reference: EN's IfStmt::DoResolve (SeStatements.cpp:422).
-	*/
 	void Access(SnIfStmt &sn)
 	{
 		assert(m_pVisitor);
@@ -205,10 +185,6 @@ public:
 			sn.ElseStmt()->Accept(*m_pVisitor);
 	}
 
-	/*
-	While loop statement.
-	Reference: EN's WhileStmt::DoResolve (SeStatements.cpp:463).
-	*/
 	void Access(SnWhileStmt &sn)
 	{
 		assert(m_pVisitor);
@@ -216,10 +192,6 @@ public:
 		sn.Body()->Accept(*m_pVisitor);
 	}
 
-	/*
-	Do-while loop statement.
-	Reference: EN's DoStmt::DoResolve — same as WhileStmt.
-	*/
 	void Access(SnDoStmt &sn)
 	{
 		assert(m_pVisitor);
@@ -227,16 +199,10 @@ public:
 		sn.Cond()->Accept(*m_pVisitor);
 	}
 
-	/*
-	For loop statement.
-	Reference: EN's ForStmt::DoResolve (SeStatements.cpp:611).
-	*/
 	void Access(SnForStmt &sn)
 	{
 		assert(m_pVisitor);
 
-		//1. Handle init part
-		//Reference: EN's CompositeStatement::DoResolve + LocalDeclStmt::ResolveItem
 		if (sn.Init() && sn.Init()->Kind() == NK_LocalDeclStmt) {
 			auto& decl = static_cast<SnLocalDeclStmt&>(*sn.Init());
 			decl.Type()->Accept(*m_pVisitor);
@@ -251,9 +217,12 @@ public:
 					}
 					pParent = pParent->Parent();
 				}
+				auto bIsArray = decl.Type()->IsArrayType();
 				for (auto& d : decl.Decls()) {
 					auto *pLocal = new SnLocalVar(d.name, pTypeField,
 						*decl.Location());
+					if (bIsArray)
+						pLocal->SetArrayType(true);
 					if (pParagraph) {
 						pParagraph->AddLocal(d.name, pLocal);
 					}
@@ -264,17 +233,12 @@ public:
 							pLeft, d.pInitExpr, *decl.Location());
 						sn.InitExtras().push_back(pAssign);
 
-						//Resolve expressions using the Paragraph as
-						//context, since pAssign is not in the AST
-						//child list and has no parent for
-						//FindFieldInAncestor to walk up.
 						if (pParagraph) {
 							m_ExprResolver.Resolve(*pLeft,
 								*pParagraph, *m_pCurrType, ERF_None);
 							m_ExprResolver.Resolve(*d.pInitExpr,
 								*pParagraph, *m_pCurrType, ERF_None);
 
-							//Type coercion (same as Access(SnAssignStmt)).
 							auto* pLeftField2 = pLeft->IsResolved()
 								? pLeft->Field() : nullptr;
 							if (pLeftField2) {
@@ -296,43 +260,26 @@ public:
 
 						d.pInitExpr = nullptr;
 					}
-					}
+				}
 			}
 		} else if (sn.Init()) {
 			sn.Init()->Accept(*m_pVisitor);
 		}
 
-		//2. Resolve condition
 		sn.Cond()->Accept(*m_pVisitor);
-
-		//3. Resolve body
 		sn.Body()->Accept(*m_pVisitor);
-
-		//4. Resolve fini
 		if (sn.Fini())
 			sn.Fini()->Accept(*m_pVisitor);
 	}
 
-	/*
-	Break statement.
-	Reference: EN's BreakStmt::DoResolve (SeStatements.cpp:876) — no-op.
-	*/
 	void Access(SnBreakStmt &sn)
 	{
 	}
 
-	/*
-	Continue statement.
-	Reference: EN's ContinueStmt::DoResolve (SeStatements.cpp:902) — no-op.
-	*/
 	void Access(SnContinueStmt &sn)
 	{
 	}
 
-	/*
-	Switch statement.
-	Reference: EN's SwitchStmt::DoResolve (SeStatements.cpp:824).
-	*/
 	void Access(SnSwitchStmt &sn)
 	{
 		assert(m_pVisitor);
@@ -343,10 +290,6 @@ public:
 			sn.Default()->Accept(*m_pVisitor);
 	}
 
-	/*
-	Case clause.
-	Reference: EN's CondClause::Resolve (SeStatements.cpp:197).
-	*/
 	void Access(SnCaseClause &sn)
 	{
 		assert(m_pVisitor);
@@ -363,10 +306,6 @@ public:
 		}
 	}
 
-	/*
-	Enum type declaration.
-	Resolve enum member values: auto-increment or explicit assignment.
-	*/
 	void Access(SnEnumDecl &sn)
 	{
 		assert(m_pVisitor);
@@ -376,7 +315,6 @@ public:
 			if (member.ValueExpr())
 			{
 				member.ValueExpr()->Accept(*m_pVisitor);
-				//Only support integer literal values for enum members.
 				if (member.ValueExpr()->IsResolved()
 					&& member.ValueExpr()->EvalDataType()
 					&& member.ValueExpr()->EvalDataType()->Kind() == NK_Int32)
@@ -403,9 +341,128 @@ public:
 	{
 	}
 
-		void Access(SyntaxNode &sn)
+	void Access(SnStructDecl &sn)
 	{
-		//Fallback for unhandled node types.
+		assert(m_pVisitor);
+		for (auto &field : sn.Members())
+		{
+			field.Type()->Accept(*m_pVisitor);
+		}
+		sn.AddFlags(NF_Resolved);
+	}
+
+	void Access(SnStructField &sn)
+	{
+	}
+
+	void Access(SnClassDecl &sn)
+	{
+		assert(m_pVisitor);
+		//Resolve super class reference using ExprResolver (not the
+		//StatementResolver visitor, which lacks Access(SnNameExpr&)).
+		if (sn.SuperName())
+		{
+			m_ExprResolver.Resolve(*sn.SuperName(), sn, sn, ERF_None);
+			if (sn.SuperName()->IsResolved())
+			{
+				auto pSuperField = sn.SuperName()->Field();
+				if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
+					sn.SuperClass(static_cast<SnClassDecl*>(pSuperField));
+				else
+					m_Env.Log(CLL_Error, sn.SuperName()->Location(),
+						"\"%s\" is not a class type.", sn.SuperName()->ToString().c_str());
+			}
+		}
+		//Like EN: a method that overrides a parent virtual method
+		//is also virtual (implicit virtual propagation).
+		//Check both name and parameter count to avoid false matches.
+		auto *pSuper = sn.SuperClass();
+		if (pSuper)
+		{
+			for (auto &field : sn.Members())
+			{
+				if (field.Kind() != NK_Function)
+					continue;
+				if (field.ContainFlags(NF_Virtual))
+					continue;
+				auto &childFunc = static_cast<SnFunction&>(field);
+				auto *pAncestor = pSuper;
+				while (pAncestor)
+				{
+					auto *pParentMethod = pAncestor->FindField(field.Name());
+					if (pParentMethod && pParentMethod->Kind() == NK_Function
+						&& pParentMethod->ContainFlags(NF_Virtual))
+					{
+						auto &parentFunc = static_cast<SnFunction&>(*pParentMethod);
+						if (childFunc.Params().size() == parentFunc.Params().size())
+						{
+							field.AddFlags(NF_Virtual);
+							break;
+						}
+					}
+					pAncestor = pAncestor->SuperClass();
+				}
+			}
+		}
+		for (auto &field : sn.Members())
+		{
+			if (field.Kind() == NK_ClassField)
+				field.Accept(*m_pVisitor);
+		}
+		//Resolve method bodies.
+		for (auto &field : sn.Members())
+		{
+			if (field.Kind() == NK_Function)
+				field.Accept(*m_pVisitor);
+		}
+		sn.AddFlags(NF_Resolved);
+	}
+
+	void Access(SnClassField &sn)
+	{
+		assert(m_pVisitor);
+		if (sn.Type())
+			sn.Type()->Accept(*m_pVisitor);
+	}
+
+	void Access(SnNewExpr &sn)
+	{
+		m_ExprResolver.Resolve(sn, *sn.Parent(), *m_pCurrType, ERF_None);
+	}
+
+	void Access(SnInvokeStmt &sn)
+	{
+		assert(m_pVisitor);
+		sn.Expr()->Accept(*m_pVisitor);
+	}
+
+	void Access(SnSubscriptAssignStmt &sn)
+	{
+		if (sn.IsResolved())
+			return;
+		assert(m_pCurrType);
+		if (sn.Array() && !sn.Array()->IsResolved())
+			m_ExprResolver.Resolve(*sn.Array(), *sn.Array()->Parent(), *m_pCurrType, ERF_None);
+		if (sn.Index() && !sn.Index()->IsResolved())
+			m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
+		if (sn.Value() && !sn.Value()->IsResolved())
+			m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
+		sn.AddFlags(NF_Resolved);
+	}
+
+	void Access(SnThisExpr &sn)
+	{
+		m_ExprResolver.Resolve(sn, *sn.Parent(), *m_pCurrType, ERF_None);
+	}
+
+	void Access(SnArrayTypeExpr &)
+	{
+		//Type expressions are resolved via ExprResolver when used in
+		//declarations; nothing to do at statement level.
+	}
+
+	void Access(SyntaxNode &sn)
+	{
 	}
 
 private:

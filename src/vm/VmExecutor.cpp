@@ -675,6 +675,68 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
+        case OpCode::OP_AllocArray: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t arrayTypeIdx = reader.ReadUint16();
+            uint16_t sizeSlot = reader.ReadUint16();
+            int32_t size;
+            std::memcpy(&size, locals + sizeSlot, sizeof(size));
+            if (size < 0)
+                throw std::runtime_error("NLang VM: negative array size");
+            int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, size);
+            std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
+            m_gcPending = true;
+            break;
+        }
+
+        case OpCode::OP_LoadElement: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t arr = reader.ReadUint16();
+            uint16_t index = reader.ReadUint16();
+            int32_t heapIdx, idx;
+            std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+            std::memcpy(&idx, locals + index, sizeof(idx));
+            if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+                throw std::runtime_error("NLang VM: null array access");
+            auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+            int32_t length = slot[2];
+            if (idx < 0 || idx >= length)
+                throw std::runtime_error("NLang VM: array index out of bounds");
+            int32_t val = slot[3 + idx];
+            std::memcpy(locals + dst, &val, sizeof(val));
+            break;
+        }
+
+        case OpCode::OP_StoreElement: {
+            uint16_t arr = reader.ReadUint16();
+            uint16_t index = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            int32_t heapIdx, idx, val;
+            std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+            std::memcpy(&idx, locals + index, sizeof(idx));
+            std::memcpy(&val, locals + src, sizeof(val));
+            if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+                throw std::runtime_error("NLang VM: null array access");
+            auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+            int32_t length = slot[2];
+            if (idx < 0 || idx >= length)
+                throw std::runtime_error("NLang VM: array index out of bounds");
+            slot[3 + idx] = val;
+            break;
+        }
+
+        case OpCode::OP_ArrayLength: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t arr = reader.ReadUint16();
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+            if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+                throw std::runtime_error("NLang VM: null array access");
+            int32_t len = m_structHeap[static_cast<size_t>(heapIdx)][2];
+            std::memcpy(locals + dst, &len, sizeof(len));
+            break;
+        }
+
         default:
             throw std::runtime_error(
                 std::string("NLang VM: unknown opcode ") +
@@ -738,6 +800,29 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
     return heapIdx;
 }
 
+int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
+    if (arrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error("NLang VM: invalid array type index");
+    int32_t totalSlots = 3 + size;
+    int32_t heapIdx;
+    if (!m_freeList.empty()) {
+        heapIdx = m_freeList.back();
+        m_freeList.pop_back();
+        m_structHeap[static_cast<size_t>(heapIdx)].assign(totalSlots, 0);
+        m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Array;
+        m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
+    } else {
+        heapIdx = static_cast<int32_t>(m_structHeap.size());
+        m_structHeap.emplace_back(totalSlots, 0);
+        m_slotKinds.push_back(RTK_Array);
+        m_slotStructIdx.push_back(arrayTypeIdx);
+    }
+    m_structHeap[static_cast<size_t>(heapIdx)][0] = RTK_Array;
+    m_structHeap[static_cast<size_t>(heapIdx)][1] = arrayTypeIdx;
+    m_structHeap[static_cast<size_t>(heapIdx)][2] = size;
+    return heapIdx;
+}
+
 int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     if (srcHeapIdx < 0 || static_cast<size_t>(srcHeapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid struct heap index in CopyStruct");
@@ -792,7 +877,8 @@ void VmExecutor::MarkPhase() {
     std::vector<int32_t> worklist;
     for (auto& frame : m_callStack) {
         for (auto& ld : frame.func->locals) {
-            if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class)
+            if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
+                && ld.typeKind != RTK_Array)
                 continue;
             int32_t val;
             std::memcpy(&val, frame.locals + ld.offset, sizeof(val));
@@ -805,7 +891,8 @@ void VmExecutor::MarkPhase() {
         }
         if (frame.pResult) {
             uint8_t retKind = frame.func->returnTypeKind;
-            if (retKind == RTK_Class || retKind == RTK_Struct) {
+            if (retKind == RTK_Class || retKind == RTK_Struct
+                || retKind == RTK_Array) {
                 int32_t val;
                 std::memcpy(&val, frame.pResult, sizeof(val));
                 if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
@@ -850,6 +937,25 @@ void VmExecutor::MarkPhase() {
                     }
                 }
             }
+        } else if (m_slotKinds[idx] == RTK_Array) {
+            uint16_t arrayTypeIdx = m_slotStructIdx[idx];
+            auto& at = m_currModule->arrayTypes[arrayTypeIdx];
+            int32_t length = m_structHeap[idx][2];
+            for (int32_t i = 0; i < length; ++i) {
+                int32_t elemRef = m_structHeap[idx][3 + i];
+                if (elemRef <= 0 || static_cast<size_t>(elemRef) >= m_slotKinds.size())
+                    continue;
+                if (at.elemKind == RTK_Class && m_slotKinds[elemRef] == RTK_Class
+                    && !m_markBits[elemRef]) {
+                    m_markBits[elemRef] = true;
+                    worklist.push_back(elemRef);
+                }
+                else if (at.elemKind == RTK_Struct && m_slotKinds[elemRef] == RTK_Struct
+                         && !m_markBits[elemRef]) {
+                    m_markBits[elemRef] = true;
+                    worklist.push_back(elemRef);
+                }
+            }
         }
     }
 }
@@ -863,6 +969,8 @@ void VmExecutor::SweepPhase() {
                 FreeOwnedStructs(static_cast<int32_t>(i));
             if (m_slotKinds[i] == RTK_Struct)
                 FreeNestedStructs(static_cast<int32_t>(i), m_slotStructIdx[i]);
+            if (m_slotKinds[i] == RTK_Array)
+                FreeOwnedArrayStructElements(static_cast<int32_t>(i));
             m_structHeap[i].clear();
             m_slotKinds[i] = 0;
             m_freeList.push_back(static_cast<int32_t>(i));
@@ -901,6 +1009,26 @@ void VmExecutor::FreeNestedStructs(int32_t heapIdx, uint16_t structIdx) {
                 m_slotKinds[nestedIdx] = 0;
                 m_freeList.push_back(nestedIdx);
             }
+        }
+    }
+}
+
+void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
+    uint16_t arrayTypeIdx = m_slotStructIdx[heapIdx];
+    if (arrayTypeIdx >= m_currModule->arrayTypes.size())
+        return;
+    auto& at = m_currModule->arrayTypes[arrayTypeIdx];
+    if (at.elemKind != RTK_Struct)
+        return;
+    int32_t length = m_structHeap[heapIdx][2];
+    for (int32_t i = 0; i < length; ++i) {
+        int32_t elemRef = m_structHeap[heapIdx][3 + i];
+        if (elemRef > 0 && static_cast<size_t>(elemRef) < m_slotKinds.size()
+            && m_slotKinds[elemRef] == RTK_Struct) {
+            FreeNestedStructs(elemRef, at.elemTypeIdx);
+            m_structHeap[elemRef].clear();
+            m_slotKinds[elemRef] = 0;
+            m_freeList.push_back(elemRef);
         }
     }
 }

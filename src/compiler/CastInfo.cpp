@@ -1,4 +1,5 @@
 #include "CastInfo.h"
+#include "SnMisc.h"
 
 namespace nlang
 {
@@ -48,6 +49,51 @@ void TypeCastInfo::CalcCastKind()
 	//Enum types are int32 at runtime — treat them as NK_Int32 for casting.
 	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
 	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
+	//Struct types: same struct type → TCK_Same; otherwise incompatible.
+	if (srcKind == NK_StructDecl && tgtKind == NK_StructDecl)
+	{
+		m_Kind = (m_pSource == m_pTarget) ? TCK_Same : TCK_None;
+		return;
+	}
+	if (srcKind == NK_StructDecl || tgtKind == NK_StructDecl)
+	{
+		m_Kind = TCK_None;
+		return;
+	}
+	//Class types: same class → TCK_Same; subclass to parent → TCK_Same (implicit); otherwise incompatible.
+	if (srcKind == NK_ClassDecl && tgtKind == NK_ClassDecl)
+	{
+		if (m_pSource == m_pTarget)
+		{
+			m_Kind = TCK_Same;
+			return;
+		}
+		//Check inheritance chain for implicit conversion.
+		auto *pSrc = static_cast<const SnClassDecl*>(m_pSource);
+		auto *pParent = pSrc->SuperClass();
+		while (pParent)
+		{
+			if (pParent == m_pTarget)
+			{
+				m_Kind = TCK_Same;
+				return;
+			}
+			pParent = pParent->SuperClass();
+		}
+		m_Kind = TCK_None;
+		return;
+	}
+	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
+	{
+		//Allow int (null literal) to be assigned to class type.
+		if (srcKind == NK_Int32 && tgtKind == NK_ClassDecl)
+		{
+			m_Kind = TCK_Auto;
+			return;
+		}
+		m_Kind = TCK_None;
+		return;
+	}
 	if (srcKind >= NK_DT_COUNT || tgtKind >= NK_DT_COUNT)
 	{
 		m_Kind = TCK_None;

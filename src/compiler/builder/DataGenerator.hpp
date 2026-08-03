@@ -111,6 +111,8 @@ public:
 	{
 		assert(false && "Not implemented.");
 	}
+
+	void Access(SnArrayTypeExpr &) {}
 private:
 	static std::string BuildPathName(const SnField &sn)
 	{

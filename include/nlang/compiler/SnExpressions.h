@@ -140,6 +140,15 @@ public:
 
 	virtual bool IsDataExpr() const override;
 
+	//Is this expression an array type (e.g. int[] or T[])?
+	//Subclasses representing array types override this to return true.
+	//This is the polymorphic hook used by SnField subclasses (via their
+	//m_pType pointer) to forward IsArrayType queries.
+	virtual bool IsArrayType() const
+	{
+		return false;
+	}
+
 	static SnFieldExpr::FieldChecker& DataTypeChecker();
 protected:
 	SnField *m_pField;
@@ -406,6 +415,35 @@ private:
 	RnField *m_pImportedField;
 };
 
+//Array type expression (e.g. "int[]").
+//Constructed from an element type expression. The element type may itself
+//be an array type, naturally supporting multi-dimensional arrays.
+class NLANG_COMPILER_API SnArrayTypeExpr : public SnCompoundFieldExpr
+{
+	typedef SnCompoundFieldExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ArrayTypeExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnArrayTypeExpr(SnFieldExpr *pElemType, const ISourceLocation &loc);
+
+	SnFieldExpr *ElementType() const
+	{
+		return m_pElementType;
+	}
+
+	bool IsArrayType() const override
+	{
+		return true;
+	}
+
+	void Accept(ISyntaxNodeVisitor &) override;
+
+	std::string ToString() const override;
+private:
+	SnFieldExpr *m_pElementType;
+};
+
 //Type cast expression syntax node.
 class NLANG_COMPILER_API SnCastExpr : public SnCompoundPlainExpr
 {
@@ -489,6 +527,96 @@ private:
 	Operator m_op;
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+};
+
+class SnClassDecl;
+
+//The "new" expression for object instantiation.
+class NLANG_COMPILER_API SnNewExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_NewExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnNewExpr(SnFieldExpr *pClassName, UniquePtrList<SnExpression> upArgs,
+		const ISourceLocation &loc);
+
+	~SnNewExpr() override;
+
+	SnFieldExpr *ClassName() const { return m_pClassName; }
+	SnExpressionList &Args() const { return *m_pArgs; }
+	SnClassDecl *ClassDecl() const { return m_pClassDecl; }
+	void ClassDecl(SnClassDecl *pClass) { m_pClassDecl = pClass; }
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	SnFieldExpr *m_pClassName;
+	SnExpressionList *m_pArgs;
+	SnClassDecl *m_pClassDecl;
+};
+
+//The "this" expression — refers to the current object in a method.
+class NLANG_COMPILER_API SnThisExpr : public SnFieldExpr
+{
+	typedef SnFieldExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ThisExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	explicit SnThisExpr(const ISourceLocation &loc);
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+};
+
+//Array subscript access expression (e.g. arr[i]).
+class NLANG_COMPILER_API SnSubscriptExpr : public SnCompoundFieldExpr
+{
+	typedef SnCompoundFieldExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_SubscriptExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
+		const ISourceLocation &loc);
+
+	SnExpression *Array() const { return m_pArray; }
+	SnExpression *Index() const { return m_pIndex; }
+
+	bool IsDataExpr() const override { return true; }
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	SnExpression *m_pArray;
+	SnExpression *m_pIndex;
+};
+
+//Array allocation expression (e.g. new int[10]).
+class NLANG_COMPILER_API SnNewArrayExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_NewArrayExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnNewArrayExpr(SnFieldExpr *pElemType, SnExpression *pSize,
+		const ISourceLocation &loc);
+
+	~SnNewArrayExpr() override;
+
+	SnFieldExpr *ElementType() const { return m_pElemType; }
+	SnExpression *Size() const { return m_pSize; }
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	SnFieldExpr *m_pElemType;
+	SnExpression *m_pSize;
 };
 
 } //namespace nlang

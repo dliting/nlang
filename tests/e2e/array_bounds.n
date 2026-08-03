@@ -1,0 +1,6 @@
+int main() {
+    int[] arr = new int[3];
+    arr[0] = 1;
+    arr[5] = 99;
+    return arr[5];
+}

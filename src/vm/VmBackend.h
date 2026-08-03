@@ -36,15 +36,29 @@ private:
     void RegisterStructs(SnNamespace& root);
     void RegisterClasses(SnNamespace& root);
     void ResolveStructClassRefs();
+    void RegisterArrayTypes(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
+
+    //Register an array type from its element type field.
+    //Returns the arrayTypeIdx in m_compiledModule.arrayTypes.
+    uint16_t RegisterArrayType(SnField* pElemType);
 
     static uint8_t RuntimeTypeKind(SnField* pType);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
     uint16_t FindLocal(const std::string& name) const;
     uint16_t AddStringConstant(const std::string& s);
+
+    //Pick a temp slot distinct from `exclude` so a sub-expression can use it
+    //without clobbering `exclude`. With only two temp slots available, the
+    //rule is: if exclude == tempSlot, return tempSlot2; otherwise return
+    //tempSlot. This composes for nested expressions because each level
+    //alternates between tempSlot and tempSlot2.
+    //Used by: BinaryExpr (right operand), SubscriptExpr (index), and any
+    //other expression that needs one extra slot besides its resultOffset.
+    uint16_t PickTempSlot(uint16_t exclude) const;
 
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;

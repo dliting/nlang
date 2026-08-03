@@ -10,7 +10,7 @@ namespace nlang
 {
 
 SnDataField::SnDataField(NodeKind k, FieldAccessType at, NodeBits flags,
-	SnNameExpr *pType, std::string *pName, SnExpression *pDefault,
+	SnFieldExpr *pType, std::string *pName, SnExpression *pDefault,
 	const ISourceLocation &loc):
 	Super_(k, at, flags, pName, loc), m_pType(pType), m_pValue(pDefault),
 	m_upChildren(new ImmutableNodeList())
@@ -50,6 +50,11 @@ SnField *SnDataField::EvalDataType() const
 	return static_cast<SnField *>(m_pType->Field());
 }
 
+bool SnDataField::IsArrayType() const
+{
+	return m_pType && m_pType->IsArrayType();
+}
+
 std::string SnDataField::ToString() const
 {
 	std::stringstream ss;
@@ -70,7 +75,7 @@ SnField * SnDataField::FindField(const std::string& sName) const
 	return nullptr;
 }
 
-SnFormalParam::SnFormalParam(NodeBits flags, SnNameExpr *pType,
+SnFormalParam::SnFormalParam(NodeBits flags, SnFieldExpr *pType,
 	std::string *pName, SnExpression *pDefault, const ISourceLocation &loc) :
 	Super_(RuntimeType::s_Kind, FA_Public, flags | RuntimeType::s_DefaultFlags,
 		pType, pName, pDefault, loc)
@@ -87,7 +92,7 @@ void SnFormalParam::Accept(ISyntaxNodeVisitor &v)
 }
 
 SnFunction::SnFunction(FieldAccessType at, NodeBits flags,
-	SnNameExpr *pReturnType, std::string *pName,
+	SnFieldExpr *pReturnType, std::string *pName,
 	UniquePtrList<SnFormalParam> upParams, const ISourceLocation &loc) :
 	Super_(RuntimeType::s_Kind, at, flags | RuntimeType::s_DefaultFlags,
 		pName, loc),

@@ -1,0 +1,10 @@
+class Node {
+    int val;
+}
+
+int main() {
+    Node[] arr = new Node[3];
+    arr[0] = new Node();
+    arr[0].val = 42;
+    return arr[0].val;
+}

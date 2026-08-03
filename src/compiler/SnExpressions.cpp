@@ -333,8 +333,6 @@ SnNameExpr::SnNameExpr(RnField &rn) :
 	Super_(s_Kind), m_pExpr(nullptr), m_pImportedField(&rn)
 {
 	AddFlags(NF_Imported);
-	//The referred node may be not created yet, so we'll resolve it after all
-	//the nodes are imported. 
 }
 
 SnNameExpr::SnNameExpr(SnMemberExpr* pExpr, const ISourceLocation &loc) :
@@ -362,6 +360,26 @@ std::string SnNameExpr::ToString() const
     if (!m_pExpr)
         return m_pImportedField ? m_pImportedField->Name() : "!null";
     return m_pExpr->ToString();
+}
+
+//--- SnArrayTypeExpr ---
+
+SnArrayTypeExpr::SnArrayTypeExpr(SnFieldExpr *pElemType,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pElementType(pElemType)
+{
+	assert(pElemType);
+	AddChild(pElemType);
+}
+
+void SnArrayTypeExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnArrayTypeExpr::ToString() const
+{
+	return m_pElementType->ToString() + "[]";
 }
 
 SnCastExpr::SnCastExpr(SnExpression *pSource, TypeCastInfo &ci, 
@@ -439,6 +457,99 @@ std::string SnBinaryExpr::ToString() const
 	else
 		ss << opNames[m_op] << m_pLeft->ToString();
 	return std::move(ss.str());
+}
+
+//--- SnNewExpr ---
+
+SnNewExpr::SnNewExpr(SnFieldExpr *pClassName, UniquePtrList<SnExpression> upArgs,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pClassName(pClassName),
+	m_pArgs(CreateChildNodes(upArgs, this)), m_pClassDecl(nullptr)
+{
+	assert(m_pClassName);
+	AddChild(m_pClassName);
+}
+
+SnNewExpr::~SnNewExpr()
+{
+}
+
+bool SnNewExpr::IsDataExpr() const
+{
+	return true;
+}
+
+void SnNewExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnNewExpr::ToString() const
+{
+	std::stringstream ss;
+	ss << "new " << m_pClassName->ToString() << "()";
+	return std::move(ss.str());
+}
+
+//--- SnThisExpr ---
+
+SnThisExpr::SnThisExpr(const ISourceLocation &loc) :
+	Super_(s_Kind, loc)
+{
+}
+
+bool SnThisExpr::IsDataExpr() const
+{
+	return true;
+}
+
+void SnThisExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnThisExpr::ToString() const
+{
+	return "this";
+}
+
+SnSubscriptExpr::SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pArray(pArray), m_pIndex(pIndex)
+{
+}
+
+void SnSubscriptExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnSubscriptExpr::ToString() const
+{
+	return "subscript";
+}
+
+SnNewArrayExpr::SnNewArrayExpr(SnFieldExpr *pElemType, SnExpression *pSize,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pElemType(pElemType), m_pSize(pSize)
+{
+}
+
+SnNewArrayExpr::~SnNewArrayExpr() = default;
+
+bool SnNewArrayExpr::IsDataExpr() const
+{
+	return true;
+}
+
+void SnNewArrayExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnNewArrayExpr::ToString() const
+{
+	return "new_array";
 }
 
 } //namespace nlang

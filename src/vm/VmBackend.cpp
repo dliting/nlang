@@ -11,6 +11,7 @@
 #include <fstream>
 #include <filesystem>
 #include <iostream>
+#include <functional>
 
 namespace nlang {
 
@@ -38,6 +39,7 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
     RegisterStructs(root);
     RegisterClasses(root);
     ResolveStructClassRefs();
+    RegisterArrayTypes(root);
     RegisterFunctions(root);
     PopulateClassMethods(root);
     GenerateAllBytecode(root);
@@ -190,6 +192,111 @@ void VmBackend::ResolveStructClassRefs() {
     }
 }
 
+uint16_t VmBackend::RegisterArrayType(SnField* pElemType) {
+    uint8_t elemKind = RuntimeTypeKind(pElemType);
+    uint16_t elemTypeIdx = 0xFFFF;
+    if (elemKind == RTK_Struct && pElemType) {
+        int idx = m_compiledModule.FindStruct(pElemType->Name());
+        if (idx >= 0)
+            elemTypeIdx = static_cast<uint16_t>(idx);
+    } else if (elemKind == RTK_Class && pElemType) {
+        int idx = m_compiledModule.FindClass(pElemType->Name());
+        if (idx >= 0)
+            elemTypeIdx = static_cast<uint16_t>(idx);
+    }
+    int existing = m_compiledModule.FindArray(elemKind, elemTypeIdx);
+    if (existing >= 0)
+        return static_cast<uint16_t>(existing);
+    CompiledArrayType at;
+    at.elemKind = elemKind;
+    at.elemTypeIdx = elemTypeIdx;
+    m_compiledModule.arrayTypes.push_back(at);
+    return static_cast<uint16_t>(m_compiledModule.arrayTypes.size() - 1);
+}
+
+//Recursively walk the AST collecting array type usages.
+//Array types appear in: LocalDeclStmt.Type() when IsArrayType(), NewArrayExpr,
+//struct/class fields, function params, return types. For Phase 4 simplicity,
+//we scan LocalDeclStmt, struct fields, class fields, formal params, and
+//NewArrayExpr. The latter is registered lazily at codegen time.
+void VmBackend::RegisterArrayTypes(SnNamespace& root) {
+    auto processType = [&](SnFieldExpr* pTypeExpr) {
+        if (pTypeExpr && pTypeExpr->IsArrayType()) {
+            //Walk through nested SnArrayTypeExpr nodes to find the element type.
+            auto* pCur = pTypeExpr;
+            while (pCur->Kind() == NK_ArrayTypeExpr) {
+                pCur = static_cast<SnArrayTypeExpr*>(pCur)->ElementType();
+            }
+            //pCur is now the base type (SnNameExpr for primitives/classes).
+            if (auto* pNameExpr = dynamic_cast<SnNameExpr*>(pCur)) {
+                if (pNameExpr->Field())
+                    RegisterArrayType(pNameExpr->Field());
+            }
+        }
+    };
+    std::function<void(SnField&)> walkField = [&](SnField& f) {
+        if (f.Kind() == NK_StructField) {
+            auto& sf = static_cast<SnStructField&>(f);
+            if (sf.Type())
+                processType(sf.Type());
+        }
+        if (f.Kind() == NK_ClassField) {
+            auto& cf = static_cast<SnClassField&>(f);
+            if (cf.Type())
+                processType(cf.Type());
+        }
+        if (f.Kind() == NK_FormalParam) {
+            auto& fp = static_cast<SnFormalParam&>(f);
+            if (fp.Type())
+                processType(fp.Type());
+        }
+    };
+    std::function<void(SnStatement&)> walkStmt = [&](SnStatement& s) {
+        if (s.Kind() == NK_Paragraph) {
+            for (auto& child : static_cast<SnParagraph&>(s).Statements())
+                walkStmt(child);
+        } else if (s.Kind() == NK_LocalDeclStmt) {
+            auto& decl = static_cast<SnLocalDeclStmt&>(s);
+            if (decl.Type() && decl.Type()->IsArrayType())
+                processType(decl.Type());
+        } else if (s.Kind() == NK_IfStmt) {
+            auto& ifStmt = static_cast<SnIfStmt&>(s);
+            if (ifStmt.ThenStmt()) walkStmt(*ifStmt.ThenStmt());
+            if (ifStmt.ElseStmt()) walkStmt(*ifStmt.ElseStmt());
+        } else if (s.Kind() == NK_WhileStmt) {
+            walkStmt(*static_cast<SnWhileStmt&>(s).Body());
+        } else if (s.Kind() == NK_DoStmt) {
+            walkStmt(*static_cast<SnDoStmt&>(s).Body());
+        } else if (s.Kind() == NK_ForStmt) {
+            auto& forStmt = static_cast<SnForStmt&>(s);
+            if (forStmt.Init()) walkStmt(*forStmt.Init());
+            if (forStmt.Body()) walkStmt(*forStmt.Body());
+        }
+    };
+    std::function<void(SyntaxNode&)> walkNode = [&](SyntaxNode& n) {
+        if (n.Kind() == NK_StructDecl) {
+            for (auto& member : static_cast<SnStructDecl&>(n).Members())
+                walkField(member);
+        } else if (n.Kind() == NK_ClassDecl) {
+            for (auto& member : static_cast<SnClassDecl&>(n).Members())
+                walkField(member);
+        } else if (n.Kind() == NK_Function) {
+            auto& func = static_cast<SnFunction&>(n);
+            for (auto& param : func.Params())
+                walkField(param);
+            if (func.Body())
+                walkStmt(*func.Body());
+        }
+    };
+    for (auto& member : root.Members()) {
+        walkNode(member);
+        if (CanBeFuncParentEx(member.Kind())) {
+            for (auto& child : static_cast<SnFunctionParentField&>(member).Members())
+                walkNode(child);
+        }
+    }
+}
+
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
     size_t funcRegIdx = 0;
@@ -267,13 +374,21 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
 
 //Map compile-time type kind to runtime type kind.
 //Enum types are int32 at runtime. Struct types use RTK_Struct.
+//Array types are detected via SnField::IsArrayType() (overridden by
+//SnArrayTypeExpr to return true), not via the resolved element type.
 uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     if (!pType) return RTK_Int32;
+    if (pType->IsArrayType()) return RTK_Array;
     auto k = pType->Kind();
     if (k == NK_EnumDecl) return RTK_Int32;
     if (k == NK_StructDecl) return RTK_Struct;
     if (k == NK_ClassDecl) return RTK_Class;
     return static_cast<uint8_t>(k);
+}
+
+uint16_t VmBackend::PickTempSlot(uint16_t exclude) const {
+    return (exclude == m_currFunc->tempSlot)
+        ? m_currFunc->tempSlot2 : m_currFunc->tempSlot;
 }
 
 //Returns field offset in bytes, or -1 if not found.
@@ -634,6 +749,64 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             return;
         }
         auto* inner = member.Inner();
+        //Array.length builtin property (e.g. arr.length)
+        //The outer expression refers to an array-typed field/local; check
+        //its IsArrayType() flag (forwarded from the type's SnNameExpr).
+        if (inner && inner->Kind() == NK_IdentifierExpr) {
+            auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+            SnField* outerField = nullptr;
+            if (member.Outer()->Kind() == NK_IdentifierExpr)
+                outerField = static_cast<SnIdentifierExpr*>(
+                    member.Outer())->Field();
+            if (outerField && outerField->IsArrayType()
+                && fieldName == "length")
+            {
+                EmitExpression(*member.Outer(), emitter, resultOffset);
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_ArrayLength);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(resultOffset);
+                return;
+            }
+        }
+        //Array element field access: arr[i].field (struct element)
+        if (member.Outer()->Kind() == NK_SubscriptExpr) {
+            auto& sub = static_cast<SnSubscriptExpr&>(*member.Outer());
+            auto* subElemType = sub.EvalDataType();
+            if (subElemType && subElemType->Kind() == NK_StructDecl) {
+                auto* structDecl = static_cast<SnStructDecl*>(subElemType);
+                //Evaluate array ref + index, load element heap index
+                EmitExpression(sub, emitter, resultOffset);
+                if (inner && inner->Kind() == NK_IdentifierExpr) {
+                    auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                    int off = FindFieldOffset(*structDecl, fieldName);
+                    if (off < 0) return;
+                    emitter.Emit(OpCode::OP_LoadField);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(static_cast<uint16_t>(off));
+                }
+                return;
+            }
+            //Class element field access: arr[i].field (class element)
+            if (subElemType && subElemType->Kind() == NK_ClassDecl) {
+                auto* classDecl = static_cast<SnClassDecl*>(subElemType);
+                EmitExpression(sub, emitter, resultOffset);
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(resultOffset);
+                if (inner && inner->Kind() == NK_IdentifierExpr) {
+                    auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                    int off = FindClassFieldOffset(*classDecl, fieldName);
+                    if (off < 0) return;
+                    emitter.Emit(OpCode::OP_LoadField);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(static_cast<uint16_t>(off));
+                }
+                return;
+            }
+        }
         //String builtin methods: s.length()
         if (inner && inner->Kind() == NK_InvokeExpr) {
             auto& invoke = static_cast<SnInvokeExpr&>(*inner);
@@ -715,6 +888,52 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
+    // New array expression: new T[size]
+    if (kind == NK_NewArrayExpr) {
+        auto& newArr = static_cast<SnNewArrayExpr&>(expr);
+        //Register the array type (idempotent)
+        uint16_t arrayTypeIdx = RegisterArrayType(
+            newArr.ElementType()->Field());
+        //Evaluate size expression to tempSlot (size is int32)
+        EmitExpression(*newArr.Size(), emitter, m_currFunc->tempSlot);
+        emitter.Emit(OpCode::OP_AllocArray);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(arrayTypeIdx);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        return;
+    }
+
+    // Subscript expression: arr[index]
+    if (kind == NK_SubscriptExpr) {
+        auto& sub = static_cast<SnSubscriptExpr&>(expr);
+        //Evaluate array reference to resultOffset
+        EmitExpression(*sub.Array(), emitter, resultOffset);
+        //Null check
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(resultOffset);
+        //Evaluate index to a slot that does NOT alias resultOffset —
+        //otherwise the index eval would clobber the array heap index when
+        //resultOffset happens to be tempSlot (e.g. when this subscript is
+        //the right operand of a binary expression).
+        uint16_t indexSlot = PickTempSlot(resultOffset);
+        EmitExpression(*sub.Index(), emitter, indexSlot);
+        emitter.Emit(OpCode::OP_LoadElement);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(indexSlot);
+        //For struct element types, deep-copy on read (value semantics)
+        auto* elemType = sub.EvalDataType();
+        if (elemType && RuntimeTypeKind(elemType) == RTK_Struct) {
+            int structIdx = m_compiledModule.FindStruct(elemType->Name());
+            emitter.Emit(OpCode::OP_CopyStruct);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(structIdx >= 0
+                ? static_cast<uint16_t>(structIdx) : 0);
+        }
+        return;
+    }
+
     // Binary/unary operator expression
     if (kind == NK_BinaryExpr) {
         auto& bin = static_cast<SnBinaryExpr&>(expr);
@@ -739,14 +958,12 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
 
         //Binary: evaluate left to resultOffset, right to a different slot, then apply op.
         //rightSlot must differ from resultOffset to avoid the right operand
-        //overwriting the left before the binary op executes. When resultOffset
-        //is tempSlot, use tempSlot2 for right; otherwise use tempSlot.
-        //This works for nested expressions too: e.g. (a+b)*(c+d) evaluates
-        //left subexpr to resultOffset (using tempSlot2 internally), then right
-        //subexpr to tempSlot — no conflict because each subexpr uses its own
-        //rightSlot derived from its own resultOffset.
-        uint16_t rightSlot = (resultOffset == m_currFunc->tempSlot)
-            ? m_currFunc->tempSlot2 : m_currFunc->tempSlot;
+        //overwriting the left before the binary op executes. PickTempSlot
+        //centralizes the "two temp slots, alternate on conflict" convention.
+        //This composes for nested expressions: each level derives its own
+        //rightSlot from its own resultOffset, so subexprs naturally alternate
+        //between tempSlot and tempSlot2.
+        uint16_t rightSlot = PickTempSlot(resultOffset);
         EmitExpression(*bin.Left(), emitter, resultOffset);
         EmitExpression(*bin.Right(), emitter, rightSlot);
 
@@ -876,8 +1093,22 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //Reference: EN's LocalDeclStmt::Compile (SeStatements.cpp:226).
     if (kind == NK_LocalDeclStmt) {
         auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
-        auto* evalType = decl.Type()->Field();
-        uint8_t typeKind = RuntimeTypeKind(evalType);
+        //Detect array type via IsArrayType() on the type expression.
+        bool isArrayType = decl.Type()->IsArrayType();
+        uint8_t typeKind;
+        SnField* evalType = nullptr;
+        if (isArrayType) {
+            typeKind = RTK_Array;
+            //Walk through SnArrayTypeExpr to find the element type.
+            auto* pCur = decl.Type();
+            while (pCur->Kind() == NK_ArrayTypeExpr)
+                pCur = static_cast<SnArrayTypeExpr*>(pCur)->ElementType();
+            if (auto* pNameExpr = dynamic_cast<SnNameExpr*>(pCur))
+                evalType = pNameExpr->Field();
+        } else {
+            evalType = decl.Type()->Field();
+            typeKind = RuntimeTypeKind(evalType);
+        }
         for (auto& local : decl.Decls()) {
             uint16_t offset = AllocLocal(local.name, VALUE_SIZE, typeKind, false);
             //For struct types, emit OP_AllocStruct to allocate on heap.
@@ -891,7 +1122,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                     emitter.EmitUint16(cs.fieldCount);
                 }
             }
-            //Class types start as null (0) — no allocation needed.
+            //Class and array types start as null (0) — no allocation needed.
         }
         return;
     }
@@ -922,6 +1153,62 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         } else if (assign.Left()->Kind() == NK_MemberExpr) {
             //Struct or class field assignment
             auto& memberExpr = static_cast<SnMemberExpr&>(*assign.Left());
+            //Specialized handling for arr[i].field = value:
+            //the subscript outer's index must NOT alias tempSlot2 (which holds
+            //the right side value). Emit the subscript inline using
+            //callParamBase for the index slot.
+            if (memberExpr.Outer()->Kind() == NK_SubscriptExpr) {
+                auto& sub = static_cast<SnSubscriptExpr&>(
+                    *memberExpr.Outer());
+                auto* elemType = sub.EvalDataType();
+                if (elemType
+                    && (elemType->Kind() == NK_ClassDecl
+                        || elemType->Kind() == NK_StructDecl))
+                {
+                    auto* inner = memberExpr.Inner();
+                    if (inner->Kind() != NK_IdentifierExpr) return;
+                    auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                    uint16_t fieldOff = 0;
+                    if (elemType->Kind() == NK_ClassDecl) {
+                        int off = FindClassFieldOffset(
+                            *static_cast<SnClassDecl*>(elemType), fieldName);
+                        if (off < 0) return;
+                        fieldOff = static_cast<uint16_t>(off);
+                    } else {
+                        int off = FindFieldOffset(
+                            *static_cast<SnStructDecl*>(elemType), fieldName);
+                        if (off < 0) return;
+                        fieldOff = static_cast<uint16_t>(off);
+                    }
+                    //1. Evaluate right side → tempSlot2 (value preserved)
+                    EmitExpression(*assign.Right(), emitter,
+                        m_currFunc->tempSlot2);
+                    //2. Evaluate array ref → tempSlot
+                    EmitExpression(*sub.Array(), emitter,
+                        m_currFunc->tempSlot);
+                    emitter.Emit(OpCode::OP_NullCheck);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    //3. Evaluate index → callParamBase (NOT tempSlot2)
+                    EmitExpression(*sub.Index(), emitter,
+                        m_currFunc->callParamBase);
+                    //4. load_element dst=tempSlot arr=tempSlot idx=callParamBase
+                    emitter.Emit(OpCode::OP_LoadElement);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    //5. null_check the element (class) or skip (struct is value)
+                    if (elemType->Kind() == NK_ClassDecl) {
+                        emitter.Emit(OpCode::OP_NullCheck);
+                        emitter.EmitUint16(m_currFunc->tempSlot);
+                    }
+                    //6. store_field obj=tempSlot off=fieldOff src=tempSlot2
+                    emitter.Emit(OpCode::OP_StoreField);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(fieldOff);
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    return;
+                }
+            }
             auto* outerType = memberExpr.Outer()->EvalDataType();
             if (outerType && outerType->Kind() == NK_ClassDecl) {
                 //Class field assignment: reference semantics, no deep copy
@@ -987,6 +1274,45 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 }
             }
         }
+        return;
+    }
+
+    //Subscript assignment: arr[index] = value
+    //Reference: EN's AssignStmt::Compile pattern for indexed stores.
+    if (kind == NK_SubscriptAssignStmt) {
+        auto& sub = static_cast<SnSubscriptAssignStmt&>(stmt);
+        //Detect element type from the array's resolved field.
+        //The element type is needed for struct deep-copy on write.
+        SnField* elemType = nullptr;
+        if (sub.Array()->Kind() == NK_IdentifierExpr) {
+            auto* arrField = static_cast<SnIdentifierExpr&>(
+                *sub.Array()).Field();
+            if (arrField && arrField->IsArrayType()
+                && arrField->EvalDataType())
+                elemType = arrField->EvalDataType();
+        }
+        //Evaluate value to tempSlot2 first (avoids clobbering by array ref eval)
+        EmitExpression(*sub.Value(), emitter, m_currFunc->tempSlot2);
+        //Evaluate array reference to tempSlot
+        EmitExpression(*sub.Array(), emitter, m_currFunc->tempSlot);
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        //Evaluate index to callParamBase (avoids tempSlot/tempSlot2)
+        uint16_t indexSlot = m_currFunc->callParamBase;
+        EmitExpression(*sub.Index(), emitter, indexSlot);
+        //For struct element types, deep-copy value before storing.
+        if (elemType && RuntimeTypeKind(elemType) == RTK_Struct) {
+            int structIdx = m_compiledModule.FindStruct(elemType->Name());
+            emitter.Emit(OpCode::OP_CopyStruct);
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+            emitter.EmitUint16(structIdx >= 0
+                ? static_cast<uint16_t>(structIdx) : 0);
+        }
+        emitter.Emit(OpCode::OP_StoreElement);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        emitter.EmitUint16(indexSlot);
+        emitter.EmitUint16(m_currFunc->tempSlot2);
         return;
     }
 
@@ -1496,6 +1822,18 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
         //Constructor index
         fs.write(reinterpret_cast<const char*>(&cc.constructorIdx),
                  sizeof(cc.constructorIdx));
+    }
+
+    //Array type descriptors
+    uint32_t arrayTypeCount = static_cast<uint32_t>(
+        m_compiledModule.arrayTypes.size());
+    fs.write(reinterpret_cast<const char*>(&arrayTypeCount),
+             sizeof(arrayTypeCount));
+    for (auto& at : m_compiledModule.arrayTypes) {
+        fs.write(reinterpret_cast<const char*>(&at.elemKind),
+                 sizeof(at.elemKind));
+        fs.write(reinterpret_cast<const char*>(&at.elemTypeIdx),
+                 sizeof(at.elemTypeIdx));
     }
 
     fs.close();

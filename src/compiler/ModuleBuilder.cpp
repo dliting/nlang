@@ -13,9 +13,13 @@
 #include "builder/StatementResolver.hpp"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/Module.h>
+#include <nlang/compiler/SnMisc.h>
 #include "VmBackend.h"
 #include <iomanip>
 #include <iostream>
+#include <unordered_map>
+#include <unordered_set>
+#include <functional>
 
 static const char *BAR_STR =
 	"--------------------------------------------------------------------";
@@ -180,7 +184,7 @@ void ModuleBuilder::ResolveUsingLists()
 		for (auto pUsing : *pUsings)
 		{
 			assert(!pUsing->IsResolved());
-			SnNameExpr *pPath = pUsing->Path();
+			SnFieldExpr *pPath = pUsing->Path();
 			assert(pPath);
 			if (!resolver.Resolve(*pPath, root, root, ERF_IgnoreUsings))
 			{
@@ -216,6 +220,142 @@ void ModuleBuilder::ResolveStatements()
 {
 	StatementResolver resolver(*m_upEnv);
 	resolver.Resolve(TreeRoot());
+
+	CheckStructCircularRefs();
+	CheckClassCircularInheritance();
+}
+
+void ModuleBuilder::CheckStructCircularRefs()
+{
+	SnNamespace &root = TreeRoot();
+	//Collect all SnStructDecl nodes.
+	std::vector<SnStructDecl*> structs;
+	std::function<void(SnNamespace&)> collect = [&](SnNamespace &ns) {
+		for (auto &member : ns.Members()) {
+			if (member.Kind() == NK_StructDecl)
+				structs.push_back(static_cast<SnStructDecl*>(&member));
+			else if (CanBeFuncParent(member.Kind())) {
+				for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
+					if (child.Kind() == NK_StructDecl)
+						structs.push_back(static_cast<SnStructDecl*>(&child));
+				}
+			}
+		}
+	};
+	collect(root);
+
+	//Build dependency sets: for each struct, which other structs do its
+	//fields reference?
+	std::unordered_map<SnStructDecl*, std::vector<SnStructDecl*>> deps;
+	for (auto *sd : structs) {
+		for (auto &field : sd->Members()) {
+			auto *fieldType = field.EvalDataType();
+			if (fieldType && fieldType->Kind() == NK_StructDecl) {
+				deps[sd].push_back(static_cast<SnStructDecl*>(fieldType));
+			}
+		}
+	}
+
+	//DFS cycle detection.
+	std::unordered_set<SnStructDecl*> visited;
+	std::unordered_set<SnStructDecl*> inStack;
+	std::function<bool(SnStructDecl*, std::vector<SnStructDecl*>&)> dfs =
+		[&](SnStructDecl *node, std::vector<SnStructDecl*> &path) -> bool {
+		if (inStack.count(node)) {
+			//Found a cycle. Report it.
+			path.push_back(node);
+			std::string cycle;
+			bool found = false;
+			for (auto *s : path) {
+				if (s == node) found = true;
+				if (found) {
+					if (!cycle.empty()) cycle += " -> ";
+					cycle += s->Name();
+				}
+			}
+			m_upEnv->Log(CLL_Error, "Circular struct reference: %s.",
+				cycle.c_str());
+			return true;
+		}
+		if (visited.count(node))
+			return false;
+		visited.insert(node);
+		inStack.insert(node);
+		path.push_back(node);
+		for (auto *dep : deps[node]) {
+			if (dfs(dep, path))
+				return true;
+		}
+		path.pop_back();
+		inStack.erase(node);
+		return false;
+	};
+
+	for (auto *sd : structs) {
+		if (!visited.count(sd)) {
+			std::vector<SnStructDecl*> path;
+			if (dfs(sd, path))
+				return;
+		}
+	}
+}
+
+void ModuleBuilder::CheckClassCircularInheritance()
+{
+	SnNamespace &root = TreeRoot();
+	//Collect all SnClassDecl nodes (including nested in function parents).
+	std::vector<SnClassDecl*> classes;
+	for (auto &member : root.Members()) {
+		if (member.Kind() == NK_ClassDecl)
+			classes.push_back(static_cast<SnClassDecl*>(&member));
+		else if (CanBeFuncParentEx(member.Kind())) {
+			for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
+				if (child.Kind() == NK_ClassDecl)
+					classes.push_back(static_cast<SnClassDecl*>(&child));
+			}
+		}
+	}
+
+	//DFS cycle detection on the inheritance chain.
+	std::unordered_set<SnClassDecl*> visited;
+	std::unordered_set<SnClassDecl*> inStack;
+	std::function<bool(SnClassDecl*, std::vector<SnClassDecl*>&)> dfs =
+		[&](SnClassDecl *node, std::vector<SnClassDecl*> &path) -> bool {
+		if (inStack.count(node)) {
+			path.push_back(node);
+			std::string cycle;
+			bool found = false;
+			for (auto *c : path) {
+				if (c == node) found = true;
+				if (found) {
+					if (!cycle.empty()) cycle += " -> ";
+					cycle += c->Name();
+				}
+			}
+			m_upEnv->Log(CLL_Error, "Circular class inheritance: %s.",
+				cycle.c_str());
+			return true;
+		}
+		if (visited.count(node))
+			return false;
+		visited.insert(node);
+		inStack.insert(node);
+		path.push_back(node);
+		auto *pSuper = node->SuperClass();
+		if (pSuper && dfs(pSuper, path))
+			return true;
+		path.pop_back();
+		inStack.erase(node);
+		return false;
+	};
+
+	for (auto *cd : classes) {
+		if (!visited.count(cd)) {
+			std::vector<SnClassDecl*> path;
+			if (dfs(cd, path))
+				return;
+		}
+	}
 }
 
 void ModuleBuilder::GenerateTypeFields()

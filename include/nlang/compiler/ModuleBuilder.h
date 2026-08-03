@@ -56,6 +56,12 @@ private:
 
 	void ResolveStatements();
 
+	//Check for circular struct references.
+	void CheckStructCircularRefs();
+
+		//Check for circular class inheritance.
+		void CheckClassCircularInheritance();
+
 	//Build LLVM data types.
 	void GenerateTypeFields();
 

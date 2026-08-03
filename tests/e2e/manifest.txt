@@ -163,3 +163,18 @@ struct_class_field_copy 99
 gc_loop_alloc 190
 gc_reuse 57
 gc_chain 21
+
+# --- arrays ---
+array_basic 60
+array_length 7
+array_loop 45
+array_runtime_size 15
+array_param 99
+array_float 0
+array_string 0
+array_class 42
+array_struct 3
+array_nested 4
+array_null 3
+array_bounds 3
+array_class_gc 1

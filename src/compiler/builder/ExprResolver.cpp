@@ -28,6 +28,21 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	ResolveFieldExprAs(nameExpr, pFieldExpr->Field());
 }
 
+void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
+{
+	if (arrTypeExpr.IsResolved())
+		return;
+
+	auto *pElemType = arrTypeExpr.ElementType();
+	assert(pElemType);
+	pElemType->Accept(*m_pVisitor);
+	if (!pElemType->IsResolved())
+		return;
+
+	//Propagate the element type's field to the array type expression.
+	ResolveFieldExprAs(arrTypeExpr, pElemType->Field());
+}
+
 void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 {
 	if (idExpr.IsResolved())
@@ -140,6 +155,23 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 	}
 
+		//Builtin array.length property.
+		if (pOuterExpr->Kind() == NK_IdentifierExpr
+			&& pInnerExpr->Kind() == NK_IdentifierExpr)
+		{
+			auto* pOuterField = static_cast<SnIdentifierExpr*>(pOuterExpr)->Field();
+			auto& innerId = static_cast<SnIdentifierExpr&>(*pInnerExpr);
+			if (pOuterField && pOuterField->IsArrayType()
+				&& innerId.Name() == "length")
+			{
+				pInnerExpr->AddFlags(NF_Resolved);
+				snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+				snMember.AddFlags(NF_Resolved);
+				m_pContext = pSavedContext;
+				return;
+			}
+		}
+
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
 		ResolveFieldExprAs(snMember, pInnerExpr->Field());
@@ -208,6 +240,69 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 
 	if (!ResolveExpressionList(sn.Args()))
 		return;
+}
+
+void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
+{
+	assert(!sn.IsResolved());
+
+	//Resolve element type name.
+	auto pElemType = sn.ElementType();
+	assert(pElemType);
+	if (pElemType->IsArrayType())
+	{
+		//Resolve nested element type for array-of-arrays (future extension).
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Multi-dimensional arrays are not supported.");
+		return;
+	}
+	pElemType->Accept(*m_pVisitor);
+	if (!pElemType->IsResolved())
+		return;
+
+	auto pElemField = pElemType->Field();
+	if (!pElemField)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"\"%s\" is not a valid array element type.",
+			pElemType->ToString().c_str());
+		return;
+	}
+
+	//Resolve size expression with direct Accept (SnExpressionList wrapping is broken).
+	sn.Size()->Accept(*m_pVisitor);
+	if (!sn.Size()->IsResolved())
+		return;
+
+	//EvalDataType: store the element type for later array type registration.
+	//We do NOT set Field() here since arrays are not a single field; the
+	//backend registers a CompiledArrayType entry from this element type.
+	sn.EvalDataType(pElemField);
+	sn.AddFlags(NF_Resolved);
+}
+
+void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
+{
+	assert(!sn.IsResolved());
+
+	//Resolve array expression.
+	auto& arrayExpr = *sn.Array();
+	arrayExpr.Accept(*m_pVisitor);
+	if (!arrayExpr.IsResolved())
+		return;
+
+	//Resolve index expression.
+	auto& indexExpr = *sn.Index();
+	indexExpr.Accept(*m_pVisitor);
+	if (!indexExpr.IsResolved())
+		return;
+
+	//Look up arr.length-style access is handled by MemberExpr.
+	//For now, the result type of subscript is the element type.
+	auto* arrayType = arrayExpr.EvalDataType();
+	if (arrayType)
+		sn.EvalDataType(arrayType);
+	sn.AddFlags(NF_Resolved);
 }
 
 void ExprResolveAccessor::Access(SnThisExpr &sn)
@@ -525,7 +620,7 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 	return true;
 }
 
-bool ExprResolver::ResolveDataType(SnNameExpr &typeExpr, SnField &outerType)
+bool ExprResolver::ResolveDataType(SnFieldExpr &typeExpr, SnField &outerType)
 {
 	if (!Resolve(typeExpr, outerType, outerType, ERF_None))
 	{

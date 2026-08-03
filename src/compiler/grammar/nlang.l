@@ -174,6 +174,7 @@ LineComment	\/\/[^\n]*
 "string"    { return KT_String; }
 "struct"    { return KT_Struct; }
 "switch"    { return KT_Switch; }
+"this"      { return KT_This; }
 "true"      { return KT_True; }
 "ubyte"     { return KT_Ubyte; }
 "uint"      { return KT_Uint; }
@@ -202,6 +203,8 @@ LineComment	\/\/[^\n]*
 "-="        { return OT_DECS; }
 "/="        { return OT_DIVS; }
 "|="        { return OT_BORS; }
+
+\[\]        { return OT_Brackets; }
 
 {Name}      {
                 SET_TEXT(yytext);

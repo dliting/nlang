@@ -17,13 +17,13 @@ SnFunctionParentField::SnFunctionParentField(NodeKind k, FieldAccessType at,
 	Super_(k, at, flags, pName, loc),
 	m_upMembers(CreateChildFields(upMembers, this))
 {
-	assert(CanBeFuncParent(k));
+	assert(CanBeFuncParentEx(k));
 }
 
 SnFunctionParentField::SnFunctionParentField(RnCompoundField &rn) :
 	Super_(rn), m_upMembers(new MemberList(this))
 {
-	assert(CanBeFuncParent(rn.Kind()));
+	assert(CanBeFuncParentEx(rn.Kind()));
 }
 
 SnFunctionParentField::~SnFunctionParentField()
@@ -114,6 +114,8 @@ bool SnNamespace::AllowMember(NodeKind k) const
 	case NK_Function:
 	case NK_Namespace:
 	case NK_EnumDecl:
+	case NK_StructDecl:
+	case NK_ClassDecl:
 		return true;
 	default:
 		return IsBuiltinType(k) && (Name() == GLOBAL_NAMESPACE_NAME);
@@ -209,9 +211,198 @@ std::string SnEnumDecl::ToString() const
 	return "enum " + Name();
 }
 
+//--- SnStructField ---
+
+SnStructField::SnStructField(SnFieldExpr *pType, std::string *pName,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, loc),
+	m_pType(pType), m_upChildren(new ImmutableNodeList())
+{
+	assert(m_pType);
+	AddChild(m_pType);
+}
+
+SnStructField::~SnStructField()
+{
+}
+
+SnField *SnStructField::EvalDataType() const
+{
+	if (m_pType && m_pType->Field())
+		return m_pType->Field();
+	return nullptr;
+}
+
+bool SnStructField::IsArrayType() const
+{
+	return m_pType && m_pType->IsArrayType();
+}
+
+SnField *SnStructField::FindField(const std::string&) const
+{
+	return nullptr;
+}
+
+void SnStructField::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnStructField::ToString() const
+{
+	std::string result;
+	if (m_pType && m_pType->Field())
+		result = m_pType->Field()->Name();
+	else if (m_pType)
+		result = m_pType->ToString();
+	result += " " + Name();
+	return result;
+}
+
+ImmutableNodeList *SnStructField::ChildrenPtr() const
+{
+	return m_upChildren.get();
+}
+
+//--- SnStructDecl ---
+
+SnStructDecl::SnStructDecl(std::string *pName, UniquePtrList<SnStructField> upMembers,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, loc),
+	m_upMembers(CreateChildFields(upMembers, this))
+{
+}
+
+SnStructDecl::~SnStructDecl()
+{
+}
+
+SnField *SnStructDecl::EvalDataType() const
+{
+	return const_cast<SnStructDecl*>(this);
+}
+
+SnField *SnStructDecl::FindField(const std::string& sName) const
+{
+	return m_upMembers->find(sName);
+}
+
+void SnStructDecl::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnStructDecl::ToString() const
+{
+	return "struct " + Name();
+}
+
+//--- SnClassField ---
+
+SnClassField::SnClassField(SnFieldExpr *pType, std::string *pName,
+	FieldAccessType access, const ISourceLocation &loc) :
+	Super_(s_Kind, access, s_DefaultFlags, pName, loc),
+	m_pType(pType), m_upChildren(new ImmutableNodeList())
+{
+	assert(m_pType);
+	AddChild(m_pType);
+}
+
+SnClassField::~SnClassField()
+{
+}
+
+SnField *SnClassField::EvalDataType() const
+{
+	if (m_pType && m_pType->Field())
+		return m_pType->Field();
+	return nullptr;
+}
+
+bool SnClassField::IsArrayType() const
+{
+	return m_pType && m_pType->IsArrayType();
+}
+
+SnField *SnClassField::FindField(const std::string&) const
+{
+	return nullptr;
+}
+
+void SnClassField::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnClassField::ToString() const
+{
+	std::string result;
+	if (m_pType && m_pType->Field())
+		result = m_pType->Field()->Name();
+	else if (m_pType)
+		result = m_pType->ToString();
+	result += " " + Name();
+	return result;
+}
+
+ImmutableNodeList *SnClassField::ChildrenPtr() const
+{
+	return m_upChildren.get();
+}
+
+//--- SnClassDecl ---
+
+SnClassDecl::SnClassDecl(std::string *pName, SnFieldExpr *pSuper,
+	PtrList<SnField> *pMembers, const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, pMembers, loc),
+	m_pSuper(pSuper), m_pSuperClass(nullptr)
+{
+	if (m_pSuper)
+		AddChild(m_pSuper);
+}
+
+SnClassDecl::~SnClassDecl()
+{
+}
+
+size_t SnClassDecl::FieldCount() const
+{
+	size_t count = 0;
+	for (auto &member : Members())
+	{
+		if (member.Kind() == NK_ClassField)
+			++count;
+	}
+	return count;
+}
+
+SnField *SnClassDecl::EvalDataType() const
+{
+	return const_cast<SnClassDecl*>(this);
+}
+
+SnField *SnClassDecl::FindField(const std::string& sName) const
+{
+	if (auto pField = SnFunctionParentField::FindField(sName))
+		return pField;
+	if (m_pSuperClass)
+		return m_pSuperClass->FindField(sName);
+	return nullptr;
+}
+
+void SnClassDecl::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnClassDecl::ToString() const
+{
+	return "class " + Name();
+}
+
 //--- SnUsing ---
 
-SnUsing::SnUsing(SnNameExpr *pPath, const ISourceLocation &loc) :
+SnUsing::SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc) :
 	Super_(s_Kind, FA_Public, NF_NONE, loc), m_pPath(pPath),
 	m_pNamespace(nullptr), m_upChildren(new ImmutableNodeList())
 {

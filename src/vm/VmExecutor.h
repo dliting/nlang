@@ -28,6 +28,10 @@ private:
     //Returns the heap index.
     int32_t AllocClassOnHeap(uint16_t classIdx);
 
+    //Allocate an array on the heap.
+    //Returns the heap index.
+    int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size);
+
     //GC: mark-sweep garbage collection.
     //Design decisions (see docs/vm-architecture.md for full rationale):
     //  1. Safepoint-triggered, not allocation-point-triggered.
@@ -43,6 +47,7 @@ private:
     void SweepPhase();
     void FreeOwnedStructs(int32_t heapIdx);
     void FreeNestedStructs(int32_t heapIdx, uint16_t structIdx);
+    void FreeOwnedArrayStructElements(int32_t heapIdx);
 
     //Check if GC should run at a safepoint (function entry, loop back-edge).
     void CheckGCSafepoint();

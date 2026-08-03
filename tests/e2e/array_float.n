@@ -1,0 +1,7 @@
+int main() {
+    float[] arr = new float[3];
+    arr[0] = 1.5;
+    arr[1] = 2.5;
+    arr[2] = 3.5;
+    return 0;
+}

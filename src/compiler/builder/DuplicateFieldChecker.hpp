@@ -12,7 +12,7 @@ class DuplicateFieldCheckAccessor
 {
 	friend class DuplicateFieldChecker;
 public:
-	explicit DuplicateFieldCheckAccessor(BuildEnvironment &env) : 
+	explicit DuplicateFieldCheckAccessor(BuildEnvironment &env) :
 		m_Env(env), m_pVisitor(nullptr)
 	{
 	}
@@ -20,6 +20,8 @@ public:
 	void Access(SnNamespace &sn)
 	{
 		CheckFields(sn.Members().NameDict());
+		for (auto &member : sn.Members())
+			member.Accept(*m_pVisitor);
 	}
 
 	void Access(SnFunction &sn)
@@ -34,8 +36,44 @@ public:
 		CheckFields(sn.Members().NameDict());
 	}
 
+	void Access(SnStructDecl &sn)
+	{
+		CheckFields(sn.Members().NameDict());
+	}
+
+	void Access(SnClassDecl &sn)
+	{
+		CheckFields(sn.Members().NameDict());
+		//Check that child fields don't hide inherited fields.
+		auto *pSuper = sn.SuperClass();
+		while (pSuper) {
+			for (auto &member : pSuper->Members()) {
+				if (member.Kind() != NK_ClassField)
+					continue;
+				auto range = sn.Members().NameDict().equal_range(member.Name());
+				for (auto it = range.first; it != range.second; ++it) {
+					if (it->second->Kind() == NK_ClassField) {
+						m_Env.Log(CLL_Error, it->second->Location(),
+							"The field \"%s\" hides an inherited field from \"%s\".",
+							member.Name().c_str(), pSuper->Name().c_str());
+						break;
+					}
+				}
+			}
+			pSuper = pSuper->SuperClass();
+		}
+		//Traverse members (e.g. SnFunction for param duplicate checks).
+		for (auto &member : sn.Members())
+			member.Accept(*m_pVisitor);
+	}
+
 	void Access(SyntaxNode &sn)
 	{
+	}
+
+	void Access(SnArrayTypeExpr &)
+	{
+		//Array type expressions introduce no new fields to check.
 	}
 private:
 	template <class NAME_DICT_T>
@@ -80,7 +118,7 @@ private:
 			"The field \"%s\" is conflicted with a exist field definition.",
 			errorField.ToString().c_str());
 		m_Env.Log(CLL_More, existField.Location(),
-			"See also the definition of \"%s\".", 
+			"See also the definition of \"%s\".",
 			existField.ToString().c_str());
 		return true;
 	}
@@ -89,7 +127,7 @@ private:
 	ISyntaxNodeVisitor *m_pVisitor;
 };
 
-//The helper class to detect conflict fields. 
+//The helper class to detect conflict fields.
 //The fields defined in imported nodes or in statements will not be checked.
 class DuplicateFieldChecker
 {

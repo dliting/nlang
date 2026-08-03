@@ -34,13 +34,23 @@ public:
 		const ISourceLocation &loc) :
 		Super_(NK_FormalParam, FA_Public, NF_NONE,
 			new std::string(sName), loc),
-		m_pTypeField(pTypeField)
+		m_pTypeField(pTypeField), m_bIsArray(false)
 	{
 	}
 
 	SnField *EvalDataType() const override
 	{
 		return m_pTypeField;
+	}
+
+	bool IsArrayType() const override
+	{
+		return m_bIsArray;
+	}
+
+	void SetArrayType(bool b)
+	{
+		m_bIsArray = b;
 	}
 
 	SnField *FindField(const std::string&) const override
@@ -59,6 +69,7 @@ public:
 
 private:
 	SnField *m_pTypeField;
+	bool m_bIsArray;
 };
 
 //The abstract base class of a statement syntax node.
@@ -197,13 +208,13 @@ public:
 		SnExpression *pInitExpr;  //may be nullptr
 	};
 
-	SnLocalDeclStmt(SnNameExpr *pType,
+	SnLocalDeclStmt(SnFieldExpr *pType,
 		std::vector<LocalDecl> *pDecls, const ISourceLocation &loc);
 
 	~SnLocalDeclStmt() override;
 
 	//Get the type name expression.
-	SnNameExpr *Type() const { return m_pType; }
+	SnFieldExpr *Type() const { return m_pType; }
 
 	//Get the declarations.
 	const std::vector<LocalDecl> &Decls() const { return *m_upDecls; }
@@ -213,7 +224,7 @@ public:
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
-	SnNameExpr *m_pType;
+	SnFieldExpr *m_pType;
 	std::unique_ptr<std::vector<LocalDecl>> m_upDecls;
 };
 
@@ -241,6 +252,30 @@ public:
 private:
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+};
+
+//Array subscript assignment statement (e.g. arr[i] = value).
+class NLANG_COMPILER_API SnSubscriptAssignStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_SubscriptAssignStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnSubscriptAssignStmt(SnExpression *pArray, SnExpression *pIndex,
+		SnExpression *pValue, const ISourceLocation &loc);
+
+	SnExpression *Array() const { return m_pArray; }
+	SnExpression *Index() const { return m_pIndex; }
+	SnExpression *Value() const { return m_pValue; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnExpression *m_pArray;
+	SnExpression *m_pIndex;
+	SnExpression *m_pValue;
 };
 
 /*

@@ -1,0 +1,14 @@
+class Node {
+    public int value;
+    public Node next;
+}
+
+int main() {
+    Node[] arr = new Node[2];
+    arr[0] = new Node();
+    arr[0].value = 3;
+    arr[1] = new Node();
+    arr[1].value = 4;
+    arr[0].next = arr[1];
+    return arr[0].next.value;
+}

@@ -19,15 +19,25 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(IdentifierExpr)			/* identifier expression  */		\
 	MACRO_IMPL(InvokeExpr)				/* invoke expression  */			\
 	MACRO_IMPL(NameExpr)				/* name expression  */				\
+	MACRO_IMPL(ArrayTypeExpr)			/* array type expression T[] */		\
 	MACRO_IMPL(MemberExpr)				/* member access expression  */		\
 	MACRO_IMPL(CastExpr)				/* type cast expression  */			\
 	MACRO_IMPL(BinaryExpr)				/* binary/unary operator expression */\
 	MACRO_IMPL(EnumDecl)				/* enum type declaration */			\
 	MACRO_IMPL(EnumMember)				/* enum member constant */			\
+	MACRO_IMPL(StructDecl)				/* struct type declaration */		\
+	MACRO_IMPL(StructField)				/* struct field declaration */		\
+	MACRO_IMPL(ClassDecl)				/* class type declaration */			\
+	MACRO_IMPL(ClassField)				/* class field declaration */			\
+	MACRO_IMPL(NewExpr)					/* new expression */				\
+	MACRO_IMPL(NewArrayExpr)				/* new T[n] expression */			\
+	MACRO_IMPL(ThisExpr)					/* this expression */				\
+	MACRO_IMPL(SubscriptExpr)				/* array subscript access */		\
 	MACRO_IMPL(ReturnStmt)				/* return statement */				\
 	MACRO_IMPL(InvokeStmt)				/* invoke statement */				\
 	MACRO_IMPL(LocalDeclStmt)			/* local variable declaration */		\
 	MACRO_IMPL(AssignStmt)				/* assignment statement */			\
+	MACRO_IMPL(SubscriptAssignStmt)		/* arr[i] = value statement */		\
 	MACRO_IMPL(IfStmt)					/* if/else statement */				\
 	MACRO_IMPL(WhileStmt)				/* while loop statement */			\
 	MACRO_IMPL(DoStmt)					/* do-while loop statement */		\
@@ -99,6 +109,12 @@ enum CompNodeFlag: NodeBits
 const NodeBits NF_IMPORTED_SYMBOL = NF_Imported | NF_Resolved;
 
 static_assert(NF_CP_END < NODE_FLAG_LIMIT, "Syntax node flag definition error.");
+
+//Extended CanBeFuncParent that includes compile-time node kinds.
+inline bool CanBeFuncParentEx(NodeKind k)
+{
+	return CanBeFuncParent(k) || k == NK_ClassDecl;
+}
 
 //RnField searching flags.
 enum FieldSearchFlag

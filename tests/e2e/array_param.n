@@ -1,0 +1,10 @@
+int sumFirst(int[] arr) {
+    return arr[0];
+}
+
+int main() {
+    int[] arr = new int[5];
+    arr[0] = 99;
+    arr[1] = 1;
+    return sumFirst(arr);
+}

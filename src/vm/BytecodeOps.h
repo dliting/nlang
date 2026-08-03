@@ -80,6 +80,25 @@ enum class OpCode : uint8_t {
     // === Debug ===
     OP_DebugInfo,       // uint16 info
 
+    // === Struct operations ===
+    OP_AllocStruct,     // uint16 dst, uint16 structIdx, uint16 fieldCount
+    OP_LoadField,       // uint16 dst, uint16 obj, uint16 fieldOff
+    OP_StoreField,      // uint16 obj, uint16 fieldOff, uint16 src
+    OP_CopyStruct,      // uint16 dst, uint16 src, uint16 structIdx
+
+    // === Class operations ===
+    OP_New,             // uint16 dst, uint16 classIdx — allocate object on heap
+    OP_CallMethod,      // uint16 methodNameStringIdx, uint16 callParamBase — virtual method dispatch (name-based)
+    OP_CallMethodDirect,// uint16 funcIdx, uint16 callParamBase — non-virtual method call
+    OP_CallIntrinsic,   // uint16 intrinsicId, uint16 callParamBase — intrinsic function call
+    OP_NullCheck,       // uint16 obj — throw if locals[obj] is null/invalid (hard crash, like Java NPE)
+
+    // === Array operations ===
+    OP_AllocArray,      // uint16 dst, uint16 arrayTypeIdx, uint16 sizeSlot
+    OP_LoadElement,     // uint16 dst, uint16 arr, uint16 index
+    OP_StoreElement,    // uint16 arr, uint16 index, uint16 src
+    OP_ArrayLength,     // uint16 dst, uint16 arr
+
     OP_Count
 };
 

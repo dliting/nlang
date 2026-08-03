@@ -1,0 +1,23 @@
+// Array holding class instances — GC must trace array elements as roots.
+class Node {
+    public int value;
+}
+
+int main() {
+    Node[] arr = new Node[3];
+    int i = 0;
+    while (i < 3) {
+        Node n = new Node();
+        n.value = i + 1;
+        // Allocate garbage between assignments to trigger GC pressure.
+        int j = 0;
+        while (j < 5) {
+            Node junk = new Node();
+            j = j + 1;
+        }
+        arr[i] = n;
+        i = i + 1;
+    }
+    //After GC, arr[0..2] must still be valid Node references.
+    return arr[0].value;
+}

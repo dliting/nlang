@@ -174,6 +174,17 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                 sizeof(cc.constructorIdx));
     }
 
+    //Array type descriptors
+    uint32_t arrayTypeCount;
+    fs.read(reinterpret_cast<char*>(&arrayTypeCount), sizeof(arrayTypeCount));
+    mod.arrayTypes.resize(arrayTypeCount);
+    for (uint32_t i = 0; i < arrayTypeCount; ++i) {
+        fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].elemKind),
+                sizeof(mod.arrayTypes[i].elemKind));
+        fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].elemTypeIdx),
+                sizeof(mod.arrayTypes[i].elemTypeIdx));
+    }
+
     return mod;
 }
 

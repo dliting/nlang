@@ -50,6 +50,19 @@ static const char* s_OpCodeNames[] = {
     "ne_str",
     "strlen",
     "debug",
+    "alloc_struct",
+    "load_field",
+    "store_field",
+    "copy_struct",
+    "new",
+    "call_method",
+    "call_method_direct",
+    "call_intrinsic",
+    "null_check",
+    "alloc_array",
+    "load_element",
+    "store_element",
+    "array_length",
 };
 
 const char* OpCodeName(OpCode op) {

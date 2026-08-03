@@ -105,9 +105,10 @@ enum RuntimeNodeKind : NodeKind
 };
 
 //Can the specified kind of node be the parent of a function?
+//Extended check for compile-time node kinds is in SyntaxNodeConsts.h.
 inline bool CanBeFuncParent(NodeKind k)
 {
-	return k == NK_Namespace; //TODO: class type.
+	return k == NK_Namespace;
 }
 
 inline bool IsPrimitiveType(NodeKind k)

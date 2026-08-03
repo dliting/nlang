@@ -12,6 +12,7 @@ static constexpr uint8_t RTK_Float  = 1;
 static constexpr uint8_t RTK_String = 2;
 static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;
+static constexpr uint8_t RTK_Array  = 5;
 
 struct LocalDescriptor {
     uint16_t offset = 0;
@@ -28,6 +29,11 @@ struct CompiledStruct {
     std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
     std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
+};
+
+struct CompiledArrayType {
+    uint8_t  elemKind = 0;       // RTK_Int32/RTK_Float/RTK_String/RTK_Struct/RTK_Class
+    uint16_t elemTypeIdx = 0xFFFF; // struct/class index (0xFFFF for primitives)
 };
 
 struct CompiledFunction {
@@ -60,6 +66,7 @@ struct CompiledModule {
     std::vector<std::string> stringConstants;
     std::vector<CompiledStruct> structs;
     std::vector<CompiledClass> classes;
+    std::vector<CompiledArrayType> arrayTypes;
 
     int FindFunction(const std::string& funcName) const {
         for (int i = 0; i < static_cast<int>(functions.size()); ++i)
@@ -78,6 +85,14 @@ struct CompiledModule {
     int FindClass(const std::string& className) const {
         for (int i = 0; i < static_cast<int>(classes.size()); ++i)
             if (classes[i].name == className)
+                return i;
+        return -1;
+    }
+
+    int FindArray(uint8_t elemKind, uint16_t elemTypeIdx) const {
+        for (int i = 0; i < static_cast<int>(arrayTypes.size()); ++i)
+            if (arrayTypes[i].elemKind == elemKind
+                && arrayTypes[i].elemTypeIdx == elemTypeIdx)
                 return i;
         return -1;
     }

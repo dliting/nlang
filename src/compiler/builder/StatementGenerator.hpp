@@ -161,6 +161,8 @@ public:
 	{
 		assert(false && "invalid node type");
 	}
+
+	void Access(SnArrayTypeExpr &) {}
 private:
 	BuildEnvironment &m_Env;
 	ISyntaxNodeVisitor *m_pVisitor;

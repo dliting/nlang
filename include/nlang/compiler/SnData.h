@@ -23,8 +23,8 @@ class NLANG_COMPILER_API SnDataField : public SnField
 	typedef SnField Super_;
 public:
 	//Construct from a parser.
-	SnDataField(NodeKind k, FieldAccessType at, NodeBits flags, 
-		SnNameExpr *pType, std::string *pName, SnExpression *pDefault,
+	SnDataField(NodeKind k, FieldAccessType at, NodeBits flags,
+		SnFieldExpr *pType, std::string *pName, SnExpression *pDefault,
 		const ISourceLocation &loc);
 
 	//Construct from an runtime type.
@@ -33,7 +33,7 @@ public:
 	~SnDataField() override;
 
 	//Get the value type of the parameter.
-	SnNameExpr *Type() const
+	SnFieldExpr *Type() const
 	{
 		return m_pType;
 	}
@@ -48,12 +48,14 @@ public:
 
 	SnField *EvalDataType() const override;
 
+	bool IsArrayType() const override;
+
 	std::string ToString() const override;
 protected:
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
 	void Init();
-	SnNameExpr *m_pType;
+	SnFieldExpr *m_pType;
 	SnExpression *m_pValue;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
@@ -66,7 +68,7 @@ public:
 	typedef RnFormalParam RuntimeType;
 public:
 	//Construct from a parser.
-	SnFormalParam(NodeBits flags, SnNameExpr *pType, std::string *pName, 
+	SnFormalParam(NodeBits flags, SnFieldExpr *pType, std::string *pName,
 		SnExpression *pDefault,	const ISourceLocation &loc);
 
 	//Construct from an import module.
@@ -86,15 +88,15 @@ public:
 	typedef RnFunction RuntimeType;
 public:
 	//Create from parsing information.
-	SnFunction(FieldAccessType, NodeBits flags, SnNameExpr *pReturnType,
-		std::string *pName, UniquePtrList<SnFormalParam> upParams, 
+	SnFunction(FieldAccessType, NodeBits flags, SnFieldExpr *pReturnType,
+		std::string *pName, UniquePtrList<SnFormalParam> upParams,
 		const ISourceLocation &loc);
 
 	//Create from an existing meta function.
 	explicit SnFunction(RnFunction &);
 
 	//Get the return type of this function.
-	SnNameExpr *ReturnType() const
+	SnFieldExpr *ReturnType() const
 	{
 		return m_pReturnType;
 	}
@@ -146,7 +148,7 @@ public:
 	virtual SnField *EvalDataType() const override;
 private:
 	void Init();
-	SnNameExpr *m_pReturnType;
+	SnFieldExpr *m_pReturnType;
 	std::unique_ptr<ParamList> m_upParams;
 	SnParagraph *m_pBody;
 };

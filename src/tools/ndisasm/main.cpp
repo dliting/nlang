@@ -11,10 +11,12 @@ static const char* s_typeKindNames[] = {
     "i32",    // NK_Int32 = 0 (also default for void-like functions)
     "f32",    // NK_Float = 1
     "str",    // NK_String = 2
+    "struct", // RTK_Struct = 3
+    "class"   // RTK_Class = 4
 };
 
 static const char* TypeKindName(uint16_t kind) {
-    if (kind <= 2)
+    if (kind <= 4)
         return s_typeKindNames[kind];
     return "unknown";
 }
@@ -222,6 +224,134 @@ static void DisassembleFunction(const CompiledFunction& func,
             break;
         }
 
+        //Struct operations
+        case OpCode::OP_AllocStruct: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t structIdx = reader.ReadUint16();
+            uint16_t fieldCount = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << dst << " struct=" << structIdx
+                      << " fields=" << fieldCount << "\n";
+            break;
+        }
+
+        case OpCode::OP_LoadField: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t obj = reader.ReadUint16();
+            uint16_t fieldOff = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << dst << " obj=" << obj
+                      << " off=" << fieldOff << "\n";
+            break;
+        }
+
+        case OpCode::OP_StoreField: {
+            uint16_t obj = reader.ReadUint16();
+            uint16_t fieldOff = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " obj=" << obj << " off=" << fieldOff
+                      << " " << src << "\n";
+            break;
+        }
+
+        case OpCode::OP_CopyStruct: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            uint16_t structIdx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << dst << " " << src
+                      << " struct=" << structIdx << "\n";
+            break;
+        }
+
+        //Class/object operations
+        case OpCode::OP_New: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t classIdx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << dst << " class=" << classIdx;
+            if (classIdx < module.classes.size())
+                std::cout << " " << module.classes[classIdx].name;
+            std::cout << "\n";
+            break;
+        }
+
+        case OpCode::OP_CallMethod: {
+            uint16_t methodIdx = reader.ReadUint16();
+            uint16_t base = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " method=" << methodIdx;
+            if (methodIdx < module.stringConstants.size())
+                std::cout << " \"" << module.stringConstants[methodIdx] << "\"";
+            std::cout << " base=" << base << "\n";
+            break;
+        }
+
+        case OpCode::OP_CallMethodDirect: {
+            uint16_t funcIdx = reader.ReadUint16();
+            uint16_t base = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " [" << funcIdx << "]";
+            if (funcIdx < module.functions.size())
+                std::cout << " " << module.functions[funcIdx].name;
+            std::cout << " base=" << base << "\n";
+            break;
+        }
+
+        case OpCode::OP_CallIntrinsic: {
+            uint16_t id = reader.ReadUint16();
+            uint16_t base = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " id=" << id << " base=" << base << "\n";
+            break;
+        }
+
+        case OpCode::OP_NullCheck: {
+            uint16_t obj = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << obj << "\n";
+            break;
+        }
+
+        case OpCode::OP_AllocArray: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t arrayTypeIdx = reader.ReadUint16();
+            uint16_t sizeSlot = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " dst=" << dst << " type=" << arrayTypeIdx
+                      << " sizeSlot=" << sizeSlot << "\n";
+            break;
+        }
+
+        case OpCode::OP_LoadElement: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t arr = reader.ReadUint16();
+            uint16_t index = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " dst=" << dst << " arr=" << arr
+                      << " idx=" << index << "\n";
+            break;
+        }
+
+        case OpCode::OP_StoreElement: {
+            uint16_t arr = reader.ReadUint16();
+            uint16_t index = reader.ReadUint16();
+            uint16_t src = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " arr=" << arr << " idx=" << index
+                      << " src=" << src << "\n";
+            break;
+        }
+
+        case OpCode::OP_ArrayLength: {
+            uint16_t dst = reader.ReadUint16();
+            uint16_t arr = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " dst=" << dst << " arr=" << arr << "\n";
+            break;
+        }
+
         default:
             std::cout << "    " << offsetBuf << ": unknown_op("
                       << static_cast<int>(op) << ")\n";
@@ -258,6 +388,52 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "module: " << module.name << "\n";
+
+    //Struct descriptors
+    if (module.structs.empty()) {
+        std::cout << "structs: (none)\n";
+    } else {
+        std::cout << "structs:\n";
+        for (size_t i = 0; i < module.structs.size(); ++i) {
+            auto& st = module.structs[i];
+            std::cout << "  [" << i << "] " << st.name
+                      << " (fields=" << st.fieldCount << ")\n";
+            for (uint16_t j = 0; j < st.fieldCount; ++j) {
+                std::cout << "    " << st.fieldNames[j]
+                          << ": " << TypeKindName(st.fieldTypeKinds[j]);
+                if (st.fieldTypeKinds[j] == RTK_Struct
+                    && st.fieldStructIndices[j] != 0xFFFF)
+                    std::cout << " [" << st.fieldStructIndices[j] << "]";
+                std::cout << "\n";
+            }
+        }
+    }
+    std::cout << "\n";
+
+    //Class descriptors
+    if (module.classes.empty()) {
+        std::cout << "classes: (none)\n";
+    } else {
+        std::cout << "classes:\n";
+        for (size_t i = 0; i < module.classes.size(); ++i) {
+            auto& cc = module.classes[i];
+            std::cout << "  [" << i << "] " << cc.name
+                      << " (fields=" << cc.fieldCount
+                      << ", super=" << cc.superClassIdx << ")\n";
+            for (uint16_t j = 0; j < cc.fieldCount; ++j) {
+                std::cout << "    " << cc.fieldNames[j]
+                          << ": " << TypeKindName(cc.fieldTypeKinds[j]);
+                if (cc.fieldTypeKinds[j] == RTK_Struct
+                    && cc.fieldStructIndices[j] != 0xFFFF)
+                    std::cout << " [" << cc.fieldStructIndices[j] << "]";
+                if (cc.fieldTypeKinds[j] == RTK_Class
+                    && cc.fieldClassIndices[j] != 0xFFFF)
+                    std::cout << " [" << cc.fieldClassIndices[j] << "]";
+                std::cout << "\n";
+            }
+        }
+    }
+    std::cout << "\n";
 
     //String constants
     if (module.stringConstants.empty()) {

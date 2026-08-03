@@ -204,6 +204,13 @@ public:
 	*/
 	virtual SnField *EvalDataType() const = 0;
 
+	//Is this field's type an array type (e.g. int[] x)?
+	//Subclasses with a type expression override this to forward to the SnNameExpr.
+	virtual bool IsArrayType() const
+	{
+		return false;
+	}
+
 	std::string TypedName() const;
 
 	/*
