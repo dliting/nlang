@@ -62,6 +62,10 @@ public:
 
 	void Access(SnArrayTypeExpr &) {}
 
+	//Interfaces are not concrete runtime types (no heap layout); classes that
+	//implement them carry the runtime representation. Skip type generation.
+	void Access(SnInterfaceDecl &) {}
+
 	llvm::Type *GetPointerType()
 	{
 		static auto ptrType = llvm::Type::getInt8PtrTy(m_Env.MetaContext());

@@ -345,6 +345,28 @@ void ExprResolveAccessor::Access(SnClassDecl &sn)
 					"\"%s\" is not a class type.", sn.SuperName()->ToString().c_str());
 		}
 	}
+	//Resolve "implements I1, I2" names into SnInterfaceDecl* pointers.
+	for (auto *pName : sn.ImplementsNames())
+	{
+		pName->Accept(*m_pVisitor);
+		if (pName->IsResolved())
+		{
+			auto pField = pName->Field();
+			if (pField && pField->Kind() == NK_InterfaceDecl)
+				sn.AddImplements(static_cast<SnInterfaceDecl*>(pField));
+			else
+				m_Env.Log(CLL_Error, pName->Location(),
+					"\"%s\" is not an interface type.",
+					pName->ToString().c_str());
+		}
+	}
+	sn.AddFlags(NF_Resolved);
+}
+
+void ExprResolveAccessor::Access(SnInterfaceDecl &sn)
+{
+	//Interface method signatures have no bodies; type resolution mirrors
+	//class methods (handled by StatementResolver walking the members).
 	sn.AddFlags(NF_Resolved);
 }
 
@@ -540,6 +562,32 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 		}
 		return -1;
 	}
+	//Class to interface: walk source class's inheritance chain and check
+	//each ancestor's implements list. Distance is 1 + inheritance depth
+	//(encourage upcast to direct implementor over a deeper ancestor's
+	//implementation, but still accept any depth).
+	if (srcKind == NK_ClassDecl && tgtKind == NK_InterfaceDecl)
+	{
+		auto *pSrc = static_cast<const SnClassDecl*>(&source);
+		auto *pCur = pSrc;
+		int depth = 0;
+		while (pCur)
+		{
+			for (auto *pIface : pCur->ImplementsList())
+				if (pIface == &target)
+					return depth + 1;
+			pCur = pCur->SuperClass();
+			++depth;
+		}
+		return -1;
+	}
+	//Interface to interface: identity only (no inheritance between interfaces).
+	if (srcKind == NK_InterfaceDecl && tgtKind == NK_InterfaceDecl)
+		return (&source == &target) ? 0 : -1;
+	//Interface to class is never valid — interface refs cannot be downcast
+	//implicitly (no dynamic cast in this phase).
+	if (srcKind == NK_InterfaceDecl || tgtKind == NK_InterfaceDecl)
+		return -1;
 	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
 		return -1;
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))

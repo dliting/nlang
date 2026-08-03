@@ -1,0 +1,19 @@
+interface IWorker {
+    public int Run();
+}
+
+class FastWorker implements IWorker {
+    public int Run() {
+        return 50;
+    }
+}
+
+class Container {
+    public IWorker worker;
+}
+
+int main() {
+    Container c = new Container();
+    c.worker = new FastWorker();
+    return c.worker.Run();
+}

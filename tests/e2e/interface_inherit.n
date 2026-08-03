@@ -1,0 +1,24 @@
+interface IAnimal {
+    public int Sound();
+}
+
+class AnimalBase implements IAnimal {
+    public int Sound() {
+        return 0;
+    }
+}
+
+class Dog : AnimalBase {
+    public int Sound() {
+        return 42;
+    }
+}
+
+int MakeSound(IAnimal a) {
+    return a.Sound();
+}
+
+int main() {
+    Dog d = new Dog();
+    return MakeSound(d);
+}

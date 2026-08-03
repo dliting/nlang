@@ -113,6 +113,10 @@ public:
 	}
 
 	void Access(SnArrayTypeExpr &) {}
+
+	//Interface declarations have no data fields — only method signatures,
+	//which are registered elsewhere. Skip.
+	void Access(SnInterfaceDecl &) {}
 private:
 	static std::string BuildPathName(const SnField &sn)
 	{

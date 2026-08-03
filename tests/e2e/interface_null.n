@@ -1,0 +1,18 @@
+interface IThing {
+    public int Do();
+}
+
+class Thing implements IThing {
+    public int Do() {
+        return 42;
+    }
+}
+
+int CallDo(IThing t) {
+    return t.Do();
+}
+
+int main() {
+    IThing t = null;
+    return CallDo(t);
+}

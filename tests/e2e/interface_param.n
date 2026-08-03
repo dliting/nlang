@@ -1,0 +1,18 @@
+interface IPrintable {
+    public int Print();
+}
+
+class Foo implements IPrintable {
+    public int Print() {
+        return 42;
+    }
+}
+
+int DoPrint(IPrintable p) {
+    return p.Print();
+}
+
+int main() {
+    Foo f = new Foo();
+    return DoPrint(f);
+}

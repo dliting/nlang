@@ -70,6 +70,9 @@ public:
 	//Resolve class declaration.
 	void Access(SnClassDecl &);
 
+	//Resolve interface declaration (resolve method signatures only).
+	void Access(SnInterfaceDecl &);
+
 	//Resolve class field.
 	void Access(SnClassField &);
 

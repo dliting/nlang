@@ -1,0 +1,25 @@
+interface ICounter {
+    public int Next();
+}
+
+class CounterTen implements ICounter {
+    public int Next() {
+        return 10;
+    }
+}
+
+class CounterTwenty implements ICounter {
+    public int Next() {
+        return 20;
+    }
+}
+
+int CountTwice(ICounter c) {
+    return c.Next() + c.Next();
+}
+
+int main() {
+    CounterTen a = new CounterTen();
+    CounterTwenty b = new CounterTwenty();
+    return CountTwice(a) + CountTwice(b);
+}

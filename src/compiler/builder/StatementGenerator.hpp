@@ -163,6 +163,9 @@ public:
 	}
 
 	void Access(SnArrayTypeExpr &) {}
+
+	//Interface declarations have no statements to generate.
+	void Access(SnInterfaceDecl &) {}
 private:
 	BuildEnvironment &m_Env;
 	ISyntaxNodeVisitor *m_pVisitor;

@@ -373,6 +373,21 @@ public:
 						"\"%s\" is not a class type.", sn.SuperName()->ToString().c_str());
 			}
 		}
+		//Resolve "implements I1, I2" names into SnInterfaceDecl* pointers.
+		for (auto *pName : sn.ImplementsNames())
+		{
+			m_ExprResolver.Resolve(*pName, sn, sn, ERF_None);
+			if (pName->IsResolved())
+			{
+				auto pField = pName->Field();
+				if (pField && pField->Kind() == NK_InterfaceDecl)
+					sn.AddImplements(static_cast<SnInterfaceDecl*>(pField));
+				else
+					m_Env.Log(CLL_Error, pName->Location(),
+						"\"%s\" is not an interface type.",
+						pName->ToString().c_str());
+			}
+		}
 		//Like EN: a method that overrides a parent virtual method
 		//is also virtual (implicit virtual propagation).
 		//Check both name and parameter count to avoid false matches.
@@ -459,6 +474,19 @@ public:
 	{
 		//Type expressions are resolved via ExprResolver when used in
 		//declarations; nothing to do at statement level.
+	}
+
+	void Access(SnInterfaceDecl &sn)
+	{
+		//Interface method signatures are resolved like class methods but
+		//they have no bodies (the resolver tolerates an empty body when
+		//NF_Abstract is set). No super-class chain to walk.
+		for (auto &field : sn.Members())
+		{
+			if (field.Kind() == NK_Function)
+				field.Accept(*m_pVisitor);
+		}
+		sn.AddFlags(NF_Resolved);
 	}
 
 	void Access(SyntaxNode &sn)

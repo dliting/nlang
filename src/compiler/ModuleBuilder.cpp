@@ -223,6 +223,7 @@ void ModuleBuilder::ResolveStatements()
 
 	CheckStructCircularRefs();
 	CheckClassCircularInheritance();
+	CheckInterfaceImplementation();
 }
 
 void ModuleBuilder::CheckStructCircularRefs()
@@ -354,6 +355,62 @@ void ModuleBuilder::CheckClassCircularInheritance()
 			std::vector<SnClassDecl*> path;
 			if (dfs(cd, path))
 				return;
+		}
+	}
+}
+
+//Collect all methods of a class (own + inherited) by name. Used to verify
+//that a class satisfies an interface's contract. Stops at the first match.
+static bool ClassImplementsMethod(const SnClassDecl &cls,
+	const std::string &methodName)
+{
+	auto *pCur = &cls;
+	while (pCur)
+	{
+		for (auto &member : pCur->Members())
+		{
+			if (member.Kind() == NK_Function && member.Name() == methodName)
+				return true;
+		}
+		pCur = pCur->SuperClass();
+	}
+	return false;
+}
+
+void ModuleBuilder::CheckInterfaceImplementation()
+{
+	SnNamespace &root = TreeRoot();
+	//Collect all SnClassDecl nodes (including nested in function parents).
+	std::vector<SnClassDecl*> classes;
+	for (auto &member : root.Members()) {
+		if (member.Kind() == NK_ClassDecl)
+			classes.push_back(static_cast<SnClassDecl*>(&member));
+		else if (CanBeFuncParentEx(member.Kind())) {
+			for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
+				if (child.Kind() == NK_ClassDecl)
+					classes.push_back(static_cast<SnClassDecl*>(&child));
+			}
+		}
+	}
+	//For each class, verify every declared interface is fully implemented.
+	for (auto *pClass : classes)
+	{
+		for (auto *pIface : pClass->ImplementsList())
+		{
+			for (auto &member : pIface->Members())
+			{
+				if (member.Kind() != NK_Function)
+					continue;
+				if (!ClassImplementsMethod(*pClass, member.Name()))
+				{
+					m_upEnv->Log(CLL_Error, pClass->Location(),
+						"The class \"%s\" does not implement the method "
+						"\"%s\" required by interface \"%s\".",
+						pClass->Name().c_str(),
+						member.Name().c_str(),
+						pIface->Name().c_str());
+				}
+			}
 		}
 	}
 }

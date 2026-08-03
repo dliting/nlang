@@ -62,6 +62,11 @@ private:
 		//Check for circular class inheritance.
 		void CheckClassCircularInheritance();
 
+	//Verify each class declaring "implements IFoo" provides all methods
+	//declared in IFoo (matching name, params, return type). Reports errors
+	//for missing methods.
+	void CheckInterfaceImplementation();
+
 	//Build LLVM data types.
 	void GenerateTypeFields();
 

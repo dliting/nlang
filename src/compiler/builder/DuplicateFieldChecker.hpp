@@ -67,6 +67,15 @@ public:
 			member.Accept(*m_pVisitor);
 	}
 
+	void Access(SnInterfaceDecl &sn)
+	{
+		//Check for duplicate method declarations in the interface body.
+		CheckFields(sn.Members().NameDict());
+		//Traverse members (SnFunction for param duplicate checks).
+		for (auto &member : sn.Members())
+			member.Accept(*m_pVisitor);
+	}
+
 	void Access(SyntaxNode &sn)
 	{
 	}

@@ -748,6 +748,45 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             }
             return;
         }
+        //Interface method call (e.g. p.Print()).
+        //At runtime, p holds a heap reference whose actual class is unknown
+        //at compile time. Always dispatch virtually by method name — the
+        //VM walks the runtime class's methodIndices via superClassIdx.
+        if (outerType && outerType->Kind() == NK_InterfaceDecl) {
+            //Evaluate outer expression to resultOffset (gets heap index)
+            EmitExpression(*member.Outer(), emitter, resultOffset);
+            //Null check
+            emitter.Emit(OpCode::OP_NullCheck);
+            emitter.EmitUint16(resultOffset);
+            auto* inner = member.Inner();
+            if (inner && inner->Kind() == NK_InvokeExpr) {
+                auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+                //Evaluate args to call param area (slot 0 = this)
+                uint16_t paramIdx = 1;
+                for (auto& param : invoke.Params()) {
+                    uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
+                    EmitExpression(param, emitter, paramOffset);
+                    ++paramIdx;
+                }
+                //Copy this to callParamBase[0]
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                //Always virtual dispatch by name.
+                auto* callee = invoke.Callee();
+                if (callee) {
+                    uint16_t nameIdx = AddStringConstant(callee->Name());
+                    emitter.Emit(OpCode::OP_CallMethod);
+                    emitter.EmitUint16(nameIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                }
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_ParaEnd);
+            }
+            return;
+        }
         auto* inner = member.Inner();
         //Array.length builtin property (e.g. arr.length)
         //The outer expression refers to an array-typed field/local; check

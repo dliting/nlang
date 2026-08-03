@@ -11,6 +11,9 @@ This file define the interface of miscellaneous syntax node types.
 namespace nlang
 {
 
+//Forward declaration so SnClassDecl can hold a vector of implements pointers.
+class NLANG_COMPILER_API SnInterfaceDecl;
+
 //The base class of a field which can be the parent of a function.
 class NLANG_COMPILER_API SnFunctionParentField : public SnCompoundField
 {
@@ -249,6 +252,14 @@ public:
 	SnClassDecl *SuperClass() const { return m_pSuperClass; }
 	void SuperClass(SnClassDecl *pSuper) { m_pSuperClass = pSuper; }
 
+	//Interfaces declared via "implements I1, I2" in the class header.
+	//Returns the raw name expressions from the grammar; resolved pointers
+	//are populated via AddImplements during semantic analysis.
+	const std::vector<SnFieldExpr*> &ImplementsNames() const { return m_implementsNames; }
+	void AddImplementsName(SnFieldExpr *pName);
+	const std::vector<SnInterfaceDecl*> &ImplementsList() const { return m_implements; }
+	void AddImplements(SnInterfaceDecl *pInterface) { m_implements.push_back(pInterface); }
+
 	//Count data fields (ClassField only, not Function members).
 	size_t FieldCount() const;
 
@@ -260,6 +271,33 @@ public:
 private:
 	SnFieldExpr *m_pSuper;
 	SnClassDecl *m_pSuperClass;
+	std::vector<SnFieldExpr*> m_implementsNames;
+	std::vector<SnInterfaceDecl*> m_implements;
+};
+
+//An interface type declaration (e.g. interface IPrintable { void Print(); }).
+//Members are method signatures only (no fields, no bodies). An interface is
+//"implemented" by a class via the implements clause; the class must declare
+//matching methods. Interfaces support multiple implementation (one class may
+//implement several), but interfaces themselves cannot extend one another
+//in this phase.
+class NLANG_COMPILER_API SnInterfaceDecl : public SnFunctionParentField
+{
+	typedef SnFunctionParentField Super_;
+public:
+	static const NodeKind	s_Kind			= NK_InterfaceDecl;
+	static const NodeBits	s_DefaultFlags	= NF_Type | NF_Field | NF_Plain;
+public:
+	SnInterfaceDecl(std::string *pName, PtrList<SnField> *pMembers,
+		const ISourceLocation &loc);
+
+	~SnInterfaceDecl() override;
+
+	//Interface type IS the type — returns itself.
+	SnField *EvalDataType() const override;
+	SnField *FindField(const std::string&) const override;
+	void Accept(ISyntaxNodeVisitor&) override;
+	std::string ToString() const override;
 };
 
 //The "using" directive in nlang.

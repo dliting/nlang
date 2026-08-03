@@ -83,6 +83,39 @@ void TypeCastInfo::CalcCastKind()
 		m_Kind = TCK_None;
 		return;
 	}
+	//Class to interface: implicit upcast when the class (or any ancestor)
+	//declares "implements <target>". Same pointer at runtime — no cast.
+	if (srcKind == NK_ClassDecl && tgtKind == NK_InterfaceDecl)
+	{
+		auto *pSrc = static_cast<const SnClassDecl*>(m_pSource);
+		auto *pCur = pSrc;
+		while (pCur)
+		{
+			for (auto *pIface : pCur->ImplementsList())
+			{
+				if (pIface == m_pTarget)
+				{
+					m_Kind = TCK_Same;
+					return;
+				}
+			}
+			pCur = pCur->SuperClass();
+		}
+		m_Kind = TCK_None;
+		return;
+	}
+	//Allow int (null literal, KT_Null is int32) to be assigned to interface type.
+	if (srcKind == NK_Int32 && tgtKind == NK_InterfaceDecl)
+	{
+		m_Kind = TCK_Auto;
+		return;
+	}
+	//Interface to interface: identity only.
+	if (srcKind == NK_InterfaceDecl && tgtKind == NK_InterfaceDecl)
+	{
+		m_Kind = (m_pSource == m_pTarget) ? TCK_Same : TCK_None;
+		return;
+	}
 	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
 	{
 		//Allow int (null literal) to be assigned to class type.

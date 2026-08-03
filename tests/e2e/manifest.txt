@@ -178,3 +178,14 @@ array_nested 4
 array_null 3
 array_bounds 3
 array_class_gc 1
+
+# --- interfaces ---
+interface_basic 42
+interface_param 42
+interface_local 10
+interface_field 37
+interface_field_member 50
+interface_multi 142
+interface_virtual 60
+interface_inherit 42
+interface_null 3

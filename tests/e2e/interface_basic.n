@@ -1,0 +1,17 @@
+interface IPrintable {
+    public int Print();
+}
+
+class Foo implements IPrintable {
+    public int value;
+    public int Print() {
+        this.value = 42;
+        return 0;
+    }
+}
+
+int main() {
+    Foo f = new Foo();
+    f.Print();
+    return f.value;
+}

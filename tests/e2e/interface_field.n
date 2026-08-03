@@ -1,0 +1,29 @@
+interface IShape {
+    public int Area();
+}
+
+class Square implements IShape {
+    public int side;
+    public int Area() {
+        return this.side * this.side;
+    }
+}
+
+class Circle implements IShape {
+    public int radius;
+    public int Area() {
+        return 3 * this.radius * this.radius;
+    }
+}
+
+int GetArea(IShape s) {
+    return s.Area();
+}
+
+int main() {
+    Square sq = new Square();
+    sq.side = 5;
+    Circle c = new Circle();
+    c.radius = 2;
+    return GetArea(sq) + GetArea(c);
+}

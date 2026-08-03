@@ -1,0 +1,14 @@
+interface IGreeter {
+    public int Greet();
+}
+
+class English implements IGreeter {
+    public int Greet() {
+        return 10;
+    }
+}
+
+int main() {
+    IGreeter g = new English();
+    return g.Greet();
+}

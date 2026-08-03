@@ -1,0 +1,31 @@
+interface IPrintable {
+    public int Print();
+}
+
+interface ICountable {
+    public int Count();
+}
+
+class Bag implements IPrintable, ICountable {
+    public int items;
+    public int Print() {
+        return 100;
+    }
+    public int Count() {
+        return this.items;
+    }
+}
+
+int DoPrint(IPrintable p) {
+    return p.Print();
+}
+
+int DoCount(ICountable c) {
+    return c.Count();
+}
+
+int main() {
+    Bag b = new Bag();
+    b.items = 42;
+    return DoPrint(b) + DoCount(b);
+}

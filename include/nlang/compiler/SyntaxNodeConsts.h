@@ -29,6 +29,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(StructField)				/* struct field declaration */		\
 	MACRO_IMPL(ClassDecl)				/* class type declaration */			\
 	MACRO_IMPL(ClassField)				/* class field declaration */			\
+	MACRO_IMPL(InterfaceDecl)			/* interface type declaration */		\
 	MACRO_IMPL(NewExpr)					/* new expression */				\
 	MACRO_IMPL(NewArrayExpr)				/* new T[n] expression */			\
 	MACRO_IMPL(ThisExpr)					/* this expression */				\
@@ -113,7 +114,7 @@ static_assert(NF_CP_END < NODE_FLAG_LIMIT, "Syntax node flag definition error.")
 //Extended CanBeFuncParent that includes compile-time node kinds.
 inline bool CanBeFuncParentEx(NodeKind k)
 {
-	return CanBeFuncParent(k) || k == NK_ClassDecl;
+	return CanBeFuncParent(k) || k == NK_ClassDecl || k == NK_InterfaceDecl;
 }
 
 //RnField searching flags.

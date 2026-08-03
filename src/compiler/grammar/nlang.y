@@ -84,6 +84,8 @@ using namespace nlang;
 	nlang::PtrList<nlang::SnStructField> *	v_pStructFieldList;
 	nlang::SnClassDecl *				v_pClassDecl;
 	nlang::PtrList<nlang::SnField> *	v_pClassMemberList;
+	nlang::SnInterfaceDecl *			v_pInterfaceDecl;
+	nlang::PtrList<nlang::SnFieldExpr> *	v_pNameExprList;
 	std::vector<nlang::SnLocalDeclStmt::LocalDecl> * v_pLocalDeclList;
     nlang::PtrList<nlang::SnField> *		v_pMemberList;
 	nlang::SnField *						v_pField;
@@ -137,6 +139,10 @@ using namespace nlang;
 %type <v_pStructField>		StructField
 %type <v_pStructFieldList>	StructFieldList
 %type <v_pClassDecl>		ClassDecl
+%type <v_pInterfaceDecl>	InterfaceDecl
+%type <v_pNameExprList>		ImplementsOpt NameList
+%type <v_pClassMemberList>	InterfaceMemberList
+%type <v_pField>			InterfaceMember
 %type <v_pField>			ClassMember
 %type <v_pClassMemberList>	ClassMemberList
 %type <v_pNameExpr>			ClassInheritOpt
@@ -174,7 +180,9 @@ using namespace nlang;
 %token KT_Float
 %token KT_For
 %token KT_If
+%token KT_Implements
 %token KT_Int
+%token KT_Interface
 %token KT_Namespace
 %token KT_Native
 %token KT_New
@@ -353,6 +361,9 @@ NamespaceMember:	Namespace {
 							$$ = $1;
 						} |
 						ClassDecl {
+							$$ = $1;
+						} |
+						InterfaceDecl {
 							$$ = $1;
 						} ;
 
@@ -665,12 +676,73 @@ StructField:	Type TT_Identifier ';' {
 /*
 Class type declaration.
 */
-ClassDecl:	KT_Class TT_Identifier ClassInheritOpt '{' ClassMemberList '}' {
-					$$ = EnNew(SnClassDecl($2, $3, $5, @1));
+ClassDecl:	KT_Class TT_Identifier ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
+					auto* pClass = EnNew(SnClassDecl($2, $3, $6, @1));
+					if ($4)
+						for (auto *pNode : *$4)
+							pClass->AddImplementsName(pNode);
+					$$ = pClass;
 				} ;
 
 ClassInheritOpt:	':' NameExpr { $$ = $2; } |
 					{ $$ = nullptr; } ;
+
+/*
+Optional "implements I1, I2" clause on a class. Empty when omitted.
+The list carries SnFieldExpr* (name expressions) resolved to interface
+decls during semantic analysis.
+*/
+ImplementsOpt:	KT_Implements NameList {
+					$$ = $2;
+				} |
+				{
+					$$ = nullptr;
+				} ;
+
+/*
+Comma-separated list of NameExpr values (for the implements clause).
+Returns a PtrList<SnFieldExpr> owning the name expressions.
+*/
+NameList:	NameExpr {
+					$$ = EnNew(PtrList<SnFieldExpr>());
+					$$->push_back($1);
+				} |
+				NameList ',' NameExpr {
+					$1->push_back($3);
+					$$ = $1;
+				} ;
+
+/*
+Interface type declaration. Members are method signatures only (no
+fields, no bodies). An interface establishes a contract that
+implementing classes must satisfy.
+*/
+InterfaceDecl:	KT_Interface TT_Identifier '{' InterfaceMemberList '}' {
+					$$ = EnNew(SnInterfaceDecl($2, $4, @1));
+				} ;
+
+InterfaceMemberList:	InterfaceMemberList InterfaceMember {
+					$1->push_back($2);
+					$$ = $1;
+				} |
+				InterfaceMember {
+					$$ = EnNew(PtrList<SnField>());
+					$$->push_back($1);
+				} |
+				/* empty */ {
+					$$ = EnNew(PtrList<SnField>());
+				} ;
+
+InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' ';' {
+					auto* func = EnNew(SnFunction($1, $2, $3, $4, $6, @2));
+					func->AddFlags(NF_Abstract);
+					$$ = func;
+				} |
+				AccessType Type TT_Identifier '(' FormalParamList ')' ';' {
+					auto* func = EnNew(SnFunction($1, NF_NONE, $2, $3, $5, @2));
+					func->AddFlags(NF_Abstract);
+					$$ = func;
+				} ;
 
 ClassMemberList:	ClassMemberList ClassMember {
 					$1->push_back($2);

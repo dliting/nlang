@@ -159,7 +159,9 @@ LineComment	\/\/[^\n]*
 "float"     { return KT_Float; }
 "for"       { return KT_For; }
 "if"        { return KT_If; }
+"implements" { return KT_Implements; }
 "int"       { return KT_Int; }
+"interface" { return KT_Interface; }
 "namespace" { return KT_Namespace; }
 "native"    { return KT_Native; }
 "new"       { return KT_New; }

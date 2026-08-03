@@ -116,6 +116,7 @@ bool SnNamespace::AllowMember(NodeKind k) const
 	case NK_EnumDecl:
 	case NK_StructDecl:
 	case NK_ClassDecl:
+	case NK_InterfaceDecl:
 		return true;
 	default:
 		return IsBuiltinType(k) && (Name() == GLOBAL_NAMESPACE_NAME);
@@ -365,6 +366,13 @@ SnClassDecl::~SnClassDecl()
 {
 }
 
+void SnClassDecl::AddImplementsName(SnFieldExpr *pName)
+{
+	m_implementsNames.push_back(pName);
+	if (pName)
+		AddChild(pName);
+}
+
 size_t SnClassDecl::FieldCount() const
 {
 	size_t count = 0;
@@ -398,6 +406,38 @@ void SnClassDecl::Accept(ISyntaxNodeVisitor &v)
 std::string SnClassDecl::ToString() const
 {
 	return "class " + Name();
+}
+
+//--- SnInterfaceDecl ---
+
+SnInterfaceDecl::SnInterfaceDecl(std::string *pName, PtrList<SnField> *pMembers,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, pMembers, loc)
+{
+}
+
+SnInterfaceDecl::~SnInterfaceDecl()
+{
+}
+
+SnField *SnInterfaceDecl::EvalDataType() const
+{
+	return const_cast<SnInterfaceDecl*>(this);
+}
+
+SnField *SnInterfaceDecl::FindField(const std::string& sName) const
+{
+	return SnFunctionParentField::FindField(sName);
+}
+
+void SnInterfaceDecl::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnInterfaceDecl::ToString() const
+{
+	return "interface " + Name();
 }
 
 //--- SnUsing ---
