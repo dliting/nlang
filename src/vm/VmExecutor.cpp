@@ -645,6 +645,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         case OpCode::OP_CallMethod: {
             //Virtual method dispatch — name-based lookup (like EN's
             //I_Base_CallVirtualFunc + FindFunctionChecked).
+            //
+            //Note: the null-receiver check below throws *before* the
+            //dispatched method's frame is constructed. The backtrace
+            //therefore shows the caller (e.g. CallGet) but not the
+            //callee (e.g. Get). This is intentional — the callee never
+            //ran — and matches how mainstream runtimes report NPEs.
             uint16_t methodNameIdx = reader.ReadUint16();
             uint16_t callParamBase = reader.ReadUint16();
             if (methodNameIdx >= m_currModule->stringConstants.size())

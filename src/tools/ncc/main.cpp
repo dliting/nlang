@@ -48,9 +48,10 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: 'run' requires a module file path.\n";
             return 1;
         }
+        CompiledModule mod;
+        VmExecutor executor;
         try {
-            CompiledModule mod = ModuleLoader::Load(argv[2]);
-            VmExecutor executor;
+            mod = ModuleLoader::Load(argv[2]);
             int result = executor.Execute(mod);
 #ifdef _WIN32
             ExitProcess(static_cast<UINT>(result));
@@ -58,7 +59,10 @@ int main(int argc, char* argv[]) {
             return result;
 #endif
         } catch (const std::exception& e) {
-            std::cerr << "Error: " << e.what() << "\n";
+            std::cerr << "Runtime error: " << e.what() << "\n";
+            const auto& bt = executor.Backtrace();
+            if (!bt.empty())
+                std::cerr << "Backtrace:\n" << bt;
             return 1;
         }
     }
@@ -132,9 +136,10 @@ int main(int argc, char* argv[]) {
     }
 
     // Execute
+    CompiledModule mod;
+    VmExecutor executor;
     try {
-        CompiledModule mod = ModuleLoader::Load(outputFile);
-        VmExecutor executor;
+        mod = ModuleLoader::Load(outputFile);
         int result = executor.Execute(mod);
         //On Windows, static destructors from Runtime::StaticInit() can
         //corrupt the process exit code. ExitProcess() bypasses this.
@@ -145,9 +150,9 @@ int main(int argc, char* argv[]) {
 #endif
     } catch (const std::exception& e) {
         std::cerr << "Runtime error: " << e.what() << "\n";
-        //Backtrace not available in ncc's compile+run mode since the
-        //executor goes out of scope here. Use `nvm <module.nmod>` for
-        //backtrace output.
+        const auto& bt = executor.Backtrace();
+        if (!bt.empty())
+            std::cerr << "Backtrace:\n" << bt;
         return 1;
     }
 }
