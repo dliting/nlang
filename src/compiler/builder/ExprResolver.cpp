@@ -238,14 +238,58 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			else if (name == "ReadString")
 				{ isStreamMethod = true; retKind = NK_String; }
 			else if (name == "WriteInt" || name == "WriteFloat"
-				|| name == "WriteString" || name == "Reset" || name == "Close")
+				|| name == "WriteString" || name == "Reset" || name == "Close"
+				|| name == "WriteStruct")
 				isStreamMethod = true;  // void return — no EvalDataType
+			else if (name == "ReadStruct")
+			{
+				//ReadStruct("TypeName") returns a struct value of the named type.
+				//The type-name argument MUST be a string literal so we can resolve
+				//it at compile time. (Variables rejected — no generics in NLang.)
+				isStreamMethod = true;
+				auto& params = invoke.Params();
+				auto it = params.begin();
+				if (it == params.end() || (*it).Kind() != NK_LiteralExpr
+					|| !(*it).EvalDataType()
+					|| (*it).EvalDataType()->Kind() != NK_String)
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"ReadStruct requires a string literal argument.");
+					m_pContext = pSavedContext;
+					return;
+				}
+				auto& lit = static_cast<SnLiteralExpr&>(*it);
+				const std::string* pTypeName = lit.Value().Data().m_String;
+				const std::string typeName = pTypeName ? *pTypeName : std::string();
+				//Look up typeName as a struct in the namespace chain.
+				SnField* found = nullptr;
+				auto* ctx = m_pContext;
+				while (ctx && !found)
+				{
+					found = ctx->FindField(typeName);
+					ctx = ctx->Parent();
+				}
+				if (!found || found->Kind() != NK_StructDecl)
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"ReadStruct type not found: %s.", typeName.c_str());
+					m_pContext = pSavedContext;
+					return;
+				}
+				snMember.EvalDataType(found);
+			}
 			if (isStreamMethod)
 			{
 				pInnerExpr->AddFlags(NF_Resolved);
+				//For void-returning methods, leave EvalDataType unset.
 				if (name != "WriteInt" && name != "WriteFloat"
-					&& name != "WriteString" && name != "Reset" && name != "Close")
-					snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
+					&& name != "WriteString" && name != "Reset" && name != "Close"
+					&& name != "WriteStruct")
+				{
+					//ReadStruct already set EvalDataType above; others use retKind.
+					if (name != "ReadStruct")
+						snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
+				}
 				snMember.AddFlags(NF_Resolved);
 				m_pContext = pSavedContext;
 				return;
