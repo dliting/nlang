@@ -216,3 +216,4 @@ bs_struct_nested 13
 bs_struct_float_field 4
 bs_struct_class_field_throws 1
 bs_struct_eos 1
+fs_struct_roundtrip 30
