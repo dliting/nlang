@@ -145,6 +145,9 @@ int main(int argc, char* argv[]) {
 #endif
     } catch (const std::exception& e) {
         std::cerr << "Runtime error: " << e.what() << "\n";
+        //Backtrace not available in ncc's compile+run mode since the
+        //executor goes out of scope here. Use `nvm <module.nmod>` for
+        //backtrace output.
         return 1;
     }
 }

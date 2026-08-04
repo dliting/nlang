@@ -1,0 +1,14 @@
+//Verifies that division by zero is caught and produces a non-zero exit.
+//The backtrace (visible via nvm) includes function names and source lines.
+int Inner(int x) {
+    int z = 0;
+    return x / z;
+}
+
+int Middle(int y) {
+    return Inner(y);
+}
+
+int main() {
+    return Middle(10);
+}

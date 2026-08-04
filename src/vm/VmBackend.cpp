@@ -5,6 +5,7 @@
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnStatements.h>
 #include <nlang/compiler/SnExtraTypes.h>
+#include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <cassert>
@@ -1100,6 +1101,20 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
 
 void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     NodeKind kind = stmt.Kind();
+
+    //Emit a line marker at every statement so the VM can produce source
+    //location info in backtraces and runtime errors. Skipped for paragraphs
+    //(they are containers, not statements with their own source location).
+    if (kind != NK_Paragraph) {
+        if (auto* pLoc = stmt.Location()) {
+            if (auto* pScript = dynamic_cast<const ScriptLocation*>(pLoc)) {
+                uint16_t line = static_cast<uint16_t>(
+                    pScript->m_nStartLine & 0xFFFF);
+                emitter.Emit(OpCode::OP_DebugInfo);
+                emitter.EmitUint16(line);
+            }
+        }
+    }
 
     if (kind == NK_ReturnStmt) {
         auto& ret = static_cast<SnReturnStmt&>(stmt);

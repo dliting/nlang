@@ -24,7 +24,21 @@ int main(int argc, char* argv[]) {
 
     CompiledModule module = ModuleLoader::Load(argv[1]);
     VmExecutor executor;
-    int result = executor.Execute(module);
+    int result = 1;
+    try {
+        result = executor.Execute(module);
+    } catch (const std::exception& e) {
+        std::cerr << "Runtime error: " << e.what() << "\n";
+        const auto& bt = executor.Backtrace();
+        if (!bt.empty()) {
+            std::cerr << "Backtrace:\n" << bt;
+        }
+#ifdef _WIN32
+        ExitProcess(static_cast<UINT>(result));
+#else
+        return result;
+#endif
+    }
     //On Windows, static destructors from the runtime library can
     //corrupt the process exit code. ExitProcess() bypasses this.
 #ifdef _WIN32

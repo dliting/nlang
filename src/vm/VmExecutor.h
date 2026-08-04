@@ -12,6 +12,10 @@ class VmExecutor {
 public:
     int Execute(const CompiledModule& module);
 
+    //Backtrace captured from the last Execute() call. Empty if execution
+    //succeeded without throwing.
+    const std::string& Backtrace() const { return m_lastBacktrace; }
+
 private:
     void ExecuteFunction(const CompiledFunction& func,
         uint8_t* pResult, uint8_t* locals);
@@ -49,6 +53,10 @@ private:
     void FreeNestedStructs(int32_t heapIdx, uint16_t structIdx);
     void FreeOwnedArrayStructElements(int32_t heapIdx);
 
+    //Build a backtrace string from m_unwindFrames. Called when an exception
+    //propagates out of main(); format is "  at <func> (<module>.n:<line>)".
+    std::string FormatBacktrace() const;
+
     //Check if GC should run at a safepoint (function entry, loop back-edge).
     void CheckGCSafepoint();
 
@@ -57,6 +65,9 @@ private:
     size_t m_recurseDepth = 0;
     const CompiledModule* m_currModule = nullptr;
     std::vector<std::string> m_stringPool;
+
+    //Last captured backtrace (filled by Execute's catch block).
+    std::string m_lastBacktrace;
 
     //Struct heap: each slot is a vector of int32 values (one per field).
     //Index 0 is a sentinel (empty slot).
@@ -76,8 +87,18 @@ private:
         uint8_t* locals;
         uint8_t* pResult;
         const CompiledFunction* func;
+        uint16_t currentLine = 0;   //updated by OP_DebugInfo; 0 = unknown
     };
     std::vector<CallFrame> m_callStack;
+
+    //Frames captured during exception unwinding. Populated by FrameGuard's
+    //destructor when std::uncaught_exceptions() > 0. Ordered innermost-first
+    //because innermost frame's destructor runs first during stack unwinding.
+    struct UnwindFrame {
+        std::string funcName;
+        uint16_t currentLine;
+    };
+    std::vector<UnwindFrame> m_unwindFrames;
 };
 
 } // namespace nlang

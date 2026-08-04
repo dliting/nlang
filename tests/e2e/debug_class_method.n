@@ -1,0 +1,17 @@
+//Verifies backtrace through a class method call chain. Null check failure
+//in a method should show class context in the backtrace.
+class Holder {
+    public int value;
+    public int Get() {
+        return this.value;
+    }
+}
+
+int CallGet(Holder h) {
+    return h.Get();
+}
+
+int main() {
+    Holder h = null;
+    return CallGet(h);
+}

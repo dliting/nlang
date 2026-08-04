@@ -1,6 +1,7 @@
 #include "VmExecutor.h"
 #include <cstring>
 #include <cstdio>
+#include <exception>
 
 namespace nlang {
 
@@ -11,6 +12,8 @@ int VmExecutor::Execute(const CompiledModule& module) {
 
     m_currModule = &module;
     m_recurseDepth = 0;
+    m_unwindFrames.clear();
+    m_lastBacktrace.clear();
 
     //Initialize string pool from module's string constants.
     m_stringPool = module.stringConstants;
@@ -34,8 +37,32 @@ int VmExecutor::Execute(const CompiledModule& module) {
     const CompiledFunction& mainFunc = module.functions[mainIdx];
     std::vector<uint8_t> locals(mainFunc.localsSize, 0);
     int32_t result = 0;
-    ExecuteFunction(mainFunc, reinterpret_cast<uint8_t*>(&result), locals.data());
+    try {
+        ExecuteFunction(mainFunc, reinterpret_cast<uint8_t*>(&result), locals.data());
+    } catch (const std::exception&) {
+        m_lastBacktrace = FormatBacktrace();
+        throw;
+    }
     return result;
+}
+
+std::string VmExecutor::FormatBacktrace() const {
+    std::string out;
+    std::string moduleName = m_currModule ? m_currModule->name : "<module>";
+    char buf[256];
+    //m_unwindFrames is innermost-first (innermost's destructor ran first).
+    for (const auto& f : m_unwindFrames) {
+        if (f.currentLine != 0) {
+            std::snprintf(buf, sizeof(buf), "  at %s (%s.n:%u)\n",
+                f.funcName.c_str(), moduleName.c_str(),
+                static_cast<unsigned>(f.currentLine));
+        } else {
+            std::snprintf(buf, sizeof(buf), "  at %s (%s.n:?)\n",
+                f.funcName.c_str(), moduleName.c_str());
+        }
+        out += buf;
+    }
+    return out;
 }
 
 void VmExecutor::ExecuteFunction(const CompiledFunction& func,
@@ -52,12 +79,25 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
     } guard(m_recurseDepth);
 
     //Push call frame for GC root set. RAII pop on exit.
-    m_callStack.push_back({locals, pResult, &func});
+    m_callStack.push_back({locals, pResult, &func, 0});
     struct FrameGuard {
         std::vector<CallFrame>& stack;
-        FrameGuard(std::vector<CallFrame>& s) : stack(s) {}
-        ~FrameGuard() { stack.pop_back(); }
-    } frameGuard(m_callStack);
+        std::vector<UnwindFrame>& unwind;
+        const CompiledFunction* func;
+        FrameGuard(std::vector<CallFrame>& s,
+                   std::vector<UnwindFrame>& u,
+                   const CompiledFunction* f)
+            : stack(s), unwind(u), func(f) {}
+        ~FrameGuard() {
+            //If an exception is propagating, capture this frame for the
+            //backtrace before popping. Innermost frame runs first.
+            if (std::uncaught_exceptions() > 0 && !stack.empty()) {
+                unwind.push_back({func ? func->name : std::string("<unknown>"),
+                                  stack.back().currentLine});
+            }
+            stack.pop_back();
+        }
+    } frameGuard(m_callStack, m_unwindFrames, &func);
 
     //Safepoint: function entry is a natural GC point (tempSlot is empty).
     CheckGCSafepoint();
@@ -470,7 +510,9 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         case OpCode::OP_DebugInfo: {
-            reader.ReadUint16();
+            uint16_t line = reader.ReadUint16();
+            if (!m_callStack.empty())
+                m_callStack.back().currentLine = line;
             break;
         }
 
