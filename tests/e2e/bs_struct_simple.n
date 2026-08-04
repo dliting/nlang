@@ -1,0 +1,12 @@
+struct Point { int x; int y; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Point p;
+    p.x = 10;
+    p.y = 20;
+    bs.WriteStruct(p);
+    bs.Reset();
+    Point q = bs.ReadStruct("Point");
+    return q.x + q.y;
+}

@@ -283,6 +283,19 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			}
 			if (isStreamMethod)
 			{
+				//Resolve the args so each param's Field()/EvalDataType() is
+				//populated (e.g. struct-typed IdentifierExpr needs Field() set
+				//so VmBackend can emit the correct load opcode). Without this,
+				//the early return below skips arg resolution entirely and the
+				//backend falls through to const_zero for unresolved idents.
+				//
+				//Args are evaluated in the CALLER's scope, not the synthesized
+				//builtin-class scope (which is empty). Restore m_pContext AND
+				//clear ERF_SearchInParentOnly (set above for the member lookup)
+				//so a normal scope walk finds the caller's locals.
+				m_pContext = pSavedContext;
+				RemoveFlags(ERF_SearchInParentOnly);
+				ResolveExpressionList(invoke.Params());
 				pInnerExpr->AddFlags(NF_Resolved);
 				//For void-returning methods, leave EvalDataType unset.
 				if (name != "WriteInt" && name != "WriteFloat"

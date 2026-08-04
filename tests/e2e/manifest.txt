@@ -208,3 +208,6 @@ file_stream_append 3
 file_stream_strings 1
 file_stream_bad_mode 1
 file_stream_missing_read 1
+
+# --- Phase 8b: struct serialization ---
+bs_struct_simple 30
