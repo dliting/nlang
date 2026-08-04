@@ -261,9 +261,12 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				auto& lit = static_cast<SnLiteralExpr&>(*it);
 				const std::string* pTypeName = lit.Value().Data().m_String;
 				const std::string typeName = pTypeName ? *pTypeName : std::string();
-				//Look up typeName as a struct in the namespace chain.
+				//Look up typeName as a struct in the caller's namespace chain.
+				//NOT m_pContext — that is the synthesized builtin stream class,
+				//whose Parent() is null, so the walk would never reach the
+				//user's translation-unit scope where structs are declared.
 				SnField* found = nullptr;
-				auto* ctx = m_pContext;
+				auto* ctx = pSavedContext;
 				while (ctx && !found)
 				{
 					found = ctx->FindField(typeName);
