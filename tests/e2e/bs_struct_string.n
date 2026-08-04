@@ -1,0 +1,17 @@
+struct Person { string name; int age; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Person p;
+    p.name = "hello";
+    p.age = 1;
+    bs.WriteStruct(p);
+    bs.Reset();
+    Person q = bs.ReadStruct("Person");
+    if (q.name == "hello") {
+        if (q.age == 1) {
+            return 1;
+        }
+    }
+    return 0;
+}
