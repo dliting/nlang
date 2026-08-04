@@ -37,6 +37,7 @@ void VmBackend::GenerateData(SnNamespace& root) {
 }
 
 void VmBackend::GenerateStatements(SnNamespace& root) {
+    RegisterBuiltinClasses();
     RegisterStructs(root);
     RegisterClasses(root);
     ResolveStructClassRefs();
@@ -44,6 +45,89 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
     RegisterFunctions(root);
     PopulateClassMethods(root);
     GenerateAllBytecode(root);
+}
+
+void VmBackend::RegisterBuiltinClasses() {
+    //Register built-in classes (ByteStream, FileStream) as CompiledClass entries
+    //with stub CompiledFunction entries for their methods. Each stub has
+    //intrinsicId set so OP_CallMethod{,Direct} short-circuits to ExecuteIntrinsic.
+    auto registerBuiltin = [&](const std::string& name,
+        const std::vector<std::pair<std::string, uint16_t>>& methods,
+        uint16_t ctorIntrinsicId, bool hasCtorParams) {
+        auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
+        CompiledClass cc;
+        cc.name = name;
+        cc.fieldCount = 1;  //hidden __handle field
+        cc.fieldNames.push_back("__handle");
+        cc.fieldTypeKinds.push_back(RTK_Int32);
+        cc.fieldStructIndices.push_back(0xFFFF);
+        cc.fieldClassIndices.push_back(0xFFFF);
+        cc.fieldAccess.push_back(0);  //private
+
+        //Ctor stub.
+        auto ctorFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+        CompiledFunction ctorFunc;
+        ctorFunc.name = name;  //ctor name matches class name
+        ctorFunc.paramCount = hasCtorParams ? 3 : 1;  //this + [path, mode]
+        ctorFunc.localsSize = ctorFunc.paramCount * VALUE_SIZE;
+        ctorFunc.returnTypeKind = RTK_Void;
+        ctorFunc.intrinsicId = ctorIntrinsicId;
+        m_compiledModule.functions.push_back(std::move(ctorFunc));
+        cc.constructorIdx = ctorFuncIdx;
+
+        //Method stubs.
+        for (auto& [methName, intrinsicId] : methods) {
+            auto methFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+            CompiledFunction methFunc;
+            methFunc.name = methName;
+            //paramCount: 1 (this) for most, 2 (this + arg) for Write*/Read*
+            bool hasArg = (methName.find("Write") == 0 || methName.find("Read") == 0);
+            methFunc.paramCount = static_cast<uint16_t>(hasArg ? 2 : 1);
+            methFunc.localsSize = static_cast<uint16_t>(methFunc.paramCount * VALUE_SIZE);
+            //Return type: int for ReadInt/Length/Position, float for ReadFloat,
+            //string for ReadString, void for Write*/Reset/Close
+            if (methName == "ReadInt" || methName == "Length" || methName == "Position")
+                methFunc.returnTypeKind = RTK_Int32;
+            else if (methName == "ReadFloat")
+                methFunc.returnTypeKind = RTK_Float;
+            else if (methName == "ReadString")
+                methFunc.returnTypeKind = RTK_String;
+            else
+                methFunc.returnTypeKind = RTK_Void;  //Write*/Reset/Close
+            methFunc.intrinsicId = intrinsicId;
+            m_compiledModule.functions.push_back(std::move(methFunc));
+            cc.methodIndices.push_back(methFuncIdx);
+        }
+
+        m_compiledModule.classes.push_back(std::move(cc));
+    };
+
+    //ByteStream methods.
+    registerBuiltin("ByteStream", {
+        {"WriteInt",   INTR_BS_WriteInt},
+        {"ReadInt",    INTR_BS_ReadInt},
+        {"WriteFloat", INTR_BS_WriteFloat},
+        {"ReadFloat",  INTR_BS_ReadFloat},
+        {"WriteString",INTR_BS_WriteString},
+        {"ReadString", INTR_BS_ReadString},
+        {"Length",     INTR_BS_Length},
+        {"Position",   INTR_BS_Position},
+        {"Reset",      INTR_BS_Reset},
+        {"Close",      INTR_BS_Close},
+    }, INTR_BS_Ctor, false);
+
+    //FileStream methods.
+    registerBuiltin("FileStream", {
+        {"WriteInt",   INTR_FS_WriteInt},
+        {"ReadInt",    INTR_FS_ReadInt},
+        {"WriteFloat", INTR_FS_WriteFloat},
+        {"ReadFloat",  INTR_FS_ReadFloat},
+        {"WriteString",INTR_FS_WriteString},
+        {"ReadString", INTR_FS_ReadString},
+        {"Length",     INTR_FS_Length},
+        {"Position",   INTR_FS_Position},
+        {"Close",      INTR_FS_Close},
+    }, INTR_FS_Ctor, true);
 }
 
 void VmBackend::RegisterStructs(SnNamespace& root) {
@@ -300,7 +384,6 @@ void VmBackend::RegisterArrayTypes(SnNamespace& root) {
 
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
-    size_t funcRegIdx = 0;
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(member);
@@ -309,7 +392,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             CompiledFunction cf;
             cf.name = func.Name();
             m_compiledModule.functions.push_back(std::move(cf));
-            m_funcIndexMap[&func] = funcRegIdx++;
+            m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
         } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
@@ -319,7 +402,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
                     CompiledFunction cf;
                     cf.name = func.Name();
                     m_compiledModule.functions.push_back(std::move(cf));
-                    m_funcIndexMap[&func] = funcRegIdx++;
+                    m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
                 }
             }
         }
@@ -351,22 +434,23 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
 }
 
 void VmBackend::GenerateAllBytecode(SnNamespace& root) {
-    size_t funcIdx = 0;
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(member);
             if (!func.Body())
                 continue;
-            GenerateFunction(func, funcIdx);
-            ++funcIdx;
+            auto it = m_funcIndexMap.find(&func);
+            if (it != m_funcIndexMap.end())
+                GenerateFunction(func, it->second);
         } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
                     auto& func = static_cast<SnFunction&>(child);
                     if (!func.Body())
                         continue;
-                    GenerateFunction(func, funcIdx);
-                    ++funcIdx;
+                    auto it = m_funcIndexMap.find(&func);
+                    if (it != m_funcIndexMap.end())
+                        GenerateFunction(func, it->second);
                 }
             }
         }
@@ -742,6 +826,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         emitter.EmitUint16(static_cast<uint16_t>(it->second));
                         emitter.EmitUint16(m_currFunc->callParamBase);
                     }
+                } else if (classDecl->IsBuiltinClass()) {
+                    //Builtin class method — no SnFunction in the AST.
+                    //Dispatch by name at runtime; the VM will find the stub
+                    //in CompiledClass::methodIndices and short-circuit to
+                    //ExecuteIntrinsic.
+                    uint16_t nameIdx = AddStringConstant(invoke.CalleeName());
+                    emitter.Emit(OpCode::OP_CallMethod);
+                    emitter.EmitUint16(nameIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
                 }
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
@@ -1737,7 +1830,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     fs.write(magic, 8);
 
     // Version
-    uint16_t majorVer = 1, minorVer = 0;
+    uint16_t majorVer = 1, minorVer = 1;
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 
@@ -1772,6 +1865,8 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
                  sizeof(func.paramCount));
         fs.write(reinterpret_cast<const char*>(&func.returnTypeKind),
                  sizeof(func.returnTypeKind));
+        fs.write(reinterpret_cast<const char*>(&func.intrinsicId),
+                 sizeof(func.intrinsicId));
 
         uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());
         fs.write(reinterpret_cast<const char*>(&bcSize), sizeof(bcSize));

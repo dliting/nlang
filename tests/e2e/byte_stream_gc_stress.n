@@ -1,0 +1,14 @@
+class Dummy { public int x; public int y; public int Dummy() { this.x = 1; this.y = 2; return 0; } }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    bs.WriteInt(42);
+    bs.Reset();
+    int i = 0;
+    while (i < 200) {
+        Dummy obj = new Dummy();
+        i = i + 1;
+    }
+    int v = bs.ReadInt();
+    return v;
+}

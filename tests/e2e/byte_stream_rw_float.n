@@ -1,0 +1,11 @@
+int main() {
+    ByteStream bs = new ByteStream();
+    bs.WriteFloat(1.0);
+    bs.WriteFloat(3.0);
+    bs.Reset();
+    float a = bs.ReadFloat();
+    float b = bs.ReadFloat();
+    int ra = a;
+    int rb = b;
+    return ra + rb;
+}

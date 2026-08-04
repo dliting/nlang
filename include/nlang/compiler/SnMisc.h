@@ -268,11 +268,19 @@ public:
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
+
+	//Built-in class marker (ByteStream, FileStream, etc.).
+	//Set by the resolver when it synthesizes a SnClassDecl for
+	//a built-in name that doesn't exist in user code.
+	bool IsBuiltinClass() const { return m_bIsBuiltinClass; }
+	void SetBuiltinClass() { m_bIsBuiltinClass = true; }
+
 private:
 	SnFieldExpr *m_pSuper;
 	SnClassDecl *m_pSuperClass;
 	std::vector<SnFieldExpr*> m_implementsNames;
 	std::vector<SnInterfaceDecl*> m_implements;
+	bool m_bIsBuiltinClass = false;
 };
 
 //An interface type declaration (e.g. interface IPrintable { void Print(); }).

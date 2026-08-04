@@ -59,6 +59,10 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                 sizeof(func.paramCount));
         fs.read(reinterpret_cast<char*>(&func.returnTypeKind),
                 sizeof(func.returnTypeKind));
+        //intrinsicId was added in module format version 1.1.
+        if (minorVer >= 1)
+            fs.read(reinterpret_cast<char*>(&func.intrinsicId),
+                    sizeof(func.intrinsicId));
 
         uint32_t bcSize;
         fs.read(reinterpret_cast<char*>(&bcSize), sizeof(bcSize));

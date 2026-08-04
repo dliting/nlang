@@ -1,11 +1,36 @@
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
+#include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 
 namespace nlang
 {
+
+//Canonical SnClassDecl instances for built-in classes. These must be
+//singletons so that CalcTypeDistance's pointer identity check works
+//across all resolution sites (type names, new expressions, member calls).
+static SnClassDecl* s_pByteStreamClass = nullptr;
+static SnClassDecl* s_pFileStreamClass = nullptr;
+
+static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
+	const ISourceLocation* pLoc)
+{
+	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
+		: s_pFileStreamClass;
+	if (!rpRef)
+	{
+		auto* pName = new std::string(name);
+		auto* pMembers = new PtrList<SnField>();
+		ScriptLocation loc;
+		if (pLoc)
+			loc = *static_cast<const ScriptLocation*>(pLoc);
+		rpRef = new SnClassDecl(pName, nullptr, pMembers, loc);
+		rpRef->SetBuiltinClass();
+	}
+	return rpRef;
+}
 
 void ExprResolveAccessor::Access(SnLiteralExpr &sn)
 {
@@ -22,6 +47,20 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	auto pFieldExpr = nameExpr.Expr();
 	assert(pFieldExpr);
 	pFieldExpr->Accept(*m_pVisitor);
+
+	//Builtin class names: ByteStream, FileStream.
+	//When used as a type name (e.g. "ByteStream s = ..."), the name
+	//doesn't exist in the AST namespace. Synthesize a singleton SnClassDecl.
+	if (!pFieldExpr->IsResolved())
+	{
+		const auto& name = pFieldExpr->ToString();
+		if (name == "ByteStream" || name == "FileStream")
+		{
+			ResolveFieldExprAs(*pFieldExpr,
+				GetBuiltinClassDecl(name, pFieldExpr->Location()));
+		}
+	}
+
 	if (!pFieldExpr->IsResolved())
 		return;
 
@@ -65,6 +104,15 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 
 	if (!pField)
 	{
+		//Builtin class names: ByteStream, FileStream.
+		//Synthesize a singleton SnClassDecl when the name is not found.
+		const auto& name = idExpr.Name();
+		if (name == "ByteStream" || name == "FileStream")
+		{
+			ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
+			return;
+		}
+
 		m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
 			idExpr.Name().c_str());
 		return;
@@ -172,6 +220,38 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			}
 		}
 
+		//Builtin stream methods: ByteStream/FileStream member calls.
+		//These are resolved by name since the synthesized SnClassDecl has
+		//no real method members. The return type is determined by method name.
+		if (m_pContext && m_pContext->Kind() == NK_ClassDecl
+			&& static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
+			&& pInnerExpr->Kind() == NK_InvokeExpr)
+		{
+			auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+			const auto& name = invoke.CalleeName();
+			bool isStreamMethod = false;
+			NodeKind retKind = NK_Int32;  //default, overridden below
+			if (name == "ReadInt" || name == "Length" || name == "Position")
+				isStreamMethod = true;  // retKind = NK_Int32
+			else if (name == "ReadFloat")
+				{ isStreamMethod = true; retKind = NK_Float; }
+			else if (name == "ReadString")
+				{ isStreamMethod = true; retKind = NK_String; }
+			else if (name == "WriteInt" || name == "WriteFloat"
+				|| name == "WriteString" || name == "Reset" || name == "Close")
+				isStreamMethod = true;  // void return — no EvalDataType
+			if (isStreamMethod)
+			{
+				pInnerExpr->AddFlags(NF_Resolved);
+				if (name != "WriteInt" && name != "WriteFloat"
+					&& name != "WriteString" && name != "Reset" && name != "Close")
+					snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
+				snMember.AddFlags(NF_Resolved);
+				m_pContext = pSavedContext;
+				return;
+			}
+		}
+
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
 		ResolveFieldExprAs(snMember, pInnerExpr->Field());
@@ -222,6 +302,20 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	auto pClassName = sn.ClassName();
 	assert(pClassName);
 	pClassName->Accept(*m_pVisitor);
+
+	//Builtin class names: ByteStream, FileStream.
+	//These don't exist in the AST namespace, so the name won't resolve
+	//through the normal path. Use the singleton SnClassDecl.
+	if (!pClassName->IsResolved())
+	{
+		const auto& name = pClassName->ToString();
+		if (name == "ByteStream" || name == "FileStream")
+		{
+			ResolveFieldExprAs(*pClassName,
+				GetBuiltinClassDecl(name, pClassName->Location()));
+		}
+	}
+
 	if (!pClassName->IsResolved())
 		return;
 

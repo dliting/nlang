@@ -13,6 +13,7 @@ static constexpr uint8_t RTK_String = 2;
 static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;
 static constexpr uint8_t RTK_Array  = 5;
+static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
 
 struct LocalDescriptor {
     uint16_t offset = 0;
@@ -36,6 +37,35 @@ struct CompiledArrayType {
     uint16_t elemTypeIdx = 0xFFFF; // struct/class index (0xFFFF for primitives)
 };
 
+//Builtin intrinsic function IDs.
+//Used by CompiledFunction::intrinsicId to dispatch VM-side methods.
+static constexpr uint16_t INTR_None = 0xFFFF;
+
+//ByteStream intrinsics.
+static constexpr uint16_t INTR_BS_Ctor         = 0;
+static constexpr uint16_t INTR_BS_WriteInt     = 1;
+static constexpr uint16_t INTR_BS_ReadInt      = 2;
+static constexpr uint16_t INTR_BS_WriteFloat   = 3;
+static constexpr uint16_t INTR_BS_ReadFloat    = 4;
+static constexpr uint16_t INTR_BS_WriteString  = 5;
+static constexpr uint16_t INTR_BS_ReadString   = 6;
+static constexpr uint16_t INTR_BS_Length       = 7;
+static constexpr uint16_t INTR_BS_Position     = 8;
+static constexpr uint16_t INTR_BS_Reset        = 9;
+static constexpr uint16_t INTR_BS_Close        = 10;
+
+//FileStream intrinsics.
+static constexpr uint16_t INTR_FS_Ctor         = 20;
+static constexpr uint16_t INTR_FS_WriteInt     = 21;
+static constexpr uint16_t INTR_FS_ReadInt      = 22;
+static constexpr uint16_t INTR_FS_WriteFloat   = 23;
+static constexpr uint16_t INTR_FS_ReadFloat    = 24;
+static constexpr uint16_t INTR_FS_WriteString  = 25;
+static constexpr uint16_t INTR_FS_ReadString   = 26;
+static constexpr uint16_t INTR_FS_Length       = 27;
+static constexpr uint16_t INTR_FS_Position     = 28;
+static constexpr uint16_t INTR_FS_Close        = 29;
+
 struct CompiledFunction {
     std::string name;
     std::vector<uint8_t> bytecode;
@@ -43,6 +73,7 @@ struct CompiledFunction {
     uint16_t localsSize = 0;
     uint16_t paramCount = 0;
     uint16_t returnTypeKind = 0;
+    uint16_t intrinsicId = INTR_None;    //INTR_None = normal bytecode, else VM intrinsic
 };
 
 struct CompiledModule;

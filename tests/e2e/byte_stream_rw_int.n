@@ -1,0 +1,11 @@
+int main() {
+    ByteStream bs = new ByteStream();
+    bs.WriteInt(1);
+    bs.WriteInt(2);
+    bs.WriteInt(3);
+    bs.Reset();
+    int a = bs.ReadInt();
+    int b = bs.ReadInt();
+    int c = bs.ReadInt();
+    return a + b + c;
+}

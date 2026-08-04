@@ -2,6 +2,8 @@
 #include "CompiledModule.h"
 #include "BytecodeReader.h"
 #include <cstdint>
+#include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -10,6 +12,9 @@ namespace nlang {
 
 class VmExecutor {
 public:
+    VmExecutor() = default;
+    ~VmExecutor();
+
     int Execute(const CompiledModule& module);
 
     //Backtrace captured from the last Execute() call. Empty if execution
@@ -60,6 +65,16 @@ private:
     //Check if GC should run at a safepoint (function entry, loop back-edge).
     void CheckGCSafepoint();
 
+    //Execute a VM-side intrinsic function. Called from OP_CallMethod{,Direct}
+    //when callee.intrinsicId != INTR_None.
+    void ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
+        uint8_t* locals, uint8_t* pResult);
+
+    //Allocate a handle from the ByteStream side table. Returns 1-based handle.
+    int32_t AllocByteStreamHandle();
+    //Allocate a handle from the FileStream side table. Returns 1-based handle.
+    int32_t AllocFileStreamHandle();
+
     static const size_t RECURSE_LIMIT = 1000;
     static const size_t GC_THRESHOLD_DEFAULT = 1024;
     size_t m_recurseDepth = 0;
@@ -99,6 +114,25 @@ private:
         uint16_t currentLine;
     };
     std::vector<UnwindFrame> m_unwindFrames;
+
+    //ByteStream side table: handle (1-based) → state.
+    struct ByteStreamState {
+        std::vector<uint8_t> buf;
+        size_t pos = 0;
+        bool closed = false;
+    };
+    std::vector<std::unique_ptr<ByteStreamState>> m_byteStreams;
+    std::vector<int32_t> m_byteStreamFreeList;
+
+    //FileStream side table: handle (1-based) → state.
+    struct FileStreamState {
+        std::unique_ptr<std::fstream> fs;
+        bool writable = false;
+        bool readable = false;
+        bool closed = false;
+    };
+    std::vector<std::unique_ptr<FileStreamState>> m_fileStreams;
+    std::vector<int32_t> m_fileStreamFreeList;
 };
 
 } // namespace nlang

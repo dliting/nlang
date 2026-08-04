@@ -11,6 +11,7 @@ runs the .nmod, and reports results.
 import os
 import sys
 import subprocess
+import shutil
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_NCC = os.path.join(
@@ -19,6 +20,7 @@ DEFAULT_NVM = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'nvm', 'Release', 'nvm.exe')
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 TIMEOUT_SEC = 30
+PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
 
 
 def main():
@@ -49,6 +51,12 @@ def main():
                 print(f"SKIP {name} (file missing)")
                 continue
 
+            #Phase 8: ensure _phase8_tmp/ exists and is clean for file_stream_* tests.
+            if name.startswith('file_stream_'):
+                if os.path.isdir(PHASE8_TMP):
+                    shutil.rmtree(PHASE8_TMP)
+                os.makedirs(PHASE8_TMP, exist_ok=True)
+
             # Compile
             nmod_file = os.path.join(SCRIPT_DIR, f"{name}.nmod")
             try:
@@ -65,7 +73,6 @@ def main():
                 # ncc may output .nmod in CWD; try looking there
                 cwd_nmod = os.path.join(os.getcwd(), f"{name}.nmod")
                 if os.path.isfile(cwd_nmod):
-                    import shutil
                     shutil.move(cwd_nmod, nmod_file)
                 else:
                     print(f"FAIL {name} (compilation failed)")
@@ -74,10 +81,13 @@ def main():
                     continue
 
             # Run
+            #Phase 8: file_stream_* tests need CWD = tests/e2e/ for relative paths.
+            run_cwd = SCRIPT_DIR if name.startswith('file_stream_') else None
             try:
                 result = subprocess.run(
                     [nvm, nmod_file],
-                    capture_output=True, timeout=TIMEOUT_SEC)
+                    capture_output=True, timeout=TIMEOUT_SEC,
+                    cwd=run_cwd)
                 actual = result.returncode
             except Exception as e:
                 print(f"FAIL {name} (runtime error: {e})")
@@ -98,6 +108,10 @@ def main():
                 print(f"FAIL {name} (expected={expected}, actual={actual})")
                 failed += 1
                 errors.append(f"  {name}: expected={expected} actual={actual}")
+
+    #Final cleanup: remove _phase8_tmp/ if it exists.
+    if os.path.isdir(PHASE8_TMP):
+        shutil.rmtree(PHASE8_TMP)
 
     print()
     print(f"Results: {passed} passed, {failed} failed")

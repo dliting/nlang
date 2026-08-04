@@ -193,3 +193,18 @@ interface_null 1
 # --- debugging (backtrace) ---
 debug_backtrace 1
 debug_class_method 1
+
+# --- ByteStream ---
+byte_stream_rw_int 6
+byte_stream_rw_float 4
+byte_stream_rw_string 1
+byte_stream_length_position 1
+byte_stream_eos 1
+byte_stream_gc_stress 42
+
+# --- FileStream ---
+file_stream_write_read 42
+file_stream_append 3
+file_stream_strings 1
+file_stream_bad_mode 1
+file_stream_missing_read 1

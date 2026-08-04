@@ -33,6 +33,7 @@ private:
     //Compilation phases (called by GenerateStatements in order).
     //Each phase corresponds to a distinct compilation pass over the AST.
     //Future evolution: each phase can become an Accessor for multi-backend support.
+    void RegisterBuiltinClasses();
     void RegisterStructs(SnNamespace& root);
     void RegisterClasses(SnNamespace& root);
     void ResolveStructClassRefs();

@@ -1,0 +1,12 @@
+int main() {
+    FileStream fs = new FileStream("_phase8_tmp/test_strings.bin", "w");
+    fs.WriteString("hi");
+    fs.Close();
+    FileStream fs2 = new FileStream("_phase8_tmp/test_strings.bin", "r");
+    string s = fs2.ReadString();
+    fs2.Close();
+    if (s == "hi") {
+        return 1;
+    }
+    return 0;
+}
