@@ -1,0 +1,9 @@
+struct Point { int x; int y; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    bs.WriteInt(42);  //only 4 bytes available, Point needs 8
+    bs.Reset();
+    Point q = bs.ReadStruct("Point");  //throws on second ReadInt
+    return q.x;
+}
