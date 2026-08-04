@@ -1,0 +1,17 @@
+class Shape {
+    public int x;
+    public int y;
+    public virtual int area() { return 0; }
+}
+class Rect : Shape {
+    public int w;
+    public int h;
+    public int area() { return this.w * this.h; }
+}
+int calc(Shape s) { return s.area(); }
+int main() {
+    Rect r = new Rect();
+    r.w = 6;
+    r.h = 7;
+    return calc(r);
+}

@@ -1,0 +1,11 @@
+class Base {
+	public int x;
+}
+class Child : Base {
+	public int y;
+	public int Child(int a, int b) { this.x = a; this.y = b; return 0; }
+}
+int main() {
+	Child c = new Child(20, 22);
+	return c.x + c.y;
+}

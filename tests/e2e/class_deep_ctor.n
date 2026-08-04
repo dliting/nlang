@@ -1,0 +1,7 @@
+class A { public int a; }
+class B : A { public int b; }
+class C : B { public int c; public int C(int x, int y, int z) { this.a = x; this.b = y; this.c = z; return 0; } }
+int main() {
+	C obj = new C(10, 20, 12);
+	return obj.a + obj.b + obj.c;
+}

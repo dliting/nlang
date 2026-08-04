@@ -1,0 +1,2 @@
+struct Person { string name; int age; }
+int main() { Person p; p.name = "hello"; return p.name.length(); }

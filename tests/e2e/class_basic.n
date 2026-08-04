@@ -1,0 +1,7 @@
+class Point { public int x; public int y; }
+int main() {
+	Point pt = new Point();
+	pt.x = 20;
+	pt.y = 22;
+	return pt.x + pt.y;
+}

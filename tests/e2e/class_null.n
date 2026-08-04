@@ -1,0 +1,8 @@
+class Foo { public int x; }
+int main() {
+	Foo f = null;
+	if (f == null) {
+		return 1;
+	}
+	return 0;
+}

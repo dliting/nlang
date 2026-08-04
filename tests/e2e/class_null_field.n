@@ -1,0 +1,8 @@
+class Inner { public int x; }
+class Outer { public Inner val; }
+int main() {
+    Outer o = new Outer();
+    o.val = new Inner();
+    o.val.x = 42;
+    return o.val.x;
+}

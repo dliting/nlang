@@ -1,0 +1,3 @@
+enum Color { Red, Green, Blue }
+struct Item { Color c; int value; }
+int main() { Item it; it.c = Color.Green; it.value = 10; return it.c; }

@@ -1,0 +1,3 @@
+struct Point { int x; int y; }
+int sum(Point p) { return p.x + p.y; }
+int main() { Point pt; pt.x = 10; pt.y = 20; return sum(pt); }

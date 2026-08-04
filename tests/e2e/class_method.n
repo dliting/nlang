@@ -1,0 +1,7 @@
+class Point { public int x; public int y; public int sum() { return this.x + this.y; } }
+int main() {
+	Point pt = new Point();
+	pt.x = 10;
+	pt.y = 20;
+	return pt.sum();
+}

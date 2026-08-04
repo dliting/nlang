@@ -1,0 +1,2 @@
+struct Data { int a; int b; }
+int main() { Data d; d.a = 5; d.b = 10; if (d.a < d.b) { return 1; } return 0; }

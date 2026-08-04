@@ -1,0 +1,15 @@
+class Shape {
+    public virtual int sides() { return 0; }
+}
+class Triangle : Shape {
+    public int sides() { return 3; }
+}
+class Square : Shape {
+    public int sides() { return 4; }
+}
+int count(Shape s) { return s.sides(); }
+int main() {
+    Triangle t = new Triangle();
+    Square q = new Square();
+    return count(t) + count(q) - 5;
+}

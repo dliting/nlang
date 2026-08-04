@@ -1,0 +1,2 @@
+struct Vec { float x; float y; }
+int main() { Vec v; v.x = 3.0; v.y = 4.0; return v.x + v.y > 6.0; }

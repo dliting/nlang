@@ -1,0 +1,5 @@
+class Pair { public int a; public int b; public int Pair(int x, int y) { this.a = x; this.b = y; return 0; } }
+int main() {
+	Pair p = new Pair(3, 4);
+	return p.a + p.b;
+}

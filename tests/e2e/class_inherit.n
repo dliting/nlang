@@ -1,0 +1,9 @@
+class Animal { public string name; public int age; }
+class Dog : Animal { public string breed; }
+int main() {
+	Dog d = new Dog();
+	d.name = "Rex";
+	d.age = 5;
+	d.breed = "Lab";
+	return d.age + d.name.length();
+}

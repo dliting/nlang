@@ -1,0 +1,11 @@
+class Pair { public int a; public int b; }
+Pair makePair(int x, int y) {
+	Pair p = new Pair();
+	p.a = x;
+	p.b = y;
+	return p;
+}
+int main() {
+	Pair p = makePair(3, 4);
+	return p.a + p.b;
+}

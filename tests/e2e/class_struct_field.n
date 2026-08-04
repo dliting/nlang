@@ -1,0 +1,8 @@
+struct Point { int x; int y; }
+class Widget { public Point pos; public int id; }
+int main() {
+	Widget w = new Widget();
+	w.pos.x = 20;
+	w.pos.y = 22;
+	return w.pos.x + w.pos.y;
+}

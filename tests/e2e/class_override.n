@@ -1,0 +1,10 @@
+class Base {
+	public int calc() { return 1; }
+}
+class Child : Base {
+	public int calc() { return 2; }
+}
+int main() {
+	Child c = new Child();
+	return c.calc();
+}

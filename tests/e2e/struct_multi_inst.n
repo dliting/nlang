@@ -1,0 +1,2 @@
+struct Point { int x; int y; }
+int main() { Point a; Point b; a.x = 5; a.y = 10; b.x = a.y; b.y = a.x; return b.x + b.y; }

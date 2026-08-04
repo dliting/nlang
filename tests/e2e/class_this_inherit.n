@@ -1,0 +1,14 @@
+class Animal {
+    public int age;
+    public int getAge() { return this.age; }
+}
+class Dog : Animal {
+    public string name;
+    public string getName() { return this.name; }
+}
+int main() {
+    Dog d = new Dog();
+    d.age = 5;
+    d.name = "Rex";
+    return d.getAge() + d.getName().length();
+}

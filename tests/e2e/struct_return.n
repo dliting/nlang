@@ -1,0 +1,3 @@
+struct Pair { int a; int b; }
+Pair makePair(int x, int y) { Pair p; p.a = x; p.b = y; return p; }
+int main() { Pair p = makePair(3, 4); return p.a + p.b; }

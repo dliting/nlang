@@ -1,0 +1,3 @@
+struct Point { int x; int y; }
+struct Line { Point start; Point end; }
+int main() { Line l; l.start.x = 10; l.start.y = 12; l.end.x = 15; l.end.y = 5; return l.start.x + l.start.y + l.end.x + l.end.y; }

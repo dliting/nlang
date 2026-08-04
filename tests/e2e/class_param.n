@@ -1,0 +1,8 @@
+class Point { public int x; public int y; }
+int sum(Point p) { return p.x + p.y; }
+int main() {
+	Point pt = new Point();
+	pt.x = 10;
+	pt.y = 20;
+	return sum(pt);
+}
