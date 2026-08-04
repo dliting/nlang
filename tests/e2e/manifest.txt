@@ -212,3 +212,4 @@ file_stream_missing_read 1
 # --- Phase 8b: struct serialization ---
 bs_struct_simple 30
 bs_struct_string 1
+bs_struct_nested 13

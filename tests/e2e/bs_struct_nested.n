@@ -1,0 +1,15 @@
+struct Point { int x; int y; }
+struct Line { Point a; Point b; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Line ln;
+    ln.a.x = 5;
+    ln.a.y = 6;
+    ln.b.x = 7;
+    ln.b.y = 8;
+    bs.WriteStruct(ln);
+    bs.Reset();
+    Line ln2 = bs.ReadStruct("Line");
+    return ln2.a.x + ln2.b.y;
+}
