@@ -1,0 +1,16 @@
+struct Vec { float x; float y; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Vec v;
+    v.x = 1.0;
+    v.y = 3.0;
+    bs.WriteStruct(v);
+    bs.Reset();
+    Vec w = bs.ReadStruct("Vec");
+    float fx = w.x;
+    float fy = w.y;
+    int xi = fx;
+    int yi = fy;
+    return xi + yi;
+}
