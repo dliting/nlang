@@ -6,14 +6,17 @@
 namespace nlang {
 
 int VmExecutor::Execute(const CompiledModule& module) {
-    int mainIdx = module.FindFunction("main");
-    if (mainIdx < 0)
-        throw std::runtime_error("NLang VM: no 'main' function found");
-
+    //Reset per-run state up front: if the executor is reused (e.g. a
+    //future REPL), an early throw below must not expose stale frames
+    //or backtrace from a previous Execute() call.
     m_currModule = &module;
     m_recurseDepth = 0;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
+
+    int mainIdx = module.FindFunction("main");
+    if (mainIdx < 0)
+        throw std::runtime_error("NLang VM: no 'main' function found");
 
     //Initialize string pool from module's string constants.
     m_stringPool = module.stringConstants;
