@@ -1100,6 +1100,119 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
     }
 }
 
+//Phase 8b struct serialization helpers.
+//SerializeStructFields: walks a struct's fields and emits bytes via the Writer.
+//Class/array fields throw (Phase 8c). Depth limit prevents pathological cycles
+//(shouldn't happen since structs are value types with no cycles, but defends
+//against bugs and future reference-field features).
+template<typename Writer>
+void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
+    Writer&& write, int depth)
+{
+    if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
+        throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
+    if (structIdx >= m_currModule->structs.size())
+        throw std::runtime_error("NLang VM: invalid struct index in SerializeStructFields");
+    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        throw std::runtime_error("NLang VM: invalid struct heap index in SerializeStructFields");
+    const auto& cs = m_currModule->structs[structIdx];
+    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    for (uint16_t i = 0; i < cs.fieldCount; ++i)
+    {
+        uint16_t ftk = cs.fieldTypeKinds[i];
+        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        {
+            int32_t val = slot[i];
+            uint8_t bytes[4];
+            std::memcpy(bytes, &val, 4);
+            write(bytes, 4);
+        }
+        else if (ftk == RTK_String)
+        {
+            int32_t strIdx = slot[i];
+            const std::string& s = (strIdx >= 0
+                && static_cast<size_t>(strIdx) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(strIdx)] : "";
+            int32_t len = static_cast<int32_t>(s.size());
+            uint8_t lenBytes[4];
+            std::memcpy(lenBytes, &len, 4);
+            write(lenBytes, 4);
+            write(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+        }
+        else if (ftk == RTK_Struct)
+        {
+            if (cs.fieldStructIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested struct type");
+            int32_t innerHeapIdx = slot[i];
+            SerializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
+                std::forward<Writer>(write), depth + 1);
+        }
+        else if (ftk == RTK_Class || ftk == RTK_Array)
+        {
+            throw std::runtime_error(
+                "NLang VM: WriteStruct does not support class/array fields (Phase 8c)");
+        }
+    }
+}
+
+template<typename Reader>
+void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
+    Reader&& read, int depth)
+{
+    if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
+        throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
+    if (structIdx >= m_currModule->structs.size())
+        throw std::runtime_error("NLang VM: invalid struct index in DeserializeStructFields");
+    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        throw std::runtime_error("NLang VM: invalid struct heap index in DeserializeStructFields");
+    const auto& cs = m_currModule->structs[structIdx];
+    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    for (uint16_t i = 0; i < cs.fieldCount; ++i)
+    {
+        uint16_t ftk = cs.fieldTypeKinds[i];
+        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        {
+            uint8_t bytes[4];
+            read(bytes, 4);
+            int32_t val;
+            std::memcpy(&val, bytes, 4);
+            slot[i] = val;
+        }
+        else if (ftk == RTK_String)
+        {
+            uint8_t lenBytes[4];
+            read(lenBytes, 4);
+            int32_t len;
+            std::memcpy(&len, lenBytes, 4);
+            if (len < 0)
+                throw std::runtime_error(
+                    "NLang VM: ReadStruct string length negative ("
+                    + std::to_string(len) + ")");
+            std::string s(static_cast<size_t>(len), '\0');
+            if (len > 0)
+                read(reinterpret_cast<uint8_t*>(&s[0]),
+                    static_cast<size_t>(len));
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(std::move(s));
+            slot[i] = newIdx;
+        }
+        else if (ftk == RTK_Struct)
+        {
+            if (cs.fieldStructIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested struct type");
+            int32_t innerHeapIdx = AllocStructOnHeap(cs.fieldStructIndices[i]);
+            slot[i] = innerHeapIdx;
+            DeserializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
+                std::forward<Reader>(read), depth + 1);
+        }
+        else if (ftk == RTK_Class || ftk == RTK_Array)
+        {
+            throw std::runtime_error(
+                "NLang VM: ReadStruct does not support class/array fields (Phase 8c)");
+        }
+    }
+}
+
 } // namespace nlang
 
 //Stub implementations — will be filled in Step 7.
