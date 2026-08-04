@@ -86,7 +86,8 @@ void VmBackend::RegisterBuiltinClasses() {
             methFunc.localsSize = static_cast<uint16_t>(methFunc.paramCount * VALUE_SIZE);
             //Return type: int for ReadInt/Length/Position, float for ReadFloat,
             //string for ReadString, void for Write*/Reset/Close
-            if (methName == "ReadInt" || methName == "Length" || methName == "Position")
+            if (methName == "ReadInt" || methName == "Length" || methName == "Position"
+                || methName == "ReadStruct")
                 methFunc.returnTypeKind = RTK_Int32;
             else if (methName == "ReadFloat")
                 methFunc.returnTypeKind = RTK_Float;
@@ -110,6 +111,8 @@ void VmBackend::RegisterBuiltinClasses() {
         {"ReadFloat",  INTR_BS_ReadFloat},
         {"WriteString",INTR_BS_WriteString},
         {"ReadString", INTR_BS_ReadString},
+        {"WriteStruct",INTR_BS_WriteStruct},
+        {"ReadStruct", INTR_BS_ReadStruct},
         {"Length",     INTR_BS_Length},
         {"Position",   INTR_BS_Position},
         {"Reset",      INTR_BS_Reset},
@@ -124,6 +127,8 @@ void VmBackend::RegisterBuiltinClasses() {
         {"ReadFloat",  INTR_FS_ReadFloat},
         {"WriteString",INTR_FS_WriteString},
         {"ReadString", INTR_FS_ReadString},
+        {"WriteStruct",INTR_FS_WriteStruct},
+        {"ReadStruct", INTR_FS_ReadStruct},
         {"Length",     INTR_FS_Length},
         {"Position",   INTR_FS_Position},
         {"Close",      INTR_FS_Close},
