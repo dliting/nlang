@@ -29,6 +29,22 @@ private:
     //Returns the new heap index.
     int32_t DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx);
 
+    //Serialize all fields of a struct to a byte sink.
+    //Recursive over nested struct fields. Throws on class/array fields
+    //(Phase 8c concern) and on depth-limit overflow.
+    //Writer callable signature: void(const uint8_t* p, size_t n)
+    template<typename Writer>
+    void SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
+        Writer&& write, int depth = 0);
+
+    //Deserialize fields from a byte source into a freshly-allocated struct.
+    //Reader callable signature: void(uint8_t* dst, size_t n) — must throw
+    //on short read (EOF). Caller must have pre-allocated root struct via
+    //AllocStructOnHeap; nested struct slots are allocated here.
+    template<typename Reader>
+    void DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
+        Reader&& read, int depth = 0);
+
     //Allocate a struct on the heap with recursive nested struct allocation.
     //Returns the heap index.
     int32_t AllocStructOnHeap(uint16_t structIdx);
@@ -77,6 +93,7 @@ private:
 
     static const size_t RECURSE_LIMIT = 1000;
     static const size_t GC_THRESHOLD_DEFAULT = 1024;
+    static const size_t STRUCT_SERIALIZE_DEPTH_LIMIT = 64;
     size_t m_recurseDepth = 0;
     const CompiledModule* m_currModule = nullptr;
     std::vector<std::string> m_stringPool;
