@@ -1147,10 +1147,18 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
             SerializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
                 std::forward<Writer>(write), st, depth + 1);
         }
-        else if (ftk == RTK_Class || ftk == RTK_Array)
+        else if (ftk == RTK_Class)
+        {
+            if (cs.fieldClassIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested class type");
+            int32_t childHeapIdx = slot[i];
+            SerializeClassFields(childHeapIdx,
+                std::forward<Writer>(write), st, depth + 1);
+        }
+        else if (ftk == RTK_Array)
         {
             throw std::runtime_error(
-                "NLang VM: WriteStruct does not support class/array fields (Phase 8c)");
+                "NLang VM: WriteStruct does not support array fields (Phase 8e)");
         }
     }
 }
@@ -1205,12 +1213,226 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             DeserializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
                 std::forward<Reader>(read), st, depth + 1);
         }
-        else if (ftk == RTK_Class || ftk == RTK_Array)
+        else if (ftk == RTK_Class)
+        {
+            if (cs.fieldClassIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested class type");
+            int32_t childHeapIdx = 0;
+            DeserializeClassFields(cs.fieldClassIndices[i], childHeapIdx,
+                std::forward<Reader>(read), st, depth + 1);
+            slot[i] = childHeapIdx;
+        }
+        else if (ftk == RTK_Array)
         {
             throw std::runtime_error(
-                "NLang VM: ReadStruct does not support class/array fields (Phase 8c)");
+                "NLang VM: ReadStruct does not support array fields (Phase 8e)");
         }
     }
+}
+
+//Phase 8c class serialization helpers.
+//SerializeClassFields: emits a tagged record for a class-typed reference.
+//tag=0: null (heapIdx <= 0). tag=1: new object (class name + field payload),
+//recorded in st.serializeObjIds for later back-references. tag=2: back-ref
+//to a previously-emitted object id. Per-kind field switch mirrors
+//SerializeStructFields but reads from cc.fieldTypeKinds[i] / slot[i+1]
+//(class header occupies slot[0]).
+template<typename Writer, typename StreamState>
+void VmExecutor::SerializeClassFields(int32_t heapIdx,
+    Writer&& write, StreamState& st, int depth)
+{
+    if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
+        throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
+
+    if (heapIdx <= 0) {
+        uint8_t tag = 0;
+        write(&tag, 1);
+        return;
+    }
+    if (static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        throw std::runtime_error("NLang VM: invalid class heap index in SerializeClassFields");
+
+    auto it = st.serializeObjIds.find(heapIdx);
+    if (it != st.serializeObjIds.end()) {
+        uint8_t tag = 2;
+        write(&tag, 1);
+        uint32_t id = it->second;
+        write(reinterpret_cast<const uint8_t*>(&id), 4);
+        return;
+    }
+
+    uint32_t id = st.nextObjId++;
+    st.serializeObjIds[heapIdx] = id;
+
+    uint8_t tag = 1;
+    write(&tag, 1);
+
+    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    int32_t classIdx = slot[0];
+    if (classIdx < 0 || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
+        throw std::runtime_error("NLang VM: invalid class index in class heap slot");
+    const auto& cc = m_currModule->classes[static_cast<size_t>(classIdx)];
+
+    uint32_t nameLen = static_cast<uint32_t>(cc.name.size());
+    write(reinterpret_cast<const uint8_t*>(&nameLen), 4);
+    write(reinterpret_cast<const uint8_t*>(cc.name.data()), nameLen);
+
+    for (uint16_t i = 0; i < cc.fieldCount; ++i)
+    {
+        uint16_t ftk = cc.fieldTypeKinds[i];
+        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        {
+            int32_t val = slot[i + 1];
+            uint8_t bytes[4];
+            std::memcpy(bytes, &val, 4);
+            write(bytes, 4);
+        }
+        else if (ftk == RTK_String)
+        {
+            int32_t strIdx = slot[i + 1];
+            const std::string& s = (strIdx >= 0
+                && static_cast<size_t>(strIdx) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(strIdx)] : "";
+            int32_t len = static_cast<int32_t>(s.size());
+            uint8_t lenBytes[4];
+            std::memcpy(lenBytes, &len, 4);
+            write(lenBytes, 4);
+            write(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+        }
+        else if (ftk == RTK_Struct)
+        {
+            if (cc.fieldStructIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested struct type");
+            int32_t innerHeapIdx = slot[i + 1];
+            SerializeStructFields(innerHeapIdx, cc.fieldStructIndices[i],
+                std::forward<Writer>(write), st, depth + 1);
+        }
+        else if (ftk == RTK_Class)
+        {
+            if (cc.fieldClassIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested class type");
+            int32_t childHeapIdx = slot[i + 1];
+            SerializeClassFields(childHeapIdx,
+                std::forward<Writer>(write), st, depth + 1);
+        }
+        else if (ftk == RTK_Array)
+        {
+            throw std::runtime_error(
+                "NLang VM: WriteStruct does not support array fields (Phase 8e)");
+        }
+    }
+}
+
+//DeserializeClassFields: reads a tagged record written by SerializeClassFields
+//and produces a freshly-allocated class object (or back-reference). On tag=1,
+//the object is registered in st.deserializeObjIds before fields are decoded
+//so cycles back to this object resolve correctly. Per-kind field switch
+//mirrors DeserializeStructFields but writes to slot[i+1].
+template<typename Reader, typename StreamState>
+void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
+    int32_t& outHeapIdx, Reader&& read, StreamState& st, int depth)
+{
+    if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
+        throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
+
+    uint8_t tag;
+    read(&tag, 1);
+
+    if (tag == 0) {
+        outHeapIdx = 0;
+        return;
+    }
+    if (tag == 2) {
+        uint32_t id;
+        read(reinterpret_cast<uint8_t*>(&id), 4);
+        auto it = st.deserializeObjIds.find(id);
+        if (it == st.deserializeObjIds.end())
+            throw std::runtime_error(
+                "NLang VM: ReadStruct back-reference to unknown object id");
+        outHeapIdx = it->second;
+        return;
+    }
+    if (tag != 1)
+        throw std::runtime_error("NLang VM: ReadStruct unknown class ref tag");
+
+    uint32_t nameLen;
+    read(reinterpret_cast<uint8_t*>(&nameLen), 4);
+    std::string className(static_cast<size_t>(nameLen), '\0');
+    if (nameLen > 0)
+        read(reinterpret_cast<uint8_t*>(&className[0]), nameLen);
+
+    int classIdx = m_currModule->FindClass(className);
+    if (classIdx < 0)
+        throw std::runtime_error(
+            "NLang VM: ReadStruct class not found: " + className);
+    if (static_cast<uint16_t>(classIdx) != expectedClassIdx) {
+        const std::string& expectedName =
+            m_currModule->classes[expectedClassIdx].name;
+        throw std::runtime_error(
+            "NLang VM: ReadStruct class type mismatch: expected "
+            + expectedName + ", got " + className);
+    }
+
+    int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
+    st.deserializeObjIds[st.nextObjId++] = heapIdx;
+
+    const auto& cc = m_currModule->classes[static_cast<size_t>(classIdx)];
+    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    for (uint16_t i = 0; i < cc.fieldCount; ++i)
+    {
+        uint16_t ftk = cc.fieldTypeKinds[i];
+        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        {
+            uint8_t bytes[4];
+            read(bytes, 4);
+            int32_t val;
+            std::memcpy(&val, bytes, 4);
+            slot[i + 1] = val;
+        }
+        else if (ftk == RTK_String)
+        {
+            uint8_t lenBytes[4];
+            read(lenBytes, 4);
+            int32_t len;
+            std::memcpy(&len, lenBytes, 4);
+            if (len < 0)
+                throw std::runtime_error(
+                    "NLang VM: ReadStruct string length negative ("
+                    + std::to_string(len) + ")");
+            std::string s(static_cast<size_t>(len), '\0');
+            if (len > 0)
+                read(reinterpret_cast<uint8_t*>(&s[0]),
+                    static_cast<size_t>(len));
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(std::move(s));
+            slot[i + 1] = newIdx;
+        }
+        else if (ftk == RTK_Struct)
+        {
+            if (cc.fieldStructIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested struct type");
+            int32_t innerHeapIdx = AllocStructOnHeap(cc.fieldStructIndices[i]);
+            slot[i + 1] = innerHeapIdx;
+            DeserializeStructFields(innerHeapIdx, cc.fieldStructIndices[i],
+                std::forward<Reader>(read), st, depth + 1);
+        }
+        else if (ftk == RTK_Class)
+        {
+            if (cc.fieldClassIndices[i] == 0xFFFF)
+                throw std::runtime_error("NLang VM: unresolved nested class type");
+            int32_t childHeapIdx = 0;
+            DeserializeClassFields(cc.fieldClassIndices[i], childHeapIdx,
+                std::forward<Reader>(read), st, depth + 1);
+            slot[i + 1] = childHeapIdx;
+        }
+        else if (ftk == RTK_Array)
+        {
+            throw std::runtime_error(
+                "NLang VM: ReadStruct does not support array fields (Phase 8e)");
+        }
+    }
+
+    outHeapIdx = heapIdx;
 }
 
 } // namespace nlang
