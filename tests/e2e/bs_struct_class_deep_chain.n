@@ -1,0 +1,35 @@
+class Node {
+    public Node next;
+    public int v;
+}
+
+struct Wrapper {
+    Node root;
+}
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Node head = new Node();
+    head.v = 1;
+    Node curr = head;
+    int i = 1;
+    while (i < 60) {
+        Node n = new Node();
+        n.v = i + 1;
+        curr.next = n;
+        curr = n;
+        i = i + 1;
+    }
+    Wrapper w;
+    w.root = head;
+    bs.WriteStruct(w);
+    bs.Reset();
+    Wrapper w2 = bs.ReadStruct("Wrapper");
+    int count = 0;
+    Node c = w2.root;
+    while (c != null) {
+        count = count + 1;
+        c = c.next;
+    }
+    return count;
+}
