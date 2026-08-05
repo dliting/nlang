@@ -1197,6 +1197,11 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
                 throw std::runtime_error(
                     "NLang VM: ReadStruct string length negative ("
                     + std::to_string(len) + ")");
+            if (static_cast<size_t>(len) > MAX_STRING_LENGTH)
+                throw std::runtime_error(
+                    "NLang VM: ReadStruct string length exceeds cap ("
+                    + std::to_string(len) + " > "
+                    + std::to_string(MAX_STRING_LENGTH) + ")");
             std::string s(static_cast<size_t>(len), '\0');
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
@@ -1358,6 +1363,11 @@ void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
 
     uint32_t nameLen;
     read(reinterpret_cast<uint8_t*>(&nameLen), 4);
+    if (static_cast<size_t>(nameLen) > MAX_STRING_LENGTH)
+        throw std::runtime_error(
+            "NLang VM: ReadStruct class name length exceeds cap ("
+            + std::to_string(nameLen) + " > "
+            + std::to_string(MAX_STRING_LENGTH) + ")");
     std::string className(static_cast<size_t>(nameLen), '\0');
     if (nameLen > 0)
         read(reinterpret_cast<uint8_t*>(&className[0]), nameLen);
@@ -1580,6 +1590,10 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             st->pos += 4;
             if (len < 0)
                 throw std::runtime_error("NLang VM: ReadString length negative (" + std::to_string(len) + ")");
+            if (static_cast<size_t>(len) > MAX_STRING_LENGTH)
+                throw std::runtime_error(
+                    "NLang VM: ReadString length exceeds cap (" + std::to_string(len)
+                    + " > " + std::to_string(MAX_STRING_LENGTH) + ")");
             if (st->pos + static_cast<size_t>(len) > st->buf.size())
                 throw std::runtime_error("NLang VM: ReadString bytes past end of stream");
             std::string s(reinterpret_cast<const char*>(st->buf.data() + st->pos),
@@ -1810,6 +1824,10 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                 throw std::runtime_error("NLang VM: ReadString length prefix past end of stream");
             if (len < 0)
                 throw std::runtime_error("NLang VM: ReadString length negative (" + std::to_string(len) + ")");
+            if (static_cast<size_t>(len) > MAX_STRING_LENGTH)
+                throw std::runtime_error(
+                    "NLang VM: ReadString length exceeds cap (" + std::to_string(len)
+                    + " > " + std::to_string(MAX_STRING_LENGTH) + ")");
             std::string s(static_cast<size_t>(len), '\0');
             st->fs->read(&s[0], len);
             if (st->fs->gcount() < len)

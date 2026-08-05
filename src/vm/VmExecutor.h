@@ -118,6 +118,9 @@ private:
     static const size_t RECURSE_LIMIT = 1000;
     static const size_t GC_THRESHOLD_DEFAULT = 1024;
     static const size_t STRUCT_SERIALIZE_DEPTH_LIMIT = 64;
+    //DoS hardening for untrusted streams: cap string/class-name length so a
+    //garbage or malicious length prefix (e.g. 2 GiB) cannot trigger OOM.
+    static const size_t MAX_STRING_LENGTH = 16 * 1024 * 1024;  // 16 MiB
     size_t m_recurseDepth = 0;
     const CompiledModule* m_currModule = nullptr;
     std::vector<std::string> m_stringPool;
