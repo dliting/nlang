@@ -31,8 +31,9 @@ private:
     int32_t DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx);
 
     //Serialize all fields of a struct to a byte sink.
-    //Recursive over nested struct fields. Throws on class/array fields
-    //(Phase 8c concern) and on depth-limit overflow.
+    //Recursive over nested struct and class fields (class via
+    //SerializeClassFields — Phase 8c). Array fields throw (Phase 8e).
+    //Depth limit prevents pathological cycles.
     //Writer callable signature: void(const uint8_t* p, size_t n)
     template<typename Writer, typename StreamState>
     void SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
@@ -160,7 +161,11 @@ private:
         std::vector<uint8_t> buf;
         size_t pos = 0;
         bool closed = false;
-        //Phase 8c
+        //Phase 8c — per-stream object-identity table for class-typed struct
+        //fields. Two maps because serialize looks up heapIdx→id and deserialize
+        //looks up id→heapIdx; never both directions in one operation. A stream
+        //is either reading or writing within a session, so a single nextObjId
+        //counter serves both maps; Reset (BS only) and Close clear all three.
         std::unordered_map<int32_t, uint32_t> serializeObjIds;   // heapIdx -> assignedId
         std::unordered_map<uint32_t, int32_t> deserializeObjIds; // assignedId -> heapIdx
         uint32_t nextObjId = 1;
@@ -174,7 +179,7 @@ private:
         bool writable = false;
         bool readable = false;
         bool closed = false;
-        //Phase 8c
+        //Phase 8c — see ByteStreamState for rationale.
         std::unordered_map<int32_t, uint32_t> serializeObjIds;   // heapIdx -> assignedId
         std::unordered_map<uint32_t, int32_t> deserializeObjIds; // assignedId -> heapIdx
         uint32_t nextObjId = 1;
