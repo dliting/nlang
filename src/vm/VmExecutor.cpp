@@ -1410,6 +1410,11 @@ void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
                 throw std::runtime_error(
                     "NLang VM: ReadStruct string length negative ("
                     + std::to_string(len) + ")");
+            if (static_cast<size_t>(len) > MAX_STRING_LENGTH)
+                throw std::runtime_error(
+                    "NLang VM: ReadStruct string length exceeds cap ("
+                    + std::to_string(len) + " > "
+                    + std::to_string(MAX_STRING_LENGTH) + ")");
             std::string s(static_cast<size_t>(len), '\0');
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
