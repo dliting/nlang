@@ -34,17 +34,28 @@ private:
     //Recursive over nested struct fields. Throws on class/array fields
     //(Phase 8c concern) and on depth-limit overflow.
     //Writer callable signature: void(const uint8_t* p, size_t n)
-    template<typename Writer>
+    template<typename Writer, typename StreamState>
     void SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
-        Writer&& write, int depth = 0);
+        Writer&& write, StreamState& st, int depth = 0);
 
     //Deserialize fields from a byte source into a freshly-allocated struct.
     //Reader callable signature: void(uint8_t* dst, size_t n) — must throw
     //on short read (EOF). Caller must have pre-allocated root struct via
     //AllocStructOnHeap; nested struct slots are allocated here.
-    template<typename Reader>
+    template<typename Reader, typename StreamState>
     void DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
-        Reader&& read, int depth = 0);
+        Reader&& read, StreamState& st, int depth = 0);
+
+    //Phase 8c class serialization helpers. Declarations only — definitions
+    //are added in Task 4. StreamState is templated so the same helper works
+    //for both ByteStreamState and FileStreamState without a common base.
+    template<typename Writer, typename StreamState>
+    void SerializeClassFields(int32_t heapIdx,
+        Writer&& write, StreamState& st, int depth);
+
+    template<typename Reader, typename StreamState>
+    void DeserializeClassFields(uint16_t expectedClassIdx, int32_t& outHeapIdx,
+        Reader&& read, StreamState& st, int depth);
 
     //Allocate a struct on the heap with recursive nested struct allocation.
     //Returns the heap index.

@@ -1105,9 +1105,9 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
 //Class/array fields throw (Phase 8c). Depth limit prevents pathological cycles
 //(shouldn't happen since structs are value types with no cycles, but defends
 //against bugs and future reference-field features).
-template<typename Writer>
+template<typename Writer, typename StreamState>
 void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
-    Writer&& write, int depth)
+    Writer&& write, StreamState& st, int depth)
 {
     if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
         throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
@@ -1145,7 +1145,7 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
             int32_t innerHeapIdx = slot[i];
             SerializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
-                std::forward<Writer>(write), depth + 1);
+                std::forward<Writer>(write), st, depth + 1);
         }
         else if (ftk == RTK_Class || ftk == RTK_Array)
         {
@@ -1155,9 +1155,9 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
     }
 }
 
-template<typename Reader>
+template<typename Reader, typename StreamState>
 void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
-    Reader&& read, int depth)
+    Reader&& read, StreamState& st, int depth)
 {
     if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
         throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
@@ -1203,7 +1203,7 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             int32_t innerHeapIdx = AllocStructOnHeap(cs.fieldStructIndices[i]);
             slot[i] = innerHeapIdx;
             DeserializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
-                std::forward<Reader>(read), depth + 1);
+                std::forward<Reader>(read), st, depth + 1);
         }
         else if (ftk == RTK_Class || ftk == RTK_Array)
         {
@@ -1413,7 +1413,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             SerializeStructFields(structHeapIdx, structIdx,
                 [&](const uint8_t* p, size_t n) {
                     st->buf.insert(st->buf.end(), p, p + n);
-                });
+                }, *st);
             break;
         }
         case INTR_BS_ReadStruct: {
@@ -1442,7 +1442,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                             "NLang VM: ReadStruct past end of stream");
                     std::memcpy(dst, st->buf.data() + st->pos, n);
                     st->pos += n;
-                });
+                }, *st);
             std::memcpy(pResult, &rootHeapIdx, sizeof(rootHeapIdx));
             break;
         }
@@ -1637,7 +1637,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                 [&](const uint8_t* p, size_t n) {
                     st->fs->write(reinterpret_cast<const char*>(p),
                         static_cast<std::streamsize>(n));
-                });
+                }, *st);
             break;
         }
         case INTR_FS_ReadStruct: {
@@ -1667,7 +1667,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                     if (st->fs->gcount() < static_cast<std::streamsize>(n))
                         throw std::runtime_error(
                             "NLang VM: ReadStruct past end of stream");
-                });
+                }, *st);
             std::memcpy(pResult, &rootHeapIdx, sizeof(rootHeapIdx));
             break;
         }
