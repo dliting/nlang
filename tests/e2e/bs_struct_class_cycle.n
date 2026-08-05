@@ -1,0 +1,27 @@
+class Node {
+    public Node next;
+    public int v;
+}
+
+struct Wrapper {
+    Node root;
+}
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Node n1 = new Node();
+    n1.v = 1;
+    Node n2 = new Node();
+    n2.v = 2;
+    n1.next = n2;
+    n2.next = n1;
+    Wrapper w;
+    w.root = n1;
+    bs.WriteStruct(w);
+    bs.Reset();
+    Wrapper w2 = bs.ReadStruct("Wrapper");
+    if (w2.root.next.next == w2.root) {
+        return 1;
+    }
+    return 0;
+}
