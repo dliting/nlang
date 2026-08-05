@@ -220,3 +220,4 @@ fs_struct_roundtrip 30
 
 # --- Phase 8c: class field serialization ---
 bs_struct_class_simple 42
+bs_struct_class_null 1

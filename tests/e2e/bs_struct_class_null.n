@@ -1,0 +1,19 @@
+class Holder {
+    public int v;
+}
+
+struct S {
+    Holder h;
+}
+
+int main() {
+    ByteStream bs = new ByteStream();
+    S s;
+    bs.WriteStruct(s);
+    bs.Reset();
+    S s2 = bs.ReadStruct("S");
+    if (s2.h == null) {
+        return 1;
+    }
+    return 0;
+}
