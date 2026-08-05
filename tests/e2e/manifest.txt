@@ -224,3 +224,4 @@ bs_struct_class_null 1
 bs_struct_class_shared_ref 1
 bs_struct_class_cycle 1
 bs_struct_class_inherit 5
+bs_struct_class_string_field 1
