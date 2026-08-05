@@ -174,6 +174,70 @@ Classes support:
 Ancestor constructors are NOT automatically invoked (NLang has no `super()`
 syntax). Fields inherited from ancestors are zero-initialized.
 
+### Implicit `Object` Base Class
+
+Every class that does not explicitly inherit from another class implicitly
+inherits from `Object`. Object is synthesized by the compiler — there is no
+source-level `class Object { ... }` declaration, and users do not write
+`class Foo : Object` (that syntax is rejected).
+
+Object provides two virtual methods with default identity semantics:
+
+```
+int Equals(Object other);    // identity: same heap reference → 1, else 0
+int GetHashCode();           // identity: heap index of `this` (or 0 for null)
+```
+
+`Equals` and `GetHashCode` are virtual via name-based dispatch — subclasses
+override them simply by declaring a method with the same name (no `override`
+keyword needed; the runtime walks the class hierarchy and finds the
+most-derived implementation first):
+
+```
+class Point {
+    public int x;
+    public int y;
+    int GetHashCode() {              // overrides Object.GetHashCode
+        return this.x * 31 + this.y;
+    }
+}
+```
+
+**String value semantics**: Although string is a primitive type, calls to
+`string.GetHashCode()` and `string.Equals(string)` are intrinsified to use
+*value* semantics (`std::hash` for hash, content comparison for Equals). This
+makes strings usable as Dict keys in future phases without needing a wrapper
+class.
+
+**`==` operator unchanged**: Object.Equals is an opt-in method. The `==`
+operator on class references continues to compare heap indices directly
+(existing `class_null` / `class_virtual` tests do not regress). The reason
+`Equals` exists as a separate method is to allow user classes to override
+with value equality without breaking identity-equality tests in the wider
+codebase.
+
+**Boxing (primitive → Object)**: A primitive value (int / float / string) is
+implicitly boxed when assigned to an Object-typed target:
+
+```
+Object o = 5;            // int boxed
+Object f = 3.14;         // float boxed
+Object s = "hi";         // string boxed
+
+int TakesObject(Object o) { return o.GetHashCode(); }
+int x = TakesObject(42); // 42 boxed at the call site
+```
+
+The runtime representation is a tagged slot of kind `RTK_Boxed` (slot[0] =
+type tag, slot[1] = value bits). Boxed slots hold no references and are
+explicitly skipped by GC MarkPhase.
+
+**Deferred to Phase 8e-1.5**: explicit unbox (`int x = (int)o;`) and class
+downcast (`Point p = (Point)obj;`). These require a cast grammar rule that
+conflicts with the LALR(1) parser's parenthesized-expression rule; they will
+land in a separate follow-up phase. Until then, primitive values can be
+stored in Object slots but cannot be retrieved back as primitives.
+
 ## Expressions
 
 ### Arithmetic
@@ -332,3 +396,16 @@ to their owner:
 The process exit code is 8-bit (0-255) on Windows. Test expected values must
 not exceed 255. For tests requiring larger computations, use modular arithmetic
 or return a derived value that fits in the exit code range.
+
+## Known Limitations
+
+- **Nested binary expressions**: expressions of the form `a == b * c + d`
+  where `a` is a variable and the right side has nested arithmetic may
+  compute the wrong comparison. Root cause: only two temp slots exist, and
+  the outer-left value can be clobbered by inner-right intermediates.
+  Workaround: bind the right side to an intermediate variable
+  (`int expected = b*c + d; if (a == expected) { ... }`). To be fixed when
+  PickTempSlot is reworked.
+- **Explicit cast / unbox**: `(int)obj`, `(Foo)obj` are not yet supported
+  (deferred to Phase 8e-1.5). Implicit primitive→Object boxing works.
+- **`foreach` / `foreach in`**: not yet implemented (planned with collections).

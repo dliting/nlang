@@ -63,6 +63,9 @@ static const char* s_OpCodeNames[] = {
     "load_element",
     "store_element",
     "array_length",
+    "box",
+    "unbox",
+    "check_cast",
 };
 
 const char* OpCodeName(OpCode op) {

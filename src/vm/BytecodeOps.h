@@ -99,6 +99,11 @@ enum class OpCode : uint8_t {
     OP_StoreElement,    // uint16 arr, uint16 index, uint16 src
     OP_ArrayLength,     // uint16 dst, uint16 arr
 
+    // === Phase 8e-1: Object protocol + boxing/cast ===
+    OP_Box,             // uint8 typeKind — pop primitive, push boxed Object ref
+    OP_Unbox,           // uint8 typeKind — pop Object ref, type-check, push primitive
+    OP_CheckCast,       // uint16 classIdx — pop ref, verify subclass, throw on mismatch
+
     OP_Count
 };
 

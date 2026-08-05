@@ -13,12 +13,14 @@ namespace nlang
 //across all resolution sites (type names, new expressions, member calls).
 static SnClassDecl* s_pByteStreamClass = nullptr;
 static SnClassDecl* s_pFileStreamClass = nullptr;
+static SnClassDecl* s_pObjectClass = nullptr;  //Phase 8e-1: implicit Object base class
 
 static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 	const ISourceLocation* pLoc)
 {
 	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
-		: s_pFileStreamClass;
+		: (name == "FileStream") ? s_pFileStreamClass
+		: s_pObjectClass;
 	if (!rpRef)
 	{
 		auto* pName = new std::string(name);
@@ -48,13 +50,13 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	assert(pFieldExpr);
 	pFieldExpr->Accept(*m_pVisitor);
 
-	//Builtin class names: ByteStream, FileStream.
+	//Builtin class names: ByteStream, FileStream, Object (Phase 8e-1).
 	//When used as a type name (e.g. "ByteStream s = ..."), the name
 	//doesn't exist in the AST namespace. Synthesize a singleton SnClassDecl.
 	if (!pFieldExpr->IsResolved())
 	{
 		const auto& name = pFieldExpr->ToString();
-		if (name == "ByteStream" || name == "FileStream")
+		if (name == "ByteStream" || name == "FileStream" || name == "Object")
 		{
 			ResolveFieldExprAs(*pFieldExpr,
 				GetBuiltinClassDecl(name, pFieldExpr->Location()));
@@ -104,10 +106,10 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 
 	if (!pField)
 	{
-		//Builtin class names: ByteStream, FileStream.
+		//Builtin class names: ByteStream, FileStream, Object (Phase 8e-1).
 		//Synthesize a singleton SnClassDecl when the name is not found.
 		const auto& name = idExpr.Name();
-		if (name == "ByteStream" || name == "FileStream")
+		if (name == "ByteStream" || name == "FileStream" || name == "Object")
 		{
 			ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
 			return;
@@ -187,13 +189,31 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	auto pInnerExpr = snMember.Inner();
 	assert(pInnerExpr);
 
-	//Builtin string methods: s.length(), etc.
+	//Builtin string methods: s.length(), s.GetHashCode(), s.Equals(other).
 	if (m_pContext && m_pContext->Kind() == NK_String
 		&& pInnerExpr->Kind() == NK_InvokeExpr)
 	{
 		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
 		const auto& name = invoke.CalleeName();
 		if (name == "length" && invoke.Params().begin() == invoke.Params().end())
+		{
+			pInnerExpr->AddFlags(NF_Resolved);
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.AddFlags(NF_Resolved);
+			m_pContext = pSavedContext;
+			return;
+		}
+		//Phase 8e-1: string.GetHashCode() and string.Equals(string) — value semantics.
+		//Both intrinsified in VmBackend; resolver just needs to accept them.
+		if (name == "GetHashCode" && invoke.Params().begin() == invoke.Params().end())
+		{
+			pInnerExpr->AddFlags(NF_Resolved);
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.AddFlags(NF_Resolved);
+			m_pContext = pSavedContext;
+			return;
+		}
+		if (name == "Equals")
 		{
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
@@ -350,6 +370,32 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				return;
 			}
 		}
+
+	//Phase 8e-1: implicit Object protocol methods on user classes.
+	//Every user class inherits Equals(Object)→int and GetHashCode()→int from
+	//the synthesized Object base class. The methods have no AST representation
+	//(they're intrinsic stubs in VmBackend), so the normal InvokeExpr resolution
+	//path fails. Treat them as builtin virtuals here, parallel to stream methods.
+	//Args must be resolved in the CALLER's scope, not the empty Object scope —
+	//hence the early return before pInnerExpr->Accept below.
+	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
+		&& !static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
+		&& pInnerExpr->Kind() == NK_InvokeExpr)
+	{
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+		const auto& name = invoke.CalleeName();
+		if (name == "Equals" || name == "GetHashCode")
+		{
+			m_pContext = pSavedContext;
+			RemoveFlags(ERF_SearchInParentOnly);
+			ResolveExpressionList(invoke.Params());
+			pInnerExpr->AddFlags(NF_Resolved);
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.AddFlags(NF_Resolved);
+			m_pContext = pSavedContext;
+			return;
+		}
+	}
 
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
@@ -816,7 +862,7 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	assert(static_cast<SyntaxNode &>(*iSrcExpr).IsExpression());
 	auto &srcExpr = static_cast<SnExpression &>(*iSrcExpr);
 
-	if (castInfo.Kind() != TCK_Auto)
+	if (castInfo.Kind() != TCK_Auto && castInfo.Kind() != TCK_Box)
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
 			"Incompatible type \"%s\".", srcExpr.ToString().c_str());

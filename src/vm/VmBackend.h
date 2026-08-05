@@ -64,6 +64,7 @@ private:
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
     std::vector<std::vector<std::string>> m_structFieldTypeNames;
+    int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
 
     //Per-loop code generation context.
     //Reference: EN's Compiler::NestBreaks/NestContinues (Compiler.h:108-111).

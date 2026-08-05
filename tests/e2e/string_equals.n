@@ -1,0 +1,5 @@
+int main() {
+    int same = "hello".Equals("hello");
+    int diff = "hello".Equals("world");
+    return same - diff;
+}

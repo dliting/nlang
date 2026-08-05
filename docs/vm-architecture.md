@@ -80,7 +80,7 @@ field access via `OP_LoadField`/`OP_StoreField`.
 
 | Array           | Purpose                                    |
 |-----------------|--------------------------------------------|
-| m_slotKinds     | RTK_Class/RTK_Struct/0=free per heap slot  |
+| m_slotKinds     | RTK_Class/RTK_Struct/RTK_Boxed/0=free per heap slot  |
 | m_slotStructIdx | CompiledStruct index per struct slot       |
 | m_markBits      | GC mark bit per heap slot                  |
 
@@ -89,6 +89,42 @@ it, MarkStruct cannot determine which CompiledStruct to consult for field
 layout when tracing references. The alternative (adding a type header to
 struct objects) would require shifting all LoadField/StoreField offsets by +1,
 a larger and more error-prone change.
+
+### Implicit `Object` Base Class (Phase 8e-1)
+
+Every user class that does not explicitly inherit from another class has
+`superClassIdx` set to the synthesized Object class's index by a post-pass
+in `RegisterClasses`. Object is the only class with `superClassIdx == -1`.
+
+Object has two virtual methods (`Equals(Object)→int`, `GetHashCode()→int`),
+both dispatched via intrinsics:
+
+| Intrinsic ID           | Behavior                                       |
+|------------------------|------------------------------------------------|
+| INTR_Object_Equals    | Identity: same heap idx → 1, else 0 (null==null→1) |
+| INTR_Object_GetHashCode | Identity: heap idx of `this` (null→0)         |
+| INTR_String_Equals    | Value: pool-content equality                   |
+| INTR_String_GetHashCode | Value: `std::hash<std::string>` over content  |
+
+The existing `OP_CallMethod` name-walk finds the most-derived implementation
+first — there is no separate dispatch machinery for Object methods. When
+the runtime reaches Object's intrinsic stub (no AST override exists), it
+short-circuits to `ExecuteIntrinsic`.
+
+### Boxed Primitives (Phase 8e-1)
+
+A primitive value (int/float/string) assigned to an Object-typed target is
+boxed into a 2-slot heap entry:
+
+```
+slot[0] = type tag (RTK_Int32 / RTK_Float / RTK_String)
+slot[1] = value bits (int32 / float bits / string pool idx)
+```
+
+`m_slotKinds[idx] = RTK_Boxed` (6). GC MarkPhase skips RTK_Boxed slots
+entirely — they hold no outgoing references, so traversal would be wasted
+work and would misinterpret the type tag in slot[0] as a classIdx. SweepPhase
+frees them like any other unreachable slot.
 
 ## Bytecode Instructions
 
@@ -156,6 +192,7 @@ a larger and more error-prone change.
 | OP_CallFunc         | funcIdx, callParamBase      | Call function            |
 | OP_CallMethodDirect | funcIdx, callParamBase      | Call non-virtual method  |
 | OP_CallMethod       | methodNameIdx, callParamBase| Virtual dispatch by name |
+| OP_CallIntrinsic    | intrinsicId, callParamBase  | Invoke intrinsic by ID   |
 
 ### String
 
@@ -165,6 +202,14 @@ a larger and more error-prone change.
 | OP_Eq_str   | lhs, rhs    | String equality          |
 | OP_Ne_str   | lhs, rhs    | String inequality        |
 | OP_StrLen   | dst, src    | String length            |
+
+### Boxing (Phase 8e-1)
+
+| Opcode   | Operands              | Description                          |
+|----------|------------------------|--------------------------------------|
+| OP_Box   | dst, typeKind, src     | Box primitive as Object (RTK_Boxed) |
+| OP_Unbox | (reserved, 8e-1.5)     | Unbox Object to primitive            |
+| OP_CheckCast | (reserved, 8e-1.5) | Runtime class downcast check         |
 
 ### Type Cast
 

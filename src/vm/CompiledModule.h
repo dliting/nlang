@@ -13,6 +13,7 @@ static constexpr uint8_t RTK_String = 2;
 static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;
 static constexpr uint8_t RTK_Array  = 5;
+static constexpr uint8_t RTK_Boxed  = 6;  //Phase 8e-1: boxed primitive (slot[0]=tag, slot[1]=value)
 static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
 
 struct LocalDescriptor {
@@ -73,6 +74,12 @@ static constexpr uint16_t INTR_FS_WriteStruct = 30;
 static constexpr uint16_t INTR_FS_ReadStruct  = 31;
 static constexpr uint16_t INTR_FS_WriteObject = 32;
 static constexpr uint16_t INTR_FS_ReadObject  = 33;
+
+//Object/String intrinsic methods (Phase 8e-1).
+static constexpr uint16_t INTR_Object_Equals        = 40;
+static constexpr uint16_t INTR_Object_GetHashCode   = 41;
+static constexpr uint16_t INTR_String_Equals        = 42;
+static constexpr uint16_t INTR_String_GetHashCode   = 43;
 
 struct CompiledFunction {
     std::string name;

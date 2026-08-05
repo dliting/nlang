@@ -51,6 +51,46 @@ void VmBackend::RegisterBuiltinClasses() {
     //Register built-in classes (ByteStream, FileStream) as CompiledClass entries
     //with stub CompiledFunction entries for their methods. Each stub has
     //intrinsicId set so OP_CallMethod{,Direct} short-circuits to ExecuteIntrinsic.
+
+    //Phase 8e-1: synthesize the implicit Object base class first.
+    //Object is the root of the class hierarchy: every user class with no
+    //explicit parent inherits from Object. Object itself has superClassIdx==-1.
+    //Methods Equals(Object)→int and GetHashCode()→int are virtual; subclasses
+    //override them by name (existing name-based dispatch handles this).
+    {
+        auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
+        CompiledClass cc;
+        cc.name = "Object";
+        cc.superClassIdx = -1;
+        cc.fieldCount = 0;
+        cc.constructorIdx = 0xFFFF;  //no ctor
+
+        //int Equals(Object other) — virtual, intrinsic dispatch.
+        auto equalsFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+        CompiledFunction equalsFunc;
+        equalsFunc.name = "Equals";
+        equalsFunc.paramCount = 2;  //this + other
+        equalsFunc.localsSize = 2 * VALUE_SIZE;
+        equalsFunc.returnTypeKind = RTK_Int32;
+        equalsFunc.intrinsicId = INTR_Object_Equals;
+        m_compiledModule.functions.push_back(std::move(equalsFunc));
+        cc.methodIndices.push_back(equalsFuncIdx);
+
+        //int GetHashCode() — virtual, intrinsic dispatch.
+        auto getHashCodeFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+        CompiledFunction ghFunc;
+        ghFunc.name = "GetHashCode";
+        ghFunc.paramCount = 1;  //this only
+        ghFunc.localsSize = 1 * VALUE_SIZE;
+        ghFunc.returnTypeKind = RTK_Int32;
+        ghFunc.intrinsicId = INTR_Object_GetHashCode;
+        m_compiledModule.functions.push_back(std::move(ghFunc));
+        cc.methodIndices.push_back(getHashCodeFuncIdx);
+
+        m_compiledModule.classes.push_back(std::move(cc));
+        m_objectClassIdx = static_cast<int16_t>(classIdx);
+    }
+
     auto registerBuiltin = [&](const std::string& name,
         const std::vector<std::pair<std::string, uint16_t>>& methods,
         uint16_t ctorIntrinsicId, bool hasCtorParams) {
@@ -80,14 +120,17 @@ void VmBackend::RegisterBuiltinClasses() {
             auto methFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
             CompiledFunction methFunc;
             methFunc.name = methName;
-            //paramCount: 1 (this) for most, 2 (this + arg) for Write*/Read*
-            bool hasArg = (methName.find("Write") == 0 || methName.find("Read") == 0);
+            //paramCount: 1 (this) for most, 2 (this + arg) for Write*/Read*/Equals
+            bool hasArg = (methName.find("Write") == 0
+                || methName.find("Read") == 0
+                || methName == "Equals");
             methFunc.paramCount = static_cast<uint16_t>(hasArg ? 2 : 1);
             methFunc.localsSize = static_cast<uint16_t>(methFunc.paramCount * VALUE_SIZE);
-            //Return type: int for ReadInt/Length/Position, float for ReadFloat,
-            //string for ReadString, void for Write*/Reset/Close
+            //Return type: int for ReadInt/Length/Position/GetHashCode/Equals,
+            //float for ReadFloat, string for ReadString, void for Write*/Reset/Close
             if (methName == "ReadInt" || methName == "Length" || methName == "Position"
-                || methName == "ReadStruct" || methName == "ReadObject")
+                || methName == "ReadStruct" || methName == "ReadObject"
+                || methName == "GetHashCode" || methName == "Equals")
                 methFunc.returnTypeKind = RTK_Int32;
             else if (methName == "ReadFloat")
                 methFunc.returnTypeKind = RTK_Float;
@@ -267,6 +310,18 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                             cc.fieldStructIndices[i] = static_cast<uint16_t>(idx);
                     }
                 }
+            }
+        }
+    }
+
+    //Phase 8e-1: implicit Object inheritance. Every user class with no explicit
+    //parent inherits from Object. The only class that keeps superClassIdx==-1
+    //is Object itself (already registered in RegisterBuiltinClasses).
+    //ByteStream/FileStream (built-in) get Object as their parent too.
+    if (m_objectClassIdx >= 0) {
+        for (auto& cc : m_compiledModule.classes) {
+            if (cc.superClassIdx == -1 && cc.name != "Object") {
+                cc.superClassIdx = m_objectClassIdx;
             }
         }
     }
@@ -732,6 +787,26 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         auto& cast = static_cast<SnCastExpr&>(expr);
         EmitExpression(*cast.Source(), emitter, resultOffset);
 
+        //Phase 8e-1: TCK_Box — primitive → Object implicit boxing.
+        //The cast kind was computed by CastInfo when source was primitive
+        //and target was Object. Emit OP_Box with the source's type tag
+        //(RTK_Int32/RTK_Float/RTK_String) so the VM knows what to wrap.
+        if (cast.CastKind() == TCK_Box) {
+            auto* sourceType = cast.Source()->EvalDataType();
+            uint8_t typeTag = RTK_Int32;
+            if (sourceType) {
+                NodeKind srcKind = sourceType->Kind();
+                if (srcKind == NK_Float) typeTag = RTK_Float;
+                else if (srcKind == NK_String) typeTag = RTK_String;
+                else typeTag = RTK_Int32;
+            }
+            emitter.Emit(OpCode::OP_Box);
+            emitter.EmitByte(typeTag);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
+
         auto* targetType = cast.Target();
         auto* sourceType = cast.Source()->EvalDataType();
         if (sourceType && targetType) {
@@ -835,11 +910,16 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         emitter.EmitUint16(static_cast<uint16_t>(it->second));
                         emitter.EmitUint16(m_currFunc->callParamBase);
                     }
-                } else if (classDecl->IsBuiltinClass()) {
-                    //Builtin class method — no SnFunction in the AST.
-                    //Dispatch by name at runtime; the VM will find the stub
-                    //in CompiledClass::methodIndices and short-circuit to
-                    //ExecuteIntrinsic.
+                } else {
+                    //Phase 8e-1: no AST callee. Covers two cases:
+                    //  (a) Builtin class methods (ByteStream/FileStream) — the
+                    //      synthesized SnClassDecl has no method members.
+                    //  (b) User-class calls to inherited Object protocol methods
+                    //      (Equals/GetHashCode) — no AST override exists, so
+                    //      callee is null. The VM walks superClassIdx to find
+                    //      Object's intrinsic stub and short-circuits to
+                    //      ExecuteIntrinsic.
+                    //Both paths dispatch by name via OP_CallMethod.
                     uint16_t nameIdx = AddStringConstant(invoke.CalleeName());
                     emitter.Emit(OpCode::OP_CallMethod);
                     emitter.EmitUint16(nameIdx);
@@ -949,17 +1029,54 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 return;
             }
         }
-        //String builtin methods: s.length()
+        //String builtin methods: s.length(), s.GetHashCode(), s.Equals(other)
+        //Phase 8e-1: GetHashCode/Equals dispatch to intrinsics for value semantics.
+        //Strings are primitives (pool idx), not classes — these intrinsics are the
+        //only way to invoke the protocol on them. Parallel to s.length() shortcut.
         if (inner && inner->Kind() == NK_InvokeExpr) {
             auto& invoke = static_cast<SnInvokeExpr&>(*inner);
-            if (outerType && outerType->Kind() == NK_String
-                && invoke.CalleeName() == "length")
+            if (outerType && outerType->Kind() == NK_String)
             {
-                EmitExpression(*member.Outer(), emitter, resultOffset);
-                emitter.Emit(OpCode::OP_StrLen);
-                emitter.EmitUint16(resultOffset);
-                emitter.EmitUint16(resultOffset);
-                return;
+                const auto& methName = invoke.CalleeName();
+                if (methName == "length")
+                {
+                    EmitExpression(*member.Outer(), emitter, resultOffset);
+                    emitter.Emit(OpCode::OP_StrLen);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(resultOffset);
+                    return;
+                }
+                if (methName == "GetHashCode")
+                {
+                    //Evaluate receiver (string pool idx) to callParamBase[0].
+                    EmitExpression(*member.Outer(), emitter, m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_CallIntrinsic);
+                    emitter.EmitUint16(INTR_String_GetHashCode);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                    return;
+                }
+                if (methName == "Equals")
+                {
+                    //Evaluate receiver (this) to callParamBase[0].
+                    EmitExpression(*member.Outer(), emitter, m_currFunc->callParamBase);
+                    //Evaluate argument to callParamBase[1].
+                    uint16_t paramIdx = 1;
+                    for (auto& param : invoke.Params()) {
+                        uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
+                        EmitExpression(param, emitter, paramOffset);
+                        ++paramIdx;
+                    }
+                    emitter.Emit(OpCode::OP_CallIntrinsic);
+                    emitter.EmitUint16(INTR_String_Equals);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                    return;
+                }
             }
             EmitExpression(*static_cast<SnExpression*>(inner), emitter, resultOffset);
         }

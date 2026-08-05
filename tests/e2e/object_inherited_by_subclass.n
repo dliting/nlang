@@ -1,0 +1,15 @@
+class Animal {
+    public int legs;
+}
+
+class Dog : Animal {
+    public int barkVol;
+}
+
+int main() {
+    Dog d1 = new Dog();
+    Dog d2 = new Dog();
+    int selfRef = d1.Equals(d1);
+    int diffRef = d1.Equals(d2);
+    return selfRef + diffRef;
+}

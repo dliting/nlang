@@ -12,6 +12,11 @@ public:
         m_bytes.push_back(static_cast<uint8_t>(op));
     }
 
+    //Phase 8e-1: emit a raw byte operand (e.g. type tag for OP_Box).
+    void EmitByte(uint8_t v) {
+        m_bytes.push_back(v);
+    }
+
     void EmitUint16(uint16_t v) {
         m_bytes.push_back(static_cast<uint8_t>(v & 0xFF));
         m_bytes.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));

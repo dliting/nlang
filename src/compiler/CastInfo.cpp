@@ -124,6 +124,18 @@ void TypeCastInfo::CalcCastKind()
 			m_Kind = TCK_Auto;
 			return;
 		}
+		//Phase 8e-1: primitive (int/float/string) → Object = implicit box.
+		//Triggers on assignments, parameter passing, returns where target
+		//type is Object and source is a primitive literal/variable.
+		//Object is recognized by name ("Object") since it has no AST parent.
+		//Other class targets stay TCK_None (no implicit primitive→arbitrary-class).
+		if ((srcKind == NK_Int32 || srcKind == NK_Float || srcKind == NK_String)
+			&& tgtKind == NK_ClassDecl
+			&& m_pTarget && m_pTarget->Name() == "Object")
+		{
+			m_Kind = TCK_Box;
+			return;
+		}
 		m_Kind = TCK_None;
 		return;
 	}

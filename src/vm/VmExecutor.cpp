@@ -804,6 +804,53 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
+        //Phase 8e-1: primitive → Object boxing.
+        //Layout: heap slot with m_slotKinds[idx] == RTK_Boxed, slot[0]=typeTag,
+        //slot[1]=value bits. Type tag tells OP_Unbox how to unwrap and tells
+        //GC not to trace (boxed slots hold no references).
+        case OpCode::OP_Box: {
+            uint8_t typeTag = reader.ReadByte();
+            int32_t heapIdx;
+            if (!m_freeList.empty()) {
+                heapIdx = m_freeList.back();
+                m_freeList.pop_back();
+                m_structHeap[static_cast<size_t>(heapIdx)].assign(2, 0);
+            } else {
+                heapIdx = static_cast<int32_t>(m_structHeap.size());
+                m_structHeap.emplace_back(2, 0);
+                m_slotKinds.push_back(0);
+                m_slotStructIdx.push_back(0);
+            }
+            m_structHeap[static_cast<size_t>(heapIdx)][0] =
+                static_cast<int32_t>(typeTag);
+            int32_t val;
+            std::memcpy(&val, pResult, sizeof(val));
+            m_structHeap[static_cast<size_t>(heapIdx)][1] = val;
+            m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Boxed;
+            m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
+            std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
+            m_gcPending = true;
+            break;
+        }
+
+        //Phase 8e-1 placeholder — actual unbox needs cast grammar (Phase 8e-1.5).
+        //The opcode exists so backend emit can target it; throwing here is
+        //intentional since 8e-1 has no path that emits OP_Unbox.
+        case OpCode::OP_Unbox: {
+            uint8_t typeTag = reader.ReadByte();
+            (void)typeTag;
+            throw std::runtime_error(
+                "NLang VM: OP_Unbox not yet supported (deferred to 8e-1.5)");
+        }
+
+        //Phase 8e-1 placeholder — class downcast needs cast grammar.
+        case OpCode::OP_CheckCast: {
+            uint16_t classIdx = reader.ReadUint16();
+            (void)classIdx;
+            throw std::runtime_error(
+                "NLang VM: OP_CheckCast not yet supported (deferred to 8e-1.5)");
+        }
+
         default:
             throw std::runtime_error(
                 std::string("NLang VM: unknown opcode ") +
@@ -2050,6 +2097,64 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             break;
         }
         }
+        return;
+    }
+
+    //Phase 8e-1: Object protocol intrinsics.
+    //Object.Equals(this, other) → 0 or 1 (identity comparison on heap idx).
+    //Object.GetHashCode(this) → heap idx as int32 (identity-based hash).
+    //Both handle null: two nulls are equal, null has hash 0.
+    if (intrinsicId == INTR_Object_Equals) {
+        int32_t thisHeapIdx, otherHeapIdx;
+        std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+        std::memcpy(&otherHeapIdx, locals + callParamBase + VALUE_SIZE,
+                    sizeof(otherHeapIdx));
+        int32_t result;
+        if (thisHeapIdx == 0 && otherHeapIdx == 0)
+            result = 1;  //two nulls are equal
+        else if (thisHeapIdx == 0 || otherHeapIdx == 0)
+            result = 0;  //one null, one non-null
+        else
+            result = (thisHeapIdx == otherHeapIdx) ? 1 : 0;
+        std::memcpy(pResult, &result, sizeof(result));
+        return;
+    }
+    if (intrinsicId == INTR_Object_GetHashCode) {
+        int32_t thisHeapIdx;
+        std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+        int32_t result = (thisHeapIdx > 0) ? thisHeapIdx : 0;
+        std::memcpy(pResult, &result, sizeof(result));
+        return;
+    }
+
+    //Phase 8e-1: String protocol intrinsics.
+    //String.Equals(this, other) → value equality via std::string comparison.
+    //String.GetHashCode(this) → std::hash<std::string>.
+    //Both treat null/pool-out-of-range as empty string.
+    if (intrinsicId == INTR_String_Equals) {
+        int32_t thisStrIdx, otherStrIdx;
+        std::memcpy(&thisStrIdx, locals + callParamBase, sizeof(thisStrIdx));
+        std::memcpy(&otherStrIdx, locals + callParamBase + VALUE_SIZE,
+                    sizeof(otherStrIdx));
+        const std::string& a = (thisStrIdx >= 0
+            && static_cast<size_t>(thisStrIdx) < m_stringPool.size())
+            ? m_stringPool[static_cast<size_t>(thisStrIdx)] : "";
+        const std::string& b = (otherStrIdx >= 0
+            && static_cast<size_t>(otherStrIdx) < m_stringPool.size())
+            ? m_stringPool[static_cast<size_t>(otherStrIdx)] : "";
+        int32_t result = (a == b) ? 1 : 0;
+        std::memcpy(pResult, &result, sizeof(result));
+        return;
+    }
+    if (intrinsicId == INTR_String_GetHashCode) {
+        int32_t thisStrIdx;
+        std::memcpy(&thisStrIdx, locals + callParamBase, sizeof(thisStrIdx));
+        const std::string& s = (thisStrIdx >= 0
+            && static_cast<size_t>(thisStrIdx) < m_stringPool.size())
+            ? m_stringPool[static_cast<size_t>(thisStrIdx)] : "";
+        int32_t hash = static_cast<int32_t>(
+            std::hash<std::string>{}(s));
+        std::memcpy(pResult, &hash, sizeof(hash));
         return;
     }
 

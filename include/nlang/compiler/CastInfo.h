@@ -13,7 +13,12 @@ enum TypeCastKind
 	TCK_None = 1,	//No such cast.
 	TCK_Same,		//Same types and need not to cast.
 	TCK_Auto,		//Automatic type cast.
-	TCK_Dynamic		//Coerce dynamic type cast.
+	TCK_Dynamic,	//Coerce dynamic type cast.
+	//Phase 8e-1: primitive → Object implicit boxing.
+	//Source = primitive (NK_Int32/NK_Float/NK_String),
+	//Target = Object (or any user class via upcast, treated as Object).
+	//Emitted as OP_Box typeKind in VmBackend.
+	TCK_Box
 };
 
 class NLANG_COMPILER_API TypeCastInfo

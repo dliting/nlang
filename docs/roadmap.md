@@ -57,7 +57,45 @@ EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
   - 精确扫描（基于 LocalDescriptor），非保守扫描
   - m_slotStructIdx 并行数组标识 struct 类型
 
+### 阶段 4：数组 ✅
+- 固定数组：`int[10] arr;`、`arr[i]`、`arr[i] = val`、`arr.length()`
+- 数组作为函数参数（引用传递）、数组作为类字段
+- 多维嵌套数组、运行时大小数组
+- 元素类型覆盖 int/float/string/class/struct/array/null
+
+### 阶段 6：接口与多态 ✅
+- 接口声明：`interface IFoo { int Bar(); }`
+- 类实现接口、接口类型变量、接口方法调用（vtable 分派）
+- 接口继承、多接口实现、null 接口引用
+
+### 阶段 7：调试支持（backtrace）✅
+- 字节码嵌入源码行号、运行时调用栈回溯
+- NullPointer / 异常路径自动打印 backtrace
+
+### 阶段 8：序列化与持久化 ✅
+- ByteStream / FileStream 内建类
+- 8a：流读写 int/float/string
+- 8b：struct 序列化（深拷贝，含嵌套 struct/string/float 字段）
+- 8c：class 字段序列化（含 null、shared ref、cycle、继承、深链）
+- 8d：顶层 class 序列化 + 多态（object graph roundtrip）
+- 引用解析：shared ref 复用、cycle 检测、跨流恢复
+
+### 阶段 8e-1：Object 基类 + 哈希/相等协议 + 隐式装箱 ✅
+- 隐式 Object 基类：所有不带 `: Parent` 的类自动继承 Object
+- 虚方法 `int Equals(Object)` 和 `int GetHashCode()`，默认身份语义（identity）
+- 字符串特例：`string.GetHashCode()` 值哈希、`string.Equals(string)` 值相等
+- 用户类按名称重写 Equals/GetHashCode（无需 override 关键字，沿用既有名称分派）
+- 基本类型隐式装箱：`Object o = 5;`、`Object f = 3.14;`、`Object s = "hi";`（新增 RTK_Boxed=6 槽位类型，GC MarkPhase 显式跳过）
+- 解析器承认 `Object` 为内建类型名（与 ByteStream/FileStream 并列）
+
+### 阶段 8e-1.5：显式拆箱 / 类向下转型（计划中）
+- 显式拆箱：`int x = (int)o;`（运行时类型检查，不匹配抛异常）
+- 类向下转型：`Point p = (Point)obj;`（运行时类型检查）
+- 因 LALR(1) 解析器对 `(T)expr` 文法二义性，延后到独立小阶段实现
+- 8e-1 的隐式装箱已经工作；显式拆箱/转型是后续必要的补充
+
 ---
+
 
 ## 后续阶段
 
@@ -180,8 +218,8 @@ EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
 
 ## 当前状态
 
-- 阶段 0-3、5 已完成，113 个 e2e 测试全部通过
-- 下一步：阶段 4（数组）
+- 阶段 0-8e-1 已完成，**178 个 e2e 测试全部通过**
+- 下一步：阶段 8e-1.5（显式拆箱/向下转型）→ 8e-2（泛型 `<T>`）→ 8e-3（`List<T>`）→ 8e-4（`Dict<K,V>`）
 
 ## 文档索引
 

@@ -1,0 +1,9 @@
+int main() {
+    int h1 = "hello".GetHashCode();
+    int h2 = "hello".GetHashCode();
+    int h3 = "world".GetHashCode();
+    if (h1 == h2 && h1 != h3) {
+        return 1;
+    }
+    return 0;
+}

@@ -1,0 +1,12 @@
+class Holder {
+    public int v;
+}
+
+int main() {
+    Holder h = new Holder();
+    int hc = h.GetHashCode();
+    if (hc > 0) {
+        return 1;
+    }
+    return 0;
+}

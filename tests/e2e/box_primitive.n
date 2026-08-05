@@ -1,0 +1,5 @@
+int main() {
+    Object i = 5;
+    Object f = 3;
+    return 0;
+}
