@@ -6,6 +6,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace nlang {
@@ -137,6 +138,10 @@ private:
         std::vector<uint8_t> buf;
         size_t pos = 0;
         bool closed = false;
+        //Phase 8c
+        std::unordered_map<int32_t, uint32_t> serializeObjIds;   // heapIdx -> assignedId
+        std::unordered_map<uint32_t, int32_t> deserializeObjIds; // assignedId -> heapIdx
+        uint32_t nextObjId = 1;
     };
     std::vector<std::unique_ptr<ByteStreamState>> m_byteStreams;
     std::vector<int32_t> m_byteStreamFreeList;
@@ -147,6 +152,10 @@ private:
         bool writable = false;
         bool readable = false;
         bool closed = false;
+        //Phase 8c
+        std::unordered_map<int32_t, uint32_t> serializeObjIds;   // heapIdx -> assignedId
+        std::unordered_map<uint32_t, int32_t> deserializeObjIds; // assignedId -> heapIdx
+        uint32_t nextObjId = 1;
     };
     std::vector<std::unique_ptr<FileStreamState>> m_fileStreams;
     std::vector<int32_t> m_fileStreamFreeList;
