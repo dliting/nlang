@@ -103,6 +103,17 @@ private:
     //Allocate a handle from the FileStream side table. Returns 1-based handle.
     int32_t AllocFileStreamHandle();
 
+    //Phase 8c: clear per-stream object-ID tables. Called from BS_Reset,
+    //BS_Close, and FS_Close so subsequent operations start with a fresh
+    //identity table. Templated on StreamState so it works for both
+    //ByteStreamState and FileStreamState without a common base.
+    template<typename StreamState>
+    static void ClearObjIdState(StreamState& st) {
+        st.serializeObjIds.clear();
+        st.deserializeObjIds.clear();
+        st.nextObjId = 1;
+    }
+
     static const size_t RECURSE_LIMIT = 1000;
     static const size_t GC_THRESHOLD_DEFAULT = 1024;
     static const size_t STRUCT_SERIALIZE_DEPTH_LIMIT = 64;

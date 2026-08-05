@@ -1394,6 +1394,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             st->pos = 0;
+            ClearObjIdState(*st);
             break;
         }
         case INTR_BS_WriteStruct: {
@@ -1453,6 +1454,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             st->closed = true;
             st->buf.clear();
             st->pos = 0;
+            ClearObjIdState(*st);
             //Release handle back to free list.
             size_t idx = static_cast<size_t>(handle) - 1;
             m_byteStreams[idx].reset();
@@ -1678,6 +1680,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             if (st) {
                 st->closed = true;
                 if (st->fs) st->fs->close();
+                ClearObjIdState(*st);
             }
             size_t idx = static_cast<size_t>(handle) - 1;
             m_fileStreams[idx].reset();
