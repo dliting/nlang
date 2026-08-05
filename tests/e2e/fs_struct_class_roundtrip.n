@@ -1,0 +1,16 @@
+class Holder { public int v; }
+struct S { Holder h; }
+
+int main() {
+    FileStream fs = new FileStream("_phase8_tmp/struct_class_roundtrip.bin", "w");
+    Holder h = new Holder();
+    h.v = 42;
+    S s;
+    s.h = h;
+    fs.WriteStruct(s);
+    fs.Close();
+    FileStream fs2 = new FileStream("_phase8_tmp/struct_class_roundtrip.bin", "r");
+    S s2 = fs2.ReadStruct("S");
+    fs2.Close();
+    return s2.h.v;
+}
