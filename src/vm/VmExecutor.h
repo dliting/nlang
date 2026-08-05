@@ -55,7 +55,7 @@ private:
         Writer&& write, StreamState& st, int depth);
 
     template<typename Reader, typename StreamState>
-    void DeserializeClassFields(uint16_t expectedClassIdx, int32_t& outHeapIdx,
+    void DeserializeClassFields(uint16_t declaredClassIdx, int32_t& outHeapIdx,
         Reader&& read, StreamState& st, int depth);
 
     //Allocate a struct on the heap with recursive nested struct allocation.
@@ -65,6 +65,11 @@ private:
     //Allocate a class object on the heap with recursive field allocation.
     //Returns the heap index.
     int32_t AllocClassOnHeap(uint16_t classIdx);
+
+    //Phase 8d — polymorphism check for class-typed deserialization.
+    //Walks superClassIdx chain. Returns true if actualIdx is declaredIdx
+    //or a subclass thereof.
+    bool IsSubclassOf(uint16_t actualIdx, uint16_t declaredIdx);
 
     //Allocate an array on the heap.
     //Returns the heap index.

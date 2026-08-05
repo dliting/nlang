@@ -51,8 +51,8 @@ def main():
                 print(f"SKIP {name} (file missing)")
                 continue
 
-            #Phase 8: ensure _phase8_tmp/ exists and is clean for file_stream_*/fs_struct_* tests.
-            if name.startswith('file_stream_') or name.startswith('fs_struct_'):
+            #Phase 8: ensure _phase8_tmp/ exists and is clean for file_stream_*/fs_struct_*/fs_object_* tests.
+            if name.startswith('file_stream_') or name.startswith('fs_struct_') or name.startswith('fs_object_'):
                 if os.path.isdir(PHASE8_TMP):
                     shutil.rmtree(PHASE8_TMP)
                 os.makedirs(PHASE8_TMP, exist_ok=True)
@@ -81,9 +81,10 @@ def main():
                     continue
 
             # Run
-            #Phase 8: file_stream_*/fs_struct_* tests need CWD = tests/e2e/ for relative paths.
+            #Phase 8: file_stream_*/fs_struct_*/fs_object_* tests need CWD = tests/e2e/ for relative paths.
             run_cwd = SCRIPT_DIR if (name.startswith('file_stream_')
-                                     or name.startswith('fs_struct_')) else None
+                                     or name.startswith('fs_struct_')
+                                     or name.startswith('fs_object_')) else None
             try:
                 result = subprocess.run(
                     [nvm, nmod_file],

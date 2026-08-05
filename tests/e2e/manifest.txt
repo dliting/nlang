@@ -227,3 +227,13 @@ bs_struct_class_inherit 5
 bs_struct_class_string_field 1
 bs_struct_class_deep_chain 60
 fs_struct_class_roundtrip 42
+
+# --- Phase 8d: top-level class serialization + polymorphism ---
+bs_object_simple 42
+bs_object_null 1
+bs_object_shared_ref 1
+bs_object_polymorphism 4
+bs_object_field_polymorphism 4
+bs_object_deep_hierarchy 1
+fs_object_roundtrip 42
+fs_object_polymorphism 4

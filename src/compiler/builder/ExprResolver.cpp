@@ -239,7 +239,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				{ isStreamMethod = true; retKind = NK_String; }
 			else if (name == "WriteInt" || name == "WriteFloat"
 				|| name == "WriteString" || name == "Reset" || name == "Close"
-				|| name == "WriteStruct")
+				|| name == "WriteStruct" || name == "WriteObject")
 				isStreamMethod = true;  // void return — no EvalDataType
 			else if (name == "ReadStruct")
 			{
@@ -281,6 +281,45 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				}
 				snMember.EvalDataType(found);
 			}
+			else if (name == "ReadObject")
+			{
+				//ReadObject("TypeName") returns a class object of the named type.
+				//Mirrors ReadStruct but resolves typeName as a class (NK_ClassDecl).
+				//The declared type may be a base class of the stream's actual type;
+				//polymorphic deserialization is enforced in VmExecutor via
+				//IsSubclassOf (Phase 8d).
+				isStreamMethod = true;
+				auto& params = invoke.Params();
+				auto it = params.begin();
+				if (it == params.end() || (*it).Kind() != NK_LiteralExpr
+					|| !(*it).EvalDataType()
+					|| (*it).EvalDataType()->Kind() != NK_String)
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"ReadObject requires a string literal argument.");
+					m_pContext = pSavedContext;
+					return;
+				}
+				auto& lit = static_cast<SnLiteralExpr&>(*it);
+				const std::string* pTypeName = lit.Value().Data().m_String;
+				const std::string typeName = pTypeName ? *pTypeName : std::string();
+				//Look up typeName as a class in the caller's namespace chain.
+				SnField* found = nullptr;
+				auto* ctx = pSavedContext;
+				while (ctx && !found)
+				{
+					found = ctx->FindField(typeName);
+					ctx = ctx->Parent();
+				}
+				if (!found || found->Kind() != NK_ClassDecl)
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"ReadObject type not found: %s.", typeName.c_str());
+					m_pContext = pSavedContext;
+					return;
+				}
+				snMember.EvalDataType(found);
+			}
 			if (isStreamMethod)
 			{
 				//Resolve the args so each param's Field()/EvalDataType() is
@@ -300,10 +339,10 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				//For void-returning methods, leave EvalDataType unset.
 				if (name != "WriteInt" && name != "WriteFloat"
 					&& name != "WriteString" && name != "Reset" && name != "Close"
-					&& name != "WriteStruct")
+					&& name != "WriteStruct" && name != "WriteObject")
 				{
-					//ReadStruct already set EvalDataType above; others use retKind.
-					if (name != "ReadStruct")
+					//ReadStruct/ReadObject already set EvalDataType above; others use retKind.
+					if (name != "ReadStruct" && name != "ReadObject")
 						snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
 				}
 				snMember.AddFlags(NF_Resolved);

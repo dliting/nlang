@@ -1,0 +1,15 @@
+class A { public int x; }
+class B : A { public int y; }
+class C : B { public int z; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    C c = new C();
+    c.x = 1;
+    c.y = 2;
+    c.z = 3;
+    bs.WriteObject(c);
+    bs.Reset();
+    A a = bs.ReadObject("A");
+    return a.x;
+}

@@ -1,0 +1,15 @@
+class Animal { public int legs; }
+class Dog : Animal { public int teeth; }
+
+int main() {
+    FileStream fs = new FileStream("_phase8_tmp/object_polymorphism.bin", "w");
+    Dog d = new Dog();
+    d.legs = 4;
+    d.teeth = 42;
+    fs.WriteObject(d);
+    fs.Close();
+    FileStream fs2 = new FileStream("_phase8_tmp/object_polymorphism.bin", "r");
+    Animal a = fs2.ReadObject("Animal");
+    fs2.Close();
+    return a.legs;
+}

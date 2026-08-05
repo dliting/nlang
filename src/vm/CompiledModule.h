@@ -55,6 +55,8 @@ static constexpr uint16_t INTR_BS_Reset        = 9;
 static constexpr uint16_t INTR_BS_Close        = 10;
 static constexpr uint16_t INTR_BS_WriteStruct = 11;
 static constexpr uint16_t INTR_BS_ReadStruct  = 12;
+static constexpr uint16_t INTR_BS_WriteObject = 13;
+static constexpr uint16_t INTR_BS_ReadObject  = 14;
 
 //FileStream intrinsics.
 static constexpr uint16_t INTR_FS_Ctor         = 20;
@@ -69,6 +71,8 @@ static constexpr uint16_t INTR_FS_Position     = 28;
 static constexpr uint16_t INTR_FS_Close        = 29;
 static constexpr uint16_t INTR_FS_WriteStruct = 30;
 static constexpr uint16_t INTR_FS_ReadStruct  = 31;
+static constexpr uint16_t INTR_FS_WriteObject = 32;
+static constexpr uint16_t INTR_FS_ReadObject  = 33;
 
 struct CompiledFunction {
     std::string name;

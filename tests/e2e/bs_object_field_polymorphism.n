@@ -1,0 +1,16 @@
+class Animal { public int legs; }
+class Dog : Animal { public int teeth; }
+struct Kennel { Animal a; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Dog d = new Dog();
+    d.legs = 4;
+    d.teeth = 42;
+    Kennel k;
+    k.a = d;
+    bs.WriteStruct(k);
+    bs.Reset();
+    Kennel k2 = bs.ReadStruct("Kennel");
+    return k2.a.legs;
+}

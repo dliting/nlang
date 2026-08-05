@@ -867,6 +867,20 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
     return heapIdx;
 }
 
+//Phase 8d — polymorphism check for class-typed deserialization.
+//Walks the superClassIdx chain from actualIdx upward. Returns true if
+//actualIdx is declaredIdx or a subclass thereof. Used by DeserializeClassFields
+//and the top-level ReadObject intrinsics to accept stream objects whose
+//runtime class is a subclass of the declared (expected) class.
+bool VmExecutor::IsSubclassOf(uint16_t actualIdx, uint16_t declaredIdx) {
+    int16_t cur = static_cast<int16_t>(actualIdx);
+    while (cur >= 0) {
+        if (cur == static_cast<int16_t>(declaredIdx)) return true;
+        cur = m_currModule->classes[static_cast<size_t>(cur)].superClassIdx;
+    }
+    return false;
+}
+
 int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error("NLang VM: invalid array type index");
@@ -1335,7 +1349,7 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
 //so cycles back to this object resolve correctly. Per-kind field switch
 //mirrors DeserializeStructFields but writes to slot[i+1].
 template<typename Reader, typename StreamState>
-void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
+void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
     int32_t& outHeapIdx, Reader&& read, StreamState& st, int depth)
 {
     if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
@@ -1375,13 +1389,13 @@ void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
     int classIdx = m_currModule->FindClass(className);
     if (classIdx < 0)
         throw std::runtime_error(
-            "NLang VM: ReadStruct class not found: " + className);
-    if (static_cast<uint16_t>(classIdx) != expectedClassIdx) {
-        const std::string& expectedName =
-            m_currModule->classes[expectedClassIdx].name;
+            "NLang VM: class not found in stream: " + className);
+    if (!IsSubclassOf(static_cast<uint16_t>(classIdx), declaredClassIdx)) {
+        const std::string& declaredName =
+            m_currModule->classes[declaredClassIdx].name;
         throw std::runtime_error(
-            "NLang VM: ReadStruct class type mismatch: expected "
-            + expectedName + ", got " + className);
+            "NLang VM: class type mismatch: expected "
+            + declaredName + ", got " + className);
     }
 
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
@@ -1499,8 +1513,8 @@ static int32_t ReadStreamHandle(uint16_t callParamBase, uint8_t* locals,
 void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     uint8_t* locals, uint8_t* pResult)
 {
-    //ByteStream intrinsics (0-12): 0-10 primitives, 11-12 struct.
-    if (intrinsicId <= INTR_BS_ReadStruct) {
+    //ByteStream intrinsics (0-14): 0-10 primitives, 11-12 struct, 13-14 object.
+    if (intrinsicId <= INTR_BS_ReadObject) {
         switch (intrinsicId) {
         case INTR_BS_Ctor: {
             //this is at callParamBase[0] (heapIdx). Allocate handle, store in __handle.
@@ -1689,6 +1703,53 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             std::memcpy(pResult, &rootHeapIdx, sizeof(rootHeapIdx));
             break;
         }
+        case INTR_BS_WriteObject: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "WriteObject");
+            auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
+            if (st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, locals + callParamBase + VALUE_SIZE,
+                sizeof(heapIdx));
+            if (heapIdx < 0
+                || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+                throw std::runtime_error("NLang VM: WriteObject invalid heap index");
+            SerializeClassFields(heapIdx,
+                [&](const uint8_t* p, size_t n) {
+                    st->buf.insert(st->buf.end(), p, p + n);
+                }, *st, 0);
+            break;
+        }
+        case INTR_BS_ReadObject: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "ReadObject");
+            auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
+            if (st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            int32_t typeNameIdx;
+            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+                sizeof(typeNameIdx));
+            const std::string& declaredName = (typeNameIdx >= 0
+                && static_cast<size_t>(typeNameIdx) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(typeNameIdx)] : "";
+            int declaredIdx = m_currModule->FindClass(declaredName);
+            if (declaredIdx < 0)
+                throw std::runtime_error(
+                    "NLang VM: ReadObject class not found: " + declaredName);
+            int32_t outHeapIdx = 0;
+            DeserializeClassFields(static_cast<uint16_t>(declaredIdx),
+                outHeapIdx,
+                [&](uint8_t* dst, size_t n) {
+                    if (st->pos + n > st->buf.size())
+                        throw std::runtime_error(
+                            "NLang VM: ReadObject past end of stream");
+                    std::memcpy(dst, st->buf.data() + st->pos, n);
+                    st->pos += n;
+                }, *st, 0);
+            std::memcpy(pResult, &outHeapIdx, sizeof(outHeapIdx));
+            break;
+        }
         case INTR_BS_Close: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
                 m_structHeap, "Close");
@@ -1711,8 +1772,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
-    //FileStream intrinsics (20-31): 20-29 primitives, 30-31 struct.
-    if (intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadStruct) {
+    //FileStream intrinsics (20-33): 20-29 primitives, 30-31 struct, 32-33 object.
+    if (intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadObject) {
         switch (intrinsicId) {
         case INTR_FS_Ctor: {
             //this at callParamBase[0], path string idx at [1], mode string idx at [2].
@@ -1917,6 +1978,58 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                             "NLang VM: ReadStruct past end of stream");
                 }, *st);
             std::memcpy(pResult, &rootHeapIdx, sizeof(rootHeapIdx));
+            break;
+        }
+        case INTR_FS_WriteObject: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "WriteObject");
+            auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
+            if (!st || st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (!st->writable)
+                throw std::runtime_error("NLang VM: FileStream not opened for writing");
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, locals + callParamBase + VALUE_SIZE,
+                sizeof(heapIdx));
+            if (heapIdx < 0
+                || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+                throw std::runtime_error("NLang VM: WriteObject invalid heap index");
+            SerializeClassFields(heapIdx,
+                [&](const uint8_t* p, size_t n) {
+                    st->fs->write(reinterpret_cast<const char*>(p),
+                        static_cast<std::streamsize>(n));
+                }, *st, 0);
+            break;
+        }
+        case INTR_FS_ReadObject: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "ReadObject");
+            auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
+            if (!st || st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (!st->readable)
+                throw std::runtime_error("NLang VM: FileStream not opened for reading");
+            int32_t typeNameIdx;
+            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+                sizeof(typeNameIdx));
+            const std::string& declaredName = (typeNameIdx >= 0
+                && static_cast<size_t>(typeNameIdx) < m_stringPool.size())
+                ? m_stringPool[static_cast<size_t>(typeNameIdx)] : "";
+            int declaredIdx = m_currModule->FindClass(declaredName);
+            if (declaredIdx < 0)
+                throw std::runtime_error(
+                    "NLang VM: ReadObject class not found: " + declaredName);
+            int32_t outHeapIdx = 0;
+            DeserializeClassFields(static_cast<uint16_t>(declaredIdx),
+                outHeapIdx,
+                [&](uint8_t* dst, size_t n) {
+                    st->fs->read(reinterpret_cast<char*>(dst),
+                        static_cast<std::streamsize>(n));
+                    if (st->fs->gcount() < static_cast<std::streamsize>(n))
+                        throw std::runtime_error(
+                            "NLang VM: ReadObject past end of stream");
+                }, *st, 0);
+            std::memcpy(pResult, &outHeapIdx, sizeof(outHeapIdx));
             break;
         }
         case INTR_FS_Close: {

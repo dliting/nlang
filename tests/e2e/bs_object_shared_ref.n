@@ -1,0 +1,18 @@
+class Holder { public int v; }
+class Pair { public Holder a; public Holder b; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Holder h = new Holder();
+    h.v = 99;
+    Pair p = new Pair();
+    p.a = h;
+    p.b = h;
+    bs.WriteObject(p);
+    bs.Reset();
+    Pair p2 = bs.ReadObject("Pair");
+    if (p2.a == p2.b) {
+        return 1;
+    }
+    return 0;
+}

@@ -1,0 +1,11 @@
+class Holder { public int v; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Holder h = new Holder();
+    h.v = 42;
+    bs.WriteObject(h);
+    bs.Reset();
+    Holder h2 = bs.ReadObject("Holder");
+    return h2.v;
+}
