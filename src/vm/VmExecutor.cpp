@@ -1582,6 +1582,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             uint8_t bytes[4];
             std::memcpy(bytes, &val, 4);
             st->buf.insert(st->buf.end(), bytes, bytes + 4);
+            st->pos += 4;
             break;
         }
         case INTR_BS_ReadInt: {
@@ -1609,6 +1610,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             uint8_t bytes[4];
             std::memcpy(bytes, &val, 4);
             st->buf.insert(st->buf.end(), bytes, bytes + 4);
+            st->pos += 4;
             break;
         }
         case INTR_BS_ReadFloat: {
@@ -1641,6 +1643,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             st->buf.insert(st->buf.end(), lenBytes, lenBytes + 4);
             st->buf.insert(st->buf.end(), reinterpret_cast<const uint8_t*>(s.data()),
                            reinterpret_cast<const uint8_t*>(s.data()) + s.size());
+            st->pos += 4 + static_cast<size_t>(len);
             break;
         }
         case INTR_BS_ReadString: {
@@ -1713,11 +1716,13 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                 || static_cast<size_t>(structHeapIdx) >= m_structHeap.size())
                 throw std::runtime_error("NLang VM: WriteStruct on null struct");
             uint16_t structIdx = m_slotStructIdx[static_cast<size_t>(structHeapIdx)];
+            size_t sizeBefore = st->buf.size();
             //Writer lambda: append bytes to the ByteStream's buffer.
             SerializeStructFields(structHeapIdx, structIdx,
                 [&](const uint8_t* p, size_t n) {
                     st->buf.insert(st->buf.end(), p, p + n);
                 }, *st);
+            st->pos += st->buf.size() - sizeBefore;
             break;
         }
         case INTR_BS_ReadStruct: {
@@ -1762,10 +1767,12 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             if (heapIdx < 0
                 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
                 throw std::runtime_error("NLang VM: WriteObject invalid heap index");
+            size_t sizeBefore = st->buf.size();
             SerializeClassFields(heapIdx,
                 [&](const uint8_t* p, size_t n) {
                     st->buf.insert(st->buf.end(), p, p + n);
                 }, *st, 0);
+            st->pos += st->buf.size() - sizeBefore;
             break;
         }
         case INTR_BS_ReadObject: {

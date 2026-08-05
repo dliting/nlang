@@ -535,9 +535,16 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     return static_cast<uint8_t>(k);
 }
 
+//Pick a temp slot distinct from `exclude`, walking through the 4-slot pool.
+//Composition rule: PickTempSlot(tempSlotN) = tempSlot(N+1). This chains
+//for nested expressions — each recursive level uses the next slot.
+//Slots 0..3 are tempSlot..tempSlot4. If exclude is not a temp slot, return
+//tempSlot (the default scratch slot).
 uint16_t VmBackend::PickTempSlot(uint16_t exclude) const {
-    return (exclude == m_currFunc->tempSlot)
-        ? m_currFunc->tempSlot2 : m_currFunc->tempSlot;
+    if (exclude == m_currFunc->tempSlot)  return m_currFunc->tempSlot2;
+    if (exclude == m_currFunc->tempSlot2) return m_currFunc->tempSlot3;
+    if (exclude == m_currFunc->tempSlot3) return m_currFunc->tempSlot4;
+    return m_currFunc->tempSlot;
 }
 
 //Returns field offset in bytes, or -1 if not found.
@@ -627,10 +634,15 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
         ctx.nextOffset += VALUE_SIZE;
     }
 
-    // Temporary slots for binary operations
+    // Temporary slots pool (4 slots — supports up to 3-level nested binary
+    // expressions without clobbering; see PickTempSlot).
     ctx.tempSlot = ctx.nextOffset;
     ctx.nextOffset += VALUE_SIZE;
     ctx.tempSlot2 = ctx.nextOffset;
+    ctx.nextOffset += VALUE_SIZE;
+    ctx.tempSlot3 = ctx.nextOffset;
+    ctx.nextOffset += VALUE_SIZE;
+    ctx.tempSlot4 = ctx.nextOffset;
     ctx.nextOffset += VALUE_SIZE;
 
     // Call parameter area (8 slots = up to 8 parameters)
