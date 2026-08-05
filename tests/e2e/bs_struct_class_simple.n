@@ -1,0 +1,14 @@
+class Holder { public int v; }
+struct S { Holder h; }
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Holder h = new Holder();
+    h.v = 42;
+    S s;
+    s.h = h;
+    bs.WriteStruct(s);
+    bs.Reset();
+    S s2 = bs.ReadStruct("S");
+    return s2.h.v;
+}
