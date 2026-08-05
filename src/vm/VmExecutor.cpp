@@ -1102,7 +1102,8 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
 
 //Phase 8b struct serialization helpers.
 //SerializeStructFields: walks a struct's fields and emits bytes via the Writer.
-//Class/array fields throw (Phase 8c). Depth limit prevents pathological cycles
+//Class fields recurse via SerializeClassFields (Phase 8c); array fields throw
+//(Phase 8e). Depth limit prevents pathological cycles
 //(shouldn't happen since structs are value types with no cycles, but defends
 //against bugs and future reference-field features).
 template<typename Writer, typename StreamState>
@@ -1174,7 +1175,7 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid struct heap index in DeserializeStructFields");
     const auto& cs = m_currModule->structs[structIdx];
-    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    size_t heapIdxSz = static_cast<size_t>(heapIdx);
     for (uint16_t i = 0; i < cs.fieldCount; ++i)
     {
         uint16_t ftk = cs.fieldTypeKinds[i];
@@ -1184,7 +1185,7 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             read(bytes, 4);
             int32_t val;
             std::memcpy(&val, bytes, 4);
-            slot[i] = val;
+            m_structHeap[heapIdxSz][i] = val;
         }
         else if (ftk == RTK_String)
         {
@@ -1202,14 +1203,14 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
                     static_cast<size_t>(len));
             int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
             m_stringPool.push_back(std::move(s));
-            slot[i] = newIdx;
+            m_structHeap[heapIdxSz][i] = newIdx;
         }
         else if (ftk == RTK_Struct)
         {
             if (cs.fieldStructIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
             int32_t innerHeapIdx = AllocStructOnHeap(cs.fieldStructIndices[i]);
-            slot[i] = innerHeapIdx;
+            m_structHeap[heapIdxSz][i] = innerHeapIdx;
             DeserializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
                 std::forward<Reader>(read), st, depth + 1);
         }
@@ -1220,7 +1221,7 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             int32_t childHeapIdx = 0;
             DeserializeClassFields(cs.fieldClassIndices[i], childHeapIdx,
                 std::forward<Reader>(read), st, depth + 1);
-            slot[i] = childHeapIdx;
+            m_structHeap[heapIdxSz][i] = childHeapIdx;
         }
         else if (ftk == RTK_Array)
         {
@@ -1377,7 +1378,7 @@ void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
     st.deserializeObjIds[st.nextObjId++] = heapIdx;
 
     const auto& cc = m_currModule->classes[static_cast<size_t>(classIdx)];
-    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    size_t heapIdxSz = static_cast<size_t>(heapIdx);
     for (uint16_t i = 0; i < cc.fieldCount; ++i)
     {
         uint16_t ftk = cc.fieldTypeKinds[i];
@@ -1387,7 +1388,7 @@ void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
             read(bytes, 4);
             int32_t val;
             std::memcpy(&val, bytes, 4);
-            slot[i + 1] = val;
+            m_structHeap[heapIdxSz][i + 1] = val;
         }
         else if (ftk == RTK_String)
         {
@@ -1405,14 +1406,14 @@ void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
                     static_cast<size_t>(len));
             int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
             m_stringPool.push_back(std::move(s));
-            slot[i + 1] = newIdx;
+            m_structHeap[heapIdxSz][i + 1] = newIdx;
         }
         else if (ftk == RTK_Struct)
         {
             if (cc.fieldStructIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
             int32_t innerHeapIdx = AllocStructOnHeap(cc.fieldStructIndices[i]);
-            slot[i + 1] = innerHeapIdx;
+            m_structHeap[heapIdxSz][i + 1] = innerHeapIdx;
             DeserializeStructFields(innerHeapIdx, cc.fieldStructIndices[i],
                 std::forward<Reader>(read), st, depth + 1);
         }
@@ -1423,7 +1424,7 @@ void VmExecutor::DeserializeClassFields(uint16_t expectedClassIdx,
             int32_t childHeapIdx = 0;
             DeserializeClassFields(cc.fieldClassIndices[i], childHeapIdx,
                 std::forward<Reader>(read), st, depth + 1);
-            slot[i + 1] = childHeapIdx;
+            m_structHeap[heapIdxSz][i + 1] = childHeapIdx;
         }
         else if (ftk == RTK_Array)
         {
