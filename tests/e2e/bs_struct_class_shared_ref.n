@@ -1,0 +1,24 @@
+class Holder {
+    public int v;
+}
+
+struct Pair {
+    Holder a;
+    Holder b;
+}
+
+int main() {
+    ByteStream bs = new ByteStream();
+    Holder h = new Holder();
+    h.v = 7;
+    Pair p;
+    p.a = h;
+    p.b = h;
+    bs.WriteStruct(p);
+    bs.Reset();
+    Pair q = bs.ReadStruct("Pair");
+    if (q.a == q.b) {
+        return 1;
+    }
+    return 0;
+}
