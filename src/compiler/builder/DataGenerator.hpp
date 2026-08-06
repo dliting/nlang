@@ -114,6 +114,9 @@ public:
 
 	void Access(SnArrayTypeExpr &) {}
 
+	//Phase 8e-1.5: `expr as T` introduces no data fields.
+	void Access(SnAsExpr &) {}
+
 	//Interface declarations have no data fields — only method signatures,
 	//which are registered elsewhere. Skip.
 	void Access(SnInterfaceDecl &) {}

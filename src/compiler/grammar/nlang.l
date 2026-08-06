@@ -143,6 +143,7 @@ LineComment	\/\/[^\n]*
 
             /* keywords */
 "bool"      { return KT_Bool; }
+"as"        { return KT_As; }
 "break"     { return KT_Break; }
 "byte"      { return KT_Byte; }
 "case"      { return KT_Case; }

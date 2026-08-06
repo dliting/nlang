@@ -60,7 +60,8 @@ void TypeCastInfo::CalcCastKind()
 		m_Kind = TCK_None;
 		return;
 	}
-	//Class types: same class → TCK_Same; subclass to parent → TCK_Same (implicit); otherwise incompatible.
+	//Class types: same class → TCK_Same; subclass to parent → TCK_Same (implicit upcast);
+	//parent to subclass → TCK_Downcast (explicit, via `as`); otherwise incompatible.
 	if (srcKind == NK_ClassDecl && tgtKind == NK_ClassDecl)
 	{
 		if (m_pSource == m_pTarget)
@@ -68,7 +69,17 @@ void TypeCastInfo::CalcCastKind()
 			m_Kind = TCK_Same;
 			return;
 		}
-		//Check inheritance chain for implicit conversion.
+		//Phase 8e-1: implicit upcast to Object. Object is the universal root
+		//at the VM level (VmBackend injects superClassIdx=Object's idx for
+		//every user class with no explicit parent), but the AST-level
+		//SnClassDecl::SuperClass() chain doesn't include Object. Special-case
+		//it here: any class → Object = TCK_Same (no-op, same heap idx).
+		if (m_pTarget && m_pTarget->Name() == "Object")
+		{
+			m_Kind = TCK_Same;
+			return;
+		}
+		//Upcast check: walk SOURCE's chain, find target → TCK_Same (implicit, no-op).
 		auto *pSrc = static_cast<const SnClassDecl*>(m_pSource);
 		auto *pParent = pSrc->SuperClass();
 		while (pParent)
@@ -79,6 +90,28 @@ void TypeCastInfo::CalcCastKind()
 				return;
 			}
 			pParent = pParent->SuperClass();
+		}
+		//Phase 8e-1.5: Downcast check: walk TARGET's chain, find source → TCK_Downcast.
+		//Means: target IS-A source (source is an ancestor of target). Honored only via
+		//`expr as SubClass` (SnAsExpr); FixupExprType rejects TCK_Downcast for implicit flows.
+		auto *pTgt = static_cast<const SnClassDecl*>(m_pTarget);
+		auto *pCur = pTgt->SuperClass();
+		while (pCur)
+		{
+			if (pCur == m_pSource)
+			{
+				m_Kind = TCK_Downcast;
+				return;
+			}
+			pCur = pCur->SuperClass();
+		}
+		//Phase 8e-1.5: implicit downcast from Object. Symmetric to the
+		//upcast special-case above: Object → any user class is a downcast
+		//(runtime-checked via OP_CheckCast in `o as Foo`).
+		if (m_pSource && m_pSource->Name() == "Object")
+		{
+			m_Kind = TCK_Downcast;
+			return;
 		}
 		m_Kind = TCK_None;
 		return;
@@ -118,22 +151,34 @@ void TypeCastInfo::CalcCastKind()
 	}
 	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
 	{
-		//Allow int (null literal) to be assigned to class type.
-		if (srcKind == NK_Int32 && tgtKind == NK_ClassDecl)
-		{
-			m_Kind = TCK_Auto;
-			return;
-		}
 		//Phase 8e-1: primitive (int/float/string) → Object = implicit box.
-		//Triggers on assignments, parameter passing, returns where target
-		//type is Object and source is a primitive literal/variable.
+		//Must be checked BEFORE the generic null-literal rule below so that
+		//`Object o = 5` produces TCK_Box (and emits OP_Box), not TCK_Auto
+		//(which would skip boxing entirely and store the raw int).
 		//Object is recognized by name ("Object") since it has no AST parent.
-		//Other class targets stay TCK_None (no implicit primitive→arbitrary-class).
 		if ((srcKind == NK_Int32 || srcKind == NK_Float || srcKind == NK_String)
 			&& tgtKind == NK_ClassDecl
 			&& m_pTarget && m_pTarget->Name() == "Object")
 		{
 			m_Kind = TCK_Box;
+			return;
+		}
+		//Allow int (null literal) to be assigned to class type.
+		//Fires for `Foo f = null` (non-Object class targets) where source
+		//is the int-typed null literal. TCK_Auto is a no-op at runtime
+		//(null stays as heap idx 0).
+		if (srcKind == NK_Int32 && tgtKind == NK_ClassDecl)
+		{
+			m_Kind = TCK_Auto;
+			return;
+		}
+		//Phase 8e-1.5: Object → primitive = explicit unbox (TCK_Unbox).
+		//Only honored through `o as int` (SnAsExpr). Assignments from Object
+		//to primitive still reject (TCK_None) to keep implicit flows safe.
+		if (srcKind == NK_ClassDecl && m_pSource && m_pSource->Name() == "Object"
+			&& (tgtKind == NK_Int32 || tgtKind == NK_Float || tgtKind == NK_String))
+		{
+			m_Kind = TCK_Unbox;
 			return;
 		}
 		m_Kind = TCK_None;

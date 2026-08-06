@@ -53,6 +53,9 @@ public:
 
 	void Access(SnCastExpr &);
 
+	//Phase 8e-1.5: resolve `expr as T` cast expression.
+	void Access(SnAsExpr &);
+
 	//Resolve binary/unary operator expression.
 	void Access(SnBinaryExpr &);
 

@@ -18,7 +18,13 @@ enum TypeCastKind
 	//Source = primitive (NK_Int32/NK_Float/NK_String),
 	//Target = Object (or any user class via upcast, treated as Object).
 	//Emitted as OP_Box typeKind in VmBackend.
-	TCK_Box
+	TCK_Box,
+	//Phase 8e-1.5: Object → primitive explicit unbox via `o as int`.
+	//Emitted as OP_Unbox typeKind in VmBackend.
+	TCK_Unbox,
+	//Phase 8e-1.5: ancestor → subclass explicit downcast via `o as Point`.
+	//Emitted as OP_CheckCast classIdx in VmBackend.
+	TCK_Downcast
 };
 
 class NLANG_COMPILER_API TypeCastInfo

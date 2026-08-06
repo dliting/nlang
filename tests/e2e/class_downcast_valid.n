@@ -1,0 +1,15 @@
+//Phase 8e-1.5: class downcast via `o as SubClass`.
+//Upcast Point→Object (implicit, TCK_Same since Point IS-A Object), then
+//downcast Object→Point via `as`. Verified by reading p.x after downcast.
+class Point {
+    public int x;
+    public int y;
+}
+
+int main() {
+    Point p = new Point();
+    p.x = 1;
+    Object o = p;          // implicit upcast
+    Point q = o as Point;  // explicit downcast
+    return q.x;
+}

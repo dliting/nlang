@@ -352,6 +352,27 @@ static void DisassembleFunction(const CompiledFunction& func,
             break;
         }
 
+        case OpCode::OP_Box: {
+            uint8_t typeTag = reader.ReadByte();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " typeTag=" << static_cast<int>(typeTag) << "\n";
+            break;
+        }
+
+        case OpCode::OP_Unbox: {
+            uint8_t typeTag = reader.ReadByte();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " typeTag=" << static_cast<int>(typeTag) << "\n";
+            break;
+        }
+
+        case OpCode::OP_CheckCast: {
+            uint16_t classIdx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " classIdx=" << classIdx << "\n";
+            break;
+        }
+
         default:
             std::cout << "    " << offsetBuf << ": unknown_op("
                       << static_cast<int>(op) << ")\n";

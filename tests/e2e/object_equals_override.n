@@ -1,0 +1,32 @@
+//Phase 8e-1.5: Object.Equals override using `as` for downcast.
+//Point overrides Equals to compare x,y fields. The `other` parameter is
+//Object-typed, so we downcast it to Point via `as Point` to access fields.
+class Point {
+    public int x;
+    public int y;
+
+    int Equals(Object other) {
+        Point o = other as Point;
+        if (o.x == this.x) {
+            if (o.y == this.y) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+}
+
+int main() {
+    Point p1 = new Point();
+    p1.x = 5;
+    p1.y = 7;
+    Point p2 = new Point();
+    p2.x = 5;
+    p2.y = 7;
+    Point p3 = new Point();
+    p3.x = 5;
+    p3.y = 8;
+    int a = p1.Equals(p2);  // 1 — same x,y
+    int b = p1.Equals(p3);  // 0 — different y
+    return a + b;
+}

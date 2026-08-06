@@ -164,6 +164,7 @@ using namespace nlang;
 
 /*keyword type */
 %token KT_Bool
+%token KT_As
 %token KT_Break
 %token KT_Byte
 %token KT_Case
@@ -243,6 +244,7 @@ using namespace nlang;
 %left '-' '+'
 %left '/' '*' '%'
 %right '~' OT_DEC P_Minus OT_INC '!'
+%left KT_As
 
 %nonassoc P_NonMember
 %left '.' '['
@@ -846,7 +848,8 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				Expression OT_AND Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1)); } |
 				Expression OT_OR Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LogicalOr, $1, $3, @1)); } |
 				'-' Expression %prec P_Minus	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1)); } |
-				'!' Expression					{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1)); } ;
+				'!' Expression					{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1)); } |
+				Expression KT_As NameExpr		{ $$ = EnNew(SnAsExpr($1, $3, @2)); } ;
 
 ParenthesesExpr: '(' Expression ')' { $$ = $2; } ;
 

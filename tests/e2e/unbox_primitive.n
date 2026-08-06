@@ -1,0 +1,7 @@
+//Phase 8e-1.5: primitive unbox via `o as T`.
+//Object o = 5 boxes the int. `o as int` unwraps it back to a primitive int.
+int main() {
+    Object o = 5;
+    int x = o as int;
+    return x;
+}

@@ -62,6 +62,9 @@ public:
 
 	void Access(SnArrayTypeExpr &) {}
 
+	//Phase 8e-1.5: `expr as T` is not a runtime type declaration.
+	void Access(SnAsExpr &) {}
+
 	//Interfaces are not concrete runtime types (no heap layout); classes that
 	//implement them carry the runtime representation. Skip type generation.
 	void Access(SnInterfaceDecl &) {}

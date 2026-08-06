@@ -411,6 +411,32 @@ std::string SnCastExpr::ToString() const
 	return std::move(ss.str());
 }
 
+//SnAsExpr (Phase 8e-1.5)
+
+bool SnAsExpr::IsDataExpr() const
+{
+	return true;
+}
+
+void SnAsExpr::Accept(nlang::ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnAsExpr::ToString() const
+{
+	std::stringstream ss;
+	ss << "(";
+	if (m_pOperand) ss << m_pOperand->ToString();
+	else ss << "<null>";
+	ss << " as ";
+	if (m_pTargetType) ss << m_pTargetType->ToString();
+	else if (m_pResolvedTarget) ss << m_pResolvedTarget->ToString();
+	else ss << "<unknown>";
+	ss << ")";
+	return std::move(ss.str());
+}
+
 //SnBinaryExpr
 
 SnBinaryExpr::SnBinaryExpr(Operator op, SnExpression *pLeft,

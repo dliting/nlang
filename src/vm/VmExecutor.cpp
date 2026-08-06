@@ -810,6 +810,14 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         //GC not to trace (boxed slots hold no references).
         case OpCode::OP_Box: {
             uint8_t typeTag = reader.ReadByte();
+            int32_t val;
+            std::memcpy(&val, pResult, sizeof(val));
+            //null-sentinel preservation: a 0 value (from `null` literal or
+            //literal 0) is treated as null Object ref — no heap allocation,
+            //pResult stays 0. This makes `Object o = null` a no-op while
+            //still allowing `Object o = 5` to allocate a real boxed slot.
+            if (val == 0)
+                break;
             int32_t heapIdx;
             if (!m_freeList.empty()) {
                 heapIdx = m_freeList.back();
@@ -823,8 +831,6 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             }
             m_structHeap[static_cast<size_t>(heapIdx)][0] =
                 static_cast<int32_t>(typeTag);
-            int32_t val;
-            std::memcpy(&val, pResult, sizeof(val));
             m_structHeap[static_cast<size_t>(heapIdx)][1] = val;
             m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Boxed;
             m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
@@ -833,22 +839,88 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
-        //Phase 8e-1 placeholder — actual unbox needs cast grammar (Phase 8e-1.5).
-        //The opcode exists so backend emit can target it; throwing here is
-        //intentional since 8e-1 has no path that emits OP_Unbox.
+        //Phase 8e-1.5: Object → primitive unbox.
+        //Reads the boxed-type-tag operand (RTK_Int32/RTK_Float/RTK_String).
+        //Heap layout: slot[0] = boxed-type-tag, slot[1] = value bits.
+        //Throws if the heap slot isn't boxed or the type tag mismatches.
         case OpCode::OP_Unbox: {
-            uint8_t typeTag = reader.ReadByte();
-            (void)typeTag;
-            throw std::runtime_error(
-                "NLang VM: OP_Unbox not yet supported (deferred to 8e-1.5)");
+            uint8_t expectedTag = reader.ReadByte();
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
+            if (heapIdx <= 0
+                || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+                throw std::runtime_error(
+                    "NLang VM: unbox on null/invalid reference");
+            if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Boxed)
+                throw std::runtime_error(
+                    "NLang VM: unbox target is not a boxed primitive");
+            int32_t actualTag = m_structHeap[static_cast<size_t>(heapIdx)][0];
+            if (static_cast<uint8_t>(actualTag) != expectedTag)
+            {
+                const char* expName = expectedTag == RTK_Int32  ? "int"  :
+                                      expectedTag == RTK_Float  ? "float":
+                                      expectedTag == RTK_String ? "string" :
+                                      "unknown";
+                const char* actName = actualTag == RTK_Int32  ? "int"  :
+                                      actualTag == RTK_Float  ? "float":
+                                      actualTag == RTK_String ? "string" :
+                                      "unknown";
+                throw std::runtime_error(std::string(
+                    "NLang VM: invalid unbox — expected ") + expName +
+                    ", got " + actName);
+            }
+            int32_t val = m_structHeap[static_cast<size_t>(heapIdx)][1];
+            std::memcpy(pResult, &val, sizeof(val));
+            break;
         }
 
-        //Phase 8e-1 placeholder — class downcast needs cast grammar.
+        //Phase 8e-1.5: class downcast check.
+        //Reads the target classIdx operand. Verifies the heap object's
+        //runtime class is operand-classIdx or a subclass thereof. Throws
+        //on mismatch. Pushes the same heap idx back to pResult on success.
         case OpCode::OP_CheckCast: {
-            uint16_t classIdx = reader.ReadUint16();
-            (void)classIdx;
-            throw std::runtime_error(
-                "NLang VM: OP_CheckCast not yet supported (deferred to 8e-1.5)");
+            uint16_t targetClassIdx = reader.ReadUint16();
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
+            if (heapIdx <= 0
+                || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+                throw std::runtime_error(
+                    "NLang VM: cast on null/invalid reference");
+            if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
+                throw std::runtime_error(
+                    "NLang VM: CheckCast target is not a class object");
+            int32_t actualClassIdx =
+                m_structHeap[static_cast<size_t>(heapIdx)][0];
+            //Walk the actual class's super chain; accept if target is found.
+            bool ok = (actualClassIdx == static_cast<int32_t>(targetClassIdx));
+            int32_t cur = actualClassIdx;
+            while (!ok && cur > 0)
+            {
+                const auto& cc = m_currModule->classes[
+                    static_cast<size_t>(cur)];
+                int16_t sup = cc.superClassIdx;
+                if (sup < 0 || static_cast<size_t>(sup) >=
+                    m_currModule->classes.size())
+                    break;
+                if (static_cast<uint16_t>(sup) == targetClassIdx)
+                {
+                    ok = true;
+                    break;
+                }
+                cur = static_cast<int32_t>(sup);
+            }
+            if (!ok)
+            {
+                const auto& tgt = m_currModule->classes[
+                    static_cast<size_t>(targetClassIdx)];
+                const auto& act = m_currModule->classes[
+                    static_cast<size_t>(actualClassIdx)];
+                throw std::runtime_error(std::string(
+                    "NLang VM: invalid cast — expected `") + tgt.name +
+                    "`, got `" + act.name + "`");
+            }
+            //Result: same heap idx, unchanged.
+            break;
         }
 
         default:

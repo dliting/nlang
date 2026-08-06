@@ -1,0 +1,8 @@
+//Phase 8e-1.5: unbox type mismatch throws at runtime.
+//`Object o = 3.14` boxes a float. `o as int` attempts to unbox with the
+//wrong type tag → runtime throws → process exits non-zero.
+int main() {
+    Object o = 3.14;
+    int x = o as int;  // throws: expected int, got float
+    return 0;
+}

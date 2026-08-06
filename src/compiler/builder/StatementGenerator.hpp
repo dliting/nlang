@@ -156,6 +156,11 @@ public:
 		//TODO
 	}
 
+	void Access(SnAsExpr &sn)
+	{
+		//TODO — LLVM IR path not used by VM backend.
+	}
+
 	//Default action.
 	void Access(SyntaxNode &sn)
 	{

@@ -490,6 +490,54 @@ private:
 	TypeCastKind m_CastKind;
 };
 
+//Phase 8e-1.5: `expr as T` runtime-checked cast expression.
+//Created by the parser. ExprResolver fills m_pResolvedTarget and m_CastKind.
+//VmBackend emits OP_Unbox (primitive unbox) or OP_CheckCast (class downcast)
+//based on the resolved CastKind.
+//Deviation from the original (T)expr plan: LALR(1) could not distinguish
+//(TypeName)expr from (expr) at parse time without a symbol-table lexer hack.
+//The `as` keyword is unambiguous and matches C#/TypeScript/Kotlin syntax.
+class NLANG_COMPILER_API SnAsExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_AsExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnAsExpr(SnExpression *pOperand, SnNameExpr *pTargetType,
+		const ISourceLocation &loc)
+		: Super_(s_Kind, loc), m_pOperand(pOperand), m_pTargetType(pTargetType),
+		  m_pResolvedTarget(nullptr), m_CastKind(TCK_None)
+	{
+		assert(pOperand);
+		assert(pTargetType);
+		AddChild(m_pOperand);
+		AddChild(m_pTargetType);
+	}
+
+	SnExpression *Operand() const { return m_pOperand; }
+	SnNameExpr *TargetType() const { return m_pTargetType; }
+
+	//Filled by ExprResolver.Access(SnAsExpr&).
+	SnField *ResolvedTarget() const { return m_pResolvedTarget; }
+	TypeCastKind CastKind() const { return m_CastKind; }
+	void SetResolved(SnField *pTarget, TypeCastKind kind)
+	{
+		m_pResolvedTarget = pTarget;
+		m_CastKind = kind;
+		AddFlags(NF_Resolved);
+	}
+
+	virtual bool IsDataExpr() const override;
+	void Accept(nlang::ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	SnExpression *m_pOperand;
+	SnNameExpr	*m_pTargetType;
+	SnField		*m_pResolvedTarget;
+	TypeCastKind m_CastKind;
+};
+
 //Binary/unary operator expression.
 //Reference: EN's OperatorExpr (SeExpressions.h:377).
 class NLANG_COMPILER_API SnBinaryExpr : public SnCompoundPlainExpr

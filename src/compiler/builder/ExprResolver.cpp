@@ -408,6 +408,63 @@ void ExprResolveAccessor::Access(SnCastExpr &sn)
 {
 }
 
+//Phase 8e-1.5: resolve `expr as T` runtime-checked cast.
+//Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox (Object→primitive),
+//TCK_Downcast (ancestor→subclass). Other kinds → compile error.
+void ExprResolveAccessor::Access(SnAsExpr &sn)
+{
+	assert(!sn.IsResolved());
+
+	//Resolve operand first (its EvalDataType is needed for cast computation).
+	sn.Operand()->Accept(*m_pVisitor);
+	if (!sn.Operand()->IsResolved())
+		return;
+
+	//Resolve target type name (its Field() will be the target SnField*).
+	sn.TargetType()->Accept(*m_pVisitor);
+	if (!sn.TargetType()->IsResolved())
+		return;
+
+	auto *pSrcType = sn.Operand()->EvalDataType();
+	auto *pTgtType = sn.TargetType()->Field();
+	if (!pSrcType || !pTgtType)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Cannot resolve types for `as` expression.");
+		return;
+	}
+
+	TypeCastInfo castInfo(pSrcType, pTgtType);
+	auto kind = castInfo.Kind();
+	if (kind == TCK_None)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Invalid cast: `%s as %s` is not allowed.",
+			pSrcType->ToString().c_str(),
+			pTgtType->ToString().c_str());
+		return;
+	}
+
+	//TCK_Auto (e.g. int→float) is not allowed via `as` — use primitive cast syntax.
+	//TCK_Dynamic similarly. Only TCK_Same/Box/Unbox/Downcast are valid.
+	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox && kind != TCK_Downcast)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"`as` cannot perform implicit conversion `%s` → `%s`.",
+			pSrcType->ToString().c_str(),
+			pTgtType->ToString().c_str());
+		return;
+	}
+
+	sn.SetResolved(pTgtType, kind);
+	//EvalDataType must be the target type itself (SnInt32 for `as int`,
+	//SnClassDecl for `as Foo`). Calling pTgtType->EvalDataType() would
+	//yield SnType::Instance() (the type-of-type) since type-name fields
+	//like SnInt32 are SnBuiltinDataType whose EvalDataType() is SnType,
+	//and downstream cast checks would fail with TCK_None.
+	sn.EvalDataType(pTgtType);
+}
+
 void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 {
 	assert(!sn.IsResolved());

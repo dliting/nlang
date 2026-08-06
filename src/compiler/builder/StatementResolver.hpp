@@ -476,6 +476,11 @@ public:
 		//declarations; nothing to do at statement level.
 	}
 
+	//Note: SnAsExpr intentionally has NO Access() override here — it falls
+	//through to Access(SnExpression&) which delegates to ExprResolver,
+	//which calls ExprResolveAccessor.Access(SnAsExpr&). Providing an empty
+	//stub would shadow the catch-all and skip resolution entirely.
+
 	void Access(SnInterfaceDecl &sn)
 	{
 		//Interface method signatures are resolved like class methods but

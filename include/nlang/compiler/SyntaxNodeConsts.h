@@ -22,6 +22,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(ArrayTypeExpr)			/* array type expression T[] */		\
 	MACRO_IMPL(MemberExpr)				/* member access expression  */		\
 	MACRO_IMPL(CastExpr)				/* type cast expression  */			\
+	MACRO_IMPL(AsExpr)					/* `expr as T` (Phase 8e-1.5) */		\
 	MACRO_IMPL(BinaryExpr)				/* binary/unary operator expression */\
 	MACRO_IMPL(EnumDecl)				/* enum type declaration */			\
 	MACRO_IMPL(EnumMember)				/* enum member constant */			\

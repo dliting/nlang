@@ -839,6 +839,72 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
+    //Phase 8e-1.5: `expr as T` runtime-checked cast.
+    //Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
+    //(Object→primitive), TCK_Downcast (ancestor→subclass).
+    if (kind == NK_AsExpr) {
+        auto& asExpr = static_cast<SnAsExpr&>(expr);
+        //Evaluate operand to resultOffset. After this, pResult holds the
+        //value (heap idx for ref types) per EmitExpression convention.
+        EmitExpression(*asExpr.Operand(), emitter, resultOffset);
+
+        auto kind = asExpr.CastKind();
+        if (kind == TCK_Same) {
+            //Already the right type — no opcode needed.
+            return;
+        }
+        if (kind == TCK_Box) {
+            //Symmetric to NK_CastExpr's TCK_Box path: emit OP_Box typeTag.
+            auto* sourceType = asExpr.Operand()->EvalDataType();
+            uint8_t typeTag = RTK_Int32;
+            if (sourceType) {
+                NodeKind srcKind = sourceType->Kind();
+                if (srcKind == NK_Float) typeTag = RTK_Float;
+                else if (srcKind == NK_String) typeTag = RTK_String;
+                else typeTag = RTK_Int32;
+            }
+            emitter.Emit(OpCode::OP_Box);
+            emitter.EmitByte(typeTag);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
+        if (kind == TCK_Unbox) {
+            //Target type is primitive — derive RTK_* from target.
+            auto* targetType = asExpr.ResolvedTarget();
+            uint8_t typeTag = RTK_Int32;
+            if (targetType) {
+                NodeKind tgtKind = targetType->Kind();
+                if (tgtKind == NK_Float) typeTag = RTK_Float;
+                else if (tgtKind == NK_String) typeTag = RTK_String;
+                else typeTag = RTK_Int32;
+            }
+            emitter.Emit(OpCode::OP_Unbox);
+            emitter.EmitByte(typeTag);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
+        if (kind == TCK_Downcast) {
+            //Target is a subclass — emit OP_CheckCast classIdx.
+            auto* targetType = asExpr.ResolvedTarget();
+            uint16_t classIdx = 0;
+            if (targetType) {
+                int idx = m_compiledModule.FindClass(targetType->Name());
+                classIdx = (idx >= 0)
+                    ? static_cast<uint16_t>(idx) : 0;
+            }
+            emitter.Emit(OpCode::OP_CheckCast);
+            emitter.EmitUint16(classIdx);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
+        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None) should have been
+        //rejected by ExprResolver.Access(SnAsExpr&). Defensive fallback.
+        return;
+    }
+
     // Member expression - struct field access or delegate to inner
     if (kind == NK_MemberExpr) {
         auto& member = static_cast<SnMemberExpr&>(expr);

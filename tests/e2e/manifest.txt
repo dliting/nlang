@@ -239,7 +239,6 @@ fs_object_roundtrip 42
 fs_object_polymorphism 4
 
 # --- Phase 8e-1: Object base + hashing/equality + implicit boxing ---
-# (explicit unbox/downcast deferred to 8e-1.5 — needs cast grammar)
 object_default_equals 1
 object_default_gethashcode 1
 object_inherited_by_subclass 1
@@ -247,3 +246,10 @@ object_gethashcode_override 1
 string_gethashcode 1
 string_equals 1
 box_primitive 0
+
+# --- Phase 8e-1.5: explicit unbox/downcast via `expr as T` ---
+unbox_primitive 5
+unbox_type_mismatch_throws 1
+class_downcast_valid 1
+class_downcast_invalid_throws 1
+object_equals_override 1

@@ -84,6 +84,11 @@ public:
 	{
 		//Array type expressions introduce no new fields to check.
 	}
+
+	void Access(SnAsExpr &)
+	{
+		//Phase 8e-1.5: `expr as T` introduces no fields to check.
+	}
 private:
 	template <class NAME_DICT_T>
 	void CheckFields(const NAME_DICT_T &nameMap)

@@ -1,0 +1,16 @@
+//Phase 8e-1.5: invalid class downcast throws at runtime.
+//Object o actually holds a Point; casting to Other is not in Point's
+//super-chain, so OP_CheckCast throws → process exits non-zero.
+class Point {
+    public int x;
+}
+class Other {
+    public int z;
+}
+
+int main() {
+    Point p = new Point();
+    Object o = p;
+    Other x = o as Other;  // throws: expected Other, got Point
+    return 0;
+}
