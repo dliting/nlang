@@ -2,10 +2,11 @@
 
 ## 项目背景
 
-NLang 是 EN 引擎编译器/VM 的独立重构项目。目标是将 EN 引擎中 `compiler_bak/`（编译器）和 `lang_bak/`（VM）的核心功能移植为独立、现代 C++ 的实现，脱离 EN 引擎框架。
+NLang 是一门独立的静态类型脚本语言，配有字节码编译器和虚拟机。语法和早期实现受 EN 引擎中 `compiler_bak/`（编译器）和 `lang_bak/`（VM）启发，但作为独立语言演进，不再以与 EN 集成为目标。
 
-EN 引擎位置：`E:/cases/en/src/common/compiler_bak/`（编译器）、`E:/cases/en/src/common/lang_bak/`（VM）
-EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
+历史参考：
+- EN 引擎位置：`E:/cases/en/src/common/compiler_bak/`、`E:/cases/en/src/common/lang_bak/`
+- EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
 
 ---
 
@@ -198,28 +199,18 @@ EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
 - 集合类型：Map/Dict
 - 包管理器：模块依赖管理
 
-### 阶段 12：EN 引擎集成
-
-- 将 nlang 编译器/VM 集成回 EN 引擎，替换原有的 ncomp
-- 对接 EN 的 NObject 系统
-- 对接 EN 的序列化/反序列化（Archive）
-- 对接 EN 的编辑器脚本绑定
-- 状态机支持：KT_State 已在语法中
-
 ---
 
 ## 实施优先级
 
 | 优先级 | 阶段 | 说明 |
 |--------|------|------|
-| P0 | 4. 数组 | 最常用数据结构 |
-| P1 | 7. 调试支持 | 开发体验关键，可与其他阶段并行 |
-| P1 | 6. 接口与多态 | 依赖类系统完成 |
-| P2 | 8. 序列化 | 对象持久化 |
-| P2 | 10. IDE 移植 | 开发效率，可并行推进 |
-| P3 | 9. 高级特性 | 按需实现 |
+| P0 | 8e-2/3/4. 集合（List/Dict） | 应用最频繁的数据结构；目前倾向于无泛型 + `as` 取值 |
+| P2 | 9. 高级特性 | 按需实现，含异常、字符串插值、增量赋值、for-each 等 |
+| P2 | 10. IDE 移植 / LSP | 开发效率；推荐 LSP 方案支持现代编辑器 |
 | P3 | 11. 标准库 | 逐步完善 |
-| P4 | 12. EN 集成 | 最终目标 |
+
+> 阶段 12（EN 引擎集成）已移除：NLang 作为独立语言演进，不再以与 EN 集成为目标。
 
 ## 当前状态
 
