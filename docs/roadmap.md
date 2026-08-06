@@ -88,11 +88,16 @@ EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
 - 基本类型隐式装箱：`Object o = 5;`、`Object f = 3.14;`、`Object s = "hi";`（新增 RTK_Boxed=6 槽位类型，GC MarkPhase 显式跳过）
 - 解析器承认 `Object` 为内建类型名（与 ByteStream/FileStream 并列）
 
-### 阶段 8e-1.5：显式拆箱 / 类向下转型（计划中）
-- 显式拆箱：`int x = (int)o;`（运行时类型检查，不匹配抛异常）
-- 类向下转型：`Point p = (Point)obj;`（运行时类型检查）
-- 因 LALR(1) 解析器对 `(T)expr` 文法二义性，延后到独立小阶段实现
-- 8e-1 的隐式装箱已经工作；显式拆箱/转型是后续必要的补充
+### 阶段 8e-1.5：显式拆箱 / 类向下转型 ✅
+- 显式拆箱：`int x = o as int;`（运行时类型检查，不匹配抛异常）
+- 类向下转型：`Point p = obj as Point;`（运行时类型检查）
+- **设计决策：** 使用 `as` 关键字而非 `(T)expr` 前缀，避免 LALR(1) 解析器与括号表达式冲突
+- 新增 AST 节点 SnAsExpr (NK_AsExpr)，新词法 token KT_As，新文法规则 `Expression KT_As NameExpr`
+- TypeCastInfo 扩展 TCK_Unbox 和 TCK_Downcast；新指令 OP_Unbox / OP_CheckCast
+- **关键修复：** CastInfo.cpp 中 TCK_Box 检查顺序提前到 null-literal TCK_Auto 规则之前（修复 `Object o = 5` 不触发装箱的潜在 bug）
+- **Object 特殊化：** AST 层 SnClassDecl::SuperClass() 链不含隐式 Object 父类（只有 CompiledClass.superClassIdx 含），CastInfo 必须按名称特判 `target=="Object"`（upcast→TCK_Same）和 `source=="Object"`（downcast→TCK_Downcast）
+- **null 保留：** OP_Box 对输入值 0（null 字面量）跳过堆分配，直接写回 0，保留 `Object o = null` 的 no-op 语义
+- 5 个新 e2e 测试，共 183 个测试全部通过
 
 ---
 
@@ -218,8 +223,8 @@ EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
 
 ## 当前状态
 
-- 阶段 0-8e-1 已完成，**178 个 e2e 测试全部通过**
-- 下一步：阶段 8e-1.5（显式拆箱/向下转型）→ 8e-2（泛型 `<T>`）→ 8e-3（`List<T>`）→ 8e-4（`Dict<K,V>`）
+- 阶段 0-8e-1.5 已完成，**183 个 e2e 测试全部通过**
+- 下一步：阶段 8e-2（泛型 `<T>`）→ 8e-3（`List<T>`）→ 8e-4（`Dict<K,V>`）
 
 ## 文档索引
 

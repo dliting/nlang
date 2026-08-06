@@ -203,13 +203,19 @@ frees them like any other unreachable slot.
 | OP_Ne_str   | lhs, rhs    | String inequality        |
 | OP_StrLen   | dst, src    | String length            |
 
-### Boxing (Phase 8e-1)
+### Boxing / Unbox / Downcast (Phase 8e-1 + 8e-1.5)
 
-| Opcode   | Operands              | Description                          |
-|----------|------------------------|--------------------------------------|
-| OP_Box   | dst, typeKind, src     | Box primitive as Object (RTK_Boxed) |
-| OP_Unbox | (reserved, 8e-1.5)     | Unbox Object to primitive            |
-| OP_CheckCast | (reserved, 8e-1.5) | Runtime class downcast check         |
+| Opcode       | Operands             | Description                                  |
+|--------------|------------------------|----------------------------------------------|
+| OP_Box       | typeKind (uint8)       | Box primitive (in pResult) as Object ref; allocates RTK_Boxed heap slot. Value 0 short-circuits (null preservation). |
+| OP_Unbox     | typeKind (uint8)       | Unwrap boxed primitive from pResult (heap idx). Verify RTK_Boxed tag matches; throw on mismatch. |
+| OP_CheckCast | classIdx (uint16)     | Verify pResult (heap idx) is classIdx or subclass (walk runtime super chain). Throw on mismatch. Push ref back unchanged. |
+
+OP_Box/OP_Unbox use the `pResult` register convention — read input from
+pResult, write output back to pResult. The implicit-cast emit path
+(FixupExprType) wraps primitives in SnCastExpr with TCK_Box; the explicit
+`expr as T` operator (Phase 8e-1.5) creates SnAsExpr whose codegen emits
+OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 
 ### Type Cast
 

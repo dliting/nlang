@@ -232,11 +232,50 @@ The runtime representation is a tagged slot of kind `RTK_Boxed` (slot[0] =
 type tag, slot[1] = value bits). Boxed slots hold no references and are
 explicitly skipped by GC MarkPhase.
 
-**Deferred to Phase 8e-1.5**: explicit unbox (`int x = (int)o;`) and class
-downcast (`Point p = (Point)obj;`). These require a cast grammar rule that
-conflicts with the LALR(1) parser's parenthesized-expression rule; they will
-land in a separate follow-up phase. Until then, primitive values can be
-stored in Object slots but cannot be retrieved back as primitives.
+**`null` literal boxing preservation**: the literal `0` (used for `null`)
+short-circuits OP_Box — no heap slot is allocated, and the value `0`
+remains as the Object slot's contents. This keeps `Object o = null` and
+`Object o = 0` as no-ops rather than wrapping 0 in a boxed-int heap ref.
+
+**Unbox and class downcast (`as` operator)** — Phase 8e-1.5:
+
+```
+Object o = 5;
+int x = o as int;          // explicit unbox — throws if boxed type ≠ int
+
+Object f = 3.14;
+int bad = f as int;        // throws: expected int, got float
+
+class Point { public int x; }
+Point p = new Point();
+Object obj = p;
+Point q = obj as Point;    // explicit class downcast — runtime-checked
+Other o = obj as Other;    // throws: expected Other, got Point
+```
+
+The `as` keyword was chosen over C-style `(T)expr` prefix cast because
+`(T)expr` introduces LALR(1) conflicts with parenthesized expressions
+(the parser cannot disambiguate `(foo) + bar` from `(foo + bar)`).
+Keyword operators like `as` have no such ambiguity. This matches the
+approach taken by C#, TypeScript, and Kotlin.
+
+Supported conversions via `as`:
+- `TCK_Same` — no-op (e.g. same primitive type or same class)
+- `TCK_Box` — primitive to Object (symmetric to the implicit-box path)
+- `TCK_Unbox` — Object to primitive (runtime tag check via OP_Unbox)
+- `TCK_Downcast` — Object to a subclass (runtime class check via
+  OP_CheckCast, walks the heap slot's super chain)
+
+Other conversions (e.g. `int as float`, `int as string`) are compile
+errors — use the existing primitive cast / `ToString()` paths.
+
+**Object upcast special-casing**: AST-level `SnClassDecl::SuperClass()`
+does not include the implicit Object parent (only VmBackend's
+`CompiledClass.superClassIdx` does). The cast checker special-cases
+`target == Object` (any class upcast is TCK_Same, no-op) and
+`source == Object` (any class downcast is TCK_Downcast) so that
+`Object o = somePoint;` and `o as Point` work without requiring
+Point's AST parent chain to mention Object.
 
 ## Expressions
 
@@ -294,6 +333,24 @@ int z = (int)y;
 
 Explicit casts between int and float. Implicit widening (int→float) is
 allowed in some contexts.
+
+### Runtime-checked Cast (`as`)
+
+```
+expr as TypeName
+```
+
+Runtime-checked conversions, supported in Phase 8e-1.5:
+
+- **Unbox**: `o as int` / `o as float` / `o as string` — unwrap a boxed
+  primitive. Throws if `o` is null or the boxed type tag doesn't match.
+- **Class downcast**: `o as SubClass` — verify the runtime class of `o`
+  is `SubClass` or a subclass thereof. Throws on mismatch.
+- **Identity / upcast**: `o as Object` — no-op (any class is already
+  Object). Allowed for symmetry.
+
+Type-incompatible casts (`5 as string`, `o as int` when `o` holds a
+class ref) are compile errors — `as` only permits same/box/unbox/downcast.
 
 ## Statements
 
