@@ -1,0 +1,17 @@
+//Phase 8e-1.5: unbox each primitive type tag.
+//Boxes 3.14 to Object, unboxes as float, reads back. Same for string.
+//Verifies OP_Unbox handles RTK_Float and RTK_String tags correctly.
+int main() {
+    Object f = 3.14;
+    float fv = f as float;
+    if (fv > 3.0) {
+        if (fv < 4.0) {
+            Object s = "hello";
+            string sv = s as string;
+            if (sv == "hello") {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}

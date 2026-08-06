@@ -253,3 +253,4 @@ unbox_type_mismatch_throws 1
 class_downcast_valid 1
 class_downcast_invalid_throws 1
 object_equals_override 1
+unbox_float_and_string 1

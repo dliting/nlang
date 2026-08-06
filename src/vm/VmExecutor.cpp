@@ -812,11 +812,14 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             uint8_t typeTag = reader.ReadByte();
             int32_t val;
             std::memcpy(&val, pResult, sizeof(val));
-            //null-sentinel preservation: a 0 value (from `null` literal or
-            //literal 0) is treated as null Object ref — no heap allocation,
-            //pResult stays 0. This makes `Object o = null` a no-op while
-            //still allowing `Object o = 5` to allocate a real boxed slot.
-            if (val == 0)
+            //null-sentinel preservation: null is the SnLiteralExpr with
+            //RnInt32 type and value 0. It only reaches OP_Box with
+            //typeTag==RTK_Int32. Skip heap allocation in that case so
+            //`Object o = null` stores 0 (the null heap-idx sentinel).
+            //For RTK_Float we never see null in practice but the check
+            //is harmless. For RTK_String a value of 0 is the *string-
+            //pool idx 0* (a legitimate string), NOT null — must allocate.
+            if (val == 0 && typeTag != RTK_String)
                 break;
             int32_t heapIdx;
             if (!m_freeList.empty()) {
@@ -866,7 +869,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                                       actualTag == RTK_String ? "string" :
                                       "unknown";
                 throw std::runtime_error(std::string(
-                    "NLang VM: invalid unbox — expected ") + expName +
+                    "NLang VM: invalid unbox - expected ") + expName +
                     ", got " + actName);
             }
             int32_t val = m_structHeap[static_cast<size_t>(heapIdx)][1];
@@ -916,7 +919,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 const auto& act = m_currModule->classes[
                     static_cast<size_t>(actualClassIdx)];
                 throw std::runtime_error(std::string(
-                    "NLang VM: invalid cast — expected `") + tgt.name +
+                    "NLang VM: invalid cast - expected `") + tgt.name +
                     "`, got `" + act.name + "`");
             }
             //Result: same heap idx, unchanged.
