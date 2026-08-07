@@ -1,0 +1,10 @@
+int main() {
+    Dict<int, int> d = new Dict<int, int>();
+    d.Set(1, 10);
+    d.Set(2, 20);
+    d.Set(3, 30);
+    d.Clear();
+    d.Set(4, 40);
+    d.Set(5, 50);
+    return d.Count();
+}

@@ -1,0 +1,12 @@
+int main() {
+    Dict<string, int> d = new Dict<string, int>();
+    d.Set("a", 1);
+    d.Set("b", 2);
+    d.Set("c", 3);
+    int sum = 0;
+    foreach (string k in d) {
+        int v = d.Get(k);
+        sum = sum + v;
+    }
+    return sum;
+}

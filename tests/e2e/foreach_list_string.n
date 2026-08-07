@@ -1,0 +1,11 @@
+int main() {
+    List<string> lst = new List<string>();
+    lst.Add("ab");
+    lst.Add("cde");
+    int total = 0;
+    foreach (string s in lst) {
+        int len = s.length();
+        total = total + len;
+    }
+    return total;
+}

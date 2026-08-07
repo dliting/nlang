@@ -1,0 +1,14 @@
+class Point {
+    public int x;
+}
+
+int main() {
+    List<Point> lst = new List<Point>();
+    Point p;
+    lst.Add(p);
+    Point q = lst.Get(0);
+    if (q == null) {
+        return 1;
+    }
+    return 0;
+}

@@ -1,0 +1,9 @@
+class Holder { public List<int> items; public int Holder() { this.items = new List<int>(); return 0; } }
+int main() {
+    Holder h = new Holder();
+    h.items.Add(10);
+    h.items.Add(20);
+    h.items.Add(30);
+    int sum = h.items.Get(0) + h.items.Get(1) + h.items.Get(2);
+    return sum;
+}

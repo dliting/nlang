@@ -1459,10 +1459,237 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
-    //Phase 8e-6: collection initializer `[...]` / `{...}` / `new T{...}`.
-    //Stub — real codegen lands in Phase C/D.
+    //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
+    //Dispatches on resolved EvalDataType:
+    //  - Array (target->IsArrayType()): OP_AllocArray + per-element OP_StoreElement
+    //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "Add" with boxing
+    //  - Dict/Struct/Class: handled in Phase D (falls through to assert for now).
     if (kind == NK_InitListExpr) {
-        assert(false && "NK_InitListExpr codegen not yet implemented (Phase C/D)");
+        auto& initList = static_cast<SnInitListExpr&>(expr);
+        SnField* pTarget = initList.EvalDataType();
+        if (!pTarget) {
+            emitter.Emit(OpCode::OP_ConstZero);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
+
+        //---- Array form: target is T[] ----
+        //For `int[] arr = [..]`, the resolver set TargetIsArray=true and
+        //stored the element type field in EvalDataType (since NLang has no
+        //standalone array-type object — array-ness is a flag on variables).
+        if (initList.TargetIsArray()) {
+            SnField* pElemField = pTarget;
+            uint16_t arrayTypeIdx = RegisterArrayType(pElemField);
+            int32_t n = static_cast<int32_t>(initList.Entries().size());
+
+            //Alloc array with size = n.
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(n);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(m_currFunc->tempSlot);
+            emitter.Emit(OpCode::OP_AllocArray);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(arrayTypeIdx);
+            emitter.EmitUint16(m_currFunc->tempSlot);
+
+            //Pick value slot distinct from resultOffset (handles nesting).
+            uint16_t valueSlot = PickTempSlot(resultOffset);
+            //Store each entry: arr[i] = entries[i].pValue.
+            for (int32_t i = 0; i < n; ++i) {
+                auto& entry = initList.Entries()[i];
+                if (!entry.pValue) continue;
+                EmitExpression(*entry.pValue, emitter, valueSlot);
+                //Index constant to callParamBase (avoids tempSlot/valueSlot).
+                emitter.Emit(OpCode::OP_ConstInt32);
+                emitter.EmitInt32(i);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                emitter.Emit(OpCode::OP_StoreElement);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                emitter.EmitUint16(valueSlot);
+            }
+            return;
+        }
+
+        //---- List<T> form ----
+        //pTarget is the resolved SnClassDecl for List<T> (generic
+        //instantiation). Erasure: runtime class name is "List".
+        if (pTarget->Kind() == NK_ClassDecl) {
+            auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
+            const std::string& baseName = pClassDecl->BaseName();
+            if (baseName == "List") {
+                int classIdx = m_compiledModule.FindClass("List");
+                if (classIdx < 0) {
+                    emitter.Emit(OpCode::OP_ConstZero);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    return;
+                }
+                //Allocate List instance.
+                emitter.Emit(OpCode::OP_New);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(static_cast<uint16_t>(classIdx));
+                //Call no-arg ctor if present.
+                uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
+                if (ctorIdx != 0xFFFF) {
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_CallMethodDirect);
+                    emitter.EmitUint16(ctorIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                }
+                //Boxing plan for primitive T.
+                const auto& typeArgs = pClassDecl->GenericTypeArgs();
+                auto t = BoxingTagFor(
+                    typeArgs.empty() ? nullptr : typeArgs[0]);
+                uint16_t addNameIdx = AddStringConstant("Add");
+                uint16_t paramOffset = m_currFunc->callParamBase + 1 * VALUE_SIZE;
+                //For each entry, evaluate value to paramOffset, box if needed,
+                //set this, call Add.
+                for (auto& entry : initList.Entries()) {
+                    if (!entry.pValue) continue;
+                    EmitExpression(*entry.pValue, emitter, paramOffset);
+                    if (t.isPrimitive) {
+                        emitter.Emit(OpCode::OP_Box);
+                        emitter.EmitByte(t.tag);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(paramOffset);
+                    }
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_CallMethod);
+                    emitter.EmitUint16(addNameIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                }
+                return;
+            }
+            if (baseName == "Dict") {
+                //---- Dict<K,V> form ----
+                int classIdx = m_compiledModule.FindClass("Dict");
+                if (classIdx < 0) {
+                    emitter.Emit(OpCode::OP_ConstZero);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    return;
+                }
+                emitter.Emit(OpCode::OP_New);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(static_cast<uint16_t>(classIdx));
+                uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
+                if (ctorIdx != 0xFFFF) {
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_CallMethodDirect);
+                    emitter.EmitUint16(ctorIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                }
+                const auto& typeArgs = pClassDecl->GenericTypeArgs();
+                auto kBox = BoxingTagFor(
+                    typeArgs.empty() ? nullptr : typeArgs[0]);
+                auto vBox = (typeArgs.size() > 1)
+                    ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
+                uint16_t setNameIdx = AddStringConstant("Set");
+                uint16_t keyOff = m_currFunc->callParamBase + 1 * VALUE_SIZE;
+                uint16_t valOff = m_currFunc->callParamBase + 2 * VALUE_SIZE;
+                for (auto& entry : initList.Entries()) {
+                    if (!entry.pValue) continue;
+                    //Key: dict requires String key form. Identifier keys are
+                    //accepted for struct init only — for dict they would be
+                    //a resolver error. Value-only entries are also invalid.
+                    if (entry.keyKind == InitEntry::KeyKind::String
+                        || entry.keyKind == InitEntry::KeyKind::Identifier) {
+                        uint16_t keyPoolIdx = AddStringConstant(entry.keyStr);
+                        emitter.Emit(OpCode::OP_ConstString);
+                        emitter.EmitUint16(keyPoolIdx);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(keyOff);
+                    } else {
+                        continue;
+                    }
+                    if (kBox.isPrimitive) {
+                        emitter.Emit(OpCode::OP_Box);
+                        emitter.EmitByte(kBox.tag);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(keyOff);
+                    }
+                    //Value
+                    EmitExpression(*entry.pValue, emitter, valOff);
+                    if (vBox.isPrimitive) {
+                        emitter.Emit(OpCode::OP_Box);
+                        emitter.EmitByte(vBox.tag);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(valOff);
+                    }
+                    //this = resultOffset
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_CallMethod);
+                    emitter.EmitUint16(setNameIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                }
+                return;
+            }
+            //---- User class init form: new ClassName{field1:v1, ...} ----
+            //Allocate via OP_New, then per-field OP_StoreField. No-arg ctor
+            //is invoked if present.
+            {
+                const std::string& className = pClassDecl->BaseName().empty()
+                    ? pClassDecl->Name() : pClassDecl->BaseName();
+                int classIdx = m_compiledModule.FindClass(className);
+                if (classIdx < 0) {
+                    emitter.Emit(OpCode::OP_ConstZero);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    return;
+                }
+                emitter.Emit(OpCode::OP_New);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(static_cast<uint16_t>(classIdx));
+                uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
+                if (ctorIdx != 0xFFFF) {
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_CallMethodDirect);
+                    emitter.EmitUint16(ctorIdx);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                }
+                //Per-field store.
+                uint16_t valueSlot = PickTempSlot(resultOffset);
+                for (auto& entry : initList.Entries()) {
+                    if (entry.keyKind != InitEntry::KeyKind::Identifier)
+                        continue;
+                    if (!entry.pValue) continue;
+                    int off = FindClassFieldOffset(*pClassDecl, entry.keyStr);
+                    if (off < 0) continue;
+                    EmitExpression(*entry.pValue, emitter, valueSlot);
+                    emitter.Emit(OpCode::OP_StoreField);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(static_cast<uint16_t>(off));
+                    emitter.EmitUint16(valueSlot);
+                }
+                return;
+            }
+        }
+
+        //Struct target — Phase D future work (no struct-init syntax in tests).
+        assert(false && "NK_InitListExpr: struct codegen lands in Phase D future");
         return;
     }
 

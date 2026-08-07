@@ -1,0 +1,5 @@
+int main() {
+    List<int> lst = new List<int>();
+    lst.RemoveAt(0);
+    return 0;
+}

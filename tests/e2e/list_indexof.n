@@ -1,0 +1,7 @@
+int main() {
+    List<int> lst = new List<int>();
+    lst.Add(10);
+    lst.Add(20);
+    lst.Add(30);
+    return lst.IndexOf(20);
+}

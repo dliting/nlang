@@ -1,0 +1,11 @@
+class Point { public int x; public int y; public int Point(int ax, int ay) { this.x = ax; this.y = ay; return 0; } }
+int main() {
+    Dict<Point, int> d = new Dict<Point, int>();
+    d.Set(new Point(1, 0), 100);
+    d.Set(new Point(2, 0), 200);
+    int count = 0;
+    foreach (Point k in d) {
+        count = count + 1;
+    }
+    return count;
+}

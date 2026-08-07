@@ -152,7 +152,40 @@ public:
 			return;
 		assert(m_pVisitor);
 		sn.Left()->Accept(*m_pVisitor);
+
+		//Phase 8e-6: propagate LHS type to bare init list RHS before
+		//resolving, so the init list knows its target type. Only needed
+		//for the bare `[...]` form (ExplicitType is null).
+		//We pass the LHS variable itself (not its EvalDataType) because
+		//for array variables, EvalDataType returns the element type and
+		//loses the array-ness flag — codegen needs IsArrayType() on the
+		//variable to detect the array case.
+		if (sn.Right()->Kind() == NK_InitListExpr)
+		{
+			auto& initList = static_cast<SnInitListExpr&>(*sn.Right());
+			if (!initList.ExplicitType() && !initList.InferredTarget())
+			{
+				SnField* pLeftField = nullptr;
+				if (sn.Left()->Kind() == NK_IdentifierExpr)
+				{
+					pLeftField = static_cast<SnIdentifierExpr&>(
+						*sn.Left()).Field();
+				}
+				if (pLeftField)
+					initList.InferredTarget(pLeftField);
+			}
+		}
+
 		sn.Right()->Accept(*m_pVisitor);
+
+		//Init lists set their own EvalDataType and don't go through the
+		//cast-info path — skip cast fixup for them.
+		if (sn.Right()->Kind() == NK_InitListExpr)
+		{
+			if (sn.Right()->IsResolved())
+				sn.AddFlags(NF_Resolved);
+			return;
+		}
 
 		SnField* pTargetType = nullptr;
 		if (sn.Left()->Kind() == NK_IdentifierExpr)

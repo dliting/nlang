@@ -1,0 +1,7 @@
+int main() {
+    Dict<int, int> d = new Dict<int, int>();
+    d.Set(7, 1);
+    d.Set(7, 99);
+    if (d.Count() != 1) return 0;
+    return d.Get(7);
+}

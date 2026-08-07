@@ -1,0 +1,7 @@
+int main() {
+    Dict<int, int> d = new Dict<int, int>();
+    d.Set(1, 10);
+    d.Set(2, 20);
+    d.Set(3, 30);
+    return d.Get(3);
+}

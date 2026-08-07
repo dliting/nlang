@@ -821,6 +821,62 @@ void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
 	sn.AddFlags(NF_Resolved);
 }
 
+//Phase 8e-6: Collection initializer resolver.
+//Two paths:
+//- Explicit form `new Type{...}`: ExplicitType() carries the type
+//  expression. Resolve it like a normal type, set EvalDataType to its
+//  resolved Field.
+//- Bare form `[...]`: ExplicitType() is null. The parent AssignStmt
+//  resolver must have populated InferredTarget() from the LHS variable's
+//  type. Use that directly as EvalDataType.
+//Entry values are resolved last via direct Accept (children inherit
+//no expected type for now — they resolve via their normal paths).
+void ExprResolveAccessor::Access(SnInitListExpr &sn)
+{
+	assert(!sn.IsResolved());
+
+	SnField *pTargetField = nullptr;
+	bool bIsArray = false;
+
+	if (auto *pExplicit = sn.ExplicitType())
+	{
+		//Resolve the explicit type expression (NameExpr/GenericTypeExpr).
+		pExplicit->Accept(*m_pVisitor);
+		if (!pExplicit->IsResolved())
+			return;
+		pTargetField = pExplicit->Field();
+		bIsArray = pExplicit->IsArrayType();
+	}
+	else if (auto *pInferred = sn.InferredTarget())
+	{
+		//Bare form: parent populated the LHS variable.
+		//For array variables (int[] arr), IsArrayType()==true but
+		//EvalDataType() returns the element type — preserve both signals.
+		bIsArray = pInferred->IsArrayType();
+		pTargetField = pInferred->EvalDataType();
+	}
+
+	if (!pTargetField)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Collection initializer requires an explicit type or an LHS "
+			"context to infer the target type.");
+		return;
+	}
+
+	sn.EvalDataType(pTargetField);
+	sn.TargetIsArray(bIsArray);
+	sn.AddFlags(NF_Resolved);
+
+	//Resolve each entry value. Keys (for {...} form) are not expressions
+	//and need no resolution.
+	for (auto &entry : sn.Entries())
+	{
+		if (entry.pValue)
+			entry.pValue->Accept(*m_pVisitor);
+	}
+}
+
 void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 {
 	assert(!sn.IsResolved());

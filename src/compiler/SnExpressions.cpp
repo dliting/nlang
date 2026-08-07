@@ -624,7 +624,7 @@ SnInitListExpr::SnInitListExpr(SnFieldExpr *pExplicitType,
 	m_pExplicitType(pExplicitType),
 	m_entries(std::move(entries)),
 	m_isArrayForm(isArrayForm),
-	m_pResolvedTargetType(nullptr)
+	m_pInferredTarget(nullptr)
 {
 	if (m_pExplicitType)
 		AddChild(m_pExplicitType);

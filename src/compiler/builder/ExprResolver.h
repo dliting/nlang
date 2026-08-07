@@ -69,6 +69,10 @@ public:
 	//Resolve new array expression.
 	void Access(SnNewArrayExpr &);
 
+	//Phase 8e-6: resolve collection initializer (bare [..] or new T{..}).
+	//For bare form, uses InferredTarget set by AssignStmt resolver.
+	void Access(SnInitListExpr &);
+
 	//Resolve subscript expression.
 	void Access(SnSubscriptExpr &);
 

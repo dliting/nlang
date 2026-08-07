@@ -719,10 +719,9 @@ private:
 };
 
 //Phase 8e-6: Collection initializer literal.
-//  - Bare array/list form:  [e1, e2, ...]
-//  - Bare dict/struct form:  {"k": v, ...}  (string keys → dict)
-//                            {f: v, ...}    (identifier keys → struct/class)
-//  - Explicit form:          new Type { ... }   (Type optional → bare form)
+//  - Bare array/list form:    [e1, e2, ...]            (LHS-inferred)
+//  - Explicit dict/struct:    new Type{ k: v, ... }     (Type mandatory)
+//Bare `{...}` form was dropped (LALR(1) conflict with Paragraph block).
 //Resolver dispatches on resolved target type. Codegen lowers via
 //existing alloc/new/method-call/field-store opcodes (no new opcode).
 class NLANG_COMPILER_API SnInitListExpr : public SnCompoundPlainExpr
@@ -746,9 +745,19 @@ public:
 	const std::vector<InitEntry> &Entries() const { return m_entries; }
 	bool IsArrayForm() const { return m_isArrayForm; }
 
-	//Resolved target type (set by ExprResolver). Nullptr until resolved.
-	SnFieldExpr *ResolvedTargetType() const { return m_pResolvedTargetType; }
-	void ResolvedTargetType(SnFieldExpr *pT) { m_pResolvedTargetType = pT; }
+	//For the bare `[...]` form, the parent context (AssignStmt resolver)
+	//sets the inferred target field from the LHS before this node resolves.
+	//Nullptr until the parent populates it. The resolver uses this only
+	//when ExplicitType is null.
+	SnField *InferredTarget() const { return m_pInferredTarget; }
+	void InferredTarget(SnField *pT) { m_pInferredTarget = pT; }
+
+	//Set by resolver when the target (explicit or inferred) is an array
+	//type. NLang represents `int[]` as a variable with element-type field
+	//and IsArrayType()==true; there is no standalone "array of T" type
+	//object. This flag preserves array-ness through to codegen.
+	bool TargetIsArray() const { return m_bTargetIsArray; }
+	void TargetIsArray(bool b) { m_bTargetIsArray = b; }
 
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
@@ -757,7 +766,8 @@ private:
 	SnFieldExpr                 *m_pExplicitType;        //nullptr for bare form
 	std::vector<InitEntry>       m_entries;              //empty allowed
 	bool                         m_isArrayForm;
-	SnFieldExpr                 *m_pResolvedTargetType = nullptr;  //resolver-set
+	SnField                     *m_pInferredTarget = nullptr;  //parent-set, bare form
+	bool                         m_bTargetIsArray = false;     //resolver-set
 };
 
 } //namespace nlang

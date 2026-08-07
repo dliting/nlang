@@ -1017,6 +1017,16 @@ InitEntry:	TT_String ':' Expression {
 						pE->keyStr = *$1;
 						pE->pValue = $3;
 						$$ = pE;
+					} |
+					//Value-only entry for `new List<T>{v1, v2, ...}` form.
+					//Resolver dispatches on target type: List → values, struct
+					//→ fields in declaration order, dict → error (dict requires
+					//string keys).
+					Expression {
+						auto* pE = new nlang::InitEntry();
+						pE->keyKind = nlang::InitEntry::KeyKind::None;
+						pE->pValue = $1;
+						$$ = pE;
 					} ;
 
 ConcreteParamList:	ConcreteParamList ',' Expression {

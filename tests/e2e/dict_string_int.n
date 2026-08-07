@@ -1,0 +1,6 @@
+int main() {
+    Dict<string, int> d = new Dict<string, int>();
+    d.Set("alpha", 11);
+    d.Set("beta",  31);
+    return d.Get("beta");
+}

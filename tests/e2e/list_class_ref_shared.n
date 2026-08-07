@@ -1,0 +1,8 @@
+class Point { public int x; public int Point(int v) { this.x = v; return 0; } }
+
+int main() {
+    List<Point> a = new List<Point>();
+    List<Point> b = a;
+    b.Add(new Point(99));
+    return a.Get(0).x;
+}

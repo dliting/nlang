@@ -1,0 +1,44 @@
+int main() {
+    //Outer list controls how many times we descend into an inner foreach.
+    //Each inner foreach counts its elements (3 each). Total = 9.
+    //(Outer values must be non-zero — literal 0 collides with the null
+    //heap-idx sentinel in OP_Box, a pre-existing List<int> limitation
+    //unrelated to foreach.)
+    List<int> outer = new List<int>();
+    outer.Add(11);
+    outer.Add(22);
+    outer.Add(33);
+
+    List<int> row0 = new List<int>();
+    row0.Add(10);
+    row0.Add(20);
+    row0.Add(30);
+    List<int> row1 = new List<int>();
+    row1.Add(40);
+    row1.Add(50);
+    row1.Add(60);
+    List<int> row2 = new List<int>();
+    row2.Add(70);
+    row2.Add(80);
+    row2.Add(90);
+
+    int count = 0;
+    int idx = 0;
+    foreach (int n in outer) {
+        if (idx == 0) {
+            foreach (int v in row0) {
+                count = count + 1;
+            }
+        } else if (idx == 1) {
+            foreach (int v in row1) {
+                count = count + 1;
+            }
+        } else {
+            foreach (int v in row2) {
+                count = count + 1;
+            }
+        }
+        idx = idx + 1;
+    }
+    return count;
+}
