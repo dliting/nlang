@@ -272,6 +272,48 @@ public:
 			sn.Fini()->Accept(*m_pVisitor);
 	}
 
+	//Phase 8e-5: foreach statement resolver.
+	//Resolves iterable + var type, registers the loop var in the enclosing
+	//Paragraph scope (function-scoped, same as for-loop). Element type and
+	//3-way dispatch (Array / List / Dict) is determined later in codegen via
+	//EvalDataType; the resolver does not need to compute it.
+	void Access(SnForeachStmt &sn)
+	{
+		assert(m_pVisitor);
+
+		//Find enclosing Paragraph for loop-var registration (mirror for-loop).
+		auto pParent = sn.Parent();
+		SnParagraph *pParagraph = nullptr;
+		while (pParent) {
+			if (pParent->Kind() == NK_Paragraph) {
+				pParagraph = static_cast<SnParagraph *>(pParent);
+				break;
+			}
+			pParent = pParent->Parent();
+		}
+
+		//1. Resolve iterable (EvalDataType gets populated for codegen to use).
+		sn.Iterable()->Accept(*m_pVisitor);
+
+		//2. Resolve declared var type.
+		sn.VarType()->Accept(*m_pVisitor);
+		SnField *pVarField = nullptr;
+		if (sn.VarType()->IsResolved())
+			pVarField = sn.VarType()->Field();
+
+		//3. Register loop var in paragraph scope (function-scoped).
+		if (pVarField && pParagraph) {
+			auto *pLocal = new SnLocalVar(sn.VarName(), pVarField,
+				*sn.Location());
+			if (sn.VarType()->IsArrayType())
+				pLocal->SetArrayType(true);
+			pParagraph->AddLocal(sn.VarName(), pLocal);
+		}
+
+		//4. Descend into body.
+		sn.Body()->Accept(*m_pVisitor);
+	}
+
 	void Access(SnBreakStmt &sn)
 	{
 	}

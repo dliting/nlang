@@ -47,6 +47,11 @@ private:
     uint16_t RegisterArrayType(SnField* pElemType);
 
     static uint8_t RuntimeTypeKind(SnField* pType);
+    //Phase 8e-4: RTK_* tag for boxing a primitive-T argument, plus an
+    //isPrimitive flag (needed because RTK_Int32 == 0 — same collision as
+    //the Phase 8e-3 C1 fix). Shared by List<T> and Dict<K,V> codegen.
+    struct BoxingTagResult { uint8_t tag; bool isPrimitive; };
+    static BoxingTagResult BoxingTagFor(SnField* pT);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
     uint16_t FindLocal(const std::string& name) const;
@@ -65,6 +70,8 @@ private:
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
     std::vector<std::vector<std::string>> m_structFieldTypeNames;
     int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
+    int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)
+    int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)
 
     //Per-loop code generation context.
     //Reference: EN's Compiler::NestBreaks/NestContinues (Compiler.h:108-111).
@@ -92,6 +99,10 @@ private:
         uint16_t tempSlot4 = 0;      //temp pool slot 3
         uint16_t returnSlot = 0;     //slot for function return value
         uint16_t callParamBase = 0;  //base of 8-slot area for call arguments
+        //Phase 8e-5: per-function counter for foreach hidden-local uniquification.
+        //AllocLocal dedupes by name (VmBackend.cpp:2194); without uniquification,
+        //nested foreach loops would collide on __foreach_iter / __foreach_i / __foreach_n.
+        uint16_t foreachCounter = 0;
     };
     FuncContext* m_currFunc = nullptr;
 };

@@ -100,6 +100,55 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - **null 保留：** OP_Box 对输入值 0（null 字面量）跳过堆分配，直接写回 0，保留 `Object o = null` 的 no-op 语义
 - 6 个新 e2e 测试（含 unbox_float_and_string），共 184 个测试全部通过
 
+### 阶段 8e-3：内置泛型 `List<T>` ✅
+- 擦除式泛型（Java 模型）：T 仅编译期，运行时统一 Object 存储
+- 仅内置（无用户定义 `class Foo<T>`），通过 ExprResolver 名称识别 "List"
+- 文法扩展：Type 规则新增 `NameExpr '<' TypeList '>'`，构造识别 `new List<int>()`，`as` 接受 Type
+- 新 AST 节点 SnGenericTypeExpr，持有 base NameExpr + 类型参数列表
+- 每个 (baseName, typeArgs) 元组合成独立的 SnClassDecl，缓存避免重复（保持指针一致性不变量）
+- 双签名模型：合成 SnClassDecl 携带代入后的类型检查签名；运行时调用擦除签名（原始类型参数退 Object）
+- 9 个新内建（INTR_List_Ctor/Add/Get/Set/Length/RemoveAt/IndexOf/Contains/Clear）
+- 运行时存储：m_listStore + m_listFreeList；List 实例通过 `__handle` 隐藏字段关联到 ListSlot
+- 所有元素统一为堆 idx（原始类型在调用点 OP_Box 装箱）；GC MarkPhase 显式追踪 List 实例的元素，SweepPhase 回收 handle
+- NewExpr codegen 修复槽位别名问题：构造参数先求值，然后在 callParamBase 之后分配 OP_New 结果槽，再复制到 resultOffset（避免参数槽覆盖）
+- List 方法分派直接设置 m_pField（避免 ResolveFieldExprAs 用 SnType 覆盖 EvalDataType，破坏链式调用类型推导）
+- 10 个新 e2e 测试（list_int_basic 到 list_as_field），共 194 个测试全部通过
+
+### 阶段 8e-3 fix-up：List<T> 代码审查修复 ✅
+- C1（严重）：boxing codegen 因 RTK_Int32==0 哨兵冲突从未 emit OP_Box；用 `bool needsBoxing` 标志修复
+- C2（严重）：IndexOf/Contains 直接比较堆 idx；改为按 m_slotKinds 分支——RTK_Boxed 比较值位，RTK_Class 比较 idx
+- H1：4 个 List 内建静默 no-op null-this；统一改为 throw（ReadListHandle 辅助函数）
+- M1：增加 thisHeapIdx 上界检查（"stale reference" 防止悬挂引用 UB）
+- GC UB：原元素为原始 int 时 m_slotKinds[elem] OOB；C1 修复后元素全部装箱，GC 安全
+- S4/S6/S8 清理：删死代码 TraceList、提取 kListHandleFieldOffset/kBoxedValueSlot 常量、用 SnClassDecl::BaseName() 替代字符串 find('<') 手术
+- 10 个新边界测试（list_empty_length 到 list_null_class_element），共 204 个测试全部通过
+
+### 阶段 8e-4：内置泛型 `Dict<K,V>` ✅
+- 复用 8e-3 擦除式泛型基础设施（合成 SnClassDecl 缓存、双签名、m_bIsGenericInst 标志、旁路存储表）
+- ExprResolver 通用化：IsBuiltinGenericClassName 接受 "Dict"；GetGenericClassDecl 按 baseName 分派 arity（Dict=2，List=1）；显示名按 arity 逗号拼接
+- 文法已支持 arity-N（TypeList 递归），AST SnGenericTypeExpr 持 vector — 无需修改
+- 7 个新内建（INTR_Dict_Ctor/Set/Get/ContainsKey/Remove/Clear/Count）
+- 运行时存储：m_dictStore + m_dictFreeList；Dict 实例通过 __handle 关联到 DictSlot{vector<pair<K,V>>}
+- **线性扫描** lookup（O(n)），kind 感知的 DictKeysEqual 辅助函数（RTK_Class 比较 idx；RTK_Boxed 按内部 tag 分支：int/float 比较值位，string 比较 pool 内容）；hashtable 优化推迟到未来阶段
+- codegen 重构：boxing 由 List 专用代码改为 per-method plan（argPlans map + returnsBoxed/returnTag），共享 BoxingTagFor 辅助函数（返回 {tag, isPrimitive}，避免 RTK_Int32==0 哨兵冲突）
+- GC MarkPhase/SweepPhase 增加 Dict 分支，追踪每个 entry 的 K 和 V 堆 idx
+- 10 个新 e2e 测试（dict_int_int_basic 到 dict_get_missing_throws），共 214 个测试全部通过
+
+### 阶段 8e-5：`foreach` 语句 ✅
+- 文法：新增 `KT_Foreach` / `KT_In` 关键字；`ForeachStmt: KT_Foreach '(' Type TT_Identifier KT_In Expression ')' Statement`，无 LALR 冲突（`KT_Foreach '('` 是唯一前缀）
+- AST：`SnForeachStmt` 节点（VarType / VarName / Iterable / Body），X-macro 自动生成 `NK_ForeachStmt`
+- **索引式展开**，不引入新 opcode。复用现有 `OP_ArrayLength`/`OP_LoadElement`（Array）、`OP_CallMethod "Length"`/`"Get"`（List/Dict-after-Keys）、`OP_Less_i32`/`OP_Add_i32`/`OP_JumpIfNot`/`OP_Jump`（循环）、`OP_Box`/`OP_Unbox`（per-method boxing plan）
+- **三路 codegen 分派**（在 codegen 阶段，不在 resolver）：保留用户可见 AST，避免 diagnostics/source-mapping 异常
+  - **Array** `T[N]`：iterSlot 类型 `RTK_Array`，长度 `OP_ArrayLength`，元素 `OP_LoadElement`（struct 元素加 `OP_CopyStruct`）
+  - **List<T>**：iterSlot 类型 `RTK_Class`，长度 `OP_CallMethod "Length"`，元素 `OP_CallMethod "Get"` 后按 T 是否原始类型决定 `OP_Unbox`
+  - **Dict<K,V>**：iterSlot 类型 `RTK_Class`，**inline `Keys()` 调用**（codegen 阶段，不修改 AST）物化 `List<K>` 到 iterSlot，之后与 List 路径完全相同（元素类型 = K）
+- **隐藏局部变量 uniquification**：`AllocLocal` 按名 dedup，嵌套 foreach 会冲突；用 `FuncContext::foreachCounter`（每次函数入口重置）给 `__foreach_iter_<N>` / `__foreach_i_<N>` / `__foreach_n_<N>` 加后缀
+- **`typeKind` 正确性**：iterSlot 的 `LocalDescriptor.typeKind` 必须匹配 iterable 类型（RTK_Array vs RTK_Class），否则 GC root tracing 会出错
+- **`Dict.Keys()` 内建方法**（`INTR_Dict_Keys = 60`）：返回全新 `List<K>` 堆实例，从 `dict.entries[i].first` 复制 keys。对 foreach 有用，独立使用也有用（key snapshot、set-style 成员检查）。返回的 List 是**拷贝**——后续 `Set`/`Remove` 不影响已返回的 List
+- **`LoopContext` 复用**：`break`/`continue` 跨所有循环形式（for/while/do/foreach）走同一份逻辑，无需 foreach 专用代码
+- 12 个新 e2e 测试（foreach_array_int 到 foreach_dict_keys_class），共 226 个测试全部通过
+- **已知限制**：`List<int>` 包含字面值 0 的元素会触发 `OP_Box` 的 null-sentinel 优化路径，导致 unbox 时报 `unbox on null/invalid reference`。这是 boxing 设计遗留问题，不是 foreach bug；待未来重新设计 null-sentinel 时统一修复
+
 ---
 
 
@@ -205,8 +254,8 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 | 优先级 | 阶段 | 说明 |
 |--------|------|------|
-| P0 | 8e-2/3/4. 集合（List/Dict） | 应用最频繁的数据结构；目前倾向于无泛型 + `as` 取值 |
-| P2 | 9. 高级特性 | 按需实现，含异常、字符串插值、增量赋值、for-each 等 |
+| P1 | 集合初始化器 `[1,2,3]` / `{{"k",v}}` | foreach 已完成，集合字面量是 P1 剩余项 |
+| P2 | 9. 高级特性 | 按需实现，含异常、字符串插值、增量赋值等 |
 | P2 | 10. IDE 移植 / LSP | 开发效率；推荐 LSP 方案支持现代编辑器 |
 | P3 | 11. 标准库 | 逐步完善 |
 
@@ -214,8 +263,8 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-1.5 已完成，**184 个 e2e 测试全部通过**
-- 下一步：阶段 8e-2（泛型 `<T>`）→ 8e-3（`List<T>`）→ 8e-4（`Dict<K,V>`）
+- 阶段 0-8e-5 已完成，**226 个 e2e 测试全部通过**
+- 下一步：集合初始化器 `[1,2,3]` / `{{"k",v}}` → P2 高级特性
 
 ## 文档索引
 

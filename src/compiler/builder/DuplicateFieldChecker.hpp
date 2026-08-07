@@ -89,6 +89,11 @@ public:
 	{
 		//Phase 8e-1.5: `expr as T` introduces no fields to check.
 	}
+
+	void Access(SnGenericTypeExpr &)
+	{
+		//Phase 8e-3: `List<T>` introduces no fields to check.
+	}
 private:
 	template <class NAME_DICT_T>
 	void CheckFields(const NAME_DICT_T &nameMap)

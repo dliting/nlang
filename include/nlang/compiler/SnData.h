@@ -146,6 +146,12 @@ public:
 	bool ConflictedWith(const SnField &other) const override;
 
 	virtual SnField *EvalDataType() const override;
+
+	//Phase 8e-3: marks a synthetic method on a built-in generic class
+	//(e.g. List<int>.Add). When true, VmBackend emits OP_Box before
+	//OP_CallMethod for primitive-typed arguments — the runtime side
+	//operates on Object/heap-idx storage (erasure model).
+	bool m_bErasedGeneric = false;
 private:
 	void Init();
 	SnFieldExpr *m_pReturnType;

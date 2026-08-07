@@ -275,12 +275,31 @@ public:
 	bool IsBuiltinClass() const { return m_bIsBuiltinClass; }
 	void SetBuiltinClass() { m_bIsBuiltinClass = true; }
 
+	//Phase 8e-3: built-in generic instantiation marker (e.g. List<int>).
+	//Set by ExprResolver when minting a synthetic SnClassDecl for a
+	//built-in generic type. m_genericTypeArgs carries the resolved type
+	//arguments (e.g. {SnInt32} for List<int>); VmBackend reads these to
+	//emit OP_Box/OP_Unbox around primitive-T method args/returns.
+	bool IsGenericInstantiation() const { return m_bIsGenericInst; }
+	void SetGenericInstantiation() { m_bIsGenericInst = true; }
+	const std::vector<SnField*>& GenericTypeArgs() const { return m_genericTypeArgs; }
+	void SetGenericTypeArgs(std::vector<SnField*> args) { m_genericTypeArgs = std::move(args); }
+	//Base name without <...> suffix. For generic instantiations only;
+	//Equals Name() for ordinary classes. Used by VmBackend to look up the
+	//shared backing CompiledClass (e.g. "List" for List<int>).
+	const std::string& BaseName() const
+	{ return m_bIsGenericInst ? m_baseName : Name(); }
+	void SetBaseName(const std::string& name) { m_baseName = name; }
+
 private:
 	SnFieldExpr *m_pSuper;
 	SnClassDecl *m_pSuperClass;
 	std::vector<SnFieldExpr*> m_implementsNames;
 	std::vector<SnInterfaceDecl*> m_implements;
 	bool m_bIsBuiltinClass = false;
+	bool m_bIsGenericInst = false;
+	std::vector<SnField*> m_genericTypeArgs;
+	std::string m_baseName;  //e.g. "List" (without <T>) for generic instances
 };
 
 //An interface type declaration (e.g. interface IPrintable { void Print(); }).

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <iostream>
 #include <functional>
+#include <map>
 
 namespace nlang {
 
@@ -180,6 +181,120 @@ void VmBackend::RegisterBuiltinClasses() {
         {"Position",   INTR_FS_Position},
         {"Close",      INTR_FS_Close},
     }, INTR_FS_Ctor, true);
+
+    //Phase 8e-3: List<T> — built-in generic, erasure-style. All instantiations
+    //(List<int>, List<Point>, ...) share this single CompiledClass. Per-T
+    //boxing is decided at call sites by VmBackend based on the outer's
+    //generic-type-args (stored on the synthetic SnClassDecl).
+    {
+        auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
+        CompiledClass cc;
+        cc.name = "List";
+        cc.superClassIdx = -1;  //resolved to Object below
+        cc.fieldCount = 1;  //hidden __handle field (index into m_listStore)
+        cc.fieldNames.push_back("__handle");
+        cc.fieldTypeKinds.push_back(RTK_Int32);
+        cc.fieldStructIndices.push_back(0xFFFF);
+        cc.fieldClassIndices.push_back(0xFFFF);
+        cc.fieldAccess.push_back(0);  //private
+
+        //Ctor stub: List(this) — no args beyond this.
+        auto ctorFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+        CompiledFunction ctorFunc;
+        ctorFunc.name = "List";
+        ctorFunc.paramCount = 1;
+        ctorFunc.localsSize = 1 * VALUE_SIZE;
+        ctorFunc.returnTypeKind = RTK_Void;
+        ctorFunc.intrinsicId = INTR_List_Ctor;
+        m_compiledModule.functions.push_back(std::move(ctorFunc));
+        cc.constructorIdx = ctorFuncIdx;
+
+        //Method stubs. paramCount includes `this`:
+        // - Length/Clear: 1 (this)
+        // - Add/Get/RemoveAt/IndexOf/Contains: 2 (this + arg)
+        // - Set: 3 (this + idx + value)
+        auto addMethod = [&](const char* methName, uint16_t intrinsicId,
+            uint16_t paramCount, uint16_t returnTypeKind) {
+            auto methFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+            CompiledFunction methFunc;
+            methFunc.name = methName;
+            methFunc.paramCount = paramCount;
+            methFunc.localsSize = static_cast<uint16_t>(paramCount * VALUE_SIZE);
+            methFunc.returnTypeKind = returnTypeKind;
+            methFunc.intrinsicId = intrinsicId;
+            m_compiledModule.functions.push_back(std::move(methFunc));
+            cc.methodIndices.push_back(methFuncIdx);
+        };
+        addMethod("Add",      INTR_List_Add,      2, RTK_Void);
+        addMethod("Get",      INTR_List_Get,      2, RTK_Int32);   //return T, codegen unboxes
+        addMethod("Set",      INTR_List_Set,      3, RTK_Void);
+        addMethod("Length",   INTR_List_Length,   1, RTK_Int32);
+        addMethod("RemoveAt", INTR_List_RemoveAt, 2, RTK_Void);
+        addMethod("IndexOf",  INTR_List_IndexOf,  2, RTK_Int32);
+        addMethod("Contains", INTR_List_Contains, 2, RTK_Int32);
+        addMethod("Clear",    INTR_List_Clear,    1, RTK_Void);
+
+        m_compiledModule.classes.push_back(std::move(cc));
+        m_listClassIdx = static_cast<int16_t>(classIdx);
+    }
+
+    //Phase 8e-4: Dict<K,V> — built-in generic, erasure-style. All instantiations
+    //(Dict<int,int>, Dict<string,Point>, ...) share this single CompiledClass.
+    //Side storage is m_dictStore (vector<DictSlot>) indexed by __handle-1.
+    //Linear-scan lookup; kind-aware equality via DictKeysEqual at runtime.
+    {
+        auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
+        CompiledClass cc;
+        cc.name = "Dict";
+        cc.superClassIdx = -1;  //resolved to Object below
+        cc.fieldCount = 1;  //hidden __handle field (index into m_dictStore)
+        cc.fieldNames.push_back("__handle");
+        cc.fieldTypeKinds.push_back(RTK_Int32);
+        cc.fieldStructIndices.push_back(0xFFFF);
+        cc.fieldClassIndices.push_back(0xFFFF);
+        cc.fieldAccess.push_back(0);  //private
+
+        //Ctor stub: Dict(this) — no args beyond this.
+        auto ctorFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+        CompiledFunction ctorFunc;
+        ctorFunc.name = "Dict";
+        ctorFunc.paramCount = 1;
+        ctorFunc.localsSize = 1 * VALUE_SIZE;
+        ctorFunc.returnTypeKind = RTK_Void;
+        ctorFunc.intrinsicId = INTR_Dict_Ctor;
+        m_compiledModule.functions.push_back(std::move(ctorFunc));
+        cc.constructorIdx = ctorFuncIdx;
+
+        //Method stubs. paramCount includes `this`:
+        // - Clear/Count: 1 (this)
+        // - Get/ContainsKey/Remove: 2 (this + K)
+        // - Set: 3 (this + K + V)
+        auto addMethod = [&](const char* methName, uint16_t intrinsicId,
+            uint16_t paramCount, uint16_t returnTypeKind) {
+            auto methFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+            CompiledFunction methFunc;
+            methFunc.name = methName;
+            methFunc.paramCount = paramCount;
+            methFunc.localsSize = static_cast<uint16_t>(paramCount * VALUE_SIZE);
+            methFunc.returnTypeKind = returnTypeKind;
+            methFunc.intrinsicId = intrinsicId;
+            m_compiledModule.functions.push_back(std::move(methFunc));
+            cc.methodIndices.push_back(methFuncIdx);
+        };
+        addMethod("Set",         INTR_Dict_Set,         3, RTK_Void);
+        addMethod("Get",         INTR_Dict_Get,         2, RTK_Int32);  //return V, codegen unboxes
+        addMethod("ContainsKey", INTR_Dict_ContainsKey, 2, RTK_Int32);
+        addMethod("Remove",      INTR_Dict_Remove,      2, RTK_Int32);
+        addMethod("Clear",       INTR_Dict_Clear,       1, RTK_Void);
+        addMethod("Count",       INTR_Dict_Count,       1, RTK_Int32);
+        //Phase 8e-5: Dict.Keys() returns a fresh List<K> heap instance
+        //(allocated by the VM intrinsic). paramCount=1 (just this). Return
+        //is RTK_Class (heap reference to List<K>) — no boxing on return.
+        addMethod("Keys",        INTR_Dict_Keys,        1, RTK_Class);
+
+        m_compiledModule.classes.push_back(std::move(cc));
+        m_dictClassIdx = static_cast<int16_t>(classIdx);
+    }
 }
 
 void VmBackend::RegisterStructs(SnNamespace& root) {
@@ -533,6 +648,20 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     if (k == NK_StructDecl) return RTK_Struct;
     if (k == NK_ClassDecl) return RTK_Class;
     return static_cast<uint8_t>(k);
+}
+
+//Phase 8e-4: returns the RTK_* boxing tag for a generic type argument,
+//plus an isPrimitive flag. The flag is needed because RTK_Int32 == 0, so
+//"is class-T (no boxing)" and "is int-T (box as RTK_Int32)" both yield tag=0.
+//Equivalent to the bool needsBoxing + uint8_t tTag pair from the Phase 8e-3
+//C1 fix; refactored here so List and Dict can share the helper.
+VmBackend::BoxingTagResult VmBackend::BoxingTagFor(SnField* pT) {
+    if (!pT) return {0, false};
+    NodeKind k = pT->Kind();
+    if (k == NK_Int32 || k == NK_EnumDecl) return {RTK_Int32, true};
+    if (k == NK_Float)  return {RTK_Float,  true};
+    if (k == NK_String) return {RTK_String, true};
+    return {0, false};  //class/struct/other T → no boxing
 }
 
 //Pick a temp slot distinct from `exclude`, walking through the 4-slot pool.
@@ -957,11 +1086,73 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             } else if (inner && inner->Kind() == NK_InvokeExpr) {
                 //Class method call
                 auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+
+                //Phase 8e-4: per-method boxing plan for built-in generic
+                //classes (List<T>, Dict<K,V>). For primitive type arguments,
+                //the corresponding param slots must be boxed (OP_Box) before
+                //OP_CallMethod, and Get()/index returns must be unboxed
+                //(OP_Unbox) after. argPlans maps paramIdx → {tag,needsBox};
+                //returnsBoxed/returnTag handle the return-side unbox.
+                //For class/struct type args, BoxingTagFor returns 0 → no
+                //boxing; values pass as heap idxs directly.
+                struct ArgBoxPlan { uint8_t tag; bool needsBox; };
+                std::map<uint16_t, ArgBoxPlan> argPlans;
+                bool returnsBoxed = false;
+                uint8_t returnTag = 0;
+                if (classDecl->IsGenericInstantiation()) {
+                    const auto& typeArgs = classDecl->GenericTypeArgs();
+                    const auto& methodName = invoke.CalleeName();
+                    const auto& baseName = classDecl->BaseName();
+                    if (baseName == "List") {
+                        auto t = BoxingTagFor(
+                            typeArgs.empty() ? nullptr : typeArgs[0]);
+                        if (t.isPrimitive) {
+                            //List<T> method signatures:
+                            //  Add(T)         — T at paramIdx 1
+                            //  Set(int, T)    — T at paramIdx 2
+                            //  IndexOf(T)     — T at paramIdx 1
+                            //  Contains(T)    — T at paramIdx 1
+                            //  Get(int) → T   — return unboxed
+                            if (methodName == "Add"
+                                || methodName == "IndexOf"
+                                || methodName == "Contains") {
+                                argPlans[1] = {t.tag, true};
+                            } else if (methodName == "Set") {
+                                argPlans[2] = {t.tag, true};
+                            } else if (methodName == "Get") {
+                                returnsBoxed = true; returnTag = t.tag;
+                            }
+                        }
+                    } else if (baseName == "Dict") {
+                        auto k = BoxingTagFor(
+                            typeArgs.empty() ? nullptr : typeArgs[0]);
+                        auto v = (typeArgs.size() > 1)
+                            ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
+                        if (methodName == "Set") {
+                            if (k.isPrimitive) argPlans[1] = {k.tag, true};
+                            if (v.isPrimitive) argPlans[2] = {v.tag, true};
+                        } else if (methodName == "Get") {
+                            if (k.isPrimitive) argPlans[1] = {k.tag, true};
+                            if (v.isPrimitive) { returnsBoxed = true; returnTag = v.tag; }
+                        } else if (methodName == "ContainsKey"
+                            || methodName == "Remove") {
+                            if (k.isPrimitive) argPlans[1] = {k.tag, true};
+                        }
+                    }
+                }
+
                 //Evaluate args to call param area (slot 0 = this)
                 uint16_t paramIdx = 1;
                 for (auto& param : invoke.Params()) {
                     uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
                     EmitExpression(param, emitter, paramOffset);
+                    auto it = argPlans.find(paramIdx);
+                    if (it != argPlans.end() && it->second.needsBox) {
+                        emitter.Emit(OpCode::OP_Box);
+                        emitter.EmitByte(it->second.tag);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(paramOffset);
+                    }
                     ++paramIdx;
                 }
                 //Copy this to callParamBase[0]
@@ -990,8 +1181,8 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     }
                 } else {
                     //Phase 8e-1: no AST callee. Covers two cases:
-                    //  (a) Builtin class methods (ByteStream/FileStream) — the
-                    //      synthesized SnClassDecl has no method members.
+                    //  (a) Builtin class methods (ByteStream/FileStream/List/Dict) —
+                    //      the synthesized SnClassDecl has no method members.
                     //  (b) User-class calls to inherited Object protocol methods
                     //      (Equals/GetHashCode) — no AST override exists, so
                     //      callee is null. The VM walks superClassIdx to find
@@ -1002,6 +1193,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.Emit(OpCode::OP_CallMethod);
                     emitter.EmitUint16(nameIdx);
                     emitter.EmitUint16(m_currFunc->callParamBase);
+                }
+                //Phase 8e-3/8e-4: unbox Get() return for primitive T/V.
+                if (returnsBoxed) {
+                    emitter.Emit(OpCode::OP_Unbox);
+                    emitter.EmitByte(returnTag);
                 }
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
@@ -1180,20 +1376,24 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(resultOffset);
             return;
         }
-        int classIdx = m_compiledModule.FindClass(pClassDecl->Name());
+        //Phase 8e-3: generic instantiations (List<int>) share one CompiledClass
+        //named "List" at runtime (erasure). BaseName() returns the unqualified
+        //"List" for generic instances, or the full name for ordinary classes.
+        const std::string& className = pClassDecl->BaseName();
+        int classIdx = m_compiledModule.FindClass(className);
         if (classIdx < 0) {
             emitter.Emit(OpCode::OP_ConstZero);
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(resultOffset);
             return;
         }
-        emitter.Emit(OpCode::OP_New);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(static_cast<uint16_t>(classIdx));
-        //Call constructor if present (direct class only, using pre-computed index).
-        //Ancestor constructors are NOT called because NLang has no super()
-        //syntax to pass arguments to them.
         uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
+        //Phase 8e-3 fix: when NewExpr is used as an argument
+        //(e.g. lst.Add(new Point(...))), resultOffset may alias
+        //callParamBase[1]. Evaluate ctor args first (to callParamBase[1..N]),
+        //then allocate to a slot after the args, and copy to resultOffset at
+        //the end. This avoids overwriting args with the allocation result.
+        uint16_t allocSlot = resultOffset;
         if (ctorIdx != 0xFFFF) {
             uint16_t paramIdx = 1; //slot 0 = this
             for (auto& param : newExpr.Args()) {
@@ -1202,15 +1402,34 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 EmitExpression(param, emitter, paramOffset);
                 ++paramIdx;
             }
+            //Allocate to the slot after the last ctor arg so we never
+            //overwrite args (which are at callParamBase[1..paramIdx-1]).
+            allocSlot = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
+        }
+
+        emitter.Emit(OpCode::OP_New);
+        emitter.EmitUint16(allocSlot);
+        emitter.EmitUint16(static_cast<uint16_t>(classIdx));
+        //Call constructor if present (direct class only, using pre-computed index).
+        //Ancestor constructors are NOT called because NLang has no super()
+        //syntax to pass arguments to them.
+        if (ctorIdx != 0xFFFF) {
             //Copy this (new object heap index) to callParamBase[0]
             emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(allocSlot);
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(m_currFunc->callParamBase);
             emitter.Emit(OpCode::OP_CallMethodDirect);
             emitter.EmitUint16(ctorIdx);
             emitter.EmitUint16(m_currFunc->callParamBase);
             emitter.Emit(OpCode::OP_ParaEnd);
+        }
+        //Copy allocSlot to resultOffset if they differ.
+        if (allocSlot != resultOffset) {
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(allocSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
         }
         return;
     }
@@ -1237,6 +1456,13 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(arrayTypeIdx);
         emitter.EmitUint16(m_currFunc->tempSlot);
+        return;
+    }
+
+    //Phase 8e-6: collection initializer `[...]` / `{...}` / `new T{...}`.
+    //Stub — real codegen lands in Phase C/D.
+    if (kind == NK_InitListExpr) {
+        assert(false && "NK_InitListExpr codegen not yet implemented (Phase C/D)");
         return;
     }
 
@@ -1815,6 +2041,225 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         size_t loopEnd = emitter.CurrentOffset();
 
         //10. Fixup jumps (reference: EN's FixDirectJumps)
+        auto& ctx = m_loopStack.back();
+        for (size_t pos : ctx.breakJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
+        for (size_t pos : ctx.continueJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
+
+        m_loopStack.pop_back();
+        return;
+    }
+
+    //Foreach loop statement (Phase 8e-5).
+    //Index-based expansion reusing Length()/Get() (List), arr.length + arr[i] (Array).
+    //No new opcode. Dict path is Phase D.
+    if (kind == NK_ForeachStmt) {
+        auto& fe = static_cast<SnForeachStmt&>(stmt);
+
+        //--- Detect iterable kind -----------------------------------------
+        SnExpression* pIter = fe.Iterable();
+        bool isArray = false;
+        bool isList  = false;
+        bool isDict  = false;
+        SnField* pElemType = nullptr;
+
+        if (pIter->Kind() == NK_IdentifierExpr) {
+            auto* pField = static_cast<SnIdentifierExpr*>(pIter)->Field();
+            if (pField && pField->IsArrayType()) {
+                isArray = true;
+                pElemType = pField->EvalDataType();
+            }
+        }
+        if (!isArray) {
+            auto* pIterType = pIter->EvalDataType();
+            if (pIterType && pIterType->Kind() == NK_ClassDecl) {
+                auto* pClass = static_cast<SnClassDecl*>(pIterType);
+                if (pClass->IsGenericInstantiation()) {
+                    const auto& baseName = pClass->BaseName();
+                    const auto& typeArgs = pClass->GenericTypeArgs();
+                    if (baseName == "List") {
+                        isList = true;
+                        pElemType = typeArgs.empty() ? nullptr : typeArgs[0];
+                    } else if (baseName == "Dict") {
+                        isDict = true;
+                        pElemType = typeArgs.empty() ? nullptr : typeArgs[0];
+                    }
+                }
+            }
+        }
+        //Phase C: Array + List. Phase D: Dict (inline Keys() call materializes
+        //a List<K> into iterSlot, then the rest mirrors the List path).
+        assert((isArray || isList || isDict)
+            && "foreach iterable must be Array, List<T>, or Dict<K,V>");
+
+        uint8_t elemKind = RuntimeTypeKind(pElemType);
+
+        //--- 1. Allocate hidden locals BEFORE LoopContext push -------------
+        //AllocLocal dedupes by name, so uniquify hidden locals via per-function
+        //counter (nested foreach would otherwise collide on __foreach_iter etc.).
+        uint16_t counter = m_currFunc->foreachCounter++;
+        uint16_t userVarSlot = AllocLocal(fe.VarName(),
+            VALUE_SIZE, elemKind, false);
+        //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
+        uint8_t iterKind = isArray
+            ? static_cast<uint8_t>(RTK_Array)
+            : static_cast<uint8_t>(RTK_Class);
+        uint16_t iterSlot = AllocLocal(
+            "__foreach_iter_" + std::to_string(counter),
+            VALUE_SIZE, iterKind, false);
+        uint16_t iSlot = AllocLocal(
+            "__foreach_i_" + std::to_string(counter),
+            VALUE_SIZE, RTK_Int32, false);
+        uint16_t nSlot = AllocLocal(
+            "__foreach_n_" + std::to_string(counter),
+            VALUE_SIZE, RTK_Int32, false);
+
+        //--- 2. Evaluate iterable into iterSlot ---------------------------
+        EmitExpression(*pIter, emitter, iterSlot);
+
+        //--- 2b. Dict: inline dict.Keys() → materialize List<K> into iterSlot
+        //For Dict foreach, iterSlot now holds a dict heap idx; we replace it
+        //with a fresh List<K> heap idx from the Keys() intrinsic. From here on,
+        //the lowering is identical to List<T> iteration (element type = K).
+        if (isDict) {
+            emitter.Emit(OpCode::OP_NullCheck);
+            emitter.EmitUint16(iterSlot);
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(iterSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            uint16_t keysIdx = AddStringConstant("Keys");
+            emitter.Emit(OpCode::OP_CallMethod);
+            emitter.EmitUint16(keysIdx);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(iterSlot);
+            emitter.Emit(OpCode::OP_ParaEnd);
+        }
+
+        //--- 3. Compute length into nSlot ---------------------------------
+        if (isArray) {
+            //OP_ArrayLength <dst=arr> <src=arr> — operates on the heap idx in
+            //the slot. Mirror the pattern at line 1259 (NullCheck first).
+            emitter.Emit(OpCode::OP_NullCheck);
+            emitter.EmitUint16(iterSlot);
+            emitter.Emit(OpCode::OP_ArrayLength);
+            emitter.EmitUint16(nSlot);
+            emitter.EmitUint16(iterSlot);
+        } else {
+            //List<T>.Length() (or Dict-after-Keys: List<K>.Length()).
+            //Call shape mirrors line 1155-1200.
+            emitter.Emit(OpCode::OP_NullCheck);
+            emitter.EmitUint16(iterSlot);
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(iterSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            uint16_t nameIdx = AddStringConstant("Length");
+            emitter.Emit(OpCode::OP_CallMethod);
+            emitter.EmitUint16(nameIdx);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(nSlot);
+            emitter.Emit(OpCode::OP_ParaEnd);
+        }
+
+        //--- 4. i = 0 -----------------------------------------------------
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(0);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(iSlot);
+
+        //--- 5. Loop start ------------------------------------------------
+        size_t loopStart = emitter.CurrentOffset();
+
+        //--- 6. Enter loop context (reuse LoopContext for break/continue) -
+        m_loopStack.push_back(LoopContext{});
+
+        //--- 7. Condition: i < n → jumpToEnd if not -----------------------
+        //tempSlot = i; tempSlot2 = n; OP_Less_i32 writes 1/0 into tempSlot.
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(iSlot);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(nSlot);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(m_currFunc->tempSlot2);
+        emitter.Emit(OpCode::OP_Less_i32);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        emitter.EmitUint16(m_currFunc->tempSlot2);
+        emitter.Emit(OpCode::OP_JumpIfNot);
+        size_t jumpToEnd = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder, patched at step 12
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        m_loopStack.back().breakJumps.push_back(jumpToEnd);
+
+        //--- 8. Body-prelude: load element i into userVarSlot -------------
+        if (isArray) {
+            //OP_LoadElement <dst> <arr> <index>
+            emitter.Emit(OpCode::OP_LoadElement);
+            emitter.EmitUint16(userVarSlot);
+            emitter.EmitUint16(iterSlot);
+            emitter.EmitUint16(iSlot);
+            //Struct element types need deep-copy on read (value semantics),
+            //parallel to subscript codegen at line 1478-1485.
+            if (elemKind == RTK_Struct && pElemType) {
+                int structIdx = m_compiledModule.FindStruct(
+                    pElemType->Name());
+                emitter.Emit(OpCode::OP_CopyStruct);
+                emitter.EmitUint16(userVarSlot);
+                emitter.EmitUint16(userVarSlot);
+                emitter.EmitUint16(structIdx >= 0
+                    ? static_cast<uint16_t>(structIdx) : 0);
+            }
+        } else {
+            //List<T>.Get(i). Per-method boxing plan: unbox primitive T.
+            //callParamBase[1] = i; callParamBase[0] = this; OP_CallMethod.
+            uint16_t paramOffset = m_currFunc->callParamBase + 1 * VALUE_SIZE;
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(iSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(paramOffset);
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(iterSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            uint16_t nameIdx = AddStringConstant("Get");
+            emitter.Emit(OpCode::OP_CallMethod);
+            emitter.EmitUint16(nameIdx);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            auto t = BoxingTagFor(pElemType);
+            if (t.isPrimitive) {
+                emitter.Emit(OpCode::OP_Unbox);
+                emitter.EmitByte(t.tag);
+            }
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(userVarSlot);
+            emitter.Emit(OpCode::OP_ParaEnd);
+        }
+
+        //--- 9. Body ------------------------------------------------------
+        EmitStatement(*fe.Body(), emitter);
+
+        //--- 10. Continue target: i = i + 1 -------------------------------
+        size_t continueTarget = emitter.CurrentOffset();
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(1);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(m_currFunc->tempSlot2);
+        //OP_Add_i32 <dst> <src>: locals[dst] += locals[src].
+        emitter.Emit(OpCode::OP_Add_i32);
+        emitter.EmitUint16(iSlot);
+        emitter.EmitUint16(m_currFunc->tempSlot2);
+
+        //--- 11. Jump back to loop start ----------------------------------
+        emitter.Emit(OpCode::OP_Jump);
+        emitter.EmitUint16(static_cast<uint16_t>(loopStart));
+
+        //--- 12. Patch break/continue; pop LoopContext --------------------
+        size_t loopEnd = emitter.CurrentOffset();
         auto& ctx = m_loopStack.back();
         for (size_t pos : ctx.breakJumps)
             emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));

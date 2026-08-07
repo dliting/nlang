@@ -11,6 +11,8 @@
 #include <nlang/runtime/AutoPointers.h>
 #include <functional>
 #include <memory>
+#include <vector>
+#include <string>
 
 #ifdef NLANG_ENABLE_LLVM
 namespace llvm
@@ -173,6 +175,21 @@ private:
 };
 
 typedef MutableChildNodeList<SnExpression> SnExpressionList;
+
+//Phase 8e-6: one entry in an init list `{...}`.
+//KeyKind==String → dict entry (key is a string literal value).
+//KeyKind==Identifier → struct/class field (key is a field name).
+//Array-form init lists `[...]` do not carry entries of this struct;
+//they use the plain element list directly via the Entries() vector.
+//Per-entry source location can be retrieved from pValue->Location()
+//when needed for diagnostics.
+struct InitEntry
+{
+	enum class KeyKind { None, String, Identifier };
+	KeyKind          keyKind = KeyKind::None;
+	std::string      keyStr;
+	SnExpression    *pValue = nullptr;
+};
 
 //The syntax node of a literal constant expression.
 class NLANG_COMPILER_API SnLiteralExpr: public SnExpression
@@ -444,6 +461,40 @@ private:
 	SnFieldExpr *m_pElementType;
 };
 
+//Phase 8e-3: Generic type expression (e.g. "List<int>", "Dict<K,V>").
+//Constructed from a base type name and a list of type arguments. The base
+//must resolve to a built-in generic class; user-defined generics are not
+//supported. ExprResolver mints a per-instantiation synthetic SnClassDecl
+//(e.g. "List<int>") that carries substituted method signatures while
+//sharing a single backing CompiledClass at runtime (erasure model).
+class NLANG_COMPILER_API SnGenericTypeExpr : public SnCompoundFieldExpr
+{
+	typedef SnCompoundFieldExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_GenericTypeExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnGenericTypeExpr(SnFieldExpr *pBase,
+		std::vector<SnFieldExpr*> *pTypeArgs,
+		const ISourceLocation &loc);
+
+	//The base type name expression (e.g. "List").
+	SnFieldExpr *Base() const { return m_pBase; }
+
+	//The type arguments (e.g. [int] or [Point]).
+	const std::vector<SnFieldExpr*> &TypeArgs() const
+	{
+		return *m_upTypeArgs;
+	}
+
+	void Accept(ISyntaxNodeVisitor &) override;
+
+	std::string ToString() const override;
+private:
+	SnFieldExpr							*m_pBase;
+	std::unique_ptr<std::vector<SnFieldExpr*>>	m_upTypeArgs;
+};
+
 //Type cast expression syntax node.
 class NLANG_COMPILER_API SnCastExpr : public SnCompoundPlainExpr
 {
@@ -665,6 +716,48 @@ public:
 private:
 	SnFieldExpr *m_pElemType;
 	SnExpression *m_pSize;
+};
+
+//Phase 8e-6: Collection initializer literal.
+//  - Bare array/list form:  [e1, e2, ...]
+//  - Bare dict/struct form:  {"k": v, ...}  (string keys → dict)
+//                            {f: v, ...}    (identifier keys → struct/class)
+//  - Explicit form:          new Type { ... }   (Type optional → bare form)
+//Resolver dispatches on resolved target type. Codegen lowers via
+//existing alloc/new/method-call/field-store opcodes (no new opcode).
+class NLANG_COMPILER_API SnInitListExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_InitListExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	//pExplicitType is nullptr for the bare form. For `new Type{...}`,
+	//pExplicitType carries the Type expression (NameExpr/GenericTypeExpr).
+	//isArrayForm distinguishes `[...]` (true) from `{...}` (false).
+	//For array form, entries' keyKind is None (only values are used).
+	SnInitListExpr(SnFieldExpr *pExplicitType,
+		std::vector<InitEntry> entries, bool isArrayForm,
+		const ISourceLocation &loc);
+
+	~SnInitListExpr() override;
+
+	SnFieldExpr *ExplicitType() const { return m_pExplicitType; }
+	const std::vector<InitEntry> &Entries() const { return m_entries; }
+	bool IsArrayForm() const { return m_isArrayForm; }
+
+	//Resolved target type (set by ExprResolver). Nullptr until resolved.
+	SnFieldExpr *ResolvedTargetType() const { return m_pResolvedTargetType; }
+	void ResolvedTargetType(SnFieldExpr *pT) { m_pResolvedTargetType = pT; }
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	SnFieldExpr                 *m_pExplicitType;        //nullptr for bare form
+	std::vector<InitEntry>       m_entries;              //empty allowed
+	bool                         m_isArrayForm;
+	SnFieldExpr                 *m_pResolvedTargetType = nullptr;  //resolver-set
 };
 
 } //namespace nlang

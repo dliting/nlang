@@ -81,6 +81,29 @@ static constexpr uint16_t INTR_Object_GetHashCode   = 41;
 static constexpr uint16_t INTR_String_Equals        = 42;
 static constexpr uint16_t INTR_String_GetHashCode   = 43;
 
+//List<T> intrinsic methods (Phase 8e-3, erasure-style — all elements stored as heap idxs).
+static constexpr uint16_t INTR_List_Ctor        = 44;
+static constexpr uint16_t INTR_List_Add         = 45;
+static constexpr uint16_t INTR_List_Get         = 46;
+static constexpr uint16_t INTR_List_Set         = 47;
+static constexpr uint16_t INTR_List_Length      = 48;
+static constexpr uint16_t INTR_List_RemoveAt    = 49;
+static constexpr uint16_t INTR_List_IndexOf     = 50;
+static constexpr uint16_t INTR_List_Contains    = 51;
+static constexpr uint16_t INTR_List_Clear       = 52;
+
+//Dict<K,V> intrinsic methods (Phase 8e-4, erasure-style — keys and values
+//stored as heap idxs in a side table, linear-scan lookup).
+static constexpr uint16_t INTR_Dict_Ctor        = 53;
+static constexpr uint16_t INTR_Dict_Set         = 54;
+static constexpr uint16_t INTR_Dict_Get         = 55;
+static constexpr uint16_t INTR_Dict_ContainsKey = 56;
+static constexpr uint16_t INTR_Dict_Remove      = 57;
+static constexpr uint16_t INTR_Dict_Clear       = 58;
+static constexpr uint16_t INTR_Dict_Count       = 59;
+//Phase 8e-5: Dict.Keys() — returns a new List<K> populated from dict entries' keys.
+static constexpr uint16_t INTR_Dict_Keys        = 60;
+
 struct CompiledFunction {
     std::string name;
     std::vector<uint8_t> bytecode;

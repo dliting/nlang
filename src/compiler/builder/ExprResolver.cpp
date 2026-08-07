@@ -4,6 +4,8 @@
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
+#include <map>
+#include <vector>
 
 namespace nlang
 {
@@ -32,6 +34,101 @@ static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		rpRef->SetBuiltinClass();
 	}
 	return rpRef;
+}
+
+//Phase 8e-3: Built-in generic class instantiation cache.
+//Key: (base class name, resolved type-arg SnField* pointers).
+//Value: synthetic SnClassDecl representing this instantiation. The same
+//key MUST always return the same SnClassDecl* — pointer identity is
+//load-bearing for CalcTypeDistance and for VmBackend's class index lookup.
+//
+//At runtime, all instantiations share a single CompiledClass named "List"
+//via VmBackend's name-prefix strip. The synthetic SnClassDecl is a
+//compile-time artifact only.
+struct GenericInstKey {
+	std::string baseName;
+	std::vector<SnField*> typeArgs;
+	bool operator<(const GenericInstKey& rhs) const {
+		if (baseName != rhs.baseName) return baseName < rhs.baseName;
+		if (typeArgs.size() != rhs.typeArgs.size())
+			return typeArgs.size() < rhs.typeArgs.size();
+		for (size_t i = 0; i < typeArgs.size(); ++i) {
+			if (typeArgs[i] != rhs.typeArgs[i])
+				return typeArgs[i] < rhs.typeArgs[i];
+		}
+		return false;
+	}
+};
+static std::map<GenericInstKey, SnClassDecl*> s_genericInstances;
+
+//Side table: synthetic class → its type arguments. Used by Access(SnMemberExpr&)
+//to compute method return types (e.g., List<int>.Get() returns int = typeArgs[0]).
+//Also mirrored on SnClassDecl::GenericTypeArgs() for VmBackend codegen.
+static std::map<SnClassDecl*, std::vector<SnField*>> s_genericTypeArgs;
+
+//Lookup type arguments for a synthetic generic class. Returns empty vector
+//if not a generic instantiation.
+static std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
+{
+	if (pClass && pClass->IsGenericInstantiation())
+		return pClass->GenericTypeArgs();
+	auto it = s_genericTypeArgs.find(pClass);
+	if (it != s_genericTypeArgs.end())
+		return it->second;
+	return {};
+}
+
+//Returns true if name is a recognized built-in generic class.
+//Phase 8e-3: "List" (arity 1). Phase 8e-4: "Dict" (arity 2).
+static bool IsBuiltinGenericClassName(const std::string& name)
+{
+	return name == "List" || name == "Dict";
+}
+
+//Returns true if class decl is a synthetic generic instantiation
+//(e.g., List<int>). Used to dispatch member calls in Access(SnMemberExpr&).
+static bool IsGenericClassDecl(SnClassDecl* pClass)
+{
+	return pClass && pClass->IsGenericInstantiation();
+}
+
+//Mints (or fetches) a synthetic SnClassDecl for the given generic
+//instantiation. Phase 8e-3: List<T> (arity 1). Phase 8e-4: Dict<K,V> (arity 2).
+static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
+	const std::vector<SnField*>& typeArgs, const ISourceLocation* pLoc)
+{
+	GenericInstKey key{baseName, typeArgs};
+	auto it = s_genericInstances.find(key);
+	if (it != s_genericInstances.end())
+		return it->second;
+
+	//Built-in generic + arity check.
+	size_t expectedArity = (baseName == "Dict") ? 2 : 1;
+	if (!IsBuiltinGenericClassName(baseName) || typeArgs.size() != expectedArity)
+		return nullptr;
+
+	//Build display name e.g. "List<int>", "Dict<string, int>".
+	std::string instName = baseName + "<";
+	for (size_t i = 0; i < typeArgs.size(); ++i) {
+		if (i) instName += ", ";
+		instName += typeArgs[i]->Name();
+	}
+	instName += ">";
+
+	auto* pName = new std::string(instName);
+	auto* pMembers = new PtrList<SnField>();
+	ScriptLocation loc;
+	if (pLoc)
+		loc = *static_cast<const ScriptLocation*>(pLoc);
+	auto* pClass = new SnClassDecl(pName, nullptr, pMembers, loc);
+	pClass->SetBuiltinClass();
+	pClass->SetGenericInstantiation();
+	pClass->SetGenericTypeArgs(typeArgs);
+	pClass->SetBaseName(baseName);
+	s_genericInstances[key] = pClass;
+	//Side table for member-call return-type lookup (List<int>.Get() → int).
+	s_genericTypeArgs[pClass] = typeArgs;
+	return pClass;
 }
 
 void ExprResolveAccessor::Access(SnLiteralExpr &sn)
@@ -82,6 +179,69 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 
 	//Propagate the element type's field to the array type expression.
 	ResolveFieldExprAs(arrTypeExpr, pElemType->Field());
+}
+
+//Phase 8e-3: resolve a built-in generic type expression like `List<int>`.
+//The base NameExpr must match a known built-in generic (currently only
+//"List"). Type arguments are resolved in the caller's scope. We then
+//mint (or fetch) a synthetic SnClassDecl unique to (base, typeArgs) so
+//that CalcTypeDistance's pointer-identity check distinguishes
+//List<int> from List<string>.
+//
+//Note: we deliberately do NOT call pBase->Accept() — that would invoke
+//Access(SnNameExpr&) which tries to resolve "List" as a regular name
+//and fails. Built-in generic names exist only in Type position with
+//type arguments; bare "List" is not a valid type.
+void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
+{
+	if (genType.IsResolved())
+		return;
+
+	auto *pBase = genType.Base();
+	assert(pBase);
+	std::string baseName = pBase->ToString();
+	if (!IsBuiltinGenericClassName(baseName))
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"\"%s\" is not a built-in generic type.", baseName.c_str());
+		return;
+	}
+
+	//Resolve each type argument (e.g., int, Point).
+	std::vector<SnField*> typeArgs;
+	for (auto *pTA : genType.TypeArgs())
+	{
+		if (!pTA) continue;
+		pTA->Accept(*m_pVisitor);
+		if (!pTA->IsResolved())
+		{
+			m_Env.Log(CLL_Error, pTA->Location(),
+				"Cannot resolve type argument %s.",
+				pTA->ToString().c_str());
+			return;
+		}
+		auto *pField = pTA->Field();
+		if (!pField)
+		{
+			m_Env.Log(CLL_Error, pTA->Location(),
+				"Type argument %s has no resolved field.",
+				pTA->ToString().c_str());
+			return;
+		}
+		typeArgs.push_back(pField);
+	}
+
+	auto *pSynClass = GetGenericClassDecl(baseName, typeArgs,
+		pBase->Location());
+	if (!pSynClass)
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"Generic instantiation %s<...> is not supported in this phase.",
+			baseName.c_str());
+		return;
+	}
+
+	ResolveFieldExprAs(genType, pSynClass);
 }
 
 void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
@@ -391,6 +551,90 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			ResolveExpressionList(invoke.Params());
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.AddFlags(NF_Resolved);
+			m_pContext = pSavedContext;
+			return;
+		}
+	}
+
+	//Phase 8e-3 / 8e-4: built-in generic List<T> / Dict<K,V> methods.
+	//Synthetic generic SnClassDecl carries no real method members; dispatch
+	//by name here. Return types:
+	// - List Add/Set/RemoveAt/Clear, Dict Set/Clear: void (no EvalDataType)
+	// - List Length/IndexOf/Contains, Dict ContainsKey/Remove/Count: int
+	// - List Get: T (typeArgs[0]); Dict Get: V (typeArgs[1])
+	//All elements at runtime are heap idxs (boxed primitives or class refs);
+	//VmBackend emits OP_Box/OP_Unbox around primitive-typed call sites.
+	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
+		&& IsGenericClassDecl(static_cast<SnClassDecl*>(m_pContext))
+		&& pInnerExpr->Kind() == NK_InvokeExpr)
+	{
+		auto* pGenClass = static_cast<SnClassDecl*>(m_pContext);
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+		const auto& name = invoke.CalleeName();
+		const auto& baseName = pGenClass->BaseName();
+		bool isGenericMethod = false;
+		if (baseName == "List") {
+			isGenericMethod = (name == "Add" || name == "Get" || name == "Set"
+				|| name == "Length" || name == "RemoveAt" || name == "IndexOf"
+				|| name == "Contains" || name == "Clear");
+		} else if (baseName == "Dict") {
+			isGenericMethod = (name == "Set" || name == "Get"
+				|| name == "ContainsKey" || name == "Remove"
+				|| name == "Clear" || name == "Count"
+				|| name == "Keys");
+		}
+		if (isGenericMethod)
+		{
+			m_pContext = pSavedContext;
+			RemoveFlags(ERF_SearchInParentOnly);
+			ResolveExpressionList(invoke.Params());
+			pInnerExpr->AddFlags(NF_Resolved);
+			SnField* pResultField = nullptr;
+			auto typeArgs = GetGenericTypeArgs(pGenClass);
+			if (baseName == "List" && name == "Get") {
+				//Return type = T (typeArgs[0]).
+				if (!typeArgs.empty() && typeArgs[0]) {
+					snMember.EvalDataType(typeArgs[0]);
+					pResultField = typeArgs[0];
+				}
+			} else if (baseName == "Dict" && name == "Get") {
+				//Return type = V (typeArgs[1]).
+				if (typeArgs.size() > 1 && typeArgs[1]) {
+					snMember.EvalDataType(typeArgs[1]);
+					pResultField = typeArgs[1];
+				}
+			} else if (
+				(baseName == "List"
+					&& (name == "Length" || name == "IndexOf" || name == "Contains"))
+				|| (baseName == "Dict"
+					&& (name == "ContainsKey" || name == "Remove" || name == "Count"))
+			) {
+				auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
+				snMember.EvalDataType(pInt);
+				pResultField = pInt;
+			} else if (baseName == "Dict" && name == "Keys") {
+				//Phase 8e-5: Dict.Keys() returns List<K> where K = typeArgs[0].
+				//Synthesize a List<K> generic instantiation so foreach lowering
+				//and codegen's per-method boxing plan see the right element type.
+				if (!typeArgs.empty() && typeArgs[0]) {
+					std::vector<SnField*> listArgs{ typeArgs[0] };
+					auto* pListClass = GetGenericClassDecl("List", listArgs,
+						pInnerExpr->Location());
+					if (pListClass) {
+						//SnClassDecl IS-A SnField, so it can serve as EvalDataType.
+						snMember.EvalDataType(pListClass);
+						pResultField = pListClass;
+					}
+				}
+			}
+			// Add/Set/RemoveAt/Clear/Set: void (no EvalDataType)
+			// Set m_pField directly (not via ResolveFieldExprAs
+			// which would overwrite EvalDataType with SnType).
+			// Needed so IsDataExpr() doesn't crash when chained
+			// (e.g. lst.Get(0).length()).
+			if (pResultField)
+				snMember.m_pField = pResultField;
 			snMember.AddFlags(NF_Resolved);
 			m_pContext = pSavedContext;
 			return;

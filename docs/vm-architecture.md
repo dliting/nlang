@@ -126,6 +126,192 @@ entirely — they hold no outgoing references, so traversal would be wasted
 work and would misinterpret the type tag in slot[0] as a classIdx. SweepPhase
 frees them like any other unreachable slot.
 
+### Built-in Generic `List<T>` (Phase 8e-3)
+
+`List<T>` is a built-in generic class implementing **erasure semantics**
+(Java model): the type parameter `T` exists only at compile time. At
+runtime, all `List<X>` instantiations share a single backing
+CompiledClass ("List") with one hidden field `__handle` of type int.
+
+**Compile-time model.** The resolver maintains a per-(baseName, typeArgs)
+cache of synthetic SnClassDecl instances:
+
+```
+static std::map<std::tuple<std::string, std::vector<SnField*>>,
+                SnClassDecl*> s_genericInstances;
+```
+
+Each cache miss mints a new SnClassDecl named e.g. `"List<int>"` whose
+methods carry **substituted signatures** (T → int / Point / ...) for
+static type checking. A polymorphic-signature registry drives
+substitution:
+
+| Method     | Param slots    | Return slot |
+|------------|----------------|-------------|
+| Add        | [T]            | void        |
+| Get        | [int]          | T           |
+| Set        | [int, T]       | void        |
+| Length     | []             | int         |
+| RemoveAt   | [int]          | void        |
+| IndexOf    | [T]            | int         |
+| Contains   | [T]            | int         |
+| Clear      | []             | void        |
+
+A `m_bIsGenericInst = true` flag on the SnClassDecl marks synthetic
+instances so codegen knows to emit `OP_Box` for primitive-T method
+parameters and `OP_Unbox` for primitive-T Get() returns.
+
+**Runtime storage.** List elements live in a side table:
+
+```
+struct ListSlot {
+    std::vector<int32_t> elements;   // heap idxs (boxed primitives or class refs)
+};
+
+std::vector<ListSlot>   m_listStore;       // index = __handle - 1 (0 reserved for null)
+std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
+```
+
+All elements are heap indices uniformly — primitive T values are boxed
+at the call site (`OP_Box typeKind` before `OP_CallMethod`), class-T
+values pass through unchanged. This trades storage density for
+uniformity: GC tracing has no per-element kind check.
+
+**Intrinsics (9 new IDs).** List methods are dispatched through
+`OP_CallMethod` like any class method, but the function backing each
+name is a no-op stub that triggers `ExecuteIntrinsic`:
+
+| Intrinsic ID            | Behavior                                                |
+|-------------------------|---------------------------------------------------------|
+| `INTR_List_Ctor`        | Allocate ListSlot, store idx in `this.__handle`         |
+| `INTR_List_Add`         | Read boxed value heap idx from param, push_back         |
+| `INTR_List_Get`         | Read int idx, return elements[idx]                      |
+| `INTR_List_Set`         | Read int idx + heap idx, replace elements[idx]          |
+| `INTR_List_Length`      | Return elements.size()                                  |
+| `INTR_List_RemoveAt`    | Read int idx, elements.erase(...)                       |
+| `INTR_List_IndexOf`     | Linear search; return position or -1                    |
+| `INTR_List_Contains`    | Linear search; return 1 / 0                             |
+| `INTR_List_Clear`       | elements.clear()                                        |
+
+**GC integration.** MarkPhase walks class-instance children normally;
+when it encounters an instance whose slot[0] (`classIdx`) equals the
+cached `m_listClassIdx`, it additionally reads `__handle` (slot[1]) and
+marks every entry in `m_listStore[__handle-1].elements` as a heap
+reference. Out-of-bounds and free indices are skipped.
+
+SweepPhase mirrors this: when a List instance is collected, its
+`__handle` is pushed onto `m_listFreeList` for reuse by the next
+`INTR_List_Ctor`. The ListSlot itself is not freed (it may have live
+references from other List instances after handle reuse is impossible —
+in practice, since handle is recycled only when *this* List dies, the
+slot's contents are unreachable).
+
+**Codegen: NewExpr with constructor aliasing fix.** When `new T(args)`
+appears as a method-call argument, the naive emission (evaluate
+constructor args into callParamBase, then OP_New into resultOffset)
+clobbers the same callParamBase slot. The fix: after evaluating
+constructor args, allocate the OP_New result into the slot *after* the
+last param (`callParamBase + paramIdx * VALUE_SIZE`), then copy to
+resultOffset:
+
+```
+// args evaluated into callParamBase[1..N]
+allocSlot = callParamBase + N * VALUE_SIZE
+OP_New allocSlot, classIdx
+OP_CallMethodDirect ctorIdx, callParamBase   // ctor reads this=allocSlot
+OP_VarLocal allocSlot
+OP_Assign resultOffset                        // copy to caller's expected slot
+```
+
+### Built-in Generic `Dict<K,V>` (Phase 8e-4)
+
+`Dict<K,V>` mirrors `List<T>`'s architecture: **erasure semantics**,
+single backing CompiledClass ("Dict") across all instantiations, one
+hidden field `__handle` of type int. The compilation cache key becomes
+`(baseName, typeArgs)` with `typeArgs.size()` == 2; the runtime class
+is shared regardless of K and V.
+
+**Runtime storage.** Entries live in a side table:
+
+```
+struct DictSlot {
+    std::vector<std::pair<int32_t,int32_t>> entries;  // (K heap idx, V heap idx)
+};
+
+std::vector<DictSlot>   m_dictStore;       // index = __handle - 1
+std::vector<int32_t>    m_dictFreeList;    // recycled slots after GC sweep
+int16_t                 m_dictClassIdx;    // cached at module load
+```
+
+Both K and V are heap indices uniformly — primitive K/V values are
+boxed at the call site (`OP_Box typeKind` before `OP_CallMethod`).
+Lookup is **linear scan** O(n); the open-addressing hashtable
+optimization is a future phase.
+
+**Intrinsics (7 new IDs 53-59).**
+
+| Intrinsic ID           | Behavior                                                  |
+|------------------------|-----------------------------------------------------------|
+| `INTR_Dict_Ctor`       | Allocate DictSlot, store idx in `this.__handle`           |
+| `INTR_Dict_Set`        | Linear scan; if key exists replace V, else append (K,V)   |
+| `INTR_Dict_Get`        | Linear scan; throw "Dict key not found" if absent         |
+| `INTR_Dict_ContainsKey`| Linear scan; return 1 / 0                                 |
+| `INTR_Dict_Remove`     | Linear scan; erase if found, return 1 / 0                 |
+| `INTR_Dict_Clear`      | entries.clear()                                           |
+| `INTR_Dict_Count`      | Return entries.size()                                     |
+
+**Kind-aware equality.** `DictKeysEqual(k1, k2)` is the central
+helper used by Set/Get/ContainsKey/Remove:
+
+1. Identity fast path (`k1 == k2`).
+2. Bounds and kind-match check (`m_slotKinds[k1] == m_slotKinds[k2]`).
+3. Branch on kind:
+   - `RTK_Class` / `RTK_Struct`: identity (compare heap idxs).
+   - `RTK_Boxed`: branch on inner type tag (`m_structHeap[k][0]`):
+     - `RTK_Int32` / `RTK_Float`: compare value bits at
+       `m_structHeap[k][kBoxedValueSlot]` (IEEE 754 — `NaN != NaN`).
+     - `RTK_String`: compare `m_stringPool[bits]` content (value eq).
+
+This pattern generalizes the Phase 8e-3 fix-up C2 fix (List IndexOf/
+Contains value-bit comparison) to multi-tag keys.
+
+**Codegen: per-method boxing plan.** Replaces the List-specific
+codegen block. When the call target's class is a generic instantiation
+(`SnClassDecl::IsGenericInstantiation()`), the codegen builds a per-
+method plan based on `(baseName, methodName, typeArgs)`:
+
+```
+struct ArgBoxPlan { uint8_t tag; bool needsBox; };
+std::map<uint16_t, ArgBoxPlan> argPlans;   // paramIdx -> plan
+bool    returnsBoxed = false;
+uint8_t returnTag    = 0;
+```
+
+- List dispatch: `Add` → slot 1; `Set` → slot 2; `IndexOf`/`Contains`
+  → slot 1; `Get` → returnsBoxed.
+- Dict dispatch: `Set` → K at slot 1 + V at slot 2; `Get` → K at slot
+  1 + returnsBoxed (V); `ContainsKey`/`Remove` → K at slot 1.
+
+A shared helper `BoxingTagFor(SnField*)` returns a
+`BoxingTagResult {tag, isPrimitive}` so that `RTK_Int32 == 0` no
+longer collides with "no boxing" — the `isPrimitive` bool is the
+authoritative signal. The param loop emits `OP_Box <tag>` before
+`OP_CallMethod` for any slot in `argPlans`; after the call, `OP_Unbox
+<tag>` is emitted if `returnsBoxed`.
+
+**GC integration.** MarkPhase: when class-instance slot[0] equals
+`m_dictClassIdx`, read `__handle` (slot[1]) and mark both K and V of
+every entry as heap references. Out-of-bounds / free indices are
+skipped. SweepPhase: when a Dict instance is collected, push its
+`__handle` onto `m_dictFreeList` for reuse by the next `INTR_Dict_Ctor`.
+
+**ReadHandle uniform validation.** `ReadDictHandle(callParamBase,
+locals, methodName)` mirrors `ReadListHandle`: reads `thisHeapIdx`
+from the param base, throws "Dict `<method>` on null instance" if
+`thisHeapIdx <= 0`, throws "...on stale reference" if it exceeds the
+heap size, and throws "...on uninitialized instance" if the handle
+slot is 0. All 6 post-ctor intrinsics route through this helper.
+
 ## Bytecode Instructions
 
 ### Core
@@ -364,6 +550,80 @@ Each class includes: name, fieldCount, superClassIdx, fieldNames[],
 fieldTypeKinds[], fieldStructIndices[], fieldClassIndices[], fieldAccess[],
 methodIndices[], constructorIdx.
 
+## Foreach Statement Lowering (Phase 8e-5)
+
+`foreach (Type var in iterable) { body }` compiles to **index-based
+expansion** — no new opcode is introduced. The 12-step lowering mirrors
+the `for` loop pattern (line 1991 of VmBackend.cpp) with a body-prelude
+that loads element `i` into the user variable slot.
+
+### Hidden locals (uniquified for nesting)
+
+Each `foreach` allocates four hidden locals before the `LoopContext`
+push, named with a per-function counter to avoid `AllocLocal`'s dedup-
+by-name collision in nested loops:
+
+| Local | typeKind | Purpose |
+|-------|----------|---------|
+| `<varName>` | derived from element type | user-visible loop variable |
+| `__foreach_iter_<N>` | `RTK_Array` (Array) or `RTK_Class` (List/Dict) | iterable reference |
+| `__foreach_i_<N>` | `RTK_Int32` | loop counter |
+| `__foreach_n_<N>` | `RTK_Int32` | cached length |
+
+`<N>` comes from `FuncContext::foreachCounter`, which is reset to 0 at
+function entry.
+
+### Codegen 3-way branch
+
+The kind of iterable is detected at codegen time (not resolver time),
+preserving the user-visible AST:
+
+- **Array** (`T[N]`): iterable is `SnIdentifierExpr` whose `Field` has
+  `IsArrayType()`. Length via `OP_ArrayLength`; element via
+  `OP_LoadElement` (with `OP_CopyStruct` for struct-element types).
+- **List<T>**: iterable's `EvalDataType()` is `SnClassDecl` with
+  `BaseName()=="List"` and `IsGenericInstantiation()`. Length via
+  `OP_CallMethod "Length"`; element via `OP_CallMethod "Get"` followed
+  by `OP_Unbox` for primitive T (per-method boxing plan).
+- **Dict<K,V>**: iterable's `EvalDataType()` is `SnClassDecl` with
+  `BaseName()=="Dict"`. **Inline `Keys()` call** materializes a fresh
+  `List<K>` into `iterSlot` first (step 2b), then the rest mirrors the
+  List path with element type K.
+
+The `typeKind` of each hidden local is what GC uses at safepoints to
+identify reference roots, so `iterSlot` must be `RTK_Array` for the
+Array path and `RTK_Class` for List/Dict — incorrect tags would cause
+either leaked references (root missed) or spurious tracing of integer
+slots as heap idxs.
+
+### `Dict.Keys()` intrinsic
+
+`INTR_Dict_Keys = 60` (CompiledModule.h). Registered as a method on the
+Dict class with `paramCount=1, returnTypeKind=RTK_Class`. The VmExecutor
+handler:
+
+1. Reads the dict handle via `ReadDictHandle` (uniform null/stale/uninit
+   validation).
+2. `AllocClassOnHeap(m_listClassIdx)` — fresh List class instance.
+3. `AllocListHandle()` — fresh List side-table slot.
+4. Wires the handle into `m_structHeap[heapIdx][kListHandleFieldOffset]`.
+5. Copies `dict.entries[i].first` (the K heap idxs) into
+   `m_listStore[handle-1].elements`.
+6. Writes `listHeapIdx` to `pResult`; sets `m_gcPending = true`.
+
+The resulting `List<K>` is traced automatically by the existing GC
+`MarkPhase` (it already handles `classIdx == m_listClassIdx`). The K
+heap idxs already exist in the dict and are tracked through it; the new
+List holds additional references to the same objects, which is safe
+(GC mark bits dedupe).
+
+### LoopContext reuse
+
+`m_loopStack` already supports `break`/`continue` for `for`/`while`/`do`
+and `switch`. `foreach` pushes a `LoopContext{isSwitch=false}` and uses
+the same break/continue patch logic. `continue` jumps to the post-body
+"i = i + 1" site; `break` jumps to the loop end.
+
 ## Known Limitations
 
 1. **Exit code range**: Process exit codes are 8-bit (0-255) on Windows.
@@ -371,7 +631,12 @@ methodIndices[], constructorIdx.
 2. **No short-circuit evaluation**: `&&` and `||` evaluate both operands.
 3. **No super() call**: Ancestor constructors are not automatically invoked.
 4. **No struct methods**: Structs are data-only. Use classes for behavior.
-5. **No array type**: Not yet implemented (Phase 4).
-6. **No interface type**: Not yet implemented (Phase 6).
+5. **No user-defined generics**: `class Foo<T> { ... }` is not supported.
+   Only built-in generic classes (`List<T>`, `Dict<K,V>`) are
+   recognized by the compiler.
+6. **`List<int>` storage overhead**: each primitive element is boxed into
+   a heap slot (`RTK_Boxed`). For value-heavy lists, an `IntList`
+   specialization with unboxed storage is the planned escape hatch
+   (deferred until profiling shows real need).
 7. **String pool grows unbounded**: Concatenated strings are added to the pool
    but never collected.

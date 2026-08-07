@@ -71,6 +71,7 @@ using namespace nlang;
 	nlang::SnWhileStmt *					v_pWhileStmt;
 	nlang::SnDoStmt *						v_pDoStmt;
 	nlang::SnForStmt *						v_pForStmt;
+	nlang::SnForeachStmt *					v_pForeachStmt;
 	nlang::SnSwitchStmt *					v_pSwitchStmt;
 	nlang::SnCaseClause *					v_pCaseClause;
 	std::vector<nlang::SnCaseClause*> *		v_pCaseClauseList;
@@ -86,11 +87,14 @@ using namespace nlang;
 	nlang::PtrList<nlang::SnField> *	v_pClassMemberList;
 	nlang::SnInterfaceDecl *			v_pInterfaceDecl;
 	nlang::PtrList<nlang::SnFieldExpr> *	v_pNameExprList;
+	std::vector<nlang::SnFieldExpr*>*	v_pFieldExprVec;
 	std::vector<nlang::SnLocalDeclStmt::LocalDecl> * v_pLocalDeclList;
     nlang::PtrList<nlang::SnField> *		v_pMemberList;
 	nlang::SnField *						v_pField;
 	nlang::NodeBits							v_NodeFlags;
 	nlang::FieldAccessType					v_AccessType;
+	std::vector<nlang::InitEntry>*			v_pInitEntryList;
+	nlang::InitEntry*						v_pInitEntry;
 }
 
 %destructor { } <v_Char> <v_Byte> <v_UByte> <v_Short> <v_UShort> <v_Int> <v_UInt> <v_Float>
@@ -108,6 +112,7 @@ using namespace nlang;
 %type <v_NodeFlags>    			NodeFlags NodeFlag
 %type <v_pNameExpr>				NameExpr
 %type <v_pFieldExpr>				Type
+%type <v_pFieldExprVec>			TypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
 %type <v_pMemberExpr>			MemberExpr
@@ -120,11 +125,14 @@ using namespace nlang;
 %type <v_pFormalParamList>		FormalParamList
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr NewExpr NewArrayExpr SubscriptExpr
 %type <v_pExpressionList>		ConcreteParamList
+%type <v_pInitEntryList>		InitListElements InitListElementList InitEntries InitEntryList
+%type <v_pInitEntry>			InitEntry
 %type <v_pFunction>				Function FunctionHeader
 %type <v_pParagraph>			Paragraph FunctionBody DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
 %type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor
 %type <v_pForStmt>		ForStmt
+%type <v_pForeachStmt>	ForeachStmt
 %type <v_pDoStmt>		DoStmt
 %type <v_pSwitchStmt>	SwitchStmt
 %type <v_pCaseClause>	CaseClause
@@ -180,8 +188,10 @@ using namespace nlang;
 %token KT_False
 %token KT_Float
 %token KT_For
+%token KT_Foreach
 %token KT_If
 %token KT_Implements
+%token KT_In
 %token KT_Int
 %token KT_Interface
 %token KT_Namespace
@@ -458,6 +468,9 @@ Statement:	';' {
 				ForStmt {
 					$$ = $1;
 				} |
+				ForeachStmt {
+					$$ = $1;
+				} |
 				SwitchStmt {
 					$$ = $1;
 				} |
@@ -585,6 +598,14 @@ FiniFor:	{
 				} |
 				IdentifierExpr '=' Expression {
 					$$ = EnNew(SnAssignStmt($1, $3, @1));
+				} ;
+
+/*
+Foreach loop statement (Phase 8e-5).
+Iterates Array / List<T> / Dict<K,V> (keys).
+*/
+ForeachStmt:	KT_Foreach '(' Type TT_Identifier KT_In Expression ')' Statement {
+					$$ = EnNew(SnForeachStmt($3, *$4, $6, $8, @1));
 				} ;
 
 /*
@@ -821,8 +842,23 @@ NameExpr:	IdentifierExpr	{ $$ = EnNew(SnNameExpr($1, @1)); } |
 //suffix from subscript expression (arr[i]).
 //The array suffix produces a dedicated SnArrayTypeExpr node, keeping
 //SnNameExpr focused on plain name expressions.
+//Phase 8e-3: NameExpr '<' TypeList '>' produces SnGenericTypeExpr for
+//built-in generic types like List<T>. No LALR(1) conflict because Type
+//is only reached in declaration contexts where Expression is not a valid
+//reduction (Type is never an Expression in NLang grammar).
 Type:	NameExpr		{ $$ = $1; } |
+				NameExpr '<' TypeList '>'	{ $$ = EnNew(SnGenericTypeExpr($1, $3, @1)); } |
 				Type OT_Brackets	{ $$ = EnNew(SnArrayTypeExpr($1, @2)); } ;
+
+//Comma-separated list of type arguments inside `<...>`. Used only by
+//the generic Type rule above.
+TypeList:	Type {
+						$$ = new std::vector<nlang::SnFieldExpr*>{ $1 };
+					} |
+					TypeList ',' Type {
+						$1->push_back($3);
+						$$ = $1;
+					} ;
 
 Expression:	ParenthesesExpr	{ $$ = $1; } |
 				MemberExpr		{ $$ = $1; } |
@@ -834,6 +870,11 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
 				KT_This		{ $$ = EnNew(SnThisExpr(@1)); } |
 				KT_Null		{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(), 0, @1)); } |
+				//Phase 8e-6: bare `[...]` array/list literal. Only the bracket
+				//form is allowed bare; dict/struct `{...}` requires explicit
+				//`new Type{...}` because bare `{...}` would LALR-conflict
+				//with Paragraph (block statement).
+				'[' InitListElements ']'	{ $$ = EnNew(SnInitListExpr(nullptr, *$2, true, @1)); delete $2; } |
 				Expression '+' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1)); } |
 				Expression '-' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1)); } |
 				Expression '*' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Mul, $1, $3, @1)); } |
@@ -881,6 +922,31 @@ IdentifierExpr:	TT_Identifier	{ $$ = EnNew(SnIdentifierExpr($1, @1));			} |
 NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 					auto* pId = EnNew(SnIdentifierExpr($2, @2));
 					$$ = EnNew(SnNewExpr(EnNew(SnNameExpr(pId, @2)), $4, @1));
+				} |
+				//Phase 8e-3: generic construction `new List<int>()`.
+				//Separate rule to avoid touching the plain `new Foo()` parse
+				//(which has its own LALR state). $2 is the base class name;
+				//$4 is the type-args list; $7 is the constructor args.
+				KT_New TT_Identifier '<' TypeList '>' '(' ConcreteParamList ')' {
+					auto* pId = EnNew(SnIdentifierExpr($2, @2));
+					auto* pName = EnNew(SnNameExpr(pId, @2));
+					$$ = EnNew(SnNewExpr(EnNew(SnGenericTypeExpr(pName, $4, @2)), $7, @1));
+				} |
+				//Phase 8e-6: explicit collection init `new Foo{...}` /
+				//`new List<int>{...}`. Initializes a fresh instance with
+				//the given entries (dict key:value pairs or struct fields).
+				KT_New TT_Identifier '{' InitEntries '}' {
+					auto* pId = EnNew(SnIdentifierExpr($2, @2));
+					auto* pName = EnNew(SnNameExpr(pId, @2));
+					$$ = EnNew(SnInitListExpr(pName, *$4, false, @1));
+					delete $4;
+				} |
+				KT_New TT_Identifier '<' TypeList '>' '{' InitEntries '}' {
+					auto* pId = EnNew(SnIdentifierExpr($2, @2));
+					auto* pName = EnNew(SnNameExpr(pId, @2));
+					$$ = EnNew(SnInitListExpr(
+						EnNew(SnGenericTypeExpr(pName, $4, @2)), *$7, false, @1));
+					delete $7;
 				} ;
 
 NewArrayExpr:	KT_New Type '[' Expression ']' {
@@ -890,6 +956,68 @@ NewArrayExpr:	KT_New Type '[' Expression ']' {
 SubscriptExpr:	Expression '[' Expression ']' {
 					$$ = EnNew(SnSubscriptExpr($1, $3, @1));
 				} ;
+
+//Phase 8e-6: collection initializer element lists.
+//InitListElements is the comma-separated value list for the array form `[...]`.
+//InitEntries is the comma-separated key:value list for the brace form `{...}`.
+//Each InitEntry's key form (STRING vs IDENTIFIER) decides dict vs struct at
+//resolver time. Both lists may be empty (matches `[]` and `{}`).
+InitListElements:	{
+						$$ = new std::vector<nlang::InitEntry>();
+					} |
+					InitListElementList {
+						$$ = $1;
+					} ;
+
+InitListElementList:	Expression {
+						auto* pVec = new std::vector<nlang::InitEntry>();
+						nlang::InitEntry e;
+						e.keyKind = nlang::InitEntry::KeyKind::None;
+						e.pValue = $1;
+						pVec->push_back(std::move(e));
+						$$ = pVec;
+					} |
+					InitListElementList ',' Expression {
+						nlang::InitEntry e;
+						e.keyKind = nlang::InitEntry::KeyKind::None;
+						e.pValue = $3;
+						$1->push_back(std::move(e));
+						$$ = $1;
+					} ;
+
+InitEntries:	{
+						$$ = new std::vector<nlang::InitEntry>();
+					} |
+					InitEntryList {
+						$$ = $1;
+					} ;
+
+InitEntryList:	InitEntry {
+						auto* pVec = new std::vector<nlang::InitEntry>();
+						pVec->push_back(std::move(*$1));
+						delete $1;
+						$$ = pVec;
+					} |
+					InitEntryList ',' InitEntry {
+						$1->push_back(std::move(*$3));
+						delete $3;
+						$$ = $1;
+					} ;
+
+InitEntry:	TT_String ':' Expression {
+						auto* pE = new nlang::InitEntry();
+						pE->keyKind = nlang::InitEntry::KeyKind::String;
+						pE->keyStr = *$1;
+						pE->pValue = $3;
+						$$ = pE;
+					} |
+					TT_Identifier ':' Expression {
+						auto* pE = new nlang::InitEntry();
+						pE->keyKind = nlang::InitEntry::KeyKind::Identifier;
+						pE->keyStr = *$1;
+						pE->pValue = $3;
+						$$ = pE;
+					} ;
 
 ConcreteParamList:	ConcreteParamList ',' Expression {
 							if ($1->empty())

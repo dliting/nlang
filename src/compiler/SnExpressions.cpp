@@ -382,6 +382,43 @@ std::string SnArrayTypeExpr::ToString() const
 	return m_pElementType->ToString() + "[]";
 }
 
+//--- SnGenericTypeExpr (Phase 8e-3) ---
+
+SnGenericTypeExpr::SnGenericTypeExpr(SnFieldExpr *pBase,
+	std::vector<SnFieldExpr*> *pTypeArgs, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pBase(pBase),
+	m_upTypeArgs(pTypeArgs)
+{
+	assert(pBase);
+	assert(pTypeArgs);
+	AddChild(pBase);
+	for (auto *pTA : *pTypeArgs)
+	{
+		assert(pTA);
+		AddChild(pTA);
+	}
+}
+
+void SnGenericTypeExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnGenericTypeExpr::ToString() const
+{
+	std::stringstream ss;
+	ss << m_pBase->ToString() << '<';
+	bool first = true;
+	for (auto *pTA : *m_upTypeArgs)
+	{
+		if (!first) ss << ',';
+		ss << (pTA ? pTA->ToString() : std::string("<null>"));
+		first = false;
+	}
+	ss << '>';
+	return std::move(ss.str());
+}
+
 SnCastExpr::SnCastExpr(SnExpression *pSource, TypeCastInfo &ci, 
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pSource(pSource), m_pTarget(ci.Target()), 
@@ -576,6 +613,49 @@ void SnNewArrayExpr::Accept(ISyntaxNodeVisitor &v)
 std::string SnNewArrayExpr::ToString() const
 {
 	return "new_array";
+}
+
+//--- SnInitListExpr (Phase 8e-6) ---
+
+SnInitListExpr::SnInitListExpr(SnFieldExpr *pExplicitType,
+	std::vector<InitEntry> entries, bool isArrayForm,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc),
+	m_pExplicitType(pExplicitType),
+	m_entries(std::move(entries)),
+	m_isArrayForm(isArrayForm),
+	m_pResolvedTargetType(nullptr)
+{
+	if (m_pExplicitType)
+		AddChild(m_pExplicitType);
+	for (auto &e : m_entries)
+		if (e.pValue)
+			AddChild(e.pValue);
+}
+
+SnInitListExpr::~SnInitListExpr()
+{
+}
+
+bool SnInitListExpr::IsDataExpr() const
+{
+	return true;
+}
+
+void SnInitListExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnInitListExpr::ToString() const
+{
+	std::stringstream ss;
+	ss << (m_isArrayForm ? "init_list[" : "init_list{");
+	ss << m_entries.size() << " entries";
+	if (m_pExplicitType)
+		ss << ", explicit=" << m_pExplicitType->ToString();
+	ss << "}";
+	return std::move(ss.str());
 }
 
 } //namespace nlang

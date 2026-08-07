@@ -169,6 +169,10 @@ public:
 
 	void Access(SnArrayTypeExpr &) {}
 
+	//Phase 8e-3: generic type expressions are type-position only;
+	//no LLVM IR generation needed (VM backend handles codegen).
+	void Access(SnGenericTypeExpr &) {}
+
 	//Interface declarations have no statements to generate.
 	void Access(SnInterfaceDecl &) {}
 private:

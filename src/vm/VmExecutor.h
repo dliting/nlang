@@ -108,6 +108,24 @@ private:
     int32_t AllocByteStreamHandle();
     //Allocate a handle from the FileStream side table. Returns 1-based handle.
     int32_t AllocFileStreamHandle();
+    //Phase 8e-3: allocate a handle from the List<T> side table. Returns 1-based.
+    int32_t AllocListHandle();
+    //Phase 8e-3 fix-up: read this.__handle from callParamBase[0] for a List
+    //intrinsic. Validates this-heap-idx, handle, and upper bound. Returns the
+    //1-based handle. methodName is used in error messages.
+    int32_t ReadListHandle(uint16_t callParamBase, uint8_t* locals,
+        const char* methodName);
+    //Phase 8e-4: Dict<K,V> side table operations. Mirror List's shape.
+    int32_t AllocDictHandle();
+    int32_t ReadDictHandle(uint16_t callParamBase, uint8_t* locals,
+        const char* methodName);
+    //Phase 8e-4: kind-aware key equality. Branches on m_slotKinds[k]:
+    //  RTK_Class/RTK_Struct → heap-idx identity
+    //  RTK_Boxed + tag RTK_Int32  → value-bit equality
+    //  RTK_Boxed + tag RTK_Float  → IEEE 754 value-bit equality (NaN≠NaN)
+    //  RTK_Boxed + tag RTK_String → string-pool content equality
+    //Returns false when either idx is out of bounds or kind mismatch.
+    bool DictKeysEqual(int32_t k1, int32_t k2) const;
 
     //Phase 8c: clear per-stream object-ID tables. Called from BS_Reset,
     //BS_Close, and FS_Close so subsequent operations start with a fresh
@@ -194,6 +212,36 @@ private:
     };
     std::vector<std::unique_ptr<FileStreamState>> m_fileStreams;
     std::vector<int32_t> m_fileStreamFreeList;
+
+    //Phase 8e-3: List<T> side table. All elements are heap idxs (boxed
+    //primitives via OP_Box, or class refs directly). One CompiledClass named
+    //"List" is shared by all instantiations (erasure). The synthetic
+    //SnClassDecl "List<int>" / "List<Point>" / ... exists only at compile time.
+    struct ListSlot {
+        std::vector<int32_t> elements;  //each entry is a heap idx (RTK_Boxed or RTK_Class)
+    };
+    std::vector<ListSlot> m_listStore;       //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>  m_listFreeList;    //recycled slots after GC sweep
+    int16_t m_listClassIdx = -1;             //set when "List" CompiledClass is located
+
+    //Phase 8e-4: Dict<K,V> side table. Entries are (K heap idx, V heap idx)
+    //pairs; K and V are uniformly heap idxs (boxed primitives via OP_Box at
+    //the call site, or class refs passed directly). Linear-scan lookup is
+    //O(n) per op — acceptable for typical NLang scripts; future optimization
+    //(open-addressing hashtable) is a separate phase.
+    struct DictSlot {
+        std::vector<std::pair<int32_t, int32_t>> entries;
+    };
+    std::vector<DictSlot> m_dictStore;       //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>  m_dictFreeList;    //recycled slots after GC sweep
+    int16_t m_dictClassIdx = -1;             //set when "Dict" CompiledClass is located
+
+    //slot[0] of a List instance heap entry holds classIdx; slot[1] holds __handle.
+    //Used by GC trace/sweep and ReadListHandle.
+    static constexpr int kListHandleFieldOffset = 1;
+    //A RTK_Boxed heap slot has layout [typeTag, valueBits]. Used by List
+    //IndexOf/Contains to compare primitive elements by value (C2 fix).
+    static constexpr int kBoxedValueSlot = 1;
 };
 
 } // namespace nlang

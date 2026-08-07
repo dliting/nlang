@@ -400,6 +400,45 @@ SnField *SnForStmt::FindField(const std::string& sName) const
 	return nullptr;
 }
 
+//SnForeachStmt
+
+SnForeachStmt::SnForeachStmt(SnFieldExpr *pVarType, const std::string& varName,
+	SnExpression *pIterable, SnStatement *pBody,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pVarType(pVarType), m_varName(varName),
+	m_pIterable(pIterable), m_pBody(pBody)
+{
+	assert(m_pVarType);
+	assert(m_pIterable);
+	assert(m_pBody);
+	AddChild(m_pVarType);
+	AddChild(m_pIterable);
+	AddChild(m_pBody);
+}
+
+SnForeachStmt::~SnForeachStmt()
+{
+}
+
+std::string SnForeachStmt::ToString() const
+{
+	std::stringstream ss;
+	ss << "foreach (" << m_pVarType->ToString() << " " << m_varName
+	   << " in " << m_pIterable->ToString() << ") "
+	   << m_pBody->ToString();
+	return ss.str();
+}
+
+void SnForeachStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnForeachStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
 //SnBreakStmt
 
 SnBreakStmt::SnBreakStmt(const ISourceLocation &loc) :

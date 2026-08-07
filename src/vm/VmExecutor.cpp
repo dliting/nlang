@@ -21,6 +21,17 @@ int VmExecutor::Execute(const CompiledModule& module) {
     m_byteStreamFreeList.clear();
     m_fileStreams.clear();
     m_fileStreamFreeList.clear();
+    //Phase 8e-3: reset List<T> side table and cache the class index.
+    m_listStore.clear();
+    m_listFreeList.clear();
+    int listIdx = module.FindClass("List");
+    m_listClassIdx = (listIdx >= 0) ? static_cast<int16_t>(listIdx) : -1;
+
+    //Phase 8e-4: reset Dict<K,V> side table and cache the class index.
+    m_dictStore.clear();
+    m_dictFreeList.clear();
+    int dictIdx = module.FindClass("Dict");
+    m_dictClassIdx = (dictIdx >= 0) ? static_cast<int16_t>(dictIdx) : -1;
 
     int mainIdx = module.FindFunction("main");
     if (mainIdx < 0)
@@ -1125,6 +1136,52 @@ void VmExecutor::MarkPhase() {
                     }
                 }
             }
+            //Phase 8e-3: trace List<T> elements as additional GC roots.
+            if (static_cast<int16_t>(classIdx) == m_listClassIdx) {
+                int32_t handle = m_structHeap[idx][kListHandleFieldOffset];
+                if (handle > 0) {
+                    size_t h = static_cast<size_t>(handle - 1);
+                    if (h < m_listStore.size()) {
+                        for (int32_t elem : m_listStore[h].elements) {
+                            if (elem > 0
+                                && static_cast<size_t>(elem) < m_slotKinds.size()
+                                && !m_markBits[elem]) {
+                                auto k = m_slotKinds[elem];
+                                if (k == RTK_Class || k == RTK_Struct
+                                    || k == RTK_Boxed) {
+                                    m_markBits[elem] = true;
+                                    if (k == RTK_Class || k == RTK_Struct)
+                                        worklist.push_back(elem);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            //Phase 8e-4: trace Dict<K,V> entries (both K and V are heap idxs).
+            if (static_cast<int16_t>(classIdx) == m_dictClassIdx) {
+                int32_t handle = m_structHeap[idx][kListHandleFieldOffset];
+                if (handle > 0) {
+                    size_t h = static_cast<size_t>(handle - 1);
+                    if (h < m_dictStore.size()) {
+                        for (auto& kv : m_dictStore[h].entries) {
+                            for (int32_t elem : {kv.first, kv.second}) {
+                                if (elem > 0
+                                    && static_cast<size_t>(elem) < m_slotKinds.size()
+                                    && !m_markBits[elem]) {
+                                    auto k = m_slotKinds[elem];
+                                    if (k == RTK_Class || k == RTK_Struct
+                                        || k == RTK_Boxed) {
+                                        m_markBits[elem] = true;
+                                        if (k == RTK_Class || k == RTK_Struct)
+                                            worklist.push_back(elem);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         } else if (m_slotKinds[idx] == RTK_Struct) {
             uint16_t structIdx = m_slotStructIdx[idx];
             auto& cs = m_currModule->structs[structIdx];
@@ -1168,8 +1225,22 @@ void VmExecutor::SweepPhase() {
     for (size_t i = 1; i < m_structHeap.size(); ++i) {
         if (m_slotKinds[i] == 0) continue;
         if (!m_markBits[i]) {
-            if (m_slotKinds[i] == RTK_Class)
+            if (m_slotKinds[i] == RTK_Class) {
+                //Phase 8e-3: recycle List<T> handle when a List instance is freed.
+                int32_t classIdx = m_structHeap[i][0];
+                if (static_cast<int16_t>(classIdx) == m_listClassIdx) {
+                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+                    if (handle > 0)
+                        m_listFreeList.push_back(handle);
+                }
+                //Phase 8e-4: recycle Dict<K,V> handle when a Dict instance is freed.
+                if (static_cast<int16_t>(classIdx) == m_dictClassIdx) {
+                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+                    if (handle > 0)
+                        m_dictFreeList.push_back(handle);
+                }
                 FreeOwnedStructs(static_cast<int32_t>(i));
+            }
             if (m_slotKinds[i] == RTK_Struct)
                 FreeNestedStructs(static_cast<int32_t>(i), m_slotStructIdx[i]);
             if (m_slotKinds[i] == RTK_Array)
@@ -1614,6 +1685,106 @@ int32_t VmExecutor::AllocFileStreamHandle() {
     int32_t h = static_cast<int32_t>(m_fileStreams.size()) + 1;
     m_fileStreams.push_back(std::make_unique<FileStreamState>());
     return h;
+}
+
+//Phase 8e-3: allocate a handle from the List<T> side table.
+//Handles are 1-based; __handle==0 means null (uninitialized).
+int32_t VmExecutor::AllocListHandle() {
+    if (!m_listFreeList.empty()) {
+        int32_t h = m_listFreeList.back();
+        m_listFreeList.pop_back();
+        m_listStore[h - 1] = ListSlot{};
+        return h;
+    }
+    int32_t h = static_cast<int32_t>(m_listStore.size()) + 1;
+    m_listStore.emplace_back();
+    return h;
+}
+
+//Phase 8e-4: Dict<K,V> helpers — mirror List's shape.
+int32_t VmExecutor::AllocDictHandle() {
+    if (!m_dictFreeList.empty()) {
+        int32_t h = m_dictFreeList.back();
+        m_dictFreeList.pop_back();
+        m_dictStore[h - 1] = DictSlot{};
+        return h;
+    }
+    int32_t h = static_cast<int32_t>(m_dictStore.size()) + 1;
+    m_dictStore.emplace_back();
+    return h;
+}
+
+int32_t VmExecutor::ReadDictHandle(uint16_t callParamBase, uint8_t* locals,
+    const char* methodName)
+{
+    int32_t thisHeapIdx;
+    std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+    if (thisHeapIdx <= 0)
+        throw std::runtime_error(
+            std::string("NLang VM: Dict ") + methodName + " on null instance");
+    if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+        throw std::runtime_error(
+            std::string("NLang VM: Dict ") + methodName + " on stale reference");
+    int32_t handle = m_structHeap[static_cast<size_t>(thisHeapIdx)]
+        [kListHandleFieldOffset];
+    if (handle <= 0)
+        throw std::runtime_error(
+            std::string("NLang VM: Dict ") + methodName +
+            " on uninitialized instance");
+    return handle;
+}
+
+bool VmExecutor::DictKeysEqual(int32_t k1, int32_t k2) const {
+    //Identity fast path (also handles k1==k2==0/null).
+    if (k1 == k2) return true;
+    if (k1 <= 0 || k2 <= 0) return false;
+    if (static_cast<size_t>(k1) >= m_slotKinds.size()
+        || static_cast<size_t>(k2) >= m_slotKinds.size())
+        return false;
+    //Kind must match.
+    if (m_slotKinds[k1] != m_slotKinds[k2]) return false;
+    auto kind = m_slotKinds[k1];
+    if (kind != RTK_Boxed && kind != RTK_Class && kind != RTK_Struct)
+        return false;
+    if (kind == RTK_Class || kind == RTK_Struct)
+        return k1 == k2;  //identity (k1!=k2 already checked above → false)
+    //RTK_Boxed: branch on the wrapped type tag (slot[0]).
+    int32_t tag1 = m_structHeap[static_cast<size_t>(k1)][0];
+    int32_t tag2 = m_structHeap[static_cast<size_t>(k2)][0];
+    if (tag1 != tag2) return false;
+    int32_t bits1 = m_structHeap[static_cast<size_t>(k1)][kBoxedValueSlot];
+    int32_t bits2 = m_structHeap[static_cast<size_t>(k2)][kBoxedValueSlot];
+    if (tag1 == RTK_String) {
+        //bits are string-pool idxs.
+        if (bits1 < 0 || bits1 >= (int32_t)m_stringPool.size()) return false;
+        if (bits2 < 0 || bits2 >= (int32_t)m_stringPool.size()) return false;
+        return m_stringPool[bits1] == m_stringPool[bits2];
+    }
+    return bits1 == bits2;  //int / float value bits
+}
+
+//Phase 8e-3 fix-up: read this.__handle from callParamBase[0] for a List
+//intrinsic. Validates this-heap-idx, upper bound, and handle. Throws uniformly
+//on null/stale/uninitialized; the previous "silently no-op for some methods"
+//behavior was inconsistent (H1) and made bugs hard to spot.
+int32_t VmExecutor::ReadListHandle(uint16_t callParamBase, uint8_t* locals,
+    const char* methodName)
+{
+    int32_t thisHeapIdx;
+    std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+    if (thisHeapIdx <= 0)
+        throw std::runtime_error(
+            std::string("NLang VM: List ") + methodName + " on null instance");
+    if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+        throw std::runtime_error(
+            std::string("NLang VM: List ") + methodName + " on stale reference");
+    int32_t handle = m_structHeap[static_cast<size_t>(thisHeapIdx)]
+        [kListHandleFieldOffset];
+    if (handle <= 0)
+        throw std::runtime_error(
+            std::string("NLang VM: List ") + methodName +
+            " on uninitialized instance");
+    return handle;
 }
 
 //Helper: read this.__handle from callParamBase[0].
@@ -2237,6 +2408,273 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t hash = static_cast<int32_t>(
             std::hash<std::string>{}(s));
         std::memcpy(pResult, &hash, sizeof(hash));
+        return;
+    }
+
+    //Phase 8e-3: List<T> built-in generic (erasure-style, 9 intrinsics).
+    //All elements are heap idxs — boxed primitives or class refs. The same
+    //CompiledClass "List" serves all instantiations. T-typed args are boxed
+    //by VmBackend before OP_CallMethod; Get() returns boxed and is unboxed
+    //by OP_Unbox after.
+
+    //INTR_List_Ctor: allocate a ListSlot, store handle in __handle field.
+    if (intrinsicId == INTR_List_Ctor) {
+        int32_t thisHeapIdx;
+        std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+        if (thisHeapIdx <= 0)
+            throw std::runtime_error("NLang VM: List ctor on null instance");
+        if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+            throw std::runtime_error("NLang VM: List ctor on stale reference");
+        int32_t handle = AllocListHandle();
+        //__handle is field slot kListHandleFieldOffset (slot 0 = classIdx)
+        m_structHeap[static_cast<size_t>(thisHeapIdx)]
+            [kListHandleFieldOffset] = handle;
+        return;
+    }
+    //INTR_List_Add: push element to list.
+    if (intrinsicId == INTR_List_Add) {
+        int32_t value;
+        std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
+        int32_t handle = ReadListHandle(callParamBase, locals, "Add");
+        m_listStore[handle - 1].elements.push_back(value);
+        return;
+    }
+    //INTR_List_Get: return element at index.
+    if (intrinsicId == INTR_List_Get) {
+        int32_t idx;
+        std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
+        int32_t handle = ReadListHandle(callParamBase, locals, "Get");
+        auto& lst = m_listStore[handle - 1];
+        if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
+            throw std::runtime_error("NLang VM: List index out of bounds");
+        int32_t val = lst.elements[idx];
+        std::memcpy(pResult, &val, sizeof(val));
+        return;
+    }
+    //INTR_List_Set: replace element at index.
+    if (intrinsicId == INTR_List_Set) {
+        int32_t idx, value;
+        std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
+        std::memcpy(&value, locals + callParamBase + 2 * VALUE_SIZE, sizeof(value));
+        int32_t handle = ReadListHandle(callParamBase, locals, "Set");
+        auto& lst = m_listStore[handle - 1];
+        if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
+            throw std::runtime_error("NLang VM: List index out of bounds");
+        lst.elements[idx] = value;
+        return;
+    }
+    //INTR_List_Length: return elements.size().
+    if (intrinsicId == INTR_List_Length) {
+        int32_t handle = ReadListHandle(callParamBase, locals, "Length");
+        int32_t len = static_cast<int32_t>(m_listStore[handle - 1].elements.size());
+        std::memcpy(pResult, &len, sizeof(len));
+        return;
+    }
+    //INTR_List_RemoveAt: erase element at index.
+    if (intrinsicId == INTR_List_RemoveAt) {
+        int32_t idx;
+        std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
+        int32_t handle = ReadListHandle(callParamBase, locals, "RemoveAt");
+        auto& lst = m_listStore[handle - 1];
+        if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
+            throw std::runtime_error("NLang VM: List index out of bounds");
+        lst.elements.erase(lst.elements.begin() + idx);
+        return;
+    }
+    //INTR_List_IndexOf: linear search; return position or -1.
+    //C2 fix: for primitive-T lists, OP_Box wraps `value` before this call,
+    //so `value` is a heap idx into a RTK_Boxed slot. Compare slot[1] (value
+    //bits). For class-T lists, `value` is the heap idx directly. Decide by
+    //peeking at m_slotKinds of the first element (or of `value` itself when
+    //the list is empty — caller-side OP_Box still allocated a slot we can
+    //inspect).
+    if (intrinsicId == INTR_List_IndexOf) {
+        int32_t value;
+        std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
+        int32_t handle = ReadListHandle(callParamBase, locals, "IndexOf");
+        auto& lst = m_listStore[handle - 1];
+        int32_t result = -1;
+        bool primitiveT = (value > 0
+            && static_cast<size_t>(value) < m_slotKinds.size()
+            && m_slotKinds[value] == RTK_Boxed);
+        int32_t valBits = 0;
+        if (primitiveT)
+            valBits = m_structHeap[static_cast<size_t>(value)]
+                [kBoxedValueSlot];
+        for (size_t i = 0; i < lst.elements.size(); ++i) {
+            int32_t elem = lst.elements[i];
+            bool match = false;
+            if (primitiveT) {
+                if (elem > 0
+                    && static_cast<size_t>(elem) < m_slotKinds.size()
+                    && m_slotKinds[elem] == RTK_Boxed
+                    && m_structHeap[static_cast<size_t>(elem)]
+                        [kBoxedValueSlot] == valBits) {
+                    match = true;
+                }
+            } else {
+                if (elem == value) match = true;
+            }
+            if (match) { result = static_cast<int32_t>(i); break; }
+        }
+        std::memcpy(pResult, &result, sizeof(result));
+        return;
+    }
+    //INTR_List_Contains: return 1 if found, 0 otherwise. Same primitive-vs-
+    //class branching as IndexOf (C2 fix).
+    if (intrinsicId == INTR_List_Contains) {
+        int32_t value;
+        std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
+        int32_t handle = ReadListHandle(callParamBase, locals, "Contains");
+        auto& lst = m_listStore[handle - 1];
+        int32_t result = 0;
+        bool primitiveT = (value > 0
+            && static_cast<size_t>(value) < m_slotKinds.size()
+            && m_slotKinds[value] == RTK_Boxed);
+        int32_t valBits = 0;
+        if (primitiveT)
+            valBits = m_structHeap[static_cast<size_t>(value)]
+                [kBoxedValueSlot];
+        for (size_t i = 0; i < lst.elements.size(); ++i) {
+            int32_t elem = lst.elements[i];
+            bool match = false;
+            if (primitiveT) {
+                if (elem > 0
+                    && static_cast<size_t>(elem) < m_slotKinds.size()
+                    && m_slotKinds[elem] == RTK_Boxed
+                    && m_structHeap[static_cast<size_t>(elem)]
+                        [kBoxedValueSlot] == valBits) {
+                    match = true;
+                }
+            } else {
+                if (elem == value) match = true;
+            }
+            if (match) { result = 1; break; }
+        }
+        std::memcpy(pResult, &result, sizeof(result));
+        return;
+    }
+    //INTR_List_Clear: remove all elements.
+    if (intrinsicId == INTR_List_Clear) {
+        int32_t handle = ReadListHandle(callParamBase, locals, "Clear");
+        m_listStore[handle - 1].elements.clear();
+        return;
+    }
+
+    //Phase 8e-4: Dict<K,V> built-in generic (erasure-style, 7 intrinsics).
+    //Keys and values are uniformly heap idxs (boxed primitives via OP_Box at
+    //the call site, or class refs directly). Linear-scan lookup with kind-
+    //aware equality via DictKeysEqual.
+
+    //INTR_Dict_Ctor: allocate DictSlot, store handle.
+    if (intrinsicId == INTR_Dict_Ctor) {
+        int32_t thisHeapIdx;
+        std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+        if (thisHeapIdx <= 0)
+            throw std::runtime_error("NLang VM: Dict ctor on null instance");
+        if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+            throw std::runtime_error("NLang VM: Dict ctor on stale reference");
+        int32_t handle = AllocDictHandle();
+        m_structHeap[static_cast<size_t>(thisHeapIdx)]
+            [kListHandleFieldOffset] = handle;
+        return;
+    }
+    //INTR_Dict_Set: insert-or-replace (linear scan).
+    if (intrinsicId == INTR_Dict_Set) {
+        int32_t k, v;
+        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
+        std::memcpy(&v, locals + callParamBase + 2 * VALUE_SIZE, sizeof(v));
+        int32_t handle = ReadDictHandle(callParamBase, locals, "Set");
+        auto& entries = m_dictStore[handle - 1].entries;
+        for (auto& kv : entries) {
+            if (DictKeysEqual(kv.first, k)) { kv.second = v; return; }
+        }
+        entries.push_back({k, v});
+        return;
+    }
+    //INTR_Dict_Get: lookup; throw on missing key.
+    if (intrinsicId == INTR_Dict_Get) {
+        int32_t k;
+        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
+        int32_t handle = ReadDictHandle(callParamBase, locals, "Get");
+        auto& entries = m_dictStore[handle - 1].entries;
+        for (auto& kv : entries) {
+            if (DictKeysEqual(kv.first, k)) {
+                std::memcpy(pResult, &kv.second, sizeof(kv.second));
+                return;
+            }
+        }
+        throw std::runtime_error("NLang VM: Dict key not found");
+    }
+    //INTR_Dict_ContainsKey: 1 if found, 0 otherwise.
+    if (intrinsicId == INTR_Dict_ContainsKey) {
+        int32_t k;
+        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
+        int32_t handle = ReadDictHandle(callParamBase, locals, "ContainsKey");
+        auto& entries = m_dictStore[handle - 1].entries;
+        int32_t result = 0;
+        for (auto& kv : entries) {
+            if (DictKeysEqual(kv.first, k)) { result = 1; break; }
+        }
+        std::memcpy(pResult, &result, sizeof(result));
+        return;
+    }
+    //INTR_Dict_Remove: 1 if removed, 0 if not found.
+    if (intrinsicId == INTR_Dict_Remove) {
+        int32_t k;
+        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
+        int32_t handle = ReadDictHandle(callParamBase, locals, "Remove");
+        auto& entries = m_dictStore[handle - 1].entries;
+        int32_t result = 0;
+        for (auto it = entries.begin(); it != entries.end(); ++it) {
+            if (DictKeysEqual(it->first, k)) {
+                entries.erase(it);
+                result = 1;
+                break;
+            }
+        }
+        std::memcpy(pResult, &result, sizeof(result));
+        return;
+    }
+    //INTR_Dict_Clear: drop all entries.
+    if (intrinsicId == INTR_Dict_Clear) {
+        int32_t handle = ReadDictHandle(callParamBase, locals, "Clear");
+        m_dictStore[handle - 1].entries.clear();
+        return;
+    }
+    //INTR_Dict_Count: entry count.
+    if (intrinsicId == INTR_Dict_Count) {
+        int32_t handle = ReadDictHandle(callParamBase, locals, "Count");
+        int32_t n = static_cast<int32_t>(m_dictStore[handle - 1].entries.size());
+        std::memcpy(pResult, &n, sizeof(n));
+        return;
+    }
+    //INTR_Dict_Keys (Phase 8e-5): allocate a fresh List<K> heap instance and
+    //populate it with every dict entry's key (entries[i].first). The result
+    //is a heap idx the caller treats as List<K>; element type K is known to
+    //codegen (set when the resolver synthesized the List<K> return type), so
+    //any subsequent Get(i) on the result will unbox correctly for primitive K.
+    if (intrinsicId == INTR_Dict_Keys) {
+        int32_t dictHandle = ReadDictHandle(callParamBase, locals, "Keys");
+        auto& src = m_dictStore[dictHandle - 1].entries;
+
+        //Allocate the List<K> class instance on the heap + a fresh List handle.
+        if (m_listClassIdx < 0)
+            throw std::runtime_error("NLang VM: List class not registered");
+        int32_t listHeapIdx = AllocClassOnHeap(
+            static_cast<uint16_t>(m_listClassIdx));
+        int32_t listHandle  = AllocListHandle();
+        m_structHeap[static_cast<size_t>(listHeapIdx)]
+            [kListHandleFieldOffset] = listHandle;
+
+        //Populate elements from dict keys.
+        auto& dst = m_listStore[listHandle - 1].elements;
+        dst.reserve(src.size());
+        for (auto& kv : src)
+            dst.push_back(kv.first);
+
+        std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
+        m_gcPending = true;
         return;
     }
 

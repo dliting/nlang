@@ -280,6 +280,145 @@ does not include the implicit Object parent (only VmBackend's
 `Object o = somePoint;` and `o as Point` work without requiring
 Point's AST parent chain to mention Object.
 
+## Built-in Generic Classes
+
+### `List<T>` — Phase 8e-3
+
+`List<T>` is a growable, ordered, index-addressable collection. It is
+a **built-in generic class** — only `List` (and future `Dict`) are
+recognized by the compiler; user-defined `class Foo<T>` is not (yet)
+supported.
+
+```
+List<int> nums = new List<int>();
+nums.Add(1);
+nums.Add(2);
+nums.Add(3);
+int sum = nums.Get(0) + nums.Get(1) + nums.Get(2);    // 6
+int n = nums.Length();                                 // 3
+
+List<string> names = new List<string>();
+names.Add("alice");
+names.Add("bob");
+int total = (names.Get(0) + names.Get(1)).Length();    // 8
+```
+
+**Methods** (T is the element type):
+
+| Method              | Signature          | Returns | Notes                              |
+|---------------------|--------------------|---------|------------------------------------|
+| `Add`               | `void Add(T item)` | —       | Append to end                      |
+| `Get`               | `T Get(int idx)`   | T       | Read by index; throws if OOB       |
+| `Set`               | `void Set(int i, T)` | —     | Overwrite element                  |
+| `Length`            | `int Length()`     | int     | Current element count              |
+| `RemoveAt`          | `void RemoveAt(int i)` | —   | Erase; shifts later elements down  |
+| `IndexOf`           | `int IndexOf(T item)` | int | First index of `item`, or -1       |
+| `Contains`          | `int Contains(T item)` | int | 1 if present else 0               |
+| `Clear`             | `void Clear()`     | —       | Remove all elements                |
+
+**Type checking**: the compiler recognizes `List<int>`, `List<string>`,
+`List<Point>`, etc. as distinct static types. Argument types are checked
+against the substituted signature — `nums.Add("wrong")` is a compile
+error when `nums : List<int>`.
+
+**Erasure runtime model**: `List<int>` and `List<Point>` share the same
+backing class at runtime. Elements are stored uniformly as heap indices
+in a side table (`m_listStore`); primitive elements are boxed via
+`OP_Box` at the call site. GC traces list elements as additional roots.
+
+**Null List reference**: a `List<T>` field or variable that has not been
+assigned `new List<T>()` holds null. Calling any method on null throws
+`null reference in CallMethod` (same NPE semantics as other class refs).
+
+**No collection initializer (yet)**: `[1, 2, 3]` literal syntax is not
+supported. Populate via repeated `Add`.
+
+**No `foreach` (yet)**: see the Foreach Statement section for the
+index-based `foreach` construct shipped in Phase 8e-5.
+
+**Nested generics** (`List<List<int>>`): no `>>` token in NLang (the
+lexer always produces two `>` tokens), so the parser accepts nested
+generic type args. However, deep type-checker recursion is not yet
+exercised by tests — defer to a follow-up if issues arise.
+
+### `Dict<K,V>` — Phase 8e-4
+
+`Dict<K,V>` is an associative array mapping keys of type `K` to values
+of type `V`. Like `List<T>`, it is a **built-in generic class** — only
+`List` and `Dict` are recognized by the compiler; user-defined generics
+are not (yet) supported.
+
+```
+Dict<string,int> scores = new Dict<string,int>();
+scores.Set("alice", 90);
+scores.Set("bob",   85);
+int a = scores.Get("alice");          // 90
+int hasBob = scores.ContainsKey("bob"); // 1
+int n = scores.Count();                 // 2
+
+Dict<int,int> squares = new Dict<int,int>();
+squares.Set(3, 9);
+squares.Set(4, 16);
+squares.Set(3, 99);                     // overwrites 9 → 99
+int v = squares.Get(3);                 // 99
+int removed = squares.Remove(4);        // 1
+```
+
+**Methods** (K is the key type, V is the value type):
+
+| Method           | Signature                  | Returns | Notes                                          |
+|------------------|----------------------------|---------|------------------------------------------------|
+| `Set`            | `void Set(K key, V value)` | —       | Insert-or-replace (no duplicate-key error)     |
+| `Get`            | `V Get(K key)`             | V       | Lookup; **throws** if key absent               |
+| `ContainsKey`    | `int ContainsKey(K key)`   | int     | 1 if present, 0 otherwise                      |
+| `Remove`         | `int Remove(K key)`        | int     | 1 if removed, 0 if key not found               |
+| `Clear`          | `void Clear()`             | —       | Remove all entries                             |
+| `Count`          | `int Count()`              | int     | Current entry count                            |
+
+**Type checking**: the compiler recognizes `Dict<int,int>`,
+`Dict<string,Point>`, etc. as distinct static types. Argument types are
+checked against the substituted signature — `d.Set("x", "y")` is a
+compile error when `d : Dict<string,int>`.
+
+**Erasure runtime model**: `Dict<K,V>` shares a single backing class
+across all instantiations. Entries are stored as `(K heap idx, V heap
+idx)` pairs in a side table (`m_dictStore`); primitive keys/values are
+boxed via `OP_Box` at the call site. GC traces every entry's K and V as
+additional roots.
+
+**Key equality** is kind-aware:
+- Primitive keys (boxed `int`, `float`): compare value bits (IEEE 754 —
+  `NaN != NaN`, documented behavior).
+- `string` keys: compare string-pool content (value equality).
+- `class` / `struct` keys: compare heap idx (identity), matching Java's
+  `IdentityHashMap` and C#'s default `object.Equals`. A user `Equals`
+  override is **not** consulted — override-based dictionary semantics
+  are a separate future phase.
+
+**Null Dict reference**: a `Dict<K,V>` field or variable that has not
+been assigned `new Dict<K,V>()` holds null. Calling any method on null
+throws `NLang VM: Dict <method> on null instance`.
+
+**Linear-scan lookup (current limitation)**: every `Set`/`Get`/
+`ContainsKey`/`Remove` does an O(n) scan of the entries vector. This is
+acceptable for typical small scripts; O(1) hashtable lookup is a future
+optimization phase.
+
+**`foreach` over keys (Phase 8e-5)**: `foreach (K k in dict) { ... }`
+iterates the keys of the dict, Python/JavaScript style. Inside the body,
+call `dict.Get(k)` to access the value. Implementation: codegen emits
+an inline `dict.Keys()` call to materialize a fresh `List<K>`, then
+iterates that list. See the Foreach Statement section below.
+
+**`Dict.Keys()`**: returns a new `List<K>` populated with all keys
+(no defined ordering). Useful independently of `foreach` for snapshotting
+keys for enumeration, set-style membership checks via `Contains`, etc.
+The returned `List<K>` is a *copy* — subsequent `Set`/`Remove` on the
+source dict do not affect it.
+
+**`Values()`**: not yet provided. Iterate keys and call `Get` to obtain
+values.
+
 ## Expressions
 
 ### Arithmetic
@@ -366,12 +505,71 @@ if (cond) { ... } else { ... }
 while (cond) { ... }
 do { ... } while (cond);
 for (init; cond; fini) { ... }
+foreach (Type var in iterable) { ... }
 
 break;
 continue;
 return;
 return expr;
 ```
+
+### Foreach Statement (Phase 8e-5)
+
+```
+foreach (Type var in iterable) { body }
+```
+
+Iterates the elements of `iterable`, binding each to `var` for the body.
+Supported iterables:
+
+| Iterable | Iterates | Element access |
+|----------|----------|----------------|
+| `T[N]` (array) | elements `arr[0]..arr[N-1]` | `OP_LoadElement` |
+| `List<T>` | elements in insertion order | `List<T>.Get(i)` |
+| `Dict<K,V>` | **keys** (Python style) | inline `dict.Keys()` then `List<K>.Get(i)` |
+
+`break` and `continue` work identically to `for`. The loop variable is
+**function-scoped** (NLang has no block scope, consistent with `for`):
+
+```
+List<int> nums = new List<int>();
+nums.Add(10); nums.Add(20); nums.Add(30);
+int sum = 0;
+foreach (int x in nums) {
+    sum = sum + x;
+}
+// `x` remains in scope here (function-scoped)
+```
+
+**Dict iteration example**:
+
+```
+Dict<string, int> ages = new Dict<string, int>();
+ages.Set("alice", 30);
+ages.Set("bob",   25);
+int total = 0;
+foreach (string name in ages) {
+    total = total + ages.Get(name);
+}
+// total == 55
+```
+
+**Mutation is undefined behavior**. The element count is cached at loop
+entry (`n = iterable.Length()` for List/Dict, `n = arr.length` for Array).
+Structural modifications inside the body (`List.Add`/`RemoveAt`,
+`Dict.Set`/`Remove`) may cause: out-of-bounds access, skipped/duplicated
+elements, or stale `Keys()` snapshots. Element assignment (`arr[i] = x`)
+inside an Array foreach body is fine (no structural change).
+
+**Null iterable** throws NPE on the first `length()`/`Length()` call
+(consistent with all other class-typed calls).
+
+**`List<int>` with value 0**: due to a pre-existing `OP_Box` optimization
+(literal `0` is treated as the null sentinel), `foreach` over a `List<int>`
+containing literal-zero elements currently throws `unbox on null/invalid
+reference`. This is a boxing limitation, not a `foreach` bug — work around
+by avoiding 0 as a list element value. A future phase will revisit the
+null-sentinel design.
 
 ### Switch
 
@@ -459,13 +657,9 @@ or return a derived value that fits in the exit code range.
 
 ## Known Limitations
 
-- **Nested binary expressions**: expressions of the form `a == b * c + d`
-  where `a` is a variable and the right side has nested arithmetic may
-  compute the wrong comparison. Root cause: only two temp slots exist, and
-  the outer-left value can be clobbered by inner-right intermediates.
-  Workaround: bind the right side to an intermediate variable
-  (`int expected = b*c + d; if (a == expected) { ... }`). To be fixed when
-  PickTempSlot is reworked.
-- **Explicit cast / unbox**: `(int)obj`, `(Foo)obj` are not yet supported
-  (deferred to Phase 8e-1.5). Implicit primitive→Object boxing works.
 - **`foreach` / `foreach in`**: not yet implemented (planned with collections).
+  Use the index-based `for` loop with `Length()` and `Get(i)`.
+- **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
+  built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
+- **Collection initializer**: `[1, 2, 3]` literal syntax is not supported.
+  Use repeated `Add` calls to populate lists.

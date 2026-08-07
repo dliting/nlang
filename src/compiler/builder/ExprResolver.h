@@ -45,6 +45,11 @@ public:
 
 	void Access(SnArrayTypeExpr &);
 
+	//Phase 8e-3: resolve `List<T>` (and future built-in generics).
+	//Mints or fetches a cached synthetic SnClassDecl per (base, typeArgs)
+	//tuple to preserve pointer identity for CalcTypeDistance.
+	void Access(SnGenericTypeExpr &);
+
 	void Access(SnIdentifierExpr &);
 
 	void Access(SnInvokeExpr &);

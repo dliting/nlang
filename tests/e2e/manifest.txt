@@ -254,3 +254,50 @@ class_downcast_valid 1
 class_downcast_invalid_throws 1
 object_equals_override 1
 unbox_float_and_string 1
+
+# --- Phase 8e-3: built-in generic List<T> ---
+list_int_basic 6
+list_string_basic 6
+list_class_ref 10
+list_length 3
+list_set 42
+list_removeat 23
+list_indexof 1
+list_contains 1
+list_clear 0
+list_as_field 60
+# --- Phase 8e-3 fix-up: edge-case coverage ---
+list_empty_length 0
+list_get_oob_throws 1
+list_set_oob_throws 1
+list_removeat_oob_throws 1
+list_negative_index_throws 1
+list_indexof_missing 255
+list_clear_then_reuse 2
+list_removeat_front_queue 6
+list_class_ref_shared 99
+list_null_class_element 1
+# --- Phase 8e-4: built-in generic Dict<K,V> ---
+dict_int_int_basic 30
+dict_string_int 31
+dict_overwrite 99
+dict_contains_key 1
+dict_contains_key_missing 0
+dict_remove 1
+dict_remove_missing 0
+dict_clear_then_reuse 2
+dict_count_empty 0
+dict_get_missing_throws 1
+# --- Phase 8e-5: foreach statement ---
+foreach_array_int 15
+foreach_array_string 8
+foreach_list_int 10
+foreach_list_string 5
+foreach_list_class 30
+foreach_dict_keys 6
+foreach_break 5
+foreach_continue 12
+foreach_empty_array 0
+foreach_empty_list 0
+foreach_nested 9
+foreach_dict_keys_class 2

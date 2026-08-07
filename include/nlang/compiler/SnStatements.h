@@ -394,6 +394,38 @@ private:
 };
 
 /*
+Foreach loop statement.
+Reference: NLang Phase 8e-5 — iterates Array / List<T> / Dict<K,V> (keys).
+*/
+class NLANG_COMPILER_API SnForeachStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ForeachStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnForeachStmt(SnFieldExpr *pVarType, const std::string& varName,
+		SnExpression *pIterable, SnStatement *pBody,
+		const ISourceLocation &loc);
+
+	~SnForeachStmt() override;
+
+	SnFieldExpr *VarType() const { return m_pVarType; }
+	const std::string& VarName() const { return m_varName; }
+	SnExpression *Iterable() const { return m_pIterable; }
+	SnStatement *Body() const { return m_pBody; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnFieldExpr  *m_pVarType;
+	std::string   m_varName;
+	SnExpression *m_pIterable;
+	SnStatement  *m_pBody;
+};
+
+/*
 Break statement.
 Reference: EN's BreakStmt (SeStatements.h:596).
 */

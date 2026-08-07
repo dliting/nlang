@@ -20,6 +20,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(InvokeExpr)				/* invoke expression  */			\
 	MACRO_IMPL(NameExpr)				/* name expression  */				\
 	MACRO_IMPL(ArrayTypeExpr)			/* array type expression T[] */		\
+	MACRO_IMPL(GenericTypeExpr)			/* generic type expression List<T> (Phase 8e-3) */	\
 	MACRO_IMPL(MemberExpr)				/* member access expression  */		\
 	MACRO_IMPL(CastExpr)				/* type cast expression  */			\
 	MACRO_IMPL(AsExpr)					/* `expr as T` (Phase 8e-1.5) */		\
@@ -33,6 +34,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(InterfaceDecl)			/* interface type declaration */		\
 	MACRO_IMPL(NewExpr)					/* new expression */				\
 	MACRO_IMPL(NewArrayExpr)				/* new T[n] expression */			\
+	MACRO_IMPL(InitListExpr)			/* [e1,e2] / {k:v} / new T{} (Phase 8e-6) */	\
 	MACRO_IMPL(ThisExpr)					/* this expression */				\
 	MACRO_IMPL(SubscriptExpr)				/* array subscript access */		\
 	MACRO_IMPL(ReturnStmt)				/* return statement */				\
@@ -44,6 +46,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(WhileStmt)				/* while loop statement */			\
 	MACRO_IMPL(DoStmt)					/* do-while loop statement */		\
 	MACRO_IMPL(ForStmt)				/* for loop statement */				\
+	MACRO_IMPL(ForeachStmt)			/* foreach loop statement (Phase 8e-5) */	\
 	MACRO_IMPL(SwitchStmt)			/* switch statement */					\
 	MACRO_IMPL(CaseClause)			/* case clause */						\
 	MACRO_IMPL(BreakStmt)				/* break statement */					\
