@@ -329,3 +329,9 @@ foreach_null_dict_throws 1
 init_array_fn_call_elements 12
 init_list_single_entry 42
 init_array_negative_values 2
+# --- Phase 8e-8: binary symmetric type promotion ---
+mixed_int_float_add 3
+mixed_float_int_add_symmetric 3
+mixed_int_float_mul 7
+mixed_nested_promotion 5
+mixed_assignment_chain 7

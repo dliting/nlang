@@ -1789,11 +1789,25 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //This composes for nested expressions: each level derives its own
         //rightSlot from its own resultOffset, so subexprs naturally alternate
         //between tempSlot and tempSlot2.
+        //
+        //Phase 8e-8: iterate sn.Children() instead of Left()/Right() because
+        //resolver may wrap each operand in SnCastExpr for symmetric promotion,
+        //after which m_pLeft/m_pRight are stale (still point to the original
+        //expression inside the cast). Children()[0]/[1] always reflect the
+        //post-wrap tree. Dispatch on Children()[0]'s EvalDataType — for
+        //arithmetic with promotion this is the cast target (= T_result); for
+        //comparison (no wrap) this is the operand type, which selects the
+        //i32/f32/str variant (e.g. OP_Eq_str for string==string even though
+        //bin.EvalDataType() is Int32 for all comparisons).
         uint16_t rightSlot = PickTempSlot(resultOffset);
-        EmitExpression(*bin.Left(), emitter, resultOffset);
-        EmitExpression(*bin.Right(), emitter, rightSlot);
+        auto& binChildren = bin.Children();
+        auto binIt = binChildren.begin();
+        auto& leftChild = static_cast<SnExpression&>(*binIt);
+        EmitExpression(leftChild, emitter, resultOffset);
+        ++binIt;
+        EmitExpression(static_cast<SnExpression&>(*binIt), emitter, rightSlot);
 
-        auto* evalType = bin.Left()->EvalDataType();
+        auto* evalType = leftChild.EvalDataType();
         bool isFloat = evalType && evalType->Kind() == NK_Float;
         bool isString = evalType && evalType->Kind() == NK_String;
 

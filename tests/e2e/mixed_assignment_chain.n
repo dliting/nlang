@@ -1,0 +1,6 @@
+int main() {
+    int x = 7;
+    float f = x + 0.5;
+    int y = f;
+    return y;
+}

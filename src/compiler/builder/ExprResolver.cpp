@@ -736,7 +736,51 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 	}
 	else
 	{
-		sn.EvalDataType(sn.Left()->EvalDataType());
+		//Phase 8e-8: symmetric arithmetic promotion.
+		//Both operands are promoted to the wider type (int<float). For string
+		//only OP_Add is valid (concat); other ops on string are rejected here.
+		//Each operand is wrapped in SnCastExpr if its type differs from T_result
+		//so that codegen sees uniform operand types matching bin.EvalDataType().
+		auto* L = sn.Left()->EvalDataType();
+		auto* R = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+		NodeKind lk = L ? L->Kind() : NK_Int32;
+		NodeKind rk = R ? R->Kind() : NK_Int32;
+
+		SnField* T_result = nullptr;
+		if (lk == NK_String || rk == NK_String)
+		{
+			if (op != SnBinaryExpr::OP_Add)
+			{
+				m_Env.Log(CLL_Error, sn.Location(),
+					"operator not supported on string.");
+				return;
+			}
+			T_result = SnBuiltinDataType::InstanceOf(NK_String);
+		}
+		else if (lk == NK_Float || rk == NK_Float)
+		{
+			T_result = SnBuiltinDataType::InstanceOf(NK_Float);
+		}
+		else
+		{
+			T_result = SnBuiltinDataType::InstanceOf(NK_Int32);
+		}
+		sn.EvalDataType(T_result);
+
+		//Wrap each operand (in-place via FixupExprType) if its type differs
+		//from T_result. After wrap, sn.Children()[0]/[1] hold the (possibly
+		//cast) expressions; sn.Left()/Right() are stale but unused by codegen.
+		auto it = sn.Children().begin();
+		auto& leftExpr = static_cast<SnExpression&>(*it);
+		TypeCastInfo leftCI(leftExpr.EvalDataType(), T_result);
+		FixupExprType(it, leftCI);
+		if (sn.Right())
+		{
+			++it;
+			auto& rightExpr = static_cast<SnExpression&>(*it);
+			TypeCastInfo rightCI(rightExpr.EvalDataType(), T_result);
+			FixupExprType(it, rightCI);
+		}
 	}
 	sn.AddFlags(NF_Resolved);
 }
@@ -1233,6 +1277,11 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	assert(srcExpr.Location());
 	auto pCastExpr =
 		new SnCastExpr(&srcExpr, castInfo, *srcExpr.Location());
+	//Phase 8e-8: propagate target type to the cast expr's EvalDataType so
+	//consumers (e.g. binary codegen dispatching on operand type) see the
+	//post-cast type without re-walking the cast. The "as T" resolver path
+	//sets this explicitly at line 709; FixupExprType must do the same.
+	pCastExpr->EvalDataType(castInfo.Target());
 	iSrcExpr = InsertChildInto(iInsertPos, pCastExpr, *pSrcParent);
 	return true;
 }
