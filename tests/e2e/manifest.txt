@@ -301,6 +301,7 @@ foreach_empty_array 0
 foreach_empty_list 0
 foreach_nested 9
 foreach_dict_keys_class 2
+foreach_empty_dict 0
 # --- Phase 8e-6: collection initializers ---
 init_array_int_basic 6
 init_array_string_basic 8

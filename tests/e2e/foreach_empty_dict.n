@@ -1,0 +1,8 @@
+int main() {
+    Dict<string, int> d = new Dict<string, int>();
+    int count = 0;
+    foreach (string k in d) {
+        count = count + 1;
+    }
+    return count;
+}
