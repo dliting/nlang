@@ -149,6 +149,19 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 12 个新 e2e 测试（foreach_array_int 到 foreach_dict_keys_class），共 226 个测试全部通过
 - **已知限制**：`List<int>` 包含字面值 0 的元素会触发 `OP_Box` 的 null-sentinel 优化路径，导致 unbox 时报 `unbox on null/invalid reference`。这是 boxing 设计遗留问题，不是 foreach bug；待未来重新设计 null-sentinel 时统一修复
 
+### 阶段 8e-6：集合初始化器 ✅
+- 文法：bare `[...]`（数组/List）+ 显式 `new Type{...}`（任意位置）；bare `{...}` 因与 CompoundStmt LALR 冲突被放弃
+- AST：`SnInitListExpr`（携带 `ExplicitType` 字段、`InitEntry` 列表、`isArrayForm` 标志），X-macro 生成 `NK_InitListExpr`
+- **类型推断**：resolver 接受 expected-type 参数（vardecl RHS / assignment RHS / return / 函数 arg），bare 形式从上下文取目标类型；显式形式以 `ExplicitType` 为准
+- **5 路 codegen 分派**（VmBackend `NK_InitListExpr` handler）：
+  - Array `T[N]`：`OP_AllocArray` + 每元素 `OP_StoreElement`
+  - List<T>：`OP_New "List<T>"` + 每元素 `OP_CallMethod "Add"`（复用 8e-3 per-method boxing plan）
+  - Dict<K,V>：`OP_New "Dict<K,V>"` + 每条目 `OP_CallMethod "Set"`
+  - Struct/Class：`OP_New "Type"` (无参 ctor) + 每字段 `OP_StoreField`
+- **递归嵌套**：每个 init list 从父取元素/值/字段类型，child init list 自动走同一 handler
+- 19 个新 e2e 测试（init_array_int_basic 到 init_explicit_empty），共 245 个测试通过
+- **8e-7 边界用例补充**（252 测试）：foreach over null（array/list/dict 抛错）、`foreach_empty_dict`、init list 含函数调用/单元素/负数字面量
+
 ---
 
 
@@ -262,7 +275,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-6 已完成，**245 个 e2e 测试全部通过**
+- 阶段 0-8e-7 已完成，**252 个 e2e 测试全部通过**
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
