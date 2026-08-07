@@ -1,0 +1,6 @@
+class C { public int a; public int b; public int C() { return 0; } }
+
+int main() {
+    C c = new C{a:2, b:3};
+    return c.a + c.b;
+}

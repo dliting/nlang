@@ -1,0 +1,8 @@
+int main() {
+    string[] arr = ["hello", "wor"];
+    int sum = 0;
+    foreach (string s in arr) {
+        sum = sum + s.length();
+    }
+    return sum;
+}

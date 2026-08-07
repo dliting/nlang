@@ -1688,8 +1688,44 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             }
         }
 
-        //Struct target — Phase D future work (no struct-init syntax in tests).
-        assert(false && "NK_InitListExpr: struct codegen lands in Phase D future");
+        //---- Struct init form: new StructName{field1:v1, ...} ----
+        //Allocate a fresh struct via OP_AllocStruct, then per-field OP_StoreField
+        //using the struct-specific FindFieldOffset (linear scan, no inheritance).
+        if (pTarget->Kind() == NK_StructDecl) {
+            auto* pStructDecl = static_cast<SnStructDecl*>(pTarget);
+            const std::string& structName = pStructDecl->Name();
+            int structIdx = m_compiledModule.FindStruct(structName);
+            if (structIdx < 0) {
+                emitter.Emit(OpCode::OP_ConstZero);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                return;
+            }
+            auto& cs = m_compiledModule.structs[structIdx];
+            emitter.Emit(OpCode::OP_AllocStruct);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(static_cast<uint16_t>(structIdx));
+            emitter.EmitUint16(cs.fieldCount);
+            //Per-field store. FindFieldOffset returns byte offset within the
+            //struct's data area (no classIdx slot like classes have).
+            uint16_t valueSlot = PickTempSlot(resultOffset);
+            for (auto& entry : initList.Entries()) {
+                if (entry.keyKind != InitEntry::KeyKind::Identifier)
+                    continue;
+                if (!entry.pValue) continue;
+                int off = FindFieldOffset(*pStructDecl, entry.keyStr);
+                if (off < 0) continue;
+                EmitExpression(*entry.pValue, emitter, valueSlot);
+                emitter.Emit(OpCode::OP_StoreField);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(static_cast<uint16_t>(off));
+                emitter.EmitUint16(valueSlot);
+            }
+            return;
+        }
+
+        //Unknown target kind — no codegen path yet.
+        assert(false && "NK_InitListExpr: unsupported target kind");
         return;
     }
 

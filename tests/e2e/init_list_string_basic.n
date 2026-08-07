@@ -1,0 +1,8 @@
+int main() {
+    List<string> lst = ["ab", "abcd"];
+    int sum = 0;
+    foreach (string s in lst) {
+        sum = sum + s.length();
+    }
+    return sum;
+}

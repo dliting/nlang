@@ -1,0 +1,8 @@
+int main() {
+    Dict<string, int> d = new Dict<string, int>{"a":1, "b":2, "c":3};
+    int sum = 0;
+    foreach (string k in d.Keys()) {
+        sum = sum + d.Get(k);
+    }
+    return sum;
+}

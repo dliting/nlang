@@ -301,3 +301,23 @@ foreach_empty_array 0
 foreach_empty_list 0
 foreach_nested 9
 foreach_dict_keys_class 2
+# --- Phase 8e-6: collection initializers ---
+init_array_int_basic 6
+init_array_string_basic 8
+init_array_expr_elements 8
+init_array_class_basic 4
+init_list_int_basic 6
+init_list_string_basic 6
+init_list_class_basic 4
+init_list_reassign 60
+init_dict_string_int_basic 3
+init_dict_empty 0
+init_dict_class_value 1
+init_dict_overwrite 6
+init_struct_basic 3
+init_struct_in_array 4
+init_class_basic 5
+init_explicit_new_list 6
+init_explicit_new_struct 2
+init_explicit_arg 7
+init_explicit_empty 0

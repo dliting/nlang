@@ -1,0 +1,8 @@
+int main() {
+    List<int> lst = [1, 2, 3];
+    int sum = 0;
+    foreach (int x in lst) {
+        sum = sum + x;
+    }
+    return sum;
+}

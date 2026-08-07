@@ -1,0 +1,6 @@
+class P { public int x; public int y; public int P(int ax, int ay) { this.x = ax; this.y = ay; return 0; } }
+
+int main() {
+    P[] arr = [new P{x:1, y:2}, new P{x:3, y:4}];
+    return arr[1].y;
+}
