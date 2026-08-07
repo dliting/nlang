@@ -324,3 +324,5 @@ init_explicit_arg 7
 init_explicit_empty 0
 # --- Phase 8e-7: boundary case tests ---
 foreach_null_iterable_throws 1
+foreach_null_array_throws 1
+foreach_null_dict_throws 1

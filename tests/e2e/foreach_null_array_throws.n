@@ -1,0 +1,8 @@
+int main() {
+    int[] arr;
+    int count = 0;
+    foreach (int x in arr) {
+        count = count + 1;
+    }
+    return count;
+}
