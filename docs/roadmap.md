@@ -162,6 +162,16 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 19 个新 e2e 测试（init_array_int_basic 到 init_explicit_empty），共 245 个测试通过
 - **8e-7 边界用例补充**（252 测试）：foreach over null（array/list/dict 抛错）、`foreach_empty_dict`、init list 含函数调用/单元素/负数字面量
 
+### 阶段 8e-8：二元表达式对称类型提升 ✅
+- **问题**：旧规则 `sn.EvalDataType(sn.Left()->EvalDataType())` 导致 `1 + 2.5`（int+float）= int（rhs 被截断）但 `2.5 + 1`（float+int）= float，左右不对称
+- **修复**：改为 C-style 对称提升——两侧提升到 wider type：`int + int → int`、`int + float / float + int → float`、`float + float → float`、`string + string → string`（仅 OP_Add）
+- **Resolver 改动**（`ExprResolver.cpp` `Access(SnBinaryExpr&)` else 分支）：计算 T_result 后，对每个 child 调用 `FixupExprType` 包装 `SnCastExpr`（若类型 != T_result）
+- **Codegen 改动**（`VmBackend.cpp` binary 路径）：迭代 `bin.Children()` 而非 `Left()/Right()`（包装后 m_pLeft/m_pRight 失效）；dispatch 用 `leftChild.EvalDataType()`（包装后 = T_result；comparison 未包装时 = 操作数类型，用于选 OP_Eq_str 等）
+- **FixupExprType bug 修复**：构造 SnCastExpr 后未设置 EvalDataType，导致 codegen 看到 null 类型；现在显式设为 castInfo.Target()
+- 5 个新 e2e 测试（mixed_int_float_add / mixed_float_int_add_symmetric / mixed_int_float_mul / mixed_nested_promotion / mixed_assignment_chain），共 257 个测试通过
+- **零回归**：现存 e2e 测试无 int+float 显式 mixed 用例，所有 252 个旧测试保持通过
+- **为 Phase 9 铺路**：compound assignment（`x += y`）将直接继承新规则，无需特殊类型处理
+
 ---
 
 
@@ -275,7 +285,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-7 已完成，**252 个 e2e 测试全部通过**
+- 阶段 0-8e-8 已完成，**257 个 e2e 测试全部通过**
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）

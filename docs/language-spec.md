@@ -431,6 +431,19 @@ a + b    a - b    a * b    a / b    a % b
 Integer division truncates toward zero. Division/modulo by zero throws a
 runtime error.
 
+**Numeric promotion (Phase 8e-8)**: arithmetic ops follow symmetric C-style
+promotion — both operands are promoted to the wider type before the op:
+- `int + int` → int
+- `int + float` / `float + int` → float (both operands promoted to float)
+- `float + float` → float
+
+So `1 + 2.5 == 2.5 + 1 == 3.5` (symmetric). The result type is the promoted
+type; assignment to a narrower type (e.g. `int r = 1.5 + 1;`) implicitly
+truncates.
+
+`string + string` (OP_Add only) is concatenation. `string - string` etc.
+are compile errors.
+
 ### Comparison
 
 ```
