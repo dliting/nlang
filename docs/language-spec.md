@@ -330,16 +330,17 @@ in a side table (`m_listStore`); primitive elements are boxed via
 assigned `new List<T>()` holds null. Calling any method on null throws
 `null reference in CallMethod` (same NPE semantics as other class refs).
 
-**No collection initializer (yet)**: `[1, 2, 3]` literal syntax is not
-supported. Populate via repeated `Add`.
+**Collection initializer**: `[1, 2, 3]` literal syntax is supported
+since Phase 8e-6 (bare bracket form for arrays and `List<T>`). See the
+Collection Initializers section above.
 
-**No `foreach` (yet)**: see the Foreach Statement section for the
-index-based `foreach` construct shipped in Phase 8e-5.
+**`foreach`**: the `foreach (Type var in iterable)` construct is supported
+since Phase 8e-5. See the Foreach Statement section below.
 
-**Nested generics** (`List<List<int>>`): no `>>` token in NLang (the
-lexer always produces two `>` tokens), so the parser accepts nested
-generic type args. However, deep type-checker recursion is not yet
-exercised by tests — defer to a follow-up if issues arise.
+**Nested generics** (`List<List<int>>`): the lexer tokenizes `>>` as a
+single `OT_RSH` (right-shift) token, which blocks nested generic type
+args. This is a known limitation; use `new List<T>{...}` as the outer
+wrapper or split into local variables.
 
 ### `Dict<K,V>` — Phase 8e-4
 
