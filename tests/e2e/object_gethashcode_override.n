@@ -1,7 +1,7 @@
 class Point {
     public int x;
     public int y;
-    int GetHashCode() {
+    int getHashCode() {
         return this.x * 31 + this.y;
     }
 }
@@ -10,7 +10,7 @@ int main() {
     Point p = new Point();
     p.x = 2;
     p.y = 3;
-    int hc = p.GetHashCode();
+    int hc = p.getHashCode();
     int expected = 2 * 31 + 3;
     if (hc == expected) {
         return 1;

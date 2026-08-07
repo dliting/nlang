@@ -84,7 +84,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 ### 阶段 8e-1：Object 基类 + 哈希/相等协议 + 隐式装箱 ✅
 - 隐式 Object 基类：所有不带 `: Parent` 的类自动继承 Object
 - 虚方法 `int Equals(Object)` 和 `int GetHashCode()`，默认身份语义（identity）
-- 字符串特例：`string.GetHashCode()` 值哈希、`string.Equals(string)` 值相等
+- 字符串特例：`string.getHashCode()` 值哈希、`string.equals(string)` 值相等
 - 用户类按名称重写 Equals/GetHashCode（无需 override 关键字，沿用既有名称分派）
 - 基本类型隐式装箱：`Object o = 5;`、`Object f = 3.14;`、`Object s = "hi";`（新增 RTK_Boxed=6 槽位类型，GC MarkPhase 显式跳过）
 - 解析器承认 `Object` 为内建类型名（与 ByteStream/FileStream 并列）
@@ -144,7 +144,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
   - **Dict<K,V>**：iterSlot 类型 `RTK_Class`，**inline `Keys()` 调用**（codegen 阶段，不修改 AST）物化 `List<K>` 到 iterSlot，之后与 List 路径完全相同（元素类型 = K）
 - **隐藏局部变量 uniquification**：`AllocLocal` 按名 dedup，嵌套 foreach 会冲突；用 `FuncContext::foreachCounter`（每次函数入口重置）给 `__foreach_iter_<N>` / `__foreach_i_<N>` / `__foreach_n_<N>` 加后缀
 - **`typeKind` 正确性**：iterSlot 的 `LocalDescriptor.typeKind` 必须匹配 iterable 类型（RTK_Array vs RTK_Class），否则 GC root tracing 会出错
-- **`Dict.Keys()` 内建方法**（`INTR_Dict_Keys = 60`）：返回全新 `List<K>` 堆实例，从 `dict.entries[i].first` 复制 keys。对 foreach 有用，独立使用也有用（key snapshot、set-style 成员检查）。返回的 List 是**拷贝**——后续 `Set`/`Remove` 不影响已返回的 List
+- **`Dict.keys()` 内建方法**（`INTR_Dict_Keys = 60`）：返回全新 `List<K>` 堆实例，从 `dict.entries[i].first` 复制 keys。对 foreach 有用，独立使用也有用（key snapshot、set-style 成员检查）。返回的 List 是**拷贝**——后续 `Set`/`Remove` 不影响已返回的 List
 - **`LoopContext` 复用**：`break`/`continue` 跨所有循环形式（for/while/do/foreach）走同一份逻辑，无需 foreach 专用代码
 - 12 个新 e2e 测试（foreach_array_int 到 foreach_dict_keys_class），共 226 个测试全部通过
 - **已知限制**：`List<int>` 包含字面值 0 的元素会触发 `OP_Box` 的 null-sentinel 优化路径，导致 unbox 时报 `unbox on null/invalid reference`。这是 boxing 设计遗留问题，不是 foreach bug；待未来重新设计 null-sentinel 时统一修复
@@ -171,6 +171,16 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 5 个新 e2e 测试（mixed_int_float_add / mixed_float_int_add_symmetric / mixed_int_float_mul / mixed_nested_promotion / mixed_assignment_chain），共 257 个测试通过
 - **零回归**：现存 e2e 测试无 int+float 显式 mixed 用例，所有 252 个旧测试保持通过
 - **为 Phase 9 铺路**：compound assignment（`x += y`）将直接继承新规则，无需特殊类型处理
+
+### 阶段 8e-9-pre：命名约定统一 ✅
+- **决策**：类型（class/struct/enum/interface）PascalCase；方法 / 自由函数 / 变量 camelCase；`main` 唯一例外；`getHashCode` 保留 Get 前缀（为未来 property 特性保留 `getXxx`/`setXxx` 命名空间）
+- **rationale**：`MyClass.myMethod()` 视觉上立即区分类型与方法（vs `MyClass.MyMethod()` 歧义）；覆盖 Java + JS + C++ 开发者群体；`main` 沿用 C/C++/Java 入口惯例
+- **迁移范围**：~33 个内置方法重命名（`Length→length`、`Add→add`、`Equals→equals`、`GetHashCode→getHashCode`、`ReadInt→readInt`、`Keys→keys`、`ContainsKey→containsKey` 等）
+- **src 改动**：`VmBackend.cpp`（~30 处方法名 literal + AddStringConstant 调用）、`VmExecutor.cpp`（~40 处错误消息字符串）、`ExprResolver.cpp`（~15 处 `name == "Xxx"` 比较）
+- **tests 改动**：89 个 `.n` 文件批量更新调用点（Python 脚本，正则 `\.<OldName>\(` → `.<newName](`，外加声明处的 `\b<OldName>\(`）
+- **docs 改动**：`language-spec.md` 新增"Naming Convention"章节；3 个 md 文件同步示例代码
+- 257 个测试零回归（test e2e 通过率不变）
+- 详见 memory: `nlang-naming-convention.md`
 
 ---
 

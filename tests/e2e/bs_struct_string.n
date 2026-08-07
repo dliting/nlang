@@ -5,9 +5,9 @@ int main() {
     Person p;
     p.name = "hello";
     p.age = 1;
-    bs.WriteStruct(p);
-    bs.Reset();
-    Person q = bs.ReadStruct("Person");
+    bs.writeStruct(p);
+    bs.reset();
+    Person q = bs.readStruct("Person");
     if (q.name == "hello") {
         if (q.age == 1) {
             return 1;

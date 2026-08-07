@@ -1,27 +1,27 @@
 interface IPrintable {
-    public int Print();
+    public int print();
 }
 
 interface ICountable {
-    public int Count();
+    public int count();
 }
 
 class Bag implements IPrintable, ICountable {
     public int items;
-    public int Print() {
+    public int print() {
         return 100;
     }
-    public int Count() {
+    public int count() {
         return this.items;
     }
 }
 
 int DoPrint(IPrintable p) {
-    return p.Print();
+    return p.print();
 }
 
 int DoCount(ICountable c) {
-    return c.Count();
+    return c.count();
 }
 
 int main() {

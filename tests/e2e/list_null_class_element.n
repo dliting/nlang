@@ -5,8 +5,8 @@ class Point {
 int main() {
     List<Point> lst = new List<Point>();
     Point p;
-    lst.Add(p);
-    Point q = lst.Get(0);
+    lst.add(p);
+    Point q = lst.get(0);
     if (q == null) {
         return 1;
     }

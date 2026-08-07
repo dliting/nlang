@@ -1,8 +1,8 @@
 int main() {
     ByteStream bs = new ByteStream();
-    bs.WriteString("hello");
-    bs.Reset();
-    string s = bs.ReadString();
+    bs.writeString("hello");
+    bs.reset();
+    string s = bs.readString();
     if (s == "hello") {
         return 1;
     }

@@ -1,10 +1,10 @@
 interface IPrintable {
-    public int Print();
+    public int print();
 }
 
 class Foo implements IPrintable {
     public int value;
-    public int Print() {
+    public int print() {
         this.value = 42;
         return 0;
     }
@@ -12,6 +12,6 @@ class Foo implements IPrintable {
 
 int main() {
     Foo f = new Foo();
-    f.Print();
+    f.print();
     return f.value;
 }

@@ -2,9 +2,9 @@ class Holder { public int v; }
 
 int main() {
     ByteStream bs = new ByteStream();
-    bs.WriteObject(null);
-    bs.Reset();
-    Holder h = bs.ReadObject("Holder");
+    bs.writeObject(null);
+    bs.reset();
+    Holder h = bs.readObject("Holder");
     if (h == null) {
         return 1;
     }

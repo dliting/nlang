@@ -4,10 +4,10 @@ int main() {
     FileStream fs = new FileStream("_phase8_tmp/object_roundtrip.bin", "w");
     Holder h = new Holder();
     h.v = 42;
-    fs.WriteObject(h);
-    fs.Close();
+    fs.writeObject(h);
+    fs.close();
     FileStream fs2 = new FileStream("_phase8_tmp/object_roundtrip.bin", "r");
-    Holder h2 = fs2.ReadObject("Holder");
-    fs2.Close();
+    Holder h2 = fs2.readObject("Holder");
+    fs2.close();
     return h2.v;
 }

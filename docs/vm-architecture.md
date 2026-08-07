@@ -596,7 +596,7 @@ Array path and `RTK_Class` for List/Dict — incorrect tags would cause
 either leaked references (root missed) or spurious tracing of integer
 slots as heap idxs.
 
-### `Dict.Keys()` intrinsic
+### `Dict.keys()` intrinsic
 
 `INTR_Dict_Keys = 60` (CompiledModule.h). Registered as a method on the
 Dict class with `paramCount=1, returnTypeKind=RTK_Class`. The VmExecutor
@@ -665,7 +665,7 @@ The `List<T>` and `Dict<K,V>` branches reuse the per-method boxing
 infrastructure from Phase 8e-3/8e-4: `BoxingTagFor(typeArg)` returns
 `{tag, isPrimitive}`, and `OP_Box` is emitted before `Add`/`Set` only
 when the element type is primitive. This keeps initialization consistent
-with `lst.Add(x)` and `d.Set(k, v)` calls written by hand.
+with `lst.add(x)` and `d.set(k, v)` calls written by hand.
 
 ### Temp slot allocation
 

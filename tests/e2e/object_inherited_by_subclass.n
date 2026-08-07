@@ -9,7 +9,7 @@ class Dog : Animal {
 int main() {
     Dog d1 = new Dog();
     Dog d2 = new Dog();
-    int selfRef = d1.Equals(d1);
-    int diffRef = d1.Equals(d2);
+    int selfRef = d1.equals(d1);
+    int diffRef = d1.equals(d2);
     return selfRef + diffRef;
 }

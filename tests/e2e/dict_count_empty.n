@@ -1,4 +1,4 @@
 int main() {
     Dict<int, int> d = new Dict<int, int>();
-    return d.Count();
+    return d.count();
 }

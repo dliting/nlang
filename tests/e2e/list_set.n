@@ -1,6 +1,6 @@
 int main() {
     List<int> lst = new List<int>();
-    lst.Add(1);
-    lst.Set(0, 42);
-    return lst.Get(0);
+    lst.add(1);
+    lst.set(0, 42);
+    return lst.get(0);
 }

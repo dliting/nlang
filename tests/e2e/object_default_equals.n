@@ -6,7 +6,7 @@ class Point {
 int main() {
     Point p1 = new Point();
     Point p2 = new Point();
-    int selfRef = p1.Equals(p1);
-    int diffRef = p1.Equals(p2);
+    int selfRef = p1.equals(p1);
+    int diffRef = p1.equals(p2);
     return selfRef + diffRef;
 }

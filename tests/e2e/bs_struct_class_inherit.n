@@ -17,8 +17,8 @@ int main() {
     d.teeth = 1;
     Kennel k;
     k.d = d;
-    bs.WriteStruct(k);
-    bs.Reset();
-    Kennel k2 = bs.ReadStruct("Kennel");
+    bs.writeStruct(k);
+    bs.reset();
+    Kennel k2 = bs.readStruct("Kennel");
     return k2.d.legs + k2.d.teeth;
 }

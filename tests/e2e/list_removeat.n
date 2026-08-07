@@ -1,8 +1,8 @@
 int main() {
     List<int> lst = new List<int>();
-    lst.Add(1);
-    lst.Add(2);
-    lst.Add(3);
-    lst.RemoveAt(1);
-    return lst.Length() * 10 + lst.Get(1);
+    lst.add(1);
+    lst.add(2);
+    lst.add(3);
+    lst.removeAt(1);
+    return lst.length() * 10 + lst.get(1);
 }

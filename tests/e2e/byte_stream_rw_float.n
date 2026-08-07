@@ -1,10 +1,10 @@
 int main() {
     ByteStream bs = new ByteStream();
-    bs.WriteFloat(1.0);
-    bs.WriteFloat(3.0);
-    bs.Reset();
-    float a = bs.ReadFloat();
-    float b = bs.ReadFloat();
+    bs.writeFloat(1.0);
+    bs.writeFloat(3.0);
+    bs.reset();
+    float a = bs.readFloat();
+    float b = bs.readFloat();
     int ra = a;
     int rb = b;
     return ra + rb;

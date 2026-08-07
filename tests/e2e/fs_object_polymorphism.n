@@ -6,10 +6,10 @@ int main() {
     Dog d = new Dog();
     d.legs = 4;
     d.teeth = 42;
-    fs.WriteObject(d);
-    fs.Close();
+    fs.writeObject(d);
+    fs.close();
     FileStream fs2 = new FileStream("_phase8_tmp/object_polymorphism.bin", "r");
-    Animal a = fs2.ReadObject("Animal");
-    fs2.Close();
+    Animal a = fs2.readObject("Animal");
+    fs2.close();
     return a.legs;
 }

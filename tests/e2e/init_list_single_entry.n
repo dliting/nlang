@@ -1,4 +1,4 @@
 int main() {
     List<int> lst = [42];
-    return lst.Get(0);
+    return lst.get(0);
 }

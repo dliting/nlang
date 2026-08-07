@@ -1,7 +1,7 @@
 int main() {
-    int h1 = "hello".GetHashCode();
-    int h2 = "hello".GetHashCode();
-    int h3 = "world".GetHashCode();
+    int h1 = "hello".getHashCode();
+    int h2 = "hello".getHashCode();
+    int h3 = "world".getHashCode();
     if (h1 == h2 && h1 != h3) {
         return 1;
     }

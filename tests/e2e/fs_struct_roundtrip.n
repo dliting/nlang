@@ -5,10 +5,10 @@ int main() {
     Point p;
     p.x = 10;
     p.y = 20;
-    fs.WriteStruct(p);
-    fs.Close();
+    fs.writeStruct(p);
+    fs.close();
     FileStream fs2 = new FileStream("_phase8_tmp/struct_roundtrip.bin", "r");
-    Point q = fs2.ReadStruct("Point");
-    fs2.Close();
+    Point q = fs2.readStruct("Point");
+    fs2.close();
     return q.x + q.y;
 }

@@ -22,9 +22,9 @@ int main() {
     }
     Wrapper w;
     w.root = head;
-    bs.WriteStruct(w);
-    bs.Reset();
-    Wrapper w2 = bs.ReadStruct("Wrapper");
+    bs.writeStruct(w);
+    bs.reset();
+    Wrapper w2 = bs.readStruct("Wrapper");
     int count = 0;
     Node c = w2.root;
     while (c != null) {

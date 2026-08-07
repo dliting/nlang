@@ -1,13 +1,13 @@
 int main() {
     ByteStream bs = new ByteStream();
-    bs.WriteInt(42);
-    bs.WriteInt(7);
-    int len1 = bs.Length();
-    int pos1 = bs.Position();
-    bs.Reset();
-    int pos2 = bs.Position();
-    int v = bs.ReadInt();
-    int pos3 = bs.Position();
+    bs.writeInt(42);
+    bs.writeInt(7);
+    int len1 = bs.length();
+    int pos1 = bs.position();
+    bs.reset();
+    int pos2 = bs.position();
+    int v = bs.readInt();
+    int pos3 = bs.position();
     if (len1 == 8 && pos1 == 8 && pos2 == 0 && pos3 == 4) {
         return 1;
     }

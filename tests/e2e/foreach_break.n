@@ -1,15 +1,15 @@
 int main() {
     List<int> lst = new List<int>();
-    lst.Add(1);
-    lst.Add(2);
-    lst.Add(3);
-    lst.Add(4);
-    lst.Add(5);
-    lst.Add(6);
-    lst.Add(7);
-    lst.Add(8);
-    lst.Add(9);
-    lst.Add(10);
+    lst.add(1);
+    lst.add(2);
+    lst.add(3);
+    lst.add(4);
+    lst.add(5);
+    lst.add(6);
+    lst.add(7);
+    lst.add(8);
+    lst.add(9);
+    lst.add(10);
     int captured = 0;
     foreach (int x in lst) {
         if (x == 5) {

@@ -365,7 +365,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 		//Phase 8e-1: string.GetHashCode() and string.Equals(string) — value semantics.
 		//Both intrinsified in VmBackend; resolver just needs to accept them.
-		if (name == "GetHashCode" && invoke.Params().begin() == invoke.Params().end())
+		if (name == "getHashCode" && invoke.Params().begin() == invoke.Params().end())
 		{
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
@@ -373,7 +373,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			m_pContext = pSavedContext;
 			return;
 		}
-		if (name == "Equals")
+		if (name == "equals")
 		{
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
@@ -411,17 +411,17 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			const auto& name = invoke.CalleeName();
 			bool isStreamMethod = false;
 			NodeKind retKind = NK_Int32;  //default, overridden below
-			if (name == "ReadInt" || name == "Length" || name == "Position")
+			if (name == "readInt" || name == "length" || name == "position")
 				isStreamMethod = true;  // retKind = NK_Int32
-			else if (name == "ReadFloat")
+			else if (name == "readFloat")
 				{ isStreamMethod = true; retKind = NK_Float; }
-			else if (name == "ReadString")
+			else if (name == "readString")
 				{ isStreamMethod = true; retKind = NK_String; }
-			else if (name == "WriteInt" || name == "WriteFloat"
-				|| name == "WriteString" || name == "Reset" || name == "Close"
-				|| name == "WriteStruct" || name == "WriteObject")
+			else if (name == "writeInt" || name == "writeFloat"
+				|| name == "writeString" || name == "reset" || name == "close"
+				|| name == "writeStruct" || name == "writeObject")
 				isStreamMethod = true;  // void return — no EvalDataType
-			else if (name == "ReadStruct")
+			else if (name == "readStruct")
 			{
 				//ReadStruct("TypeName") returns a struct value of the named type.
 				//The type-name argument MUST be a string literal so we can resolve
@@ -461,7 +461,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				}
 				snMember.EvalDataType(found);
 			}
-			else if (name == "ReadObject")
+			else if (name == "readObject")
 			{
 				//ReadObject("TypeName") returns a class object of the named type.
 				//Mirrors ReadStruct but resolves typeName as a class (NK_ClassDecl).
@@ -517,12 +517,12 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				ResolveExpressionList(invoke.Params());
 				pInnerExpr->AddFlags(NF_Resolved);
 				//For void-returning methods, leave EvalDataType unset.
-				if (name != "WriteInt" && name != "WriteFloat"
-					&& name != "WriteString" && name != "Reset" && name != "Close"
-					&& name != "WriteStruct" && name != "WriteObject")
+				if (name != "writeInt" && name != "writeFloat"
+					&& name != "writeString" && name != "reset" && name != "close"
+					&& name != "writeStruct" && name != "writeObject")
 				{
 					//ReadStruct/ReadObject already set EvalDataType above; others use retKind.
-					if (name != "ReadStruct" && name != "ReadObject")
+					if (name != "readStruct" && name != "readObject")
 						snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
 				}
 				snMember.AddFlags(NF_Resolved);
@@ -544,7 +544,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	{
 		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
 		const auto& name = invoke.CalleeName();
-		if (name == "Equals" || name == "GetHashCode")
+		if (name == "equals" || name == "getHashCode")
 		{
 			m_pContext = pSavedContext;
 			RemoveFlags(ERF_SearchInParentOnly);
@@ -575,14 +575,14 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		const auto& baseName = pGenClass->BaseName();
 		bool isGenericMethod = false;
 		if (baseName == "List") {
-			isGenericMethod = (name == "Add" || name == "Get" || name == "Set"
-				|| name == "Length" || name == "RemoveAt" || name == "IndexOf"
-				|| name == "Contains" || name == "Clear");
+			isGenericMethod = (name == "add" || name == "get" || name == "set"
+				|| name == "length" || name == "removeAt" || name == "indexOf"
+				|| name == "contains" || name == "clear");
 		} else if (baseName == "Dict") {
-			isGenericMethod = (name == "Set" || name == "Get"
-				|| name == "ContainsKey" || name == "Remove"
-				|| name == "Clear" || name == "Count"
-				|| name == "Keys");
+			isGenericMethod = (name == "set" || name == "get"
+				|| name == "containsKey" || name == "remove"
+				|| name == "clear" || name == "count"
+				|| name == "keys");
 		}
 		if (isGenericMethod)
 		{
@@ -592,13 +592,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			SnField* pResultField = nullptr;
 			auto typeArgs = GetGenericTypeArgs(pGenClass);
-			if (baseName == "List" && name == "Get") {
+			if (baseName == "List" && name == "get") {
 				//Return type = T (typeArgs[0]).
 				if (!typeArgs.empty() && typeArgs[0]) {
 					snMember.EvalDataType(typeArgs[0]);
 					pResultField = typeArgs[0];
 				}
-			} else if (baseName == "Dict" && name == "Get") {
+			} else if (baseName == "Dict" && name == "get") {
 				//Return type = V (typeArgs[1]).
 				if (typeArgs.size() > 1 && typeArgs[1]) {
 					snMember.EvalDataType(typeArgs[1]);
@@ -606,14 +606,14 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				}
 			} else if (
 				(baseName == "List"
-					&& (name == "Length" || name == "IndexOf" || name == "Contains"))
+					&& (name == "length" || name == "indexOf" || name == "contains"))
 				|| (baseName == "Dict"
-					&& (name == "ContainsKey" || name == "Remove" || name == "Count"))
+					&& (name == "containsKey" || name == "remove" || name == "count"))
 			) {
 				auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
 				snMember.EvalDataType(pInt);
 				pResultField = pInt;
-			} else if (baseName == "Dict" && name == "Keys") {
+			} else if (baseName == "Dict" && name == "keys") {
 				//Phase 8e-5: Dict.Keys() returns List<K> where K = typeArgs[0].
 				//Synthesize a List<K> generic instantiation so foreach lowering
 				//and codegen's per-method boxing plan see the right element type.
@@ -753,6 +753,18 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 			{
 				m_Env.Log(CLL_Error, sn.Location(),
 					"operator not supported on string.");
+				return;
+			}
+			//Phase 8e-8 strengthening: require both operands be string.
+			//Allowing mixed (e.g. int + string) would route through
+			//SnCastExpr int→string, but the cast codegen only handles
+			//int<->float (VmBackend.cpp:953-966); other casts silently
+			//no-op, leaving the int bit pattern to be misread by
+			//OP_Concat_str. Reject early with a clear message instead.
+			if (lk != NK_String || rk != NK_String)
+			{
+				m_Env.Log(CLL_Error, sn.Location(),
+					"string concat requires both operands to be string.");
 				return;
 			}
 			T_result = SnBuiltinDataType::InstanceOf(NK_String);

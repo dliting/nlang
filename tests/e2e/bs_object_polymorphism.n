@@ -6,8 +6,8 @@ int main() {
     Dog d = new Dog();
     d.legs = 4;
     d.teeth = 42;
-    bs.WriteObject(d);
-    bs.Reset();
-    Animal a = bs.ReadObject("Animal");
+    bs.writeObject(d);
+    bs.reset();
+    Animal a = bs.readObject("Animal");
     return a.legs;
 }

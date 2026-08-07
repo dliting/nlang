@@ -2,5 +2,5 @@ class Point { public int x; public int y; public int Point(int ax, int ay) { thi
 
 int main() {
     Dict<string, Point> d = new Dict<string, Point>{"p":new Point{x:1, y:2}};
-    return d.Get("p").x;
+    return d.get("p").x;
 }

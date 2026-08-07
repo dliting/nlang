@@ -1,9 +1,9 @@
 interface IWorker {
-    public int Run();
+    public int run();
 }
 
 class FastWorker implements IWorker {
-    public int Run() {
+    public int run() {
         return 50;
     }
 }
@@ -15,5 +15,5 @@ class Container {
 int main() {
     Container c = new Container();
     c.worker = new FastWorker();
-    return c.worker.Run();
+    return c.worker.run();
 }

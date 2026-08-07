@@ -1,8 +1,8 @@
 int main() {
     List<string> lst = new List<string>();
-    lst.Add("foo");
-    lst.Add("bar");
-    string s = lst.Get(0);
-    string t = lst.Get(1);
+    lst.add("foo");
+    lst.add("bar");
+    string s = lst.get(0);
+    string t = lst.get(1);
     return s.length() + t.length();
 }

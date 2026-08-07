@@ -2,13 +2,13 @@
 //in a method should show class context in the backtrace.
 class Holder {
     public int value;
-    public int Get() {
+    public int get() {
         return this.value;
     }
 }
 
 int CallGet(Holder h) {
-    return h.Get();
+    return h.get();
 }
 
 int main() {

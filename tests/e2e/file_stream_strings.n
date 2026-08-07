@@ -1,10 +1,10 @@
 int main() {
     FileStream fs = new FileStream("_phase8_tmp/test_strings.bin", "w");
-    fs.WriteString("hi");
-    fs.Close();
+    fs.writeString("hi");
+    fs.close();
     FileStream fs2 = new FileStream("_phase8_tmp/test_strings.bin", "r");
-    string s = fs2.ReadString();
-    fs2.Close();
+    string s = fs2.readString();
+    fs2.close();
     if (s == "hi") {
         return 1;
     }

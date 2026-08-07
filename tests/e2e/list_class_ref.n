@@ -1,7 +1,7 @@
 class Point { public int x; public int y; public int Point(int ax, int ay) { this.x = ax; this.y = ay; return 0; } }
 int main() {
     List<Point> lst = new List<Point>();
-    lst.Add(new Point(3, 0));
-    lst.Add(new Point(7, 0));
-    return lst.Get(0).x + lst.Get(1).x;
+    lst.add(new Point(3, 0));
+    lst.add(new Point(7, 0));
+    return lst.get(0).x + lst.get(1).x;
 }

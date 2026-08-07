@@ -14,6 +14,44 @@ Key design goals:
 - Mark-sweep garbage collection for class objects
 - Embeddable in host applications via a small C++ API
 
+## Naming Convention (Phase 8e-9-pre)
+
+NLang adopts **camelCase** for methods and **PascalCase** for types — a hybrid
+of Java-style casing and C#-style accessor naming. This combination provides
+visual distinction between types and methods (`MyClass.myMethod()` reads
+unambiguously) and aligns with the largest developer audience (Java + JS + C++).
+
+| Category | Style | Examples |
+|----------|-------|----------|
+| Types (class / struct / enum / interface) | PascalCase | `MyClass`, `List<T>`, `Color` |
+| Methods — action / command (side effects or multi-arg) | camelCase, bare verb | `add(x)`, `clear()`, `readInt()`, `run()` |
+| Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` (reserved for future property feature) |
+| Methods — predicate (returns bool) | camelCase, bare word | `equals(o)`, `contains(x)` |
+| Free functions | camelCase | `print(s)`, `assert(c)` |
+| Variables / parameters / locals | camelCase | `firstName`, `itemCount` |
+| Entry-point function `main` | lowercase (sole exception) | `int main()` |
+| Enum values | PascalCase | `Color.Red`, `Day.Monday` |
+| Generic type parameters | single uppercase letter | `T`, `K`, `V` |
+| Private fields | camelCase, no prefix | `class Foo { int count; }` |
+
+**Rationale**:
+- PascalCase types + camelCase methods → `MyClass.myMethod()` makes the
+  type-vs-method distinction immediate; `MyClass.MyMethod()` is ambiguous.
+- Covers Java + JS + C++ conventions (the largest common denominator).
+- `main` exception preserves the universal C/C++/Java entry-point convention.
+- `getXxx` / `setXxx` prefix retained on accessors: reserves namespace for a
+  future property feature (`obj.hashCode` desugaring to `getHashCode()` /
+  `setHashCode(v)`). Only `getHashCode` currently uses this form; other
+  accessors (`length`, `count`, `position`, `keys`) use bare camelCase and
+  may be upgraded to `getXxx` when properties land.
+- Predicates do not use `isXxx` / `hasXxx` prefixes — `equals` and
+  `contains` are clear on their own.
+
+**Built-in method migration** (Phase 8e-9-pre): all built-ins renamed from
+PascalCase to camelCase. Notable: `Length→length`, `Add→add`, `Equals→equals`,
+`GetHashCode→getHashCode`, `ReadInt→readInt`, `WriteString→writeString`,
+`Keys→keys`, `ContainsKey→containsKey`.
+
 ## Types
 
 ### Primitive Types
@@ -207,7 +245,7 @@ class Point {
 ```
 
 **String value semantics**: Although string is a primitive type, calls to
-`string.GetHashCode()` and `string.Equals(string)` are intrinsified to use
+`string.getHashCode()` and `string.equals(string)` are intrinsified to use
 *value* semantics (`std::hash` for hash, content comparison for Equals). This
 makes strings usable as Dict keys in future phases without needing a wrapper
 class.
@@ -227,7 +265,7 @@ Object o = 5;            // int boxed
 Object f = 3.14;         // float boxed
 Object s = "hi";         // string boxed
 
-int TakesObject(Object o) { return o.GetHashCode(); }
+int TakesObject(Object o) { return o.getHashCode(); }
 int x = TakesObject(42); // 42 boxed at the call site
 ```
 
@@ -291,16 +329,16 @@ supported.
 
 ```
 List<int> nums = new List<int>();
-nums.Add(1);
-nums.Add(2);
-nums.Add(3);
-int sum = nums.Get(0) + nums.Get(1) + nums.Get(2);    // 6
-int n = nums.Length();                                 // 3
+nums.add(1);
+nums.add(2);
+nums.add(3);
+int sum = nums.get(0) + nums.get(1) + nums.get(2);    // 6
+int n = nums.length();                                 // 3
 
 List<string> names = new List<string>();
-names.Add("alice");
-names.Add("bob");
-int total = (names.Get(0) + names.Get(1)).Length();    // 8
+names.add("alice");
+names.add("bob");
+int total = (names.get(0) + names.get(1)).length();    // 8
 ```
 
 **Methods** (T is the element type):
@@ -318,7 +356,7 @@ int total = (names.Get(0) + names.Get(1)).Length();    // 8
 
 **Type checking**: the compiler recognizes `List<int>`, `List<string>`,
 `List<Point>`, etc. as distinct static types. Argument types are checked
-against the substituted signature — `nums.Add("wrong")` is a compile
+against the substituted signature — `nums.add("wrong")` is a compile
 error when `nums : List<int>`.
 
 **Erasure runtime model**: `List<int>` and `List<Point>` share the same
@@ -351,18 +389,18 @@ are not (yet) supported.
 
 ```
 Dict<string,int> scores = new Dict<string,int>();
-scores.Set("alice", 90);
-scores.Set("bob",   85);
-int a = scores.Get("alice");          // 90
-int hasBob = scores.ContainsKey("bob"); // 1
-int n = scores.Count();                 // 2
+scores.set("alice", 90);
+scores.set("bob",   85);
+int a = scores.get("alice");          // 90
+int hasBob = scores.containsKey("bob"); // 1
+int n = scores.count();                 // 2
 
 Dict<int,int> squares = new Dict<int,int>();
-squares.Set(3, 9);
-squares.Set(4, 16);
-squares.Set(3, 99);                     // overwrites 9 → 99
-int v = squares.Get(3);                 // 99
-int removed = squares.Remove(4);        // 1
+squares.set(3, 9);
+squares.set(4, 16);
+squares.set(3, 99);                     // overwrites 9 → 99
+int v = squares.get(3);                 // 99
+int removed = squares.remove(4);        // 1
 ```
 
 **Methods** (K is the key type, V is the value type):
@@ -378,7 +416,7 @@ int removed = squares.Remove(4);        // 1
 
 **Type checking**: the compiler recognizes `Dict<int,int>`,
 `Dict<string,Point>`, etc. as distinct static types. Argument types are
-checked against the substituted signature — `d.Set("x", "y")` is a
+checked against the substituted signature — `d.set("x", "y")` is a
 compile error when `d : Dict<string,int>`.
 
 **Erasure runtime model**: `Dict<K,V>` shares a single backing class
@@ -407,11 +445,11 @@ optimization phase.
 
 **`foreach` over keys (Phase 8e-5)**: `foreach (K k in dict) { ... }`
 iterates the keys of the dict, Python/JavaScript style. Inside the body,
-call `dict.Get(k)` to access the value. Implementation: codegen emits
-an inline `dict.Keys()` call to materialize a fresh `List<K>`, then
+call `dict.get(k)` to access the value. Implementation: codegen emits
+an inline `dict.keys()` call to materialize a fresh `List<K>`, then
 iterates that list. See the Foreach Statement section below.
 
-**`Dict.Keys()`**: returns a new `List<K>` populated with all keys
+**`Dict.keys()`**: returns a new `List<K>` populated with all keys
 (no defined ordering). Useful independently of `foreach` for snapshotting
 keys for enumeration, set-style membership checks via `Contains`, etc.
 The returned `List<K>` is a *copy* — subsequent `Set`/`Remove` on the
@@ -611,15 +649,15 @@ Supported iterables:
 | Iterable | Iterates | Element access |
 |----------|----------|----------------|
 | `T[N]` (array) | elements `arr[0]..arr[N-1]` | `OP_LoadElement` |
-| `List<T>` | elements in insertion order | `List<T>.Get(i)` |
-| `Dict<K,V>` | **keys** (Python style) | inline `dict.Keys()` then `List<K>.Get(i)` |
+| `List<T>` | elements in insertion order | `List<T>.get(i)` |
+| `Dict<K,V>` | **keys** (Python style) | inline `dict.keys()` then `List<K>.get(i)` |
 
 `break` and `continue` work identically to `for`. The loop variable is
 **function-scoped** (NLang has no block scope, consistent with `for`):
 
 ```
 List<int> nums = new List<int>();
-nums.Add(10); nums.Add(20); nums.Add(30);
+nums.add(10); nums.add(20); nums.add(30);
 int sum = 0;
 foreach (int x in nums) {
     sum = sum + x;
@@ -631,17 +669,17 @@ foreach (int x in nums) {
 
 ```
 Dict<string, int> ages = new Dict<string, int>();
-ages.Set("alice", 30);
-ages.Set("bob",   25);
+ages.set("alice", 30);
+ages.set("bob",   25);
 int total = 0;
 foreach (string name in ages) {
-    total = total + ages.Get(name);
+    total = total + ages.get(name);
 }
 // total == 55
 ```
 
 **Mutation is undefined behavior**. The element count is cached at loop
-entry (`n = iterable.Length()` for List/Dict, `n = arr.length` for Array).
+entry (`n = iterable.length()` for List/Dict, `n = arr.length` for Array).
 Structural modifications inside the body (`List.Add`/`RemoveAt`,
 `Dict.Set`/`Remove`) may cause: out-of-bounds access, skipped/duplicated
 elements, or stale `Keys()` snapshots. Element assignment (`arr[i] = x`)

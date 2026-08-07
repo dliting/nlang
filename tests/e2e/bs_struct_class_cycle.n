@@ -17,9 +17,9 @@ int main() {
     n2.next = n1;
     Wrapper w;
     w.root = n1;
-    bs.WriteStruct(w);
-    bs.Reset();
-    Wrapper w2 = bs.ReadStruct("Wrapper");
+    bs.writeStruct(w);
+    bs.reset();
+    Wrapper w2 = bs.readStruct("Wrapper");
     if (w2.root.next.next == w2.root) {
         return 1;
     }

@@ -1,15 +1,15 @@
 interface IPrintable {
-    public int Print();
+    public int print();
 }
 
 class Foo implements IPrintable {
-    public int Print() {
+    public int print() {
         return 42;
     }
 }
 
 int DoPrint(IPrintable p) {
-    return p.Print();
+    return p.print();
 }
 
 int main() {

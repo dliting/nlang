@@ -69,7 +69,7 @@ void VmBackend::RegisterBuiltinClasses() {
         //int Equals(Object other) — virtual, intrinsic dispatch.
         auto equalsFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
         CompiledFunction equalsFunc;
-        equalsFunc.name = "Equals";
+        equalsFunc.name = "equals";
         equalsFunc.paramCount = 2;  //this + other
         equalsFunc.localsSize = 2 * VALUE_SIZE;
         equalsFunc.returnTypeKind = RTK_Int32;
@@ -80,7 +80,7 @@ void VmBackend::RegisterBuiltinClasses() {
         //int GetHashCode() — virtual, intrinsic dispatch.
         auto getHashCodeFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
         CompiledFunction ghFunc;
-        ghFunc.name = "GetHashCode";
+        ghFunc.name = "getHashCode";
         ghFunc.paramCount = 1;  //this only
         ghFunc.localsSize = 1 * VALUE_SIZE;
         ghFunc.returnTypeKind = RTK_Int32;
@@ -124,18 +124,18 @@ void VmBackend::RegisterBuiltinClasses() {
             //paramCount: 1 (this) for most, 2 (this + arg) for Write*/Read*/Equals
             bool hasArg = (methName.find("Write") == 0
                 || methName.find("Read") == 0
-                || methName == "Equals");
+                || methName == "equals");
             methFunc.paramCount = static_cast<uint16_t>(hasArg ? 2 : 1);
             methFunc.localsSize = static_cast<uint16_t>(methFunc.paramCount * VALUE_SIZE);
             //Return type: int for ReadInt/Length/Position/GetHashCode/Equals,
             //float for ReadFloat, string for ReadString, void for Write*/Reset/Close
-            if (methName == "ReadInt" || methName == "Length" || methName == "Position"
-                || methName == "ReadStruct" || methName == "ReadObject"
-                || methName == "GetHashCode" || methName == "Equals")
+            if (methName == "readInt" || methName == "length" || methName == "position"
+                || methName == "readStruct" || methName == "readObject"
+                || methName == "getHashCode" || methName == "equals")
                 methFunc.returnTypeKind = RTK_Int32;
-            else if (methName == "ReadFloat")
+            else if (methName == "readFloat")
                 methFunc.returnTypeKind = RTK_Float;
-            else if (methName == "ReadString")
+            else if (methName == "readString")
                 methFunc.returnTypeKind = RTK_String;
             else
                 methFunc.returnTypeKind = RTK_Void;  //Write*/Reset/Close
@@ -149,37 +149,37 @@ void VmBackend::RegisterBuiltinClasses() {
 
     //ByteStream methods.
     registerBuiltin("ByteStream", {
-        {"WriteInt",   INTR_BS_WriteInt},
-        {"ReadInt",    INTR_BS_ReadInt},
-        {"WriteFloat", INTR_BS_WriteFloat},
-        {"ReadFloat",  INTR_BS_ReadFloat},
-        {"WriteString",INTR_BS_WriteString},
-        {"ReadString", INTR_BS_ReadString},
-        {"WriteStruct",INTR_BS_WriteStruct},
-        {"ReadStruct", INTR_BS_ReadStruct},
-        {"WriteObject",INTR_BS_WriteObject},
-        {"ReadObject", INTR_BS_ReadObject},
-        {"Length",     INTR_BS_Length},
-        {"Position",   INTR_BS_Position},
-        {"Reset",      INTR_BS_Reset},
-        {"Close",      INTR_BS_Close},
+        {"writeInt",   INTR_BS_WriteInt},
+        {"readInt",    INTR_BS_ReadInt},
+        {"writeFloat", INTR_BS_WriteFloat},
+        {"readFloat",  INTR_BS_ReadFloat},
+        {"writeString",INTR_BS_WriteString},
+        {"readString", INTR_BS_ReadString},
+        {"writeStruct",INTR_BS_WriteStruct},
+        {"readStruct", INTR_BS_ReadStruct},
+        {"writeObject",INTR_BS_WriteObject},
+        {"readObject", INTR_BS_ReadObject},
+        {"length",     INTR_BS_Length},
+        {"position",   INTR_BS_Position},
+        {"reset",      INTR_BS_Reset},
+        {"close",      INTR_BS_Close},
     }, INTR_BS_Ctor, false);
 
     //FileStream methods.
     registerBuiltin("FileStream", {
-        {"WriteInt",   INTR_FS_WriteInt},
-        {"ReadInt",    INTR_FS_ReadInt},
-        {"WriteFloat", INTR_FS_WriteFloat},
-        {"ReadFloat",  INTR_FS_ReadFloat},
-        {"WriteString",INTR_FS_WriteString},
-        {"ReadString", INTR_FS_ReadString},
-        {"WriteStruct",INTR_FS_WriteStruct},
-        {"ReadStruct", INTR_FS_ReadStruct},
-        {"WriteObject",INTR_FS_WriteObject},
-        {"ReadObject", INTR_FS_ReadObject},
-        {"Length",     INTR_FS_Length},
-        {"Position",   INTR_FS_Position},
-        {"Close",      INTR_FS_Close},
+        {"writeInt",   INTR_FS_WriteInt},
+        {"readInt",    INTR_FS_ReadInt},
+        {"writeFloat", INTR_FS_WriteFloat},
+        {"readFloat",  INTR_FS_ReadFloat},
+        {"writeString",INTR_FS_WriteString},
+        {"readString", INTR_FS_ReadString},
+        {"writeStruct",INTR_FS_WriteStruct},
+        {"readStruct", INTR_FS_ReadStruct},
+        {"writeObject",INTR_FS_WriteObject},
+        {"readObject", INTR_FS_ReadObject},
+        {"length",     INTR_FS_Length},
+        {"position",   INTR_FS_Position},
+        {"close",      INTR_FS_Close},
     }, INTR_FS_Ctor, true);
 
     //Phase 8e-3: List<T> — built-in generic, erasure-style. All instantiations
@@ -225,14 +225,14 @@ void VmBackend::RegisterBuiltinClasses() {
             m_compiledModule.functions.push_back(std::move(methFunc));
             cc.methodIndices.push_back(methFuncIdx);
         };
-        addMethod("Add",      INTR_List_Add,      2, RTK_Void);
-        addMethod("Get",      INTR_List_Get,      2, RTK_Int32);   //return T, codegen unboxes
-        addMethod("Set",      INTR_List_Set,      3, RTK_Void);
-        addMethod("Length",   INTR_List_Length,   1, RTK_Int32);
-        addMethod("RemoveAt", INTR_List_RemoveAt, 2, RTK_Void);
-        addMethod("IndexOf",  INTR_List_IndexOf,  2, RTK_Int32);
-        addMethod("Contains", INTR_List_Contains, 2, RTK_Int32);
-        addMethod("Clear",    INTR_List_Clear,    1, RTK_Void);
+        addMethod("add",      INTR_List_Add,      2, RTK_Void);
+        addMethod("get",      INTR_List_Get,      2, RTK_Int32);   //return T, codegen unboxes
+        addMethod("set",      INTR_List_Set,      3, RTK_Void);
+        addMethod("length",   INTR_List_Length,   1, RTK_Int32);
+        addMethod("removeAt", INTR_List_RemoveAt, 2, RTK_Void);
+        addMethod("indexOf",  INTR_List_IndexOf,  2, RTK_Int32);
+        addMethod("contains", INTR_List_Contains, 2, RTK_Int32);
+        addMethod("clear",    INTR_List_Clear,    1, RTK_Void);
 
         m_compiledModule.classes.push_back(std::move(cc));
         m_listClassIdx = static_cast<int16_t>(classIdx);
@@ -281,16 +281,16 @@ void VmBackend::RegisterBuiltinClasses() {
             m_compiledModule.functions.push_back(std::move(methFunc));
             cc.methodIndices.push_back(methFuncIdx);
         };
-        addMethod("Set",         INTR_Dict_Set,         3, RTK_Void);
-        addMethod("Get",         INTR_Dict_Get,         2, RTK_Int32);  //return V, codegen unboxes
-        addMethod("ContainsKey", INTR_Dict_ContainsKey, 2, RTK_Int32);
-        addMethod("Remove",      INTR_Dict_Remove,      2, RTK_Int32);
-        addMethod("Clear",       INTR_Dict_Clear,       1, RTK_Void);
-        addMethod("Count",       INTR_Dict_Count,       1, RTK_Int32);
+        addMethod("set",         INTR_Dict_Set,         3, RTK_Void);
+        addMethod("get",         INTR_Dict_Get,         2, RTK_Int32);  //return V, codegen unboxes
+        addMethod("containsKey", INTR_Dict_ContainsKey, 2, RTK_Int32);
+        addMethod("remove",      INTR_Dict_Remove,      2, RTK_Int32);
+        addMethod("clear",       INTR_Dict_Clear,       1, RTK_Void);
+        addMethod("count",       INTR_Dict_Count,       1, RTK_Int32);
         //Phase 8e-5: Dict.Keys() returns a fresh List<K> heap instance
         //(allocated by the VM intrinsic). paramCount=1 (just this). Return
         //is RTK_Class (heap reference to List<K>) — no boxing on return.
-        addMethod("Keys",        INTR_Dict_Keys,        1, RTK_Class);
+        addMethod("keys",        INTR_Dict_Keys,        1, RTK_Class);
 
         m_compiledModule.classes.push_back(std::move(cc));
         m_dictClassIdx = static_cast<int16_t>(classIdx);
@@ -1113,13 +1113,13 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                             //  IndexOf(T)     — T at paramIdx 1
                             //  Contains(T)    — T at paramIdx 1
                             //  Get(int) → T   — return unboxed
-                            if (methodName == "Add"
-                                || methodName == "IndexOf"
-                                || methodName == "Contains") {
+                            if (methodName == "add"
+                                || methodName == "indexOf"
+                                || methodName == "contains") {
                                 argPlans[1] = {t.tag, true};
-                            } else if (methodName == "Set") {
+                            } else if (methodName == "set") {
                                 argPlans[2] = {t.tag, true};
-                            } else if (methodName == "Get") {
+                            } else if (methodName == "get") {
                                 returnsBoxed = true; returnTag = t.tag;
                             }
                         }
@@ -1128,14 +1128,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                             typeArgs.empty() ? nullptr : typeArgs[0]);
                         auto v = (typeArgs.size() > 1)
                             ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
-                        if (methodName == "Set") {
+                        if (methodName == "set") {
                             if (k.isPrimitive) argPlans[1] = {k.tag, true};
                             if (v.isPrimitive) argPlans[2] = {v.tag, true};
-                        } else if (methodName == "Get") {
+                        } else if (methodName == "get") {
                             if (k.isPrimitive) argPlans[1] = {k.tag, true};
                             if (v.isPrimitive) { returnsBoxed = true; returnTag = v.tag; }
-                        } else if (methodName == "ContainsKey"
-                            || methodName == "Remove") {
+                        } else if (methodName == "containsKey"
+                            || methodName == "remove") {
                             if (k.isPrimitive) argPlans[1] = {k.tag, true};
                         }
                     }
@@ -1320,7 +1320,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.EmitUint16(resultOffset);
                     return;
                 }
-                if (methName == "GetHashCode")
+                if (methName == "getHashCode")
                 {
                     //Evaluate receiver (string pool idx) to callParamBase[0].
                     EmitExpression(*member.Outer(), emitter, m_currFunc->callParamBase);
@@ -1332,7 +1332,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.Emit(OpCode::OP_ParaEnd);
                     return;
                 }
-                if (methName == "Equals")
+                if (methName == "equals")
                 {
                     //Evaluate receiver (this) to callParamBase[0].
                     EmitExpression(*member.Outer(), emitter, m_currFunc->callParamBase);
@@ -1462,7 +1462,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
     //Dispatches on resolved EvalDataType:
     //  - Array (target->IsArrayType()): OP_AllocArray + per-element OP_StoreElement
-    //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "Add" with boxing
+    //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "add" with boxing
     //  - Dict/Struct/Class: handled in Phase D (falls through to assert for now).
     if (kind == NK_InitListExpr) {
         auto& initList = static_cast<SnInitListExpr&>(expr);
@@ -1547,7 +1547,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 const auto& typeArgs = pClassDecl->GenericTypeArgs();
                 auto t = BoxingTagFor(
                     typeArgs.empty() ? nullptr : typeArgs[0]);
-                uint16_t addNameIdx = AddStringConstant("Add");
+                uint16_t addNameIdx = AddStringConstant("add");
                 uint16_t paramOffset = m_currFunc->callParamBase + 1 * VALUE_SIZE;
                 //For each entry, evaluate value to paramOffset, box if needed,
                 //set this, call Add.
@@ -1599,7 +1599,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     typeArgs.empty() ? nullptr : typeArgs[0]);
                 auto vBox = (typeArgs.size() > 1)
                     ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
-                uint16_t setNameIdx = AddStringConstant("Set");
+                uint16_t setNameIdx = AddStringConstant("set");
                 uint16_t keyOff = m_currFunc->callParamBase + 1 * VALUE_SIZE;
                 uint16_t valOff = m_currFunc->callParamBase + 2 * VALUE_SIZE;
                 for (auto& entry : initList.Entries()) {
@@ -2406,7 +2406,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             emitter.EmitUint16(iterSlot);
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(m_currFunc->callParamBase);
-            uint16_t keysIdx = AddStringConstant("Keys");
+            uint16_t keysIdx = AddStringConstant("keys");
             emitter.Emit(OpCode::OP_CallMethod);
             emitter.EmitUint16(keysIdx);
             emitter.EmitUint16(m_currFunc->callParamBase);
@@ -2433,7 +2433,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             emitter.EmitUint16(iterSlot);
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(m_currFunc->callParamBase);
-            uint16_t nameIdx = AddStringConstant("Length");
+            uint16_t nameIdx = AddStringConstant("length");
             emitter.Emit(OpCode::OP_CallMethod);
             emitter.EmitUint16(nameIdx);
             emitter.EmitUint16(m_currFunc->callParamBase);
@@ -2503,7 +2503,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             emitter.EmitUint16(iterSlot);
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(m_currFunc->callParamBase);
-            uint16_t nameIdx = AddStringConstant("Get");
+            uint16_t nameIdx = AddStringConstant("get");
             emitter.Emit(OpCode::OP_CallMethod);
             emitter.EmitUint16(nameIdx);
             emitter.EmitUint16(m_currFunc->callParamBase);

@@ -1,9 +1,9 @@
 int main() {
     FileStream fs = new FileStream("_phase8_tmp/test_write_read.bin", "w");
-    fs.WriteInt(42);
-    fs.Close();
+    fs.writeInt(42);
+    fs.close();
     FileStream fs2 = new FileStream("_phase8_tmp/test_write_read.bin", "r");
-    int v = fs2.ReadInt();
-    fs2.Close();
+    int v = fs2.readInt();
+    fs2.close();
     return v;
 }

@@ -5,9 +5,9 @@ int main() {
     Vec v;
     v.x = 1.0;
     v.y = 3.0;
-    bs.WriteStruct(v);
-    bs.Reset();
-    Vec w = bs.ReadStruct("Vec");
+    bs.writeStruct(v);
+    bs.reset();
+    Vec w = bs.readStruct("Vec");
     float fx = w.x;
     float fy = w.y;
     int xi = fx;

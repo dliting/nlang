@@ -5,22 +5,22 @@ int main() {
     //heap-idx sentinel in OP_Box, a pre-existing List<int> limitation
     //unrelated to foreach.)
     List<int> outer = new List<int>();
-    outer.Add(11);
-    outer.Add(22);
-    outer.Add(33);
+    outer.add(11);
+    outer.add(22);
+    outer.add(33);
 
     List<int> row0 = new List<int>();
-    row0.Add(10);
-    row0.Add(20);
-    row0.Add(30);
+    row0.add(10);
+    row0.add(20);
+    row0.add(30);
     List<int> row1 = new List<int>();
-    row1.Add(40);
-    row1.Add(50);
-    row1.Add(60);
+    row1.add(40);
+    row1.add(50);
+    row1.add(60);
     List<int> row2 = new List<int>();
-    row2.Add(70);
-    row2.Add(80);
-    row2.Add(90);
+    row2.add(70);
+    row2.add(80);
+    row2.add(90);
 
     int count = 0;
     int idx = 0;

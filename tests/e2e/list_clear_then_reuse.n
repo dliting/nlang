@@ -1,10 +1,10 @@
 int main() {
     List<int> lst = new List<int>();
-    lst.Add(10);
-    lst.Add(20);
-    lst.Add(30);
-    lst.Clear();
-    lst.Add(40);
-    lst.Add(50);
-    return lst.Length();
+    lst.add(10);
+    lst.add(20);
+    lst.add(30);
+    lst.clear();
+    lst.add(40);
+    lst.add(50);
+    return lst.length();
 }

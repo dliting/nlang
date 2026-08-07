@@ -1,5 +1,5 @@
 int main() {
     List<int> lst = new List<int>();
-    int x = lst.Get(0);
+    int x = lst.get(0);
     return 0;
 }

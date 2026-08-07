@@ -1,6 +1,6 @@
 //ReadInt on empty stream throws runtime_error; nvm exits non-zero.
 int main() {
     ByteStream bs = new ByteStream();
-    int a = bs.ReadInt();
+    int a = bs.readInt();
     return a;
 }

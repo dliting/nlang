@@ -14,9 +14,9 @@ int main() {
     Pair p;
     p.a = h;
     p.b = h;
-    bs.WriteStruct(p);
-    bs.Reset();
-    Pair q = bs.ReadStruct("Pair");
+    bs.writeStruct(p);
+    bs.reset();
+    Pair q = bs.readStruct("Pair");
     if (q.a == q.b) {
         return 1;
     }

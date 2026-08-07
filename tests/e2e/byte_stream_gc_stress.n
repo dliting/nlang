@@ -2,13 +2,13 @@ class Dummy { public int x; public int y; public int Dummy() { this.x = 1; this.
 
 int main() {
     ByteStream bs = new ByteStream();
-    bs.WriteInt(42);
-    bs.Reset();
+    bs.writeInt(42);
+    bs.reset();
     int i = 0;
     while (i < 200) {
         Dummy obj = new Dummy();
         i = i + 1;
     }
-    int v = bs.ReadInt();
+    int v = bs.readInt();
     return v;
 }

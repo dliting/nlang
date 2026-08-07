@@ -8,8 +8,8 @@ int main() {
     c.x = 1;
     c.y = 2;
     c.z = 3;
-    bs.WriteObject(c);
-    bs.Reset();
-    A a = bs.ReadObject("A");
+    bs.writeObject(c);
+    bs.reset();
+    A a = bs.readObject("A");
     return a.x;
 }

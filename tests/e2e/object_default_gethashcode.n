@@ -4,7 +4,7 @@ class Holder {
 
 int main() {
     Holder h = new Holder();
-    int hc = h.GetHashCode();
+    int hc = h.getHashCode();
     if (hc > 0) {
         return 1;
     }

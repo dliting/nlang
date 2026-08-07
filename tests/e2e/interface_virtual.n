@@ -1,21 +1,21 @@
 interface ICounter {
-    public int Next();
+    public int next();
 }
 
 class CounterTen implements ICounter {
-    public int Next() {
+    public int next() {
         return 10;
     }
 }
 
 class CounterTwenty implements ICounter {
-    public int Next() {
+    public int next() {
         return 20;
     }
 }
 
 int CountTwice(ICounter c) {
-    return c.Next() + c.Next();
+    return c.next() + c.next();
 }
 
 int main() {

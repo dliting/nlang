@@ -1819,7 +1819,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_WriteInt: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteInt");
+                m_structHeap, "writeInt");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1833,7 +1833,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_ReadInt: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadInt");
+                m_structHeap, "readInt");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1847,7 +1847,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_WriteFloat: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteFloat");
+                m_structHeap, "writeFloat");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1861,7 +1861,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_ReadFloat: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadFloat");
+                m_structHeap, "readFloat");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1875,7 +1875,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_WriteString: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteString");
+                m_structHeap, "writeString");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1894,7 +1894,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_ReadString: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadString");
+                m_structHeap, "readString");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1921,7 +1921,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_Length: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "Length");
+                m_structHeap, "length");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1931,7 +1931,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_Position: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "Position");
+                m_structHeap, "position");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1941,7 +1941,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_Reset: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "Reset");
+                m_structHeap, "reset");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1951,7 +1951,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_WriteStruct: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteStruct");
+                m_structHeap, "writeStruct");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -1973,7 +1973,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_ReadStruct: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadStruct");
+                m_structHeap, "readStruct");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2003,7 +2003,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_WriteObject: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteObject");
+                m_structHeap, "writeObject");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2023,7 +2023,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_ReadObject: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadObject");
+                m_structHeap, "readObject");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2052,7 +2052,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_BS_Close: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "Close");
+                m_structHeap, "close");
             auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
             st->closed = true;
             st->buf.clear();
@@ -2105,7 +2105,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_WriteInt: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteInt");
+                m_structHeap, "writeInt");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2118,7 +2118,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_ReadInt: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadInt");
+                m_structHeap, "readInt");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2133,7 +2133,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_WriteFloat: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteFloat");
+                m_structHeap, "writeFloat");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2146,7 +2146,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_ReadFloat: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadFloat");
+                m_structHeap, "readFloat");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2161,7 +2161,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_WriteString: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteString");
+                m_structHeap, "writeString");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2178,7 +2178,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_ReadString: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadString");
+                m_structHeap, "readString");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2205,7 +2205,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_Length: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "Length");
+                m_structHeap, "length");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2219,7 +2219,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_Position: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "Position");
+                m_structHeap, "position");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2229,7 +2229,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_WriteStruct: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteStruct");
+                m_structHeap, "writeStruct");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2251,7 +2251,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_ReadStruct: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadStruct");
+                m_structHeap, "readStruct");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2282,7 +2282,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_WriteObject: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "WriteObject");
+                m_structHeap, "writeObject");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2303,7 +2303,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_ReadObject: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "ReadObject");
+                m_structHeap, "readObject");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (!st || st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
@@ -2334,7 +2334,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         }
         case INTR_FS_Close: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
-                m_structHeap, "Close");
+                m_structHeap, "close");
             auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
             if (st) {
                 st->closed = true;
@@ -2435,7 +2435,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_List_Add) {
         int32_t value;
         std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
-        int32_t handle = ReadListHandle(callParamBase, locals, "Add");
+        int32_t handle = ReadListHandle(callParamBase, locals, "add");
         m_listStore[handle - 1].elements.push_back(value);
         return;
     }
@@ -2443,7 +2443,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_List_Get) {
         int32_t idx;
         std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
-        int32_t handle = ReadListHandle(callParamBase, locals, "Get");
+        int32_t handle = ReadListHandle(callParamBase, locals, "get");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
             throw std::runtime_error("NLang VM: List index out of bounds");
@@ -2456,7 +2456,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t idx, value;
         std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
         std::memcpy(&value, locals + callParamBase + 2 * VALUE_SIZE, sizeof(value));
-        int32_t handle = ReadListHandle(callParamBase, locals, "Set");
+        int32_t handle = ReadListHandle(callParamBase, locals, "set");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
             throw std::runtime_error("NLang VM: List index out of bounds");
@@ -2465,7 +2465,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     }
     //INTR_List_Length: return elements.size().
     if (intrinsicId == INTR_List_Length) {
-        int32_t handle = ReadListHandle(callParamBase, locals, "Length");
+        int32_t handle = ReadListHandle(callParamBase, locals, "length");
         int32_t len = static_cast<int32_t>(m_listStore[handle - 1].elements.size());
         std::memcpy(pResult, &len, sizeof(len));
         return;
@@ -2474,7 +2474,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_List_RemoveAt) {
         int32_t idx;
         std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
-        int32_t handle = ReadListHandle(callParamBase, locals, "RemoveAt");
+        int32_t handle = ReadListHandle(callParamBase, locals, "removeAt");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
             throw std::runtime_error("NLang VM: List index out of bounds");
@@ -2491,7 +2491,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_List_IndexOf) {
         int32_t value;
         std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
-        int32_t handle = ReadListHandle(callParamBase, locals, "IndexOf");
+        int32_t handle = ReadListHandle(callParamBase, locals, "indexOf");
         auto& lst = m_listStore[handle - 1];
         int32_t result = -1;
         bool primitiveT = (value > 0
@@ -2525,7 +2525,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_List_Contains) {
         int32_t value;
         std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
-        int32_t handle = ReadListHandle(callParamBase, locals, "Contains");
+        int32_t handle = ReadListHandle(callParamBase, locals, "contains");
         auto& lst = m_listStore[handle - 1];
         int32_t result = 0;
         bool primitiveT = (value > 0
@@ -2556,7 +2556,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     }
     //INTR_List_Clear: remove all elements.
     if (intrinsicId == INTR_List_Clear) {
-        int32_t handle = ReadListHandle(callParamBase, locals, "Clear");
+        int32_t handle = ReadListHandle(callParamBase, locals, "clear");
         m_listStore[handle - 1].elements.clear();
         return;
     }
@@ -2584,7 +2584,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t k, v;
         std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
         std::memcpy(&v, locals + callParamBase + 2 * VALUE_SIZE, sizeof(v));
-        int32_t handle = ReadDictHandle(callParamBase, locals, "Set");
+        int32_t handle = ReadDictHandle(callParamBase, locals, "set");
         auto& entries = m_dictStore[handle - 1].entries;
         for (auto& kv : entries) {
             if (DictKeysEqual(kv.first, k)) { kv.second = v; return; }
@@ -2596,7 +2596,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_Dict_Get) {
         int32_t k;
         std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
-        int32_t handle = ReadDictHandle(callParamBase, locals, "Get");
+        int32_t handle = ReadDictHandle(callParamBase, locals, "get");
         auto& entries = m_dictStore[handle - 1].entries;
         for (auto& kv : entries) {
             if (DictKeysEqual(kv.first, k)) {
@@ -2610,7 +2610,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_Dict_ContainsKey) {
         int32_t k;
         std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
-        int32_t handle = ReadDictHandle(callParamBase, locals, "ContainsKey");
+        int32_t handle = ReadDictHandle(callParamBase, locals, "containsKey");
         auto& entries = m_dictStore[handle - 1].entries;
         int32_t result = 0;
         for (auto& kv : entries) {
@@ -2623,7 +2623,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_Dict_Remove) {
         int32_t k;
         std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
-        int32_t handle = ReadDictHandle(callParamBase, locals, "Remove");
+        int32_t handle = ReadDictHandle(callParamBase, locals, "remove");
         auto& entries = m_dictStore[handle - 1].entries;
         int32_t result = 0;
         for (auto it = entries.begin(); it != entries.end(); ++it) {
@@ -2638,13 +2638,13 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     }
     //INTR_Dict_Clear: drop all entries.
     if (intrinsicId == INTR_Dict_Clear) {
-        int32_t handle = ReadDictHandle(callParamBase, locals, "Clear");
+        int32_t handle = ReadDictHandle(callParamBase, locals, "clear");
         m_dictStore[handle - 1].entries.clear();
         return;
     }
     //INTR_Dict_Count: entry count.
     if (intrinsicId == INTR_Dict_Count) {
-        int32_t handle = ReadDictHandle(callParamBase, locals, "Count");
+        int32_t handle = ReadDictHandle(callParamBase, locals, "count");
         int32_t n = static_cast<int32_t>(m_dictStore[handle - 1].entries.size());
         std::memcpy(pResult, &n, sizeof(n));
         return;
@@ -2655,7 +2655,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //codegen (set when the resolver synthesized the List<K> return type), so
     //any subsequent Get(i) on the result will unbox correctly for primitive K.
     if (intrinsicId == INTR_Dict_Keys) {
-        int32_t dictHandle = ReadDictHandle(callParamBase, locals, "Keys");
+        int32_t dictHandle = ReadDictHandle(callParamBase, locals, "keys");
         auto& src = m_dictStore[dictHandle - 1].entries;
 
         //Allocate the List<K> class instance on the heap + a fresh List handle.

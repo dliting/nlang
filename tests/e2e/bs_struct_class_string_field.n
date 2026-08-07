@@ -14,9 +14,9 @@ int main() {
     p.age = 30;
     Group g;
     g.p = p;
-    bs.WriteStruct(g);
-    bs.Reset();
-    Group g2 = bs.ReadStruct("Group");
+    bs.writeStruct(g);
+    bs.reset();
+    Group g2 = bs.readStruct("Group");
     if (g2.p.name == "alice") {
         return 1;
     }

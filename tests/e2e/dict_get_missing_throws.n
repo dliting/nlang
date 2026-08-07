@@ -1,6 +1,6 @@
 int main() {
     Dict<int, int> d = new Dict<int, int>();
-    d.Set(1, 10);
-    int x = d.Get(99);
+    d.set(1, 10);
+    int x = d.get(99);
     return 0;
 }

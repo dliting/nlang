@@ -7,10 +7,10 @@ int main() {
     h.v = 42;
     S s;
     s.h = h;
-    fs.WriteStruct(s);
-    fs.Close();
+    fs.writeStruct(s);
+    fs.close();
     FileStream fs2 = new FileStream("_phase8_tmp/struct_class_roundtrip.bin", "r");
-    S s2 = fs2.ReadStruct("S");
-    fs2.Close();
+    S s2 = fs2.readStruct("S");
+    fs2.close();
     return s2.h.v;
 }

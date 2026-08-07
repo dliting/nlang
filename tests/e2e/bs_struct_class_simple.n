@@ -7,8 +7,8 @@ int main() {
     h.v = 42;
     S s;
     s.h = h;
-    bs.WriteStruct(s);
-    bs.Reset();
-    S s2 = bs.ReadStruct("S");
+    bs.writeStruct(s);
+    bs.reset();
+    S s2 = bs.readStruct("S");
     return s2.h.v;
 }

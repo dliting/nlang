@@ -1,9 +1,9 @@
 int main() {
     List<int> lst = new List<int>();
-    lst.Add(1);
-    lst.Add(2);
-    lst.Add(3);
-    lst.Add(4);
+    lst.add(1);
+    lst.add(2);
+    lst.add(3);
+    lst.add(4);
     int sum = 0;
     foreach (int x in lst) {
         sum = sum + x;

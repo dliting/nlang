@@ -1,5 +1,5 @@
 int main() {
     Dict<int, int> d = new Dict<int, int>();
-    d.Set(5, 50);
-    return d.ContainsKey(5);
+    d.set(5, 50);
+    return d.containsKey(5);
 }

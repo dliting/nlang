@@ -6,6 +6,6 @@ int main() {
     S x;
     x.h = new Holder();
     x.h.v = 99;
-    bs.WriteStruct(x);
+    bs.writeStruct(x);
     return 0;
 }

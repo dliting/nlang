@@ -1,12 +1,12 @@
 int main() {
     List<int> lst = new List<int>();
-    lst.Add(1);
-    lst.Add(2);
-    lst.Add(3);
-    int sum = lst.Get(0);
-    lst.RemoveAt(0);
-    sum = sum + lst.Get(0);
-    lst.RemoveAt(0);
-    sum = sum + lst.Get(0);
+    lst.add(1);
+    lst.add(2);
+    lst.add(3);
+    int sum = lst.get(0);
+    lst.removeAt(0);
+    sum = sum + lst.get(0);
+    lst.removeAt(0);
+    sum = sum + lst.get(0);
     return sum;
 }

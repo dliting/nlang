@@ -1,6 +1,6 @@
 int main() {
     List<int> lst = new List<int>();
-    lst.Add(10);
-    lst.Add(20);
-    return lst.Contains(20) + lst.Contains(99);
+    lst.add(10);
+    lst.add(20);
+    return lst.contains(20) + lst.contains(99);
 }

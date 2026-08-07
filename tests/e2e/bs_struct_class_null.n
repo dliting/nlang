@@ -9,9 +9,9 @@ struct S {
 int main() {
     ByteStream bs = new ByteStream();
     S s;
-    bs.WriteStruct(s);
-    bs.Reset();
-    S s2 = bs.ReadStruct("S");
+    bs.writeStruct(s);
+    bs.reset();
+    S s2 = bs.readStruct("S");
     if (s2.h == null) {
         return 1;
     }
