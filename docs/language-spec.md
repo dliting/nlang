@@ -494,6 +494,78 @@ Runtime-checked conversions, supported in Phase 8e-1.5:
 Type-incompatible casts (`5 as string`, `o as int` when `o` holds a
 class ref) are compile errors — `as` only permits same/box/unbox/downcast.
 
+### Collection Initializers (Phase 8e-6)
+
+NLang supports C-style collection literals for arrays, lists, dicts,
+and aggregate (struct/class) initialization. Two syntactic forms:
+
+**Bare bracket form `[...]`** — allowed only where the LHS or assignment
+target lets the resolver infer the collection type. Works for arrays
+(`T[]`) and `List<T>`:
+
+```
+int[] arr = [1, 2, 3];
+string[] names = ["alice", "bob"];
+List<int> nums = [10, 20, 30];
+List<Point> pts = [new Point{x:1, y:2}, new Point{x:3, y:4}];
+```
+
+**Explicit form `new Type{...}`** — works in any expression position
+(function args, return values, standalone expressions). Required for
+dict, struct, and class initialization because bare `{...}` would
+conflict with the `Paragraph` (block statement) grammar:
+
+```
+Dict<string, int> d = new Dict<string, int>{"a":1, "b":2};
+Point p = new Point{x:1, y:2};
+List<int> lst = new List<int>{1, 2, 3};
+return new Point{x:0, y:0};
+foo(new Point{x:1, y:2}, new Point{x:3, y:4});
+```
+
+**Entry forms inside `{...}`:**
+
+- `TT_String : Expression` — dict entry (string key)
+- `TT_Identifier : Expression` — struct/class field (e.g. `x:1, y:2`)
+- `Expression` (no key) — list element (only valid when Type is `List<T>`)
+
+**Type disambiguation:** the resolver uses the LHS variable (or the
+explicit `Type` in `new Type{...}`) to pick the kind:
+
+| Target type          | Form    | Entry kind              |
+|----------------------|---------|-------------------------|
+| `T[]` (array)        | `[...]` | value-only              |
+| `List<T>`            | `[...]` or `new List<T>{...}` | value-only |
+| `Dict<K,V>`          | `new Dict<K,V>{...}` | `key : value` (string key) |
+| struct               | `new StructName{...}` | `field : value` (identifier key) |
+| class                | `new ClassName{...}` | `field : value` (identifier key) |
+
+**Class init requirements:** the class must have a no-arg constructor
+(explicit or implicit). Codegen lowers `new C{f1:v1, ...}` as
+`new C()` followed by per-field `OP_StoreField` assignments.
+
+**Recursive nesting:** init lists may contain other init lists, but
+nested generics like `List<List<int>>` and `Dict<K, List<V>>` are
+blocked by the lexer (tokenizes `>>` as right-shift). Use `new List<T>{...}`
+as the outer wrapper where needed, or split into local variables.
+
+**Empty collections:** bare `[]` is not supported (the lexer matches
+`[]` as a single `OT_Brackets` token used for array-type suffix). Use
+the explicit empty form instead: `new List<T>{}`, `new Dict<K,V>{}`,
+or `new int[0]` for arrays.
+
+**Function arg disambiguation:** a bare `[...]` as a function argument
+is not currently supported — it produces a compile error because the
+resolver cannot infer the target type without overload resolution.
+Use the explicit `new Type{...}` form for function args (Phase 8e-6
+Phase G — overload uniqueness — is deferred).
+
+**Mutation during init is UB.** Entries are evaluated left-to-right and
+assigned in order; reading the partially-constructed collection from
+within an entry expression (e.g. `[1, foo(arr)]` where `foo` reads
+`arr`) is undefined behavior. An exception-throwing entry leaves the
+collection partially constructed.
+
 ## Statements
 
 ### Control Flow
@@ -657,9 +729,20 @@ or return a derived value that fits in the exit code range.
 
 ## Known Limitations
 
-- **`foreach` / `foreach in`**: not yet implemented (planned with collections).
-  Use the index-based `for` loop with `Length()` and `Get(i)`.
 - **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
   built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
-- **Collection initializer**: `[1, 2, 3]` literal syntax is not supported.
-  Use repeated `Add` calls to populate lists.
+- **Bare `{...}` collection init**: dict/struct/class init requires the
+  explicit `new Type{...}` form (the bare `{...}` form conflicts with
+  block-statement grammar). See Collection Initializers above.
+- **Bare `[]` empty init**: use `new List<T>{}`, `new Dict<K,V>{}`, or
+  `new int[0]` instead. The lexer tokenizes `[]` as a single token used
+  by the array-type suffix rule.
+- **Nested generics (`List<List<int>>`, `Dict<K, List<V>>`)**: blocked
+  by the lexer tokenizing `>>` as right-shift. Future phase may split
+  `>>` in type context.
+- **Bare init list as function argument**: requires `new Type{...}`
+  explicit form. Phase 8e-6 overload uniqueness (Phase G) deferred.
+- **`List<int>` with literal `0` elements**: boxing null-sentinel bug
+  inherited from Phase 8e-3 — `[0, 1, 2]` as `List<int>` initializer
+  may misbehave. Use `int[]` for arrays containing zeros, or non-zero
+  literals in `List<int>` initializers.
