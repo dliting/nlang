@@ -1,0 +1,8 @@
+int main() {
+    List<int> lst;
+    int count = 0;
+    foreach (int x in lst) {
+        count = count + 1;
+    }
+    return count;
+}
