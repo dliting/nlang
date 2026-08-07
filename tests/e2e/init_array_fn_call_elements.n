@@ -1,0 +1,12 @@
+int double(int x) {
+    return x * 2;
+}
+
+int main() {
+    int[] arr = [double(1), double(2), double(3)];
+    int sum = 0;
+    foreach (int x in arr) {
+        sum = sum + x;
+    }
+    return sum;
+}
