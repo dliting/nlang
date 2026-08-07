@@ -182,6 +182,19 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 257 个测试零回归（test e2e 通过率不变）
 - 详见 memory: `nlang-naming-convention.md`
 
+### 阶段 8e-9a：基元 → string 自动强制转换 ✅
+- **问题**：`int + string` 之前因 SnCastExpr codegen（`VmBackend.cpp:951`）只处理 `int↔float`，对 `int/float → string` 静默 no-op（虽然 `CastInfo.cpp:13,18` 已 `TCK_Auto` 允许），导致 int 位模式被 OP_Concat_str 误读为字符串 idx
+- **8e-8 临时的 strengthening**（reject `non-string + string`）已撤销
+- **设计**：仿 `OP_CastIntToFloat` 模式新增 `OP_Int32_to_str` / `OP_Float_to_str` 两个 opcode（implicit pResult，无 immediate operand，后跟 OP_Assign）
+- **格式化**：int 用 `std::to_string`（decimal），float 用 `%g`（`2.5` → "2.5" 而非 "2.500000"，对齐 Python `str(2.5)`）
+- **Codegen 改动**（`VmBackend.cpp:951-967`）：SnCastExpr dispatch 增加 `int→string` / `float→string` 两个分支
+- **Executor 改动**（`VmExecutor.cpp:~190`）：紧跟 `OP_CastFloatToInt` 新增两个 case，把格式化字符串 push 到 `m_stringPool`，写回新 idx 到 pResult
+- **Resolver 改动**（`ExprResolver.cpp:758-769`）：删除"非全 string reject"段，保留"非 Add on string reject"；`int + string` 通过 FixupExprType 包装非-string 操作数为 SnCastExpr（TCK_Auto）
+- **Disassembler**：`OpCodeTable.cpp` 新增 `"int32_to_str"` / `"float_to_str"` 字符串映射；`ndisasm/main.cpp` switch 加入两个 case（no-operand 组）
+- 6 个新 e2e 测试（`string_concat_int_right`、`_int_left`、`_float`、`_chain`、`_int_assign`、`_negative_int`），共 263 个测试通过
+- **遗留**（Phase 8e-9b 处理）：class/struct → string 未实现；enum → string 得 int 字面（如 "1"）
+- 详见 memory: `nlang-phase-8e-9a-primitive-to-string-design.md`
+
 ---
 
 

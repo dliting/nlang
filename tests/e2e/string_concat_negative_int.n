@@ -1,0 +1,4 @@
+int main() {
+    string s = "x" + (-7);
+    return s.length();
+}

@@ -409,6 +409,18 @@ OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 |------------------|--------------------------|
 | OP_CastIntToFloat | int32 → float           |
 | OP_CastFloatToInt | float → int32           |
+| OP_Int32_to_str  | int32 → string (Phase 8e-9a, decimal via `std::to_string`) |
+| OP_Float_to_str  | float → string (Phase 8e-9a, `%g` format) |
+
+The string coercion opcodes follow the same pResult convention as the int/
+float casts: read source from `pResult`, push the formatted string to
+`m_stringPool`, write the new string index (int32) back to `pResult`. The
+emit pattern is always `OP_<type>_to_str` followed by `OP_Assign dst`.
+
+Emit site: `VmBackend.cpp` `EmitExpression(SnCastExpr&)` dispatches on
+`(srcKind, dstKind)`. Triggered by `ExprResolver.cpp` symmetric-promotion
+binary expr handler (which wraps non-string operand in SnCastExpr when one
+side is string) and by direct primitive→string assignment.
 
 ### Switch
 

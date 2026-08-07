@@ -1,0 +1,4 @@
+int main() {
+    string s = 42;
+    return s.length();
+}

@@ -188,6 +188,26 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
+        case OpCode::OP_Int32_to_str: {
+            int32_t iv;
+            std::memcpy(&iv, pResult, sizeof(iv));
+            std::string s = std::to_string(iv);
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(std::move(s));
+            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            break;
+        }
+        case OpCode::OP_Float_to_str: {
+            float fv;
+            std::memcpy(&fv, pResult, sizeof(fv));
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%g", fv);
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(buf);
+            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            break;
+        }
+
         case OpCode::OP_Add_i32: {
             uint16_t dst = reader.ReadUint16();
             uint16_t src = reader.ReadUint16();

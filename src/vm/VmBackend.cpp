@@ -963,6 +963,16 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 emitter.Emit(OpCode::OP_CastFloatToInt);
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
+            } else if (srcKind == NK_Int32 && dstKind == NK_String) {
+                //Phase 8e-9a: int → string coercion for `int + string` etc.
+                emitter.Emit(OpCode::OP_Int32_to_str);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+            } else if (srcKind == NK_Float && dstKind == NK_String) {
+                //Phase 8e-9a: float → string coercion.
+                emitter.Emit(OpCode::OP_Float_to_str);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
             }
         }
         return;

@@ -335,3 +335,10 @@ mixed_float_int_add_symmetric 3
 mixed_int_float_mul 7
 mixed_nested_promotion 5
 mixed_assignment_chain 7
+# --- Phase 8e-9a: primitive → string coercion ---
+string_concat_int_right 2
+string_concat_int_left 2
+string_concat_float 5
+string_concat_chain 7
+string_concat_int_assign 2
+string_concat_negative_int 3

@@ -755,18 +755,10 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 					"operator not supported on string.");
 				return;
 			}
-			//Phase 8e-8 strengthening: require both operands be string.
-			//Allowing mixed (e.g. int + string) would route through
-			//SnCastExpr int→string, but the cast codegen only handles
-			//int<->float (VmBackend.cpp:953-966); other casts silently
-			//no-op, leaving the int bit pattern to be misread by
-			//OP_Concat_str. Reject early with a clear message instead.
-			if (lk != NK_String || rk != NK_String)
-			{
-				m_Env.Log(CLL_Error, sn.Location(),
-					"string concat requires both operands to be string.");
-				return;
-			}
+			//Phase 8e-9a: allow mixed (e.g. int + string). The non-string
+			//operand is wrapped in SnCastExpr below; VmBackend.cpp:951
+			//emits OP_Int32_to_str / OP_Float_to_str for the conversion.
+			//Then OP_Concat_str concatenates the two string indices.
 			T_result = SnBuiltinDataType::InstanceOf(NK_String);
 		}
 		else if (lk == NK_Float || rk == NK_Float)

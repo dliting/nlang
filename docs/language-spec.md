@@ -528,6 +528,37 @@ int z = (int)y;
 Explicit casts between int and float. Implicit widening (int→float) is
 allowed in some contexts.
 
+### Primitive → String Coercion (Phase 8e-9a)
+
+When a primitive (int or float) appears in a context expecting string,
+NLang auto-coerces it to its decimal string form. This is most common in
+string concatenation, but also fires in direct assignment and field stores.
+
+```
+string s1 = "x" + 5;       // "x5" — int coerced to "5"
+string s2 = 5 + "x";       // "5x" — symmetric
+string s3 = "x=" + 2.5;    // "x=2.5" — float uses %g format
+string s4 = "a" + 1 + "b" + 2.5 + "c";  // "a1b2.5c"
+string s5 = 42;            // "42" — direct assignment path
+string s6 = "x" + (-7);    // "x-7" — negative formatted with sign
+```
+
+**Implementation**:
+- `int → string`: `OP_Int32_to_str` (decimal, via `std::to_string`)
+- `float → string`: `OP_Float_to_str` (`%g` format — `2.5` not `2.500000`)
+- Both push the formatted string into the runtime `m_stringPool` and write
+  the new index back to `pResult`. Followed by `OP_Assign` to move into the
+  destination slot.
+- `string → int/float` remains rejected (`TCK_None` in CastInfo.cpp) — use
+  `int.parse(s)` style helpers when standard library lands.
+
+**Limitations** (deferred to Phase 8e-9b):
+- Class/struct → string: not yet auto-coerced. The future `Object.toString()`
+  virtual protocol will unify this. For now, `class C { ... } + "x"` is a
+  compile error.
+- enum → string: enums are int32 at runtime, so `Color.Red + "x"` produces
+  the enum's integer value (e.g. `"0x"`). Named output arrives with 8e-9b.
+
 ### Runtime-checked Cast (`as`)
 
 ```

@@ -15,6 +15,8 @@ static const char* s_OpCodeNames[] = {
     "assign",
     "cast_i2f",
     "cast_f2i",
+    "int32_to_str",
+    "float_to_str",
     "add_i32",
     "sub_i32",
     "mul_i32",

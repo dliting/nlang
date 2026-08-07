@@ -55,6 +55,8 @@ static void DisassembleFunction(const CompiledFunction& func,
         case OpCode::OP_ConstZero:
         case OpCode::OP_CastIntToFloat:
         case OpCode::OP_CastFloatToInt:
+        case OpCode::OP_Int32_to_str:
+        case OpCode::OP_Float_to_str:
         case OpCode::OP_ParaEnd:
             std::cout << "    " << offsetBuf << ": " << name << "\n";
             break;

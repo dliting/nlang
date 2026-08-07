@@ -23,6 +23,10 @@ enum class OpCode : uint8_t {
     // === Type conversion ===
     OP_CastIntToFloat,  // read int32 from pResult, write float to pResult
     OP_CastFloatToInt,  // read float from pResult, write int32 to pResult
+    OP_Int32_to_str,    // Phase 8e-9a: read int32 from pResult, format decimal,
+                        // push to m_stringPool, write new string idx (int32) to pResult
+    OP_Float_to_str,    // Phase 8e-9a: read float from pResult, format with "%g",
+                        // push to m_stringPool, write new string idx (int32) to pResult
 
     // === Arithmetic - int32 (dst += src) ===
     OP_Add_i32,         // uint16 dst, uint16 src, locals[dst] += locals[src]
