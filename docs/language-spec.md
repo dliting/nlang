@@ -605,12 +605,48 @@ string s6 = "x" + (-7);    // "x-7" — negative formatted with sign
 - `string → int/float` remains rejected (`TCK_None` in CastInfo.cpp) — use
   `int.parse(s)` style helpers when standard library lands.
 
-**Limitations** (deferred to Phase 8e-9b):
-- Class/struct → string: not yet auto-coerced. The future `Object.toString()`
-  virtual protocol will unify this. For now, `class C { ... } + "x"` is a
-  compile error.
-- enum → string: enums are int32 at runtime, so `Color.Red + "x"` produces
-  the enum's integer value (e.g. `"0x"`). Named output arrives with 8e-9b.
+**Object.toString() Protocol** (Phase 8e-9b):
+
+All class instances inherit `string toString()` from `Object`. The default
+implementation returns `"ClassName@heapIdxHex"` (e.g. `"Point@7"`, `"Point@ff"`).
+User classes override it by declaring `string toString() { ... }` — virtual
+dispatch by name, same as `equals`/`getHashCode`.
+
+```
+class Point {
+    public int x;
+    public int y;
+    string toString() { return "P(" + this.x + "," + this.y + ")"; }
+}
+```
+
+Dispatch matrix:
+
+| Receiver | `.toString()` result | Override? |
+|----------|---------------------|-----------|
+| class (user override) | user-defined | yes |
+| class (no override) | `"ClassName@hex(heapIdx)"` | no (Object intrinsic) |
+| enum | enum member name (e.g. `"Red"`) | no |
+| int | decimal string (e.g. `"42"`) | no |
+| float | `%g` format (e.g. `"2.5"`) | no |
+| string | self (identity) | no |
+
+**Implicit coercion**: `"x" + obj` automatically calls `obj.toString()`, same
+as Java/C#. This applies to class, enum, int, and float receivers. Struct
+receivers are **permanently excluded** — `"x" + structInstance` is a compile
+error (struct is a pure-data type in NLang; use class for object semantics).
+
+**Enum name output**: `Color.Red.toString()` returns `"Red"` (not `"0"`). The
+compiler embeds a per-enum name table; the VM uses `OP_Enum_to_str` to look up
+the member name by value. Out-of-range enum values throw at runtime.
+
+**String identity**: `"hello".toString()` returns `"hello"` — the resolver folds
+this to a no-op (no opcode emitted).
+
+**Limitations** (deferred to future phases):
+- No warning when implicit coercion occurs (silent, like Java)
+- `struct.toString()` / `"x" + structInstance` — permanently rejected
+
 
 ### Runtime-checked Cast (`as`)
 
@@ -886,7 +922,12 @@ or return a derived value that fits in the exit code range.
   `>>` in type context.
 - **Bare init list as function argument**: requires `new Type{...}`
   explicit form. Phase 8e-6 overload uniqueness (Phase G) deferred.
-- **`List<int>` with literal `0` elements**: boxing null-sentinel bug
-  inherited from Phase 8e-3 — `[0, 1, 2]` as `List<int>` initializer
-  may misbehave. Use `int[]` for arrays containing zeros, or non-zero
-  literals in `List<int>` initializers.
+- **`List<struct>` value semantics**: adding the same struct variable
+  to a List twice shares the underlying heap slot (reference semantics
+  at the boxing layer). Use separate struct instances for distinct
+  elements.
+- **`Dict<K,V>` with interface type**: interface types are not
+  supported as generic type arguments. Use concrete class types.
+- **Array of struct**: `Point[] arr; arr[0].x = 1` throws
+  "struct field store out of bounds" — array elements are not
+  materialized as struct instances. Use `List<struct>` as a workaround.
