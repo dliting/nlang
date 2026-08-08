@@ -337,6 +337,9 @@ mixed_float_int_add_symmetric 3
 mixed_int_float_mul 7
 mixed_nested_promotion 5
 mixed_assignment_chain 7
+# --- P3.6: binary promotion coverage for sub/div (was missing) ---
+mixed_int_float_sub 9
+mixed_int_float_div 7
 # --- Phase 8e-9a: primitive → string coercion ---
 string_concat_int_right 2
 string_concat_int_left 2
@@ -352,3 +355,6 @@ string_assign_float 3
 # --- Phase 8e-9a documented edge cases (P3.4) ---
 string_concat_null 2
 string_concat_enum 2
+# --- P3.6: int32 boundary formatting ---
+string_concat_int_max 11
+string_concat_int_min 12

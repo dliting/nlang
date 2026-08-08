@@ -1,0 +1,11 @@
+int main() {
+    //Symmetric with mixed_int_float_mul but for division. int / float
+    //promotes int to float, performs float division, result is float 2.0.
+    //Verifies the resolver's symmetric promotion path also covers OP_Div
+    //(not just OP_Add / OP_Mul tested by existing mixed_* tests).
+    float r = 5 / 2.5;
+    if (r > 1.9 && r < 2.1) {
+        return 7;
+    }
+    return 0;
+}

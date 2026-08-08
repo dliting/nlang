@@ -1,0 +1,8 @@
+int main() {
+    //Boundary: smallest int32 (-2147483648) — INT_MIN in two's complement.
+    //Some languages mishandle INT_MIN (e.g., -INT_MIN overflows). Lock the
+    //formatting: "-2147483648" with leading '-' and 10 digits.
+    int min = -2147483648;
+    string s = "x" + min;
+    return s.length();
+}

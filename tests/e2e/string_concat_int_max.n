@@ -1,0 +1,8 @@
+int main() {
+    //Boundary: largest int32 (2147483647) formats as 10-digit decimal
+    //"2147483647". Locks std::to_string behavior at the int32 boundary.
+    //Tests that OP_Int32_to_str does not overflow or wrap.
+    int max = 2147483647;
+    string s = "x" + max;
+    return s.length();
+}
