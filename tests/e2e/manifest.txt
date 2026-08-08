@@ -14,6 +14,7 @@ arithmetic_sub 7
 arithmetic_mul 42
 arithmetic_div 5
 arithmetic_mod 2
+arithmetic_mod_negative 11
 all_int_ops 1
 nested_arith 45
 

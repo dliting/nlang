@@ -1,0 +1,14 @@
+int main() {
+    //Lock the sign convention for % with negative operands. NLang uses
+    //C-style truncated modulo: sign of result follows the dividend
+    //(like C99/C++/Java), NOT floor modulo (like Python).
+    //  -7 % 3  = -1 (sign follows -7)
+    //   7 % -3 =  1 (sign follows 7)
+    //  -7 % -3 = -1 (sign follows -7)
+    //Compute (a+4)+(b+4)+(c+4) to keep exit code in safe range:
+    //  (-1+4) + (1+4) + (-1+4) = 3 + 5 + 3 = 11.
+    int a = -7 % 3;
+    int b = 7 % -3;
+    int c = -7 % -3;
+    return (a + 4) + (b + 4) + (c + 4);
+}
