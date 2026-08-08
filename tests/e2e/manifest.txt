@@ -374,3 +374,5 @@ list_float_zero_throws 1
 list_struct_basic 7
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
+# --- P3.8: cover switch on string discriminator ---
+switch_string 2
