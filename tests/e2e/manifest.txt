@@ -279,6 +279,7 @@ list_clear_then_reuse 2
 list_removeat_front_queue 6
 list_class_ref_shared 99
 list_null_class_element 1
+list_int_zero_throws 1
 # --- Phase 8e-4: built-in generic Dict<K,V> ---
 dict_int_int_basic 30
 dict_string_int 31
