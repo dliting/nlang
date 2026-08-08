@@ -165,6 +165,7 @@ struct_class_field_copy 99
 gc_loop_alloc 190
 gc_reuse 57
 gc_chain 21
+gc_stress_over_threshold 7
 
 # --- arrays ---
 array_basic 60

@@ -1,0 +1,25 @@
+class Node { public int value; }
+
+//GC stress test that actually crosses the GC_THRESHOLD_DEFAULT (1024).
+//gc_loop_alloc (20 iterations) and gc_chain don't reach the threshold;
+//this test runs 2000 allocations to force MarkPhase + SweepPhase to
+//run, verifying the GC's heap walking handles class instances under
+//sustained allocation pressure.
+//
+//Returns a fixed small value (7) instead of the sum to stay within
+//the 8-bit exit-code limit (see nlang-exit-code-limit memory).
+int main() {
+    int i = 0;
+    int sum = 0;
+    while (i < 2000) {
+        Node n = new Node();
+        n.value = i;
+        sum = sum + n.value;
+        i = i + 1;
+    }
+    //sum is now 1999000; verify a property that proves the loop ran.
+    if (sum == 1999000) {
+        return 7;
+    }
+    return 0;
+}
