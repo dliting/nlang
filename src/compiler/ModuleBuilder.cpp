@@ -114,6 +114,12 @@ bool ModuleBuilder::ParseSources()
 {
 	ParseTransUnits();
 
+	//Bail out before MergeTransUnits if any parse failed — on a top-level
+	//syntax error the CompileUnit rule never reduces, so
+	//TranslationUnit::Root() stays null and MergeFrom would deref null.
+	if (m_upEnv->HasError())
+		return false;
+
 	MergeTransUnits();
 
 	ResolveUsingLists();

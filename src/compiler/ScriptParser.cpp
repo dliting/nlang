@@ -31,7 +31,7 @@ bool ScriptParser::ParseUnit(TranslationUnit &unit, bool bEnableDebug /*= false*
 	yydebug = bEnableDebug ? 1 : 0;
 
 	m_pTransUnit = &unit;
-	bool bSuccess = (yyparse(*this, m_Scanner.ScanInfo()) == 0 && m_Env.HasError());
+	bool bSuccess = (yyparse(*this, m_Scanner.ScanInfo()) == 0 && !m_Env.HasError());
 	m_Scanner.CloseFile();
 	m_pTransUnit = nullptr;
 
