@@ -62,6 +62,12 @@ PascalCase to camelCase. Notable: `Length→length`, `Add→add`, `Equals→equa
 | float  | 4 bytes | 32-bit IEEE 754 float |
 | string | 4 bytes | Reference to string pool entry |
 
+**String encoding**: String literals are stored as their UTF-8 byte sequence
+in the module string pool. `string.length()` returns the **byte count**, not
+the Unicode code-point count — `"héllo".length()` is 6 (5 code points but `é`
+is 2 bytes in UTF-8). Proper UTF-8 code-point iteration is deferred to a
+future phase.
+
 ### Composite Types
 
 | Type   | Semantics | Storage          | Description              |

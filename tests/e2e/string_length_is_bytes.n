@@ -1,0 +1,20 @@
+int main() {
+    //Lock: NLang string length() returns BYTE count (UTF-8 code units),
+    //not Unicode code-point count. "héllo" = 5 code points but 6 bytes in
+    //UTF-8 (é encoded as 0xC3 0xA9). Documented as a known limitation;
+    //proper UTF-8 code-point iteration is deferred to Phase 9+ (see
+    //VmExecutor.cpp:615 TODO).
+    //
+    //Source files are read as UTF-8; string literals are stored as their
+    //UTF-8 byte sequence in the module string pool. length() returns the
+    //pool-entry byte count.
+    //
+    //Returns 7 only if "héllo" length is 6 (byte count) AND plain ASCII
+    //"hello" length is 5. Other return values indicate behavior change.
+    string unicode = "héllo";
+    string ascii = "hello";
+    if (unicode.length() == 6 && ascii.length() == 5) {
+        return 7;
+    }
+    return 1;
+}

@@ -396,3 +396,5 @@ int_div_negative_truncate 7
 cast_float_to_int_truncate 7
 # --- P3.8: lock string relational comparison (<,>,<=,>=) as strcmp-style ASCII ordering ---
 string_relational_cmp 7
+# --- P3.8: lock string length() returns byte count (not Unicode code-point count) ---
+string_length_is_bytes 7
