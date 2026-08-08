@@ -364,3 +364,5 @@ string_concat_enum 2
 # --- P3.6: int32 boundary formatting ---
 string_concat_int_max 11
 string_concat_int_min 12
+# --- P3.7: lock integer overflow behavior (C-style two's complement wrap) ---
+int_overflow_wrap 1

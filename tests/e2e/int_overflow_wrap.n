@@ -1,0 +1,17 @@
+int main() {
+    //Lock C-style two's complement wraparound for signed int32 overflow.
+    //NLang does NOT throw on overflow (no SafeInt-style checking); the
+    //result of INT_MAX + 1 wraps to INT_MIN (negative). Mirrors C/C++/
+    //Java behavior. Compute (max+1)/2 + (1<<30) to fit under 255:
+    //  max+1 = -2^31
+    //  (max+1)/2 = -2^30
+    //  -2^30 + 2^30 = 0  → return 1 to indicate "we observed wrap".
+    int max = 2147483647;
+    int min = max + 1;           //wraps to -2^31
+    int half = min / 2;          //-2^30
+    int back = half + 1073741824; // 2^30
+    if (min == -2147483648 && half == -1073741824 && back == 0) {
+        return 1;
+    }
+    return 0;
+}
