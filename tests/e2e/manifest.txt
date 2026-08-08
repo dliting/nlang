@@ -392,3 +392,5 @@ string_concat_mixed_chain 8
 switch_no_fallthrough 10
 # --- P3.8: lock integer division truncates toward zero (C-style, not Python floor) ---
 int_div_negative_truncate 7
+# --- P3.8: lock float-to-int truncates toward zero (negative case disambiguates from floor) ---
+cast_float_to_int_truncate 7

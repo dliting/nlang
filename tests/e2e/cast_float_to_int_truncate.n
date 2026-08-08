@@ -1,0 +1,18 @@
+int main() {
+    //Lock: NLang float-to-int conversion truncates toward zero (C/C#/Java
+    //style), not floor (Python math.floor / round-toward-negative-infinity).
+    //-3.7 → -3 (truncate toward zero), not -4 (floor). Pairs with the
+    //existing cast_float_to_int test which only covers the positive case
+    //(3.5 → 3, ambiguous between truncate and floor).
+    //
+    //Returns 7 only if both negative and positive cases truncate toward
+    //zero. Any other behavior (floor, round-half-to-even, etc.) returns 1.
+    float neg = -3.7;
+    float pos = 3.7;
+    int ni = neg;
+    int pi = pos;
+    if (ni == -3 && pi == 3) {
+        return 7;
+    }
+    return 1;
+}
