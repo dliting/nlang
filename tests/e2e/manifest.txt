@@ -400,3 +400,5 @@ string_relational_cmp 7
 string_length_is_bytes 7
 # --- P3.8: lock logical && || eager (no short-circuit, both operands evaluated) ---
 logical_no_short_circuit_throws 1
+# --- P3.8: lock array negative-index throws (mirrors list_negative_index_throws) ---
+array_negative_index_throws 1
