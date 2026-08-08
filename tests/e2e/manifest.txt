@@ -154,6 +154,7 @@ class_null_check 1
 class_data_only 42
 class_virtual_param_count 2
 class_deep_ctor 42
+class_method_chain 9
 class_override 2
 class_no_ctor 42
 
