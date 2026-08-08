@@ -96,13 +96,14 @@ Every user class that does not explicitly inherit from another class has
 `superClassIdx` set to the synthesized Object class's index by a post-pass
 in `RegisterClasses`. Object is the only class with `superClassIdx == -1`.
 
-Object has two virtual methods (`Equals(Object)→int`, `GetHashCode()→int`),
-both dispatched via intrinsics:
+Object has three virtual methods (`Equals(Object)→int`, `GetHashCode()→int`,
+`toString()→string`), all dispatched via intrinsics:
 
 | Intrinsic ID           | Behavior                                       |
 |------------------------|------------------------------------------------|
 | INTR_Object_Equals    | Identity: same heap idx → 1, else 0 (null==null→1) |
 | INTR_Object_GetHashCode | Identity: heap idx of `this` (null→0)         |
+| INTR_Object_toString  | `"ClassName@hex(heapIdx)"` (null→NPE)          |
 | INTR_String_Equals    | Value: pool-content equality                   |
 | INTR_String_GetHashCode | Value: `std::hash<std::string>` over content  |
 
@@ -422,16 +423,26 @@ OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 | OP_CastFloatToInt | float → int32           |
 | OP_Int32_to_str  | int32 → string (Phase 8e-9a, decimal via `std::to_string`) |
 | OP_Float_to_str  | float → string (Phase 8e-9a, `%g` format) |
+| OP_Enum_to_str   | int32 enum value → string (Phase 8e-9b, name lookup) |
 
 The string coercion opcodes follow the same pResult convention as the int/
 float casts: read source from `pResult`, push the formatted string to
 `m_stringPool`, write the new string index (int32) back to `pResult`. The
 emit pattern is always `OP_<type>_to_str` followed by `OP_Assign dst`.
 
-Emit site: `VmBackend.cpp` `EmitExpression(SnCastExpr&)` dispatches on
-`(srcKind, dstKind)`. Triggered by `ExprResolver.cpp` symmetric-promotion
-binary expr handler (which wraps non-string operand in SnCastExpr when one
-side is string) and by direct primitive→string assignment.
+`OP_Enum_to_str` takes a uint16 `enumDefIdx` immediate operand. It reads the
+int32 enum value from `pResult`, looks up `m_compiledModule.enumNames[enumDefIdx][value]`,
+pushes the name string to `m_stringPool`, and writes the index back. Throws
+if the value is out of range.
+
+Emit sites:
+- `VmBackend.cpp` `EmitExpression(SnCastExpr&)` dispatches on
+  `(srcKind, dstKind)` for int/float→string (implicit coercion).
+- `VmBackend.cpp` `EmitExpression(SnMemberExpr&)` dispatches on
+  `outer->EvalDataType()` for `.toString()` calls (enum→OP_Enum_to_str,
+  int→OP_Int32_to_str, float→OP_Float_to_str, string→identity no-op).
+- `VmBackend.cpp` `EmitExpression(SnCastExpr&)` for binary `+` coercion
+  (enum/int/float→string when the other operand is string).
 
 ### Switch
 
@@ -752,6 +763,10 @@ No new opcodes. Reuses `OP_CastIntToFloat` / `OP_CastFloatToInt` /
 6. **`List<int>` storage overhead**: each primitive element is boxed into
    a heap slot (`RTK_Boxed`). For value-heavy lists, an `IntList`
    specialization with unboxed storage is the planned escape hatch
-   (deferred until profiling shows real need).
-7. **String pool grows unbounded**: Concatenated strings are added to the pool
+   (deferred until profiling shows real need). The null-sentinel bug
+   (OP_Box skipping allocation for val==0) was fixed in P3.10.
+7. **`List<struct>` value semantics**: adding the same struct variable
+   twice shares the underlying heap slot (boxing is reference semantics).
+   Use separate struct instances for distinct elements.
+8. **String pool grows unbounded**: Concatenated strings are added to the pool
    but never collected.
