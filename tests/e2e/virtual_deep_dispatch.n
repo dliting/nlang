@@ -1,0 +1,21 @@
+class Shape {
+    public virtual int area() { return 0; }
+}
+class Polygon : Shape {
+    public virtual int area() { return 100; }
+}
+class Quadrilateral : Polygon {
+    public int area() { return 200; }
+}
+class Square : Quadrilateral {
+    public int area() { return 400; }
+}
+
+//Cover virtual dispatch through a 4-level inheritance chain. The
+//reference type is the deepest base (Shape); runtime must dispatch
+//to Square.area via classIdx lookup. Existing class_deep_inherit.n
+//covers field inheritance but not virtual method dispatch at depth.
+int main() {
+    Shape s = new Square();
+    return s.area() / 100;  //400 / 100 = 4
+}
