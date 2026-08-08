@@ -191,9 +191,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - **Executor 改动**（`VmExecutor.cpp:~190`）：紧跟 `OP_CastFloatToInt` 新增两个 case，把格式化字符串 push 到 `m_stringPool`，写回新 idx 到 pResult
 - **Resolver 改动**（`ExprResolver.cpp:758-769`）：删除"非全 string reject"段，保留"非 Add on string reject"；`int + string` 通过 FixupExprType 包装非-string 操作数为 SnCastExpr（TCK_Auto）
 - **Disassembler**：`OpCodeTable.cpp` 新增 `"int32_to_str"` / `"float_to_str"` 字符串映射；`ndisasm/main.cpp` switch 加入两个 case（no-operand 组）
-- 6 个新 e2e 测试（`string_concat_int_right`、`_int_left`、`_float`、`_chain`、`_int_assign`、`_negative_int`），共 263 个测试通过
+- 6 个新 e2e 测试（`string_concat_int_right`、`_int_left`、`_float`、`_chain`、`_int_assign`、`_negative_int`）
 - **遗留**（Phase 8e-9b 处理）：class/struct → string 未实现；enum → string 得 int 字面（如 "1"）
 - 详见 memory: `nlang-phase-8e-9a-primitive-to-string-design.md`
+
+### P3 loop refinement（2026-08-08）✅
+- **P3.2 OP_CallIntrinsic bug 修复**（commit 862d7a7）：`VmExecutor.cpp:744` `OP_CallIntrinsic` case 一直 throw "intrinsic calls not yet implemented"，但 `VmBackend.cpp:1337/1356` 为 `string.getHashCode()` / `string.equals()` emit 此 opcode（strings 是 primitive，无法走 `OP_CallMethod callee.intrinsicId` 路径）。测试 `string_gethashcode.n` / `string_equals.n` "通过"纯属巧合——VM throw → exit 1，恰好等于 manifest 期望 1。修复后用 `ExecuteIntrinsic` 分派；测试成功退出码改为 7 防回归
+- **P3.3 8e-9a 边界测试**：新增 4 个测试覆盖原 6 个的盲区——`int+float+str` 提升顺序（验证 int 先升 float 再转 string，不是 "x12.5"）、负 float（`%g` 保留符号）、float 在左（对称性）、float 赋值路径（不经过 binary）。共 267 个测试通过
+- **TODO 扫描**（6 处）：`ModuleBuilder.cpp:216` ResolveDataValues（placeholder）、`ScriptScanner.cpp:32` fopen portability、`SyntaxNode.cpp:185` AllowProtectedAccess（OOP protected 语义未实现，无测试）、`Module.cpp:117` LoadFrom（stream 加载未实现，Phase 11 包管理）、`Node.cpp:72` find 优化（micro-perf）、`VmExecutor.cpp:615` UTF-8 code points（Phase 9+ 特性）。全部 forward-looking，无 bug
 
 ---
 
@@ -308,11 +313,11 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-8 已完成，**257 个 e2e 测试全部通过**
+- 阶段 0-8e-9a + P3 loop refinement 已完成，**267 个 e2e 测试全部通过**
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
-- 下一步：P2 高级特性（异常、字符串插值、增量赋值、默认参数等）
+- 下一步：Phase 8e-9b（Object.toString() 协议 + class/struct override，独立阶段需新 plan），之后进 Phase 9（异常、字符串插值、增量赋值、默认参数等）
 
 ## 文档索引
 
