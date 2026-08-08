@@ -1,0 +1,9 @@
+int main() {
+    //Lock the behavior for float division by zero. NLang THROWS (it
+    //does not follow IEEE 754 ±inf semantics like C/C++/Java). The
+    //throw → exit 1 path is the expected outcome.
+    float z = 0.0;
+    float r = 1.0 / z;
+    if (r > 0) { return 7; }
+    return 0;
+}
