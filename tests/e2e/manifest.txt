@@ -243,8 +243,8 @@ object_default_equals 1
 object_default_gethashcode 1
 object_inherited_by_subclass 1
 object_gethashcode_override 1
-string_gethashcode 1
-string_equals 1
+string_gethashcode 7
+string_equals 7
 box_primitive 0
 
 # --- Phase 8e-1.5: explicit unbox/downcast via `expr as T` ---

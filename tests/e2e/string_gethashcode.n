@@ -2,8 +2,11 @@ int main() {
     int h1 = "hello".getHashCode();
     int h2 = "hello".getHashCode();
     int h3 = "world".getHashCode();
+    //Distinct success exit (7) so a regression that throws before this
+    //point (historically "intrinsic calls not yet implemented") returns
+    //exit 1 and is detected, rather than coinciding with the success code.
     if (h1 == h2 && h1 != h3) {
-        return 1;
+        return 7;
     }
     return 0;
 }

@@ -1,5 +1,7 @@
 int main() {
     int same = "hello".equals("hello");
     int diff = "hello".equals("world");
-    return same - diff;
+    //same=1, diff=0 → 7. Distinct from the exit=1 a VM throw produces,
+    //so a regression in the intrinsic dispatch path is detected.
+    return (same - diff) * 7;
 }

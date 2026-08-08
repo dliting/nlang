@@ -742,13 +742,14 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         case OpCode::OP_CallIntrinsic: {
+            //Emitted by VmBackend for string.getHashCode() / string.equals()
+            //(strings are primitives without a class, so the call can't go
+            //through OP_CallMethod's callee.intrinsicId path). Dispatch
+            //reuses the same ExecuteIntrinsic used by the method path.
             uint16_t intrinsicId = reader.ReadUint16();
             uint16_t callParamBase = reader.ReadUint16();
-            //Phase 3c will implement full intrinsic dispatch.
-            //For now, throw since no intrinsics are registered yet.
-            (void)intrinsicId;
-            (void)callParamBase;
-            throw std::runtime_error("NLang VM: intrinsic calls not yet implemented");
+            ExecuteIntrinsic(intrinsicId, callParamBase, locals, pResult);
+            break;
         }
 
         //Hard crash on null — consistent with Java NPE / C# NullReferenceException.
