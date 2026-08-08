@@ -347,3 +347,6 @@ string_concat_int_float_promotion 4
 string_concat_negative_float 6
 string_concat_float_left 4
 string_assign_float 3
+# --- Phase 8e-9a documented edge cases (P3.4) ---
+string_concat_null 2
+string_concat_enum 2

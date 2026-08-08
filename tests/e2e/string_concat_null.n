@@ -1,0 +1,10 @@
+int main() {
+    //Documents Phase 8e-9a known limitation: the null literal evaluates to
+    //int 0 at runtime, so "x" + null goes through int→string coercion and
+    //yields "x0" (length 2). This is intentional (documented in
+    //nlang-phase-8e-9a-primitive-to-string-design.md "Known limitations").
+    //Lock the behavior so future refactors (e.g., a real null sentinel
+    //distinct from int 0) don't silently change observable output.
+    string s = "x" + null;
+    return s.length();
+}
