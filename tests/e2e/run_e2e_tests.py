@@ -22,6 +22,19 @@ MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 TIMEOUT_SEC = 30
 PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
 
+#Test name suffixes that mark intentional throw-tests. Tests ending in
+#these suffixes are excluded from the P3.7 hidden-throw detector: their
+#exit=1 is by design (runtime throws → exit 1 = expected 1).
+INTENTIONAL_THROW_SUFFIXES = (
+    '_throws', '_null', '_oob', '_bounds', '_eos',
+    '_missing', '_bad_mode', '_cycle',
+)
+
+
+def _is_intentional_throw_test(name):
+    """Return True if the test name marks it as an intentional throw-test."""
+    return any(name.endswith(suf) for suf in INTENTIONAL_THROW_SUFFIXES)
+
 
 def main():
     ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
@@ -33,6 +46,7 @@ def main():
 
     passed = 0
     failed = 0
+    warnings = []
     errors = []
 
     with open(MANIFEST, 'r', encoding='utf-8') as f:
@@ -91,6 +105,7 @@ def main():
                     capture_output=True, timeout=TIMEOUT_SEC,
                     cwd=run_cwd)
                 actual = result.returncode
+                stderr_text = result.stderr.decode('utf-8', errors='replace')
             except Exception as e:
                 print(f"FAIL {name} (runtime error: {e})")
                 failed += 1
@@ -106,6 +121,19 @@ def main():
             if actual == expected:
                 print(f"PASS {name} (exit={actual})")
                 passed += 1
+                #P3.7 hidden-throw detector: a test that "passes" only
+                #because the runtime threw (exit 1) coinciding with an
+                #expected=1 manifest entry. Name-suffix allowlist filters
+                #out intentional throw-tests. Catches the OP_CallIntrinsic
+                #class of masked bugs (commit 862d7a7).
+                if (actual == 1 and 'Runtime error' in stderr_text
+                        and not _is_intentional_throw_test(name)):
+                    warn = (f"WARN {name} passes via throw coincidence "
+                            f"(exit 1 = expected 1, but stderr has "
+                            f"'Runtime error'). Intent unclear without "
+                            f"test-name suffix in allowlist.")
+                    print(warn)
+                    warnings.append(f"  {name}: {stderr_text.splitlines()[0] if stderr_text else ''}")
             else:
                 print(f"FAIL {name} (expected={expected}, actual={actual})")
                 failed += 1
@@ -117,6 +145,10 @@ def main():
 
     print()
     print(f"Results: {passed} passed, {failed} failed")
+    if warnings:
+        print(f"Warnings ({len(warnings)} — possible masked bugs):")
+        for w in warnings:
+            print(w)
     if errors:
         print("Failures:")
         for e in errors:
