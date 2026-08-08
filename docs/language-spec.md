@@ -215,6 +215,42 @@ Classes support:
 Ancestor constructors are NOT automatically invoked (NLang has no `super()`
 syntax). Fields inherited from ancestors are zero-initialized.
 
+### Interface Declaration
+
+```
+interface IShape {
+    public int Area();
+    public int Perimeter();
+}
+
+class Square : IShape {
+    public int side;
+    public int Area() { return this.side * this.side; }
+    public int Perimeter() { return 4 * this.side; }
+}
+
+int TotalArea(IShape s) {
+    return s.Area();   // virtual dispatch through the interface
+}
+```
+
+Interfaces support:
+- Method signatures only (no fields, no implementation)
+- `class X : IShape` (or `class X implements IShape`) — a class declares
+  conformance with `:` or the `implements` keyword
+- Virtual dispatch on interface-typed locals/params/fields
+- Polymorphic collections (`List<IShape>` of mixed `Square`/`Circle`)
+
+**Method `public` keyword is required** in interface declarations.
+NLang's default access modifier is `private`; an interface method
+declared as `int m();` (no `public`) is parsed but treated as private
+and **not accessible** from call sites. The resulting error message
+— "The function X does not exist or is not accessible" — is
+misleading because the method does exist, just isn't public. Always
+write `public int m();` in interfaces. (Java/C#-style "interface
+members are inherently public" is a future language-design decision,
+not current behavior.)
+
 ### Implicit `Object` Base Class
 
 Every class that does not explicitly inherit from another class implicitly
