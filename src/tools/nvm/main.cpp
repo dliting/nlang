@@ -22,10 +22,11 @@ int main(int argc, char* argv[]) {
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
 
-    CompiledModule module = ModuleLoader::Load(argv[1]);
+    CompiledModule module;
     VmExecutor executor;
     int result = 1;
     try {
+        module = ModuleLoader::Load(argv[1]);
         result = executor.Execute(module);
     } catch (const std::exception& e) {
         std::cerr << "Runtime error: " << e.what() << "\n";

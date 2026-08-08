@@ -19,30 +19,44 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         throw std::runtime_error("Invalid module file format");
 
     // Version
-    uint16_t majorVer, minorVer;
+    uint16_t majorVer = 0, minorVer = 0;
     fs.read(reinterpret_cast<char*>(&majorVer), sizeof(majorVer));
     fs.read(reinterpret_cast<char*>(&minorVer), sizeof(minorVer));
+    //Truncated module detection — without this, an early EOF leaves
+    //downstream counts (nameLen, strCount, ...) uninitialized and the
+    //loader proceeds into resize() with garbage, producing confusing
+    //"no 'main' function found" errors or worse.
+    if (!fs.good())
+        throw std::runtime_error("Truncated module file");
 
     // Module name
-    uint32_t nameLen;
+    uint32_t nameLen = 0;
     fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+    if (!fs.good() || nameLen > (1u << 24))
+        throw std::runtime_error("Invalid module: bad name length");
     mod.name.resize(nameLen);
     fs.read(mod.name.data(), nameLen);
 
     // String constants
-    uint32_t strCount;
+    uint32_t strCount = 0;
     fs.read(reinterpret_cast<char*>(&strCount), sizeof(strCount));
+    if (!fs.good() || strCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad string count");
     mod.stringConstants.resize(strCount);
     for (uint32_t i = 0; i < strCount; ++i) {
-        uint32_t len;
+        uint32_t len = 0;
         fs.read(reinterpret_cast<char*>(&len), sizeof(len));
+        if (!fs.good() || len > (1u << 24))
+            throw std::runtime_error("Invalid module: bad string length");
         mod.stringConstants[i].resize(len);
         fs.read(mod.stringConstants[i].data(), len);
     }
 
     // Functions
-    uint32_t funcCount;
+    uint32_t funcCount = 0;
     fs.read(reinterpret_cast<char*>(&funcCount), sizeof(funcCount));
+    if (!fs.good() || funcCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad function count");
     mod.functions.resize(funcCount);
 
     for (uint32_t i = 0; i < funcCount; ++i) {
