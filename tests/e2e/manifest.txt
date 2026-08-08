@@ -372,3 +372,5 @@ float_div_zero_throws 1
 list_float_zero_throws 1
 # --- P3.8: cover List<struct> round-trip (boxing + heap struct element) ---
 list_struct_basic 7
+# --- P3.8: lock class field default values (int/float/string/class-ref) ---
+class_field_defaults 7

@@ -1,0 +1,19 @@
+class C {
+    public int x;
+    public float f;
+    public string name;
+    public C next;
+}
+
+//Lock field default values: int → 0, float → 0.0, string → "",
+//class reference → null. These are NOT documented elsewhere with a
+//dedicated test; behavior comes from AllocClassOnHeap initializing
+//all field slots to 0 (== null heap idx, == 0.0f bit pattern, == "").
+int main() {
+    C c = new C();
+    if (c.x != 0) { return 100; }
+    if (c.f > 0.001 || c.f < -0.001) { return 101; }
+    if (c.name.length() != 0) { return 102; }
+    if (c.next != null) { return 103; }
+    return 7;
+}
