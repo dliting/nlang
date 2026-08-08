@@ -384,3 +384,5 @@ virtual_deep_dispatch 4
 class_implicit_upcast 4
 # --- P3.8: GC stress for arrays (cross 1024-allocation threshold) ---
 gc_stress_array 7
+# --- P3.8: lock implicit return 0 for fall-through function ---
+func_implicit_return 7

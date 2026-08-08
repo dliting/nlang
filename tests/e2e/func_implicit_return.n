@@ -1,0 +1,13 @@
+int doNothing() { }
+
+//Lock "implicit return 0" for functions that fall through without an
+//explicit return statement. NLang accepts this silently (no warning,
+//no error) — the return-value slot is zero-initialized by the frame
+//setup. C++/Java would warn or error; Python/JS would return undefined/
+//None/undefined. This test pins NLang's choice (return 0) so a future
+//strict-mode option surfaces as a deliberate decision.
+int main() {
+    int x = doNothing();
+    if (x == 0) { return 7; }
+    return 0;
+}
