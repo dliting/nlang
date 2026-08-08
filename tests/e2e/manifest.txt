@@ -382,3 +382,5 @@ struct_nested_default 7
 virtual_deep_dispatch 4
 # --- P3.8: cover implicit upcast (Dog → Animal) ---
 class_implicit_upcast 4
+# --- P3.8: GC stress for arrays (cross 1024-allocation threshold) ---
+gc_stress_array 7

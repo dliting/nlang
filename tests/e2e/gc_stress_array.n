@@ -1,0 +1,17 @@
+int main() {
+    //GC stress test for arrays: 1500 iterations allocate a fresh
+    //int[5] each time (crossing GC_THRESHOLD=1024) to ensure MarkPhase
+    //+ SweepPhase handle the m_arrayHeap path. Existing gc_stress_over_
+    //threshold.n covers class allocations; this covers array allocations.
+    //sum = 0+1+...+1499 = 1124250
+    int n = 0;
+    int sum = 0;
+    while (n < 1500) {
+        int[] arr = new int[5];
+        arr[0] = n;
+        sum = sum + arr[0];
+        n = n + 1;
+    }
+    if (sum == 1124250) { return 7; }
+    return 0;
+}
