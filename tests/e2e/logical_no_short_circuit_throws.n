@@ -1,0 +1,19 @@
+int main() {
+    //Lock: NLang logical operators && and || evaluate BOTH operands (no
+    //short-circuit). Even when the left operand already determines the
+    //result, the right operand is fully evaluated.
+    //
+    //This is a footgun: `false && (1/0 == 0)` throws div-by-zero rather
+    //than short-circuiting to false. Mirrors pre-short-circuit languages
+    //(Pascal, Basic), NOT C/C++/Java/Python which all short-circuit.
+    //
+    //Test encodes the eager behavior: since `(x==1) && (1/0== 0)` with
+    //x=0 would short-circuit to 0 (false) cleanly, but NLang eagerly
+    //evaluates the right side and throws div-by-zero → exit 1.
+    //
+    //If short-circuit is ever added (likely Phase 9), this test will
+    //fail with exit=0 instead of 1, alerting to the semantic change.
+    int x = 0;
+    int r = (x == 1) && (1 / 0 == 0);
+    return r;
+}

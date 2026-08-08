@@ -546,7 +546,10 @@ ASCII comparison (e.g. `"Z" < "a"` is true because `'Z'` (90) < `'a'` (97)).
 a && b   a || b   !a
 ```
 
-Non-zero is truthy. Both operands are evaluated (no short-circuit).
+Non-zero is truthy. Both operands are always evaluated — there is **no
+short-circuit**. `false && expr` and `true || expr` will still evaluate
+`expr` (including any side effects or throws it triggers). This differs
+from C/C++/Java/Python which all short-circuit.
 
 ### Member Access
 

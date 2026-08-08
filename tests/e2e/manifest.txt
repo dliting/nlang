@@ -398,3 +398,5 @@ cast_float_to_int_truncate 7
 string_relational_cmp 7
 # --- P3.8: lock string length() returns byte count (not Unicode code-point count) ---
 string_length_is_bytes 7
+# --- P3.8: lock logical && || eager (no short-circuit, both operands evaluated) ---
+logical_no_short_circuit_throws 1
