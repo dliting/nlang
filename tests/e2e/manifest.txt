@@ -376,3 +376,5 @@ list_struct_basic 7
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
 switch_string 2
+# --- P3.8: cover nested struct zero-init (recursive materialization) ---
+struct_nested_default 7

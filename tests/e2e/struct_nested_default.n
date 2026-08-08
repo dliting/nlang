@@ -1,0 +1,15 @@
+struct Inner { int x; int y; }
+struct Outer { Inner i; int z; }
+
+//Lock nested struct zero-init: a local struct (stack-allocated) has
+//all fields zero-initialized, INCLUDING nested struct fields. This
+//exercises the path where AllocStructOnHeap recursively materializes
+//struct-typed fields (VmExecutor.cpp:986-994) — relevant to the
+//array-of-struct bug fix if/when it lands.
+int main() {
+    Outer o;
+    if (o.i.x != 0) { return 100; }
+    if (o.i.y != 0) { return 101; }
+    if (o.z != 0) { return 102; }
+    return 7;
+}
