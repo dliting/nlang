@@ -1,0 +1,17 @@
+int main() {
+    //foreach over List<float>. Existing foreach_list_int/_string/_class
+    //covered the three broad kinds but not float — useful to verify
+    //float boxing/unboxing through the iteration path is symmetric.
+    List<float> nums = new List<float>();
+    nums.add(1.5);
+    nums.add(2.5);
+    nums.add(3.5);
+    float sum = 0.0;
+    foreach (float x in nums) {
+        sum = sum + x;
+    }
+    if (sum > 7.4 && sum < 7.6) {
+        return 8;
+    }
+    return 0;
+}

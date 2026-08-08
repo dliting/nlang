@@ -297,6 +297,7 @@ foreach_array_string 8
 foreach_list_int 10
 foreach_list_string 5
 foreach_list_class 30
+foreach_list_float 8
 foreach_dict_keys 6
 foreach_break 5
 foreach_continue 12
