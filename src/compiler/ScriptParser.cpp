@@ -25,7 +25,15 @@ bool ScriptParser::ParseUnit(TranslationUnit &unit, bool bEnableDebug /*= false*
 {
 	assert(m_Env.CurrModule());
 	if (!m_Scanner.OpenFile(unit.FilePath()))
+	{
+		//ScriptScanner::OpenFile logs via raw stderr (LogError) which does
+		//not increment env error count — re-log through env so HasError()
+		//gates downstream and the build aborts instead of segfaulting in
+		//MergeTransUnits on a null TranslationUnit::Root().
+		m_Env.Log(CLL_Error, "Cannot open source file: %s",
+			unit.FilePath().c_str());
 		return false;
+	}
 	m_Scanner.StartState(0);
 	m_Scanner.TransUnit(&unit);
 	yydebug = bEnableDebug ? 1 : 0;
