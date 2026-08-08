@@ -1,0 +1,12 @@
+int main() {
+    //Mixed-type concatenation chain exercising Phase 8e-8 binary
+    //promotion AND Phase 8e-9a primitive→string coercion in the same
+    //expression. Evaluation:
+    //  1 + 2.5     → float 3.5    (8e-8 promotion)
+    //  3.5 + "x"   → "3.5x"       (8e-9a coercion)
+    //  "3.5x" + 3  → "3.5x3"      (8e-9a)
+    //  "3.5x3" + 4.5 → "3.5x34.5" (8e-9a)
+    //Final length = 8.
+    string s = 1 + 2.5 + "x" + 3 + 4.5;
+    return s.length();
+}

@@ -386,3 +386,5 @@ class_implicit_upcast 4
 gc_stress_array 7
 # --- P3.8: lock implicit return 0 for fall-through function ---
 func_implicit_return 7
+# --- P3.8: cover mixed promotion + coercion chain (8e-8 + 8e-9a) ---
+string_concat_mixed_chain 8
