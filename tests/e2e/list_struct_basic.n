@@ -1,0 +1,16 @@
+struct Point { int x; int y; }
+
+//Cover List<struct> round-trip — element is boxed at the List layer
+//(OP_Box/OP_Unbox), but the boxed value is itself a struct on the heap.
+//Verifies the per-method boxing plan for List handles struct elements
+//without altering the EvalDataType chain (relevant if 8e-9b adds
+//Object.toString() on struct).
+int main() {
+    List<Point> pts = new List<Point>();
+    Point p;
+    p.x = 3;
+    p.y = 4;
+    pts.add(p);
+    Point q = pts.get(0);
+    return q.x + q.y;
+}

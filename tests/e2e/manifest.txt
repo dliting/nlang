@@ -370,3 +370,5 @@ int_overflow_wrap 1
 float_div_zero_throws 1
 # --- P3.8: lock List<float> null-sentinel bug (mirrors list_int_zero_throws) ---
 list_float_zero_throws 1
+# --- P3.8: cover List<struct> round-trip (boxing + heap struct element) ---
+list_struct_basic 7
