@@ -192,8 +192,23 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - **Resolver 改动**（`ExprResolver.cpp:758-769`）：删除"非全 string reject"段，保留"非 Add on string reject"；`int + string` 通过 FixupExprType 包装非-string 操作数为 SnCastExpr（TCK_Auto）
 - **Disassembler**：`OpCodeTable.cpp` 新增 `"int32_to_str"` / `"float_to_str"` 字符串映射；`ndisasm/main.cpp` switch 加入两个 case（no-operand 组）
 - 6 个新 e2e 测试（`string_concat_int_right`、`_int_left`、`_float`、`_chain`、`_int_assign`、`_negative_int`）
-- **遗留**（Phase 8e-9b 处理）：class/struct → string 未实现；enum → string 得 int 字面（如 "1"）
+- **遗留**（Phase 8e-9b 已解决）：class → string 已实现（Object.toString() 协议）；enum → string 输出枚举名（OP_Enum_to_str）
 - 详见 memory: `nlang-phase-8e-9a-primitive-to-string-design.md`
+
+### 阶段 8e-9b：Object.toString() 协议 ✅
+- **设计**：Object 基类新增 `string toString()` virtual 方法（默认 `"ClassName@hex(heapIdx)"`），用户 class 可 override
+- **Enum**：新增 `OP_Enum_to_str <enumDefIdx>` opcode，编译期嵌入 `enumNames` 名表，运行时查表输出枚举名（"Red" 而非 "0"）
+- **String**：`string.toString()` 是 identity（resolver 折叠，无 opcode）
+- **Int/Float**：复用 8e-9a 的 `OP_Int32_to_str`/`OP_Float_to_str`
+- **隐式 coercion**：`"x" + obj` 自动调用 `obj.toString()`（扩展 8e-9a strengthening）
+- **架构**：resolver 只设 `EvalDataType=String + NF_Resolved`，codegen 基于 `outer->EvalDataType()` 分派（不用 m_pField 侧通道）
+- **Struct 永久排除**：`struct.toString()` / `"x" + structInstance` 永久编译错误
+- **Intrinsic**：`INTR_Object_toString = 44`，null receiver 抛 NPE
+- **模块序列化**：版本 1.2，新增 `enumNames` 字段
+- 10 个新 e2e 测试 + `string_concat_enum` 期望值更新（2→4）
+- **P3.9 8e-9b 边界测试**（311-313）：`enum_tostring_out_of_range_throws`（enum value 越界抛 runtime error）、`class_tostring_inherited_override`（继承链 virtual dispatch 走 Base override）、`class_tostring_object_ref_override`（Object 引用调用 override toString 而非 intrinsic）
+- **P3.10 OP_Box null-sentinel bug 修复**：`VmExecutor.cpp` OP_Box 的 `if (val == 0 && typeTag != RTK_String) break;` 优化错误地将 int 0 和 float 0.0 视为 null sentinel，导致 `List<int>.add(0)` / `List<float>.add(0.0)` 存入 heapIdx=0，后续 `get()` + OP_Unbox 抛 "unbox on null/invalid reference"。修复：移除 null-sentinel 优化，OP_Box 总是分配堆槽。Null literal 不走 OP_Box（走 TCK_Auto），所以 `Object o = null` 不受影响。`list_int_zero_throws` / `list_float_zero_throws` 重命名为 `list_int_zero` / `list_float_zero`，期望值从 1 改为 7
+- 详见 memory: `nlang-phase-8e-9b-tostring-design.md`
 
 ### P3 loop refinement（2026-08-08）✅
 - **P3.2 OP_CallIntrinsic bug 修复**（commit 862d7a7）：`VmExecutor.cpp:744` `OP_CallIntrinsic` case 一直 throw "intrinsic calls not yet implemented"，但 `VmBackend.cpp:1337/1356` 为 `string.getHashCode()` / `string.equals()` emit 此 opcode（strings 是 primitive，无法走 `OP_CallMethod callee.intrinsicId` 路径）。测试 `string_gethashcode.n` / `string_equals.n` "通过"纯属巧合——VM throw → exit 1，恰好等于 manifest 期望 1。修复后用 `ExecuteIntrinsic` 分派；测试成功退出码改为 7 防回归
@@ -324,11 +339,11 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-9a + P3 loop refinement（含 P3.6/P3.7/P3.8）已完成，**300 个 e2e 测试全部通过**
+- 阶段 0-8e-9b + P3 loop refinement（含 P3.6-P3.11）已完成，**320 个 e2e 测试全部通过**
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
-- 下一步：Phase 8e-9b（Object.toString() 协议 + class/struct override，独立阶段需新 plan），之后进 Phase 9（异常、字符串插值、增量赋值、默认参数等）
+- 下一步：Phase 9（异常、字符串插值、增量赋值、默认参数等）
 
 ## 文档索引
 
