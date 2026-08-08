@@ -205,6 +205,9 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - **P3.7 锁定整型溢出行为**（commit ee32291）：`int_overflow_wrap.n` 验证 C 风格补码 wrap（INT_MAX+1 → INT_MIN），无 SafeInt 抛错
 - **P3.7 锁定浮点除零行为**（commit f584522）：`float_div_zero_throws.n` 验证 NLang 浮点除零抛错（不走 IEEE 754 ±inf）
 - **P3.7 nvm 模块加载硬化**（commit 2404bb4）：malformed `.nmod` 文件导致 nvm 抛 `std::runtime_error` 但 `Load()` 在 try/catch 之外，引发 `std::terminate` → exit 3（abort）。修复：`Load()` 也并入 try/catch；`ModuleLoader::Load` 加 `fs.good()` 检查 + 16MiB 上限，区分 truncation / bad-size / bad-magic 三种错误
+- **P3.8 interface 单行声明调查结案**（commit 6be6b14）：非 bug——interface 方法默认 `FA_Private`（NLang 默认访问修饰符），无 `public` 时不可访问；错误信息"does not exist"虽不准确（实际是 inaccessible）但语义合规。文档化到 `language-spec.md`（新增 Interface 章节）
+- **P3.8 测试覆盖补充**（284-293）：`list_float_zero_throws`（锁定 List<float> 0.0 null-sentinel bug，P3.1 范围扩大）、`list_struct_basic`（List<struct> boxing 往返）、`class_field_defaults`（int/float/string/class-ref 默认值）、`switch_string`（字符串 switch 分派）、`struct_nested_default`（嵌套 struct 递归物化）、`virtual_deep_dispatch`（4 层继承虚分派）、`class_implicit_upcast`（Dog→Animal 隐式上转）、`gc_stress_array`（数组 GC 阈值跨越）、`func_implicit_return`（无显式 return 默认 0）、`string_concat_mixed_chain`（8e-8 提升 + 8e-9a coercion 在同一表达式中组合）
+- **P3.8 锁定 switch 无 fall-through**（commit d2b8945）：`switch_no_fallthrough.n` 验证 NLang switch 无 C-style fall-through——每个 case body 隐式 break（Java/C# 语义，非 C/C++）。codegen 实现为 per-case 等值检查：body 执行后控制流进入下一个 case 的比较，因 value 不再匹配而跳过其 body。同时修正 `language-spec.md` 错误描述（commit 20af144）
 
 
 
@@ -321,7 +324,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-9a + P3 loop refinement（含 P3.6/P3.7）已完成，**283 个 e2e 测试全部通过**
+- 阶段 0-8e-9a + P3 loop refinement（含 P3.6/P3.7/P3.8）已完成，**294 个 e2e 测试全部通过**
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
