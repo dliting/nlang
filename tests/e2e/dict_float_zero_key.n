@@ -1,0 +1,10 @@
+int main() {
+	//P3.10 OP_Box fix: Dict<float,int> with key=0.0 should work.
+	Dict<float, int> d = new Dict<float, int>();
+	d.set(0.0, 42);
+	d.set(1.5, 99);
+	int v0 = d.get(0.0);
+	int v1 = d.get(1.5);
+	if (v0 == 42 && v1 == 99) return 7;
+	return 1;
+}

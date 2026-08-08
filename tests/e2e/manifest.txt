@@ -282,7 +282,7 @@ list_clear_then_reuse 2
 list_removeat_front_queue 6
 list_class_ref_shared 99
 list_null_class_element 1
-list_int_zero_throws 1
+list_int_zero 7
 # --- Phase 8e-4: built-in generic Dict<K,V> ---
 dict_int_int_basic 30
 dict_string_int 31
@@ -360,7 +360,7 @@ string_concat_float_left 4
 string_assign_float 3
 # --- Phase 8e-9a documented edge cases (P3.4) ---
 string_concat_null 2
-string_concat_enum 2
+string_concat_enum 4
 # --- P3.6: int32 boundary formatting ---
 string_concat_int_max 11
 string_concat_int_min 12
@@ -368,8 +368,8 @@ string_concat_int_min 12
 int_overflow_wrap 1
 # --- P3.7: lock float div-by-zero behavior (NLang throws, not IEEE 754 inf) ---
 float_div_zero_throws 1
-# --- P3.8: lock List<float> null-sentinel bug (mirrors list_int_zero_throws) ---
-list_float_zero_throws 1
+# --- P3.8: lock List<float> null-sentinel bug (mirrors list_int_zero) ---
+list_float_zero 7
 # --- P3.8: cover List<struct> round-trip (boxing + heap struct element) ---
 list_struct_basic 7
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
@@ -402,3 +402,26 @@ string_length_is_bytes 7
 logical_no_short_circuit_throws 1
 # --- P3.8: lock array negative-index throws (mirrors list_negative_index_throws) ---
 array_negative_index_throws 1
+# --- Phase 8e-9b: Object.toString() protocol (class/enum/string/int/float) ---
+class_tostring_default 7
+class_tostring_override 7
+class_tostring_via_object_ref 7
+class_tostring_null_throws 1
+enum_tostring_basic 7
+enum_tostring_each_value 7
+string_tostring_identity 7
+int_float_tostring 7
+implicit_coercion_class 7
+implicit_coercion_mixed_chain 7
+# --- Phase 8e-9b P3: boundary tests ---
+enum_tostring_out_of_range_throws 1
+class_tostring_inherited_override 7
+class_tostring_object_ref_override 7
+# --- P3.10: OP_Box fix boundary tests ---
+dict_int_zero_key 7
+list_int_multiple_zeros 7
+foreach_list_int_zero 7
+# --- P3.11: OP_Box fix additional boundary tests ---
+boxed_int_zero_tostring 7
+list_int_indexof_zero 7
+dict_float_zero_key 7

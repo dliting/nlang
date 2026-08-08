@@ -1,0 +1,10 @@
+int main() {
+	//P3.10 OP_Box fix: List<int>.indexOf(0) should find the element.
+	List<int> lst = new List<int>();
+	lst.add(5);
+	lst.add(0);
+	lst.add(3);
+	int idx = lst.indexOf(0);
+	if (idx == 1) return 7;
+	return 1;
+}
