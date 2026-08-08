@@ -1,0 +1,18 @@
+int main() {
+    //foreach over Dict<int,int> with non-zero values. Verifies the
+    //Dict.Keys() inline iteration path works for primitive-keyed dicts
+    //(existing foreach_dict_keys used string keys; foreach_dict_keys_class
+    //used class keys).
+    //
+    //Note: values must not include literal 0 — see list_int_zero_throws
+    //for the null-sentinel bug that also affects Dict<int,int>.values.
+    Dict<int,int> d = new Dict<int,int>();
+    d.set(1, 10);
+    d.set(2, 20);
+    d.set(3, 30);
+    int sum = 0;
+    foreach (int k in d) {
+        sum = sum + d.get(k);
+    }
+    return sum;
+}
