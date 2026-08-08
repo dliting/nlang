@@ -111,6 +111,17 @@ first — there is no separate dispatch machinery for Object methods. When
 the runtime reaches Object's intrinsic stub (no AST override exists), it
 short-circuits to `ExecuteIntrinsic`.
 
+**Two intrinsic dispatch paths (P3.2 fix)**: most intrinsics are reached
+via `OP_CallMethod` / `OP_CallMethodDirect`, which inspect the
+`callee.intrinsicId` field stamped on the `CompiledFunction` by VmBackend
+and short-circuit to `ExecuteIntrinsic`. Strings, however, are primitives
+(no class), so `string.getHashCode()` and `string.equals()` cannot go
+through that path — VmBackend emits `OP_CallIntrinsic` directly for
+them, which the executor dispatches via the same `ExecuteIntrinsic`
+function. (Before commit 862d7a7, the `OP_CallIntrinsic` case threw
+"intrinsic calls not yet implemented"; two e2e tests passed only because
+the throw's exit code happened to equal the expected value.)
+
 ### Boxed Primitives (Phase 8e-1)
 
 A primitive value (int/float/string) assigned to an Object-typed target is
