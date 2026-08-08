@@ -388,3 +388,5 @@ gc_stress_array 7
 func_implicit_return 7
 # --- P3.8: cover mixed promotion + coercion chain (8e-8 + 8e-9a) ---
 string_concat_mixed_chain 8
+# --- P3.8: lock switch no-fallthrough (Java/C# style, not C/C++ style) ---
+switch_no_fallthrough 10

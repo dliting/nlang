@@ -1,0 +1,14 @@
+int main() {
+    //Lock: NLang switch does NOT do C-style fallthrough. Each case body
+    //ends with an implicit break — execution stops after the matching
+    //case body even without an explicit `break` statement. C/C++ would
+    //sum 10+20+30=60 here; Java/C# would give 10 like NLang.
+    int x = 1;
+    int r = 0;
+    switch (x) {
+        case 1: r = r + 10;
+        case 2: r = r + 20;
+        case 3: r = r + 30;
+    }
+    return r;  //10, not 60
+}
