@@ -15,6 +15,7 @@ arithmetic_mul 42
 arithmetic_div 5
 arithmetic_mod 2
 all_int_ops 1
+nested_arith 45
 
 # --- Comparison ---
 compare_ops 1
@@ -103,6 +104,7 @@ enum_to_int 2
 
 # --- string ---
 string_length 5
+string_length_twice 10
 string_concat 11
 string_eq 1
 string_ne 1
