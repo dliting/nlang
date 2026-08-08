@@ -1,0 +1,6 @@
+int main() {
+    //%g on -3.14f yields "-3.14". Tests negative float formatting and
+    //sign preservation through OP_Float_to_str.
+    string s = "x" + (-3.14);
+    return s.length();
+}

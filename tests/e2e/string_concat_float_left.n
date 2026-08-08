@@ -1,0 +1,6 @@
+int main() {
+    //Symmetric with string_concat_int_left. Float as the left operand must
+    //also coerce to string before concatenation.
+    string s = 2.5 + "x";
+    return s.length();
+}

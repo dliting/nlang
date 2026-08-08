@@ -1,0 +1,7 @@
+int main() {
+    //Assignment path: float → string coercion without any binary concat.
+    //Symmetric with string_concat_int_assign; covers the int/float → string
+    //CastInfo entries used by SnCastExpr outside binary ops.
+    string s = 2.5;
+    return s.length();
+}

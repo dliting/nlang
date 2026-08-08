@@ -1,0 +1,7 @@
+int main() {
+    //1 + 2.5 promotes int to float (3.5), then "x" + 3.5 coerces float to
+    //string. Verifies the resolver promotes int+float BEFORE the
+    //string-coercion step, not after (which would yield "x12.5" or "x32").
+    string s = "x" + (1 + 2.5);
+    return s.length();
+}
