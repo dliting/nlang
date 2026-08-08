@@ -1,0 +1,17 @@
+int main() {
+    //Lock: NLang integer division truncates toward zero (C/C#/Java style,
+    //not Python floor). For -7/2: C gives -3 (truncate toward zero),
+    //Python gives -4 (floor). Pairs with arithmetic_mod_negative which
+    //locks the matching modulo sign convention.
+    //
+    //Returns 7 only if q==-3 AND r==-1 (C truncation + matching modulo).
+    //Any other result (Python floor q=-4/r=1, or other) returns 1.
+    int x = -7;
+    int y = 2;
+    int q = x / y;
+    int r = x % y;
+    if (q == -3 && r == -1) {
+        return 7;
+    }
+    return 1;
+}
