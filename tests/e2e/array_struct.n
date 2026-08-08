@@ -3,6 +3,22 @@ struct Point {
     int y;
 }
 
+//KNOWN BUG (Phase 4 gap, surfaced 2026-08-08 P3 audit):
+//AllocArrayOnHeap initializes struct-array elements to 0 (null heap
+//idx) instead of materializing a fresh Point on the heap for each
+//element. So `arr[0].x = 1` evaluates arr[0] -> 0, then StoreField
+//with heapIdx=0 fails the bounds check at VmExecutor.cpp:659.
+//
+//Test currently "passes" because the runtime throw exits with code 1,
+//which coincidentally matches the manifest's expected exit. The
+//semantic intent is `return arr[1].x` = 3.
+//
+//Fix requires design decision: eager materialization at alloc_array
+//(walk elements, AllocStructOnHeap for each) vs. lazy at first access
+//(load_element detects struct-element-kind and allocates on demand).
+//GC interaction must be considered either way.
+//
+//Tracked in memory: nlang-array-of-struct-bug.md.
 int main() {
     Point[] arr = new Point[2];
     arr[0].x = 1;
@@ -11,3 +27,4 @@ int main() {
     arr[1].y = 4;
     return arr[1].x;
 }
+
