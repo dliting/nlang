@@ -1,0 +1,23 @@
+int main() {
+    //Lock: NLang supports relational comparison on strings (<, >, <=, >=)
+    //using C strcmp-style byte-by-byte ASCII ordering. Not just == and !=.
+    //
+    //Returns 7 only if all 6 ordering assertions hold:
+    //  1. "apple" < "banana"
+    //  2. "banana" > "apple"
+    //  3. "apple" <= "apple"     (equal also satisfies <=)
+    //  4. "apple" >= "apple"     (equal also satisfies >=)
+    //  5. "Z" < "a"              (ASCII: 90 < 97)
+    //  6. "abc" < "abd"          (differ in last char)
+    int pass = 0;
+    if ("apple" < "banana") { pass = pass + 1; }
+    if ("banana" > "apple") { pass = pass + 1; }
+    if ("apple" <= "apple") { pass = pass + 1; }
+    if ("apple" >= "apple") { pass = pass + 1; }
+    if ("Z" < "a") { pass = pass + 1; }
+    if ("abc" < "abd") { pass = pass + 1; }
+    if (pass == 6) {
+        return 7;
+    }
+    return 1;
+}

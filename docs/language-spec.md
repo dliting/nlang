@@ -530,7 +530,9 @@ are compile errors.
 a == b   a != b   a < b   a > b   a <= b   a >= b
 ```
 
-Returns 1 (true) or 0 (false). String equality compares content.
+Returns 1 (true) or 0 (false). String equality compares content. String
+relational ordering (`<`, `>`, `<=`, `>=`) uses C `strcmp`-style byte-by-byte
+ASCII comparison (e.g. `"Z" < "a"` is true because `'Z'` (90) < `'a'` (97)).
 
 ### Logical
 
