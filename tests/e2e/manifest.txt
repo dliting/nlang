@@ -368,3 +368,5 @@ string_concat_int_min 12
 int_overflow_wrap 1
 # --- P3.7: lock float div-by-zero behavior (NLang throws, not IEEE 754 inf) ---
 float_div_zero_throws 1
+# --- P3.8: lock List<float> null-sentinel bug (mirrors list_int_zero_throws) ---
+list_float_zero_throws 1
