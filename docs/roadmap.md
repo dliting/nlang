@@ -324,7 +324,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-9a + P3 loop refinement（含 P3.6/P3.7/P3.8）已完成，**295 个 e2e 测试全部通过**
+- 阶段 0-8e-9a + P3 loop refinement（含 P3.6/P3.7/P3.8）已完成，**296 个 e2e 测试全部通过**
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
