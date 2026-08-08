@@ -425,3 +425,4 @@ foreach_list_int_zero 7
 boxed_int_zero_tostring 7
 list_int_indexof_zero 7
 dict_float_zero_key 7
+dict_string_string 7

@@ -1,0 +1,9 @@
+int main() {
+	Dict<string, string> d = new Dict<string, string>();
+	d.set("hello", "world");
+	d.set("foo", "bar");
+	string v1 = d.get("hello");
+	string v2 = d.get("foo");
+	if (v1 == "world" && v2 == "bar") return 7;
+	return 1;
+}
