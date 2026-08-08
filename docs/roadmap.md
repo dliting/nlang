@@ -199,6 +199,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - **P3.2 OP_CallIntrinsic bug 修复**（commit 862d7a7）：`VmExecutor.cpp:744` `OP_CallIntrinsic` case 一直 throw "intrinsic calls not yet implemented"，但 `VmBackend.cpp:1337/1356` 为 `string.getHashCode()` / `string.equals()` emit 此 opcode（strings 是 primitive，无法走 `OP_CallMethod callee.intrinsicId` 路径）。测试 `string_gethashcode.n` / `string_equals.n` "通过"纯属巧合——VM throw → exit 1，恰好等于 manifest 期望 1。修复后用 `ExecuteIntrinsic` 分派；测试成功退出码改为 7 防回归
 - **P3.3 8e-9a 边界测试**：新增 4 个测试覆盖原 6 个的盲区——`int+float+str` 提升顺序（验证 int 先升 float 再转 string，不是 "x12.5"）、负 float（`%g` 保留符号）、float 在左（对称性）、float 赋值路径（不经过 binary）。共 267 个测试通过
 - **TODO 扫描**（6 处）：`ModuleBuilder.cpp:216` ResolveDataValues（placeholder）、`ScriptScanner.cpp:32` fopen portability、`SyntaxNode.cpp:185` AllowProtectedAccess（OOP protected 语义未实现，无测试）、`Module.cpp:117` LoadFrom（stream 加载未实现，Phase 11 包管理）、`Node.cpp:72` find 优化（micro-perf）、`VmExecutor.cpp:615` UTF-8 code points（Phase 9+ 特性）。全部 forward-looking，无 bug
+- **P3.6 测试覆盖补充**（275-281）：`mixed_int_float_sub/div`（关闭二元提升覆盖缺口）、`string_concat_int_max/min`（int32 边界）、`list_int_zero_throws`（锁定 List<int> null-sentinel bug）、`foreach_dict_int_int`、`foreach_list_float`、`gc_stress_over_threshold`（首次跨过 GC_THRESHOLD=1024 触发 MarkPhase+SweepPhase）、`class_method_chain`、`arithmetic_mod_negative`（锁定 % 的 C 截断符号约定）
+- **P3.7 编译器 segfault 修复**（commit 04625a4）：`ParseSources` 把 `ParseTransUnits → MergeTransUnits` 串成无门控链；顶层语法错误时 `CompileUnit` 规则不归约，`TranslationUnit::m_pRoot` 留 null，`MergeFrom` 解引用 null → exit 139。修复：`ParseTransUnits` 后加 `if (HasError()) return false;` 早退。同一提交还修了 `ScriptParser::ParseUnit` 反向条件 `yyparse==0 && HasError()` → `!HasError()`（返回值当前被忽略，逻辑修订防未来踩雷）
+- **P3.7 缺失输入文件 segfault 修复**（commit c3152cc）：`ScriptScanner::OpenFile` 用裸 `LogError`（fprintf 到 stderr），不增 `BuildEnvironment` 错误计数；`HasError()` 早退不触发。修复：`ParseUnit` 在 `OpenFile` 失败时用 `env.Log(CLL_Error,...)` 再记一次
+- **P3.7 锁定整型溢出行为**（commit ee32291）：`int_overflow_wrap.n` 验证 C 风格补码 wrap（INT_MAX+1 → INT_MIN），无 SafeInt 抛错
+- **P3.7 锁定浮点除零行为**（commit f584522）：`float_div_zero_throws.n` 验证 NLang 浮点除零抛错（不走 IEEE 754 ±inf）
+- **P3.7 nvm 模块加载硬化**（commit 2404bb4）：malformed `.nmod` 文件导致 nvm 抛 `std::runtime_error` 但 `Load()` 在 try/catch 之外，引发 `std::terminate` → exit 3（abort）。修复：`Load()` 也并入 try/catch；`ModuleLoader::Load` 加 `fs.good()` 检查 + 16MiB 上限，区分 truncation / bad-size / bad-magic 三种错误
+
+
 
 ---
 
@@ -313,7 +321,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-9a + P3 loop refinement 已完成，**267 个 e2e 测试全部通过**
+- 阶段 0-8e-9a + P3 loop refinement（含 P3.6/P3.7）已完成，**283 个 e2e 测试全部通过**
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）

@@ -467,7 +467,13 @@ a + b    a - b    a * b    a / b    a % b
 ```
 
 Integer division truncates toward zero. Division/modulo by zero throws a
-runtime error.
+runtime error — this includes `float` division by zero, which throws
+rather than producing IEEE 754 ±inf/NaN (NLang diverges from C/C++/Java
+here).
+
+**Integer overflow** wraps silently in two's complement (C-style):
+`INT_MAX + 1 == INT_MIN`. There is no SafeInt-style checking. Lock-in
+test: `tests/e2e/int_overflow_wrap.n`.
 
 **Numeric promotion (Phase 8e-8)**: arithmetic ops follow symmetric C-style
 promotion — both operands are promoted to the wider type before the op:
