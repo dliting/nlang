@@ -147,7 +147,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - **`Dict.keys()` 内建方法**（`INTR_Dict_Keys = 60`）：返回全新 `List<K>` 堆实例，从 `dict.entries[i].first` 复制 keys。对 foreach 有用，独立使用也有用（key snapshot、set-style 成员检查）。返回的 List 是**拷贝**——后续 `Set`/`Remove` 不影响已返回的 List
 - **`LoopContext` 复用**：`break`/`continue` 跨所有循环形式（for/while/do/foreach）走同一份逻辑，无需 foreach 专用代码
 - 12 个新 e2e 测试（foreach_array_int 到 foreach_dict_keys_class），共 226 个测试全部通过
-- **已知限制**：`List<int>` 包含字面值 0 的元素会触发 `OP_Box` 的 null-sentinel 优化路径，导致 unbox 时报 `unbox on null/invalid reference`。这是 boxing 设计遗留问题，不是 foreach bug；待未来重新设计 null-sentinel 时统一修复
+- **已知限制（P3.10 已修复）**：~~`List<int>` 包含字面值 0 的元素会触发 `OP_Box` 的 null-sentinel 优化路径~~ — P3.10 移除了 OP_Box 的 null-sentinel 优化（`if (val == 0 && typeTag != RTK_String) break;`），OP_Box 现在总是分配堆槽。Null literal 不走 OP_Box（走 TCK_Auto），所以 `Object o = null` 不受影响
 
 ### 阶段 8e-6：集合初始化器 ✅
 - 文法：bare `[...]`（数组/List）+ 显式 `new Type{...}`（任意位置）；bare `{...}` 因与 CompoundStmt LALR 冲突被放弃
@@ -231,90 +231,33 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 后续阶段
 
-### 阶段 4：数组
-
-**EN 参考：** I_Base_ArrayMember（NInstructBase.h:57）、I_Base_VectorMember/VectorLength/VectorInsert/VectorAppend/VectorRemove/VectorFind（NInstructBase.h:58-64）
-
-**核心特性：**
-- 固定数组：`int[10] arr;` 或 `int arr[10];`
-- 数组访问：`arr[i]`（下标表达式）
-- 数组赋值：`arr[i] = 5;`
-- 数组长度：`arr.length()` 或 `arr.size`
-- 数组作为函数参数：引用传递（传堆索引）
-- 动态数组（vector）：`int[] arr; arr.push(1); arr.remove(0);`
-- 数组作为类字段：对象中包含数组字段
-
-**设计要点：**
-- 数组变量存储堆索引（类似 struct），指向 m_arrayHeap 中的连续数据区
-- 数组元素按 VALUE_SIZE 对齐，下标访问通过偏移计算
-- 动态数组需要长度字段 + 容量字段 + 数据区
-
-**新增 VM 指令：**
-- `OP_AllocArray <uint16 dst> <uint16 elemTypeKind> <uint16 count>` — 分配固定大小数组
-- `OP_LoadElement <uint16 dst> <uint16 arr> <uint16 idx>` — arr[idx] 读取
-- `OP_StoreElement <uint16 arr> <uint16 idx> <uint16 src>` — arr[idx] = val 写入
-- `OP_ArrayLength <uint16 dst> <uint16 arr>` — 获取数组长度
-
-### 阶段 6：接口与多态
-
-**EN 参考：** I_Base_InterfaceMember（NInstructBase.h:50）、I_Base_InterfaceCast（NInstructBase.h:30）、NInterface（lang_bak/intf/NInterface.h）
-
-**核心特性：**
-- 接口声明：`interface IMovable { void move(int dx); }`
-- 接口实现：`class Player : IMovable { void move(int dx) { ... } }`
-- 接口类型变量：`IMovable m = new Player(); m.move(1);`
-- 接口方法调用：通过接口 vtable 分派
-- 动态类型转换：`obj as Player` 安全转换
-- 类型检查：`obj instanceof Player`（可选）
-
-### 阶段 7：调试支持
-
-**EN 参考：** I_Base_DebugInfo（NInstructBase.h:67）
-
-**核心特性：**
-- 调试行号信息：编译器在字节码中嵌入源码行号映射
-- 断点支持：VM 在指定行号处暂停执行
-- 单步执行：逐语句/逐过程/逐出
-- 变量查看：暂停时读取局部变量、this 成员、字段值
-- 调用栈回溯：函数调用链、每层参数值
-
-### 阶段 8：序列化与持久化
-
-**EN 参考：** Archive（lang_bak/intf/Archive.h）
-
-**核心特性：**
-- 对象序列化：将对象图保存到二进制流
-- 对象反序列化：从二进制流恢复对象图
-- 引用解析：序列化时记录对象引用关系，反序列化时恢复
-- 版本兼容：字段增删时的向前/向后兼容
-
 ### 阶段 9：高级语言特性
 
-- 增量赋值：`x += 1;`、`x -= 1;`
-- 默认参数：`int foo(int x, int y = 0)`
-- out 参数：`void foo(int x, out int y)`
-- for-each 循环：`for (int x in arr) { ... }`
-- 字符串插值：`"Hello ${name}"`
-- 异常处理：try/catch/throw
-- 常量修饰：`const int X = 5;`
-- 原生函数绑定：`native void foo();`
-- 断言：`assert(condition);`
-- 代理/回调：函数指针、委托类型
-- 泛型（远期）
+分批实施（9a-9f）：
 
-### 阶段 10：IDE 移植（nide）
+**9a：增量赋值 + 断言 + const**
+- 增量赋值：`x += 1;`、`x -= 1;`、`x *= 2;`、`x /= 2;`、`x %= 3;`
+- 断言：`assert(condition);`（失败 exit(1)）
+- 常量修饰：`const int X = 5;`（仅局部 const）
 
-**EN 参考：** nide（E:/cases/en/src/tools/nide/），基于 Qt 5.15 + Widgets
+**9b：字符串插值**
+- `"Hello ${name}"`、`"x = ${x + 1}"`
 
-**核心特性：**
-- 代码编辑器：语法高亮、行号、自动缩进
-- 项目管理：解决方案/项目树
-- 编译集成：编译按钮、编译日志浏览
-- 运行集成：运行/停止按钮、输出显示
+**9c：默认参数**
+- `int foo(int x, int y = 0)`
 
-**移植策略：**
-- 推荐方案 B（LSP），支持 VS Code / JetBrains 等现代编辑器
-- 保留 Qt 版本作为参考/备用
+**9d：异常处理**
+- try/catch/throw（C# 风格，全 unchecked，throw 任意 Object 子类）
+
+**9e：out 参数**
+- `void foo(int x, out int y)`
+
+**9f：原生函数绑定**
+- `native void foo();`
+
+### 阶段 10：IDE 移植 / LSP
+
+推荐 LSP 方案支持 VS Code / JetBrains 等现代编辑器。
 
 ### 阶段 11：标准库与生态
 
@@ -322,8 +265,12 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 文件系统：路径操作、目录遍历
 - 数学库：三角函数、随机数
 - 字符串高级：格式化、分割、查找、替换
-- 集合类型：Map/Dict
 - 包管理器：模块依赖管理
+
+### 远期特性
+
+- 代理/回调：函数指针、委托类型
+- 用户定义泛型：`class Foo<T>`
 
 ---
 
@@ -331,7 +278,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 | 优先级 | 阶段 | 说明 |
 |--------|------|------|
-| P2 | 9. 高级特性 | 按需实现，含异常、字符串插值、增量赋值等 |
+| P2 | 9. 高级特性 | 分批实施 9a-9f |
 | P2 | 10. IDE 移植 / LSP | 开发效率；推荐 LSP 方案支持现代编辑器 |
 | P3 | 11. 标准库 | 逐步完善 |
 
