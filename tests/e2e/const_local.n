@@ -1,0 +1,7 @@
+int main() {
+	const int X = 5;
+	const int Y = 10;
+	int sum = X + Y;
+	if (sum == 15) return 7;
+	return 1;
+}

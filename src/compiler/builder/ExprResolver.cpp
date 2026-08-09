@@ -381,6 +381,20 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			m_pContext = pSavedContext;
 			return;
 		}
+		//Phase 8e-9b: string.toString() — identity. Resolver folds the call
+		//to a no-op (callee=null, EvalDataType=String). Codegen emits nothing
+		//and the inner string idx flows through unchanged.
+		if (name == "toString" && invoke.Params().begin() == invoke.Params().end())
+		{
+			pInnerExpr->AddFlags(NF_Resolved);
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+			snMember.AddFlags(NF_Resolved);
+			//Mark the invoke as folded so codegen skips it. Use NF_Resolved flag
+			//on the inner expression (already set above) and leave callee as-is;
+			//VmBackend detects string receiver + toString name and emits nothing.
+			m_pContext = pSavedContext;
+			return;
+		}
 	}
 
 		//Builtin array.length property.
@@ -539,21 +553,118 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	//Args must be resolved in the CALLER's scope, not the empty Object scope —
 	//hence the early return before pInnerExpr->Accept below.
 	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
-		&& !static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
 		&& pInnerExpr->Kind() == NK_InvokeExpr)
 	{
 		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
 		const auto& name = invoke.CalleeName();
+		auto* pClassDecl = static_cast<SnClassDecl*>(m_pContext);
+		bool isUserClass = !pClassDecl->IsBuiltinClass();
+		bool isObjectClass = pClassDecl->IsBuiltinClass()
+			&& pClassDecl->Name() == "Object";
 		if (name == "equals" || name == "getHashCode")
+		{
+			if (isUserClass)
+			{
+				m_pContext = pSavedContext;
+				RemoveFlags(ERF_SearchInParentOnly);
+				ResolveExpressionList(invoke.Params());
+			pInnerExpr->AddFlags(NF_Resolved);
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.AddFlags(NF_Resolved);
+				m_pContext = pSavedContext;
+				return;
+			}
+		}
+		//Phase 8e-9b: string toString() — user class inherits Object.toString().
+		//User-defined override is resolved via the normal class-method path
+		//(CalleeName resolves to a real SnFunction); this branch only catches
+		//the no-override case to fall through to Object intrinsic dispatch.
+		if (name == "toString"
+			&& invoke.Params().begin() == invoke.Params().end()
+			&& (isUserClass || isObjectClass))
 		{
 			m_pContext = pSavedContext;
 			RemoveFlags(ERF_SearchInParentOnly);
 			ResolveExpressionList(invoke.Params());
 			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
 			snMember.AddFlags(NF_Resolved);
 			m_pContext = pSavedContext;
 			return;
+		}
+	}
+
+	//Phase 8e-9b: non-class receiver toString() — enum, int, float.
+	//These types have no method table; the resolver accepts the call by setting
+	//EvalDataType=String + NF_Resolved. Codegen dispatches based on the
+	//outer expression's EvalDataType (enum→OP_Enum_to_str, int→OP_Int32_to_str,
+	//float→OP_Float_to_str). No m_pField hack needed — the type information
+	//flows through the existing outer->EvalDataType() channel, same as struct/
+	//class/interface field access in codegen.
+	//
+	//Detection: m_pContext (the receiver's type context) is NK_EnumDecl,
+	//NK_Int32, or NK_Float. For enum literal access (Color.Green.toString()),
+	//m_pContext is NK_Int32 (SnEnumMember::EvalDataType returns NK_Int32), so
+	//we also check the outer's Field() chain for NK_EnumMember.
+	if (pInnerExpr->Kind() == NK_InvokeExpr)
+	{
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+		if (invoke.CalleeName() == "toString"
+			&& invoke.Params().begin() == invoke.Params().end())
+		{
+			bool isNonClassToString = false;
+			//Phase 9b-pre: array receiver — Array is a VM primitive, not a
+			//class. MUST be checked BEFORE the int/float path because
+			//EvalDataType for `int[] arr` returns the element type (NK_Int32);
+			//array-ness is stored separately on the SnField via IsArrayType().
+			//Detection matches ExprResolver's array.length path.
+			{
+				auto outerKind = snMember.Outer()->Kind();
+				if (outerKind == NK_IdentifierExpr
+					|| outerKind == NK_MemberExpr)
+				{
+					auto& outerFieldExpr = static_cast<SnFieldExpr&>(
+						*snMember.Outer());
+					auto* outerField = outerFieldExpr.Field();
+					if (outerField && outerField->IsArrayType())
+						isNonClassToString = true;
+				}
+			}
+			//Enum via m_pContext (typed enum variable: Color c; c.toString())
+			if (!isNonClassToString && m_pContext
+				&& m_pContext->Kind() == NK_EnumDecl)
+				isNonClassToString = true;
+			//Enum via outer Field() chain (Color.Green.toString())
+			if (!isNonClassToString)
+			{
+				auto outerKind = snMember.Outer()->Kind();
+				if (outerKind == NK_MemberExpr || outerKind == NK_IdentifierExpr)
+				{
+					auto& outerFieldExpr = static_cast<SnFieldExpr&>(
+						*snMember.Outer());
+					auto* outerField = outerFieldExpr.Field();
+					if (outerField && outerField->Kind() == NK_EnumMember)
+						isNonClassToString = true;
+				}
+			}
+			//Int/float via m_pContext (int x; x.toString(), 42.toString())
+			if (!isNonClassToString && m_pContext
+				&& (m_pContext->Kind() == NK_Int32
+					|| m_pContext->Kind() == NK_Float))
+			{
+				isNonClassToString = true;
+			}
+			if (isNonClassToString)
+			{
+				m_pContext = pSavedContext;
+				RemoveFlags(ERF_SearchInParentOnly);
+				ResolveExpressionList(invoke.Params());
+				pInnerExpr->AddFlags(NF_Resolved);
+				snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+				snMember.AddFlags(NF_Resolved);
+				m_pContext = pSavedContext;
+				return;
+			}
 		}
 	}
 
@@ -577,12 +688,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		if (baseName == "List") {
 			isGenericMethod = (name == "add" || name == "get" || name == "set"
 				|| name == "length" || name == "removeAt" || name == "indexOf"
-				|| name == "contains" || name == "clear");
+				|| name == "contains" || name == "clear"
+					|| name == "toString");
 		} else if (baseName == "Dict") {
 			isGenericMethod = (name == "set" || name == "get"
 				|| name == "containsKey" || name == "remove"
 				|| name == "clear" || name == "count"
-				|| name == "keys");
+				|| name == "keys" || name == "toString");
 		}
 		if (isGenericMethod)
 		{
@@ -627,8 +739,12 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 						pResultField = pListClass;
 					}
 				}
+			} else if (name == "toString") {
+				//Phase 9b-pre: List/Dict toString() returns string.
+				auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
+				snMember.EvalDataType(pStr);
+				pResultField = pStr;
 			}
-			// Add/Set/RemoveAt/Clear/Set: void (no EvalDataType)
 			// Set m_pField directly (not via ResolveFieldExprAs
 			// which would overwrite EvalDataType with SnType).
 			// Needed so IsDataExpr() doesn't crash when chained

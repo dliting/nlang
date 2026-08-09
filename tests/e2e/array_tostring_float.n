@@ -1,0 +1,9 @@
+// Phase 9b-pre: array toString — float elements via %g formatting.
+int main() {
+    float[] arr = new float[2];
+    arr[0] = 1.5;
+    arr[1] = 2.5;
+    string s = arr.toString();
+    if (s == "[1.5, 2.5]") return 7;
+    return 1;
+}

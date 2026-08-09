@@ -1,0 +1,9 @@
+enum Color { Red, Green, Blue }
+int main() {
+	//Phase 8e-9b P3: enum value out of declared range throws at runtime.
+	//Color has 3 members (0-2); value 99 is out of range.
+	//OP_Enum_to_str checks bounds and throws "enum value out of range".
+	Color c = 99;
+	c.toString();
+	return 0;  //unreachable
+}

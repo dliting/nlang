@@ -61,6 +61,14 @@ static void DisassembleFunction(const CompiledFunction& func,
             std::cout << "    " << offsetBuf << ": " << name << "\n";
             break;
 
+        //uint16 msg string index
+        case OpCode::OP_AssertFail: {
+            uint16_t idx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " " << idx << "\n";
+            break;
+        }
+
         //int16 target (jump)
         case OpCode::OP_Jump: {
             int16_t target = reader.ReadInt16();
@@ -306,6 +314,21 @@ static void DisassembleFunction(const CompiledFunction& func,
             uint16_t base = reader.ReadUint16();
             std::cout << "    " << offsetBuf << ": " << name
                       << " id=" << id << " base=" << base << "\n";
+            break;
+        }
+
+        case OpCode::OP_Enum_to_str: {
+            uint16_t enumDefIdx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " enumDefIdx=" << enumDefIdx;
+            if (enumDefIdx < module.enumNames.size())
+                std::cout << " (values=" << module.enumNames[enumDefIdx].size() << ")";
+            std::cout << "\n";
+            break;
+        }
+
+        case OpCode::OP_Array_to_str: {
+            std::cout << "    " << offsetBuf << ": " << name << "\n";
             break;
         }
 

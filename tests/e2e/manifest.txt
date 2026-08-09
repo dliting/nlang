@@ -426,3 +426,31 @@ boxed_int_zero_tostring 7
 list_int_indexof_zero 7
 dict_float_zero_key 7
 dict_string_string 7
+# --- Phase 9a: compound assignment (+=, -=, *=, /=, %=) ---
+compound_assign_int 7
+compound_assign_float 7
+compound_assign_string 7
+compound_assign_struct_field 7
+compound_assign_class_field 7
+# --- Phase 9a: assert(cond) statement ---
+assert_pass 7
+assert_false_throws 1
+# --- Phase 9a: const local variables ---
+const_local 7
+const_local_compound 7
+const_shallow_member_mut 7
+# --- Phase 9b-pre: collection toString (Array/List/Dict) ---
+array_tostring_basic 7
+array_tostring_empty 7
+array_tostring_strings 7
+array_tostring_float 7
+list_tostring_basic 7
+list_tostring_empty 7
+list_tostring_float 7
+list_tostring_strings 7
+list_tostring_class 7
+list_tostring_struct 7
+dict_tostring_basic 7
+dict_tostring_empty 7
+dict_tostring_insertion_order 7
+dict_tostring_int_keys 7

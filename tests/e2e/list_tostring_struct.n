@@ -1,0 +1,16 @@
+// Phase 9b-pre: List<struct> toString — struct elements render as <struct>.
+struct Point {
+    int x;
+    int y;
+}
+int main() {
+    List<Point> lst = new List<Point>();
+    Point p;
+    p.x = 1;
+    p.y = 2;
+    lst.add(p);
+    lst.add(p);
+    string s = lst.toString();
+    if (s == "[<struct>, <struct>]") return 7;
+    return 1;
+}

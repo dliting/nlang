@@ -1,0 +1,9 @@
+// Phase 9b-pre: List<float> toString.
+int main() {
+    List<float> lst = new List<float>();
+    lst.add(1.5);
+    lst.add(2.5);
+    string s = lst.toString();
+    if (s == "[1.5, 2.5]") return 7;
+    return 1;
+}

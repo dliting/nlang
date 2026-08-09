@@ -1,0 +1,6 @@
+int main() {
+	const string S = "hello";
+	const int N = S.length();
+	if (N == 5) return 7;
+	return 1;
+}

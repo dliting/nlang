@@ -1,0 +1,12 @@
+int main() {
+	//P3.10 OP_Box fix: Dict<int,int> with key=0 now works correctly.
+	//Previously, OP_Box skipped allocation for val==0, storing null sentinel
+	//as the key, which broke Dict lookup.
+	Dict<int, int> d = new Dict<int, int>();
+	d.set(0, 42);
+	d.set(1, 99);
+	int v0 = d.get(0);
+	int v1 = d.get(1);
+	if (v0 == 42 && v1 == 99) return 7;
+	return 1;
+}

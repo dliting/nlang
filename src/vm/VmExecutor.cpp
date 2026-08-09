@@ -136,6 +136,14 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         case OpCode::OP_Stop:
             return;
 
+        case OpCode::OP_AssertFail: {
+            uint16_t msgIdx = reader.ReadUint16();
+            std::string msg = "assertion failed";
+            if (msgIdx < m_stringPool.size() && !m_stringPool[msgIdx].empty())
+                msg += ": " + m_stringPool[msgIdx];
+            throw std::runtime_error(msg);
+        }
+
         case OpCode::OP_ConstInt32: {
             int32_t v = reader.ReadInt32();
             std::memcpy(pResult, &v, sizeof(v));
@@ -204,6 +212,50 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::snprintf(buf, sizeof(buf), "%g", fv);
             int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
             m_stringPool.push_back(buf);
+            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            break;
+        }
+        case OpCode::OP_Enum_to_str: {
+            //uint16 enumDefIdx immediate; read int32 enum value from pResult,
+            //lookup m_currModule->enumNames[enumDefIdx][value], push name.
+            uint16_t enumDefIdx = reader.ReadUint16();
+            int32_t enumValue;
+            std::memcpy(&enumValue, pResult, sizeof(enumValue));
+            if (enumDefIdx >= m_currModule->enumNames.size())
+                throw std::runtime_error(
+                    "NLang VM: enum def idx out of range");
+            const auto& names = m_currModule->enumNames[enumDefIdx];
+            if (enumValue < 0
+                || static_cast<size_t>(enumValue) >= names.size())
+                throw std::runtime_error(
+                    "NLang VM: enum value out of range");
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(names[static_cast<size_t>(enumValue)]);
+            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            break;
+        }
+
+        case OpCode::OP_Array_to_str: {
+            //Phase 9b-pre: format array at pResult as "[e1, e2, ...]",
+            //push result string to pool, write idx to pResult.
+            //Reads heap layout: slot[0]=RTK_Array, slot[1]=elemKind,
+            //slot[2]=length, slot[3+i]=elements.
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
+            std::string s;
+            if (heapIdx <= 0) {
+                s = "<null>";
+            } else if (static_cast<size_t>(heapIdx) >= m_structHeap.size()) {
+                throw std::runtime_error(
+                    "NLang VM: array_to_str on stale reference");
+            } else if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array) {
+                throw std::runtime_error(
+                    "NLang VM: array_to_str on non-array");
+            } else {
+                s = FormatArray(heapIdx, 0);
+            }
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(std::move(s));
             std::memcpy(pResult, &newIdx, sizeof(newIdx));
             break;
         }
@@ -844,15 +896,11 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             uint8_t typeTag = reader.ReadByte();
             int32_t val;
             std::memcpy(&val, pResult, sizeof(val));
-            //null-sentinel preservation: null is the SnLiteralExpr with
-            //RnInt32 type and value 0. It only reaches OP_Box with
-            //typeTag==RTK_Int32. Skip heap allocation in that case so
-            //`Object o = null` stores 0 (the null heap-idx sentinel).
-            //For RTK_Float we never see null in practice but the check
-            //is harmless. For RTK_String a value of 0 is the *string-
-            //pool idx 0* (a legitimate string), NOT null — must allocate.
-            if (val == 0 && typeTag != RTK_String)
-                break;
+            //Always allocate a heap slot, even for val==0. Null literals never
+            //reach OP_Box (they use TCK_Auto, not TCK_Box), so the old
+            //null-sentinel optimization (skip allocation for val==0) was
+            //incorrectly treating int 0 and float 0.0 as null, breaking
+            //List<int>.add(0) and similar paths.
             int32_t heapIdx;
             if (!m_freeList.empty()) {
                 heapIdx = m_freeList.back();
@@ -1824,6 +1872,225 @@ static int32_t ReadStreamHandle(uint16_t callParamBase, uint8_t* locals,
     return handle;
 }
 
+//Phase 9b-pre: collection toString helpers.
+//Python-style formatting: [a, b, c] / {k: v}. Strings quoted with repr-style
+//escape. Cyclic/nested structures bounded by TOSTRING_DEPTH_LIMIT (64).
+//Throws std::runtime_error on depth overflow; caught by main()'s catch and
+//surfaced as exit(1) like other VM errors.
+
+std::string VmExecutor::QuoteString(const std::string& s) const {
+    std::string out;
+    out.reserve(s.size() + 2);
+    out.push_back('"');
+    for (char c : s) {
+        switch (c) {
+        case '\\': out += "\\\\"; break;
+        case '"':  out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:   out.push_back(c); break;
+        }
+    }
+    out.push_back('"');
+    return out;
+}
+
+std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
+    if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
+        throw std::runtime_error(
+            "NLang VM: toString depth limit exceeded");
+    if (heapIdx <= 0
+        || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        return "<null>";
+    uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    switch (kind) {
+    case RTK_Boxed: {
+        int32_t tag = slot[0];
+        int32_t val = slot[1];
+        if (tag == RTK_Int32) {
+            return std::to_string(val);
+        } else if (tag == RTK_Float) {
+            float fv;
+            std::memcpy(&fv, &val, sizeof(fv));
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%g", fv);
+            return buf;
+        } else if (tag == RTK_String) {
+            if (val >= 0
+                && static_cast<size_t>(val) < m_stringPool.size())
+                return QuoteString(m_stringPool[static_cast<size_t>(val)]);
+            return "\"\"";
+        }
+        return "<unknown>";
+    }
+    case RTK_Class: {
+        int32_t classIdx = slot[0];
+        if (classIdx == m_listClassIdx) {
+            int32_t handle = slot[kListHandleFieldOffset];
+            return FormatList(handle, depth + 1);
+        }
+        if (classIdx == m_dictClassIdx) {
+            int32_t handle = slot[kListHandleFieldOffset];
+            return FormatDict(handle, depth + 1);
+        }
+        return InvokeVirtualToString(heapIdx);
+    }
+    case RTK_Struct:
+        return "<struct>";
+    case RTK_Array:
+        return FormatArray(heapIdx, depth + 1);
+    default:
+        return "<unknown>";
+    }
+}
+
+std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
+    if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
+        throw std::runtime_error(
+            "NLang VM: toString depth limit exceeded");
+    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
+    int32_t length = slot[2];
+    uint8_t elemKind = RTK_Int32;
+    if (arrayTypeIdx < m_currModule->arrayTypes.size())
+        elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
+    if (length <= 0) return "[]";
+    std::string result = "[";
+    for (int32_t i = 0; i < length; ++i) {
+        if (i > 0) result += ", ";
+        int32_t elemVal = slot[3 + static_cast<size_t>(i)];
+        switch (elemKind) {
+        case RTK_Int32:
+            result += std::to_string(elemVal);
+            break;
+        case RTK_Float: {
+            float fv;
+            std::memcpy(&fv, &elemVal, sizeof(fv));
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%g", fv);
+            result += buf;
+            break;
+        }
+        case RTK_String:
+            if (elemVal >= 0
+                && static_cast<size_t>(elemVal) < m_stringPool.size())
+                result += QuoteString(m_stringPool[static_cast<size_t>(elemVal)]);
+            else
+                result += "\"\"";
+            break;
+        case RTK_Struct:
+            result += "<struct>";
+            break;
+        case RTK_Class:
+        case RTK_Boxed:
+        case RTK_Array:
+            result += FormatHeapValue(elemVal, depth);
+            break;
+        default:
+            result += "<unknown>";
+            break;
+        }
+    }
+    result += "]";
+    return result;
+}
+
+std::string VmExecutor::FormatList(int32_t handle, int depth) {
+    if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
+        throw std::runtime_error(
+            "NLang VM: toString depth limit exceeded");
+    if (handle <= 0 || static_cast<size_t>(handle) > m_listStore.size())
+        return "[]";
+    const auto& elems =
+        m_listStore[static_cast<size_t>(handle) - 1].elements;
+    if (elems.empty()) return "[]";
+    std::string result = "[";
+    for (size_t i = 0; i < elems.size(); ++i) {
+        if (i > 0) result += ", ";
+        result += FormatHeapValue(elems[i], depth);
+    }
+    result += "]";
+    return result;
+}
+
+std::string VmExecutor::FormatDict(int32_t handle, int depth) {
+    if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
+        throw std::runtime_error(
+            "NLang VM: toString depth limit exceeded");
+    if (handle <= 0 || static_cast<size_t>(handle) > m_dictStore.size())
+        return "{}";
+    const auto& entries =
+        m_dictStore[static_cast<size_t>(handle) - 1].entries;
+    if (entries.empty()) return "{}";
+    std::string result = "{";
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (i > 0) result += ", ";
+        result += FormatHeapValue(entries[i].first, depth);
+        result += ": ";
+        result += FormatHeapValue(entries[i].second, depth);
+    }
+    result += "}";
+    return result;
+}
+
+std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
+    //Mirror OP_CallMethod's vtable walk: search class hierarchy for
+    //a method named "toString". If found, call it; if the resolved
+    //function is an intrinsic (Object.toString default or user override
+    //on List/Dict), dispatch via ExecuteIntrinsic. If not found, fall
+    //back to "<ClassName>" placeholder (shouldn't happen — every class
+    //inherits Object.toString).
+    if (thisHeapIdx <= 0
+        || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+        return "<null>";
+    int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
+    if (classIdx < 0
+        || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
+        return "<unknown>";
+    int funcIndex = -1;
+    int searchClassIdx = classIdx;
+    while (searchClassIdx >= 0
+        && searchClassIdx < static_cast<int>(m_currModule->classes.size())) {
+        const auto& cc =
+            m_currModule->classes[static_cast<size_t>(searchClassIdx)];
+        for (uint16_t idx : cc.methodIndices) {
+            if (idx < m_currModule->functions.size()
+                && m_currModule->functions[idx].name == "toString") {
+                funcIndex = static_cast<int>(idx);
+                break;
+            }
+        }
+        if (funcIndex >= 0) break;
+        searchClassIdx = cc.superClassIdx;
+    }
+    if (funcIndex < 0)
+        return std::string("<") +
+            m_currModule->classes[static_cast<size_t>(classIdx)].name + ">";
+    const CompiledFunction& callee =
+        m_currModule->functions[static_cast<size_t>(funcIndex)];
+    //Synthetic 4-byte locals frame: just thisHeapIdx at offset 0.
+    alignas(int32_t) uint8_t paramFrame[4] = {0};
+    std::memcpy(paramFrame, &thisHeapIdx, sizeof(thisHeapIdx));
+    alignas(int32_t) uint8_t resultBuf[4] = {0};
+    if (callee.intrinsicId != INTR_None) {
+        ExecuteIntrinsic(callee.intrinsicId, 0, paramFrame, resultBuf);
+    } else {
+        std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+        uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+        if (paramBytes > 0 && paramBytes <= callee.localsSize)
+            std::memcpy(calleeLocals.data(), paramFrame, paramBytes);
+        ExecuteFunction(callee, resultBuf, calleeLocals.data());
+    }
+    int32_t strIdx;
+    std::memcpy(&strIdx, resultBuf, sizeof(strIdx));
+    if (strIdx >= 0
+        && static_cast<size_t>(strIdx) < m_stringPool.size())
+        return m_stringPool[static_cast<size_t>(strIdx)];
+    return "";
+}
+
 void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     uint8_t* locals, uint8_t* pResult)
 {
@@ -2432,6 +2699,34 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
+    //Phase 8e-9b: Object.toString() default intrinsic.
+    //Returns "TypeName@hex(heapIdx)" — Java-compat (lowercase, no padding).
+    //Null receiver throws NPE. The hex uses heap idx directly (not user
+    //override of getHashCode) — documented divergence from Java.
+    if (intrinsicId == INTR_Object_toString) {
+        int32_t thisHeapIdx;
+        std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+        if (thisHeapIdx <= 0)
+            throw std::runtime_error("NLang VM: NullPointerException");
+        if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+            throw std::runtime_error("NLang VM: toString on invalid heap idx");
+        int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
+        if (classIdx < 0
+            || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
+            throw std::runtime_error("NLang VM: toString on invalid class idx");
+        const std::string& className =
+            m_currModule->classes[static_cast<size_t>(classIdx)].name;
+        char buf[64];
+        //%x yields lowercase no-padding (Java Integer.toHexString-compatible)
+        std::snprintf(buf, sizeof(buf), "%s@%x",
+                      className.c_str(),
+                      static_cast<unsigned>(thisHeapIdx));
+        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+        m_stringPool.push_back(buf);
+        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        return;
+    }
+
     //Phase 8e-3: List<T> built-in generic (erasure-style, 9 intrinsics).
     //All elements are heap idxs — boxed primitives or class refs. The same
     //CompiledClass "List" serves all instantiations. T-typed args are boxed
@@ -2696,6 +2991,28 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
 
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         m_gcPending = true;
+        return;
+    }
+
+    //INTR_List_toString (Phase 9b-pre): format the list's elements as
+    //"[e1, e2, ...]" via FormatList. Push result to m_stringPool, write
+    //string idx to pResult. Strings inside are quoted via QuoteString.
+    if (intrinsicId == INTR_List_toString) {
+        int32_t handle = ReadListHandle(callParamBase, locals, "toString");
+        std::string s = FormatList(handle, 0);
+        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+        m_stringPool.push_back(std::move(s));
+        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        return;
+    }
+    //INTR_Dict_toString (Phase 9b-pre): format the dict's entries as
+    //"{k1: v1, k2: v2, ...}" via FormatDict.
+    if (intrinsicId == INTR_Dict_toString) {
+        int32_t handle = ReadDictHandle(callParamBase, locals, "toString");
+        std::string s = FormatDict(handle, 0);
+        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+        m_stringPool.push_back(std::move(s));
+        std::memcpy(pResult, &newIdx, sizeof(newIdx));
         return;
     }
 

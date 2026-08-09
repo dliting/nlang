@@ -1,0 +1,17 @@
+class P {
+	int x;
+	int y;
+	string toString() { return "P(" + this.x + "," + this.y + ")"; }
+}
+int main() {
+	//Phase 8e-9b: user-defined override of toString() is dispatched via
+	//OP_CallMethod by name "toString" (virtual dispatch). The Object
+	//intrinsic fallback is NOT used when an override exists.
+	P p = new P();
+	p.x = 3;
+	p.y = 4;
+	string s = p.toString();
+	//"P(3,4)" = 6 chars
+	if (s.length() == 6) return 7;
+	return 1;
+}

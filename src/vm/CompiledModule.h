@@ -80,6 +80,11 @@ static constexpr uint16_t INTR_Object_Equals        = 40;
 static constexpr uint16_t INTR_Object_GetHashCode   = 41;
 static constexpr uint16_t INTR_String_Equals        = 42;
 static constexpr uint16_t INTR_String_GetHashCode   = 43;
+//Phase 8e-9b: Object.toString() default intrinsic. ID is 61 because List/Dict
+//intrinsics (44-60) were allocated before this phase. Registration order in
+//VmBackend remains "紧跟 GetHashCode" (semantic adjacency), only the numeric
+//ID is non-contiguous with the 8e-1 Object block.
+static constexpr uint16_t INTR_Object_toString      = 61;
 
 //List<T> intrinsic methods (Phase 8e-3, erasure-style — all elements stored as heap idxs).
 static constexpr uint16_t INTR_List_Ctor        = 44;
@@ -103,6 +108,9 @@ static constexpr uint16_t INTR_Dict_Clear       = 58;
 static constexpr uint16_t INTR_Dict_Count       = 59;
 //Phase 8e-5: Dict.Keys() — returns a new List<K> populated from dict entries' keys.
 static constexpr uint16_t INTR_Dict_Keys        = 60;
+//Phase 9b-pre: collection toString (Python-style "[a, b, c]" / "{k: v}").
+static constexpr uint16_t INTR_List_toString    = 62;
+static constexpr uint16_t INTR_Dict_toString    = 63;
 
 struct CompiledFunction {
     std::string name;
@@ -136,6 +144,10 @@ struct CompiledModule {
     std::vector<CompiledStruct> structs;
     std::vector<CompiledClass> classes;
     std::vector<CompiledArrayType> arrayTypes;
+    //Phase 8e-9b: per-enum value name tables. Outer index = enumDefIdx (in
+    //declaration order across the module), inner index = enum int value.
+    //Used by OP_Enum_to_str to render `Color.Red.toString()` → "Red".
+    std::vector<std::vector<std::string>> enumNames;
 
     int FindFunction(const std::string& funcName) const {
         for (int i = 0; i < static_cast<int>(functions.size()); ++i)

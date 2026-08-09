@@ -1,0 +1,9 @@
+// Phase 9b-pre: array toString — string elements are quoted.
+int main() {
+    string[] arr = new string[2];
+    arr[0] = "a";
+    arr[1] = "b";
+    string s = arr.toString();
+    if (s == "[\"a\", \"b\"]") return 7;
+    return 1;
+}

@@ -1,0 +1,15 @@
+// Phase 9b-pre: List<class> toString — class elements use Object.toString default.
+// Object.toString returns "ClassName@hexaddr". Heap layout is deterministic
+// for this simple program: List at heap 1, Foo at heap 2.
+class Foo {
+    public int n;
+    public int Foo(int v) { this.n = v; return 0; }
+}
+int main() {
+    List<Foo> lst = new List<Foo>();
+    Foo a = new Foo(1);
+    lst.add(a);
+    string s = lst.toString();
+    if (s == "[Foo@2]") return 7;
+    return 1;
+}

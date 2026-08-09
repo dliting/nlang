@@ -120,6 +120,18 @@ public:
 
 		auto *pTypeField = sn.Type()->Field();
 		auto bIsArray = sn.Type()->IsArrayType();
+		//Phase 9a: const locals must have an initializer.
+		if (sn.IsConst())
+		{
+			for (auto &decl : sn.Decls())
+			{
+				if (!decl.pInitExpr)
+				{
+					m_Env.Log(CLL_Error, sn.Location(),
+						"const local must have an initializer.");
+				}
+			}
+		}
 		for (auto &decl : sn.Decls())
 		{
 			auto *pLocal = new SnLocalVar(decl.name, pTypeField,
@@ -143,6 +155,11 @@ public:
 
 				decl.pInitExpr = nullptr;
 			}
+			//Phase 9a: mark const AFTER init is resolved, so the
+			//init AssignStmt doesn't trigger the "cannot assign to
+			//const" check in Access(SnAssignStmt&).
+			if (sn.IsConst())
+				pLocal->AddFlags(NF_Const);
 		}
 	}
 
@@ -152,6 +169,22 @@ public:
 			return;
 		assert(m_pVisitor);
 		sn.Left()->Accept(*m_pVisitor);
+
+		//Phase 9a: reject assignment to a const local.
+		//(The const-init decomposition in Access(SnLocalDeclStmt&) sets
+		//NF_Const AFTER resolving the initializer AssignStmt, so this
+		//check correctly skips the init assignment.)
+		if (sn.Left()->Kind() == NK_IdentifierExpr)
+		{
+			auto* pLeftField = static_cast<SnIdentifierExpr&>(
+				*sn.Left()).Field();
+			if (pLeftField && pLeftField->ContainFlags(NF_Const))
+			{
+				m_Env.Log(CLL_Error, sn.Location(),
+					"cannot assign to const local \"%s\".",
+					pLeftField->Name().c_str());
+			}
+		}
 
 		//Phase 8e-6: propagate LHS type to bare init list RHS before
 		//resolving, so the init list knows its target type. Only needed
@@ -524,6 +557,73 @@ public:
 	{
 		assert(m_pVisitor);
 		sn.Expr()->Accept(*m_pVisitor);
+	}
+
+	void Access(SnCompoundAssignStmt &sn)
+	{
+		if (sn.IsResolved())
+			return;
+		assert(m_pVisitor);
+		sn.Left()->Accept(*m_pVisitor);
+		//Phase 9a: reject compound assignment to a const local.
+		if (sn.Left()->Kind() == NK_IdentifierExpr)
+		{
+			auto* pLeftField = static_cast<SnIdentifierExpr&>(
+				*sn.Left()).Field();
+			if (pLeftField && pLeftField->ContainFlags(NF_Const))
+			{
+				m_Env.Log(CLL_Error, sn.Location(),
+					"cannot assign to const local \"%s\".",
+					pLeftField->Name().c_str());
+			}
+		}
+		sn.Right()->Accept(*m_pVisitor);
+
+		//Type check: RHS must be compatible with LHS type.
+		//Apply cast fixup on RHS (same pattern as SnAssignStmt).
+		SnField* pTargetType = nullptr;
+		if (sn.Left()->Kind() == NK_IdentifierExpr)
+		{
+			auto* pLeftField = static_cast<SnIdentifierExpr&>(*sn.Left()).Field();
+			if (!pLeftField)
+				return;
+			pTargetType = pLeftField->EvalDataType();
+		}
+		else if (sn.Left()->Kind() == NK_MemberExpr)
+		{
+			pTargetType = sn.Left()->EvalDataType();
+		}
+		else if (sn.Left()->Kind() == NK_SubscriptExpr)
+		{
+			pTargetType = sn.Left()->EvalDataType();
+		}
+		auto* pSourceType = sn.Right()->EvalDataType();
+		if (!pTargetType || !pSourceType)
+			return;
+		//Phase 9a P3: operator-type legality check (mirrors
+		//ExprResolveAccessor::Access(SnBinaryExpr&) logic).
+		//String only supports += (concat); -=, *=, /=, %= are invalid.
+		NodeKind lhsKind = pTargetType->Kind();
+		if (lhsKind == NK_String && sn.Op() != SnBinaryExpr::OP_Add)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"operator not supported on string.");
+			return;
+		}
+		auto castInfo = GetCastInfo(pSourceType, pTargetType);
+		auto iExpr = sn.Children().find(sn.m_pRight);
+		if (m_ExprResolver.FixupExprType(iExpr, castInfo))
+			sn.m_pRight = &static_cast<SnCastExpr &>(*iExpr);
+		sn.AddFlags(NF_Resolved);
+	}
+
+	void Access(SnAssertStmt &sn)
+	{
+		if (sn.IsResolved())
+			return;
+		assert(m_pVisitor);
+		sn.Cond()->Accept(*m_pVisitor);
+		sn.AddFlags(NF_Resolved);
 	}
 
 	void Access(SnSubscriptAssignStmt &sn)

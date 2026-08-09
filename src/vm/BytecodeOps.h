@@ -9,6 +9,7 @@ enum class OpCode : uint8_t {
     OP_Jump,            // int16 target_offset
     OP_JumpIfNot,       // int16 target_offset, uint16 local_offset
     OP_Stop,            // halt execution
+    OP_AssertFail,      // Phase 9a: uint16 msgStringIdx — throw "assertion failed: <msg>"
 
     // === Constant load (write inline value to pResult) ===
     OP_ConstInt32,      // int32 value
@@ -27,6 +28,11 @@ enum class OpCode : uint8_t {
                         // push to m_stringPool, write new string idx (int32) to pResult
     OP_Float_to_str,    // Phase 8e-9a: read float from pResult, format with "%g",
                         // push to m_stringPool, write new string idx (int32) to pResult
+    OP_Enum_to_str,     // Phase 8e-9b: uint16 enumDefIdx immediate; read int32 enum value
+                        // from pResult, lookup m_compiledModule.enumNames[enumDefIdx][value],
+                        // push name to m_stringPool, write new string idx (int32) to pResult
+    OP_Array_to_str,    // Phase 9b-pre: no operands; read array heap idx from pResult,
+                        // format as "[e1, e2, ...]", push to m_stringPool, write idx to pResult
 
     // === Arithmetic - int32 (dst += src) ===
     OP_Add_i32,         // uint16 dst, uint16 src, locals[dst] += locals[src]

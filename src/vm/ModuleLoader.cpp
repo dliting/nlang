@@ -203,6 +203,33 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                 sizeof(mod.arrayTypes[i].elemTypeIdx));
     }
 
+    //Phase 8e-9b: enum name tables. Added in module format version 1.2.
+    //Older modules (minorVer < 2) lack this section — leave enumNames empty,
+    //which means OP_Enum_to_str cannot resolve; that's fine as no .nmod
+    //predating 8e-9b would emit OP_Enum_to_str.
+    if (minorVer >= 2) {
+        uint32_t enumCount;
+        fs.read(reinterpret_cast<char*>(&enumCount), sizeof(enumCount));
+        if (!fs.good() || enumCount > (1u << 24))
+            throw std::runtime_error("Invalid module: bad enum count");
+        mod.enumNames.resize(enumCount);
+        for (uint32_t i = 0; i < enumCount; ++i) {
+            uint32_t valueCount;
+            fs.read(reinterpret_cast<char*>(&valueCount), sizeof(valueCount));
+            if (!fs.good() || valueCount > (1u << 24))
+                throw std::runtime_error("Invalid module: bad enum value count");
+            mod.enumNames[i].resize(valueCount);
+            for (uint32_t j = 0; j < valueCount; ++j) {
+                uint32_t len;
+                fs.read(reinterpret_cast<char*>(&len), sizeof(len));
+                if (!fs.good() || len > (1u << 24))
+                    throw std::runtime_error("Invalid module: bad enum name length");
+                mod.enumNames[i][j].resize(len);
+                fs.read(mod.enumNames[i][j].data(), len);
+            }
+        }
+    }
+
     return mod;
 }
 

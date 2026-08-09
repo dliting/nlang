@@ -1,0 +1,12 @@
+class C {
+    public int _dummy;
+}
+int main() {
+	//Phase 8e-9b: typed null receiver throws NullPointerException.
+	//C c = null leaves the local with heap idx 0 (NLang's null sentinel).
+	//INTR_Object_toString checks thisHeapIdx <= 0 and throws NPE before
+	//touching the heap header (avoids reading m_structHeap[0]).
+	C c = null;
+	c.toString();
+	return 0;  //unreachable
+}

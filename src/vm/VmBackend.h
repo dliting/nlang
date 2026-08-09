@@ -10,6 +10,7 @@ class SnExpression;
 class SnField;
 class SnStatement;
 class SnFunction;
+class SnEnumDecl;
 
 class VmBackend : public ICodeBackend {
 public:
@@ -30,6 +31,14 @@ private:
                         uint16_t resultOffset);
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);
 
+    //Phase 9a: emit a compound-assign arithmetic op (locals[dst] op= locals[src]).
+    //op is the underlying binary operator (Add/Sub/Mul/Div/Mod).
+    //lhsType determines int/float variant selection.
+    //Uses int for op to avoid requiring SnBinaryExpr's full definition here;
+    //implementation casts back to SnBinaryExpr::Operator.
+    void EmitCompoundOp(int op, BytecodeEmitter& emitter,
+                        uint16_t dst, uint16_t src, SnField* lhsType);
+
     //Compilation phases (called by GenerateStatements in order).
     //Each phase corresponds to a distinct compilation pass over the AST.
     //Future evolution: each phase can become an Accessor for multi-backend support.
@@ -38,6 +47,7 @@ private:
     void RegisterClasses(SnNamespace& root);
     void ResolveStructClassRefs();
     void RegisterArrayTypes(SnNamespace& root);
+    void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
@@ -68,6 +78,7 @@ private:
 
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+    std::unordered_map<SnEnumDecl*, size_t> m_enumIndexMap;  //Phase 8e-9b: AST enum decl → enumDefIdx (parallel to m_compiledModule.enumNames)
     std::vector<std::vector<std::string>> m_structFieldTypeNames;
     int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
     int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)

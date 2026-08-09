@@ -1,0 +1,16 @@
+int main() {
+	//P3.10 OP_Box fix: foreach over List<int> containing 0.
+	//Previously, iterating a List<int> with 0 elements would throw
+	//on OP_Unbox during the loop body.
+	List<int> lst = new List<int>();
+	lst.add(0);
+	lst.add(5);
+	lst.add(0);
+	int sum = 0;
+	foreach (int x in lst) {
+		sum = sum + x;
+	}
+	//0 + 5 + 0 = 5
+	if (sum == 5) return 7;
+	return 1;
+}

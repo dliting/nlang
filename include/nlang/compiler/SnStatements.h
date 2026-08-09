@@ -211,10 +211,20 @@ public:
 	SnLocalDeclStmt(SnFieldExpr *pType,
 		std::vector<LocalDecl> *pDecls, const ISourceLocation &loc);
 
+	//Phase 9a: const local variant. isConst=true marks all declared
+	//locals as NF_Const (assignment after declaration = compile error,
+	//declaration must include an initializer).
+	SnLocalDeclStmt(SnFieldExpr *pType,
+		std::vector<LocalDecl> *pDecls, bool isConst,
+		const ISourceLocation &loc);
+
 	~SnLocalDeclStmt() override;
 
 	//Get the type name expression.
 	SnFieldExpr *Type() const { return m_pType; }
+
+	//Phase 9a: const-ness flag.
+	bool IsConst() const { return m_isConst; }
 
 	//Get the declarations.
 	const std::vector<LocalDecl> &Decls() const { return *m_upDecls; }
@@ -226,6 +236,7 @@ public:
 private:
 	SnFieldExpr *m_pType;
 	std::unique_ptr<std::vector<LocalDecl>> m_upDecls;
+	bool m_isConst = false;
 };
 
 /*
@@ -252,6 +263,55 @@ public:
 private:
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+};
+
+//Compound assignment statement (e.g. x += 1, arr[i] *= 2).
+//Phase 9a: left-value is evaluated only once (read-modify-write).
+class NLANG_COMPILER_API SnCompoundAssignStmt : public SnStatement
+{
+	friend class StatementResolveAccessor;
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_CompoundAssignStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	//op: the underlying binary operator (OP_Add, OP_Sub, OP_Mul, OP_Div, OP_Mod)
+	SnCompoundAssignStmt(SnBinaryExpr::Operator op,
+		SnExpression *pLeft, SnExpression *pRight,
+		const ISourceLocation &loc);
+
+	SnBinaryExpr::Operator Op() const { return m_op; }
+	SnExpression *Left() const { return m_pLeft; }
+	SnExpression *Right() const { return m_pRight; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnBinaryExpr::Operator m_op;
+	SnExpression *m_pLeft;
+	SnExpression *m_pRight;
+};
+
+//Assert statement: assert(cond); - exit(1) on failure.
+//Phase 9a: simple runtime check, prints source location + "assertion failed".
+class NLANG_COMPILER_API SnAssertStmt : public SnStatement
+{
+	friend class StatementResolveAccessor;
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_AssertStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnAssertStmt(SnExpression *pCond, const ISourceLocation &loc);
+
+	SnExpression *Cond() const { return m_pCond; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnExpression *m_pCond;
 };
 
 //Array subscript assignment statement (e.g. arr[i] = value).

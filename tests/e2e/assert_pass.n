@@ -1,0 +1,6 @@
+int main() {
+	int x = 5;
+	assert(x == 5);
+	assert(x > 0);
+	return 7;
+}

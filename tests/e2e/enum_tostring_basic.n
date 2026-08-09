@@ -1,0 +1,10 @@
+enum Color { Red, Green, Blue }
+int main() {
+	//Phase 8e-9b: enum value toString() emits OP_Enum_to_str which
+	//looks up the declared member name in the per-enum name table
+	//(CompiledModule.enumNames[enumDefIdx][value]).
+	string s = Color.Red.toString();
+	//"Red" = 3 chars
+	if (s.length() == 3) return 7;
+	return 1;
+}

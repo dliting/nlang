@@ -1,0 +1,14 @@
+int main() {
+	//Phase 8e-1 OP_Box fix: int 0 is now correctly boxed (always allocates
+	//heap slot). Null literals never reach OP_Box (they use TCK_Auto), so
+	//the old null-sentinel optimization (skip alloc for val==0) was
+	//incorrectly treating int 0 as null. This test verifies List<int>
+	//can store and retrieve 0.
+	List<int> nums = new List<int>();
+	nums.add(0);
+	nums.add(5);
+	int x = nums.get(0);
+	int y = nums.get(1);
+	if (x == 0 && y == 5) return 7;
+	return 1;
+}

@@ -1,0 +1,18 @@
+class C {
+    public int _dummy;
+}
+int main() {
+	//Phase 8e-9b: calling toString() through an Object-typed reference
+	//(upcast) still works — the runtime class is read from the heap
+	//header, so the intrinsic returns "C@<hex>" (not "Object@<hex>").
+	//Verifies that INTR_Object_toString uses the heap header's classIdx
+	//rather than any static type.
+	C c = new C();
+	Object o = c;
+	string s = o.toString();
+	//Length of "C@" is 2; followed by at least 1 hex char => >= 3.
+	//We can't check the prefix directly without substring support, but
+	//we can verify the format is NOT "Object@..." (length 8+).
+	if (s.length() >= 3 && s.length() < 8) return 7;
+	return 1;
+}

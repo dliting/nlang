@@ -815,6 +815,59 @@ reference`. This is a boxing limitation, not a `foreach` bug — work around
 by avoiding 0 as a list element value. A future phase will revisit the
 null-sentinel design.
 
+### Compound Assignment (Phase 9a)
+
+```
+x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;
+```
+
+Read-modify-write shorthand for `x = x op y`. Supported left-values:
+local variables, class fields (`this.f += y`), struct fields (`pt.x += y`).
+The left value is evaluated **only once** (so `obj.something() += 1` would
+not double-invoke `something()`).
+
+Not supported: subscript left-value (`arr[i] += 1`). The bytecode frame
+layout doesn't have enough scratch slots for single-evaluation of
+subscript read-modify-write. Use the explicit form `arr[i] = arr[i] + 1`.
+
+### Assert Statement (Phase 9a)
+
+```
+assert(condition);
+```
+
+Evaluates `condition`. If false, throws an "assertion failed" runtime error
+which terminates the program with exit code 1. Single-argument form only
+(no message override yet — Phase 9d may upgrade this once exceptions land).
+
+### Const Local Variables (Phase 9a)
+
+```
+const int X = 5;
+const string Greeting = "hello";
+```
+
+Local variables marked `const` must be initialized at declaration and
+cannot subsequently be assigned or compound-assigned. Only **local**
+const is supported; class/struct field const is not (constructor
+initialization order would add complexity, deferred to a future phase).
+
+**Const is shallow (Java-`final`-style)**: `const` prevents rebinding the
+*name* but does not freeze the referenced object's state. Member mutation
+through a const local is allowed:
+
+```
+const Foo f = new Foo();
+f.x = 5;            // OK — f itself is not reassigned
+f = new Foo();      // ERROR — cannot reassign const local
+const Point p = q;
+p.x = 5;            // OK — only p's binding is const
+```
+
+For class fields and array elements this means: a `const` reference still
+permits writing through it. Deep/immutability-style const is intentionally
+out of scope for Phase 9a and may be revisited in a future phase.
+
 ### Switch
 
 ```

@@ -167,6 +167,16 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 	//without calling AddChild.
 }
 
+//Phase 9a: const local variant.
+SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
+	std::vector<LocalDecl> *pDecls, bool isConst,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pType(pType), m_upDecls(pDecls), m_isConst(isConst)
+{
+	assert(m_pType);
+	AddChild(m_pType);
+}
+
 SnLocalDeclStmt::~SnLocalDeclStmt()
 {
 	//Clean up any init expressions that were not transferred to AssignStmts
@@ -230,6 +240,66 @@ void SnAssignStmt::Accept(nlang::ISyntaxNodeVisitor &v)
 }
 
 SnField *SnAssignStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+//SnCompoundAssignStmt
+
+SnCompoundAssignStmt::SnCompoundAssignStmt(SnBinaryExpr::Operator op,
+	SnExpression *pLeft, SnExpression *pRight,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_op(op), m_pLeft(pLeft), m_pRight(pRight)
+{
+	assert(m_pLeft);
+	assert(m_pRight);
+	AddChild(m_pLeft);
+	AddChild(m_pRight);
+}
+
+std::string SnCompoundAssignStmt::ToString() const
+{
+	const char* opStr = "+=";
+	switch (m_op) {
+	case SnBinaryExpr::OP_Sub: opStr = "-="; break;
+	case SnBinaryExpr::OP_Mul: opStr = "*="; break;
+	case SnBinaryExpr::OP_Div: opStr = "/="; break;
+	case SnBinaryExpr::OP_Mod: opStr = "%="; break;
+	default: break;
+	}
+	return m_pLeft->ToString() + " " + opStr + " " + m_pRight->ToString() + ";\n";
+}
+
+void SnCompoundAssignStmt::Accept(nlang::ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnCompoundAssignStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+//SnAssertStmt
+
+SnAssertStmt::SnAssertStmt(SnExpression *pCond, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pCond(pCond)
+{
+	assert(m_pCond);
+	AddChild(m_pCond);
+}
+
+std::string SnAssertStmt::ToString() const
+{
+	return "assert(" + m_pCond->ToString() + ");\n";
+}
+
+void SnAssertStmt::Accept(nlang::ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnAssertStmt::FindField(const std::string& sName) const
 {
 	return nullptr;
 }

@@ -1,0 +1,15 @@
+class Counter {
+	public int count;
+	public int increment() { this.count += 1; return this.count; }
+	public int add(int n) { this.count += n; return this.count; }
+}
+
+int main() {
+	Counter c = new Counter();
+	c.count = 0;
+	c.increment();
+	c.increment();
+	c.add(10);
+	if (c.count == 12) return 7;
+	return 1;
+}

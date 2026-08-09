@@ -1,0 +1,10 @@
+int main() {
+	//Phase 8e-9b: string.toString() is identity. Resolver folds the call
+	//to a no-op (callee=null, EvalDataType=String); codegen emits nothing
+	//and the original string idx flows through unchanged.
+	string s = "hello";
+	string t = s.toString();
+	//Identity: same length, same content (compared via length here).
+	if (t.length() == 5) return 7;
+	return 1;
+}

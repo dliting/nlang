@@ -1,0 +1,11 @@
+int main() {
+	//Phase 8e-1 OP_Box fix: float 0.0 is now correctly boxed (always
+	//allocates heap slot). Symmetric to list_int_zero_throws.
+	List<float> nums = new List<float>();
+	nums.add(0.0);
+	nums.add(3.14);
+	float x = nums.get(0);
+	float y = nums.get(1);
+	if (x == 0.0 && y == 3.14) return 7;
+	return 1;
+}

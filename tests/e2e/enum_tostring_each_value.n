@@ -1,0 +1,12 @@
+enum Color { Red, Green, Blue }
+int main() {
+	//Phase 8e-9b: each enum value maps to its declared name. Verifies
+	//the per-enum name table is correctly populated at all indices.
+	string r = Color.Red.toString();
+	string g = Color.Green.toString();
+	string b = Color.Blue.toString();
+	//"Red"=3, "Green"=5, "Blue"=4 → total 12
+	int total = r.length() + g.length() + b.length();
+	if (total == 12 && r != g && g != b && r != b) return 7;
+	return 1;
+}

@@ -1,0 +1,15 @@
+class C {
+	public int _dummy;
+	string toString() { return "C!"; }
+}
+int main() {
+	//Phase 8e-9b P3: Object-typed reference with user override.
+	//When a class overrides toString(), calling via Object-typed
+	//reference should still dispatch to the override (virtual
+	//dispatch by name), NOT to the Object intrinsic fallback.
+	C c = new C();
+	Object o = c;
+	string s = o.toString();
+	if (s == "C!") return 7;
+	return 1;
+}

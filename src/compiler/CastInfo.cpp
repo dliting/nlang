@@ -181,6 +181,13 @@ void TypeCastInfo::CalcCastKind()
 			m_Kind = TCK_Unbox;
 			return;
 		}
+		//Phase 8e-9b: any class → string = TCK_Auto. VmBackend SnCastExpr emits
+		//a virtual toString() call. Mirrors 8e-9a primitive→string coercion.
+		if (srcKind == NK_ClassDecl && tgtKind == NK_String)
+		{
+			m_Kind = TCK_Auto;
+			return;
+		}
 		m_Kind = TCK_None;
 		return;
 	}

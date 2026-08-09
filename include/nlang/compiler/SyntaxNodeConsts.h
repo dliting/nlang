@@ -41,6 +41,8 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(InvokeStmt)				/* invoke statement */				\
 	MACRO_IMPL(LocalDeclStmt)			/* local variable declaration */		\
 	MACRO_IMPL(AssignStmt)				/* assignment statement */			\
+	MACRO_IMPL(CompoundAssignStmt)		/* compound assignment (+= etc) Phase 9a */	\
+	MACRO_IMPL(AssertStmt)				/* assert(cond) Phase 9a */				\
 	MACRO_IMPL(SubscriptAssignStmt)		/* arr[i] = value statement */		\
 	MACRO_IMPL(IfStmt)					/* if/else statement */				\
 	MACRO_IMPL(WhileStmt)				/* while loop statement */			\

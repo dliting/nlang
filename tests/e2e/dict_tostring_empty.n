@@ -1,0 +1,7 @@
+// Phase 9b-pre: empty Dict toString yields "{}".
+int main() {
+    Dict<string, int> d = new Dict<string, int>();
+    string s = d.toString();
+    if (s == "{}") return 7;
+    return 1;
+}

@@ -66,6 +66,20 @@ private:
     //Returns the heap index.
     int32_t AllocClassOnHeap(uint16_t classIdx);
 
+    //Phase 9b-pre: collection toString helpers. These recurse through
+    //nested collections with a depth cap (TOSTRING_DEPTH_LIMIT) to bound
+    //output size and prevent runaway recursion on cyclic structures.
+    //Returns the formatted result; throws on depth overflow.
+    std::string QuoteString(const std::string& s) const;
+    std::string FormatHeapValue(int32_t heapIdx, int depth);
+    std::string FormatArray(int32_t heapIdx, int depth);
+    std::string FormatList(int32_t handle, int depth);
+    std::string FormatDict(int32_t handle, int depth);
+    //Invoke virtual toString on a class instance by heap idx, returning
+    //the result string. Mirrors OP_CallMethod's vtable walk; used by
+    //collection formatters for class-typed elements.
+    std::string InvokeVirtualToString(int32_t thisHeapIdx);
+
     //Phase 8d — polymorphism check for class-typed deserialization.
     //Walks superClassIdx chain. Returns true if actualIdx is declaredIdx
     //or a subclass thereof.
@@ -141,6 +155,7 @@ private:
     static const size_t RECURSE_LIMIT = 1000;
     static const size_t GC_THRESHOLD_DEFAULT = 1024;
     static const size_t STRUCT_SERIALIZE_DEPTH_LIMIT = 64;
+    static const size_t TOSTRING_DEPTH_LIMIT = 64;  //Phase 9b-pre: collection toString cycle/DoS bound
     //DoS hardening for untrusted streams: cap string/class-name length so a
     //garbage or malicious length prefix (e.g. 2 GiB) cannot trigger OOM.
     static const size_t MAX_STRING_LENGTH = 16 * 1024 * 1024;  // 16 MiB

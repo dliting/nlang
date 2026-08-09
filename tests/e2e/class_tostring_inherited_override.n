@@ -1,0 +1,18 @@
+class Base {
+	public int _dummy;
+	string toString() { return "Base"; }
+}
+class Derived : Base {
+	public int _d;
+}
+int main() {
+	//Phase 8e-9b P3: virtual dispatch through inheritance chain.
+	//Derived inherits Base's toString override. Calling toString()
+	//on a Derived instance should dispatch to Base.toString() (not
+	//Object intrinsic), because OP_CallMethod walks the class
+	//hierarchy and finds the override in Base.
+	Derived d = new Derived();
+	string s = d.toString();
+	if (s == "Base") return 7;
+	return 1;
+}

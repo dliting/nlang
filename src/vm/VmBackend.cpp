@@ -43,6 +43,7 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
     RegisterClasses(root);
     ResolveStructClassRefs();
     RegisterArrayTypes(root);
+    RegisterEnums(root);
     RegisterFunctions(root);
     PopulateClassMethods(root);
     GenerateAllBytecode(root);
@@ -87,6 +88,22 @@ void VmBackend::RegisterBuiltinClasses() {
         ghFunc.intrinsicId = INTR_Object_GetHashCode;
         m_compiledModule.functions.push_back(std::move(ghFunc));
         cc.methodIndices.push_back(getHashCodeFuncIdx);
+
+        //Phase 8e-9b: string toString() — virtual, intrinsic dispatch.
+        //Registration order is "紧跟 GetHashCode" (semantic adjacency in the
+        //Object class block); the intrinsic *numeric ID* is non-contiguous
+        //(61, not 44) because List/Dict intrinsics (44-60) were allocated
+        //before this phase. Only the ID is non-contiguous, the registration
+        //order in cc.methodIndices remains equals, getHashCode, toString.
+        auto toStringFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+        CompiledFunction tsFunc;
+        tsFunc.name = "toString";
+        tsFunc.paramCount = 1;  //this only
+        tsFunc.localsSize = 1 * VALUE_SIZE;
+        tsFunc.returnTypeKind = RTK_String;
+        tsFunc.intrinsicId = INTR_Object_toString;
+        m_compiledModule.functions.push_back(std::move(tsFunc));
+        cc.methodIndices.push_back(toStringFuncIdx);
 
         m_compiledModule.classes.push_back(std::move(cc));
         m_objectClassIdx = static_cast<int16_t>(classIdx);
@@ -233,6 +250,8 @@ void VmBackend::RegisterBuiltinClasses() {
         addMethod("indexOf",  INTR_List_IndexOf,  2, RTK_Int32);
         addMethod("contains", INTR_List_Contains, 2, RTK_Int32);
         addMethod("clear",    INTR_List_Clear,    1, RTK_Void);
+        //Phase 9b-pre: List.toString() — formats elements as "[a, b, c]".
+        addMethod("toString", INTR_List_toString, 1, RTK_String);
 
         m_compiledModule.classes.push_back(std::move(cc));
         m_listClassIdx = static_cast<int16_t>(classIdx);
@@ -291,6 +310,8 @@ void VmBackend::RegisterBuiltinClasses() {
         //(allocated by the VM intrinsic). paramCount=1 (just this). Return
         //is RTK_Class (heap reference to List<K>) — no boxing on return.
         addMethod("keys",        INTR_Dict_Keys,        1, RTK_Class);
+        //Phase 9b-pre: Dict.toString() — formats entries as "{k: v, ...}".
+        addMethod("toString",    INTR_Dict_toString,    1, RTK_String);
 
         m_compiledModule.classes.push_back(std::move(cc));
         m_dictClassIdx = static_cast<int16_t>(classIdx);
@@ -561,6 +582,45 @@ void VmBackend::RegisterArrayTypes(SnNamespace& root) {
     }
 }
 
+//Phase 8e-9b: collect every enum declaration's value-name table into
+//m_compiledModule.enumNames, and remember each SnEnumDecl*'s defIdx for
+//later codegen (SnCastExpr src-type lookup). Enum declarations may live
+//at namespace top level or nested inside class/struct scopes (handled by
+//CanBeFuncParentEx, same pattern as RegisterStructs/RegisterClasses).
+void VmBackend::RegisterEnums(SnNamespace& root) {
+    m_enumIndexMap.clear();
+    m_compiledModule.enumNames.clear();
+    auto registerEnum = [&](SnEnumDecl& sn) {
+        auto defIdx = m_compiledModule.enumNames.size();
+        std::vector<std::string> names;
+        for (auto& member : sn.Members()) {
+            if (member.Kind() == NK_EnumMember) {
+                auto& em = static_cast<SnEnumMember&>(member);
+                //Enum values are sequential starting at 0; if user provides
+                //explicit values that skip numbers, the corresponding slots
+                //are filled with empty strings (OP_Enum_to_str will throw
+                //"enum value out of range" at runtime if hit). NLang grammar
+                //currently only supports implicit sequential values.
+                while (names.size() <= static_cast<size_t>(em.Value()))
+                    names.push_back(std::string());
+                names[static_cast<size_t>(em.Value())] = em.Name();
+            }
+        }
+        m_compiledModule.enumNames.push_back(std::move(names));
+        m_enumIndexMap[&sn] = defIdx;
+    };
+    for (auto& member : root.Members()) {
+        if (member.Kind() == NK_EnumDecl)
+            registerEnum(static_cast<SnEnumDecl&>(member));
+        else if (CanBeFuncParentEx(member.Kind())) {
+            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
+                if (child.Kind() == NK_EnumDecl)
+                    registerEnum(static_cast<SnEnumDecl&>(child));
+            }
+        }
+    }
+}
+
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
     for (auto& member : root.Members()) {
@@ -674,6 +734,41 @@ uint16_t VmBackend::PickTempSlot(uint16_t exclude) const {
     if (exclude == m_currFunc->tempSlot2) return m_currFunc->tempSlot3;
     if (exclude == m_currFunc->tempSlot3) return m_currFunc->tempSlot4;
     return m_currFunc->tempSlot;
+}
+
+//Phase 9a: emit a compound-assign arithmetic op.
+//Executes: locals[dst] = locals[dst] <op> locals[src]
+//where op ∈ {Add, Sub, Mul, Div, Mod}. Type determines i32/f32 variant.
+void VmBackend::EmitCompoundOp(int opInt,
+        BytecodeEmitter& emitter, uint16_t dst, uint16_t src,
+        SnField* lhsType) {
+    auto op = static_cast<SnBinaryExpr::Operator>(opInt);
+    bool isFloat = lhsType && lhsType->Kind() == NK_Float;
+    bool isString = lhsType && lhsType->Kind() == NK_String;
+
+    //String only supports += (concat). All other ops are invalid.
+    if (isString) {
+        if (op == SnBinaryExpr::OP_Add) {
+            emitter.Emit(OpCode::OP_Concat_str);
+            emitter.EmitUint16(dst);
+            emitter.EmitUint16(src);
+        }
+        //Other ops on string silently ignored (should be caught by resolver).
+        return;
+    }
+
+    OpCode opc;
+    switch (op) {
+    case SnBinaryExpr::OP_Add: opc = isFloat ? OpCode::OP_Add_f32 : OpCode::OP_Add_i32; break;
+    case SnBinaryExpr::OP_Sub: opc = isFloat ? OpCode::OP_Sub_f32 : OpCode::OP_Sub_i32; break;
+    case SnBinaryExpr::OP_Mul: opc = isFloat ? OpCode::OP_Mul_f32 : OpCode::OP_Mul_i32; break;
+    case SnBinaryExpr::OP_Div: opc = isFloat ? OpCode::OP_Div_f32 : OpCode::OP_Div_i32; break;
+    case SnBinaryExpr::OP_Mod: opc = OpCode::OP_Mod_i32; break;
+    default: return;  //not an arithmetic op
+    }
+    emitter.Emit(opc);
+    emitter.EmitUint16(dst);
+    emitter.EmitUint16(src);
 }
 
 //Returns field offset in bytes, or -1 if not found.
@@ -953,6 +1048,88 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         if (sourceType && targetType) {
             NodeKind srcKind = sourceType->Kind();
             NodeKind dstKind = targetType->Kind();
+            //Phase 8e-9b: enum → string emits OP_Enum_to_str (preserves enum
+            //identity for name lookup). Must check BEFORE collapsing enum to
+            //int below, otherwise OP_Int32_to_str would fire and produce a
+            //numeric string instead of the value name.
+            //
+            //Two detection paths:
+            // (a) srcKind == NK_EnumDecl — explicit enum-typed variable cast
+            //     (e.g. `(Color) c` where c is some int).
+            // (b) Source expression's Field() is SnEnumMember — enum literal
+            //     access like Color.Red wrapped by binary strengthening.
+            //     EvalDataType is NK_Int32 here (SnEnumMember::EvalDataType
+            //     returns NK_Int32), so srcKind is NK_Int32 — we must walk
+            //     the Field() chain to discover the enum decl.
+            if (dstKind == NK_String) {
+                SnEnumDecl* pEnumDecl = nullptr;
+                if (srcKind == NK_EnumDecl) {
+                    pEnumDecl = static_cast<SnEnumDecl*>(sourceType);
+                } else {
+                    //Try Field() chain on source expression.
+                    auto srcExprKind = cast.Source()->Kind();
+                    if (srcExprKind == NK_MemberExpr
+                        || srcExprKind == NK_IdentifierExpr)
+                    {
+                        auto& srcFieldExpr = static_cast<SnFieldExpr&>(
+                            *cast.Source());
+                        auto* srcField = srcFieldExpr.Field();
+                        if (srcField
+                            && srcField->Kind() == NK_EnumMember)
+                        {
+                            pEnumDecl = static_cast<SnEnumDecl*>(
+                                srcField->Parent());
+                        }
+                    }
+                }
+                if (pEnumDecl) {
+                    auto it = m_enumIndexMap.find(pEnumDecl);
+                    if (it != m_enumIndexMap.end()) {
+                        emitter.Emit(OpCode::OP_Enum_to_str);
+                        emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(resultOffset);
+                        return;
+                    }
+                }
+            }
+            //Phase 8e-9b: class → string emits a virtual toString() call.
+            //Setup: copy resultOffset → callParamBase[0], OP_CallMethod by
+            //name "toString", result lands in pResult, copy → resultOffset.
+            if (srcKind == NK_ClassDecl && dstKind == NK_String) {
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                uint16_t nameIdx = AddStringConstant("toString");
+                emitter.Emit(OpCode::OP_CallMethod);
+                emitter.EmitUint16(nameIdx);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                return;
+            }
+            //Phase 9b-pre: array → string emits OP_Array_to_str (Array is a
+            //VM primitive, not a class, so OP_CallMethod doesn't apply).
+            //Array types don't set EvalDataType to an array-kind node; the
+            //type info lives on the variable's SnField (IsArrayType flag).
+            //Detection: walk the source expression's Field() chain.
+            if (dstKind == NK_String) {
+                auto srcExprKind = cast.Source()->Kind();
+                if (srcExprKind == NK_MemberExpr
+                    || srcExprKind == NK_IdentifierExpr)
+                {
+                    auto& srcFieldExpr = static_cast<SnFieldExpr&>(
+                        *cast.Source());
+                    auto* srcField = srcFieldExpr.Field();
+                    if (srcField && srcField->IsArrayType()) {
+                        emitter.Emit(OpCode::OP_Array_to_str);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(resultOffset);
+                        return;
+                    }
+                }
+            }
             if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
             if (dstKind == NK_EnumDecl) dstKind = NK_Int32;
             if (srcKind == NK_Int32 && dstKind == NK_Float) {
@@ -1056,6 +1233,120 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(resultOffset);
             return;
+        }
+        //Phase 8e-9b: non-class receiver toString() dispatch.
+        //For enum/int/float receivers, the resolver accepted the call
+        //(EvalDataType=String, NF_Resolved) without setting m_pField.
+        //Codegen dispatches based on outer->EvalDataType():
+        // - enum (NK_EnumDecl or NK_EnumMember Field()) → OP_Enum_to_str
+        // - int (NK_Int32) → OP_Int32_to_str
+        // - float (NK_Float) → OP_Float_to_str
+        // - string (NK_String) → identity (no opcode)
+        //This mirrors the SnCastExpr handler's dispatch but for the
+        //MemberExpr+InvokeExpr AST shape that `x.toString()` produces.
+        {
+            auto* inner = member.Inner();
+            if (inner && inner->Kind() == NK_InvokeExpr)
+            {
+                auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+                if (invoke.CalleeName() == "toString")
+                {
+                    auto* outerType = member.Outer()->EvalDataType();
+                    NodeKind outerKind = outerType ? outerType->Kind() : static_cast<NodeKind>(0);
+                    //Phase 9b-pre: array receiver — array is a VM primitive,
+                    //not a class. MUST be checked BEFORE the int path because
+                    //EvalDataType for `int[] arr` returns the element type
+                    //(NK_Int32); array-ness is on the SnField via IsArrayType().
+                    {
+                        auto outerExprKind = member.Outer()->Kind();
+                        if (outerExprKind == NK_MemberExpr
+                            || outerExprKind == NK_IdentifierExpr)
+                        {
+                            auto& outerFieldExpr = static_cast<SnFieldExpr&>(
+                                *member.Outer());
+                            auto* outerField = outerFieldExpr.Field();
+                            if (outerField && outerField->IsArrayType())
+                            {
+                                EmitExpression(*member.Outer(), emitter, resultOffset);
+                                emitter.Emit(OpCode::OP_Array_to_str);
+                                emitter.Emit(OpCode::OP_Assign);
+                                emitter.EmitUint16(resultOffset);
+                                return;
+                            }
+                        }
+                    }
+                    //String.toString() — identity, no opcode.
+                    if (outerKind == NK_String)
+                    {
+                        EmitExpression(*member.Outer(), emitter, resultOffset);
+                        return;
+                    }
+                    //Enum receiver — need to find the SnEnumDecl for enumDefIdx.
+                    //Two sub-cases:
+                    // (a) outerKind == NK_EnumDecl (typed enum variable)
+                    // (b) outerKind == NK_Int32 but outer's Field() is NK_EnumMember
+                    //     (enum literal like Color.Green — EvalDataType is NK_Int32)
+                    if (outerKind == NK_EnumDecl)
+                    {
+                        EmitExpression(*member.Outer(), emitter, resultOffset);
+                        auto* enumDecl = static_cast<SnEnumDecl*>(outerType);
+                        auto it = m_enumIndexMap.find(enumDecl);
+                        if (it != m_enumIndexMap.end())
+                        {
+                            emitter.Emit(OpCode::OP_Enum_to_str);
+                            emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                            emitter.Emit(OpCode::OP_Assign);
+                            emitter.EmitUint16(resultOffset);
+                        }
+                        return;
+                    }
+                    if (outerKind == NK_Int32)
+                    {
+                        //Check if outer is an enum literal (Field() == NK_EnumMember)
+                        auto outerExprKind = member.Outer()->Kind();
+                        if (outerExprKind == NK_MemberExpr
+                            || outerExprKind == NK_IdentifierExpr)
+                        {
+                            auto& outerFieldExpr = static_cast<SnFieldExpr&>(
+                                *member.Outer());
+                            auto* outerField = outerFieldExpr.Field();
+                            if (outerField
+                                && outerField->Kind() == NK_EnumMember)
+                            {
+                                EmitExpression(*member.Outer(), emitter, resultOffset);
+                                auto* enumDecl = static_cast<SnEnumDecl*>(
+                                    outerField->Parent());
+                                auto it = m_enumIndexMap.find(enumDecl);
+                                if (it != m_enumIndexMap.end())
+                                {
+                                    emitter.Emit(OpCode::OP_Enum_to_str);
+                                    emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                                    emitter.Emit(OpCode::OP_Assign);
+                                    emitter.EmitUint16(resultOffset);
+                                }
+                                return;
+                            }
+                        }
+                        //Plain int receiver
+                        EmitExpression(*member.Outer(), emitter, resultOffset);
+                        emitter.Emit(OpCode::OP_Int32_to_str);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(resultOffset);
+                        return;
+                    }
+                    if (outerKind == NK_Float)
+                    {
+                        EmitExpression(*member.Outer(), emitter, resultOffset);
+                        emitter.Emit(OpCode::OP_Float_to_str);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(resultOffset);
+                        return;
+                    }
+                    //Fall through to struct/class/interface handling below
+                    //for class receivers (which have their own toString path
+                    //via OP_CallMethod).
+                }
+            }
         }
         //Struct field access (e.g. pt.x, pt.inner.x)
         auto* outerType = member.Outer()->EvalDataType();
@@ -2141,6 +2432,98 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         return;
     }
 
+    //Compound assignment: x += y, this.f -= 1, arr[i] *= 2
+    //Phase 9a: left-value is evaluated only once (read-modify-write).
+    //Assert statement: assert(cond); - exit(1) on failure.
+    //Codegen pattern: evaluate condition, OP_JumpIfNot to fail block,
+    //fail block emits OP_AssertFail which throws (caught by main → exit 1).
+    if (kind == NK_AssertStmt) {
+        auto& as = static_cast<SnAssertStmt&>(stmt);
+        EmitExpression(*as.Cond(), emitter, m_currFunc->tempSlot);
+        emitter.Emit(OpCode::OP_JumpIfNot);
+        size_t jumpToFail = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        //Success path: jump over fail block
+        emitter.Emit(OpCode::OP_Jump);
+        size_t jumpToEnd = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder
+        //Fail block
+        size_t failStart = emitter.CurrentOffset();
+        emitter.Emit(OpCode::OP_AssertFail);
+        //Optional message: use the assertion's source location text.
+        //For Phase 9a we emit an empty message idx (0) — VmExecutor
+        //prints "assertion failed" alone when msg is empty.
+        emitter.EmitUint16(0);
+        //End
+        size_t endPos = emitter.CurrentOffset();
+        emitter.PatchUint16(jumpToFail, static_cast<uint16_t>(failStart));
+        emitter.PatchUint16(jumpToEnd, static_cast<uint16_t>(endPos));
+        return;
+    }
+
+    if (kind == NK_CompoundAssignStmt) {
+        auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
+        auto op = ca.Op();
+
+        if (ca.Left()->Kind() == NK_IdentifierExpr) {
+            //Local variable: compute in-place on the local slot
+            auto& idExpr = static_cast<SnIdentifierExpr&>(*ca.Left());
+            auto* field = idExpr.Field();
+            if (!field) return;
+            uint16_t offset = FindLocal(field->Name());
+            EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
+            EmitCompoundOp(op, emitter, offset, m_currFunc->tempSlot2,
+                field->EvalDataType());
+        } else if (ca.Left()->Kind() == NK_MemberExpr) {
+            //Class/struct field: evaluate outer once, read field, compute, write back
+            auto& memberExpr = static_cast<SnMemberExpr&>(*ca.Left());
+            auto* outerType = memberExpr.Outer()->EvalDataType();
+            if (!outerType) return;
+            auto* inner = memberExpr.Inner();
+            if (inner->Kind() != NK_IdentifierExpr) return;
+            auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+            SnField* lhsFieldType = memberExpr.EvalDataType();
+
+            uint16_t fieldOff = 0;
+            if (outerType->Kind() == NK_ClassDecl) {
+                int off = FindClassFieldOffset(
+                    *static_cast<SnClassDecl*>(outerType), fieldName);
+                if (off < 0) return;
+                fieldOff = static_cast<uint16_t>(off);
+            } else if (outerType->Kind() == NK_StructDecl) {
+                int off = FindFieldOffset(
+                    *static_cast<SnStructDecl*>(outerType), fieldName);
+                if (off < 0) return;
+                fieldOff = static_cast<uint16_t>(off);
+            } else {
+                return;
+            }
+
+            EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
+            if (outerType->Kind() == NK_ClassDecl) {
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(m_currFunc->tempSlot);
+            }
+            emitter.Emit(OpCode::OP_LoadField);
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+            emitter.EmitUint16(m_currFunc->tempSlot);
+            emitter.EmitUint16(fieldOff);
+            EmitExpression(*ca.Right(), emitter, m_currFunc->callParamBase);
+            EmitCompoundOp(op, emitter, m_currFunc->tempSlot2,
+                m_currFunc->callParamBase, lhsFieldType);
+            emitter.Emit(OpCode::OP_StoreField);
+            emitter.EmitUint16(m_currFunc->tempSlot);
+            emitter.EmitUint16(fieldOff);
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+        }
+        //Note: subscript compound assign (arr[i] += 1) is intentionally not
+        //supported in Phase 9a — left-value single-eval requires 4 scratch
+        //slots and complicates the grammar. Users can write
+        //`arr[i] = arr[i] + 1` instead.
+        return;
+    }
+
     //Subscript assignment: arr[index] = value
     //Reference: EN's AssignStmt::Compile pattern for indexed stores.
     if (kind == NK_SubscriptAssignStmt) {
@@ -2766,7 +3149,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     fs.write(magic, 8);
 
     // Version
-    uint16_t majorVer = 1, minorVer = 1;
+    uint16_t majorVer = 1, minorVer = 2;
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 
@@ -2919,6 +3302,22 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
                  sizeof(at.elemKind));
         fs.write(reinterpret_cast<const char*>(&at.elemTypeIdx),
                  sizeof(at.elemTypeIdx));
+    }
+
+    //Phase 8e-9b: enum name tables (per-enum vector of value names).
+    //Format: uint32 enumCount, then per enum: uint32 valueCount, then
+    //per value: uint32 nameLen + name bytes.
+    uint32_t enumCount = static_cast<uint32_t>(
+        m_compiledModule.enumNames.size());
+    fs.write(reinterpret_cast<const char*>(&enumCount), sizeof(enumCount));
+    for (auto& names : m_compiledModule.enumNames) {
+        uint32_t valueCount = static_cast<uint32_t>(names.size());
+        fs.write(reinterpret_cast<const char*>(&valueCount), sizeof(valueCount));
+        for (auto& n : names) {
+            uint32_t len = static_cast<uint32_t>(n.size());
+            fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
+            fs.write(n.c_str(), len);
+        }
     }
 
     fs.close();

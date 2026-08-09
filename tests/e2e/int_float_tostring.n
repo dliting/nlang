@@ -1,0 +1,10 @@
+int main() {
+	//Phase 8e-9b: int.toString() and float.toString() reuse the Phase 8e-9a
+	//opcodes (OP_Int32_to_str, OP_Float_to_str) via the SnCastExpr path
+	//(resolver wraps the literal in a cast to string).
+	string i = 42.toString();
+	string f = 2.5.toString();
+	//"42"=2, "2.5"=3 → total 5
+	if (i.length() == 2 && f.length() == 3) return 7;
+	return 1;
+}

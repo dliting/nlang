@@ -1,0 +1,17 @@
+class P {
+	int x;
+	int y;
+	string toString() { return "P(" + this.x + "," + this.y + ")"; }
+}
+int main() {
+	//Phase 8e-9b: "x" + obj auto-coerces obj to string via virtual
+	//toString() dispatch. Mirrors Java/C# implicit coercion semantics.
+	//For a class with toString override, this yields the override output.
+	P p = new P();
+	p.x = 3;
+	p.y = 4;
+	string s = "x" + p;
+	//"x" + "P(3,4)" = "xP(3,4)" = 7 chars
+	if (s.length() == 7) return 7;
+	return 1;
+}

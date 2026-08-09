@@ -1,11 +1,9 @@
 enum Color { Red, Green, Blue }
 int main() {
-    //Documents Phase 8e-9a known limitation: enum values are int32 at
-    //runtime (CastInfo.cpp:50), so enum + string goes through int→string
-    //coercion and yields the enum's underlying integer (Red=0 → "0").
-    //Users who want "Red" must wait for Phase 8e-9b (Object.toString()
-    //protocol with enum name table). Lock the current behavior so the
-    //upgrade to 8e-9b is an intentional, observable change.
-    string s = "x" + Color.Red;
-    return s.length();
+	//Phase 8e-9b: enum + string now goes through enum→string coercion
+	//(OP_Enum_to_str), yielding the declared member name (Color.Red → "Red").
+	//This replaces the Phase 8e-9a int-fallback behavior that yielded the
+	//underlying integer (Red=0 → "0", length 2 = "x" + "0").
+	string s = "x" + Color.Red;
+	return s.length();
 }

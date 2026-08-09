@@ -1,0 +1,10 @@
+// Phase 9b-pre: List<T> toString — basic int elements.
+int main() {
+    List<int> lst = new List<int>();
+    lst.add(10);
+    lst.add(20);
+    lst.add(30);
+    string s = lst.toString();
+    if (s == "[10, 20, 30]") return 7;
+    return 1;
+}

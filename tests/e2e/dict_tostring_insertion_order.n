@@ -1,0 +1,9 @@
+// Phase 9b-pre: Dict toString preserves insertion order (not sorted).
+int main() {
+    Dict<string, int> d = new Dict<string, int>();
+    d.set("z", 1);
+    d.set("a", 2);
+    string s = d.toString();
+    if (s == "{\"z\": 1, \"a\": 2}") return 7;
+    return 1;
+}

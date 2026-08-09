@@ -1,0 +1,22 @@
+class P {
+	int x;
+	string toString() { return "P(" + this.x + ")"; }
+}
+enum Color { Red, Green, Blue }
+int main() {
+	//Phase 8e-9b: mixed-type chain "a" + obj + Color.X + int + float.
+	//Each non-string operand coerces via its respective path:
+	// - class → virtual toString() call
+	// - enum → OP_Enum_to_str (name lookup)
+	// - int → OP_Int32_to_str
+	// - float → OP_Float_to_str
+	//All concatenations produce strings; the chain stays string-typed
+	//throughout via FixupExprType wrapping.
+	P p = new P();
+	p.x = 7;
+	string s = "a" + p + Color.Red + 5 + 2.5;
+	//"a" + "P(7)" + "Red" + "5" + "2.5"
+	//= "a" (1) + "P(7)" (4) + "Red" (3) + "5" (1) + "2.5" (3) = 12
+	if (s.length() == 12) return 7;
+	return 1;
+}

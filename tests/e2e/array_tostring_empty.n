@@ -1,0 +1,7 @@
+// Phase 9b-pre: array toString — empty array yields "[]".
+int main() {
+    int[] arr = new int[0];
+    string s = arr.toString();
+    if (s == "[]") return 7;
+    return 1;
+}

@@ -1,0 +1,9 @@
+// Phase 9b-pre: List<string> toString — string elements are quoted.
+int main() {
+    List<string> lst = new List<string>();
+    lst.add("hello");
+    lst.add("world");
+    string s = lst.toString();
+    if (s == "[\"hello\", \"world\"]") return 7;
+    return 1;
+}

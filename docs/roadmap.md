@@ -235,10 +235,12 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 分批实施（9a-9f）：
 
-**9a：增量赋值 + 断言 + const**
+**9a：增量赋值 + 断言 + const** ✅（328 个 e2e 测试通过）
 - 增量赋值：`x += 1;`、`x -= 1;`、`x *= 2;`、`x /= 2;`、`x %= 3;`
-- 断言：`assert(condition);`（失败 exit(1)）
-- 常量修饰：`const int X = 5;`（仅局部 const）
+  - 支持 local 变量、class/struct field（左值单次求值）
+  - 不支持 subscript `arr[i] += 1`（4 scratch slot 限制，用户写 `arr[i] = arr[i] + 1`）
+- 断言：`assert(condition);`（失败抛 OP_AssertFail → main 捕获 → exit(1)）
+- 常量修饰：`const int X = 5;`（仅局部 const，声明必须初始化，assign/compound-assign 编译错误）
 
 **9b：字符串插值**
 - `"Hello ${name}"`、`"x = ${x + 1}"`

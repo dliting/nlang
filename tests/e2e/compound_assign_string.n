@@ -1,0 +1,8 @@
+// Test: string += concat (sugar for s = s + t)
+int main() {
+	string s = "hello";
+	s += " world";
+	s += "!";
+	if (s == "hello world!") return 7;
+	return 1;
+}

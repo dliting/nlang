@@ -1,0 +1,14 @@
+// Phase 9a: const is shallow — member mutation through a const local is allowed.
+class Counter {
+    public int count;
+    public int Inc() { this.count = this.count + 1; return this.count; }
+}
+
+int main() {
+    const Counter c = new Counter();
+    c.Inc();
+    c.Inc();
+    c.count = c.count + 10;
+    if (c.count == 12) return 7;
+    return 1;
+}

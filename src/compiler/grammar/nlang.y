@@ -64,6 +64,7 @@ using namespace nlang;
 	nlang::SnBinaryExpr *					v_pBinaryExpr;
 	nlang::SnLocalDeclStmt *				v_pLocalDeclStmt;
 	nlang::SnAssignStmt *					v_pAssignStmt;
+	nlang::SnCompoundAssignStmt *			v_pCompoundAssignStmt;
 	nlang::SnSubscriptAssignStmt *			v_pSubscriptAssignStmt;
 	nlang::SnSubscriptExpr *				v_pSubscriptExpr;
 	nlang::SnNewArrayExpr *					v_pNewArrayExpr;
@@ -130,7 +131,7 @@ using namespace nlang;
 %type <v_pFunction>				Function FunctionHeader
 %type <v_pParagraph>			Paragraph FunctionBody DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
-%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor
+%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor
 %type <v_pForStmt>		ForStmt
 %type <v_pForeachStmt>	ForeachStmt
 %type <v_pDoStmt>		DoStmt
@@ -173,6 +174,7 @@ using namespace nlang;
 /*keyword type */
 %token KT_Bool
 %token KT_As
+%token KT_Assert
 %token KT_Break
 %token KT_Byte
 %token KT_Case
@@ -453,6 +455,12 @@ Statement:	';' {
 				AssignStmt {
 					$$ = $1;
 				} |
+				CompoundAssignStmt {
+					$$ = $1;
+				} |
+				AssertStmt {
+					$$ = $1;
+				} |
 				SubscriptAssignStmt {
 					$$ = $1;
 				} |
@@ -499,9 +507,13 @@ InvokeStmt: InvokeExpr ';' { $$ = EnNew(SnInvokeStmt($1, @1)); } |
 /*
 Local variable declaration statement.
 Reference: EN's LocalDeclStmt (compiler_bak/grammer/nlang.y:535).
+Phase 9a: `const Type decls;` form marks all locals as const (NF_Const).
 */
 LocalDeclStmt: Type LocalDeclList ';' {
 						$$ = EnNew(SnLocalDeclStmt($1, $2, @1));
+					} |
+					KT_Const Type LocalDeclList ';' {
+						$$ = EnNew(SnLocalDeclStmt($2, $3, true, @1));
 					} ;
 
 LocalDeclList: LocalDeclList ',' TT_Identifier {
@@ -530,6 +542,52 @@ AssignStmt: IdentifierExpr '=' Expression ';' {
 				} |
 				MemberExpr '=' Expression ';' {
 					$$ = EnNew(SnAssignStmt($1, $3, @1));
+				} ;
+
+/*
+Compound assignment statement (e.g. x += 1, arr[i] *= 2).
+Phase 9a: left-value is evaluated only once.
+*/
+CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1));
+				} |
+				IdentifierExpr OT_DECS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1));
+				} |
+				IdentifierExpr OT_MULS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1));
+				} |
+				IdentifierExpr OT_DIVS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1));
+				} |
+				IdentifierExpr OT_MODS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1));
+				} |
+				MemberExpr OT_INCS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1));
+				} |
+				MemberExpr OT_DECS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1));
+				} |
+				MemberExpr OT_MULS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1));
+				} |
+				MemberExpr OT_DIVS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1));
+				} |
+				MemberExpr OT_MODS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1));
+				} |
+				MemberExpr OT_MODS Expression ';' {
+					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1));
+				} ;
+
+/*
+Assert statement: assert(cond); - exit(1) on failure.
+Phase 9a: simple runtime check.
+*/
+AssertStmt: KT_Assert '(' Expression ')' ';' {
+					$$ = EnNew(SnAssertStmt($3, @1));
 				} ;
 
 /*
