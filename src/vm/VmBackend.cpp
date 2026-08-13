@@ -1088,7 +1088,9 @@ DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr) {
         return dv;  //unknown literal type — not foldable
     }
 
-    //Unary negation of int literal: `-5` parses as OP_Neg over literal 5.
+    //Unary negation of numeric literal: `-5` / `-3.14` parse as OP_Neg
+    //over a literal. Fold both int and float so negative floats work
+    //cross-module too (not just negative ints).
     if (pExpr->Kind() == NK_BinaryExpr) {
         auto* bin = static_cast<SnBinaryExpr*>(pExpr);
         if (bin->Op() == SnBinaryExpr::OP_Neg
@@ -1098,6 +1100,11 @@ DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr) {
                 dv.tag = RTK_Int32;
                 int32_t neg = -lit->Value().Data().m_Int;
                 dv.intValue = static_cast<uint32_t>(neg);
+                return dv;
+            }
+            if (lit->Value().Type() == RnFloat::Instance()) {
+                dv.tag = RTK_Float;
+                dv.floatValue = -lit->Value().Data().m_Float;
                 return dv;
             }
         }

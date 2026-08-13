@@ -1,0 +1,6 @@
+//Option B: float default roundtrip cross-module.
+//probe() with no args → x = 3.14 → x > 3 → return 7.
+int probe(float x = 3.14) {
+	if (x > 3.0) { return 7; }
+	return 0;
+}

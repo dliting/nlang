@@ -1,0 +1,6 @@
+//Option B: negative float default roundtrip (OP_Neg fold).
+//probe() with no args → x = -3.14 → x < 0 → return 7.
+int probe(float x = -3.14) {
+	if (x < 0.0) { return 7; }
+	return 0;
+}

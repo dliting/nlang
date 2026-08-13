@@ -1108,15 +1108,22 @@ or return a derived value that fits in the exit code range.
   materialized as struct instances. Use `List<struct>` as a workaround.
 - **Default parameters on imported functions**: cross-module imported
   functions support **constant-foldable** defaults only — int / float /
-  string / null literals, plus single negation of int literals (`-5`).
-  Complex defaults (identifier references like `b = a`, function calls
-  like `b = helper()`, casts, binary expressions other than unary `-`,
-  `this.field` references) are rejected at the **consumer side** with a
-  compile error. Producers (the imported module) accept any default
-  expression; the restriction applies only when the consumer imports
-  the function. Workaround for complex cross-module defaults: write a
-  wrapper in the producer module that has only literal defaults, and
-  have the consumer call the wrapper.
+  string / null literals, plus single negation of numeric literals
+  (`-5`, `-3.14`). Complex defaults (identifier references like
+  `b = a`, function calls like `b = helper()`, casts, binary
+  expressions other than unary `-`, `this.field` references) are
+  rejected at the **consumer side** with a compile error. Producers
+  (the imported module) accept any default expression; the restriction
+  applies only when the consumer imports the function. Workaround for
+  complex cross-module defaults: write a wrapper in the producer
+  module that has only literal defaults, and have the consumer call
+  the wrapper.
+- **Named arguments on imported functions**: cross-module named
+  arguments (`foo(b = 5, a = 3)` where `foo` is imported) are not
+  supported. The consumer-side stub uses placeholder formal names
+  (`p0`, `p1`, ...) because the `.nmod` format does not carry formal
+  names. Use positional arguments only when calling imported
+  functions.
 - **Default parameters on interface methods**: interface method
   declarations (no body) do not have their defaults resolved. Callers
   must supply all arguments.

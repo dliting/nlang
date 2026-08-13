@@ -111,7 +111,11 @@ def main():
                     if not os.path.isfile(out):
                         compile_ok = False
                         stderr_text = r.stderr.decode('utf-8', errors='replace') if r.stderr else ''
-                        errors.append(f"  {name}: compile of {mod_name} failed; stderr: {stderr_text[:500]}")
+                        #Only record diagnostic when this is an unexpected
+                        #failure; expected compile_error tests pass below and
+                        #shouldn't clutter the failures summary.
+                        if expected != "compile_error":
+                            errors.append(f"  {name}: compile of {mod_name} failed; stderr: {stderr_text[:500]}")
                         break
 
                 if not compile_ok:

@@ -531,8 +531,11 @@ cross_mod_basic 5
 # Option B: cross-module constant-foldable defaults
 cross_mod_default_int 12
 cross_mod_default_negative 2
+cross_mod_default_negative_float 7
+cross_mod_default_float 7
 cross_mod_default_string 7
 cross_mod_default_null 7
+cross_mod_default_null_string 7
 cross_mod_default_override 28
 # Option B Step 5: cross-module non-foldable defaults are rejected
 cross_mod_default_call_error compile_error

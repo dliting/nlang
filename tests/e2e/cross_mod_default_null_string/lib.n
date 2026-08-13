@@ -1,0 +1,6 @@
+//Option B: null default for string-typed formal.
+//String null check uses identity (heap idx == 0 sentinel).
+int probe(string s = null) {
+	if (s == null) { return 7; }
+	return 0;
+}
