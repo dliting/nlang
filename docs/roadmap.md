@@ -299,7 +299,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9c 已完成，**411 个 e2e 测试全部通过**（Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9c 已完成，**412 个 e2e 测试全部通过**（Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
