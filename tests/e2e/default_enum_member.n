@@ -1,0 +1,6 @@
+// Phase 9c audit round 7: default referencing enum member.
+enum Color { Red = 10, Green = 20, Blue = 30 }
+int foo(int c = Color.Green) { return c; }
+int main() {
+    return foo();   // expect 20
+}

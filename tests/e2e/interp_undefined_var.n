@@ -1,0 +1,7 @@
+// Phase 9b: undefined identifier in interpolation -> resolver error (exit 1).
+// The interpolation ${x} produces an SnIdentifierExpr; resolver reports
+// "undefined identifier x" because x is not in scope.
+int main() {
+    string s = "plain ${x}";
+    return 7;
+}

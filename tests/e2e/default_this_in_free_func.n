@@ -1,0 +1,6 @@
+// Phase 9c audit round 5: default referencing `this` in a free function.
+// Free functions have no `this`. Should produce a clear compile error.
+int foo(int a = this.x) { return a; }
+int main() {
+    return foo();
+}

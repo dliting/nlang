@@ -30,7 +30,123 @@ class ScriptParser;
 #include <cstdio>
 #include <cstdlib>
 #include <cstdarg>
+#include <cctype>
+#include <string>
+#include <vector>
+#include "SnExpressions.h"
+#include "SyntaxTree.h"
+#include <nlang/runtime/RnData.h>
 using namespace nlang;
+
+//Phase 9b: scan string literal content for ${identifier} interpolation.
+//Returns SnLiteralExpr if no ${...} found; otherwise builds OP_Add tree.
+//$$ escape: $$ -> $ (literal dollar).
+//Uses new/delete (not EnNew) to align with NLang/EN decoupling goal.
+static SnExpression* BuildStringExpr(
+	std::string* pRawText, ISourceLocation& loc, ScriptParser& parser)
+{
+	//Fast path: no '$' at all -> plain literal. Transfer pRawText ownership.
+	if (pRawText->find('$') == std::string::npos)
+		return new SnLiteralExpr(*RnString::Instance(), pRawText, loc);
+
+	//Interpolation path: copy content then free lexer's buffer.
+	std::string s = *pRawText;
+	delete pRawText;
+	const size_t n = s.size();
+
+	//NLang identifier rule: [A-Za-z_][A-Za-z0-9_]*  (matches lexer Name rule).
+	auto isValidIdent = [](const std::string& nm) {
+		if (nm.empty()) return false;
+		char c0 = nm[0];
+		if (!(std::isalpha(static_cast<unsigned char>(c0))
+		      || c0 == '_')) return false;
+		for (size_t k = 1; k < nm.size(); ++k) {
+			char c = nm[k];
+			if (!(std::isalnum(static_cast<unsigned char>(c))
+			      || c == '_')) return false;
+		}
+		return true;
+	};
+
+	std::vector<SnExpression*> parts;
+	std::string lit;
+	size_t i = 0;
+	while (i < n)
+	{
+		if (s[i] == '$' && i + 1 < n)
+		{
+			if (s[i + 1] == '$') { lit.push_back('$'); i += 2; continue; }
+			if (s[i + 1] == '{')
+			{
+				//Flush accumulated literal (if non-empty).
+				if (!lit.empty()) {
+					parts.push_back(new SnLiteralExpr(
+						*RnString::Instance(), new std::string(lit), loc));
+					lit.clear();
+				}
+				//Find closing '}'
+				size_t j = i + 2;
+				while (j < n && s[j] != '}') ++j;
+				if (j >= n) {
+					parser.Log(CLL_Error, loc,
+						"unterminated interpolation: missing '}' in \"${...}\".");
+					//Free any parts already allocated before bailing.
+					for (auto* p : parts) delete p;
+					return new SnLiteralExpr(*RnString::Instance(),
+						new std::string(""), loc);
+				}
+				//Extract identifier text between ${ and }
+				std::string idName = s.substr(i + 2, j - i - 2);
+				if (idName.empty()) {
+					parser.Log(CLL_Error, loc,
+						"empty interpolation ${}: identifier required.");
+				} else if (!isValidIdent(idName)) {
+					parser.Log(CLL_Error, loc,
+						"invalid identifier \"%s\" in ${...}: "
+						"only ${name} supported (no expressions).",
+						idName.c_str());
+				} else {
+					//Undefined identifiers are not checked here; resolver
+					//reports "undefined identifier" later, preserving the
+					//expected error path.
+					parts.push_back(new SnIdentifierExpr(
+						new std::string(idName), loc));
+				}
+				i = j + 1;
+				continue;
+			}
+		}
+		lit.push_back(s[i]);
+		++i;
+	}
+	//Flush trailing literal.
+	if (!lit.empty()) {
+		parts.push_back(new SnLiteralExpr(
+			*RnString::Instance(), new std::string(lit), loc));
+	}
+
+	//No interpolation parts (e.g., only invalid ${} that logged errors).
+	if (parts.empty())
+		return new SnLiteralExpr(*RnString::Instance(),
+			new std::string(""), loc);
+
+	//If first part is an identifier (not string literal), prepend empty
+	//string literal "" to force string context. Otherwise two int
+	//identifiers would produce arithmetic OP_Add_i32 instead of concat.
+	//   "${a}${b}" with a,b both int -> Add(Add("", a), b) -> string ctx.
+	if (parts[0]->Kind() != NK_LiteralExpr) {
+		auto* pEmpty = new SnLiteralExpr(*RnString::Instance(),
+			new std::string(""), loc);
+		parts.insert(parts.begin(), pEmpty);
+	}
+
+	//Left-associative fold: ((p0 + p1) + p2) + ...
+	SnExpression* result = parts[0];
+	for (size_t k = 1; k < parts.size(); ++k) {
+		result = new SnBinaryExpr(SnBinaryExpr::OP_Add, result, parts[k], loc);
+	}
+	return result;
+}
 
 %}
 
@@ -47,6 +163,7 @@ using namespace nlang;
     std::string *           				v_pStr;
     nlang::SnUsing *						v_pUsing;
     nlang::PtrList<nlang::SnUsing> *		v_pUsingList;
+    std::vector<std::string> *             v_pImportList;
 	nlang::SnNamespace *					v_pNamespace;
     nlang::SnFunction  *      				v_pFunction;
 	nlang::PtrList<nlang::SnFormalParam> *	v_pFormalParamList;
@@ -119,6 +236,7 @@ using namespace nlang;
 %type <v_pMemberExpr>			MemberExpr
 %type <v_pUsing>				Using
 %type <v_pUsingList>			UsingList
+%type <v_pImportList>			ImportList
 %type <v_pNamespace>			Namespace
 %type <v_pField>				NamespaceMember
 %type <v_pMemberList>			NamespaceMemberList
@@ -126,6 +244,7 @@ using namespace nlang;
 %type <v_pFormalParamList>		FormalParamList
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr NewExpr NewArrayExpr SubscriptExpr
 %type <v_pExpressionList>		ConcreteParamList
+%type <v_pExpression>			ConcreteParam
 %type <v_pInitEntryList>		InitListElements InitListElementList InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
 %type <v_pFunction>				Function FunctionHeader
@@ -193,6 +312,7 @@ using namespace nlang;
 %token KT_Foreach
 %token KT_If
 %token KT_Implements
+%token KT_Import
 %token KT_In
 %token KT_Int
 %token KT_Interface
@@ -335,9 +455,20 @@ inline HighlightType GetHighlightType(int nTokenType)
 
 %%
 
-CompileUnit:	UsingList NamespaceMemberList {
+CompileUnit:	ImportList UsingList NamespaceMemberList {
 						TranslationUnit *pTransUnit = parser.TransUnit();
-						pTransUnit->Init($1, $2, @2);
+						pTransUnit->Init($2, $3, @3);
+						pTransUnit->SetImports($1);
+					} ;
+
+ImportList:	ImportList KT_Import TT_String ';' {
+						$1->push_back(*($3));
+						EnDelete($3);
+						$$ = $1;
+					} |
+					{
+						/*on empty */
+						$$ = EnNew(std::vector<std::string>());
 					} ;
 
 UsingList:	UsingList Using {
@@ -927,7 +1058,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				NewArrayExpr		{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
 				KT_This		{ $$ = EnNew(SnThisExpr(@1)); } |
-				KT_Null		{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(), 0, @1)); } |
+				KT_Null		{ auto* _nl = EnNew(SnLiteralExpr(*RnInt32::Instance(), 0, @1)); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
 				//Phase 8e-6: bare `[...]` array/list literal. Only the bracket
 				//form is allowed bare; dict/struct `{...}` requires explicit
 				//`new Type{...}` because bare `{...}` would LALR-conflict
@@ -966,7 +1097,7 @@ LiteralExpr:	TT_Int		{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	$1,	@1));	
 					TT_Byte		{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1));	} |
 					TT_UByte	{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1));	} |
 					TT_Float	{ $$ = EnNew(SnLiteralExpr(*RnFloat::Instance(),	$1,	@1));	} |
-					TT_String 	{ $$ = EnNew(SnLiteralExpr(*RnString::Instance(),	$1,	@1));	} ;
+					TT_String 	{ $$ = BuildStringExpr($1, @1, parser);	} ;
 
 InvokeExpr:	TT_Identifier '(' ConcreteParamList ')' {
 					$$ = EnNew(SnInvokeExpr($1, $3, @1));
@@ -1087,7 +1218,7 @@ InitEntry:	TT_String ':' Expression {
 						$$ = pE;
 					} ;
 
-ConcreteParamList:	ConcreteParamList ',' Expression {
+ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 							if ($1->empty())
 							{
 								parser.Log(CLL_Error, @2, "Invalid concrete param list, "
@@ -1098,7 +1229,7 @@ ConcreteParamList:	ConcreteParamList ',' Expression {
 								$1->push_back($3);
 							$$ = $1;
 						} |
-						Expression {
+						ConcreteParam {
 							$$ = EnNew(PtrList<SnExpression>());
 							$$->push_back($1);
 						} |
@@ -1106,6 +1237,17 @@ ConcreteParamList:	ConcreteParamList ',' Expression {
 							//on empty
 							$$ = EnNew(PtrList<SnExpression>());
 						} ;
+
+//Phase 9c: a concrete parameter is either a positional argument (any
+//expression) or a named argument `name = expr`. The `=` here is at the
+//call-site parameter level — NLang has no assignment-as-expression, so
+//inside `foo(...)` the form `Identifier '=' Expression` is unambiguous.
+ConcreteParam:	TT_Identifier '=' Expression {
+						$$ = EnNew(SnNamedArgExpr($1, $3, @1));
+					} |
+					Expression {
+						$$ = $1;
+					} ;
 
 %%
 

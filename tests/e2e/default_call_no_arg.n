@@ -1,0 +1,8 @@
+// Phase 9c audit round 4: default calling a no-arg function.
+// (Distinct from default calling function with args — that hits the
+// callParamBase clobber bug. No-arg calls should be safe.)
+int five() { return 5; }
+int foo(int a = five()) { return a; }
+int main() {
+    return foo();   // expect 5
+}

@@ -155,27 +155,47 @@ bool SnFunction::ConflictedWith(const SnField &other) const
 		return bSameName;
 
 	auto &otherFunc		= static_cast<const SnFunction &>(other);
+	//Two functions conflict only if they have the exact same parameter
+	//types (including count). Overloads with different signatures are
+	//allowed to coexist; ambiguity is detected at the call site.
+	//
+	//We compare EvalDataType() (resolved type pointer) rather than
+	//Type() (unresolved SnFieldExpr pointer) because at the time
+	//DuplicateFieldChecker runs, types have been resolved and
+	//EvalDataType() points to the canonical type node. Two params
+	//both declared as "int" share the same EvalDataType() even though
+	//their Type() SnFieldExpr instances are distinct AST nodes.
 	auto iOther			= otherFunc.Params().begin();
 	auto iOtherEnd		= otherFunc.Params().end();
 	auto iThis			= Params().begin();
 	auto iThisEnd		= Params().end();
-	//Compare the params one by one.
 	while (true)
 	{
 		auto *pThisParam = (iThis == iThisEnd ? nullptr : &(*iThis));
 		auto *pOtherParam = (iOther == iOtherEnd ? nullptr : &(*iOther));
 
 		if (pThisParam && !pOtherParam)
-			return pThisParam->IsOptional();
+			return false;
 
 		if (!pThisParam && pOtherParam)
-			return pOtherParam->IsOptional();
+			return false;
 
-		if (pThisParam->IsOptional() && pOtherParam->IsOptional())
+		if (!pThisParam && !pOtherParam)
 			return true;
 
-		if (pOtherParam->Type() != pThisParam->Type())
-			return false;
+		//Compare resolved types. If either is unresolved (shouldn't
+		//happen after ResolveDataTypes), fall back to param count only.
+		auto *pThisType = pThisParam->EvalDataType();
+		auto *pOtherType = pOtherParam->EvalDataType();
+		if (pThisType && pOtherType) {
+			if (pThisType != pOtherType)
+				return false;
+		}
+		//If unresolved, we can't determine type equality — assume
+		//same-name params with same count might conflict. This only
+		//matters if ConflictedWith is called before ResolveDataTypes
+		//(e.g. from MergeFrom), where we intentionally allow same-count
+		//functions through and let DuplicateFieldChecker catch them later.
 
 		++iThis;
 		++iOther;

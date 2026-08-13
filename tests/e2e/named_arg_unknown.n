@@ -1,0 +1,3 @@
+// Phase 9c: named arg with unknown parameter name is a compile error.
+int foo(int a) { return 0; }
+int main() { return foo(c = 1); }

@@ -1,0 +1,7 @@
+//Option B canary: cross-module call with omitted positional arg, expects
+//the imported default (7) to fill in. Exit = 5 + 7 = 12.
+import "lib";
+
+int main() {
+	return add(5);
+}

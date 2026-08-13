@@ -9,12 +9,16 @@
 #include "SyntaxTree.h"
 #include "builder/ExprResolver.h"
 #include "builder/ImportedNodeBuilder.hpp"
+#include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/DuplicateFieldChecker.hpp"
 #include "builder/StatementResolver.hpp"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/compiler/SnMisc.h>
 #include "VmBackend.h"
+#include "ModuleLoader.h"
+#include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <unordered_map>
@@ -60,10 +64,32 @@ bool ModuleBuilder::Build()
 	if (!CreateModule())
 		return false;
 
+	//Phase 9c cross-module: built-in types must be available BEFORE parser
+	//runs (parser resolves "int" / "float" / "string" to SnBuiltinDataType
+	//singletons constructed by BuildFromRuntime). Clear first to drop any
+	//stale state from a prior Build() on the same SyntaxTree singleton.
+	TheAST().Clear();
+	TheAST().BuildFromRuntime(*m_upEnv);
+
+	//Parse sources first so TranslationUnit.m_Imports is populated; the
+	//list of imports to load comes from source, not from CLI.
+	ParseTransUnits();
+	if (m_upEnv->HasError())
+		return false;
+
+	//Load .nmod imports and merge stubs into root namespace.
 	if (!LoadImports())
 		return false;
 
-	if (!ParseSources())
+	//Merge user TU roots (post-import) into the AST root and run all
+	//subsequent resolution passes.
+	MergeTransUnits();
+	ResolveUsingLists();
+	ResolveDataTypes();
+	CheckDuplicateFields();
+	ResolveDataValues();
+	ResolveStatements();
+	if (m_upEnv->HasError())
 		return false;
 
 	if (!GenerateCodes())
@@ -98,16 +124,92 @@ bool ModuleBuilder::LoadImports()
 		m_upEnv->Log(CLL_Info, "Loading the import modules ...");
 	}
 
-	ModuleManager &mm = ModuleManager::Instance();
-	mm.LoadPath(m_upEnv->Params().m_ImportDirs);
-	for (auto sModuleName : m_upEnv->Params().m_ImportModules)
-		if (!mm.Load(sModuleName))
-			return false;
+	//Collect & dedupe imports across all translation units.
+	std::vector<std::string> imports;
+	for (auto pTransUnit : *m_upTransUnits)
+	{
+		for (const auto &name : pTransUnit->Imports())
+		{
+			if (std::find(imports.begin(), imports.end(), name) == imports.end())
+				imports.push_back(name);
+		}
+	}
 
-	TheAST().Clear();
-	TheAST().BuildFromRuntime(*m_upEnv);
+	if (imports.empty())
+		return true;
+
+	for (const auto &name : imports)
+	{
+		std::string path = FindModuleFile(name);
+		if (path.empty())
+		{
+			m_upEnv->Log(CLL_Error,
+				"Module '%s' not found in import directories. "
+				"Ensure dependencies are compiled first and -I path is correct.",
+				name.c_str());
+			return false;
+		}
+
+		CompiledModule cm;
+		try
+		{
+			cm = ModuleLoader::Load(path);
+		}
+		catch (const std::exception &e)
+		{
+			m_upEnv->Log(CLL_Error, "Failed to load module '%s': %s",
+				name.c_str(), e.what());
+			return false;
+		}
+
+		//srcModIdx = current length of m_loadedImports (before push), which
+		//matches the index this module will occupy after the push below.
+		uint32_t srcModIdx = static_cast<uint32_t>(m_loadedImports.size());
+
+		CompiledModuleNodeBuilder builder(TheAST(), srcModIdx, name);
+		try
+		{
+			builder.BuildFromCompiledModule(cm);
+		}
+		catch (const std::exception &e)
+		{
+			m_upEnv->Log(CLL_Error, "%s", e.what());
+			return false;
+		}
+
+		//Register stub→source-index entries into VmBackend side-table.
+		//Defer if backend isn't ready yet — but in current flow, CreateModule
+		//runs before LoadImports and sets up the backend, so it's available.
+		if (auto *backend = m_upEnv->Backend())
+		{
+			if (auto *vmBackend = dynamic_cast<VmBackend*>(backend))
+			{
+				for (const auto &entry : builder.ImportedFunctions())
+					vmBackend->RegisterImportedFunctionStub(entry.stub,
+						srcModIdx, entry.srcFuncIdx);
+			}
+		}
+
+		if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
+			m_upEnv->Log(CLL_Info, "Loaded module '%s' from %s",
+				name.c_str(), path.c_str());
+
+		m_loadedImports.push_back(std::move(cm));
+	}
 
 	return true;
+}
+
+std::string ModuleBuilder::FindModuleFile(const std::string &name) const
+{
+	for (const auto &dir : m_upEnv->Params().m_ImportDirs)
+	{
+		std::string path = dir + "/" + name + ".nmod";
+		std::ifstream test(path, std::ios::binary);
+		if (test.good())
+			return path;
+	}
+	return std::string();
 }
 
 bool ModuleBuilder::ParseSources()
@@ -142,6 +244,10 @@ bool ModuleBuilder::GenerateCodes()
 		m_upEnv->Log(CLL_Fatal, "No code backend configured.");
 		return false;
 	}
+	//Phase 9c cross-module: transfer imported CompiledModules to backend
+	//before GenerateStatements runs. The backend owns them from here.
+	if (auto *vmBackend = dynamic_cast<VmBackend*>(backend))
+		vmBackend->SetImportedModules(std::move(m_loadedImports));
 	backend->GenerateTypes(TreeRoot());
 	backend->GenerateData(TreeRoot());
 	backend->GenerateStatements(TreeRoot());

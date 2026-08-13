@@ -1,0 +1,4 @@
+//Option B: caller overrides the imported default with its own arg.
+int add(int a, int b = 7) {
+	return a + b;
+}

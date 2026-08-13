@@ -1,0 +1,9 @@
+//Calls add(5, 12) → caller arg 12 overrides imported default 7 → 17.
+//Actually return 5 + 7 = 12 to stay under 255... wait, let me redo.
+//We want to test override distinct from default-int (which is 12).
+//Use add(8, 20) → 28.
+import "lib";
+
+int main() {
+	return add(8, 20);
+}

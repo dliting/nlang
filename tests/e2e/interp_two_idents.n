@@ -1,0 +1,9 @@
+// Phase 9b: two adjacent interpolations (both int).
+// Without the prepend-"" fix, this would compute arithmetic OP_Add_i32.
+int main() {
+    int a = 1;
+    int b = 2;
+    string s = "${a}${b}";
+    if (s == "12") return 7;
+    return 1;
+}

@@ -1,0 +1,6 @@
+// Phase 9b: plain string (no interpolation) — fast path.
+int main() {
+    string s = "plain";
+    if (s == "plain") return 7;
+    return 1;
+}

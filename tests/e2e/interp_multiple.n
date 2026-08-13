@@ -1,0 +1,9 @@
+// Phase 9b: multiple interpolations in one string.
+int main() {
+    int a = 1;
+    int b = 2;
+    int sum = a + b;
+    string s = "${a}+${b}=${sum}";
+    if (s == "1+2=3") return 7;
+    return 1;
+}

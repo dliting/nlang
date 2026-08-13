@@ -28,6 +28,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //"no 'main' function found" errors or worse.
     if (!fs.good())
         throw std::runtime_error("Truncated module file");
+    //Option B (v1.3): reject modules written by older ncc. v1.3 added
+    //CompiledFunction.defaultValues section; loading a v1.2 module would
+    //misalign on the new section. Product hasn't shipped, so we refuse
+    //stale modules outright instead of carrying forward-compat baggage.
+    if (majorVer != 1 || minorVer < 3)
+        throw std::runtime_error(
+            "Module version " + std::to_string(majorVer) + "."
+            + std::to_string(minorVer) + " is outdated; recompile with current ncc");
 
     // Module name
     uint32_t nameLen = 0;
@@ -77,6 +85,22 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         if (minorVer >= 1)
             fs.read(reinterpret_cast<char*>(&func.intrinsicId),
                     sizeof(func.intrinsicId));
+
+        //Option B v1.3: per-formal default-value descriptors.
+        uint16_t defaultCount = 0;
+        fs.read(reinterpret_cast<char*>(&defaultCount), sizeof(defaultCount));
+        if (!fs.good() || defaultCount > 256)
+            throw std::runtime_error("Invalid module: bad default count");
+        func.defaultValues.resize(defaultCount);
+        for (uint16_t j = 0; j < defaultCount; ++j) {
+            auto& dv = func.defaultValues[j];
+            fs.read(reinterpret_cast<char*>(&dv.tag), sizeof(dv.tag));
+            fs.read(reinterpret_cast<char*>(&dv.intValue), sizeof(dv.intValue));
+            fs.read(reinterpret_cast<char*>(&dv.floatValue),
+                    sizeof(dv.floatValue));
+            fs.read(reinterpret_cast<char*>(&dv.stringIdx),
+                    sizeof(dv.stringIdx));
+        }
 
         uint32_t bcSize;
         fs.read(reinterpret_cast<char*>(&bcSize), sizeof(bcSize));

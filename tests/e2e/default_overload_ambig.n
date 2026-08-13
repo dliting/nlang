@@ -1,0 +1,4 @@
+// Phase 9c: ambiguous overload — foo(int) and foo(int, int=0) both accept 1 arg.
+int foo(int a) { return 100; }
+int foo(int a, int b = 0) { return 200; }
+int main() { return foo(5); }

@@ -18,9 +18,10 @@ using namespace nlang;
 
 static void PrintUsage() {
     std::cerr << "Usage:\n"
-              << "  ncc <source.n>              Compile and execute\n"
-              << "  ncc build <source.n> [-o out.nmod]  Compile only\n"
-              << "  ncc run <module.nmod>       Execute only\n";
+              << "  ncc <source.n> [-I <dir>...]  Compile and execute\n"
+              << "  ncc build <source.n> [-o out.nmod] [-I <dir>...]  Compile only\n"
+              << "  ncc run <module.nmod>       Execute only\n"
+              << "  -I <dir>                    Add directory to .nmod import search path\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -67,11 +68,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // ncc build <source.n> [-o out.nmod]
-    // ncc <source.n> (compile + run)
+    // ncc build <source.n> [-o out.nmod] [-I <dir>...]
+    // ncc <source.n> [-I <dir>...] (compile + run)
     bool compileOnly = (command == "build");
     std::string sourceFile;
     std::string outputFile;
+    std::vector<std::string> importDirs;
 
     if (compileOnly) {
         if (argc < 3) {
@@ -80,11 +82,23 @@ int main(int argc, char* argv[]) {
         }
         sourceFile = argv[2];
         for (int i = 3; i < argc; ++i) {
-            if (std::string(argv[i]) == "-o" && i + 1 < argc)
+            std::string arg = argv[i];
+            if (arg == "-o" && i + 1 < argc)
                 outputFile = argv[++i];
+            else if (arg == "-I" && i + 1 < argc)
+                importDirs.push_back(argv[++i]);
+            else if (arg.size() > 2 && arg.compare(0, 2, "-I") == 0)
+                importDirs.push_back(arg.substr(2));
         }
     } else {
         sourceFile = argv[1];
+        for (int i = 2; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "-I" && i + 1 < argc)
+                importDirs.push_back(argv[++i]);
+            else if (arg.size() > 2 && arg.compare(0, 2, "-I") == 0)
+                importDirs.push_back(arg.substr(2));
+        }
     }
 
     // Determine module name from source file
@@ -103,6 +117,10 @@ int main(int argc, char* argv[]) {
     BuildParams params;
     params.m_SourceFiles.push_back(sourceFile);
     params.m_sOutputModule = moduleName;
+    //Phase 9c cross-module: import search path. "." is already in m_ImportDirs
+    //(BuildParams default); append user -I dirs after.
+    for (const auto& dir : importDirs)
+        params.m_ImportDirs.push_back(dir);
 
     // If -o specifies a path with directory, set m_sOutputDir
     auto lastSep = outputFile.find_last_of("/\\");

@@ -1,0 +1,4 @@
+//Option B: negative int default (validates OP_Neg fold at serialize time).
+int sub(int a, int b = -3) {
+	return a + b;
+}

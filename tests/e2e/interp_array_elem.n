@@ -1,0 +1,7 @@
+// Phase 9b: interpolate an array (uses Phase 9b-pre Array toString).
+int main() {
+    int[] arr = [1, 2];
+    string s = "${arr}";
+    if (s == "[1, 2]") return 7;
+    return 1;
+}

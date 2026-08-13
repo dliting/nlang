@@ -58,11 +58,120 @@ def main():
             if len(parts) < 2:
                 continue
             name = parts[0]
-            expected = int(parts[1])
+            #Expected may be an int (runtime exit code) or the literal
+            #"compile_error" to assert that ncc rejects the source.
+            if parts[1] == "compile_error":
+                expected = "compile_error"
+            else:
+                expected = int(parts[1])
 
             test_file = os.path.join(SCRIPT_DIR, f"{name}.n")
-            if not os.path.isfile(test_file):
+            test_dir = os.path.join(SCRIPT_DIR, name)
+            if not os.path.isfile(test_file) and not os.path.isdir(test_dir):
                 print(f"SKIP {name} (file missing)")
+                continue
+
+            #Phase 9c cross-module: multi-file tests use a directory layout.
+            #Layout: <name>/ contains order.txt (module names in compile
+            #order, dependency first, main last) + per-module <module>.n
+            #sources. Runner compiles each in order, emits .nmod into the
+            #test dir, then runs the last module's .nmod.
+            if os.path.isdir(test_dir):
+                order_path = os.path.join(test_dir, 'order.txt')
+                if not os.path.isfile(order_path):
+                    print(f"FAIL {name} (missing order.txt in test dir)")
+                    failed += 1
+                    errors.append(f"  {name}: missing order.txt")
+                    continue
+                with open(order_path, 'r', encoding='utf-8') as of:
+                    modules = [m.strip() for m in of.read().split() if m.strip()]
+                if not modules:
+                    print(f"FAIL {name} (order.txt is empty)")
+                    failed += 1
+                    errors.append(f"  {name}: empty order.txt")
+                    continue
+
+                #Compile each module in order. Each gets its own .nmod
+                #output into the test dir; -I points at the test dir so
+                #later modules can import earlier ones.
+                compile_ok = True
+                for mod_name in modules:
+                    src = os.path.join(test_dir, f"{mod_name}.n")
+                    out = os.path.join(test_dir, f"{mod_name}.nmod")
+                    try:
+                        r = subprocess.run(
+                            [ncc, 'build', src, '-o', out, '-I', test_dir],
+                            capture_output=True, timeout=TIMEOUT_SEC)
+                    except Exception as e:
+                        print(f"FAIL {name} (compile error: {e})")
+                        failed += 1
+                        errors.append(f"  {name}: compile error: {e}")
+                        compile_ok = False
+                        break
+                    if not os.path.isfile(out):
+                        compile_ok = False
+                        stderr_text = r.stderr.decode('utf-8', errors='replace') if r.stderr else ''
+                        errors.append(f"  {name}: compile of {mod_name} failed; stderr: {stderr_text[:500]}")
+                        break
+
+                if not compile_ok:
+                    if expected == "compile_error":
+                        print(f"PASS {name} (compile error as expected)")
+                        passed += 1
+                        #Clean partial .nmod files
+                        for mn in modules:
+                            p = os.path.join(test_dir, f"{mn}.nmod")
+                            if os.path.isfile(p):
+                                os.remove(p)
+                        continue
+                    print(f"FAIL {name} (compilation failed)")
+                    failed += 1
+                    errors.append(f"  {name}: compilation failed")
+                    continue
+
+                if expected == "compile_error":
+                    print(f"FAIL {name} (expected compile_error but compiled ok)")
+                    failed += 1
+                    errors.append(f"  {name}: expected compile_error, compiled")
+                    for mn in modules:
+                        p = os.path.join(test_dir, f"{mn}.nmod")
+                        if os.path.isfile(p):
+                            os.remove(p)
+                    continue
+
+                #Run the last module
+                main_nmod = os.path.join(test_dir, f"{modules[-1]}.nmod")
+                try:
+                    result = subprocess.run(
+                        [nvm, main_nmod],
+                        capture_output=True, timeout=TIMEOUT_SEC)
+                    actual = result.returncode
+                    stderr_text = result.stderr.decode('utf-8', errors='replace')
+                except Exception as e:
+                    print(f"FAIL {name} (runtime error: {e})")
+                    failed += 1
+                    errors.append(f"  {name}: runtime error: {e}")
+                    for mn in modules:
+                        p = os.path.join(test_dir, f"{mn}.nmod")
+                        if os.path.isfile(p):
+                            os.remove(p)
+                    continue
+
+                #Clean up .nmod files
+                for mn in modules:
+                    p = os.path.join(test_dir, f"{mn}.nmod")
+                    if os.path.isfile(p):
+                        os.remove(p)
+
+                if actual == expected:
+                    print(f"PASS {name} (exit={actual})")
+                    passed += 1
+                else:
+                    print(f"FAIL {name} (expected={expected}, actual={actual})")
+                    failed += 1
+                    errors.append(f"  {name}: expected={expected} actual={actual}")
+                    if stderr_text:
+                        errors.append(f"    stderr: {stderr_text.splitlines()[0]}")
                 continue
 
             #Phase 8: ensure _phase8_tmp/ exists and is clean for file_stream_*/fs_struct_*/fs_object_* tests.
@@ -88,11 +197,25 @@ def main():
                 cwd_nmod = os.path.join(os.getcwd(), f"{name}.nmod")
                 if os.path.isfile(cwd_nmod):
                     shutil.move(cwd_nmod, nmod_file)
+                elif expected == "compile_error":
+                    print(f"PASS {name} (compile error as expected)")
+                    passed += 1
+                    continue
                 else:
                     print(f"FAIL {name} (compilation failed)")
                     failed += 1
                     errors.append(f"  {name}: compilation failed")
                     continue
+
+            #If we reach here, compilation succeeded. If the manifest said
+            #compile_error, that's a FAIL (we expected rejection).
+            if expected == "compile_error":
+                print(f"FAIL {name} (expected compile_error but compiled ok)")
+                failed += 1
+                errors.append(f"  {name}: expected compile_error, compiled")
+                if os.path.isfile(nmod_file):
+                    os.remove(nmod_file)
+                continue
 
             # Run
             #Phase 8: file_stream_*/fs_struct_*/fs_object_* tests need CWD = tests/e2e/ for relative paths.

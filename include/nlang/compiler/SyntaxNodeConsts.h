@@ -24,6 +24,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(MemberExpr)				/* member access expression  */		\
 	MACRO_IMPL(CastExpr)				/* type cast expression  */			\
 	MACRO_IMPL(AsExpr)					/* `expr as T` (Phase 8e-1.5) */		\
+	MACRO_IMPL(NamedArgExpr)			/* `name = expr` in call (Phase 9c) */	\
 	MACRO_IMPL(BinaryExpr)				/* binary/unary operator expression */\
 	MACRO_IMPL(EnumDecl)				/* enum type declaration */			\
 	MACRO_IMPL(EnumMember)				/* enum member constant */			\
@@ -102,7 +103,8 @@ static_assert(NK_CP_END < NODE_KIND_LIMIT,
 	MACRO_IMPL(Resolved,	4, "resolved")									\
 	MACRO_IMPL(Generated,	5, "code generated")							\
 	MACRO_IMPL(Override,	6, "override function")							\
-	MACRO_IMPL(Invalid,		7, "invalid node")
+	MACRO_IMPL(Invalid,		7, "invalid node")								\
+	MACRO_IMPL(NullLiteral,	8, "null literal (Option B)")
 
 enum CompNodeFlag: NodeBits
 {

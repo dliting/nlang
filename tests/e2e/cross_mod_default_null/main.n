@@ -1,0 +1,6 @@
+//Calls probe() with no args → default null applied → h is null → 7.
+import "lib";
+
+int main() {
+	return probe();
+}

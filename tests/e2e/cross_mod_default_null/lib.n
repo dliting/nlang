@@ -1,0 +1,9 @@
+//Option B: null default for class-typed formal.
+class Handler {
+	public int x;
+}
+
+int probe(Handler h = null) {
+	if (h == null) { return 7; }
+	return 0;
+}

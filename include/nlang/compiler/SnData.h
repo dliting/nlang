@@ -16,6 +16,15 @@ namespace llvm
 namespace nlang
 {
 
+//Phase 9c: sanity ceiling on a function's formal parameter count.
+//
+//The VM frame layout now sizes callParamBase dynamically per caller
+//(based on the maximum callee formal count seen in the caller's body),
+//so there is no fixed 8-slot cap. This constant serves as a sanity
+//ceiling to prevent unreasonably large frames. Exceeding it is a
+//declaration-time error in StatementResolver.Access(SnFunction).
+static constexpr size_t kMaxFuncParams = 64;
+
 //The base class of data field syntax nodes.
 class NLANG_COMPILER_API SnDataField : public SnField
 {

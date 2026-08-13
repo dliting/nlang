@@ -1,0 +1,7 @@
+// Phase 9c: default parameter of string type.
+string foo(int a, string b = "x") { return b; }
+int main() {
+    string s = foo(5);
+    if (s == "x") { return 7; }
+    return 1;
+}

@@ -242,11 +242,22 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 断言：`assert(condition);`（失败抛 OP_AssertFail → main 捕获 → exit(1)）
 - 常量修饰：`const int X = 5;`（仅局部 const，声明必须初始化，assign/compound-assign 编译错误）
 
-**9b：字符串插值**
-- `"Hello ${name}"`、`"x = ${x + 1}"`
+**9b：字符串插值（MVP — `${identifier}` only）**
+- `"Hello ${name}"`：仅支持单个标识符插值（不支持复杂表达式）
+- `$$` 转义为字面 `$`
+- 无效 `${...}` 内容、未定义标识符均报编译错误
+- 实现：bison `TT_String` 规则扫描字符串内容，构造 `OP_Add` 二元树，复用 Phase 8e-9a 对称 coercion + Phase 9b-pre collection toString
+- 357 e2e 测试通过（含 13 个新 interp_* 测试）
 
-**9c：默认参数**
-- `int foo(int x, int y = 0)`
+**9c：默认参数 + 命名参数** ✅（393 个 e2e 测试通过）
+- 默认参数：`int foo(int x, int y = 0)` — 任意位置（不限于末尾），默认表达式可引用前面的形参（`int b = a + 1`）
+- 命名参数：`foo(b = 2, a = 1)` — 位置参数在前，命名参数在后
+- 重载集成：多候选评分 + 歧义检测（`foo(int a)` 与 `foo(int a, int b = 0)` 对 `foo(5)` 歧义报错）
+- 架构：共享 AST + 调用点 binding override（OverrideScope RAII 栈），零 AST 克隆，零新 opcode
+- 默认表达式引用 `this.field`：m_ThisOverrideStack + resultOffset（避开 callParamBase 嵌套覆盖陷阱）
+- callParamBase 8 槽上限：声明期编译错误（kMaxFreeFuncParams=8 / kMaxMethodParams=7），不再静默腐败
+- 前向引用检测：默认表达式不能引用后置形参（`int foo(int a = b, int b = 5)` → 编译错误）
+- 4 轮深度审计（round 3-7），36 个新 e2e 测试（含 11 个 compile_error 测试）
 
 **9d：异常处理**
 - try/catch/throw（C# 风格，全 unchecked，throw 任意 Object 子类）
@@ -288,11 +299,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-8e-9b + P3 loop refinement（含 P3.6-P3.11）已完成，**320 个 e2e 测试全部通过**
+- 阶段 0-9c 已完成，**409 个 e2e 测试全部通过**（Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
+- Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
-- 下一步：Phase 9（异常、字符串插值、增量赋值、默认参数等）
+- 已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败（pre-existing string pool dedup bug，临时绕过：用单独变量 `int c = a+b;` 再 concat）
+- 下一步：Phase 9d（异常处理）、Phase 9e（out 参数）
 
 ## 文档索引
 

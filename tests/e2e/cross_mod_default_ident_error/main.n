@@ -1,0 +1,7 @@
+//Option B Step 5 negative: imported foo has a non-foldable ident default.
+//Expected: ncc compile_error on importing lib (RTK_Unfoldable stamp).
+import "lib";
+
+int main() {
+	return foo(5);
+}

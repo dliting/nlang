@@ -54,6 +54,12 @@ public:
 
 	void Access(SnInvokeExpr &);
 
+	//Phase 9c: resolve a named argument `name = expr` at a call site.
+	//Resolves the inner expression and propagates its EvalDataType so
+	//the parent SnInvokeExpr sees the value's type for overload matching.
+	//The name itself is consumed by TryBindInvoke when matching formals.
+	void Access(SnNamedArgExpr &);
+
 	void Access(SnMemberExpr &);
 
 	void Access(SnCastExpr &);
@@ -112,8 +118,51 @@ private:
 	/*
 	Find the best function declaration matched witch an invoke expression.
 	Precondition: the parameters in the invoke expression are all resolved.
+	On ExactMatch / ApproximateMatch, outBindings is filled with per-formal
+	binding decisions (Phase 9c).
 	*/
-	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke);
+	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
+		std::vector<FormalBinding> &outBindings);
+
+	/*
+	Phase 9c: validate caller-side argument syntax — independent of any
+	candidate. Reports specific errors for:
+	  - positional argument following a named argument
+	  - duplicate name in named arguments (e.g. foo(a=1, a=2))
+	Returns true if syntax is well-formed; false after logging the error.
+	Called before FindFuncByInvoke so candidate-specific failures don't
+	mask these structural errors.
+	*/
+	bool ValidateInvokeSyntax(const SnInvokeExpr &invoke);
+
+	/*
+	Phase 9c: try to bind an invoke's actual arguments to a candidate
+	callee's formal parameters. Handles positional args, named args, and
+	default param expressions. Returns true if every formal is bound
+	(either by caller or by default); false if any required formal is left
+	unbound or a caller-side error occurs (positional after named, etc.).
+	Does NOT log — caller reports a generic "not compatible" error when
+	no candidate matches.
+	*/
+	bool TryBindInvoke(const SnInvokeExpr &invoke, const SnFunction &callee,
+		std::vector<FormalBinding> &outBindings);
+
+	/*
+	Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
+	entries. B_Default contributes 0. Returns -1 if any bound entry has
+	incompatible types.
+	*/
+	int ComputeBindingDistance(
+		const std::vector<FormalBinding> &bindings) const;
+
+	/*
+	Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side
+	expressions in bindings where needed (TCK_Auto / TCK_Box). B_Default
+	entries are skipped — their type was validated against the formal at
+	declaration time (StatementResolver Step 2).
+	*/
+	void FixupParamTypesWithBindings(SnInvokeExpr &invoke,
+		std::vector<FormalBinding> &bindings);
 
 	/*
 	Calculate the type "distance" from concrete parameters to formal

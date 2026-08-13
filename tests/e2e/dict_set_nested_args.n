@@ -1,0 +1,14 @@
+// Phase 9c follow-up: stress test — Dict init with multiple entries,
+// each value being a multi-arg nested call. Verifies the per-entry
+// EvalAreaClaim releases correctly between iterations (cursor discipline).
+int helper(int x, int y) { return x * 10 + y; }
+int main() {
+    Dict<string, int> d = new Dict<string, int>{
+        "a": helper(1, 2),  // 12
+        "b": helper(3, 4),  // 34
+        "c": helper(5, 6)   // 56
+    };
+    int sum = d.get("a") + d.get("b") + d.get("c");  // 12+34+56=102
+    if (sum == 102) { return 7; }
+    return 1;
+}

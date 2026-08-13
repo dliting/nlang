@@ -330,6 +330,11 @@ init_explicit_new_list 6
 init_explicit_new_struct 2
 init_explicit_arg 7
 init_explicit_empty 0
+# --- Phase 9c follow-up: nested-call clobber in collection init ---
+init_dict_nested_call_value 7
+dict_set_nested_args 7
+# --- Phase 9c follow-up: nested-call receiver in string methods ---
+string_equals_nested_call 7
 # --- Phase 8e-7: boundary case tests ---
 foreach_null_iterable_throws 1
 foreach_null_array_throws 1
@@ -454,3 +459,81 @@ dict_tostring_basic 7
 dict_tostring_empty 7
 dict_tostring_insertion_order 7
 dict_tostring_int_keys 7
+# --- Phase 9b: string interpolation (${identifier} only) ---
+interp_basic 7
+interp_int 7
+interp_float 7
+interp_multiple 7
+interp_escape_dollar 7
+interp_escape_dollar2 7
+interp_plain 7
+interp_two_idents 7
+interp_ident_first 7
+interp_empty_error compile_error
+interp_invalid_ident compile_error
+interp_array_elem 7
+interp_undefined_var compile_error
+# --- Phase 9c: default parameters + named arguments ---
+default_basic 50
+default_provided 60
+default_ref_param 6
+default_ref_chain 12
+default_type_mismatch compile_error
+named_arg_basic 60
+named_arg_mixed 123
+default_named 60
+default_anywhere 75
+named_after_positional_err compile_error
+named_arg_unknown compile_error
+missing_required compile_error
+method_default 100
+method_default_named 150
+method_default_this_ref 120
+default_string 7
+default_overload_basic 7
+default_overload_ambig compile_error
+default_named_reorder 57
+named_arg_duplicate compile_error
+named_arg_same_name_dup compile_error
+method_default_this_field 30
+default_call_no_arg 5
+default_binary_expr 30
+default_recursion 120
+default_struct_deepcopy 34
+default_overload_with_default 20
+default_forward_ref compile_error
+default_this_in_free_func compile_error
+default_with_cast 7
+default_empty_string 7
+default_field_chain 5
+default_nested_defaults 5
+default_enum_member 20
+# --- Phase 9c follow-up: frame layout refactor (cursor-based evalArea) ---
+# Bug-fix validation: >8 formals (was compile_error due to 8-slot cap).
+func_10_params 55
+# Bug-fix validation: nested free-function call (helper(10) clobbered helper(5)'s result).
+nested_call_no_clobber 19
+# Bug-fix validation: nested call inside default expression (helper(7) clobbered foo's a=5).
+nested_default_no_clobber 14
+# Regression: method default-param with nested call (slotBase=1 shields it).
+method_nested_default 18
+# Regression: boxing survives evalArea → callParamBase bulk-copy.
+boxed_arg_nested 7
+# Regression: defaults fundamentally work (was passing pre-refactor).
+many_defaults 21
+# Regression: ctor args with nested multi-arg calls (was clobbered in callParamBase).
+ctor_nested_call_args 46
+
+# --- Phase 9c cross-module import infrastructure (canary) ---
+cross_mod_basic 5
+
+
+# Option B: cross-module constant-foldable defaults
+cross_mod_default_int 12
+cross_mod_default_negative 2
+cross_mod_default_string 7
+cross_mod_default_null 7
+cross_mod_default_override 28
+# Option B Step 5: cross-module non-foldable defaults are rejected
+cross_mod_default_call_error compile_error
+cross_mod_default_ident_error compile_error

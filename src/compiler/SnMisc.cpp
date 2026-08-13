@@ -85,7 +85,7 @@ void SnNamespace::MergeFrom(SnNamespace &other, BuildEnvironment &env)
 	}
 }
 
-MemberAddingKind SnNamespace::TestMemberAdding(const SnField &other, 
+MemberAddingKind SnNamespace::TestMemberAdding(const SnField &other,
 	SnField *&pExisted)
 {
 	if (!AllowMember(other.Kind()))
@@ -103,6 +103,36 @@ MemberAddingKind SnNamespace::TestMemberAdding(const SnField &other,
 		}
 		if (range.first != range.second)
 			return MAK_Conflicted;
+	}
+	if (other.Kind() == NK_Function)
+	{
+		//Function overloads: allow a new function with the same name only
+		//if no existing function has a conflicting signature.
+		//
+		//At this point (MergeFrom, before ResolveDataTypes), type
+		//references are unresolved SnFieldExpr nodes — pointer comparison
+		//can't determine type equality. So we use param count as a
+		//coarse filter: same-count functions are allowed through (they
+		//might be overloads with different types), and
+		//DuplicateFieldChecker (after ResolveDataTypes) does the precise
+		//same-signature conflict detection using EvalDataType().
+		auto range = Members().NameDict().equal_range(other.Name());
+		for (auto iField = range.first; iField != range.second; ++iField)
+		{
+			pExisted = iField->second;
+			if (pExisted->Kind() != NK_Function)
+				return MAK_Conflicted;
+			auto &otherFunc = static_cast<const SnFunction&>(other);
+			auto &existFunc = static_cast<const SnFunction&>(*pExisted);
+			//If param counts differ, it's a legitimate overload.
+			if (otherFunc.Params().size() != existFunc.Params().size())
+				continue;
+			//Same param count — might be same signature or different
+			//types. Can't tell yet, so allow through; let
+			//DuplicateFieldChecker decide after type resolution.
+		}
+		pExisted = nullptr;
+		return MAK_Add;
 	}
 	return MAK_Add;
 }

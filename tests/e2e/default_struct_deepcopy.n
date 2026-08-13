@@ -1,0 +1,12 @@
+// Phase 9c audit round 4: default with class type (initializer-list).
+// Verifies the binding-aware emit correctly handles a default that
+// constructs an object via `new T{...}` initializer syntax.
+class P {
+    public int x;
+    public int y;
+    public int P() { return 0; }
+}
+int foo(P p = new P{x:3, y:4}) { return p.x * 10 + p.y; }
+int main() {
+    return foo();   // expect 34
+}

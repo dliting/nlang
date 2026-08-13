@@ -1,0 +1,8 @@
+// Phase 9c audit round 5: empty string default.
+// String pool[0] is the sentinel for "null" — verify "" doesn't trip it.
+string foo(string s = "") { return s; }
+int main() {
+    string r = foo();
+    if (r == "") { return 7; }
+    return 1;
+}

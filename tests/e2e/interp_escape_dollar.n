@@ -1,0 +1,10 @@
+// Phase 9b: $$ escape -> literal $.
+// The expected "${name}" string is built via concatenation to avoid
+// ${...} being interpreted as interpolation in the expected literal.
+int main() {
+    string name = "ignored";
+    string s = "$${name}";
+    string expected = "$" + "{name}";
+    if (s == expected) return 7;
+    return 1;
+}

@@ -8,6 +8,8 @@
 #include "SnMisc.h"
 #include <list>
 #include <memory>
+#include <vector>
+#include <string>
 
 namespace nlang
 {
@@ -30,6 +32,14 @@ public:
 	void Init(PtrList<SnUsing>* pUsings, PtrList<SnField>* pFields,
 		const ISourceLocation &loc);
 
+	//Take ownership of the imports list (names of imported modules).
+	//Phase 9c cross-module infrastructure: parser collects `import "X";`
+	//statements at the top of the file and passes them here.
+	void SetImports(std::vector<std::string>* pImports)
+	{
+		m_upImports.reset(pImports);
+	}
+
 	//Get the source file path of this translation unit.
 	const std::string& FilePath() const
 	{
@@ -40,6 +50,12 @@ public:
 	UsingList *Usings() const
 	{
 		return m_upUsings.get();
+	}
+
+	//Get the imported module names (from `import "X";` statements).
+	const std::vector<std::string>& Imports() const
+	{
+		return *m_upImports;
 	}
 
 	SnNamespace *Root() const
@@ -54,6 +70,7 @@ public:
 
 private:
 	std::unique_ptr<UsingList> m_upUsings;
+	std::unique_ptr<std::vector<std::string>> m_upImports;
 	SnNamespace *m_pRoot;
 	const std::string m_sFilePath;
 };

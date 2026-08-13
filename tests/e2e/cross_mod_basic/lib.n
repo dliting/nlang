@@ -1,0 +1,7 @@
+//Phase 9c canary: library module imported by main.n.
+//Defines a single free function add(int, int). No main() — that's
+//reserved for the root module per Layer 6 policy in
+//CompiledModuleNodeBuilder.CheckNoMainFunction.
+int add(int a, int b) {
+	return a + b;
+}

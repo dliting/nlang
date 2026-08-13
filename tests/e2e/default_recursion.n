@@ -1,0 +1,10 @@
+// Phase 9c audit round 4: default referencing the function itself
+// (recursive default). Should compile; calling without explicit
+// arg would recurse at runtime. Caller passes explicit arg to avoid.
+int factorial(int n, int acc = 1) {
+    if (n <= 1) { return acc; }
+    return factorial(n - 1, acc * n);
+}
+int main() {
+    return factorial(5);   // expect 120
+}

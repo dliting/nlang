@@ -5,9 +5,37 @@
 #include "ExprResolver.h"
 #include "SnStatements.h"
 #include "SnData.h"
+#include <vector>
 
 namespace nlang
 {
+
+//Phase 9c round 5: walk an expression subtree looking for any
+//SnIdentifierExpr whose resolved Field() equals pTarget. Used by
+//StatementResolver.Access(SnFunction) to detect that a default
+//expression references a later formal parameter (which would
+//compile-resolve but crash codegen's FindLocal in caller context).
+//C++/C# likewise forbid forward references in default expressions.
+static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
+{
+	if (expr.Kind() == NK_IdentifierExpr) {
+		auto& id = static_cast<SnIdentifierExpr&>(expr);
+		if (id.Field() == pTarget)
+			return true;
+	}
+	for (auto& child : expr.Children()) {
+		//Children of an SnExpression are always SyntaxNode subclasses
+		//(SnExpression or SnFieldExpr in our case). IsExpression is on
+		//SyntaxNode, not Node — cast then check.
+		auto& synChild = static_cast<SyntaxNode&>(child);
+		if (!synChild.IsExpression())
+			continue;
+		auto& childExpr = static_cast<SnExpression&>(synChild);
+		if (ReferencesFormal(childExpr, pTarget))
+			return true;
+	}
+	return false;
+}
 
 class StatementResolveAccessor
 {
@@ -36,10 +64,94 @@ public:
 	void Access(SnFunction &sn)
 	{
 		assert(m_pVisitor);
+		m_pCurrType = &sn;
+
+		//Phase 9c: enforce the parameter count sanity ceiling at
+		//declaration time. The VM frame layout now sizes callParamBase
+		//dynamically per caller, so there is no fixed 8-slot cap.
+		//kMaxFuncParams is a sanity ceiling to prevent unreasonably
+		//large frames.
+		if (sn.Params().size() > kMaxFuncParams) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"function \"%s\" has %zu parameters; limit is %zu.",
+				sn.Name().c_str(),
+				sn.Params().size(),
+				kMaxFuncParams);
+		}
+
+		//Phase 9c: resolve formal param defaults in this function's scope.
+		//Earlier formals are in sn's local scope (as params) and become
+		//visible to later formals' defaults — e.g. `int b = a + 1` resolves
+		//`a` to formal[0]. Must run BEFORE body so default ASTs have their
+		//EvalDataType set when call sites are processed.
+		//
+		//Phase 9c round 5: also collect formals into a vector so we can
+		//detect forward references (default[i] referencing formal[j] with
+		//j >= i). ParamList exposes begin/end iterators but no operator[].
+		std::vector<SnFormalParam*> formals;
+		for (auto& fp : sn.Params())
+			formals.push_back(&fp);
+		for (size_t i = 0; i < formals.size(); ++i) {
+			auto *param = formals[i];
+			if (!param->Value())
+				continue;
+			if (!param->Value()->IsResolved())
+				m_ExprResolver.Resolve(*param->Value(), sn, sn, ERF_None);
+
+			//Phase 9c round 5: detect forward references in default
+			//expressions. Default[i] may only reference formals[0..i-1].
+			//A reference to formal[j] (j >= i) would compile-resolve but
+			//crash codegen (FindLocal throws in caller context). C++/C#
+			//also forbid this. Walk default[i]'s subtree for any
+			//IdentifierExpr whose Field() is formal[j] (j >= i).
+			if (param->Value()->IsResolved()) {
+				for (size_t j = i; j < formals.size(); ++j) {
+					auto *later_formal = formals[j];
+					if (ReferencesFormal(*param->Value(), later_formal)) {
+						m_Env.Log(CLL_Error,
+							param->Value()->Location(),
+							"default value for parameter \"%s\" references "
+							"later parameter \"%s\"; defaults may only "
+							"reference earlier parameters.",
+							param->Name().c_str(),
+							later_formal->Name().c_str());
+						break;  //one error per default[i]
+					}
+				}
+			}
+
+			//Verify default's type is compatible with the formal's
+			//declared type. Reporting at declaration gives clearer
+			//errors than at every call site that uses the default.
+			//Note: literals may already be IsResolved() from parse
+			//time, so the type check must run regardless.
+			//Option B: skip for imported stubs. The stub formal's type is a
+			//placeholder (int32) since CompiledFunction doesn't carry
+			//per-formal type info; only the default expression preserves
+			//the original type. R5-4 already skips call-site type checks
+			//for imported callees; this declaration-time check would
+			//falsely reject valid cross-module defaults like string/null.
+			if (param->Value()->IsResolved() && !sn.IsImported()) {
+				auto *pDefaultType = param->Value()->EvalDataType();
+				auto *pFormalType = param->EvalDataType();
+				if (pDefaultType && pFormalType) {
+					auto ci = GetCastInfo(pDefaultType, pFormalType);
+					if (ci.Kind() == TCK_None) {
+						m_Env.Log(CLL_Error,
+							param->Value()->Location(),
+							"default value for parameter \"%s\" has "
+							"incompatible type \"%s\"; expected \"%s\".",
+							param->Name().c_str(),
+							pDefaultType->ToString().c_str(),
+							pFormalType->ToString().c_str());
+					}
+				}
+			}
+		}
+
 		if (!sn.Body())
 			return;
 
-		m_pCurrType = &sn;
 		for (auto &stmt : sn.Body()->Statements())
 			stmt.Accept(*m_pVisitor);
 	}

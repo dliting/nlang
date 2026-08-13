@@ -648,6 +648,56 @@ this to a no-op (no opcode emitted).
 - `struct.toString()` / `"x" + structInstance` — permanently rejected
 
 
+### String Interpolation (Phase 9b)
+
+```
+string name = "world";
+string s = "Hello ${name}!";   // "Hello world!"
+```
+
+NLang supports `${identifier}` interpolation inside double-quoted string
+literals — the named variable's value is rendered via the same coercion
+paths as Phase 8e-9a (primitive → string) and Phase 9b-pre (collection
+`toString()`). The interpolation is implemented by scanning the literal
+content in the bison `TT_String` rule and constructing an `OP_Add` binary
+tree; no new opcode, resolver method, or codegen handler is introduced.
+
+**Syntax constraints** (MVP):
+
+- Only a single identifier is supported inside `${...}`. Complex
+  expressions like `${a + b}`, `${obj.method()}`, or `${this.x}` are
+  rejected at parse time. Use a separate variable: `int sum = a + b;
+  "result=${sum}"`.
+- `${name}` where `name` is not in scope produces a compile error ("undefined
+  identifier") at the resolver stage — the same path as any other undefined
+  identifier reference.
+- Empty `${}` and invalid identifier contents (e.g. `${123}`, `${a b}`)
+  produce a compile error.
+
+**Dollar escape**: `$$` produces a literal `$` in the resulting string.
+`$${name}` produces the literal text `${name}` (no interpolation). A lone
+`$` not followed by `$` or `{` is preserved as a literal `$`.
+
+```nlang
+string name = "x";
+string a = "$${name}";  // literal "${name}"
+string b = "price: $";  // literal "price: $"
+string c = "$$100";     // literal "$100"
+```
+
+**Type dispatch**: the identifier's resolved type determines the coercion
+applied automatically:
+
+| Identifier type | Coercion applied | Phase |
+|-----------------|------------------|-------|
+| `int` | `OP_Int32_to_str` | 8e-9a |
+| `float` | `OP_Float_to_str` | 8e-9a |
+| `string` | none | — |
+| `enum` | `OP_Enum_to_str` | 8e-9b |
+| `Array` | `OP_Array_to_str` | 9b-pre |
+| `List` / `Dict` | `OP_CallMethod "toString"` | 9b-pre |
+| `class` | `OP_CallMethod "toString"` | 8e-9b |
+
 ### Runtime-checked Cast (`as`)
 
 ```
@@ -907,6 +957,78 @@ int add(int a, int b) {
 - Return type: int, float, string, enum, struct (deep copy), class (reference)
 - Recursion: supported, with a depth limit (default 1000)
 
+### Default Parameters (Phase 9c)
+
+Function parameters may have default values. Defaults can appear at any
+position (not just trailing). A default expression may reference earlier
+formal parameters.
+
+```
+int foo(int a, int b = 0) { return a + b; }
+int foo(int a, int b = a + 1) { return b; }       // references earlier param
+int foo(int a, int b = 0, int c) { return c; }     // default not at end
+```
+
+- `foo(5)` → `b` gets default value
+- `foo(5, 10)` → `b` is 10, default not evaluated
+- Default expressions are evaluated at the call site (not at declaration)
+- Type mismatch between default expression and parameter type is a compile error
+
+### Named Arguments (Phase 9c)
+
+Arguments may be passed by name using `name = expr` syntax. Positional
+arguments must precede named arguments.
+
+```
+int foo(int a, int b) { return a * 10 + b; }
+foo(a = 5, b = 7);     // named, any order
+foo(5, b = 7);          // mixed: positional then named
+foo(b = 7, a = 5);      // named, reversed order
+```
+
+Errors:
+- `foo(b = 2, 1)` — positional after named: compile error
+- `foo(1, a = 2)` — duplicate binding for `a`: compile error
+- `foo(c = 1)` — unknown parameter name: compile error
+
+### Overload Resolution with Defaults (Phase 9c)
+
+When multiple overloads exist, the compiler selects the best match by
+computing a type-distance score. If two or more overloads match with equal
+distance, the call is ambiguous and a compile error is reported.
+
+```
+int foo(int a) { return 100; }
+int foo(int a, int b = 0) { return 200; }
+foo(5, 10);   // OK: second overload (2 args match 2 formals)
+foo(5);       // Error: ambiguous (both overloads accept 1 arg)
+```
+
+### Frame Layout (Phase 9c follow-up)
+
+Each function's local frame is sized dynamically based on its body:
+
+```
+[this?][params][returnSlot][temp1-4][callParamBase(N)][evalArea(peakDepth)][user locals...]
+```
+
+- **N** = max callee formal count (plus slot 0 for `this` on methods) observed
+  in this function's body. `callParamBase` is the final landing zone consumed
+  by `OP_CallFunc`/`OP_CallMethod`.
+- **peakDepth** = max simultaneous evalArea slot need across all call sites,
+  including nested calls (e.g. `foo(helper(5), helper(10))` needs 4 slots:
+  2 for `foo`'s args + 2 for the inner `helper` calls).
+
+The `evalArea` is a disjoint, stack-disciplined staging area. Each
+`EmitCallArgs` invocation claims a slice via the `EvalAreaClaim` RAII guard
+on entry and releases on exit. Bindings emit to the claimed slice; a
+bulk-copy loop then moves them to `callParamBase` just before the call.
+This means inner calls' bindings never overwrite outer calls' already-emitted
+bindings — fixing the pre-existing `callParamBase` nested-call clobber bug.
+
+A sanity ceiling of 64 formals (`kMaxFuncParams`) prevents unreasonably
+large frames; exceeding it is a declaration-time error.
+
 ## Memory Management
 
 ### Heap Layout
@@ -984,3 +1106,24 @@ or return a derived value that fits in the exit code range.
 - **Array of struct**: `Point[] arr; arr[0].x = 1` throws
   "struct field store out of bounds" — array elements are not
   materialized as struct instances. Use `List<struct>` as a workaround.
+- **Default parameters on imported functions**: cross-module imported
+  functions support **constant-foldable** defaults only — int / float /
+  string / null literals, plus single negation of int literals (`-5`).
+  Complex defaults (identifier references like `b = a`, function calls
+  like `b = helper()`, casts, binary expressions other than unary `-`,
+  `this.field` references) are rejected at the **consumer side** with a
+  compile error. Producers (the imported module) accept any default
+  expression; the restriction applies only when the consumer imports
+  the function. Workaround for complex cross-module defaults: write a
+  wrapper in the producer module that has only literal defaults, and
+  have the consumer call the wrapper.
+- **Default parameters on interface methods**: interface method
+  declarations (no body) do not have their defaults resolved. Callers
+  must supply all arguments.
+- **Method inheritance of defaults**: derived class overrides do not
+  inherit default values from the base class method. Each override
+  declares its own defaults independently.
+- **Parameter count ceiling**: functions with more than 64 parameters
+  (`kMaxFuncParams` sanity ceiling) trigger a compile-time error. The
+  frame layout is otherwise dynamic — callParamBase and evalArea are
+  sized per-function based on actual call patterns observed in the body.

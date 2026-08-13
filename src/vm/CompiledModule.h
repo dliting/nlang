@@ -14,6 +14,8 @@ static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;
 static constexpr uint8_t RTK_Array  = 5;
 static constexpr uint8_t RTK_Boxed  = 6;  //Phase 8e-1: boxed primitive (slot[0]=tag, slot[1]=value)
+static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
+static constexpr uint8_t RTK_Unfoldable = 0xFC;  //Option B: had default but not constant-foldable
 static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
 
 struct LocalDescriptor {
@@ -112,6 +114,28 @@ static constexpr uint16_t INTR_Dict_Keys        = 60;
 static constexpr uint16_t INTR_List_toString    = 62;
 static constexpr uint16_t INTR_Dict_toString    = 63;
 
+//Option B: per-formal default-value descriptor for cross-module import.
+//Tag determines which payload field is meaningful:
+//  RTK_Null   — null literal for any reference type (class/string/array). No payload.
+//  RTK_Int32  — intValue holds the int32 default.
+//  RTK_Float  — floatValue holds the float default.
+//  RTK_String — stringIdx is an index into the PRODUCER module's stringConstants.
+//               The consumer loader remaps this into its own string pool.
+//  RTK_Void   — sentinel: this formal has no default. Used to keep the vector
+//               dense (always == paramCount entries; entries without defaults
+//               carry RTK_Void so positional alignment is preserved).
+//
+//Constant-foldable negative int literals (`-5`) are folded at write time into
+//a single RTK_Int32 with negative intValue — no separate tag needed.
+struct DefaultValueDesc {
+    uint8_t  tag = RTK_Void;
+    uint32_t intValue = 0;     // RTK_Int32
+    float    floatValue = 0.0f;// RTK_Float
+    uint32_t stringIdx = 0;    // RTK_String (producer-side index)
+
+    bool hasDefault() const { return tag != RTK_Void; }
+};
+
 struct CompiledFunction {
     std::string name;
     std::vector<uint8_t> bytecode;
@@ -120,6 +144,10 @@ struct CompiledFunction {
     uint16_t paramCount = 0;
     uint16_t returnTypeKind = 0;
     uint16_t intrinsicId = INTR_None;    //INTR_None = normal bytecode, else VM intrinsic
+    //Option B: per-formal default values. Size == paramCount for free
+    //functions and constructors; for methods, size == paramCount-1 (the
+    //'this' slot has no default). Formals without defaults carry tag=RTK_Void.
+    std::vector<DefaultValueDesc> defaultValues;
 };
 
 struct CompiledModule;

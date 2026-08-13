@@ -1,0 +1,13 @@
+// Phase 9c: method default expression references this.field.
+// Verifies that `this` resolves correctly across multiple instances
+// when used inside a default-param expression. Pre-fix: callParamBase
+// clobber bug caused wrong instance's field to be read or runtime crash.
+class C {
+    public int x;
+    public int foo(int a = this.x) { return a; }
+}
+int main() {
+    C c1 = new C(); c1.x = 10;
+    C c2 = new C(); c2.x = 20;
+    return c1.foo() + c2.foo();
+}

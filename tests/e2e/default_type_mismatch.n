@@ -1,0 +1,4 @@
+// Phase 9c: default value type mismatch must compile-error.
+int foo(int a, int b = "x") { return a + b; }
+
+int main() { return foo(5); }

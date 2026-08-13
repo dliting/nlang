@@ -14,6 +14,7 @@
 #include <iostream>
 #include <functional>
 #include <map>
+#include <unordered_set>
 
 namespace nlang {
 
@@ -39,12 +40,20 @@ void VmBackend::GenerateData(SnNamespace& root) {
 
 void VmBackend::GenerateStatements(SnNamespace& root) {
     RegisterBuiltinClasses();
+    //Phase 9c cross-module: Phase A merges imported classes/structs/arrayTypes
+    //(and builds stringMap) BEFORE user RegisterStructs/Classes/ArrayTypes run,
+    //so their internal FindClass/FindStruct/FindArray queries find imported types.
+    MergeImportedClassesStructsArrays();
     RegisterStructs(root);
     RegisterClasses(root);
     ResolveStructClassRefs();
     RegisterArrayTypes(root);
     RegisterEnums(root);
     RegisterFunctions(root);
+    //Phase 9c cross-module: Phase B merges imported enums/functions/bytecode
+    //AFTER RegisterEnums/RegisterFunctions (their clear() would erase Phase B
+    //data if it ran earlier), and completes class metadata remap.
+    MergeImportedFinalize();
     PopulateClassMethods(root);
     GenerateAllBytecode(root);
 }
@@ -340,12 +349,15 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
         m_structFieldTypeNames.push_back(std::move(typeNames));
     };
     for (auto& member : root.Members()) {
-        if (member.Kind() == NK_StructDecl)
+        if (member.Kind() == NK_StructDecl) {
+            if (member.IsImported()) continue;  //Phase 9c R3-F: skip stubs
             registerStruct(static_cast<SnStructDecl&>(member));
-        else if (CanBeFuncParentEx(member.Kind())) {
+        } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_StructDecl)
+                if (child.Kind() == NK_StructDecl) {
+                    if (child.IsImported()) continue;  //Phase 9c R3-F
                     registerStruct(static_cast<SnStructDecl&>(child));
+                }
             }
         }
     }
@@ -413,12 +425,15 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
         m_compiledModule.classes.push_back(std::move(cc));
     };
     for (auto& member : root.Members()) {
-        if (member.Kind() == NK_ClassDecl)
+        if (member.Kind() == NK_ClassDecl) {
+            if (member.IsImported()) continue;  //Phase 9c R3-F: skip stubs
             registerClass(static_cast<SnClassDecl&>(member));
-        else if (CanBeFuncParentEx(member.Kind())) {
+        } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_ClassDecl)
+                if (child.Kind() == NK_ClassDecl) {
+                    if (child.IsImported()) continue;  //Phase 9c R3-F
                     registerClass(static_cast<SnClassDecl&>(child));
+                }
             }
         }
     }
@@ -559,6 +574,7 @@ void VmBackend::RegisterArrayTypes(SnNamespace& root) {
         }
     };
     std::function<void(SyntaxNode&)> walkNode = [&](SyntaxNode& n) {
+        if (n.IsImported()) return;  //Phase 9c R3-F: skip stub trees
         if (n.Kind() == NK_StructDecl) {
             for (auto& member : static_cast<SnStructDecl&>(n).Members())
                 walkField(member);
@@ -610,12 +626,15 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
         m_enumIndexMap[&sn] = defIdx;
     };
     for (auto& member : root.Members()) {
-        if (member.Kind() == NK_EnumDecl)
+        if (member.Kind() == NK_EnumDecl) {
+            if (member.IsImported()) continue;  //Phase 9c R3-F: skip stubs
             registerEnum(static_cast<SnEnumDecl&>(member));
-        else if (CanBeFuncParentEx(member.Kind())) {
+        } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_EnumDecl)
+                if (child.Kind() == NK_EnumDecl) {
+                    if (child.IsImported()) continue;  //Phase 9c R3-F
                     registerEnum(static_cast<SnEnumDecl&>(child));
+                }
             }
         }
     }
@@ -651,6 +670,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
 void VmBackend::PopulateClassMethods(SnNamespace& root) {
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_ClassDecl) {
+            if (member.IsImported()) continue;  //Phase 9c R6-1: stub has no AST methods; merged cc.methodIndices from Phase B must be preserved
             auto& sn = static_cast<SnClassDecl&>(member);
             int ccIdx = m_compiledModule.FindClass(sn.Name());
             if (ccIdx < 0) continue;
@@ -696,7 +716,317 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
     }
 }
 
-//Map compile-time type kind to runtime type kind.
+//Phase 9c cross-module: returns the total byte size of an instruction
+//(opcode + all operands). Used by RemapBytecode to walk a bytecode buffer.
+//All operands are uint16 (2 bytes) except OP_Box/OP_Unbox (1-byte tag),
+//OP_ConstInt32/OP_ConstFloat/OP_Jump (4 / 4 / 2-byte immediate), and
+//OP_JumpIfNot (2 + 2 = 4). The 11 remap-relevant opcodes are tagged in
+//the second switch below.
+static size_t InstructionStride(OpCode op) {
+    switch (op) {
+        case OpCode::OP_Return:
+        case OpCode::OP_Stop:
+        case OpCode::OP_ConstZero:
+        case OpCode::OP_CastIntToFloat:
+        case OpCode::OP_CastFloatToInt:
+        case OpCode::OP_Int32_to_str:
+        case OpCode::OP_Float_to_str:
+        case OpCode::OP_Array_to_str:
+        case OpCode::OP_ParaEnd:
+            return 1;  // no operands
+        case OpCode::OP_Box:
+        case OpCode::OP_Unbox:
+            return 1 + 1;  // uint8 tag
+        case OpCode::OP_Jump:
+        case OpCode::OP_Case:
+            return 1 + 2;  // int16 / uint16
+        case OpCode::OP_ConstInt32:
+        case OpCode::OP_ConstFloat:
+            return 1 + 4;
+        case OpCode::OP_ConstString:
+        case OpCode::OP_AssertFail:
+        case OpCode::OP_VarLocal:
+        case OpCode::OP_Assign:
+        case OpCode::OP_Enum_to_str:
+        case OpCode::OP_Neg_i32:
+        case OpCode::OP_Neg_f32:
+        case OpCode::OP_LogicalNot:
+        case OpCode::OP_Switch:
+        case OpCode::OP_DebugInfo:
+        case OpCode::OP_NullCheck:
+        case OpCode::OP_CheckCast:
+            return 1 + 2;  // one uint16 operand
+        case OpCode::OP_JumpIfNot:
+        case OpCode::OP_Add_i32:
+        case OpCode::OP_Sub_i32:
+        case OpCode::OP_Mul_i32:
+        case OpCode::OP_Div_i32:
+        case OpCode::OP_Mod_i32:
+        case OpCode::OP_Add_f32:
+        case OpCode::OP_Sub_f32:
+        case OpCode::OP_Mul_f32:
+        case OpCode::OP_Div_f32:
+        case OpCode::OP_Less_i32:
+        case OpCode::OP_LessEqual_i32:
+        case OpCode::OP_Greater_i32:
+        case OpCode::OP_GreaterEqual_i32:
+        case OpCode::OP_Equal_i32:
+        case OpCode::OP_NotEqual_i32:
+        case OpCode::OP_Less_f32:
+        case OpCode::OP_LessEqual_f32:
+        case OpCode::OP_Greater_f32:
+        case OpCode::OP_GreaterEqual_f32:
+        case OpCode::OP_Equal_f32:
+        case OpCode::OP_NotEqual_f32:
+        case OpCode::OP_LogicalAnd:
+        case OpCode::OP_LogicalOr:
+        case OpCode::OP_Concat_str:
+        case OpCode::OP_Eq_str:
+        case OpCode::OP_Ne_str:
+        case OpCode::OP_StrLen:
+        case OpCode::OP_CallFunc:
+        case OpCode::OP_CallMethod:
+        case OpCode::OP_CallMethodDirect:
+        case OpCode::OP_CallIntrinsic:
+        case OpCode::OP_New:
+        case OpCode::OP_ArrayLength:
+            return 1 + 2 + 2;  // two uint16 operands
+        case OpCode::OP_AllocStruct:
+        case OpCode::OP_LoadField:
+        case OpCode::OP_StoreField:
+        case OpCode::OP_CopyStruct:
+        case OpCode::OP_AllocArray:
+        case OpCode::OP_LoadElement:
+        case OpCode::OP_StoreElement:
+            return 1 + 2 + 2 + 2;  // three uint16 operands
+        default:
+            //Unknown opcode — should never happen. Returning 1 lets the
+            //walker make progress (likely produces garbage but doesn't
+            //loop forever); the merged module will fail at runtime.
+            assert(false && "unknown opcode in RemapBytecode");
+            return 1;
+    }
+}
+
+//Phase 9c cross-module: walk bytecode and patch the 11 cross-module-indexed
+//operand kinds (see cross-module-import-infrastructure.md Layer 4 table).
+//Other operands (local offsets, jump targets, intrinsic IDs, type tags,
+//debug line numbers) are module-local and do not need remapping.
+void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm) {
+    size_t pos = 0;
+    auto patchU16 = [&bc](size_t off, const std::unordered_map<uint32_t, uint32_t>& m) {
+        uint16_t oldv = static_cast<uint16_t>(bc[off])
+                      | (static_cast<uint16_t>(bc[off + 1]) << 8);
+        auto it = m.find(oldv);
+        if (it == m.end())
+            return;  // not in the remap table — leave as-is (best effort)
+        uint16_t newv = static_cast<uint16_t>(it->second);
+        bc[off]     = static_cast<uint8_t>(newv & 0xFF);
+        bc[off + 1] = static_cast<uint8_t>((newv >> 8) & 0xFF);
+    };
+    while (pos < bc.size()) {
+        OpCode op = static_cast<OpCode>(bc[pos]);
+        switch (op) {
+            case OpCode::OP_ConstString:
+            case OpCode::OP_AssertFail:
+            case OpCode::OP_CallMethod:
+                patchU16(pos + 1, pm.stringMap);
+                break;
+            case OpCode::OP_CallFunc:
+            case OpCode::OP_CallMethodDirect:
+                patchU16(pos + 1, pm.functionMap);
+                break;
+            case OpCode::OP_New:
+            case OpCode::OP_CheckCast:
+                patchU16(pos + 1, pm.classMap);
+                break;
+            case OpCode::OP_AllocStruct:
+                patchU16(pos + 1, pm.structMap);
+                break;
+            case OpCode::OP_CopyStruct:
+                // dst, src, structIdx — third operand
+                patchU16(pos + 5, pm.structMap);
+                break;
+            case OpCode::OP_AllocArray:
+                patchU16(pos + 1, pm.arrayTypeMap);
+                break;
+            case OpCode::OP_Enum_to_str:
+                patchU16(pos + 1, pm.enumMap);
+                break;
+            default:
+                break;
+        }
+        pos += InstructionStride(op);
+    }
+}
+
+//Phase 9c cross-module Phase A.
+//Push imported strings/classes/structs/arrayTypes into m_compiledModule,
+//build per-module remap tables (stringMap/classMap/structMap/arrayTypeMap),
+//and apply partial metadata remap (superClassIdx + fieldClassIndices +
+//fieldStructIndices for classes; fieldClassIndices + fieldStructIndices
+//for structs; elemTypeIdx for arrayTypes). methodIndices/constructorIdx
+//are deferred to Phase B (needs functionMap).
+void VmBackend::MergeImportedClassesStructsArrays() {
+    m_importRemaps.clear();
+    m_importRemaps.reserve(m_importedModules.size());
+
+    //Stage A.1: per-module build stringMap + classMap/structMap/arrayTypeMap
+    //by pushing (deduped) entries into m_compiledModule.
+    for (auto& im : m_importedModules) {
+        PerModuleRemap pm;
+
+        for (uint32_t i = 0; i < im.stringConstants.size(); ++i)
+            pm.stringMap[i] = AddStringConstant(im.stringConstants[i]);
+
+        for (uint32_t i = 0; i < im.classes.size(); ++i) {
+            int existing = m_compiledModule.FindClass(im.classes[i].name);
+            if (existing >= 0) {
+                pm.classMap[i] = static_cast<uint32_t>(existing);
+                continue;  // dedup to existing (e.g. user Object / built-in)
+            }
+            pm.classMap[i] = m_compiledModule.classes.size();
+            m_compiledModule.classes.push_back(im.classes[i]);
+            pm.classWasPushed.insert(i);
+        }
+
+        for (uint32_t i = 0; i < im.structs.size(); ++i) {
+            int existing = m_compiledModule.FindStruct(im.structs[i].name);
+            if (existing >= 0) {
+                pm.structMap[i] = static_cast<uint32_t>(existing);
+                continue;
+            }
+            pm.structMap[i] = m_compiledModule.structs.size();
+            m_compiledModule.structs.push_back(im.structs[i]);
+            //Push empty typeNames to keep m_structFieldTypeNames parallel
+            //with m_compiledModule.structs. ResolveStructClassRefs' inner
+            //loop iterates typeNames[i].size() so empty → no-op.
+            m_structFieldTypeNames.push_back({});
+            pm.structWasPushed.insert(i);
+        }
+
+        for (uint32_t i = 0; i < im.arrayTypes.size(); ++i) {
+            //Push without dedup — RegisterArrayTypes' FindArray will dedup
+            //when user code references the same type. Multiple identical
+            //entries here are harmless (just slightly wasteful).
+            pm.arrayTypeMap[i] = m_compiledModule.arrayTypes.size();
+            m_compiledModule.arrayTypes.push_back(im.arrayTypes[i]);
+        }
+
+        m_importRemaps.push_back(std::move(pm));
+    }
+
+    //Stage A.2: partial metadata remap on pushed entries only (R8-1).
+    for (size_t m = 0; m < m_importedModules.size(); ++m) {
+        auto& im = m_importedModules[m];
+        auto& pm = m_importRemaps[m];
+
+        for (uint32_t i = 0; i < im.classes.size(); ++i) {
+            if (pm.classWasPushed.find(i) == pm.classWasPushed.end()) continue;
+            uint32_t targetIdx = pm.classMap[i];
+            auto& cc = m_compiledModule.classes[targetIdx];
+            if (cc.superClassIdx >= 0) {
+                auto it = pm.classMap.find(static_cast<uint32_t>(cc.superClassIdx));
+                if (it != pm.classMap.end())
+                    cc.superClassIdx = static_cast<int16_t>(it->second);
+            }
+            for (auto& idx : cc.fieldStructIndices)
+                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
+            for (auto& idx : cc.fieldClassIndices)
+                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
+        }
+
+        for (uint32_t i = 0; i < im.structs.size(); ++i) {
+            if (pm.structWasPushed.find(i) == pm.structWasPushed.end()) continue;
+            uint32_t targetIdx = pm.structMap[i];
+            auto& cs = m_compiledModule.structs[targetIdx];
+            for (auto& idx : cs.fieldStructIndices)
+                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
+            for (auto& idx : cs.fieldClassIndices)
+                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
+        }
+
+        for (uint32_t i = 0; i < im.arrayTypes.size(); ++i) {
+            uint32_t targetIdx = pm.arrayTypeMap[i];
+            auto& at = m_compiledModule.arrayTypes[targetIdx];
+            if (at.elemTypeIdx == 0xFFFF) continue;
+            if (at.elemKind == RTK_Struct)
+                at.elemTypeIdx = static_cast<uint16_t>(pm.structMap.at(at.elemTypeIdx));
+            else if (at.elemKind == RTK_Class)
+                at.elemTypeIdx = static_cast<uint16_t>(pm.classMap.at(at.elemTypeIdx));
+        }
+    }
+}
+
+//Phase 9c cross-module Phase B.
+//Push imported enumNames + function placeholders, copy + remap bytecode,
+//complete class metadata (methodIndices + constructorIdx), and fill
+//m_funcIndexMap[stub] via m_importedFuncSourceIdx side-table.
+void VmBackend::MergeImportedFinalize() {
+    //Stage B.1: build enumMap + functionMap by pushing placeholders.
+    for (size_t m = 0; m < m_importedModules.size(); ++m) {
+        auto& im = m_importedModules[m];
+        auto& pm = m_importRemaps[m];
+
+        for (uint32_t i = 0; i < im.enumNames.size(); ++i) {
+            pm.enumMap[i] = m_compiledModule.enumNames.size();
+            m_compiledModule.enumNames.push_back(im.enumNames[i]);
+        }
+
+        for (uint32_t i = 0; i < im.functions.size(); ++i) {
+            pm.functionMap[i] = m_compiledModule.functions.size();
+            CompiledFunction placeholder;
+            placeholder.name = im.functions[i].name;
+            placeholder.paramCount = im.functions[i].paramCount;
+            placeholder.localsSize = im.functions[i].localsSize;
+            placeholder.returnTypeKind = im.functions[i].returnTypeKind;
+            placeholder.intrinsicId = im.functions[i].intrinsicId;
+            //bytecode filled in stage B.2
+            m_compiledModule.functions.push_back(std::move(placeholder));
+        }
+    }
+
+    //Stage B.2: copy + remap bytecode into each placeholder.
+    for (size_t m = 0; m < m_importedModules.size(); ++m) {
+        auto& im = m_importedModules[m];
+        auto& pm = m_importRemaps[m];
+        for (uint32_t i = 0; i < im.functions.size(); ++i) {
+            std::vector<uint8_t> bcCopy = im.functions[i].bytecode;
+            RemapBytecode(bcCopy, pm);
+            uint32_t targetIdx = pm.functionMap[i];
+            m_compiledModule.functions[targetIdx].bytecode = std::move(bcCopy);
+        }
+    }
+
+    //Stage B.3: complete class metadata remap (methodIndices + constructorIdx).
+    for (size_t m = 0; m < m_importedModules.size(); ++m) {
+        auto& im = m_importedModules[m];
+        auto& pm = m_importRemaps[m];
+        for (uint32_t i = 0; i < im.classes.size(); ++i) {
+            if (pm.classWasPushed.find(i) == pm.classWasPushed.end()) continue;
+            uint32_t targetIdx = pm.classMap[i];
+            auto& cc = m_compiledModule.classes[targetIdx];
+            for (auto& idx : cc.methodIndices)
+                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.functionMap.at(idx));
+            if (cc.constructorIdx != 0xFFFF)
+                cc.constructorIdx = static_cast<uint16_t>(pm.functionMap.at(cc.constructorIdx));
+        }
+    }
+
+    //Stage B.4: fill m_funcIndexMap[stub] for user-codegen lookup (R3-C).
+    for (auto& kv : m_importedFuncSourceIdx) {
+        SnFunction* stub = kv.first;
+        uint32_t srcModIdx = kv.second.first;
+        uint32_t srcFuncIdx = kv.second.second;
+        if (srcModIdx >= m_importRemaps.size()) continue;
+        auto& pm = m_importRemaps[srcModIdx];
+        auto it = pm.functionMap.find(srcFuncIdx);
+        if (it == pm.functionMap.end()) continue;
+        m_funcIndexMap[stub] = it->second;
+    }
+}
+
+
 //Enum types are int32 at runtime. Struct types use RTK_Struct.
 //Array types are detected via SnField::IsArrayType() (overridden by
 //SnArrayTypeExpr to return true), not via the resolved element type.
@@ -708,6 +1038,73 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     if (k == NK_StructDecl) return RTK_Struct;
     if (k == NK_ClassDecl) return RTK_Class;
     return static_cast<uint8_t>(k);
+}
+
+//Option B Step 3: extract a constant-foldable default expression into a
+//DefaultValueDesc suitable for serialization. Accepts:
+//  - null literal (NF_NullLiteral SnLiteralExpr) → RTK_Null, no payload
+//  - SnLiteralExpr with NK_Int32 kind                 → RTK_Int32
+//  - SnLiteralExpr with NK_Float kind                 → RTK_Float
+//  - SnLiteralExpr with NK_String kind                → RTK_String (pool idx)
+//  - SnBinaryExpr(OP_Neg, SnLiteralExpr NK_Int32)     → RTK_Int32 (negative)
+//Anything else (identifier ref, function call, cast, member access, etc.)
+//returns RTK_Void — caller-side (Step 5 declaration check) rejects this
+//for IsImported functions. In-module callers don't consult this vector
+//at all, so a RTK_Void entry is harmless for them.
+DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr) {
+    DefaultValueDesc dv;  // tag defaults to RTK_Void
+    if (!pExpr) return dv;  // no default expression
+
+    //Direct literal.
+    if (pExpr->Kind() == NK_LiteralExpr) {
+        auto* lit = static_cast<SnLiteralExpr*>(pExpr);
+        //Null literal: stamped with NF_NullLiteral by KT_Null rule.
+        if (lit->ContainFlags(NF_NullLiteral)) {
+            dv.tag = RTK_Null;
+            return dv;
+        }
+        //Type-driven literal dispatch. SnLiteralExpr's Variant Type()
+        //points at the RnDataType — match pointer identity against the
+        //global singletons (RnInt32/RnFloat/RnString).
+        auto* litType = lit->Value().Type();
+        if (litType == RnInt32::Instance()) {
+            dv.tag = RTK_Int32;
+            dv.intValue = static_cast<uint32_t>(
+                lit->Value().Data().m_Int);
+            return dv;
+        }
+        if (litType == RnFloat::Instance()) {
+            dv.tag = RTK_Float;
+            dv.floatValue = lit->Value().Data().m_Float;
+            return dv;
+        }
+        if (litType == RnString::Instance()) {
+            dv.tag = RTK_String;
+            //Intern into producer's pool. Consumer remaps during load.
+            auto* sPtr = lit->Value().Data().m_String;
+            dv.stringIdx = AddStringConstant(sPtr ? *sPtr : std::string());
+            return dv;
+        }
+        return dv;  //unknown literal type — not foldable
+    }
+
+    //Unary negation of int literal: `-5` parses as OP_Neg over literal 5.
+    if (pExpr->Kind() == NK_BinaryExpr) {
+        auto* bin = static_cast<SnBinaryExpr*>(pExpr);
+        if (bin->Op() == SnBinaryExpr::OP_Neg
+            && bin->Left() && bin->Left()->Kind() == NK_LiteralExpr) {
+            auto* lit = static_cast<SnLiteralExpr*>(bin->Left());
+            if (lit->Value().Type() == RnInt32::Instance()) {
+                dv.tag = RTK_Int32;
+                int32_t neg = -lit->Value().Data().m_Int;
+                dv.intValue = static_cast<uint32_t>(neg);
+                return dv;
+            }
+        }
+        return dv;  //other binary exprs not supported in MVP
+    }
+
+    return dv;  //non-literal, non-foldable
 }
 
 //Phase 8e-4: returns the RTK_* boxing tag for a generic type argument,
@@ -826,6 +1223,450 @@ uint16_t VmBackend::AddStringConstant(const std::string& s) {
     return static_cast<uint16_t>(pool.size() - 1);
 }
 
+//Phase 9c follow-up: compute per-function call slot statistics for
+//dynamic frame sizing. Returns {maxArgs, peakDepth} where:
+//  maxArgs   = max callee formal count (+1 for method `this`) across all
+//              InvokeExpr in the function body. Determines callParamBase size.
+//  peakDepth = max simultaneous evalArea slot need across all call sites.
+//              Determines evalArea size. Computed as the maximum over all
+//              InvokeExpr of: claimSize + max(peakDepth of arg sub-exprs,
+//              peakDepth of callee default expressions).
+struct CallSlotStats { uint16_t maxArgs; uint16_t peakDepth; };
+
+//Forward declarations for the recursive walkers.
+static uint16_t ExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited,
+    bool isMethodContext = false);
+static uint16_t StmtPeakDepth(SnStatement& stmt,
+    const std::unordered_set<SnFunction*>& visited);
+
+//isMethodContext=true when the InvokeExpr is the Inner() of a MemberExpr
+//(i.e. a method call shape `receiver.method(...)`). This is the ONLY
+//reliable way to detect method calls — callee->Parent() is null for
+//built-in methods (List.add, Dict.set, ToString, etc.), which would
+//cause the walker to underreserve evalArea slots and EmitCallArgs
+//(called with slotBase=1 from the MemberExpr handler) would overflow
+//into user variable space.
+static uint16_t ExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited,
+    bool isMethodContext) {
+    NodeKind kind = expr.Kind();
+    if (kind == NK_InvokeExpr) {
+        auto& invoke = static_cast<SnInvokeExpr&>(expr);
+        auto* callee = invoke.Callee();
+        size_t formalCount = callee ? callee->Params().size() : 0;
+        if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
+        //Method call (slotBase=1) when caller signals method context,
+        //OR when callee is resolved to a method (Parent is class/struct/
+        //interface). The method-context flag is authoritative for
+        //built-in method calls where callee is null.
+        bool isMethod = isMethodContext || (callee && callee->Parent()
+            && (callee->Parent()->Kind() == NK_ClassDecl
+                || callee->Parent()->Kind() == NK_StructDecl
+                || callee->Parent()->Kind() == NK_InterfaceDecl));
+        size_t slotBase = isMethod ? 1 : 0;
+        size_t claimSize = formalCount + slotBase;
+
+        //Peak depth of argument sub-expressions.
+        uint16_t argDepth = 0;
+        for (auto& param : invoke.Params()) {
+            uint16_t d = ExprPeakDepth(param, visited);
+            if (d > argDepth) argDepth = d;
+        }
+
+        //Peak depth of callee's default expressions (evaluated in caller frame).
+        uint16_t defaultDepth = 0;
+        if (callee && visited.find(callee) == visited.end()) {
+            auto visitedPlus = visited;
+            visitedPlus.insert(callee);
+            for (auto& formal : callee->Params()) {
+                if (formal.Value()) {
+                    uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
+                    if (d > defaultDepth) defaultDepth = d;
+                }
+            }
+        }
+
+        return static_cast<uint16_t>(claimSize) +
+            (argDepth > defaultDepth ? argDepth : defaultDepth);
+    }
+    //Non-invoke expressions: recurse into children.
+    //UnaryExpr: NLang uses NK_BinaryExpr for both binary and unary.
+    //Unary ops (OP_Neg, OP_LogicalNot) have Right()==nullptr.
+    if (kind == NK_BinaryExpr) {
+        auto& bin = static_cast<SnBinaryExpr&>(expr);
+        uint16_t l = ExprPeakDepth(*bin.Left(), visited);
+        if (bin.Right()) {
+            uint16_t r = ExprPeakDepth(*bin.Right(), visited);
+            return l > r ? l : r;
+        }
+        return l;
+    }
+    //CastExpr
+    if (kind == NK_CastExpr) {
+        auto& cast = static_cast<SnCastExpr&>(expr);
+        return ExprPeakDepth(*cast.Source(), visited);
+    }
+    //AsExpr (expr as T)
+    if (kind == NK_AsExpr) {
+        auto& as = static_cast<SnAsExpr&>(expr);
+        return ExprPeakDepth(*as.Operand(), visited);
+    }
+    //NamedArgExpr
+    if (kind == NK_NamedArgExpr) {
+        auto& named = static_cast<SnNamedArgExpr&>(expr);
+        return ExprPeakDepth(*named.Inner(), visited);
+    }
+    //SubscriptExpr
+    if (kind == NK_SubscriptExpr) {
+        auto& sub = static_cast<SnSubscriptExpr&>(expr);
+        uint16_t a = ExprPeakDepth(*sub.Array(), visited);
+        uint16_t i = ExprPeakDepth(*sub.Index(), visited);
+        return a > i ? a : i;
+    }
+    //MemberExpr (field access: outer.inner)
+    if (kind == NK_MemberExpr) {
+        auto& member = static_cast<SnMemberExpr&>(expr);
+        uint16_t d = ExprPeakDepth(*member.Outer(), visited, false);
+        //If Inner is an InvokeExpr, this is a method call shape — pass
+        //isMethodContext=true so the walker reserves slot 0 for `this`.
+        uint16_t id = (member.Inner()
+            && member.Inner()->Kind() == NK_InvokeExpr)
+            ? ExprPeakDepth(*member.Inner(), visited, true)
+            : ExprPeakDepth(*member.Inner(), visited, false);
+        return d > id ? d : id;
+    }
+    //NewExpr
+    //claimSize = 1 (this) + argCount, mirroring the codegen path which
+    //claims an evalArea slice for {this, args...} then bulk-copies to
+    //callParamBase before OP_CallMethodDirect. Conservative: claims even
+    //when no ctor exists (alloc-only NewExpr doesn't need the slice, but
+    //over-reserving by 1 slot is safe and rare).
+    if (kind == NK_NewExpr) {
+        auto& newExpr = static_cast<SnNewExpr&>(expr);
+        size_t argCount = 0;
+        for (auto& arg : newExpr.Args()) {
+            if (arg.Kind() != NK_NameExpr) ++argCount;
+        }
+        uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
+        uint16_t d = 0;
+        for (auto& arg : newExpr.Args()) {
+            uint16_t ad = ExprPeakDepth(arg, visited, false);
+            if (ad > d) d = ad;
+        }
+        return claimSize + d;
+    }
+    //NewArrayExpr
+    if (kind == NK_NewArrayExpr) {
+        auto& na = static_cast<SnNewArrayExpr&>(expr);
+        return ExprPeakDepth(*na.Size(), visited);
+    }
+    //InitListExpr
+    //Phase 9c follow-up: mirror the codegen's claim pattern.
+    //  - Dict form: per-entry EvalAreaClaim(3) [this, key, value]
+    //  - List/Array/Struct/Class forms: no claim (use temp slots)
+    if (kind == NK_InitListExpr) {
+        auto& init = static_cast<SnInitListExpr&>(expr);
+        SnField* pTarget = init.EvalDataType();
+        uint16_t claimSize = 0;
+        if (pTarget && pTarget->Kind() == NK_ClassDecl) {
+            auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
+            const std::string& baseName = pClassDecl->BaseName();
+            if (baseName == "Dict") claimSize = 3;
+        }
+        uint16_t maxChild = 0;
+        for (auto& entry : init.Entries()) {
+            if (entry.pValue) {
+                uint16_t cd = ExprPeakDepth(*entry.pValue, visited);
+                if (cd > maxChild) maxChild = cd;
+            }
+        }
+        return claimSize + maxChild;
+    }
+    //Leaf expressions (LiteralExpr, IdentifierExpr, ThisExpr, etc.)
+    return 0;
+}
+
+static uint16_t StmtPeakDepth(SnStatement& stmt,
+    const std::unordered_set<SnFunction*>& visited) {
+    NodeKind kind = stmt.Kind();
+    if (kind == NK_Paragraph) {
+        auto& para = static_cast<SnParagraph&>(stmt);
+        uint16_t d = 0;
+        for (auto& child : para.Statements()) {
+            uint16_t cd = StmtPeakDepth(child, visited);
+            if (cd > d) d = cd;
+        }
+        return d;
+    }
+    if (kind == NK_ReturnStmt) {
+        auto& ret = static_cast<SnReturnStmt&>(stmt);
+        return ret.Result() ? ExprPeakDepth(*ret.Result(), visited) : 0;
+    }
+    if (kind == NK_InvokeStmt) {
+        auto& invoke = static_cast<SnInvokeStmt&>(stmt);
+        return ExprPeakDepth(*invoke.Expr(), visited);
+    }
+    if (kind == NK_LocalDeclStmt) {
+        auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
+        //Initializer is handled by a subsequent AssignStmt.
+        return 0;
+    }
+    if (kind == NK_AssignStmt) {
+        auto& assign = static_cast<SnAssignStmt&>(stmt);
+        return assign.Right() ? ExprPeakDepth(*assign.Right(), visited) : 0;
+    }
+    if (kind == NK_IfStmt) {
+        auto& ifStmt = static_cast<SnIfStmt&>(stmt);
+        uint16_t d = ExprPeakDepth(*ifStmt.Cond(), visited);
+        if (ifStmt.ThenStmt()) {
+            uint16_t td = StmtPeakDepth(*ifStmt.ThenStmt(), visited);
+            if (td > d) d = td;
+        }
+        if (ifStmt.ElseStmt()) {
+            uint16_t ed = StmtPeakDepth(*ifStmt.ElseStmt(), visited);
+            if (ed > d) d = ed;
+        }
+        return d;
+    }
+    if (kind == NK_WhileStmt) {
+        auto& whileStmt = static_cast<SnWhileStmt&>(stmt);
+        uint16_t d = ExprPeakDepth(*whileStmt.Cond(), visited);
+        if (whileStmt.Body()) {
+            uint16_t bd = StmtPeakDepth(*whileStmt.Body(), visited);
+            if (bd > d) d = bd;
+        }
+        return d;
+    }
+    if (kind == NK_DoStmt) {
+        auto& dw = static_cast<SnDoStmt&>(stmt);
+        uint16_t d = ExprPeakDepth(*dw.Cond(), visited);
+        if (dw.Body()) {
+            uint16_t bd = StmtPeakDepth(*dw.Body(), visited);
+            if (bd > d) d = bd;
+        }
+        return d;
+    }
+    if (kind == NK_ForStmt) {
+        auto& forStmt = static_cast<SnForStmt&>(stmt);
+        uint16_t d = 0;
+        if (forStmt.Init()) { uint16_t id = StmtPeakDepth(*forStmt.Init(), visited); if (id > d) d = id; }
+        if (forStmt.Cond()) { uint16_t cd = ExprPeakDepth(*forStmt.Cond(), visited); if (cd > d) d = cd; }
+        if (forStmt.Fini()) { uint16_t fd = StmtPeakDepth(*forStmt.Fini(), visited); if (fd > d) d = fd; }
+        if (forStmt.Body()) { uint16_t bd = StmtPeakDepth(*forStmt.Body(), visited); if (bd > d) d = bd; }
+        return d;
+    }
+    if (kind == NK_SwitchStmt) {
+        auto& sw = static_cast<SnSwitchStmt&>(stmt);
+        uint16_t d = ExprPeakDepth(*sw.Cond(), visited);
+        for (auto* c : sw.Cases()) {
+            //SnCaseClause inherits SyntaxNode, not SnStatement — inline the walk.
+            if (c->Cond()) {
+                uint16_t cd = ExprPeakDepth(*c->Cond(), visited);
+                if (cd > d) d = cd;
+            }
+            if (c->Body()) {
+                for (auto& s : c->Body()->Statements()) {
+                    uint16_t sd = StmtPeakDepth(s, visited);
+                    if (sd > d) d = sd;
+                }
+            }
+        }
+        return d;
+    }
+    if (kind == NK_ForeachStmt) {
+        auto& fe = static_cast<SnForeachStmt&>(stmt);
+        uint16_t d = ExprPeakDepth(*fe.Iterable(), visited);
+        if (fe.Body()) {
+            uint16_t bd = StmtPeakDepth(*fe.Body(), visited);
+            if (bd > d) d = bd;
+        }
+        return d;
+    }
+    if (kind == NK_BreakStmt || kind == NK_ContinueStmt) {
+        return 0;
+    }
+    if (kind == NK_AssertStmt) {
+        auto& as = static_cast<SnAssertStmt&>(stmt);
+        return ExprPeakDepth(*as.Cond(), visited);
+    }
+    if (kind == NK_CompoundAssignStmt) {
+        auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
+        return ca.Right() ? ExprPeakDepth(*ca.Right(), visited) : 0;
+    }
+    if (kind == NK_SubscriptAssignStmt) {
+        auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
+        uint16_t d = ExprPeakDepth(*sa.Index(), visited);
+        uint16_t v = ExprPeakDepth(*sa.Value(), visited);
+        return d > v ? d : v;
+    }
+    return 0;
+}
+
+static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
+    CallSlotStats stats{1, 1};  //min 1 slot each
+    std::unordered_set<SnFunction*> visited;
+    visited.insert(&sn);
+
+    //Walk body for peakDepth.
+    if (sn.Body()) {
+        for (auto& stmt : sn.Body()->Statements()) {
+            uint16_t d = StmtPeakDepth(stmt, visited);
+            if (d > stats.peakDepth) stats.peakDepth = d;
+        }
+    }
+
+    //Walk body for maxArgs (max callee formal count + slotBase).
+    //Reuse a simple recursive helper.
+    struct MaxArgsWalker {
+        uint16_t maxArgs = 1;
+        void walkExpr(SnExpression& expr, bool isMethodContext = false) {
+            if (expr.Kind() == NK_InvokeExpr) {
+                auto& invoke = static_cast<SnInvokeExpr&>(expr);
+                auto* callee = invoke.Callee();
+                size_t formalCount = callee ? callee->Params().size() : 0;
+                if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
+                //Method call detection: trust isMethodContext flag (set
+                //when Inner of MemberExpr) OR callee->Parent() is class.
+                //Built-in method calls have callee=null, so the flag is
+                //the only reliable signal.
+                bool isMethod = isMethodContext || (callee && callee->Parent()
+                    && (callee->Parent()->Kind() == NK_ClassDecl
+                        || callee->Parent()->Kind() == NK_StructDecl
+                        || callee->Parent()->Kind() == NK_InterfaceDecl));
+                size_t slotBase = isMethod ? 1 : 0;
+                uint16_t claimSize = static_cast<uint16_t>(
+                    formalCount + slotBase);
+                if (claimSize > maxArgs) maxArgs = claimSize;
+                //Also walk the invoke's own params for nested calls.
+                for (auto& param : invoke.Params())
+                    walkExpr(param);
+                return;
+            }
+            //Recurse into children for nested calls.
+            if (expr.Kind() == NK_BinaryExpr) {
+                auto& bin = static_cast<SnBinaryExpr&>(expr);
+                walkExpr(*bin.Left());
+                if (bin.Right()) walkExpr(*bin.Right());
+            } else if (expr.Kind() == NK_CastExpr) {
+                walkExpr(*static_cast<SnCastExpr&>(expr).Source());
+            } else if (expr.Kind() == NK_AsExpr) {
+                walkExpr(*static_cast<SnAsExpr&>(expr).Operand());
+            } else if (expr.Kind() == NK_NamedArgExpr) {
+                walkExpr(*static_cast<SnNamedArgExpr&>(expr).Inner());
+            } else if (expr.Kind() == NK_SubscriptExpr) {
+                auto& sub = static_cast<SnSubscriptExpr&>(expr);
+                walkExpr(*sub.Array());
+                walkExpr(*sub.Index());
+            } else if (expr.Kind() == NK_MemberExpr) {
+                auto& member = static_cast<SnMemberExpr&>(expr);
+                walkExpr(*member.Outer(), false);
+                //If Inner is InvokeExpr, pass method-context flag so
+                //slot 0 is reserved for `this`.
+                if (member.Inner()
+                    && member.Inner()->Kind() == NK_InvokeExpr)
+                    walkExpr(*member.Inner(), true);
+                else
+                    walkExpr(*member.Inner(), false);
+            } else if (expr.Kind() == NK_NewExpr) {
+                //claimSize for ctor call = 1 (this) + argCount.
+                auto& newExpr = static_cast<SnNewExpr&>(expr);
+                size_t argCount = 0;
+                for (auto& arg : newExpr.Args())
+                    if (arg.Kind() != NK_NameExpr) ++argCount;
+                uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
+                if (claimSize > maxArgs) maxArgs = claimSize;
+                for (auto& arg : newExpr.Args())
+                    walkExpr(arg);
+            } else if (expr.Kind() == NK_NewArrayExpr) {
+                walkExpr(*static_cast<SnNewArrayExpr&>(expr).Size());
+            } else if (expr.Kind() == NK_InitListExpr) {
+                //Phase 9c follow-up: collection inits emit implicit calls:
+                //  - Dict: OP_CallMethod "set" with 3 slots (this, key, value)
+                //  - List: OP_CallMethod "add" with 2 slots (this, value)
+                //Track for maxArgs so callParamBase is sized correctly when
+                //the legacy floor (8) is eventually removed.
+                auto& init = static_cast<SnInitListExpr&>(expr);
+                SnField* pTarget = init.EvalDataType();
+                if (pTarget && pTarget->Kind() == NK_ClassDecl) {
+                    auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
+                    const std::string& bn = pClassDecl->BaseName();
+                    if (bn == "Dict" && 3 > maxArgs) maxArgs = 3;
+                    else if (bn == "List" && 2 > maxArgs) maxArgs = 2;
+                }
+                for (auto& entry : init.Entries())
+                    if (entry.pValue) walkExpr(*entry.pValue);
+            }
+        }
+        void walkStmt(SnStatement& stmt) {
+            NodeKind kind = stmt.Kind();
+            if (kind == NK_Paragraph) {
+                for (auto& child : static_cast<SnParagraph&>(stmt).Statements())
+                    walkStmt(child);
+            } else if (kind == NK_ReturnStmt) {
+                auto* r = static_cast<SnReturnStmt&>(stmt).Result();
+                if (r) walkExpr(*r);
+            } else if (kind == NK_InvokeStmt) {
+                walkExpr(*static_cast<SnInvokeStmt&>(stmt).Expr());
+            } else if (kind == NK_AssignStmt) {
+                auto* v = static_cast<SnAssignStmt&>(stmt).Right();
+                if (v) walkExpr(*v);
+            } else if (kind == NK_IfStmt) {
+                auto& ifStmt = static_cast<SnIfStmt&>(stmt);
+                walkExpr(*ifStmt.Cond());
+                if (ifStmt.ThenStmt()) walkStmt(*ifStmt.ThenStmt());
+                if (ifStmt.ElseStmt()) walkStmt(*ifStmt.ElseStmt());
+            } else if (kind == NK_WhileStmt) {
+                auto& w = static_cast<SnWhileStmt&>(stmt);
+                walkExpr(*w.Cond());
+                if (w.Body()) walkStmt(*w.Body());
+            } else if (kind == NK_DoStmt) {
+                auto& dw = static_cast<SnDoStmt&>(stmt);
+                walkExpr(*dw.Cond());
+                if (dw.Body()) walkStmt(*dw.Body());
+            } else if (kind == NK_ForStmt) {
+                auto& f = static_cast<SnForStmt&>(stmt);
+                if (f.Init()) walkStmt(*f.Init());
+                if (f.Cond()) walkExpr(*f.Cond());
+                if (f.Fini()) walkStmt(*f.Fini());
+                if (f.Body()) walkStmt(*f.Body());
+            } else if (kind == NK_SwitchStmt) {
+                auto& sw = static_cast<SnSwitchStmt&>(stmt);
+                walkExpr(*sw.Cond());
+                for (auto* c : sw.Cases()) {
+                    //SnCaseClause inherits SyntaxNode, not SnStatement.
+                    if (c->Cond()) walkExpr(*c->Cond());
+                    if (c->Body()) {
+                        for (auto& s : c->Body()->Statements())
+                            walkStmt(s);
+                    }
+                }
+            } else if (kind == NK_ForeachStmt) {
+                auto& fe = static_cast<SnForeachStmt&>(stmt);
+                walkExpr(*fe.Iterable());
+                if (fe.Body()) walkStmt(*fe.Body());
+            } else if (kind == NK_AssertStmt) {
+                walkExpr(*static_cast<SnAssertStmt&>(stmt).Cond());
+            } else if (kind == NK_CompoundAssignStmt) {
+                auto* v = static_cast<SnCompoundAssignStmt&>(stmt).Right();
+                if (v) walkExpr(*v);
+            } else if (kind == NK_SubscriptAssignStmt) {
+                auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
+                walkExpr(*sa.Index());
+                walkExpr(*sa.Value());
+            }
+        }
+    };
+
+    MaxArgsWalker walker;
+    if (sn.Body()) {
+        for (auto& stmt : sn.Body()->Statements())
+            walker.walkStmt(stmt);
+    }
+    stats.maxArgs = walker.maxArgs;
+    return stats;
+}
+
 void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
 
@@ -849,6 +1690,20 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     compiledFunc.paramCount = static_cast<uint16_t>(
         func.Params().size() + (isMethod ? 1 : 0));
 
+    //Option B: extract constant-foldable default values for each formal.
+    //If a formal has a default expression but ExtractDefaultValue can't
+    //fold it (e.g. `b = helper()` or `b = a + 1`), stamp RTK_Unfoldable
+    //so the consumer side can emit a precise "cross-module default must
+    //be literal" error rather than silently treating it as "no default".
+    //In-module callers ignore compiledFunc.defaultValues entirely; they
+    //use the AST default expression directly via StatementResolver.
+    for (auto& param : func.Params()) {
+        auto dv = ExtractDefaultValue(param.Value());
+        if (param.Value() && !dv.hasDefault())
+            dv.tag = RTK_Unfoldable;
+        compiledFunc.defaultValues.push_back(dv);
+    }
+
     // Return type
     if (func.HasReturn() && func.ReturnType()) {
         auto* retType = func.ReturnType()->Field();
@@ -869,9 +1724,20 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     ctx.tempSlot4 = ctx.nextOffset;
     ctx.nextOffset += VALUE_SIZE;
 
-    // Call parameter area (8 slots = up to 8 parameters)
-    ctx.callParamBase = ctx.nextOffset;
-    ctx.nextOffset += 8 * VALUE_SIZE;
+    //Call parameter area + evalArea. callParamBase is the final landing
+    //zone consumed by OP_CallFunc; evalArea is a disjoint staging area
+    //where bindings emit (cursor-based, stack-disciplined). Sizes are
+    //computed by ComputeCallSlotStats.
+    auto stats = ComputeCallSlotStats(func);
+    //Phase 9c follow-up: walker now tracks all implicit calls (InvokeExpr,
+    //NewExpr ctor, List/Dict init implicit method calls). Use computed
+    //value directly; min 1 (defensive — ensures callParamBase always
+    //exists even for leaf functions).
+    ctx.callParamSlots = stats.maxArgs > 1 ? stats.maxArgs : 1;
+    ctx.callParamBase  = ctx.nextOffset;
+    ctx.nextOffset    += ctx.callParamSlots * VALUE_SIZE;
+    ctx.evalAreaBase   = ctx.nextOffset;
+    ctx.nextOffset    += stats.peakDepth * VALUE_SIZE;
 
     // Generate bytecode for body
     BytecodeEmitter emitter;
@@ -893,6 +1759,141 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     compiledFunc.localsSize = ctx.nextOffset;
 
     m_currFunc = nullptr;
+}
+
+void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
+                              uint16_t slotIdx, size_t slotBase,
+                              BytecodeEmitter& emitter, uint16_t thisSlot,
+                              uint16_t claimBase)
+{
+    const auto& b = pBindings[bindingIdx];
+    //claimBase is the evalArea claim slice base. Always provided by
+    //EmitCallArgs (the only caller). Bindings emit into the claim slice;
+    //a bulk-copy loop in EmitCallArgs then moves them to callParamBase.
+    uint16_t base = claimBase;
+    uint16_t paramOffset = base + slotIdx * VALUE_SIZE;
+
+    if (b.kind == FormalBinding::B_Default) {
+        assert(b.pFormal && b.pFormal->Value());
+        OverrideScope scope(*this);
+        for (size_t j = 0; j < bindingIdx; ++j) {
+            scope.Add(pBindings[j].pFormal->Name(),
+                      base + (static_cast<uint16_t>(j + slotBase)) * VALUE_SIZE);
+        }
+        if (thisSlot != UINT16_MAX) {
+            scope.BindThis(thisSlot);
+        }
+        EmitExpression(*b.pFormal->Value(), emitter, paramOffset);
+    } else {
+        assert(b.pCallerExpr);
+        EmitExpression(*b.pCallerExpr, emitter, paramOffset);
+    }
+
+    //Struct deep-copy: if the formal is a struct type, copy the heap
+    //subtree so the callee gets its own.
+    auto* pFormalType = b.pFormal->EvalDataType();
+    if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct) {
+        int structIdx = m_compiledModule.FindStruct(pFormalType->Name());
+        emitter.Emit(OpCode::OP_CopyStruct);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        emitter.EmitUint16(paramOffset);
+        emitter.EmitUint16(structIdx >= 0
+            ? static_cast<uint16_t>(structIdx) : 0);
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(paramOffset);
+    }
+}
+
+void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
+                              BytecodeEmitter& emitter, size_t slotBase,
+                              const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
+                              uint16_t thisSlot) {
+    //Determine total claim size (slotBase + arg count).
+    const auto& bindings = invoke.Bindings();
+    size_t argCount;
+    if (!bindings.empty()) {
+        argCount = bindings.size();
+    } else {
+        argCount = 0;
+        for (auto& p : invoke.Params()) ++argCount;
+    }
+    uint16_t n = static_cast<uint16_t>(argCount + slotBase);
+
+    //Claim a slice of the evalArea for this call's bindings.
+    //Nested calls claim deeper slices, so inner bindings never overwrite
+    //outer bindings. The RAII guard releases the claim on return.
+    EvalAreaClaim claim(*this, n);
+    uint16_t claimBase = claim.base();
+
+    //Optional per-arg boxing application (built-in generic class methods).
+    auto applyBox = [&](uint16_t slotIdx) {
+        if (!pArgPlans) return;
+        auto it = pArgPlans->find(slotIdx);
+        if (it == pArgPlans->end() || !it->second.needsBox) return;
+        uint16_t paramOffset = claimBase + slotIdx * VALUE_SIZE;
+        emitter.Emit(OpCode::OP_Box);
+        emitter.EmitByte(it->second.tag);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(paramOffset);
+    };
+
+    //For method calls (slotBase=1), copy the receiver to claim[0] BEFORE
+    //emitting bindings. Default-param expressions referencing `this` need
+    //it available via OverrideScope/ThisOverrideStack.
+    if (slotBase == 1 && thisSlot != UINT16_MAX) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(thisSlot);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(claimBase);
+    }
+
+    //Emit each binding into the claimed evalArea slice.
+    if (!pCallee) {
+        //Unresolved invoke — fall back to legacy positional emit.
+        uint16_t paramIdx = static_cast<uint16_t>(slotBase);
+        for (auto& param : invoke.Params()) {
+            uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+            EmitExpression(param, emitter, paramOffset);
+            applyBox(paramIdx);
+            ++paramIdx;
+        }
+    } else if (bindings.empty()) {
+        //Legacy path: caller didn't go through Phase 9c resolver.
+        uint16_t paramIdx = static_cast<uint16_t>(slotBase);
+        for (auto& param : invoke.Params()) {
+            uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+            EmitExpression(param, emitter, paramOffset);
+            applyBox(paramIdx);
+            ++paramIdx;
+        }
+    } else {
+        if (bindings.size() + slotBase > kMaxFuncParams) {
+            assert(false && "function parameters exceed kMaxFuncParams sanity ceiling");
+            return;
+        }
+
+        for (size_t i = 0; i < bindings.size(); ++i) {
+            uint16_t slotIdx = static_cast<uint16_t>(i + slotBase);
+            EmitBinding(bindings.data(), i, slotIdx, slotBase, emitter,
+                        thisSlot, claimBase);
+            applyBox(slotIdx);
+        }
+    }
+
+    //Bulk-copy evalArea claim → callParamBase just before the call.
+    //OP_VarLocal reads from claimBase+i*4, OP_Assign writes to
+    //callParamBase+i*4. This preserves any tagged Value representation
+    //(boxed heap idx, string pool idx, etc.) since both opcodes copy
+    //4 raw bytes.
+    for (uint16_t i = 0; i < n; ++i) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+    }
+    //EvalAreaClaim destructor releases the claim automatically.
 }
 
 void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
@@ -941,6 +1942,19 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
 
     if (kind == NK_IdentifierExpr) {
         auto& idExpr = static_cast<SnIdentifierExpr&>(expr);
+        //Phase 9c: binding override — when evaluating a default-param
+        //expression, an identifier referring to an earlier formal must
+        //read from the caller-side callParamBase slot rather than the
+        //callee's local frame. Check the override stack before falling
+        //through to normal local/global resolution.
+        auto override = LookupOverride(idExpr.Name());
+        if (override.first) {
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(override.second);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
         auto* field = idExpr.Field();
         if (field && field->Kind() == NK_EnumMember) {
             //Enum member constant — emit the resolved integer value.
@@ -970,34 +1984,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         auto& invoke = static_cast<SnInvokeExpr&>(expr);
         auto* callee = invoke.Callee();
 
-        // Evaluate parameters into call parameter area
-        {
-            uint16_t paramIdx = 0;
-            for (auto& param : invoke.Params()) {
-                uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
-                EmitExpression(param, emitter, paramOffset);
-                //If the parameter is a struct type, deep-copy it so the
-                //callee gets its own heap slot tree.
-                auto* paramType = param.EvalDataType();
-                if (paramType && RuntimeTypeKind(paramType) == RTK_Struct) {
-                    int structIdx = m_compiledModule.FindStruct(paramType->Name());
-                    //Copy from paramOffset to a temp, then back.
-                    //We need a temp slot that won't conflict.
-                    //Use tempSlot as intermediate.
-                    emitter.Emit(OpCode::OP_CopyStruct);
-                    emitter.EmitUint16(m_currFunc->tempSlot);
-                    emitter.EmitUint16(paramOffset);
-                    emitter.EmitUint16(structIdx >= 0
-                        ? static_cast<uint16_t>(structIdx) : 0);
-                    //Move the new heap index back to paramOffset
-                    emitter.Emit(OpCode::OP_VarLocal);
-                    emitter.EmitUint16(m_currFunc->tempSlot);
-                    emitter.Emit(OpCode::OP_Assign);
-                    emitter.EmitUint16(paramOffset);
-                }
-                ++paramIdx;
-            }
-        }
+        //Phase 9c: binding-aware argument emission. Handles positional,
+        //named, and default-param bindings via EmitCallArgs.
+        EmitCallArgs(invoke, callee, emitter);
 
         // Find function index
         int funcIndex = -1;
@@ -1396,7 +2385,6 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 //returnsBoxed/returnTag handle the return-side unbox.
                 //For class/struct type args, BoxingTagFor returns 0 → no
                 //boxing; values pass as heap idxs directly.
-                struct ArgBoxPlan { uint8_t tag; bool needsBox; };
                 std::map<uint16_t, ArgBoxPlan> argPlans;
                 bool returnsBoxed = false;
                 uint8_t returnTag = 0;
@@ -1442,27 +2430,21 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     }
                 }
 
-                //Evaluate args to call param area (slot 0 = this)
-                uint16_t paramIdx = 1;
-                for (auto& param : invoke.Params()) {
-                    uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
-                    EmitExpression(param, emitter, paramOffset);
-                    auto it = argPlans.find(paramIdx);
-                    if (it != argPlans.end() && it->second.needsBox) {
-                        emitter.Emit(OpCode::OP_Box);
-                        emitter.EmitByte(it->second.tag);
-                        emitter.Emit(OpCode::OP_Assign);
-                        emitter.EmitUint16(paramOffset);
-                    }
-                    ++paramIdx;
-                }
-                //Copy this to callParamBase[0]
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(resultOffset);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(m_currFunc->callParamBase);
-                //Find the method function
                 auto* callee = invoke.Callee();
+                //Phase 9c: evaluate args via the shared binding-aware
+                //helper. Slot 0 is reserved for `this` (slotBase=1).
+                //Boxing plans (for built-in generic class methods like
+                //List<int>.add) are applied per-arg inside EmitCallArgs.
+                //thisSlot=resultOffset: default-param expressions that
+                //reference `this.field` resolve `this` to resultOffset
+                //(the slot holding the receiver object). This avoids the
+                //callParamBase nested-call clobber bug — copying `this`
+                //to callParamBase[0] before emitting args would be
+                //overwritten by any nested call inside the args.
+                EmitCallArgs(invoke, callee, emitter, /*slotBase=*/1,
+                             &argPlans, /*thisSlot=*/resultOffset);
+                //EmitCallArgs now copies `this` to claim[0] and bulk-copies
+                //to callParamBase[0] — no separate this-copy needed here.
                 bool isVirtual = callee && callee->ContainFlags(NF_Virtual);
                 if (isVirtual) {
                     //Virtual method dispatch — name-based lookup at runtime
@@ -1519,18 +2501,13 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             auto* inner = member.Inner();
             if (inner && inner->Kind() == NK_InvokeExpr) {
                 auto& invoke = static_cast<SnInvokeExpr&>(*inner);
-                //Evaluate args to call param area (slot 0 = this)
-                uint16_t paramIdx = 1;
-                for (auto& param : invoke.Params()) {
-                    uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
-                    EmitExpression(param, emitter, paramOffset);
-                    ++paramIdx;
-                }
-                //Copy this to callParamBase[0]
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(resultOffset);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(m_currFunc->callParamBase);
+                //Phase 9c: binding-aware arg emit; slot 0 reserved for `this`.
+                //thisSlot=resultOffset so default-param `this.field` reads
+                //the receiver from the outer-expression result slot.
+                EmitCallArgs(invoke, invoke.Callee(), emitter, /*slotBase=*/1,
+                             /*pArgPlans=*/nullptr, /*thisSlot=*/resultOffset);
+                //EmitCallArgs now copies `this` to claim[0] and bulk-copies
+                //to callParamBase[0] — no separate this-copy needed here.
                 //Always virtual dispatch by name.
                 auto* callee = invoke.Callee();
                 if (callee) {
@@ -1623,8 +2600,16 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 }
                 if (methName == "getHashCode")
                 {
-                    //Evaluate receiver (string pool idx) to callParamBase[0].
-                    EmitExpression(*member.Outer(), emitter, m_currFunc->callParamBase);
+                    //Phase 9c follow-up: route through evalArea claim so the
+                    //receiver expression (if it contains nested calls) does
+                    //not get clobbered by inner bulk-copies to callParamBase.
+                    EvalAreaClaim claim(*this, 1);
+                    uint16_t claimBase = claim.base();
+                    EmitExpression(*member.Outer(), emitter, claimBase);
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(claimBase);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
                     emitter.Emit(OpCode::OP_CallIntrinsic);
                     emitter.EmitUint16(INTR_String_GetHashCode);
                     emitter.EmitUint16(m_currFunc->callParamBase);
@@ -1635,14 +2620,26 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 }
                 if (methName == "equals")
                 {
-                    //Evaluate receiver (this) to callParamBase[0].
-                    EmitExpression(*member.Outer(), emitter, m_currFunc->callParamBase);
-                    //Evaluate argument to callParamBase[1].
+                    //Phase 9c follow-up: route through evalArea claim so
+                    //nested calls in args don't clobber receiver/args in
+                    //callParamBase.
+                    uint16_t argCount = 0;
+                    for (auto& p : invoke.Params()) ++argCount;
+                    uint16_t n = static_cast<uint16_t>(1 + argCount);
+                    EvalAreaClaim claim(*this, n);
+                    uint16_t claimBase = claim.base();
+                    EmitExpression(*member.Outer(), emitter, claimBase);
                     uint16_t paramIdx = 1;
                     for (auto& param : invoke.Params()) {
-                        uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
-                        EmitExpression(param, emitter, paramOffset);
+                        EmitExpression(param, emitter,
+                            claimBase + paramIdx * VALUE_SIZE);
                         ++paramIdx;
+                    }
+                    for (uint16_t i = 0; i < n; ++i) {
+                        emitter.Emit(OpCode::OP_VarLocal);
+                        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
                     }
                     emitter.Emit(OpCode::OP_CallIntrinsic);
                     emitter.EmitUint16(INTR_String_Equals);
@@ -1689,57 +2686,74 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             return;
         }
         uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
-        //Phase 8e-3 fix: when NewExpr is used as an argument
-        //(e.g. lst.Add(new Point(...))), resultOffset may alias
-        //callParamBase[1]. Evaluate ctor args first (to callParamBase[1..N]),
-        //then allocate to a slot after the args, and copy to resultOffset at
-        //the end. This avoids overwriting args with the allocation result.
+        //Phase 9c follow-up: route ctor args through evalArea claim so
+        //nested calls inside ctor args don't clobber each other (parallel
+        //to EmitCallArgs). claim layout: [0]=this, [1..N]=args.
         uint16_t allocSlot = resultOffset;
         if (ctorIdx != 0xFFFF) {
-            uint16_t paramIdx = 1; //slot 0 = this
+            //Count actual args (skip NameExpr which are named-arg markers).
+            size_t argCount = 0;
+            for (auto& param : newExpr.Args()) {
+                if (param.Kind() != NK_NameExpr) ++argCount;
+            }
+            uint16_t n = static_cast<uint16_t>(1 + argCount);  //this + args
+
+            EvalAreaClaim claim(*this, n);
+            uint16_t claimBase = claim.base();
+
+            //Emit args to claim[1..N]. Nested calls in args claim deeper
+            //slices — they bulk-copy to callParamBase but that's fine;
+            //our this/args live in evalArea, not callParamBase.
+            uint16_t paramIdx = 1;
             for (auto& param : newExpr.Args()) {
                 if (param.Kind() == NK_NameExpr) continue;
-                uint16_t paramOffset = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
+                uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
                 EmitExpression(param, emitter, paramOffset);
                 ++paramIdx;
             }
-            //Allocate to the slot after the last ctor arg so we never
-            //overwrite args (which are at callParamBase[1..paramIdx-1]).
-            allocSlot = m_currFunc->callParamBase + paramIdx * VALUE_SIZE;
+            //Allocate to resultOffset (no conflict with args — they're in evalArea).
+            allocSlot = resultOffset;
+
+            emitter.Emit(OpCode::OP_New);
+            emitter.EmitUint16(allocSlot);
+            emitter.EmitUint16(static_cast<uint16_t>(classIdx));
+
+            //Copy this (new object heap index) to claim[0].
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(allocSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(claimBase);
+
+            //Bulk-copy evalArea claim → callParamBase just before the call.
+            for (uint16_t i = 0; i < n; ++i) {
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+            }
+            emitter.Emit(OpCode::OP_CallMethodDirect);
+            emitter.EmitUint16(ctorIdx);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            emitter.Emit(OpCode::OP_ParaEnd);
+            //claim releases on scope exit.
+            return;
         }
 
         emitter.Emit(OpCode::OP_New);
         emitter.EmitUint16(allocSlot);
         emitter.EmitUint16(static_cast<uint16_t>(classIdx));
-        //Call constructor if present (direct class only, using pre-computed index).
-        //Ancestor constructors are NOT called because NLang has no super()
-        //syntax to pass arguments to them.
-        if (ctorIdx != 0xFFFF) {
-            //Copy this (new object heap index) to callParamBase[0]
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(allocSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            emitter.Emit(OpCode::OP_CallMethodDirect);
-            emitter.EmitUint16(ctorIdx);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            emitter.Emit(OpCode::OP_ParaEnd);
-        }
-        //Copy allocSlot to resultOffset if they differ.
-        if (allocSlot != resultOffset) {
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(allocSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-        }
         return;
     }
 
     // This expression - reads the implicit first parameter
     if (kind == NK_ThisExpr) {
-        //this is the first parameter (offset 0)
+        //Inside a method-call default-param expression, `this` resolves
+        //to the caller-side callParamBase slot holding the receiver.
+        //Otherwise (inside a method body), `this` is local 0.
+        auto thisOverride = LookupThisOverride();
+        uint16_t thisSlot = thisOverride.first ? thisOverride.second : 0;
         emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(0);
+        emitter.EmitUint16(thisSlot);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
         return;
@@ -1901,23 +2915,28 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 auto vBox = (typeArgs.size() > 1)
                     ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
                 uint16_t setNameIdx = AddStringConstant("set");
-                uint16_t keyOff = m_currFunc->callParamBase + 1 * VALUE_SIZE;
-                uint16_t valOff = m_currFunc->callParamBase + 2 * VALUE_SIZE;
+                //Phase 9c follow-up: route through EvalAreaClaim so the key
+                //and value live in evalArea, immune to nested-call bulk-copies
+                //to callParamBase. Pre-fix, a value like `helper(5,3)` would
+                //bulk-copy to callParamBase[0..2], clobbering the key at [1].
                 for (auto& entry : initList.Entries()) {
                     if (!entry.pValue) continue;
                     //Key: dict requires String key form. Identifier keys are
                     //accepted for struct init only — for dict they would be
                     //a resolver error. Value-only entries are also invalid.
-                    if (entry.keyKind == InitEntry::KeyKind::String
-                        || entry.keyKind == InitEntry::KeyKind::Identifier) {
-                        uint16_t keyPoolIdx = AddStringConstant(entry.keyStr);
-                        emitter.Emit(OpCode::OP_ConstString);
-                        emitter.EmitUint16(keyPoolIdx);
-                        emitter.Emit(OpCode::OP_Assign);
-                        emitter.EmitUint16(keyOff);
-                    } else {
+                    if (entry.keyKind != InitEntry::KeyKind::String
+                        && entry.keyKind != InitEntry::KeyKind::Identifier) {
                         continue;
                     }
+                    EvalAreaClaim claim(*this, 3);  // this, key, value
+                    uint16_t claimBase = claim.base();
+                    uint16_t keyOff = claimBase + 1 * VALUE_SIZE;
+                    uint16_t valOff = claimBase + 2 * VALUE_SIZE;
+                    uint16_t keyPoolIdx = AddStringConstant(entry.keyStr);
+                    emitter.Emit(OpCode::OP_ConstString);
+                    emitter.EmitUint16(keyPoolIdx);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(keyOff);
                     if (kBox.isPrimitive) {
                         emitter.Emit(OpCode::OP_Box);
                         emitter.EmitByte(kBox.tag);
@@ -1932,11 +2951,18 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         emitter.Emit(OpCode::OP_Assign);
                         emitter.EmitUint16(valOff);
                     }
-                    //this = resultOffset
+                    //this = resultOffset → claim[0]
                     emitter.Emit(OpCode::OP_VarLocal);
                     emitter.EmitUint16(resultOffset);
                     emitter.Emit(OpCode::OP_Assign);
-                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.EmitUint16(claimBase);
+                    //Bulk-copy claim → callParamBase
+                    for (uint16_t i = 0; i < 3; ++i) {
+                        emitter.Emit(OpCode::OP_VarLocal);
+                        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+                    }
                     emitter.Emit(OpCode::OP_CallMethod);
                     emitter.EmitUint16(setNameIdx);
                     emitter.EmitUint16(m_currFunc->callParamBase);
@@ -3149,7 +4175,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     fs.write(magic, 8);
 
     // Version
-    uint16_t majorVer = 1, minorVer = 2;
+    uint16_t majorVer = 1, minorVer = 3;
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 
@@ -3186,6 +4212,25 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
                  sizeof(func.returnTypeKind));
         fs.write(reinterpret_cast<const char*>(&func.intrinsicId),
                  sizeof(func.intrinsicId));
+
+        //Option B v1.3: per-formal default-value descriptors. Always
+        //emitted (count first) so reader can skip even when no defaults.
+        //Count == func.defaultValues.size(); formals without defaults
+        //carry tag=RTK_Void to preserve positional alignment, so the
+        //vector is naturally dense.
+        uint16_t defaultCount = static_cast<uint16_t>(
+            func.defaultValues.size());
+        fs.write(reinterpret_cast<const char*>(&defaultCount),
+                 sizeof(defaultCount));
+        for (const auto& dv : func.defaultValues) {
+            fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
+            fs.write(reinterpret_cast<const char*>(&dv.intValue),
+                     sizeof(dv.intValue));
+            fs.write(reinterpret_cast<const char*>(&dv.floatValue),
+                     sizeof(dv.floatValue));
+            fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
+                     sizeof(dv.stringIdx));
+        }
 
         uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());
         fs.write(reinterpret_cast<const char*>(&bcSize), sizeof(bcSize));

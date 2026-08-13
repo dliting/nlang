@@ -1,0 +1,10 @@
+// Phase 9c: class method with default parameter.
+class C {
+    public int v;
+    public int get(int bias = 0) { return this.v + bias; }
+}
+int main() {
+    C c = new C();
+    c.v = 100;
+    return c.get();
+}

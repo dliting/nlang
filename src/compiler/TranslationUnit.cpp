@@ -11,7 +11,7 @@ namespace nlang
 {
 
 TranslationUnit::TranslationUnit(const std::string& sFilePath):
-	m_sFilePath(sFilePath), m_pRoot(nullptr), m_upUsings(nullptr)
+	m_sFilePath(sFilePath), m_pRoot(nullptr), m_upUsings(nullptr), m_upImports(nullptr)
 {
 }
 

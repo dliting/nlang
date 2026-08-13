@@ -1,0 +1,16 @@
+// Phase 9c follow-up: ctor args with nested multi-arg calls.
+// Pre-fix: helper(3,4) bulk-copy clobbered helper(1,2)'s result in
+// callParamBase[1], giving wrong values for p.a.
+// Fixed: ctor args route through evalArea claim, so inner-call bulk-copies
+// to callParamBase don't clobber outer's args (which live in evalArea).
+int helper(int x, int y) { return x * 10 + y; }
+class P {
+    public int a;
+    public int b;
+    public int P(int x, int y) { this.a = x; this.b = y; return 0; }
+}
+int main() {
+    P p = new P(helper(1, 2), helper(3, 4));
+    //helper(1,2)=12, helper(3,4)=34, sum=46
+    return p.a + p.b;
+}

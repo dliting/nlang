@@ -1,0 +1,5 @@
+//Cross-module default-parameter canary (Option B): lib defines add with a
+//default for b. Consumer calls add(5) → 5 + 7 = 12.
+int add(int a, int b = 7) {
+	return a + b;
+}

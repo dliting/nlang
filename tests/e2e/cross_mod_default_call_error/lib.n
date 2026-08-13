@@ -1,0 +1,8 @@
+//Option B Step 5: cross-module default referencing a function call.
+//helper() is not constant-foldable; producer (lib) compiles fine, but
+//consumer (main) must reject at stub construction (RTK_Unfoldable).
+int helper() { return 42; }
+
+int foo(int a, int b = helper()) {
+	return a + b;
+}

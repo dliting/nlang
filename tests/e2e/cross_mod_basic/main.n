@@ -1,0 +1,10 @@
+//Phase 9c canary: consumer module. Imports lib and invokes add(2, 3).
+//Expected exit code 5 (2 + 3). Tests the full cross-module static-link
+//pipeline: parser import stmt → ModuleLoader::Load →
+//CompiledModuleNodeBuilder stub → VmBackend Phase A/B merge →
+//RemapBytecode index patching → VmExecutor run.
+import "lib";
+
+int main() {
+	return add(2, 3);
+}

@@ -6,8 +6,10 @@
 #pragma once
 #include "BuildEnvironment.h"
 #include "SyntaxTree.h"
+#include "CompiledModule.h"
 #include <list>
 #include <memory>
+#include <vector>
 
 namespace nlang
 {
@@ -36,6 +38,8 @@ private:
 	bool ParseSources();
 	//Load imported symbols to a rebuilt AST.
 	bool LoadImports();
+	//Find .nmod file for a module name in m_ImportDirs. Returns empty if not found.
+	std::string FindModuleFile(const std::string& name) const;
 	//Generated executable codes.
 	bool GenerateCodes();
 	//Save the current module to a file.
@@ -87,6 +91,12 @@ private:
 
 	std::unique_ptr<BuildEnvironment> m_upEnv;
 	std::unique_ptr<PtrList<TranslationUnit>> m_upTransUnits;
+	//Cross-module import infrastructure (Phase 9c follow-up): compiled
+	//modules loaded from .nmod files during LoadImports. Ownership is
+	//transferred to VmBackend at the start of GenerateCodes via
+	//SetImportedModules(); the backend then merges them into the user
+	//module during GenerateStatements.
+	std::vector<CompiledModule> m_loadedImports;
 };
 
 } //namespace nlang

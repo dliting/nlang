@@ -328,24 +328,29 @@ public:
 
 	/*
 	Push back a field and take the ownership of it.
-	Precondition: pField != nullptr && find(pField->Name()) == nullptr.
+	Precondition: pField != nullptr.
+	The container permits same-name entries (function overloads, or
+	duplicate fields pending conflict detection). DuplicateFieldChecker
+	is the single source of truth for conflict reporting — it runs after
+	the full AST is assembled and produces clean diagnostics, so the
+	container must not abort early with an assertion.
 	*/
 	void push_back(FieldType *pField)
 	{
-		assert(pField && find(pField->Name()) == nullptr);
+		assert(pField);
 		Super_::push_back(pField);
 		m_NameMap.emplace(pField->Name(), pField);
 	}
 
 	/*
-	Add a field to and take the ownership of it.
-	Precondition: pField != nullptr && Find(pField->Name()) == nullptr.
+	Add a field and take the ownership of it.
+	Precondition: pField != nullptr.
 	The field will be added before the location pointed by iPos.
 	\return The iterator pointing to the inserted field.
 	*/
 	iterator insert(iterator iPos, FieldType *pField)
 	{
-		assert(pField && find(pField->Name()) == nullptr);
+		assert(pField);
 		auto iNode = Super_::insert(iPos, pField);
 		m_NameMap.emplace(pField->Name(), pField);
 		return iNode;
@@ -361,7 +366,16 @@ public:
 	{
 		auto& node = *iPos;
 		auto iNode = Super_::erase(iPos);
-		m_NameMap.erase(node.Name());
+		//Remove only this specific entry from the multimap. Functions may
+		//be overloaded (same name, multiple entries), so erase-by-key
+		//would corrupt the dictionary by removing sibling overloads.
+		auto range = m_NameMap.equal_range(node.Name());
+		for (auto it = range.first; it != range.second; ++it) {
+			if (it->second == &node) {
+				m_NameMap.erase(it);
+				break;
+			}
+		}
 		return iNode;
 	}
 

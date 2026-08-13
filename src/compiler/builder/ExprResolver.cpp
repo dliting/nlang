@@ -5,6 +5,7 @@
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 #include <map>
+#include <set>
 #include <vector>
 
 namespace nlang
@@ -290,25 +291,35 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	if (!ResolveExpressionList(snInvoke.Params()))
 		return;
 
+	//Phase 9c: caller-side syntax validation — independent of candidates.
+	//Reports specific errors for structural issues that no overload can
+	//satisfy (e.g. positional arg after named, duplicate named names).
+	if (!ValidateInvokeSyntax(snInvoke))
+		return;
+
 	SnFunction *pCallee;
-	auto res = FindFuncByInvoke(pCallee, snInvoke);
+	std::vector<FormalBinding> bindings;
+	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings);
 	switch (res)
 	{
 	case FFR_ApproximateMatch:
 		assert(pCallee);
-		FixupParamTypes(snInvoke, pCallee->Params());
+		FixupParamTypesWithBindings(snInvoke, bindings);
+		snInvoke.SetBindings(std::move(bindings));
 		break;
 	case FFR_ExactMatch:
 		assert(pCallee);
+		snInvoke.SetBindings(std::move(bindings));
 		break;
 	case FFR_Incompatible:
-		assert(pCallee);
 		m_Env.Log(CLL_Error, snInvoke.Location(),
 			"The function invoke \"%s\" is not compatible with the "
 			"declaration.", snInvoke.ToString().c_str());
-		m_Env.Log(CLL_More, pCallee->Location(),
-			"See also the declaration of \"%s\".",
-			pCallee->ToString().c_str());
+		if (pCallee) {
+			m_Env.Log(CLL_More, pCallee->Location(),
+				"See also the declaration of \"%s\".",
+				pCallee->ToString().c_str());
+		}
 		return;
 	default:
 		assert(res == FFR_FuncNameNotFound);
@@ -319,6 +330,59 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	}
 
 	ResolveFieldExprAs(snInvoke, pCallee);
+}
+
+//Phase 9c: validate caller-side argument syntax (candidate-independent).
+//Reports specific errors for:
+//  - positional arg following a named arg
+//  - duplicate name in named args (e.g. foo(a=1, a=2))
+//Returns true if well-formed; false after logging.
+bool ExprResolveAccessor::ValidateInvokeSyntax(const SnInvokeExpr &invoke)
+{
+	bool bSeenNamed = false;
+	std::set<std::string> seenNames;
+	for (auto &actual : invoke.Params())
+	{
+		if (actual.Kind() != NK_NamedArgExpr)
+		{
+			if (bSeenNamed)
+			{
+				m_Env.Log(CLL_Error, actual.Location(),
+					"positional argument cannot follow a named argument in "
+					"call to \"%s\".",
+					invoke.CalleeName().c_str());
+				return false;
+			}
+			continue;
+		}
+		auto &named = static_cast<const SnNamedArgExpr&>(actual);
+		bSeenNamed = true;
+		auto [it, inserted] = seenNames.emplace(named.Name());
+		if (!inserted)
+		{
+			m_Env.Log(CLL_Error, named.Location(),
+				"duplicate named argument \"%s\" in call to \"%s\".",
+				named.Name().c_str(), invoke.CalleeName().c_str());
+			return false;
+		}
+	}
+	return true;
+}
+
+//Phase 9c: SnNamedArgExpr resolver. The name is consumed by TryBindInvoke
+//when matching formals; here we only need to resolve the inner expression
+//and propagate its EvalDataType / resolved flag so the parent invoke can
+//type-check the binding.
+void ExprResolveAccessor::Access(SnNamedArgExpr &sn)
+{
+	assert(!sn.IsResolved());
+	auto *pInner = sn.Inner();
+	assert(pInner);
+	pInner->Accept(*m_pVisitor);
+	if (!pInner->IsResolved())
+		return;
+	sn.EvalDataType(pInner->EvalDataType());
+	sn.AddFlags(NF_Resolved);
 }
 
 void ExprResolveAccessor::Access(SnMemberExpr &snMember)
@@ -1195,15 +1259,43 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
 }
 
 FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
-	SnInvokeExpr &invoke)
+	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings)
 {
 	const bool bSearchInAncestor = !ContainFlags(ERF_SearchInParentOnly);
-	int nDistance = -1;
 	bool bFoundByName = false;
 	auto &sFuncName = invoke.CalleeName();
 
+	//Best candidate across all scanned scopes.
+	int nBestDistance = -1;
+	bool bAmbiguous = false;
+	SnFunction *pBest = nullptr;
+	std::vector<FormalBinding> bestBindings;
+
+	//Evaluate a single candidate. Returns true if candidate is viable
+	//(non-negative distance). Updates pBest/nBestDistance/bAmbiguous.
+	auto consider = [&](SnFunction *pFunc) {
+		std::vector<FormalBinding> tryBind;
+		if (!TryBindInvoke(invoke, *pFunc, tryBind))
+			return;
+		int n = ComputeBindingDistance(tryBind);
+		if (n < 0)
+			return;
+		if (nBestDistance < 0 || n < nBestDistance)
+		{
+			nBestDistance = n;
+			pBest = pFunc;
+			bestBindings = std::move(tryBind);
+			bAmbiguous = false;
+		}
+		else if (n == nBestDistance)
+		{
+			//Tie at the smallest viable distance — ambiguous.
+			bAmbiguous = true;
+		}
+	};
+
 	//Search a single scope's NameDict for matching functions.
-	auto searchScope = [&](SnFunctionParentField& parent) -> FindFuncResult {
+	auto searchScope = [&](SnFunctionParentField& parent) {
 		auto range = parent.Members().NameDict().equal_range(sFuncName);
 		for (auto iField = range.first; iField != range.second; ++iField) {
 			SnField *pField = iField->second;
@@ -1215,26 +1307,9 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 				continue;
 
 			if (!bFoundByName)
-			{
 				bFoundByName = true;
-				pFuncFound = pFunc;
-			}
-
-			const int n = CalcDistanceOfParams(invoke.Params(), pFunc->Params());
-			if (n < 0)
-				continue;
-			if (n == 0)
-			{
-				pFuncFound = pFunc;
-				return FFR_ExactMatch;
-			}
-			if (nDistance < 0 || nDistance > n)
-			{
-				pFuncFound = pFunc;
-				nDistance = n;
-			}
+			consider(pFunc);
 		}
-		return FFR_FuncNameNotFound;
 	};
 
 	SyntaxNode *pParent = m_pContext;
@@ -1243,8 +1318,7 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 		if (CanBeFuncParentEx(pParent->Kind()))
 		{
 			auto pParentType = static_cast<SnFunctionParentField*>(pParent);
-			if (searchScope(*pParentType) == FFR_ExactMatch)
-				return FFR_ExactMatch;
+			searchScope(*pParentType);
 
 			//For class contexts, also search the inheritance chain
 			//when the method is not found in the current class's Members().
@@ -1253,8 +1327,7 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 				auto *pSuper = static_cast<SnClassDecl*>(pParent)->SuperClass();
 				while (pSuper && !bFoundByName)
 				{
-					if (searchScope(*pSuper) == FFR_ExactMatch)
-						return FFR_ExactMatch;
+					searchScope(*pSuper);
 					pSuper = pSuper->SuperClass();
 				}
 			}
@@ -1264,10 +1337,218 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 		pParent = pParent->Parent();
 	}
 
-	if (nDistance < 0)
-		return bFoundByName ? FFR_Incompatible : FFR_FuncNameNotFound;
-	assert(nDistance > 0);
-	return FFR_ApproximateMatch;
+	if (!bFoundByName)
+		return FFR_FuncNameNotFound;
+
+	if (nBestDistance < 0)
+	{
+		//At least one candidate matched by name but none could bind.
+		pFuncFound = nullptr;
+		return FFR_Incompatible;
+	}
+
+	if (bAmbiguous)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"ambiguous call to function \"%s\": multiple overloads match "
+			"with equal distance.",
+			sFuncName.c_str());
+		pFuncFound = nullptr;
+		return FFR_Incompatible;
+	}
+
+	pFuncFound = pBest;
+	outBindings = std::move(bestBindings);
+	return (nBestDistance == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
+}
+
+//Phase 9c: try to bind an invoke's actual arguments to a candidate
+//callee's formal parameters. Handles positional args, named args, and
+//default param expressions. Returns true if every formal is bound
+//(either by caller or by default); false if any required formal is left
+//unbound or a caller-side error occurs (positional after named, etc.).
+//Does NOT log — caller reports a generic "not compatible" error when
+//no candidate matches.
+bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
+	const SnFunction &callee, std::vector<FormalBinding> &outBindings)
+{
+	auto &formals = const_cast<SnFunction&>(callee).Params();
+	outBindings.clear();
+	outBindings.reserve(formals.size());
+	for (auto &f : formals)
+	{
+		FormalBinding b;
+		b.kind = FormalBinding::B_Default;  //sentinel: "unbound so far"
+		b.pCallerExpr = nullptr;
+		b.pFormal = &f;
+		outBindings.push_back(b);
+	}
+
+	bool bSeenNamed = false;
+	size_t iNextFormal = 0;
+	auto &actuals = const_cast<SnInvokeExpr&>(invoke).Params();
+
+	//Pass 1+2: walk actuals left-to-right; route each to positional or named.
+	for (auto &actual : actuals)
+	{
+		SnExpression *pExpr;
+		std::string sName;
+		bool bIsNamed = false;
+		if (actual.Kind() == NK_NamedArgExpr)
+		{
+			auto &named = static_cast<const SnNamedArgExpr&>(actual);
+			sName = named.Name();
+			pExpr = named.Inner();
+			bIsNamed = true;
+			bSeenNamed = true;
+		}
+		else
+		{
+			pExpr = &const_cast<SnExpression&>(actual);
+			if (bSeenNamed)
+			{
+				//"positional after named" is a caller-side error — reject
+				//this candidate (caller will get a generic incompatible
+				//error from FindFuncByInvoke). Phase 9c Step 4 will report
+				//a specific message once grammar accepts named args.
+				return false;
+			}
+		}
+
+		if (!bIsNamed)
+		{
+			if (iNextFormal >= formals.size())
+				return false;  //too many positional args
+			size_t idx = iNextFormal++;
+			if (outBindings[idx].pCallerExpr != nullptr)
+				return false;  //should never happen (positional goes in order)
+			outBindings[idx].kind = FormalBinding::B_Positional;
+			outBindings[idx].pCallerExpr = pExpr;
+		}
+		else
+		{
+			//Find formal by name.
+			size_t idx = formals.size();
+			size_t i = 0;
+			for (auto &f : formals)
+			{
+				if (f.Name() == sName)
+				{
+					idx = i;
+					break;
+				}
+				++i;
+			}
+			if (idx == formals.size())
+				return false;  //no formal with this name
+			if (outBindings[idx].pCallerExpr != nullptr)
+				return false;  //duplicate binding (positional+named or named+named)
+			outBindings[idx].kind = FormalBinding::B_Named;
+			outBindings[idx].pCallerExpr = pExpr;
+		}
+	}
+
+	//Pass 3: every formal must be either caller-bound or have a default.
+	for (auto &b : outBindings)
+	{
+		if (b.pCallerExpr == nullptr)
+		{
+			//Unbound — must have default expression.
+			if (!b.pFormal->Value())
+				return false;  //required formal left unsatisfied
+			b.kind = FormalBinding::B_Default;
+		}
+	}
+
+	return true;
+}
+
+//Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
+//entries. B_Default contributes 0. Returns -1 if any bound entry has
+//incompatible types.
+int ExprResolveAccessor::ComputeBindingDistance(
+	const std::vector<FormalBinding> &bindings) const
+{
+	int nDistance = 0;
+	for (auto &b : bindings)
+	{
+		if (b.kind == FormalBinding::B_Default)
+			continue;
+		assert(b.pCallerExpr && b.pFormal);
+		auto *pSrc = b.pCallerExpr->EvalDataType();
+		auto *pTgt = b.pFormal->EvalDataType();
+		if (!pSrc || !pTgt)
+			return -1;
+		int n = CalcTypeDistance(*pSrc, *pTgt);
+		if (n < 0)
+			return -1;
+		nDistance += n;
+	}
+	return nDistance;
+}
+
+//Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side
+//expressions in bindings where needed (TCK_Auto / TCK_Box). B_Default
+//entries are skipped — their type was validated against the formal at
+//declaration time (StatementResolver Step 2).
+void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
+	std::vector<FormalBinding> &bindings)
+{
+	auto &children = invoke.Children();
+	for (auto &b : bindings)
+	{
+		if (b.kind == FormalBinding::B_Default)
+			continue;
+		assert(b.pCallerExpr && b.pFormal);
+		auto *pSrc = b.pCallerExpr->EvalDataType();
+		auto *pTgt = b.pFormal->EvalDataType();
+		if (!pSrc || !pTgt)
+			continue;
+		TypeCastInfo castInfo(pSrc, pTgt);
+		if (castInfo.Kind() == TCK_Same)
+			continue;
+
+		//Locate the caller expr's NodeIterator inside invoke.Children().
+		//For positional bindings this finds the caller expr directly.
+		//For named bindings, the wrapper SnNamedArgExpr is in Children();
+		//its inner expr is replaced below by walking the wrapper's list.
+		auto iFound = children.find(b.pCallerExpr);
+		if (iFound == children.end())
+		{
+			//Named-arg path: pCallerExpr is inside a SnNamedArgExpr wrapper.
+			//Find the wrapper, then fix up its inner expression.
+			bool bReplaced = false;
+			for (auto it = children.begin(); it != children.end(); ++it)
+			{
+				if ((*it).Kind() == NK_NamedArgExpr)
+				{
+					auto &named = static_cast<SnNamedArgExpr&>(*it);
+					if (named.Inner() == b.pCallerExpr)
+					{
+						auto &innerChildren =
+							const_cast<SnNamedArgExpr&>(named).Children();
+						auto iInner = innerChildren.find(b.pCallerExpr);
+						if (iInner == innerChildren.end())
+							continue;
+						FixupExprType(iInner, castInfo);
+						b.pCallerExpr =
+							static_cast<SnExpression*>(&*iInner);
+						bReplaced = true;
+						break;
+					}
+				}
+			}
+			if (!bReplaced)
+				continue;
+		}
+		else
+		{
+			//FixupExprType may replace iFound with a new SnCastExpr node.
+			FixupExprType(iFound, castInfo);
+			//Refresh the binding's caller pointer to the (possibly new) node.
+			b.pCallerExpr = static_cast<SnExpression*>(&*iFound);
+		}
+	}
 }
 
 int ExprResolveAccessor::CalcDistanceOfParams(

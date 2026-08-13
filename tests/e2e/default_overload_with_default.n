@@ -1,0 +1,17 @@
+// Phase 9c audit round 4: default param interaction with virtual dispatch.
+// NLang uses C++/C# static-binding semantics: the default value comes
+// from the *static* (declared) type's signature, while the body dispatched
+// is the runtime override's.
+class Base {
+    public int v;
+    public virtual int foo(int a = 10) { return a; }
+}
+class Derived : Base {
+    public virtual int foo(int a = 20) { return a * 2; }
+}
+int main() {
+    Base b = new Derived();
+    //Static type Base → default is 10 (from Base.foo's signature).
+    //Runtime dispatch → Derived.foo's body, with a=10. Result: 10*2 = 20.
+    return b.foo();
+}

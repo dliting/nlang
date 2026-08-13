@@ -1,0 +1,8 @@
+// Phase 9c audit round 7: nested defaults — a default expression that
+// calls a function which itself has a default. Verifies OverrideScope
+// stacks correctly across recursive default evaluation.
+int helper(int x = 5) { return x; }
+int foo(int a = helper()) { return a; }
+int main() {
+    return foo();   // expect 5
+}

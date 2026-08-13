@@ -1,0 +1,7 @@
+//Option B: string default. Validates producer→consumer string pool
+//remap (string content embedded into SnLiteralExpr, then re-interned
+//at consumer codegen).
+int lenOf(string s = "hello") {
+	if (s == "hello") { return 7; }
+	return 0;
+}

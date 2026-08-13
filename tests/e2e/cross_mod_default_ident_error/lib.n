@@ -1,0 +1,5 @@
+//Option B Step 5: cross-module default referencing another formal.
+//`b = a` is not constant-foldable; producer compiles, consumer rejects.
+int foo(int a, int b = a) {
+	return a + b;
+}

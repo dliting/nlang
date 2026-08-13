@@ -1,0 +1,7 @@
+// Phase 9b: interpolation with float variable.
+int main() {
+    float p = 3.14;
+    string s = "pi=${p}";
+    if (s == "pi=3.14") return 7;
+    return 1;
+}

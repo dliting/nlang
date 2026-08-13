@@ -1,0 +1,6 @@
+// Phase 9b: $$ escape -> literal $, followed by digits.
+int main() {
+    string s = "$$100";
+    if (s == "$100") return 7;
+    return 1;
+}

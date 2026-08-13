@@ -1,0 +1,7 @@
+// Phase 9b: basic string interpolation.
+int main() {
+    string name = "world";
+    string s = "Hello ${name}";
+    if (s == "Hello world") return 7;
+    return 1;
+}

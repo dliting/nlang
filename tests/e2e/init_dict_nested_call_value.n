@@ -1,0 +1,12 @@
+// Phase 9c follow-up: Dict init value with multi-arg nested call.
+// Pre-fix: helper(5,3) bulk-copies to callParamBase[0..2], clobbering
+// the key at callParamBase[1] (set earlier in Dict init path).
+// Fixed: route Dict init through EvalAreaClaim so key/value live in
+// evalArea, immune to inner-call bulk-copies to callParamBase.
+int helper(int x, int y) { return x * 10 + y; }
+int main() {
+    Dict<string, int> d = new Dict<string, int>{ "a": helper(5, 3) };  // 53
+    int v = d.get("a");
+    if (v == 53) { return 7; }
+    return 1;
+}

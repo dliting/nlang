@@ -163,6 +163,7 @@ LineComment	\/\/[^\n]*
 "foreach"   { return KT_Foreach; }
 "if"        { return KT_If; }
 "implements" { return KT_Implements; }
+"import"    { return KT_Import; }
 "in"        { return KT_In; }
 "int"       { return KT_Int; }
 "interface" { return KT_Interface; }

@@ -1,0 +1,7 @@
+// Phase 9b: interpolation with int variable.
+int main() {
+    int n = 42;
+    string s = "n=${n}";
+    if (s == "n=42") return 7;
+    return 1;
+}

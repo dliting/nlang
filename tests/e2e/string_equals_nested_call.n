@@ -1,0 +1,15 @@
+// Phase 9c follow-up: String.Equals call where receiver is itself a
+// multi-arg call result. Verifies the EvalAreaClaim in String.Equals
+// codegen correctly stages receiver + arg without clobbering.
+int helper(int x, int y) { return x * 10 + y; }
+string pick(int idx) {
+    if (idx == 53) { return "yes"; }
+    return "no";
+}
+int main() {
+    // pick(helper(5,3)) should be "yes"; equals("yes") should return 1.
+    string s = pick(helper(5, 3));
+    int ok = s.equals("yes");
+    if (ok) { return 7; }
+    return 1;
+}

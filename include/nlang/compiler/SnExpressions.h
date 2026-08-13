@@ -240,6 +240,10 @@ private:
 	Variant m_Value;
 };
 
+//Phase 9b: interpolated string expression "hello ${expr} world".
+//Implemented as OP_Add binary tree — see BuildStringExpr in nlang.y.
+//No dedicated AST node required.
+
 /*
 The reference to a single identifier.
 It can be one of the following forms:
@@ -279,6 +283,24 @@ private:
 };
 
 class SnFunction;
+class SnFormalParam;  //forward decl (defined in SnData.h); needed for FormalBinding
+
+//Phase 9c: result of binding a call-site argument list to a callee's
+//formal parameter list. Each entry describes how formal[i] is satisfied.
+//Produced by ExprResolveAccessor::FindFuncByInvoke; consumed by VmBackend
+//EmitCallArgs to drive per-formal evaluation (including defaults).
+struct FormalBinding
+{
+	enum Kind
+	{
+		B_Positional,  //caller provided this formal via positional arg
+		B_Named,       //caller provided this formal via name = expr
+		B_Default      //caller omitted; use formal's default expression
+	};
+	Kind            kind;
+	SnExpression   *pCallerExpr;  //non-null for B_Positional / B_Named
+	SnFormalParam  *pFormal;      //always non-null
+};
 
 //The syntax node of a function call.
 class NLANG_COMPILER_API SnInvokeExpr : public SnCompoundFieldExpr
@@ -320,9 +342,17 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 
 	std::string ToString() const override;
+
+	//Phase 9c: per-formal binding decisions. Empty for invokes that did not
+	//go through Phase 9c resolver path (codegen treats empty as "all positional"
+	//for backward compatibility).
+	const std::vector<FormalBinding>& Bindings() const { return m_Bindings; }
+	void SetBindings(std::vector<FormalBinding>&& v) { m_Bindings = std::move(v); }
+	bool HasBindings() const { return !m_Bindings.empty(); }
 private:
 	std::unique_ptr<std::string> m_upCalleeName;
 	SnExpressionList* m_pParams;
+	std::vector<FormalBinding> m_Bindings;
 };
 
 /*
@@ -768,6 +798,38 @@ private:
 	bool                         m_isArrayForm;
 	SnField                     *m_pInferredTarget = nullptr;  //parent-set, bare form
 	bool                         m_bTargetIsArray = false;     //resolver-set
+};
+
+//Phase 9c: named argument expression `name = expr` at call sites.
+//Wraps an inner expression with a parameter name. ExprResolver extracts the
+//name and binds to the matching formal parameter; codegen treats the node
+//as transparent (uses Inner() directly via the resolved BindingMap).
+class NLANG_COMPILER_API SnNamedArgExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_NamedArgExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnNamedArgExpr(std::string *pName, SnExpression *pInner,
+		const ISourceLocation &loc)
+		: Super_(s_Kind, loc), m_pInner(pInner)
+	{
+		assert(pName);
+		assert(pInner);
+		m_upName.reset(pName);
+		AddChild(m_pInner);
+	}
+
+	const std::string &Name() const { return *m_upName; }
+	SnExpression *Inner() const { return m_pInner; }
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	std::unique_ptr<std::string> m_upName;
+	SnExpression                 *m_pInner;
 };
 
 } //namespace nlang

@@ -1,0 +1,7 @@
+// Phase 9c audit round 5: forward reference in default expression.
+// `a = b` where `b` is declared LATER in the formal list. Should be
+// a compile error or produce undefined behavior — testing which.
+int foo(int a = b, int b = 5) { return a + b; }
+int main() {
+    return foo();   // what happens?
+}

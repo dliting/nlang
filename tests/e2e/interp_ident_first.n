@@ -1,0 +1,7 @@
+// Phase 9b: identifier at start (no leading literal).
+int main() {
+    int n = 5;
+    string s = "${n} items";
+    if (s == "5 items") return 7;
+    return 1;
+}

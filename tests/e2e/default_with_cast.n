@@ -1,0 +1,7 @@
+// Phase 9c audit round 5: default with `as` cast expression.
+// `arr as int` — was there an interaction with the cast fixups from 8e-1.5?
+int helper() { return 7; }
+int foo(int a = helper() as int) { return a; }
+int main() {
+    return foo();   // expect 7
+}

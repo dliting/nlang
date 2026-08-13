@@ -1,0 +1,11 @@
+// Phase 9c follow-up: boxing must survive evalArea → callParamBase bulk-copy.
+// Validates that the bulk-copy loop preserves tagged Value representation
+// (boxed heap idx) when a primitive-typed argument is the result of a
+// nested free-function call.
+int helper(int x) { return x + 3; }
+int main() {
+    List<int> list = new List<int>();
+    list.add(helper(5));
+    if (list.get(0) == 8) { return 7; }
+    return 1;
+}

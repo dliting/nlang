@@ -1,0 +1,6 @@
+//5 + (-3) = 2
+import "lib";
+
+int main() {
+	return sub(5);
+}

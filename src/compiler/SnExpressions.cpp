@@ -658,4 +658,23 @@ std::string SnInitListExpr::ToString() const
 	return std::move(ss.str());
 }
 
+//--- SnNamedArgExpr (Phase 9c) ---
+
+bool SnNamedArgExpr::IsDataExpr() const
+{
+	return m_pInner->IsDataExpr();
+}
+
+void SnNamedArgExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnNamedArgExpr::ToString() const
+{
+	std::stringstream ss;
+	ss << *m_upName << " = " << m_pInner->ToString();
+	return std::move(ss.str());
+}
+
 } //namespace nlang

@@ -1,0 +1,12 @@
+// Phase 9c follow-up: method default-param with nested call in default expr.
+// Regression test: slotBase=1 method-call path must reserve `this` slot in evalArea.
+int twice(int x) { return x * 2; }
+class C {
+    public int v;
+    public int get(int bias = twice(5)) { return this.v + bias; }
+}
+int main() {
+    C c = new C();
+    c.v = 8;
+    return c.get();
+}

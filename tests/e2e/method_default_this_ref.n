@@ -1,0 +1,10 @@
+// Phase 9c: class method default references another formal.
+class C {
+    public int v;
+    public int get(int a, int b = a + 10) { return a + b + this.v; }
+}
+int main() {
+    C c = new C();
+    c.v = 100;
+    return c.get(5);
+}

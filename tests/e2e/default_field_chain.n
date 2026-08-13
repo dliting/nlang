@@ -1,0 +1,11 @@
+// Phase 9c audit round 5: default that chains method calls.
+// Verifies emit doesn't trip on `helper().foo()` style chains in defaults.
+class P {
+    public int x;
+    public int getX() { return this.x; }
+    public int P() { this.x = 5; return 0; }
+}
+int foo(int a = (new P()).getX()) { return a; }
+int main() {
+    return foo();   // expect 5
+}
