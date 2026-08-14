@@ -3426,7 +3426,16 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     if (kind == NK_ReturnStmt) {
         auto& ret = static_cast<SnReturnStmt&>(stmt);
         if (ret.Result()) {
+            //Phase 9d-2: evaluate the return expression BEFORE running
+            //finally copies (Java semantics: expr first, finally second).
             EmitExpression(*ret.Result(), emitter, m_currFunc->returnSlot);
+        }
+        //Phase 9d-2: a return leaving try/finally regions runs each
+        //finally body inline (innermost first). returnSlot is a reserved
+        //slot so the copies cannot clobber the result.
+        for (size_t i = m_finallyStack.size(); i > 0; --i)
+            EmitStatement(*m_finallyStack[i - 1], emitter);
+        if (ret.Result()) {
             emitter.Emit(OpCode::OP_VarLocal);
             emitter.EmitUint16(m_currFunc->returnSlot);
         }
@@ -4164,6 +4173,14 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         int pops = m_catchBodyDepth - m_loopStack.back().catchBodyDepthAtEntry;
         for (int i = 0; i < pops; ++i)
             emitter.Emit(OpCode::OP_PopHandler);
+        //Phase 9d-2: run inline copies of the finally bodies this break
+        //passes through (regions entered after the target loop), innermost
+        //first, then jump to the loop's break target.
+        for (size_t i = m_finallyStack.size();
+             i > static_cast<size_t>(m_loopStack.back().finallyDepthAtEntry);
+             --i) {
+            EmitStatement(*m_finallyStack[i - 1], emitter);
+        }
         emitter.Emit(OpCode::OP_Jump);
         size_t jumpPos = emitter.CurrentOffset();
         emitter.EmitUint16(0);  //placeholder
@@ -4190,6 +4207,13 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         int pops = m_catchBodyDepth - it->catchBodyDepthAtEntry;
         for (int i = 0; i < pops; ++i)
             emitter.Emit(OpCode::OP_PopHandler);
+        //Phase 9d-2: same finally trampolines as break, targeting this
+        //loop's continue target.
+        for (size_t i = m_finallyStack.size();
+             i > static_cast<size_t>(it->finallyDepthAtEntry);
+             --i) {
+            EmitStatement(*m_finallyStack[i - 1], emitter);
+        }
         emitter.Emit(OpCode::OP_Jump);
         size_t jumpPos = emitter.CurrentOffset();
         emitter.EmitUint16(0);  //placeholder
@@ -4305,8 +4329,9 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Phase 9d: try { body } catch (Type var) { handler } ...
+    //Phase 9d-2: optional finally clause (full Java semantics).
     //
-    //Codegen pattern:
+    //Codegen pattern without finally:
     //   tryStart:
     //     <body bytecode>
     //     OP_Jump postTry      ; body completed normally — skip all catches
@@ -4319,18 +4344,54 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //     ...
     //   postTry:
     //
+    //Codegen pattern with finally:
+    //   tryStart:
+    //     <body bytecode>
+    //     OP_Jump finallyNormal
+    //   tryEnd:
+    //   handler1:
+    //     <handler1 bytecode>
+    //     OP_PopHandler
+    //     OP_Jump finallyNormal  ; catch completion also runs finally
+    //   handler2:
+    //     ...
+    //   rangeEnd:                ; finally entry's covered range extends here
+    //                             ; so exceptions in catch bodies reach it
+    //   finallyHandler:          ; tryBlocks entry (catch-all 0xFFFF), pushed
+    //     <finally body copy>    ; LAST so typed catches win first
+    //     OP_Rethrow             ; re-raise the in-flight exception
+    //   finallyNormal:
+    //     <finally body copy>    ; normal/catch-completion path
+    //     OP_Jump postTry
+    //   postTry:
+    //
+    //All finally body copies live OUTSIDE the covered range [tryStart,
+    //rangeEnd), so an exception thrown inside a finally body propagates
+    //outward directly (no double execution by the same handler).
+    //break/continue/return leaving the region execute their own inline
+    //copies (see NK_BreakStmt/NK_ContinueStmt/NK_ReturnStmt).
+    //
     //tryBlocks entries are pushed in declaration order; the runtime scans
     //linearly and the first range+type match wins.
     if (kind == NK_TryStmt) {
         auto& ts = static_cast<SnTryStmt&>(stmt);
+        SnStatement* pFinally = ts.FinallyBody();
 
         uint16_t tryStart = static_cast<uint16_t>(emitter.CurrentOffset());
+
+        //Phase 9d-2: register the finally region BEFORE emitting the try
+        //body and catch bodies — break/continue/return sites inside them
+        //consult m_finallyStack to emit inline copies.
+        if (pFinally)
+            m_finallyStack.push_back(pFinally);
+
         if (ts.TryBody())
             EmitStatement(*ts.TryBody(), emitter);
-        //Body completed normally — skip all catch handlers.
+        //Body completed normally — skip catch handlers (to finallyNormal
+        //when a finally clause exists, else postTry).
         emitter.Emit(OpCode::OP_Jump);
         size_t tryEndJumpPatch = emitter.CurrentOffset();
-        emitter.EmitUint16(0);  //placeholder, patched to postTry
+        emitter.EmitUint16(0);  //placeholder, patched below
         uint16_t tryEnd = static_cast<uint16_t>(emitter.CurrentOffset());
 
         std::vector<size_t> catchEndJumpPatches;
@@ -4339,8 +4400,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
             //Resolve exceptionClassIdx from CatchType's resolved EvalDataType
             //(a SnClassDecl*). If unresolved (earlier resolver error), use
-            //0xFFFF as a sentinel — IsInstanceOrSubclass will return false
-            //for everything, making the handler effectively dead.
+            //0xFFFF as a sentinel — at runtime 0xFFFF is a catch-all, but
+            //unresolved types only occur after a reported compile error.
             uint16_t excClassIdx = 0xFFFF;
             if (pCatch->CatchType()->IsResolved()
                 && pCatch->CatchType()->Field()) {
@@ -4379,10 +4440,49 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             emitter.EmitUint16(0);  //placeholder
         }
 
+        if (!pFinally) {
+            //No finally: normal and catch-completion jumps go to postTry.
+            uint16_t postTry = static_cast<uint16_t>(emitter.CurrentOffset());
+            emitter.PatchUint16(tryEndJumpPatch, postTry);
+            for (size_t p : catchEndJumpPatches)
+                emitter.PatchUint16(p, postTry);
+            return;
+        }
+
+        //Finally layout. The finally entry's covered range extends past
+        //the catch handlers so exceptions raised inside a catch body also
+        //run the finally body (then rethrow outward — a sibling catch must
+        //NOT intercept it, which the linear scan guarantees because each
+        //catch entry's endPc is still tryEnd).
+        uint16_t rangeEnd = static_cast<uint16_t>(emitter.CurrentOffset());
+        uint16_t finallyHandlerPc = rangeEnd;
+
+        //finallyHandler: exception path — run body copy, then rethrow.
+        //catchLocalOff must be a real slot: the runtime writes the caught
+        //exception heap idx there on handler entry unconditionally. A
+        //hidden shared scratch local (name-deduped per function) is dead
+        //storage; slot 0 would clobber `this` in methods.
+        uint16_t finallyExcOff = AllocLocal("$finally_exc", VALUE_SIZE,
+                                            RTK_Class, false);
+        m_currFunc->func->tryBlocks.push_back(
+            {tryStart, rangeEnd, finallyHandlerPc, 0xFFFF, finallyExcOff});
+        EmitStatement(*pFinally, emitter);
+        emitter.Emit(OpCode::OP_Rethrow);
+
+        //finallyNormal: normal and catch-completion path — body copy,
+        //then jump past the region.
+        uint16_t finallyNormal = static_cast<uint16_t>(emitter.CurrentOffset());
+        EmitStatement(*pFinally, emitter);
+        emitter.Emit(OpCode::OP_Jump);
+        size_t finallyEndJumpPatch = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder, patched to postTry
+
         uint16_t postTry = static_cast<uint16_t>(emitter.CurrentOffset());
-        emitter.PatchUint16(tryEndJumpPatch, postTry);
+        emitter.PatchUint16(tryEndJumpPatch, finallyNormal);
         for (size_t p : catchEndJumpPatches)
-            emitter.PatchUint16(p, postTry);
+            emitter.PatchUint16(p, finallyNormal);
+        emitter.PatchUint16(finallyEndJumpPatch, postTry);
+        m_finallyStack.pop_back();
         return;
     }
 

@@ -220,6 +220,11 @@ private:
         //(m_catchBodyDepth - catchBodyDepthAtEntry) OP_PopHandler entries
         //to balance handlerExcStack for the catch bodies it exits through.
         int catchBodyDepthAtEntry = 0;
+        //Phase 9d-2: snapshot of m_finallyStack size at loop entry.
+        //break/continue exiting this loop must run (inline copies of) the
+        //finally bodies added after the loop was entered, i.e.
+        //m_finallyStack entries with index >= finallyDepthAtEntry.
+        int finallyDepthAtEntry = 0;
     };
     std::vector<LoopContext> m_loopStack;
 
@@ -230,11 +235,19 @@ private:
     //catch body that the break/continue is lexically inside).
     int m_catchBodyDepth = 0;
 
+    //Phase 9d-2: stack of enclosing finally bodies (innermost last). A
+    //break/continue/return that leaves the corresponding try region must
+    //execute a copy of each finally body it passes through, innermost
+    //first. Exception paths are covered separately by the catch-all
+    //finally handler (see EmitStatement NK_TryStmt).
+    std::vector<SnStatement*> m_finallyStack;
+
     //Phase 9d follow-up: push a loop context with catch-body depth snapshot.
     void PushLoopContext(bool isSwitch = false) {
         LoopContext ctx;
         ctx.isSwitch = isSwitch;
         ctx.catchBodyDepthAtEntry = m_catchBodyDepth;
+        ctx.finallyDepthAtEntry = static_cast<int>(m_finallyStack.size());
         m_loopStack.push_back(std::move(ctx));
     }
 
