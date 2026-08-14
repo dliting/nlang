@@ -864,6 +864,40 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 	}
 
+	//Phase 9d: built-in Exception class field access (e.message, e.backtrace).
+	//The synthetic SnClassDecl has no real member fields, so resolve by name.
+	//Field offsets are hard-coded in VmBackend::FindClassFieldOffset:
+	//  message  → slot[1] (offset 4)
+	//  backtrace → slot[2] (offset 8)
+	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
+		&& pInnerExpr->Kind() == NK_IdentifierExpr)
+	{
+		auto* pClass = static_cast<SnClassDecl*>(m_pContext);
+		if (IsBuiltinExceptionClassName(pClass->Name())) {
+			auto& innerId = static_cast<SnIdentifierExpr&>(*pInnerExpr);
+			const auto& fieldName = innerId.Name();
+			SnField* pResultField = nullptr;
+			if (fieldName == "message") {
+				pResultField = SnBuiltinDataType::InstanceOf(NK_String);
+			} else if (fieldName == "backtrace") {
+				//backtrace is List<string> — synthesize the generic instantiation.
+				auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
+				std::vector<SnField*> listArgs{ pStr };
+				pResultField = GetGenericClassDecl("List", listArgs,
+					pInnerExpr->Location());
+			}
+			if (pResultField) {
+				innerId.AddFlags(NF_Resolved);
+				snMember.EvalDataType(pResultField);
+				snMember.m_pField = pResultField;
+				snMember.AddFlags(NF_Resolved);
+				m_pContext = pSavedContext;
+				return;
+			}
+		}
+	}
+
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
 		ResolveFieldExprAs(snMember, pInnerExpr->Field());

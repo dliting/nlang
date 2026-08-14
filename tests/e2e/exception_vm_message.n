@@ -1,0 +1,15 @@
+//Phase 9d: verify VM-thrown DivByZeroException has its message field set.
+//The VM sets message to "division/modulo by zero" when raising.
+int main() {
+    try {
+        int x = 0;
+        int y = 1 / x;
+        return y;
+    } catch (DivByZeroException e) {
+        //message non-empty → length > 0. Return 1 to confirm catch + field access.
+        if (e.message.length() > 0) {
+            return 1;
+        }
+        return 0;
+    }
+}

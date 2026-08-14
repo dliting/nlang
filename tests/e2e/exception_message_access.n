@@ -1,0 +1,11 @@
+//Phase 9d: verify Exception.message field is accessible on a user-thrown
+//exception. message is a string — we compare its length to a known value.
+int main() {
+    try {
+        throw new Exception("hello world");
+    } catch (Exception e) {
+        //e.message is "hello world" → 11 bytes
+        return e.message.length();
+    }
+    return 0;
+}

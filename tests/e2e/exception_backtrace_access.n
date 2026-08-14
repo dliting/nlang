@@ -1,0 +1,22 @@
+//Phase 9d: verify Exception.backtrace field is a List<string> with at
+//least one frame for VM-thrown exceptions. User-thrown exceptions have
+//an empty backtrace (by design — they're constructed before throw).
+int helper() {
+    int x = 0;
+    return 1 / x;
+}
+
+int main() {
+    try {
+        return helper();
+    } catch (DivByZeroException e) {
+        //backtrace is List<string> with >= 1 frame for VM-thrown exceptions
+        //across a function boundary.
+        int n = e.backtrace.length();
+        if (n >= 1) {
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}

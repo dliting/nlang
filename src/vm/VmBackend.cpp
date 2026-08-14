@@ -1270,6 +1270,21 @@ static int FindFieldOffset(SnStructDecl& structDecl, const std::string& fieldNam
 //Slot[1..N] = data fields (4 bytes each, offset starts at VALUE_SIZE=4).
 //Compile-time offset here must match runtime AllocClassOnHeap in VmExecutor.
 static int FindClassFieldOffset(SnClassDecl& classDecl, const std::string& fieldName) {
+    //Phase 9d: built-in Exception classes expose message/backtrace fields
+    //that aren't materialized as SnClassDecl members (the synthetic class
+    //decl has empty Members()). Runtime layout (VmBackend::RegisterBuiltinClasses):
+    //  slot[1] = message  → offset 4
+    //  slot[2] = backtrace → offset 8
+    if (classDecl.IsBuiltinClass()) {
+        const auto& cn = classDecl.Name();
+        if (cn == "Exception" || cn == "NullPointerException"
+            || cn == "DivByZeroException" || cn == "IndexOutOfBoundsException"
+            || cn == "AssertionException") {
+            if (fieldName == "message")  return VALUE_SIZE;
+            if (fieldName == "backtrace") return 2 * VALUE_SIZE;
+            return -1;
+        }
+    }
     //Collect ancestor chain from root to direct parent
     std::vector<SnClassDecl*> ancestors;
     auto* pSuper = classDecl.SuperClass();

@@ -568,3 +568,6 @@ exception_list_oob_catch 1
 exception_break_in_catch 7
 exception_continue_in_catch 6
 exception_break_in_inner_loop 3
+exception_message_access 11
+exception_vm_message 1
+exception_backtrace_access 1
