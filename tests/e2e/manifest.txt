@@ -571,3 +571,4 @@ exception_break_in_inner_loop 3
 exception_message_access 11
 exception_vm_message 1
 exception_backtrace_access 1
+exception_user_subclass_field 65

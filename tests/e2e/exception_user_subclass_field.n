@@ -1,0 +1,22 @@
+//Phase 9d: user Exception subclass field access. message/backtrace are
+//inherited from Exception (slot[1]/slot[2]) and the subclass's own code
+//field lands at slot[3]. Verifies no aliasing between inherited and own
+//fields (an earlier bug had them sharing slot[1], passing by coincidence).
+class MyException : Exception {
+    int code;
+}
+
+int main() {
+    MyException e = new MyException();
+    e.code = 5;
+    e.message = "custom";
+    try {
+        throw e;
+    } catch (MyException e2) {
+        //message is "custom" (6 bytes), code is still 5.
+        int msgLen = e2.message.length();   // 6
+        int code = e2.code;                 // 5
+        return msgLen * 10 + code;          // 65
+    }
+    return 0;
+}

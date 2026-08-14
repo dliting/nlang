@@ -457,6 +457,31 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
         }
         //Add fields from root ancestor first (reversed order)
         for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+            //Phase 9d: a built-in Exception ancestor's synthetic decl has
+            //no Members(), but its runtime layout carries 2 fields
+            //(message=slot[1], backtrace=slot[2]). Inject them so user
+            //subclasses of Exception get the correct flattened layout
+            //(matching FindClassFieldOffset and the ctor intrinsic).
+            if ((*it)->IsBuiltinClass()) {
+                const auto& an = (*it)->Name();
+                if (an == "Exception" || an == "NullPointerException"
+                    || an == "DivByZeroException"
+                    || an == "IndexOutOfBoundsException"
+                    || an == "AssertionException") {
+                    cc.fieldNames.push_back("message");
+                    cc.fieldTypeKinds.push_back(RTK_String);
+                    cc.fieldStructIndices.push_back(0xFFFF);
+                    cc.fieldClassIndices.push_back(0xFFFF);
+                    cc.fieldAccess.push_back(0);
+                    cc.fieldNames.push_back("backtrace");
+                    cc.fieldTypeKinds.push_back(RTK_Class);
+                    cc.fieldStructIndices.push_back(0xFFFF);
+                    cc.fieldClassIndices.push_back(
+                        static_cast<uint16_t>(m_listClassIdx));
+                    cc.fieldAccess.push_back(0);
+                    continue;
+                }
+            }
             for (auto& member : (*it)->Members()) {
                 if (member.Kind() == NK_ClassField) {
                     auto& cf = static_cast<SnClassField&>(member);
@@ -1275,15 +1300,19 @@ static int FindClassFieldOffset(SnClassDecl& classDecl, const std::string& field
     //decl has empty Members()). Runtime layout (VmBackend::RegisterBuiltinClasses):
     //  slot[1] = message  → offset 4
     //  slot[2] = backtrace → offset 8
-    if (classDecl.IsBuiltinClass()) {
-        const auto& cn = classDecl.Name();
-        if (cn == "Exception" || cn == "NullPointerException"
+    //Walk SuperClass chain so user subclasses of Exception also resolve.
+    auto isBuiltinExceptionName = [](const std::string& cn) {
+        return cn == "Exception" || cn == "NullPointerException"
             || cn == "DivByZeroException" || cn == "IndexOutOfBoundsException"
-            || cn == "AssertionException") {
-            if (fieldName == "message")  return VALUE_SIZE;
-            if (fieldName == "backtrace") return 2 * VALUE_SIZE;
-            return -1;
-        }
+            || cn == "AssertionException";
+    };
+    //Phase 9d: direct built-in Exception class — synthetic decl has no
+    //Members(); the 2 runtime fields are fixed at slot[1]/slot[2].
+    if (classDecl.IsBuiltinClass()
+        && isBuiltinExceptionName(classDecl.Name())) {
+        if (fieldName == "message")  return VALUE_SIZE;
+        if (fieldName == "backtrace") return 2 * VALUE_SIZE;
+        return -1;
     }
     //Collect ancestor chain from root to direct parent
     std::vector<SnClassDecl*> ancestors;
@@ -1295,6 +1324,17 @@ static int FindClassFieldOffset(SnClassDecl& classDecl, const std::string& field
     //Search from root ancestor to direct parent (reversed order)
     uint16_t off = VALUE_SIZE; //skip classIdx slot
     for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+        //Phase 9d: a built-in Exception ancestor contributes 2 runtime
+        //fields (message, backtrace) that aren't in the synthetic
+        //Members() list — RegisterClasses injects them into the compiled
+        //field list, so account for them here.
+        if ((*it)->IsBuiltinClass()
+            && isBuiltinExceptionName((*it)->Name())) {
+            if (fieldName == "message")  return off;
+            if (fieldName == "backtrace") return off + VALUE_SIZE;
+            off += 2 * VALUE_SIZE;
+            continue;
+        }
         for (auto& member : (*it)->Members()) {
             if (member.Kind() == NK_ClassField && member.Name() == fieldName)
                 return off;

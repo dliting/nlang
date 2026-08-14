@@ -869,12 +869,23 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	//Field offsets are hard-coded in VmBackend::FindClassFieldOffset:
 	//  message  → slot[1] (offset 4)
 	//  backtrace → slot[2] (offset 8)
+	//This also handles user subclasses of Exception — walk SuperClass()
+	//chain to detect Exception ancestry.
 	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
-		&& static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
 		&& pInnerExpr->Kind() == NK_IdentifierExpr)
 	{
 		auto* pClass = static_cast<SnClassDecl*>(m_pContext);
-		if (IsBuiltinExceptionClassName(pClass->Name())) {
+		//Walk SuperClass chain looking for a built-in Exception class.
+		bool isExceptionSubclass = false;
+		for (SnClassDecl* pWalk = pClass; pWalk; ) {
+			if (pWalk->IsBuiltinClass()
+				&& IsBuiltinExceptionClassName(pWalk->Name())) {
+				isExceptionSubclass = true;
+				break;
+			}
+			pWalk = pWalk->SuperClass();
+		}
+		if (isExceptionSubclass) {
 			auto& innerId = static_cast<SnIdentifierExpr&>(*pInnerExpr);
 			const auto& fieldName = innerId.Name();
 			SnField* pResultField = nullptr;
