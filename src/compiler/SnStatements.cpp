@@ -668,8 +668,10 @@ ImmutableNodeList *SnCatchClause::ChildrenPtr() const
 //SnTryStmt (Phase 9d)
 
 SnTryStmt::SnTryStmt(SnStatement *pTryBody,
-	std::vector<SnCatchClause*> *pCatches, const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_pTryBody(pTryBody), m_upCatches(pCatches)
+	std::vector<SnCatchClause*> *pCatches, SnStatement *pFinallyBody,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pTryBody(pTryBody), m_upCatches(pCatches),
+	m_pFinallyBody(pFinallyBody)
 {
 	if (m_pTryBody)
 		AddChild(m_pTryBody);
@@ -677,6 +679,8 @@ SnTryStmt::SnTryStmt(SnStatement *pTryBody,
 		for (auto* pCatch : *m_upCatches)
 			AddChild(pCatch);
 	}
+	if (m_pFinallyBody)
+		AddChild(m_pFinallyBody);
 }
 
 SnTryStmt::~SnTryStmt()
@@ -692,6 +696,8 @@ std::string SnTryStmt::ToString() const
 		for (auto* pCatch : *m_upCatches)
 			ss << " " << pCatch->ToString();
 	}
+	if (m_pFinallyBody)
+		ss << " finally " << m_pFinallyBody->ToString();
 	ss << "\n";
 	return ss.str();
 }
@@ -728,6 +734,40 @@ SnField *SnThrowStmt::FindField(const std::string& sName) const
 }
 
 void SnThrowStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+//SnSuperCallStmt (Phase 9d-2)
+
+SnSuperCallStmt::SnSuperCallStmt(const PtrList<SnExpression>& args,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_args(args)
+{
+	for (auto* pArg : m_args)
+		AddChild(pArg);
+}
+
+std::string SnSuperCallStmt::ToString() const
+{
+	std::stringstream ss;
+	ss << "super(";
+	bool first = true;
+	for (auto* pArg : m_args) {
+		if (!first) ss << ", ";
+		first = false;
+		ss << pArg->ToString();
+	}
+	ss << ");";
+	return ss.str();
+}
+
+SnField *SnSuperCallStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+void SnSuperCallStmt::Accept(nlang::ISyntaxNodeVisitor& v)
 {
 	v.Visit(*this);
 }

@@ -254,7 +254,7 @@ static SnExpression* BuildStringExpr(
 %type <v_pFunction>				Function FunctionHeader
 %type <v_pParagraph>			Paragraph FunctionBody DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
-%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt
+%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt SuperCallStmt FinallyClauseOpt
 %type <v_pForStmt>		ForStmt
 %type <v_pForeachStmt>	ForeachStmt
 %type <v_pCatchClause>		CatchClause
@@ -314,6 +314,7 @@ static SnExpression* BuildStringExpr(
 %token KT_Elseif
 %token KT_Enum
 %token KT_False
+%token KT_Finally
 %token KT_Float
 %token KT_For
 %token KT_Foreach
@@ -336,6 +337,7 @@ static SnExpression* BuildStringExpr(
 %token KT_Static
 %token KT_String
 %token KT_Struct
+%token KT_Super
 %token KT_Switch
 %token KT_This
 %token KT_Throw
@@ -634,6 +636,9 @@ Statement:	';' {
 				ThrowStmt {
 					$$ = $1;
 				} |
+				SuperCallStmt {
+					$$ = $1;
+				} |
 				Paragraph {
 					$$ = $1;
 				} |
@@ -737,15 +742,16 @@ AssertStmt: KT_Assert '(' Expression ')' ';' {
 				} ;
 
 /*
-Phase 9d: try/catch statement.
+Phase 9d: try/catch statement. Phase 9d-2 adds the optional finally
+clause (full Java semantics: finally runs on normal, catch, break/
+continue/return, and exception paths).
 The try body is a single Statement (typically a Paragraph block).
-CatchClauseList allows zero or more catch clauses (zero only useful in
-combination with finally, which Phase 9d does not yet support — the
-grammar still accepts an empty catch list so the production is uniform,
-and a resolver-stage check rejects try with zero catches).
+CatchClauseList allows zero or more catch clauses (zero is meaningful
+only together with finally — `try {} finally {}`; a resolver-stage check
+rejects try with neither catches nor finally).
 */
-TryStmt: KT_Try Statement CatchClauseList {
-					$$ = EnNew(SnTryStmt($2, $3, @1));
+TryStmt: KT_Try Statement CatchClauseList FinallyClauseOpt {
+					$$ = EnNew(SnTryStmt($2, $3, $4, @1));
 				} ;
 
 CatchClauseList: /* empty */ {
@@ -759,6 +765,12 @@ CatchClause: KT_Catch '(' Type TT_Identifier ')' Statement {
 					$$ = EnNew(SnCatchClause($3, *$4, $6, @1));
 				} ;
 
+FinallyClauseOpt: /* empty */ {
+					$$ = nullptr;
+				} | KT_Finally Statement {
+					$$ = $2;
+				} ;
+
 /*
 Phase 9d: throw statement. `throw <expr>;` raises the given Exception
 instance; `throw;` (no operand) re-raises the in-flight exception of the
@@ -768,6 +780,17 @@ ThrowStmt: KT_Throw Expression ';' {
 					$$ = EnNew(SnThrowStmt($2, @1));
 				} | KT_Throw ';' {
 					$$ = EnNew(SnThrowStmt(nullptr, @1));
+				} ;
+
+/*
+Phase 9d-2: super(...) call statement — forwards constructor arguments
+to the direct parent class constructor. Legal anywhere inside a user
+constructor (not required to be the first statement). Reuses
+ConcreteParamList (positional args; named args are rejected by the
+resolver).
+*/
+SuperCallStmt: KT_Super '(' ConcreteParamList ')' ';' {
+					$$ = EnNew(SnSuperCallStmt(*$3, @1));
 				} ;
 
 /*

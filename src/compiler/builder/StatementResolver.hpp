@@ -165,6 +165,11 @@ public:
 	{
 		assert(m_pVisitor);
 		assert(m_pCurrType && m_pCurrType->Kind() == NK_Function);
+		if (m_inFinallyBody) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"return is not allowed inside a finally block");
+			return;
+		}
 		auto pOuterFunc		= static_cast<SnFunction *>(m_pCurrType);
 		auto pResultExpr	= sn.Result();
 
@@ -494,10 +499,18 @@ public:
 
 	void Access(SnBreakStmt &sn)
 	{
+		//Phase 9d-2: control transfer out of a finally body is rejected
+		//(would swallow exceptions/control flow — Java allows it, MVP does not).
+		if (m_inFinallyBody)
+			m_Env.Log(CLL_Error, sn.Location(),
+				"break is not allowed inside a finally block");
 	}
 
 	void Access(SnContinueStmt &sn)
 	{
+		if (m_inFinallyBody)
+			m_Env.Log(CLL_Error, sn.Location(),
+				"continue is not allowed inside a finally block");
 	}
 
 	void Access(SnSwitchStmt &sn)
@@ -644,12 +657,15 @@ public:
 			if (field.Kind() == NK_ClassField)
 				field.Accept(*m_pVisitor);
 		}
-		//Resolve method bodies.
+		//Resolve method bodies. Phase 9d-2: track the enclosing class so
+		//super(...) statements can validate against it.
+		m_pCurrClass = &sn;
 		for (auto &field : sn.Members())
 		{
 			if (field.Kind() == NK_Function)
 				field.Accept(*m_pVisitor);
 		}
+		m_pCurrClass = nullptr;
 		sn.AddFlags(NF_Resolved);
 	}
 
@@ -738,17 +754,20 @@ public:
 		sn.AddFlags(NF_Resolved);
 	}
 
-	//Phase 9d: try body and catch clauses. Catches must be non-empty;
+	//Phase 9d: try body and catch clauses. Phase 9d-2 adds the optional
+	//finally body. Either at least one catch or a finally body is required;
 	//each catch type must be Exception or a subclass; each catch var is
-	//registered in the body's enclosing paragraph scope.
+	//registered in the body's enclosing paragraph scope. Control-flow
+	//statements (break/continue/return/throw) are rejected inside a finally
+	//body (m_inFinallyBody flag).
 	void Access(SnTryStmt &sn)
 	{
 		if (sn.IsResolved())
 			return;
 		assert(m_pVisitor);
-		if (sn.Catches().empty()) {
+		if (sn.Catches().empty() && !sn.FinallyBody()) {
 			m_Env.Log(CLL_Error, sn.Location(),
-				"try statement must have at least one catch clause");
+				"try statement must have at least one catch clause or a finally block");
 			sn.AddFlags(NF_Resolved);
 			return;
 		}
@@ -756,6 +775,12 @@ public:
 			sn.TryBody()->Accept(*m_pVisitor);
 		for (auto* pCatch : sn.Catches())
 			pCatch->Accept(*m_pVisitor);
+		if (sn.FinallyBody()) {
+			bool prev = m_inFinallyBody;
+			m_inFinallyBody = true;
+			sn.FinallyBody()->Accept(*m_pVisitor);
+			m_inFinallyBody = prev;
+		}
 		sn.AddFlags(NF_Resolved);
 	}
 
@@ -797,6 +822,12 @@ public:
 		if (sn.IsResolved())
 			return;
 		assert(m_pVisitor);
+		if (m_inFinallyBody) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"throw is not allowed inside a finally block");
+			sn.AddFlags(NF_Resolved);
+			return;
+		}
 		if (sn.IsRethrow()) {
 			//throw; — must be lexically inside a catch handler. Walk
 			//parent chain looking for NK_CatchClause.
@@ -822,6 +853,80 @@ public:
 			}
 		}
 		sn.AddFlags(NF_Resolved);
+	}
+
+	//Phase 9d-2: super(args); — forwards ctor args to the direct parent
+	//class constructor. Valid only inside a user constructor (a method of
+	//a class whose name equals the function name). Args are positional
+	//only; named arguments are rejected.
+	void Access(SnSuperCallStmt &sn)
+	{
+		if (sn.IsResolved())
+			return;
+		assert(m_pVisitor);
+		sn.AddFlags(NF_Resolved);
+
+		//1. Must be inside a constructor of a user class.
+		if (!m_pCurrClass || !m_pCurrType
+			|| m_pCurrType->Kind() != NK_Function
+			|| m_pCurrType->Name() != m_pCurrClass->Name()) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"super(...) is only valid inside a constructor");
+			return;
+		}
+		//2. Direct parent must exist (Object and extension-less classes
+		//have no SuperClass).
+		auto pParent = m_pCurrClass->SuperClass();
+		if (!pParent) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"class \"%s\" has no parent class for super(...)",
+				m_pCurrClass->Name().c_str());
+			return;
+		}
+		//3. Resolve args; named arguments are rejected.
+		for (auto* pArg : sn.Args()) {
+			if (pArg->Kind() == NK_NamedArgExpr) {
+				m_Env.Log(CLL_Error, pArg->Location(),
+					"named arguments are not supported in super(...)");
+				continue;
+			}
+			pArg->Accept(*m_pVisitor);
+		}
+		//4. Arity check against the parent constructor.
+		size_t parentArity = 0;
+		bool parentHasCtor = false;
+		if (pParent->IsBuiltinClass()) {
+			//Built-in Exception family ctor: (this, message) → 1 user arg.
+			//Other built-ins are not subclassable; ExprResolver already
+			//rejects those SuperNames.
+			parentHasCtor = true;
+			parentArity = 1;
+		} else {
+			for (auto& field : pParent->Members()) {
+				if (field.Kind() == NK_Function
+					&& field.Name() == pParent->Name()) {
+					parentHasCtor = true;
+					parentArity = static_cast<SnFunction&>(field)
+						.Params().size();
+					break;
+				}
+			}
+		}
+		if (!parentHasCtor) {
+			if (!sn.Args().empty()) {
+				m_Env.Log(CLL_Error, sn.Location(),
+					"parent class \"%s\" has no constructor; super(...) "
+					"cannot take arguments",
+					pParent->Name().c_str());
+			}
+			//super(); with no parent ctor is a legal no-op.
+			return;
+		}
+		if (sn.Args().size() != parentArity) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"super(...) expects %zu argument(s), got %zu",
+				parentArity, sn.Args().size());
+		}
 	}
 
 	//Phase 9d: walk the SuperClass chain of t (if any). Returns true if any
@@ -895,6 +1000,8 @@ private:
 	BuildEnvironment &m_Env;
 	ISyntaxNodeVisitor *m_pVisitor;
 	SnField *m_pCurrType;
+	SnClassDecl *m_pCurrClass = nullptr;
+	bool m_inFinallyBody = false;
 	ExprResolver m_ExprResolver;
 };
 

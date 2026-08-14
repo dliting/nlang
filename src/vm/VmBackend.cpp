@@ -1637,6 +1637,16 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
         for (auto* c : ts.Catches()) {
             if (c->Body()) { uint16_t bd = StmtPeakDepth(*c->Body(), visited); if (bd > d) d = bd; }
         }
+        if (ts.FinallyBody()) { uint16_t fd = StmtPeakDepth(*ts.FinallyBody(), visited); if (fd > d) d = fd; }
+        return d;
+    }
+    if (kind == NK_SuperCallStmt) {
+        auto& sc = static_cast<SnSuperCallStmt&>(stmt);
+        uint16_t d = 0;
+        for (auto* arg : sc.Args()) {
+            uint16_t ad = ExprPeakDepth(*arg, visited);
+            if (ad > d) d = ad;
+        }
         return d;
     }
     if (kind == NK_ThrowStmt) {
@@ -1806,6 +1816,14 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 for (auto* c : ts.Catches()) {
                     if (c->Body()) walkStmt(*c->Body());
                 }
+                if (ts.FinallyBody()) walkStmt(*ts.FinallyBody());
+            } else if (kind == NK_SuperCallStmt) {
+                //super(args) claims 1 (this) + argc slots at call time.
+                auto& sc = static_cast<SnSuperCallStmt&>(stmt);
+                uint16_t claimSize = static_cast<uint16_t>(1 + sc.Args().size());
+                if (claimSize > maxArgs) maxArgs = claimSize;
+                for (auto* arg : sc.Args())
+                    walkExpr(*arg);
             } else if (kind == NK_ThrowStmt) {
                 auto* e = static_cast<SnThrowStmt&>(stmt).Expr();
                 if (e) walkExpr(*e);

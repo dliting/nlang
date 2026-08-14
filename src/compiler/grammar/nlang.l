@@ -159,6 +159,7 @@ LineComment	\/\/[^\n]*
 "elseif"    { return KT_Elseif; }
 "enum"      { return KT_Enum; }
 "false"     { return KT_False; }
+"finally"   { return KT_Finally; }
 "float"     { return KT_Float; }
 "for"       { return KT_For; }
 "foreach"   { return KT_Foreach; }
@@ -181,6 +182,7 @@ LineComment	\/\/[^\n]*
 "static"    { return KT_Static; }
 "string"    { return KT_String; }
 "struct"    { return KT_Struct; }
+"super"     { return KT_Super; }
 "switch"    { return KT_Switch; }
 "this"      { return KT_This; }
 "throw"     { return KT_Throw; }

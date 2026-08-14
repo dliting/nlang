@@ -611,9 +611,11 @@ private:
 };
 
 /*
-Phase 9d: try { ... } catch(...) { ... } statement.
+Phase 9d: try { ... } catch(...) { ... } statement. Phase 9d-2 adds the
+optional finally clause (FinallyBody, nullptr when absent).
 TryBody is the protected statement (typically a Paragraph). Catches is the
-list of catch clauses (may be empty in malformed input — resolver rejects).
+list of catch clauses (empty is meaningful only with a finally body —
+resolver rejects try with neither).
 */
 class NLANG_COMPILER_API SnTryStmt : public SnStatement
 {
@@ -624,6 +626,7 @@ public:
 
 	SnTryStmt(SnStatement *pTryBody,
 		std::vector<SnCatchClause*> *pCatches,
+		SnStatement *pFinallyBody,
 		const ISourceLocation &loc);
 
 	~SnTryStmt() override;
@@ -631,6 +634,7 @@ public:
 	SnStatement *TryBody() const { return m_pTryBody; }
 	std::vector<SnCatchClause*> &Catches() { return *m_upCatches; }
 	const std::vector<SnCatchClause*> &Catches() const { return *m_upCatches; }
+	SnStatement *FinallyBody() const { return m_pFinallyBody; }
 
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
@@ -638,6 +642,7 @@ public:
 private:
 	SnStatement *m_pTryBody;
 	std::unique_ptr<std::vector<SnCatchClause*>> m_upCatches;
+	SnStatement *m_pFinallyBody;
 };
 
 /*
@@ -661,6 +666,30 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pExpr;
+};
+
+/*
+Phase 9d-2: super(args); statement — forwards constructor arguments to the
+direct parent class constructor. Legal anywhere inside a user constructor
+(the resolver enforces this). Args are positional only.
+*/
+class NLANG_COMPILER_API SnSuperCallStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_SuperCallStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnSuperCallStmt(const PtrList<SnExpression>& args,
+		const ISourceLocation &loc);
+
+	const PtrList<SnExpression>& Args() const { return m_args; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	PtrList<SnExpression> m_args;
 };
 
 } //namespace nlang

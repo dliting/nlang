@@ -55,6 +55,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(TryStmt)				/* try statement (Phase 9d) */			\
 	MACRO_IMPL(CatchClause)			/* catch clause (Phase 9d) */			\
 	MACRO_IMPL(ThrowStmt)			/* throw statement (Phase 9d) */		\
+	MACRO_IMPL(SuperCallStmt)		/* super(...) ctor-chain call (Phase 9d-2) */	\
 	MACRO_IMPL(BreakStmt)				/* break statement */					\
 	MACRO_IMPL(ContinueStmt)			/* continue statement */				\
 	MACRO_IMPL(Paragraph)				/* paragraph */
