@@ -259,8 +259,18 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 前向引用检测：默认表达式不能引用后置形参（`int foo(int a = b, int b = 5)` → 编译错误）
 - 4 轮深度审计（round 3-7），36 个新 e2e 测试（含 11 个 compile_error 测试）
 
-**9d：异常处理**
-- try/catch/throw（C# 风格，全 unchecked，throw 任意 Object 子类）
+**9d：异常处理** ✅（435 个 e2e 测试通过）
+- try/catch/throw（Java/C# 风格 class 层级，全 unchecked）
+- Built-in Exception + NullPointerException + DivByZeroException + IndexOutOfBoundsException + AssertionException
+- 多 catch 子句（按声明顺序匹配第一个）、rethrow（`throw;`）
+- VM 错误可 catch：NPE/除零/OOB/assert 包装为 Exception 子类实例
+- Zero-cost try：per-function tryBlocks 表（throw 时线性扫描）
+- NLangThrow : public std::runtime_error（未捕获异常冒泡到顶层 exit 1）
+- Per-CallFrame handlerExcStack（非 executor 全局，避免跨函数残留）
+- 3 新 opcode：OP_Throw / OP_Rethrow / OP_PopHandler
+- 模块格式 v1.4（不向下兼容 v1.3）
+- 23 个新 e2e 测试
+- 已知 MVP 限制：无 finally、built-in Exception 字段未暴露到类型系统、无 super() 关键字、catch 体内 break/continue 可能泄漏 handlerExcStack
 
 **9e：out 参数**
 - `void foo(int x, out int y)`
@@ -299,14 +309,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9c 已完成，**412 个 e2e 测试全部通过**（Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9d 已完成，**435 个 e2e 测试全部通过**（Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 23 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
 - 已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败（pre-existing string pool dedup bug，临时绕过：用单独变量 `int c = a+b;` 再 concat）
-- 下一步：Phase 9d（异常处理）、Phase 9e（out 参数）
+- 下一步：Phase 9d-2（finally + catch 字段暴露 + super()）或 Phase 9e（out 参数）
 
 ## 文档索引
 

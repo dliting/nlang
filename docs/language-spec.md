@@ -79,8 +79,8 @@ future phase.
 ### Null
 
 Class-typed variables can be null (represented as heap index 0). Accessing
-fields or methods on null throws a runtime error (fail-fast, unlike EN's
-safe-null behavior).
+fields or methods on null throws a `NullPointerException` (catchable via
+try/catch since Phase 9d).
 
 ## Type Semantics
 
@@ -886,9 +886,104 @@ subscript read-modify-write. Use the explicit form `arr[i] = arr[i] + 1`.
 assert(condition);
 ```
 
-Evaluates `condition`. If false, throws an "assertion failed" runtime error
-which terminates the program with exit code 1. Single-argument form only
-(no message override yet — Phase 9d may upgrade this once exceptions land).
+Evaluates `condition`. If false, throws an `AssertionException` which can be
+caught by a `try/catch` block (Phase 9d). If uncaught, terminates the program
+with exit code 1. Single-argument form only (no message override yet).
+
+### Exception Handling (Phase 9d)
+
+NLang supports structured exception handling with a Java/C#-style class
+hierarchy. All exceptions are instances of `Exception` or its subclasses.
+
+**Built-in exception classes:**
+
+| Class | Superclass | Thrown by |
+|-------|-----------|-----------|
+| `Exception` | `Object` | User `throw` / Dict key not found |
+| `NullPointerException` | `Exception` | Null reference access |
+| `DivByZeroException` | `Exception` | Integer division/modulo by zero |
+| `IndexOutOfBoundsException` | `Exception` | Array/List index out of bounds |
+| `AssertionException` | `Exception` | `assert(false)` |
+
+**try/catch:**
+
+```
+try {
+    // code that may throw
+} catch (DivByZeroException e) {
+    // handle division by zero
+} catch (Exception e) {
+    // handle any other exception
+}
+```
+
+- Multiple `catch` clauses are supported, matched in declaration order.
+- The first matching catch clause executes; subsequent ones are skipped.
+- `catch (Exception e)` catches all exceptions (Exception is the base class).
+- The catch variable `e` is a regular local variable within the catch body.
+
+**throw:**
+
+```
+throw new Exception("error message");   // throw a new exception
+throw;                                   // re-throw current exception (only inside catch)
+```
+
+- `throw expr` — the expression must evaluate to an Exception subclass instance.
+  Throwing a non-Exception value (e.g. `throw 42`) is a compile error.
+- `throw;` (re-throw) is only valid lexically inside a `catch` body. Using it
+  outside a catch block is a compile error.
+
+**User-defined exception subclasses:**
+
+```
+class MyException : Exception {
+    int code;
+}
+```
+
+User classes can extend `Exception` to carry additional fields. The default
+constructor is used (NLang has no `super()` keyword yet — ancestor constructors
+are not automatically invoked, and inherited fields are zero-initialized).
+
+**Exception fields (runtime only):**
+
+Exception instances have `message` (string) and `backtrace` (List<string>)
+fields at runtime, but these are **not exposed via the type system** in the
+current MVP. Accessing `e.message` or `e.backtrace` in user code produces a
+compile error. This will be addressed in a future phase.
+
+**VM errors are catchable:**
+
+Runtime errors that previously caused hard crashes (NPE, division by zero,
+array/list index out of bounds, assertion failure) now throw the corresponding
+Exception subclass and can be caught:
+
+```
+try {
+    int x = 0;
+    int y = 1 / x;           // throws DivByZeroException
+} catch (DivByZeroException e) {
+    // caught
+}
+
+try {
+    List<int> lst = new List<int>();
+    return lst.get(999);      // throws IndexOutOfBoundsException
+} catch (IndexOutOfBoundsException e) {
+    // caught
+}
+```
+
+**Uncaught exceptions** propagate up the call stack. If no handler is found,
+the program terminates with exit code 1 (same as the pre-9d behavior).
+
+**Not supported in MVP:**
+- `finally` blocks — use explicit cleanup code in catch bodies for now
+- Field access on built-in Exception type (`e.message`, `e.backtrace`)
+- `super()` keyword for calling Exception constructor from user subclass
+- `break`/`continue` inside a catch body that exits the catch block may leak
+  the handler stack entry (rare edge case)
 
 ### Const Local Variables (Phase 9a)
 
@@ -941,8 +1036,9 @@ break out of an enclosing loop.
 
 ### Null Check
 
-Accessing a field or method on a null class reference throws a runtime error
-(fail-fast). This differs from EN's "safe null" behavior (skip + default).
+Accessing a field or method on a null class reference throws a
+`NullPointerException` (Phase 9d), which can be caught by a `try/catch`
+block. If uncaught, the program terminates with exit code 1.
 
 ## Functions
 
@@ -1134,3 +1230,18 @@ or return a derived value that fits in the exit code range.
   (`kMaxFuncParams` sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — callParamBase and evalArea are
   sized per-function based on actual call patterns observed in the body.
+- **Exception field access**: built-in Exception's `message` and
+  `backtrace` fields exist at runtime but are not exposed via the type
+  system. `e.message` and `e.backtrace` produce compile errors. A future
+  phase will expose these fields.
+- **No `finally`**: `try { } finally { }` is a syntax error. Resource
+  cleanup must be done explicitly in catch bodies.
+- **No `super()` in Exception subclass**: user classes extending Exception
+  use the default constructor; `super(msg)` is not supported (no
+  `super` keyword). Inherited fields (message, backtrace) are
+  zero-initialized.
+- **`break`/`continue` in catch body**: if a catch body contains
+  `break` or `continue` that exits the catch block, the handler stack
+  entry is not properly popped. This is a rare edge case that may cause
+  incorrect `throw;` behavior in subsequent catch blocks within the same
+  function.
