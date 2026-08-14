@@ -1,0 +1,20 @@
+//Phase 9d follow-up: break inside catch body exits the outer loop,
+//which is outside the catch body. Codegen must emit OP_PopHandler to
+//balance handlerExcStack. Previously, a stale entry would linger and
+//a later `throw;` would rethrow the wrong exception.
+int main() {
+    int i = 0;
+    while (i < 10) {
+        i = i + 1;
+        try {
+            throw new DivByZeroException("dbz");
+        } catch (DivByZeroException e) {
+            //break exits the while loop (which contains the try/catch),
+            //so we must pop the handler before jumping.
+            break;
+        }
+    }
+    //If we reach here, the handler was correctly popped. Return a
+    //distinctive value to prove no stale rethrow happened.
+    return 7;
+}

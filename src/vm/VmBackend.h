@@ -215,8 +215,28 @@ private:
         std::vector<size_t> breakJumps;
         std::vector<size_t> continueJumps;
         bool isSwitch = false;  //true for switch contexts, false for loops
+        //Phase 9d follow-up: snapshot of m_catchBodyDepth at loop entry.
+        //break/continue exiting this loop must pop
+        //(m_catchBodyDepth - catchBodyDepthAtEntry) OP_PopHandler entries
+        //to balance handlerExcStack for the catch bodies it exits through.
+        int catchBodyDepthAtEntry = 0;
     };
     std::vector<LoopContext> m_loopStack;
+
+    //Phase 9d follow-up: tracks how many catch bodies we're currently
+    //lexically nested inside. Used by break/continue to emit the right
+    //number of OP_PopHandler instructions when a jump exits one or more
+    //catch bodies (specifically: when the target loop sits outside a
+    //catch body that the break/continue is lexically inside).
+    int m_catchBodyDepth = 0;
+
+    //Phase 9d follow-up: push a loop context with catch-body depth snapshot.
+    void PushLoopContext(bool isSwitch = false) {
+        LoopContext ctx;
+        ctx.isSwitch = isSwitch;
+        ctx.catchBodyDepthAtEntry = m_catchBodyDepth;
+        m_loopStack.push_back(std::move(ctx));
+    }
 
     //Per-function code generation context.
     //Layout of the local variable frame (all slots are VALUE_SIZE=4 bytes):

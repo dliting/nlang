@@ -3730,7 +3730,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         auto& whileStmt = static_cast<SnWhileStmt&>(stmt);
         size_t loopStart = emitter.CurrentOffset();
 
-        m_loopStack.push_back(LoopContext{});
+        PushLoopContext();
 
         //Evaluate condition to tempSlot
         EmitExpression(*whileStmt.Cond(), emitter, m_currFunc->tempSlot);
@@ -3766,7 +3766,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     if (kind == NK_DoStmt) {
         auto& doStmt = static_cast<SnDoStmt&>(stmt);
 
-        m_loopStack.push_back(LoopContext{});
+        PushLoopContext();
 
         //1. Loop body (executed at least once)
         size_t loopStart = emitter.CurrentOffset();
@@ -3816,7 +3816,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         size_t loopStart = emitter.CurrentOffset();
 
         //3. Enter loop context (reference: EN's LoopStmt::Compile)
-        m_loopStack.push_back(LoopContext{});
+        PushLoopContext();
 
         //4. Condition check
         EmitExpression(*forStmt.Cond(), emitter, m_currFunc->tempSlot);
@@ -3978,7 +3978,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         size_t loopStart = emitter.CurrentOffset();
 
         //--- 6. Enter loop context (reuse LoopContext for break/continue) -
-        m_loopStack.push_back(LoopContext{});
+        PushLoopContext();
 
         //--- 7. Condition: i < n → jumpToEnd if not -----------------------
         //tempSlot = i; tempSlot2 = n; OP_Less_i32 writes 1/0 into tempSlot.
@@ -4083,6 +4083,14 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             assert(!"break statement not in loop or switch");
             return;
         }
+        //Phase 9d follow-up: if break exits a loop/switch that sits
+        //outside one or more catch bodies (relative to where the break
+        //is lexically), emit OP_PopHandler for each such catch body.
+        //This balances handlerExcStack — otherwise a subsequent `throw;`
+        //in this function would rethrow a stale exception.
+        int pops = m_catchBodyDepth - m_loopStack.back().catchBodyDepthAtEntry;
+        for (int i = 0; i < pops; ++i)
+            emitter.Emit(OpCode::OP_PopHandler);
         emitter.Emit(OpCode::OP_Jump);
         size_t jumpPos = emitter.CurrentOffset();
         emitter.EmitUint16(0);  //placeholder
@@ -4105,6 +4113,10 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             assert(!"continue statement not in loop");
             return;
         }
+        //Phase 9d follow-up: same handler-balancing as break — see above.
+        int pops = m_catchBodyDepth - it->catchBodyDepthAtEntry;
+        for (int i = 0; i < pops; ++i)
+            emitter.Emit(OpCode::OP_PopHandler);
         emitter.Emit(OpCode::OP_Jump);
         size_t jumpPos = emitter.CurrentOffset();
         emitter.EmitUint16(0);  //placeholder
@@ -4133,8 +4145,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         emitter.EmitUint16(switchSlot);
 
         //4. Enter switch context (break jumps out of switch)
-        m_loopStack.push_back(LoopContext{});
-        m_loopStack.back().isSwitch = true;
+        PushLoopContext(true);
 
         //5. Compile each case clause
         //Reference: EN's SwitchStmt::DoCompile — for each case, emit
@@ -4284,8 +4295,11 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             m_currFunc->func->tryBlocks.push_back(
                 {tryStart, tryEnd, handlerPc, excClassIdx, catchOff});
 
-            if (pCatch->Body())
+            if (pCatch->Body()) {
+                ++m_catchBodyDepth;
                 EmitStatement(*pCatch->Body(), emitter);
+                --m_catchBodyDepth;
+            }
             emitter.Emit(OpCode::OP_PopHandler);
             emitter.Emit(OpCode::OP_Jump);
             catchEndJumpPatches.push_back(emitter.CurrentOffset());

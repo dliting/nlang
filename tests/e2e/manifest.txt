@@ -565,3 +565,6 @@ exception_throw_non_exception compile_error
 exception_finally_not_supported compile_error
 exception_dict_key_not_found_catch 1
 exception_list_oob_catch 1
+exception_break_in_catch 7
+exception_continue_in_catch 6
+exception_break_in_inner_loop 3

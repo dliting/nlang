@@ -1,0 +1,23 @@
+//Phase 9d follow-up: continue inside catch body targets the outer
+//loop. Must emit OP_PopHandler to balance handlerExcStack before
+//jumping to the loop top. Then verify the next iteration's throw
+//still works correctly (no stale rethrow).
+int main() {
+    int sum = 0;
+    int i = 0;
+    while (i < 3) {
+        i = i + 1;
+        try {
+            throw new DivByZeroException("dbz");
+        } catch (DivByZeroException e) {
+            //continue exits the catch (and targets the while loop,
+            //which is outside the catch body) — pop the handler.
+            sum = sum + i;
+            continue;
+        }
+        //unreachable if continue works
+        sum = sum + 100;
+    }
+    //sum = 1 + 2 + 3 = 6
+    return sum;
+}

@@ -1,0 +1,26 @@
+//Phase 9d follow-up: break inside an inner loop that lives inside a
+//catch body should NOT pop the handler — the inner loop is inside the
+//catch body, so after break we're still in the catch. The catch body's
+//own OP_PopHandler at its end handles the pop.
+int main() {
+    int i = 0;
+    while (i < 5) {
+        i = i + 1;
+        try {
+            throw new Exception("x");
+        } catch (Exception e) {
+            int j = 0;
+            while (j < 10) {
+                j = j + 1;
+                if (j == 3) {
+                    //This break exits the inner loop only — we stay in
+                    //the catch body. No PopHandler should fire here.
+                    break;
+                }
+            }
+            //Still in catch body. Return to prove no leak.
+            return j;  // 3
+        }
+    }
+    return 0;
+}
