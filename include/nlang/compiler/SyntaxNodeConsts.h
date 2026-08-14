@@ -52,6 +52,9 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(ForeachStmt)			/* foreach loop statement (Phase 8e-5) */	\
 	MACRO_IMPL(SwitchStmt)			/* switch statement */					\
 	MACRO_IMPL(CaseClause)			/* case clause */						\
+	MACRO_IMPL(TryStmt)				/* try statement (Phase 9d) */			\
+	MACRO_IMPL(CatchClause)			/* catch clause (Phase 9d) */			\
+	MACRO_IMPL(ThrowStmt)			/* throw statement (Phase 9d) */		\
 	MACRO_IMPL(BreakStmt)				/* break statement */					\
 	MACRO_IMPL(ContinueStmt)			/* continue statement */				\
 	MACRO_IMPL(Paragraph)				/* paragraph */

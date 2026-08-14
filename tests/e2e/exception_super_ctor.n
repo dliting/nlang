@@ -1,0 +1,17 @@
+//Phase 9d MVP: super(...) call in user Exception subclass ctor is not
+//supported (KT_Super not a keyword). Verify user subclass with default
+//ctor works.
+class MyException : Exception {
+    int code;
+}
+
+int main() {
+    try {
+        MyException e = new MyException();
+        e.code = 1;
+        throw e;
+    } catch (MyException e) {
+        return e.code;
+    }
+    return 0;
+}

@@ -193,6 +193,10 @@ static SnExpression* BuildStringExpr(
 	nlang::SnSwitchStmt *					v_pSwitchStmt;
 	nlang::SnCaseClause *					v_pCaseClause;
 	std::vector<nlang::SnCaseClause*> *		v_pCaseClauseList;
+	nlang::SnTryStmt *						v_pTryStmt;
+	nlang::SnCatchClause *					v_pCatchClause;
+	std::vector<nlang::SnCatchClause*> *	v_pCatchClauseList;
+	nlang::SnThrowStmt *					v_pThrowStmt;
 	nlang::SnBreakStmt *					v_pBreakStmt;
 	nlang::SnContinueStmt *				v_pContinueStmt;
 	nlang::SnEnumDecl *					v_pEnumDecl;
@@ -250,9 +254,11 @@ static SnExpression* BuildStringExpr(
 %type <v_pFunction>				Function FunctionHeader
 %type <v_pParagraph>			Paragraph FunctionBody DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
-%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor
+%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt
 %type <v_pForStmt>		ForStmt
 %type <v_pForeachStmt>	ForeachStmt
+%type <v_pCatchClause>		CatchClause
+%type <v_pCatchClauseList>	CatchClauseList
 %type <v_pDoStmt>		DoStmt
 %type <v_pSwitchStmt>	SwitchStmt
 %type <v_pCaseClause>	CaseClause
@@ -297,6 +303,7 @@ static SnExpression* BuildStringExpr(
 %token KT_Break
 %token KT_Byte
 %token KT_Case
+%token KT_Catch
 %token KT_Char
 %token KT_Class
 %token KT_Const
@@ -331,7 +338,9 @@ static SnExpression* BuildStringExpr(
 %token KT_Struct
 %token KT_Switch
 %token KT_This
+%token KT_Throw
 %token KT_True
+%token KT_Try
 %token KT_Ubyte
 %token KT_Uint
 %token KT_Ushort
@@ -619,6 +628,12 @@ Statement:	';' {
 				ContinueStmt {
 					$$ = $1;
 				} |
+				TryStmt {
+					$$ = $1;
+				} |
+				ThrowStmt {
+					$$ = $1;
+				} |
 				Paragraph {
 					$$ = $1;
 				} |
@@ -719,6 +734,40 @@ Phase 9a: simple runtime check.
 */
 AssertStmt: KT_Assert '(' Expression ')' ';' {
 					$$ = EnNew(SnAssertStmt($3, @1));
+				} ;
+
+/*
+Phase 9d: try/catch statement.
+The try body is a single Statement (typically a Paragraph block).
+CatchClauseList allows zero or more catch clauses (zero only useful in
+combination with finally, which Phase 9d does not yet support — the
+grammar still accepts an empty catch list so the production is uniform,
+and a resolver-stage check rejects try with zero catches).
+*/
+TryStmt: KT_Try Statement CatchClauseList {
+					$$ = EnNew(SnTryStmt($2, $3, @1));
+				} ;
+
+CatchClauseList: /* empty */ {
+					$$ = EnNew(std::vector<SnCatchClause*>());
+				} | CatchClauseList CatchClause {
+					$$ = $1;
+					if ($2) $$->push_back($2);
+				} ;
+
+CatchClause: KT_Catch '(' Type TT_Identifier ')' Statement {
+					$$ = EnNew(SnCatchClause($3, *$4, $6, @1));
+				} ;
+
+/*
+Phase 9d: throw statement. `throw <expr>;` raises the given Exception
+instance; `throw;` (no operand) re-raises the in-flight exception of the
+enclosing catch handler.
+*/
+ThrowStmt: KT_Throw Expression ';' {
+					$$ = EnNew(SnThrowStmt($2, @1));
+				} | KT_Throw ';' {
+					$$ = EnNew(SnThrowStmt(nullptr, @1));
 				} ;
 
 /*

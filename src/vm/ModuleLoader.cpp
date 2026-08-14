@@ -28,11 +28,11 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //"no 'main' function found" errors or worse.
     if (!fs.good())
         throw std::runtime_error("Truncated module file");
-    //Option B (v1.3): reject modules written by older ncc. v1.3 added
-    //CompiledFunction.defaultValues section; loading a v1.2 module would
+    //Phase 9d (v1.4): reject modules written by older ncc. v1.4 added
+    //CompiledFunction.tryBlocks section; loading a v1.3 module would
     //misalign on the new section. Product hasn't shipped, so we refuse
     //stale modules outright instead of carrying forward-compat baggage.
-    if (majorVer != 1 || minorVer < 3)
+    if (majorVer != 1 || minorVer < 4)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
@@ -107,6 +107,23 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         func.bytecode.resize(bcSize);
         if (bcSize > 0)
             fs.read(reinterpret_cast<char*>(func.bytecode.data()), bcSize);
+
+        //Phase 9d v1.4: try/catch table.
+        uint16_t tryBlockCount = 0;
+        fs.read(reinterpret_cast<char*>(&tryBlockCount), sizeof(tryBlockCount));
+        if (!fs.good() || tryBlockCount > 1024)
+            throw std::runtime_error("Invalid module: bad tryBlock count");
+        func.tryBlocks.resize(tryBlockCount);
+        for (uint16_t j = 0; j < tryBlockCount; ++j) {
+            auto& tb = func.tryBlocks[j];
+            fs.read(reinterpret_cast<char*>(&tb.startPc), sizeof(tb.startPc));
+            fs.read(reinterpret_cast<char*>(&tb.endPc), sizeof(tb.endPc));
+            fs.read(reinterpret_cast<char*>(&tb.handlerPc), sizeof(tb.handlerPc));
+            fs.read(reinterpret_cast<char*>(&tb.exceptionClassIdx),
+                    sizeof(tb.exceptionClassIdx));
+            fs.read(reinterpret_cast<char*>(&tb.catchLocalOff),
+                    sizeof(tb.catchLocalOff));
+        }
     }
 
     // Struct descriptors

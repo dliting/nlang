@@ -1,0 +1,4 @@
+int main() {
+    throw new Exception("top-level");
+    return 0;
+}

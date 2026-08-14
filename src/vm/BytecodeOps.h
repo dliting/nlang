@@ -114,6 +114,11 @@ enum class OpCode : uint8_t {
     OP_Unbox,           // uint8 typeKind — pop Object ref, type-check, push primitive
     OP_CheckCast,       // uint16 classIdx — pop ref, verify subclass, throw on mismatch
 
+    // === Phase 9d: Exception handling ===
+    OP_Throw,           // uint16 src — throw Exception at locals[src] (heap idx)
+    OP_Rethrow,         // no operands — rethrow current catch's exception
+    OP_PopHandler,      // no operands — pop one entry from handlerExcStack at catch exit
+
     OP_Count
 };
 

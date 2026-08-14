@@ -325,6 +325,69 @@ void VmBackend::RegisterBuiltinClasses() {
         m_compiledModule.classes.push_back(std::move(cc));
         m_dictClassIdx = static_cast<int16_t>(classIdx);
     }
+
+    //Phase 9d: Exception class hierarchy (Exception + 4 built-in subclasses).
+    //Registered AFTER List/Dict so that backtrace field's fieldClassIndices can
+    //directly reference m_listClassIdx (no post-patch needed).
+    //Layout (slot numbering from 1; slot[0] is classIdx header):
+    //  slot[1] = message (RTK_String, string pool idx)
+    //  slot[2] = backtrace (RTK_Class, heap idx to List<string>)
+    //Subclasses "flatten" the inherited fields into their own fieldNames /
+    //fieldTypeKinds / fieldClassIndices arrays — this matches how user class
+    //registration handles inheritance (RegisterClasses walks ancestor chain
+    //and copies fields down). AllocClassOnHeap uses cc.fieldCount to size
+    //the heap slot, so flattened fields are required for subclass instances
+    //to have room for the inherited message/backtrace slots.
+    //All 5 ctors share INTR_Exception_Ctor dispatch — ExecuteIntrinsic has
+    //one case handling all 5 IDs (subclass ctor IDs collapse to it).
+    auto pushExceptionFields = [&](CompiledClass& cc) {
+        cc.fieldCount = 2;
+        cc.fieldNames.push_back("message");
+        cc.fieldTypeKinds.push_back(RTK_String);
+        cc.fieldStructIndices.push_back(0xFFFF);
+        cc.fieldClassIndices.push_back(0xFFFF);
+        cc.fieldAccess.push_back(0);  //accessible via field ref
+        cc.fieldNames.push_back("backtrace");
+        cc.fieldTypeKinds.push_back(RTK_Class);
+        cc.fieldStructIndices.push_back(0xFFFF);
+        cc.fieldClassIndices.push_back(static_cast<uint16_t>(m_listClassIdx));
+        cc.fieldAccess.push_back(0);
+    };
+    auto registerExceptionClass = [&](const char* name,
+        int16_t superClassIdx, uint16_t ctorIntrinsicId, int16_t* outIdx) {
+        auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
+        CompiledClass cc;
+        cc.name = name;
+        cc.superClassIdx = superClassIdx;
+        //Both base and subclasses carry the 2 fields (flattened inheritance).
+        pushExceptionFields(cc);
+        cc.constructorIdx = 0xFFFF;
+        //Ctor stub function: (this, message) — paramCount=2.
+        auto ctorFuncIdx = static_cast<uint16_t>(m_compiledModule.functions.size());
+        CompiledFunction ctorFunc;
+        ctorFunc.name = name;  //ctor name matches class name
+        ctorFunc.paramCount = 2;
+        ctorFunc.localsSize = static_cast<uint16_t>(2 * VALUE_SIZE);
+        ctorFunc.returnTypeKind = RTK_Void;
+        ctorFunc.intrinsicId = ctorIntrinsicId;
+        m_compiledModule.functions.push_back(std::move(ctorFunc));
+        cc.constructorIdx = ctorFuncIdx;
+
+        m_compiledModule.classes.push_back(std::move(cc));
+        *outIdx = static_cast<int16_t>(classIdx);
+    };
+    registerExceptionClass("Exception", -1 /*resolved to Object below*/,
+        INTR_Exception_Ctor, &m_exceptionClassIdx);
+    registerExceptionClass("NullPointerException", m_exceptionClassIdx,
+        INTR_NullPointerException_Ctor, &m_nullPtrExcClassIdx);
+    registerExceptionClass("DivByZeroException", m_exceptionClassIdx,
+        INTR_DivByZeroException_Ctor, &m_divZeroExcClassIdx);
+    registerExceptionClass("IndexOutOfBoundsException", m_exceptionClassIdx,
+        INTR_IndexOutOfBoundsException_Ctor, &m_oobExcClassIdx);
+    registerExceptionClass("AssertionException", m_exceptionClassIdx,
+        INTR_AssertionException_Ctor, &m_assertExcClassIdx);
+    //Patch Exception's superClassIdx to Object (set in the common Object-resolve
+    //loop below; here we just leave -1 which gets resolved next).
 }
 
 void VmBackend::RegisterStructs(SnNamespace& root) {
@@ -733,6 +796,8 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_Float_to_str:
         case OpCode::OP_Array_to_str:
         case OpCode::OP_ParaEnd:
+        case OpCode::OP_Rethrow:
+        case OpCode::OP_PopHandler:
             return 1;  // no operands
         case OpCode::OP_Box:
         case OpCode::OP_Unbox:
@@ -755,6 +820,7 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_DebugInfo:
         case OpCode::OP_NullCheck:
         case OpCode::OP_CheckCast:
+        case OpCode::OP_Throw:
             return 1 + 2;  // one uint16 operand
         case OpCode::OP_JumpIfNot:
         case OpCode::OP_Add_i32:
@@ -993,8 +1059,20 @@ void VmBackend::MergeImportedFinalize() {
         for (uint32_t i = 0; i < im.functions.size(); ++i) {
             std::vector<uint8_t> bcCopy = im.functions[i].bytecode;
             RemapBytecode(bcCopy, pm);
+            //Phase 9d: copy + remap tryBlocks (exceptionClassIdx only —
+            //startPc/endPc/handlerPc are byte offsets within the same
+            //bytecode buffer, so they don't change across module merge).
+            std::vector<TryBlock> tbs = im.functions[i].tryBlocks;
+            for (auto& tb : tbs) {
+                if (tb.exceptionClassIdx != 0xFFFF) {
+                    auto it = pm.classMap.find(tb.exceptionClassIdx);
+                    if (it != pm.classMap.end())
+                        tb.exceptionClassIdx = static_cast<uint16_t>(it->second);
+                }
+            }
             uint32_t targetIdx = pm.functionMap[i];
             m_compiledModule.functions[targetIdx].bytecode = std::move(bcCopy);
+            m_compiledModule.functions[targetIdx].tryBlocks = std::move(tbs);
         }
     }
 
@@ -1497,6 +1575,19 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
         auto& as = static_cast<SnAssertStmt&>(stmt);
         return ExprPeakDepth(*as.Cond(), visited);
     }
+    if (kind == NK_TryStmt) {
+        auto& ts = static_cast<SnTryStmt&>(stmt);
+        uint16_t d = 0;
+        if (ts.TryBody()) { uint16_t bd = StmtPeakDepth(*ts.TryBody(), visited); if (bd > d) d = bd; }
+        for (auto* c : ts.Catches()) {
+            if (c->Body()) { uint16_t bd = StmtPeakDepth(*c->Body(), visited); if (bd > d) d = bd; }
+        }
+        return d;
+    }
+    if (kind == NK_ThrowStmt) {
+        auto& th = static_cast<SnThrowStmt&>(stmt);
+        return th.Expr() ? ExprPeakDepth(*th.Expr(), visited) : 0;
+    }
     if (kind == NK_CompoundAssignStmt) {
         auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
         return ca.Right() ? ExprPeakDepth(*ca.Right(), visited) : 0;
@@ -1654,6 +1745,15 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 if (fe.Body()) walkStmt(*fe.Body());
             } else if (kind == NK_AssertStmt) {
                 walkExpr(*static_cast<SnAssertStmt&>(stmt).Cond());
+            } else if (kind == NK_TryStmt) {
+                auto& ts = static_cast<SnTryStmt&>(stmt);
+                if (ts.TryBody()) walkStmt(*ts.TryBody());
+                for (auto* c : ts.Catches()) {
+                    if (c->Body()) walkStmt(*c->Body());
+                }
+            } else if (kind == NK_ThrowStmt) {
+                auto* e = static_cast<SnThrowStmt&>(stmt).Expr();
+                if (e) walkExpr(*e);
             } else if (kind == NK_CompoundAssignStmt) {
                 auto* v = static_cast<SnCompoundAssignStmt&>(stmt).Right();
                 if (v) walkExpr(*v);
@@ -4119,6 +4219,97 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         m_loopStack.pop_back();
         return;
     }
+
+    //Phase 9d: try { body } catch (Type var) { handler } ...
+    //
+    //Codegen pattern:
+    //   tryStart:
+    //     <body bytecode>
+    //     OP_Jump postTry      ; body completed normally — skip all catches
+    //   tryEnd:                 ; (also each handler's startPc for tryBlocks table)
+    //   handler1:
+    //     <handler1 bytecode>
+    //     OP_PopHandler
+    //     OP_Jump postTry
+    //   handler2:
+    //     ...
+    //   postTry:
+    //
+    //tryBlocks entries are pushed in declaration order; the runtime scans
+    //linearly and the first range+type match wins.
+    if (kind == NK_TryStmt) {
+        auto& ts = static_cast<SnTryStmt&>(stmt);
+
+        uint16_t tryStart = static_cast<uint16_t>(emitter.CurrentOffset());
+        if (ts.TryBody())
+            EmitStatement(*ts.TryBody(), emitter);
+        //Body completed normally — skip all catch handlers.
+        emitter.Emit(OpCode::OP_Jump);
+        size_t tryEndJumpPatch = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder, patched to postTry
+        uint16_t tryEnd = static_cast<uint16_t>(emitter.CurrentOffset());
+
+        std::vector<size_t> catchEndJumpPatches;
+        for (auto* pCatch : ts.Catches()) {
+            uint16_t handlerPc = static_cast<uint16_t>(emitter.CurrentOffset());
+
+            //Resolve exceptionClassIdx from CatchType's resolved EvalDataType
+            //(a SnClassDecl*). If unresolved (earlier resolver error), use
+            //0xFFFF as a sentinel — IsInstanceOrSubclass will return false
+            //for everything, making the handler effectively dead.
+            uint16_t excClassIdx = 0xFFFF;
+            if (pCatch->CatchType()->IsResolved()
+                && pCatch->CatchType()->Field()) {
+                auto* pType = pCatch->CatchType()->Field();
+                if (pType && pType->Kind() == NK_ClassDecl) {
+                    auto& ccName = pType->Name();
+                    auto found = std::find_if(
+                        m_compiledModule.classes.begin(),
+                        m_compiledModule.classes.end(),
+                        [&](const CompiledClass& c) { return c.name == ccName; });
+                    if (found != m_compiledModule.classes.end()) {
+                        excClassIdx = static_cast<uint16_t>(
+                            std::distance(m_compiledModule.classes.begin(),
+                                          found));
+                    }
+                }
+            }
+
+            //catchLocalOff: allocate a local slot for the catch var. This
+            //is where the runtime writes the caught Exception heap idx on
+            //handler entry, and where the body's IdentifierExpr resolves.
+            uint16_t typeKind = RTK_Class;
+            uint16_t catchOff = AllocLocal(pCatch->VarName(), VALUE_SIZE,
+                                           typeKind, false);
+            m_currFunc->func->tryBlocks.push_back(
+                {tryStart, tryEnd, handlerPc, excClassIdx, catchOff});
+
+            if (pCatch->Body())
+                EmitStatement(*pCatch->Body(), emitter);
+            emitter.Emit(OpCode::OP_PopHandler);
+            emitter.Emit(OpCode::OP_Jump);
+            catchEndJumpPatches.push_back(emitter.CurrentOffset());
+            emitter.EmitUint16(0);  //placeholder
+        }
+
+        uint16_t postTry = static_cast<uint16_t>(emitter.CurrentOffset());
+        emitter.PatchUint16(tryEndJumpPatch, postTry);
+        for (size_t p : catchEndJumpPatches)
+            emitter.PatchUint16(p, postTry);
+        return;
+    }
+
+    if (kind == NK_ThrowStmt) {
+        auto& th = static_cast<SnThrowStmt&>(stmt);
+        if (th.IsRethrow()) {
+            emitter.Emit(OpCode::OP_Rethrow);
+        } else {
+            EmitExpression(*th.Expr(), emitter, m_currFunc->tempSlot);
+            emitter.Emit(OpCode::OP_Throw);
+            emitter.EmitUint16(m_currFunc->tempSlot);
+        }
+        return;
+    }
 }
 
 uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,
@@ -4182,7 +4373,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     fs.write(magic, 8);
 
     // Version
-    uint16_t majorVer = 1, minorVer = 3;
+    uint16_t majorVer = 1, minorVer = 4;
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 
@@ -4244,6 +4435,24 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
         if (bcSize > 0)
             fs.write(reinterpret_cast<const char*>(func.bytecode.data()),
                      bcSize);
+
+        //Phase 9d v1.4: try/catch table. Always emit count first so the
+        //reader can skip even when empty. Each entry is 5 uint16 fields.
+        uint16_t tryBlockCount = static_cast<uint16_t>(func.tryBlocks.size());
+        fs.write(reinterpret_cast<const char*>(&tryBlockCount),
+                 sizeof(tryBlockCount));
+        for (const auto& tb : func.tryBlocks) {
+            fs.write(reinterpret_cast<const char*>(&tb.startPc),
+                     sizeof(tb.startPc));
+            fs.write(reinterpret_cast<const char*>(&tb.endPc),
+                     sizeof(tb.endPc));
+            fs.write(reinterpret_cast<const char*>(&tb.handlerPc),
+                     sizeof(tb.handlerPc));
+            fs.write(reinterpret_cast<const char*>(&tb.exceptionClassIdx),
+                     sizeof(tb.exceptionClassIdx));
+            fs.write(reinterpret_cast<const char*>(&tb.catchLocalOff),
+                     sizeof(tb.catchLocalOff));
+        }
     }
 
     // Struct descriptors

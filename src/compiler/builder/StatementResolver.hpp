@@ -738,6 +738,112 @@ public:
 		sn.AddFlags(NF_Resolved);
 	}
 
+	//Phase 9d: try body and catch clauses. Catches must be non-empty;
+	//each catch type must be Exception or a subclass; each catch var is
+	//registered in the body's enclosing paragraph scope.
+	void Access(SnTryStmt &sn)
+	{
+		if (sn.IsResolved())
+			return;
+		assert(m_pVisitor);
+		if (sn.Catches().empty()) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"try statement must have at least one catch clause");
+			sn.AddFlags(NF_Resolved);
+			return;
+		}
+		if (sn.TryBody())
+			sn.TryBody()->Accept(*m_pVisitor);
+		for (auto* pCatch : sn.Catches())
+			pCatch->Accept(*m_pVisitor);
+		sn.AddFlags(NF_Resolved);
+	}
+
+	void Access(SnCatchClause &sn)
+	{
+		//1. Resolve catch type (must be Exception or subclass).
+		sn.CatchType()->Accept(*m_pVisitor);
+		if (!sn.CatchType()->IsResolved()
+			|| !IsExceptionSubclass(sn.CatchType()->Field())) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"catch type must be Exception or a subclass");
+		}
+
+		//2. Find enclosing paragraph for catch var registration.
+		auto pParent = sn.Parent();
+		SnParagraph *pParagraph = nullptr;
+		while (pParent) {
+			if (pParent->Kind() == NK_Paragraph) {
+				pParagraph = static_cast<SnParagraph *>(pParent);
+				break;
+			}
+			pParent = pParent->Parent();
+		}
+		//3. Register catch var (typed by catch type; assignable in body).
+		if (pParagraph && sn.CatchType()->IsResolved()
+			&& sn.CatchType()->Field()) {
+			auto *pLocal = new SnLocalVar(sn.VarName(),
+				sn.CatchType()->Field(), *sn.Location());
+			pParagraph->AddLocal(sn.VarName(), pLocal);
+		}
+
+		//4. Resolve body.
+		if (sn.Body())
+			sn.Body()->Accept(*m_pVisitor);
+	}
+
+	void Access(SnThrowStmt &sn)
+	{
+		if (sn.IsResolved())
+			return;
+		assert(m_pVisitor);
+		if (sn.IsRethrow()) {
+			//throw; — must be lexically inside a catch handler. Walk
+			//parent chain looking for NK_CatchClause.
+			auto pParent = sn.Parent();
+			bool inCatch = false;
+			while (pParent) {
+				if (pParent->Kind() == NK_CatchClause) {
+					inCatch = true;
+					break;
+				}
+				pParent = pParent->Parent();
+			}
+			if (!inCatch)
+				m_Env.Log(CLL_Error, sn.Location(),
+					"throw; (rethrow) is only valid inside a catch block");
+		} else {
+			sn.Expr()->Accept(*m_pVisitor);
+			//EvalDataType is populated by the resolver after Accept().
+			auto pType = sn.Expr()->EvalDataType();
+			if (pType && !IsExceptionSubclass(pType)) {
+				m_Env.Log(CLL_Error, sn.Location(),
+					"throw expression must be Exception or a subclass");
+			}
+		}
+		sn.AddFlags(NF_Resolved);
+	}
+
+	//Phase 9d: walk the SuperClass chain of t (if any). Returns true if any
+	//ancestor class is named "Exception" (case-sensitive). Also returns true
+	//when t itself is "Exception".
+	bool IsExceptionSubclass(SnField *t)
+	{
+		if (!t)
+			return false;
+		//Catch types are always class-typed (resolved by SnClassDecl).
+		auto pClass = dynamic_cast<SnClassDecl*>(t);
+		if (!pClass)
+			return false;
+		SnClassDecl *cur = pClass;
+		while (cur) {
+			if (cur->Name() == "Exception")
+				return true;
+			cur = cur->SuperClass();
+		}
+		return false;
+	}
+
 	void Access(SnSubscriptAssignStmt &sn)
 	{
 		if (sn.IsResolved())

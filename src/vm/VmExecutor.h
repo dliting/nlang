@@ -11,6 +11,17 @@
 
 namespace nlang {
 
+//Phase 9d: unified C++ exception type for NLang-level throws. Carries the
+//heap idx of the Exception instance (slot[0] = classIdx distinguishes the
+//specific Exception subclass). Inherits std::runtime_error so the top-level
+//`catch (const std::exception&)` in nvm/ncc main catches unhandled throws
+//(otherwise std::terminate fires and the exit code is wrong).
+struct NLangThrow : public std::runtime_error {
+    int32_t heapIdx;
+    NLangThrow(int32_t h, std::string msg)
+        : std::runtime_error(msg), heapIdx(h) {}
+};
+
 class VmExecutor {
 public:
     VmExecutor() = default;
@@ -185,8 +196,37 @@ private:
         uint8_t* pResult;
         const CompiledFunction* func;
         uint16_t currentLine = 0;   //updated by OP_DebugInfo; 0 = unknown
+        //Phase 9d: per-frame stack of currently-caught exception heap idxs.
+        //Pushed when a catch handler is entered, popped by OP_PopHandler at
+        //catch-block exit. OP_Rethrow reads the top entry to re-raise. Per-
+        //frame (not executor-global) so a cross-function call cannot leak a
+        //parent's catch context into the callee.
+        std::vector<int32_t> handlerExcStack;
     };
     std::vector<CallFrame> m_callStack;
+
+    //Phase 9d: cached class indices for the built-in Exception hierarchy.
+    //Initialized in Execute() via module.FindClass; -1 = not found (only
+    //possible if the runtime is launched against a malformed module that
+    //somehow lacks the built-in registrations).
+    int16_t m_exceptionClassIdx = -1;
+    int16_t m_nullPtrExcClassIdx = -1;
+    int16_t m_divZeroExcClassIdx = -1;
+    int16_t m_oobExcClassIdx = -1;
+    int16_t m_assertExcClassIdx = -1;
+
+    //Phase 9d: allocate a built-in Exception instance of the given class,
+    //set message + populate backtrace from the current m_callStack snapshot,
+    //and throw NLangThrow carrying its heap idx. The throw site is expected
+    //to be a converted `throw std::runtime_error(...)` site; the caller
+    //supplies the human-readable message (used for what() / debugging).
+    [[noreturn]] void RaiseNlangException(int16_t classIdx, const std::string& msg);
+
+    //Phase 9d: returns true if the heap object at heapIdx is an instance of
+    //the given target class or any of its subclasses. Walks the superClassIdx
+    //chain (same pattern as OP_CheckCast). Used by the try/catch handler
+    //lookup to decide whether a catch clause can handle the thrown exception.
+    bool IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx);
 
     //Frames captured during exception unwinding. Populated by FrameGuard's
     //destructor when std::uncaught_exceptions() > 0. Ordered innermost-first

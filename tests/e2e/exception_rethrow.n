@@ -1,0 +1,12 @@
+int main() {
+    try {
+        try {
+            throw new Exception("inner");
+        } catch (Exception e) {
+            throw;
+        }
+    } catch (Exception e) {
+        return 1;
+    }
+    return 0;
+}

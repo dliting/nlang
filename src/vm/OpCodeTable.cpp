@@ -71,6 +71,9 @@ static const char* s_OpCodeNames[] = {
     "box",
     "unbox",
     "check_cast",
+    "throw",
+    "rethrow",
+    "pop_handler",
 };
 
 const char* OpCodeName(OpCode op) {

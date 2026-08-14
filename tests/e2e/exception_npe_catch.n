@@ -1,0 +1,14 @@
+class Point {
+    int x;
+}
+
+int main() {
+    Point p = null;
+    try {
+        int v = p.x;
+        return v;
+    } catch (NullPointerException e) {
+        return 1;
+    }
+    return 0;
+}

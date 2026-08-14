@@ -1,0 +1,12 @@
+int main() {
+    try {
+        try {
+            throw new Exception("first");
+        } catch (Exception e) {
+            throw new NullPointerException("second");
+        }
+    } catch (NullPointerException e) {
+        return 1;
+    }
+    return 0;
+}

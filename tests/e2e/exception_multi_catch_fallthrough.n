@@ -1,0 +1,10 @@
+int main() {
+    try {
+        throw new NullPointerException("npe");
+    } catch (DivByZeroException e) {
+        return 5;
+    } catch (NullPointerException e) {
+        return 3;
+    }
+    return 0;
+}

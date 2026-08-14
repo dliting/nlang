@@ -398,10 +398,33 @@ static void DisassembleFunction(const CompiledFunction& func,
             break;
         }
 
+        //Phase 9d: exception-handling opcodes.
+        case OpCode::OP_Throw: {
+            uint16_t src = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " src=" << src << "\n";
+            break;
+        }
+        case OpCode::OP_Rethrow:
+        case OpCode::OP_PopHandler:
+            std::cout << "    " << offsetBuf << ": " << name << "\n";
+            break;
+
         default:
             std::cout << "    " << offsetBuf << ": unknown_op("
                       << static_cast<int>(op) << ")\n";
             break;
+        }
+    }
+
+    //Phase 9d: dump tryBlocks exception-handling table.
+    if (!func.tryBlocks.empty()) {
+        std::cout << "  try blocks:\n";
+        for (const auto& tb : func.tryBlocks) {
+            std::cout << "    [" << tb.startPc << ".." << tb.endPc
+                      << ") handler=" << tb.handlerPc
+                      << " class=" << tb.exceptionClassIdx
+                      << " catchLocal=" << tb.catchLocalOff << "\n";
         }
     }
 

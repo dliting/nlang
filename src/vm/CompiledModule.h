@@ -114,6 +114,17 @@ static constexpr uint16_t INTR_Dict_Keys        = 60;
 static constexpr uint16_t INTR_List_toString    = 62;
 static constexpr uint16_t INTR_Dict_toString    = 63;
 
+//Phase 9d: Exception class ctor intrinsics. All 5 Exception-family ctors
+//share the same intrinsic dispatch (single ExecuteIntrinsic case handles
+//all 5 IDs); the distinct IDs exist so that user `new MyException("msg")`
+//resolves to the correct ctor stub for type-checking. Subclass ctors set
+//message + allocate an empty List<string> for backtrace, identical to base.
+static constexpr uint16_t INTR_Exception_Ctor                = 64;
+static constexpr uint16_t INTR_NullPointerException_Ctor     = 65;
+static constexpr uint16_t INTR_DivByZeroException_Ctor       = 66;
+static constexpr uint16_t INTR_IndexOutOfBoundsException_Ctor = 67;
+static constexpr uint16_t INTR_AssertionException_Ctor       = 68;
+
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:
 //  RTK_Null   — null literal for any reference type (class/string/array). No payload.
@@ -136,6 +147,23 @@ struct DefaultValueDesc {
     bool hasDefault() const { return tag != RTK_Void; }
 };
 
+//Phase 9d: try/catch descriptor. One entry per catch clause. At throw time,
+//VmExecutor linearly scans func.tryBlocks for the first entry where
+//startPc <= opPc < endPc and (exceptionClassIdx == 0xFFFF or the thrown
+//class is instance-of-target); on match, control jumps to handlerPc with
+//the exception heap idx bound to locals[catchLocalOff].
+//  exceptionClassIdx: 0xFFFF = unused/invalid (defensive default)
+//                      any other value = CompiledClass index of catch type
+//                      (Exception base class catches all subclasses via
+//                      IsInstanceOrSubclass walk).
+struct TryBlock {
+    uint16_t startPc = 0;
+    uint16_t endPc = 0;
+    uint16_t handlerPc = 0;
+    uint16_t exceptionClassIdx = 0xFFFF;
+    uint16_t catchLocalOff = 0;
+};
+
 struct CompiledFunction {
     std::string name;
     std::vector<uint8_t> bytecode;
@@ -148,6 +176,8 @@ struct CompiledFunction {
     //functions and constructors; for methods, size == paramCount-1 (the
     //'this' slot has no default). Formals without defaults carry tag=RTK_Void.
     std::vector<DefaultValueDesc> defaultValues;
+    //Phase 9d: try/catch table. Empty for functions without try blocks.
+    std::vector<TryBlock> tryBlocks;
 };
 
 struct CompiledModule;

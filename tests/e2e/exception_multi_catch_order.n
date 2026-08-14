@@ -1,0 +1,10 @@
+int main() {
+    try {
+        throw new DivByZeroException("dbz");
+    } catch (DivByZeroException e) {
+        return 2;
+    } catch (Exception e) {
+        return 3;
+    }
+    return 0;
+}

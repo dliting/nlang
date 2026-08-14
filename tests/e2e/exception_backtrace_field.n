@@ -1,0 +1,16 @@
+//Phase 9d MVP: message/backtrace fields exist at runtime but are not
+//exposed via the type system on built-in Exception synthetic class.
+//Verify catch mechanism for VM-thrown exception across function boundary.
+int helper() {
+    int x = 0;
+    int y = 1 / x;
+    return y;
+}
+
+int main() {
+    try {
+        return helper();
+    } catch (DivByZeroException e) {
+        return 0;
+    }
+}

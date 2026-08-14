@@ -179,6 +179,11 @@ private:
     int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
     int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)
     int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)
+    int16_t m_exceptionClassIdx = -1;   //Phase 9d: Exception base class
+    int16_t m_nullPtrExcClassIdx = -1;  //Phase 9d: NullPointerException
+    int16_t m_divZeroExcClassIdx = -1;  //Phase 9d: DivByZeroException
+    int16_t m_oobExcClassIdx = -1;      //Phase 9d: IndexOutOfBoundsException
+    int16_t m_assertExcClassIdx = -1;   //Phase 9d: AssertionException
 
     //Phase 9c cross-module import infrastructure (R5-1 + R4-8 + R12-1).
     //Injected by ModuleBuilder before GenerateStatements; consumed by

@@ -1,0 +1,22 @@
+int main() {
+    int sum = 0;
+    try {
+        sum = 1;
+        throw new DivByZeroException("a");
+    } catch (Exception e) {
+        sum = sum + 2;
+    }
+    try {
+        sum = sum + 3;
+        throw new NullPointerException("b");
+    } catch (Exception e) {
+        sum = sum + 4;
+    }
+    try {
+        sum = sum + 5;
+        throw new IndexOutOfBoundsException("c");
+    } catch (Exception e) {
+        sum = sum - 1;
+    }
+    return sum;
+}

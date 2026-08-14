@@ -1,0 +1,8 @@
+int main() {
+    try {
+        throw new Exception("hello");
+    } catch (Exception e) {
+        return 7;
+    }
+    return 0;
+}

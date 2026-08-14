@@ -1,0 +1,14 @@
+class MyException : Exception {
+    int code;
+}
+
+int main() {
+    try {
+        MyException e = new MyException("hello");
+        e.code = 42;
+        throw e;
+    } catch (MyException e) {
+        return e.code;
+    }
+    return 0;
+}

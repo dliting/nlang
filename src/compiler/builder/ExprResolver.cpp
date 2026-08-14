@@ -17,13 +17,47 @@ namespace nlang
 static SnClassDecl* s_pByteStreamClass = nullptr;
 static SnClassDecl* s_pFileStreamClass = nullptr;
 static SnClassDecl* s_pObjectClass = nullptr;  //Phase 8e-1: implicit Object base class
+//Phase 9d: built-in Exception hierarchy. Each subclass declares Exception
+//as its super so IsExceptionSubclass's chain walk succeeds. These are
+//type-system stand-ins — actual ctor/fields live in the CompiledClass
+//emitted by VmBackend::RegisterBuiltinClasses.
+static SnClassDecl* s_pExceptionClass = nullptr;
+static SnClassDecl* s_pNullPtrExcClass = nullptr;
+static SnClassDecl* s_pDivZeroExcClass = nullptr;
+static SnClassDecl* s_pOobExcClass = nullptr;
+static SnClassDecl* s_pAssertExcClass = nullptr;
+
+//Phase 9d: returns true for any name in the built-in Exception hierarchy.
+static bool IsBuiltinExceptionClassName(const std::string& name)
+{
+    return name == "Exception" || name == "NullPointerException"
+        || name == "DivByZeroException" || name == "IndexOutOfBoundsException"
+        || name == "AssertionException";
+}
 
 static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 	const ISourceLocation* pLoc)
 {
+	//Phase 9d: force-create Exception singleton first so subclass chain
+	//walk has a target even if the subclass is requested first.
+	if (IsBuiltinExceptionClassName(name) && !s_pExceptionClass) {
+		auto* pName = new std::string("Exception");
+		auto* pMembers = new PtrList<SnField>();
+		ScriptLocation loc;
+		if (pLoc)
+			loc = *static_cast<const ScriptLocation*>(pLoc);
+		s_pExceptionClass = new SnClassDecl(pName, nullptr, pMembers, loc);
+		s_pExceptionClass->SetBuiltinClass();
+	}
 	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
 		: (name == "FileStream") ? s_pFileStreamClass
-		: s_pObjectClass;
+		: (name == "Object") ? s_pObjectClass
+		: (name == "Exception") ? s_pExceptionClass
+		: (name == "NullPointerException") ? s_pNullPtrExcClass
+		: (name == "DivByZeroException") ? s_pDivZeroExcClass
+		: (name == "IndexOutOfBoundsException") ? s_pOobExcClass
+		: (name == "AssertionException") ? s_pAssertExcClass
+		: s_pObjectClass;  //fallback (shouldn't happen — call site filters)
 	if (!rpRef)
 	{
 		auto* pName = new std::string(name);
@@ -32,6 +66,10 @@ static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		if (pLoc)
 			loc = *static_cast<const ScriptLocation*>(pLoc);
 		rpRef = new SnClassDecl(pName, nullptr, pMembers, loc);
+		rpRef->SetBuiltinClass();
+		//Phase 9d: subclasses point at Exception singleton for chain walk.
+		if (name != "Exception" && IsBuiltinExceptionClassName(name))
+			rpRef->SuperClass(s_pExceptionClass);
 		rpRef->SetBuiltinClass();
 	}
 	return rpRef;
@@ -149,12 +187,15 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	pFieldExpr->Accept(*m_pVisitor);
 
 	//Builtin class names: ByteStream, FileStream, Object (Phase 8e-1).
+	//Phase 9d: Exception hierarchy (Exception, NullPointerException,
+	//DivByZeroException, IndexOutOfBoundsException, AssertionException).
 	//When used as a type name (e.g. "ByteStream s = ..."), the name
 	//doesn't exist in the AST namespace. Synthesize a singleton SnClassDecl.
 	if (!pFieldExpr->IsResolved())
 	{
 		const auto& name = pFieldExpr->ToString();
-		if (name == "ByteStream" || name == "FileStream" || name == "Object")
+		if (name == "ByteStream" || name == "FileStream" || name == "Object"
+			|| IsBuiltinExceptionClassName(name))
 		{
 			ResolveFieldExprAs(*pFieldExpr,
 				GetBuiltinClassDecl(name, pFieldExpr->Location()));
@@ -268,9 +309,11 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	if (!pField)
 	{
 		//Builtin class names: ByteStream, FileStream, Object (Phase 8e-1).
+		//Phase 9d: Exception hierarchy.
 		//Synthesize a singleton SnClassDecl when the name is not found.
 		const auto& name = idExpr.Name();
-		if (name == "ByteStream" || name == "FileStream" || name == "Object")
+		if (name == "ByteStream" || name == "FileStream" || name == "Object"
+			|| IsBuiltinExceptionClassName(name))
 		{
 			ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
 			return;
@@ -977,13 +1020,15 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	assert(pClassName);
 	pClassName->Accept(*m_pVisitor);
 
-	//Builtin class names: ByteStream, FileStream.
+	//Builtin class names: ByteStream, FileStream, Object.
+	//Phase 9d: Exception hierarchy.
 	//These don't exist in the AST namespace, so the name won't resolve
 	//through the normal path. Use the singleton SnClassDecl.
 	if (!pClassName->IsResolved())
 	{
 		const auto& name = pClassName->ToString();
-		if (name == "ByteStream" || name == "FileStream")
+		if (name == "ByteStream" || name == "FileStream" || name == "Object"
+			|| IsBuiltinExceptionClassName(name))
 		{
 			ResolveFieldExprAs(*pClassName,
 				GetBuiltinClassDecl(name, pClassName->Location()));

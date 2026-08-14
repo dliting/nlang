@@ -580,4 +580,87 @@ private:
 	SnParagraph *m_pDefault;
 };
 
+/*
+Phase 9d: catch (Type name) body clause in a try statement.
+CatchType is the declared exception class type (Exception or subclass).
+VarName is the bound exception variable visible inside Body.
+*/
+class NLANG_COMPILER_API SnCatchClause : public SyntaxNode
+{
+	typedef SyntaxNode Super_;
+public:
+	static const NodeKind	s_Kind			= NK_CatchClause;
+	static const NodeBits	s_DefaultFlags	= NF_NONE;
+
+	SnCatchClause(SnFieldExpr *pType, const std::string& varName,
+		SnStatement *pBody, const ISourceLocation &loc);
+
+	SnFieldExpr *CatchType() const { return m_pType; }
+	const std::string& VarName() const { return m_sVarName; }
+	SnStatement *Body() const { return m_pBody; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	ImmutableNodeList *ChildrenPtr() const override;
+	SnFieldExpr *m_pType;
+	std::string m_sVarName;
+	SnStatement *m_pBody;
+	std::unique_ptr<ImmutableNodeList> m_upChildren;
+};
+
+/*
+Phase 9d: try { ... } catch(...) { ... } statement.
+TryBody is the protected statement (typically a Paragraph). Catches is the
+list of catch clauses (may be empty in malformed input — resolver rejects).
+*/
+class NLANG_COMPILER_API SnTryStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_TryStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnTryStmt(SnStatement *pTryBody,
+		std::vector<SnCatchClause*> *pCatches,
+		const ISourceLocation &loc);
+
+	~SnTryStmt() override;
+
+	SnStatement *TryBody() const { return m_pTryBody; }
+	std::vector<SnCatchClause*> &Catches() { return *m_upCatches; }
+	const std::vector<SnCatchClause*> &Catches() const { return *m_upCatches; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnStatement *m_pTryBody;
+	std::unique_ptr<std::vector<SnCatchClause*>> m_upCatches;
+};
+
+/*
+Phase 9d: throw <expr>; or throw; (rethrow) statement.
+Expr() returns nullptr for the rethrow form (legal only inside a catch).
+*/
+class NLANG_COMPILER_API SnThrowStmt : public SnStatement
+{
+	typedef SnStatement Super_;
+public:
+	static const NodeKind	s_Kind			= NK_ThrowStmt;
+	static const NodeBits	s_DefaultFlags	= NF_Statement;
+
+	SnThrowStmt(SnExpression *pExpr, const ISourceLocation &loc);
+
+	SnExpression *Expr() const { return m_pExpr; }
+	bool IsRethrow() const { return m_pExpr == nullptr; }
+
+	std::string ToString() const override;
+	SnField *FindField(const std::string& sName) const override;
+	void Accept(nlang::ISyntaxNodeVisitor&) override;
+private:
+	SnExpression *m_pExpr;
+};
+
 } //namespace nlang

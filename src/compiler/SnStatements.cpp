@@ -631,4 +631,105 @@ void SnSwitchStmt::Accept(nlang::ISyntaxNodeVisitor& v)
 	v.Visit(*this);
 }
 
+//SnCatchClause (Phase 9d)
+
+SnCatchClause::SnCatchClause(SnFieldExpr *pType, const std::string& varName,
+	SnStatement *pBody, const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, s_DefaultFlags, loc), m_pType(pType),
+	m_sVarName(varName), m_pBody(pBody), m_upChildren(new ImmutableNodeList())
+{
+	assert(m_pType);
+	AddChild(m_pType);
+	if (m_pBody)
+		AddChild(m_pBody);
+}
+
+std::string SnCatchClause::ToString() const
+{
+	return "catch (" + m_pType->ToString() + " " + m_sVarName + ") " +
+		(m_pBody ? m_pBody->ToString() : std::string("{}"));
+}
+
+void SnCatchClause::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+SnField *SnCatchClause::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+ImmutableNodeList *SnCatchClause::ChildrenPtr() const
+{
+	return m_upChildren.get();
+}
+
+//SnTryStmt (Phase 9d)
+
+SnTryStmt::SnTryStmt(SnStatement *pTryBody,
+	std::vector<SnCatchClause*> *pCatches, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pTryBody(pTryBody), m_upCatches(pCatches)
+{
+	if (m_pTryBody)
+		AddChild(m_pTryBody);
+	if (m_upCatches) {
+		for (auto* pCatch : *m_upCatches)
+			AddChild(pCatch);
+	}
+}
+
+SnTryStmt::~SnTryStmt()
+{
+	//Catches are owned by the child list — no manual delete.
+}
+
+std::string SnTryStmt::ToString() const
+{
+	std::stringstream ss;
+	ss << "try " << (m_pTryBody ? m_pTryBody->ToString() : std::string("{}"));
+	if (m_upCatches) {
+		for (auto* pCatch : *m_upCatches)
+			ss << " " << pCatch->ToString();
+	}
+	ss << "\n";
+	return ss.str();
+}
+
+SnField *SnTryStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+void SnTryStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
+//SnThrowStmt (Phase 9d)
+
+SnThrowStmt::SnThrowStmt(SnExpression *pExpr, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pExpr(pExpr)
+{
+	if (m_pExpr)
+		AddChild(m_pExpr);
+}
+
+std::string SnThrowStmt::ToString() const
+{
+	if (m_pExpr)
+		return "throw " + m_pExpr->ToString() + ";";
+	return "throw;";
+}
+
+SnField *SnThrowStmt::FindField(const std::string& sName) const
+{
+	return nullptr;
+}
+
+void SnThrowStmt::Accept(nlang::ISyntaxNodeVisitor& v)
+{
+	v.Visit(*this);
+}
+
 }

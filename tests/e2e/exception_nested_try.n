@@ -1,0 +1,17 @@
+int main() {
+    int result = 0;
+    try {
+        try {
+            try {
+                throw new Exception("deep");
+            } catch (DivByZeroException e) {
+                return 9;
+            }
+        } catch (NullPointerException e) {
+            return 8;
+        }
+    } catch (Exception e) {
+        result = 1;
+    }
+    return result;
+}

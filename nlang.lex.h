@@ -519,7 +519,7 @@ extern int yylex \
 #undef yyTABLES_NAME
 #endif
 
-#line 361 "src/compiler/grammar/nlang.l"
+#line 373 "src/compiler/grammar/nlang.l"
 
 
 #line 525 "nlang.lex.h"

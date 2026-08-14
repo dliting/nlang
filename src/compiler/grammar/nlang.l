@@ -148,6 +148,7 @@ LineComment	\/\/[^\n]*
 "break"     { return KT_Break; }
 "byte"      { return KT_Byte; }
 "case"      { return KT_Case; }
+"catch"     { return KT_Catch; }
 "char"      { return KT_Char; }
 "class"     { return KT_Class; }
 "const"     { return KT_Const; }
@@ -182,7 +183,9 @@ LineComment	\/\/[^\n]*
 "struct"    { return KT_Struct; }
 "switch"    { return KT_Switch; }
 "this"      { return KT_This; }
+"throw"     { return KT_Throw; }
 "true"      { return KT_True; }
+"try"       { return KT_Try; }
 "ubyte"     { return KT_Ubyte; }
 "uint"      { return KT_Uint; }
 "ushort"    { return KT_Ushort; }

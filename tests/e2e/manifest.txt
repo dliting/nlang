@@ -540,3 +540,28 @@ cross_mod_default_override 28
 # Option B Step 5: cross-module non-foldable defaults are rejected
 cross_mod_default_call_error compile_error
 cross_mod_default_ident_error compile_error
+
+# --- Phase 9d: Exception handling ---
+exception_basic_throw_catch 7
+exception_message_field 5
+exception_subclass_match 1
+exception_multi_catch_order 2
+exception_multi_catch_fallthrough 3
+exception_catch_all 14
+exception_npe_catch 1
+exception_divzero_catch 1
+exception_oob_catch 1
+exception_assert_catch 1
+exception_rethrow 1
+exception_rethrow_only_in_catch compile_error
+exception_no_match_propagates 1
+exception_in_catch_block 1
+exception_throw_outside_try 1
+exception_nested_try 1
+exception_backtrace_field 0
+exception_user_subclass 42
+exception_super_ctor 1
+exception_throw_non_exception compile_error
+exception_finally_not_supported compile_error
+exception_dict_key_not_found_catch 1
+exception_list_oob_catch 1

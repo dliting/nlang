@@ -33,6 +33,18 @@ int VmExecutor::Execute(const CompiledModule& module) {
     int dictIdx = module.FindClass("Dict");
     m_dictClassIdx = (dictIdx >= 0) ? static_cast<int16_t>(dictIdx) : -1;
 
+    //Phase 9d: cache Exception hierarchy class indices. These are required
+    //by RaiseNlangException to allocate the right subclass instance.
+    auto cacheExcClass = [&](const char* name, int16_t* out) {
+        int idx = module.FindClass(name);
+        *out = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
+    };
+    cacheExcClass("Exception",                &m_exceptionClassIdx);
+    cacheExcClass("NullPointerException",     &m_nullPtrExcClassIdx);
+    cacheExcClass("DivByZeroException",       &m_divZeroExcClassIdx);
+    cacheExcClass("IndexOutOfBoundsException", &m_oobExcClassIdx);
+    cacheExcClass("AssertionException",       &m_assertExcClassIdx);
+
     int mainIdx = module.FindFunction("main");
     if (mainIdx < 0)
         throw std::runtime_error("NLang VM: no 'main' function found");
@@ -87,6 +99,77 @@ std::string VmExecutor::FormatBacktrace() const {
     return out;
 }
 
+//Phase 9d: walk superClassIdx chain starting from the actual class at
+//heapIdx's slot[0]. Returns true if targetClassIdx appears anywhere in
+//the chain (i.e., the object is an instance of target or a subclass).
+bool VmExecutor::IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx) {
+    if (heapIdx <= 0
+        || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        return false;
+    int16_t cur = static_cast<int16_t>(m_structHeap[static_cast<size_t>(heapIdx)][0]);
+    while (cur >= 0) {
+        if (cur == static_cast<int16_t>(targetClassIdx))
+            return true;
+        if (static_cast<size_t>(cur) >= m_currModule->classes.size())
+            return false;
+        cur = m_currModule->classes[static_cast<size_t>(cur)].superClassIdx;
+    }
+    return false;
+}
+
+//Phase 9d: build a fresh Exception instance of the requested subclass,
+//populate message + backtrace, then throw NLangThrow to unwind to the
+//nearest catch handler (or top-level if none).
+[[noreturn]] void VmExecutor::RaiseNlangException(int16_t classIdx,
+                                                   const std::string& msg) {
+    if (classIdx < 0)
+        throw std::runtime_error("NLang VM: exception class not registered");
+    int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
+
+    //slot[1] = message. Intern the C++ string into m_stringPool, store idx.
+    //Do NOT hold a reference to m_structHeap[heapIdx] across the List
+    //allocation below — AllocClassOnHeap may push_back to m_structHeap and
+    //invalidate the reference (vector resize).
+    int32_t msgIdx = static_cast<int32_t>(m_stringPool.size());
+    m_stringPool.push_back(msg);
+    m_structHeap[static_cast<size_t>(heapIdx)][1] = msgIdx;
+
+    //slot[2] = backtrace. Allocate a List<string> and push one entry per
+    //active call frame, innermost-first.
+    int32_t listHeapIdx = -1;
+    if (m_listClassIdx >= 0) {
+        listHeapIdx = AllocClassOnHeap(static_cast<uint16_t>(m_listClassIdx));
+        //Initialize List.__handle by allocating a fresh side-table slot.
+        m_listStore.emplace_back();  //new empty ListSlot
+        int32_t handle = static_cast<int32_t>(m_listStore.size());
+        //__handle is the first field of List (slot[1]).
+        m_structHeap[static_cast<size_t>(listHeapIdx)][1] = handle;
+        //Populate the backtrace: walk m_callStack innermost-first.
+        std::string moduleName = m_currModule ? m_currModule->name : "<module>";
+        for (auto it = m_callStack.rbegin(); it != m_callStack.rend(); ++it) {
+            char buf[256];
+            if (it->currentLine != 0) {
+                std::snprintf(buf, sizeof(buf), "%s (%s.n:%u)",
+                    it->func ? it->func->name.c_str() : "<unknown>",
+                    moduleName.c_str(),
+                    static_cast<unsigned>(it->currentLine));
+            } else {
+                std::snprintf(buf, sizeof(buf), "%s (%s.n:?)",
+                    it->func ? it->func->name.c_str() : "<unknown>",
+                    moduleName.c_str());
+            }
+            int32_t strIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(buf);
+            m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(strIdx);
+        }
+    }
+    //Now write listHeapIdx to slot[2] of the Exception. Safe because no
+    //further allocations happen before the throw.
+    if (listHeapIdx > 0)
+        m_structHeap[static_cast<size_t>(heapIdx)][2] = listHeapIdx;
+    throw NLangThrow(heapIdx, msg);
+}
+
 void VmExecutor::ExecuteFunction(const CompiledFunction& func,
     uint8_t* pResult, uint8_t* locals) {
     if (m_recurseDepth >= RECURSE_LIMIT)
@@ -126,7 +209,15 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
 
     BytecodeReader reader(func.bytecode.data(), func.bytecode.size());
 
+    //Phase 9d: try/catch dispatch. opPc is declared OUTSIDE the try so the
+    //NLangThrow catch block can read the throwing instruction's offset. The
+    //for(;;) loop re-enters the try/while after a caught exception seeks the
+    //reader to a handler PC.
+    uint16_t opPc = 0;
+    for(;;) {
+    try {
     while (!reader.Eof()) {
+        opPc = static_cast<uint16_t>(reader.CurrentOffset());
         OpCode op = reader.ReadOp();
 
         switch (op) {
@@ -141,7 +232,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::string msg = "assertion failed";
             if (msgIdx < m_stringPool.size() && !m_stringPool[msgIdx].empty())
                 msg += ": " + m_stringPool[msgIdx];
-            throw std::runtime_error(msg);
+            RaiseNlangException(m_assertExcClassIdx, msg);
         }
 
         case OpCode::OP_ConstInt32: {
@@ -300,7 +391,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&a, locals + dst, sizeof(a));
             std::memcpy(&b, locals + src, sizeof(b));
             if (b == 0)
-                throw std::runtime_error("NLang VM: division by zero");
+                RaiseNlangException(m_divZeroExcClassIdx,
+                                    "NLang VM: division by zero");
             a /= b;
             std::memcpy(locals + dst, &a, sizeof(a));
             break;
@@ -313,7 +405,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&a, locals + dst, sizeof(a));
             std::memcpy(&b, locals + src, sizeof(b));
             if (b == 0)
-                throw std::runtime_error("NLang VM: modulo by zero");
+                RaiseNlangException(m_divZeroExcClassIdx,
+                                    "NLang VM: modulo by zero");
             a %= b;
             std::memcpy(locals + dst, &a, sizeof(a));
             break;
@@ -368,7 +461,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&a, locals + dst, sizeof(a));
             std::memcpy(&b, locals + src, sizeof(b));
             if (b == 0.0f)
-                throw std::runtime_error("NLang VM: division by zero");
+                RaiseNlangException(m_divZeroExcClassIdx,
+                                    "NLang VM: division by zero");
             a /= b;
             std::memcpy(locals + dst, &a, sizeof(a));
             break;
@@ -758,7 +852,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t thisHeapIdx;
             std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
             if (thisHeapIdx <= 0 || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
-                throw std::runtime_error("NLang VM: null reference in CallMethod");
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null reference in CallMethod");
             //Read classIdx from object slot[0].
             int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
             if (classIdx < 0 || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
@@ -811,7 +906,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t heapIdx;
             std::memcpy(&heapIdx, locals + obj, sizeof(heapIdx));
             if (heapIdx <= 0)
-                throw std::runtime_error("NLang VM: null reference error");
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null reference error");
             break;
         }
 
@@ -833,7 +929,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t size;
             std::memcpy(&size, locals + sizeSlot, sizeof(size));
             if (size < 0)
-                throw std::runtime_error("NLang VM: negative array size");
+                RaiseNlangException(m_oobExcClassIdx,
+                                    "NLang VM: negative array size");
             int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, size);
             std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
             m_gcPending = true;
@@ -848,11 +945,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
             std::memcpy(&idx, locals + index, sizeof(idx));
             if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-                throw std::runtime_error("NLang VM: null array access");
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null array access");
             auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
             int32_t length = slot[2];
             if (idx < 0 || idx >= length)
-                throw std::runtime_error("NLang VM: array index out of bounds");
+                RaiseNlangException(m_oobExcClassIdx,
+                                    "NLang VM: array index out of bounds");
             int32_t val = slot[3 + idx];
             std::memcpy(locals + dst, &val, sizeof(val));
             break;
@@ -867,11 +966,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&idx, locals + index, sizeof(idx));
             std::memcpy(&val, locals + src, sizeof(val));
             if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-                throw std::runtime_error("NLang VM: null array access");
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null array access");
             auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
             int32_t length = slot[2];
             if (idx < 0 || idx >= length)
-                throw std::runtime_error("NLang VM: array index out of bounds");
+                RaiseNlangException(m_oobExcClassIdx,
+                                    "NLang VM: array index out of bounds");
             slot[3 + idx] = val;
             break;
         }
@@ -882,7 +983,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t heapIdx;
             std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
             if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-                throw std::runtime_error("NLang VM: null array access");
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null array access");
             int32_t len = m_structHeap[static_cast<size_t>(heapIdx)][2];
             std::memcpy(locals + dst, &len, sizeof(len));
             break;
@@ -1006,12 +1108,75 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
+        case OpCode::OP_Throw: {
+            //Phase 9d: user `throw <expr>;` — read heap idx from src slot,
+            //raise NLangThrow carrying the heap idx. Catch block above will
+            //dispatch via func.tryBlocks.
+            uint16_t src = reader.ReadUint16();
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, locals + src, sizeof(heapIdx));
+            throw NLangThrow(heapIdx, "user throw");
+        }
+
+        case OpCode::OP_Rethrow: {
+            //Phase 9d: `throw;` — re-raise the currently-caught exception.
+            //Pops nothing; the matching OP_PopHandler at catch-block exit
+            //(normal path) handles that.
+            auto& s = m_callStack.back().handlerExcStack;
+            if (s.empty())
+                throw std::runtime_error(
+                    "NLang VM: rethrow outside catch handler");
+            int32_t h = s.back();
+            throw NLangThrow(h, "rethrow");
+        }
+
+        case OpCode::OP_PopHandler: {
+            //Phase 9d: emitted at the end of every catch body. Pops the
+            //exception bound on catch entry so a later throw; in a different
+            //scope doesn't accidentally use this frame's exception.
+            auto& s = m_callStack.back().handlerExcStack;
+            if (s.empty())
+                throw std::runtime_error(
+                    "NLang VM: PopHandler underflow");
+            s.pop_back();
+            break;
+        }
+
         default:
             throw std::runtime_error(
                 std::string("NLang VM: unknown opcode ") +
                 std::to_string(static_cast<int>(op)));
         }
     }
+    //Fell off the end of bytecode (no explicit OP_Return). Normal exit.
+    return;
+    }  // end of try
+    catch (const NLangThrow& ex) {
+        //opPc = offset of the throwing instruction. Scan func.tryBlocks
+        //in declaration order; the first match (range + type) handles it.
+        bool handled = false;
+        for (const auto& tb : func.tryBlocks) {
+            if (opPc < tb.startPc || opPc >= tb.endPc)
+                continue;
+            if (tb.exceptionClassIdx != 0xFFFF &&
+                !IsInstanceOrSubclass(ex.heapIdx, tb.exceptionClassIdx))
+                continue;
+            //Match. Bind catch var, push handler exception (for throw;),
+            //clear unwind frames (so a subsequent throw's backtrace starts
+            //fresh), and seek the reader to the handler.
+            std::memcpy(locals + tb.catchLocalOff, &ex.heapIdx,
+                        sizeof(int32_t));
+            m_callStack.back().handlerExcStack.push_back(ex.heapIdx);
+            m_unwindFrames.clear();
+            reader.Seek(tb.handlerPc);
+            handled = true;
+            break;
+        }
+        if (!handled)
+            throw;  // propagate to outer frame / top-level
+        //else: fall through to the for(;;) re-entry, which re-enters try.
+    }
+    }  // end of for(;;)
 }
 
 int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
@@ -2707,7 +2872,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t thisHeapIdx;
         std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
         if (thisHeapIdx <= 0)
-            throw std::runtime_error("NLang VM: NullPointerException");
+            RaiseNlangException(m_nullPtrExcClassIdx,
+                                "NLang VM: NullPointerException");
         if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
             throw std::runtime_error("NLang VM: toString on invalid heap idx");
         int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
@@ -2724,6 +2890,50 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
         m_stringPool.push_back(buf);
         std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        return;
+    }
+
+    //Phase 9d: Exception ctor intrinsic. Shared by all 5 built-in
+    //Exception subclasses (INTR_Exception_Ctor, INTR_NullPointer..,
+    //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..).
+    //Formals: (this, message). Writes message idx to slot[1], allocates
+    //an empty List<string> and stores its heap idx in slot[2] (backtrace).
+    //Direct writes (no held references) because AllocClassOnHeap may
+    //reallocate m_structHeap mid-execution.
+    if (intrinsicId == INTR_Exception_Ctor
+        || intrinsicId == INTR_NullPointerException_Ctor
+        || intrinsicId == INTR_DivByZeroException_Ctor
+        || intrinsicId == INTR_IndexOutOfBoundsException_Ctor
+        || intrinsicId == INTR_AssertionException_Ctor) {
+        int32_t thisHeapIdx;
+        std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+        if (thisHeapIdx <= 0)
+            throw std::runtime_error(
+                "NLang VM: Exception ctor on null instance");
+        if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+            throw std::runtime_error(
+                "NLang VM: Exception ctor on stale reference");
+
+        //Read message formal (string pool idx).
+        int32_t msgIdx;
+        std::memcpy(&msgIdx, locals + callParamBase + VALUE_SIZE,
+                    sizeof(msgIdx));
+
+        //slot[1] = message (string pool idx). Direct write — safe because
+        //no allocation between read and write.
+        m_structHeap[static_cast<size_t>(thisHeapIdx)][1] = msgIdx;
+
+        //slot[2] = backtrace. Allocate a List<string>, set __handle = 0
+        //(empty), then write its heap idx to slot[2]. The allocation may
+        //reallocate m_structHeap, so we don't hold any references across
+        //the AllocClassOnHeap call.
+        int32_t listHeapIdx = AllocClassOnHeap(
+            static_cast<uint16_t>(m_listClassIdx));
+        if (listHeapIdx > 0) {
+            //__handle field (slot[1] of List instance) = 0 = empty
+            m_structHeap[static_cast<size_t>(listHeapIdx)][1] = 0;
+            m_structHeap[static_cast<size_t>(thisHeapIdx)][2] = listHeapIdx;
+        }
         return;
     }
 
@@ -2762,7 +2972,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t handle = ReadListHandle(callParamBase, locals, "get");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
-            throw std::runtime_error("NLang VM: List index out of bounds");
+            RaiseNlangException(m_oobExcClassIdx,
+                                "NLang VM: List index out of bounds");
         int32_t val = lst.elements[idx];
         std::memcpy(pResult, &val, sizeof(val));
         return;
@@ -2775,7 +2986,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t handle = ReadListHandle(callParamBase, locals, "set");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
-            throw std::runtime_error("NLang VM: List index out of bounds");
+            RaiseNlangException(m_oobExcClassIdx,
+                                "NLang VM: List index out of bounds");
         lst.elements[idx] = value;
         return;
     }
@@ -2793,7 +3005,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t handle = ReadListHandle(callParamBase, locals, "removeAt");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
-            throw std::runtime_error("NLang VM: List index out of bounds");
+            RaiseNlangException(m_oobExcClassIdx,
+                                "NLang VM: List index out of bounds");
         lst.elements.erase(lst.elements.begin() + idx);
         return;
     }
@@ -2920,7 +3133,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                 return;
             }
         }
-        throw std::runtime_error("NLang VM: Dict key not found");
+        RaiseNlangException(m_exceptionClassIdx, "NLang VM: Dict key not found");
     }
     //INTR_Dict_ContainsKey: 1 if found, 0 otherwise.
     if (intrinsicId == INTR_Dict_ContainsKey) {
