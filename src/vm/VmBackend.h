@@ -17,6 +17,7 @@ class SnStatement;
 class SnFunction;
 class SnEnumDecl;
 class SnInvokeExpr;
+class SnClassDecl;
 
 //Phase 9c: forward-declared so EmitBinding/EmitCallArgs can take
 //references without including SnExpressions.h (heavy header dep). Full
@@ -279,6 +280,11 @@ private:
         uint16_t foreachCounter = 0;
     };
     FuncContext* m_currFunc = nullptr;
+
+    //Phase 9d-2: the class whose methods are currently being generated.
+    //super(...) statements look up the parent class ctor through it.
+    //Set in GenerateAllBytecode's class loop; nullptr elsewhere.
+    SnClassDecl* m_pCurrClass = nullptr;
 
     //Phase 9c: identifier binding override stack for default-parameter
     //evaluation. When emitting a default expression that references earlier

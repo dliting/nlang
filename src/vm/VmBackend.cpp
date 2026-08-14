@@ -790,6 +790,10 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
             if (it != m_funcIndexMap.end())
                 GenerateFunction(func, it->second);
         } else if (CanBeFuncParentEx(member.Kind())) {
+            //Phase 9d-2: super(...) emission needs the enclosing class.
+            SnClassDecl* prevClass = m_pCurrClass;
+            if (member.Kind() == NK_ClassDecl)
+                m_pCurrClass = static_cast<SnClassDecl*>(&member);
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
                     auto& func = static_cast<SnFunction&>(child);
@@ -800,6 +804,7 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
                         GenerateFunction(func, it->second);
                 }
             }
+            m_pCurrClass = prevClass;
         }
     }
 }
@@ -4495,6 +4500,56 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             emitter.Emit(OpCode::OP_Throw);
             emitter.EmitUint16(m_currFunc->tempSlot);
         }
+        return;
+    }
+
+    //Phase 9d-2: super(args); — forward to the direct parent constructor.
+    //Mirrors NK_NewExpr's ctor-call pattern: evalArea claim [0]=this,
+    //[1..N]=args, bulk copy to callParamBase, OP_CallMethodDirect on the
+    //parent's ctor (works for both user ctors and built-in Exception
+    //family stubs via the intrinsic shortcut). No parent ctor (0xFFFF) is
+    //a legal no-op — the resolver guarantees no args in that case.
+    if (kind == NK_SuperCallStmt) {
+        auto& sc = static_cast<SnSuperCallStmt&>(stmt);
+        if (!m_pCurrClass || !m_pCurrClass->SuperClass())
+            return;  //resolver already reported; emit nothing
+        auto* pParent = m_pCurrClass->SuperClass();
+        int parentClassIdx = m_compiledModule.FindClass(pParent->Name());
+        if (parentClassIdx < 0)
+            return;
+        uint16_t ctorIdx =
+            m_compiledModule.classes[parentClassIdx].constructorIdx;
+        if (ctorIdx == 0xFFFF)
+            return;  //parent has no ctor; args were rejected by resolver
+
+        uint16_t n = static_cast<uint16_t>(1 + sc.Args().size());
+        EvalAreaClaim claim(*this, n);
+        uint16_t claimBase = claim.base();
+
+        //args → claim[1..N] (positional only; resolver rejected named).
+        uint16_t paramIdx = 1;
+        for (auto* pArg : sc.Args()) {
+            uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+            EmitExpression(*pArg, emitter, paramOffset);
+            ++paramIdx;
+        }
+        //this (local 0 in a method) → claim[0].
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(0);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(claimBase);
+
+        //Bulk-copy claim → callParamBase, then call the parent ctor.
+        for (uint16_t i = 0; i < n; ++i) {
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+        }
+        emitter.Emit(OpCode::OP_CallMethodDirect);
+        emitter.EmitUint16(ctorIdx);
+        emitter.EmitUint16(m_currFunc->callParamBase);
+        emitter.Emit(OpCode::OP_ParaEnd);
         return;
     }
 }
