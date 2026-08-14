@@ -1,0 +1,17 @@
+//Phase 9d-2: try {} finally {} with NO catch clauses is legal. The
+//finally entry is the only tryBlocks entry; the exception passes through
+//the finally to the outer catch.
+int main() {
+    int g = 0;
+    try {
+        try {
+            throw new Exception("nocatch");
+        } finally {
+            g = g + 1;
+        }
+    } catch (Exception e) {
+        g = g + 2;
+    }
+    if (g == 3) { return 7; }
+    return 1;
+}

@@ -1,0 +1,18 @@
+//Phase 9d-2: user Exception subclass ctor forwards the message to the
+//built-in Exception parent ctor via super(msg).
+class MyException : Exception {
+    public int code;
+    public int MyException(string msg) {
+        super(msg);
+        this.code = 7;
+        return 0;
+    }
+}
+int main() {
+    try {
+        throw new MyException("boom");
+    } catch (MyException e) {
+        if (e.message == "boom") { return e.code; }
+        return 1;
+    }
+}

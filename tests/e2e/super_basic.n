@@ -1,0 +1,7 @@
+//Phase 9d-2: super() invokes the direct parent's constructor.
+class A { public int v; public int A() { this.v = 7; return 0; } }
+class B : A { public int B() { super(); return 0; } }
+int main() {
+    B b = new B();
+    return b.v;
+}

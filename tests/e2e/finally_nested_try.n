@@ -1,0 +1,20 @@
+//Phase 9d-2: nested try/finally — inner finally runs first, then outer
+//finally, then the surrounding catch. Order: +1, +2, +4 -> g == 7.
+int main() {
+    int g = 0;
+    try {
+        try {
+            try {
+                throw new Exception("deep");
+            } finally {
+                g = g + 1;
+            }
+        } finally {
+            g = g + 2;
+        }
+    } catch (Exception e) {
+        g = g + 4;
+    }
+    if (g == 7) { return 7; }
+    return 1;
+}

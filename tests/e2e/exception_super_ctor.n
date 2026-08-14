@@ -1,17 +1,21 @@
-//Phase 9d MVP: super(...) call in user Exception subclass ctor is not
-//supported (KT_Super not a keyword). Verify user subclass with default
-//ctor works.
+//Phase 9d-2: super(msg) forwards the message to the built-in Exception
+//parent ctor (previously a Phase 9d workaround assigned fields after
+//construction with a default ctor).
 class MyException : Exception {
     int code;
+    public int MyException(string msg) {
+        super(msg);
+        this.code = 1;
+        return 0;
+    }
 }
 
 int main() {
     try {
-        MyException e = new MyException();
-        e.code = 1;
-        throw e;
+        throw new MyException("bad");
     } catch (MyException e) {
-        return e.code;
+        if (e.message == "bad") { return e.code; }
+        return 2;
     }
     return 0;
 }

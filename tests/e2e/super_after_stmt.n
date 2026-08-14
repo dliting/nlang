@@ -1,0 +1,16 @@
+//Phase 9d-2: super() may appear at any statement position in the ctor,
+//not only as the first statement. super(dummy + 40) sets v = 41; the
+//following statement bumps it to 42.
+class A { public int v; public int A(int x) { this.v = x; return 0; } }
+class B : A {
+    public int B() {
+        int dummy = 1;
+        super(dummy + 40);
+        this.v = this.v + 1;
+        return 0;
+    }
+}
+int main() {
+    B b = new B();
+    return b.v;
+}

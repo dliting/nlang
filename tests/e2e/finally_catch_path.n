@@ -1,0 +1,13 @@
+//Phase 9d-2: catch clause completes -> finally body runs afterwards.
+int main() {
+    int g = 0;
+    try {
+        throw new Exception("x");
+    } catch (Exception e) {
+        g = g + 1;
+    } finally {
+        g = g + 2;
+    }
+    if (g == 3) { return 7; }
+    return 1;
+}

@@ -1,0 +1,17 @@
+//Phase 9d-2: the return expression is evaluated BEFORE the finally body.
+//`return b.v` must capture 0; the finally body then writes 99 into the
+//field. If finally ran first, r would be 99 instead of 0.
+class Box { public int v; }
+int f(Box b) {
+    try {
+        return b.v;
+    } finally {
+        b.v = 99;
+    }
+}
+int main() {
+    Box b = new Box();
+    int r = f(b);
+    if (r == 0 && b.v == 99) { return 7; }
+    return 1;
+}

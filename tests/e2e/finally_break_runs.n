@@ -1,0 +1,17 @@
+//Phase 9d-2: break out of a try-with-finally inside a loop must run the
+//finally body copy (inlined trampoline) before the jump. Iterations
+//i=1,2 complete normally (+2), i=3 breaks but still runs finally (+1).
+int main() {
+    int g = 0;
+    int i = 0;
+    while (i < 10) {
+        i = i + 1;
+        try {
+            if (i == 3) { break; }
+        } finally {
+            g = g + 1;
+        }
+    }
+    if (g == 3 && i == 3) { return 7; }
+    return 1;
+}

@@ -1,0 +1,8 @@
+//Phase 9d-2: super() argument count must match the parent ctor's
+//parameter count (parent takes 1, call passes 2).
+class A { public int A(int x) { return 0; } }
+class B : A { public int B() { super(1, 2); return 0; } }
+int main() {
+    B b = new B();
+    return 0;
+}

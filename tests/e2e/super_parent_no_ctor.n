@@ -1,0 +1,8 @@
+//Phase 9d-2: passing arguments to a parent class with no constructor is
+//a compile error (explicit super() must not silently drop arguments).
+class A { public int v; }
+class B : A { public int B() { super(5); return 0; } }
+int main() {
+    B b = new B();
+    return 0;
+}

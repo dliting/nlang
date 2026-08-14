@@ -1,0 +1,11 @@
+//Phase 9d-2: try body completes normally -> finally body runs.
+int main() {
+    int g = 0;
+    try {
+        g = g + 1;
+    } finally {
+        g = g + 2;
+    }
+    if (g == 3) { return 7; }
+    return 1;
+}

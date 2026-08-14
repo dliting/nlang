@@ -1,0 +1,21 @@
+//Phase 9d-2: exception thrown from a catch body must still pass through
+//the finally. This proves the finally tryBlock entry's rangeEnd extends
+//past the catch handlers (catch entries only cover [tryStart, tryEnd)).
+int main() {
+    int g = 0;
+    int code = 0;
+    try {
+        try {
+            throw new Exception("first");
+        } catch (Exception e) {
+            throw new Exception("second");
+        } finally {
+            g = g + 1;
+        }
+    } catch (Exception e) {
+        g = g + 2;
+        if (e.message == "second") { code = 4; }
+    }
+    if (g == 3 && code == 4) { return 7; }
+    return 1;
+}

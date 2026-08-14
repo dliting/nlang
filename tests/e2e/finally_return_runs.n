@@ -1,0 +1,17 @@
+//Phase 9d-2: return inside a try-with-finally must run the finally body
+//after the return value is captured but before OP_Return. The Box field
+//records the finally side effect observable after f() returns.
+class Box { public int v; }
+int f(Box b) {
+    try {
+        return 5;
+    } finally {
+        b.v = b.v + 1;
+    }
+}
+int main() {
+    Box b = new Box();
+    int r = f(b);
+    if (r == 5 && b.v == 1) { return 7; }
+    return 1;
+}

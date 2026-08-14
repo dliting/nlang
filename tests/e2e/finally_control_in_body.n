@@ -1,0 +1,10 @@
+//Phase 9d-2: control-flow statements (return here; also break/continue/
+//throw) inside a finally body are rejected at resolve time — a finally
+//body must not swallow the in-flight control flow or exception.
+int main() {
+    try {
+        return 1;
+    } finally {
+        return 0;
+    }
+}

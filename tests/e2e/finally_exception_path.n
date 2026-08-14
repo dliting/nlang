@@ -1,0 +1,17 @@
+//Phase 9d-2: exception passes through finally (rethrow) to outer catch.
+//The finally handler catches the exception, runs its body copy, then
+//OP_Rethrow resends it to the outer try's catch.
+int main() {
+    int g = 0;
+    try {
+        try {
+            throw new Exception("boom");
+        } finally {
+            g = g + 1;
+        }
+    } catch (Exception e) {
+        g = g + 2;
+    }
+    if (g == 3) { return 7; }
+    return 1;
+}
