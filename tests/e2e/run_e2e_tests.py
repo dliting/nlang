@@ -30,10 +30,21 @@ INTENTIONAL_THROW_SUFFIXES = (
     '_missing', '_bad_mode', '_cycle',
 )
 
+#Test name prefixes that mark intentional throw-tests. Phase 9d exception
+#tests are entirely about exception behavior — uncaught exceptions exit 1
+#by design. The whole `exception_` family is intentional.
+INTENTIONAL_THROW_PREFIXES = (
+    'exception_',
+)
+
 
 def _is_intentional_throw_test(name):
     """Return True if the test name marks it as an intentional throw-test."""
-    return any(name.endswith(suf) for suf in INTENTIONAL_THROW_SUFFIXES)
+    if any(name.endswith(suf) for suf in INTENTIONAL_THROW_SUFFIXES):
+        return True
+    if any(name.startswith(pfx) for pfx in INTENTIONAL_THROW_PREFIXES):
+        return True
+    return False
 
 
 def main():
