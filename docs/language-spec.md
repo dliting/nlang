@@ -946,12 +946,32 @@ User classes can extend `Exception` to carry additional fields. The default
 constructor is used (NLang has no `super()` keyword yet — ancestor constructors
 are not automatically invoked, and inherited fields are zero-initialized).
 
-**Exception fields (runtime only):**
+**Exception fields:**
 
-Exception instances have `message` (string) and `backtrace` (List<string>)
-fields at runtime, but these are **not exposed via the type system** in the
-current MVP. Accessing `e.message` or `e.backtrace` in user code produces a
-compile error. This will be addressed in a future phase.
+Exception instances expose two readable/writable fields:
+
+- `message` (string) — the exception message. Set by the constructor
+  (`new Exception("msg")`) or by VM error sites. Writable by user code.
+- `backtrace` (List&lt;string&gt;) — call stack snapshot at throw time for
+  VM-thrown exceptions (`funcName.n:line` entries, innermost first).
+  User-constructed exceptions start with an empty backtrace.
+
+```
+try {
+    int x = 0;
+    int y = 1 / x;
+} catch (DivByZeroException e) {
+    int n = e.message.length();       // > 0 — VM sets the message
+    int frames = e.backtrace.length(); // >= 1 — VM snapshots the stack
+}
+
+//User subclasses inherit both fields; own fields land after them.
+class MyException : Exception {
+    int code;
+}
+MyException e = new MyException();
+e.message = "custom";   // writable
+e.code = 42;
 
 **VM errors are catchable:**
 
@@ -980,10 +1000,8 @@ the program terminates with exit code 1 (same as the pre-9d behavior).
 
 **Not supported in MVP:**
 - `finally` blocks — use explicit cleanup code in catch bodies for now
-- Field access on built-in Exception type (`e.message`, `e.backtrace`)
-- `super()` keyword for calling Exception constructor from user subclass
-- `break`/`continue` inside a catch body that exits the catch block may leak
-  the handler stack entry (rare edge case)
+- `super()` keyword for calling Exception constructor from user subclass —
+  workaround: assign inherited fields directly (`e.message = "..."`)
 
 ### Const Local Variables (Phase 9a)
 
@@ -1230,18 +1248,9 @@ or return a derived value that fits in the exit code range.
   (`kMaxFuncParams` sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — callParamBase and evalArea are
   sized per-function based on actual call patterns observed in the body.
-- **Exception field access**: built-in Exception's `message` and
-  `backtrace` fields exist at runtime but are not exposed via the type
-  system. `e.message` and `e.backtrace` produce compile errors. A future
-  phase will expose these fields.
 - **No `finally`**: `try { } finally { }` is a syntax error. Resource
   cleanup must be done explicitly in catch bodies.
 - **No `super()` in Exception subclass**: user classes extending Exception
   use the default constructor; `super(msg)` is not supported (no
-  `super` keyword). Inherited fields (message, backtrace) are
-  zero-initialized.
-- **`break`/`continue` in catch body**: if a catch body contains
-  `break` or `continue` that exits the catch block, the handler stack
-  entry is not properly popped. This is a rare edge case that may cause
-  incorrect `throw;` behavior in subsequent catch blocks within the same
-  function.
+  `super` keyword). Workaround: assign `e.message` directly after
+  construction.
