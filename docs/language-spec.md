@@ -217,9 +217,11 @@ Classes support:
 **Inheritance layout**: Object memory layout is `[classIdx, ancestor_fields..., parent_fields..., own_fields...]`.
 `classIdx` at slot[0] identifies the runtime class for virtual dispatch.
 
-**Constructor behavior**: Only the direct class's constructor is called.
-Ancestor constructors are NOT automatically invoked (NLang has no `super()`
-syntax). Fields inherited from ancestors are zero-initialized.
+**Constructor behavior**: Only the direct class's constructor is called;
+ancestor constructors are not automatically invoked. A subclass ctor can
+forward to the direct parent's constructor with `super(args);` (see
+"super() — constructor chaining" below). Without an explicit `super()`,
+fields inherited from ancestors are zero-initialized.
 
 ### Interface Declaration
 
@@ -939,12 +941,18 @@ throw;                                   // re-throw current exception (only ins
 ```
 class MyException : Exception {
     int code;
+    public int MyException(string msg) {
+        super(msg);          // forward to Exception(message) ctor
+        this.code = 42;
+        return 0;
+    }
 }
 ```
 
-User classes can extend `Exception` to carry additional fields. The default
-constructor is used (NLang has no `super()` keyword yet — ancestor constructors
-are not automatically invoked, and inherited fields are zero-initialized).
+User classes can extend `Exception` to carry additional fields. Without a
+user constructor, the default constructor is used and inherited fields are
+zero-initialized; a user ctor typically forwards the message via
+`super(msg)` (see "super() — constructor chaining" below).
 
 **Exception fields:**
 
@@ -998,10 +1006,69 @@ try {
 **Uncaught exceptions** propagate up the call stack. If no handler is found,
 the program terminates with exit code 1 (same as the pre-9d behavior).
 
-**Not supported in MVP:**
-- `finally` blocks — use explicit cleanup code in catch bodies for now
-- `super()` keyword for calling Exception constructor from user subclass —
-  workaround: assign inherited fields directly (`e.message = "..."`)
+**finally (Phase 9d-2):**
+
+```
+try {
+    riskyWork();
+} catch (Exception e) {
+    handle(e);
+} finally {
+    cleanup();     // always runs
+}
+```
+
+`finally` has full Java semantics — the finally body runs when control
+leaves the try region by **any** of these paths:
+
+- try body completes normally (including falling out the bottom)
+- a catch clause completes (matched or not)
+- an exception unwinds through (the finally handler runs its body copy,
+  then re-throws the original exception; this includes exceptions thrown
+  from inside a catch body)
+- `break` / `continue` transfer out of the region (an inline copy of the
+  finally body runs before the jump, innermost-first for nested tries)
+- `return` (the return expression is evaluated **first**, then the finally
+  body runs, then the function returns)
+
+Nesting: inner finally bodies run before outer ones; after them, the
+surrounding catch (if any) sees the exception. Each finally body executes
+exactly once per control-flow pass — the normal-path and exception-path
+copies are disjoint code regions.
+
+`try { } finally { }` without any catch clause is legal (the finally entry
+is the only handler).
+
+**Restriction**: `break`, `continue`, `return`, and `throw` are not
+allowed *inside a finally body* (compile error). A finally body must not
+swallow the in-flight control flow or exception.
+
+**super() — constructor chaining (Phase 9d-2):**
+
+```
+class Base {
+    public int v;
+    public int Base(int x) { this.v = x; return 0; }
+}
+class Kid : Base {
+    public int Kid(int x) {
+        super(x * 2);        // calls Base(int)
+        return 0;
+    }
+}
+```
+
+- `super(args);` invokes the **direct parent class's constructor** on the
+  same `this` object. Valid only inside a constructor of a class that has
+  a parent (`Object` has none).
+- May appear at **any statement position** in the ctor (not restricted to
+  the first statement).
+- Argument count must match the parent ctor's parameter count. For parents
+  in the built-in Exception family the ctor takes exactly one `message`
+  argument.
+- Named arguments (`super(x = 1)`) are not supported (compile error).
+- `super()` with no arguments against a parent with no constructor is a
+  legal no-op; passing arguments in that case is a compile error.
 
 ### Const Local Variables (Phase 9a)
 
@@ -1248,9 +1315,16 @@ or return a derived value that fits in the exit code range.
   (`kMaxFuncParams` sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — callParamBase and evalArea are
   sized per-function based on actual call patterns observed in the body.
-- **No `finally`**: `try { } finally { }` is a syntax error. Resource
-  cleanup must be done explicitly in catch bodies.
-- **No `super()` in Exception subclass**: user classes extending Exception
-  use the default constructor; `super(msg)` is not supported (no
-  `super` keyword). Workaround: assign `e.message` directly after
-  construction.
+- **No control flow in finally bodies**: `break` / `continue` / `return` /
+  `throw` inside a `finally` body is a compile error (a finally body must
+  not swallow the in-flight control flow or exception).
+- **`super()` chains only to the direct parent**: there is no syntax for
+  invoking a grandparent constructor directly; each ctor forwards to its
+  immediate parent.
+- **`new C(args)` when `C` has no constructor silently drops `args`**:
+  unlike an explicit `super(args)` (which errors), constructor arguments
+  at allocation sites are discarded when the class declares no ctor.
+- **Bare field assignment inside constructors/methods**: assigning to a
+  class field without the `this.` prefix (e.g. `v = x;` where `v` is a
+  field of the enclosing class) crashes the compiler without a diagnostic.
+  Always write `this.v = x;` inside methods and constructors.
