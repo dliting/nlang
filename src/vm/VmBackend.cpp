@@ -1944,6 +1944,12 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
             ? static_cast<uint16_t>(RuntimeTypeKind(retType)) : 0;
         ctx.returnSlot = ctx.nextOffset;
         ctx.nextOffset += VALUE_SIZE;
+    } else {
+        //Void functions carry RTK_Void so cross-module stubs rebuild
+        //without a return type (CreateFunctionStub: RTK_Void →
+        //HasReturn() == false). The previous default of 0 (RTK_Int32)
+        //made an imported void stub claim an int return value.
+        compiledFunc.returnTypeKind = RTK_Void;
     }
 
     // Temporary slots pool (4 slots — supports up to 3-level nested binary

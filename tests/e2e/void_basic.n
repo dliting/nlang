@@ -1,0 +1,14 @@
+void classify(int x, out int sign) {
+    if (x > 0) {
+        sign = 1;
+        return;
+    }
+    sign = 0;
+}
+
+int main() {
+    int s = 0;
+    classify(5, out s);
+    // s = 1 via early bare return; 7 + 1 = 8
+    return s + 7;
+}

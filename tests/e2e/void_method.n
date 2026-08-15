@@ -1,0 +1,18 @@
+class Calc {
+    public void divide(int a, int b, out int rem) {
+        rem = a % b;
+    }
+    public void bump(int x) {
+        this.value = this.value + x;
+    }
+    public int value;
+}
+
+int main() {
+    Calc c = new Calc();
+    int r = 0;
+    c.divide(17, 5, out r);
+    c.bump(r);
+    // r = 17 % 5 = 2; value = 0 + 2 = 2; 2 * 10 + 2 = 22
+    return r * 10 + c.value;
+}

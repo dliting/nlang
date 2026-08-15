@@ -1,0 +1,10 @@
+//Cross-module void export: the stub rebuilt on the consumer side must
+//carry RTK_Void so CreateFunctionStub produces HasReturn() == false.
+//Before the backend fix, user void functions defaulted returnTypeKind to
+//0 (RTK_Int32), making the imported stub claim an int return value.
+void log(int level) {
+}
+
+int add(int a, int b) {
+	return a + b;
+}

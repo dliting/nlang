@@ -1,0 +1,29 @@
+interface Greeter {
+    public void hello();
+    public void setTag(int t);
+}
+
+class English implements Greeter {
+    public int tag;
+    public void hello() { this.tag = this.tag + 1; }
+    public void setTag(int t) { this.tag = t; }
+}
+
+class Spanish implements Greeter {
+    public int tag;
+    public void hello() { this.tag = this.tag + 2; }
+    public void setTag(int t) { this.tag = t; }
+}
+
+int main() {
+    English e = new English();
+    Greeter g = e;
+    g.setTag(10);
+    g.hello();
+    // English via interface: tag = 10 + 1 = 11
+    Spanish s = new Spanish();
+    Greeter h = s;
+    h.hello();
+    // Spanish via interface: tag = 0 + 2 = 2; 11 * 10 + 2 = 112
+    return e.tag * 10 + s.tag;
+}

@@ -386,7 +386,19 @@ public:
 		}
 		auto* pSourceType = sn.Right()->EvalDataType();
 		if (!pTargetType || !pSourceType)
+		{
+			//Void-support: a resolved RHS with no EvalDataType is a void
+			//function/method call. Codegen would store a stale pResult (the
+			//last evaluated argument), so reject at the statement level.
+			//(Return/binary consumers already reject via FixupExprType.)
+			if (pTargetType && sn.Right()->IsResolved())
+			{
+				m_Env.Log(CLL_Error, sn.Right()->Location(),
+					"cannot assign the result of void function \"%s\".",
+					sn.Right()->ToString().c_str());
+			}
 			return;
+		}
 		auto castInfo = GetCastInfo(pSourceType, pTargetType);
 		auto iExpr = sn.Children().find(sn.m_pRight);
 		if (m_ExprResolver.FixupExprType(iExpr, castInfo))
@@ -766,7 +778,17 @@ public:
 		}
 		auto* pSourceType = sn.Right()->EvalDataType();
 		if (!pTargetType || !pSourceType)
+		{
+			//Void-support: same guard as SnAssignStmt — a resolved void
+			//RHS must not flow into compound assignment.
+			if (pTargetType && sn.Right()->IsResolved())
+			{
+				m_Env.Log(CLL_Error, sn.Right()->Location(),
+					"cannot assign the result of void function \"%s\".",
+					sn.Right()->ToString().c_str());
+			}
 			return;
+		}
 		//Phase 9a P3: operator-type legality check (mirrors
 		//ExprResolveAccessor::Access(SnBinaryExpr&) logic).
 		//String only supports += (concat); -=, *=, /=, %= are invalid.
@@ -1007,6 +1029,15 @@ public:
 			m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
 		if (sn.Value() && !sn.Value()->IsResolved())
 			m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
+		//Void-support: reject a resolved void call as the stored value —
+		//codegen would store a stale pResult.
+		if (sn.Value() && sn.Value()->IsResolved()
+			&& !sn.Value()->EvalDataType())
+		{
+			m_Env.Log(CLL_Error, sn.Value()->Location(),
+				"cannot assign the result of void function \"%s\".",
+				sn.Value()->ToString().c_str());
+		}
 		sn.AddFlags(NF_Resolved);
 	}
 

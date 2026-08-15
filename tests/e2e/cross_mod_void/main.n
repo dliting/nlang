@@ -1,0 +1,9 @@
+//Consumer: calls the imported void function as a statement (no result
+//consumed), then a value-returning import to prove the module still
+//round-trips values alongside void.
+import "lib";
+
+int main() {
+	log(3);
+	return add(2, 3);
+}

@@ -674,3 +674,22 @@ out_struct_type compile_error
 out_virtual compile_error
 # out params cannot have defaults
 out_default compile_error
+
+# --- Void function support ---
+void_basic 8
+void_method 22
+void_interface 112
+# void call result cannot be assigned
+void_assign_reject compile_error
+# void function cannot return a value
+void_return_value_reject compile_error
+# bare return; only allowed in void functions
+void_bare_return_in_int compile_error
+# void call result cannot be used as an operand
+void_binary_reject compile_error
+# multi-flag (AccessType NodeFlags KT_Void) void method variant
+void_multi_flag 42
+# --- Cross-module void exports (stub carries RTK_Void) ---
+cross_mod_void 5
+# consuming the result of an imported void function is rejected
+cross_mod_void_reject compile_error

@@ -1,0 +1,7 @@
+void f(int a) { }
+
+int main() {
+    int y = 3;
+    int z = y + f(1);
+    return z;
+}

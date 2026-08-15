@@ -539,6 +539,9 @@ Function:	FunctionHeader FunctionBody {
 
 FunctionHeader:	AccessType NodeFlags Type TT_Identifier '(' FormalParamList ')' {
 						$$ = EnNew(SnFunction($1, $2, $3, $4, $6, @2));
+					}
+					| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' {
+						$$ = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
 					} ;
 
 FunctionBody:	Paragraph {
@@ -657,6 +660,10 @@ Statement:	';' {
 
 ReturnStmt: KT_Return Expression ';' {
 					$$ = EnNew(SnReturnStmt($2, @1));
+				} |
+				//Void support: bare `return;` for early exit from void functions.
+				KT_Return ';' {
+					$$ = EnNew(SnReturnStmt(nullptr, @1));
 				} ;
 
 InvokeStmt: InvokeExpr ';' { $$ = EnNew(SnInvokeStmt($1, @1)); } |
@@ -732,9 +739,6 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				} |
 				MemberExpr OT_DIVS Expression ';' {
 					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1));
-				} |
-				MemberExpr OT_MODS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1));
 				} |
 				MemberExpr OT_MODS Expression ';' {
 					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1));
@@ -1033,6 +1037,16 @@ InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' 
 					auto* func = EnNew(SnFunction($1, NF_NONE, $2, $3, $5, @2));
 					func->AddFlags(NF_Abstract);
 					$$ = func;
+				}
+				| AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' ';' {
+					auto* func = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
+					func->AddFlags(NF_Abstract);
+					$$ = func;
+				}
+				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' ';' {
+					auto* func = EnNew(SnFunction($1, NF_NONE, nullptr, $3, $5, @2));
+					func->AddFlags(NF_Abstract);
+					$$ = func;
 				} ;
 
 ClassMemberList:	ClassMemberList ClassMember {
@@ -1062,6 +1076,31 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				} |
 				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = EnNew(SnFunction($1, NF_NONE, $2, $3, $5, @2));
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
+					$$ = func;
+				} |
+
+				AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($8);
+					$$ = func;
+				}
+				| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($8);
+					$$ = func;
+				}
+				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = EnNew(SnFunction($1, NF_NONE, nullptr, $3, $5, @2));
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else

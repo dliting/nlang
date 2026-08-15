@@ -1,0 +1,19 @@
+//Multi-flag void method (AccessType NodeFlags KT_Void grammar variant):
+//`public static void` requires the NodeFlags production — a single-flag
+//rule alone would leave this shape a bare syntax error. The static flag is
+//syntactic today (no static dispatch in the VM), so the method is invoked
+//through an instance like any other method. Uses an out param for the
+//observable effect instead of touching instance state from a static-flagged
+//method.
+class Util {
+	public static void twice(int v, out int r) {
+		r = v * 2;
+	}
+}
+
+int main() {
+	int r = 0;
+	Util u = new Util();
+	u.twice(21, out r);
+	return r;
+}

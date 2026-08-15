@@ -1,0 +1,5 @@
+//Same library shape as cross_mod_void: a void export whose imported stub
+//must carry RTK_Void (no return type). Consuming its result must be
+//rejected on the consumer side exactly as in-module void calls are.
+void log(int level) {
+}

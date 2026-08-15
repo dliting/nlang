@@ -1,0 +1,17 @@
+int minmax(int a, int b, out int mn, out int mx) {
+    if (a < b) {
+        mn = a;
+        mx = b;
+    } else {
+        mn = b;
+        mx = a;
+    }
+    return 0;
+}
+
+int main() {
+    int lo = 0;
+    int hi = 0;
+    minmax(7, 3, out lo, out hi);
+    return lo * 10 + hi;  // 3 * 10 + 7 = 37
+}
