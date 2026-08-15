@@ -3497,12 +3497,22 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(cs.fieldCount);
             //Per-field store. FindFieldOffset returns byte offset within the
             //struct's data area (no classIdx slot like classes have).
+            //Identifier keys address by name; value-only entries (the
+            //`{ v1, v2 }` form) fill fields in DECLARATION ORDER — skipping
+            //them silently zeroed every field (Phase 8e-6 declared
+            //declaration-order support; the arg-position probe
+            //`sum(new Point{ 3 })` exposed it).
             uint16_t valueSlot = PickTempSlot(resultOffset);
+            size_t ordinal = 0;
             for (auto& entry : initList.Entries()) {
-                if (entry.keyKind != InitEntry::KeyKind::Identifier)
-                    continue;
                 if (!entry.pValue) continue;
-                int off = FindFieldOffset(*pStructDecl, entry.keyStr);
+                int off = -1;
+                if (entry.keyKind == InitEntry::KeyKind::Identifier) {
+                    off = FindFieldOffset(*pStructDecl, entry.keyStr);
+                } else if (ordinal < pStructDecl->Members().size()) {
+                    off = static_cast<int>(ordinal * VALUE_SIZE);
+                }
+                ++ordinal;
                 if (off < 0) continue;
                 EmitExpression(*entry.pValue, emitter, valueSlot);
                 emitter.Emit(OpCode::OP_StoreField);

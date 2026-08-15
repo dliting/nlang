@@ -1,0 +1,17 @@
+//Value-only init entries on struct targets fill fields in declaration
+//order — including in call-argument position (`sum(new Point{ 3, 7 })`),
+//where entries used to be silently skipped (fields read back 0).
+struct Point {
+	int x;
+	int y;
+}
+
+int sum2(Point p) {
+	return p.x * 10 + p.y;
+}
+
+int main() {
+	int a = sum2(new Point{ 3, 7 });
+	Point q = new Point{ 5 };
+	return a + q.x;
+}
