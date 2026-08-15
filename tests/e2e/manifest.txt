@@ -202,6 +202,7 @@ string_concat_inline_arith 7
 tostring_inline_arith 7
 list_add_inline_arith 3
 float_cast_inline_arith 7
+cast_float_field_to_int 3
 
 # --- interfaces ---
 interface_basic 42

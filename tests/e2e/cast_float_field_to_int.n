@@ -1,0 +1,7 @@
+struct S { float f; }
+int main() {
+    S s;
+    s.f = 3.7;
+    int x = s.f;
+    return x;
+}
