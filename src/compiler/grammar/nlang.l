@@ -349,6 +349,43 @@ LineComment	\/\/[^\n]*
                 APPEND_TEXT("\"");
             }
 
+<STRING_S>"\\\\"	{
+                APPEND_TEXT("\\");
+            }
+
+<STRING_S>"\\'"	{
+                APPEND_TEXT("'");
+            }
+
+<STRING_S>"\\0"	{
+                APPEND_TEXT(std::string(1, '\0'));
+            }
+
+<STRING_S>"\\a"	{
+                APPEND_TEXT(std::string(1, '\a'));
+            }
+
+<STRING_S>"\\b"	{
+                APPEND_TEXT(std::string(1, '\b'));
+            }
+
+<STRING_S>"\\f"	{
+                APPEND_TEXT(std::string(1, '\f'));
+            }
+
+<STRING_S>"\\v"	{
+                APPEND_TEXT(std::string(1, '\v'));
+            }
+
+<STRING_S>"\\".    {
+                //Unknown escape — reject instead of silently emitting a
+                //literal backslash (the pre-fix catch-all behavior).
+                FREE_TEXT();
+                bConcatToken = false;
+                BEGIN_STATE(INITIAL);
+                return TT_Error;
+            }
+
 <STRING_S>\n	{
                 FREE_TEXT();
                 bConcatToken = false;

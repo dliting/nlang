@@ -1,0 +1,4 @@
+int main() {
+    string s = "x\qy";
+    return s.length();
+}

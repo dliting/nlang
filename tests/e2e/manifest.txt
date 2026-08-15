@@ -356,6 +356,12 @@ init_class_ctor_args compile_error
 cond_string_type compile_error
 cond_float_type compile_error
 cond_class_type compile_error
+
+# --- String escape sequences ---
+string_escape_backslash 3
+string_escape_tab_len 3
+string_escape_quote_len 3
+string_escape_unknown compile_error
 # --- Phase 9c follow-up: nested-call clobber in collection init ---
 init_dict_nested_call_value 7
 dict_set_nested_args 7
