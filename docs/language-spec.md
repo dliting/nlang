@@ -664,6 +664,19 @@ this to a no-op (no opcode emitted).
 - No warning when implicit coercion occurs (silent, like Java)
 - `struct.toString()` / `"x" + structInstance` — permanently rejected
 
+**Escape sequences** (inside double-quoted literals):
+
+| Escape      | Produces              |
+|-------------|-----------------------|
+| `\n` `\r` `\t` | newline, CR, tab   |
+| `\\` `\"` `\'` | backslash, quote, apostrophe |
+| `\0` `\a` `\b` `\f` `\v` | NUL, bell, backspace, form feed, vertical tab |
+| `\x`/`\u`... | not supported        |
+
+Any other escape (e.g. `\q`) is a compile error — escapes never pass
+through as literal backslash pairs. Interpolation and escapes compose:
+`"${name}\n"` interpolates then appends a newline.
+
 
 ### String Interpolation (Phase 9b)
 
