@@ -1,0 +1,13 @@
+struct Box {
+    int[] a;
+}
+
+//9d-3 audit: struct with an array-typed field. `b.a = new int[2]` must
+//store the array reference (the new-expression's size scratch must not
+//clobber the receiver held in tempSlot).
+int main() {
+    Box b;
+    b.a = new int[2];
+    b.a[0] = 7;
+    return b.a[0];
+}

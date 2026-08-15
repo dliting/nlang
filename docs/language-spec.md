@@ -872,6 +872,11 @@ Structural modifications inside the body (`List.Add`/`RemoveAt`,
 elements, or stale `Keys()` snapshots. Element assignment (`arr[i] = x`)
 inside an Array foreach body is fine (no structural change).
 
+**Struct elements are copied into the loop variable** (value semantics):
+`foreach (Point p in arr) { p.x = 99; }` does not modify `arr`'s elements —
+`p` is a fresh deep copy per iteration (consistent with C#, where foreach
+over value-type elements also yields copies).
+
 **Null iterable** throws NPE on the first `length()`/`Length()` call
 (consistent with all other class-typed calls).
 
@@ -1304,12 +1309,6 @@ or return a derived value that fits in the exit code range.
   inner subscript index evaluation can clobber the RHS temp slot.
   Single-level `arr[i].field = v` works correctly. Fix deferred to the
   array redesign.
-- **Foreach over struct arrays aliases elements** (Phase 9d-3
-  leftover): the foreach loop variable binds directly to the array's
-  element slot — mutating it in the body mutates the array element
-  (unlike `List<T>`, where boxed elements are copies of primitives but
-  shared references for structs). Assignment semantics documented
-  above are unaffected.
 - **Eager materialization cost**: `new Point[n]` allocates n+1 heap
   slots at creation (array + one struct per element). Cost revisited at
   the array redesign.

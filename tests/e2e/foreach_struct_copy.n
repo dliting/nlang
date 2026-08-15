@@ -1,0 +1,17 @@
+struct Point {
+    int x;
+    int y;
+}
+
+//9d-3 audit: foreach over a struct array deep-copies each element into
+//the loop variable (value semantics — mutating the loop variable does
+//NOT write through to the array element).
+int main() {
+    Point[] arr = new Point[2];
+    arr[0].x = 1;
+    arr[1].x = 2;
+    foreach (Point p in arr) {
+        p.x = 99;
+    }
+    return arr[0].x;
+}

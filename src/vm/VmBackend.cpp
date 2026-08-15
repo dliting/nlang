@@ -2994,12 +2994,16 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //Register the array type (idempotent)
         uint16_t arrayTypeIdx = RegisterArrayType(
             newArr.ElementType()->Field());
-        //Evaluate size expression to tempSlot (size is int32)
-        EmitExpression(*newArr.Size(), emitter, m_currFunc->tempSlot);
+        //Size scratch must avoid resultOffset. When the dst is a temp
+        //(e.g. the RHS of a member assignment, emitted into tempSlot2
+        //while the receiver lives in tempSlot), hardcoding tempSlot
+        //here would clobber the receiver.
+        uint16_t sizeSlot = PickTempSlot(resultOffset);
+        EmitExpression(*newArr.Size(), emitter, sizeSlot);
         emitter.Emit(OpCode::OP_AllocArray);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(arrayTypeIdx);
-        emitter.EmitUint16(m_currFunc->tempSlot);
+        emitter.EmitUint16(sizeSlot);
         return;
     }
 

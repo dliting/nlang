@@ -1375,8 +1375,15 @@ void VmExecutor::MarkPhase() {
                 int32_t refIdx = m_structHeap[idx][i + 1];
                 if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
                     continue;
+                //Array-typed fields are recorded in fieldTypeKinds with
+                //their ELEMENT kind (known misclassification), so static
+                //kinds can't identify them — trace any field slot whose
+                //runtime kind is RTK_Array. Worst case this over-retains
+                //an int field holding a value equal to an array heap idx,
+                //which is safe for a mark-sweep collector.
                 if ((cc.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
-                    || (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)) {
+                    || (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
+                    || m_slotKinds[refIdx] == RTK_Array) {
                     if (!m_markBits[refIdx]) {
                         m_markBits[refIdx] = true;
                         worklist.push_back(refIdx);
@@ -1436,8 +1443,12 @@ void VmExecutor::MarkPhase() {
                 int32_t refIdx = m_structHeap[idx][i];
                 if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
                     continue;
+                //Array-typed fields record their ELEMENT kind in
+                //fieldTypeKinds (known misclassification), so trace by
+                //runtime kind instead — see the RTK_Class branch above.
                 if ((cs.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
-                    || (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)) {
+                    || (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
+                    || m_slotKinds[refIdx] == RTK_Array) {
                     if (!m_markBits[refIdx]) {
                         m_markBits[refIdx] = true;
                         worklist.push_back(refIdx);

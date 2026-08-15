@@ -190,6 +190,12 @@ array_struct_nested 6
 array_struct_foreach 6
 array_struct_gc 7
 array_struct_empty 0
+# --- Phase 9d-3 audit: array fields + struct-array boundaries ---
+array_struct_param 7
+foreach_struct_copy 1
+field_array_struct 7
+field_array_struct_gc 7
+field_array_class_gc 7
 
 # --- interfaces ---
 interface_basic 42

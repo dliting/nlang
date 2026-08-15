@@ -1,0 +1,18 @@
+struct Point {
+    int x;
+    int y;
+}
+
+//9d-3 audit: struct-element array passed as a parameter — the callee
+//sees the same array (reference semantics for the array itself, the
+//struct elements are not copied by the call).
+int takeArr(Point[] p) {
+    p[0].x = 9;
+    return p[0].x;
+}
+
+int main() {
+    Point[] arr = new Point[1];
+    arr[0].x = 7;
+    return takeArr(arr) - 2;
+}

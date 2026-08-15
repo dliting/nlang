@@ -298,7 +298,13 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 下标读去掉防御性 CopyStruct + member 赋值求值顺序改 receiver-first（Java JLS 15.26.1）：值拷贝只发生在赋值/存储边界（VM 不量）；原先读路径副本使 `arr[0].a.x = v` 写进废弃副本，且 RHS→tempSlot2 先求值时下标索引 scratch 槽（PickTempSlot(tempSlot)=tempSlot2）反噬 RHS
 - **GC 根集根本修复（模块格式 v1.5）**：.nmod 从未序列化 func.locals → MarkPhase 根扫描在运行时永远空集 → 任何真实 collection 会清扫全部活对象。既有 GC 测试全部通过纯属巧合（无活对象跨 collection，或分配数未过 1024 阈值）。v1.5 增加 local-variable descriptors（offset/size/isParam/typeKind/name）；旧格式模块根集为空（向后兼容读）
 - 7 个新 e2e 测试（array_struct 系列：basic/zero_default/distinct/nested/foreach/gc/empty）
-- 已知遗留：`matrix[i][0].x = v`（嵌套下标 receiver）的 RHS 碰撞未修；foreach 循环变量直指数组元素（别名语义）；eager 物化的分配成本（数组重设计时再议）
+
+**9d-3 audit：数组字段 + struct 数组边界** ✅（479 个 e2e 测试通过）
+- 复审发现 9d-3 的 receiver-first 求值顺序重排引入回归：`b.a = new int[2]`（struct/class 数组字段赋值）中 NewArrayExpr 的 size 操作数硬编码 tempSlot → 覆写 receiver。修复：size scratch 改 PickTempSlot(resultOffset)（与 InitListExpr 同一纪律——**内部 scratch 必须避开自己的 dst**）
+- MarkPhase 补数组字段追踪：struct/class 的数组字段在 fieldTypeKinds 记录为元素类型（已知误分类），静态 kind 无法识别 → 按 m_slotKinds[refIdx]==RTK_Array 运行时 kind 追踪（最坏 over-retention，对 mark-sweep 安全）
+- 实证澄清：foreach over struct 数组对元素深拷贝（OP_CopyStruct 到循环变量）——9d-3 最初记录的"别名"遗留是错的，已从文档移除；struct 数组作参数（`f(Point[] p)`）本来就正确
+- 5 个新 e2e 测试（array_struct_param/foreach_struct_copy/field_array_struct/field_array_struct_gc/field_array_class_gc）
+- 已知遗留：`matrix[i][0].x = v`（嵌套下标 receiver）的 RHS 碰撞未修；eager 物化的分配成本（数组重设计时再议）；fieldTypeKinds 数组字段误分类的彻底修复（RTK_Array 记录 + 物化/深拷贝/序列化消费点同步）留数组重设计
 
 **9e：out 参数**
 - `void foo(int x, out int y)`
@@ -337,7 +343,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9d-3 已完成，**474 个 e2e 测试全部通过**（Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9d-3（含 audit）已完成，**479 个 e2e 测试全部通过**（Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
