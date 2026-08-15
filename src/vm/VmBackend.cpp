@@ -1236,6 +1236,19 @@ VmBackend::BoxingTagResult VmBackend::BoxingTagFor(SnField* pT) {
     return {0, false};  //class/struct/other T → no boxing
 }
 
+//Several opcodes read the pResult accumulator (OP_Box/OP_Unbox,
+//OP_CastIntToFloat/OP_CastFloatToInt, OP_Int32_to_str/OP_Float_to_str).
+//EmitExpression only leaves the value in pResult when the source's final
+//opcode writes the accumulator (var_local, consts, calls); locals-writing
+//sources (binary arithmetic, field/element loads) leave it stale — the
+//cast_f2i quirk and the `"s" + (a+b)` dedup bug are both this hole.
+//Reload pResult from the slot the value is guaranteed to live in before
+//emitting any accumulator-reading opcode.
+static void EmitPResultRefresh(BytecodeEmitter& emitter, uint16_t slot) {
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(slot);
+}
+
 //Pick a temp slot distinct from `exclude`, walking through the 4-slot pool.
 //Composition rule: PickTempSlot(tempSlotN) = tempSlot(N+1). This chains
 //for nested expressions — each recursive level uses the next slot.
@@ -2034,6 +2047,7 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
         auto it = pArgPlans->find(slotIdx);
         if (it == pArgPlans->end() || !it->second.needsBox) return;
         uint16_t paramOffset = claimBase + slotIdx * VALUE_SIZE;
+        EmitPResultRefresh(emitter, paramOffset);
         emitter.Emit(OpCode::OP_Box);
         emitter.EmitByte(it->second.tag);
         emitter.Emit(OpCode::OP_Assign);
@@ -2245,6 +2259,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 else if (srcKind == NK_String) typeTag = RTK_String;
                 else typeTag = RTK_Int32;
             }
+            EmitPResultRefresh(emitter, resultOffset);
             emitter.Emit(OpCode::OP_Box);
             emitter.EmitByte(typeTag);
             emitter.Emit(OpCode::OP_Assign);
@@ -2342,20 +2357,24 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
             if (dstKind == NK_EnumDecl) dstKind = NK_Int32;
             if (srcKind == NK_Int32 && dstKind == NK_Float) {
+                EmitPResultRefresh(emitter, resultOffset);
                 emitter.Emit(OpCode::OP_CastIntToFloat);
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
             } else if (srcKind == NK_Float && dstKind == NK_Int32) {
+                EmitPResultRefresh(emitter, resultOffset);
                 emitter.Emit(OpCode::OP_CastFloatToInt);
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
             } else if (srcKind == NK_Int32 && dstKind == NK_String) {
                 //Phase 8e-9a: int → string coercion for `int + string` etc.
+                EmitPResultRefresh(emitter, resultOffset);
                 emitter.Emit(OpCode::OP_Int32_to_str);
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
             } else if (srcKind == NK_Float && dstKind == NK_String) {
                 //Phase 8e-9a: float → string coercion.
+                EmitPResultRefresh(emitter, resultOffset);
                 emitter.Emit(OpCode::OP_Float_to_str);
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
@@ -2388,6 +2407,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 else if (srcKind == NK_String) typeTag = RTK_String;
                 else typeTag = RTK_Int32;
             }
+            EmitPResultRefresh(emitter, resultOffset);
             emitter.Emit(OpCode::OP_Box);
             emitter.EmitByte(typeTag);
             emitter.Emit(OpCode::OP_Assign);
@@ -2404,6 +2424,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 else if (tgtKind == NK_String) typeTag = RTK_String;
                 else typeTag = RTK_Int32;
             }
+            EmitPResultRefresh(emitter, resultOffset);
             emitter.Emit(OpCode::OP_Unbox);
             emitter.EmitByte(typeTag);
             emitter.Emit(OpCode::OP_Assign);
@@ -2538,6 +2559,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         }
                         //Plain int receiver
                         EmitExpression(*member.Outer(), emitter, resultOffset);
+                        EmitPResultRefresh(emitter, resultOffset);
                         emitter.Emit(OpCode::OP_Int32_to_str);
                         emitter.Emit(OpCode::OP_Assign);
                         emitter.EmitUint16(resultOffset);
@@ -2546,6 +2568,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     if (outerKind == NK_Float)
                     {
                         EmitExpression(*member.Outer(), emitter, resultOffset);
+                        EmitPResultRefresh(emitter, resultOffset);
                         emitter.Emit(OpCode::OP_Float_to_str);
                         emitter.Emit(OpCode::OP_Assign);
                         emitter.EmitUint16(resultOffset);
@@ -3103,6 +3126,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     if (!entry.pValue) continue;
                     EmitExpression(*entry.pValue, emitter, paramOffset);
                     if (t.isPrimitive) {
+                        EmitPResultRefresh(emitter, paramOffset);
                         emitter.Emit(OpCode::OP_Box);
                         emitter.EmitByte(t.tag);
                         emitter.Emit(OpCode::OP_Assign);
@@ -3179,6 +3203,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     //Value
                     EmitExpression(*entry.pValue, emitter, valOff);
                     if (vBox.isPrimitive) {
+                        EmitPResultRefresh(emitter, valOff);
                         emitter.Emit(OpCode::OP_Box);
                         emitter.EmitByte(vBox.tag);
                         emitter.Emit(OpCode::OP_Assign);

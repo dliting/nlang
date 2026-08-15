@@ -1,0 +1,6 @@
+int main() {
+    int a = 1;
+    int b = 2;
+    if ((a + b).toString() == "3") return 7;
+    return 1;
+}

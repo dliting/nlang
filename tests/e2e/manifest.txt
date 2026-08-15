@@ -197,6 +197,12 @@ field_array_struct 7
 field_array_struct_gc 7
 field_array_class_gc 7
 
+# --- pResult accumulator refresh (string pool dedup bug fix) ---
+string_concat_inline_arith 7
+tostring_inline_arith 7
+list_add_inline_arith 3
+float_cast_inline_arith 7
+
 # --- interfaces ---
 interface_basic 42
 interface_param 42

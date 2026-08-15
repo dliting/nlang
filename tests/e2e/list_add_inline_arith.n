@@ -1,0 +1,7 @@
+int main() {
+    int a = 1;
+    int b = 2;
+    List<int> list = new List<int>();
+    list.add(a + b);
+    return list.get(0);
+}
