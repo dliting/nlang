@@ -283,6 +283,13 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 限制：finally body 内禁止 break/continue/return/throw（防止吞控制流/吞异常语义）
 - 20 个新 e2e 测试（11 finally 路径 + 1 compile_error + 8 super，其中 4 compile_error）；exception_super_ctor.n 改为真实 super(msg) 语义；删 exception_finally_not_supported
 
+**9d-2 follow-up：裸字段访问（implicit this.field）** ✅（468 个 e2e 测试通过）
+- Bug：方法/ctor 内裸标识符（`v = x; return v; v += 1;`，v 为类字段）在 codegen 走 FindLocal 抛异常，且异常逃出 ncc main → 未处理 MSVC C++ 异常 → exit 3 静默崩溃（buffered 输出丢失）
+- 架构修复：ResolveBareIdentifier 成为 codegen 侧唯一绑定决策点（local frame → implicit this.<classField> → NotFound），与 resolver 绑定顺序镜像，三个消费点（identifier 读 / AssignStmt 写 / CompoundAssignStmt）共享；OwningClassOfMemberField 经 field->Parent() 取 owning class（继承字段取正确 flattened offset）；ImplicitThisSlot() 区分方法体（local 0）与默认参数 caller 上下文（this-override slot）
+- 边界修复：ncc main 的 builder.Build() 包 try/catch——未来 codegen 内部错误打印 "Compiler internal error: ..." + exit 1，不再静默 abort
+- 7 个新 e2e 测试（read/write/ctor-init/inherited/compound/local-shadow/default-param-field）
+- 长期方向（记录，暂缓）：在 resolver 完成后做一次 AST normalization pass（裸字段 → 显式 ThisExpr/MemberExpr），可消除 resolver/codegen 双模型漂移；因现有 visitor 会 mutate AST（默认参数改写等），引入该 pass 有风险，待未来重构窗口
+
 **9d-3：array-of-struct 物化修复**（已调度，在数组重设计之前）
 - Bug：`Point[] arr; arr[0].x = 1` 抛 "struct field store out of bounds"——AllocArrayOnHeap 将元素零初始化而非物化 struct 实例
 - 现有 array_struct 测试靠 throw→exit 1 巧合通过（harness 已标 warning）
@@ -325,7 +332,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9d-2 已完成，**461 个 e2e 测试全部通过**（Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9d-2 已完成，**468 个 e2e 测试全部通过**（Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、

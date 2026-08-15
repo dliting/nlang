@@ -223,6 +223,14 @@ forward to the direct parent's constructor with `super(args);` (see
 "super() — constructor chaining" below). Without an explicit `super()`,
 fields inherited from ancestors are zero-initialized.
 
+**Implicit `this.field` (bare member access)**: inside a method or
+constructor, a bare identifier that resolves to a field of the enclosing
+class (including inherited fields) is an implicit `this.field` access.
+Works for reads, assignments, compound assignments (`v += 1`), and
+default-parameter expressions (`int add(int x, int y = v)`). A local
+variable or parameter with the same name shadows the field, matching
+Java/C# semantics.
+
 ### Interface Declaration
 
 ```
@@ -1324,7 +1332,3 @@ or return a derived value that fits in the exit code range.
 - **`new C(args)` when `C` has no constructor silently drops `args`**:
   unlike an explicit `super(args)` (which errors), constructor arguments
   at allocation sites are discarded when the class declares no ctor.
-- **Bare field assignment inside constructors/methods**: assigning to a
-  class field without the `this.` prefix (e.g. `v = x;` where `v` is a
-  field of the enclosing class) crashes the compiler without a diagnostic.
-  Always write `this.v = x;` inside methods and constructors.
