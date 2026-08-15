@@ -1184,6 +1184,35 @@ int add(int a, int b) {
 - Return type: int, float, string, enum, struct (deep copy), class (reference)
 - Recursion: supported, with a depth limit (default 1000)
 
+### Void Functions
+
+A function may declare `void` as its return type — it returns no value.
+Works for free functions, class methods (any modifier combination, e.g.
+`public static void f()`), and interface members (which still require
+`public`, like all interface members).
+
+```
+void log(int level) {
+    if (level == 0) { return; }   // bare `return;` for early exit
+}
+
+class Counter {
+    public int hits;
+    public void bump(int by) { this.hits = this.hits + by; }
+}
+```
+
+- Bare `return;` exits early; a void function cannot `return expr;`
+- A value-returning function cannot use bare `return;` (compile error)
+- The result of a void call cannot be consumed — assigning it, using it
+  as an operand, or returning it are all compile errors (the call must be
+  an expression statement: `log(3);`)
+- Void functions combine with out parameters for side-effect-only calls
+- Cross-module: imported void stubs carry RTK_Void; the same
+  no-result-consumption rules apply on the consumer side
+- `void` is not a valid type in any other position (local, field,
+  parameter, array element — all rejected at parse time)
+
 ### Default Parameters (Phase 9c)
 
 Function parameters may have default values. Defaults can appear at any

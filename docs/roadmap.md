@@ -368,14 +368,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9e（含 audit）+ pResult 累加器修复 + frame 布局越界修复（ASan 扫描）已完成，**514 个 e2e 测试全部通过**（Phase 9e out 参数——OP_CallFuncOut/OP_CallMethodDirectOut + 32-bit outMask + callee frame slot writeback + 16 新测试 + method-call arg scope 修复；`>>` 拆分支持嵌套泛型——C# 风格 lexer genericDepth + yyless(1) 拆分 + 5 新测试；字符串转义补全——`\\ \' \0 \a \b \f \v` + 未知转义 compile error + 4 新测试；条件类型强制 int 5 位点 + 3 compile_error 测试；frame 越界——super() evalArea 欠尺寸 + `new C{...}` 参 ctor 垃圾参数，resolver 强制规范约束；pResult 累加器过期修复——string pool dedup bug + cast_f2i quirk 同根因，12 位点 EmitPResultRefresh + 5 新测试；Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9e（含 audit）+ void 函数支持 + pResult 累加器修复 + frame 布局越界修复（ASan 扫描）已完成，**524 个 e2e 测试全部通过**（void 函数支持——KT_Void grammar 产生式（FunctionHeader/ClassMember×3/InterfaceMember×2）+ bare `return;` + stale-pResult 消费守卫（assign/compound/subscript-assign 3 位点）+ 跨模块 RTK_Void stub（CreateFunctionStub 正确重建无返回类型）+ 10 新测试 + 顺手清除 CompoundAssignStmt OT_MODS 死规则副本（-41 rr 冲突）；Phase 9e out 参数——OP_CallFuncOut/OP_CallMethodDirectOut + 32-bit outMask + callee frame slot writeback + 16 新测试 + method-call arg scope 修复；`>>` 拆分支持嵌套泛型——C# 风格 lexer genericDepth + yyless(1) 拆分 + 5 新测试；字符串转义补全——`\\ \' \0 \a \b \f \v` + 未知转义 compile error + 4 新测试；条件类型强制 int 5 位点 + 3 compile_error 测试；frame 越界——super() evalArea 欠尺寸 + `new C{...}` 参 ctor 垃圾参数，resolver 强制规范约束；pResult 累加器过期修复——string pool dedup bug + cast_f2i quirk 同根因，12 位点 EmitPResultRefresh + 5 新测试；Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
-  nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
+  bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
-- 已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败（pre-existing string pool dedup bug，临时绕过：用单独变量 `int c = a+b;` 再 concat）
-- 下一步：Phase 9f（native bindings / FFI）或小修复（JumpIfNot string 条件误读、`\` 转义缺失、`>>` 解析）
+- ~~已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败~~ — **已修复**（EmitPResultRefresh 12 位点，commit df75eec/d4b0da1）
+- 下一步：Phase 9f（native bindings / FFI）或小修复
 
 ## 文档索引
 
