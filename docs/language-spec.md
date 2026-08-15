@@ -523,6 +523,45 @@ source dict do not affect it.
 **`Values()`**: not yet provided. Iterate keys and call `Get` to obtain
 values.
 
+### Subscript Sugar — `li[i]` / `d[k]`
+
+Both containers support subscript syntax as pure sugar over the
+`get` / `set` intrinsics (zero new opcodes):
+
+```
+List<int> li = new List<int>();
+li.add(2);
+li.add(5);
+int v = li[1];          // == li.get(1)      -> 5
+li[0] = 9;              // == li.set(0, 9)
+
+Dict<string, int> d = new Dict<string, int>();
+d["a"] = 3;             // == d.set("a", 3)
+int x = d["a"];         // == d.get("a")     -> 3
+```
+
+Out-of-range reads/writes and missing dict keys throw exactly as the
+method forms do (IndexOutOfBoundsException family).
+
+Because the resolver peels the element type T/V off the container
+type, subscripts compose with the rest of the language:
+
+```
+List<List<int>> m = ...;
+m[0][1] = 47;           // chained subscript write
+
+List<Point> pts = ...;
+pts[0].x = 9;           // member write through a subscript receiver
+int s = pts[0].x + pts[0].y;
+
+List<int>[] arr = new List<int>[2];   // arrays of generic instantiations
+arr[0] = new List<int>();
+arr[0][1];              // container subscript through an array element
+```
+
+Compound subscript assignment (`li[0] += 1`) is intentionally not
+supported (same policy as arrays); write `li[0] = li[0] + 1`.
+
 ## Expressions
 
 ### Arithmetic
