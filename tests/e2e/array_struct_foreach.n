@@ -1,0 +1,17 @@
+struct Point {
+    int x;
+    int y;
+}
+
+//Phase 9d-3: foreach over a struct array yields materialized elements.
+int main() {
+    Point[] arr = new Point[3];
+    arr[0].x = 1;
+    arr[1].x = 2;
+    arr[2].x = 3;
+    int sum = 0;
+    foreach (Point p in arr) {
+        sum = sum + p.x;
+    }
+    return sum;
+}

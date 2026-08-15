@@ -1,0 +1,11 @@
+struct Point {
+    int x;
+    int y;
+}
+
+//Phase 9d-3: zero-length struct array — materialization loop must
+//handle the empty case.
+int main() {
+    Point[] arr = new Point[0];
+    return arr.length;
+}

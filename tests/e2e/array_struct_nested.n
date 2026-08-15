@@ -1,0 +1,18 @@
+struct Point {
+    int x;
+    int y;
+}
+
+struct Line {
+    Point a;
+    Point b;
+}
+
+//Phase 9d-3: materialization must recurse — a Line[] element has its
+//own materialized Point sub-structs.
+int main() {
+    Line[] arr = new Line[1];
+    arr[0].a.x = 2;
+    arr[0].b.y = 4;
+    return arr[0].a.x + arr[0].b.y;
+}

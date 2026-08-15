@@ -1268,6 +1268,19 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     m_structHeap[static_cast<size_t>(heapIdx)][0] = RTK_Array;
     m_structHeap[static_cast<size_t>(heapIdx)][1] = arrayTypeIdx;
     m_structHeap[static_cast<size_t>(heapIdx)][2] = size;
+    //Phase 9d-3: struct-typed elements have value semantics — materialize
+    //a fresh struct per element, mirroring AllocStructOnHeap's recursive
+    //materialization of nested struct fields. MarkPhase already traces
+    //RTK_Struct array elements, so the materialized structs stay reachable.
+    //Write elements by index (AllocStructOnHeap may grow m_structHeap and
+    //reallocate the outer vector; no reference is held across the call).
+    const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
+    if (at.elemKind == RTK_Struct && at.elemTypeIdx != 0xFFFF) {
+        for (int32_t i = 0; i < size; ++i) {
+            int32_t elemIdx = AllocStructOnHeap(at.elemTypeIdx);
+            m_structHeap[static_cast<size_t>(heapIdx)][3 + i] = elemIdx;
+        }
+    }
     return heapIdx;
 }
 

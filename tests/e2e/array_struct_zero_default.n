@@ -1,0 +1,12 @@
+struct Point {
+    int x;
+    int y;
+}
+
+//Phase 9d-3: struct-array elements are materialized at allocation
+//(value semantics, like nested struct fields). Fresh elements read
+//as zero-initialized without any explicit store.
+int main() {
+    Point[] arr = new Point[2];
+    return arr[0].x + arr[1].y;
+}

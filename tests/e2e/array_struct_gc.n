@@ -1,0 +1,29 @@
+struct Point {
+    int x;
+    int y;
+}
+
+//Phase 9d-3 GC stress: repeatedly allocate struct arrays (crossing the
+//1024-slot GC threshold) and verify live elements survive collection.
+//MarkPhase traces RTK_Struct array elements (VmExecutor MarkPhase
+//RTK_Array branch), so materialized elements must stay reachable.
+int main() {
+    int n = 0;
+    int sum = 0;
+    Point[] keep = new Point[3];
+    keep[0].x = 3;
+    keep[1].x = 3;
+    keep[2].x = 1;
+    while (n < 1500) {
+        Point[] tmp = new Point[2];
+        tmp[0].x = n;
+        tmp[1].y = n;
+        sum = sum + tmp[0].x;
+        n = n + 1;
+    }
+    if (sum == 1124250
+        && keep[0].x == 3 && keep[1].x == 3 && keep[2].x == 1) {
+        return 7;
+    }
+    return 0;
+}

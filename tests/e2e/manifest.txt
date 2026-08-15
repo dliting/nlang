@@ -178,11 +178,18 @@ array_param 99
 array_float 0
 array_string 0
 array_class 42
-array_struct 1
 array_nested 4
 array_null 1
 array_bounds 1
 array_class_gc 1
+# --- Phase 9d-3: array-of-struct eager materialization ---
+array_struct 3
+array_struct_zero_default 0
+array_struct_distinct 1
+array_struct_nested 6
+array_struct_foreach 6
+array_struct_gc 7
+array_struct_empty 0
 
 # --- interfaces ---
 interface_basic 42

@@ -2557,6 +2557,36 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 }
             }
         }
+        //Array.length builtin property (e.g. arr.length).
+        //The outer expression refers to an array-typed field/local; check
+        //its IsArrayType() flag (forwarded from the type's SnNameExpr).
+        //MUST be checked BEFORE the struct/class dispatch below: for
+        //struct-element arrays (`Point[] b`), EvalDataType returns the
+        //ELEMENT type (NK_StructDecl), so the struct branch would match
+        //first, fail FindFieldOffset("length"), and silently emit only
+        //the receiver. Same dispatch-order hazard as the array toString
+        //path above.
+        {
+            auto* inner = member.Inner();
+            if (inner && inner->Kind() == NK_IdentifierExpr) {
+                auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+                SnField* outerField = nullptr;
+                if (member.Outer()->Kind() == NK_IdentifierExpr)
+                    outerField = static_cast<SnIdentifierExpr*>(
+                        member.Outer())->Field();
+                if (outerField && outerField->IsArrayType()
+                    && fieldName == "length")
+                {
+                    EmitExpression(*member.Outer(), emitter, resultOffset);
+                    emitter.Emit(OpCode::OP_NullCheck);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_ArrayLength);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(resultOffset);
+                    return;
+                }
+            }
+        }
         //Struct field access (e.g. pt.x, pt.inner.x)
         auto* outerType = member.Outer()->EvalDataType();
         if (outerType && outerType->Kind() == NK_StructDecl) {
@@ -2743,27 +2773,6 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             return;
         }
         auto* inner = member.Inner();
-        //Array.length builtin property (e.g. arr.length)
-        //The outer expression refers to an array-typed field/local; check
-        //its IsArrayType() flag (forwarded from the type's SnNameExpr).
-        if (inner && inner->Kind() == NK_IdentifierExpr) {
-            auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
-            SnField* outerField = nullptr;
-            if (member.Outer()->Kind() == NK_IdentifierExpr)
-                outerField = static_cast<SnIdentifierExpr*>(
-                    member.Outer())->Field();
-            if (outerField && outerField->IsArrayType()
-                && fieldName == "length")
-            {
-                EmitExpression(*member.Outer(), emitter, resultOffset);
-                emitter.Emit(OpCode::OP_NullCheck);
-                emitter.EmitUint16(resultOffset);
-                emitter.Emit(OpCode::OP_ArrayLength);
-                emitter.EmitUint16(resultOffset);
-                emitter.EmitUint16(resultOffset);
-                return;
-            }
-        }
         //Array element field access: arr[i].field (struct element)
         if (member.Outer()->Kind() == NK_SubscriptExpr) {
             auto& sub = static_cast<SnSubscriptExpr&>(*member.Outer());
@@ -3294,16 +3303,12 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(indexSlot);
-        //For struct element types, deep-copy on read (value semantics)
-        auto* elemType = sub.EvalDataType();
-        if (elemType && RuntimeTypeKind(elemType) == RTK_Struct) {
-            int structIdx = m_compiledModule.FindStruct(elemType->Name());
-            emitter.Emit(OpCode::OP_CopyStruct);
-            emitter.EmitUint16(resultOffset);
-            emitter.EmitUint16(resultOffset);
-            emitter.EmitUint16(structIdx >= 0
-                ? static_cast<uint16_t>(structIdx) : 0);
-        }
+        //Phase 9d-3: no defensive CopyStruct for struct element types here.
+        //Value copies belong at assignment/store boundaries (AssignStmt and
+        //SubscriptAssign both emit their own OP_CopyStruct). Copying on read
+        //broke write-through receivers — `arr[i].f = v` stored into a
+        //discarded copy — and caused a redundant double copy for
+        //`Point p = arr[i]`.
         return;
     }
 
@@ -3549,7 +3554,13 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 if (target.kind == BareIdTarget::Local) {
                     uint16_t offset = target.localOffset;
                     auto* varType = field->EvalDataType();
-                    if (varType && RuntimeTypeKind(varType) == RTK_Struct) {
+                    //Array locals (`Point[] arr = ...`): EvalDataType returns
+                    //the ELEMENT type, so the struct check below would
+                    //deep-copy the whole array block as if it were one
+                    //struct (corrupting heap kind metadata and GC tracing).
+                    //Array assignment is a reference (heap idx) copy.
+                    if (varType && RuntimeTypeKind(varType) == RTK_Struct
+                        && !field->IsArrayType()) {
                         //Struct assignment: evaluate right to temp, then deep-copy.
                         EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
                         int structIdx = m_compiledModule.FindStruct(varType->Name());
@@ -3647,12 +3658,15 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 int fieldOffInt = FindClassFieldOffset(*classDecl, fieldName);
                 if (fieldOffInt < 0) return;
                 uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
-                //Evaluate right side to tempSlot2
-                EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
-                //Evaluate outer to tempSlot (class object heap index)
+                //Evaluate outer to tempSlot FIRST (class object heap index),
+                //then right side to tempSlot2. Java JLS 15.26.1 order — and
+                //evaluating the receiver first means a subscript inside the
+                //receiver scratches tempSlot3+ (PickTempSlot chain) instead
+                //of clobbering the RHS value held in tempSlot2.
                 EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
                 emitter.Emit(OpCode::OP_NullCheck);
                 emitter.EmitUint16(m_currFunc->tempSlot);
+                EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
                 emitter.Emit(OpCode::OP_StoreField);
                 emitter.EmitUint16(m_currFunc->tempSlot);
                 emitter.EmitUint16(fieldOff);
@@ -3667,16 +3681,20 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 if (fieldOffInt < 0) return;
                 uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
                 SnField* fieldType = nullptr;
+                bool fieldIsArray = false;
                 for (auto& sf : structDecl->Members()) {
                     if (sf.Name() == fieldName) {
                         fieldType = sf.EvalDataType();
+                        fieldIsArray = sf.IsArrayType();
                         break;
                     }
                 }
-                //Evaluate right side to tempSlot2
-                EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
-                if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct) {
+                //Array-typed struct fields store a heap idx (reference
+                //semantics) — same IsArrayType guard as local assignment.
+                if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct
+                    && !fieldIsArray) {
                     //Struct-to-struct field assignment: deep-copy first
+                    EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
                     int fieldStructIdx = m_compiledModule.FindStruct(
                         fieldType->Name());
                     emitter.Emit(OpCode::OP_CopyStruct);
@@ -3692,9 +3710,12 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                     emitter.EmitUint16(fieldOff);
                     emitter.EmitUint16(m_currFunc->tempSlot);
                 } else {
-                    //Primitive/enum/string field assignment
-                    //Evaluate outer to tempSlot (parent struct's heap index)
+                    //Primitive/enum/string/array field assignment.
+                    //Outer first, then RHS — same receiver-first ordering as
+                    //the class branch (a subscript inside the receiver would
+                    //otherwise clobber the RHS in tempSlot2 via PickTempSlot).
                     EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
+                    EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
                     emitter.Emit(OpCode::OP_StoreField);
                     emitter.EmitUint16(m_currFunc->tempSlot);
                     emitter.EmitUint16(fieldOff);
@@ -4713,7 +4734,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     fs.write(magic, 8);
 
     // Version
-    uint16_t majorVer = 1, minorVer = 4;
+    uint16_t majorVer = 1, minorVer = 5;
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 
@@ -4792,6 +4813,29 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
                      sizeof(tb.exceptionClassIdx));
             fs.write(reinterpret_cast<const char*>(&tb.catchLocalOff),
                      sizeof(tb.catchLocalOff));
+        }
+
+        //v1.5: local-variable descriptors. The GC root scan (MarkPhase)
+        //walks every frame's locals to find heap references; without this
+        //table the loaded module's root set is empty and every collection
+        //sweeps live objects. Always emit count first so readers can skip
+        //when empty. Names are kept for runtime diagnostics.
+        uint16_t localCount = static_cast<uint16_t>(func.locals.size());
+        fs.write(reinterpret_cast<const char*>(&localCount),
+                 sizeof(localCount));
+        for (const auto& ld : func.locals) {
+            fs.write(reinterpret_cast<const char*>(&ld.offset),
+                     sizeof(ld.offset));
+            fs.write(reinterpret_cast<const char*>(&ld.size),
+                     sizeof(ld.size));
+            fs.write(reinterpret_cast<const char*>(&ld.isParam),
+                     sizeof(ld.isParam));
+            fs.write(reinterpret_cast<const char*>(&ld.typeKind),
+                     sizeof(ld.typeKind));
+            uint32_t lnameLen = static_cast<uint32_t>(ld.name.size());
+            fs.write(reinterpret_cast<const char*>(&lnameLen),
+                     sizeof(lnameLen));
+            fs.write(ld.name.c_str(), lnameLen);
         }
     }
 

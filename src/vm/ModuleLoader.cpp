@@ -124,6 +124,35 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
             fs.read(reinterpret_cast<char*>(&tb.catchLocalOff),
                     sizeof(tb.catchLocalOff));
         }
+
+        //v1.5: local-variable descriptors (GC root scan, see VmBackend
+        //writer side). Older-format modules simply have no root set.
+        if (minorVer >= 5) {
+            uint16_t localCount = 0;
+            fs.read(reinterpret_cast<char*>(&localCount),
+                    sizeof(localCount));
+            if (!fs.good() || localCount > 4096)
+                throw std::runtime_error("Invalid module: bad local count");
+            func.locals.resize(localCount);
+            for (uint16_t j = 0; j < localCount; ++j) {
+                auto& ld = func.locals[j];
+                fs.read(reinterpret_cast<char*>(&ld.offset),
+                        sizeof(ld.offset));
+                fs.read(reinterpret_cast<char*>(&ld.size),
+                        sizeof(ld.size));
+                fs.read(reinterpret_cast<char*>(&ld.isParam),
+                        sizeof(ld.isParam));
+                fs.read(reinterpret_cast<char*>(&ld.typeKind),
+                        sizeof(ld.typeKind));
+                uint32_t lnameLen = 0;
+                fs.read(reinterpret_cast<char*>(&lnameLen),
+                        sizeof(lnameLen));
+                if (!fs.good() || lnameLen > (1u << 16))
+                    throw std::runtime_error("Invalid module: bad local name length");
+                ld.name.resize(lnameLen);
+                fs.read(ld.name.data(), lnameLen);
+            }
+        }
     }
 
     // Struct descriptors
