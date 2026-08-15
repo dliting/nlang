@@ -306,6 +306,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 5 个新 e2e 测试（array_struct_param/foreach_struct_copy/field_array_struct/field_array_struct_gc/field_array_class_gc）
 - 已知遗留：`matrix[i][0].x = v`（嵌套下标 receiver）的 RHS 碰撞未修；eager 物化的分配成本（数组重设计时再议）；fieldTypeKinds 数组字段误分类的彻底修复（RTK_Array 记录 + 物化/深拷贝/序列化消费点同步）留数组重设计
 
+**小修复：pResult 累加器过期（string pool dedup bug）** ✅（484 个 e2e 测试通过）
+- Bug：`"s" + (a+b)` 产生正确长度字符串但 `==` 失败——OP_Int32_to_str 等转换 opcode 读 pResult 累加器，但 EmitExpression 只有当源表达式最终 opcode 写累加器（var_local/consts/call）时才把值留在 pResult；写 locals 的源（二元算术 `add_i32`、字段/元素 load）留下过期 pResult
+- 同根因家族：cast_f2i quirk（float 字段直接转 int 需中间局部 workaround）、`(a+b).toString()` 乱码、`list.add(a+b)` 装箱垃圾值
+- 修复：EmitPResultRefresh（发 OP_VarLocal 从保证有值的槽重载 pResult）插入 12 个读累加器的位点（OP_Box/OP_Unbox/OP_CastIntToFloat/OP_CastFloatToInt/OP_Int32_to_str/OP_Float_to_str 前）；3 处 pResult 新鲜的位点（CallMethod/ConstString 后的 Unbox/Box）不动
+- 5 个新 e2e 测试（string_concat_inline_arith/tostring_inline_arith/list_add_inline_arith/float_cast_inline_arith/cast_float_field_to_int）
+- 架构不变量：**读 pResult 累加器的 opcode 之前必须保证 pResult 新鲜—— EmitExpression 不承诺累加器语义，只承诺值在 dst 槽**
+- 已知 flake：exception_super_ctor 全量套件中 ~0.5% 概率 STATUS_HEAP_CORRUPTION（exit 3221226356）；单测稳定、与 pResult 修复统计上不可区分（修复前 0/80 vs 修复后 1/260，Fisher p≈0.6），疑似 exception/backtrace 路径预先存在的 ASLR 相关潜伏越界写，待专项调查
+
 **9e：out 参数**
 - `void foo(int x, out int y)`
 
@@ -343,7 +351,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9d-3（含 audit）已完成，**479 个 e2e 测试全部通过**（Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9d-3（含 audit）+ pResult 累加器修复已完成，**484 个 e2e 测试全部通过**（pResult 累加器过期修复——string pool dedup bug + cast_f2i quirk 同根因，12 位点 EmitPResultRefresh + 5 新测试；Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
