@@ -1,0 +1,13 @@
+//Bare access to an INHERITED field: the field node belongs to the
+//ancestor decl; the flattened layout offset must still be correct.
+class A { public int v; }
+class B : A {
+    public int setV(int x) {
+        v = x;
+        return v;
+    }
+}
+int main() {
+    B b = new B();
+    return b.setV(42);
+}

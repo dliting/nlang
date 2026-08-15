@@ -164,6 +164,33 @@ private:
     uint16_t FindLocal(const std::string& name) const;
     uint16_t AddStringConstant(const std::string& s);
 
+    //Codegen-side mirror of the resolver's identifier binding order for a
+    //bare identifier that resolved to an SnField:
+    //  1. binding override scope (default-param formal) — checked by the
+    //     caller via LookupOverride() before calling here
+    //  2. local frame (params + user locals) — localOffsets
+    //  3. implicit this.<classField> — bare member access inside a method
+    //  4. NotFound — resolver/codegen model divergence (internal error)
+    //Single source of truth shared by the IdentifierExpr read, AssignStmt
+    //write, and CompoundAssignStmt paths so the three stay in lockstep.
+    struct BareIdTarget {
+        enum Kind { Local, ThisField, NotFound };
+        Kind kind = NotFound;
+        uint16_t localOffset = 0;     //Local
+        SnClassDecl* owner = nullptr; //ThisField: owning class decl
+        int fieldOff = -1;            //ThisField: flattened field offset
+    };
+    BareIdTarget ResolveBareIdentifier(SnField* field);
+
+    //Receiver slot for implicit this.<field> access: local 0 (`this` in a
+    //method body), or the caller-side this-override slot when emitting a
+    //method-call default-param expression that references a bare field.
+    uint16_t ImplicitThisSlot() const
+    {
+        auto ovr = LookupThisOverride();
+        return ovr.first ? ovr.second : 0;
+    }
+
     //Pick a temp slot distinct from `exclude` so a sub-expression can use it
     //without clobbering `exclude`. With only two temp slots available, the
     //rule is: if exclude == tempSlot, return tempSlot2; otherwise return

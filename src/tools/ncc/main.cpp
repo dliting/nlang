@@ -136,8 +136,17 @@ int main(int argc, char* argv[]) {
     StreamCompileLogger logger(std::cerr);
     ModuleBuilder builder(params, logger);
 
-    if (!builder.Build()) {
-        std::cerr << "Compilation failed.\n";
+    //Exception boundary: codegen internal errors (e.g. resolver/codegen
+    //binding divergence) throw std::runtime_error. Without this catch the
+    //exception escapes main as an unhandled MSVC C++ exception — the process
+    //aborts with exit code 3 and buffered diagnostics are lost silently.
+    try {
+        if (!builder.Build()) {
+            std::cerr << "Compilation failed.\n";
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Compiler internal error: " << e.what() << "\n";
         return 1;
     }
 

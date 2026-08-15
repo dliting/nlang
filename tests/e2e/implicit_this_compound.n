@@ -1,0 +1,13 @@
+//Compound assignment to a bare field (v += 1) inside a method.
+class Base {
+    public int v;
+    public int bump() {
+        v += 1;
+        return v;
+    }
+}
+int main() {
+    Base b = new Base();
+    b.v = 42;
+    return b.bump();
+}

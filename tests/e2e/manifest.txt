@@ -595,3 +595,12 @@ super_outside_ctor compile_error
 super_bad_arity compile_error
 super_named_arg compile_error
 super_parent_no_ctor compile_error
+
+# --- Implicit this.field (bare member access in methods) ---
+implicit_this_read 42
+implicit_this_write 42
+implicit_this_ctor_init 42
+implicit_this_inherited 42
+implicit_this_compound 43
+implicit_this_local_shadow 70
+implicit_this_default 5

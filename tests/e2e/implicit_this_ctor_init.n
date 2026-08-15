@@ -1,0 +1,12 @@
+//Constructor initializing its own field without the this. prefix.
+class Base {
+    public int v;
+    public int Base(int x) {
+        v = x;
+        return 0;
+    }
+}
+int main() {
+    Base b = new Base(42);
+    return b.v;
+}

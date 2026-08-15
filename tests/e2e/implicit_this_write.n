@@ -1,0 +1,13 @@
+//Bare field write inside a method targets the class member on this.
+class Base {
+    public int v;
+    public int setV(int x) {
+        v = x;
+        return 0;
+    }
+}
+int main() {
+    Base b = new Base();
+    b.setV(42);
+    return b.v;
+}

@@ -1357,6 +1357,22 @@ static int FindClassFieldOffset(SnClassDecl& classDecl, const std::string& field
     return -1;
 }
 
+//Bare identifier that resolved to a class member (implicit this.field,
+//e.g. `v = 1;` inside a method): returns the SnClassDecl that owns the
+//field node. For inherited fields the field node belongs to the ancestor
+//decl, and FindClassFieldOffset walking from that owner yields the same
+//flattened offset as from any subclass. Returns null when pField is not
+//a class data member (locals, formals, enum members).
+static SnClassDecl* OwningClassOfMemberField(SnField* pField)
+{
+    if (!pField || pField->Kind() != NK_ClassField)
+        return nullptr;
+    auto* pParent = pField->Parent();
+    if (pParent && pParent->Kind() == NK_ClassDecl)
+        return static_cast<SnClassDecl*>(pParent);
+    return nullptr;
+}
+
 uint16_t VmBackend::AddStringConstant(const std::string& s) {
     auto& pool = m_compiledModule.stringConstants;
     for (uint16_t i = 0; i < static_cast<uint16_t>(pool.size()); ++i) {
@@ -2151,11 +2167,30 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             return;
         }
         if (field) {
-            uint16_t offset = FindLocal(field->Name());
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(offset);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            auto target = ResolveBareIdentifier(field);
+            if (target.kind == BareIdTarget::Local) {
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(target.localOffset);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+            } else if (target.kind == BareIdTarget::ThisField) {
+                //Implicit this.<field> (bare member read inside a method).
+                //Same opcode shape as the MemberExpr class-field read.
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(ImplicitThisSlot());
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_LoadField);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+            } else {
+                throw std::runtime_error(
+                    "NLang backend: identifier has no codegen binding: "
+                    + field->Name());
+            }
         } else {
             //Unresolved identifier — write zero as fallback.
             emitter.Emit(OpCode::OP_ConstZero);
@@ -3510,19 +3545,37 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             auto& idExpr = static_cast<SnIdentifierExpr&>(*assign.Left());
             auto* field = idExpr.Field();
             if (field) {
-                uint16_t offset = FindLocal(field->Name());
-                auto* varType = field->EvalDataType();
-                if (varType && RuntimeTypeKind(varType) == RTK_Struct) {
-                    //Struct assignment: evaluate right to temp, then deep-copy.
-                    EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
-                    int structIdx = m_compiledModule.FindStruct(varType->Name());
-                    emitter.Emit(OpCode::OP_CopyStruct);
-                    emitter.EmitUint16(offset);
+                auto target = ResolveBareIdentifier(field);
+                if (target.kind == BareIdTarget::Local) {
+                    uint16_t offset = target.localOffset;
+                    auto* varType = field->EvalDataType();
+                    if (varType && RuntimeTypeKind(varType) == RTK_Struct) {
+                        //Struct assignment: evaluate right to temp, then deep-copy.
+                        EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
+                        int structIdx = m_compiledModule.FindStruct(varType->Name());
+                        emitter.Emit(OpCode::OP_CopyStruct);
+                        emitter.EmitUint16(offset);
+                        emitter.EmitUint16(m_currFunc->tempSlot2);
+                        emitter.EmitUint16(structIdx >= 0
+                            ? static_cast<uint16_t>(structIdx) : 0);
+                    } else {
+                        EmitExpression(*assign.Right(), emitter, offset);
+                    }
+                } else if (target.kind == BareIdTarget::ThisField) {
+                    //Implicit this.<field> = value (bare member write inside
+                    //a method). Same opcode shape as the MemberExpr write.
+                    EmitExpression(*assign.Right(), emitter,
+                        m_currFunc->tempSlot2);
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(ImplicitThisSlot());
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.Emit(OpCode::OP_NullCheck);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.Emit(OpCode::OP_StoreField);
+                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
                     emitter.EmitUint16(m_currFunc->tempSlot2);
-                    emitter.EmitUint16(structIdx >= 0
-                        ? static_cast<uint16_t>(structIdx) : 0);
-                } else {
-                    EmitExpression(*assign.Right(), emitter, offset);
                 }
             }
         } else if (assign.Left()->Kind() == NK_MemberExpr) {
@@ -3687,14 +3740,37 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         auto op = ca.Op();
 
         if (ca.Left()->Kind() == NK_IdentifierExpr) {
-            //Local variable: compute in-place on the local slot
             auto& idExpr = static_cast<SnIdentifierExpr&>(*ca.Left());
             auto* field = idExpr.Field();
             if (!field) return;
-            uint16_t offset = FindLocal(field->Name());
-            EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
-            EmitCompoundOp(op, emitter, offset, m_currFunc->tempSlot2,
-                field->EvalDataType());
+            BareIdTarget target = ResolveBareIdentifier(field);
+            if (target.kind == BareIdTarget::Local) {
+                //Local variable: compute in-place on the local slot
+                EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
+                EmitCompoundOp(op, emitter, target.localOffset,
+                    m_currFunc->tempSlot2, field->EvalDataType());
+            } else if (target.kind == BareIdTarget::ThisField) {
+                //Implicit this.<field> compound assign: same read-modify-write
+                //shape as the explicit MemberExpr branch below, with the
+                //receiver sourced from ImplicitThisSlot().
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(ImplicitThisSlot());
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(m_currFunc->tempSlot);
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(m_currFunc->tempSlot);
+                emitter.Emit(OpCode::OP_LoadField);
+                emitter.EmitUint16(m_currFunc->tempSlot2);
+                emitter.EmitUint16(m_currFunc->tempSlot);
+                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+                EmitExpression(*ca.Right(), emitter, m_currFunc->callParamBase);
+                EmitCompoundOp(op, emitter, m_currFunc->tempSlot2,
+                    m_currFunc->callParamBase, field->EvalDataType());
+                emitter.Emit(OpCode::OP_StoreField);
+                emitter.EmitUint16(m_currFunc->tempSlot);
+                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+                emitter.EmitUint16(m_currFunc->tempSlot2);
+            }
         } else if (ca.Left()->Kind() == NK_MemberExpr) {
             //Class/struct field: evaluate outer once, read field, compute, write back
             auto& memberExpr = static_cast<SnMemberExpr&>(*ca.Left());
@@ -4582,6 +4658,28 @@ uint16_t VmBackend::FindLocal(const std::string& name) const {
     if (it != m_currFunc->localOffsets.end())
         return it->second;
     throw std::runtime_error("NLang backend: local variable not found: " + name);
+}
+
+VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
+    BareIdTarget t;
+    if (!field)
+        return t;
+    auto it = m_currFunc->localOffsets.find(field->Name());
+    if (it != m_currFunc->localOffsets.end()) {
+        t.kind = BareIdTarget::Local;
+        t.localOffset = it->second;
+        return t;
+    }
+    if (auto* pOwner = OwningClassOfMemberField(field)) {
+        int off = FindClassFieldOffset(*pOwner, field->Name());
+        if (off >= 0) {
+            t.kind = BareIdTarget::ThisField;
+            t.owner = pOwner;
+            t.fieldOff = off;
+            return t;
+        }
+    }
+    return t;
 }
 
 bool VmBackend::SaveModule(BuildEnvironment& env) {

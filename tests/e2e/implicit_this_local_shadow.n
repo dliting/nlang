@@ -1,0 +1,17 @@
+//A local variable with the same name as a field shadows the field:
+//the local path must win over the implicit-this path.
+class Base {
+    public int v;
+    public int readLocal() {
+        int v = 7;
+        return v;
+    }
+    public int readField() {
+        return v;
+    }
+}
+int main() {
+    Base b = new Base();
+    b.v = 63;
+    return b.readLocal() + b.readField();
+}

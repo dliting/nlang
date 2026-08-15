@@ -1,0 +1,14 @@
+//Default parameter expression referencing a bare field of the method's
+//class: emitted in the caller's context, so the receiver must come from
+//the this-override slot, not local 0.
+class Base {
+    public int v;
+    public int add(int x, int y = v) {
+        return x + y;
+    }
+}
+int main() {
+    Base b = new Base();
+    b.v = 3;
+    return b.add(2);
+}

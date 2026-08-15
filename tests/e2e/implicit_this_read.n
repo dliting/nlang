@@ -1,0 +1,13 @@
+//Bare field read inside a method resolves to the class member with an
+//implicit this receiver (Java/C# semantics).
+class Base {
+    public int v;
+    public int getV() {
+        return v;
+    }
+}
+int main() {
+    Base b = new Base();
+    b.v = 42;
+    return b.getV();
+}
