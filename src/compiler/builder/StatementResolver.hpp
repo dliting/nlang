@@ -51,6 +51,27 @@ public:
 		m_pVisitor = pVisitor;
 	}
 
+private:
+	//Conditions feed OP_JumpIfNot, which reads a single int32 from
+	//pResult. Non-int conditions get silent garbage semantics: a string
+	//is a pool handle (index 0 encodes as 0 — a nonempty string reads
+	//false), structs/arrays are heap indices, floats only work by bit
+	//luck (IEEE non-zero bits ≠ int 0). Static typing: conditions must
+	//be int; comparisons already produce int.
+	void CheckIntCondition(SnExpression &cond, const char *what)
+	{
+		if (!cond.IsResolved())
+			return;
+		auto* pType = cond.EvalDataType();
+		if (pType && pType->Kind() != NK_Int32) {
+			m_Env.Log(CLL_Error, cond.Location(),
+				"%s condition must be int, got \"%s\".",
+				what, pType->ToString().c_str());
+		}
+	}
+
+public:
+
 	void Access(SnNamespace &sn)
 	{
 		assert(m_pVisitor);
@@ -363,6 +384,7 @@ public:
 	{
 		assert(m_pVisitor);
 		sn.Cond()->Accept(*m_pVisitor);
+		CheckIntCondition(*sn.Cond(), "if");
 		sn.ThenStmt()->Accept(*m_pVisitor);
 		if (sn.ElseStmt())
 			sn.ElseStmt()->Accept(*m_pVisitor);
@@ -372,6 +394,7 @@ public:
 	{
 		assert(m_pVisitor);
 		sn.Cond()->Accept(*m_pVisitor);
+		CheckIntCondition(*sn.Cond(), "while");
 		sn.Body()->Accept(*m_pVisitor);
 	}
 
@@ -380,6 +403,7 @@ public:
 		assert(m_pVisitor);
 		sn.Body()->Accept(*m_pVisitor);
 		sn.Cond()->Accept(*m_pVisitor);
+		CheckIntCondition(*sn.Cond(), "do-while");
 	}
 
 	void Access(SnForStmt &sn)
@@ -450,6 +474,7 @@ public:
 		}
 
 		sn.Cond()->Accept(*m_pVisitor);
+		CheckIntCondition(*sn.Cond(), "for");
 		sn.Body()->Accept(*m_pVisitor);
 		if (sn.Fini())
 			sn.Fini()->Accept(*m_pVisitor);
@@ -751,6 +776,7 @@ public:
 			return;
 		assert(m_pVisitor);
 		sn.Cond()->Accept(*m_pVisitor);
+		CheckIntCondition(*sn.Cond(), "assert");
 		sn.AddFlags(NF_Resolved);
 	}
 

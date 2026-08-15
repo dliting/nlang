@@ -1,0 +1,6 @@
+class C { public int a; }
+int main() {
+    C c = new C();
+    assert(c);
+    return 0;
+}

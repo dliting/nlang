@@ -1,0 +1,7 @@
+//Conditions feed OP_JumpIfNot (single int32 read); non-int conditions
+//have garbage semantics (string pool handle 0 reads false).
+int main() {
+    string s = "hello";
+    if (s) { return 1; }
+    return 0;
+}

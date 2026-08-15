@@ -351,6 +351,11 @@ init_explicit_new_struct 2
 init_explicit_arg 7
 init_explicit_empty 0
 init_class_ctor_args compile_error
+
+# --- Condition typing (OP_JumpIfNot reads a single int32) ---
+cond_string_type compile_error
+cond_float_type compile_error
+cond_class_type compile_error
 # --- Phase 9c follow-up: nested-call clobber in collection init ---
 init_dict_nested_call_value 7
 dict_set_nested_args 7
