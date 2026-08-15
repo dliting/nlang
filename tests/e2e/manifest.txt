@@ -693,3 +693,16 @@ void_multi_flag 42
 cross_mod_void 5
 # consuming the result of an imported void function is rejected
 cross_mod_void_reject compile_error
+list_subscript_read 5
+list_subscript_write 42
+list_subscript_struct_read 7
+list_subscript_struct_write 3
+list_subscript_member_write 94
+list_subscript_nested 5
+list_subscript_nested_write 147
+list_subscript_deep_member 8
+list_array_elem 6
+dict_subscript 7
+dict_subscript_missing_throws 1
+list_subscript_oob_throws 1
+array_of_list 65

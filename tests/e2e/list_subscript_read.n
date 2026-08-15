@@ -1,0 +1,7 @@
+//List<T> subscript read: li[i] == li.get(i) sugar.
+int main() {
+	List<int> li = new List<int>();
+	li.add(2);
+	li.add(5);
+	return li[1];
+}

@@ -1,0 +1,16 @@
+//Member write through a subscript receiver: pts[0].x = 9 must store
+//into the element held by the list (get() + store_field write-through).
+struct Point {
+	int x;
+	int y;
+}
+
+int main() {
+	List<Point> pts = new List<Point>();
+	Point p;
+	p.x = 3;
+	p.y = 4;
+	pts.add(p);
+	pts[0].x = 9;
+	return pts[0].x * 10 + pts[0].y;
+}

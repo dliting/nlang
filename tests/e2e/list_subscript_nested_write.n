@@ -1,0 +1,10 @@
+//Chained subscript write over List<List<int>>: m[0][1] = 47.
+int main() {
+	List<List<int>> m = new List<List<int>>();
+	List<int> row = new List<int>();
+	row.add(1);
+	row.add(2);
+	m.add(row);
+	m[0][1] = 47;
+	return m[0][0] * 100 + m[0][1];
+}

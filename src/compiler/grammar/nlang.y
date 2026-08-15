@@ -1258,6 +1258,18 @@ NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 
 NewArrayExpr:	KT_New Type '[' Expression ']' {
 					$$ = EnNew(SnNewArrayExpr($2, $4, @1));
+				} |
+				//Array of a generic-instantiated type: `new List<int>[2]`.
+				//Separate rule for the same reason as the generic NewExpr
+				//variants above: after `new Id '<' TypeList '>'` the LALR
+				//stack holds the NewExpr-shaped prefix (state 58 shifts '<'
+				//over the IdentifierExpr reduce), so the NameExpr-based
+				//Type path never reaches the plain rule's '['.
+				KT_New TT_Identifier '<' TypeList '>' '[' Expression ']' {
+					auto* pId = EnNew(SnIdentifierExpr($2, @2));
+					auto* pName = EnNew(SnNameExpr(pId, @2));
+					$$ = EnNew(SnNewArrayExpr(
+						EnNew(SnGenericTypeExpr(pName, $4, @2)), $7, @1));
 				} ;
 
 SubscriptExpr:	Expression '[' Expression ']' {

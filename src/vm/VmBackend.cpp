@@ -1412,6 +1412,43 @@ uint16_t VmBackend::AddStringConstant(const std::string& s) {
 //              peakDepth of callee default expressions).
 struct CallSlotStats { uint16_t maxArgs; uint16_t peakDepth; };
 
+//True when a subscript's base expression resolves to a List<T>/
+//Dict<K,V> generic instantiation — the subscript is sugar over the
+//get()/set() intrinsics and must NOT take the OP_LoadElement array
+//path. Shared by the read lowering, the subscript-assign lowering,
+//the arr[i].field = v member-write receiver path, and the three
+//walker sites (ExprPeakDepth/StmtPeakDepth/MaxArgsWalker) so the
+//dispatch decision cannot drift between codegen and walkers.
+static bool IsContainerSubscript(SnExpression& baseExpr) {
+    //Array bases take the OP_LoadElement/OP_StoreElement path even when
+    //the element type is a generic instantiation (`List<int>[] a`):
+    //EvalDataType returns the ELEMENT type, so the container check must
+    //come after the array-ness check (EvalDataType dispatch-order trap,
+    //5th instance — mirrors the resolver peel guard in ExprResolver).
+    {
+        SnIdentifierExpr* pId = nullptr;
+        if (baseExpr.Kind() == NK_IdentifierExpr)
+            pId = static_cast<SnIdentifierExpr*>(&baseExpr);
+        else if (baseExpr.Kind() == NK_MemberExpr) {
+            auto* pInner = static_cast<SnMemberExpr&>(baseExpr).Inner();
+            if (pInner && pInner->Kind() == NK_IdentifierExpr)
+                pId = static_cast<SnIdentifierExpr*>(pInner);
+        }
+        if (pId && pId->Field() && pId->Field()->IsArrayType())
+            return false;
+    }
+    auto* pBaseType = baseExpr.IsResolved()
+        ? baseExpr.EvalDataType() : nullptr;
+    if (!pBaseType || pBaseType->Kind() != NK_ClassDecl) return false;
+    auto* pGenClass = static_cast<SnClassDecl*>(pBaseType);
+    if (!pGenClass->IsGenericInstantiation()) return false;
+    const auto& baseName = pGenClass->BaseName();
+    const auto& typeArgs = pGenClass->GenericTypeArgs();
+    if (baseName == "List") return !typeArgs.empty();
+    if (baseName == "Dict") return typeArgs.size() > 1;
+    return false;
+}
+
 //Forward declarations for the recursive walkers.
 static uint16_t ExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited,
@@ -1507,7 +1544,13 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
         uint16_t a = ExprPeakDepth(*sub.Array(), visited);
         uint16_t i = ExprPeakDepth(*sub.Index(), visited);
-        return a > i ? a : i;
+        uint16_t claim = 0;
+        //List/Dict subscript lowers to a get() call claiming 2 slots
+        //(this + index) — mirror the codegen's EvalAreaClaim(2).
+        if (IsContainerSubscript(*sub.Array()))
+            claim = 2;
+        uint16_t m = (a > i ? a : i);
+        return claim + m;
     }
     //MemberExpr (field access: outer.inner)
     if (kind == NK_MemberExpr) {
@@ -1599,7 +1642,15 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_AssignStmt) {
         auto& assign = static_cast<SnAssignStmt&>(stmt);
-        return assign.Right() ? ExprPeakDepth(*assign.Right(), visited) : 0;
+        //Walk the Left() lvalue too: a member-assign whose receiver is a
+        //List/Dict subscript (`li[i].f = v`) emits a synthetic get() call
+        //claiming 2 evalArea slots — under-reserving evalArea corrupts the
+        //frame (walker-symmetry discipline, 5th instance).
+        uint16_t l = assign.Left()
+            ? ExprPeakDepth(*assign.Left(), visited) : 0;
+        uint16_t r = assign.Right()
+            ? ExprPeakDepth(*assign.Right(), visited) : 0;
+        return l > r ? l : r;
     }
     if (kind == NK_IfStmt) {
         auto& ifStmt = static_cast<SnIfStmt&>(stmt);
@@ -1709,9 +1760,20 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_SubscriptAssignStmt) {
         auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
+        //List/Dict subscript store lowers to a set() call claiming 3
+        //slots (this + index + value) — mirror the codegen's
+        //EvalAreaClaim(3). Array stores claim nothing (callParamBase is
+        //staged directly). walker-symmetry discipline, 4th instance
+        //(after callparambase-clobber #2 and super() #3).
+        uint16_t claim = 0;
+        if (IsContainerSubscript(*sa.Array()))
+            claim = 3;
         uint16_t d = ExprPeakDepth(*sa.Index(), visited);
         uint16_t v = ExprPeakDepth(*sa.Value(), visited);
-        return d > v ? d : v;
+        uint16_t a = ExprPeakDepth(*sa.Array(), visited);
+        uint16_t m = d > v ? d : v;
+        if (a > m) m = a;
+        return claim + m;
     }
     return 0;
 }
@@ -1772,6 +1834,14 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 walkExpr(*static_cast<SnOutArgExpr&>(expr).Inner());
             } else if (expr.Kind() == NK_SubscriptExpr) {
                 auto& sub = static_cast<SnSubscriptExpr&>(expr);
+                //List/Dict subscript lowers to a synthetic get() call that
+                //bulk-copies 2 slots (this + index) into callParamBase —
+                //mirror the codegen so maxArgs never under-reserves the
+                //region (a lone `li[0]` with no other calls would size
+                //callParamBase at 1 and the get() would overflow it).
+                if (IsContainerSubscript(*sub.Array()) && maxArgs < 2)
+                    maxArgs = 2;
+                walkExpr(*sub.Array());
                 walkExpr(*sub.Array());
                 walkExpr(*sub.Index());
             } else if (expr.Kind() == NK_MemberExpr) {
@@ -1825,7 +1895,12 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
             } else if (kind == NK_InvokeStmt) {
                 walkExpr(*static_cast<SnInvokeStmt&>(stmt).Expr());
             } else if (kind == NK_AssignStmt) {
-                auto* v = static_cast<SnAssignStmt&>(stmt).Right();
+                //Walk the Left() lvalue too — `li[i].f = v` receivers emit
+                //a synthetic get() call needing 2 callParamBase slots.
+                auto& as = static_cast<SnAssignStmt&>(stmt);
+                auto* l = as.Left();
+                if (l) walkExpr(*l);
+                auto* v = as.Right();
                 if (v) walkExpr(*v);
             } else if (kind == NK_IfStmt) {
                 auto& ifStmt = static_cast<SnIfStmt&>(stmt);
@@ -1885,6 +1960,11 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 if (v) walkExpr(*v);
             } else if (kind == NK_SubscriptAssignStmt) {
                 auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
+                //List/Dict subscript store lowers to a set() call claiming
+                //3 slots (this + index + value) — mirror the codegen's
+                //EvalAreaClaim(3). Array stores claim nothing.
+                if (IsContainerSubscript(*sa.Array()) && maxArgs < 3)
+                    maxArgs = 3;
                 walkExpr(*sa.Index());
                 walkExpr(*sa.Value());
             }
@@ -3441,6 +3521,71 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     // Subscript expression: arr[index]
     if (kind == NK_SubscriptExpr) {
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
+        //List<T>/Dict<K,V> subscript sugar: li[i] == li.get(i),
+        //d[k] == d.get(k). Dispatch on the base's resolved type being a
+        //generic instantiation (arrays take the OP_LoadElement path below).
+        //Emits through EvalAreaClaim so nested calls (e.g. foo(li[j]))
+        //cannot clobber an outer call's callParamBase slice. Unboxes the
+        //get() return for primitive T/V, mirroring the foreach element
+        //load and the member-call boxing plans.
+        if (IsContainerSubscript(*sub.Array())) {
+            auto* pGenClass = static_cast<SnClassDecl*>(
+                sub.Array()->EvalDataType());
+            const auto& baseName = pGenClass->BaseName();
+            const auto& typeArgs = pGenClass->GenericTypeArgs();
+            bool isList = (baseName == "List" && !typeArgs.empty());
+            bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
+            {
+                        //Dict keys box when primitive; List's index is int.
+                        auto keyBox = isDict
+                            ? BoxingTagFor(typeArgs[0])
+                            : BoxingTagResult{0, false};
+                        SnField* pElem = isList ? typeArgs[0]
+                            : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
+                        auto valBox = BoxingTagFor(pElem);
+                        EvalAreaClaim claim(*this, 2);
+                        uint16_t claimBase = claim.base();
+                        //Receiver → resultOffset, then this = receiver.
+                        EmitExpression(*sub.Array(), emitter, resultOffset);
+                        emitter.Emit(OpCode::OP_NullCheck);
+                        emitter.EmitUint16(resultOffset);
+                        emitter.Emit(OpCode::OP_VarLocal);
+                        emitter.EmitUint16(resultOffset);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(claimBase);
+                        //arg0 = index (box primitive Dict keys).
+                        uint16_t keyOffset = claimBase + VALUE_SIZE;
+                        EmitExpression(*sub.Index(), emitter, keyOffset);
+                        if (keyBox.isPrimitive) {
+                            EmitPResultRefresh(emitter, keyOffset);
+                            emitter.Emit(OpCode::OP_Box);
+                            emitter.EmitByte(keyBox.tag);
+                            emitter.Emit(OpCode::OP_Assign);
+                            emitter.EmitUint16(keyOffset);
+                        }
+                        //Bulk-copy claim → callParamBase (raw 4-byte moves
+                        //preserve tagged representations).
+                        for (uint16_t i = 0; i < 2; ++i) {
+                            emitter.Emit(OpCode::OP_VarLocal);
+                            emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+                            emitter.Emit(OpCode::OP_Assign);
+                            emitter.EmitUint16(
+                                m_currFunc->callParamBase + i * VALUE_SIZE);
+                        }
+                        uint16_t nameIdx = AddStringConstant("get");
+                        emitter.Emit(OpCode::OP_CallMethod);
+                        emitter.EmitUint16(nameIdx);
+                        emitter.EmitUint16(m_currFunc->callParamBase);
+                        if (valBox.isPrimitive) {
+                            emitter.Emit(OpCode::OP_Unbox);
+                            emitter.EmitByte(valBox.tag);
+                        }
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(resultOffset);
+                        emitter.Emit(OpCode::OP_ParaEnd);
+                        return;
+                    }
+        }
         //Evaluate array reference to resultOffset
         EmitExpression(*sub.Array(), emitter, resultOffset);
         //Null check
@@ -3772,6 +3917,27 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                         if (off < 0) return;
                         fieldOff = static_cast<uint16_t>(off);
                     }
+                    //List/Dict receiver: `li[i].field = v` — the subscript
+                    //is sugar over get(), so delegate to the generic
+                    //NK_SubscriptExpr lowering (EvalAreaClaim + get() call).
+                    //Receiver first, right side second (JLS 15.26.1): the
+                    //index eval inside the get() call scratches the temp
+                    //chain (PickTempSlot walks tempSlot, tempSlot2, ...),
+                    //so the RHS value must not be in tempSlot2 yet.
+                    if (IsContainerSubscript(*sub.Array())) {
+                        EmitExpression(sub, emitter, m_currFunc->tempSlot);
+                        if (elemType->Kind() == NK_ClassDecl) {
+                            emitter.Emit(OpCode::OP_NullCheck);
+                            emitter.EmitUint16(m_currFunc->tempSlot);
+                        }
+                        EmitExpression(*assign.Right(), emitter,
+                            m_currFunc->tempSlot2);
+                        emitter.Emit(OpCode::OP_StoreField);
+                        emitter.EmitUint16(m_currFunc->tempSlot);
+                        emitter.EmitUint16(fieldOff);
+                        emitter.EmitUint16(m_currFunc->tempSlot2);
+                        return;
+                    }
                     //1. Evaluate right side → tempSlot2 (value preserved)
                     EmitExpression(*assign.Right(), emitter,
                         m_currFunc->tempSlot2);
@@ -3998,6 +4164,70 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //Reference: EN's AssignStmt::Compile pattern for indexed stores.
     if (kind == NK_SubscriptAssignStmt) {
         auto& sub = static_cast<SnSubscriptAssignStmt&>(stmt);
+        //List<T>/Dict<K,V> subscript store: li[i] = v == li.set(i, v),
+        //d[k] = v == d.set(k, v) — sugar over the set() intrinsic call.
+        //Runs entirely inside an EvalAreaClaim(3) [this, index, value] so
+        //nested calls in any operand cannot clobber the params, and no
+        //shared temp slots are touched (claim slots are exclusive).
+        if (IsContainerSubscript(*sub.Array())) {
+            auto* pGenClass = static_cast<SnClassDecl*>(
+                sub.Array()->EvalDataType());
+            const auto& baseName = pGenClass->BaseName();
+            const auto& typeArgs = pGenClass->GenericTypeArgs();
+            bool isList = (baseName == "List" && !typeArgs.empty());
+            bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
+            {
+                        //Dict keys box when primitive; List's index is int.
+                        auto keyBox = isDict
+                            ? BoxingTagFor(typeArgs[0])
+                            : BoxingTagResult{0, false};
+                        //Value boxes when T/V is primitive (argPlans[2]
+                        //in the member-call path; slot 2 here).
+                        SnField* pElem = isList ? typeArgs[0]
+                            : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
+                        auto valBox = BoxingTagFor(pElem);
+                        EvalAreaClaim claim(*this, 3);
+                        uint16_t claimBase = claim.base();
+                        //arg0 = index → claim[1]
+                        uint16_t keyOffset = claimBase + VALUE_SIZE;
+                        EmitExpression(*sub.Index(), emitter, keyOffset);
+                        if (keyBox.isPrimitive) {
+                            EmitPResultRefresh(emitter, keyOffset);
+                            emitter.Emit(OpCode::OP_Box);
+                            emitter.EmitByte(keyBox.tag);
+                            emitter.Emit(OpCode::OP_Assign);
+                            emitter.EmitUint16(keyOffset);
+                        }
+                        //arg1 = value → claim[2]
+                        uint16_t valOffset = claimBase + 2 * VALUE_SIZE;
+                        EmitExpression(*sub.Value(), emitter, valOffset);
+                        if (valBox.isPrimitive) {
+                            EmitPResultRefresh(emitter, valOffset);
+                            emitter.Emit(OpCode::OP_Box);
+                            emitter.EmitByte(valBox.tag);
+                            emitter.Emit(OpCode::OP_Assign);
+                            emitter.EmitUint16(valOffset);
+                        }
+                        //this = receiver → claim[0], null-checked.
+                        EmitExpression(*sub.Array(), emitter, claimBase);
+                        emitter.Emit(OpCode::OP_NullCheck);
+                        emitter.EmitUint16(claimBase);
+                        //Bulk-copy claim → callParamBase, then set().
+                        for (uint16_t i = 0; i < 3; ++i) {
+                            emitter.Emit(OpCode::OP_VarLocal);
+                            emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+                            emitter.Emit(OpCode::OP_Assign);
+                            emitter.EmitUint16(
+                                m_currFunc->callParamBase + i * VALUE_SIZE);
+                        }
+                        uint16_t nameIdx = AddStringConstant("set");
+                        emitter.Emit(OpCode::OP_CallMethod);
+                        emitter.EmitUint16(nameIdx);
+                        emitter.EmitUint16(m_currFunc->callParamBase);
+                        emitter.Emit(OpCode::OP_ParaEnd);
+                        return;
+                    }
+        }
         //Detect element type from the array's resolved field.
         //The element type is needed for struct deep-copy on write.
         SnField* elemType = nullptr;

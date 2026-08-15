@@ -1,0 +1,13 @@
+//Array whose elements are generic instantiations: List<int>[].
+//Covers: `new List<int>[2]` (generic NewArrayExpr grammar variant),
+//element stores, member calls on elements, and container subscript
+//through an element (a[0][1] == a[0].get(1)).
+int main() {
+	List<int>[] a = new List<int>[2];
+	a[0] = new List<int>();
+	a[0].add(4);
+	a[0].add(5);
+	a[1] = new List<int>();
+	a[1].add(60);
+	return a[0][1] + a[1][0];
+}

@@ -1,0 +1,9 @@
+//List<T> subscript write: li[i] = v == li.set(i, v) sugar.
+int main() {
+	List<int> li = new List<int>();
+	li.add(10);
+	li.add(20);
+	li[1] = 35;
+	li[0] = li[1] + 7;
+	return li[0];
+}

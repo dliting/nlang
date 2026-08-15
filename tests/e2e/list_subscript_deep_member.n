@@ -1,0 +1,16 @@
+//Member write through a doubly-nested subscript receiver:
+//List<List<Point>> m[0][0].x = 8.
+struct Point {
+	int x;
+}
+
+int main() {
+	List<List<Point>> m = new List<List<Point>>();
+	List<Point> row = new List<Point>();
+	Point p;
+	p.x = 5;
+	row.add(p);
+	m.add(row);
+	m[0][0].x = 8;
+	return m[0][0].x;
+}

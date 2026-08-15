@@ -1,0 +1,9 @@
+//List whose element type is an array: List<int[]>[i][j].
+int main() {
+	List<int[]> la = new List<int[]>();
+	int[] a = new int[2];
+	a[0] = 3;
+	a[1] = 6;
+	la.add(a);
+	return la[0][1];
+}

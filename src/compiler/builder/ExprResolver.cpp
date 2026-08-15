@@ -208,6 +208,24 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	ResolveFieldExprAs(nameExpr, pFieldExpr->Field());
 }
 
+//True when `baseExpr` denotes an ARRAY-typed lvalue (local, param, or
+//member field). EvalDataType() alone cannot tell: for array types it
+//returns the ELEMENT type (e.g. `List<int>[] a` → the List<int>
+//instantiation), so Kind()-based container/array dispatch must consult
+//the IsArrayType flag on the resolved field first (EvalDataType
+//dispatch-order trap — same family as toString/assign/member/length).
+static bool IsArrayTypedBase(SnExpression& baseExpr) {
+	SnIdentifierExpr* pId = nullptr;
+	if (baseExpr.Kind() == NK_IdentifierExpr)
+		pId = static_cast<SnIdentifierExpr*>(&baseExpr);
+	else if (baseExpr.Kind() == NK_MemberExpr) {
+		auto* pInner = static_cast<SnMemberExpr&>(baseExpr).Inner();
+		if (pInner && pInner->Kind() == NK_IdentifierExpr)
+			pId = static_cast<SnIdentifierExpr*>(pInner);
+	}
+	return pId && pId->Field() && pId->Field()->IsArrayType();
+}
+
 void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 {
 	if (arrTypeExpr.IsResolved())
@@ -1333,6 +1351,38 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//Look up arr.length-style access is handled by MemberExpr.
 	//For now, the result type of subscript is the element type.
 	auto* arrayType = arrayExpr.EvalDataType();
+	//List<T>/Dict<K,V> subscript (li[i] / d[k]): sugar over get().
+	//The base resolves to a synthetic generic-instantiation class; the
+	//element type is T (List) or V (Dict). Without this peel the
+	//subscript keeps the container type and every consumer (assignment,
+	//member chains, nested subscripts) mis-types it.
+	//
+	//Array-ness is a SEPARATE flag (field->IsArrayType()) — EvalDataType
+	//of `List<int>[] a` returns the element type, which IS a generic
+	//instantiation, so the Kind() check below would mistake the array
+	//for a container (EvalDataType-dispatch-order trap, 5th instance).
+	//Array bases keep the plain element-type propagation below.
+	if (!IsArrayTypedBase(arrayExpr)
+		&& arrayType && arrayType->Kind() == NK_ClassDecl)
+	{
+		auto* pClass = static_cast<SnClassDecl*>(arrayType);
+		if (pClass->IsGenericInstantiation())
+		{
+			const auto& baseName = pClass->BaseName();
+			const auto& typeArgs = pClass->GenericTypeArgs();
+			SnField* elem = nullptr;
+			if (baseName == "List" && !typeArgs.empty())
+				elem = typeArgs[0];
+			else if (baseName == "Dict" && typeArgs.size() > 1)
+				elem = typeArgs[1];
+			if (elem)
+			{
+				sn.EvalDataType(elem);
+				sn.AddFlags(NF_Resolved);
+				return;
+			}
+		}
+	}
 	if (arrayType)
 		sn.EvalDataType(arrayType);
 	sn.AddFlags(NF_Resolved);

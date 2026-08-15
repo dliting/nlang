@@ -1,0 +1,15 @@
+//Struct element read through subscript + member chain.
+struct Point {
+	int x;
+	int y;
+}
+
+int main() {
+	List<Point> pts = new List<Point>();
+	Point p;
+	p.x = 3;
+	p.y = 4;
+	pts.add(p);
+	Point q = pts[0];
+	return q.x + pts[0].y;
+}

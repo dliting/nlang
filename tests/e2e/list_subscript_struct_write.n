@@ -1,0 +1,18 @@
+//Whole-struct write through subscript: pts[0] = p.
+struct Point {
+	int x;
+	int y;
+}
+
+int main() {
+	List<Point> pts = new List<Point>();
+	Point p;
+	p.x = 1;
+	p.y = 2;
+	pts.add(p);
+	Point q;
+	q.x = 3;
+	q.y = 9;
+	pts[0] = q;
+	return pts[0].x;
+}

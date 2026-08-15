@@ -1,0 +1,9 @@
+//Chained subscripts over List<List<int>>.
+int main() {
+	List<List<int>> m = new List<List<int>>();
+	List<int> row = new List<int>();
+	row.add(2);
+	row.add(5);
+	m.add(row);
+	return m[0][1];
+}
