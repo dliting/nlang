@@ -1,0 +1,14 @@
+// Out arguments on virtual methods are rejected: the writeback mask
+// is baked against the static callee, a runtime override could disagree.
+class A {
+    virtual int foo(int x, out int y) {
+        y = x;
+        return 0;
+    }
+}
+
+int main() {
+    A a = new A();
+    int y = 0;
+    return a.foo(3, out y);
+}

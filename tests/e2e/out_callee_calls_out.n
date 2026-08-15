@@ -1,0 +1,18 @@
+int inner(int x, out int y) {
+    y = x + 1;
+    return 100;
+}
+
+int outer(int x, out int y) {
+    int t = 0;
+    int r = inner(x, out t);
+    y = t + 1;
+    return r + 1;
+}
+
+int main() {
+    int y = 0;
+    int r = outer(5, out y);
+    // y = 7, r = 101
+    return y * 10 + (r - 100);  // 71
+}

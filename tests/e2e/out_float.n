@@ -1,0 +1,12 @@
+int shift(float x, out float f) {
+    f = x - 2.5;
+    return 0;
+}
+
+int main() {
+    float g = 0.0;
+    shift(7.5, out g);
+    // g = 5.0 → int 5
+    if (g > 4.9 && g < 5.1) return 5;
+    return 1;
+}

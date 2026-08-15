@@ -1,0 +1,16 @@
+// out must target a plain local — member targets are a syntax error
+// at the grammar level (`out` only accepts a bare identifier).
+class C {
+    int f = 0;
+}
+
+int foo(out int x) {
+    x = 1;
+    return 0;
+}
+
+int main() {
+    C obj = new C();
+    foo(out obj.f);
+    return 0;
+}

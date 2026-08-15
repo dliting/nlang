@@ -645,3 +645,32 @@ nested_generic_deep 7
 rshift_not_generic compile_error
 # comparisons still work through the dedicated angle-bracket rules
 angle_bracket_compare 22
+
+# --- Phase 9e: out parameters ---
+out_basic 5
+out_two_params 37
+out_float 5
+out_string 6
+# return value must survive the out writeback (pResult ordering)
+out_in_expression 34
+out_control_flow 33
+# out params seed from the caller's current value (inout semantics)
+out_loop 15
+out_callee_calls_out 71
+# non-virtual method dispatch
+out_method 5
+# out combined with default params
+out_named_combo 8
+# the out target may be the caller's own formal parameter
+out_param_var 42
+# out must target a plain local (grammar-level restriction)
+out_not_local compile_error
+# out param requires the `out` marker at every call site
+out_marker_missing compile_error
+out_on_non_out compile_error
+# struct out params are rejected at declaration
+out_struct_type compile_error
+# out args are rejected on virtual dispatch
+out_virtual compile_error
+# out params cannot have defaults
+out_default compile_error

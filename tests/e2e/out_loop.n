@@ -1,0 +1,17 @@
+int addOne(int x, out int acc) {
+    acc = acc + x;
+    return 0;
+}
+
+int main() {
+    // Out params are seeded with the caller's current value: an
+    // unassigned callee would leave it unchanged, so accumulate
+    // through repeated calls works like an inout parameter.
+    int total = 0;
+    int i = 1;
+    while (i <= 5) {
+        addOne(i, out total);
+        i = i + 1;
+    }
+    return total;  // 15
+}

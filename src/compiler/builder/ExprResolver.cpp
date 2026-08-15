@@ -343,6 +343,34 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	SnFunction *pCallee;
 	std::vector<FormalBinding> bindings;
 	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings);
+
+	//Phase 9e: out arguments on virtual methods are rejected — the
+	//writeback mask is baked into the call instruction against the
+	//static callee's parameter layout; a runtime override resolved by
+	//name-based dispatch could disagree with it. Interface methods are
+	//always dispatched by name (never NF_Virtual-flagged), so they are
+	//covered via the parent decl kind.
+	if (pCallee)
+	{
+		bool bDispatchedByName = pCallee->ContainFlags(NF_Virtual)
+			|| (pCallee->Parent()
+				&& pCallee->Parent()->Kind() == NK_InterfaceDecl);
+		if (bDispatchedByName)
+		{
+			for (auto &b : bindings)
+			{
+				if (b.bIsOut)
+				{
+					m_Env.Log(CLL_Error, snInvoke.Location(),
+						"out arguments are not supported on virtual method "
+						"\"%s\".",
+						pCallee->Name().c_str());
+					return;
+				}
+			}
+		}
+	}
+
 	switch (res)
 	{
 	case FFR_ApproximateMatch:
@@ -424,6 +452,39 @@ void ExprResolveAccessor::Access(SnNamedArgExpr &sn)
 	pInner->Accept(*m_pVisitor);
 	if (!pInner->IsResolved())
 		return;
+	sn.EvalDataType(pInner->EvalDataType());
+	sn.AddFlags(NF_Resolved);
+}
+
+//Phase 9e: SnOutArgExpr resolver. Grammar restricts the inner to a plain
+//identifier; here we additionally require it to bind to a caller-frame
+//slot — a local variable or a formal parameter of the calling function
+//(both register as NK_FormalParam-kind fields). Class fields (implicit
+//this.x), enum members and globals are rejected: the writeback copies
+//the callee's out slot to a frame offset only.
+void ExprResolveAccessor::Access(SnOutArgExpr &sn)
+{
+	assert(!sn.IsResolved());
+	auto *pInner = sn.Inner();
+	assert(pInner);
+	if (pInner->Kind() != NK_IdentifierExpr)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"out argument must be a plain local variable.");
+		return;
+	}
+	pInner->Accept(*m_pVisitor);
+	if (!pInner->IsResolved())
+		return;
+	auto *pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
+	if (!pField || pField->Kind() != NK_FormalParam)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"out argument \"%s\" must be a local variable or parameter "
+			"of the calling function.",
+			pInner->ToString().c_str());
+		return;
+	}
 	sn.EvalDataType(pInner->EvalDataType());
 	sn.AddFlags(NF_Resolved);
 }
@@ -909,6 +970,26 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 	}
 
+	//Phase 9e (pre-existing gap exposed by out params): a method invoke's
+	//ARGUMENTS must resolve in the caller's scope. m_pContext is the
+	//receiver's class here (set for the callee lookup) and
+	//ERF_SearchInParentOnly hides the calling function's locals — so
+	//`c.f(v)` failed with "Cannot resolve the field: v". Existing tests
+	//never hit this because they only pass literals. Resolve the args in
+	//the caller scope first (mirroring the stream/generic early-return
+	//paths above), then re-enter the class scope so Access(SnInvokeExpr)
+	//finds the callee; its ResolveExpressionList skips resolved params.
+	if (pInnerExpr->Kind() == NK_InvokeExpr)
+	{
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+		auto* pClassCtx = m_pContext;
+		m_pContext = pSavedContext;
+		RemoveFlags(ERF_SearchInParentOnly);
+		ResolveExpressionList(invoke.Params());
+		m_pContext = pClassCtx;
+		AddFlags(ERF_SearchInParentOnly);
+	}
+
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
 		ResolveFieldExprAs(snMember, pInnerExpr->Field());
@@ -1095,6 +1176,17 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	sn.ClassDecl(pClassDecl);
 	sn.EvalDataType(pClassDecl);
 	sn.AddFlags(NF_Resolved);
+
+	//Phase 9e: constructor calls emit their args positionally without
+	//FormalBindings, so an out argument could never write back.
+	for (auto &arg : sn.Args())
+	{
+		if (arg.Kind() == NK_OutArgExpr)
+		{
+			m_Env.Log(CLL_Error, arg.Location(),
+				"out arguments are not supported in constructor calls.");
+		}
+	}
 
 	if (!ResolveExpressionList(sn.Args()))
 		return;
@@ -1368,7 +1460,12 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
 	bool bOK = true;
 	for (auto &expr : exprs)
 	{
-		expr.Accept(*m_pVisitor);
+		//Skip already-resolved expressions: literals come pre-resolved
+		//from parse time, and Access(SnMemberExpr) pre-resolves method
+		//invoke args in the caller scope before the callee lookup runs
+		//in the receiver-class scope.
+		if (!expr.IsResolved())
+			expr.Accept(*m_pVisitor);
 		if (!expr.IsResolved() && bOK)
 			bOK = false;
 	}
@@ -1511,6 +1608,7 @@ bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 		SnExpression *pExpr;
 		std::string sName;
 		bool bIsNamed = false;
+		bool bIsOut = false;
 		if (actual.Kind() == NK_NamedArgExpr)
 		{
 			auto &named = static_cast<const SnNamedArgExpr&>(actual);
@@ -1518,6 +1616,17 @@ bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 			pExpr = named.Inner();
 			bIsNamed = true;
 			bSeenNamed = true;
+		}
+		else if (actual.Kind() == NK_OutArgExpr)
+		{
+			//Phase 9e: out argument. Unwrap to the inner identifier; the
+			//binding must land on an NF_Out formal (checked below). Named
+			//+out (`foo(b = out y)`) has no grammar form.
+			auto &outArg = static_cast<const SnOutArgExpr&>(actual);
+			pExpr = outArg.Inner();
+			if (!pExpr->IsResolved())
+				return false;  //Access(SnOutArgExpr) already logged why
+			bIsOut = true;
 		}
 		else
 		{
@@ -1539,8 +1648,15 @@ bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 			size_t idx = iNextFormal++;
 			if (outBindings[idx].pCallerExpr != nullptr)
 				return false;  //should never happen (positional goes in order)
+			//Phase 9e: the `out` marker must agree with the formal — an
+			//out formal requires `out ident` at the call site, and `out`
+			//is invalid for a normal formal. Both directions reject this
+			//candidate (generic incompatibility from FindFuncByInvoke).
+			if (outBindings[idx].pFormal->ContainFlags(NF_Out) != bIsOut)
+				return false;
 			outBindings[idx].kind = FormalBinding::B_Positional;
 			outBindings[idx].pCallerExpr = pExpr;
+			outBindings[idx].bIsOut = bIsOut;
 		}
 		else
 		{
@@ -1599,6 +1715,11 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		int n = CalcTypeDistance(*pSrc, *pTgt);
 		if (n < 0)
 			return -1;
+		//Phase 9e: out bindings require the exact same type — the callee
+		//writes its slot straight back into the caller's variable; any
+		//implicit cast (int→float etc.) would be discarded by writeback.
+		if (b.bIsOut && n != 0)
+			return -1;
 		nDistance += n;
 	}
 	return nDistance;
@@ -1615,6 +1736,11 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 	for (auto &b : bindings)
 	{
 		if (b.kind == FormalBinding::B_Default)
+			continue;
+		//Phase 9e: out bindings already required exact type match in
+		//ComputeBindingDistance — wrapping a cast would break the
+		//variable-slot identity the writeback relies on.
+		if (b.bIsOut)
 			continue;
 		assert(b.pCallerExpr && b.pFormal);
 		auto *pSrc = b.pCallerExpr->EvalDataType();

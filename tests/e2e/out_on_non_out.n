@@ -1,0 +1,9 @@
+// `out` on a plain (non-out) parameter is rejected.
+int foo(int x) {
+    return x;
+}
+
+int main() {
+    int y = 5;
+    return foo(out y);
+}

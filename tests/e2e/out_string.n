@@ -1,0 +1,10 @@
+int greet(string name, out string msg) {
+    msg = "hi " + name;
+    return 0;
+}
+
+int main() {
+    string s = "";
+    greet("bob", out s);
+    return s.length();  // "hi bob" = 6
+}

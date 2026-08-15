@@ -68,6 +68,22 @@ private:
     //box}. Empty for user methods (no boxing — values pass as heap idxs).
     struct ArgBoxPlan { uint8_t tag; bool needsBox; };
 
+    //Phase 9e: an out-argument writeback. After the *Out call opcode
+    //copies callee frame slot `slotIdx` back into callParamBase, this
+    //records the caller local to spill it into.
+    struct OutSpill { uint16_t slotIdx; uint16_t localOffset; };
+
+    //Phase 9e: emit the post-call spill code for out arguments:
+    //per spill, `OP_VarLocal callParamBase+slotIdx*4; OP_Assign localOffset`.
+    void EmitOutSpills(const std::vector<OutSpill>& spills,
+                       BytecodeEmitter& emitter);
+
+    //Phase 9e: build the outMask operand from spills (bit i set = staging
+    //slot i is out). Caps at 32 slots — kMaxFuncParams is 64, but out
+    //params beyond slot 31 are rejected here as unsupported rather than
+    //silently dropped.
+    static uint32_t BuildOutMask(const std::vector<OutSpill>& spills);
+
     //Phase 9c: emit each formal's actual-or-default expression into the
     //callParamBase area, applying binding decisions from the resolver.
     //pCallee is the resolved function (may be null for unresolved invokes —
@@ -78,10 +94,14 @@ private:
     //begins — 0 for free functions, 1 for method calls (slot 0 is `this`).
     //pArgPlans (optional): if non-null, applied after each arg's emit —
     //used by built-in generic class methods to box primitive-typed args.
+    //pOutSpills (optional): if non-null, filled with one entry per out
+    //argument (Phase 9e) so the caller can emit the *Out call opcode and
+    //the post-call spills.
     void EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                       BytecodeEmitter& emitter, size_t slotBase = 0,
                       const std::map<uint16_t, ArgBoxPlan>* pArgPlans = nullptr,
-                      uint16_t thisSlot = UINT16_MAX);
+                      uint16_t thisSlot = UINT16_MAX,
+                      std::vector<OutSpill>* pOutSpills = nullptr);
 
     //Phase 9c: emit a single binding (positional/named caller expr or
     //default expression) at callParamBase[slotIdx]. Handles default's

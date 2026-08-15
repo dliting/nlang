@@ -676,6 +676,35 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
+        //Phase 9e: OP_CallFunc + out-parameter writeback. Bit i of
+        //outMask marks staging slot i as an out param — after the callee
+        //returns, its frame slot i is copied back to the caller's
+        //staging area. The backend then spills it into the user variable
+        //with plain OP_VarLocal + OP_Assign instructions.
+        case OpCode::OP_CallFuncOut: {
+            uint16_t funcIndex = reader.ReadUint16();
+            uint16_t callParamBase = reader.ReadUint16();
+            uint32_t outMask = reader.ReadUint32();
+            if (funcIndex >= m_currModule->functions.size())
+                throw std::runtime_error("NLang VM: invalid function index");
+            const CompiledFunction& callee = m_currModule->functions[funcIndex];
+            std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+            uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+            if (paramBytes > 0 && paramBytes <= callee.localsSize)
+                std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
+            ExecuteFunction(callee, pResult, calleeLocals.data());
+            for (uint32_t slot = 0; slot < 32; ++slot) {
+                if (!(outMask & (1u << slot)))
+                    continue;
+                uint16_t off = static_cast<uint16_t>(slot * sizeof(int32_t));
+                if (off + sizeof(int32_t) > callee.localsSize)
+                    throw std::runtime_error("NLang VM: out parameter slot out of bounds");
+                std::memcpy(locals + callParamBase + off,
+                            calleeLocals.data() + off, sizeof(int32_t));
+            }
+            break;
+        }
+
         case OpCode::OP_ParaEnd:
             break;
 
@@ -831,6 +860,38 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (paramBytes > 0 && paramBytes <= callee.localsSize)
                 std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
             ExecuteFunction(callee, pResult, calleeLocals.data());
+            break;
+        }
+
+        //Phase 9e: OP_CallMethodDirect + out writeback (same protocol as
+        //OP_CallFuncOut; for methods, slot 0 is `this`, user out params
+        //start at slot 1). Out args on virtual dispatch are rejected at
+        //compile time, so no OP_CallMethod variant is needed.
+        case OpCode::OP_CallMethodDirectOut: {
+            uint16_t funcIndex = reader.ReadUint16();
+            uint16_t callParamBase = reader.ReadUint16();
+            uint32_t outMask = reader.ReadUint32();
+            if (funcIndex >= m_currModule->functions.size())
+                throw std::runtime_error("NLang VM: invalid function index in CallMethodDirect");
+            const CompiledFunction& callee = m_currModule->functions[funcIndex];
+            if (callee.intrinsicId != INTR_None) {
+                ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
+                break;
+            }
+            std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+            uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+            if (paramBytes > 0 && paramBytes <= callee.localsSize)
+                std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
+            ExecuteFunction(callee, pResult, calleeLocals.data());
+            for (uint32_t slot = 0; slot < 32; ++slot) {
+                if (!(outMask & (1u << slot)))
+                    continue;
+                uint16_t off = static_cast<uint16_t>(slot * sizeof(int32_t));
+                if (off + sizeof(int32_t) > callee.localsSize)
+                    throw std::runtime_error("NLang VM: out parameter slot out of bounds");
+                std::memcpy(locals + callParamBase + off,
+                            calleeLocals.data() + off, sizeof(int32_t));
+            }
             break;
         }
 

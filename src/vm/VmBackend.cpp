@@ -887,6 +887,9 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_New:
         case OpCode::OP_ArrayLength:
             return 1 + 2 + 2;  // two uint16 operands
+        case OpCode::OP_CallFuncOut:
+        case OpCode::OP_CallMethodDirectOut:
+            return 1 + 2 + 2 + 4;  // uint16 + uint16 + uint32 outMask (Phase 9e)
         case OpCode::OP_AllocStruct:
         case OpCode::OP_LoadField:
         case OpCode::OP_StoreField:
@@ -930,6 +933,8 @@ void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm
                 break;
             case OpCode::OP_CallFunc:
             case OpCode::OP_CallMethodDirect:
+            case OpCode::OP_CallFuncOut:
+            case OpCode::OP_CallMethodDirectOut:
                 patchU16(pos + 1, pm.functionMap);
                 break;
             case OpCode::OP_New:
@@ -1491,6 +1496,12 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
         auto& named = static_cast<SnNamedArgExpr&>(expr);
         return ExprPeakDepth(*named.Inner(), visited);
     }
+    //OutArgExpr (Phase 9e) — transparent like NamedArgExpr: its inner
+    //identifier evaluates into the claimed binding slot.
+    if (kind == NK_OutArgExpr) {
+        auto& out = static_cast<SnOutArgExpr&>(expr);
+        return ExprPeakDepth(*out.Inner(), visited);
+    }
     //SubscriptExpr
     if (kind == NK_SubscriptExpr) {
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
@@ -1756,6 +1767,9 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 walkExpr(*static_cast<SnAsExpr&>(expr).Operand());
             } else if (expr.Kind() == NK_NamedArgExpr) {
                 walkExpr(*static_cast<SnNamedArgExpr&>(expr).Inner());
+            } else if (expr.Kind() == NK_OutArgExpr) {
+                //Phase 9e: out arg — walk the inner identifier.
+                walkExpr(*static_cast<SnOutArgExpr&>(expr).Inner());
             } else if (expr.Kind() == NK_SubscriptExpr) {
                 auto& sub = static_cast<SnSubscriptExpr&>(expr);
                 walkExpr(*sub.Array());
@@ -2025,10 +2039,35 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     }
 }
 
+void VmBackend::EmitOutSpills(const std::vector<OutSpill>& spills,
+                              BytecodeEmitter& emitter)
+{
+    for (const auto& s : spills) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(m_currFunc->callParamBase
+                           + s.slotIdx * VALUE_SIZE);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(s.localOffset);
+    }
+}
+
+uint32_t VmBackend::BuildOutMask(const std::vector<OutSpill>& spills)
+{
+    uint32_t mask = 0;
+    for (const auto& s : spills) {
+        if (s.slotIdx >= 32)
+            throw std::runtime_error(
+                "NLang backend: out parameter slot >= 32 is unsupported");
+        mask |= 1u << s.slotIdx;
+    }
+    return mask;
+}
+
 void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                               BytecodeEmitter& emitter, size_t slotBase,
                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
-                              uint16_t thisSlot) {
+                              uint16_t thisSlot,
+                              std::vector<OutSpill>* pOutSpills) {
     //Determine total claim size (slotBase + arg count).
     const auto& bindings = invoke.Bindings();
     size_t argCount;
@@ -2099,6 +2138,20 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
             EmitBinding(bindings.data(), i, slotIdx, slotBase, emitter,
                         thisSlot, claimBase);
             applyBox(slotIdx);
+            //Phase 9e: out binding — record the caller local for the
+            //post-call spill. The resolver guarantees pCallerExpr is a
+            //plain identifier bound to a caller-frame slot (local var or
+            //formal param), so the spill target is a plain frame offset.
+            if (bindings[i].bIsOut) {
+                auto& idExpr = static_cast<SnIdentifierExpr&>(
+                    *bindings[i].pCallerExpr);
+                auto target = ResolveBareIdentifier(idExpr.Field());
+                if (target.kind != BareIdTarget::Local)
+                    throw std::runtime_error(
+                        "NLang backend: out argument is not a local variable");
+                if (pOutSpills)
+                    pOutSpills->push_back({slotIdx, target.localOffset});
+            }
         }
     }
 
@@ -2225,7 +2278,12 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
 
         //Phase 9c: binding-aware argument emission. Handles positional,
         //named, and default-param bindings via EmitCallArgs.
-        EmitCallArgs(invoke, callee, emitter);
+        //Phase 9e: out arguments are collected here and written back
+        //right after the call via the *Out opcode + spills.
+        std::vector<OutSpill> outSpills;
+        EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
+                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
+                     &outSpills);
 
         // Find function index
         int funcIndex = -1;
@@ -2236,15 +2294,39 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         }
         //callee == null means unresolved invoke — skip (compiler should have reported error)
         if (funcIndex >= 0) {
-            emitter.Emit(OpCode::OP_CallFunc);
-            emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            // Result is in pResult, store to resultOffset
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            if (!outSpills.empty()) {
+                emitter.Emit(OpCode::OP_CallFuncOut);
+                emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                emitter.EmitInt32(static_cast<int32_t>(
+                    BuildOutMask(outSpills)));
+                //Result first: the spills below clobber pResult via
+                //OP_VarLocal, so the call's return value must be stored
+                //before any writeback.
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                EmitOutSpills(outSpills, emitter);
+            } else {
+                emitter.Emit(OpCode::OP_CallFunc);
+                emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                // Result is in pResult, store to resultOffset
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+            }
         }
         emitter.Emit(OpCode::OP_ParaEnd);
         return;
+    }
+
+    //Phase 9e: out arguments are consumed by the binding path in
+    //EmitCallArgs (the wrapper never emits itself). Reaching this point
+    //means the wrapper flowed into a non-binding emit site (ctor call,
+    //super(...), or a legacy path) — all rejected by the resolver, so
+    //this is an internal error, not a fallback.
+    if (kind == NK_OutArgExpr) {
+        throw std::runtime_error(
+            "NLang backend: out argument in unsupported call form");
     }
 
     if (kind == NK_CastExpr) {
@@ -2709,6 +2791,8 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 }
 
                 auto* callee = invoke.Callee();
+                //Phase 9e: out-argument spills collected by EmitCallArgs.
+                std::vector<OutSpill> outSpills;
                 //Phase 9c: evaluate args via the shared binding-aware
                 //helper. Slot 0 is reserved for `this` (slotBase=1).
                 //Boxing plans (for built-in generic class methods like
@@ -2720,13 +2804,19 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 //to callParamBase[0] before emitting args would be
                 //overwritten by any nested call inside the args.
                 EmitCallArgs(invoke, callee, emitter, /*slotBase=*/1,
-                             &argPlans, /*thisSlot=*/resultOffset);
+                             &argPlans, /*thisSlot=*/resultOffset,
+                             &outSpills);
                 //EmitCallArgs now copies `this` to claim[0] and bulk-copies
                 //to callParamBase[0] — no separate this-copy needed here.
                 bool isVirtual = callee && callee->ContainFlags(NF_Virtual);
                 if (isVirtual) {
                     //Virtual method dispatch — name-based lookup at runtime
                     //(like EN's I_Base_CallVirtualFunc + FindFunctionChecked)
+                    //Phase 9e: out args are resolver-rejected on virtual
+                    //methods; spills here would be silently lost.
+                    if (!outSpills.empty())
+                        throw std::runtime_error(
+                            "NLang backend: out argument on virtual call");
                     uint16_t nameIdx = AddStringConstant(callee->Name());
                     emitter.Emit(OpCode::OP_CallMethod);
                     emitter.EmitUint16(nameIdx);
@@ -2736,9 +2826,17 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     //(like EN's I_Base_CallFinalFunc + NFunction*)
                     auto it = m_funcIndexMap.find(callee);
                     if (it != m_funcIndexMap.end()) {
-                        emitter.Emit(OpCode::OP_CallMethodDirect);
-                        emitter.EmitUint16(static_cast<uint16_t>(it->second));
-                        emitter.EmitUint16(m_currFunc->callParamBase);
+                        if (!outSpills.empty()) {
+                            emitter.Emit(OpCode::OP_CallMethodDirectOut);
+                            emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                            emitter.EmitUint16(m_currFunc->callParamBase);
+                            emitter.EmitInt32(static_cast<int32_t>(
+                                BuildOutMask(outSpills)));
+                        } else {
+                            emitter.Emit(OpCode::OP_CallMethodDirect);
+                            emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                            emitter.EmitUint16(m_currFunc->callParamBase);
+                        }
                     }
                 } else {
                     //Phase 8e-1: no AST callee. Covers two cases:
@@ -2749,7 +2847,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     //      callee is null. The VM walks superClassIdx to find
                     //      Object's intrinsic stub and short-circuits to
                     //      ExecuteIntrinsic.
-                    //Both paths dispatch by name via OP_CallMethod.
+                    //Both paths dispatch by name via OP_CallMethod. Phase 9e:
+                    //out args cannot bind here (no formals) — internal error.
+                    if (!outSpills.empty())
+                        throw std::runtime_error(
+                            "NLang backend: out argument on builtin call");
                     uint16_t nameIdx = AddStringConstant(invoke.CalleeName());
                     emitter.Emit(OpCode::OP_CallMethod);
                     emitter.EmitUint16(nameIdx);
@@ -2762,6 +2864,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 }
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
+                //Phase 9e: out spills LAST — OP_VarLocal clobbers pResult,
+                //so the return value (and any unbox) must complete first.
+                if (!outSpills.empty())
+                    EmitOutSpills(outSpills, emitter);
                 emitter.Emit(OpCode::OP_ParaEnd);
             }
             return;
@@ -2782,10 +2888,17 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 //Phase 9c: binding-aware arg emit; slot 0 reserved for `this`.
                 //thisSlot=resultOffset so default-param `this.field` reads
                 //the receiver from the outer-expression result slot.
+                std::vector<OutSpill> outSpills;
                 EmitCallArgs(invoke, invoke.Callee(), emitter, /*slotBase=*/1,
-                             /*pArgPlans=*/nullptr, /*thisSlot=*/resultOffset);
+                             /*pArgPlans=*/nullptr, /*thisSlot=*/resultOffset,
+                             &outSpills);
                 //EmitCallArgs now copies `this` to claim[0] and bulk-copies
                 //to callParamBase[0] — no separate this-copy needed here.
+                //Phase 9e: interface dispatch is name-based (virtual) —
+                //out args are resolver-rejected; spills here are internal.
+                if (!outSpills.empty())
+                    throw std::runtime_error(
+                        "NLang backend: out argument on interface call");
                 //Always virtual dispatch by name.
                 auto* callee = invoke.Callee();
                 if (callee) {

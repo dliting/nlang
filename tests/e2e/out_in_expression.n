@@ -1,0 +1,11 @@
+int inc(int x, out int y) {
+    y = x + 1;
+    return x * 10;
+}
+
+int main() {
+    int y = 0;
+    // The call's return value must survive the out writeback: the
+    // spills clobber pResult, so the result store has to run first.
+    return inc(3, out y) + y;  // 30 + 4 = 34
+}

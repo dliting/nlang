@@ -300,6 +300,8 @@ struct FormalBinding
 	Kind            kind;
 	SnExpression   *pCallerExpr;  //non-null for B_Positional / B_Named
 	SnFormalParam  *pFormal;      //always non-null
+	bool            bIsOut = false; //Phase 9e: caller wrote `out ident`
+	                                //and the formal is an out parameter
 };
 
 //The syntax node of a function call.
@@ -829,6 +831,35 @@ public:
 	std::string ToString() const override;
 private:
 	std::unique_ptr<std::string> m_upName;
+	SnExpression                 *m_pInner;
+};
+
+//Phase 9e: out argument expression `out ident` at call sites.
+//Wraps the inner identifier; ExprResolver validates the inner refers to a
+//local/formal slot and requires the matched formal to be an out parameter.
+//TryBindInvoke unwraps the node into FormalBinding (pCallerExpr = Inner())
+//with bIsOut set, so codegen emits the inner read into the staging slot
+//and records a writeback pair for OP_CallFuncOut/OP_CallMethodDirectOut.
+class NLANG_COMPILER_API SnOutArgExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_OutArgExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnOutArgExpr(SnExpression *pInner, const ISourceLocation &loc)
+		: Super_(s_Kind, loc), m_pInner(pInner)
+	{
+		assert(pInner);
+		AddChild(m_pInner);
+	}
+
+	SnExpression *Inner() const { return m_pInner; }
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
 	SnExpression                 *m_pInner;
 };
 

@@ -25,6 +25,13 @@ public:
 
     int16_t  ReadInt16()  { return static_cast<int16_t>(ReadUint16()); }
 
+    uint32_t ReadUint32() {
+        uint32_t v = 0;
+        for (size_t i = 0; i < sizeof(uint32_t); ++i)
+            v |= static_cast<uint32_t>(m_data[m_offset++]) << (i * 8);
+        return v;
+    }
+
     int32_t  ReadInt32() {
         int32_t v = 0;
         for (size_t i = 0; i < sizeof(int32_t); ++i)

@@ -328,6 +328,7 @@ static SnExpression* BuildStringExpr(
 %token KT_Native
 %token KT_New
 %token KT_Null
+%token KT_Out
 %token KT_Private
 %token KT_Protected
 %token KT_Public
@@ -565,6 +566,12 @@ FormalParam:	NodeFlags Type TT_Identifier '=' Expression {
 					} |
 					NodeFlags Type TT_Identifier {
 						$$ = EnNew(SnFormalParam($1, $2, $3, nullptr, @1));
+					} |
+					/* Phase 9e: out parameter. No default-value form — an out
+					 * parameter is callee-assigned, a default is meaningless. */
+					NodeFlags KT_Out Type TT_Identifier {
+						$$ = EnNew(SnFormalParam($1, $3, $4, nullptr, @2));
+						$$->AddFlags(NF_Out);
 					} ;
 
 Paragraph:	'{' StatementList '}' {
@@ -1316,6 +1323,13 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 //inside `foo(...)` the form `Identifier '=' Expression` is unambiguous.
 ConcreteParam:	TT_Identifier '=' Expression {
 						$$ = EnNew(SnNamedArgExpr($1, $3, @1));
+					} |
+					/* Phase 9e: out argument. Restricted to a plain identifier
+					 * at the grammar level — out targets must be assignable
+					 * local slots; fields/elements are rejected here. */
+					KT_Out TT_Identifier {
+						auto* pId = EnNew(SnIdentifierExpr($2, @2));
+						$$ = EnNew(SnOutArgExpr(pId, @1));
 					} |
 					Expression {
 						$$ = $1;

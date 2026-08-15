@@ -60,6 +60,13 @@ public:
 	//The name itself is consumed by TryBindInvoke when matching formals.
 	void Access(SnNamedArgExpr &);
 
+	//Phase 9e: resolve an out argument `out ident` at a call site.
+	//Validates the identifier binds to a caller-frame slot (local var or
+	//formal param — both register as NK_FormalParam-kind fields), then
+	//propagates the inner's EvalDataType. Consumed by TryBindInvoke, which
+	//requires the matched formal to carry NF_Out.
+	void Access(SnOutArgExpr &);
+
 	void Access(SnMemberExpr &);
 
 	void Access(SnCastExpr &);

@@ -4,6 +4,6 @@ int main() {
     nums.add(10);
     nums.add(20);
     d.set("even", nums);
-    List<int> out = d.get("even");
-    return out.get(0) + out.get(1);
+    List<int> got = d.get("even");
+    return got.get(0) + got.get(1);
 }

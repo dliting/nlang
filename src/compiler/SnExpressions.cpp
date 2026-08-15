@@ -677,4 +677,23 @@ std::string SnNamedArgExpr::ToString() const
 	return std::move(ss.str());
 }
 
+//--- SnOutArgExpr (Phase 9e) ---
+
+bool SnOutArgExpr::IsDataExpr() const
+{
+	return m_pInner->IsDataExpr();
+}
+
+void SnOutArgExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnOutArgExpr::ToString() const
+{
+	std::stringstream ss;
+	ss << "out " << m_pInner->ToString();
+	return std::move(ss.str());
+}
+
 } //namespace nlang

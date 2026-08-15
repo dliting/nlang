@@ -174,6 +174,7 @@ LineComment	\/\/[^\n]*
 "native"    { return KT_Native; }
 "new"       { return KT_New; }
 "null"      { return KT_Null; }
+"out"       { return KT_Out; }
 "private"   { return KT_Private; }
 "protected" { return KT_Protected; }
 "public"    { return KT_Public; }

@@ -74,6 +74,8 @@ static const char* s_OpCodeNames[] = {
     "throw",
     "rethrow",
     "pop_handler",
+    "call_out",
+    "call_method_direct_out",
 };
 
 const char* OpCodeName(OpCode op) {

@@ -196,6 +196,22 @@ static void DisassembleFunction(const CompiledFunction& func,
             break;
         }
 
+        //uint16 func_index, uint16 call_param_base, uint32 out_mask (Phase 9e)
+        case OpCode::OP_CallFuncOut:
+        case OpCode::OP_CallMethodDirectOut: {
+            uint16_t funcIdx = reader.ReadUint16();
+            uint16_t base = reader.ReadUint16();
+            uint32_t outMask = reader.ReadUint32();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " [" << funcIdx << "]";
+            if (funcIdx < module.functions.size())
+                std::cout << " " << module.functions[funcIdx].name;
+            std::cout << " base=" << base
+                      << " outMask=0x" << std::hex << outMask
+                      << std::dec << "\n";
+            break;
+        }
+
         //uint16 info
         case OpCode::OP_DebugInfo: {
             uint16_t info = reader.ReadUint16();

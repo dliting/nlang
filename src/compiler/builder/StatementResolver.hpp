@@ -112,6 +112,20 @@ public:
 		std::vector<SnFormalParam*> formals;
 		for (auto& fp : sn.Params())
 			formals.push_back(&fp);
+		//Phase 9e: out parameters must be 4-byte scalar/class slots. A
+		//struct out param would need deep-copy writeback into the caller
+		//— unsupported in v1. Checked at declaration for clearer errors
+		//than at every call site.
+		for (auto *param : formals) {
+			if (!param->ContainFlags(NF_Out))
+				continue;
+			auto *pT = param->EvalDataType();
+			if (pT && pT->Kind() == NK_StructDecl) {
+				m_Env.Log(CLL_Error, param->Location(),
+					"out parameter \"%s\" cannot be a struct.",
+					param->Name().c_str());
+			}
+		}
 		for (size_t i = 0; i < formals.size(); ++i) {
 			auto *param = formals[i];
 			if (!param->Value())
@@ -914,6 +928,13 @@ public:
 			if (pArg->Kind() == NK_NamedArgExpr) {
 				m_Env.Log(CLL_Error, pArg->Location(),
 					"named arguments are not supported in super(...)");
+				continue;
+			}
+			if (pArg->Kind() == NK_OutArgExpr) {
+				//Phase 9e: super(...) forwards args positionally without
+				//FormalBindings — an out argument could never write back.
+				m_Env.Log(CLL_Error, pArg->Location(),
+					"out arguments are not supported in super(...)");
 				continue;
 			}
 			pArg->Accept(*m_pVisitor);

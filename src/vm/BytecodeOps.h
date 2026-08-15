@@ -119,6 +119,13 @@ enum class OpCode : uint8_t {
     OP_Rethrow,         // no operands — rethrow current catch's exception
     OP_PopHandler,      // no operands — pop one entry from handlerExcStack at catch exit
 
+    // === Phase 9e: out-parameter calls ===
+    OP_CallFuncOut,         // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
+                            // like OP_CallFunc; after the callee returns, bit i of outMask
+                            // copies callee frame slot i back to caller staging slot i
+    OP_CallMethodDirectOut, // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
+                            // same for non-virtual method calls (this = slot 0)
+
     OP_Count
 };
 

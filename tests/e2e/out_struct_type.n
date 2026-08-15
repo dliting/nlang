@@ -1,0 +1,14 @@
+// Struct out parameters are rejected at declaration — writeback is a
+// 4-byte frame copy and cannot deep-copy a struct.
+struct P {
+    int x;
+}
+
+int foo(out P p) {
+    p.x = 1;
+    return 0;
+}
+
+int main() {
+    return 0;
+}

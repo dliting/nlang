@@ -1,0 +1,13 @@
+class Calc {
+    public int divide(int a, int b, out int rem) {
+        rem = a % b;
+        return a / b;
+    }
+}
+
+int main() {
+    Calc c = new Calc();
+    int r = 0;
+    int q = c.divide(17, 5, out r);
+    return q + r;  // 3 + 2 = 5
+}

@@ -1,0 +1,11 @@
+// Calling an out param without the `out` marker is rejected — the
+// writeback would leak the callee's local into the caller's variable.
+int foo(out int x) {
+    x = 1;
+    return 2;
+}
+
+int main() {
+    int y = 5;
+    return foo(y);
+}
