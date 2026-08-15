@@ -290,10 +290,15 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 7 个新 e2e 测试（read/write/ctor-init/inherited/compound/local-shadow/default-param-field）
 - 长期方向（记录，暂缓）：在 resolver 完成后做一次 AST normalization pass（裸字段 → 显式 ThisExpr/MemberExpr），可消除 resolver/codegen 双模型漂移；因现有 visitor 会 mutate AST（默认参数改写等），引入该 pass 有风险，待未来重构窗口
 
-**9d-3：array-of-struct 物化修复**（已调度，在数组重设计之前）
-- Bug：`Point[] arr; arr[0].x = 1` 抛 "struct field store out of bounds"——AllocArrayOnHeap 将元素零初始化而非物化 struct 实例
-- 现有 array_struct 测试靠 throw→exit 1 巧合通过（harness 已标 warning）
-- 修复需 eager/lazy materialization 设计决策（创建时全量物化 vs 首访问时惰性物化），安排在数组重设计（动态增长、基于 class）之前作为独立小 phase
+**9d-3：array-of-struct 物化修复 + GC 根集修复** ✅（474 个 e2e 测试通过）
+- Bug：`Point[] arr; arr[0].x = 1` 抛 "struct field store out of bounds"——AllocArrayOnHeap 将元素零初始化而非物化 struct 实例。调试中又暴露 3 个互锁 codegen bug 与 1 个 GC 根本缺陷，共 5 项修复：
+- 物化：AllocArrayOnHeap 对 struct 元素循环 AllocStructOnHeap（每元素独立实例，值语义；与 AllocStructOnHeap 递归物化嵌套字段同语义）；零长度 struct 数组合法（循环体不执行）
+- IsArrayType() 守卫（2 处）：局部赋值 + struct member 写路径。EvalDataType() 对数组类型表达式返回**元素类型**，struct 深拷贝分支会把整个数组 block 误当 struct 拷贝（破坏 kind 元数据 + GC 追踪）。架构不变量：**一切按 EvalDataType()->Kind() dispatch 的消费点必须先查 IsArrayType()**（与 8e-9b toString 注释同源）
+- array.length dispatch hoist：struct 字段 dispatch 遮蔽了 `Point[] b; b.length`（FindFieldOffset 返回 -1 后静默 return，只发射 receiver）→ array.length 检查移到 struct/class dispatch 之前
+- 下标读去掉防御性 CopyStruct + member 赋值求值顺序改 receiver-first（Java JLS 15.26.1）：值拷贝只发生在赋值/存储边界（VM 不量）；原先读路径副本使 `arr[0].a.x = v` 写进废弃副本，且 RHS→tempSlot2 先求值时下标索引 scratch 槽（PickTempSlot(tempSlot)=tempSlot2）反噬 RHS
+- **GC 根集根本修复（模块格式 v1.5）**：.nmod 从未序列化 func.locals → MarkPhase 根扫描在运行时永远空集 → 任何真实 collection 会清扫全部活对象。既有 GC 测试全部通过纯属巧合（无活对象跨 collection，或分配数未过 1024 阈值）。v1.5 增加 local-variable descriptors（offset/size/isParam/typeKind/name）；旧格式模块根集为空（向后兼容读）
+- 7 个新 e2e 测试（array_struct 系列：basic/zero_default/distinct/nested/foreach/gc/empty）
+- 已知遗留：`matrix[i][0].x = v`（嵌套下标 receiver）的 RHS 碰撞未修；foreach 循环变量直指数组元素（别名语义）；eager 物化的分配成本（数组重设计时再议）
 
 **9e：out 参数**
 - `void foo(int x, out int y)`
@@ -332,14 +337,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9d-2 已完成，**468 个 e2e 测试全部通过**（Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9d-3 已完成，**474 个 e2e 测试全部通过**（Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   nested generics `>>` 词法冲突、bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
 - 已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败（pre-existing string pool dedup bug，临时绕过：用单独变量 `int c = a+b;` 再 concat）
-- 下一步：Phase 9d-3（array-of-struct 物化修复，小 phase）或 Phase 9e（out 参数）
+- 下一步：Phase 9e（out 参数）或小修复（string pool dedup bug、JumpIfNot string 条件误读、`\` 转义缺失、`>>` 解析）
 
 ## 文档索引
 

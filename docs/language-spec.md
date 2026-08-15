@@ -97,6 +97,13 @@ Structs follow value semantics throughout the language:
 - **Class field**: When a struct is a class field, the class owns an
   independent deep copy. Assigning `obj.s = s1` deep-copies `s1` into the
   class's field slot.
+- **Array element** (Phase 9d-3): `new Point[n]` eagerly materializes a
+  fresh, independent struct instance per element (including nested struct
+  fields, recursively). Reading an element into a struct variable
+  (`Point p = arr[i]`) deep-copies it; writing through a subscript
+  (`arr[i].x = v`, `arr[i] = p`) stores into the array's own element.
+  Zero-length struct arrays (`new Point[0]`) are legal — `.length` is 0
+  and no elements are materialized.
 
 **Shallow copy of class references within structs**: When a struct contains a
 class-typed field, the class reference (heap index) is copied as-is during
@@ -1292,9 +1299,20 @@ or return a derived value that fits in the exit code range.
   elements.
 - **`Dict<K,V>` with interface type**: interface types are not
   supported as generic type arguments. Use concrete class types.
-- **Array of struct**: `Point[] arr; arr[0].x = 1` throws
-  "struct field store out of bounds" — array elements are not
-  materialized as struct instances. Use `List<struct>` as a workaround.
+- **Nested-subscript receiver write** (Phase 9d-3 leftover): in
+  `matrix[i][0].x = v` (array-of-array-of-struct), the receiver's
+  inner subscript index evaluation can clobber the RHS temp slot.
+  Single-level `arr[i].field = v` works correctly. Fix deferred to the
+  array redesign.
+- **Foreach over struct arrays aliases elements** (Phase 9d-3
+  leftover): the foreach loop variable binds directly to the array's
+  element slot — mutating it in the body mutates the array element
+  (unlike `List<T>`, where boxed elements are copies of primitives but
+  shared references for structs). Assignment semantics documented
+  above are unaffected.
+- **Eager materialization cost**: `new Point[n]` allocates n+1 heap
+  slots at creation (array + one struct per element). Cost revisited at
+  the array redesign.
 - **Default parameters on imported functions**: cross-module imported
   functions support **constant-foldable** defaults only — int / float /
   string / null literals, plus single negation of numeric literals
