@@ -434,10 +434,16 @@ Collection Initializers section above.
 **`foreach`**: the `foreach (Type var in iterable)` construct is supported
 since Phase 8e-5. See the Foreach Statement section below.
 
-**Nested generics** (`List<List<int>>`): the lexer tokenizes `>>` as a
-single `OT_RSH` (right-shift) token, which blocks nested generic type
-args. This is a known limitation; use `new List<T>{...}` as the outer
-wrapper or split into local variables.
+**Nested generics** (`List<List<int>>`): supported. The lexer tracks
+type-argument nesting depth (`<` right after the built-in generic names
+`List`/`Dict` opens a level, each `>` closes one) and splits `>>` into
+two `'>'` tokens while the depth is positive (C#-style scanner split),
+so `List<List<int>>` and `Dict<string, List<int>>` parse. Outside
+generic context `>>` remains a single `OT_RSH` token — right-shift has
+no production, so `x >> 2` is a compile error (the shift operator
+itself is not implemented). Limitation: a comparison against a variable
+shadowing the type name (`List < 3`, only blanks/comments between name
+and `<`) is misread as a generic open.
 
 ### `Dict<K,V>` — Phase 8e-4
 
@@ -796,10 +802,10 @@ explicit `Type` in `new Type{...}`) to pick the kind:
 (explicit or implicit). Codegen lowers `new C{f1:v1, ...}` as
 `new C()` followed by per-field `OP_StoreField` assignments.
 
-**Recursive nesting:** init lists may contain other init lists, but
-nested generics like `List<List<int>>` and `Dict<K, List<V>>` are
-blocked by the lexer (tokenizes `>>` as right-shift). Use `new List<T>{...}`
-as the outer wrapper where needed, or split into local variables.
+**Recursive nesting:** init lists may contain other init lists.
+Nested generic element types (`List<List<int>>`, `Dict<K, List<V>>`)
+are supported since the `>>` lexer split (see Nested generics under
+`List<T>` above).
 
 **Empty collections:** bare `[]` is not supported (the lexer matches
 `[]` as a single `OT_Brackets` token used for array-type suffix). Use
@@ -1313,9 +1319,10 @@ or return a derived value that fits in the exit code range.
 - **Bare `[]` empty init**: use `new List<T>{}`, `new Dict<K,V>{}`, or
   `new int[0]` instead. The lexer tokenizes `[]` as a single token used
   by the array-type suffix rule.
-- **Nested generics (`List<List<int>>`, `Dict<K, List<V>>`)**: blocked
-  by the lexer tokenizing `>>` as right-shift. Future phase may split
-  `>>` in type context.
+- **Right-shift operator (`>>`, `<<`)**: not implemented (no grammar
+  production, no opcode). `>>` outside generic context is a compile
+  error; inside generic closing position it is split into `'>'` tokens
+  (see Nested generics under `List<T>`).
 - **Bare init list as function argument**: requires `new Type{...}`
   explicit form. Phase 8e-6 overload uniqueness (Phase G) deferred.
 - **`List<struct>` value semantics**: adding the same struct variable

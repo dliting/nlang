@@ -1,0 +1,16 @@
+int main() {
+    List<int> lst = new List<int>();
+    lst.add(3);
+    lst.add(7);
+    int total = 0;
+    int i = 0;
+    while (i < lst.get(1)) {
+        if (total > 0) {
+            total += i;
+        } else {
+            total += 1;
+        }
+        i += 1;
+    }
+    return total;
+}

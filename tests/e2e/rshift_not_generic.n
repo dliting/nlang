@@ -1,0 +1,6 @@
+int main() {
+    List<int> lst = new List<int>();
+    lst.add(1);
+    int x = 8 >> 2;
+    return x;
+}

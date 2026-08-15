@@ -17,6 +17,7 @@
 #include "nlang.tab.h"
 #include "ScriptScanner.h"
 #include <cassert>
+#include <cstring>
 
 /* handle locations */
 #define YY_USER_ACTION														\
@@ -200,7 +201,26 @@ LineComment	\/\/[^\n]*
 "++"        { return OT_INC; }
 "--"        { return OT_DEC; }
 "<<"        { return OT_LSH; }
-">>"        { return OT_RSH; }
+">>"        {
+                /* C#-style split: while closing type-argument lists,
+                 * ">>" must reach the parser as two '>' tokens so
+                 * `List<List<int>>` parses. yyless(1) rescans the
+                 * second '>' through the single-'>' rule below, which
+                 * decrements the depth again (so ">>>" closes three
+                 * levels via repeated re-matching). */
+                if (scanner.GenericDepth() > 0)
+                {
+                    int n = yyleng;
+                    yyless(1);
+                    /* YY_USER_ACTION already advanced yycolumn by n;
+                     * the rescan adds one more, so compensate to keep
+                     * column tracking exact. */
+                    yycolumn -= n - 1;
+                    scanner.DecGenericDepth();
+                    return '>';
+                }
+                return OT_RSH;
+            }
 "<="        { return OT_LE; }
 ">="        { return OT_GE; }
 "!="        { return OT_NE; }
@@ -216,10 +236,33 @@ LineComment	\/\/[^\n]*
 "/="        { return OT_DIVS; }
 "|="        { return OT_BORS; }
 
+            /* single-char angle brackets with generic-depth tracking */
+"<"         {
+                /* '<' opens a type-argument list only when it directly
+                 * follows a built-in generic name (List/Dict), flagged
+                 * by the identifier rule below. Any other '<' is a
+                 * comparison and leaves the depth alone. */
+                if (scanner.TakePendingGenericOpen())
+                    scanner.IncGenericDepth();
+                return '<';
+            }
+">"         {
+                scanner.DecGenericDepth();
+                return '>';
+            }
+
 \[\]        { return OT_Brackets; }
 
 {Name}      {
                 SET_TEXT(yytext);
+                /* Flag List/Dict so a following '<' opens a type-argument
+                 * list (see the '<' rule). Every identifier rewrites this
+                 * flag, so it can only reach a '<' across blanks/comments
+                 * — a comparison `List < 3` against a variable shadowing
+                 * the type name is misread (documented limitation). */
+                scanner.PendingGenericOpen(
+                    strcmp(yytext, "List") == 0
+                    || strcmp(yytext, "Dict") == 0);
                 return TT_Identifier;
             }
 

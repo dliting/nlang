@@ -1,0 +1,12 @@
+int main() {
+    List<List<int>> l = new List<List<int>>();
+    List<int> a = new List<int>();
+    a.add(1);
+    a.add(2);
+    List<int> b = new List<int>();
+    b.add(3);
+    b.add(4);
+    l.add(a);
+    l.add(b);
+    return l.get(0).get(1) + l.get(1).get(0);
+}

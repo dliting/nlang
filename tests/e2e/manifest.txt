@@ -636,3 +636,12 @@ implicit_this_inherited 42
 implicit_this_compound 43
 implicit_this_local_shadow 70
 implicit_this_default 5
+
+# --- `>>` split for nested generics (C#-style lexer generic-depth) ---
+nested_generic_list 5
+nested_generic_dict 30
+nested_generic_deep 7
+# depth-0 `>>` must stay OT_RSH (shift has no production → compile error)
+rshift_not_generic compile_error
+# comparisons still work through the dedicated angle-bracket rules
+angle_bracket_compare 22

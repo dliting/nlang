@@ -100,6 +100,40 @@ public:
 	{
 		m_bDeferEof = bShouldDefer;
 	}
+
+	//Current type-argument nesting depth. Incremented by '<' right after
+	//a built-in generic name (List/Dict), decremented by each '>'. While
+	//positive, ">>" is split into two '>' tokens so nested generics like
+	//`List<List<int>>` parse (C#-style scanner split).
+	int GenericDepth() const
+	{
+		return m_nGenericDepth;
+	}
+
+	void IncGenericDepth()
+	{
+		++m_nGenericDepth;
+	}
+
+	void DecGenericDepth()
+	{
+		if (m_nGenericDepth > 0)
+			--m_nGenericDepth;
+	}
+
+	//True when the previous token was the identifier "List"/"Dict".
+	//Consumed (and cleared) by the '<' rule; set by the identifier rule.
+	void PendingGenericOpen(bool bPending)
+	{
+		m_bPendingGenericOpen = bPending;
+	}
+
+	bool TakePendingGenericOpen()
+	{
+		bool bPending = m_bPendingGenericOpen;
+		m_bPendingGenericOpen = false;
+		return bPending;
+	}
 private:
 	void InitScanInfo();
 
@@ -122,6 +156,12 @@ private:
 
 	//defer the EOF token processing
 	bool m_bDeferEof;
+
+	//type-argument nesting depth (see GenericDepth()).
+	int m_nGenericDepth;
+
+	//previous token was "List"/"Dict" (see PendingGenericOpen()).
+	bool m_bPendingGenericOpen;
 };
 
 } //namespace nlang

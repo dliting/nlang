@@ -326,6 +326,11 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 **小修复：字符串转义补全** ✅（492 个 e2e 测试通过）
 - lexer 只处理 `\n \r \t \"`；其余（含 `\\` 自身——源码 `"a\\b"` 产 4 个字面字符）静默按反斜杠字面量通过。补 `\\ \' \0 \a \b \f \v` + 未知转义改 compile error（不再静默通过）；language-spec 补 escape 表；插值与转义组合已验证（escape 在 lex 期应用，插值在 parse 期扫已转义内容）
 
+**小修复：`>>` 拆分支持嵌套泛型** ✅（497 个 e2e 测试通过）
+- `List<List<int>>` 被词法 `">>"` → OT_RSH 阻塞。调研发现 `>>` 从未有 grammar 产生式（%token/%left 声明了但无规则）——即位移运算符从未实现，`>>` 唯一的存在意义就是挡住泛型。采用 C# 风格 scanner 拆分：ScriptScanner 记 genericDepth（`<` 紧跟 List/Dict 标识符开一层，`>` 关一层，floor 0），depth>0 时 `>>` 经 yyless(1) 拆成两个 `'>'`（列号补偿 yycolumn -= n-1；`>>>` 经重匹配循环自动关三层——grammar 的 `Type: NameExpr '<' TypeList '>'` + `TypeList: Type` 本就递归支持，resolver 的 SnGenericTypeExpr 也递归解析 type args，唯一缺口就是词法）
+- 已知限制：变量 shadow 类型名后紧接 `<` 比较（`List < 3`，中间仅空白/注释）会被误读为泛型开括号；depth-0 `>>` 仍为 OT_RSH（compile_error 测试锁定）；`<<` 同样无产生式
+- 5 新测试：nested_generic_list/dict/deep（三层 `>>>`）、rshift_not_generic（compile_error 锁 depth 不泄漏）、angle_bracket_compare（比较回归）
+
 **9e：out 参数**
 - `void foo(int x, out int y)`
 
@@ -363,7 +368,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- 阶段 0-9d-3（含 audit）+ pResult 累加器修复 + frame 布局越界修复（ASan 扫描）已完成，**492 个 e2e 测试全部通过**（字符串转义补全——`\\ \' \0 \a \b \f \v` + 未知转义 compile error + 4 新测试；条件类型强制 int 5 位点 + 3 compile_error 测试；frame 越界——super() evalArea 欠尺寸 + `new C{...}` 参 ctor 垃圾参数，resolver 强制规范约束；pResult 累加器过期修复——string pool dedup bug + cast_f2i quirk 同根因，12 位点 EmitPResultRefresh + 5 新测试；Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- 阶段 0-9d-3（含 audit）+ pResult 累加器修复 + frame 布局越界修复（ASan 扫描）已完成，**497 个 e2e 测试全部通过**（`>>` 拆分支持嵌套泛型——C# 风格 lexer genericDepth + yyless(1) 拆分 + 5 新测试；字符串转义补全——`\\ \' \0 \a \b \f \v` + 未知转义 compile error + 4 新测试；条件类型强制 int 5 位点 + 3 compile_error 测试；frame 越界——super() evalArea 欠尺寸 + `new C{...}` 参 ctor 垃圾参数，resolver 强制规范约束；pResult 累加器过期修复——string pool dedup bug + cast_f2i quirk 同根因，12 位点 EmitPResultRefresh + 5 新测试；Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、

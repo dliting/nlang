@@ -1,0 +1,9 @@
+int main() {
+    Dict<string, List<int>> d = new Dict<string, List<int>>();
+    List<int> nums = new List<int>();
+    nums.add(10);
+    nums.add(20);
+    d.set("even", nums);
+    List<int> out = d.get("even");
+    return out.get(0) + out.get(1);
+}
