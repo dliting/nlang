@@ -1,4 +1,4 @@
-class Point { public int x; public int y; public int Point(int ax, int ay) { this.x = ax; this.y = ay; return 0; } }
+class Point { public int x; public int y; }
 
 int main() {
     Dict<string, Point> d = new Dict<string, Point>{"p":new Point{x:1, y:2}};

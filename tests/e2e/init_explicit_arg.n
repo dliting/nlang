@@ -1,4 +1,8 @@
-class Point { public int x; public int y; public int Point(int ax, int ay) { this.x = ax; this.y = ay; return 0; } }
+//Explicit `new Type{...}` as a function argument (Phase 8e-6).
+//Class init requires a no-arg ctor per spec: the init form lowers to
+//`new C()` + per-field stores, so a parameterized ctor would receive
+//garbage for its args.
+class Point { public int x; public int y; }
 
 int sumX(Point p) {
     return p.x + p.y;

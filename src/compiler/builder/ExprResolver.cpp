@@ -1186,6 +1186,33 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 	sn.TargetIsArray(bIsArray);
 	sn.AddFlags(NF_Resolved);
 
+	//Class init lists lower to `new C()` + per-field stores; the implicit
+	//ctor call must not require arguments (spec: class init requires a
+	//no-arg constructor, explicit or implicit). Without this check the
+	//codegen emits the ctor call anyway and the VM copies garbage/reads
+	//past the frame for the missing params.
+	if (!bIsArray && pTargetField->Kind() == NK_ClassDecl) {
+		auto* pClassDecl = static_cast<SnClassDecl*>(pTargetField);
+		if (!pClassDecl->IsBuiltinClass()) {
+			for (auto& field : pClassDecl->Members()) {
+				if (field.Kind() == NK_Function
+					&& field.Name() == pClassDecl->Name()) {
+					size_t arity = static_cast<SnFunction&>(field)
+						.Params().size();
+					if (arity > 0) {
+						m_Env.Log(CLL_Error, sn.Location(),
+							"class initializer \"new %s{...}\" requires a "
+							"no-arg constructor; \"%s\" takes %zu "
+							"argument(s)",
+							pClassDecl->Name().c_str(),
+							pClassDecl->Name().c_str(), arity);
+					}
+					break;
+				}
+			}
+		}
+	}
+
 	//Resolve each entry value. Keys (for {...} form) are not expressions
 	//and need no resolution.
 	for (auto &entry : sn.Entries())

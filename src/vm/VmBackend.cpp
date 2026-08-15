@@ -1676,12 +1676,17 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_SuperCallStmt) {
         auto& sc = static_cast<SnSuperCallStmt&>(stmt);
+        //Mirror the codegen's EvalAreaClaim(1 + args) — same claimSize
+        //pattern as NK_NewExpr in ExprPeakDepth. peakDepth without the
+        //claimSize under-sizes evalArea and super-arg staging writes past
+        //the frame (heap-buffer-overflow, deterministic in codegen).
+        uint16_t claimSize = static_cast<uint16_t>(1 + sc.Args().size());
         uint16_t d = 0;
         for (auto* arg : sc.Args()) {
             uint16_t ad = ExprPeakDepth(*arg, visited);
             if (ad > d) d = ad;
         }
-        return d;
+        return claimSize + d;
     }
     if (kind == NK_ThrowStmt) {
         auto& th = static_cast<SnThrowStmt&>(stmt);

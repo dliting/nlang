@@ -1,0 +1,11 @@
+//Class init lists lower to `new C()` + per-field stores; a class whose
+//only ctor takes parameters cannot be initialized this way.
+class C {
+    public int a;
+    public int C(int ax) { this.a = ax; return 0; }
+}
+
+int main() {
+    C c = new C{a:2};
+    return c.a;
+}
