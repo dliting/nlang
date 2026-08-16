@@ -1,0 +1,28 @@
+// Phase 10 audit round-4: binary right operands derived their scratch slot
+// from the 4-slot PickTempSlot chain, which wraps tempSlot4 → tempSlot at
+// depth 5 — `1 + (2 + (3 + (4 + (5 + 6))))` evaluated to 25, not 21,
+// silently. The right operand now parks in a per-level EvalAreaClaim, so
+// right-nesting depth is unbounded.
+int main() {
+    int r = 0;
+
+    // depth 5 right-nesting — pre-fix: 25
+    if (1 + (2 + (3 + (4 + (5 + 6)))) != 21) r += 1;
+
+    // depth 7 right-nesting
+    if (1 + (2 + (3 + (4 + (5 + (6 + (7 + 8)))))) != 36) r += 2;
+
+    // left-nesting control (right operand is a literal at every level)
+    if ((((((1 + 2) + 3) + 4) + 5) + 6) != 21) r += 4;
+
+    // mixed arithmetic
+    if (2 * (3 + (4 * (5 + 1))) != 54) r += 8;
+
+    // float variant
+    if (1.5 + (2.5 + (3.5 + (4.5 + (5.5 + 1.0)))) != 18.5) r += 16;
+
+    // depth-5 comparison chain
+    if ((1 + (2 + (3 + (4 + (5 + 6))))) == 21) r += 0;
+
+    return r;
+}

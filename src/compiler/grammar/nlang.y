@@ -1014,6 +1014,9 @@ implementing classes must satisfy.
 */
 InterfaceDecl:	KT_Interface TT_Identifier '{' InterfaceMemberList '}' {
 					$$ = EnNew(SnInterfaceDecl($2, $4, @1));
+				} |
+				KT_Interface TT_Identifier '{' '}' {
+					$$ = EnNew(SnInterfaceDecl($2, EnNew(PtrList<SnField>()), @1));
 				} ;
 
 InterfaceMemberList:	InterfaceMemberList InterfaceMember {
@@ -1023,9 +1026,6 @@ InterfaceMemberList:	InterfaceMemberList InterfaceMember {
 				InterfaceMember {
 					$$ = EnNew(PtrList<SnField>());
 					$$->push_back($1);
-				} |
-				/* empty */ {
-					$$ = EnNew(PtrList<SnField>());
 				} ;
 
 InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' ';' {
@@ -1141,8 +1141,18 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 				KT_Public       { $$ = FA_Public;       } |
 								{ $$ = FA_Default;	/*on empty */	} ;
 
-NameExpr:	IdentifierExpr	{ $$ = EnNew(SnNameExpr($1, @1)); } |
-				MemberExpr		{ $$ = EnNew(SnNameExpr($1, @1)); } ;
+//NameExpr is identifier-only by design. It formerly also derived
+//MemberExpr (for `A.B` qualified types) — zero usage in the language,
+//and the dual parentage (NameExpr|Expression both deriving MemberExpr)
+//was the dominant source of reduce/reduce conflicts. Removing it (plus
+//the InterfaceDecl empty-body production) took the grammar from 75 rr
+//conflicts down to 1 (bison-measured). Removed in the Phase 10 audit;
+//do not re-add without a real use.
+//The one remaining rr conflict is on '<': `Type: NameExpr '<' TypeList '>'`
+//(generic type) vs a less-than comparison. bison's reduce-first
+//default picks the NameExpr/Type derivation, which keeps
+//`Foo<int> x;` parsing as a declaration — the intended behavior.
+NameExpr:	IdentifierExpr	{ $$ = EnNew(SnNameExpr($1, @1)); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
 //Uses OT_Brackets ('[]' as single token) to disambiguate array type

@@ -1,0 +1,59 @@
+// Phase 10 audit (round-2 finding 2): array subscript-assign must stage its
+// three operands in evalArea (EvalAreaClaim), not tempSlot/tempSlot2/
+// callParamBase — any nested expression in the index (subscript-get, binary
+// arithmetic) reuses those shared temps and clobbers the parked base/value.
+// Pre-fix: `c[q[0]] = 9` crashed ("null array access"); `c[i+1] = 9` hit the
+// wrong element (right operand of the index binary took tempSlot where the
+// base was parked).
+int helper(int a, int b, int c) {
+    return a * 100 + b * 10 + c;
+}
+
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    int r = 0;
+    int i = 1;
+    int[] q = new int[2];
+    q[0] = 1;
+
+    // subscript-get in the index — pre-fix crash
+    int[] c1 = new int[4];
+    c1[q[0]] = 9;
+    if (c1[1] != 9) r += 1;
+
+    // binary arithmetic in the index — pre-fix wrong element
+    int[] c2 = new int[4];
+    c2[i + 1] = 9;
+    if (c2[2] != 9) r += 2;
+    if (c2[1] != 0) r += 4;
+
+    // call in the index (control — result lands via pResult, temps untouched)
+    int[] c3 = new int[4];
+    c3[helper(0, 0, 2)] = 9;
+    if (c3[2] != 9) r += 8;
+
+    // subscript-get in the value (control — value emits before base parks)
+    int[] c4 = new int[4];
+    c4[1] = q[0];
+    if (c4[1] != 1) r += 16;
+
+    // plain store (control)
+    int[] c5 = new int[4];
+    c5[2] = 9;
+    if (c5[2] != 9) r += 32;
+
+    // struct element: deep-copy (CopyStruct) must follow the claim slot;
+    // stresses value = subscript-get AND index = binary at once
+    Point[] pts = new Point[3];
+    pts[0].x = 4;
+    pts[0].y = 5;
+    pts[i + 1] = pts[0];
+    if (pts[2].x != 4) r += 64;
+    if (pts[2].y != 5) r += 128;
+
+    return r;
+}

@@ -36,8 +36,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //newer module and misparse everything after the first added field
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
-    const uint16_t kCurrentMinorVer = 6;
-    if (majorVer != 1 || minorVer < 4)
+    const uint16_t kCurrentMinorVer = NMOD_FORMAT_MINOR;
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 4)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
@@ -82,6 +82,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
 
         uint32_t fnameLen;
         fs.read(reinterpret_cast<char*>(&fnameLen), sizeof(fnameLen));
+        if (!fs.good() || fnameLen > (1u << 24))
+            throw std::runtime_error("Invalid module: bad function name length");
         func.name.resize(fnameLen);
         fs.read(func.name.data(), fnameLen);
 
@@ -121,6 +123,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
 
         uint32_t bcSize;
         fs.read(reinterpret_cast<char*>(&bcSize), sizeof(bcSize));
+        if (!fs.good() || bcSize > (1u << 26))
+            throw std::runtime_error("Invalid module: bad bytecode size");
         func.bytecode.resize(bcSize);
         if (bcSize > 0)
             fs.read(reinterpret_cast<char*>(func.bytecode.data()), bcSize);
@@ -175,6 +179,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     // Struct descriptors
     uint32_t structCount;
     fs.read(reinterpret_cast<char*>(&structCount), sizeof(structCount));
+    if (!fs.good() || structCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad struct count");
     mod.structs.resize(structCount);
 
     for (uint32_t i = 0; i < structCount; ++i) {
@@ -182,6 +188,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
 
         uint32_t stNameLen;
         fs.read(reinterpret_cast<char*>(&stNameLen), sizeof(stNameLen));
+        if (!fs.good() || stNameLen > (1u << 24))
+            throw std::runtime_error("Invalid module: bad struct name length");
         st.name.resize(stNameLen);
         fs.read(st.name.data(), stNameLen);
 
@@ -192,6 +200,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         for (uint16_t j = 0; j < st.fieldCount; ++j) {
             uint32_t fnLen;
             fs.read(reinterpret_cast<char*>(&fnLen), sizeof(fnLen));
+            if (!fs.good() || fnLen > (1u << 24))
+                throw std::runtime_error("Invalid module: bad struct field name length");
             st.fieldNames[j].resize(fnLen);
             fs.read(st.fieldNames[j].data(), fnLen);
         }
@@ -218,6 +228,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     // Class descriptors
     uint32_t classCount;
     fs.read(reinterpret_cast<char*>(&classCount), sizeof(classCount));
+    if (!fs.good() || classCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad class count");
     mod.classes.resize(classCount);
 
     for (uint32_t i = 0; i < classCount; ++i) {
@@ -225,6 +237,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
 
         uint32_t ccNameLen;
         fs.read(reinterpret_cast<char*>(&ccNameLen), sizeof(ccNameLen));
+        if (!fs.good() || ccNameLen > (1u << 24))
+            throw std::runtime_error("Invalid module: bad class name length");
         cc.name.resize(ccNameLen);
         fs.read(cc.name.data(), ccNameLen);
 
@@ -237,6 +251,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         for (uint16_t j = 0; j < cc.fieldCount; ++j) {
             uint32_t fnLen;
             fs.read(reinterpret_cast<char*>(&fnLen), sizeof(fnLen));
+            if (!fs.good() || fnLen > (1u << 24))
+                throw std::runtime_error("Invalid module: bad class field name length");
             cc.fieldNames[j].resize(fnLen);
             fs.read(cc.fieldNames[j].data(), fnLen);
         }
@@ -282,6 +298,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //Array type descriptors
     uint32_t arrayTypeCount;
     fs.read(reinterpret_cast<char*>(&arrayTypeCount), sizeof(arrayTypeCount));
+    if (!fs.good() || arrayTypeCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad array type count");
     mod.arrayTypes.resize(arrayTypeCount);
     for (uint32_t i = 0; i < arrayTypeCount; ++i) {
         fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].elemKind),

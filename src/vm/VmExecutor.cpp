@@ -710,6 +710,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 throw std::runtime_error(
                     "NLang VM: native function does not support out parameters: "
                     + callee.name);
+            //Phase 10 audit H1: intrinsics execute without a callee frame
+            //too — the writeback would silently copy nothing. Unreachable
+            //today (out args only bind on user functions); guard anyway.
+            if (callee.intrinsicId != INTR_None)
+                throw std::runtime_error(
+                    "NLang VM: intrinsic function does not support out parameters: "
+                    + callee.name);
             std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
             uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
             if (paramBytes > 0 && paramBytes <= callee.localsSize)
@@ -902,10 +909,15 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (funcIndex >= m_currModule->functions.size())
                 throw std::runtime_error("NLang VM: invalid function index in CallMethodDirect");
             const CompiledFunction& callee = m_currModule->functions[funcIndex];
-            if (callee.intrinsicId != INTR_None) {
-                ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
-                break;
-            }
+            //Phase 10 audit H1: intrinsics execute without a callee frame,
+            //so the outMask writeback would be silently dropped (the old
+            //branch just called ExecuteIntrinsic and broke). Unreachable
+            //today (out args only bind on user functions); reject loudly,
+            //matching the native branch below.
+            if (callee.intrinsicId != INTR_None)
+                throw std::runtime_error(
+                    "NLang VM: intrinsic function does not support out parameters: "
+                    + callee.name);
             //Phase 9f: out writeback needs a callee frame; natives have
             //none (see OP_CallFuncOut). Reject loudly, not silently.
             if (callee.isNative)

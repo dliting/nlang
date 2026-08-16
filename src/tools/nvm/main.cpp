@@ -18,11 +18,13 @@ int main(int argc, char* argv[]) {
     }
 
 #ifdef _WIN32
-    nlang::InstallCrashReporter("nvm");
+    //SetErrorMode first, then the crash reporter (CrashReporter.h contract)
+    //so a crash during startup can't pop a WER dialog first.
     SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG | _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    nlang::InstallCrashReporter("nvm");
 #endif
 
     CompiledModule module;

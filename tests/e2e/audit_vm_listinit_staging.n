@@ -1,0 +1,47 @@
+// Phase 10 audit C2: List initializer entries must stage values in evalArea
+// (EvalAreaClaim), not callParamBase — a nested call's arg bulk-copy into
+// callParamBase clobbers values staged inside the argument region.
+// Pre-fix: `1 + helper(0,0,5)` stored 5 (left operand overwritten by the
+// call's second argument); `helper(0,0,1) + helper(0,0,2)` stored 2.
+int helper(int a, int b, int c) {
+	return a * 100 + b * 10 + c;
+}
+
+int main() {
+	int r = 0;
+
+	// call on LEFT of binary, List entry (worked pre-fix, must keep working)
+	List<int> la = [helper(0, 0, 5) + 1];
+	if (la.get(0) != 6) r += 1;
+
+	// const on LEFT, call on RIGHT — the clobber case
+	List<int> lb = [1 + helper(0, 0, 5)];
+	if (lb.get(0) != 6) r += 2;
+
+	// call + call, both operands at risk
+	List<int> lc = [helper(0, 0, 1) + helper(0, 0, 2)];
+	if (lc.get(0) != 3) r += 4;
+
+	// plain call entry (control)
+	List<int> ld = [helper(1, 2, 3), 40];
+	if (ld.get(0) != 123 || ld.get(1) != 40) r += 8;
+
+	// sub-binary as right operand of outer binary
+	List<int> le = [2 + (1 + helper(0, 0, 3))];
+	if (le.get(0) != 6) r += 16;
+
+	// string entries with concat + call (staging must not disturb boxing)
+	List<string> ls = ["n=" + helper(0, 0, 9).toString()];
+	if (ls.get(0) != "n=9") r += 32;
+
+	// Dict entries stay correct (already EvalAreaClaim-based, control)
+	Dict<string, int> d = new Dict<string, int>{ "k": 1 + helper(0, 0, 2) };
+	if (d.get("k") != 3) r += 64;
+
+	// plain local context (control — no List involved). Failure bits are
+	// kept <= 255 (process exit codes are 8-bit under bash $?).
+	int x = 1 + helper(0, 0, 5);
+	if (x != 6) r += 128;
+
+	return r;
+}

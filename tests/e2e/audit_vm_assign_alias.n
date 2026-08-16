@@ -1,0 +1,55 @@
+// Phase 10 audit round-7: plain local assignment (`x = rhs`) emitted the
+// RHS straight into the destination slot — but a binary's LEFT operand
+// writes resultOffset before the RIGHT operand evaluates, so
+// `k = li[0] + li[k]` let the right read the clobbered destination
+// ("List index out of bounds", or a silently wrong index). JLS 15.26.1
+// semantics: the destination is written only after the WHOLE RHS is
+// evaluated. Fix: RHS stages in an EvalAreaClaim(1), then copies to the
+// destination (same claim discipline as every other assign shape).
+int main() {
+    int r = 0;
+    List<int> li = [10, 20, 30, 40];
+    int[] arr = new int[4];
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+
+    // const left writes the destination before the right reads it
+    int i = 3;
+    i = 1 + li[i];
+    if (i != 41) r += 1;
+
+    // same shape on a plain array
+    int j = 3;
+    j = 1 + arr[j];
+    if (j != 41) r += 2;
+
+    // subscript-get left operand writes the destination (pre-fix crash)
+    int k = 3;
+    k = li[0] + li[k];
+    if (k != 50) r += 4;
+
+    // control: identifier left operand does not write anything
+    int one = 1;
+    int m = 3;
+    m = one + li[m];
+    if (m != 41) r += 8;
+
+    // control: right-side self-read (safe in both shapes)
+    int i2 = 3;
+    i2 = li[i2] + 1;
+    if (i2 != 41) r += 16;
+
+    // array-init alias: `a2 = [a2[0], 7]` must read the OLD array
+    int[] a2 = new int[2];
+    a2[0] = 9;
+    a2 = [a2[0], 7];
+    if (a2[0] != 9 || a2[1] != 7) r += 32;
+
+    // plain control
+    int x = 5;
+    if (x != 5) r += 64;
+
+    return r;
+}

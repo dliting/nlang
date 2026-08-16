@@ -1,0 +1,75 @@
+// Phase 10 audit round-3: compound assignment on a field (`obj.f += rhs`)
+// must stage the RHS in evalArea (EvalAreaClaim), not callParamBase — the
+// receiver is parked in tempSlot across the RHS emission, and a nested
+// subscript-get or binary in the RHS scratches tempSlot via the
+// PickTempSlot fall-through, clobbering the parked receiver.
+// Pre-fix: `p.x += q[0]` and `c.v += i + k` both crashed with
+// "struct field store out of bounds" (store through the clobbered handle).
+int helper(int a, int b, int c) {
+    return a * 100 + b * 10 + c;
+}
+
+struct Point {
+    int x;
+    int y;
+}
+
+struct Outer {
+    Point inner;
+}
+
+class Counter {
+    public int n;
+
+    public void bump(int[] src) {
+        n += src[0];
+    }
+}
+
+int main() {
+    int r = 0;
+    int i = 1;
+    int k = 3;
+    int[] first = new int[1];
+    int[] q = new int[2];
+    q[0] = 3;
+    q[1] = 4;
+
+    // subscript-get in the RHS, struct receiver — pre-fix crash
+    Point p;
+    p.x = 10;
+    p.x += q[0];
+    if (p.x != 13) r += 1;
+
+    // binary arithmetic in the RHS, class receiver — pre-fix crash
+    Counter c = new Counter{n: 10};
+    c.n += i + k;
+    if (c.n != 14) r += 2;
+
+    // subscript-get RHS on a nested struct-field receiver
+    Outer o;
+    o.inner.x = 5;
+    o.inner.x += q[1];
+    if (o.inner.x != 9) r += 4;
+
+    // plain literal RHS (control)
+    p.y = 1;
+    p.y += 6;
+    if (p.y != 7) r += 8;
+
+    // call RHS (control — result lands via pResult)
+    p.x += helper(0, 0, 2);
+    if (p.x != 15) r += 16;
+
+    // compound on a plain local (control — local path stages in tempSlot2)
+    int x = 10;
+    x += q[0];
+    if (x != 13) r += 32;
+
+    // implicit this-field compound inside a method (receiver = this)
+    Counter c2 = new Counter{n: 100};
+    c2.bump(q);
+    if (c2.n != 103) r += 64;
+
+    return r;
+}

@@ -1523,9 +1523,13 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
         uint16_t l = ExprPeakDepth(*bin.Left(), visited);
         if (bin.Right()) {
             uint16_t r = ExprPeakDepth(*bin.Right(), visited);
-            return l > r ? l : r;
+            //Right operand parks in a per-level EvalAreaClaim(1) (round-4 —
+            //the old PickTempSlot chain wrapped tempSlot4 → tempSlot at
+            //depth 5); operand sub-expressions claim above it.
+            uint16_t m = l > r ? l : r;
+            return 1 + m;
         }
-        return l;
+        return l;  //unary: operand → resultOffset, no claim
     }
     //CastExpr
     if (kind == NK_CastExpr) {
@@ -1553,11 +1557,11 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
         uint16_t a = ExprPeakDepth(*sub.Array(), visited);
         uint16_t i = ExprPeakDepth(*sub.Index(), visited);
-        uint16_t claim = 0;
-        //List/Dict subscript lowers to a get() call claiming 2 slots
-        //(this + index) — mirror the codegen's EvalAreaClaim(2).
-        if (IsContainerSubscript(*sub.Array()))
-            claim = 2;
+        //Both shapes claim 2 evalArea slots (receiver + index): container
+        //lowers to a get() call, array reads park receiver/index in the
+        //claim directly (Phase 10 audit round-3 — was a 4-deep PickTempSlot
+        //chain that wrapped and clobbered at nesting depth 5).
+        uint16_t claim = 2;
         uint16_t m = (a > i ? a : i);
         return claim + m;
     }
@@ -1601,7 +1605,9 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
     //InitListExpr
     //Phase 9c follow-up: mirror the codegen's claim pattern.
     //  - Dict form: per-entry EvalAreaClaim(3) [this, key, value]
-    //  - List/Array/Struct/Class forms: no claim (use temp slots)
+    //  - List form: per-entry EvalAreaClaim(2) [this, value] (Phase 10
+    //    audit C2 — was callParamBase staging, clobbered by nested calls)
+    //  - Array/Struct/Class forms: no claim (use temp slots)
     if (kind == NK_InitListExpr) {
         auto& init = static_cast<SnInitListExpr&>(expr);
         SnField* pTarget = init.EvalDataType();
@@ -1610,6 +1616,7 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
             auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
             const std::string& baseName = pClassDecl->BaseName();
             if (baseName == "Dict") claimSize = 3;
+            else if (baseName == "List") claimSize = 2;
         }
         uint16_t maxChild = 0;
         for (auto& entry : init.Entries()) {
@@ -1659,7 +1666,26 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
             ? ExprPeakDepth(*assign.Left(), visited) : 0;
         uint16_t r = assign.Right()
             ? ExprPeakDepth(*assign.Right(), visited) : 0;
-        return l > r ? l : r;
+        //Member targets park their staging in EvalAreaClaims (round-4):
+        //array member-write (`arr[i].f = v`) claims 3 [array, index,
+        //value]; plain member (`obj.f = v`), struct-to-struct and
+        //container member-write (`li[i].f = v`) claim 2 [receiver, value].
+        //The walker cannot cheaply separate the shapes, so claim a uniform
+        //3 — over-reserving is the safe direction (container receivers
+        //also count their get() claim inside the SubscriptExpr case).
+        uint16_t claim = 0;
+        if (assign.Left() && assign.Left()->Kind() == NK_MemberExpr)
+            claim = 3;
+        //Identifier targets (plain local `x = rhs`) stage the RHS in an
+        //EvalAreaClaim(1) before copying to the destination (round-7 —
+        //aliasing family). The struct branch (CopyStruct staging) and the
+        //implicit this-field branch use temps only after their last
+        //nested emission, needing no claim — over-reserve is safe.
+        else if (assign.Left()
+            && assign.Left()->Kind() == NK_IdentifierExpr)
+            claim = 1;
+        uint16_t m = l > r ? l : r;
+        return claim + m;
     }
     if (kind == NK_IfStmt) {
         auto& ifStmt = static_cast<SnIfStmt&>(stmt);
@@ -1765,18 +1791,26 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_CompoundAssignStmt) {
         auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
-        return ca.Right() ? ExprPeakDepth(*ca.Right(), visited) : 0;
+        //Member targets (`obj.f += v` and implicit `this.f += v`) park
+        //receiver/old-value/RHS in an EvalAreaClaim(3); the walker cannot
+        //distinguish the implicit-this shape (Left is a bare identifier
+        //resolving to a this-field at codegen time), so claim 3
+        //unconditionally — local targets stage in tempSlot2 and merely
+        //over-reserve (the safe direction). Walk the Left() receiver too:
+        //`mk().x += 1` hides a call in the receiver.
+        uint16_t claim = 3;
+        uint16_t l = ca.Left() ? ExprPeakDepth(*ca.Left(), visited) : 0;
+        uint16_t r = ca.Right() ? ExprPeakDepth(*ca.Right(), visited) : 0;
+        return claim + (l > r ? l : r);
     }
     if (kind == NK_SubscriptAssignStmt) {
         auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
-        //List/Dict subscript store lowers to a set() call claiming 3
-        //slots (this + index + value) — mirror the codegen's
-        //EvalAreaClaim(3). Array stores claim nothing (callParamBase is
-        //staged directly). walker-symmetry discipline, 4th instance
-        //(after callparambase-clobber #2 and super() #3).
-        uint16_t claim = 0;
-        if (IsContainerSubscript(*sa.Array()))
-            claim = 3;
+        //Both paths run inside an EvalAreaClaim(3) [receiver + index +
+        //value] — container lowers to a set() call, array to a direct
+        //StoreElement; either way the walker must mirror the codegen's
+        //claim. walker-symmetry discipline, 4th instance (after
+        //callparambase-clobber #2 and super() #3).
+        uint16_t claim = 3;
         uint16_t d = ExprPeakDepth(*sa.Index(), visited);
         uint16_t v = ExprPeakDepth(*sa.Value(), visited);
         uint16_t a = ExprPeakDepth(*sa.Array(), visited);
@@ -1850,7 +1884,6 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 //callParamBase at 1 and the get() would overflow it).
                 if (IsContainerSubscript(*sub.Array()) && maxArgs < 2)
                     maxArgs = 2;
-                walkExpr(*sub.Array());
                 walkExpr(*sub.Array());
                 walkExpr(*sub.Index());
             } else if (expr.Kind() == NK_MemberExpr) {
@@ -1965,15 +1998,24 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 auto* e = static_cast<SnThrowStmt&>(stmt).Expr();
                 if (e) walkExpr(*e);
             } else if (kind == NK_CompoundAssignStmt) {
-                auto* v = static_cast<SnCompoundAssignStmt&>(stmt).Right();
-                if (v) walkExpr(*v);
+                auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
+                //Walk Left() receiver too — `mk().x += 1` hides a call
+                //needing callParamBase slots (C1-family asymmetry).
+                if (ca.Left()) walkExpr(*ca.Left());
+                if (ca.Right()) walkExpr(*ca.Right());
             } else if (kind == NK_SubscriptAssignStmt) {
                 auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
-                //List/Dict subscript store lowers to a set() call claiming
-                //3 slots (this + index + value) — mirror the codegen's
-                //EvalAreaClaim(3). Array stores claim nothing.
+                //List/Dict subscript store lowers to a set() call that
+                //bulk-copies 3 slots into callParamBase — reserve them.
+                //Array stores read their claim slots directly (StoreElement
+                //takes explicit operand offsets) and touch no call params.
                 if (IsContainerSubscript(*sa.Array()) && maxArgs < 3)
                     maxArgs = 3;
+                //Phase 10 audit C1: walk the array base too — a call in the
+                //base (`makeArr(...)[0] = v`) needs its arg slots reserved or
+                //the bulk-copy overflows callParamBase into evalArea.
+                //StmtPeakDepth already walked it; this closes the asymmetry.
+                walkExpr(*sa.Array());
                 walkExpr(*sa.Index());
                 walkExpr(*sa.Value());
             }
@@ -3364,23 +3406,39 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 auto t = BoxingTagFor(
                     typeArgs.empty() ? nullptr : typeArgs[0]);
                 uint16_t addNameIdx = AddStringConstant("add");
-                uint16_t paramOffset = m_currFunc->callParamBase + 1 * VALUE_SIZE;
-                //For each entry, evaluate value to paramOffset, box if needed,
-                //set this, call Add.
+                //Phase 10 audit C2: stage entry values in evalArea via
+                //EvalAreaClaim, immune to nested-call bulk-copies into
+                //callParamBase. Pre-fix, the value was emitted straight to
+                //callParamBase+1; a binary entry like `1 + helper(0,0,5)`
+                //parked the left operand there and the call's arg bulk-copy
+                //overwrote it (stored 5 instead of 6). Mirrors the Dict form
+                //below (Phase 9c follow-up). ExprPeakDepth's InitListExpr
+                //case must track the matching claimSize=2.
                 for (auto& entry : initList.Entries()) {
                     if (!entry.pValue) continue;
-                    EmitExpression(*entry.pValue, emitter, paramOffset);
+                    EvalAreaClaim claim(*this, 2);  // this, value
+                    uint16_t claimBase = claim.base();
+                    uint16_t valOff = claimBase + 1 * VALUE_SIZE;
+                    EmitExpression(*entry.pValue, emitter, valOff);
                     if (t.isPrimitive) {
-                        EmitPResultRefresh(emitter, paramOffset);
+                        EmitPResultRefresh(emitter, valOff);
                         emitter.Emit(OpCode::OP_Box);
                         emitter.EmitByte(t.tag);
                         emitter.Emit(OpCode::OP_Assign);
-                        emitter.EmitUint16(paramOffset);
+                        emitter.EmitUint16(valOff);
                     }
+                    //this = resultOffset → claim[0]
                     emitter.Emit(OpCode::OP_VarLocal);
                     emitter.EmitUint16(resultOffset);
                     emitter.Emit(OpCode::OP_Assign);
-                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.EmitUint16(claimBase);
+                    //Bulk-copy claim → callParamBase
+                    for (uint16_t i = 0; i < 2; ++i) {
+                        emitter.Emit(OpCode::OP_VarLocal);
+                        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+                    }
                     emitter.Emit(OpCode::OP_CallMethod);
                     emitter.EmitUint16(addNameIdx);
                     emitter.EmitUint16(m_currFunc->callParamBase);
@@ -3596,13 +3654,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         auto valBox = BoxingTagFor(pElem);
                         EvalAreaClaim claim(*this, 2);
                         uint16_t claimBase = claim.base();
-                        //Receiver → resultOffset, then this = receiver.
-                        EmitExpression(*sub.Array(), emitter, resultOffset);
+                        //Receiver → claim[0] directly (round-4: NOT via
+                        //resultOffset — a self-referential read `i = li[i]`
+                        //would overwrite the index's source slot with the
+                        //List handle before the index is emitted). Same
+                        //shape as the array path below; resultOffset is
+                        //written only by the final get() store.
+                        EmitExpression(*sub.Array(), emitter, claimBase);
                         emitter.Emit(OpCode::OP_NullCheck);
-                        emitter.EmitUint16(resultOffset);
-                        emitter.Emit(OpCode::OP_VarLocal);
-                        emitter.EmitUint16(resultOffset);
-                        emitter.Emit(OpCode::OP_Assign);
                         emitter.EmitUint16(claimBase);
                         //arg0 = index (box primitive Dict keys).
                         uint16_t keyOffset = claimBase + VALUE_SIZE;
@@ -3637,20 +3696,25 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         return;
                     }
         }
-        //Evaluate array reference to resultOffset
-        EmitExpression(*sub.Array(), emitter, resultOffset);
-        //Null check
+        //Phase 10 audit round-3: park receiver AND index in an exclusive
+        //EvalAreaClaim(2), mirroring the container get() shape. The old
+        //chain (receiver → resultOffset, index → PickTempSlot(resultOffset))
+        //broke at nesting depth 5 — PickTempSlot wraps tempSlot4 back to
+        //tempSlot, so `a[b[c[d[e[0]]]]]` clobbered an outer parked value —
+        //and parked the receiver in resultOffset, clobberable whenever a
+        //non-temp exclude slot fell through to the same temp. Claim slots
+        //stack per nesting level, so read depth is now unbounded. Same
+        //instruction count as the old shape; only the slot numbers change.
+        EvalAreaClaim claim(*this, 2);
+        uint16_t claimBase = claim.base();
+        EmitExpression(*sub.Array(), emitter, claimBase);
         emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(resultOffset);
-        //Evaluate index to a slot that does NOT alias resultOffset —
-        //otherwise the index eval would clobber the array heap index when
-        //resultOffset happens to be tempSlot (e.g. when this subscript is
-        //the right operand of a binary expression).
-        uint16_t indexSlot = PickTempSlot(resultOffset);
+        emitter.EmitUint16(claimBase);
+        uint16_t indexSlot = claimBase + VALUE_SIZE;
         EmitExpression(*sub.Index(), emitter, indexSlot);
         emitter.Emit(OpCode::OP_LoadElement);
         emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(claimBase);
         emitter.EmitUint16(indexSlot);
         //Phase 9d-3: no defensive CopyStruct for struct element types here.
         //Value copies belong at assignment/store boundaries (AssignStmt and
@@ -3683,13 +3747,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             return;
         }
 
-        //Binary: evaluate left to resultOffset, right to a different slot, then apply op.
-        //rightSlot must differ from resultOffset to avoid the right operand
-        //overwriting the left before the binary op executes. PickTempSlot
-        //centralizes the "two temp slots, alternate on conflict" convention.
-        //This composes for nested expressions: each level derives its own
-        //rightSlot from its own resultOffset, so subexprs naturally alternate
-        //between tempSlot and tempSlot2.
+        //Binary: evaluate left to resultOffset, right to a different slot,
+        //then apply op. rightSlot must differ from resultOffset to avoid the
+        //right operand overwriting the left before the binary op executes.
         //
         //Phase 8e-8: iterate sn.Children() instead of Left()/Right() because
         //resolver may wrap each operand in SnCastExpr for symmetric promotion,
@@ -3700,7 +3760,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //comparison (no wrap) this is the operand type, which selects the
         //i32/f32/str variant (e.g. OP_Eq_str for string==string even though
         //bin.EvalDataType() is Int32 for all comparisons).
-        uint16_t rightSlot = PickTempSlot(resultOffset);
+        //Phase 10 audit round-4: park the right operand in a per-level
+        //EvalAreaClaim instead of the PickTempSlot chain — the 4-slot chain
+        //wraps tempSlot4 → tempSlot at nesting depth 5, silently clobbering
+        //the outer parked left operand (`1+(2+(3+(4+(5+6))))` evaluated to
+        //25). Claim slots stack per nesting level, so right-nesting depth
+        //is unbounded, and claims never collide with resultOffset (claims
+        //start at the evalArea cursor; resultOffset always sits below it).
+        EvalAreaClaim rightClaim(*this, 1);
+        uint16_t rightSlot = rightClaim.base();
         auto& binChildren = bin.Children();
         auto binIt = binChildren.begin();
         auto& leftChild = static_cast<SnExpression&>(*binIt);
@@ -3919,7 +3987,21 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                         emitter.EmitUint16(structIdx >= 0
                             ? static_cast<uint16_t>(structIdx) : 0);
                     } else {
-                        EmitExpression(*assign.Right(), emitter, offset);
+                        //Phase 10 audit round-7: stage the RHS in an
+                        //EvalAreaClaim(1) and copy to the destination —
+                        //emitting straight into `offset` let a binary's
+                        //LEFT operand write the destination before the
+                        //RIGHT evaluated (`k = li[0] + li[k]` read the
+                        //clobbered slot: OOB or a silently wrong index).
+                        //JLS 15.26.1: the destination is written only
+                        //after the whole RHS has been evaluated.
+                        EvalAreaClaim claim(*this, 1);
+                        uint16_t valueSlot = claim.base();
+                        EmitExpression(*assign.Right(), emitter, valueSlot);
+                        emitter.Emit(OpCode::OP_VarLocal);
+                        emitter.EmitUint16(valueSlot);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(offset);
                     }
                 } else if (target.kind == BareIdTarget::ThisField) {
                     //Implicit this.<field> = value (bare member write inside
@@ -3971,50 +4053,64 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                     //List/Dict receiver: `li[i].field = v` — the subscript
                     //is sugar over get(), so delegate to the generic
                     //NK_SubscriptExpr lowering (EvalAreaClaim + get() call).
-                    //Receiver first, right side second (JLS 15.26.1): the
-                    //index eval inside the get() call scratches the temp
-                    //chain (PickTempSlot walks tempSlot, tempSlot2, ...),
-                    //so the RHS value must not be in tempSlot2 yet.
+                    //Phase 10 audit round-4: park [receiver, value] in an
+                    //EvalAreaClaim(2) — the old tempSlot/tempSlot2 staging
+                    //was clobbered by a call in the value (argument binaries
+                    //fall through PickTempSlot to tempSlot; struct-argument
+                    //deep copy scratches tempSlot), crashing or storing
+                    //through the wrong object. Receiver first (JLS 15.26.1).
                     if (IsContainerSubscript(*sub.Array())) {
-                        EmitExpression(sub, emitter, m_currFunc->tempSlot);
+                        EvalAreaClaim claim(*this, 2);
+                        uint16_t objSlot = claim.base();
+                        uint16_t valueSlot = objSlot + VALUE_SIZE;
+                        EmitExpression(sub, emitter, objSlot);
                         if (elemType->Kind() == NK_ClassDecl) {
                             emitter.Emit(OpCode::OP_NullCheck);
-                            emitter.EmitUint16(m_currFunc->tempSlot);
+                            emitter.EmitUint16(objSlot);
                         }
-                        EmitExpression(*assign.Right(), emitter,
-                            m_currFunc->tempSlot2);
+                        EmitExpression(*assign.Right(), emitter, valueSlot);
                         emitter.Emit(OpCode::OP_StoreField);
-                        emitter.EmitUint16(m_currFunc->tempSlot);
+                        emitter.EmitUint16(objSlot);
                         emitter.EmitUint16(fieldOff);
-                        emitter.EmitUint16(m_currFunc->tempSlot2);
+                        emitter.EmitUint16(valueSlot);
                         return;
                     }
-                    //1. Evaluate right side → tempSlot2 (value preserved)
-                    EmitExpression(*assign.Right(), emitter,
-                        m_currFunc->tempSlot2);
-                    //2. Evaluate array ref → tempSlot
-                    EmitExpression(*sub.Array(), emitter,
-                        m_currFunc->tempSlot);
+                    //Phase 10 audit round-3: stage value/index/array in an
+                    //exclusive EvalAreaClaim(3) — the old tempSlot/tempSlot2/
+                    //callParamBase staging let a nested index expression
+                    //(subscript-get, binary arithmetic — both scratch
+                    //tempSlot via the PickTempSlot fall-through) clobber the
+                    //parked array, crashing or silently storing through the
+                    //wrong heap object. Same discipline as the container
+                    //path above and SubscriptAssignStmt.
+                    EvalAreaClaim claim(*this, 3);
+                    uint16_t claimBase = claim.base();
+                    uint16_t indexSlot = claimBase + VALUE_SIZE;
+                    uint16_t valueSlot = claimBase + 2 * VALUE_SIZE;
+                    //1. Evaluate right side → claim[2]
+                    EmitExpression(*assign.Right(), emitter, valueSlot);
+                    //2. Evaluate index → claim[1]
+                    EmitExpression(*sub.Index(), emitter, indexSlot);
+                    //3. Evaluate array ref → claim[0], null-checked
+                    EmitExpression(*sub.Array(), emitter, claimBase);
                     emitter.Emit(OpCode::OP_NullCheck);
-                    emitter.EmitUint16(m_currFunc->tempSlot);
-                    //3. Evaluate index → callParamBase (NOT tempSlot2)
-                    EmitExpression(*sub.Index(), emitter,
-                        m_currFunc->callParamBase);
-                    //4. load_element dst=tempSlot arr=tempSlot idx=callParamBase
+                    emitter.EmitUint16(claimBase);
+                    //4. load element into tempSlot (free scratch — all
+                    //operands are parked in exclusive claim slots now)
                     emitter.Emit(OpCode::OP_LoadElement);
                     emitter.EmitUint16(m_currFunc->tempSlot);
-                    emitter.EmitUint16(m_currFunc->tempSlot);
-                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.EmitUint16(claimBase);
+                    emitter.EmitUint16(indexSlot);
                     //5. null_check the element (class) or skip (struct is value)
                     if (elemType->Kind() == NK_ClassDecl) {
                         emitter.Emit(OpCode::OP_NullCheck);
                         emitter.EmitUint16(m_currFunc->tempSlot);
                     }
-                    //6. store_field obj=tempSlot off=fieldOff src=tempSlot2
+                    //6. store_field obj=tempSlot off=fieldOff src=claim[2]
                     emitter.Emit(OpCode::OP_StoreField);
                     emitter.EmitUint16(m_currFunc->tempSlot);
                     emitter.EmitUint16(fieldOff);
-                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(valueSlot);
                     return;
                 }
             }
@@ -4028,19 +4124,23 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 int fieldOffInt = FindClassFieldOffset(*classDecl, fieldName);
                 if (fieldOffInt < 0) return;
                 uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
-                //Evaluate outer to tempSlot FIRST (class object heap index),
-                //then right side to tempSlot2. Java JLS 15.26.1 order — and
-                //evaluating the receiver first means a subscript inside the
-                //receiver scratches tempSlot3+ (PickTempSlot chain) instead
-                //of clobbering the RHS value held in tempSlot2.
-                EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
+                //Phase 10 audit round-4: park [receiver, value] in an
+                //EvalAreaClaim(2) — the old tempSlot/tempSlot2 staging was
+                //clobbered by a call in the RHS (argument binaries fall
+                //through PickTempSlot to tempSlot; struct-argument deep
+                //copy scratches tempSlot), crashing or silently storing
+                //through the wrong object. Receiver first (JLS 15.26.1).
+                EvalAreaClaim claim(*this, 2);
+                uint16_t objSlot = claim.base();
+                uint16_t valueSlot = objSlot + VALUE_SIZE;
+                EmitExpression(*memberExpr.Outer(), emitter, objSlot);
                 emitter.Emit(OpCode::OP_NullCheck);
-                emitter.EmitUint16(m_currFunc->tempSlot);
-                EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
+                emitter.EmitUint16(objSlot);
+                EmitExpression(*assign.Right(), emitter, valueSlot);
                 emitter.Emit(OpCode::OP_StoreField);
-                emitter.EmitUint16(m_currFunc->tempSlot);
+                emitter.EmitUint16(objSlot);
                 emitter.EmitUint16(fieldOff);
-                emitter.EmitUint16(m_currFunc->tempSlot2);
+                emitter.EmitUint16(valueSlot);
             } else if (outerType && outerType->Kind() == NK_StructDecl) {
                 auto* structDecl = static_cast<SnStructDecl*>(outerType);
                 //Find the field's offset and type
@@ -4063,33 +4163,44 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 //semantics) — same IsArrayType guard as local assignment.
                 if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct
                     && !fieldIsArray) {
-                    //Struct-to-struct field assignment: deep-copy first
-                    EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
+                    //Struct-to-struct field assignment: deep-copy first.
+                    //Phase 10 audit round-4: stage rhs/copy/outer in an
+                    //EvalAreaClaim(3) — same parking discipline as the
+                    //other member targets (temps are pure scratch; the
+                    //fresh-copy handle must survive the outer emission).
+                    EvalAreaClaim claim(*this, 3);
+                    uint16_t copySlot = claim.base();
+                    uint16_t objSlot = copySlot + VALUE_SIZE;
+                    uint16_t rhsSlot = objSlot + VALUE_SIZE;
+                    EmitExpression(*assign.Right(), emitter, rhsSlot);
                     int fieldStructIdx = m_compiledModule.FindStruct(
                         fieldType->Name());
                     emitter.Emit(OpCode::OP_CopyStruct);
-                    emitter.EmitUint16(m_currFunc->tempSlot);
-                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(copySlot);
+                    emitter.EmitUint16(rhsSlot);
                     emitter.EmitUint16(fieldStructIdx >= 0
                         ? static_cast<uint16_t>(fieldStructIdx) : 0);
-                    //Evaluate outer to tempSlot2 (parent struct's heap index)
-                    EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot2);
+                    //Evaluate outer (parent struct's heap index)
+                    EmitExpression(*memberExpr.Outer(), emitter, objSlot);
                     //Store the new heap index into the parent's field
                     emitter.Emit(OpCode::OP_StoreField);
-                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(objSlot);
                     emitter.EmitUint16(fieldOff);
-                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(copySlot);
                 } else {
                     //Primitive/enum/string/array field assignment.
-                    //Outer first, then RHS — same receiver-first ordering as
-                    //the class branch (a subscript inside the receiver would
-                    //otherwise clobber the RHS in tempSlot2 via PickTempSlot).
-                    EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
-                    EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
+                    //Phase 10 audit round-4: EvalAreaClaim(2) [receiver,
+                    //value], receiver first — same discipline as the
+                    //class branch above.
+                    EvalAreaClaim claim(*this, 2);
+                    uint16_t objSlot = claim.base();
+                    uint16_t valueSlot = objSlot + VALUE_SIZE;
+                    EmitExpression(*memberExpr.Outer(), emitter, objSlot);
+                    EmitExpression(*assign.Right(), emitter, valueSlot);
                     emitter.Emit(OpCode::OP_StoreField);
-                    emitter.EmitUint16(m_currFunc->tempSlot);
+                    emitter.EmitUint16(objSlot);
                     emitter.EmitUint16(fieldOff);
-                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(valueSlot);
                 }
             }
         }
@@ -4144,23 +4255,36 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 //Implicit this.<field> compound assign: same read-modify-write
                 //shape as the explicit MemberExpr branch below, with the
                 //receiver sourced from ImplicitThisSlot().
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(ImplicitThisSlot());
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(m_currFunc->tempSlot);
-                emitter.Emit(OpCode::OP_NullCheck);
-                emitter.EmitUint16(m_currFunc->tempSlot);
-                emitter.Emit(OpCode::OP_LoadField);
-                emitter.EmitUint16(m_currFunc->tempSlot2);
-                emitter.EmitUint16(m_currFunc->tempSlot);
-                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
-                EmitExpression(*ca.Right(), emitter, m_currFunc->callParamBase);
-                EmitCompoundOp(op, emitter, m_currFunc->tempSlot2,
-                    m_currFunc->callParamBase, field->EvalDataType());
-                emitter.Emit(OpCode::OP_StoreField);
-                emitter.EmitUint16(m_currFunc->tempSlot);
-                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
-                emitter.EmitUint16(m_currFunc->tempSlot2);
+                //Phase 10 audit round-3: all three live values (receiver,
+                //old field value, RHS) park in exclusive EvalAreaClaim
+                //slots. Parking the receiver in tempSlot — unavoidable
+                //across the RHS emission in a read-modify-write — let any
+                //nested RHS expression clobber it, because PickTempSlot
+                //falls back to tempSlot whenever its exclude slot is not
+                //one of the four temps (claim slots included).
+                {
+                    EvalAreaClaim claim(*this, 3);
+                    uint16_t claimBase = claim.base();
+                    uint16_t oldValSlot = claimBase + VALUE_SIZE;
+                    uint16_t rhsSlot = claimBase + 2 * VALUE_SIZE;
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(ImplicitThisSlot());
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(claimBase);
+                    emitter.Emit(OpCode::OP_NullCheck);
+                    emitter.EmitUint16(claimBase);
+                    emitter.Emit(OpCode::OP_LoadField);
+                    emitter.EmitUint16(oldValSlot);
+                    emitter.EmitUint16(claimBase);
+                    emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+                    EmitExpression(*ca.Right(), emitter, rhsSlot);
+                    EmitCompoundOp(op, emitter, oldValSlot,
+                        rhsSlot, field->EvalDataType());
+                    emitter.Emit(OpCode::OP_StoreField);
+                    emitter.EmitUint16(claimBase);
+                    emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+                    emitter.EmitUint16(oldValSlot);
+                }
             }
         } else if (ca.Left()->Kind() == NK_MemberExpr) {
             //Class/struct field: evaluate outer once, read field, compute, write back
@@ -4187,22 +4311,34 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 return;
             }
 
-            EmitExpression(*memberExpr.Outer(), emitter, m_currFunc->tempSlot);
-            if (outerType->Kind() == NK_ClassDecl) {
-                emitter.Emit(OpCode::OP_NullCheck);
-                emitter.EmitUint16(m_currFunc->tempSlot);
+            //Phase 10 audit round-3: read-modify-write parks three live
+            //values across the RHS emission (receiver, old value, RHS) —
+            //all three go into exclusive EvalAreaClaim slots for the same
+            //reason as the implicit this-field branch above: PickTempSlot
+            //falls back to tempSlot for non-temp exclude slots, so a
+            //receiver parked in any temp is clobberable by a nested RHS.
+            {
+                EvalAreaClaim claim(*this, 3);
+                uint16_t claimBase = claim.base();
+                uint16_t oldValSlot = claimBase + VALUE_SIZE;
+                uint16_t rhsSlot = claimBase + 2 * VALUE_SIZE;
+                EmitExpression(*memberExpr.Outer(), emitter, claimBase);
+                if (outerType->Kind() == NK_ClassDecl) {
+                    emitter.Emit(OpCode::OP_NullCheck);
+                    emitter.EmitUint16(claimBase);
+                }
+                emitter.Emit(OpCode::OP_LoadField);
+                emitter.EmitUint16(oldValSlot);
+                emitter.EmitUint16(claimBase);
+                emitter.EmitUint16(fieldOff);
+                EmitExpression(*ca.Right(), emitter, rhsSlot);
+                EmitCompoundOp(op, emitter, oldValSlot,
+                    rhsSlot, lhsFieldType);
+                emitter.Emit(OpCode::OP_StoreField);
+                emitter.EmitUint16(claimBase);
+                emitter.EmitUint16(fieldOff);
+                emitter.EmitUint16(oldValSlot);
             }
-            emitter.Emit(OpCode::OP_LoadField);
-            emitter.EmitUint16(m_currFunc->tempSlot2);
-            emitter.EmitUint16(m_currFunc->tempSlot);
-            emitter.EmitUint16(fieldOff);
-            EmitExpression(*ca.Right(), emitter, m_currFunc->callParamBase);
-            EmitCompoundOp(op, emitter, m_currFunc->tempSlot2,
-                m_currFunc->callParamBase, lhsFieldType);
-            emitter.Emit(OpCode::OP_StoreField);
-            emitter.EmitUint16(m_currFunc->tempSlot);
-            emitter.EmitUint16(fieldOff);
-            emitter.EmitUint16(m_currFunc->tempSlot2);
         }
         //Note: subscript compound assign (arr[i] += 1) is intentionally not
         //supported in Phase 9a — left-value single-eval requires 4 scratch
@@ -4289,28 +4425,35 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 && arrField->EvalDataType())
                 elemType = arrField->EvalDataType();
         }
-        //Evaluate value to tempSlot2 first (avoids clobbering by array ref eval)
-        EmitExpression(*sub.Value(), emitter, m_currFunc->tempSlot2);
-        //Evaluate array reference to tempSlot
-        EmitExpression(*sub.Array(), emitter, m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        //Evaluate index to callParamBase (avoids tempSlot/tempSlot2)
-        uint16_t indexSlot = m_currFunc->callParamBase;
+        //Phase 10 audit round-2: runs entirely inside an EvalAreaClaim(3)
+        //[array, index, value] — the old tempSlot/tempSlot2/callParamBase
+        //staging let any nested expression in the index (subscript-get,
+        //binary arithmetic — both reuse the shared temps) clobber the
+        //parked base/value. Claim slots are exclusive, same discipline as
+        //the container path above.
+        EvalAreaClaim claim(*this, 3);
+        uint16_t claimBase = claim.base();
+        uint16_t indexSlot = claimBase + VALUE_SIZE;
+        uint16_t valueSlot = claimBase + 2 * VALUE_SIZE;
+        EmitExpression(*sub.Value(), emitter, valueSlot);
         EmitExpression(*sub.Index(), emitter, indexSlot);
+        //Array reference last, null-checked (mirrors container path).
+        EmitExpression(*sub.Array(), emitter, claimBase);
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(claimBase);
         //For struct element types, deep-copy value before storing.
         if (elemType && RuntimeTypeKind(elemType) == RTK_Struct) {
             int structIdx = m_compiledModule.FindStruct(elemType->Name());
             emitter.Emit(OpCode::OP_CopyStruct);
-            emitter.EmitUint16(m_currFunc->tempSlot2);
-            emitter.EmitUint16(m_currFunc->tempSlot2);
+            emitter.EmitUint16(valueSlot);
+            emitter.EmitUint16(valueSlot);
             emitter.EmitUint16(structIdx >= 0
                 ? static_cast<uint16_t>(structIdx) : 0);
         }
         emitter.Emit(OpCode::OP_StoreElement);
-        emitter.EmitUint16(m_currFunc->tempSlot);
+        emitter.EmitUint16(claimBase);
         emitter.EmitUint16(indexSlot);
-        emitter.EmitUint16(m_currFunc->tempSlot2);
+        emitter.EmitUint16(valueSlot);
         return;
     }
 
@@ -5163,249 +5306,13 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
         return false;
     }
 
-    // Magic
-    const char magic[] = "NLANGMOD";
-    fs.write(magic, 8);
-
-    // Version
-    uint16_t majorVer = 1, minorVer = 6;
-    fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
-    fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
-
-    // Module name
-    uint32_t nameLen = static_cast<uint32_t>(m_compiledModule.name.size());
-    fs.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
-    fs.write(m_compiledModule.name.c_str(), nameLen);
-
-    // String constants
-    uint32_t strCount = static_cast<uint32_t>(
-        m_compiledModule.stringConstants.size());
-    fs.write(reinterpret_cast<const char*>(&strCount), sizeof(strCount));
-    for (auto& s : m_compiledModule.stringConstants) {
-        uint32_t len = static_cast<uint32_t>(s.size());
-        fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
-        fs.write(s.c_str(), len);
+    //Serialization lives in WriteCompiledModule (ModuleSaver.cpp) — the
+    //single .nmod writer, shared with unit tests so hand-written byte
+    //layouts cannot drift from the reader (ModuleLoader).
+    if (!WriteCompiledModule(fs, m_compiledModule)) {
+        env.Log(CLL_Fatal, "Failed to write module: %s.", sFilePath.c_str());
+        return false;
     }
-
-    // Functions
-    uint32_t funcCount = static_cast<uint32_t>(
-        m_compiledModule.functions.size());
-    fs.write(reinterpret_cast<const char*>(&funcCount), sizeof(funcCount));
-
-    for (auto& func : m_compiledModule.functions) {
-        uint32_t fnameLen = static_cast<uint32_t>(func.name.size());
-        fs.write(reinterpret_cast<const char*>(&fnameLen), sizeof(fnameLen));
-        fs.write(func.name.c_str(), fnameLen);
-
-        fs.write(reinterpret_cast<const char*>(&func.localsSize),
-                 sizeof(func.localsSize));
-        fs.write(reinterpret_cast<const char*>(&func.paramCount),
-                 sizeof(func.paramCount));
-        fs.write(reinterpret_cast<const char*>(&func.returnTypeKind),
-                 sizeof(func.returnTypeKind));
-        fs.write(reinterpret_cast<const char*>(&func.intrinsicId),
-                 sizeof(func.intrinsicId));
-
-        //Phase 9f v1.6: native function flag (body-less declaration
-        //dispatched through the host's native table by name).
-        uint8_t nativeFlag = func.isNative ? 1 : 0;
-        fs.write(reinterpret_cast<const char*>(&nativeFlag),
-                 sizeof(nativeFlag));
-
-        //Option B v1.3: per-formal default-value descriptors. Always
-        //emitted (count first) so reader can skip even when no defaults.
-        //Count == func.defaultValues.size(); formals without defaults
-        //carry tag=RTK_Void to preserve positional alignment, so the
-        //vector is naturally dense.
-        uint16_t defaultCount = static_cast<uint16_t>(
-            func.defaultValues.size());
-        fs.write(reinterpret_cast<const char*>(&defaultCount),
-                 sizeof(defaultCount));
-        for (const auto& dv : func.defaultValues) {
-            fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
-            fs.write(reinterpret_cast<const char*>(&dv.intValue),
-                     sizeof(dv.intValue));
-            fs.write(reinterpret_cast<const char*>(&dv.floatValue),
-                     sizeof(dv.floatValue));
-            fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
-                     sizeof(dv.stringIdx));
-        }
-
-        uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());
-        fs.write(reinterpret_cast<const char*>(&bcSize), sizeof(bcSize));
-        if (bcSize > 0)
-            fs.write(reinterpret_cast<const char*>(func.bytecode.data()),
-                     bcSize);
-
-        //Phase 9d v1.4: try/catch table. Always emit count first so the
-        //reader can skip even when empty. Each entry is 5 uint16 fields.
-        uint16_t tryBlockCount = static_cast<uint16_t>(func.tryBlocks.size());
-        fs.write(reinterpret_cast<const char*>(&tryBlockCount),
-                 sizeof(tryBlockCount));
-        for (const auto& tb : func.tryBlocks) {
-            fs.write(reinterpret_cast<const char*>(&tb.startPc),
-                     sizeof(tb.startPc));
-            fs.write(reinterpret_cast<const char*>(&tb.endPc),
-                     sizeof(tb.endPc));
-            fs.write(reinterpret_cast<const char*>(&tb.handlerPc),
-                     sizeof(tb.handlerPc));
-            fs.write(reinterpret_cast<const char*>(&tb.exceptionClassIdx),
-                     sizeof(tb.exceptionClassIdx));
-            fs.write(reinterpret_cast<const char*>(&tb.catchLocalOff),
-                     sizeof(tb.catchLocalOff));
-        }
-
-        //v1.5: local-variable descriptors. The GC root scan (MarkPhase)
-        //walks every frame's locals to find heap references; without this
-        //table the loaded module's root set is empty and every collection
-        //sweeps live objects. Always emit count first so readers can skip
-        //when empty. Names are kept for runtime diagnostics.
-        uint16_t localCount = static_cast<uint16_t>(func.locals.size());
-        fs.write(reinterpret_cast<const char*>(&localCount),
-                 sizeof(localCount));
-        for (const auto& ld : func.locals) {
-            fs.write(reinterpret_cast<const char*>(&ld.offset),
-                     sizeof(ld.offset));
-            fs.write(reinterpret_cast<const char*>(&ld.size),
-                     sizeof(ld.size));
-            fs.write(reinterpret_cast<const char*>(&ld.isParam),
-                     sizeof(ld.isParam));
-            fs.write(reinterpret_cast<const char*>(&ld.typeKind),
-                     sizeof(ld.typeKind));
-            uint32_t lnameLen = static_cast<uint32_t>(ld.name.size());
-            fs.write(reinterpret_cast<const char*>(&lnameLen),
-                     sizeof(lnameLen));
-            fs.write(ld.name.c_str(), lnameLen);
-        }
-    }
-
-    // Struct descriptors
-    uint32_t structCount = static_cast<uint32_t>(
-        m_compiledModule.structs.size());
-    fs.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
-
-    for (auto& st : m_compiledModule.structs) {
-        uint32_t stNameLen = static_cast<uint32_t>(st.name.size());
-        fs.write(reinterpret_cast<const char*>(&stNameLen), sizeof(stNameLen));
-        fs.write(st.name.c_str(), stNameLen);
-
-        fs.write(reinterpret_cast<const char*>(&st.fieldCount),
-                 sizeof(st.fieldCount));
-
-        //Field names
-        for (size_t i = 0; i < st.fieldCount; ++i) {
-            uint32_t fnLen = static_cast<uint32_t>(st.fieldNames[i].size());
-            fs.write(reinterpret_cast<const char*>(&fnLen), sizeof(fnLen));
-            fs.write(st.fieldNames[i].c_str(), fnLen);
-        }
-
-        //Field type kinds
-        for (size_t i = 0; i < st.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&st.fieldTypeKinds[i]),
-                     sizeof(st.fieldTypeKinds[i]));
-        }
-
-        //Field struct indices
-        for (size_t i = 0; i < st.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&st.fieldStructIndices[i]),
-                     sizeof(st.fieldStructIndices[i]));
-        }
-
-        //Field class indices
-        for (size_t i = 0; i < st.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&st.fieldClassIndices[i]),
-                     sizeof(st.fieldClassIndices[i]));
-        }
-    }
-
-    // Class descriptors
-    uint32_t classCount = static_cast<uint32_t>(
-        m_compiledModule.classes.size());
-    fs.write(reinterpret_cast<const char*>(&classCount), sizeof(classCount));
-
-    for (auto& cc : m_compiledModule.classes) {
-        uint32_t nameLen = static_cast<uint32_t>(cc.name.size());
-        fs.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
-        fs.write(cc.name.c_str(), nameLen);
-
-        fs.write(reinterpret_cast<const char*>(&cc.fieldCount),
-                 sizeof(cc.fieldCount));
-        fs.write(reinterpret_cast<const char*>(&cc.superClassIdx),
-                 sizeof(cc.superClassIdx));
-
-        //Field names
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            uint32_t fnLen = static_cast<uint32_t>(cc.fieldNames[i].size());
-            fs.write(reinterpret_cast<const char*>(&fnLen), sizeof(fnLen));
-            fs.write(cc.fieldNames[i].c_str(), fnLen);
-        }
-
-        //Field type kinds
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldTypeKinds[i]),
-                     sizeof(cc.fieldTypeKinds[i]));
-        }
-
-        //Field struct indices
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldStructIndices[i]),
-                     sizeof(cc.fieldStructIndices[i]));
-        }
-
-        //Field class indices
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldClassIndices[i]),
-                     sizeof(cc.fieldClassIndices[i]));
-        }
-
-        //Field access
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldAccess[i]),
-                     sizeof(cc.fieldAccess[i]));
-        }
-
-        //Method indices
-        uint16_t methodCount = static_cast<uint16_t>(cc.methodIndices.size());
-        fs.write(reinterpret_cast<const char*>(&methodCount), sizeof(methodCount));
-        for (size_t i = 0; i < cc.methodIndices.size(); ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.methodIndices[i]),
-                     sizeof(cc.methodIndices[i]));
-        }
-
-        //Constructor index
-        fs.write(reinterpret_cast<const char*>(&cc.constructorIdx),
-                 sizeof(cc.constructorIdx));
-    }
-
-    //Array type descriptors
-    uint32_t arrayTypeCount = static_cast<uint32_t>(
-        m_compiledModule.arrayTypes.size());
-    fs.write(reinterpret_cast<const char*>(&arrayTypeCount),
-             sizeof(arrayTypeCount));
-    for (auto& at : m_compiledModule.arrayTypes) {
-        fs.write(reinterpret_cast<const char*>(&at.elemKind),
-                 sizeof(at.elemKind));
-        fs.write(reinterpret_cast<const char*>(&at.elemTypeIdx),
-                 sizeof(at.elemTypeIdx));
-    }
-
-    //Phase 8e-9b: enum name tables (per-enum vector of value names).
-    //Format: uint32 enumCount, then per enum: uint32 valueCount, then
-    //per value: uint32 nameLen + name bytes.
-    uint32_t enumCount = static_cast<uint32_t>(
-        m_compiledModule.enumNames.size());
-    fs.write(reinterpret_cast<const char*>(&enumCount), sizeof(enumCount));
-    for (auto& names : m_compiledModule.enumNames) {
-        uint32_t valueCount = static_cast<uint32_t>(names.size());
-        fs.write(reinterpret_cast<const char*>(&valueCount), sizeof(valueCount));
-        for (auto& n : names) {
-            uint32_t len = static_cast<uint32_t>(n.size());
-            fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
-            fs.write(n.c_str(), len);
-        }
-    }
-
-    fs.close();
     return true;
 }
 

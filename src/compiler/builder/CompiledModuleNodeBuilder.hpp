@@ -5,7 +5,7 @@
 #include "SnExpressions.h"
 #include "SnStatements.h"
 #include "BuildEnvironment.h"
-#include "CompiledModule.h"
+#include "nlang/vm/CompiledModule.h"
 #include <nlang/runtime/RnTypes.h>
 #include <string>
 #include <vector>

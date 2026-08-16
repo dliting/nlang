@@ -724,3 +724,12 @@ boxing_zero_sentinel 7
 audit_9c_defaults_matrix 0
 audit_9d_exception_matrix 0
 audit_9e_void_out_matrix 0
+audit_vm_listinit_staging 0
+audit_vm_subassign_staging 0
+audit_vm_memberwrite_staging 0
+audit_vm_compound_staging 0
+audit_vm_deep_nesting 0
+audit_vm_memberwrite_plain_staging 0
+audit_vm_selfref_get 0
+audit_vm_binary_depth 0
+audit_vm_assign_alias 0

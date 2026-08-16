@@ -1,0 +1,75 @@
+// Phase 10 audit round-4: PLAIN member assignment (`obj.f = v`) still parked
+// the receiver in tempSlot across the RHS emission — round-3 fixed the
+// compound twins (`obj.f += v`) but missed the plain twins. Two clobber
+// sources fire when the RHS contains a call: an argument binary's right
+// operand (EmitBinding emits args into claim slots, so PickTempSlot falls
+// through to tempSlot) and the struct-arg deep copy (CopyStruct uses
+// tempSlot as scratch). Pre-fix: helper-with-binary-arg RHS crashed with
+// "struct field store out of bounds"; the struct-arg RHS silently stored
+// through the copied struct instead of the receiver.
+int helper(int a, int b) {
+    return a * 100 + b;
+}
+
+struct Point {
+    int x;
+    int y;
+}
+
+struct Inner {
+    int v;
+}
+
+struct Outer {
+    Inner inner;
+}
+
+class Box {
+    public int v;
+}
+
+int takes(Point p) {
+    return p.x + p.y;
+}
+
+int main() {
+    int r = 0;
+
+    // class receiver, call with binary arg in RHS — pre-fix crash
+    Box b = new Box{v: 0};
+    b.v = helper(1 + 2, 3);
+    if (b.v != 303) r += 1;
+
+    // class receiver, struct-arg call in RHS — pre-fix silent wrong store
+    Point p;
+    p.x = 1;
+    p.y = 2;
+    Box b2 = new Box{v: 0};
+    b2.v = takes(p);
+    if (b2.v != 3) r += 2;
+
+    // struct receiver, call with binary arg in RHS — pre-fix crash
+    Point q;
+    q.x = 0;
+    q.y = helper(2 + 3, 7);
+    if (q.y != 507) r += 4;
+
+    // container member-write, call with binary arg in the value — pre-fix crash
+    List<Box> lc = [new Box{v: 0}];
+    lc[0].v = helper(1 + 4, 9);
+    if (lc.get(0).v != 509) r += 8;
+
+    // struct-to-struct field assign with a nested call RHS (consistency
+    // guard for the same family — the parked fresh-copy handle)
+    Outer o;
+    Inner src;
+    src.v = helper(6 + 1, 2);
+    o.inner = src;
+    if (o.inner.v != 702) r += 16;
+
+    // literal RHS control
+    b.v = 5;
+    if (b.v != 5) r += 32;
+
+    return r;
+}

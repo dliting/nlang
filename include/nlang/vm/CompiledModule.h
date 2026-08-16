@@ -1,9 +1,16 @@
 #pragma once
 #include <cstdint>
+#include <ostream>
 #include <string>
 #include <vector>
 
 namespace nlang {
+
+//.nmod format version. Single source of truth shared by the writer
+//(WriteCompiledModule in ModuleSaver.cpp) and the reader (ModuleLoader) —
+//bump both sides atomically by editing only these constants.
+inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 6;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -240,5 +247,10 @@ struct CompiledModule {
         return -1;
     }
 };
+
+//Serialize a CompiledModule to a stream in the current .nmod format.
+//Single writer shared by VmBackend::SaveModule (ncc) and unit tests, so
+//hand-written byte layouts can never drift from the reader again.
+bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod);
 
 } // namespace nlang

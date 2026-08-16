@@ -1,0 +1,48 @@
+// Phase 10 audit round-3: array subscript reads park receiver + index in
+// an exclusive EvalAreaClaim(2) (mirroring the container get() shape), so
+// nesting depth is unbounded. The old PickTempSlot chain wrapped
+// tempSlot4 → tempSlot at depth 5, clobbering a parked value.
+int main() {
+    int r = 0;
+    int[] a = new int[2];
+    int[] b = new int[2];
+    int[] c = new int[2];
+    int[] d = new int[2];
+    int[] e = new int[2];
+    int[] f = new int[2];
+    int[] g = new int[2];
+
+    // depth 5 read
+    e[0] = 1;
+    d[1] = 1;
+    c[1] = 1;
+    b[1] = 1;
+    a[1] = 42;
+    if (a[b[c[d[e[0]]]]] != 42) r += 1;
+
+    // depth 7 read
+    g[0] = 1;
+    f[1] = 1;
+    e[1] = 1;
+    d[1] = 1;
+    c[1] = 1;
+    b[1] = 1;
+    a[1] = 99;
+    if (a[b[c[d[e[f[g[0]]]]]]] != 99) r += 2;
+
+    // deep read inside a binary (receiver parking under a claim-rooted
+    // scratch chain) — the depth-7 check above left a[1] = 99
+    a[1] = 42;
+    if (1 + a[b[c[d[e[0]]]]] != 43) r += 4;
+
+    // deep read in a store index (round-2 finding family)
+    a[b[c[d[e[0]]]]] = 7;
+    if (a[1] != 7) r += 8;
+
+    // depth 2 control
+    b[0] = 0;
+    a[0] = 5;
+    if (a[b[0]] != 5) r += 16;
+
+    return r;
+}

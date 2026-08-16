@@ -1,6 +1,6 @@
 #pragma once
 #include <nlang/compiler/ICodeBackend.h>
-#include "CompiledModule.h"
+#include "nlang/vm/CompiledModule.h"
 #include "BytecodeEmitter.h"
 #include <unordered_map>
 #include <unordered_set>

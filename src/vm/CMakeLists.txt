@@ -3,6 +3,7 @@ add_library(nlang_vm
     VmExecutor.cpp
     VmBackend.cpp
     ModuleLoader.cpp
+    ModuleSaver.cpp
 )
 
 target_include_directories(nlang_vm

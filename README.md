@@ -63,6 +63,7 @@ cmake --build build
 ```
 include/nlang/runtime/     - Runtime public headers
 include/nlang/compiler/    - Compiler public headers
+include/nlang/vm/          - VM public headers (.nmod format constants)
 src/runtime/               - Runtime implementation
 src/compiler/              - Compiler implementation (grammar, generated, builder)
 src/vm/                    - VM backend implementation

@@ -1,0 +1,44 @@
+// Phase 10 audit round-4: the container subscript read (`i = li[i]`) emitted
+// the receiver into resultOffset BEFORE emitting the index — a
+// self-referential read let the List handle overwrite the index's source
+// slot first ("List index out of bounds", or a coincidentally-valid handle
+// reading the wrong index). Round-3 fixed the array twin (receiver parks in
+// claim[0], resultOffset is written only by the final store); the container
+// twin now emits the receiver straight into the claim too.
+int main() {
+    int r = 0;
+    //Heap separators: make li's handle differ from any index value.
+    List<int> l0 = [1];
+    List<int> l1 = [2];
+    List<int> li = [10, 20, 30, 40];
+
+    // i = li[i] — pre-fix: index read the already-overwritten slot
+    int i = 3;
+    i = li[i];
+    if (i != 40) r += 1;
+
+    // j = li[j] at a different index
+    int j = 1;
+    j = li[j];
+    if (j != 20) r += 2;
+
+    // self-referential read nested in a binary
+    int k = 2;
+    k = li[k] + 1;
+    if (k != 31) r += 4;
+
+    // array twin control (fixed in round-3)
+    int[] arr = new int[3];
+    arr[0] = 7;
+    arr[1] = 8;
+    arr[2] = 9;
+    int m = 2;
+    m = arr[m];
+    if (m != 9) r += 8;
+
+    // plain non-self-referential read control
+    int n = li[0];
+    if (n != 10) r += 16;
+
+    return r;
+}

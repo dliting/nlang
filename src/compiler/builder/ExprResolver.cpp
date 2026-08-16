@@ -35,9 +35,25 @@ static bool IsBuiltinExceptionClassName(const std::string& name)
         || name == "AssertionException";
 }
 
+//Phase 10 audit H2: single predicate for every name GetBuiltinClassDecl
+//can synthesize. Call sites used to duplicate this filter three times —
+//a future builtin added to one copy but not the chain below would fall
+//into the old `s_pObjectClass` fallback and silently corrupt the Object
+//singleton. Everything routes through this one function now.
+static bool IsBuiltinClassName(const std::string& name)
+{
+    return name == "ByteStream" || name == "FileStream" || name == "Object"
+        || IsBuiltinExceptionClassName(name);
+}
+
+//Precondition: name passes IsBuiltinClassName. Returns nullptr for any
+//other name (defensive — callers skip resolution and the identifier
+//surfaces as a normal unresolved-name error).
 static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 	const ISourceLocation* pLoc)
 {
+	if (!IsBuiltinClassName(name))
+		return nullptr;
 	//Phase 9d: force-create Exception singleton first so subclass chain
 	//walk has a target even if the subclass is requested first.
 	if (IsBuiltinExceptionClassName(name) && !s_pExceptionClass) {
@@ -57,7 +73,7 @@ static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		: (name == "DivByZeroException") ? s_pDivZeroExcClass
 		: (name == "IndexOutOfBoundsException") ? s_pOobExcClass
 		: (name == "AssertionException") ? s_pAssertExcClass
-		: s_pObjectClass;  //fallback (shouldn't happen — call site filters)
+		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above
 	if (!rpRef)
 	{
 		auto* pName = new std::string(name);
@@ -194,8 +210,7 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	if (!pFieldExpr->IsResolved())
 	{
 		const auto& name = pFieldExpr->ToString();
-		if (name == "ByteStream" || name == "FileStream" || name == "Object"
-			|| IsBuiltinExceptionClassName(name))
+		if (IsBuiltinClassName(name))
 		{
 			ResolveFieldExprAs(*pFieldExpr,
 				GetBuiltinClassDecl(name, pFieldExpr->Location()));
@@ -330,8 +345,7 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 		//Phase 9d: Exception hierarchy.
 		//Synthesize a singleton SnClassDecl when the name is not found.
 		const auto& name = idExpr.Name();
-		if (name == "ByteStream" || name == "FileStream" || name == "Object"
-			|| IsBuiltinExceptionClassName(name))
+		if (IsBuiltinClassName(name))
 		{
 			ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
 			return;
@@ -1171,8 +1185,7 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	if (!pClassName->IsResolved())
 	{
 		const auto& name = pClassName->ToString();
-		if (name == "ByteStream" || name == "FileStream" || name == "Object"
-			|| IsBuiltinExceptionClassName(name))
+		if (IsBuiltinClassName(name))
 		{
 			ResolveFieldExprAs(*pClassName,
 				GetBuiltinClassDecl(name, pClassName->Location()));

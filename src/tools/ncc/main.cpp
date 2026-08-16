@@ -32,16 +32,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-#ifdef _WIN32
-    nlang::InstallCrashReporter("ncc");
-#endif
     //Suppress error/crash popup dialogs so failures terminate
     //immediately instead of blocking automated testing.
+    //Order matters: SetErrorMode first, then the crash reporter
+    //(CrashReporter.h contract) so a crash during startup can't pop
+    //a WER dialog before the reporter owns the failure path.
 #ifdef _WIN32
     SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG | _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    nlang::InstallCrashReporter("ncc");
 #endif
 
     Runtime::StaticInit();
