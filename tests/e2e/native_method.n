@@ -1,0 +1,16 @@
+//Phase 9f: native declaration as a class method. Works end-to-end: the
+//callee record carries the native flag through registration, and virtual
+//dispatch reaches CallNative with `this` riding at args[0] — natConst
+//ignores its single this-arg and returns 77 deterministically.
+class C {
+    public int v;
+    public native int natConst();
+}
+
+int main() {
+    C a = new C{ v: 1 };
+    C b = new C{ v: 2 };
+    if (a.natConst() != 77)
+        return 1;
+    return b.natConst();
+}

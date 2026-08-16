@@ -2366,6 +2366,15 @@ std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
     alignas(int32_t) uint8_t resultBuf[4] = {0};
     if (callee.intrinsicId != INTR_None) {
         ExecuteIntrinsic(callee.intrinsicId, 0, paramFrame, resultBuf);
+    } else if (callee.isNative) {
+        //Never run a native record through ExecuteFunction: its bytecode
+        //is empty, so the loop falls straight through and the untouched
+        //(zeroed) result buffer fabricates a string. The by-name native
+        //table cannot express a per-class toString and a NativeFn cannot
+        //intern a string anyway — refuse until 9f-2 marshalling exists.
+        throw std::runtime_error(
+            "NLang VM: native toString cannot serve implicit formatting: "
+            + m_currModule->classes[static_cast<size_t>(classIdx)].name);
     } else {
         std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
         uint16_t paramBytes = callee.paramCount * sizeof(int32_t);

@@ -8,6 +8,12 @@
 //raw int32/float bits or heap idx, exactly the bytes the caller staged at
 //callParamBase. The return value is memcpy'd into ret (may be null for
 //void natives). argc is the declaration's paramCount.
+//
+//Production note: ncc and nvm are test hosts — they always register these
+//natives so the e2e suite can exercise the binding path. A production
+//embedder would NOT include this header; they register their own table
+//via VmExecutor::RegisterNative. Scripts calling natAdd/natConst/etc.
+//against a non-test host will get "native function not registered".
 #include "VmExecutor.h"
 #include <cstdint>
 #include <cstring>

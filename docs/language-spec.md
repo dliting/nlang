@@ -1379,11 +1379,20 @@ invokes the native directly with the caller's staged argument cells:
   table entry.
 - Cross-module: a module importing a `.nmod` containing natives calls
   them through the same table (the v1.6 native flag survives the merge).
-- Class-member `native` methods are **not yet resolvable** at call sites
-  (9f-2): the declaration parses and the VM supports dispatch, but the
-  resolver currently rejects the call with "function does not exist".
+- Class-member `native` methods work: dispatch reaches the native through
+  the normal method path, with `this` riding at `args[0]` (the receiver's
+  heap index) followed by the declared parameters — mirroring the bytecode
+  calling convention. A host native therefore reads user parameter `j` at
+  `args[(1+j)*4]` when bound as a method, but at `args[j*4]` when bound as
+  a free function. Registering one implementation under both shapes is a
+  signature mismatch (see above).
 - String/struct/class argument marshalling beyond the raw 4-byte ABI is
   future work (9f-2).
+- **Test host note**: the `ncc` and `nvm` binaries are test hosts — they
+  always register `natAdd`, `natConst`, `natFAdd`, and `natPing` so the
+  e2e suite can exercise the binding path. A production embedder would
+  not include `TestNatives.h`; scripts calling those names against a
+  non-test host will get `"native function not registered"` at runtime.
 
 ### Frame Layout (Phase 9c follow-up)
 

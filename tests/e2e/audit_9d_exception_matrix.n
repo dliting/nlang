@@ -1,0 +1,48 @@
+// Phase 9 audit: exception dispatch precedence, finally-on-return, nested
+// try + rethrow with message preservation, array-of-struct write chains.
+struct P2 { int a; int b; }
+int f(int mode) {
+	int trail = 0;
+	try {
+		if (mode == 1)
+			throw new Exception("boom");
+		if (mode == 2) {
+			int[] a = new int[1];
+			int z = a[5];
+			return 90;
+		}
+		return 0;
+	} catch (DivByZeroException e) {
+		trail += 1;
+	} catch (IndexOutOfBoundsException e) {
+		trail += 2;
+	} catch (Exception e) {
+		trail += 4;
+	} finally {
+		trail += 10;
+	}
+	return trail;
+}
+int main() {
+	int r = 0;
+	if (f(0) != 0) r += 1;
+	if (f(1) != 14) r += 2;
+	if (f(2) != 12) r += 4;
+	// nested try + rethrow
+	try {
+		try {
+			throw new Exception("inner");
+		} catch (Exception e) {
+			throw new Exception("outer");
+		}
+	} catch (Exception e2) {
+		if (e2.message != "outer") r += 8;
+	}
+	// array-of-struct write chain
+
+	P2[] arr = new P2[2];
+	arr[0].a = 3;
+	arr[1].b = 4;
+	if (arr[0].a + arr[1].b != 7) r += 16;
+	return r;
+}

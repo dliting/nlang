@@ -1,0 +1,19 @@
+//Phase 9f review: implicit formatting (container toString) that reaches a
+//native toString must throw, never silently fabricate a string from the
+//zeroed result buffer. Direct resolver-bound calls already throw via
+//CallNative's not-registered check; this locks the VM-internal virtual
+//dispatch path (FormatArray -> InvokeVirtualToString) to the same rule.
+class C {
+    public native string toString();
+}
+
+int main() {
+    C[] arr = new C[1];
+    arr[0] = new C();
+    string s = arr.toString();
+    //Unreachable if the throw works. If the bug regresses (native
+    //toString silently executes empty bytecode), s would be a fabricated
+    //empty string and we'd reach here — return 99 to make the test FAIL
+    //(expected exit 1, got 99).
+    return 99;
+}

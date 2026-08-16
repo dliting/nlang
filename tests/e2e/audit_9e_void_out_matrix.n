@@ -1,0 +1,23 @@
+// Phase 9 audit: void function call forms, multi-out writeback order,
+// return-value vs out independence.
+void log2(int x, out int doubled) {
+	doubled = x * 2;
+}
+void noop() { }
+int useOut(out int a, out int b, int mul) {
+	a = 3 * mul;
+	b = 4 * mul;
+	return 5 * mul;
+}
+int main() {
+	int d = 0;
+	log2(21, out d);
+	noop();
+	int p = 0; int q = 0;
+	int r = useOut(out p, out q, 2);
+	if (d != 42) return 1;
+	if (p != 6 || q != 8) return 2;
+	if (r != 10) return 3;
+	// void as expression must be rejected (separate compile_error test)
+	return d + p + q + r - 66;
+}

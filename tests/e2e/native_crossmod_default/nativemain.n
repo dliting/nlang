@@ -1,0 +1,12 @@
+//Phase 9f audit consumer: calls the imported native directly (with
+//default) and through the producer's bytecode wrapper. Expected exit 0.
+//Direct: natAdd(37) with default b=5 → 42. Wrapped: natAdd(10) → 15.
+import "nativelib";
+
+int main() {
+    if (wrapped() != 15)
+        return 1;
+    if (natAdd(37) != 42)
+        return 2;
+    return 0;
+}

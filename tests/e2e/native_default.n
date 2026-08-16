@@ -1,0 +1,16 @@
+//Phase 9f audit: native with default parameter. The default is signature
+//metadata serialized in defaultValues (VmBackend native branch), so the
+//resolver fills the missing arg at the call site just like a non-native
+//function. natAdd is registered as NatAdd (a+b) in the test host.
+//Calling natAdd(37) with default b=5 should yield 42.
+native int natAdd(int a, int b = 5);
+
+int main() {
+    //Explicit both args: 20 + 22 = 42
+    if (natAdd(20, 22) != 42)
+        return 1;
+    //Default b=5: 37 + 5 = 42
+    if (natAdd(37) != 42)
+        return 2;
+    return 0;
+}

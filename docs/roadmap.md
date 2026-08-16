@@ -339,7 +339,8 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - ABI 与 intrinsic 一致：args 为 callParamBase 起 4 字节裸单元（int/float/heap idx），返回 4 字节写 pResult；未注册 → 调用点抛错（绝不静默空 bytecode）
 - 默认参数同模块/跨模块均可用（native 分支补 defaultValues 序列化；MergeImportedFinalize placeholder 透传 isNative——漏传会让 consumer 调空 bytecode 静默出垃圾）
 - 拒绝路径：native+body / native+out 为编译错误；ncc/nvm 内建 natAdd/natConst/natFAdd/natPing 测试面（TestNatives.h）
-- 9f-2 遗留：class-member native（VM 派发已支持，resolver 拒绝调用）、string/struct/class 参数列集、注册表签名校验
+- class-member native **可用**（审计轮实证，此前误判为 resolver 拒绝——实为缺 `public`）：方法路径派发到 CallNative，`this` 按字节码约定在 args[0]（heap idx），用户参数从 args[1] 起；e2e native_method.n 锁定
+- 9f-2 遗留：string/struct/class 参数列集、注册表签名校验（按名绑定，同一 native 注册为方法与自由函数时参数错位 = 静默垃圾，见 native_method ABI 注记）
 
 ### 阶段 10：IDE 移植 / LSP
 先实现原有基于qt的IDE，即nide的移植。
@@ -380,8 +381,8 @@ LSP 方案支持，即VS Code / JetBrains 等现代编辑器，放在后面实�
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
 - ~~已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败~~ — **已修复**（EmitPResultRefresh 12 位点，commit df75eec/d4b0da1）
 - Phase 9f（2026-08-16）：native 函数绑定 MVP——`.nmod` v1.6 + VmExecutor RegisterNative 按名派发（CallNative 统一 OP_CallFunc/方法路径/Execute(main)）+ intrinsic 同构 4 字节 ABI + 默认参数（含跨模块，native 分支补 defaultValues 序列化 + MergeImported placeholder 透传 isNative）+ native+body/out 编译拒绝 + ncc/nvm TestNatives 测试面 + 8 新测试（547 total）；同轮修复：FindFuncByInvoke FFR_FuncNameNotFound 路径不写 out-param → 调用方读栈垃圾指针段错误 ncc（潜伏 bug，import stub 改变栈布局后显形；callee 入口清零根治）+ ncc/nvm 内建 SEH+dbghelp 符号化崩溃报告器（本轮定位即靠它）
-- 9f-2 遗留：class-member native（VM 派发已支持，resolver 拒绝）、string/struct/class 参数列集、注册表签名校验
-- 下一步：Phase 9 全特性循环审计（9a-9f 逐特性复查 + 已知遗留清理），无问题后进入阶段 10 设计
+- 9f-2 遗留：string/struct/class 参数列集、注册表签名校验（class-member native 已实证可用：`this` 在 args[0] 的方法 ABI，e2e native_method.n 锁定）
+- 下一步：Phase 9 全特性循环审计进行中（9a-9e 复查 ✅、9f ✅ + 审计轮 5 新测试 552 total：boxing_zero_sentinel/audit_9c/9d/9e 矩阵/native_method；8e-5 零哨兵遗留实证已消），待 code-reviewer 代理结论后提交，然后进入阶段 10 设计
 
 ## 文档索引
 

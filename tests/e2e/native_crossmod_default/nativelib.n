@@ -1,0 +1,9 @@
+//Phase 9f audit: cross-module native with default parameter. The producer
+//declares a native with a default; the consumer's stub must rebuild the
+//default from defaultValues (Option B v1.3 serialization). natAdd is
+//registered as NatAdd (a+b) in the test host.
+native int natAdd(int a, int b = 5);
+
+int wrapped() {
+    return natAdd(10);  // default b=5 → 15
+}

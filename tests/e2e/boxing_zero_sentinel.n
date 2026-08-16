@@ -1,0 +1,23 @@
+// Phase 9 audit: literal 0 elements/keys across collections — the 8e-5
+// boxing null-sentinel leftover is resolved; locks add/indexOf/contains/
+// foreach/Dict-int-key against regression.
+int main() {
+	List<int> li = new List<int>();
+	li.add(0); li.add(2); li.add(0);
+	if (li.indexOf(0) != 0)
+		return 21;
+	if (!li.contains(0))
+		return 22;
+	int sum = 0;
+	foreach (int v in li)
+		sum += v;
+	if (sum != 2)
+		return 23;
+	Dict<int, string> d = new Dict<int, string>();
+	d.set(0, "zero");
+	if (!d.containsKey(0))
+		return 24;
+	if (d.get(0) != "zero")
+		return 25;
+	return 7;
+}

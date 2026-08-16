@@ -26,8 +26,12 @@ static void DisassembleFunction(const CompiledFunction& func,
     std::cout << "function " << func.name
               << " (frameSize=" << func.localsSize
               << ", params=" << func.paramCount
-              << ", returnType=" << TypeKindName(func.returnTypeKind)
-              << ")\n";
+              << ", returnType=" << TypeKindName(func.returnTypeKind);
+    if (func.isNative)
+        std::cout << ", native";
+    if (func.intrinsicId != 0xFFFF)
+        std::cout << ", intrinsic=" << func.intrinsicId;
+    std::cout << ")\n";
 
     if (func.bytecode.empty()) {
         std::cout << "  (no bytecode)\n\n";

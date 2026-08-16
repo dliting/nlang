@@ -714,5 +714,13 @@ native_float 7
 native_unregistered_throws 1
 native_body_reject compile_error
 native_crossmod 77
+native_crossmod_default 0
 unresolved_import_call compile_error
 native_out_reject compile_error
+native_method 77
+native_tostring_throws 1
+native_default 0
+boxing_zero_sentinel 7
+audit_9c_defaults_matrix 0
+audit_9d_exception_matrix 0
+audit_9e_void_out_matrix 0

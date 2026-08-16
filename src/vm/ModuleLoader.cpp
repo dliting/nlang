@@ -32,10 +32,20 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //CompiledFunction.tryBlocks section; loading a v1.3 module would
     //misalign on the new section. Product hasn't shipped, so we refuse
     //stale modules outright instead of carrying forward-compat baggage.
+    //Ceiling (v1.6 review): a floor alone let an older reader accept a
+    //newer module and misparse everything after the first added field
+    //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
+    //Every format bump must raise the ceiling alongside the floor.
+    const uint16_t kCurrentMinorVer = 6;
     if (majorVer != 1 || minorVer < 4)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
+    if (minorVer > kCurrentMinorVer)
+        throw std::runtime_error(
+            "Module version " + std::to_string(majorVer) + "."
+            + std::to_string(minorVer)
+            + " was written by a newer ncc; upgrade ncc/nvm to run it");
 
     // Module name
     uint32_t nameLen = 0;
