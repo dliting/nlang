@@ -3,6 +3,10 @@ build/
 build-asan/
 out/
 
+# Temp dirs (one-off scripts and artifacts, see CLAUDE.md)
+temp/
+scratch/
+
 # IDE files
 .vs/
 .vscode/
@@ -33,3 +37,6 @@ Thumbs.db
 *.exe
 *.dll
 *.pdb
+
+# Claude Code local settings (machine-specific permissions)
+.claude/
