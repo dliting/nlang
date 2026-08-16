@@ -707,3 +707,4 @@ dict_subscript_missing_throws 1
 list_subscript_oob_throws 1
 array_of_list 65
 init_struct_ordinal_arg 42
+init_class_positional_reject compile_error

@@ -1304,6 +1304,24 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 	if (!bIsArray && pTargetField->Kind() == NK_ClassDecl) {
 		auto* pClassDecl = static_cast<SnClassDecl*>(pTargetField);
 		if (!pClassDecl->IsBuiltinClass()) {
+			//Class initializers are identifier-keyed only: the codegen
+			//per-field store dispatches on the key name, and declaration
+			//order is meaningless with inherited fields (layout is
+			//root-ancestor-first). Value-only entries used to be silently
+			//skipped, leaving every field at its ctor default — reject
+			//them instead (struct targets keep the ordinal form).
+			for (auto& entry : sn.Entries()) {
+				if (entry.keyKind != InitEntry::KeyKind::Identifier) {
+					m_Env.Log(CLL_Error,
+						entry.pValue ? entry.pValue->Location()
+							: sn.Location(),
+						"class initializer \"new %s{...}\" requires "
+						"field:value entries; the positional form is "
+						"only valid for struct/array targets",
+						pClassDecl->Name().c_str());
+					break;
+				}
+			}
 			for (auto& field : pClassDecl->Members()) {
 				if (field.Kind() == NK_Function
 					&& field.Name() == pClassDecl->Name()) {

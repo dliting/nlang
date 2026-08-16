@@ -1,0 +1,11 @@
+//Class initializers are field:value only — the positional form would
+//be silently skipped (all fields left at their ctor defaults) and is
+//meaningless with inherited-field layouts. Reject at compile time.
+class C {
+	int x;
+}
+
+int main() {
+	C c = new C{ 5 };
+	return c.x;
+}
