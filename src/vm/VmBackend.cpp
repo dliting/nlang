@@ -733,7 +733,9 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(member);
-            if (!func.Body())
+            //Phase 9f: native declarations register like normal
+            //functions (the record carries isNative + param signature).
+            if (!func.Body() && !func.ContainFlags(NF_Native))
                 continue;
             CompiledFunction cf;
             cf.name = func.Name();
@@ -743,7 +745,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
                     auto& func = static_cast<SnFunction&>(child);
-                    if (!func.Body())
+                    if (!func.Body() && !func.ContainFlags(NF_Native))
                         continue;
                     CompiledFunction cf;
                     cf.name = func.Name();
@@ -784,7 +786,9 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(member);
-            if (!func.Body())
+            //Phase 9f: native declarations are body-less by contract but
+            //still need a generated (minimal) function record.
+            if (!func.Body() && !func.ContainFlags(NF_Native))
                 continue;
             auto it = m_funcIndexMap.find(&func);
             if (it != m_funcIndexMap.end())
@@ -797,7 +801,7 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
                     auto& func = static_cast<SnFunction&>(child);
-                    if (!func.Body())
+                    if (!func.Body() && !func.ContainFlags(NF_Native))
                         continue;
                     auto it = m_funcIndexMap.find(&func);
                     if (it != m_funcIndexMap.end())
@@ -1082,6 +1086,11 @@ void VmBackend::MergeImportedFinalize() {
             placeholder.localsSize = im.functions[i].localsSize;
             placeholder.returnTypeKind = im.functions[i].returnTypeKind;
             placeholder.intrinsicId = im.functions[i].intrinsicId;
+            //Phase 9f: native flag must survive the merge — the producer
+            //wrote no bytecode for a native declaration, so a dropped flag
+            //would leave the consumer calling empty bytecode (silent stale
+            //pResult instead of a native table lookup).
+            placeholder.isNative = im.functions[i].isNative;
             //bytecode filled in stage B.2
             m_compiledModule.functions.push_back(std::move(placeholder));
         }
@@ -1982,6 +1991,38 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
 
 void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
+
+    //Phase 9f: native function declaration (`native int f(...);`). No
+    //bytecode — the VM dispatches by name through the host-registered
+    //native table (VmExecutor::RegisterNative). The record carries only
+    //the signature: the native reads args directly from the caller's
+    //callParamBase cells and writes the return into pResult.
+    if (func.ContainFlags(NF_Native)) {
+        compiledFunc.isNative = true;
+        bool isMethod = func.Parent() && func.Parent()->Kind() == NK_ClassDecl;
+        compiledFunc.paramCount = static_cast<uint16_t>(
+            func.Params().size() + (isMethod ? 1 : 0));
+        compiledFunc.localsSize = compiledFunc.paramCount * VALUE_SIZE;
+        if (func.HasReturn() && func.ReturnType()) {
+            auto* retType = func.ReturnType()->Field();
+            compiledFunc.returnTypeKind = retType
+                ? static_cast<uint16_t>(RuntimeTypeKind(retType)) : 0;
+        } else {
+            compiledFunc.returnTypeKind = RTK_Void;
+        }
+        //Defaults are signature metadata and must be serialized here too:
+        //a cross-module consumer's stub (CreateFunctionStub) rebuilds
+        //them from defaultValues — same reasoning as Option B. Without
+        //this, `native int f(int a, int b = 22)` works in-module (AST
+        //path) but loses the default after import.
+        for (auto& param : func.Params()) {
+            auto dv = ExtractDefaultValue(param.Value());
+            if (param.Value() && !dv.hasDefault())
+                dv.tag = RTK_Unfoldable;
+            compiledFunc.defaultValues.push_back(dv);
+        }
+        return;
+    }
 
     FuncContext ctx;
     ctx.func = &compiledFunc;
@@ -5127,7 +5168,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     fs.write(magic, 8);
 
     // Version
-    uint16_t majorVer = 1, minorVer = 5;
+    uint16_t majorVer = 1, minorVer = 6;
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 
@@ -5164,6 +5205,12 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
                  sizeof(func.returnTypeKind));
         fs.write(reinterpret_cast<const char*>(&func.intrinsicId),
                  sizeof(func.intrinsicId));
+
+        //Phase 9f v1.6: native function flag (body-less declaration
+        //dispatched through the host's native table by name).
+        uint8_t nativeFlag = func.isNative ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&nativeFlag),
+                 sizeof(nativeFlag));
 
         //Option B v1.3: per-formal default-value descriptors. Always
         //emitted (count first) so reader can skip even when no defaults.

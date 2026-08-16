@@ -72,7 +72,14 @@ int VmExecutor::Execute(const CompiledModule& module) {
     std::vector<uint8_t> locals(mainFunc.localsSize, 0);
     int32_t result = 0;
     try {
-        ExecuteFunction(mainFunc, reinterpret_cast<uint8_t*>(&result), locals.data());
+        //Phase 9f: a pathological `native int main();` still dispatches
+        //through the host table — executing the declaration's empty
+        //bytecode would silently return 0.
+        if (mainFunc.isNative)
+            CallNative(mainFunc, 0, locals.data(),
+                reinterpret_cast<uint8_t*>(&result));
+        else
+            ExecuteFunction(mainFunc, reinterpret_cast<uint8_t*>(&result), locals.data());
     } catch (const std::exception&) {
         m_lastBacktrace = FormatBacktrace();
         throw;
@@ -668,6 +675,14 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (funcIndex >= m_currModule->functions.size())
                 throw std::runtime_error("NLang VM: invalid function index");
             const CompiledFunction& callee = m_currModule->functions[funcIndex];
+            //Phase 9f: native declaration — dispatch to the host-registered
+            //table instead of interpreting bytecode. The native reads args
+            //directly from the caller's callParamBase cells (same ABI as
+            //intrinsics) and writes its return into pResult.
+            if (callee.isNative) {
+                CallNative(callee, callParamBase, locals, pResult);
+                break;
+            }
             std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
             uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
             if (paramBytes > 0 && paramBytes <= callee.localsSize)
@@ -688,6 +703,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (funcIndex >= m_currModule->functions.size())
                 throw std::runtime_error("NLang VM: invalid function index");
             const CompiledFunction& callee = m_currModule->functions[funcIndex];
+            //Phase 9f: out writeback needs a callee frame to read from;
+            //natives have none. Reject loudly rather than silently
+            //copying back the unmodified argument cells.
+            if (callee.isNative)
+                throw std::runtime_error(
+                    "NLang VM: native function does not support out parameters: "
+                    + callee.name);
             std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
             uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
             if (paramBytes > 0 && paramBytes <= callee.localsSize)
@@ -855,6 +877,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
                 break;
             }
+            //Phase 9f: native method — same table dispatch, `this` rides
+            //at args[0] per the bytecode calling convention.
+            if (callee.isNative) {
+                CallNative(callee, callParamBase, locals, pResult);
+                break;
+            }
             std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
             uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
             if (paramBytes > 0 && paramBytes <= callee.localsSize)
@@ -878,6 +906,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
                 break;
             }
+            //Phase 9f: out writeback needs a callee frame; natives have
+            //none (see OP_CallFuncOut). Reject loudly, not silently.
+            if (callee.isNative)
+                throw std::runtime_error(
+                    "NLang VM: native function does not support out parameters: "
+                    + callee.name);
             std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
             uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
             if (paramBytes > 0 && paramBytes <= callee.localsSize)
@@ -939,6 +973,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             const CompiledFunction& callee = m_currModule->functions[static_cast<size_t>(funcIndex)];
             if (callee.intrinsicId != INTR_None) {
                 ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
+                break;
+            }
+            //Phase 9f: native method found via virtual dispatch — same
+            //table dispatch, `this` rides at args[0].
+            if (callee.isNative) {
+                CallNative(callee, callParamBase, locals, pResult);
                 break;
             }
             std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
@@ -2339,6 +2379,21 @@ std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
         && static_cast<size_t>(strIdx) < m_stringPool.size())
         return m_stringPool[static_cast<size_t>(strIdx)];
     return "";
+}
+
+void VmExecutor::RegisterNative(const std::string& name, NativeFn fn)
+{
+    m_natives[name] = fn;
+}
+
+void VmExecutor::CallNative(const CompiledFunction& callee,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
+{
+    auto it = m_natives.find(callee.name);
+    if (it == m_natives.end())
+        throw std::runtime_error(
+            "NLang VM: native function not registered: " + callee.name);
+    it->second(pResult, locals + callParamBase, callee.paramCount);
 }
 
 void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,

@@ -6,15 +6,57 @@
 #include "VmBackend.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
+#include "TestNatives.h"
 #ifdef _WIN32
 #include <crtdbg.h>
 #include <windows.h>
+#include <dbghelp.h>
 #endif
 #include <iostream>
 #include <string>
 #include <vector>
 
 using namespace nlang;
+
+#ifdef _WIN32
+//Crash reporter: turn a hard native crash (AV, stack overflow, ...) into a
+//symbolized backtrace on stderr instead of a silent exit. The compiler and
+//VM are expected to fail via exceptions/diagnostics — anything below this
+//filter is a bug, and a stack is the difference between guesswork and a
+//one-line fix. dbghelp is linked lazily so non-crash runs pay nothing.
+#pragma comment(lib, "dbghelp.lib")
+
+static LONG WINAPI ReportCrash(EXCEPTION_POINTERS* ep) {
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(GetCurrentProcess(), nullptr, TRUE);
+    void* frames[64];
+    WORD n = CaptureStackBackTrace(0, 64, frames, nullptr);
+    char line[320];
+    unsigned excCode = (ep && ep->ExceptionRecord)
+        ? ep->ExceptionRecord->ExceptionCode : 0;
+    std::snprintf(line, sizeof(line),
+        "ncc: internal crash (code 0x%08X), backtrace:\n", excCode);
+    std::cerr << line;
+    for (WORD i = 0; i < n; ++i) {
+        char buf[sizeof(SYMBOL_INFO) + 256] = {};
+        auto* sym = reinterpret_cast<SYMBOL_INFO*>(buf);
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen = 255;
+        DWORD64 disp = 0;
+        if (SymFromAddr(GetCurrentProcess(),
+                        reinterpret_cast<DWORD64>(frames[i]), &disp, sym)) {
+            std::snprintf(line, sizeof(line), "  [%u] %s +0x%llX\n",
+                static_cast<unsigned>(i), sym->Name,
+                static_cast<unsigned long long>(disp));
+        } else {
+            std::snprintf(line, sizeof(line), "  [%u] 0x%p\n",
+                static_cast<unsigned>(i), frames[i]);
+        }
+        std::cerr << line;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
 
 static void PrintUsage() {
     std::cerr << "Usage:\n"
@@ -30,6 +72,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+#ifdef _WIN32
+    SetUnhandledExceptionFilter(&ReportCrash);
+#endif
     //Suppress error/crash popup dialogs so failures terminate
     //immediately instead of blocking automated testing.
 #ifdef _WIN32
@@ -51,6 +96,8 @@ int main(int argc, char* argv[]) {
         }
         CompiledModule mod;
         VmExecutor executor;
+        //Phase 9f: host-provided natives (e2e test surface).
+        RegisterTestNatives(executor);
         try {
             mod = ModuleLoader::Load(argv[2]);
             int result = executor.Execute(mod);
@@ -165,6 +212,8 @@ int main(int argc, char* argv[]) {
     // Execute
     CompiledModule mod;
     VmExecutor executor;
+    //Phase 9f: host-provided natives (e2e test surface).
+    RegisterTestNatives(executor);
     try {
         mod = ModuleLoader::Load(outputFile);
         int result = executor.Execute(mod);

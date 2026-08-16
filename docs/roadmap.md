@@ -334,12 +334,16 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 **9e：out 参数**
 - `void foo(int x, out int y)`
 
-**9f：原生函数绑定**
-- `native void foo();`
+**9f：原生函数绑定**（MVP 已完成 ✅）
+- `native int f(int a, int b);` 无 body 声明 → CompiledFunction.isNative → .nmod v1.6（intrinsicId 后 1 字节 nativeFlag）→ VmExecutor 按名查宿主注册表（`RegisterNative(name, fn)`）→ OP_CallFunc/方法路径/Execute(main) 统一 CallNative 派发
+- ABI 与 intrinsic 一致：args 为 callParamBase 起 4 字节裸单元（int/float/heap idx），返回 4 字节写 pResult；未注册 → 调用点抛错（绝不静默空 bytecode）
+- 默认参数同模块/跨模块均可用（native 分支补 defaultValues 序列化；MergeImportedFinalize placeholder 透传 isNative——漏传会让 consumer 调空 bytecode 静默出垃圾）
+- 拒绝路径：native+body / native+out 为编译错误；ncc/nvm 内建 natAdd/natConst/natFAdd/natPing 测试面（TestNatives.h）
+- 9f-2 遗留：class-member native（VM 派发已支持，resolver 拒绝调用）、string/struct/class 参数列集、注册表签名校验
 
 ### 阶段 10：IDE 移植 / LSP
-
-推荐 LSP 方案支持 VS Code / JetBrains 等现代编辑器。
+先实现原有基于qt的IDE，即nide的移植。
+LSP 方案支持，即VS Code / JetBrains 等现代编辑器，放在后面实现。
 
 ### 阶段 11：标准库与生态
 
@@ -368,14 +372,16 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- - 阶段 0-9e（含 audit）+ void 函数支持 + List/Dict 下标语法糖 + pResult 累加器修复 + frame 布局越界修复（ASan 扫描）已完成，**537 个 e2e 测试全部通过**（List/Dict 下标语法糖——li[i]/d[k] 读写 ≡ get()/set() 内建（零新 opcode，EvalAreaClaim 降级 + boxing plan）+ resolver 元素类型 peel + 下标 receiver 成员写（pts[0].x=v / m[0][0].x=v）委托通用 get() 降级+ IsContainerSubscript 共享谓词（codegen 读/写/成员写 3 位点 + walker 3 位点）+ AssignStmt Left() walker 补齐（walker 对称纪律第 5 例）+ IsArrayTypedBase 守卫（List<int>[] 保持 OP_LoadElement——EvalDataType dispatch 顺序陷阱第 5 例）+ 泛型 NewArrayExpr grammar 显式变体（`new List<int>[2]`；LALR state-58 '<' shift 赢 reduce，Type 路径不可达；冲突不变 26sr/75rr）+ 13 新测试，commit b7a53d2；void 函数支持——KT_Void grammar 产生式（FunctionHeader/ClassMember×3/InterfaceMember×2）+ bare `return;` + stale-pResult 消费守卫（assign/compound/subscript-assign 3 位点）+ 跨模块 RTK_Void stub（CreateFunctionStub 正确重建无返回类型）+ 10 新测试 + 顺手清除 CompoundAssignStmt OT_MODS 死规则副本（-41 rr 冲突）；Phase 9e out 参数——OP_CallFuncOut/OP_CallMethodDirectOut + 32-bit outMask + callee frame slot writeback + 16 新测试 + method-call arg scope 修复；`>>` 拆分支持嵌套泛型——C# 风格 lexer genericDepth + yyless(1) 拆分 + 5 新测试；字符串转义补全——`\\ \' \0 \a \b \f \v` + 未知转义 compile error + 4 新测试；条件类型强制 int 5 位点 + 3 compile_error 测试；frame 越界——super() evalArea 欠尺寸 + `new C{...}` 参 ctor 垃圾参数，resolver 强制规范约束；pResult 累加器过期修复——string pool dedup bug + cast_f2i quirk 同根因，12 位点 EmitPResultRefresh + 5 新测试；Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
+- - 阶段 0-9f（含 audit）+ native 函数绑定 MVP + void 函数支持 + List/Dict 下标语法糖 + pResult 累加器修复 + frame 布局越界修复（ASan 扫描）已完成，**547 个 e2e 测试全部通过**（List/Dict 下标语法糖——li[i]/d[k] 读写 ≡ get()/set() 内建（零新 opcode，EvalAreaClaim 降级 + boxing plan）+ resolver 元素类型 peel + 下标 receiver 成员写（pts[0].x=v / m[0][0].x=v）委托通用 get() 降级+ IsContainerSubscript 共享谓词（codegen 读/写/成员写 3 位点 + walker 3 位点）+ AssignStmt Left() walker 补齐（walker 对称纪律第 5 例）+ IsArrayTypedBase 守卫（List<int>[] 保持 OP_LoadElement——EvalDataType dispatch 顺序陷阱第 5 例）+ 泛型 NewArrayExpr grammar 显式变体（`new List<int>[2]`；LALR state-58 '<' shift 赢 reduce，Type 路径不可达；冲突不变 26sr/75rr）+ 13 新测试，commit b7a53d2；void 函数支持——KT_Void grammar 产生式（FunctionHeader/ClassMember×3/InterfaceMember×2）+ bare `return;` + stale-pResult 消费守卫（assign/compound/subscript-assign 3 位点）+ 跨模块 RTK_Void stub（CreateFunctionStub 正确重建无返回类型）+ 10 新测试 + 顺手清除 CompoundAssignStmt OT_MODS 死规则副本（-41 rr 冲突）；Phase 9e out 参数——OP_CallFuncOut/OP_CallMethodDirectOut + 32-bit outMask + callee frame slot writeback + 16 新测试 + method-call arg scope 修复；`>>` 拆分支持嵌套泛型——C# 风格 lexer genericDepth + yyless(1) 拆分 + 5 新测试；字符串转义补全——`\\ \' \0 \a \b \f \v` + 未知转义 compile error + 4 新测试；条件类型强制 int 5 位点 + 3 compile_error 测试；frame 越界——super() evalArea 欠尺寸 + `new C{...}` 参 ctor 垃圾参数，resolver 强制规范约束；pResult 累加器过期修复——string pool dedup bug + cast_f2i quirk 同根因，12 位点 EmitPResultRefresh + 5 新测试；Phase 9d-3 audit 数组字段 + NewArrayExpr scratch + MarkPhase 数组字段追踪 + 5 新测试；Phase 9d-3 array-of-struct 物化 + IsArrayType 守卫 + array.length hoist + 值拷贝边界 + GC 根集 v1.5 + 7 新测试；Phase 9d-2 follow-up 裸字段访问 implicit this.field + 编译器异常边界 + 7 新测试；Phase 9d-2 finally 完整 Java 语义 + super() 构造器链 + 20 新测试；Phase 9d 异常处理 try/catch/throw + 5 个 built-in Exception 子类 + 字段暴露 + break/continue handler 修复 + 30 新测试；Phase 9c 默认参数+命名参数 + follow-up frame layout 重构 + 完整审计 + 跨模块导入基础设施 + Option B 跨模块默认参数；Phase 9b 字符串插值；Phase 9a 增量赋值/assert/const；以及之前所有阶段）
 - Phase 9c follow-up（2026-08-11）：callParamBase 动态分配（8 槽 cap 解除 → 64 参数 sanity ceiling）；cursor-based evalArea + EvalAreaClaim RAII（嵌套调用 clobber 修复）；所有 bypass EmitCallArgs 的直接写路径（构造器参数、String.Equals/GetHashCode、Dict 初始化）已统一改造为 EvalAreaClaim 模式；walker 与 codegen 对称性已校验
 - Phase 9c 跨模块导入（2026-08-12/13）：`import "X";` 语法 + CompiledModuleNodeBuilder（直接消费 CompiledModule，绕过 legacy RnFunction 管线）+ 两阶段 MergeImportedModules（Phase A: classes/structs/arrays；Phase B: functions + RemapBytecode）+ ModuleLoader v1.3 版本 + Option B 跨模块默认参数（仅 constant-foldable：literal/null/negative int fold；非 foldable 在 consumer 侧 compile_error）
 - 8e-6 已知遗留（不影响测试通过）：bare `[]` 空 init（OT_Brackets 词法冲突）、
   bare init list 作为函数参数（Phase G
   overload 唯一性检查未实现，可用 `new Type{...}` 显式形式绕过）
 - ~~已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败~~ — **已修复**（EmitPResultRefresh 12 位点，commit df75eec/d4b0da1）
-- 下一步：Phase 9f（native bindings / FFI）或小修复
+- Phase 9f（2026-08-16）：native 函数绑定 MVP——`.nmod` v1.6 + VmExecutor RegisterNative 按名派发（CallNative 统一 OP_CallFunc/方法路径/Execute(main)）+ intrinsic 同构 4 字节 ABI + 默认参数（含跨模块，native 分支补 defaultValues 序列化 + MergeImported placeholder 透传 isNative）+ native+body/out 编译拒绝 + ncc/nvm TestNatives 测试面 + 8 新测试（547 total）；同轮修复：FindFuncByInvoke FFR_FuncNameNotFound 路径不写 out-param → 调用方读栈垃圾指针段错误 ncc（潜伏 bug，import stub 改变栈布局后显形；callee 入口清零根治）+ ncc/nvm 内建 SEH+dbghelp 符号化崩溃报告器（本轮定位即靠它）
+- 9f-2 遗留：class-member native（VM 派发已支持，resolver 拒绝）、string/struct/class 参数列集、注册表签名校验
+- 下一步：Phase 9 全特性循环审计（9a-9f 逐特性复查 + 已知遗留清理），无问题后进入阶段 10 设计
 
 ## 文档索引
 

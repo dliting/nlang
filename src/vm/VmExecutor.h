@@ -29,6 +29,18 @@ public:
 
     int Execute(const CompiledModule& module);
 
+    //Phase 9f: host-registered native function. Called when OP_CallFunc
+    //reaches a CompiledFunction with isNative set:
+    //  ret   — 4-byte cell the native writes its return value into (may be
+    //           null for void natives; write a memcpy of VALUE_SIZE bytes)
+    //  args  — callee argument cells: args[i*4 .. i*4+3], raw little-endian
+    //           int32/float bits or heap idx, mirroring the intrinsic ABI
+    //  argc  — declared paramCount of the native declaration
+    //Lookup is by the NLang-side declaration name; an unregistered name
+    //throws at the call site.
+    using NativeFn = void (*)(uint8_t* ret, const uint8_t* args, int argc);
+    void RegisterNative(const std::string& name, NativeFn fn);
+
     //Backtrace captured from the last Execute() call. Empty if execution
     //succeeded without throwing.
     const std::string& Backtrace() const { return m_lastBacktrace; }
@@ -129,6 +141,14 @@ private:
     void ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
+    //Phase 9f: shared native-table dispatch for OP_CallFunc and the method
+    //call paths (a native method receives `this` at args[0], mirroring the
+    //bytecode calling convention). Throws when the host never registered
+    //the name — failing at the call site rather than executing the
+    //declaration's empty bytecode.
+    void CallNative(const CompiledFunction& callee, uint16_t callParamBase,
+        uint8_t* locals, uint8_t* pResult);
+
     //Allocate a handle from the ByteStream side table. Returns 1-based handle.
     int32_t AllocByteStreamHandle();
     //Allocate a handle from the FileStream side table. Returns 1-based handle.
@@ -173,6 +193,8 @@ private:
     size_t m_recurseDepth = 0;
     const CompiledModule* m_currModule = nullptr;
     std::vector<std::string> m_stringPool;
+    //Phase 9f: name → host function table for native declarations.
+    std::unordered_map<std::string, NativeFn> m_natives;
 
     //Last captured backtrace (filled by Execute's catch block).
     std::string m_lastBacktrace;

@@ -85,6 +85,13 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         if (minorVer >= 1)
             fs.read(reinterpret_cast<char*>(&func.intrinsicId),
                     sizeof(func.intrinsicId));
+        //Phase 9f: native function flag (v1.6).
+        if (minorVer >= 6) {
+            uint8_t nativeFlag = 0;
+            fs.read(reinterpret_cast<char*>(&nativeFlag),
+                    sizeof(nativeFlag));
+            func.isNative = (nativeFlag != 0);
+        }
 
         //Option B v1.3: per-formal default-value descriptors.
         uint16_t defaultCount = 0;

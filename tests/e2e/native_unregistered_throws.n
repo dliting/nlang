@@ -1,0 +1,8 @@
+//Phase 9f: calling a native the host never registered throws at the
+//call site (exit 1 with backtrace), not silent garbage from empty
+//bytecode.
+native int natGhost();
+
+int main() {
+    return natGhost();
+}

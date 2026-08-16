@@ -1543,6 +1543,12 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
 FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings)
 {
+	//Contract: the out-param is always initialized. The NotFound path
+	//returns early without touching it — an uninitialized caller local
+	//then holds stack garbage, and `if (pCallee)` in Access(SnInvokeExpr)
+	//dereferences a dangling pointer (ncc crash; observed when imported
+	//stubs shifted stack layout). Clearing here covers every path.
+	pFuncFound = nullptr;
 	const bool bSearchInAncestor = !ContainFlags(ERF_SearchInParentOnly);
 	bool bFoundByName = false;
 	auto &sFuncName = invoke.CalleeName();

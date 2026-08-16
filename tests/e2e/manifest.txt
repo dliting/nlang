@@ -708,3 +708,11 @@ list_subscript_oob_throws 1
 array_of_list 65
 init_struct_ordinal_arg 42
 init_class_positional_reject compile_error
+native_basic 77
+native_args 42
+native_float 7
+native_unregistered_throws 1
+native_body_reject compile_error
+native_crossmod 77
+unresolved_import_call compile_error
+native_out_reject compile_error

@@ -1,0 +1,10 @@
+//Phase 9f: out parameters on a native declaration are rejected at
+//compile time — writeback needs a callee frame and natives have none.
+//The VM throws the same message at runtime for hand-crafted modules.
+native int natFill(out int x);
+
+int main() {
+    int v = 0;
+    natFill(v);
+    return v;
+}

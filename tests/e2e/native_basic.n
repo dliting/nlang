@@ -1,0 +1,8 @@
+//Phase 9f: native declaration basics — void call, zero-arg return.
+native int natConst();
+native void natPing();
+
+int main() {
+    natPing();
+    return natConst();
+}

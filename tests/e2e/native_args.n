@@ -1,0 +1,6 @@
+//Phase 9f: argument passing through the 4-byte cell ABI.
+native int natAdd(int a, int b);
+
+int main() {
+    return natAdd(20, 22);
+}

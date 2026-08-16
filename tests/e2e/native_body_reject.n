@@ -1,0 +1,10 @@
+//Phase 9f: native declarations are body-less by contract — the
+//implementation is host-provided. A body must be rejected at compile
+//time (GenerateFunction would otherwise silently ignore it).
+native int natBad(int a) {
+    return a;
+}
+
+int main() {
+    return 0;
+}

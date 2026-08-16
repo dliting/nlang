@@ -172,6 +172,10 @@ struct CompiledFunction {
     uint16_t paramCount = 0;
     uint16_t returnTypeKind = 0;
     uint16_t intrinsicId = INTR_None;    //INTR_None = normal bytecode, else VM intrinsic
+    //Phase 9f: native function declaration (`native int f(...);`). No
+    //bytecode — OP_CallFunc dispatches by name through the host's
+    //native table (VmExecutor::RegisterNative). Body-less by contract.
+    bool isNative = false;
     //Option B: per-formal default values. Size == paramCount for free
     //functions and constructors; for methods, size == paramCount-1 (the
     //'this' slot has no default). Formals without defaults carry tag=RTK_Void.

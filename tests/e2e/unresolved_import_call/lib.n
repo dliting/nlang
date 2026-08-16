@@ -1,0 +1,7 @@
+//Regression companion: an imported module so the consumer's resolver
+//runs with imported stubs in the root namespace (changes stack layout —
+//this is what made the uninitialized-out-param bug crash instead of
+//silently passing).
+int add(int a, int b) {
+	return a + b;
+}

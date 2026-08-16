@@ -1,0 +1,9 @@
+//Phase 9f: library module exporting a native declaration plus a normal
+//bytecode wrapper. No main() (Layer 6 policy). The native's v1.6 flag
+//must survive the consumer-side Phase B merge (placeholder record) —
+//a dropped flag would make the consumer call empty bytecode.
+native int natConst();
+
+int wrapped() {
+	return natConst() + 1;
+}

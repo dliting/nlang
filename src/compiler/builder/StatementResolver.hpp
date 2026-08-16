@@ -112,6 +112,26 @@ public:
 		std::vector<SnFormalParam*> formals;
 		for (auto& fp : sn.Params())
 			formals.push_back(&fp);
+		//Phase 9f: native declarations are body-less by contract — the
+		//implementation lives in the host's registered table. A body would
+		//be silently ignored by GenerateFunction's native branch, so reject
+		//here. Out params are rejected too: writeback needs a callee frame
+		//and natives have none (the VM throws the same message at runtime).
+		if (sn.ContainFlags(NF_Native)) {
+			if (sn.Body()) {
+				m_Env.Log(CLL_Error, sn.Location(),
+					"native function \"%s\" cannot have a body; the "
+					"implementation is host-provided.",
+					sn.Name().c_str());
+			}
+			for (auto *param : formals) {
+				if (param->ContainFlags(NF_Out)) {
+					m_Env.Log(CLL_Error, param->Location(),
+						"native function \"%s\" cannot have out parameters.",
+						sn.Name().c_str());
+				}
+			}
+		}
 		//Phase 9e: out parameters must be 4-byte scalar/class slots. A
 		//struct out param would need deep-copy writeback into the caller
 		//— unsupported in v1. Checked at declaration for clearer errors

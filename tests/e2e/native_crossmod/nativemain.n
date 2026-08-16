@@ -1,0 +1,11 @@
+//Phase 9f consumer: calls the imported native directly and through the
+//producer's bytecode wrapper. Expected exit 78 = 77 (direct native) +
+//78 check via wrapped().
+
+import "nativelib";
+
+int main() {
+	if (wrapped() == 78)
+		return natConst();
+	return 0;
+}
