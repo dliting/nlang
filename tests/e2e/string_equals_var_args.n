@@ -1,0 +1,25 @@
+// Phase 10 audit round-11, finding 1: the string-receiver equals() resolver
+// shortcut marked the member resolved WITHOUT resolving the arguments (the
+// user-class equals path does resolve them). Unresolved args then hit silent
+// codegen fallbacks — identifiers staged as ConstZero, nested calls skipped
+// entirely — so s.equals(<non-literal>) compared against stale/zero memory
+// and t.equals(t) could be false. pad() poisons string pool slot 0 so the
+// ConstZero fallback reads a genuinely different string (deterministic red).
+string pad() { return "zzz_first_constant"; }
+string pick(int v) { return "abcd"; }
+
+int main() {
+    string t = "abcd";
+    int r = 0;
+
+    pad();  // force "zzz_first_constant" into pool[0] before anything else
+
+    if (!t.equals(t)) r += 1;              // variable argument
+    if (!"abcd".equals(t)) r += 2;         // literal receiver, variable arg
+    if (!t.equals(pick(3))) r += 4;        // call argument (call was skipped)
+    if (!"abcd".equals("abcd")) r += 8;    // control: literal arg (always worked)
+    if (t.equals("other")) r += 16;        // must stay false — not always-true
+    if (t != "abcd") r += 32;              // control: t itself intact
+
+    return r;
+}

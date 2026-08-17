@@ -1,0 +1,14 @@
+// Phase 10 audit round-12, finding 2: calling a method declared without a
+// body must be a compile error. Body-less non-native functions are skipped
+// at backend registration (they have nothing to compile), yet the resolver
+// still bound calls to them — codegen then silently skipped the call opcode
+// and the expression evaluated to stale memory. The backend now rejects the
+// call at the registration miss instead of emitting wrong code.
+class C {
+    public int m();
+}
+
+int main() {
+    C c = new C();
+    return c.m();
+}

@@ -1,0 +1,7 @@
+// Phase 10 audit round-9, finding 3: a default parameter that invokes the
+// function being defined expands infinitely at the call site — EmitBinding
+// re-emits the default expression, whose call needs the same default again.
+// Pre-fix this overflowed the compile stack (0xC00000FD crash); the emitter
+// now rejects it with a clean compile error.
+int f(int a, int b = f(0)) { return a + b; }
+int main() { return f(1); }

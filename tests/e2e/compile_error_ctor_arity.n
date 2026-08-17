@@ -1,0 +1,23 @@
+// Phase 10 audit round-14, HIGH finding: constructor calls emit their args
+// positionally without FormalBindings (VmBackend NewExpr handler), so —
+// like super(...) — named arguments cannot bind, defaults declared on ctor
+// params are not applied at the call site, and the arity must match
+// exactly. Pre-fix every shape below compiled clean: missing args read
+// uninitialized callParam slots (a defaulted param came through as
+// garbage), extras were silently dropped, named args fell to codegen's
+// unhandled-kind internal error. All shapes in one file: the resolver
+// reports every error before the build fails.
+class WithParams { int a; public int WithParams(int a) { this.a = a; } }
+class WithDefault { int a; public int WithDefault(int a = 5) { this.a = a; } }
+class NoCtor { int a; }
+
+int main() {
+    WithParams p1 = new WithParams();       // missing required arg
+    WithParams p2 = new WithParams(1, 2);   // extra args
+    WithDefault d = new WithDefault();      // ctor defaults not applied
+    WithParams p3 = new WithParams(a = 1);  // named argument
+    int x = 0;
+    WithParams p4 = new WithParams(out x);  // out argument
+    NoCtor n = new NoCtor(1);               // no ctor + args
+    return 0;
+}

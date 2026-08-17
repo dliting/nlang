@@ -1,0 +1,27 @@
+// Phase 10 audit round-10 (F5): regression guards for the two statement
+// forms round-9 claim-ified but left untested — throw (the exception value
+// rides a claim across the new-expression emission) and invoke-statements
+// (the result claim spans the whole argument staging). These stay green
+// across the round-10 walker fixes; exit 0 is the pass condition.
+struct Point { int x; int y; }
+Point make(int v) { Point p; p.x = v; p.y = v; return p; }
+int use(Point p) { return p.x; }
+
+int main() {
+    int r = 0;
+
+    // bit 1: throw message built from a staged binary expression
+    // (use(make(5)) yields 5 — no 1+ prefix here — so the message is "x5")
+    try {
+        throw new Exception("x" + use(make(5)));
+    } catch (Exception e) {
+        if (e.message != "x5") r += 1;
+    }
+
+    // bit 2: invoke-statement with a staged argument
+    List<int> li = new List<int>();
+    li.add(1 + use(make(5)));
+    if (li.get(0) != 6) r += 2;
+
+    return r;
+}

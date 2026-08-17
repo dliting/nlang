@@ -676,6 +676,11 @@ public:
 	~SnNewExpr() override;
 
 	SnFieldExpr *ClassName() const { return m_pClassName; }
+	//NOTE: Args() is a view over ALL child nodes. The ctor AddChild's the
+	//class-name expression AFTER the ctor args, so the view's LAST element
+	//is the class name (a NameExpr for `new Foo`, a GenericTypeExpr for
+	//`new List<int>`). Consumers must skip it by identity:
+	//`if (&param == ClassName()) continue;`
 	SnExpressionList &Args() const { return *m_pArgs; }
 	SnClassDecl *ClassDecl() const { return m_pClassDecl; }
 	void ClassDecl(SnClassDecl *pClass) { m_pClassDecl = pClass; }

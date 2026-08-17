@@ -733,3 +733,15 @@ audit_vm_memberwrite_plain_staging 0
 audit_vm_selfref_get 0
 audit_vm_binary_depth 0
 audit_vm_assign_alias 0
+audit_vm_initvalue_staging 0
+audit_vm_cond_staging 0
+compile_error_recursive_default compile_error
+audit_vm_walker_gaps 0
+audit_vm_staging2 0
+string_equals_var_args 0
+compile_error_named_arg_builtin compile_error
+compile_error_equals_arity compile_error
+compile_error_nodecl_method compile_error
+compile_error_generic_method_arity compile_error
+compile_error_ctor_arity compile_error
+compile_error_outarg_builtin compile_error

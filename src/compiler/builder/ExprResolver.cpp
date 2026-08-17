@@ -140,6 +140,34 @@ static bool IsBuiltinGenericClassName(const std::string& name)
 	return name == "List" || name == "Dict";
 }
 
+//Round-12: built-in methods dispatch by name with no real SnFunction, so a
+//name = value argument can never bind to a parameter — reject it here or
+//codegen's fallback would silently stage the value as ConstZero.
+static bool HasNamedArgument(SnInvokeExpr& invoke)
+{
+	for (auto& p : invoke.Params())
+		if (p.Kind() == NK_NamedArgExpr)
+			return true;
+	return false;
+}
+
+static size_t ArgCountOf(SnInvokeExpr& invoke)
+{
+	size_t n = 0;
+	for (auto& p : invoke.Params()) ++n;
+	return n;
+}
+
+//Round-14: mirror of HasNamedArgument — built-in by-name dispatch also
+//cannot write back out arguments (intrinsics return through pResult only).
+static bool HasOutArgument(SnInvokeExpr& invoke)
+{
+	for (auto& p : invoke.Params())
+		if (p.Kind() == NK_OutArgExpr)
+			return true;
+	return false;
+}
+
 //Returns true if class decl is a synthetic generic instantiation
 //(e.g., List<int>). Used to dispatch member calls in Access(SnMemberExpr&).
 static bool IsGenericClassDecl(SnClassDecl* pClass)
@@ -575,6 +603,38 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 		if (name == "equals")
 		{
+			//Round-12: by-name dispatch cannot bind named arguments, and the
+			//intrinsic reads exactly {this, other} — reject both shapes.
+			if (HasNamedArgument(invoke))
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"Named arguments are not supported by built-in methods.");
+				m_pContext = pSavedContext;
+				return;
+			}
+			//Round-14: intrinsics return through pResult only — an out
+			//argument could never write back.
+			if (HasOutArgument(invoke))
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"out arguments are not supported by built-in methods.");
+				m_pContext = pSavedContext;
+				return;
+			}
+			if (ArgCountOf(invoke) != 1)
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"string.equals requires exactly 1 argument.");
+				m_pContext = pSavedContext;
+				return;
+			}
+			//Round-11: args must resolve in the CALLER's scope — same recipe
+			//as the user-class equals path below. Without this the argument
+			//stayed unresolved and codegen's silent fallbacks (ConstZero /
+			//skipped call) made t.equals(t) compare against stale memory.
+			m_pContext = pSavedContext;
+			RemoveFlags(ERF_SearchInParentOnly);
+			ResolveExpressionList(invoke.Params());
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
@@ -716,6 +776,22 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			}
 			if (isStreamMethod)
 			{
+				//Round-12: by-name dispatch cannot bind name = value args.
+				if (HasNamedArgument(invoke))
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"Named arguments are not supported by built-in methods.");
+					m_pContext = pSavedContext;
+					return;
+				}
+				//Round-14: out args cannot write back through by-name dispatch.
+				if (HasOutArgument(invoke))
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"out arguments are not supported by built-in methods.");
+					m_pContext = pSavedContext;
+					return;
+				}
 				//Resolve the args so each param's Field()/EvalDataType() is
 				//populated (e.g. struct-typed IdentifierExpr needs Field() set
 				//so VmBackend can emit the correct load opcode). Without this,
@@ -765,6 +841,33 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		{
 			if (isUserClass)
 			{
+				//Round-12: same validation as the string branch — by-name
+				//dispatch cannot bind named args, and the intrinsics read
+				//exactly {this[, other]}.
+				if (HasNamedArgument(invoke))
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"Named arguments are not supported by built-in methods.");
+					m_pContext = pSavedContext;
+					return;
+				}
+				//Round-14: out args cannot write back through by-name dispatch.
+				if (HasOutArgument(invoke))
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"out arguments are not supported by built-in methods.");
+					m_pContext = pSavedContext;
+					return;
+				}
+				if ((name == "equals" && ArgCountOf(invoke) != 1)
+					|| (name == "getHashCode" && ArgCountOf(invoke) != 0))
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"Built-in method '%s' called with the wrong number of arguments.",
+						name.c_str());
+					m_pContext = pSavedContext;
+					return;
+				}
 				m_pContext = pSavedContext;
 				RemoveFlags(ERF_SearchInParentOnly);
 				ResolveExpressionList(invoke.Params());
@@ -898,6 +1001,47 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 		if (isGenericMethod)
 		{
+			//Round-12: by-name dispatch cannot bind name = value args.
+			if (HasNamedArgument(invoke))
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"Named arguments are not supported by built-in methods.");
+				m_pContext = pSavedContext;
+				return;
+			}
+			//Round-14: out args cannot write back through by-name dispatch.
+			if (HasOutArgument(invoke))
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"out arguments are not supported by built-in methods.");
+				m_pContext = pSavedContext;
+				return;
+			}
+			//Round-13: validate the argument count against the VM intrinsic
+			//stubs (VmBackend's addMethod tables). A mismatch previously
+			//slipped to codegen — extra args were silently ignored, missing
+			//args read uninitialized callParam slots. Must match the
+			//isGenericMethod name sets above.
+			static const std::map<std::string, size_t> kListMethodArities = {
+				{"add", 1}, {"get", 1}, {"set", 2}, {"length", 0},
+				{"removeAt", 1}, {"indexOf", 1}, {"contains", 1},
+				{"clear", 0}, {"toString", 0},
+			};
+			static const std::map<std::string, size_t> kDictMethodArities = {
+				{"set", 2}, {"get", 1}, {"containsKey", 1}, {"remove", 1},
+				{"clear", 0}, {"count", 0}, {"keys", 0}, {"toString", 0},
+			};
+			const auto& arities = (baseName == "List")
+				? kListMethodArities : kDictMethodArities;
+			auto arityIt = arities.find(name);
+			if (arityIt != arities.end() && ArgCountOf(invoke) != arityIt->second)
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"Built-in method '%s' called with the wrong number of arguments.",
+					name.c_str());
+				m_pContext = pSavedContext;
+				return;
+			}
 			m_pContext = pSavedContext;
 			RemoveFlags(ERF_SearchInParentOnly);
 			ResolveExpressionList(invoke.Params());
@@ -1208,14 +1352,80 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	sn.EvalDataType(pClassDecl);
 	sn.AddFlags(NF_Resolved);
 
-	//Phase 9e: constructor calls emit their args positionally without
-	//FormalBindings, so an out argument could never write back.
-	for (auto &arg : sn.Args())
+	//Round-14: constructor calls emit their args positionally without
+	//FormalBindings (VmBackend's NewExpr handler), so — like super(...) —
+	//named arguments cannot bind, defaults declared on ctor params are not
+	//applied at the call site, and the arity must match exactly. Pre-fix a
+	//mismatched call compiled clean: missing args read uninitialized
+	//callParam slots (a defaulted param arrived as garbage), extras were
+	//silently dropped, named args hit codegen's unhandled-kind internal
+	//error. Imported class stubs are skipped — their ctor lives only in the
+	//merged CompiledClass, not in AST members.
+	if (!pClassDecl->IsImported())
 	{
-		if (arg.Kind() == NK_OutArgExpr)
+		size_t argCount = 0;
+		for (auto &arg : sn.Args())
 		{
-			m_Env.Log(CLL_Error, arg.Location(),
-				"out arguments are not supported in constructor calls.");
+			if (&arg == sn.ClassName()) continue;  //Args() view includes it
+			if (arg.Kind() == NK_NamedArgExpr)
+			{
+				m_Env.Log(CLL_Error, arg.Location(),
+					"named arguments are not supported in constructor calls");
+				continue;
+			}
+			if (arg.Kind() == NK_OutArgExpr)
+			{
+				m_Env.Log(CLL_Error, arg.Location(),
+					"out arguments are not supported in constructor calls.");
+				continue;
+			}
+			++argCount;
+		}
+		//Expected ctor arity. User classes look up the ctor SnFunction; the
+		//rest are intrinsic ctor stubs registered by
+		//VmBackend::RegisterBuiltinClasses (arity excludes `this`).
+		size_t ctorArity = 0;
+		bool hasCtor = false;
+		if (IsGenericClassDecl(pClassDecl))
+		{
+			hasCtor = true;  //List/Dict ctor stubs take only `this`
+		}
+		else if (pClassDecl->IsBuiltinClass())
+		{
+			//FileStream(this, path, mode) → 2; Exception family
+			//(this, message) → 1; Object/ByteStream → 0.
+			hasCtor = true;
+			const auto& clsName = pClassDecl->Name();
+			if (clsName == "FileStream") ctorArity = 2;
+			else if (IsBuiltinExceptionClassName(clsName)) ctorArity = 1;
+		}
+		else
+		{
+			for (auto& member : pClassDecl->Members())
+			{
+				if (member.Kind() == NK_Function
+					&& member.Name() == pClassDecl->Name())
+				{
+					hasCtor = true;
+					ctorArity = static_cast<SnFunction&>(member)
+						.Params().size();
+					break;
+				}
+			}
+		}
+		if (!hasCtor)
+		{
+			if (argCount != 0)
+				m_Env.Log(CLL_Error, sn.Location(),
+					"class \"%s\" has no constructor; new %s() cannot take "
+					"arguments",
+					pClassDecl->Name().c_str(), pClassDecl->Name().c_str());
+		}
+		else if (argCount != ctorArity)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"constructor of \"%s\" expects %zu argument(s), got %zu",
+				pClassDecl->Name().c_str(), ctorArity, argCount);
 		}
 	}
 

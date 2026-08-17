@@ -1,0 +1,32 @@
+// Phase 10 audit round-13, finding 4: built-in generic List<T>/Dict<K,V>
+// methods are dispatched by name (synthetic class carries no SnFunction),
+// so the resolver previously accepted any argument count — a mismatched
+// call slipped to codegen, which staged the declared number of args while
+// the VM intrinsic stub reads a fixed param layout (extra args silently
+// ignored, missing args read uninitialized callParam slots). Every
+// wrong-arity shape in one file: the resolver reports each error before
+// the build fails.
+int main() {
+    List<int> li = new List<int>();
+    li.add();                    // List.add expects 1
+    li.add(1, 2);                // List.add expects 1
+    li.get();                    // List.get expects 1
+    li.set(1);                   // List.set expects 2
+    li.length(0);                // List.length expects 0
+    li.removeAt();               // List.removeAt expects 1
+    li.indexOf();                // List.indexOf expects 1
+    li.contains();               // List.contains expects 1
+    li.clear(0);                 // List.clear expects 0
+    string s = li.toString(1);   // List.toString expects 0
+
+    Dict<string, int> d = new Dict<string, int>();
+    d.set("a");                  // Dict.set expects 2
+    d.get();                     // Dict.get expects 1
+    d.containsKey();             // Dict.containsKey expects 1
+    d.remove();                  // Dict.remove expects 1
+    d.clear(0);                  // Dict.clear expects 0
+    d.count(0);                  // Dict.count expects 0
+    List<string> ks = d.keys(1); // Dict.keys expects 0
+    string t = d.toString(1);    // Dict.toString expects 0
+    return 0;
+}

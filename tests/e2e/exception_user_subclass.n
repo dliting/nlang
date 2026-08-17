@@ -1,5 +1,12 @@
+//Phase 9d: user subclass of built-in Exception (flattened layout, catch by
+//subclass type). Round-14: `new` on a class without its own ctor no longer
+//silently drops the args (the message never reached the object) — the call
+//is now a compile error, so the subclass declares an explicit ctor that
+//forwards to the parent via super(...), the same shape super()-chaining
+//tests already use.
 class MyException : Exception {
     int code;
+    public int MyException(string msg) { super(msg); }
 }
 
 int main() {

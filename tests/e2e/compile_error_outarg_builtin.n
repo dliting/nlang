@@ -1,0 +1,23 @@
+// Phase 10 audit round-14, LOW finding: out arguments on built-in methods
+// (by-name dispatched intrinsics) must be a compile error — the intrinsics
+// return values through pResult and never write back through callParam
+// slots, so an out argument silently does nothing. Round 12 added the
+// matching named-argument rejection at all four builtin dispatch sites;
+// this file covers the out-argument shapes on each site.
+class Box { int v; }
+
+int main() {
+    List<int> li = new List<int>();
+    li.add(1);
+    int x = 0;
+    li.get(out x);            // List intrinsic
+    Dict<string, int> d = new Dict<string, int>();
+    d.set("a", out x);        // Dict intrinsic
+    string t = "abcd";
+    t.equals(out t);          // string intrinsic
+    Box b = new Box();
+    b.equals(out b);          // class Object-protocol intrinsic
+    ByteStream bs = new ByteStream();
+    bs.writeInt(out x);       // stream intrinsic
+    return 0;
+}

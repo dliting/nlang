@@ -1263,18 +1263,6 @@ static void EmitPResultRefresh(BytecodeEmitter& emitter, uint16_t slot) {
     emitter.EmitUint16(slot);
 }
 
-//Pick a temp slot distinct from `exclude`, walking through the 4-slot pool.
-//Composition rule: PickTempSlot(tempSlotN) = tempSlot(N+1). This chains
-//for nested expressions — each recursive level uses the next slot.
-//Slots 0..3 are tempSlot..tempSlot4. If exclude is not a temp slot, return
-//tempSlot (the default scratch slot).
-uint16_t VmBackend::PickTempSlot(uint16_t exclude) const {
-    if (exclude == m_currFunc->tempSlot)  return m_currFunc->tempSlot2;
-    if (exclude == m_currFunc->tempSlot2) return m_currFunc->tempSlot3;
-    if (exclude == m_currFunc->tempSlot3) return m_currFunc->tempSlot4;
-    return m_currFunc->tempSlot;
-}
-
 //Phase 9a: emit a compound-assign arithmetic op.
 //Executes: locals[dst] = locals[dst] <op> locals[src]
 //where op ∈ {Add, Sub, Mul, Div, Mod}. Type determines i32/f32 variant.
@@ -1587,31 +1575,41 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
         auto& newExpr = static_cast<SnNewExpr&>(expr);
         size_t argCount = 0;
         for (auto& arg : newExpr.Args()) {
-            if (arg.Kind() != NK_NameExpr) ++argCount;
+            if (&arg == newExpr.ClassName()) continue;
+            ++argCount;
         }
         uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
         uint16_t d = 0;
         for (auto& arg : newExpr.Args()) {
+            //Skip the class-name child (Args() view includes it — see the
+            //NewExpr codegen handler); mirror codegen exactly.
+            if (&arg == newExpr.ClassName()) continue;
             uint16_t ad = ExprPeakDepth(arg, visited, false);
             if (ad > d) d = ad;
         }
         return claimSize + d;
     }
     //NewArrayExpr
+    //claimSize = 1: the size expression stages in an evalArea claim
+    //(Phase 10 audit round-8 — was PickTempSlot temp staging, clobbered
+    //by the EmitBinding struct deep-copy scratch).
     if (kind == NK_NewArrayExpr) {
         auto& na = static_cast<SnNewArrayExpr&>(expr);
-        return ExprPeakDepth(*na.Size(), visited);
+        return 1 + ExprPeakDepth(*na.Size(), visited);
     }
     //InitListExpr
-    //Phase 9c follow-up: mirror the codegen's claim pattern.
+    //Phase 9c follow-up + Phase 10 audit round-8: mirror the codegen's
+    //claim pattern.
     //  - Dict form: per-entry EvalAreaClaim(3) [this, key, value]
     //  - List form: per-entry EvalAreaClaim(2) [this, value] (Phase 10
     //    audit C2 — was callParamBase staging, clobbered by nested calls)
-    //  - Array/Struct/Class forms: no claim (use temp slots)
+    //  - Array/Struct/Class forms: EvalAreaClaim(1) stages each entry
+    //    value (Phase 10 audit round-8 — was PickTempSlot temp staging,
+    //    clobbered by struct-argument deep-copy scratch in EmitBinding)
     if (kind == NK_InitListExpr) {
         auto& init = static_cast<SnInitListExpr&>(expr);
         SnField* pTarget = init.EvalDataType();
-        uint16_t claimSize = 0;
+        uint16_t claimSize = 1;
         if (pTarget && pTarget->Kind() == NK_ClassDecl) {
             auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
             const std::string& baseName = pClassDecl->BaseName();
@@ -1649,7 +1647,8 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_InvokeStmt) {
         auto& invoke = static_cast<SnInvokeStmt&>(stmt);
-        return ExprPeakDepth(*invoke.Expr(), visited);
+        //Claim 1 stages the discarded result (codegen, round-9).
+        return 1 + ExprPeakDepth(*invoke.Expr(), visited);
     }
     if (kind == NK_LocalDeclStmt) {
         auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
@@ -1689,7 +1688,8 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_IfStmt) {
         auto& ifStmt = static_cast<SnIfStmt&>(stmt);
-        uint16_t d = ExprPeakDepth(*ifStmt.Cond(), visited);
+        //Claim 1 stages the condition (codegen, round-9).
+        uint16_t d = 1 + ExprPeakDepth(*ifStmt.Cond(), visited);
         if (ifStmt.ThenStmt()) {
             uint16_t td = StmtPeakDepth(*ifStmt.ThenStmt(), visited);
             if (td > d) d = td;
@@ -1702,7 +1702,8 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_WhileStmt) {
         auto& whileStmt = static_cast<SnWhileStmt&>(stmt);
-        uint16_t d = ExprPeakDepth(*whileStmt.Cond(), visited);
+        //Claim 1 stages the condition (codegen, round-9).
+        uint16_t d = 1 + ExprPeakDepth(*whileStmt.Cond(), visited);
         if (whileStmt.Body()) {
             uint16_t bd = StmtPeakDepth(*whileStmt.Body(), visited);
             if (bd > d) d = bd;
@@ -1711,7 +1712,8 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_DoStmt) {
         auto& dw = static_cast<SnDoStmt&>(stmt);
-        uint16_t d = ExprPeakDepth(*dw.Cond(), visited);
+        //Claim 1 stages the condition (codegen, round-9).
+        uint16_t d = 1 + ExprPeakDepth(*dw.Cond(), visited);
         if (dw.Body()) {
             uint16_t bd = StmtPeakDepth(*dw.Body(), visited);
             if (bd > d) d = bd;
@@ -1722,7 +1724,15 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
         auto& forStmt = static_cast<SnForStmt&>(stmt);
         uint16_t d = 0;
         if (forStmt.Init()) { uint16_t id = StmtPeakDepth(*forStmt.Init(), visited); if (id > d) d = id; }
-        if (forStmt.Cond()) { uint16_t cd = ExprPeakDepth(*forStmt.Cond(), visited); if (cd > d) d = cd; }
+        //Round-10: a for-init local decl decomposes into AssignStmts
+        //(InitExtras) that the codegen emits after Init() — mirror them or
+        //a staged initializer drifts past the reserved frame.
+        for (auto* pExtra : forStmt.InitExtras()) {
+            uint16_t ed = StmtPeakDepth(*pExtra, visited);
+            if (ed > d) d = ed;
+        }
+        //Claim 1 stages the condition (codegen, round-9).
+        if (forStmt.Cond()) { uint16_t cd = 1 + ExprPeakDepth(*forStmt.Cond(), visited); if (cd > d) d = cd; }
         if (forStmt.Fini()) { uint16_t fd = StmtPeakDepth(*forStmt.Fini(), visited); if (fd > d) d = fd; }
         if (forStmt.Body()) { uint16_t bd = StmtPeakDepth(*forStmt.Body(), visited); if (bd > d) d = bd; }
         return d;
@@ -1732,8 +1742,10 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
         uint16_t d = ExprPeakDepth(*sw.Cond(), visited);
         for (auto* c : sw.Cases()) {
             //SnCaseClause inherits SyntaxNode, not SnStatement — inline the walk.
+            //Claim 1 stages each case-cond (codegen, round-9; cases are
+            //sequential so one claim's worth suffices).
             if (c->Cond()) {
-                uint16_t cd = ExprPeakDepth(*c->Cond(), visited);
+                uint16_t cd = 1 + ExprPeakDepth(*c->Cond(), visited);
                 if (cd > d) d = cd;
             }
             if (c->Body()) {
@@ -1741,6 +1753,14 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
                     uint16_t sd = StmtPeakDepth(s, visited);
                     if (sd > d) d = sd;
                 }
+            }
+        }
+        //Round-10: the default clause body is emitted after the cases —
+        //walk it like a case body (SnParagraph, not SnStatement).
+        if (sw.Default()) {
+            for (auto& s : sw.Default()->Statements()) {
+                uint16_t sd = StmtPeakDepth(s, visited);
+                if (sd > d) d = sd;
             }
         }
         return d;
@@ -1759,7 +1779,8 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_AssertStmt) {
         auto& as = static_cast<SnAssertStmt&>(stmt);
-        return ExprPeakDepth(*as.Cond(), visited);
+        //Claim 1 stages the condition (codegen, round-9).
+        return 1 + ExprPeakDepth(*as.Cond(), visited);
     }
     if (kind == NK_TryStmt) {
         auto& ts = static_cast<SnTryStmt&>(stmt);
@@ -1787,7 +1808,8 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
     }
     if (kind == NK_ThrowStmt) {
         auto& th = static_cast<SnThrowStmt&>(stmt);
-        return th.Expr() ? ExprPeakDepth(*th.Expr(), visited) : 0;
+        //Claim 1 stages the thrown expression (codegen, round-9).
+        return th.Expr() ? 1 + ExprPeakDepth(*th.Expr(), visited) : 0;
     }
     if (kind == NK_CompoundAssignStmt) {
         auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
@@ -1897,15 +1919,21 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 else
                     walkExpr(*member.Inner(), false);
             } else if (expr.Kind() == NK_NewExpr) {
-                //claimSize for ctor call = 1 (this) + argCount.
+                //claimSize for ctor call = 1 (this) + argCount. Skip the
+                //class-name child by identity (Args() view includes it —
+                //see the NewExpr codegen handler); mirror codegen exactly.
                 auto& newExpr = static_cast<SnNewExpr&>(expr);
                 size_t argCount = 0;
-                for (auto& arg : newExpr.Args())
-                    if (arg.Kind() != NK_NameExpr) ++argCount;
+                for (auto& arg : newExpr.Args()) {
+                    if (&arg == newExpr.ClassName()) continue;
+                    ++argCount;
+                }
                 uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
                 if (claimSize > maxArgs) maxArgs = claimSize;
-                for (auto& arg : newExpr.Args())
+                for (auto& arg : newExpr.Args()) {
+                    if (&arg == newExpr.ClassName()) continue;
                     walkExpr(arg);
+                }
             } else if (expr.Kind() == NK_NewArrayExpr) {
                 walkExpr(*static_cast<SnNewArrayExpr&>(expr).Size());
             } else if (expr.Kind() == NK_InitListExpr) {
@@ -1960,6 +1988,9 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
             } else if (kind == NK_ForStmt) {
                 auto& f = static_cast<SnForStmt&>(stmt);
                 if (f.Init()) walkStmt(*f.Init());
+                //Round-10: decomposed init assigns (local-decl split) may
+                //contain calls — mirror the codegen's InitExtras loop.
+                for (auto* pExtra : f.InitExtras()) walkStmt(*pExtra);
                 if (f.Cond()) walkExpr(*f.Cond());
                 if (f.Fini()) walkStmt(*f.Fini());
                 if (f.Body()) walkStmt(*f.Body());
@@ -1974,8 +2005,14 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                             walkStmt(s);
                     }
                 }
+                //Round-10: default clause body — emitted after the cases.
+                if (sw.Default()) walkStmt(*sw.Default());
             } else if (kind == NK_ForeachStmt) {
                 auto& fe = static_cast<SnForeachStmt&>(stmt);
+                //Round-11: the List/Dict expansion body-prelude lowers to a
+                //synthetic get(i) call that bulk-writes {this, index} into
+                //callParamBase — reserve them (SubscriptExpr precedent).
+                if (maxArgs < 2) maxArgs = 2;
                 walkExpr(*fe.Iterable());
                 if (fe.Body()) walkStmt(*fe.Body());
             } else if (kind == NK_AssertStmt) {
@@ -2115,8 +2152,10 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
         compiledFunc.returnTypeKind = RTK_Void;
     }
 
-    // Temporary slots pool (4 slots — supports up to 3-level nested binary
-    // expressions without clobbering; see PickTempSlot).
+    // Temporary slots pool (4 slots of pure scratch, each consumed
+    // immediately after emission — struct deep-copy in EmitBinding, const
+    // staging before AllocArray. Live operands across nested emission go
+    // through EvalAreaClaim; nothing parks here by design).
     ctx.tempSlot = ctx.nextOffset;
     ctx.nextOffset += VALUE_SIZE;
     ctx.tempSlot2 = ctx.nextOffset;
@@ -2159,6 +2198,24 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
 
     compiledFunc.bytecode = emitter.TakeBytes();
     compiledFunc.localsSize = ctx.nextOffset;
+
+    //Walker-drift tripwire: the frame reserved stats.peakDepth slots for
+    //the evalArea, and every claim during emission must have fit inside.
+    //observedPeakCursor > reserved means the walker under-predicted some
+    //codegen claim — the emitted bytecode would stack-walk past the frame
+    //at runtime. Fail the build here instead (Phase 10 audit round-8
+    //closing move: drift is a compiler error, never a silent OOB).
+    //Scope note: this guards the evalArea only. callParamBase (sized from
+    //the MaxArgsWalker, no observed counterpart) can still under-count
+    //silently — keep MaxArgsWalker symmetric with every call-emitting path.
+    if (ctx.observedPeakCursor > stats.peakDepth * VALUE_SIZE) {
+        throw std::runtime_error(
+            "VmBackend: evalArea walker drift in function '"
+            + func.Name() + "': claims need "
+            + std::to_string(ctx.observedPeakCursor / VALUE_SIZE)
+            + " slots but frame reserved "
+            + std::to_string(stats.peakDepth));
+    }
 
     m_currFunc = nullptr;
 }
@@ -2302,6 +2359,31 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
             return;
         }
 
+        //Recursion guard (round-9, finding 3): a default expression may
+        //contain a call that itself needs this callee's defaults — the
+        //expansion recurses forever and overflows the compile stack
+        //(0xC00000FD). Track functions whose defaults are mid-emission;
+        //re-entry is a source error. Plain body recursion never lands here
+        //(all arguments supplied → no default emission → no guard entry),
+        //and sibling calls using the same defaults are sequential, not
+        //nested, so both stay legal.
+        bool emitsDefaults = false;
+        for (const auto& b : bindings) {
+            if (b.kind == FormalBinding::B_Default) { emitsDefaults = true; break; }
+        }
+        if (emitsDefaults && !m_defaultEmitting.insert(pCallee).second) {
+            throw std::runtime_error(
+                "recursive default parameter in call to '" + pCallee->Name()
+                + "': the default expression requires the same default again");
+        }
+        //RAII: erases on every exit, normal or unwinding — a throw from a
+        //deeper emission runs this destructor while propagating, so the set
+        //never leaks an entry even on a failed build.
+        struct DefaultEmitGuard {
+            VmBackend* pB; SnFunction* pF; bool armed;
+            ~DefaultEmitGuard() { if (armed) pB->m_defaultEmitting.erase(pF); }
+        } defGuard{this, pCallee, emitsDefaults};
+
         for (size_t i = 0; i < bindings.size(); ++i) {
             uint16_t slotIdx = static_cast<uint16_t>(i + slotBase);
             EmitBinding(bindings.data(), i, slotIdx, slotBase, emitter,
@@ -2338,19 +2420,50 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
     //EvalAreaClaim destructor releases the claim automatically.
 }
 
+//Emit code leaving the expression's value in frame slot `resultOffset`.
+//
+//SLOT CONTRACT (Phase 10 audit closing invariant — see the staging-bug
+//family history in ExprPeakDepth/FuncContext comments):
+//  - `resultOffset` may be any frame slot (user local, temp, claim slot,
+//    callParamBase area). Callees must treat it as write-only for the
+//    final value; intermediate operands never park in temps across a
+//    nested EmitExpression call.
+//  - Any operand that must survive a nested emission (the RIGHT operand
+//    of a binary, an initializer entry, a receiver, a staged RHS...) is
+//    parked in an exclusive EvalAreaClaim slot — never a temp. Temps are
+//    pure scratch, consumed by the very next opcode (EmitBinding's
+//    CopyStruct, const staging before AllocArray); nothing may read a
+//    temp after a nested emission.
+//  - Every EvalAreaClaim must be mirrored by ExprPeakDepth/StmtPeakDepth
+//    (over-reserving is the safe direction); the finalize-time
+//    observedPeakCursor check turns any drift into a build error.
 void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                                 uint16_t resultOffset) {
     NodeKind kind = expr.Kind();
+
+    //Round-13: type-reference expressions (ArrayTypeExpr, GenericTypeExpr)
+    //are compile-time-only — they carry type information but never produce
+    //runtime values. Reaching EmitExpression means a caller passed one as a
+    //value-producing expression (round-13 root cause: SnNewExpr::Args() is
+    //a view over ALL children and includes the AddChild'ed class name).
+    //This is an internal invariant break — surface it instead of emitting
+    //garbage or silently skipping (which masks resolver/AST bugs).
+    if (kind == NK_ArrayTypeExpr || kind == NK_GenericTypeExpr) {
+        throw std::runtime_error(
+            "NLang backend: type-reference expression reached codegen "
+            "(compile-time-only node) at "
+            + (expr.Location() ? expr.Location()->ToString()
+                               : std::string("?")));
+    }
 
     if (kind == NK_LiteralExpr) {
         auto& lit = static_cast<SnLiteralExpr&>(expr);
         auto* evalType = lit.EvalDataType();
 
         if (!evalType) {
-            emitter.Emit(OpCode::OP_ConstZero);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-            return;
+            //Round-12: a literal without a resolved type is an internal error.
+            throw std::runtime_error(
+                "NLang backend: literal expression without a resolved type");
         }
 
         NodeKind typeKind = evalType->Kind();
@@ -2375,9 +2488,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(resultOffset);
         } else {
-            emitter.Emit(OpCode::OP_ConstZero);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            //Round-12: unknown literal type — internal error.
+            throw std::runtime_error(
+                "NLang backend: literal with unhandled type kind: "
+                + std::to_string(static_cast<int>(typeKind)));
         }
         return;
     }
@@ -2433,10 +2547,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     + field->Name());
             }
         } else {
-            //Unresolved identifier — write zero as fallback.
-            emitter.Emit(OpCode::OP_ConstZero);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            //Round-11: an unresolved identifier reaching codegen means the
+            //resolver marked something resolved without binding it (the
+            //string equals() arg bug did exactly this). Emitting ConstZero
+            //here produced silent wrong code; fail the build instead —
+            //builder.Build() only reports resolver errors, so codegen runs
+            //only when the front-end saw none.
+            throw std::runtime_error(
+                "NLang backend: identifier reached codegen unresolved: "
+                + idExpr.Name());
         }
         return;
     }
@@ -2461,28 +2580,36 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             if (it != m_funcIndexMap.end())
                 funcIndex = static_cast<int>(it->second);
         }
-        //callee == null means unresolved invoke — skip (compiler should have reported error)
-        if (funcIndex >= 0) {
-            if (!outSpills.empty()) {
-                emitter.Emit(OpCode::OP_CallFuncOut);
-                emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-                emitter.EmitUint16(m_currFunc->callParamBase);
-                emitter.EmitInt32(static_cast<int32_t>(
-                    BuildOutMask(outSpills)));
-                //Result first: the spills below clobber pResult via
-                //OP_VarLocal, so the call's return value must be stored
-                //before any writeback.
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-                EmitOutSpills(outSpills, emitter);
-            } else {
-                emitter.Emit(OpCode::OP_CallFunc);
-                emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-                emitter.EmitUint16(m_currFunc->callParamBase);
-                // Result is in pResult, store to resultOffset
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            }
+        //Round-11: an invoke reaching here with no resolvable callee means
+        //the resolver marked it resolved without binding (the string
+        //equals() arg bug did exactly this — the arg's nested call was
+        //silently skipped and equals compared stale memory). Codegen only
+        //runs when the front-end saw no errors, so this is an internal
+        //inconsistency: fail the build instead of emitting wrong code.
+        if (funcIndex < 0) {
+            throw std::runtime_error(
+                "NLang backend: invoke reached codegen unresolved: "
+                + invoke.CalleeName());
+        }
+        if (!outSpills.empty()) {
+            emitter.Emit(OpCode::OP_CallFuncOut);
+            emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            emitter.EmitInt32(static_cast<int32_t>(
+                BuildOutMask(outSpills)));
+            //Result first: the spills below clobber pResult via
+            //OP_VarLocal, so the call's return value must be stored
+            //before any writeback.
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            EmitOutSpills(outSpills, emitter);
+        } else {
+            emitter.Emit(OpCode::OP_CallFunc);
+            emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            // Result is in pResult, store to resultOffset
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
         }
         emitter.Emit(OpCode::OP_ParaEnd);
         return;
@@ -2702,9 +2829,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(resultOffset);
             return;
         }
-        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None) should have been
-        //rejected by ExprResolver.Access(SnAsExpr&). Defensive fallback.
-        return;
+        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None) are rejected by
+        //ExprResolver.Access(SnAsExpr&) before codegen — reaching here is
+        //an internal invariant break. Round-13: this used to silently
+        //return, leaving resultOffset unwritten (stale/garbage value).
+        throw std::runtime_error(
+            "NLang backend: unhandled `as` cast kind in codegen: "
+            + std::to_string(static_cast<int>(kind)) + " at "
+            + (expr.Location() ? expr.Location()->ToString()
+                               : std::string("?")));
     }
 
     // Member expression - struct field access or delegate to inner
@@ -2877,7 +3010,13 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             if (inner && inner->Kind() == NK_IdentifierExpr) {
                 auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
                 int off = FindFieldOffset(*structDecl, fieldName);
-                if (off < 0) return; //should not happen after type resolution
+                if (off < 0) {
+                    //Round-12: field offset not found — internal error after
+                    //type resolution should have caught this.
+                    throw std::runtime_error(
+                        "NLang backend: struct field offset not found: "
+                        + fieldName);
+                }
                 emitter.Emit(OpCode::OP_LoadField);
                 emitter.EmitUint16(resultOffset);
                 emitter.EmitUint16(resultOffset);
@@ -2897,7 +3036,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             if (inner && inner->Kind() == NK_IdentifierExpr) {
                 auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
                 int off = FindClassFieldOffset(*classDecl, fieldName);
-                if (off < 0) return;
+                if (off < 0) {
+                    throw std::runtime_error(
+                        "NLang backend: class field offset not found: "
+                        + fieldName);
+                }
                 emitter.Emit(OpCode::OP_LoadField);
                 emitter.EmitUint16(resultOffset);
                 emitter.EmitUint16(resultOffset);
@@ -2992,20 +3135,28 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.EmitUint16(m_currFunc->callParamBase);
                 } else if (callee) {
                     //Non-virtual (final) method — direct call by function index
-                    //(like EN's I_Base_CallFinalFunc + NFunction*)
+                    //(like EN's I_Base_CallFinalFunc + NFunction*).
+                    //Round-12: a miss on the function map means the resolver
+                    //bound a method that never got registered — today that is
+                    //a body-less declaration (the backend skips functions with
+                    //nothing to compile). Silently skipping the call made the
+                    //expression read stale frame memory; fail the build
+                    //instead so the user gets a real diagnostic.
                     auto it = m_funcIndexMap.find(callee);
-                    if (it != m_funcIndexMap.end()) {
-                        if (!outSpills.empty()) {
-                            emitter.Emit(OpCode::OP_CallMethodDirectOut);
-                            emitter.EmitUint16(static_cast<uint16_t>(it->second));
-                            emitter.EmitUint16(m_currFunc->callParamBase);
-                            emitter.EmitInt32(static_cast<int32_t>(
-                                BuildOutMask(outSpills)));
-                        } else {
-                            emitter.Emit(OpCode::OP_CallMethodDirect);
-                            emitter.EmitUint16(static_cast<uint16_t>(it->second));
-                            emitter.EmitUint16(m_currFunc->callParamBase);
-                        }
+                    if (it == m_funcIndexMap.end())
+                        throw std::runtime_error(
+                            "NLang backend: call to method without a body: "
+                            + callee->Name());
+                    if (!outSpills.empty()) {
+                        emitter.Emit(OpCode::OP_CallMethodDirectOut);
+                        emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                        emitter.EmitUint16(m_currFunc->callParamBase);
+                        emitter.EmitInt32(static_cast<int32_t>(
+                            BuildOutMask(outSpills)));
+                    } else {
+                        emitter.Emit(OpCode::OP_CallMethodDirect);
+                        emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                        emitter.EmitUint16(m_currFunc->callParamBase);
                     }
                 } else {
                     //Phase 8e-1: no AST callee. Covers two cases:
@@ -3070,12 +3221,17 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         "NLang backend: out argument on interface call");
                 //Always virtual dispatch by name.
                 auto* callee = invoke.Callee();
-                if (callee) {
-                    uint16_t nameIdx = AddStringConstant(callee->Name());
-                    emitter.Emit(OpCode::OP_CallMethod);
-                    emitter.EmitUint16(nameIdx);
-                    emitter.EmitUint16(m_currFunc->callParamBase);
-                }
+                //Round-12: no callee means the resolver resolved the call
+                //without binding a method — emitting nothing here would read
+                //stale frame memory as the "result". Fail the build instead.
+                if (!callee)
+                    throw std::runtime_error(
+                        "NLang backend: interface call without a bound method: "
+                        + invoke.CalleeName());
+                uint16_t nameIdx = AddStringConstant(callee->Name());
+                emitter.Emit(OpCode::OP_CallMethod);
+                emitter.EmitUint16(nameIdx);
+                emitter.EmitUint16(m_currFunc->callParamBase);
                 emitter.Emit(OpCode::OP_Assign);
                 emitter.EmitUint16(resultOffset);
                 emitter.Emit(OpCode::OP_ParaEnd);
@@ -3094,7 +3250,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 if (inner && inner->Kind() == NK_IdentifierExpr) {
                     auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
                     int off = FindFieldOffset(*structDecl, fieldName);
-                    if (off < 0) return;
+                    if (off < 0) {
+                        throw std::runtime_error(
+                            "NLang backend: struct field offset not found: "
+                            + fieldName);
+                    }
                     emitter.Emit(OpCode::OP_LoadField);
                     emitter.EmitUint16(resultOffset);
                     emitter.EmitUint16(resultOffset);
@@ -3111,7 +3271,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 if (inner && inner->Kind() == NK_IdentifierExpr) {
                     auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
                     int off = FindClassFieldOffset(*classDecl, fieldName);
-                    if (off < 0) return;
+                    if (off < 0) {
+                        throw std::runtime_error(
+                            "NLang backend: class field offset not found: "
+                            + fieldName);
+                    }
                     emitter.Emit(OpCode::OP_LoadField);
                     emitter.EmitUint16(resultOffset);
                     emitter.EmitUint16(resultOffset);
@@ -3139,14 +3303,18 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 }
                 if (methName == "getHashCode")
                 {
-                    //Phase 9c follow-up: route through evalArea claim so the
-                    //receiver expression (if it contains nested calls) does
-                    //not get clobbered by inner bulk-copies to callParamBase.
-                    EvalAreaClaim claim(*this, 1);
-                    uint16_t claimBase = claim.base();
-                    EmitExpression(*member.Outer(), emitter, claimBase);
+                    //Round-10 receiver-first: emit the receiver to
+                    //resultOffset, then copy straight to callParamBase — no
+                    //evalArea claim needed (nothing is emitted between the
+                    //copy and the intrinsic call, so nothing can clobber
+                    //callParamBase). The old shape claimed the slot BEFORE
+                    //emitting the receiver, stacking the receiver's nested
+                    //claims on top while the MemberExpr walker is max-shaped
+                    //(max(receiver, 1)) — a receiver containing calls
+                    //drifted past the reserved frame.
+                    EmitExpression(*member.Outer(), emitter, resultOffset);
                     emitter.Emit(OpCode::OP_VarLocal);
-                    emitter.EmitUint16(claimBase);
+                    emitter.EmitUint16(resultOffset);
                     emitter.Emit(OpCode::OP_Assign);
                     emitter.EmitUint16(m_currFunc->callParamBase);
                     emitter.Emit(OpCode::OP_CallIntrinsic);
@@ -3159,15 +3327,25 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 }
                 if (methName == "equals")
                 {
-                    //Phase 9c follow-up: route through evalArea claim so
-                    //nested calls in args don't clobber receiver/args in
-                    //callParamBase.
+                    //Phase 9c follow-up + round-10 receiver-first: args stage
+                    //in the {this, args...} claim (nested calls in later args
+                    //would clobber callParamBase), but the RECEIVER is
+                    //emitted to resultOffset before the claim — resultOffset
+                    //is a user local / parent claim slot, out of reach of
+                    //nested emissions. Claiming before the receiver emission
+                    //stacked the receiver's nested claims above the slice
+                    //while the MemberExpr walker is max-shaped
+                    //(max(receiver, claimSize + argDepth)).
                     uint16_t argCount = 0;
                     for (auto& p : invoke.Params()) ++argCount;
                     uint16_t n = static_cast<uint16_t>(1 + argCount);
+                    EmitExpression(*member.Outer(), emitter, resultOffset);
                     EvalAreaClaim claim(*this, n);
                     uint16_t claimBase = claim.base();
-                    EmitExpression(*member.Outer(), emitter, claimBase);
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(claimBase);
                     uint16_t paramIdx = 1;
                     for (auto& param : invoke.Params()) {
                         EmitExpression(param, emitter,
@@ -3208,10 +3386,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         auto& newExpr = static_cast<SnNewExpr&>(expr);
         auto* pClassDecl = newExpr.ClassDecl();
         if (!pClassDecl) {
-            emitter.Emit(OpCode::OP_ConstZero);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-            return;
+            //Round-12: the resolver failed to bind a class declaration to
+            //this new-expression. Codegen only runs when the front-end saw
+            //no errors, so this is an internal invariant break.
+            throw std::runtime_error(
+                "NLang backend: new expression without a bound class declaration");
         }
         //Phase 8e-3: generic instantiations (List<int>) share one CompiledClass
         //named "List" at runtime (erasure). BaseName() returns the unqualified
@@ -3219,10 +3398,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         const std::string& className = pClassDecl->BaseName();
         int classIdx = m_compiledModule.FindClass(className);
         if (classIdx < 0) {
-            emitter.Emit(OpCode::OP_ConstZero);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-            return;
+            //Round-12: the class was resolved by the front-end but never
+            //registered in the compiled module. This means the class has
+            //no compiled representation — fail the build instead of
+            //silently emitting zero (which would make `new Foo()` return
+            //null at runtime, a subtle wrong-code bug).
+            throw std::runtime_error(
+                "NLang backend: new expression for unregistered class: "
+                + className);
         }
         uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
         //Phase 9c follow-up: route ctor args through evalArea claim so
@@ -3230,10 +3413,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //to EmitCallArgs). claim layout: [0]=this, [1..N]=args.
         uint16_t allocSlot = resultOffset;
         if (ctorIdx != 0xFFFF) {
-            //Count actual args (skip NameExpr which are named-arg markers).
+            //Count actual ctor args. Args() is a view over ALL children and
+            //its LAST element is the AddChild'ed class-name node (SnNewExpr
+            //ctor appends it after the ctor args) — skip it by identity.
+            //The resolver rejects named/out args and validates arity, so
+            //every remaining entry is a positional value expression.
             size_t argCount = 0;
             for (auto& param : newExpr.Args()) {
-                if (param.Kind() != NK_NameExpr) ++argCount;
+                if (&param == newExpr.ClassName()) continue;
+                ++argCount;
             }
             uint16_t n = static_cast<uint16_t>(1 + argCount);  //this + args
 
@@ -3245,7 +3433,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             //our this/args live in evalArea, not callParamBase.
             uint16_t paramIdx = 1;
             for (auto& param : newExpr.Args()) {
-                if (param.Kind() == NK_NameExpr) continue;
+                if (&param == newExpr.ClassName()) continue;
                 uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
                 EmitExpression(param, emitter, paramOffset);
                 ++paramIdx;
@@ -3304,11 +3492,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //Register the array type (idempotent)
         uint16_t arrayTypeIdx = RegisterArrayType(
             newArr.ElementType()->Field());
-        //Size scratch must avoid resultOffset. When the dst is a temp
-        //(e.g. the RHS of a member assignment, emitted into tempSlot2
-        //while the receiver lives in tempSlot), hardcoding tempSlot
-        //here would clobber the receiver.
-        uint16_t sizeSlot = PickTempSlot(resultOffset);
+        //Size staging: EvalAreaClaim, never a temp. A temp staging slot
+        //lets a nested binary (`1 + use(make(1))`) park its LEFT operand
+        //there while a struct-by-value argument deep-copies through
+        //tempSlot (EmitBinding CopyStruct scratch) — silently corrupting
+        //the parked value. Claim slots are exclusive to this expression.
+        //ExprPeakDepth's NewArrayExpr case tracks the claim=1.
+        EvalAreaClaim sizeClaim(*this, 1);
+        uint16_t sizeSlot = sizeClaim.base();
         EmitExpression(*newArr.Size(), emitter, sizeSlot);
         emitter.Emit(OpCode::OP_AllocArray);
         emitter.EmitUint16(resultOffset);
@@ -3326,10 +3517,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         auto& initList = static_cast<SnInitListExpr&>(expr);
         SnField* pTarget = initList.EvalDataType();
         if (!pTarget) {
-            emitter.Emit(OpCode::OP_ConstZero);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-            return;
+            //Round-12: init list without a resolved target type.
+            throw std::runtime_error(
+                "NLang backend: init list expression without a resolved target type");
         }
 
         //---- Array form: target is T[] ----
@@ -3351,8 +3541,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(arrayTypeIdx);
             emitter.EmitUint16(m_currFunc->tempSlot);
 
-            //Pick value slot distinct from resultOffset (handles nesting).
-            uint16_t valueSlot = PickTempSlot(resultOffset);
+            //Stage entry values in an evalArea claim, never a temp: a
+            //binary entry (`1 + use(make(5))`) parks its LEFT operand in
+            //the staging slot, and a struct-by-value argument's deep-copy
+            //scratch (EmitBinding, tempSlot) must not be able to touch it.
+            //One claim spans the loop: each entry is consumed immediately
+            //(StoreElement) and nested emissions claim fresh slots above.
+            //ExprPeakDepth's InitListExpr case tracks claimSize=1.
+            EvalAreaClaim valueClaim(*this, 1);
+            uint16_t valueSlot = valueClaim.base();
             //Store each entry: arr[i] = entries[i].pValue.
             for (int32_t i = 0; i < n; ++i) {
                 auto& entry = initList.Entries()[i];
@@ -3380,10 +3577,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             if (baseName == "List") {
                 int classIdx = m_compiledModule.FindClass("List");
                 if (classIdx < 0) {
-                    emitter.Emit(OpCode::OP_ConstZero);
-                    emitter.Emit(OpCode::OP_Assign);
-                    emitter.EmitUint16(resultOffset);
-                    return;
+                    //Round-12: List is a built-in class — always registered.
+                    throw std::runtime_error(
+                        "NLang backend: List class not registered in module");
                 }
                 //Allocate List instance.
                 emitter.Emit(OpCode::OP_New);
@@ -3450,10 +3646,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 //---- Dict<K,V> form ----
                 int classIdx = m_compiledModule.FindClass("Dict");
                 if (classIdx < 0) {
-                    emitter.Emit(OpCode::OP_ConstZero);
-                    emitter.Emit(OpCode::OP_Assign);
-                    emitter.EmitUint16(resultOffset);
-                    return;
+                    //Round-12: Dict is a built-in class — always registered.
+                    throw std::runtime_error(
+                        "NLang backend: Dict class not registered in module");
                 }
                 emitter.Emit(OpCode::OP_New);
                 emitter.EmitUint16(resultOffset);
@@ -3539,10 +3734,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     ? pClassDecl->Name() : pClassDecl->BaseName();
                 int classIdx = m_compiledModule.FindClass(className);
                 if (classIdx < 0) {
-                    emitter.Emit(OpCode::OP_ConstZero);
-                    emitter.Emit(OpCode::OP_Assign);
-                    emitter.EmitUint16(resultOffset);
-                    return;
+                    //Round-12: class was resolved but not registered.
+                    throw std::runtime_error(
+                        "NLang backend: init-list class not registered: "
+                        + className);
                 }
                 emitter.Emit(OpCode::OP_New);
                 emitter.EmitUint16(resultOffset);
@@ -3558,8 +3753,13 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.EmitUint16(m_currFunc->callParamBase);
                     emitter.Emit(OpCode::OP_ParaEnd);
                 }
-                //Per-field store.
-                uint16_t valueSlot = PickTempSlot(resultOffset);
+                //Per-field store. Entry values stage in an evalArea claim,
+                //never a temp — same clobber family as the array form
+                //(binary LEFT operand parked in the staging slot vs. the
+                //EmitBinding struct deep-copy scratch on tempSlot).
+                //ExprPeakDepth's InitListExpr case tracks claimSize=1.
+                EvalAreaClaim valueClaim(*this, 1);
+                uint16_t valueSlot = valueClaim.base();
                 for (auto& entry : initList.Entries()) {
                     if (entry.keyKind != InitEntry::KeyKind::Identifier)
                         continue;
@@ -3584,10 +3784,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             const std::string& structName = pStructDecl->Name();
             int structIdx = m_compiledModule.FindStruct(structName);
             if (structIdx < 0) {
-                emitter.Emit(OpCode::OP_ConstZero);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-                return;
+                //Round-12: struct was resolved but not registered.
+                throw std::runtime_error(
+                    "NLang backend: init-list struct not registered: "
+                    + structName);
             }
             auto& cs = m_compiledModule.structs[structIdx];
             emitter.Emit(OpCode::OP_AllocStruct);
@@ -3601,7 +3801,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             //them silently zeroed every field (Phase 8e-6 declared
             //declaration-order support; the arg-position probe
             //`sum(new Point{ 3 })` exposed it).
-            uint16_t valueSlot = PickTempSlot(resultOffset);
+            //Entry values stage in an evalArea claim, never a temp (same
+            //clobber family as the array/class forms above). The struct
+            //branch of a plain assign happens to route through tempSlot2
+            //today, which dodges the scratch by accident — the claim makes
+            //that independence a guarantee instead of luck.
+            //ExprPeakDepth's InitListExpr case tracks claimSize=1.
+            EvalAreaClaim valueClaim(*this, 1);
+            uint16_t valueSlot = valueClaim.base();
             size_t ordinal = 0;
             for (auto& entry : initList.Entries()) {
                 if (!entry.pValue) continue;
@@ -3862,10 +4069,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
-    // Fallback: write zero
-    emitter.Emit(OpCode::OP_ConstZero);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
+    //Round-12: this used to silently emit ConstZero, converting any
+    //unhandled expression kind into wrong-but-compiling code. Codegen only
+    //runs when the front-end saw no errors, so reaching here is an internal
+    //invariant break — surface it instead of emitting garbage.
+    throw std::runtime_error(
+        "NLang backend: unhandled expression kind in codegen: "
+        + std::to_string(static_cast<int>(kind)) + " at "
+        + (expr.Location() ? expr.Location()->ToString() : std::string("?")));
 }
 
 void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
@@ -3907,7 +4118,11 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
     if (kind == NK_InvokeStmt) {
         auto& invoke = static_cast<SnInvokeStmt&>(stmt);
-        EmitExpression(*invoke.Expr(), emitter, m_currFunc->tempSlot);
+        //Result staging: EvalAreaClaim, never tempSlot (round-9 — uniform
+        //statement-staging rule; the result is discarded, but intermediates
+        //must not park in a temp either. StmtPeakDepth tracks the claim=1).
+        EvalAreaClaim resultClaim(*this, 1);
+        EmitExpression(*invoke.Expr(), emitter, resultClaim.base());
         return;
     }
 
@@ -4042,12 +4257,20 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                     if (elemType->Kind() == NK_ClassDecl) {
                         int off = FindClassFieldOffset(
                             *static_cast<SnClassDecl*>(elemType), fieldName);
-                        if (off < 0) return;
+                        if (off < 0) {
+                            throw std::runtime_error(
+                                "NLang backend: class field offset not found: "
+                                + fieldName);
+                        }
                         fieldOff = static_cast<uint16_t>(off);
                     } else {
                         int off = FindFieldOffset(
                             *static_cast<SnStructDecl*>(elemType), fieldName);
-                        if (off < 0) return;
+                        if (off < 0) {
+                            throw std::runtime_error(
+                                "NLang backend: struct field offset not found: "
+                                + fieldName);
+                        }
                         fieldOff = static_cast<uint16_t>(off);
                     }
                     //List/Dict receiver: `li[i].field = v` — the subscript
@@ -4214,11 +4437,22 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //fail block emits OP_AssertFail which throws (caught by main → exit 1).
     if (kind == NK_AssertStmt) {
         auto& as = static_cast<SnAssertStmt&>(stmt);
-        EmitExpression(*as.Cond(), emitter, m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_JumpIfNot);
-        size_t jumpToFail = emitter.CurrentOffset();
-        emitter.EmitUint16(0);  //placeholder
-        emitter.EmitUint16(m_currFunc->tempSlot);
+        //Condition staging: EvalAreaClaim, never tempSlot (round-9 — a
+        //binary cond parks its LEFT operand in the staging slot across
+        //the nested RIGHT emission; the EmitBinding struct deep-copy
+        //scratch on tempSlot corrupted it and flipped the verdict).
+        //StmtPeakDepth's AssertStmt case tracks the claim=1; scope ends
+        //at the JumpIfNot operand.
+        size_t jumpToFail;
+        {
+            EvalAreaClaim condClaim(*this, 1);
+            uint16_t condSlot = condClaim.base();
+            EmitExpression(*as.Cond(), emitter, condSlot);
+            emitter.Emit(OpCode::OP_JumpIfNot);
+            jumpToFail = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder
+            emitter.EmitUint16(condSlot);
+        }
         //Success path: jump over fail block
         emitter.Emit(OpCode::OP_Jump);
         size_t jumpToEnd = emitter.CurrentOffset();
@@ -4244,7 +4478,12 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         if (ca.Left()->Kind() == NK_IdentifierExpr) {
             auto& idExpr = static_cast<SnIdentifierExpr&>(*ca.Left());
             auto* field = idExpr.Field();
-            if (!field) return;
+            if (!field) {
+                //Round-12: the resolver should always bind the field for
+                //a compound assignment. If it didn't, that's an internal error.
+                throw std::runtime_error(
+                    "NLang backend: compound assignment with unbound field");
+            }
             BareIdTarget target = ResolveBareIdentifier(field);
             if (target.kind == BareIdTarget::Local) {
                 //Local variable: compute in-place on the local slot
@@ -4300,15 +4539,25 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             if (outerType->Kind() == NK_ClassDecl) {
                 int off = FindClassFieldOffset(
                     *static_cast<SnClassDecl*>(outerType), fieldName);
-                if (off < 0) return;
+                if (off < 0) {
+                    throw std::runtime_error(
+                        "NLang backend: class field offset not found: "
+                        + fieldName);
+                }
                 fieldOff = static_cast<uint16_t>(off);
             } else if (outerType->Kind() == NK_StructDecl) {
                 int off = FindFieldOffset(
                     *static_cast<SnStructDecl*>(outerType), fieldName);
-                if (off < 0) return;
+                if (off < 0) {
+                    throw std::runtime_error(
+                        "NLang backend: struct field offset not found: "
+                        + fieldName);
+                }
                 fieldOff = static_cast<uint16_t>(off);
             } else {
-                return;
+                //Round-12: unexpected outer type for member assignment.
+                throw std::runtime_error(
+                    "NLang backend: member assignment with unexpected outer type");
             }
 
             //Phase 10 audit round-3: read-modify-write parks three live
@@ -4461,13 +4710,22 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //Reference: EN's IfStmt::Compile (SeStatements.cpp:367).
     if (kind == NK_IfStmt) {
         auto& ifStmt = static_cast<SnIfStmt&>(stmt);
-        //Evaluate condition to tempSlot
-        EmitExpression(*ifStmt.Cond(), emitter, m_currFunc->tempSlot);
-        //JumpIfNot to else/endif
-        emitter.Emit(OpCode::OP_JumpIfNot);
-        size_t jumpToElse = emitter.CurrentOffset();
-        emitter.EmitUint16(0);  //placeholder for target
-        emitter.EmitUint16(m_currFunc->tempSlot);  //local offset to check
+        //Condition staging: EvalAreaClaim, never tempSlot (round-9 —
+        //binary cond LEFT operand vs. EmitBinding struct deep-copy scratch;
+        //StmtPeakDepth's IfStmt case tracks the claim=1). The claim's
+        //scope ends at the JumpIfNot operand (its last read): the branch
+        //bodies re-claim fresh slots, so nested statements never stack.
+        size_t jumpToElse;
+        {
+            EvalAreaClaim condClaim(*this, 1);
+            uint16_t condSlot = condClaim.base();
+            EmitExpression(*ifStmt.Cond(), emitter, condSlot);
+            //JumpIfNot to else/endif
+            emitter.Emit(OpCode::OP_JumpIfNot);
+            jumpToElse = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder for target
+            emitter.EmitUint16(condSlot);  //local offset to check
+        }
         //Then branch
         EmitStatement(*ifStmt.ThenStmt(), emitter);
         //Jump to endif (skip else branch)
@@ -4493,13 +4751,21 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
         PushLoopContext();
 
-        //Evaluate condition to tempSlot
-        EmitExpression(*whileStmt.Cond(), emitter, m_currFunc->tempSlot);
-        //JumpIfNot to end of loop
-        emitter.Emit(OpCode::OP_JumpIfNot);
-        size_t jumpToEnd = emitter.CurrentOffset();
-        emitter.EmitUint16(0);  //placeholder for target
-        emitter.EmitUint16(m_currFunc->tempSlot);  //local offset to check
+        //Condition staging: EvalAreaClaim, never tempSlot (round-9 —
+        //same binary-LEFT vs. struct deep-copy scratch family; the loop
+        //bound was silently corrupted. StmtPeakDepth tracks the claim=1).
+        //Scope ends at the JumpIfNot operand — the loop body re-claims.
+        size_t jumpToEnd;
+        {
+            EvalAreaClaim condClaim(*this, 1);
+            uint16_t condSlot = condClaim.base();
+            EmitExpression(*whileStmt.Cond(), emitter, condSlot);
+            //JumpIfNot to end of loop
+            emitter.Emit(OpCode::OP_JumpIfNot);
+            jumpToEnd = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder for target
+            emitter.EmitUint16(condSlot);  //local offset to check
+        }
         m_loopStack.back().breakJumps.push_back(jumpToEnd);
 
         //Loop body
@@ -4536,12 +4802,18 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //2. Continue target: condition check
         size_t continueTarget = emitter.CurrentOffset();
 
-        //3. Condition check
-        EmitExpression(*doStmt.Cond(), emitter, m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_JumpIfNot);
-        size_t jumpToEnd = emitter.CurrentOffset();
-        emitter.EmitUint16(0);  //placeholder
-        emitter.EmitUint16(m_currFunc->tempSlot);
+        //3. Condition check (claim staging — see WhileStmt above, round-9;
+        //scope ends at the JumpIfNot operand)
+        size_t jumpToEnd;
+        {
+            EvalAreaClaim condClaim(*this, 1);
+            uint16_t condSlot = condClaim.base();
+            EmitExpression(*doStmt.Cond(), emitter, condSlot);
+            emitter.Emit(OpCode::OP_JumpIfNot);
+            jumpToEnd = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder
+            emitter.EmitUint16(condSlot);
+        }
         m_loopStack.back().breakJumps.push_back(jumpToEnd);
 
         //4. Jump back to loop start
@@ -4579,12 +4851,18 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //3. Enter loop context (reference: EN's LoopStmt::Compile)
         PushLoopContext();
 
-        //4. Condition check
-        EmitExpression(*forStmt.Cond(), emitter, m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_JumpIfNot);
-        size_t jumpToEnd = emitter.CurrentOffset();
-        emitter.EmitUint16(0);  //placeholder
-        emitter.EmitUint16(m_currFunc->tempSlot);
+        //4. Condition check (claim staging — see WhileStmt above, round-9;
+        //scope ends at the JumpIfNot operand so the body re-claims)
+        size_t jumpToEnd;
+        {
+            EvalAreaClaim condClaim(*this, 1);
+            uint16_t condSlot = condClaim.base();
+            EmitExpression(*forStmt.Cond(), emitter, condSlot);
+            emitter.Emit(OpCode::OP_JumpIfNot);
+            jumpToEnd = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder
+            emitter.EmitUint16(condSlot);
+        }
         m_loopStack.back().breakJumps.push_back(jumpToEnd);
 
         //5. Loop body
@@ -4945,22 +5223,33 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             nextJumps.push_back(jumpToNext);
 
             //Compile condition: switch_value == case_constant
-            //Load switch value from dedicated slot to tempSlot2
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(switchSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(m_currFunc->tempSlot2);
-            //Compile case constant to tempSlot
-            EmitExpression(*pCase->Cond(), emitter, m_currFunc->tempSlot);
-            //Compare: tempSlot2 == tempSlot → result in tempSlot2
-            emitter.Emit(OpCode::OP_Equal_i32);
-            emitter.EmitUint16(m_currFunc->tempSlot2);
-            emitter.EmitUint16(m_currFunc->tempSlot);
-            //If not equal, jump to next case handler
-            emitter.Emit(OpCode::OP_JumpIfNot);
-            size_t condJumpPos = emitter.CurrentOffset();
-            emitter.EmitUint16(0);  //placeholder, same target as nextJump
-            emitter.EmitUint16(m_currFunc->tempSlot2);
+            //Case-cond staging: EvalAreaClaim, never tempSlot (round-9 —
+            //same binary-LEFT vs. struct deep-copy scratch family; a
+            //corrupted cond silently fell through to default). The switch
+            //value load is deliberately emitted AFTER the cond so it is
+            //never parked in a temp across a nested emission. The claim
+            //releases before the case body emits (bodies re-claim).
+            //StmtPeakDepth's SwitchStmt case tracks the claim=1.
+            size_t condJumpPos;
+            {
+                EvalAreaClaim condClaim(*this, 1);
+                uint16_t condSlot = condClaim.base();
+                EmitExpression(*pCase->Cond(), emitter, condSlot);
+                //Load switch value from dedicated slot to tempSlot2
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(switchSlot);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(m_currFunc->tempSlot2);
+                //Compare: tempSlot2 == condSlot → result in tempSlot2
+                emitter.Emit(OpCode::OP_Equal_i32);
+                emitter.EmitUint16(m_currFunc->tempSlot2);
+                emitter.EmitUint16(condSlot);
+                //If not equal, jump to next case handler
+                emitter.Emit(OpCode::OP_JumpIfNot);
+                condJumpPos = emitter.CurrentOffset();
+                emitter.EmitUint16(0);  //placeholder, same target as nextJump
+                emitter.EmitUint16(m_currFunc->tempSlot2);
+            }
             nextJumps.push_back(condJumpPos);
 
             //Compile case body
@@ -5170,9 +5459,15 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         if (th.IsRethrow()) {
             emitter.Emit(OpCode::OP_Rethrow);
         } else {
-            EmitExpression(*th.Expr(), emitter, m_currFunc->tempSlot);
+            //Expression staging: EvalAreaClaim, never tempSlot (round-9 —
+            //uniform statement-staging rule; class-typed exprs write their
+            //result last today, but the claim removes the reliance on that
+            //luck. StmtPeakDepth's ThrowStmt case tracks the claim=1).
+            EvalAreaClaim exprClaim(*this, 1);
+            uint16_t exprSlot = exprClaim.base();
+            EmitExpression(*th.Expr(), emitter, exprSlot);
             emitter.Emit(OpCode::OP_Throw);
-            emitter.EmitUint16(m_currFunc->tempSlot);
+            emitter.EmitUint16(exprSlot);
         }
         return;
     }
@@ -5226,6 +5521,16 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         emitter.Emit(OpCode::OP_ParaEnd);
         return;
     }
+
+    //Round-13: symmetric to EmitExpression's unhandled-kind throw. Codegen
+    //only runs when the front-end saw no errors, so an unhandled statement
+    //kind reaching here is an internal invariant break — silently skipping
+    //it would emit wrong-but-compiling code (statement simply vanishes).
+    throw std::runtime_error(
+        "NLang backend: unhandled statement kind in codegen: "
+        + std::to_string(static_cast<int>(kind)) + " at "
+        + (stmt.Location() ? stmt.Location()->ToString()
+                           : std::string("?")));
 }
 
 uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,

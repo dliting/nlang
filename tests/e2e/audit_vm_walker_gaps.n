@@ -1,0 +1,50 @@
+// Phase 10 audit round-10: walker/codegen symmetry gaps. Three shapes had
+// codegen the peak-depth walkers (StmtPeakDepth / MaxArgsWalker) did not
+// mirror. Each check lives in its own function so its shape is the deepest
+// statement there — the pre-fix red state is the observedPeakCursor tripwire
+// rejecting the function at compile time (pre-tripwire it silently consumed
+// evalArea slots past the reserved frame).
+//   bit 1: string getHashCode() claimed its evalArea slice BEFORE emitting
+//          the receiver — the receiver's nested claims stacked on top
+//          (1 + receiverDepth) while the MemberExpr walker is max-shaped.
+//   bit 2: string equals() — same claim-before-receiver stacking.
+//   bit 4: a for-init local decl decomposes into AssignStmts (InitExtras)
+//          that codegen emitted but both walkers never walked.
+//   bit 8: the switch default clause body — same walker gap as InitExtras.
+struct Point { int x; int y; }
+Point make(int v) { Point p; p.x = v; p.y = v; return p; }
+int use(Point p) { return p.x; }
+string pick(int v) { return "abcd"; }
+
+int gh() {
+    //Receiver is a call (depth 1): assign observes claim(1)+receiver(1)=2,
+    //pre-fix walker reserved 1.
+    int a = pick(1).getHashCode();
+    int b = "abcd".getHashCode();
+    return a - b;  // 0 when both hash the same string
+}
+
+int eq() {
+    if (!pick(1).equals("abcd")) return 2;
+    return 0;
+}
+
+int fi() {
+    int cnt = 0;
+    //for-init initializer is an InitExtras assign; i starts at 5, two iterations
+    for (int i = 1 + use(make(4)); i < 7; i = i + 1) { cnt += 1; }
+    if (cnt != 2) return 4;
+    return 0;
+}
+
+int sd() {
+    int s = 0;
+    switch (9) {
+        case 1: break;
+        default: s = 1 + use(make(5)); break;
+    }
+    if (s != 6) return 8;
+    return 0;
+}
+
+int main() { return gh() + eq() + fi() + sd(); }

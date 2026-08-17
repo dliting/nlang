@@ -1,0 +1,23 @@
+// Phase 10 audit round-12, finding 1: named arguments (name = value) on
+// built-in methods (by-name dispatched intrinsics) must be a compile error.
+// These methods have no real SnFunction, so argument names cannot bind to
+// parameters — pre-fix the named value fell to codegen's expression
+// fallback and silently emitted ConstZero (Dict.set keys became 0,
+// List.add stored 0, equals compared garbage). All five shapes in one file:
+// the resolver reports every error before the build fails.
+struct Point { int x; int y; }
+class Box { int v; }
+
+int main() {
+    Dict<string, int> d = new Dict<string, int>();
+    d.set(key = "a", value = 9);       // Dict intrinsic
+    List<int> li = new List<int>();
+    li.add(value = 7);                 // List intrinsic
+    string t = "abcd";
+    int a = t.equals(other = "abcd");  // string intrinsic
+    Box b = new Box();
+    int c = b.equals(other = b);       // class Object-protocol intrinsic
+    ByteStream bs = new ByteStream();
+    bs.writeInt(v = 1);                // stream intrinsic
+    return 0;
+}

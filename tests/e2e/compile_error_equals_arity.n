@@ -1,0 +1,15 @@
+// Phase 10 audit round-12, finding 3: equals() with the wrong number of
+// arguments must be a compile error. Pre-fix the string and class equals
+// branches had no arity check — codegen staged only {this} while the
+// intrinsic reads callParamBase[0..1], so equals() returned layout-dependent
+// garbage (a string could "equal" itself or not, randomly by frame layout).
+class Box { int v; }
+
+int main() {
+    string t = "abcd";
+    int a = t.equals();        // zero args — string
+    Box b = new Box();
+    int c = b.equals();        // zero args — class Object protocol
+    int e = t.equals("a", "b"); // two args — string
+    return 0;
+}

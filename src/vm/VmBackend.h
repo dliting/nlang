@@ -211,15 +211,6 @@ private:
         return ovr.first ? ovr.second : 0;
     }
 
-    //Pick a temp slot distinct from `exclude` so a sub-expression can use it
-    //without clobbering `exclude`. With only two temp slots available, the
-    //rule is: if exclude == tempSlot, return tempSlot2; otherwise return
-    //tempSlot. This composes for nested expressions because each level
-    //alternates between tempSlot and tempSlot2.
-    //Used by: BinaryExpr (right operand), SubscriptExpr (index), and any
-    //other expression that needs one extra slot besides its resultOffset.
-    uint16_t PickTempSlot(uint16_t exclude) const;
-
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
     std::unordered_map<SnEnumDecl*, size_t> m_enumIndexMap;  //Phase 8e-9b: AST enum decl → enumDefIdx (parallel to m_compiledModule.enumNames)
@@ -256,6 +247,12 @@ private:
         std::unordered_set<uint32_t> structWasPushed;
     };
     std::vector<PerModuleRemap> m_importRemaps;
+
+    //Functions whose default-parameter expressions are currently being
+    //emitted (EmitCallArgs recursion guard — round-9, finding 3). Re-entry
+    //means the default expansion recurses infinitely (compile-time stack
+    //overflow pre-fix); the emitter rejects it with a clean error.
+    std::unordered_set<SnFunction*> m_defaultEmitting;
 
     //Per-loop code generation context.
     //Reference: EN's Compiler::NestBreaks/NestContinues (Compiler.h:108-111).
@@ -304,10 +301,12 @@ private:
     //  [params...] [returnSlot] [tempSlot..tempSlot4] [callParamBase(N)] [evalArea(peakDepth)] [user locals...]
     //N = max callee formal count seen in this function's body (min 1).
     //peakDepth = max simultaneous evalArea slot need across all call sites.
-    //The 4-slot temp pool supports PickTempSlot's depth-chaining for nested
-    //binary expressions (e.g. `a == b*c + d` needs 3 distinct slots: outer-left,
-    //inner-left-result, inner-right). Pre-8e-1.5 had only 2 slots which caused
-    //the outer-left to be clobbered by inner-right intermediates.
+    //The 4-slot temp pool is pure scratch (each use consumed immediately);
+    //live operands across nested emission stage in the evalArea via
+    //EvalAreaClaim. Historically PickTempSlot chained temps for nested
+    //binaries (pre-8e-1.5 had only 2 slots, clobbering outer-left operands);
+    //Phase 10 audit rounds replaced every live-value use with claims and
+    //removed PickTempSlot entirely — temps must never hold a live value.
     struct FuncContext {
         CompiledFunction* func = nullptr;
         std::unordered_map<std::string, uint16_t> localOffsets;  //name -> frame offset
@@ -321,6 +320,7 @@ private:
         uint16_t callParamSlots = 0; //N = max callee formal count in body
         uint16_t evalAreaBase = 0;   //base of evalArea (disjoint from callParamBase)
         uint16_t evalAreaCursor = 0; //current claim offset in evalArea (stack-disciplined)
+        uint16_t observedPeakCursor = 0; //max evalAreaCursor seen — asserted ≤ walker's peakDepth at function finalize (walker drift must fail loudly at compile time, not OOB at runtime)
         //Phase 8e-5: per-function counter for foreach hidden-local uniquification.
         //AllocLocal dedupes by name (VmBackend.cpp:2194); without uniquification,
         //nested foreach loops would collide on __foreach_iter / __foreach_i / __foreach_n.
@@ -395,7 +395,12 @@ private:
         uint16_t   m_slots;
     public:
         EvalAreaClaim(VmBackend& b, uint16_t slots) : m_B(b), m_slots(slots)
-        { m_B.m_currFunc->evalAreaCursor += m_slots * 4; }
+        {
+            auto& ctx = *m_B.m_currFunc;
+            ctx.evalAreaCursor += m_slots * 4;
+            if (ctx.evalAreaCursor > ctx.observedPeakCursor)
+                ctx.observedPeakCursor = ctx.evalAreaCursor;
+        }
         ~EvalAreaClaim()
         { m_B.m_currFunc->evalAreaCursor -= m_slots * 4; }
         uint16_t base() const

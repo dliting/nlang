@@ -1,0 +1,52 @@
+// Phase 10 audit round-8: initializer VALUE staging must use EvalAreaClaim,
+// not temps. The four staging sites (array-init entries, new T[size] size,
+// struct-init entries, class-init entries) used PickTempSlot(resultOffset),
+// which falls through to tempSlot whenever the destination is not a temp.
+// A nested binary entry (`1 + use(make(5))`) then parked its LEFT operand in
+// tempSlot, and a struct-by-value argument's deep-copy scratch (EmitBinding
+// CopyStruct, hardcoded tempSlot) silently overwrote it.
+// Pre-fix: all four +struct-arg cases below stored 8-based garbage.
+struct Point { int x; int y; }
+Point make(int v) { Point p; p.x = v; p.y = v; return p; }
+int use(Point p) { return p.x; }
+struct Box { int v; }
+class CBox { int v; }
+
+int main() {
+    int r = 0;
+
+    // array-init entry, struct-arg binary in the entry (the clobber case)
+    int[] a = [1 + use(make(5))];
+    if (a[0] != 6) r += 1;
+
+    // array-init plain entries (control — must keep working)
+    int[] a2 = [1 + 2, 3 + 4];
+    if (a2[0] != 3 || a2[1] != 7) r += 2;
+
+    // new T[size], struct-arg binary in the size expression
+    int[] b = new int[1 + use(make(1))];
+    if (b.length != 2) r += 4;
+
+    // new T[size], plain size (control)
+    int[] b2 = new int[1 + 2];
+    if (b2.length != 3) r += 8;
+
+    // struct-init entry, struct-arg binary (explicit new form — bare
+    // `{...}` decl-init is not valid grammar)
+    Box s = new Box{ v: 1 + use(make(5)) };
+    if (s.v != 6) r += 16;
+
+    // struct-init plain entry (control)
+    Box s2 = new Box{ v: 1 + 2 };
+    if (s2.v != 3) r += 32;
+
+    // class-init entry, struct-arg binary
+    CBox c = new CBox{ v: 1 + use(make(5)) };
+    if (c.v != 6) r += 64;
+
+    // class-init plain entry (control)
+    CBox c2 = new CBox{ v: 1 + 2 };
+    if (c2.v != 3) r += 128;
+
+    return r;
+}
