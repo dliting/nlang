@@ -160,6 +160,12 @@ public:
     // Index must be in [0, projectCount()).
     QString projectPath(int index) const;
 
+    // The i-th project's absolute location: stored paths resolve
+    // against the solution directory; kept as-given while no directory
+    // is known (they sit relative to the future save location).
+    // Index must be in [0, projectCount()).
+    QString absoluteProjectPath(int index) const;
+
     //--- XML persistence ---
     // Save the solution to the given file path (atomically). Project
     // references are written relative to the file's directory, and the
@@ -168,11 +174,29 @@ public:
     bool save(const QString& filePath, QString* error = nullptr);
 
     // Load the solution from the given .nsln file. All-or-nothing: on
-    // failure the node keeps its previous state.
+    // failure the node keeps its previous state. The referenced
+    // projects stay empty -- see loadWithProjects.
     bool load(const QString& filePath, QString* error = nullptr);
+
+    //--- deep persistence (solution + its projects) ---
+    // Load the .nsln AND the content of every referenced .nproj.
+    // All-or-nothing: on failure (a missing project file, malformed
+    // XML anywhere in the graph) the node keeps its previous state.
+    bool loadWithProjects(const QString& filePath, QString* error = nullptr);
+
+    // Save every project, then the solution (.nsln). Projects keep
+    // their current home -- the .nsln references the stored locations,
+    // it does not relocate them; only projects without a known location
+    // are written next to the save target. The first failure is
+    // reported; projects already written by then stay persisted.
+    bool saveWithProjects(const QString& filePath, QString* error = nullptr);
 
 private:
     void markDirty() { m_dirty = true; }
+
+    //Take over the parsed state of another node (moves; used by
+    //loadWithProjects to stage a deep load).
+    void adopt(SolutionNode&& other);
 
     // Write the given absolute project paths relative to baseDir.
     void writeToXml(QXmlStreamWriter& xml, const QString& baseDir,

@@ -28,6 +28,32 @@ private:
         return absPath;
     }
 
+    // Fixture: a project file with two sources.
+    QString projectXml(const QString& name) {
+        return QString(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Project name=\"%1\">\n"
+            "  <Sources>\n"
+            "    <File path=\"main.n\"/>\n"
+            "    <File path=\"util.n\"/>\n"
+            "  </Sources>\n"
+            "</Project>\n").arg(name);
+    }
+
+    // Fixture: a solution referencing the given project paths.
+    QString solutionXml(const QString& name, const QStringList& paths) {
+        QString entries;
+        for (const QString& p : paths)
+            entries += QString("    <Project path=\"%1\"/>\n").arg(p);
+        return QString(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Solution name=\"%1\">\n"
+            "  <Projects>\n"
+            "%2"
+            "  </Projects>\n"
+            "</Solution>\n").arg(name, entries);
+    }
+
 private slots:
     void initTestCase() {
         QVERIFY(m_tmpDir.isValid());
@@ -1054,7 +1080,108 @@ private slots:
         QVERIFY(!QFile::exists(path));                 // nothing written
         QCOMPARE(proj.projectDir(), m_tmpDir.path());  // not relocated
     }
+
+    // --- deep persistence (loadWithProjects / saveWithProjects) ---
+
+    void testLoadWithProjectsLoadsProjectContent() {
+        writeFixture("deep.nproj", projectXml("App"));
+        writeFixture("deep.nsln", solutionXml("Solo", {"deep.nproj"}));
+
+        SolutionNode s("");
+        QString err;
+        QVERIFY(s.loadWithProjects(m_tmpDir.path() + "/deep.nsln", &err));
+        QCOMPARE(s.name(), QString("Solo"));
+        QCOMPARE(s.projectCount(), 1);
+        QCOMPARE(s.projects()[0]->name(), QString("App"));
+        QCOMPARE(s.projects()[0]->fileCount(), 2);
+        QCOMPARE(err, QString());   // error is cleared on success
+    }
+
+    void testLoadWithProjectsAllOrNothing() {
+        writeFixture("ok.nproj", projectXml("App"));
+        writeFixture("deep-good.nsln", solutionXml("Good", {"ok.nproj"}));
+        writeFixture("deep-bad.nsln", solutionXml("Bad", {"missing.nproj"}));
+
+        SolutionNode s("");
+        QVERIFY(s.loadWithProjects(m_tmpDir.path() + "/deep-good.nsln"));
+
+        QString err;
+        QVERIFY(!s.loadWithProjects(m_tmpDir.path() + "/deep-bad.nsln", &err));
+        QVERIFY(!err.isEmpty());
+        //Previous state survives a failed deep load.
+        QCOMPARE(s.name(), QString("Good"));
+        QCOMPARE(s.projectCount(), 1);
+        QCOMPARE(s.projects()[0]->fileCount(), 2);
+    }
+
+    void testSaveWithProjectsWritesBothFiles() {
+        SolutionNode s("Solo");
+        ProjectNode* proj = s.addProject(m_tmpDir.path() + "/gen.nproj");
+        QVERIFY(proj != nullptr);
+        QVERIFY(proj->addFile(m_tmpDir.path() + "/main.n") != nullptr);
+
+        QString err;
+        QVERIFY(s.saveWithProjects(m_tmpDir.path() + "/gen.nsln", &err));
+        QVERIFY(QFile::exists(m_tmpDir.path() + "/gen.nproj"));
+
+        SolutionNode reloaded("");
+        QVERIFY(reloaded.loadWithProjects(m_tmpDir.path() + "/gen.nsln", &err));
+        QCOMPARE(reloaded.projectCount(), 1);
+        QCOMPARE(reloaded.projects()[0]->fileCount(), 1);
+    }
+
+    void testSaveWithProjectsRelativeProjectPathLandsAtTarget() {
+        //A project added by RELATIVE path has no home yet; the deep save
+        //must create it next to the save target.
+        SolutionNode s("Solo");
+        ProjectNode* proj = s.addProject("homeless.nproj");
+        QVERIFY(proj != nullptr);
+        QVERIFY(proj->addFile(m_tmpDir.path() + "/main.n") != nullptr);
+
+        QString err;
+        QVERIFY(s.saveWithProjects(m_tmpDir.path() + "/rel.nsln", &err));
+        QVERIFY(QFile::exists(m_tmpDir.path() + "/homeless.nproj"));
+
+        SolutionNode reloaded("");
+        QVERIFY(reloaded.loadWithProjects(m_tmpDir.path() + "/rel.nsln", &err));
+        QCOMPARE(reloaded.projects()[0]->fileCount(), 1);
+    }
+
+    void testSaveWithProjectsKeepsProjectHomeOnRelocate() {
+        //Saving the .nsln into a different directory must NOT copy the
+        //project data there: the .nsln keeps referencing the original
+        //home (an orphan copy would go stale on the next edit).
+        writeFixture("reloc.nproj", projectXml("App"));
+        writeFixture("reloc.nsln", solutionXml("Solo", {"reloc.nproj"}));
+
+        SolutionNode s("");
+        QVERIFY(s.loadWithProjects(m_tmpDir.path() + "/reloc.nsln"));
+
+        QTemporaryDir other;
+        QString err;
+        QVERIFY(s.saveWithProjects(other.path() + "/reloc.nsln", &err));
+        QVERIFY(!QFile::exists(other.path() + "/reloc.nproj"));
+
+        SolutionNode reloaded("");
+        QVERIFY(reloaded.loadWithProjects(other.path() + "/reloc.nsln", &err));
+        QCOMPARE(reloaded.projects()[0]->name(), QString("App"));
+        QCOMPARE(reloaded.projects()[0]->fileCount(), 2);
+    }
+
+    void testSaveWithProjectsEmptyProjectFails() {
+        SolutionNode s("Solo");
+        QVERIFY(s.addProject(m_tmpDir.path() + "/blank.nproj") != nullptr);
+
+        QString err;
+        QVERIFY(!s.saveWithProjects(m_tmpDir.path() + "/fresh.nsln", &err));
+        QVERIFY(err.contains("no source files"));
+        //The .nsln is written only after every project saved.
+        QVERIFY(!QFile::exists(m_tmpDir.path() + "/fresh.nsln"));
+    }
 };
 
-QTEST_MAIN(TestProjectModel)
+//GUILESS, not plain QTEST_MAIN: the library links Qt5::Gui, whose
+//transitive QT_GUI_LIB would upgrade QTEST_MAIN to a QGuiApplication
+//that demands a platform plugin (modal dialogs on machines without it).
+QTEST_GUILESS_MAIN(TestProjectModel)
 #include "test_projectmodel.moc"

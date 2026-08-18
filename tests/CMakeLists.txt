@@ -63,13 +63,37 @@ if(NLANG_BUILD_IDE)
     )
     # ctest runs the test exe directly; the Qt runtime DLLs must sit next
     # to it (windeployqt would also work but needs a Qt tools install).
+    # Qt5::Gui is a hard dependency since SolutionTreeModel joined the
+    # library (QStandardItemModel).
     if(WIN32)
         add_custom_command(TARGET test_projectmodel POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Test>
                 $<TARGET_FILE_DIR:test_projectmodel>)
     endif()
     add_test(NAME projectmodel_tests COMMAND test_projectmodel)
+
+    # IDE solution tree model unit tests (Phase 10 Step 4). The library
+    # links Qt5::Gui (QStandardItemModel), which transitively defines
+    # QT_GUI_LIB -- a plain QTEST_MAIN would then create a QGuiApplication
+    # and demand a platform plugin. QTEST_GUILESS_MAIN pins QCoreApplication.
+    add_executable(test_solutiontreemodel
+        test_nide/test_solutiontreemodel.cpp
+    )
+    target_link_libraries(test_solutiontreemodel
+        PRIVATE
+            nide_projectmodel
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_solutiontreemodel POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_solutiontreemodel>)
+    endif()
+    add_test(NAME solutiontreemodel_tests COMMAND test_solutiontreemodel)
 
     # IDE editor unit tests (Phase 10 Step 2). Widget tests instantiate
     # QApplication, which needs a Qt platform plugin even without showing

@@ -394,6 +394,11 @@ QString SolutionNode::projectPath(int index) const {
     return stored;
 }
 
+QString SolutionNode::absoluteProjectPath(int index) const {
+    Q_ASSERT(index >= 0 && index < static_cast<int>(m_projectPaths.size()));
+    return resolvedPath(m_projectPaths[static_cast<size_t>(index)], m_solutionDir);
+}
+
 bool SolutionNode::save(const QString& filePath, QString* error) {
     QString baseDir = QFileInfo(filePath).absolutePath();
 
@@ -471,6 +476,55 @@ bool SolutionNode::load(const QString& filePath, QString* error) {
         m_name = fi.completeBaseName();
     clearDirty();
     return true;
+}
+
+bool SolutionNode::loadWithProjects(const QString& filePath, QString* error) {
+    if (error)
+        error->clear();
+
+    //Stage the whole graph: a failure deep in a project file must not
+    //leave a half-loaded solution behind (all-or-nothing). Braces, or
+    //the declaration parses as a function prototype.
+    SolutionNode staged{QString()};
+    if (!staged.load(filePath, error))
+        return false;
+
+    for (int i = 0; i < staged.projectCount(); ++i) {
+        if (!staged.projects()[static_cast<size_t>(i)]->load(
+                staged.absoluteProjectPath(i), error)) {
+            return false;
+        }
+    }
+
+    adopt(std::move(staged));
+    return true;
+}
+
+bool SolutionNode::saveWithProjects(const QString& filePath, QString* error) {
+    if (error)
+        error->clear();
+
+    //Projects first: the .nsln must not reference unsaved projects.
+    //Each saves to its current home (see the header contract); only
+    //projects without a known location land next to the save target.
+    const QString baseDir = QFileInfo(filePath).absolutePath();
+    for (int i = 0; i < projectCount(); ++i) {
+        const QString stored = absoluteProjectPath(i);
+        const QString absPath = QDir::isRelativePath(stored)
+                                    ? QDir(baseDir).filePath(stored)
+                                    : stored;
+        if (!projects()[static_cast<size_t>(i)]->save(absPath, error))
+            return false;
+    }
+    return save(filePath, error);
+}
+
+void SolutionNode::adopt(SolutionNode&& other) {
+    m_name = std::move(other.m_name);
+    m_dirty = other.m_dirty;
+    m_solutionDir = std::move(other.m_solutionDir);
+    m_projectPaths = std::move(other.m_projectPaths);
+    m_projects = std::move(other.m_projects);
 }
 
 void SolutionNode::writeToXml(QXmlStreamWriter& xml, const QString& baseDir,

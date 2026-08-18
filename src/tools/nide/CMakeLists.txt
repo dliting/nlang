@@ -1,14 +1,17 @@
 set(CMAKE_AUTOMOC ON)
 
 # ProjectModel library — can be built and tested independently of the full IDE.
-# QXmlStreamReader/Writer live in Qt5::Core; no Xml module dependency.
+# QXmlStreamReader/Writer live in Qt5::Core; the tree model pulls in
+# QStandardItemModel from Qt5::Gui; no Xml module dependency.
 add_library(nide_projectmodel
     ProjectModel.cpp
+    SolutionTreeModel.cpp
 )
 
 target_link_libraries(nide_projectmodel
     PUBLIC
         Qt5::Core
+        Qt5::Gui
 )
 
 target_include_directories(nide_projectmodel
