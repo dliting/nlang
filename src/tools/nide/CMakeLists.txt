@@ -16,15 +16,18 @@ target_include_directories(nide_projectmodel
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Editor library -- FileEditor/CodeEditor widgets.
+# Editor library -- FileEditor/CodeEditor widgets + token coloring via
+# the compiler's lexer.
 add_library(nide_editor
     FileEditor.cpp
     CodeEditor.cpp
+    SyntaxHighlighter.cpp
 )
 
 target_link_libraries(nide_editor
     PUBLIC
         Qt5::Widgets
+        nlang_compiler  # nlang_runtime comes transitively (PUBLIC on it)
 )
 
 target_include_directories(nide_editor

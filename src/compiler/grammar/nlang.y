@@ -297,6 +297,9 @@ static SnExpression* BuildStringExpr(
 %token TT_Comment	TT_Error
 
 /*keyword type */
+/*NOTE: keyword tokens KT_Bool..KT_While must stay one contiguous
+  block -- nide's SyntaxHighlighter colors the whole [KT_Bool, KT_While]
+  number range as keywords. */
 %token KT_Bool
 %token KT_As
 %token KT_Assert
@@ -419,47 +422,6 @@ void yyerror(YYLTYPE *loc, nlang::ScriptParser&, yyscan_t, char *s, ...);
 extern int yylex \
     (YYSTYPE *yylval_param, YYLTYPE *yylloc_param, yyscan_t yyscanner);
 
-
-/*token type for syntax highlighting */
-enum HighlightType
-{
-    HTT_Default,
-    HTT_Number,
-    HTT_Char,
-    HTT_String,
-    HTT_Keyword,
-    HTT_Comment,
-    HTT_Error,
-    HTT_COUNT
-};
-
-inline HighlightType GetHighlightType(int nTokenType)
-{
-    switch(nTokenType)
-    {
-    case TT_Byte:
-    case TT_UByte:
-    case TT_Short:
-    case TT_UShort:
-    case TT_Int:
-    case TT_UInt:
-    case TT_Float:
-        return HTT_Number;
-    case TT_Char:
-        return HTT_Char;
-    case TT_String:
-        return HTT_String;
-    case TT_Comment:
-        return HTT_Comment;
-    case TT_Error:
-        return HTT_Error;
-    default:
-        if (nTokenType >= KT_Bool && nTokenType <= KT_While)
-            return HTT_Keyword;
-        else
-            return HTT_Default;
-    }
-} /*%code provides */
 
 #endif //YY_USER_DEFS_
 

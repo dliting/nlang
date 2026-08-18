@@ -13,6 +13,11 @@ compiler.
 #include <iosfwd>
 #include <cstdio>
 
+//Flex entry point with the bison-bridge signature (defined in the
+//generated nlang.lex.cpp; declared here at global scope -- an extern
+//inside namespace nlang would name a different symbol).
+int yylex(YYSTYPE* yylval_param, YYLTYPE* yylloc_param, void* yyscanner);
+
 namespace nlang
 {
 
@@ -85,6 +90,14 @@ void ScriptScanner::ResetCol()
 	yyset_column(0, m_pScanInfo);
 	m_Location.m_nStartCol	= 1;
 	m_Location.m_nEndCol	= 0;
+}
+
+int ScriptScanner::NextToken()
+{
+	//Editor-mode rules only write scalar yylval members, so the union
+	//is scratch space here; locations land in m_Location for the caller.
+	YYSTYPE tokenValue;
+	return yylex(&tokenValue, &m_Location, m_pScanInfo);
 }
 
 } //namespace nlang

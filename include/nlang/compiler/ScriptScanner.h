@@ -45,12 +45,21 @@ public:
 	void CloseString();
 
 	/*
-	Get the next token.
+	Get the next token (editor mode: after OpenString()). The compiler
+	path drives yylex directly through the parser, so this wrapper is
+	what makes the scanner usable stand-alone, e.g. for highlighting.
 	\return a value of yytokentype.
-	If the return value is 0, it means that we have reached end of the input 
+	If the return value is 0, it means that we have reached end of the input
 	stream.
 	*/
 	int NextToken();
+
+	//The location of the token last returned by NextToken(). Columns are
+	//1-based byte columns of the input given to OpenString()/OpenFile().
+	const ScriptLocation& Location() const
+	{
+		return m_Location;
+	}
 
 	//The scan information for flex internal use.
 	void* ScanInfo() const

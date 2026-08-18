@@ -24,8 +24,8 @@ private:
     CodeEditor* m_editor;  // non-owning back-pointer
 };
 
-//--- CodeEditor: QPlainTextEdit with line numbers and a current-line
-//  highlight. Syntax highlighting is attached in a later step.
+//--- CodeEditor: QPlainTextEdit with line numbers, a current-line
+//  highlight, and token coloring (SyntaxHighlighter, attached in the ctor).
 class CodeEditor : public QPlainTextEdit {
     Q_OBJECT
 

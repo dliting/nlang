@@ -81,6 +81,26 @@ if(NLANG_BUILD_IDE)
     add_test(NAME editor_tests COMMAND test_editor)
     set_tests_properties(editor_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+
+    # Syntax highlighter unit tests (Phase 10 Step 3).
+    add_executable(test_syntaxhighlighter
+        test_nide/test_syntaxhighlighter.cpp
+    )
+    target_link_libraries(test_syntaxhighlighter
+        PRIVATE
+            nide_editor
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_syntaxhighlighter POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_syntaxhighlighter>)
+    endif()
+    add_test(NAME syntaxhighlighter_tests COMMAND test_syntaxhighlighter)
+    set_tests_properties(syntaxhighlighter_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
 endif()
 
 # End-to-end test: compile-only (exits 0)

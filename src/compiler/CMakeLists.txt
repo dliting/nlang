@@ -55,14 +55,18 @@ add_library(nlang_compiler
 target_include_directories(nlang_compiler
     PUBLIC
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        #nlang.tab.h (yytokentype) is the token vocabulary behind
+        #ScriptScanner::NextToken -- tool consumers (IDE highlighting)
+        #need it. Its prologue includes ScriptLocation.h/SyntaxTree.h by
+        #bare name, so the compiler header subdir must be public too.
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/generated>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/nlang/compiler>
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/builder
-        ${CMAKE_CURRENT_SOURCE_DIR}/generated
         ${PROJECT_SOURCE_DIR}/src/vm
-        ${PROJECT_SOURCE_DIR}/include/nlang/compiler
 )
 
 target_link_libraries(nlang_compiler

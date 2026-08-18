@@ -1,6 +1,8 @@
 /*--- CodeEditor.cpp - code text editor with a line-number area for NLang IDE ---*/
 #include "CodeEditor.h"
 
+#include "SyntaxHighlighter.h"
+
 #include <QFileInfo>
 #include <QPainter>
 #include <QSaveFile>
@@ -36,6 +38,9 @@ CodeEditor::CodeEditor(QWidget* parent)
     : QPlainTextEdit(parent)
 {
     m_lineArea = new LineArea(this);
+    //Token coloring through the compiler's own lexer (CT_Editor mode).
+    //The highlighter parents to the document and is never touched again.
+    new SyntaxHighlighter(document());
 
     setFrameShape(QFrame::NoFrame);
     setTabStopDistance(kTabStopWidthChars * fontMetrics().horizontalAdvance(QLatin1Char(' ')));
