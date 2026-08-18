@@ -1,4 +1,5 @@
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
 
 # ProjectModel library — can be built and tested independently of the full IDE.
 # QXmlStreamReader/Writer live in Qt5::Core; the tree model pulls in
@@ -51,6 +52,33 @@ target_link_libraries(nide_compilelog
 )
 
 target_include_directories(nide_compilelog
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Dialogs library -- new-file and project-properties forms. The .ui
+# files ride along as target sources so AUTOUIC generates ui_*.h.
+# AUTOUIC matches an #include "ui_Foo.h" against Foo.ui in the source
+# file's directory by default; ours sit in ui/, so point the search
+# there.
+add_library(nide_dialogs
+    NewFileDialog.cpp
+    ProjectPropDialog.cpp
+    ui/NewFileDialog.ui
+    ui/ProjectPropDialog.ui
+)
+
+set_target_properties(nide_dialogs PROPERTIES
+    AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui
+)
+
+target_link_libraries(nide_dialogs
+    PUBLIC
+        Qt5::Widgets
+        nide_projectmodel
+)
+
+target_include_directories(nide_dialogs
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
 )

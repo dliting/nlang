@@ -159,6 +159,28 @@ if(NLANG_BUILD_IDE)
     add_test(NAME compilelogbrowser_tests COMMAND test_compilelogbrowser)
     set_tests_properties(compilelogbrowser_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+
+    # Dialog unit tests (Phase 10 Step 6). Widget tests driving modal
+    # exec() loops via zero-timeout timers; same QApplication/QPA
+    # harness as the editor tests.
+    add_executable(test_dialogs
+        test_nide/test_dialogs.cpp
+    )
+    target_link_libraries(test_dialogs
+        PRIVATE
+            nide_dialogs
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_dialogs POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_dialogs>)
+    endif()
+    add_test(NAME dialogs_tests COMMAND test_dialogs)
+    set_tests_properties(dialogs_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
 endif()
 
 # End-to-end test: compile-only (exits 0)
