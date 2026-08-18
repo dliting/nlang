@@ -38,6 +38,23 @@ target_include_directories(nide_editor
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Compile-log browser library -- parses ncc output lines so a double
+# click can jump to the error site (path resolution via ProjectNode).
+add_library(nide_compilelog
+    CompileLogBrowser.cpp
+)
+
+target_link_libraries(nide_compilelog
+    PUBLIC
+        Qt5::Widgets
+        nide_projectmodel
+)
+
+target_include_directories(nide_compilelog
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # Full IDE executable — will be added in later steps as components are migrated.
 # add_executable(nide
 #     main.cpp
