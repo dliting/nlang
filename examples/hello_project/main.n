@@ -1,0 +1,10 @@
+// Multi-source example: the entry file calls a helper defined in utils.n.
+// Build the whole project with: ncc build -p examples/hello_project/hello_project.nproj
+// or compile and run it in one step with: ncc -p examples/hello_project/hello_project.nproj
+// Exit 0 only when the cross-file call really returns 42.
+int main() {
+    int sum = addBoth(40, 2);
+    if (sum == 42)
+        return 0;
+    return 1;
+}

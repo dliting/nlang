@@ -17,6 +17,48 @@ target_link_libraries(test_vm
 
 add_test(NAME vm_tests COMMAND test_vm)
 
+# ncc .nproj loader unit tests (Phase 10 Step 0).
+add_executable(test_projectfile
+    test_ncc/test_projectfile.cpp
+    ${PROJECT_SOURCE_DIR}/src/tools/ncc/ProjectFile.cpp
+)
+
+target_include_directories(test_projectfile
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/tools/ncc
+)
+
+target_link_libraries(test_projectfile
+    PRIVATE
+        tinyxml2
+)
+
+add_test(NAME projectfile_tests COMMAND test_projectfile)
+
 # End-to-end test: compile-only (exits 0)
 add_test(NAME e2e_compile
     COMMAND ncc build ${PROJECT_SOURCE_DIR}/examples/hello.n)
+
+# Project-mode compile: multi-source .nproj via -p (output redirected into
+# the build tree so the source tree stays clean).
+add_test(NAME project_compile
+    COMMAND ncc build -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
+    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project.nmod)
+
+# CLI guardrails: a trailing option without a value and -p combined with a
+# positional source must fail with the exact diagnostic (PASS_REGULAR_
+# EXPRESSION matches override the nonzero exit — and a crash would not
+# match the text).
+add_test(NAME ncc_flag_no_value COMMAND ncc build -p)
+set_tests_properties(ncc_flag_no_value PROPERTIES
+    PASS_REGULAR_EXPRESSION "option -p requires a value")
+add_test(NAME ncc_p_conflict COMMAND ncc build -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj ${PROJECT_SOURCE_DIR}/examples/hello.n)
+set_tests_properties(ncc_p_conflict PROPERTIES
+    PASS_REGULAR_EXPRESSION "cannot be combined with")
+
+# Project-mode compile+run: exercises the full -p path including loading
+# the redirected output. main() maps the cross-file result to 0/1, so a
+# clean pass means utils.n's addBoth(40, 2) really returned 42.
+add_test(NAME project_run
+    COMMAND ncc -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
+    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project_run.nmod)

@@ -1,0 +1,2 @@
+// Project fixture: helper living in a second compilation unit.
+int addBoth(int a, int b) { return a + b; }

@@ -1,5 +1,6 @@
 add_executable(ncc
     main.cpp
+    ProjectFile.cpp
 )
 
 target_include_directories(ncc
@@ -12,4 +13,5 @@ target_link_libraries(ncc
         nlang_compiler
         nlang_runtime
         nlang_vm
+        tinyxml2
 )

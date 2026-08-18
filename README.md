@@ -58,6 +58,33 @@ cmake --build build
   in `nlang.l`, which includes `<stdint.h>` before flex's definitions,
   so the `#ifndef` guards skip the conflicting macros.
 
+## Command-line Tools
+
+```text
+ncc <source.n> [-o out.nmod] [-I <dir>...]        Compile and execute
+ncc build <source.n> [-o out.nmod] [-I <dir>...]  Compile only
+ncc -p <project.nproj> [-o out.nmod] [-I ...]     Compile and execute a project
+ncc build -p <project.nproj> [-o out.nmod]        Compile a project
+ncc run <module.nmod>                             Execute only
+```
+
+Multi-source projects are described by a `.nproj` XML file (see
+`examples/hello_project/`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Project name="hello_project" namespace="hello_project">
+  <Sources>
+    <File path="main.n"/>
+    <File path="utils.n"/>
+  </Sources>
+</Project>
+```
+
+`name` is the output module name (defaults to the file stem), `outputDir`
+optionally redirects the `.nmod` (relative to the project file), and `File`
+paths are relative to the project file's directory.
+
 ## Project Structure
 
 ```
@@ -68,8 +95,10 @@ src/runtime/               - Runtime implementation
 src/compiler/              - Compiler implementation (grammar, generated, builder)
 src/vm/                    - VM backend implementation
 src/tools/ncc/             - Command-line compiler
+src/tools/nvm/             - VM runner
 src/tools/ndisasm/         - Bytecode disassembler
 src/tools/nide/            - Qt5 IDE
+src/3rdparty/tinyxml2/     - Vendored tinyxml2 10.1.0 (.nproj parsing)
 ```
 
 ## License
