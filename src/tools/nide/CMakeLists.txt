@@ -16,6 +16,22 @@ target_include_directories(nide_projectmodel
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Editor library -- FileEditor/CodeEditor widgets.
+add_library(nide_editor
+    FileEditor.cpp
+    CodeEditor.cpp
+)
+
+target_link_libraries(nide_editor
+    PUBLIC
+        Qt5::Widgets
+)
+
+target_include_directories(nide_editor
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # Full IDE executable — will be added in later steps as components are migrated.
 # add_executable(nide
 #     main.cpp

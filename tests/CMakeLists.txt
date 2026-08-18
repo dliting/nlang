@@ -57,6 +57,30 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_projectmodel>)
     endif()
     add_test(NAME projectmodel_tests COMMAND test_projectmodel)
+
+    # IDE editor unit tests (Phase 10 Step 2). Widget tests instantiate
+    # QApplication, which needs a Qt platform plugin even without showing
+    # windows -- point QPA at the Qt install's plugins/platforms.
+    find_package(Qt5Widgets REQUIRED)
+    add_executable(test_editor
+        test_nide/test_editor.cpp
+    )
+    target_link_libraries(test_editor
+        PRIVATE
+            nide_editor
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_editor POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_editor>)
+    endif()
+    get_filename_component(QT_PLATFORM_PLUGINS_DIR "${Qt5_DIR}/../../../plugins/platforms" ABSOLUTE)
+    add_test(NAME editor_tests COMMAND test_editor)
+    set_tests_properties(editor_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
 endif()
 
 # End-to-end test: compile-only (exits 0)
