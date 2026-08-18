@@ -361,12 +361,27 @@ LineComment	\/\/[^\n]*
             }
 
 <COMMENT_S>"*/"	{
+                //The comment is complete: the next token must own its
+                //start location (compiler diagnostics point at the token,
+                //not at the comment). Same idiom as the STRING_S closing
+                //rule; the returned TT_Comment keeps the span opened at
+                //"/*" because YY_USER_ACTION has already run.
+                bConcatToken = false;
                 BEGIN_STATE(INITIAL);
                 if (scanner.ScanType() == nlang::ScriptScanner::CT_Editor)
                     return TT_Comment;
             }
 
-<COMMENT_S>([^*\n]*)|("*"+[^*/\n]*)|([\n])	{
+<COMMENT_S>\n	{
+                //Restart column tracking on each comment line so tokens on
+                //the closing line carry real columns; keep concatenating
+                //(the comment token still spans). Raw yycolumn only --
+                //ResetCol would stomp the in-progress comment location.
+                yycolumn = 0;
+                bConcatToken = true;
+            }
+
+<COMMENT_S>([^*\n]*)|("*"+[^*/\n]*)	{
                 bConcatToken = true;
             }
 

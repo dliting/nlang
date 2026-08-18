@@ -58,11 +58,14 @@ void ScriptScanner::CloseFile()
 
 void ScriptScanner::OpenString(const char* szInput)
 {
-	InitScanInfo(); 
+	InitScanInfo();
 	m_pBuffer = yy_scan_string(szInput, m_pScanInfo);
 	assert(m_pBuffer);
-	//Start a new column for each input string.
+	//Start a new line/column for each input string. flex initializes
+	//line/column only for FILE buffers (yy_init_buffer); string buffers
+	//come back with an uninitialized yy_bs_lineno, so set both here.
 	ResetCol();
+	yyset_lineno(1, m_pScanInfo);
 }
 
 void ScriptScanner::CloseString()

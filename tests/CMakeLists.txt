@@ -16,6 +16,19 @@ target_link_libraries(test_vm
 )
 
 add_test(NAME vm_tests COMMAND test_vm)
+# ScriptScanner location tests (compiler-mode column tracking).
+add_executable(test_scanner
+    test_compiler/test_scanner.cpp
+)
+
+target_link_libraries(test_scanner
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME scanner_tests COMMAND test_scanner)
+
 
 # ncc .nproj loader unit tests (Phase 10 Step 0).
 add_executable(test_projectfile
