@@ -35,6 +35,30 @@ target_link_libraries(test_projectfile
 
 add_test(NAME projectfile_tests COMMAND test_projectfile)
 
+# IDE ProjectModel unit tests (Phase 10 Step 1).
+# Requires Qt5 (Core + Test) — only built when IDE is enabled.
+if(NLANG_BUILD_IDE)
+    find_package(Qt5Test REQUIRED)
+    set(CMAKE_AUTOMOC ON)
+    add_executable(test_projectmodel
+        test_nide/test_projectmodel.cpp
+    )
+    target_link_libraries(test_projectmodel
+        PRIVATE
+            nide_projectmodel
+            Qt5::Test
+    )
+    # ctest runs the test exe directly; the Qt runtime DLLs must sit next
+    # to it (windeployqt would also work but needs a Qt tools install).
+    if(WIN32)
+        add_custom_command(TARGET test_projectmodel POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_projectmodel>)
+    endif()
+    add_test(NAME projectmodel_tests COMMAND test_projectmodel)
+endif()
+
 # End-to-end test: compile-only (exits 0)
 add_test(NAME e2e_compile
     COMMAND ncc build ${PROJECT_SOURCE_DIR}/examples/hello.n)

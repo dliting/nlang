@@ -1,6 +1,7 @@
 # Build directories
 build/
 build-asan/
+build-ide/
 out/
 
 # Temp dirs (one-off scripts and artifacts, see CLAUDE.md)

@@ -43,7 +43,7 @@ if(NLANG_ENABLE_LLVM)
 endif()
 
 if(NLANG_BUILD_IDE)
-    find_package(Qt5 COMPONENTS Core Xml Widgets REQUIRED)
+    find_package(Qt5 COMPONENTS Core Widgets REQUIRED)
 endif()
 
 # Subdirectories
