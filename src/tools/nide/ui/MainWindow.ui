@@ -3,8 +3,8 @@
 build-all action family EN never implemented is dropped; solution
 lifecycle actions EN lacked are added (NLang has a persistent .nsln);
 the two output docks become direct tabOutput pages (EN reparented
-QDockWidgets into the tab widget from C++ at startup); icons/palettes
-are deferred to Step 8 (resources).-->
+QDockWidgets into the tab widget from C++ at startup); the 17 icons EN
+actually references are ported (nide.qrc).-->
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -363,6 +363,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actNewFile">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/new_file.png</normaloff>:/nide/Resources/new_file.png</iconset>
+   </property>
    <property name="text">
     <string>文件...</string>
    </property>
@@ -374,6 +378,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actOpenFile">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/open_file.png</normaloff>:/nide/Resources/open_file.png</iconset>
+   </property>
    <property name="text">
     <string>文件...</string>
    </property>
@@ -385,6 +393,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actSaveFile">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/save_file.png</normaloff>:/nide/Resources/save_file.png</iconset>
+   </property>
    <property name="text">
     <string>保存文件</string>
    </property>
@@ -412,6 +424,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actNewProject">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/new_project.png</normaloff>:/nide/Resources/new_project.png</iconset>
+   </property>
    <property name="text">
     <string>项目...</string>
    </property>
@@ -420,6 +436,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actOpenProject">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/open_project.png</normaloff>:/nide/Resources/open_project.png</iconset>
+   </property>
    <property name="text">
     <string>项目...</string>
    </property>
@@ -428,6 +448,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actSaveProject">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/save_project.png</normaloff>:/nide/Resources/save_project.png</iconset>
+   </property>
    <property name="text">
     <string>保存项目</string>
    </property>
@@ -436,6 +460,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actSaveAll">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/save_all.png</normaloff>:/nide/Resources/save_all.png</iconset>
+   </property>
    <property name="text">
     <string>保存所有</string>
    </property>
@@ -463,6 +491,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actAddExistFile">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/add_exist_file.png</normaloff>:/nide/Resources/add_exist_file.png</iconset>
+   </property>
    <property name="text">
     <string>添加现有文件...</string>
    </property>
@@ -474,6 +506,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actAddNewFile">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/add_new_file.png</normaloff>:/nide/Resources/add_new_file.png</iconset>
+   </property>
    <property name="text">
     <string>添加新文件...</string>
    </property>
@@ -482,6 +518,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actRemoveFile">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/delete_file.png</normaloff>:/nide/Resources/delete_file.png</iconset>
+   </property>
    <property name="text">
     <string>从项目中移除文件...</string>
    </property>
@@ -493,6 +533,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actProjectProp">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/project_prop.png</normaloff>:/nide/Resources/project_prop.png</iconset>
+   </property>
    <property name="text">
     <string>项目属性...</string>
    </property>
@@ -501,6 +545,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actBuild">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/build.png</normaloff>:/nide/Resources/build.png</iconset>
+   </property>
    <property name="text">
     <string>构建项目</string>
    </property>
@@ -517,6 +565,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actStartRunning">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/control-run.png</normaloff>:/nide/Resources/control-run.png</iconset>
+   </property>
    <property name="text">
     <string>开始运行</string>
    </property>
@@ -528,6 +580,10 @@ are deferred to Step 8 (resources).-->
    </property>
   </action>
   <action name="actStopRunning">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/control-stop.png</normaloff>:/nide/Resources/control-stop.png</iconset>
+   </property>
    <property name="text">
     <string>停止运行</string>
    </property>

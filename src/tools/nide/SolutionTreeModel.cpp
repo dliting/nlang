@@ -2,8 +2,28 @@
 #include "SolutionTreeModel.h"
 
 #include <QFileInfo>
+#include <QIcon>
+
+//Q_INIT_RESOURCE expands to a do/while block declaring an extern
+//function at its expansion point, so the wrapper must sit at global
+//scope (inside a namespace the extern would declare a nonexistent
+//nlang::qInitResources_*). Without this explicit registration the
+//static library's qrc initializer object is never linked in and the
+//tree icons stay blank.
+static void nideInitIconResource() {
+    Q_INIT_RESOURCE(nide);
+}
 
 namespace nlang {
+
+namespace {
+
+//The three node-kind icons (EN's SolutionModel.cpp:35-36,82).
+QIcon nodeIcon(const char* fileName) {
+    return QIcon(QString(":/nide/Resources/") + fileName);
+}
+
+} // namespace
 
 //--- SolutionTreeItem ---
 
@@ -37,6 +57,10 @@ void SolutionTreeItem::initText(const QString& text) {
     setText(text);
     //The tree is a mirror: edits belong to the domain nodes.
     setFlags(flags() & ~Qt::ItemIsEditable);
+    //Node-kind icon: whichever typed accessor is set.
+    setIcon(m_file != nullptr      ? nodeIcon("file.png")
+            : m_project != nullptr ? nodeIcon("project.png")
+                                   : nodeIcon("solution.png"));
 }
 
 //--- SolutionTreeModel ---
@@ -44,6 +68,9 @@ void SolutionTreeItem::initText(const QString& text) {
 SolutionTreeModel::SolutionTreeModel(QObject* parent)
     : QStandardItemModel(parent)
 {
+    //Register :/nide before the first icon pixmap loads (see the
+    //wrapper above for why this is explicit).
+    nideInitIconResource();
 }
 
 SolutionTreeModel::~SolutionTreeModel() = default;

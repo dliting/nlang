@@ -1,0 +1,25 @@
+<!DOCTYPE RCC><RCC version="2.0">
+<!--The 17 icons EN actually references: 14 action iconsets in
+MainWindow.ui plus the 3 solution-tree decorations in
+SolutionTreeModel.cpp. EN's remaining ~28 unused assets (the 32px .ico
+family, compile.png, ...) were dead weight and stay unported.-->
+<qresource prefix="/nide">
+    <file>Resources/add_exist_file.png</file>
+    <file>Resources/add_new_file.png</file>
+    <file>Resources/build.png</file>
+    <file>Resources/control-run.png</file>
+    <file>Resources/control-stop.png</file>
+    <file>Resources/delete_file.png</file>
+    <file>Resources/file.png</file>
+    <file>Resources/new_file.png</file>
+    <file>Resources/new_project.png</file>
+    <file>Resources/open_file.png</file>
+    <file>Resources/open_project.png</file>
+    <file>Resources/project.png</file>
+    <file>Resources/project_prop.png</file>
+    <file>Resources/save_all.png</file>
+    <file>Resources/save_file.png</file>
+    <file>Resources/save_project.png</file>
+    <file>Resources/solution.png</file>
+</qresource>
+</RCC>

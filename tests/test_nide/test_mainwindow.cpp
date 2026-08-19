@@ -4,6 +4,7 @@
 #include "CompileLogBrowser.h"
 #include "FileEditor.h"
 #include "ProjectModel.h"
+#include "TranslationLoader.h"
 
 #include <QAbstractButton>
 #include <QAction>
@@ -14,6 +15,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QIcon>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QStatusBar>
@@ -22,6 +24,7 @@
 #include <QTextBrowser>
 #include <QTimer>
 #include <QTreeView>
+#include <QTranslator>
 #include <QtTest>
 
 using namespace nlang;
@@ -690,6 +693,85 @@ private slots:
             QVERIFY(!window.isVisible());
             QCOMPARE(tabCodes(window)->count(), 0);
         }
+    }
+
+    //--- icons (Step 8) ---
+
+    void testActionAndTreeIcons() {
+        MainWindow window;
+
+        //The 14 ported actions carry EN's icons. Force a real pixmap
+        //load -- QIcon(path).isNull() stays false even for a missing
+        //file (the engine is lazy), a null pixmap does not.
+        const char* const iconActions[] = {
+            "actNewFile",     "actOpenFile",      "actSaveFile",
+            "actNewProject",  "actOpenProject",   "actAddExistFile",
+            "actAddNewFile",  "actRemoveFile",    "actProjectProp",
+            "actBuild",       "actStartRunning",  "actStopRunning",
+            "actSaveAll",     "actSaveProject",
+        };
+        for (const char* name : iconActions) {
+            QVERIFY2(!act(window, name)->icon()
+                          .pixmap(QSize(16, 16))
+                          .isNull(),
+                     name);
+        }
+
+        //The solution tree decorates its three node kinds.
+        QTemporaryDir dir;
+        const QModelIndex projectIndex =
+            openFixtureProject(window, dir.path());
+        QAbstractItemModel* model = solutionView(window)->model();
+        const QModelIndex solutionIndex = projectIndex.parent();
+        const QModelIndex fileIndex =
+            model->index(0, 0, projectIndex);
+        for (const QModelIndex& index :
+             {solutionIndex, projectIndex, fileIndex}) {
+            QVERIFY(!index.data(Qt::DecorationRole)
+                         .value<QIcon>()
+                         .pixmap(QSize(16, 16))
+                         .isNull());
+        }
+    }
+
+    //--- translations (Step 8) ---
+
+    void testInstallTranslations() {
+        QApplication* app = static_cast<QApplication*>(qApp);
+
+        //zh_CN: the English-authored code strings flip to Chinese.
+        //Escapes keep this file pure ASCII (MSVC reads BOM-less
+        //sources in the system codepage): 构建成功 is
+        //"Build succeeded" in Chinese, 就绪 is "Ready".
+        QTranslator* zh = nlang::installTranslations(app, QLocale("zh_CN"));
+        QVERIFY(zh != nullptr);
+        QCOMPARE(MainWindow::tr("Build succeeded"),
+                 QString::fromUtf16(u"\u6784\u5EFA\u6210\u529F"));
+        QCOMPARE(MainWindow::tr("Ready"),
+                 QString::fromUtf16(u"\u5C31\u7EEA"));
+        //Default names stay untranslated so they match the (also
+        //untranslated) default file names.
+        QCOMPARE(MainWindow::tr("Solution1"), QString("Solution1"));
+        qApp->removeTranslator(zh);
+        delete zh;
+
+        //en_US: the Chinese-authored .ui strings flip to English
+        //(uic-generated setupUi translates in the "MainWindow"
+        //context; 文件(&F) is the menu title "文件(&F)").
+        QTranslator* en = nlang::installTranslations(app, QLocale("en_US"));
+        QVERIFY(en != nullptr);
+        QCOMPARE(QApplication::translate("MainWindow",
+                                         u8"\u6587\u4EF6(&F)"),
+                 QString("&File"));
+        qApp->removeTranslator(en);
+        delete en;
+
+        //A locale without a catalog installs nothing; the authored
+        //strings show through unchanged.
+        QVERIFY(nlang::installTranslations(app, QLocale("fr_FR"))
+                == nullptr);
+        QCOMPARE(MainWindow::tr("Build succeeded"),
+                 QString("Build succeeded"));
     }
 
     //--- view menu ---
