@@ -163,7 +163,8 @@ target_link_libraries(nide
 
 #A runnable developer build: the Qt runtime DLLs and the ncc/nvm tools
 #must sit next to nide.exe (MainWindow runs them from its own
-#directory). Deployment packaging is Step 9.
+#directory). Self-containment of this layout is verified by the
+#nide_deploy_check test (tests/test_nide/).
 add_dependencies(nide ncc nvm)
 if(WIN32)
     add_custom_command(TARGET nide POST_BUILD

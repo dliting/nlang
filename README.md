@@ -85,6 +85,25 @@ Multi-source projects are described by a `.nproj` XML file (see
 optionally redirects the `.nmod` (relative to the project file), and `File`
 paths are relative to the project file's directory.
 
+## IDE (nide)
+
+```bash
+cmake -B build-ide -DNLANG_BUILD_IDE=ON \
+    -DCMAKE_PREFIX_PATH=<path-to-qt5.15>
+cmake --build build-ide --config Release
+```
+
+The build output in `build-ide/src/tools/nide/Release/` is a runnable
+layout: the Qt runtime DLLs, the `platforms/` plugin directory, and the
+`ncc`/`nvm` tools are copied next to `nide.exe` (the IDE invokes them
+from its own directory), so that folder can be copied elsewhere as-is.
+The UI language follows the system locale (Chinese and English are
+bundled; untranslated strings fall back to their authored text).
+
+`ctest -R nide_deploy_check` verifies the self-containment: it copies
+the layout to a scratch directory, pins Qt's search paths to it via
+`qt.conf`, and runs the IDE test suite from there.
+
 ## Project Structure
 
 ```

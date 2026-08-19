@@ -214,6 +214,22 @@ if(NLANG_BUILD_IDE)
     set_tests_properties(mainwindow_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}"
         TIMEOUT 180)
+
+    # Deployment self-containment check (Phase 10 Step 9). Runs the
+    # main-window test suite from a scratch copy of the nide build
+    # output with the plugin path cleared (empty env entry: no extra
+    # search path) and a qt.conf pinning Qt to the copy -- everything
+    # (Qt DLLs, platform plugin, ncc/nvm) must resolve from the copy.
+    add_test(NAME nide_deploy_check
+        COMMAND ${CMAKE_COMMAND}
+            -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
+            -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
+            -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
+            -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
+    set_tests_properties(nide_deploy_check PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
+        TIMEOUT 90)
 endif()
 
 # End-to-end test: compile-only (exits 0)
