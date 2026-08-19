@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--MainWindow.ui - deviations from EN's MainWindow.ui: the debug and
+build-all action family EN never implemented is dropped; solution
+lifecycle actions EN lacked are added (NLang has a persistent .nsln);
+the two output docks become direct tabOutput pages (EN reparented
+QDockWidgets into the tab widget from C++ at startup); icons/palettes
+are deferred to Step 8 (resources).-->
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>874</width>
+    <height>673</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>NLang IDE</string>
+  </property>
+  <widget class="QWidget" name="wgtCenter">
+   <layout class="QVBoxLayout" name="verticalLayout_3">
+    <property name="spacing">
+     <number>5</number>
+    </property>
+    <property name="leftMargin">
+     <number>7</number>
+    </property>
+    <property name="topMargin">
+     <number>7</number>
+    </property>
+    <property name="rightMargin">
+     <number>7</number>
+    </property>
+    <property name="bottomMargin">
+     <number>7</number>
+    </property>
+    <item>
+     <widget class="QSplitter" name="splitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <widget class="QDockWidget" name="dckSolution">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="features">
+        <set>QDockWidget::DockWidgetClosable</set>
+       </property>
+       <property name="windowTitle">
+        <string>解决方案</string>
+       </property>
+       <widget class="QWidget" name="dockWidgetContents_4">
+        <layout class="QVBoxLayout" name="verticalLayout_5">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QTreeView" name="tvwSolution">
+           <property name="minimumSize">
+            <size>
+             <width>10</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="focusPolicy">
+            <enum>Qt::StrongFocus</enum>
+           </property>
+           <property name="frameShape">
+            <enum>QFrame::Box</enum>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <attribute name="headerVisible">
+            <bool>false</bool>
+           </attribute>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+      <widget class="QFrame" name="frmRight">
+       <property name="frameShape">
+        <enum>QFrame::NoFrame</enum>
+       </property>
+       <layout class="QVBoxLayout" name="verticalLayout_6">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <property name="leftMargin">
+         <number>4</number>
+        </property>
+        <property name="topMargin">
+         <number>4</number>
+        </property>
+        <property name="rightMargin">
+         <number>4</number>
+        </property>
+        <property name="bottomMargin">
+         <number>4</number>
+        </property>
+        <item>
+         <widget class="QSplitter" name="splitter_2">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+          <widget class="QTabWidget" name="tabCodes">
+           <property name="focusPolicy">
+            <enum>Qt::StrongFocus</enum>
+           </property>
+           <property name="tabsClosable">
+            <bool>true</bool>
+           </property>
+           <property name="movable">
+            <bool>true</bool>
+           </property>
+          </widget>
+          <widget class="QTabWidget" name="tabOutput">
+           <property name="tabPosition">
+            <enum>QTabWidget::South</enum>
+           </property>
+           <property name="movable">
+            <bool>true</bool>
+           </property>
+           <widget class="QWidget" name="tabCompileOut">
+            <attribute name="title">
+             <string>编译输出</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="verticalLayout_2">
+             <property name="spacing">
+              <number>0</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="CompileLogBrowser" name="txtCompileOut">
+               <property name="frameShape">
+                <enum>QFrame::NoFrame</enum>
+               </property>
+               <property name="lineWrapMode">
+                <enum>QTextEdit::NoWrap</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="tabExecuteOut">
+            <attribute name="title">
+             <string>运行输出</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="verticalLayout_4">
+             <property name="spacing">
+              <number>0</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="QTextBrowser" name="txtExecuteOut">
+               <property name="frameShape">
+                <enum>QFrame::NoFrame</enum>
+               </property>
+               <property name="lineWrapMode">
+                <enum>QTextEdit::NoWrap</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menuBar">
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>文件(&amp;F)</string>
+    </property>
+    <widget class="QMenu" name="menuNew">
+     <property name="title">
+      <string>新建</string>
+     </property>
+     <addaction name="actNewSolution"/>
+     <addaction name="actNewProject"/>
+     <addaction name="actNewFile"/>
+    </widget>
+    <widget class="QMenu" name="menuOpen">
+     <property name="title">
+      <string>打开</string>
+     </property>
+     <addaction name="actOpenSolution"/>
+     <addaction name="actOpenProject"/>
+     <addaction name="actOpenFile"/>
+    </widget>
+    <addaction name="separator"/>
+    <addaction name="menuNew"/>
+    <addaction name="menuOpen"/>
+    <addaction name="separator"/>
+    <addaction name="actSaveFile"/>
+    <addaction name="actSaveFileAs"/>
+    <addaction name="actSaveProject"/>
+    <addaction name="actSaveSolution"/>
+    <addaction name="actSaveAll"/>
+    <addaction name="separator"/>
+    <addaction name="actCloseFile"/>
+    <addaction name="actCloseProject"/>
+    <addaction name="actCloseSolution"/>
+    <addaction name="separator"/>
+    <addaction name="actQuit"/>
+   </widget>
+   <widget class="QMenu" name="menuProject">
+    <property name="title">
+     <string>项目(&amp;P)</string>
+    </property>
+    <addaction name="actAddExistFile"/>
+    <addaction name="actAddNewFile"/>
+    <addaction name="actRemoveFile"/>
+    <addaction name="separator"/>
+    <addaction name="actProjectProp"/>
+   </widget>
+   <widget class="QMenu" name="menuBuild">
+    <property name="title">
+     <string>构建(&amp;B)</string>
+    </property>
+    <addaction name="actBuild"/>
+    <addaction name="separator"/>
+    <addaction name="actClearBuild"/>
+   </widget>
+   <widget class="QMenu" name="menuRun">
+    <property name="title">
+     <string>运行(&amp;R)</string>
+    </property>
+    <addaction name="actStartRunning"/>
+    <addaction name="actStopRunning"/>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>视图(&amp;V)</string>
+    </property>
+    <addaction name="actViewSolution"/>
+    <addaction name="actViewCodeEditor"/>
+    <addaction name="actViewOutput"/>
+    <addaction name="separator"/>
+    <addaction name="actViewToolBar"/>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>帮助(&amp;H)</string>
+    </property>
+    <addaction name="actHelpAbout"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuView"/>
+   <addaction name="menuProject"/>
+   <addaction name="menuBuild"/>
+   <addaction name="menuRun"/>
+   <addaction name="menuHelp"/>
+  </widget>
+  <widget class="QToolBar" name="mainToolBar">
+   <property name="iconSize">
+    <size>
+     <width>24</width>
+     <height>24</height>
+    </size>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <addaction name="actNewSolution"/>
+   <addaction name="actNewProject"/>
+   <addaction name="actNewFile"/>
+   <addaction name="separator"/>
+   <addaction name="actOpenSolution"/>
+   <addaction name="actOpenProject"/>
+   <addaction name="actOpenFile"/>
+   <addaction name="separator"/>
+   <addaction name="actSaveSolution"/>
+   <addaction name="actSaveProject"/>
+   <addaction name="actSaveFile"/>
+   <addaction name="actSaveAll"/>
+   <addaction name="separator"/>
+   <addaction name="actAddNewFile"/>
+   <addaction name="actAddExistFile"/>
+   <addaction name="actRemoveFile"/>
+   <addaction name="separator"/>
+   <addaction name="actBuild"/>
+   <addaction name="separator"/>
+   <addaction name="actStartRunning"/>
+   <addaction name="actStopRunning"/>
+  </widget>
+  <widget class="MainStatusBar" name="statusBar"/>
+  <action name="actNewSolution">
+   <property name="text">
+    <string>解决方案...</string>
+   </property>
+   <property name="toolTip">
+    <string>新建解决方案...</string>
+   </property>
+  </action>
+  <action name="actOpenSolution">
+   <property name="text">
+    <string>解决方案...</string>
+   </property>
+   <property name="toolTip">
+    <string>打开解决方案...</string>
+   </property>
+  </action>
+  <action name="actSaveSolution">
+   <property name="text">
+    <string>保存解决方案</string>
+   </property>
+   <property name="toolTip">
+    <string>保存解决方案</string>
+   </property>
+  </action>
+  <action name="actCloseSolution">
+   <property name="text">
+    <string>关闭解决方案</string>
+   </property>
+   <property name="toolTip">
+    <string>关闭解决方案</string>
+   </property>
+  </action>
+  <action name="actNewFile">
+   <property name="text">
+    <string>文件...</string>
+   </property>
+   <property name="toolTip">
+    <string>新建文件...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+N, Ctrl+F</string>
+   </property>
+  </action>
+  <action name="actOpenFile">
+   <property name="text">
+    <string>文件...</string>
+   </property>
+   <property name="toolTip">
+    <string>打开文件...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O, Ctrl+F</string>
+   </property>
+  </action>
+  <action name="actSaveFile">
+   <property name="text">
+    <string>保存文件</string>
+   </property>
+   <property name="toolTip">
+    <string>保存文件</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+S</string>
+   </property>
+  </action>
+  <action name="actSaveFileAs">
+   <property name="text">
+    <string>文件另存为...</string>
+   </property>
+   <property name="toolTip">
+    <string>文件另存为...</string>
+   </property>
+  </action>
+  <action name="actCloseFile">
+   <property name="text">
+    <string>关闭文件</string>
+   </property>
+   <property name="toolTip">
+    <string>关闭文件</string>
+   </property>
+  </action>
+  <action name="actNewProject">
+   <property name="text">
+    <string>项目...</string>
+   </property>
+   <property name="toolTip">
+    <string>新建项目...</string>
+   </property>
+  </action>
+  <action name="actOpenProject">
+   <property name="text">
+    <string>项目...</string>
+   </property>
+   <property name="toolTip">
+    <string>打开项目...</string>
+   </property>
+  </action>
+  <action name="actSaveProject">
+   <property name="text">
+    <string>保存项目</string>
+   </property>
+   <property name="toolTip">
+    <string>保存项目</string>
+   </property>
+  </action>
+  <action name="actSaveAll">
+   <property name="text">
+    <string>保存所有</string>
+   </property>
+   <property name="toolTip">
+    <string>保存所有</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+S</string>
+   </property>
+  </action>
+  <action name="actCloseProject">
+   <property name="text">
+    <string>关闭项目</string>
+   </property>
+   <property name="toolTip">
+    <string>关闭项目</string>
+   </property>
+  </action>
+  <action name="actQuit">
+   <property name="text">
+    <string>退出</string>
+   </property>
+   <property name="toolTip">
+    <string>退出程序</string>
+   </property>
+  </action>
+  <action name="actAddExistFile">
+   <property name="text">
+    <string>添加现有文件...</string>
+   </property>
+   <property name="toolTip">
+    <string>添加现有文件...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+E</string>
+   </property>
+  </action>
+  <action name="actAddNewFile">
+   <property name="text">
+    <string>添加新文件...</string>
+   </property>
+   <property name="toolTip">
+    <string>添加新文件...</string>
+   </property>
+  </action>
+  <action name="actRemoveFile">
+   <property name="text">
+    <string>从项目中移除文件...</string>
+   </property>
+   <property name="toolTip">
+    <string>从项目中移除文件...</string>
+   </property>
+   <property name="shortcut">
+    <string>Del</string>
+   </property>
+  </action>
+  <action name="actProjectProp">
+   <property name="text">
+    <string>项目属性...</string>
+   </property>
+   <property name="toolTip">
+    <string>项目属性...</string>
+   </property>
+  </action>
+  <action name="actBuild">
+   <property name="text">
+    <string>构建项目</string>
+   </property>
+   <property name="toolTip">
+    <string>构建选定项目</string>
+   </property>
+  </action>
+  <action name="actClearBuild">
+   <property name="text">
+    <string>清除输出</string>
+   </property>
+   <property name="toolTip">
+    <string>清除输出窗口</string>
+   </property>
+  </action>
+  <action name="actStartRunning">
+   <property name="text">
+    <string>开始运行</string>
+   </property>
+   <property name="toolTip">
+    <string>开始运行</string>
+   </property>
+   <property name="shortcut">
+    <string>F5</string>
+   </property>
+  </action>
+  <action name="actStopRunning">
+   <property name="text">
+    <string>停止运行</string>
+   </property>
+   <property name="toolTip">
+    <string>停止运行</string>
+   </property>
+  </action>
+  <action name="actViewSolution">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>解决方案视图</string>
+   </property>
+  </action>
+  <action name="actViewCodeEditor">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>代码编辑器</string>
+   </property>
+  </action>
+  <action name="actViewOutput">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>输出窗口</string>
+   </property>
+  </action>
+  <action name="actViewToolBar">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>工具栏</string>
+   </property>
+  </action>
+  <action name="actHelpAbout">
+   <property name="text">
+    <string>关于(&amp;A)...</string>
+   </property>
+   <property name="toolTip">
+    <string>关于 NLang IDE</string>
+   </property>
+  </action>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>MainStatusBar</class>
+   <extends>QStatusBar</extends>
+   <header>MainStatusBar.h</header>
+  </customwidget>
+  <customwidget>
+   <class>CompileLogBrowser</class>
+   <extends>QTextBrowser</extends>
+   <header>CompileLogBrowser.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

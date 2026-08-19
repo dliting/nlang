@@ -83,6 +83,30 @@ target_include_directories(nide_dialogs
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Main-window library -- the assembled IDE frame: menus, editor tabs,
+# solution tree, build & run. The promoted custom widgets in
+# MainWindow.ui (MainStatusBar, CompileLogBrowser) are resolved via
+# the PUBLIC include dir above; their headers carry global
+# using-declarations because uic cannot emit namespaced types.
+add_library(nide_mainwindow
+    MainWindow.cpp
+    MainStatusBar.cpp
+    ui/MainWindow.ui
+)
+
+set_target_properties(nide_mainwindow PROPERTIES
+    AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui
+)
+
+target_link_libraries(nide_mainwindow
+    PUBLIC
+        Qt5::Widgets
+        nide_projectmodel
+        nide_editor
+        nide_compilelog
+        nide_dialogs
+)
+
 # Full IDE executable — will be added in later steps as components are migrated.
 # add_executable(nide
 #     main.cpp

@@ -7,6 +7,7 @@
 
 #include <map>
 #include <memory>
+#include <vector>
 
 class QWidget;
 
@@ -122,6 +123,13 @@ public:
     void clear();
 
     FileEditor* find(const QString& absoluteFilePath) const;
+
+    //The editor whose widget() is the given widget, or nullptr (the
+    //UI maps tab widgets back to editors this way).
+    FileEditor* findEditor(const QWidget* widget) const;
+
+    //Snapshot of the open editors (save-all/close-all walks it).
+    std::vector<FileEditor*> editors() const;
 
     size_t size() const { return m_editors.size(); }
 

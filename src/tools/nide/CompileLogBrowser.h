@@ -54,6 +54,11 @@ private:
 
 } // namespace nlang
 
+//uic cannot emit namespaced custom widgets; expose the class name it
+//generates (MainWindow.ui promotes this class). The class stays in
+//nlang::.
+using nlang::CompileLogBrowser;
+
 Q_DECLARE_METATYPE(nlang::CompileLogItemInfo)
 
 #endif // NLANG_TOOLS_NIDE_COMPILE_LOG_BROWSER_H

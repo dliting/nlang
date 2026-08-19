@@ -80,6 +80,11 @@ public:
     //Null when the model is closed or the project is a duplicate.
     ProjectNode* addProject(const QString& path);
 
+    //Open a .nproj: add it to the solution AND load its content (the
+    //plain addProject leaves the node empty). All-or-nothing -- on a
+    //duplicate or a load failure nothing changes; error tells why.
+    ProjectNode* openProject(const QString& path, QString* error = nullptr);
+
     //False when the project is not owned by this solution.
     bool removeProject(ProjectNode* project);
 

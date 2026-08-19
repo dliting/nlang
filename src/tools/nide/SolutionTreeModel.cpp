@@ -103,6 +103,37 @@ ProjectNode* SolutionTreeModel::addProject(const QString& path) {
     return project;
 }
 
+ProjectNode* SolutionTreeModel::openProject(const QString& path,
+                                            QString* error) {
+    if (error)
+        error->clear();
+    if (!hasSolution()) {
+        if (error)
+            *error = "no solution is open";
+        return nullptr;
+    }
+    //addProject/removeProject both mark the SOLUTION dirty; a failed
+    //open must not leave that trace behind on a clean solution.
+    const bool wasDirty = m_solution->isDirty();
+    ProjectNode* project = addProject(path);
+    if (project == nullptr) {
+        if (error)
+            *error = "the solution already contains the project: " + path;
+        return nullptr;
+    }
+    if (!project->load(path, error)) {
+        //Roll the half-opened project out of both layers; the caller
+        //sees a clean "nothing happened" state.
+        removeProject(project);
+        if (!wasDirty)
+            m_solution->clearDirty();
+        return nullptr;
+    }
+    //The load filled the domain node behind the mirror's back.
+    refresh();
+    return project;
+}
+
 bool SolutionTreeModel::removeProject(ProjectNode* project) {
     if (!hasSolution())
         return false;

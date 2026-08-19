@@ -178,6 +178,21 @@ FileEditor* EditorManager::find(const QString& absoluteFilePath) const {
     return it == m_editors.end() ? nullptr : it->second.get();
 }
 
+FileEditor* EditorManager::findEditor(const QWidget* widget) const {
+    for (const auto& entry : m_editors)
+        if (entry.second->widget() == widget)
+            return entry.second.get();
+    return nullptr;
+}
+
+std::vector<FileEditor*> EditorManager::editors() const {
+    std::vector<FileEditor*> result;
+    result.reserve(m_editors.size());
+    for (const auto& entry : m_editors)
+        result.push_back(entry.second.get());
+    return result;
+}
+
 void EditorManager::rekey(const QString& oldPath, const QString& newPath) {
     auto it = m_editors.find(editorKey(oldPath));
     if (it == m_editors.end())

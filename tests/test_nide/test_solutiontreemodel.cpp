@@ -119,6 +119,36 @@ private slots:
         QCOMPARE(model.itemAt(model.index(0, 0))->rowCount(), 1);
     }
 
+    // --- open project (add + load, all-or-nothing) ---
+
+    void testOpenProjectRollbackKeepsSolutionClean() {
+        QTemporaryDir dir;
+        writeFile(dir, "bad.nproj", "this is not project XML");
+
+        SolutionTreeModel model;
+        model.newSolution("Solo");  // fresh solution: clean
+
+        QString error;
+        QVERIFY(model.openProject(dir.path() + "/bad.nproj", &error)
+                == nullptr);
+        QVERIFY(!error.isEmpty());
+
+        //All-or-nothing includes the dirty flag: addProject and the
+        //rollback's removeProject both mark the solution dirty, which a
+        //clean solution must not inherit from a failed open.
+        QCOMPARE(model.solutionNode()->projectCount(), 0);
+        QVERIFY(!model.solutionNode()->isDirty());
+        QCOMPARE(model.itemAt(model.index(0, 0))->rowCount(), 0);
+    }
+
+    void testOpenProjectWithoutSolution() {
+        SolutionTreeModel model;
+
+        QString error;
+        QVERIFY(model.openProject("wherever/app.nproj", &error) == nullptr);
+        QCOMPARE(error, QString("no solution is open"));
+    }
+
     void testRemoveProjectUpdatesTree() {
         QTemporaryDir dir;
         SolutionTreeModel model;

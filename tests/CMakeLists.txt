@@ -181,6 +181,39 @@ if(NLANG_BUILD_IDE)
     add_test(NAME dialogs_tests COMMAND test_dialogs)
     set_tests_properties(dialogs_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+
+    # Main-window integration tests (Phase 10 Step 7). These drive the
+    # real modal flows (file dialogs, message boxes) and run the real
+    # ncc/nvm for build & run, so both exes are copied next to the test
+    # binary (MainWindow looks for them in the application directory).
+    # The file dialogs need AA_DontUseNativeDialogs (set in the test) to
+    # be drivable as QFileDialog widgets. Same QApplication/windows-
+    # platform harness as the dialog tests (the offscreen platform has
+    # no deployed fonts and crashes in QMessageBox layout).
+    add_executable(test_mainwindow
+        test_nide/test_mainwindow.cpp
+    )
+    target_link_libraries(test_mainwindow
+        PRIVATE
+            nide_mainwindow
+            Qt5::Test
+    )
+    add_dependencies(test_mainwindow ncc nvm)
+    if(WIN32)
+        add_custom_command(TARGET test_mainwindow POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_mainwindow>)
+        add_custom_command(TARGET test_mainwindow POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
+                $<TARGET_FILE_DIR:test_mainwindow>)
+    endif()
+    add_test(NAME mainwindow_tests COMMAND test_mainwindow)
+    set_tests_properties(mainwindow_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}"
+        TIMEOUT 180)
 endif()
 
 # End-to-end test: compile-only (exits 0)
