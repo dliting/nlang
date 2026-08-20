@@ -1,0 +1,31 @@
+// stdlib_math_trig — math trig family. Exact-representation anchors where
+// possible (0/1 arguments); tolerance checks go through math.absf, which
+// is itself pinned with exact literals (IEEE negation is exact).
+int main() {
+    // Exact anchors.
+    if (math.sin(0.0) != 0.0) return 1;
+    if (math.cos(0.0) != 1.0) return 2;
+    if (math.tan(0.0) != 0.0) return 3;
+    if (math.asin(0.0) != 0.0) return 4;
+    if (math.acos(1.0) != 0.0) return 5;
+    if (math.atan(0.0) != 0.0) return 6;
+    if (math.atan2(0.0, 1.0) != 0.0) return 7;
+    // absf pinned exactly (used for the tolerances below).
+    if (math.absf(-3.5) != 3.5) return 8;
+    if (math.absf(2.25) != 2.25) return 9;
+    // Tolerance checks.
+    float e = 0.000001;
+    if (math.absf(math.sin(1.0) - 0.841470) > e) return 10;
+    if (math.absf(math.cos(1.0) - 0.540302) > e) return 11;
+    if (math.absf(math.tan(0.5) - 0.546302) > e) return 12;
+    if (math.absf(math.asin(0.5) - 0.523598) > e) return 13;
+    if (math.absf(math.acos(0.5) - 1.047197) > e) return 14;
+    if (math.absf(math.atan(1.0) - 0.785398) > e) return 15;
+    // atan2 quadrant discipline (y first, x second).
+    if (math.absf(math.atan2(1.0, 1.0) - 0.785398) > e) return 16;
+    if (math.absf(math.atan2(1.0, -1.0) - 2.356194) > e) return 17;
+    if (math.absf(math.atan2(-1.0, 1.0) + 0.785398) > e) return 18;
+    // int literals widen to float (Step 0 promotion policy).
+    if (math.absf(math.sin(1) - 0.841470) > e) return 19;
+    return 0;
+}

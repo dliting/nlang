@@ -1,0 +1,18 @@
+// stdlib_math_randomi_range — randomi(min,max) is inclusive on both ends
+// and never escapes the range. With 1000 draws over 5 outcomes, missing
+// an endpoint has probability (4/5)^1000 — effectively zero, so requiring
+// both ends to appear is a safe pin.
+int main() {
+    math.srand(7);
+    int minSeen = 999;
+    int maxSeen = -999;
+    for (int i = 0; i < 1000; i = i + 1) {
+        int v = math.randomi(3, 7);
+        if (v < 3 || v > 7) return 1;
+        if (v < minSeen) minSeen = v;
+        if (v > maxSeen) maxSeen = v;
+    }
+    if (minSeen != 3) return 2;
+    if (maxSeen != 7) return 3;
+    return 0;
+}

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -244,12 +245,24 @@ private:
     int16_t m_oobExcClassIdx = -1;
     int16_t m_assertExcClassIdx = -1;
 
+    //Phase 11 Q9: PRNG for math.random/randomi. Bare mt19937 arithmetic
+    //only — std::uniform_*_distribution is implementation-defined and
+    //would break cross-platform determinism after math.srand. Reselected
+    //from random_device at each Execute() so runs differ unless the
+    //program calls math.srand itself.
+    std::mt19937 m_rng;
+
     //Phase 9d: allocate a built-in Exception instance of the given class,
     //set message + populate backtrace from the current m_callStack snapshot,
     //and throw NLangThrow carrying its heap idx. The throw site is expected
     //to be a converted `throw std::runtime_error(...)` site; the caller
     //supplies the human-readable message (used for what() / debugging).
     [[noreturn]] void RaiseNlangException(int16_t classIdx, const std::string& msg);
+
+    //Phase 11: argument/range/parse errors of stdlib intrinsics raise the
+    //BASE Exception (no dedicated argument-exception subclass exists).
+    //Defined in IntrinsicsMath.cpp; shared by the string/io/fs family TUs.
+    [[noreturn]] void RaiseNlangExceptionBase(const std::string& msg);
 
     //Phase 9d: returns true if the heap object at heapIdx is an instance of
     //the given target class or any of its subclasses. Walks the superClassIdx

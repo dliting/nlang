@@ -1,0 +1,29 @@
+// stdlib_math_random_deterministic — srand seeds a deterministic PRNG:
+// two sequences drawn after identical srand(42) calls are identical, and
+// random() stays in [0,1). Pure mt19937 arithmetic — no distribution
+// adapters — so the sequence is portable by construction.
+int main() {
+    math.srand(42);
+    float a1 = math.random();
+    float a2 = math.random();
+    float a3 = math.random();
+    int ai1 = math.randomi(0, 1000);
+    int ai2 = math.randomi(0, 1000);
+
+    math.srand(42);
+    float b1 = math.random();
+    float b2 = math.random();
+    float b3 = math.random();
+    int bi1 = math.randomi(0, 1000);
+    int bi2 = math.randomi(0, 1000);
+
+    if (a1 != b1 || a2 != b2 || a3 != b3) return 1;
+    if (ai1 != bi1 || ai2 != bi2) return 2;
+
+    // Range check over a decent sample.
+    for (int i = 0; i < 200; i = i + 1) {
+        float x = math.random();
+        if (x < 0.0 || x >= 1.0) return 3;
+    }
+    return 0;
+}

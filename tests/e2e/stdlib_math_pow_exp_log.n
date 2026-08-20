@@ -1,0 +1,14 @@
+// stdlib_math_pow_exp_log — pow is exactly 2 params, exp(x)=e^x, log=ln.
+int main() {
+    if (math.pow(2.0, 10.0) != 1024.0) return 1;
+    if (math.pow(2.0, 0.0) != 1.0) return 2;
+    if (math.pow(0.0, 0.0) != 1.0) return 3;  //C++ pow convention
+    if (math.pow(9.0, 0.5) != 3.0) return 4;
+    if (math.exp(0.0) != 1.0) return 5;
+    if (math.log(1.0) != 0.0) return 6;
+    float e = 0.000001;
+    if (math.absf(math.exp(1.0) - 2.718281) > e) return 7;
+    if (math.absf(math.log(2.718281) - 1.0) > e) return 8;
+    if (math.absf(math.log(10.0) - 2.302585) > e) return 9;  //ln, not log10
+    return 0;
+}

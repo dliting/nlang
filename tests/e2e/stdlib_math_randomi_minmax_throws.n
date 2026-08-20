@@ -1,0 +1,7 @@
+// stdlib_math_randomi_minmax_throws — randomi(min,max) with min > max
+// throws the base Exception (argument/range errors use the base class by
+// design; only IO failures get IOException). Uncaught → nonzero exit.
+int main() {
+    int v = math.randomi(5, 3);
+    return v;
+}

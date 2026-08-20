@@ -1,0 +1,24 @@
+// stdlib_math_int_helpers — dual-typed helpers: absi/absf, mini/maxi/
+// minf/maxf, clampi/clampf. Dual types are separate names, never implicit
+// float->int narrowing.
+int main() {
+    if (math.absi(-5) != 5) return 1;
+    if (math.absi(7) != 7) return 2;
+    if (math.absi(0) != 0) return 3;
+    if (math.absf(-2.5) != 2.5) return 4;
+    if (math.mini(3, -4) != -4) return 5;
+    if (math.mini(3, 3) != 3) return 6;
+    if (math.maxi(3, -4) != 3) return 7;
+    if (math.minf(-1.5, 2.5) != -1.5) return 8;
+    if (math.maxf(-1.5, 2.5) != 2.5) return 9;
+    if (math.clampi(5, 1, 10) != 5) return 10;
+    if (math.clampi(-5, 1, 10) != 1) return 11;
+    if (math.clampi(50, 1, 10) != 10) return 12;
+    if (math.clampf(0.5, 1.0, 2.0) != 1.0) return 13;
+    if (math.clampf(1.5, 1.0, 2.0) != 1.5) return 14;
+    if (math.clampf(9.5, 1.0, 2.0) != 2.0) return 15;
+    // int args widen into the float variants (Step 0 promotion policy).
+    if (math.absf(-3) != 3.0) return 16;
+    if (math.minf(1, 2.5) != 1.0) return 17;
+    return 0;
+}

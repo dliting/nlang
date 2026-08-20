@@ -12,6 +12,7 @@ either side would force a circular link.
 #include "CompiledModule.h"  //RTK_* kind constants
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace nlang
 {
@@ -61,8 +62,34 @@ inline bool IsStdLibNamespaceName(const std::string& name)
 //The table itself (see the file-header note for why it is constexpr here).
 inline constexpr StdLibEntry kStdLibTable[] =
 {
-	//math — Step 0 canary. Remaining 24 entries land with Step 1.
-	{"math", "sqrt", {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Sqrt, false},
+	//math — 25 functions. Types are exact; the only automatic promotion
+	//is int->float widening (resolver wraps the argument in a cast).
+	{"math", "sqrt",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Sqrt, false},
+	{"math", "sin",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Sin, false},
+	{"math", "cos",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Cos, false},
+	{"math", "tan",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Tan, false},
+	{"math", "asin",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Asin, false},
+	{"math", "acos",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Acos, false},
+	{"math", "atan",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Atan, false},
+	//atan2 takes (y, x) in that order — same as C/C++ atan2.
+	{"math", "atan2",  {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Atan2, false},
+	{"math", "pow",    {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Pow, false},
+	{"math", "exp",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Exp, false},
+	{"math", "log",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Log, false}, //ln
+	{"math", "absi",   {RTK_Int32}, 1, 1, SLRT_Int32, INTR_Math_Absi, false},
+	{"math", "absf",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Absf, false},
+	{"math", "mini",   {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Mini, false},
+	{"math", "maxi",   {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Maxi, false},
+	{"math", "minf",   {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Minf, false},
+	{"math", "maxf",   {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Maxf, false},
+	{"math", "clampi", {RTK_Int32, RTK_Int32, RTK_Int32}, 3, 3, SLRT_Int32, INTR_Math_Clampi, false},
+	{"math", "clampf", {RTK_Float, RTK_Float, RTK_Float}, 3, 3, SLRT_Float, INTR_Math_Clampf, false},
+	{"math", "floor",  {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Floor, false},
+	{"math", "ceil",   {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Ceil, false},
+	{"math", "round",  {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Round, false},
+	{"math", "random", {}, 0, 0, SLRT_Float, INTR_Math_Random, false},
+	{"math", "srand",  {RTK_Int32}, 1, 1, SLRT_Void, INTR_Math_Srand, false},
+	{"math", "randomi", {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Randomi, false},
 };
 
 //Compile-time well-formedness: arity bounds must fit paramKinds[3] and
@@ -79,6 +106,37 @@ constexpr bool StdLibTableWellFormed()
 }
 static_assert(StdLibTableWellFormed(),
 	"kStdLibTable entry has arity that does not fit paramKinds[3]");
+
+//Table <-> id-block binding: every math entry carries an id inside the
+//contiguous math block (CompiledModule.h), and the block has exactly one
+//entry per id. A mismatch is only a runtime "unknown intrinsic" hole, so
+//bind it here at compile time.
+constexpr bool StdLibMathIdsInBlock()
+{
+	for (const auto& entry : kStdLibTable)
+	{
+		if (std::string_view(entry.ns) != "math")
+			continue;
+		if (entry.intrinsicId < kMathIntrinsicFirst
+			|| entry.intrinsicId >= kMathIntrinsicFirst + kMathIntrinsicCount)
+			return false;
+	}
+	return true;
+}
+constexpr size_t StdLibMathEntryCount()
+{
+	size_t n = 0;
+	for (const auto& entry : kStdLibTable)
+	{
+		if (std::string_view(entry.ns) == "math")
+			++n;
+	}
+	return n;
+}
+static_assert(StdLibMathIdsInBlock(),
+	"math kStdLibTable entry points outside the contiguous intrinsic block");
+static_assert(StdLibMathEntryCount() == kMathIntrinsicCount,
+	"math kStdLibTable entry count must equal the intrinsic id block size");
 
 //Look up a namespace-qualified function. Returns null when the namespace
 //is known but the function is not (a distinct, diagnosable error).

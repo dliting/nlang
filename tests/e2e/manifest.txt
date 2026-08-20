@@ -751,3 +751,11 @@ stdlib_reserved_names compile_error
 stdlib_array_arg compile_error
 cross_mod_stdlib_array_arg compile_error
 cross_mod_array_return 0
+stdlib_math_trig 0
+stdlib_math_pow_exp_log 0
+stdlib_math_rounding 0
+stdlib_math_int_helpers 0
+stdlib_math_random_deterministic 0
+stdlib_math_randomi_range 0
+stdlib_math_randomi_minmax_throws 1
+stdlib_math_clamp_lo_gt_hi_throws 1

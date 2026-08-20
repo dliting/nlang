@@ -138,12 +138,46 @@ static constexpr uint16_t INTR_AssertionException_Ctor       = 68;
 //Phase 11: stdlib namespace intrinsics. Allocation map (see StdLib.h for
 //the shared function table; args from callParamBase slot 0, no this):
 //  69          IOException ctor (Step 2)
-//  70-94       math, 25 functions (Step 0 implements sqrt only)
+//  70-94       math, 25 functions
 //  95-106      string methods, 12 new (existing Equals/GetHashCode keep
 //              their 8e-1 ids 42/43 — only the implementation moves TUs)
 //  110-114     io, 5
 //  120-127     fs, 8 (prefix INTR_FileSystem_*: INTR_FS_* is FileStream)
-static constexpr uint16_t INTR_Math_Sqrt = 70;
+static constexpr uint16_t INTR_Math_Sqrt   = 70;
+static constexpr uint16_t INTR_Math_Sin    = 71;
+static constexpr uint16_t INTR_Math_Cos    = 72;
+static constexpr uint16_t INTR_Math_Tan    = 73;
+static constexpr uint16_t INTR_Math_Asin   = 74;
+static constexpr uint16_t INTR_Math_Acos   = 75;
+static constexpr uint16_t INTR_Math_Atan   = 76;
+static constexpr uint16_t INTR_Math_Atan2  = 77;
+static constexpr uint16_t INTR_Math_Pow    = 78;
+static constexpr uint16_t INTR_Math_Exp    = 79;
+static constexpr uint16_t INTR_Math_Log    = 80;
+static constexpr uint16_t INTR_Math_Absi   = 81;
+static constexpr uint16_t INTR_Math_Absf   = 82;
+static constexpr uint16_t INTR_Math_Mini   = 83;
+static constexpr uint16_t INTR_Math_Maxi   = 84;
+static constexpr uint16_t INTR_Math_Minf   = 85;
+static constexpr uint16_t INTR_Math_Maxf   = 86;
+static constexpr uint16_t INTR_Math_Clampi = 87;
+static constexpr uint16_t INTR_Math_Clampf = 88;
+static constexpr uint16_t INTR_Math_Floor  = 89;
+static constexpr uint16_t INTR_Math_Ceil   = 90;
+static constexpr uint16_t INTR_Math_Round  = 91;
+static constexpr uint16_t INTR_Math_Random = 92;
+static constexpr uint16_t INTR_Math_Srand  = 93;
+static constexpr uint16_t INTR_Math_Randomi = 94;
+//Executable allocation invariant: the math block is contiguous 70-94 and
+//kStdLibTable references exactly this range (an unimplemented id is only
+//a runtime "unknown intrinsic" hole, so bind the block size here).
+static constexpr uint16_t kMathIntrinsicFirst = 70;
+static constexpr uint16_t kMathIntrinsicCount = 25;
+static_assert(INTR_Math_Sqrt == kMathIntrinsicFirst,
+    "math intrinsic block must start at kMathIntrinsicFirst");
+static_assert(INTR_Math_Randomi
+        == kMathIntrinsicFirst + kMathIntrinsicCount - 1,
+    "math intrinsic block must be contiguous up to Randomi");
 
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:

@@ -21,6 +21,8 @@ int VmExecutor::Execute(const CompiledModule& module) {
     m_byteStreamFreeList.clear();
     m_fileStreams.clear();
     m_fileStreamFreeList.clear();
+    //Phase 11 Q9: fresh entropy per run; math.srand replaces it on demand.
+    m_rng.seed(std::random_device{}());
     //Phase 8e-3: reset List<T> side table and cache the class index.
     m_listStore.clear();
     m_listFreeList.clear();

@@ -11,6 +11,7 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
+#include "nlang/vm/StdLib.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
 #include <filesystem>
@@ -209,6 +210,46 @@ void test_stdlib_unknown_namespace_still_errors()
     PASS();
 }
 
+void test_stdlib_table_full_dispatch()
+{
+    TEST(stdlib_table_full_dispatch);
+    //Step 1 table<->id<->TU binding guard: compile AND run one real
+    //program per math table entry. A table row pointing at an id the
+    //VM does not dispatch compiles fine but throws "unknown intrinsic"
+    //at run time — the static_asserts in StdLib.h bind the id block,
+    //this walk proves every row actually executes.
+    int checked = 0;
+    for (const auto& entry : kStdLibTable)
+    {
+        if (std::string(entry.ns) != "math")
+            continue;
+        //Argument literals per declared kind.
+        std::string args;
+        for (int i = 0; i < entry.maxArgs; ++i)
+            args += (i ? ", " : "")
+                + std::string(entry.paramKinds[i] == RTK_Int32
+                    ? "1" : "1.5");
+        std::string call = std::string(entry.ns) + "."
+            + entry.name + "(" + args + ")";
+        std::string src;
+        if (entry.returnType == SLRT_Void)
+            src = "int main() { " + call + "; return 0; }\n";
+        else if (entry.returnType == SLRT_Float)
+            src = "int main() { float r = " + call + "; return 0; }\n";
+        else
+            src = "int main() { int r = " + call + "; return 0; }\n";
+        //Unique output tag per entry: the builder's module registry
+        //rejects a second module with the same name in one process.
+        const int rc = runSource(std::string("tbl_") + entry.name, src);
+        CHECK(rc == 0, (std::string("dispatch failed for ") + call
+            + " (rc=" + std::to_string(rc) + ")").c_str());
+        ++checked;
+    }
+    CHECK(checked == kMathIntrinsicCount,
+        "every math table entry must be exercised by this walk");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -233,6 +274,7 @@ int main()
         test_stdlib_type_error();
         test_stdlib_array_arg_rejected();
         test_stdlib_unknown_namespace_still_errors();
+        test_stdlib_table_full_dispatch();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;
