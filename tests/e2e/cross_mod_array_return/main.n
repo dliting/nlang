@@ -1,0 +1,9 @@
+import "lib";
+
+int main() {
+    int[] a = mk(3);
+    if (a[0] == 7 && a[2] == 9 && a.length == 3) {
+        return 0;
+    }
+    return 1;
+}

@@ -1,5 +1,5 @@
 //Bad mode throws runtime_error; nvm exits non-zero.
 int main() {
-    FileStream fs = new FileStream("_phase8_tmp/test_bad.bin", "x");
+    FileStream stream = new FileStream("_phase8_tmp/test_bad.bin", "x");
     return 0;
 }

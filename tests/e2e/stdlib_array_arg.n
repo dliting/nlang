@@ -1,0 +1,10 @@
+// stdlib_array_arg — array-typed arguments must not pass the stdlib call
+// type check. EvalDataType of an array expression returns the ELEMENT
+// kind, so without the IsArrayTypedBase guard `int[]` masqueraded as int
+// and math.sqrt reinterpreted the array handle as a float (Step 0 review
+// MAJOR regression guard).
+int main() {
+    int[] arr = new int[3];
+    float f = math.sqrt(arr);
+    return 0;
+}

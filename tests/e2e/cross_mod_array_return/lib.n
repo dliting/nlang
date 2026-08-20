@@ -1,0 +1,11 @@
+// cross_mod_array_return — positive control for the Step 0 round-3 fix:
+// `int[] mk(int)` must serialize returnTypeKind as RTK_Array and the
+// import stub must rebuild an array-typed return, while the CALL still
+// works (assign, subscript, .length across the module boundary). Guards
+// against both the old masquerade (stub claimed int) and over-blocking.
+int[] mk(int n) {
+    int[] a = new int[n];
+    a[0] = 7;
+    a[n - 1] = 9;
+    return a;
+}

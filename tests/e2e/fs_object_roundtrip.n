@@ -1,13 +1,13 @@
 class Holder { public int v; }
 
 int main() {
-    FileStream fs = new FileStream("_phase8_tmp/object_roundtrip.bin", "w");
+    FileStream stream = new FileStream("_phase8_tmp/object_roundtrip.bin", "w");
     Holder h = new Holder();
     h.v = 42;
-    fs.writeObject(h);
-    fs.close();
-    FileStream fs2 = new FileStream("_phase8_tmp/object_roundtrip.bin", "r");
-    Holder h2 = fs2.readObject("Holder");
-    fs2.close();
+    stream.writeObject(h);
+    stream.close();
+    FileStream stream2 = new FileStream("_phase8_tmp/object_roundtrip.bin", "r");
+    Holder h2 = stream2.readObject("Holder");
+    stream2.close();
     return h2.v;
 }

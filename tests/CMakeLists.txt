@@ -16,6 +16,27 @@ target_link_libraries(test_vm
 )
 
 add_test(NAME vm_tests COMMAND test_vm)
+
+# Phase 11 stdlib unit tests: in-process compile+run of real .n sources
+# via ModuleBuilder (temp .nmod round-trip) + VmExecutor.
+add_executable(test_stdlib
+    test_vm/test_stdlib.cpp
+)
+
+target_include_directories(test_stdlib
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_stdlib
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME stdlib_tests COMMAND test_stdlib)
 # ScriptScanner location tests (compiler-mode column tracking).
 add_executable(test_scanner
     test_compiler/test_scanner.cpp

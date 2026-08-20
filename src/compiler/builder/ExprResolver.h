@@ -114,6 +114,14 @@ private:
 
 	bool ResolveExpressionList(SnExpressionList &exprs);
 
+	//Phase 11: resolve a namespace-qualified stdlib call (math.sqrt(x),
+	//io.print(s)) against the built-in table in StdLib.h. Called from the
+	//top of Access(SnMemberExpr&) — namespace names are reserved and never
+	//resolve as fields, so every branch here consumes the expression
+	//(resolved or diagnosed); there is no fallback to normal resolution.
+	void TryResolveStdLibCall(SnMemberExpr &snMember,
+		SnIdentifierExpr &outerId, SnInvokeExpr &invoke);
+
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
 	SnField *FindFieldInAncestor(const std::string &sName, SyntaxNode &parent,

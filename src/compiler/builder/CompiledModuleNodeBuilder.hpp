@@ -177,9 +177,13 @@ public:
 
 private:
 	//Synthesize a primitive placeholder type expression matching the given
-	//RTK_* runtime type kind. Non-primitive kinds (Struct/Class/Array/Boxed)
-	//fall back to int32 — the actual type is irrelevant since call-site type
-	//checking is skipped for imported callees (R5-4 + R7-1).
+	//RTK_* runtime type kind. Array kinds keep their array-ness: the stub's
+	//return type must report IsArrayType() == true because type-check sites
+	//that trust it exist for imported callees (stdlib argument guard; the
+	//R5-4/R7-1 "call-site checks are skipped" rationale died with it). The
+	//element kind is not recoverable from the serialized kind byte, so a
+	//placeholder element type is fine — only IsArrayType() is consulted.
+	//Other non-primitive kinds (Struct/Class/Boxed) still fall back to int32.
 	SnFieldExpr *SynthTypeExpr(uint16_t returnTypeKind, const ISourceLocation &loc)
 	{
 		NodeKind builtinKind = NK_Int32;
@@ -187,10 +191,12 @@ private:
 		{
 			case RTK_Float:  builtinKind = NK_Float;  break;
 			case RTK_String: builtinKind = NK_String; break;
+			case RTK_Array:
+				return new SnArrayTypeExpr(
+					new SnIdentifierExpr(NK_Int32, loc), loc);
 			case RTK_Int32:
 			case RTK_Struct:
 			case RTK_Class:
-			case RTK_Array:
 			case RTK_Boxed:
 			default:
 				builtinKind = NK_Int32;

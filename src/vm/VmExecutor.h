@@ -141,6 +141,13 @@ private:
     void ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
+    //Phase 11: stdlib namespace dispatch chain. Each family lives in its
+    //own TU (IntrinsicsMath.cpp etc.) and returns false when the id is
+    //not ours; ExecuteIntrinsic falls through to the next family. Args
+    //are at callParamBase slot 0 upward — no this (see StdLib.h).
+    bool ExecuteIntrinsicMath(uint16_t intrinsicId, uint16_t callParamBase,
+        uint8_t* locals, uint8_t* pResult);
+
     //Phase 9f: shared native-table dispatch for OP_CallFunc and the method
     //call paths (a native method receives `this` at args[0], mirroring the
     //bytecode calling convention). Throws when the host never registered

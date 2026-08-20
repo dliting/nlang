@@ -1,0 +1,6 @@
+import "lib";
+
+int main() {
+    float f = math.sqrt(mk());
+    return 0;
+}

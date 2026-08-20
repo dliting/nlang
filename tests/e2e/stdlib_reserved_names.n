@@ -1,0 +1,11 @@
+// Phase 11 Step 0: the stdlib namespaces (math/io/fs) are hard-reserved —
+// user declarations must not shadow them at any of the declaration sites
+// (local variable, function name, class name). All three in one file: the
+// resolver reports each error before the build fails.
+int io(int x) { return x; }     // function named after a namespace
+class fs { public int v; }      // class named after a namespace
+int main() {
+    int math = 1;               // local named after a namespace
+    math = math + io(1);
+    return math;
+}

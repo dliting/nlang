@@ -745,3 +745,9 @@ compile_error_nodecl_method compile_error
 compile_error_generic_method_arity compile_error
 compile_error_ctor_arity compile_error
 compile_error_outarg_builtin compile_error
+# Phase 11 stdlib (math/io/fs namespaces + string methods).
+stdlib_sqrt_canary 0
+stdlib_reserved_names compile_error
+stdlib_array_arg compile_error
+cross_mod_stdlib_array_arg compile_error
+cross_mod_array_return 0

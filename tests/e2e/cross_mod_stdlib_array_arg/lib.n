@@ -1,0 +1,13 @@
+// cross_mod_stdlib_array_arg — the cross-module half of the stdlib array
+// argument guard. In-module shapes (local / new-array / same-module call)
+// are pinned by stdlib_array_arg.n; this dir pins the imported-callee
+// shape: `int[] mk()` must serialize its return kind as RTK_Array (not the
+// element RTK_Int32) and the import stub must rebuild it as an array-typed
+// expression, so math.sqrt(mk()) fails compilation instead of passing the
+// array handle off as a float (Step 0 review round-3 residue).
+int[] mk() {
+    int[] a = new int[2];
+    a[0] = 1;
+    a[1] = 4;
+    return a;
+}

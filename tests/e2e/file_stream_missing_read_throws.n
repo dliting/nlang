@@ -1,5 +1,5 @@
 //Open "r" on nonexistent file throws runtime_error; nvm exits non-zero.
 int main() {
-    FileStream fs = new FileStream("_phase8_tmp/nonexistent_file.bin", "r");
+    FileStream stream = new FileStream("_phase8_tmp/nonexistent_file.bin", "r");
     return 0;
 }

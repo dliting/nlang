@@ -5,6 +5,7 @@
 #include "ExprResolver.h"
 #include "SnStatements.h"
 #include "SnData.h"
+#include <nlang/vm/StdLib.h>
 #include <vector>
 
 namespace nlang
@@ -52,6 +53,19 @@ public:
 	}
 
 private:
+	//Phase 11: math/io/fs are reserved stdlib namespaces (the resolver
+	//routes `math.sqrt(x)` on the outer name alone, so any local with
+	//that name would be silently shadowed). Called at every local
+	//registration site below — decl, for-init, foreach, catch var.
+	void CheckLocalNameReserved(const std::string &name,
+		const ISourceLocation *pLoc)
+	{
+		if (IsStdLibNamespaceName(name))
+			m_Env.Log(CLL_Error, pLoc,
+				"The name \"%s\" is reserved for a standard library "
+				"namespace.", name.c_str());
+	}
+
 	//Conditions feed OP_JumpIfNot, which reads a single int32 from
 	//pResult. Non-int conditions get silent garbage semantics: a string
 	//is a pool handle (index 0 encodes as 0 — a nonempty string reads
@@ -310,6 +324,7 @@ public:
 				*sn.Location());
 			if (bIsArray)
 				pLocal->SetArrayType(true);
+			CheckLocalNameReserved(decl.name, sn.Location());
 			pParagraph->AddLocal(decl.name, pLocal);
 
 			if (decl.pInitExpr)
@@ -476,6 +491,7 @@ public:
 						*decl.Location());
 					if (bIsArray)
 						pLocal->SetArrayType(true);
+					CheckLocalNameReserved(d.name, decl.Location());
 					if (pParagraph) {
 						pParagraph->AddLocal(d.name, pLocal);
 					}
@@ -561,6 +577,7 @@ public:
 				*sn.Location());
 			if (sn.VarType()->IsArrayType())
 				pLocal->SetArrayType(true);
+			CheckLocalNameReserved(sn.VarName(), sn.Location());
 			pParagraph->AddLocal(sn.VarName(), pLocal);
 		}
 
@@ -891,6 +908,7 @@ public:
 			&& sn.CatchType()->Field()) {
 			auto *pLocal = new SnLocalVar(sn.VarName(),
 				sn.CatchType()->Field(), *sn.Location());
+			CheckLocalNameReserved(sn.VarName(), sn.Location());
 			pParagraph->AddLocal(sn.VarName(), pLocal);
 		}
 

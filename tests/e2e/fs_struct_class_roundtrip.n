@@ -2,15 +2,15 @@ class Holder { public int v; }
 struct S { Holder h; }
 
 int main() {
-    FileStream fs = new FileStream("_phase8_tmp/struct_class_roundtrip.bin", "w");
+    FileStream stream = new FileStream("_phase8_tmp/struct_class_roundtrip.bin", "w");
     Holder h = new Holder();
     h.v = 42;
     S s;
     s.h = h;
-    fs.writeStruct(s);
-    fs.close();
-    FileStream fs2 = new FileStream("_phase8_tmp/struct_class_roundtrip.bin", "r");
-    S s2 = fs2.readStruct("S");
-    fs2.close();
+    stream.writeStruct(s);
+    stream.close();
+    FileStream stream2 = new FileStream("_phase8_tmp/struct_class_roundtrip.bin", "r");
+    S s2 = stream2.readStruct("S");
+    stream2.close();
     return s2.h.v;
 }

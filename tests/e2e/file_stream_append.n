@@ -1,13 +1,13 @@
 int main() {
-    FileStream fs = new FileStream("_phase8_tmp/test_append.bin", "w");
-    fs.writeInt(1);
-    fs.close();
-    FileStream fs2 = new FileStream("_phase8_tmp/test_append.bin", "a");
-    fs2.writeInt(2);
-    fs2.close();
-    FileStream fs3 = new FileStream("_phase8_tmp/test_append.bin", "r");
-    int a = fs3.readInt();
-    int b = fs3.readInt();
-    fs3.close();
+    FileStream stream = new FileStream("_phase8_tmp/test_append.bin", "w");
+    stream.writeInt(1);
+    stream.close();
+    FileStream stream2 = new FileStream("_phase8_tmp/test_append.bin", "a");
+    stream2.writeInt(2);
+    stream2.close();
+    FileStream stream3 = new FileStream("_phase8_tmp/test_append.bin", "r");
+    int a = stream3.readInt();
+    int b = stream3.readInt();
+    stream3.close();
     return a + b;
 }

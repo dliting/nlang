@@ -1,10 +1,10 @@
 int main() {
-    FileStream fs = new FileStream("_phase8_tmp/test_strings.bin", "w");
-    fs.writeString("hi");
-    fs.close();
-    FileStream fs2 = new FileStream("_phase8_tmp/test_strings.bin", "r");
-    string s = fs2.readString();
-    fs2.close();
+    FileStream stream = new FileStream("_phase8_tmp/test_strings.bin", "w");
+    stream.writeString("hi");
+    stream.close();
+    FileStream stream2 = new FileStream("_phase8_tmp/test_strings.bin", "r");
+    string s = stream2.readString();
+    stream2.close();
     if (s == "hi") {
         return 1;
     }

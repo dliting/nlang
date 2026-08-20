@@ -3390,6 +3390,12 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
+    //Phase 11: stdlib namespace functions (free-function ABI — args from
+    //callParamBase slot 0, no this). Chained before the unknown-id throw
+    //so each family TU stays independently extensible.
+    if (ExecuteIntrinsicMath(intrinsicId, callParamBase, locals, pResult))
+        return;
+
     throw std::runtime_error("NLang VM: unknown intrinsic id " + std::to_string(intrinsicId));
 }
 

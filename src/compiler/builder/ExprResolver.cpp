@@ -4,6 +4,7 @@
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
+#include <nlang/vm/StdLib.h>
 #include <map>
 #include <set>
 #include <vector>
@@ -168,6 +169,20 @@ static bool HasOutArgument(SnInvokeExpr& invoke)
 	return false;
 }
 
+//Phase 11: printable language name of a stdlib param kind (RTK_*). Only
+//the kinds StdLibEntry::paramKinds may carry are covered — extending the
+//table with a new kind means extending this switch too.
+static const char* StdLibKindName(uint8_t rtk)
+{
+	switch (rtk)
+	{
+	case RTK_Int32:  return "int";
+	case RTK_Float:  return "float";
+	case RTK_String: return "string";
+	default:         return "<unknown>";
+	}
+}
+
 //Returns true if class decl is a synthetic generic instantiation
 //(e.g., List<int>). Used to dispatch member calls in Access(SnMemberExpr&).
 static bool IsGenericClassDecl(SnClassDecl* pClass)
@@ -267,6 +282,37 @@ static bool IsArrayTypedBase(SnExpression& baseExpr) {
 			pId = static_cast<SnIdentifierExpr*>(pInner);
 	}
 	return pId && pId->Field() && pId->Field()->IsArrayType();
+}
+
+//True when the expression VALUE is an array, covering the shapes that can
+//flow into a call argument. IsArrayTypedBase handles the lvalue shapes
+//(identifier / member); the value shapes below share the same masquerade:
+//EvalDataType() of an array-valued expression returns the ELEMENT kind,
+//so a Kind()-based type check alone would let the array handle through
+//(Step 0 review round 2: `math.sqrt(new int[3])` and `math.sqrt(mk())`
+//with `int[] mk()` both slipped past the lvalue-only guard).
+static bool IsArrayValuedExpr(SnExpression& expr) {
+	switch (expr.Kind()) {
+	case NK_IdentifierExpr:
+	case NK_MemberExpr:
+		return IsArrayTypedBase(expr);
+	case NK_NewArrayExpr:
+		return true;  //`new T[n]` is always an array value
+	case NK_InvokeExpr:
+	{
+		//Call returning T[]: the invoke resolves AS the callee
+		//(ResolveFieldExprAs), so the callee's return TYPE EXPR carries
+		//the IsArrayType flag (same level as `sn.Type()->IsArrayType()`
+		//in local declarations — NOT Field()->IsArrayType(), which is
+		//the local-var level and would read the element type's flag).
+		auto& invoke = static_cast<SnInvokeExpr&>(expr);
+		auto* pCallee = invoke.Callee();
+		auto* pReturnType = pCallee ? pCallee->ReturnType() : nullptr;
+		return pReturnType && pReturnType->IsArrayType();
+	}
+	default:
+		return false;
+	}
 }
 
 void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
@@ -549,12 +595,172 @@ void ExprResolveAccessor::Access(SnOutArgExpr &sn)
 	sn.AddFlags(NF_Resolved);
 }
 
+//Phase 11: namespace-qualified stdlib call (math.sqrt(x), io.print(s)).
+//Resolves against the built-in table in StdLib.h. Every branch consumes
+//the expression — resolved or diagnosed — because namespace names are
+//reserved and never resolve as fields (no fallback path exists).
+void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
+	SnIdentifierExpr &outerId, SnInvokeExpr &invoke)
+{
+	const std::string ns(outerId.Name());
+	const auto& fnName = invoke.CalleeName();
+
+	//Table-driven by-name dispatch: named/out arguments can never bind
+	//(same guards as the built-in string methods in Access(SnMemberExpr&)).
+	if (HasNamedArgument(invoke))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Named arguments are not supported by standard library functions.");
+		return;
+	}
+	if (HasOutArgument(invoke))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"out arguments are not supported by standard library functions.");
+		return;
+	}
+
+	const StdLibEntry* pEntry = FindStdLibFunction(ns, fnName);
+	if (!pEntry)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Unknown standard library function \"%s.%s\".",
+			ns.c_str(), fnName.c_str());
+		return;
+	}
+
+	const size_t argCount = ArgCountOf(invoke);
+	if (argCount < pEntry->minArgs || argCount > pEntry->maxArgs)
+	{
+		if (pEntry->minArgs == pEntry->maxArgs)
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"\"%s.%s\" expects %d argument(s).",
+				ns.c_str(), fnName.c_str(), (int)pEntry->minArgs);
+		else
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"\"%s.%s\" expects %d to %d argument(s).",
+				ns.c_str(), fnName.c_str(),
+				(int)pEntry->minArgs, (int)pEntry->maxArgs);
+		return;
+	}
+
+	//Args resolve in the caller's scope. The intercept runs before
+	//Access(SnMemberExpr&) sets ERF_SearchInParentOnly / swaps m_pContext,
+	//so no context restore is needed (unlike the string-methods branch).
+	ResolveExpressionList(invoke.Params());
+
+	//Per-param type policy: exact RTK kind match, or int->float widening
+	//(wrapped in a cast expr in place — FixupParamTypes recipe over
+	//invoke.Children()). Everything else is a compile error naming the
+	//function, so the user sees which call is wrong.
+	auto& children = invoke.Children();
+	size_t paramIdx = 0;
+	for (auto it = children.begin(); it != children.end(); ++it, ++paramIdx)
+	{
+		auto& arg = static_cast<SnExpression&>(*it);
+		//Array-valued args must be rejected BEFORE the kind match:
+		//EvalDataType of an array-valued expression returns the ELEMENT
+		//kind (EvalDataType dispatch-order trap), so `int[]` would
+		//masquerade as int and the intrinsic would reinterpret the array
+		//handle — garbage values today, an out-of-bounds pool read once
+		//io.print widens the accepted kinds (Step 2). Covers identifier,
+		//member, new-array and array-returning-call shapes.
+		if (IsArrayValuedExpr(arg))
+		{
+			m_Env.Log(CLL_Error, arg.Location(),
+				"Argument %d of \"%s.%s\" is an array; \"%s\" expected.",
+				(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
+				StdLibKindName(pEntry->paramKinds[paramIdx]));
+			continue;
+		}
+		auto* pArgType = arg.EvalDataType();
+		if (!pArgType)
+			continue;  //arg already failed to resolve — diagnosed above
+		const NodeKind argKind = pArgType->Kind();
+		const uint8_t want = pEntry->paramKinds[paramIdx];
+		bool ok = (argKind == NK_Int32 && want == RTK_Int32)
+			|| (argKind == NK_Float && want == RTK_Float)
+			|| (argKind == NK_String && want == RTK_String);
+		const bool widen = (argKind == NK_Int32 && want == RTK_Float);
+		if (!ok && !widen)
+		{
+			m_Env.Log(CLL_Error, arg.Location(),
+				"Argument %d of \"%s.%s\" has type \"%s\"; \"%s\" expected.",
+				(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
+				pArgType->ToString().c_str(), StdLibKindName(want));
+			continue;
+		}
+		if (widen)
+		{
+			//Sole automatic promotion (same policy as user-function calls).
+			auto* pFloatType = SnBuiltinDataType::InstanceOf(NK_Float);
+			TypeCastInfo castInfo(pArgType, pFloatType);
+			FixupExprType(it, castInfo);
+		}
+	}
+
+	//Wrap up. invoke.Callee() deliberately stays null — same as the built-in
+	//string methods — so the walker reserves argCount+1 slots; the
+	//namespace-shaped emission only uses argCount (over-reserve is safe).
+	invoke.AddFlags(NF_Resolved);
+	SnField* pResultField = nullptr;
+	switch ((StdLibReturnType)pEntry->returnType)
+	{
+	case SLRT_Float:
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
+		break;
+	case SLRT_Int32:
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
+		break;
+	case SLRT_String:
+		pResultField = SnBuiltinDataType::InstanceOf(NK_String);
+		break;
+	case SLRT_ListString:
+		//fs.listFiles / s.split (Step 3+): List<string> generic instance.
+	{
+		std::vector<SnField*> listArgs{
+			SnBuiltinDataType::InstanceOf(NK_String) };
+		pResultField = GetGenericClassDecl("List", listArgs,
+			invoke.Location());
+		break;
+	}
+	case SLRT_Void:
+		break;  //void: no result type; void assignment rejected downstream
+	}
+	if (pResultField)
+	{
+		snMember.EvalDataType(pResultField);
+		//Set m_pField directly (not via ResolveFieldExprAs) so chained
+		//access (fs.join(a, b).length()) survives IsDataExpr().
+		snMember.m_pField = pResultField;
+	}
+	snMember.AddFlags(NF_Resolved);
+}
+
 void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 {
 	assert(!snMember.IsResolved());
 
 	auto pOuterExpr = snMember.Outer();
 	assert(pOuterExpr);
+
+	//Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Intercept
+	//before the outer identifier resolves — namespace names are reserved
+	//and never resolve as fields, so the normal path below would only log
+	//"Cannot resolve the field" without naming the actual mistake.
+	if (pOuterExpr->Kind() == NK_IdentifierExpr)
+	{
+		auto& outerId = static_cast<SnIdentifierExpr&>(*pOuterExpr);
+		auto* pInnerExpr = snMember.Inner();
+		if (IsStdLibNamespaceName(outerId.Name())
+			&& pInnerExpr && pInnerExpr->Kind() == NK_InvokeExpr)
+		{
+			TryResolveStdLibCall(snMember, outerId,
+				static_cast<SnInvokeExpr&>(*pInnerExpr));
+			return;
+		}
+	}
+
 	pOuterExpr->Accept(*m_pVisitor);
 	if (!pOuterExpr->IsResolved())
 		return;

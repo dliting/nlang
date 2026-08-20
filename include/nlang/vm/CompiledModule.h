@@ -10,7 +10,10 @@ namespace nlang {
 //(WriteCompiledModule in ModuleSaver.cpp) and the reader (ModuleLoader) —
 //bump both sides atomically by editing only these constants.
 inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 6;
+//v1.7 (Phase 11): stdlib namespace intrinsics + reserved namespaces. No
+//field-layout change, but the later relational string opcodes share this
+//version step, so older VMs must refuse these modules outright.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 7;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -131,6 +134,16 @@ static constexpr uint16_t INTR_NullPointerException_Ctor     = 65;
 static constexpr uint16_t INTR_DivByZeroException_Ctor       = 66;
 static constexpr uint16_t INTR_IndexOutOfBoundsException_Ctor = 67;
 static constexpr uint16_t INTR_AssertionException_Ctor       = 68;
+
+//Phase 11: stdlib namespace intrinsics. Allocation map (see StdLib.h for
+//the shared function table; args from callParamBase slot 0, no this):
+//  69          IOException ctor (Step 2)
+//  70-94       math, 25 functions (Step 0 implements sqrt only)
+//  95-106      string methods, 12 new (existing Equals/GetHashCode keep
+//              their 8e-1 ids 42/43 — only the implementation moves TUs)
+//  110-114     io, 5
+//  120-127     fs, 8 (prefix INTR_FileSystem_*: INTR_FS_* is FileStream)
+static constexpr uint16_t INTR_Math_Sqrt = 70;
 
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:

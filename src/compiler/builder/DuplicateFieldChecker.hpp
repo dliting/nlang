@@ -2,6 +2,7 @@
 #include "SnExtraTypes.h"
 #include "BuildEnvironment.h"
 #include "SyntaxNodeVisitor.h"
+#include <nlang/vm/StdLib.h>
 
 namespace nlang
 {
@@ -105,6 +106,16 @@ private:
 		for (auto iCurr = nameMap.begin(); iCurr != iEnd; ++iCurr)
 		{
 			SnField *pCurrField = iCurr->second;
+			//Phase 11: math/io/fs are reserved as stdlib namespaces so the
+			//resolver can route `math.sqrt(x)` on the outer name alone.
+			//Every NameDict (namespace/class/struct/enum members, function
+			//params) flows through here — one choke point for all of them.
+			if (IsStdLibNamespaceName(pCurrField->Name()))
+			{
+				m_Env.Log(CLL_Error, pCurrField->Location(),
+					"The name \"%s\" is reserved for a standard library "
+					"namespace.", pCurrField->Name().c_str());
+			}
 			if (sPrevName == pCurrField->Name())
 			{
 				//Find the first field conflicted with the current one.

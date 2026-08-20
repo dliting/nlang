@@ -37,7 +37,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
     const uint16_t kCurrentMinorVer = NMOD_FORMAT_MINOR;
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 4)
+    //v1.7 (Phase 11): stdlib intrinsics + reserved namespaces.
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 7)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");

@@ -1298,6 +1298,44 @@ void VmBackend::EmitCompoundOp(int opInt,
     emitter.EmitUint16(src);
 }
 
+//Phase 11: namespace-qualified stdlib call (math.sqrt(x), io.print(s)).
+//Same shape as the string.equals emission minus the receiver: args stage
+//in an evalArea claim (nested calls in later args would clobber
+//callParamBase), then bulk-copy to callParamBase reading from slot 0 —
+//the namespace intrinsic ABI has no this (see StdLib.h). The MemberExpr
+//walker reserves 1+argCount for this shape; claiming only argCount
+//over-reserves by one slot, which is the safe direction.
+void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
+        SnInvokeExpr& invoke, BytecodeEmitter& emitter,
+        uint16_t resultOffset) {
+    uint16_t argCount = 0;
+    for (auto& p : invoke.Params()) ++argCount;
+    EvalAreaClaim claim(*this, argCount);
+    uint16_t claimBase = claim.base();
+    uint16_t paramIdx = 0;
+    for (auto& param : invoke.Params()) {
+        EmitExpression(param, emitter,
+            claimBase + paramIdx * VALUE_SIZE);
+        ++paramIdx;
+    }
+    for (uint16_t i = 0; i < argCount; ++i) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+    }
+    emitter.Emit(OpCode::OP_CallIntrinsic);
+    emitter.EmitUint16(entry.intrinsicId);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    //Void entries (io.print) have nothing to assign — the InvokeStmt
+    //handler already staged a throwaway claim slot as resultOffset.
+    if (static_cast<StdLibReturnType>(entry.returnType) != SLRT_Void) {
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    }
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
 //Returns field offset in bytes, or -1 if not found.
 static int FindFieldOffset(SnStructDecl& structDecl, const std::string& fieldName) {
     uint16_t off = 0;
@@ -2068,6 +2106,21 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
     return stats;
 }
 
+//Return-type kind for .nmod serialization (caller checks HasReturn()).
+//Array-ness lives on the return TYPE EXPRESSION (ReturnType()->IsArrayType()),
+//not on Field(): for `int[]` Field() resolves to the ELEMENT field, so the
+//kind would degrade to RTK_Int32 and imported array-returning stubs would
+//masquerade as int at type-check sites (Step 0 review round 3; same
+//node-level trap the resolver's IsArrayValuedExpr guards against).
+uint16_t VmBackend::SerializedReturnKind(SnFunction& func)
+{
+    SnFieldExpr* pRetExpr = func.ReturnType();
+    if (pRetExpr->IsArrayType())
+        return RTK_Array;
+    SnField* pRetField = pRetExpr->Field();
+    return pRetField ? static_cast<uint16_t>(RuntimeTypeKind(pRetField)) : 0;
+}
+
 void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
 
@@ -2083,9 +2136,7 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
             func.Params().size() + (isMethod ? 1 : 0));
         compiledFunc.localsSize = compiledFunc.paramCount * VALUE_SIZE;
         if (func.HasReturn() && func.ReturnType()) {
-            auto* retType = func.ReturnType()->Field();
-            compiledFunc.returnTypeKind = retType
-                ? static_cast<uint16_t>(RuntimeTypeKind(retType)) : 0;
+            compiledFunc.returnTypeKind = SerializedReturnKind(func);
         } else {
             compiledFunc.returnTypeKind = RTK_Void;
         }
@@ -2139,9 +2190,7 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
 
     // Return type
     if (func.HasReturn() && func.ReturnType()) {
-        auto* retType = func.ReturnType()->Field();
-        compiledFunc.returnTypeKind = retType
-            ? static_cast<uint16_t>(RuntimeTypeKind(retType)) : 0;
+        compiledFunc.returnTypeKind = SerializedReturnKind(func);
         ctx.returnSlot = ctx.nextOffset;
         ctx.nextOffset += VALUE_SIZE;
     } else {
@@ -2843,6 +2892,32 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     // Member expression - struct field access or delegate to inner
     if (kind == NK_MemberExpr) {
         auto& member = static_cast<SnMemberExpr&>(expr);
+        //Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Must be
+        //dispatched before anything that needs member.Field() — the
+        //resolver marks these resolved without a field, and the outer
+        //identifier (the namespace name) is never emitted at all.
+        {
+            auto* outer = member.Outer();
+            auto* inner = member.Inner();
+            if (outer && outer->Kind() == NK_IdentifierExpr
+                && inner && inner->Kind() == NK_InvokeExpr)
+            {
+                auto& outerId = static_cast<SnIdentifierExpr&>(*outer);
+                if (IsStdLibNamespaceName(outerId.Name()))
+                {
+                    auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+                    const StdLibEntry* pEntry = FindStdLibFunction(
+                        outerId.Name(), invoke.CalleeName());
+                    //Resolver guarantees a hit here (unknown functions are
+                    //compile errors); fall through defensively if not.
+                    if (pEntry)
+                    {
+                        EmitStdLibCall(*pEntry, invoke, emitter, resultOffset);
+                        return;
+                    }
+                }
+            }
+        }
         auto* field = member.Field();
         if (field && field->Kind() == NK_EnumMember) {
             //Enum member constant (e.g. Color.Red).

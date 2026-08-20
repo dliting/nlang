@@ -1,6 +1,7 @@
 #pragma once
 #include <nlang/compiler/ICodeBackend.h>
 #include "nlang/vm/CompiledModule.h"
+#include "nlang/vm/StdLib.h"
 #include "BytecodeEmitter.h"
 #include <unordered_map>
 #include <unordered_set>
@@ -130,6 +131,13 @@ private:
     void EmitCompoundOp(int op, BytecodeEmitter& emitter,
                         uint16_t dst, uint16_t src, SnField* lhsType);
 
+    //Phase 11: emit a namespace-qualified stdlib call (math.sqrt(x)).
+    //Mirrors the string.equals emission minus the receiver: args stage in
+    //an evalArea claim, then bulk-copy to callParamBase from slot 0 — the
+    //namespace intrinsic ABI has no this (see StdLib.h).
+    void EmitStdLibCall(const StdLibEntry& entry, SnInvokeExpr& invoke,
+                        BytecodeEmitter& emitter, uint16_t resultOffset);
+
     //Compilation phases (called by GenerateStatements in order).
     //Each phase corresponds to a distinct compilation pass over the AST.
     //Future evolution: each phase can become an Accessor for multi-backend support.
@@ -170,6 +178,10 @@ private:
     uint16_t RegisterArrayType(SnField* pElemType);
 
     static uint8_t RuntimeTypeKind(SnField* pType);
+    //Return-type kind for .nmod serialization; array-ness is read from the
+    //return TYPE EXPRESSION, not from Field() (which resolves to the
+    //element field and would degrade `int[]` to RTK_Int32).
+    static uint16_t SerializedReturnKind(SnFunction& func);
     //Option B Step 3: extract a constant-foldable default expression into
     //a DefaultValueDesc for serialization. Returns tag=RTK_Void when the
     //expression isn't foldable (caller-side check rejects for IsImported).
