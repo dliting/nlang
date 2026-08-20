@@ -21,7 +21,9 @@
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
+#include <QTextBlock>
 #include <QTextBrowser>
+#include <QTextLayout>
 #include <QTimer>
 #include <QTreeView>
 #include <QTranslator>
@@ -138,6 +140,17 @@ void writeFile(const QString& filePath, const char* content) {
     QFile file(filePath);
     QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
     file.write(content);
+}
+
+//Foreground color the highlighter applied at a block position
+//(mirrors the helper in test_syntaxhighlighter.cpp); invalid color
+//when the position carries no format span.
+QColor colorAt(const QTextBlock& block, int pos) {
+    for (const QTextLayout::FormatRange& range : block.layout()->formats()) {
+        if (pos >= range.start && pos < range.start + range.length)
+            return range.format.foreground().color();
+    }
+    return QColor();
 }
 
 //An on-disk project fixture: <dir>/App/{App.nproj,main.n}. Returns the
@@ -795,6 +808,104 @@ private slots:
         QVERIFY(act(window, "actViewSolution")->isChecked());
         dock->hide();
         QVERIFY(!act(window, "actViewSolution")->isChecked());
+    }
+
+    //--- user journey (Step 10) ---
+
+    //The plan's IDE checklist walked as ONE continuous session: new
+    //solution -> new project -> new file -> edit & save -> syntax
+    //highlight -> build -> run -> error navigation. The earlier tests
+    //cover each slice in isolation; this one proves they compose
+    //through the real actions, dialogs, ncc and nvm.
+    void testUserJourneyE2E() {
+        MainWindow window;
+        QTemporaryDir dir;
+
+        //New solution: the tree roots at Solution1.
+        act(window, "actNewSolution")->trigger();
+        QAbstractItemModel* model = solutionView(window)->model();
+        QCOMPARE(model->index(0, 0).data().toString(),
+                 QString("Solution1"));
+
+        //New project through the real properties dialog.
+        inExec([&] { acceptProjectDialog("App", dir.path()); });
+        act(window, "actNewProject")->trigger();
+        const QModelIndex projectIndex =
+            model->index(0, 0, model->index(0, 0));
+        QCOMPARE(projectIndex.data().toString(), QString("App"));
+
+        //New file through the real new-file dialog; it opens in the
+        //editor.
+        inExec([&] { acceptNewFileDialog("main.n"); });
+        act(window, "actAddNewFile")->trigger();
+        CodeEditor* editor = currentCode(window);
+        QCOMPARE(tabCodes(window)->tabText(0), QString("main.n"));
+
+        //Edit and explicitly save: the typed program reaches the disk.
+        editor->setPlainText(kMainSource);
+        act(window, "actSaveFile")->trigger();
+        //Scoped so the read handle closes at the brace: the next Build
+        //auto-saves the then-dirty editor atomically (QSaveFile renames
+        //over the target), and Windows refuses that rename while any
+        //handle holds the file open.
+        {
+            QFile saved(QDir(dir.path()).filePath("main.n"));
+            QVERIFY(saved.open(QIODevice::ReadOnly | QIODevice::Text));
+            QCOMPARE(QString::fromUtf8(saved.readAll()),
+                     QString(kMainSource));
+        }
+
+        //The compiler's lexer colored the program: keyword blue,
+        //number dark cyan.
+        QCOMPARE(colorAt(editor->document()->firstBlock(), 0),
+                 QColor(Qt::blue));                          // "public"
+        const QTextBlock returnBlock =
+            editor->document()->firstBlock().next();
+        QCOMPARE(colorAt(returnBlock, 4), QColor(Qt::blue));      // "return"
+        QCOMPARE(colorAt(returnBlock, 11), QColor(Qt::darkCyan)); // "42"
+
+        //Build: ncc really ran (module on disk).
+        act(window, "actBuild")->trigger();
+        QCOMPARE(window.statusBar()->currentMessage(),
+                 QString("Build succeeded"));
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.nmod")));
+
+        //Run: nvm propagates main's exit code to the output page.
+        act(window, "actStartRunning")->trigger();
+        QTextBrowser* executeOut =
+            window.findChild<QTextBrowser*>("txtExecuteOut");
+        QVERIFY(QTest::qWaitFor([&] {
+            return executeOut->toPlainText()
+                .contains("Program exited with code 42");
+        }, 15000));
+
+        //Break the source and rebuild: the diagnostic lands in the log
+        //browser, and double-clicking that line opens the error site.
+        editor->setPlainText(
+            "public int main() {\n"
+            "    return undefined_name;\n"
+            "}\n");
+        act(window, "actBuild")->trigger();
+        QCOMPARE(window.statusBar()->currentMessage(),
+                 QString("Build failed"));
+        CompileLogBrowser* log =
+            window.findChild<CompileLogBrowser*>("txtCompileOut");
+        QVERIFY(log->toPlainText().contains("Error"));
+
+        //A real double-click on the diagnostic line. Lazy layout means
+        //no valid geometry before resize + adjustSize (the un-shown
+        //dock never ran a layout), and the click targets the viewport
+        //with viewport-relative coordinates, as QTextEdit's mouse
+        //handlers expect.
+        log->resize(600, 200);
+        log->document()->adjustSize();
+        const QTextCursor diagnostic(
+            log->document()->find("(line ").block());
+        QVERIFY(!diagnostic.isNull());
+        log->setTextCursor(diagnostic);
+        QTest::mouseDClick(log->viewport(), Qt::LeftButton, Qt::NoModifier,
+                           log->cursorRect(diagnostic).center());
+        QCOMPARE(editor->textCursor().blockNumber(), 1);
     }
 };
 
