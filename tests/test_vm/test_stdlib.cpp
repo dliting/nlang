@@ -250,6 +250,99 @@ void test_stdlib_table_full_dispatch()
     PASS();
 }
 
+void test_io_print_accepts_primitives()
+{
+    TEST(io_print_accepts_primitives);
+    //coerceToString: literals and typed variables of all three accepted
+    //kinds compile and run (stdout noise "a7 0.5" lands in the test log).
+    const int rc = runSource("io_print_ok",
+        "int main() {\n"
+        "    string s = \"a\";\n"
+        "    int n = 7;\n"
+        "    float f = 0.5;\n"
+        "    io.print(s);\n"
+        "    io.print(n);\n"
+        "    io.print(f);\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(rc == 0, "io.print should accept string/int/float");
+    PASS();
+}
+
+void test_io_print_void_not_assignable()
+{
+    TEST(io_print_void_not_assignable);
+    BuildOutcome outcome = buildSource("io_print_void",
+        "int main() { int x = io.print(\"a\"); return x; }\n");
+    CHECK(!outcome.ok, "void io.print result must not be assignable");
+    PASS();
+}
+
+void test_io_print_rejects_nonprintable()
+{
+    TEST(io_print_rejects_nonprintable);
+    //class values must call .toString() explicitly; null would print "0";
+    //arrays masquerade as their element kind via EvalDataType and are
+    //rejected by the IsArrayValuedExpr guard before the coercion branch.
+    BuildOutcome cls = buildSource("io_print_cls",
+        "class P { int x; }\n"
+        "int main() { P p = new P{1}; io.print(p); return 0; }\n");
+    CHECK(!cls.ok, "io.print(class) must not compile");
+    CHECK(cls.diagnostics.find("toString") != std::string::npos,
+        "diagnostic should point at .toString()");
+
+    BuildOutcome nil = buildSource("io_print_null",
+        "int main() { io.print(null); return 0; }\n");
+    CHECK(!nil.ok, "io.print(null) must not compile");
+
+    BuildOutcome arr = buildSource("io_print_arr",
+        "int main() { int[] a = new int[2]; io.print(a); return 0; }\n");
+    CHECK(!arr.ok, "io.print(int[]) must not compile");
+    CHECK(arr.diagnostics.find("array") != std::string::npos,
+        "diagnostic should name the array problem");
+    PASS();
+}
+
+void test_io_readfile_missing_catchable()
+{
+    TEST(io_readfile_missing_catchable);
+    //IOException raised by io.readFile is a normal catchable Exception
+    //subclass in-process (message field populated by the ctor intrinsic).
+    const int rc = runSource("io_rf_catch",
+        "int main() {\n"
+        "    try {\n"
+        "        string s = io.readFile(\"_no_such_file_.txt\");\n"
+        "        return 1;\n"
+        "    } catch (IOException e) {\n"
+        "        if (e.message == \"\") return 2;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(rc == 0, "missing-file IOException should be catchable");
+    PASS();
+}
+
+void test_stdlib_void_arg_rejected()
+{
+    TEST(stdlib_void_arg_rejected);
+    //Step 2 review MAJOR: a resolved void call as a stdlib argument used
+    //to pass the !pArgType branch silently (stale pResult in the claim
+    //slot). Both the coercing (io.print) and strict (math.sqrt) paths
+    //share the guard, so pin both.
+    BuildOutcome ioArg = buildSource("void_arg_io",
+        "void f() { }\n"
+        "int main() { io.print(f()); return 0; }\n");
+    CHECK(!ioArg.ok, "io.print(voidCall()) must not compile");
+    CHECK(ioArg.diagnostics.find("void") != std::string::npos,
+        "diagnostic should name the void problem");
+
+    BuildOutcome mathArg = buildSource("void_arg_math",
+        "void f() { }\n"
+        "int main() { float x = math.sqrt(f()); return 0; }\n");
+    CHECK(!mathArg.ok, "math.sqrt(voidCall()) must not compile");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -275,6 +368,11 @@ int main()
         test_stdlib_array_arg_rejected();
         test_stdlib_unknown_namespace_still_errors();
         test_stdlib_table_full_dispatch();
+        test_io_print_accepts_primitives();
+        test_io_print_void_not_assignable();
+        test_io_print_rejects_nonprintable();
+        test_io_readfile_missing_catchable();
+        test_stdlib_void_arg_rejected();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

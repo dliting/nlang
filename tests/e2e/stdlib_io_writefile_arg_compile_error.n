@@ -1,0 +1,6 @@
+// stdlib_io_writefile_arg_compile_error — io.writeFile's content parameter
+// is strictly string; only io.print coerces int/float.
+int main() {
+    io.writeFile("_p11_tmp/x.txt", 42);
+    return 0;
+}

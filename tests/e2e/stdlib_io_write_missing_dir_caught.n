@@ -1,0 +1,12 @@
+// stdlib_io_write_missing_dir_caught — writeFile cannot create parent
+// directories; the failed open raises a catchable IOException with a
+// non-empty message.
+int main() {
+    try {
+        io.writeFile("_p11_tmp/no_such_dir/x.txt", "x");
+        return 1;  //should have thrown
+    } catch (IOException e) {
+        if (e.message == "") return 2;
+    }
+    return 0;
+}

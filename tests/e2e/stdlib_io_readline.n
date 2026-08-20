@@ -1,0 +1,14 @@
+// stdlib_io_readline — io.readLine returns one line of stdin; at EOF it
+// returns "". The runner pipes stdlib_io_readline.stdin (LF-only — the
+// trailing-'\r' strip in the intrinsic is cross-platform CRLF defense and
+// is not reachable through a Windows text-mode pipe). Documented
+// semantics: EOF and an empty input line are both "".
+int main() {
+    string a = io.readLine();
+    string b = io.readLine();
+    if (a != "first") return 1;
+    if (b != "second") return 2;
+    string c = io.readLine();
+    if (c != "") return 3;
+    return 0;
+}

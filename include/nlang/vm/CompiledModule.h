@@ -134,10 +134,11 @@ static constexpr uint16_t INTR_NullPointerException_Ctor     = 65;
 static constexpr uint16_t INTR_DivByZeroException_Ctor       = 66;
 static constexpr uint16_t INTR_IndexOutOfBoundsException_Ctor = 67;
 static constexpr uint16_t INTR_AssertionException_Ctor       = 68;
+static constexpr uint16_t INTR_IOException_Ctor              = 69;
 
 //Phase 11: stdlib namespace intrinsics. Allocation map (see StdLib.h for
 //the shared function table; args from callParamBase slot 0, no this):
-//  69          IOException ctor (Step 2)
+//  69          IOException ctor
 //  70-94       math, 25 functions
 //  95-106      string methods, 12 new (existing Equals/GetHashCode keep
 //              their 8e-1 ids 42/43 — only the implementation moves TUs)
@@ -178,6 +179,21 @@ static_assert(INTR_Math_Sqrt == kMathIntrinsicFirst,
 static_assert(INTR_Math_Randomi
         == kMathIntrinsicFirst + kMathIntrinsicCount - 1,
     "math intrinsic block must be contiguous up to Randomi");
+
+//Phase 11 Step 2: io namespace intrinsics (content IO — console + text
+//files; see StdLib.h). Same executable-contiguity invariant as math.
+static constexpr uint16_t INTR_Io_Print      = 110;
+static constexpr uint16_t INTR_Io_ReadLine   = 111;
+static constexpr uint16_t INTR_Io_ReadFile   = 112;
+static constexpr uint16_t INTR_Io_WriteFile  = 113;
+static constexpr uint16_t INTR_Io_AppendFile = 114;
+static constexpr uint16_t kIoIntrinsicFirst = 110;
+static constexpr uint16_t kIoIntrinsicCount = 5;
+static_assert(INTR_Io_Print == kIoIntrinsicFirst,
+    "io intrinsic block must start at kIoIntrinsicFirst");
+static_assert(INTR_Io_AppendFile
+        == kIoIntrinsicFirst + kIoIntrinsicCount - 1,
+    "io intrinsic block must be contiguous up to AppendFile");
 
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:

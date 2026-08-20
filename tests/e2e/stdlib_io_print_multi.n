@@ -1,0 +1,12 @@
+// stdlib_io_print_multi — consecutive io.print calls each get their own
+// line; arguments may be literals or typed variables (string/int/float).
+int main() {
+    string s = "abc";
+    int n = 7;
+    float f = 0.5;
+    io.print(s);
+    io.print(n);
+    io.print(f);
+    io.print("secondline");
+    return 0;
+}

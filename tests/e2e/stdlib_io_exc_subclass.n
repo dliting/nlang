@@ -1,0 +1,20 @@
+// stdlib_io_exc_subclass — IOException supports user subclassing: the
+// flattened message/backtrace layout comes from the RegisterClasses
+// ancestor-injection site, own fields append after it, and catch matches
+// the subclass type.
+class MyIoErr : IOException {
+    int code;
+}
+
+int main() {
+    MyIoErr e = new MyIoErr();
+    e.code = 5;
+    e.message = "disk full";
+    try {
+        throw e;
+    } catch (MyIoErr e2) {
+        if (e2.message != "disk full") return 1;
+        if (e2.code != 5) return 2;
+    }
+    return 0;
+}

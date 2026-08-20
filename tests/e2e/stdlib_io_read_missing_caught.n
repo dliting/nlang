@@ -1,0 +1,11 @@
+// stdlib_io_read_missing_caught — IOException is a catchable built-in
+// Exception subclass carrying a non-empty message.
+int main() {
+    try {
+        string s = io.readFile("_p11_tmp/definitely_missing.txt");
+        return 1;  //should have thrown
+    } catch (IOException e) {
+        if (e.message == "") return 2;
+    }
+    return 0;
+}

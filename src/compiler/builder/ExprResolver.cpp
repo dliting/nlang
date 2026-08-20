@@ -27,13 +27,14 @@ static SnClassDecl* s_pNullPtrExcClass = nullptr;
 static SnClassDecl* s_pDivZeroExcClass = nullptr;
 static SnClassDecl* s_pOobExcClass = nullptr;
 static SnClassDecl* s_pAssertExcClass = nullptr;
+static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
 
 //Phase 9d: returns true for any name in the built-in Exception hierarchy.
 static bool IsBuiltinExceptionClassName(const std::string& name)
 {
     return name == "Exception" || name == "NullPointerException"
         || name == "DivByZeroException" || name == "IndexOutOfBoundsException"
-        || name == "AssertionException";
+        || name == "AssertionException" || name == "IOException";
 }
 
 //Phase 10 audit H2: single predicate for every name GetBuiltinClassDecl
@@ -74,6 +75,7 @@ static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		: (name == "DivByZeroException") ? s_pDivZeroExcClass
 		: (name == "IndexOutOfBoundsException") ? s_pOobExcClass
 		: (name == "AssertionException") ? s_pAssertExcClass
+		: (name == "IOException") ? s_pIoExcClass
 		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above
 	if (!rpRef)
 	{
@@ -675,9 +677,45 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 		}
 		auto* pArgType = arg.EvalDataType();
 		if (!pArgType)
-			continue;  //arg already failed to resolve — diagnosed above
+		{
+			//A resolved arg with no type is a void call (the assignment
+			//statement guards the same shape): passing it would silently
+			//stage a stale pResult in the claim slot.
+			if (arg.IsResolved())
+				m_Env.Log(CLL_Error, arg.Location(),
+					"Argument %d of \"%s.%s\" has no value: a void function "
+					"result cannot be used as an argument.",
+					(int)paramIdx + 1, ns.c_str(), fnName.c_str());
+			continue;  //unresolved arg was diagnosed above
+		}
 		const NodeKind argKind = pArgType->Kind();
 		const uint8_t want = pEntry->paramKinds[paramIdx];
+		//io.print (coerceToString): every param accepts string|int|float —
+		//codegen branches on the arg's own static kind and converts at the
+		//call site. No widening wrap here; class/struct/enum must call
+		//.toString() explicitly.
+		if (pEntry->coerceToString)
+		{
+			//null literal is Int32-typed (KT_Null); accepting it would
+			//print "0". Reject it explicitly.
+			if (arg.ContainFlags(NF_NullLiteral))
+			{
+				m_Env.Log(CLL_Error, arg.Location(),
+					"Argument %d of \"%s.%s\" cannot be null.",
+					(int)paramIdx + 1, ns.c_str(), fnName.c_str());
+			}
+			else if (argKind != NK_String && argKind != NK_Int32
+				&& argKind != NK_Float)
+			{
+				m_Env.Log(CLL_Error, arg.Location(),
+					"Argument %d of \"%s.%s\" has type \"%s\"; string, int "
+					"or float expected (class and enum values: call "
+					".toString() first).",
+					(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
+					pArgType->ToString().c_str());
+			}
+			continue;
+		}
 		bool ok = (argKind == NK_Int32 && want == RTK_Int32)
 			|| (argKind == NK_Float && want == RTK_Float)
 			|| (argKind == NK_String && want == RTK_String);

@@ -1,0 +1,6 @@
+// stdlib_io_print — io.print writes the string to stdout followed by '\n'.
+// The manifest's third column asserts the stdout substring.
+int main() {
+    io.print("hello");
+    return 0;
+}

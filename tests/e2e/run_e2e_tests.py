@@ -4,8 +4,9 @@
 Usage:
     conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
 
-Reads manifest.txt (name + expected_exit_code), compiles each <name>.n,
-runs the .nmod, and reports results.
+Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
+substring]), compiles each <name>.n, runs the .nmod, and reports results.
+A <name>.stdin file next to the source is piped to the program's stdin.
 """
 
 import os
@@ -21,6 +22,14 @@ DEFAULT_NVM = os.path.join(
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 TIMEOUT_SEC = 30
 PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
+PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
+
+#Tests that need CWD=SCRIPT_DIR for their relative file paths, plus a
+#scratch dir pre-cleaned before and removed after the run.
+def _needs_script_cwd(name):
+    return (name.startswith('file_stream_') or name.startswith('fs_struct_')
+            or name.startswith('fs_object_') or name.startswith('stdlib_io_')
+            or name.startswith('stdlib_fs_'))
 
 #Test name suffixes that mark intentional throw-tests. Tests ending in
 #these suffixes are excluded from the P3.7 hidden-throw detector: their
@@ -65,7 +74,10 @@ def main():
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            parts = line.split()
+            #Column 1: name; column 2: expected exit code / "compile_error";
+            #optional column 3: expected stdout substring (maxsplit=2 keeps
+            #spaces inside the substring; absent = no stdout assertion).
+            parts = line.split(None, 2)
             if len(parts) < 2:
                 continue
             name = parts[0]
@@ -75,6 +87,7 @@ def main():
                 expected = "compile_error"
             else:
                 expected = int(parts[1])
+            expected_stdout = parts[2] if len(parts) > 2 else ""
 
             test_file = os.path.join(SCRIPT_DIR, f"{name}.n")
             test_dir = os.path.join(SCRIPT_DIR, name)
@@ -189,11 +202,15 @@ def main():
                         errors.append(f"    stderr: {stderr_text.splitlines()[0]}")
                 continue
 
-            #Phase 8: ensure _phase8_tmp/ exists and is clean for file_stream_*/fs_struct_*/fs_object_* tests.
-            if name.startswith('file_stream_') or name.startswith('fs_struct_') or name.startswith('fs_object_'):
+            #Phase 8/11: ensure the scratch dirs exist and are clean for
+            #file-path tests (file_stream_*/fs_*_*/stdlib_io_*/stdlib_fs_*).
+            if _needs_script_cwd(name):
                 if os.path.isdir(PHASE8_TMP):
                     shutil.rmtree(PHASE8_TMP)
                 os.makedirs(PHASE8_TMP, exist_ok=True)
+                if os.path.isdir(PHASE11_TMP):
+                    shutil.rmtree(PHASE11_TMP)
+                os.makedirs(PHASE11_TMP, exist_ok=True)
 
             # Compile
             nmod_file = os.path.join(SCRIPT_DIR, f"{name}.nmod")
@@ -233,15 +250,21 @@ def main():
                 continue
 
             # Run
-            #Phase 8: file_stream_*/fs_struct_*/fs_object_* tests need CWD = tests/e2e/ for relative paths.
-            run_cwd = SCRIPT_DIR if (name.startswith('file_stream_')
-                                     or name.startswith('fs_struct_')
-                                     or name.startswith('fs_object_')) else None
+            #Phase 8/11: file-path tests need CWD = tests/e2e/ so their
+            #relative paths (_phase8_tmp/..., _p11_tmp/...) resolve.
+            run_cwd = SCRIPT_DIR if _needs_script_cwd(name) else None
+            #Phase 11: <name>.stdin (if present) is piped to the program —
+            #io.readLine tests drive stdin through it.
+            stdin_path = os.path.join(SCRIPT_DIR, f"{name}.stdin")
+            stdin_bytes = None
+            if os.path.isfile(stdin_path):
+                with open(stdin_path, 'rb') as sf:
+                    stdin_bytes = sf.read()
             try:
                 result = subprocess.run(
                     [nvm, nmod_file],
                     capture_output=True, timeout=TIMEOUT_SEC,
-                    cwd=run_cwd)
+                    cwd=run_cwd, input=stdin_bytes)
                 actual = result.returncode
                 stderr_text = result.stderr.decode('utf-8', errors='replace')
             except Exception as e:
@@ -257,6 +280,16 @@ def main():
                 os.remove(nmod_file)
 
             if actual == expected:
+                #Phase 11: optional stdout-substring assertion (manifest
+                #column 3). Checked before declaring the pass so a wrong
+                #stdout is a FAIL, not a warning.
+                if expected_stdout:
+                    stdout_text = result.stdout.decode('utf-8', errors='replace')
+                    if expected_stdout not in stdout_text:
+                        print(f"FAIL {name} (stdout missing {expected_stdout!r})")
+                        failed += 1
+                        errors.append(f"  {name}: stdout missing {expected_stdout!r}")
+                        continue
                 print(f"PASS {name} (exit={actual})")
                 passed += 1
                 #P3.7 hidden-throw detector: a test that "passes" only
@@ -277,9 +310,11 @@ def main():
                 failed += 1
                 errors.append(f"  {name}: expected={expected} actual={actual}")
 
-    #Final cleanup: remove _phase8_tmp/ if it exists.
+    #Final cleanup: remove scratch dirs if they exist.
     if os.path.isdir(PHASE8_TMP):
         shutil.rmtree(PHASE8_TMP)
+    if os.path.isdir(PHASE11_TMP):
+        shutil.rmtree(PHASE11_TMP)
 
     print()
     print(f"Results: {passed} passed, {failed} failed")

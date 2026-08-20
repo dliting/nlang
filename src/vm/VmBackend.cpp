@@ -386,6 +386,8 @@ void VmBackend::RegisterBuiltinClasses() {
         INTR_IndexOutOfBoundsException_Ctor, &m_oobExcClassIdx);
     registerExceptionClass("AssertionException", m_exceptionClassIdx,
         INTR_AssertionException_Ctor, &m_assertExcClassIdx);
+    registerExceptionClass("IOException", m_exceptionClassIdx,
+        INTR_IOException_Ctor, &m_ioExcClassIdx);
     //Patch Exception's superClassIdx to Object (set in the common Object-resolve
     //loop below; here we just leave -1 which gets resolved next).
 }
@@ -467,7 +469,7 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                 if (an == "Exception" || an == "NullPointerException"
                     || an == "DivByZeroException"
                     || an == "IndexOutOfBoundsException"
-                    || an == "AssertionException") {
+                    || an == "AssertionException" || an == "IOException") {
                     cc.fieldNames.push_back("message");
                     cc.fieldTypeKinds.push_back(RTK_String);
                     cc.fieldStructIndices.push_back(0xFFFF);
@@ -1316,6 +1318,27 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
             claimBase + paramIdx * VALUE_SIZE);
+        //io.print coercion: int/float args convert to string in their
+        //claim slot right after being emitted. pResult discipline — the
+        //to_str opcodes have no operands and rewrite the accumulator in
+        //place, so the sequence must be load-slot -> convert -> store-slot
+        //(the cast_f2i / string-pool-dedup bug family otherwise).
+        if (entry.coerceToString) {
+            auto* pArgType = param.EvalDataType();
+            OpCode conv = OpCode::OP_Count;  //string args pass through
+            if (pArgType && pArgType->Kind() == NK_Int32)
+                conv = OpCode::OP_Int32_to_str;
+            else if (pArgType && pArgType->Kind() == NK_Float)
+                conv = OpCode::OP_Float_to_str;
+            if (conv != OpCode::OP_Count) {
+                const uint16_t slot = claimBase + paramIdx * VALUE_SIZE;
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(slot);
+                emitter.Emit(conv);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(slot);
+            }
+        }
         ++paramIdx;
     }
     for (uint16_t i = 0; i < argCount; ++i) {
@@ -1362,7 +1385,7 @@ static int FindClassFieldOffset(SnClassDecl& classDecl, const std::string& field
     auto isBuiltinExceptionName = [](const std::string& cn) {
         return cn == "Exception" || cn == "NullPointerException"
             || cn == "DivByZeroException" || cn == "IndexOutOfBoundsException"
-            || cn == "AssertionException";
+            || cn == "AssertionException" || cn == "IOException";
     };
     //Phase 9d: direct built-in Exception class — synthetic decl has no
     //Members(); the 2 runtime fields are fixed at slot[1]/slot[2].

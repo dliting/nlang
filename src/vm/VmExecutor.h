@@ -148,6 +148,8 @@ private:
     //are at callParamBase slot 0 upward — no this (see StdLib.h).
     bool ExecuteIntrinsicMath(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
+    bool ExecuteIntrinsicIo(uint16_t intrinsicId, uint16_t callParamBase,
+        uint8_t* locals, uint8_t* pResult);
 
     //Phase 9f: shared native-table dispatch for OP_CallFunc and the method
     //call paths (a native method receives `this` at args[0], mirroring the
@@ -244,6 +246,7 @@ private:
     int16_t m_divZeroExcClassIdx = -1;
     int16_t m_oobExcClassIdx = -1;
     int16_t m_assertExcClassIdx = -1;
+    int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
 
     //Phase 11 Q9: PRNG for math.random/randomi. Bare mt19937 arithmetic
     //only — std::uniform_*_distribution is implementation-defined and

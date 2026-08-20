@@ -1,0 +1,12 @@
+// stdlib_io_append_file — io.appendFile appends to an existing file and
+// creates a missing one.
+int main() {
+    io.writeFile("_p11_tmp/ap.txt", "one");
+    io.appendFile("_p11_tmp/ap.txt", "two");
+    string s = io.readFile("_p11_tmp/ap.txt");
+    if (s != "onetwo") return 1;
+    io.appendFile("_p11_tmp/created.txt", "fresh");
+    string t = io.readFile("_p11_tmp/created.txt");
+    if (t != "fresh") return 2;
+    return 0;
+}

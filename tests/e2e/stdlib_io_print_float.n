@@ -1,0 +1,6 @@
+// stdlib_io_print_float — io.print accepts a float argument; the %g format
+// prints 1.5 (not 1.500000).
+int main() {
+    io.print(1.5);
+    return 0;
+}

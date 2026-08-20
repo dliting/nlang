@@ -2,6 +2,7 @@ add_library(nlang_vm
     OpCodeTable.cpp
     VmExecutor.cpp
     IntrinsicsMath.cpp
+    IntrinsicsIo.cpp
     VmBackend.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp

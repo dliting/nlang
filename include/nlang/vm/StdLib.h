@@ -90,6 +90,14 @@ inline constexpr StdLibEntry kStdLibTable[] =
 	{"math", "random", {}, 0, 0, SLRT_Float, INTR_Math_Random, false},
 	{"math", "srand",  {RTK_Int32}, 1, 1, SLRT_Void, INTR_Math_Srand, false},
 	{"math", "randomi", {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Randomi, false},
+	//io — content IO (console + text files). print is the one coercing
+	//entry; the file trio is strictly (string, string) and readLine/readFile
+	//failures raise IOException at run time.
+	{"io", "print",      {RTK_String}, 1, 1, SLRT_Void,   INTR_Io_Print,      true},
+	{"io", "readLine",   {},           0, 0, SLRT_String, INTR_Io_ReadLine,   false},
+	{"io", "readFile",   {RTK_String}, 1, 1, SLRT_String, INTR_Io_ReadFile,   false},
+	{"io", "writeFile",  {RTK_String, RTK_String}, 2, 2, SLRT_Void, INTR_Io_WriteFile,  false},
+	{"io", "appendFile", {RTK_String, RTK_String}, 2, 2, SLRT_Void, INTR_Io_AppendFile, false},
 };
 
 //Compile-time well-formedness: arity bounds must fit paramKinds[3] and
@@ -137,6 +145,34 @@ static_assert(StdLibMathIdsInBlock(),
 	"math kStdLibTable entry points outside the contiguous intrinsic block");
 static_assert(StdLibMathEntryCount() == kMathIntrinsicCount,
 	"math kStdLibTable entry count must equal the intrinsic id block size");
+
+//Same table <-> id-block binding for io (Step 2).
+constexpr bool StdLibIoIdsInBlock()
+{
+	for (const auto& entry : kStdLibTable)
+	{
+		if (std::string_view(entry.ns) != "io")
+			continue;
+		if (entry.intrinsicId < kIoIntrinsicFirst
+			|| entry.intrinsicId >= kIoIntrinsicFirst + kIoIntrinsicCount)
+			return false;
+	}
+	return true;
+}
+constexpr size_t StdLibIoEntryCount()
+{
+	size_t n = 0;
+	for (const auto& entry : kStdLibTable)
+	{
+		if (std::string_view(entry.ns) == "io")
+			++n;
+	}
+	return n;
+}
+static_assert(StdLibIoIdsInBlock(),
+	"io kStdLibTable entry points outside the contiguous intrinsic block");
+static_assert(StdLibIoEntryCount() == kIoIntrinsicCount,
+	"io kStdLibTable entry count must equal the intrinsic id block size");
 
 //Look up a namespace-qualified function. Returns null when the namespace
 //is known but the function is not (a distinct, diagnosable error).

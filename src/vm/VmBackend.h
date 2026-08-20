@@ -235,6 +235,7 @@ private:
     int16_t m_divZeroExcClassIdx = -1;  //Phase 9d: DivByZeroException
     int16_t m_oobExcClassIdx = -1;      //Phase 9d: IndexOutOfBoundsException
     int16_t m_assertExcClassIdx = -1;   //Phase 9d: AssertionException
+    int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
 
     //Phase 9c cross-module import infrastructure (R5-1 + R4-8 + R12-1).
     //Injected by ModuleBuilder before GenerateStatements; consumed by

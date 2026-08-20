@@ -759,3 +759,16 @@ stdlib_math_random_deterministic 0
 stdlib_math_randomi_range 0
 stdlib_math_randomi_minmax_throws 1
 stdlib_math_clamp_lo_gt_hi_throws 1
+stdlib_io_print 0 hello
+stdlib_io_print_int 0 42
+stdlib_io_print_float 0 1.5
+stdlib_io_print_multi 0 secondline
+stdlib_io_readline 0
+stdlib_io_file_roundtrip 0
+stdlib_io_append_file 0
+stdlib_io_read_missing_throws 1
+stdlib_io_read_missing_caught 0
+stdlib_io_writefile_arg_compile_error compile_error
+stdlib_io_void_arg_compile_error compile_error
+stdlib_io_exc_subclass 0
+stdlib_io_write_missing_dir_caught 0

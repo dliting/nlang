@@ -46,6 +46,7 @@ int VmExecutor::Execute(const CompiledModule& module) {
     cacheExcClass("DivByZeroException",       &m_divZeroExcClassIdx);
     cacheExcClass("IndexOutOfBoundsException", &m_oobExcClassIdx);
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
+    cacheExcClass("IOException",              &m_ioExcClassIdx);
 
     int mainIdx = module.FindFunction("main");
     if (mainIdx < 0)
@@ -3067,7 +3068,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         || intrinsicId == INTR_NullPointerException_Ctor
         || intrinsicId == INTR_DivByZeroException_Ctor
         || intrinsicId == INTR_IndexOutOfBoundsException_Ctor
-        || intrinsicId == INTR_AssertionException_Ctor) {
+        || intrinsicId == INTR_AssertionException_Ctor
+        || intrinsicId == INTR_IOException_Ctor) {
         int32_t thisHeapIdx;
         std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
         if (thisHeapIdx <= 0)
@@ -3396,6 +3398,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //callParamBase slot 0, no this). Chained before the unknown-id throw
     //so each family TU stays independently extensible.
     if (ExecuteIntrinsicMath(intrinsicId, callParamBase, locals, pResult))
+        return;
+    if (ExecuteIntrinsicIo(intrinsicId, callParamBase, locals, pResult))
         return;
 
     throw std::runtime_error("NLang VM: unknown intrinsic id " + std::to_string(intrinsicId));
