@@ -85,6 +85,28 @@ Multi-source projects are described by a `.nproj` XML file (see
 optionally redirects the `.nmod` (relative to the project file), and `File`
 paths are relative to the project file's directory.
 
+## Standard Library (Phase 11)
+
+`math`, `io` and `fs` are built-in namespaces — reserved names, called
+qualified, no import needed. Strings carry built-in methods:
+
+```n
+int main() {
+    io.print(math.sqrt(2.0));                     // 1.41421
+    string s = "hello world".substring(0, 5);     // "hello" (byte offsets)
+    List<string> words = "a,b,c".split(",");      // 3 elements
+    fs.makeDirs("out");
+    io.writeFile(fs.join("out", "greet.txt"), s);
+    if (!fs.exists("out/greet.txt")) return 1;
+    return words.length();
+}
+```
+
+Full details — parameter type policy, exception mapping, byte semantics,
+deterministic PRNG — are in the Standard Library chapter of
+`docs/language-spec.md`; runnable copies of the example live in
+`examples/stdlib_*.n`.
+
 ## IDE (nide)
 
 ```bash

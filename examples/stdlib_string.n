@@ -1,0 +1,26 @@
+// stdlib_string.n — built-in string methods (Phase 11).
+// Byte semantics: offsets are byte offsets; case conversion is ASCII-only.
+
+int main() {
+    string s = "Hello, NLang";
+    io.print(s.substring(7));             // "NLang" — end defaults to length
+    io.print(s.substring(0, 5));          // "Hello" — end is exclusive
+    io.print(s.indexOf("NLang"));         // 7 (byte offset)
+    io.print(s.toLower());                // "hello, nlang"
+    io.print(s.toUpper());                // "HELLO, NLANG"
+    io.print("  pad  ".trim());           // "pad"
+    io.print(s.contains("NLang"));        // 1
+    io.print("a-b-c".replace("-", "+"));  // "a+b+c"
+    List<string> parts = "one,two,three".split(",");
+    io.print(parts.length());             // 3
+    io.print("héllo".length());           // 6 — UTF-8 byte count
+    io.print("123".toInt() + 1);          // 124
+    io.print("2.5".toFloat() * 2.0);      // 5
+    try {
+        int bad = "12x".toInt();          // strict whole-string parse...
+        io.print(bad);
+    } catch (Exception e) {
+        io.print(e.message);              // ...so this throws instead
+    }
+    return 0;
+}

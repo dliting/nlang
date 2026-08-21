@@ -1,0 +1,19 @@
+// stdlib_io.n — io namespace tour (Phase 11): console and text-file content.
+// io owns all content; fs (see stdlib_fs.n) owns names/directories/metadata.
+
+int main() {
+    io.print("console output");           // string
+    io.print(42);                         // int, converted at the call site
+    io.print(2.5);                        // float (%g format)
+
+    io.writeFile("io_example.txt", "line one\nline two");
+    io.print(io.readFile("io_example.txt"));
+    io.appendFile("io_example.txt", "\nline three");
+    io.print(io.readFile("io_example.txt"));
+
+    // readLine reads one stdin line; EOF and an empty line both give "".
+    string echoed = io.readLine();
+    if (echoed != "")
+        io.print("hello " + echoed);
+    return 0;
+}

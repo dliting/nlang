@@ -1,0 +1,17 @@
+// stdlib_fs.n — fs namespace tour (Phase 11): names, directories, metadata.
+// fs never reads or writes content — that is io's job.
+
+int main() {
+    fs.makeDirs("fs_example/nested");
+    io.writeFile(fs.join("fs_example/nested", "note.txt"), "hi");
+    if (!fs.isDirectory("fs_example/nested")) return 1;
+    if (!fs.isFile("fs_example/nested/note.txt")) return 2;
+    io.print(fs.size("fs_example/nested/note.txt"));   // 2 (bytes)
+    List<string> names = fs.listFiles("fs_example/nested");
+    io.print(names.get(0));               // note.txt (sorted, files only)
+    fs.remove("fs_example/nested/note.txt");
+    fs.remove("fs_example/nested");       // now an empty directory
+    fs.remove("fs_example");
+    if (fs.exists("fs_example")) return 3;
+    return 0;
+}
