@@ -150,6 +150,8 @@ private:
         uint8_t* locals, uint8_t* pResult);
     bool ExecuteIntrinsicIo(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
+    bool ExecuteIntrinsicFs(uint16_t intrinsicId, uint16_t callParamBase,
+        uint8_t* locals, uint8_t* pResult);
     //Receiver-dispatched variant (string methods): receiver pool idx at
     //callParamBase[0], args from slot 1 — the string.equals ABI, NOT the
     //namespace free-function ABI above.
@@ -158,7 +160,7 @@ private:
 
     //Phase 11 Step 3: allocate one boxed-value heap slot (layout per
     //OP_Box: slot[0]=tag, slot[1]=value bits). Shared by OP_Box and the
-    //string split intrinsic (later fs.listFiles too).
+    //string split / fs.listFiles intrinsics.
     int32_t AllocBoxedValue(uint8_t typeTag, int32_t val);
 
     //Phase 9f: shared native-table dispatch for OP_CallFunc and the method

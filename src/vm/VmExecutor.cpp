@@ -3387,6 +3387,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     if (ExecuteIntrinsicString(intrinsicId, callParamBase, locals, pResult))
         return;
+    if (ExecuteIntrinsicFs(intrinsicId, callParamBase, locals, pResult))
+        return;
 
     throw std::runtime_error("NLang VM: unknown intrinsic id " + std::to_string(intrinsicId));
 }

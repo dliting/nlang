@@ -1,0 +1,15 @@
+// stdlib_fs_exists_type — exists/isFile/isDirectory distinguish file,
+// directory and missing paths; makeDirs creates parents (mkdir -p).
+int main() {
+    fs.makeDirs("_p11_tmp/fs_exists");
+    if (fs.exists("_p11_tmp/fs_exists/missing.txt")) return 1;
+    io.writeFile("_p11_tmp/fs_exists/file.txt", "abc");
+    if (!fs.exists("_p11_tmp/fs_exists/file.txt")) return 2;
+    if (!fs.isFile("_p11_tmp/fs_exists/file.txt")) return 3;
+    if (fs.isDirectory("_p11_tmp/fs_exists/file.txt")) return 4;
+    fs.makeDirs("_p11_tmp/fs_exists/sub");
+    if (!fs.exists("_p11_tmp/fs_exists/sub")) return 5;
+    if (!fs.isDirectory("_p11_tmp/fs_exists/sub")) return 6;
+    if (fs.isFile("_p11_tmp/fs_exists/sub")) return 7;
+    return 0;
+}

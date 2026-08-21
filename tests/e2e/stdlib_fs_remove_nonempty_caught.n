@@ -1,0 +1,13 @@
+// stdlib_fs_remove_nonempty_caught — pins the exception class for the
+// non-empty-directory error: IOException, with a non-empty message.
+int main() {
+    fs.makeDirs("_p11_tmp/fs_rmc/dir");
+    io.writeFile("_p11_tmp/fs_rmc/dir/f.txt", "x");
+    try {
+        fs.remove("_p11_tmp/fs_rmc/dir");
+        return 1;  //should have thrown
+    } catch (IOException e) {
+        if (e.message == "") return 2;
+    }
+    return 0;
+}

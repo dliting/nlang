@@ -1,0 +1,24 @@
+// stdlib_fs_mkdirs_remove — makeDirs creates nested parents and is
+// idempotent (mkdir -p, also on a non-empty directory); remove deletes
+// files and empty directories, and a missing path is a silent no-op
+// (fs::remove semantics).
+int main() {
+    fs.makeDirs("_p11_tmp/fs_mkdir/a/b/c");
+    if (!fs.isDirectory("_p11_tmp/fs_mkdir/a/b/c")) return 1;
+    fs.remove("_p11_tmp/fs_mkdir/a/b/c");
+    if (fs.exists("_p11_tmp/fs_mkdir/a/b/c")) return 2;
+    fs.makeDirs("_p11_tmp/fs_mkdir/d");
+    io.writeFile("_p11_tmp/fs_mkdir/d/f.txt", "x");
+    fs.remove("_p11_tmp/fs_mkdir/d/f.txt");
+    if (fs.exists("_p11_tmp/fs_mkdir/d/f.txt")) return 3;
+    fs.remove("_p11_tmp/fs_mkdir/d");
+    if (fs.exists("_p11_tmp/fs_mkdir/d")) return 4;
+    //Missing path: silent no-op, must not throw.
+    fs.remove("_p11_tmp/fs_mkdir/never_existed");
+    if (fs.exists("_p11_tmp/fs_mkdir/never_existed")) return 5;
+    fs.makeDirs("_p11_tmp/fs_mkdir/d2");
+    fs.makeDirs("_p11_tmp/fs_mkdir/d2");
+    io.writeFile("_p11_tmp/fs_mkdir/d2/f.txt", "x");
+    fs.makeDirs("_p11_tmp/fs_mkdir/d2");
+    return 0;
+}

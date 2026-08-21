@@ -219,6 +219,25 @@ static_assert(INTR_String_ToFloat
         == kStringMethodIntrinsicFirst + kStringMethodIntrinsicCount - 1,
     "string-method intrinsic block must be contiguous up to ToFloat");
 
+//Phase 11 Step 4: fs namespace — namespace/directory/metadata only,
+//never content (content IO lives in io). INTR_FS_* is taken by the
+//FileStream intrinsics, so this block uses the FileSystem_ prefix.
+static constexpr uint16_t INTR_FileSystem_Exists    = 120;
+static constexpr uint16_t INTR_FileSystem_IsFile    = 121;
+static constexpr uint16_t INTR_FileSystem_IsDir     = 122;
+static constexpr uint16_t INTR_FileSystem_Size      = 123;
+static constexpr uint16_t INTR_FileSystem_ListFiles = 124;
+static constexpr uint16_t INTR_FileSystem_MakeDirs  = 125;
+static constexpr uint16_t INTR_FileSystem_Remove    = 126;
+static constexpr uint16_t INTR_FileSystem_Join      = 127;
+static constexpr uint16_t kFileSystemIntrinsicFirst = 120;
+static constexpr uint16_t kFileSystemIntrinsicCount = 8;
+static_assert(INTR_FileSystem_Exists == kFileSystemIntrinsicFirst,
+    "file-system intrinsic block must start at its First constant");
+static_assert(INTR_FileSystem_Join
+        == kFileSystemIntrinsicFirst + kFileSystemIntrinsicCount - 1,
+    "file-system intrinsic block must be contiguous up to Join");
+
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:
 //  RTK_Null   — null literal for any reference type (class/string/array). No payload.

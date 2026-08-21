@@ -4,6 +4,7 @@ add_library(nlang_vm
     IntrinsicsMath.cpp
     IntrinsicsIo.cpp
     IntrinsicsString.cpp
+    IntrinsicsFs.cpp
     VmBackend.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp

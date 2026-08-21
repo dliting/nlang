@@ -1,0 +1,14 @@
+// stdlib_fs_join — (fs::path(a)/b).generic_string(): forward slashes on
+// every platform, no doubled separators, empty left side yields the
+// right side alone. A rooted right side replaces the left (Python
+// os.path.join semantics); an empty right side keeps a trailing slash.
+int main() {
+    if (fs.join("a", "b") != "a/b") return 1;
+    if (fs.join("a/", "b") != "a/b") return 2;
+    if (fs.join("", "b") != "b") return 3;
+    if (fs.join("a/b", "c/d") != "a/b/c/d") return 4;
+    if (fs.join(fs.join("x", "y"), "z") != "x/y/z") return 5;
+    if (fs.join("a", "/b") != "/b") return 6;
+    if (fs.join("a", "") != "a/") return 7;
+    return 0;
+}

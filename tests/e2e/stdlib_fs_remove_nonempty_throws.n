@@ -1,0 +1,8 @@
+// stdlib_fs_remove_nonempty_throws — remove() on a non-empty directory
+// raises IOException (uncaught: nvm exits non-zero).
+int main() {
+    fs.makeDirs("_p11_tmp/fs_rm/dir");
+    io.writeFile("_p11_tmp/fs_rm/dir/f.txt", "x");
+    fs.remove("_p11_tmp/fs_rm/dir");
+    return 0;  //unreachable — the remove above throws
+}

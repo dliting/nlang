@@ -98,6 +98,18 @@ inline constexpr StdLibEntry kStdLibTable[] =
 	{"io", "readFile",   {RTK_String}, 1, 1, SLRT_String, INTR_Io_ReadFile,   false},
 	{"io", "writeFile",  {RTK_String, RTK_String}, 2, 2, SLRT_Void, INTR_Io_WriteFile,  false},
 	{"io", "appendFile", {RTK_String, RTK_String}, 2, 2, SLRT_Void, INTR_Io_AppendFile, false},
+	//fs — namespace/directory/metadata (never content). Mutations and
+	//queries that cannot answer raise IOException at run time
+	//(std::filesystem with error_code — no exceptions cross the ABI);
+	//the three type predicates never raise: an un-statable path answers 0.
+	{"fs", "exists",    {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_Exists,    false},
+	{"fs", "isFile",    {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_IsFile,    false},
+	{"fs", "isDirectory", {RTK_String}, 1, 1, SLRT_Int32,     INTR_FileSystem_IsDir,     false},
+	{"fs", "size",      {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_Size,      false},
+	{"fs", "listFiles", {RTK_String}, 1, 1, SLRT_ListString,  INTR_FileSystem_ListFiles, false},
+	{"fs", "makeDirs",  {RTK_String}, 1, 1, SLRT_Void,        INTR_FileSystem_MakeDirs,  false},
+	{"fs", "remove",    {RTK_String}, 1, 1, SLRT_Void,        INTR_FileSystem_Remove,    false},
+	{"fs", "join",      {RTK_String, RTK_String}, 2, 2, SLRT_String, INTR_FileSystem_Join, false},
 };
 
 //Compile-time well-formedness: arity bounds must fit paramKinds[3] and
@@ -173,6 +185,35 @@ static_assert(StdLibIoIdsInBlock(),
 	"io kStdLibTable entry points outside the contiguous intrinsic block");
 static_assert(StdLibIoEntryCount() == kIoIntrinsicCount,
 	"io kStdLibTable entry count must equal the intrinsic id block size");
+
+//Same table <-> id-block binding for fs (Step 4).
+constexpr bool StdLibFsIdsInBlock()
+{
+	for (const auto& entry : kStdLibTable)
+	{
+		if (std::string_view(entry.ns) != "fs")
+			continue;
+		if (entry.intrinsicId < kFileSystemIntrinsicFirst
+			|| entry.intrinsicId >= kFileSystemIntrinsicFirst
+				+ kFileSystemIntrinsicCount)
+			return false;
+	}
+	return true;
+}
+constexpr size_t StdLibFsEntryCount()
+{
+	size_t n = 0;
+	for (const auto& entry : kStdLibTable)
+	{
+		if (std::string_view(entry.ns) == "fs")
+			++n;
+	}
+	return n;
+}
+static_assert(StdLibFsIdsInBlock(),
+	"fs kStdLibTable entry points outside the contiguous intrinsic block");
+static_assert(StdLibFsEntryCount() == kFileSystemIntrinsicCount,
+	"fs kStdLibTable entry count must equal the intrinsic id block size");
 
 //Built-in string methods (Step 3): receiver-dispatched, NOT namespace
 //calls — s.substring(1) resolves in the string-method branch of

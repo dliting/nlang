@@ -1,0 +1,16 @@
+// stdlib_fs_listfiles — names only (no directories), lexicographically
+// sorted (the OS directory-iterator order is unspecified; sorting is what
+// makes the result testable). Creation order b,a,c differs from sorted.
+int main() {
+    fs.makeDirs("_p11_tmp/fs_list");
+    io.writeFile("_p11_tmp/fs_list/b.txt", "b");
+    io.writeFile("_p11_tmp/fs_list/a.txt", "a");
+    io.writeFile("_p11_tmp/fs_list/c.txt", "c");
+    fs.makeDirs("_p11_tmp/fs_list/subdir");
+    List<string> names = fs.listFiles("_p11_tmp/fs_list");
+    if (names.length() != 3) return 1;
+    if (names.get(0) != "a.txt") return 2;
+    if (names.get(1) != "b.txt") return 3;
+    if (names.get(2) != "c.txt") return 4;
+    return 0;
+}

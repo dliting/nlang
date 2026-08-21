@@ -796,3 +796,11 @@ stdlib_str_substring_oob_caught 0
 stdlib_str_split_empty_sep_caught 0
 stdlib_str_replace_empty_old_caught 0
 string_null_assign 0
+stdlib_fs_exists_type 0
+stdlib_fs_size 0
+stdlib_fs_listfiles 0
+stdlib_fs_mkdirs_remove 0
+stdlib_fs_join 0
+stdlib_fs_remove_nonempty_throws 1
+stdlib_fs_remove_nonempty_caught 0
+stdlib_fs_size_missing_caught 0
