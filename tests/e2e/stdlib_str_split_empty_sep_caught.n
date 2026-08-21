@@ -1,0 +1,13 @@
+// stdlib_str_split_empty_sep_caught — pins the exception CLASS for the
+// empty-separator error: the base Exception (per the Phase 11 exception
+// mapping: argument errors are base-Exception, only IO failures and
+// range errors get subclasses).
+int main() {
+    try {
+        List<string> parts = "a b".split("");
+        return 1;  //should have thrown
+    } catch (Exception e) {
+        if (e.message == "") return 2;
+    }
+    return 0;
+}

@@ -1,0 +1,16 @@
+// stdlib_str_split — split returns a List<string>: length/get/foreach all
+// work on it; a separator with no occurrences yields the whole string as
+// the single element.
+int main() {
+    List<string> parts = "a,b,c".split(",");
+    if (parts.length() != 3) return 1;
+    if (parts.get(0) != "a") return 2;
+    if (parts.get(2) != "c") return 3;
+    int count = 0;
+    foreach (string p in parts) { count = count + 1; }
+    if (count != 3) return 4;
+    List<string> one = "abc".split(",");
+    if (one.length() != 1) return 5;
+    if (one.get(0) != "abc") return 6;
+    return 0;
+}

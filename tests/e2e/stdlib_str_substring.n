@@ -1,0 +1,15 @@
+// stdlib_str_substring — byte-offset substring: single arg = rest, two
+// args = [start, end) exclusive, defaults/empties at both ends, chained
+// call, and UTF-8 byte semantics (é occupies bytes 1-2).
+int main() {
+    string s = "hello world";
+    if (s.substring(6) != "world") return 1;
+    if (s.substring(0, 5) != "hello") return 2;
+    if (s.substring(0, 0) != "") return 3;
+    if (s.substring(11) != "") return 4;
+    string c = s.substring(0, 5).toUpper();
+    if (c != "HELLO") return 5;
+    if ("héllo".substring(0, 1) != "h") return 6;
+    if ("héllo".substring(1, 3) != "é") return 7;
+    return 0;
+}

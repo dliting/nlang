@@ -1,0 +1,11 @@
+// stdlib_str_replace_empty_old_caught — pins the exception CLASS for
+// the empty-searched-text error: the base Exception (argument error).
+int main() {
+    try {
+        string s = "abc".replace("", "x");
+        return 1;  //should have thrown
+    } catch (Exception e) {
+        if (e.message == "") return 2;
+    }
+    return 0;
+}

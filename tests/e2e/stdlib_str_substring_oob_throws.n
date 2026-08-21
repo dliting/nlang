@@ -1,0 +1,6 @@
+// stdlib_str_substring_oob_throws — out-of-range substring raises
+// IndexOutOfBoundsException; uncaught, it exits 1.
+int main() {
+    string s = "abc".substring(0, 99);
+    return 0;
+}

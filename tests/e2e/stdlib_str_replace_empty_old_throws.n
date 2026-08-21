@@ -1,0 +1,6 @@
+// stdlib_str_replace_empty_old_throws — an empty pattern to replace would
+// loop forever; it raises the base Exception instead. Uncaught, exits 1.
+int main() {
+    string s = "a".replace("", "b");
+    return 0;
+}

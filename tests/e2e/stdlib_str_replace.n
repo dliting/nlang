@@ -1,0 +1,10 @@
+// stdlib_str_replace — replaces every occurrence, scanning left-to-right
+// without overlap ("aaa".replace("aa","b") == "ba", Python/C++ semantics);
+// an absent pattern is the identity.
+int main() {
+    if ("a-b-c".replace("-", "+") != "a+b+c") return 1;
+    if ("aaa".replace("aa", "b") != "ba") return 2;
+    if ("abc".replace("z", "y") != "abc") return 3;
+    if ("".replace("a", "b") != "") return 4;
+    return 0;
+}

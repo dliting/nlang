@@ -1,0 +1,13 @@
+// stdlib_str_case_trim — toUpper/toLower are ASCII-only (multi-byte UTF-8
+// characters pass through unchanged); trim strips " \t\n\r\f\v" at both
+// ends.
+int main() {
+    if ("abc XY".toUpper() != "ABC XY") return 1;
+    if ("AbC xY".toLower() != "abc xy") return 2;
+    if ("héllo".toUpper() != "HéLLO") return 3;
+    string t = " \t hi \n\r".trim();
+    if (t != "hi") return 4;
+    if ("xxx".trim() != "xxx") return 5;
+    if ("   ".trim() != "") return 6;
+    return 0;
+}

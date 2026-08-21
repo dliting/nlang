@@ -1,0 +1,18 @@
+// stdlib_str_substring_oob_caught — pins the exception CLASS for range
+// errors: IndexOutOfBoundsException (not the base Exception). The
+// uncaught _throws sibling only proves "something threw".
+int main() {
+    try {
+        string s = "abc".substring(2, 9);
+        return 1;  //should have thrown
+    } catch (IndexOutOfBoundsException e) {
+        if (e.message == "") return 2;
+    }
+    try {
+        string s = "abc".substring(-1);
+        return 3;
+    } catch (IndexOutOfBoundsException e) {
+        if (e.message == "") return 4;
+    }
+    return 0;
+}

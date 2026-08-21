@@ -1,0 +1,6 @@
+// stdlib_str_split_empty_sep_throws — an empty separator has no defined
+// split and raises the base Exception; uncaught, it exits 1.
+int main() {
+    List<string> parts = "a".split("");
+    return 0;
+}

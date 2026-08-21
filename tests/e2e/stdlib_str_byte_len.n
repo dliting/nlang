@@ -1,0 +1,9 @@
+// stdlib_str_byte_len — string.length() is byte length (OP_StrLen): é is
+// 2 bytes, so "héllo" has length 6. Pins the Go/Lua byte-semantics
+// decision (the OP_StrLen TODO became this documented behavior).
+int main() {
+    if ("héllo".length() != 6) return 1;
+    if ("".length() != 0) return 2;
+    if ("abc".length() != 3) return 3;
+    return 0;
+}

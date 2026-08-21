@@ -195,6 +195,30 @@ static_assert(INTR_Io_AppendFile
         == kIoIntrinsicFirst + kIoIntrinsicCount - 1,
     "io intrinsic block must be contiguous up to AppendFile");
 
+//Phase 11 Step 3: built-in string methods (receiver-dispatched via
+//OP_CallIntrinsic — receiver string idx at callParamBase[0], args from
+//slot 1). Equals/GetHashCode keep their 8e-1 ids 42/43; only the
+//implementation moves to IntrinsicsString.cpp.
+static constexpr uint16_t INTR_String_Substring  = 95;
+static constexpr uint16_t INTR_String_IndexOf    = 96;
+static constexpr uint16_t INTR_String_StartsWith = 97;
+static constexpr uint16_t INTR_String_EndsWith   = 98;
+static constexpr uint16_t INTR_String_Contains   = 99;
+static constexpr uint16_t INTR_String_ToUpper    = 100;
+static constexpr uint16_t INTR_String_ToLower    = 101;
+static constexpr uint16_t INTR_String_Trim       = 102;
+static constexpr uint16_t INTR_String_Split      = 103;
+static constexpr uint16_t INTR_String_Replace    = 104;
+static constexpr uint16_t INTR_String_ToInt      = 105;
+static constexpr uint16_t INTR_String_ToFloat    = 106;
+static constexpr uint16_t kStringMethodIntrinsicFirst = 95;
+static constexpr uint16_t kStringMethodIntrinsicCount = 12;
+static_assert(INTR_String_Substring == kStringMethodIntrinsicFirst,
+    "string-method intrinsic block must start at its First constant");
+static_assert(INTR_String_ToFloat
+        == kStringMethodIntrinsicFirst + kStringMethodIntrinsicCount - 1,
+    "string-method intrinsic block must be contiguous up to ToFloat");
+
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:
 //  RTK_Null   — null literal for any reference type (class/string/array). No payload.

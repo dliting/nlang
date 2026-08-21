@@ -1,0 +1,14 @@
+// stdlib_str_substring_binary_operand — review-BLOCKER regression: the
+// staged trailing argument bulk-copies 1+maxArgs slots into
+// callParamBase; before the MaxArgsWalker delta, the i=2 write landed
+// on evalArea slot 0 and clobbered the parked LEFT operand of a binary
+// expression (`"x" + "hello".substring(1)` evaluated to "ello").
+int main() {
+    string s = "hello";
+    if ("x" + "hello".substring(1) != "xello") return 1;
+    if ("x" + s.substring(1) != "xello") return 2;
+    string r = "y" + s.substring(2);
+    if (r != "yllo") return 3;
+    if (s.substring(1) + "x" != "ellox") return 4;
+    return 0;
+}

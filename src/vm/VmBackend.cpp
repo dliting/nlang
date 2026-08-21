@@ -1624,6 +1624,24 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
             && member.Inner()->Kind() == NK_InvokeExpr)
             ? ExprPeakDepth(*member.Inner(), visited, true)
             : ExprPeakDepth(*member.Inner(), visited, false);
+        //Phase 11 Step 3 symmetry: a built-in string method stages
+        //synthetic trailing args (substring's end via OP_StrLen) on top
+        //of the actual ones — reserve those slots here from the SAME
+        //table field codegen consumes, or a 1-arg substring call would
+        //clobber a slot above the walker-shaped frame. Overreserving for
+        //a user method that happens to share the name is safe (finalize
+        //only asserts observed <= walker).
+        if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr) {
+            auto& inv = static_cast<SnInvokeExpr&>(*member.Inner());
+            const StringMethodEntry* pm = FindStringMethod(inv.CalleeName());
+            if (pm && pm->trailingDefault == STD_ReceiverLength) {
+                size_t actual = 0;
+                for (auto& p : inv.Params()) ++actual;
+                if (actual < pm->maxArgs)
+                    id = static_cast<uint16_t>(
+                        id + (pm->maxArgs - actual));
+            }
+        }
         return d > id ? d : id;
     }
     //NewExpr
@@ -1938,6 +1956,23 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 size_t slotBase = isMethod ? 1 : 0;
                 uint16_t claimSize = static_cast<uint16_t>(
                     formalCount + slotBase);
+                //Phase 11 Step 3 symmetry (review BLOCKER): a built-in
+                // string method with a staged trailing argument (the
+                //1-arg substring form) bulk-copies 1+maxArgs slots into
+                //callParamBase — reserve the same count here from the
+                //same table field ExprPeakDepth/codegen consume, or the
+                //i=2 write lands on evalArea slot 0 and clobbers a live
+                //parked operand (`a + s.substring(1)` compared garbage).
+                //Name-based overreserve for a free function sharing the
+                //name is the safe direction (frame bytes only).
+                if (!callee) {
+                    const StringMethodEntry* pm =
+                        FindStringMethod(invoke.CalleeName());
+                    if (pm && pm->trailingDefault == STD_ReceiverLength
+                        && formalCount < pm->maxArgs)
+                        claimSize = static_cast<uint16_t>(
+                            claimSize + (pm->maxArgs - formalCount));
+                }
                 if (claimSize > maxArgs) maxArgs = claimSize;
                 //Also walk the invoke's own params for nested calls.
                 for (auto& param : invoke.Params())
@@ -3458,6 +3493,62 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     }
                     emitter.Emit(OpCode::OP_CallIntrinsic);
                     emitter.EmitUint16(INTR_String_Equals);
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                    return;
+                }
+                //Phase 11 Step 3: table-driven string methods — the exact
+                //equals shape above (receiver to resultOffset first, then
+                //the {this, args...} claim, bulk copy, intrinsic, assign
+                //back). All 12 return a value, so OP_Assign is always
+                //emitted. The walker mirrors the claim size (incl. the
+                //synthesized trailing arg) via the same table — see the
+                //ExprPeakDepth MemberExpr branch.
+                if (const StringMethodEntry* pMethod
+                    = FindStringMethod(methName))
+                {
+                    uint16_t argCount = 0;
+                    for (auto& p : invoke.Params()) ++argCount;
+                    //OP_CallIntrinsic carries no argument count: a call
+                    //shorter than maxArgs must stage the missing trailing
+                    //argument synthetically or the intrinsic reads stale
+                    //memory (substring's end = receiver.length(), filled
+                    //via OP_StrLen on the receiver copy in claim slot 0).
+                    uint16_t stagedArgs = argCount;
+                    if (pMethod->trailingDefault == STD_ReceiverLength
+                        && argCount < pMethod->maxArgs)
+                        stagedArgs = pMethod->maxArgs;
+                    uint16_t n = static_cast<uint16_t>(1 + stagedArgs);
+                    EmitExpression(*member.Outer(), emitter, resultOffset);
+                    EvalAreaClaim claim(*this, n);
+                    uint16_t claimBase = claim.base();
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(claimBase);
+                    uint16_t paramIdx = 1;
+                    for (auto& param : invoke.Params()) {
+                        EmitExpression(param, emitter,
+                            claimBase + paramIdx * VALUE_SIZE);
+                        ++paramIdx;
+                    }
+                    if (stagedArgs > argCount) {
+                        //dst = StrLen(receiver copy at claim slot 0)
+                        emitter.Emit(OpCode::OP_StrLen);
+                        emitter.EmitUint16(static_cast<uint16_t>(
+                            claimBase + stagedArgs * VALUE_SIZE));
+                        emitter.EmitUint16(claimBase);
+                    }
+                    for (uint16_t i = 0; i < n; ++i) {
+                        emitter.Emit(OpCode::OP_VarLocal);
+                        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+                    }
+                    emitter.Emit(OpCode::OP_CallIntrinsic);
+                    emitter.EmitUint16(pMethod->intrinsicId);
                     emitter.EmitUint16(m_currFunc->callParamBase);
                     emitter.Emit(OpCode::OP_Assign);
                     emitter.EmitUint16(resultOffset);

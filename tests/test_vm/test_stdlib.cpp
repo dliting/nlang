@@ -343,6 +343,153 @@ void test_stdlib_void_arg_rejected()
     PASS();
 }
 
+// --- Phase 11 Step 3: string methods ---
+
+void test_string_table_full_dispatch()
+{
+    TEST(string_table_full_dispatch);
+    //Same binding guard as the math walk: compile AND run one real
+    //program per kStringMethodTable entry. Receiver "12" survives every
+    //method (toInt/toFloat parse it; substring/indexOf/etc are total).
+    //substring is called with maxArgs here; the 1-arg synthetic-end path
+    //(STD_ReceiverLength) is pinned by the e2e suite.
+    int checked = 0;
+    for (const auto& entry : kStringMethodTable)
+    {
+        std::string args;
+        for (int i = 0; i < entry.maxArgs; ++i)
+            args += (i ? ", " : "")
+                + std::string(entry.paramKinds[i] == RTK_Int32
+                    ? "1" : "\"x\"");
+        std::string call = std::string("\"12\".") + entry.name
+            + "(" + args + ")";
+        std::string src;
+        switch ((StdLibReturnType)entry.returnType)
+        {
+        case SLRT_String:
+            src = "int main() { string r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Int32:
+            src = "int main() { int r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Float:
+            src = "int main() { float r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_ListString:
+            src = "int main() { List<string> r = " + call
+                + "; return 0; }\n";
+            break;
+        case SLRT_Void:
+            src = "int main() { " + call + "; return 0; }\n";
+            break;
+        }
+        const int rc = runSource(std::string("strtbl_") + entry.name, src);
+        CHECK(rc == 0, (std::string("dispatch failed for ") + call
+            + " (rc=" + std::to_string(rc) + ")").c_str());
+        ++checked;
+    }
+    CHECK(checked == kStringMethodIntrinsicCount,
+        "every string-method table entry must be exercised by this walk");
+    PASS();
+}
+
+void test_string_equals_gethashcode_migrated()
+{
+    TEST(string_equals_gethashcode_migrated);
+    //Phase 8e-1 protocol methods after the IntrinsicsString.cpp move:
+    //ids 42/43 unchanged, value semantics unchanged.
+    const int rc = runSource("str_proto",
+        "int main() {\n"
+        "    if (!(\"a\".equals(\"a\"))) return 1;\n"
+        "    if (\"a\".equals(\"b\")) return 2;\n"
+        "    if (\"a\".getHashCode() != \"a\".getHashCode()) return 3;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(rc == 0, "equals/getHashCode must keep working after the move");
+    PASS();
+}
+
+void test_string_method_type_error()
+{
+    TEST(string_method_type_error);
+    //Exact kind policy: a float substring offset is a compile error (no
+    //int<-float narrowing), and a string arg to an int param is too.
+    BuildOutcome floatOff = buildSource("str_type_f",
+        "int main() { string r = \"a\".substring(1.5); return 0; }\n");
+    CHECK(!floatOff.ok, "\"a\".substring(1.5) must not compile");
+    CHECK(floatOff.diagnostics.find("substring") != std::string::npos,
+        "diagnostic should name the method");
+
+    BuildOutcome strArg = buildSource("str_type_s",
+        "int main() { int r = \"a\".indexOf(5); return 0; }\n");
+    CHECK(!strArg.ok, "\"a\".indexOf(5) must not compile");
+    CHECK(strArg.diagnostics.find("indexOf") != std::string::npos,
+        "diagnostic should name the method");
+    PASS();
+}
+
+void test_string_array_arg_rejected()
+{
+    TEST(string_array_arg_rejected);
+    //string[] masquerades as string via EvalDataType (element kind) —
+    //the IsArrayValuedExpr guard must reject it before the kind check.
+    BuildOutcome outcome = buildSource("str_arg_arr",
+        "int main() {\n"
+        "    string[] a = new string[2];\n"
+        "    int r = \"x\".indexOf(a);\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!outcome.ok, "\"x\".indexOf(string[]) must not compile");
+    CHECK(outcome.diagnostics.find("array") != std::string::npos,
+        "diagnostic should name the array problem");
+    PASS();
+}
+
+void test_string_void_arg_rejected()
+{
+    TEST(string_void_arg_rejected);
+    //Same void-arg guard as the namespace path, on the method branch.
+    BuildOutcome outcome = buildSource("str_arg_void",
+        "void f() { }\n"
+        "int main() { int r = \"a\".indexOf(f()); return 0; }\n");
+    CHECK(!outcome.ok, "\"a\".indexOf(voidCall()) must not compile");
+    CHECK(outcome.diagnostics.find("void") != std::string::npos,
+        "diagnostic should name the void problem");
+    PASS();
+}
+
+void test_string_arity_error()
+{
+    TEST(string_arity_error);
+    //substring's 1..2 range gets the range wording; indexOf's exact 1
+    //gets the exact wording.
+    BuildOutcome range = buildSource("str_arity_r",
+        "int main() { string r = \"a\".substring(); return 0; }\n");
+    CHECK(!range.ok, "\"a\".substring() must not compile");
+    CHECK(range.diagnostics.find("substring") != std::string::npos,
+        "diagnostic should name the method");
+
+    BuildOutcome exact = buildSource("str_arity_e",
+        "int main() { int r = \"a\".indexOf(); return 0; }\n");
+    CHECK(!exact.ok, "\"a\".indexOf() must not compile");
+    CHECK(exact.diagnostics.find("indexOf") != std::string::npos,
+        "diagnostic should name the method");
+    PASS();
+}
+
+void test_string_unknown_method_still_errors()
+{
+    TEST(string_unknown_method_still_errors);
+    //Regression guard: an unknown string method must fall through to the
+    //normal member-resolution error, not be silently accepted.
+    BuildOutcome outcome = buildSource("str_unknown",
+        "int main() { int r = \"a\".nope(); return 0; }\n");
+    CHECK(!outcome.ok, "\"a\".nope() must not compile");
+    CHECK(outcome.diagnostics.find("nope") != std::string::npos,
+        "diagnostic should name the unknown method");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -373,6 +520,13 @@ int main()
         test_io_print_rejects_nonprintable();
         test_io_readfile_missing_catchable();
         test_stdlib_void_arg_rejected();
+        test_string_table_full_dispatch();
+        test_string_equals_gethashcode_migrated();
+        test_string_method_type_error();
+        test_string_array_arg_rejected();
+        test_string_void_arg_rejected();
+        test_string_arity_error();
+        test_string_unknown_method_still_errors();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

@@ -1,0 +1,11 @@
+// stdlib_str_parse_caught — parse errors are ordinary catchable
+// Exceptions with a non-empty message naming the failed string.
+int main() {
+    try {
+        float f = "x".toFloat();
+        return 1;  //should have thrown
+    } catch (Exception e) {
+        if (e.message == "") return 2;
+    }
+    return 0;
+}

@@ -885,6 +885,124 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			m_pContext = pSavedContext;
 			return;
 		}
+		//Phase 11 Step 3: table-driven built-in string methods (12 new;
+		//equals/getHashCode above keep their 8e-1 ids). The method surface
+		//is frozen as the future string class's methods (user decision #6).
+		if (const StringMethodEntry* pMethod = FindStringMethod(name))
+		{
+			if (HasNamedArgument(invoke))
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"Named arguments are not supported by built-in methods.");
+				m_pContext = pSavedContext;
+				return;
+			}
+			if (HasOutArgument(invoke))
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"out arguments are not supported by built-in methods.");
+				m_pContext = pSavedContext;
+				return;
+			}
+			const size_t argCount = ArgCountOf(invoke);
+			if (argCount < pMethod->minArgs || argCount > pMethod->maxArgs)
+			{
+				if (pMethod->minArgs == pMethod->maxArgs)
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"string.%s expects %d argument(s).",
+						pMethod->name, (int)pMethod->minArgs);
+				else
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"string.%s expects %d to %d argument(s).",
+						pMethod->name, (int)pMethod->minArgs,
+						(int)pMethod->maxArgs);
+				m_pContext = pSavedContext;
+				return;
+			}
+			//Args resolve in the caller's scope (equals recipe: restore the
+			//context and drop the parent-only search first).
+			m_pContext = pSavedContext;
+			RemoveFlags(ERF_SearchInParentOnly);
+			ResolveExpressionList(invoke.Params());
+			//Per-arg policy: exact kind match vs paramKinds, no widening
+			//(substring offsets are int; a float offset is a compile error).
+			//Same guards as the namespace-call path: arrays masquerade as
+			//their element kind, void calls have no value.
+			auto& children = invoke.Children();
+			size_t paramIdx = 0;
+			for (auto it = children.begin(); it != children.end();
+				++it, ++paramIdx)
+			{
+				auto& arg = static_cast<SnExpression&>(*it);
+				if (IsArrayValuedExpr(arg))
+				{
+					m_Env.Log(CLL_Error, arg.Location(),
+						"Argument %d of string.%s is an array; \"%s\" "
+						"expected.",
+						(int)paramIdx + 1, pMethod->name,
+						StdLibKindName(pMethod->paramKinds[paramIdx]));
+					continue;
+				}
+				auto* pArgType = arg.EvalDataType();
+				if (!pArgType)
+				{
+					if (arg.IsResolved())
+						m_Env.Log(CLL_Error, arg.Location(),
+							"Argument %d of string.%s has no value: a void "
+							"function result cannot be used as an argument.",
+							(int)paramIdx + 1, pMethod->name);
+					continue;
+				}
+				const uint8_t want = pMethod->paramKinds[paramIdx];
+				const bool ok =
+					(pArgType->Kind() == NK_Int32 && want == RTK_Int32)
+					|| (pArgType->Kind() == NK_String && want == RTK_String);
+				if (!ok)
+				{
+					m_Env.Log(CLL_Error, arg.Location(),
+						"Argument %d of string.%s has type \"%s\"; \"%s\" "
+						"expected.",
+						(int)paramIdx + 1, pMethod->name,
+						pArgType->ToString().c_str(), StdLibKindName(want));
+					continue;
+				}
+			}
+			pInnerExpr->AddFlags(NF_Resolved);
+			SnField* pResultField = nullptr;
+			switch ((StdLibReturnType)pMethod->returnType)
+			{
+			case SLRT_Int32:
+				pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
+				break;
+			case SLRT_Float:
+				pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
+				break;
+			case SLRT_String:
+				pResultField = SnBuiltinDataType::InstanceOf(NK_String);
+				break;
+			case SLRT_ListString:
+			{
+				std::vector<SnField*> listArgs{
+					SnBuiltinDataType::InstanceOf(NK_String) };
+				pResultField = GetGenericClassDecl("List", listArgs,
+					invoke.Location());
+				break;
+			}
+			case SLRT_Void:
+				break;
+			}
+			if (pResultField)
+			{
+				snMember.EvalDataType(pResultField);
+				//m_pField directly (not via ResolveFieldExprAs) so chained
+				//access (s.substring(1).toUpper()) survives IsDataExpr() —
+				//same rationale as the stdlib path.
+				snMember.m_pField = pResultField;
+			}
+			snMember.AddFlags(NF_Resolved);
+			m_pContext = pSavedContext;
+			return;
+		}
 		//Phase 8e-9b: string.toString() — identity. Resolver folds the call
 		//to a no-op (callee=null, EvalDataType=String). Codegen emits nothing
 		//and the inner string idx flows through unchanged.

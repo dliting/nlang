@@ -3,6 +3,7 @@ add_library(nlang_vm
     VmExecutor.cpp
     IntrinsicsMath.cpp
     IntrinsicsIo.cpp
+    IntrinsicsString.cpp
     VmBackend.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp

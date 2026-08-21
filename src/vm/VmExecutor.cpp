@@ -819,7 +819,9 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&idx, locals + src, sizeof(idx));
             int32_t len = 0;
             if (idx >= 0 && static_cast<size_t>(idx) < m_stringPool.size())
-                //TODO: For UTF-8 support, count code points instead of bytes.
+                //Byte length by design (Phase 11 decision #7, Go/Lua
+                //model): substring/indexOf use byte offsets too, so
+                //length stays consistent with them. "héllo".length()==6.
                 len = static_cast<int32_t>(m_stringPool[static_cast<size_t>(idx)].size());
             std::memcpy(locals + dst, &len, sizeof(len));
             break;
@@ -1114,29 +1116,10 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             uint8_t typeTag = reader.ReadByte();
             int32_t val;
             std::memcpy(&val, pResult, sizeof(val));
-            //Always allocate a heap slot, even for val==0. Null literals never
-            //reach OP_Box (they use TCK_Auto, not TCK_Box), so the old
-            //null-sentinel optimization (skip allocation for val==0) was
-            //incorrectly treating int 0 and float 0.0 as null, breaking
-            //List<int>.add(0) and similar paths.
-            int32_t heapIdx;
-            if (!m_freeList.empty()) {
-                heapIdx = m_freeList.back();
-                m_freeList.pop_back();
-                m_structHeap[static_cast<size_t>(heapIdx)].assign(2, 0);
-            } else {
-                heapIdx = static_cast<int32_t>(m_structHeap.size());
-                m_structHeap.emplace_back(2, 0);
-                m_slotKinds.push_back(0);
-                m_slotStructIdx.push_back(0);
-            }
-            m_structHeap[static_cast<size_t>(heapIdx)][0] =
-                static_cast<int32_t>(typeTag);
-            m_structHeap[static_cast<size_t>(heapIdx)][1] = val;
-            m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Boxed;
-            m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
+            //Allocation (incl. the always-allocate invariant for val==0)
+            //lives in AllocBoxedValue — shared with IntrinsicsString.cpp.
+            int32_t heapIdx = AllocBoxedValue(typeTag, val);
             std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
-            m_gcPending = true;
             break;
         }
 
@@ -2997,36 +2980,9 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
-    //Phase 8e-1: String protocol intrinsics.
-    //String.Equals(this, other) → value equality via std::string comparison.
-    //String.GetHashCode(this) → std::hash<std::string>.
-    //Both treat null/pool-out-of-range as empty string.
-    if (intrinsicId == INTR_String_Equals) {
-        int32_t thisStrIdx, otherStrIdx;
-        std::memcpy(&thisStrIdx, locals + callParamBase, sizeof(thisStrIdx));
-        std::memcpy(&otherStrIdx, locals + callParamBase + VALUE_SIZE,
-                    sizeof(otherStrIdx));
-        const std::string& a = (thisStrIdx >= 0
-            && static_cast<size_t>(thisStrIdx) < m_stringPool.size())
-            ? m_stringPool[static_cast<size_t>(thisStrIdx)] : "";
-        const std::string& b = (otherStrIdx >= 0
-            && static_cast<size_t>(otherStrIdx) < m_stringPool.size())
-            ? m_stringPool[static_cast<size_t>(otherStrIdx)] : "";
-        int32_t result = (a == b) ? 1 : 0;
-        std::memcpy(pResult, &result, sizeof(result));
-        return;
-    }
-    if (intrinsicId == INTR_String_GetHashCode) {
-        int32_t thisStrIdx;
-        std::memcpy(&thisStrIdx, locals + callParamBase, sizeof(thisStrIdx));
-        const std::string& s = (thisStrIdx >= 0
-            && static_cast<size_t>(thisStrIdx) < m_stringPool.size())
-            ? m_stringPool[static_cast<size_t>(thisStrIdx)] : "";
-        int32_t hash = static_cast<int32_t>(
-            std::hash<std::string>{}(s));
-        std::memcpy(pResult, &hash, sizeof(hash));
-        return;
-    }
+    //Phase 8e-1: String.Equals/GetHashCode migrated to
+    //IntrinsicsString.cpp (ids unchanged); the Phase 11 Step 3 string
+    //methods dispatch there too — see the family chain below.
 
     //Phase 8e-9b: Object.toString() default intrinsic.
     //Returns "TypeName@hex(heapIdx)" — Java-compat (lowercase, no padding).
@@ -3400,6 +3356,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (ExecuteIntrinsicMath(intrinsicId, callParamBase, locals, pResult))
         return;
     if (ExecuteIntrinsicIo(intrinsicId, callParamBase, locals, pResult))
+        return;
+    if (ExecuteIntrinsicString(intrinsicId, callParamBase, locals, pResult))
         return;
 
     throw std::runtime_error("NLang VM: unknown intrinsic id " + std::to_string(intrinsicId));

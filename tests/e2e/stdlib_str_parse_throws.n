@@ -1,0 +1,6 @@
+// stdlib_str_parse_throws — a trailing-garbage string is malformed and
+// raises the base Exception; uncaught, it exits 1.
+int main() {
+    int x = "12abc".toInt();
+    return 0;
+}

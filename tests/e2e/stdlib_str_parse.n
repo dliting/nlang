@@ -1,0 +1,12 @@
+// stdlib_str_parse — toInt/toFloat strictly parse the whole string:
+// sign, int32 range boundary, fractions.
+int main() {
+    if ("42".toInt() != 42) return 1;
+    if ("-7".toInt() != -7) return 2;
+    if ("2147483647".toInt() != 2147483647) return 3;
+    if ("-2147483648".toInt() != -2147483648) return 4;
+    if ("2.5".toFloat() != 2.5) return 5;
+    if ("-0.5".toFloat() != -0.5) return 6;
+    if ("1e3".toFloat() != 1000.0) return 7;
+    return 0;
+}

@@ -1,0 +1,11 @@
+// stdlib_str_starts_ends_contains — the three predicates return int 0/1.
+int main() {
+    if ("hello".startsWith("he") != 1) return 1;
+    if ("hello".startsWith("xx") != 0) return 2;
+    if ("hello".endsWith("lo") != 1) return 3;
+    if ("hello".endsWith("he") != 0) return 4;
+    if ("hello".contains("ell") != 1) return 5;
+    if ("hello".contains("z") != 0) return 6;
+    if ("".startsWith("") != 1) return 7;
+    return 0;
+}

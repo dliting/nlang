@@ -1,0 +1,12 @@
+// stdlib_str_indexof — first-occurrence byte offset, -1 when absent,
+// empty needle at 0. UTF-8 byte semantics: in "héllo" the first 'l' is
+// at byte 3 (é takes bytes 1-2).
+int main() {
+    string s = "héllo";
+    if (s.indexOf("l") != 3) return 1;
+    if (s.indexOf("lo") != 4) return 2;
+    if (s.indexOf("z") != -1) return 3;
+    if ("abcabc".indexOf("c") != 2) return 4;
+    if ("abc".indexOf("") != 0) return 5;
+    return 0;
+}
