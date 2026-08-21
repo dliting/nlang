@@ -342,17 +342,19 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - class-member native **可用**（审计轮实证，此前误判为 resolver 拒绝——实为缺 `public`）：方法路径派发到 CallNative，`this` 按字节码约定在 args[0]（heap idx），用户参数从 args[1] 起；e2e native_method.n 锁定
 - 9f-2 遗留：string/struct/class 参数列集、注册表签名校验（按名绑定，同一 native 注册为方法与自由函数时参数错位 = 静默垃圾，见 native_method ABI 注记）
 
-### 阶段 10：IDE 移植 / LSP
-先实现原有基于qt的IDE，即nide的移植。
-LSP 方案支持，即VS Code / JetBrains 等现代编辑器，放在后面实现。
+### 阶段 10：IDE 移植 ✅（LSP 拆出，见远期特性）
+原有基于 Qt 的 IDE（nide）移植完成（Steps 0-10，含 end-to-end journey 测试）。
+LSP 方案支持已按用户指示（2026-08-21）移至最后实施，见"远期特性"。
 
-### 阶段 11：标准库与生态
+### 阶段 11：标准库与生态（进行中，2026-08-21）
 
-- IO 库：控制台输入输出、文件读写
-- 文件系统：路径操作、目录遍历
-- 数学库：三角函数、随机数
-- 字符串高级：格式化、分割、查找、替换
-- 包管理器：模块依赖管理
+- IO 库：控制台输入输出、文件读写 ✅（io.print/readLine/readFile/writeFile/appendFile + IOException）
+- 文件系统：路径操作、目录遍历（Step 4，待做）
+- 数学库：三角函数、随机数 ✅（25 函数 + 确定性 PRNG）
+- 字符串高级：格式化、分割、查找、替换 ✅（12 个内建方法：substring/indexOf/startsWith/endsWith/contains/toUpper/toLower/trim/split/replace/toInt/toFloat；字节语义 Go/Lua 模型；关系比较修复为字节序 + 操作数类型检查）
+- 包管理器：模块依赖管理（本轮延后，见计划"未来方向"）
+
+> 实施细节与决策记录见 `C:\Users\dliting\.claude\plans\partitioned-roaming-garden.md`；当前 626 e2e 全绿。
 
 ### 阶段 12：语言特性增强（用户指示，2026-08-20）
 
@@ -377,6 +379,7 @@ switch (x) {
 
 - 代理/回调：函数指针、委托类型
 - 用户定义泛型：`class Foo<T>`
+- LSP 支持：VS Code / JetBrains 等现代编辑器协议支持（用户指示 2026-08-21：放到最后再做）
 
 ---
 
@@ -384,10 +387,11 @@ switch (x) {
 
 | 优先级 | 阶段 | 说明 |
 |--------|------|------|
-| P2 | 9. 高级特性 | 分批实施 9a-9f |
-| P2 | 10. IDE 移植 / LSP | 开发效率；推荐 LSP 方案支持现代编辑器 |
-| P3 | 11. 标准库 | 逐步完善 |
+| P2 | 9. 高级特性 | 分批实施 9a-9f ✅ |
+| P2 | 10. IDE 移植（nide） | 开发效率 ✅（LSP 已拆至最后） |
+| P3 | 11. 标准库 | 进行中：math/io/string 已交付，fs 待做 |
 | P3 | 12. 语言特性增强 | switch 多值/多类型（equals 语义）+ enum class 化 |
+| P4 | LSP 支持 | 最后实施（用户指示 2026-08-21） |
 
 > 阶段 12（EN 引擎集成）已移除：NLang 作为独立语言演进，不再以与 EN 集成为目标。
 
@@ -402,7 +406,7 @@ switch (x) {
 - ~~已知遗留（Phase 9b 发现）：`"s" + (a+b)` 字符串与内联算术表达式拼接后 `==` 比较失败~~ — **已修复**（EmitPResultRefresh 12 位点，commit df75eec/d4b0da1）
 - Phase 9f（2026-08-16）：native 函数绑定 MVP——`.nmod` v1.6 + VmExecutor RegisterNative 按名派发（CallNative 统一 OP_CallFunc/方法路径/Execute(main)）+ intrinsic 同构 4 字节 ABI + 默认参数（含跨模块，native 分支补 defaultValues 序列化 + MergeImported placeholder 透传 isNative）+ native+body/out 编译拒绝 + ncc/nvm TestNatives 测试面 + 8 新测试（547 total）；同轮修复：FindFuncByInvoke FFR_FuncNameNotFound 路径不写 out-param → 调用方读栈垃圾指针段错误 ncc（潜伏 bug，import stub 改变栈布局后显形；callee 入口清零根治）+ ncc/nvm 内建 SEH+dbghelp 符号化崩溃报告器（本轮定位即靠它）
 - 9f-2 遗留：string/struct/class 参数列集、注册表签名校验（class-member native 已实证可用：`this` 在 args[0] 的方法 ABI，e2e native_method.n 锁定）
-- 下一步：Phase 9 全特性循环审计进行中（9a-9e 复查 ✅、9f ✅ + 审计轮 5 新测试 552 total：boxing_zero_sentinel/audit_9c/9d/9e 矩阵/native_method；8e-5 零哨兵遗留实证已消），待 code-reviewer 代理结论后提交，然后进入阶段 10 设计
+- 下一步：Phase 11 标准库（进行中，2026-08-21）：Steps 0-3 已交付并评审提交（机制金丝雀 ea86b7b → math 87431eb → io b79a467 → string 5ff2a76 → null 哨兵修复 2d1c0cf → 关系比较修复 b7df9bf；626 e2e 全绿）；剩余 Step 4（fs 库 8 函数）+ Step 5（文档/示例/收尾）。IDE 移植（阶段 10）已于 2026-08-20 完成（Step 10 journey 测试 0311ba7）
 
 ## 文档索引
 
