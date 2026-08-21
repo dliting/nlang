@@ -1,0 +1,25 @@
+// string_null_assign — a null literal must keep its sentinel through
+// implicit coercion. KT_Null is Int32-typed; FixupExprType used to wrap
+// it on assignment (Int32->String emitted OP_Int32_to_str, so s became
+// "0") and on Object assignment (TCK_Box allocated a boxed 0), after
+// which the value compared unequal to null.
+// The "pad" literal pins the pool layout: it takes constant index 0,
+// so "x" lands above it and u's bits differ from the null sentinel.
+// (Comparing a string that sits AT index 0 against null is a separate
+// pool-reservation topic handled with the relational compare work.)
+string nullString() {
+    return null;
+}
+
+int main() {
+    string pad = "pad";
+    string s = null;
+    if (s != null) return 1;
+    Object o = null;
+    if (o != null) return 2;
+    string t = nullString();
+    if (t != null) return 3;
+    string u = "x";
+    if (u == null) return 4;
+    return 0;
+}

@@ -789,3 +789,4 @@ stdlib_str_substring_binary_operand 0
 stdlib_str_substring_oob_caught 0
 stdlib_str_split_empty_sep_caught 0
 stdlib_str_replace_empty_old_caught 0
+string_null_assign 0

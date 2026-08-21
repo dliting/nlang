@@ -2573,6 +2573,21 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 		return false;
 	}
 
+	//Null literal (KT_Null is Int32-typed) must reach the slot as the raw
+	//sentinel 0. Wrapping it destroys the null identity downstream:
+	//Int32→String emits OP_Int32_to_str ("0"), TCK_Box to Object allocates
+	//a boxed 0. Class/interface targets already treat TCK_Auto as a
+	//runtime no-op, so skipping the wrap uniformly is safe there too.
+	//Known boundary: binary promotion can still feed an unwrapped null to
+	//string concat (`s + null` appends the pool[0] string); rejecting
+	//null arithmetic operands belongs with the relational-operand guard
+	//(Phase 11 Step 3b).
+	if (srcExpr.ContainFlags(NF_NullLiteral)
+		&& (castInfo.Kind() == TCK_Box
+			|| (castInfo.Target()
+				&& castInfo.Target()->Kind() == NK_String)))
+		return false;
+
 	auto pSrcParent = srcExpr.Parent();
 	assert(pSrcParent);
 
