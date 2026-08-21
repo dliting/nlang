@@ -1,0 +1,8 @@
+// stdlib_str_relational_mixed_compile_error — ordering/equality between
+// a string and a non-string (non-null) operand has no defined semantics
+// and must be a compile error, in either operand order.
+int main() {
+    if ("a" < 5) return 1;
+    if (5 == "a") return 2;
+    return 0;
+}

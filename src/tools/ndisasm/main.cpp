@@ -3,6 +3,7 @@
 #include "BytecodeOps.h"
 #include <cstdio>
 #include <iostream>
+#include <iterator>  //std::size for s_typeKindNames bound
 #include <string>
 
 using namespace nlang;
@@ -12,11 +13,13 @@ static const char* s_typeKindNames[] = {
     "f32",    // NK_Float = 1
     "str",    // NK_String = 2
     "struct", // RTK_Struct = 3
-    "class"   // RTK_Class = 4
+    "class",  // RTK_Class = 4
+    "array",  // RTK_Array = 5 (serialized array return types, Phase 11 Step 0)
+    "boxed"   // RTK_Boxed = 6 (Phase 8e-1 boxed primitive)
 };
 
 static const char* TypeKindName(uint16_t kind) {
-    if (kind <= 4)
+    if (kind < std::size(s_typeKindNames))
         return s_typeKindNames[kind];
     return "unknown";
 }
@@ -246,6 +249,10 @@ static void DisassembleFunction(const CompiledFunction& func,
         case OpCode::OP_Concat_str:
         case OpCode::OP_Eq_str:
         case OpCode::OP_Ne_str:
+        case OpCode::OP_Less_str:
+        case OpCode::OP_LessEqual_str:
+        case OpCode::OP_Greater_str:
+        case OpCode::OP_GreaterEqual_str:
         case OpCode::OP_StrLen: {
             uint16_t a = reader.ReadUint16();
             uint16_t b = reader.ReadUint16();

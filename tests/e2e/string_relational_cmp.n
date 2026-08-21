@@ -2,6 +2,12 @@ int main() {
     //Lock: NLang supports relational comparison on strings (<, >, <=, >=)
     //using C strcmp-style byte-by-byte ASCII ordering. Not just == and !=.
     //
+    //Historical note: this file's literals sit in the pool in dictionary
+    //order, so it passed even when the old codegen compared POOL INDEXES.
+    //Since Phase 11 Step 3b the compare is genuinely bytewise (OP_Less_str
+    //family); stdlib_str_relational_adversarial reverses the pool order
+    //to guard that.
+    //
     //Returns 7 only if all 6 ordering assertions hold:
     //  1. "apple" < "banana"
     //  2. "banana" > "apple"

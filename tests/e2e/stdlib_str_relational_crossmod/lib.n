@@ -1,0 +1,30 @@
+//Relational string compares compiled in a separate module — the merged
+//import walk (RemapBytecode) must know the new _str opcodes' strides
+//(the InstructionStride default asserts on unknown opcodes). The string
+//literals stay inside this module: cross-module param kinds are not
+//serialized (plan trap 11b), so string ARGS crossing the boundary are
+//rejected by today's placeholder typing.
+int cmp_lt() {
+	string a = "zebra";
+	string b = "apple";
+	if (a < b) { return 1; }  // pool order said true; bytes say false
+	return 0;
+}
+int cmp_gt() {
+	string a = "zebra";
+	string b = "apple";
+	if (a > b) { return 1; }
+	return 0;
+}
+int cmp_le() {
+	string x = "y";
+	string y = "x";
+	if (x <= y) { return 1; }
+	return 0;
+}
+int cmp_ge() {
+	string x = "y";
+	string y = "x";
+	if (x >= y) { return 1; }
+	return 0;
+}

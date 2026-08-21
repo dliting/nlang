@@ -399,7 +399,11 @@ slot is 0. All 6 post-ctor intrinsics route through this helper.
 | OP_Concat_str | dst, src  | Concatenate strings      |
 | OP_Eq_str   | lhs, rhs    | String equality          |
 | OP_Ne_str   | lhs, rhs    | String inequality        |
-| OP_StrLen   | dst, src    | String length            |
+| OP_Less_str | lhs, rhs    | Bytewise relational (Phase 11 Step 3b; UTF-8 byte order == code point order) |
+| OP_LessEqual_str | lhs, rhs | Bytewise `<=`            |
+| OP_Greater_str | lhs, rhs | Bytewise `>`             |
+| OP_GreaterEqual_str | lhs, rhs | Bytewise `>=`       |
+| OP_StrLen   | dst, src    | String length (byte count, Phase 11 decision #7) |
 
 ### Boxing / Unbox / Downcast (Phase 8e-1 + 8e-1.5)
 

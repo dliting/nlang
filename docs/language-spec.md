@@ -600,7 +600,27 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 
 Returns 1 (true) or 0 (false). String equality compares content. String
 relational ordering (`<`, `>`, `<=`, `>=`) uses C `strcmp`-style byte-by-byte
-ASCII comparison (e.g. `"Z" < "a"` is true because `'Z'` (90) < `'a'` (97)).
+comparison (e.g. `"Z" < "a"` is true because `'Z'` (90) < `'a'` (97)). Because
+strings are UTF-8 and UTF-8 byte order equals code point order, ordering is
+also correct for non-ASCII text: `"é" > "z"` is true. (Before Phase 11 Step 3b
+the emitted code compared string pool indexes — literal order in the source
+could flip the result.)
+
+**Comparison operands are typed (Phase 11 Step 3b)**:
+
+- Mixed string/non-string is a **compile error** (`"a" < 5`, `5 == "a"`).
+  The one exception is the null literal: `s == null` / `c == null` compare
+  against the null sentinel — identity for class/reference operands; for a
+  string operand the null side reads as the pool's index-0 entry (a known
+  hole: a string whose content sits at pool index 0 is bit-identical to
+  null; the pool has no reserved sentinel slot).
+- int/float pairs get the same symmetric promotion as arithmetic
+  (Phase 8e-8): `-2 < -1.5` promotes to float and is true; `1 == 1.0` is
+  true. (Before Step 3b these compared raw bit patterns and could return
+  nonsense.)
+- Class/reference equality (`==`, `!=`) is identity (same heap object).
+- Arithmetic/concat with a null operand is a compile error — null has a
+  value only through the comparison identity path above.
 
 ### Logical
 

@@ -1612,12 +1612,66 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 	}
 
 	auto op = sn.Op();
-	if (op == SnBinaryExpr::OP_Less || op == SnBinaryExpr::OP_LessEqual ||
-		op == SnBinaryExpr::OP_Greater || op == SnBinaryExpr::OP_GreaterEqual ||
-		op == SnBinaryExpr::OP_Equal || op == SnBinaryExpr::OP_NotEqual ||
-		op == SnBinaryExpr::OP_LogicalAnd || op == SnBinaryExpr::OP_LogicalOr ||
+	const bool isCompare = op == SnBinaryExpr::OP_Less
+		|| op == SnBinaryExpr::OP_LessEqual
+		|| op == SnBinaryExpr::OP_Greater
+		|| op == SnBinaryExpr::OP_GreaterEqual
+		|| op == SnBinaryExpr::OP_Equal
+		|| op == SnBinaryExpr::OP_NotEqual;
+	if (isCompare || op == SnBinaryExpr::OP_LogicalAnd ||
+		op == SnBinaryExpr::OP_LogicalOr ||
 		op == SnBinaryExpr::OP_LogicalNot)
 	{
+		if (isCompare)
+		{
+			//Phase 11 Q4: relational operands get type checks here — the
+			//old shortcut set Int32 blindly and codegen picked the opcode
+			//variant from the left operand alone.
+			auto* L = sn.Left()->EvalDataType();
+			auto* R = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+			NodeKind lk = L ? L->Kind() : NK_Int32;
+			NodeKind rk = R ? R->Kind() : NK_Int32;
+			bool lNull = sn.Left()->ContainFlags(NF_NullLiteral);
+			bool rNull = sn.Right()
+				&& sn.Right()->ContainFlags(NF_NullLiteral);
+
+			//Mixed string/non-string has no semantics ("a" < 5), in either
+			//operand order. Null literals are exempt: KT_Null is Int32-
+			//typed, and `s == null` / `c == null` are the established null
+			//checks — the null side keeps its raw sentinel bits and takes
+			//the identity/sentinel comparison path.
+			if ((lk == NK_String) != (rk == NK_String) && !lNull && !rNull)
+			{
+				m_Env.Log(CLL_Error, sn.Location(),
+					"cannot compare string with a non-string operand "
+					"(only null is allowed as the other side).");
+				return;
+			}
+
+			//Symmetric int/float promotion (Phase 8e-8 mechanism) extended
+			//to comparisons. Prerequisite the arithmetic branch does not
+			//have: BOTH operands numeric and neither a null literal —
+			//class/enum/null pairs stay on their existing identity or
+			//sentinel paths, and wrapping them (as the arithmetic branch
+			//would) would break e.g. class identity equality.
+			bool lNum = lk == NK_Int32 || lk == NK_Float;
+			bool rNum = rk == NK_Int32 || rk == NK_Float;
+			if (lNum && rNum && !lNull && !rNull && lk != rk)
+			{
+				SnField* T_promote =
+					(lk == NK_Float || rk == NK_Float)
+					? SnBuiltinDataType::InstanceOf(NK_Float)
+					: SnBuiltinDataType::InstanceOf(NK_Int32);
+				auto it = sn.Children().begin();
+				auto& leftExpr = static_cast<SnExpression&>(*it);
+				TypeCastInfo leftCI(leftExpr.EvalDataType(), T_promote);
+				FixupExprType(it, leftCI);
+				++it;
+				auto& rightExpr = static_cast<SnExpression&>(*it);
+				TypeCastInfo rightCI(rightExpr.EvalDataType(), T_promote);
+				FixupExprType(it, rightCI);
+			}
+		}
 		auto* intType = SnBuiltinDataType::InstanceOf(NK_Int32);
 		sn.EvalDataType(intType);
 	}
@@ -1628,6 +1682,17 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 		//only OP_Add is valid (concat); other ops on string are rejected here.
 		//Each operand is wrapped in SnCastExpr if its type differs from T_result
 		//so that codegen sees uniform operand types matching bin.EvalDataType().
+		//Phase 11 Q4: null is only meaningful through the comparison identity
+		//path above; arithmetic/concat with null is a compile error. (Before
+		//the null-sentinel fix it silently produced "0" concatenations; after
+		//it, an unwrapped raw 0.)
+		if (sn.Left()->ContainFlags(NF_NullLiteral)
+			|| (sn.Right() && sn.Right()->ContainFlags(NF_NullLiteral)))
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"null is not a valid arithmetic operand.");
+			return;
+		}
 		auto* L = sn.Left()->EvalDataType();
 		auto* R = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
 		NodeKind lk = L ? L->Kind() : NK_Int32;
@@ -2578,10 +2643,9 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	//Int32→String emits OP_Int32_to_str ("0"), TCK_Box to Object allocates
 	//a boxed 0. Class/interface targets already treat TCK_Auto as a
 	//runtime no-op, so skipping the wrap uniformly is safe there too.
-	//Known boundary: binary promotion can still feed an unwrapped null to
-	//string concat (`s + null` appends the pool[0] string); rejecting
-	//null arithmetic operands belongs with the relational-operand guard
-	//(Phase 11 Step 3b).
+	//Null operands in binary arithmetic/concat are rejected outright by
+	//the guard in Access(SnBinaryExpr) (Phase 11 Step 3b) — the skip here
+	//cannot leak a raw null into an arithmetic wrap anymore.
 	if (srcExpr.ContainFlags(NF_NullLiteral)
 		&& (castInfo.Kind() == TCK_Box
 			|| (castInfo.Target()

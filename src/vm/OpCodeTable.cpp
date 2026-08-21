@@ -1,4 +1,5 @@
 #include "BytecodeOps.h"
+#include <iterator>  //std::size for the positional-table static_assert
 
 namespace nlang {
 
@@ -53,6 +54,10 @@ static const char* s_OpCodeNames[] = {
     "concat_str",
     "eq_str",
     "ne_str",
+    "lt_str",
+    "le_str",
+    "gt_str",
+    "ge_str",
     "strlen",
     "debug",
     "alloc_struct",
@@ -84,5 +89,11 @@ const char* OpCodeName(OpCode op) {
         return s_OpCodeNames[idx];
     return "unknown";
 }
+
+//The name table is positional: a missing or extra row is not a compile
+//error but an off-by-N mislabel (and a potential OOB read before this
+//bound existed). Bind the size to the enum so the two cannot drift.
+static_assert(std::size(s_OpCodeNames) == static_cast<size_t>(OpCode::OP_Count),
+    "s_OpCodeNames is positional and must have exactly one row per OpCode");
 
 } // namespace nlang

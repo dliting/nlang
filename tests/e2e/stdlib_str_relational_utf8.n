@@ -1,0 +1,10 @@
+// stdlib_str_relational_utf8 — byte order equals UTF-8 code point order
+// (decision #7), so bytewise relational compare has a total order. Note
+// "é" > "z": the lead byte 0xC3 sorts above every ASCII byte — byte
+// order, not locale collation, exactly like Go/Lua.
+int main() {
+    if (!("héllo" > "hello")) return 1;  // é lead byte 0xC3 > 'e' 0x65
+    if (!("é" > "z")) return 2;
+    if (!("aé" < "b")) return 3;         // first byte decides
+    return 0;
+}

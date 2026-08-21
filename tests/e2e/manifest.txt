@@ -396,7 +396,7 @@ string_concat_negative_float 6
 string_concat_float_left 4
 string_assign_float 3
 # --- Phase 8e-9a documented edge cases (P3.4) ---
-string_concat_null 2
+string_concat_null compile_error
 string_concat_enum 4
 # --- P3.6: int32 boundary formatting ---
 string_concat_int_max 11
@@ -785,6 +785,12 @@ stdlib_str_parse 0
 stdlib_str_parse_throws 1
 stdlib_str_parse_caught 0
 stdlib_str_byte_len 0
+stdlib_str_relational_adversarial 0
+stdlib_str_relational_mixed_compile_error compile_error
+stdlib_str_relational_int_float_promoted 0
+stdlib_str_relational_utf8 0
+stdlib_str_relational_null_enum_class_sentinel 0
+stdlib_str_relational_crossmod 0
 stdlib_str_substring_binary_operand 0
 stdlib_str_substring_oob_caught 0
 stdlib_str_split_empty_sep_caught 0

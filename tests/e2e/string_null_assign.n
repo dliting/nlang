@@ -5,8 +5,10 @@
 // which the value compared unequal to null.
 // The "pad" literal pins the pool layout: it takes constant index 0,
 // so "x" lands above it and u's bits differ from the null sentinel.
-// (Comparing a string that sits AT index 0 against null is a separate
-// pool-reservation topic handled with the relational compare work.)
+// (A string sitting AT index 0 is bit-identical to null — the pool has
+// no reserved sentinel slot, unlike the class/struct heap's index 0.
+// Known open hole, deliberately un-pinned; a reservation would be a
+// pool-layout invariant change.)
 string nullString() {
     return null;
 }

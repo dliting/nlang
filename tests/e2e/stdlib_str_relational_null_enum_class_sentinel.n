@@ -1,0 +1,24 @@
+// stdlib_str_relational_null_enum_class_sentinel — the one-side-string
+// guard and the numeric promotion must NOT touch: null literals (bare
+// sentinel shape, the `s == null` idiom), enum pairs (numeric values),
+// and class pairs (heap-idx identity). Anti-overreach sentinels for the
+// Phase 11 Step 3b resolver changes.
+enum Color { Red, Green }
+class P { int x; }
+int main() {
+    string s = null;
+    if (s != null) return 1;
+    if (!(s == null)) return 2;
+    P p = new P{x:1};
+    if (p == null) return 3;
+    if (!(p != null)) return 4;
+    P q = p;
+    if (!(p == q)) return 5;   // same instance: identity
+    P r = new P{x:1};
+    if (p == r) return 6;      // distinct instances
+    Color c = Color.Red;
+    if (!(c == Color.Red)) return 7;
+    if (!(c < Color.Green)) return 8;
+    if (c == Color.Green) return 9;
+    return 0;
+}

@@ -1,9 +1,10 @@
 int main() {
     //Lock: NLang string length() returns BYTE count (UTF-8 code units),
     //not Unicode code-point count. "héllo" = 5 code points but 6 bytes in
-    //UTF-8 (é encoded as 0xC3 0xA9). Documented as a known limitation;
-    //proper UTF-8 code-point iteration is deferred to Phase 9+ (see
-    //VmExecutor.cpp:615 TODO).
+    //UTF-8 (é encoded as 0xC3 0xA9). Byte semantics are a Phase 11
+    //design decision (#7, Go/Lua model): substring/indexOf take byte
+    //offsets, so length stays consistent with them (see the OP_StrLen
+    //comment in VmExecutor.cpp).
     //
     //Source files are read as UTF-8; string literals are stored as their
     //UTF-8 byte sequence in the module string pool. length() returns the

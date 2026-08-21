@@ -885,6 +885,10 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_Concat_str:
         case OpCode::OP_Eq_str:
         case OpCode::OP_Ne_str:
+        case OpCode::OP_Less_str:
+        case OpCode::OP_LessEqual_str:
+        case OpCode::OP_Greater_str:
+        case OpCode::OP_GreaterEqual_str:
         case OpCode::OP_StrLen:
         case OpCode::OP_CallFunc:
         case OpCode::OP_CallMethod:
@@ -4206,22 +4210,29 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_Less:
-            emitter.Emit(isFloat ? OpCode::OP_Less_f32 : OpCode::OP_Less_i32);
+            //Phase 11 Q4: string relational compare is bytewise (UTF-8
+            //byte order == code point order). isString keys on the LEFT
+            //operand; the resolver guard rejects mixed non-null operands.
+            emitter.Emit(isString ? OpCode::OP_Less_str
+                : (isFloat ? OpCode::OP_Less_f32 : OpCode::OP_Less_i32));
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_LessEqual:
-            emitter.Emit(isFloat ? OpCode::OP_LessEqual_f32 : OpCode::OP_LessEqual_i32);
+            emitter.Emit(isString ? OpCode::OP_LessEqual_str
+                : (isFloat ? OpCode::OP_LessEqual_f32 : OpCode::OP_LessEqual_i32));
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_Greater:
-            emitter.Emit(isFloat ? OpCode::OP_Greater_f32 : OpCode::OP_Greater_i32);
+            emitter.Emit(isString ? OpCode::OP_Greater_str
+                : (isFloat ? OpCode::OP_Greater_f32 : OpCode::OP_Greater_i32));
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_GreaterEqual:
-            emitter.Emit(isFloat ? OpCode::OP_GreaterEqual_f32 : OpCode::OP_GreaterEqual_i32);
+            emitter.Emit(isString ? OpCode::OP_GreaterEqual_str
+                : (isFloat ? OpCode::OP_GreaterEqual_f32 : OpCode::OP_GreaterEqual_i32));
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;

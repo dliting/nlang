@@ -1,10 +1,11 @@
+// string_concat_null — Phase 11 Q4 made null arithmetic a compile error.
+// This test previously pinned the Phase 8e-9a "known limitation" that
+// "x" + null evaluated the null literal as int 0 and concatenated "0"
+// ("x0", exit 2). With the null sentinel now surviving implicit
+// coercion, the raw 0 would silently concatenate an arbitrary pool
+// string — worse than a diagnostic — so the operand is rejected at
+// compile time (see ExprResolver Access(SnBinaryExpr)).
 int main() {
-    //Documents Phase 8e-9a known limitation: the null literal evaluates to
-    //int 0 at runtime, so "x" + null goes through int→string coercion and
-    //yields "x0" (length 2). This is intentional (documented in
-    //nlang-phase-8e-9a-primitive-to-string-design.md "Known limitations").
-    //Lock the behavior so future refactors (e.g., a real null sentinel
-    //distinct from int 0) don't silently change observable output.
     string s = "x" + null;
     return s.length();
 }

@@ -1,0 +1,13 @@
+// stdlib_str_relational_adversarial — the LEFT operand is emitted (and
+// interned) first, so its pool index is LOWER. The old codegen compared
+// pool indexes: "zebra" (idx 0) > "apple" (idx 1) evaluated FALSE.
+// Bytewise comparison must return true. This test reverses the pool
+// order on purpose — a same-order literal test passed by coincidence.
+int main() {
+    if (!("zebra" > "apple")) return 1;
+    if ("apple" >= "zebra") return 2;
+    if (!("b" <= "b")) return 3;
+    if (!("abc" < "abd")) return 4;
+    if (!("apple" < "zebra")) return 5;
+    return 0;
+}

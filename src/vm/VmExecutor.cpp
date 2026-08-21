@@ -811,6 +811,34 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(locals + lhs, &r, sizeof(r));
             break;
         }
+        //Phase 11 Q4: bytewise relational compare. std::string's
+        //operator< is lexicographic on unsigned char values (charTraits
+        //compare), so this is memcmp order — and UTF-8 byte order equals
+        //code point order, making it correct for multibyte text too.
+        //A null operand (raw 0) reads pool[0], same convention as Eq/Ne.
+#define STR_REL(OP)                                                    \
+        {                                                              \
+            uint16_t lhs = reader.ReadUint16();                        \
+            uint16_t rhs = reader.ReadUint16();                        \
+            int32_t idxA, idxB;                                        \
+            std::memcpy(&idxA, locals + lhs, sizeof(idxA));            \
+            std::memcpy(&idxB, locals + rhs, sizeof(idxB));            \
+            const std::string& a = (idxA >= 0                          \
+                && static_cast<size_t>(idxA) < m_stringPool.size())    \
+                ? m_stringPool[static_cast<size_t>(idxA)]              \
+                : m_stringPool[0];                                     \
+            const std::string& b = (idxB >= 0                          \
+                && static_cast<size_t>(idxB) < m_stringPool.size())    \
+                ? m_stringPool[static_cast<size_t>(idxB)]              \
+                : m_stringPool[0];                                     \
+            int32_t r = (a OP b) ? 1 : 0;                              \
+            std::memcpy(locals + lhs, &r, sizeof(r));                  \
+        }
+        case OpCode::OP_Less_str: STR_REL(<); break;
+        case OpCode::OP_LessEqual_str: STR_REL(<=); break;
+        case OpCode::OP_Greater_str: STR_REL(>); break;
+        case OpCode::OP_GreaterEqual_str: STR_REL(>=); break;
+#undef STR_REL
 
         case OpCode::OP_StrLen: {
             uint16_t dst = reader.ReadUint16();

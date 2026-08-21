@@ -85,6 +85,10 @@ enum class OpCode : uint8_t {
     OP_Concat_str,      // uint16 dst, uint16 src — string concatenation
     OP_Eq_str,          // uint16 lhs, uint16 rhs — string equality
     OP_Ne_str,          // uint16 lhs, uint16 rhs — string inequality
+    OP_Less_str,        // uint16 lhs, uint16 rhs — bytewise relational compare (Phase 11 Q4);
+    OP_LessEqual_str,   //   UTF-8 byte order == code point order, so this is also
+    OP_Greater_str,     //   code point order. null operand compares as pool[0].
+    OP_GreaterEqual_str,
     OP_StrLen,          // uint16 dst, uint16 src — string length → int32
 
     // === Debug ===
