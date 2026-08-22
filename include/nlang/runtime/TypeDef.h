@@ -21,9 +21,6 @@ typedef std::int64_t        int64;  //i8
 typedef std::uint64_t		uint64; //u8
 typedef char32_t			nchar;  //utf8-char
 
-#define EnNew(x) new x
-#define EnDelete(x) delete x
-
 /*
 The regular express pattern of all valid name in nlang.
 Include the names defined by the system and the ones defined by user programs.

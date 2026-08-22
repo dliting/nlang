@@ -53,7 +53,7 @@ do {																		\
 do {																		\
     if (scanner.ScanType() == nlang::ScriptScanner::CT_Compiler)							\
     {																		\
-        yylval->v_pStr = EnNew(std::string(s));								\
+        yylval->v_pStr = new std::string(s);								\
     }																		\
 } while(0)
 
@@ -61,7 +61,7 @@ do {																		\
 do {																		\
     if (scanner.ScanType() == nlang::ScriptScanner::CT_Compiler)							\
     {																		\
-        EnDelete(yylval->v_pStr);											\
+        delete yylval->v_pStr;											\
     }																		\
 } while(0)
 

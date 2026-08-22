@@ -41,7 +41,6 @@ using namespace nlang;
 //Phase 9b: scan string literal content for ${identifier} interpolation.
 //Returns SnLiteralExpr if no ${...} found; otherwise builds OP_Add tree.
 //$$ escape: $$ -> $ (literal dollar).
-//Uses new/delete (not EnNew) to align with NLang/EN decoupling goal.
 static SnExpression* BuildStringExpr(
 	std::string* pRawText, ISourceLocation& loc, ScriptParser& parser)
 {
@@ -222,7 +221,7 @@ static SnExpression* BuildStringExpr(
 
 %destructor { } <v_Char> <v_Byte> <v_UByte> <v_Short> <v_UShort> <v_Int> <v_UInt> <v_Float>
 %destructor { } <v_NodeFlags> <v_AccessType>
-%destructor { EnDelete($$); } <*>
+%destructor { delete $$; } <*>
 
 %printer { fprintf (yyoutput, "%d", $$); } <v_Byte> <v_Short> <v_Int>
 %printer { fprintf (yyoutput, "%g", $$); } <v_Float>
@@ -441,12 +440,12 @@ CompileUnit:	ImportList UsingList NamespaceMemberList {
 
 ImportList:	ImportList KT_Import TT_String ';' {
 						$1->push_back(*($3));
-						EnDelete($3);
+						delete $3;
 						$$ = $1;
 					} |
 					{
 						/*on empty */
-						$$ = EnNew(std::vector<std::string>());
+						$$ = new std::vector<std::string>();
 					} ;
 
 UsingList:	UsingList Using {
@@ -455,11 +454,11 @@ UsingList:	UsingList Using {
 				} |
 				{
 					/*on empty */
-					$$ = EnNew(PtrList<SnUsing>());
+					$$ = new PtrList<SnUsing>();
 				} ;
 
 Using:	KT_Using NameExpr ';' {
-			   $$ = EnNew(SnUsing($2, @2));
+			   $$ = new SnUsing($2, @2);
 			} ;
 
 NamespaceMemberList:	NamespaceMemberList NamespaceMember {
@@ -468,7 +467,7 @@ NamespaceMemberList:	NamespaceMemberList NamespaceMember {
 							} |
 							{
 								/*on empty */
-								$$ = EnNew(PtrList<SnField>());
+								$$ = new PtrList<SnField>();
 							} ;
 
 NamespaceMember:	Namespace {
@@ -491,7 +490,7 @@ NamespaceMember:	Namespace {
 						} ;
 
 Namespace:	KT_Namespace TT_Identifier '{' NamespaceMemberList '}' {
-					$$ = EnNew(SnNamespace($2, $4, @1));
+					$$ = new SnNamespace($2, $4, @1);
 				} ;
 
 Function:	FunctionHeader FunctionBody {
@@ -504,10 +503,10 @@ Function:	FunctionHeader FunctionBody {
 				} ;
 
 FunctionHeader:	AccessType NodeFlags Type TT_Identifier '(' FormalParamList ')' {
-						$$ = EnNew(SnFunction($1, $2, $3, $4, $6, @2));
+						$$ = new SnFunction($1, $2, $3, $4, $6, @2);
 					}
 					| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
+						$$ = new SnFunction($1, $2, nullptr, $4, $6, @2);
 					} ;
 
 FunctionBody:	Paragraph {
@@ -522,29 +521,29 @@ FormalParamList:	FormalParamList ',' FormalParam {
 							$$ = $1;
 						} |
 						FormalParam {
-							$$ = EnNew(PtrList<SnFormalParam>());
+							$$ = new PtrList<SnFormalParam>();
 							$$->push_back($1);
 						} |
 						{
 							/*on empty */
-							$$ = EnNew(PtrList<SnFormalParam>());
+							$$ = new PtrList<SnFormalParam>();
 						} ;
 
 FormalParam:	NodeFlags Type TT_Identifier '=' Expression {
-						$$ = EnNew(SnFormalParam($1, $2, $3, $5, @1));
+						$$ = new SnFormalParam($1, $2, $3, $5, @1);
 					} |
 					NodeFlags Type TT_Identifier {
-						$$ = EnNew(SnFormalParam($1, $2, $3, nullptr, @1));
+						$$ = new SnFormalParam($1, $2, $3, nullptr, @1);
 					} |
 					/* Phase 9e: out parameter. No default-value form — an out
 					 * parameter is callee-assigned, a default is meaningless. */
 					NodeFlags KT_Out Type TT_Identifier {
-						$$ = EnNew(SnFormalParam($1, $3, $4, nullptr, @2));
+						$$ = new SnFormalParam($1, $3, $4, nullptr, @2);
 						$$->AddFlags(NF_Out);
 					} ;
 
 Paragraph:	'{' StatementList '}' {
-					$$ = EnNew(SnParagraph($2, @1));
+					$$ = new SnParagraph($2, @1);
 				} ;
 
 StatementList:	StatementList Statement {
@@ -554,7 +553,7 @@ StatementList:	StatementList Statement {
 					} |
 					{
 						//on empty
-						$$ = EnNew(PtrList<SnStatement>());
+						$$ = new PtrList<SnStatement>();
 					} ;
 
 Statement:	';' {
@@ -625,15 +624,15 @@ Statement:	';' {
 				} ;
 
 ReturnStmt: KT_Return Expression ';' {
-					$$ = EnNew(SnReturnStmt($2, @1));
+					$$ = new SnReturnStmt($2, @1);
 				} |
 				//Void support: bare `return;` for early exit from void functions.
 				KT_Return ';' {
-					$$ = EnNew(SnReturnStmt(nullptr, @1));
+					$$ = new SnReturnStmt(nullptr, @1);
 				} ;
 
-InvokeStmt: InvokeExpr ';' { $$ = EnNew(SnInvokeStmt($1, @1)); } |
-				MemberExpr ';' { $$ = EnNew(SnInvokeStmt($1, @1)); } ;
+InvokeStmt: InvokeExpr ';' { $$ = new SnInvokeStmt($1, @1); } |
+				MemberExpr ';' { $$ = new SnInvokeStmt($1, @1); } ;
 
 /*
 Local variable declaration statement.
@@ -641,10 +640,10 @@ Reference: EN's LocalDeclStmt (compiler_bak/grammer/nlang.y:535).
 Phase 9a: `const Type decls;` form marks all locals as const (NF_Const).
 */
 LocalDeclStmt: Type LocalDeclList ';' {
-						$$ = EnNew(SnLocalDeclStmt($1, $2, @1));
+						$$ = new SnLocalDeclStmt($1, $2, @1);
 					} |
 					KT_Const Type LocalDeclList ';' {
-						$$ = EnNew(SnLocalDeclStmt($2, $3, true, @1));
+						$$ = new SnLocalDeclStmt($2, $3, true, @1);
 					} ;
 
 LocalDeclList: LocalDeclList ',' TT_Identifier {
@@ -656,11 +655,11 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$ = $1;
 					} |
 					TT_Identifier '=' Expression {
-						$$ = EnNew(std::vector<SnLocalDeclStmt::LocalDecl>());
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $3});
 					} |
 					TT_Identifier {
-						$$ = EnNew(std::vector<SnLocalDeclStmt::LocalDecl>());
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr});
 					} ;
 
@@ -669,10 +668,10 @@ Assignment statement.
 Reference: EN's AssignStmt (compiler_bak/grammer/nlang.y:546).
 */
 AssignStmt: IdentifierExpr '=' Expression ';' {
-					$$ = EnNew(SnAssignStmt($1, $3, @1));
+					$$ = new SnAssignStmt($1, $3, @1);
 				} |
 				MemberExpr '=' Expression ';' {
-					$$ = EnNew(SnAssignStmt($1, $3, @1));
+					$$ = new SnAssignStmt($1, $3, @1);
 				} ;
 
 /*
@@ -680,34 +679,34 @@ Compound assignment statement (e.g. x += 1, arr[i] *= 2).
 Phase 9a: left-value is evaluated only once.
 */
 CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
 				IdentifierExpr OT_DECS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1);
 				} |
 				IdentifierExpr OT_MULS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1);
 				} |
 				IdentifierExpr OT_DIVS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1);
 				} |
 				IdentifierExpr OT_MODS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} |
 				MemberExpr OT_INCS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
 				MemberExpr OT_DECS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1);
 				} |
 				MemberExpr OT_MULS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1);
 				} |
 				MemberExpr OT_DIVS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1);
 				} |
 				MemberExpr OT_MODS Expression ';' {
-					$$ = EnNew(SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1));
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} ;
 
 /*
@@ -715,7 +714,7 @@ Assert statement: assert(cond); - exit(1) on failure.
 Phase 9a: simple runtime check.
 */
 AssertStmt: KT_Assert '(' Expression ')' ';' {
-					$$ = EnNew(SnAssertStmt($3, @1));
+					$$ = new SnAssertStmt($3, @1);
 				} ;
 
 /*
@@ -728,18 +727,18 @@ only together with finally — `try {} finally {}`; a resolver-stage check
 rejects try with neither catches nor finally).
 */
 TryStmt: KT_Try Statement CatchClauseList FinallyClauseOpt {
-					$$ = EnNew(SnTryStmt($2, $3, $4, @1));
+					$$ = new SnTryStmt($2, $3, $4, @1);
 				} ;
 
 CatchClauseList: /* empty */ {
-					$$ = EnNew(std::vector<SnCatchClause*>());
+					$$ = new std::vector<SnCatchClause*>();
 				} | CatchClauseList CatchClause {
 					$$ = $1;
 					if ($2) $$->push_back($2);
 				} ;
 
 CatchClause: KT_Catch '(' Type TT_Identifier ')' Statement {
-					$$ = EnNew(SnCatchClause($3, *$4, $6, @1));
+					$$ = new SnCatchClause($3, *$4, $6, @1);
 				} ;
 
 FinallyClauseOpt: /* empty */ {
@@ -754,9 +753,9 @@ instance; `throw;` (no operand) re-raises the in-flight exception of the
 enclosing catch handler.
 */
 ThrowStmt: KT_Throw Expression ';' {
-					$$ = EnNew(SnThrowStmt($2, @1));
+					$$ = new SnThrowStmt($2, @1);
 				} | KT_Throw ';' {
-					$$ = EnNew(SnThrowStmt(nullptr, @1));
+					$$ = new SnThrowStmt(nullptr, @1);
 				} ;
 
 /*
@@ -767,14 +766,14 @@ ConcreteParamList (positional args; named args are rejected by the
 resolver).
 */
 SuperCallStmt: KT_Super '(' ConcreteParamList ')' ';' {
-					$$ = EnNew(SnSuperCallStmt(*$3, @1));
+					$$ = new SnSuperCallStmt(*$3, @1);
 				} ;
 
 /*
 Array subscript assignment statement (e.g. arr[i] = value).
 */
 SubscriptAssignStmt: Expression '[' Expression ']' '=' Expression ';' {
-					$$ = EnNew(SnSubscriptAssignStmt($1, $3, $6, @1));
+					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
 				} ;
 
 /*
@@ -782,10 +781,10 @@ If/else statement.
 Reference: EN's IfStmt (compiler_bak/grammer/nlang.y:554).
 */
 IfStmt:	KT_If '(' Expression ')' Statement %prec P_Then {
-				$$ = EnNew(SnIfStmt($3, $5, nullptr, @1));
+				$$ = new SnIfStmt($3, $5, nullptr, @1);
 			} |
 			KT_If '(' Expression ')' Statement KT_Else Statement {
-				$$ = EnNew(SnIfStmt($3, $5, $7, @1));
+				$$ = new SnIfStmt($3, $5, $7, @1);
 			} ;
 
 
@@ -794,7 +793,7 @@ While loop statement.
 Reference: EN's WhileStmt (compiler_bak/grammer/nlang.y:561).
 */
 WhileStmt:	KT_While '(' Expression ')' Statement {
-					$$ = EnNew(SnWhileStmt($3, $5, @1));
+					$$ = new SnWhileStmt($3, $5, @1);
 				} ;
 
 /*
@@ -802,7 +801,7 @@ Do-while loop statement.
 Reference: EN's DoStmt (compiler_bak/grammer/nlang.y:565).
 */
 DoStmt:	KT_Do Statement KT_While '(' Expression ')' ';' {
-				$$ = EnNew(SnDoStmt($5, $2, @1));
+				$$ = new SnDoStmt($5, $2, @1);
 			} ;
 
 /*
@@ -810,7 +809,7 @@ For loop statement.
 Reference: EN's ForStmt (compiler_bak/grammer/nlang.y:569).
 */
 ForStmt:	KT_For '(' InitFor ';' Expression ';' FiniFor ')' Statement {
-					$$ = EnNew(SnForStmt($3, $5, $7, $9, @1));
+					$$ = new SnForStmt($3, $5, $7, $9, @1);
 				} ;
 
 InitFor:	{
@@ -818,13 +817,13 @@ InitFor:	{
 					$$ = nullptr;
 				} |
 				Type LocalDeclList {
-					$$ = EnNew(SnLocalDeclStmt($1, $2, @1));
+					$$ = new SnLocalDeclStmt($1, $2, @1);
 				} |
 				InvokeExpr {
-					$$ = EnNew(SnInvokeStmt($1, @1));
+					$$ = new SnInvokeStmt($1, @1);
 				} |
 				IdentifierExpr '=' Expression {
-					$$ = EnNew(SnAssignStmt($1, $3, @1));
+					$$ = new SnAssignStmt($1, $3, @1);
 				} ;
 
 FiniFor:	{
@@ -832,10 +831,10 @@ FiniFor:	{
 					$$ = nullptr;
 				} |
 				InvokeExpr {
-					$$ = EnNew(SnInvokeStmt($1, @1));
+					$$ = new SnInvokeStmt($1, @1);
 				} |
 				IdentifierExpr '=' Expression {
-					$$ = EnNew(SnAssignStmt($1, $3, @1));
+					$$ = new SnAssignStmt($1, $3, @1);
 				} ;
 
 /*
@@ -843,7 +842,7 @@ Foreach loop statement (Phase 8e-5).
 Iterates Array / List<T> / Dict<K,V> (keys).
 */
 ForeachStmt:	KT_Foreach '(' Type TT_Identifier KT_In Expression ')' Statement {
-					$$ = EnNew(SnForeachStmt($3, *$4, $6, $8, @1));
+					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
 				} ;
 
 /*
@@ -851,7 +850,7 @@ Break statement.
 Reference: EN's BreakStmt (compiler_bak/grammer/nlang.y:624).
 */
 BreakStmt:	KT_Break ';' {
-					$$ = EnNew(SnBreakStmt(@1));
+					$$ = new SnBreakStmt(@1);
 				} ;
 
 /*
@@ -859,7 +858,7 @@ Continue statement.
 Reference: EN's ContinueStmt (compiler_bak/grammer/nlang.y:628).
 */
 ContinueStmt:	KT_Continue ';' {
-					$$ = EnNew(SnContinueStmt(@1));
+					$$ = new SnContinueStmt(@1);
 				} ;
 
 /*
@@ -867,7 +866,7 @@ Switch statement.
 Reference: EN's SwitchStmt (compiler_bak/grammer/nlang.y:598).
 */
 SwitchStmt:	KT_Switch '(' Expression ')' '{' CaseClauseList DefaultCase '}' {
-				$$ = EnNew(SnSwitchStmt($3, $6, $7, @1));
+				$$ = new SnSwitchStmt($3, $6, $7, @1);
 			} ;
 
 CaseClauseList:	CaseClauseList CaseClause {
@@ -876,7 +875,7 @@ CaseClauseList:	CaseClauseList CaseClause {
 				} |
 				{
 					/*on empty */
-					$$ = EnNew(std::vector<SnCaseClause*>());
+					$$ = new std::vector<SnCaseClause*>();
 				} ;
 
 //Phase 12: comma-separated case labels — `case 1, 2:` enters the clause
@@ -886,12 +885,12 @@ CaseLabelList:	CaseLabelList ',' Expression {
 					$$ = $1;
 			} |
 				Expression {
-					$$ = EnNew(PtrList<SnExpression>());
+					$$ = new PtrList<SnExpression>();
 					$$->push_back($1);
 			} ;
 
 CaseClause:	KT_Case CaseLabelList ':' StatementList {
-				$$ = EnNew(SnCaseClause($2, $4, @1));
+				$$ = new SnCaseClause($2, $4, @1);
 			} ;
 
 DefaultCase:	{
@@ -899,13 +898,13 @@ DefaultCase:	{
 					$$ = nullptr;
 				} |
 				KT_Default ':' StatementList {
-					$$ = EnNew(SnParagraph($3, @1));
+					$$ = new SnParagraph($3, @1);
 				} ;
 /*
 Enum type declaration.
 */
 EnumDecl:	KT_Enum TT_Identifier '{' EnumMemberList EnumMethodSection '}' {
-					$$ = EnNew(SnEnumDecl($2, $4, $5, @1));
+					$$ = new SnEnumDecl($2, $4, $5, @1);
 				} ;
 
 EnumMemberList:	EnumMemberList ',' EnumMember {
@@ -913,15 +912,15 @@ EnumMemberList:	EnumMemberList ',' EnumMember {
 					$$ = $1;
 				} |
 				EnumMember {
-					$$ = EnNew(PtrList<SnEnumMember>());
+					$$ = new PtrList<SnEnumMember>();
 					$$->push_back($1);
 				} ;
 
 EnumMember:	TT_Identifier {
-				$$ = EnNew(SnEnumMember($1, nullptr, @1));
+				$$ = new SnEnumMember($1, nullptr, @1);
 				} |
 				TT_Identifier '=' Expression {
-					$$ = EnNew(SnEnumMember($1, $3, @1));
+					$$ = new SnEnumMember($1, $3, @1);
 				} ;
 
 /*
@@ -933,10 +932,10 @@ EnumMethodSection:	';' EnumMethodList {
 				$$ = $2;
 			} |
 				';' {
-				$$ = EnNew(PtrList<SnFunction>());
+				$$ = new PtrList<SnFunction>();
 			} |
 				/* empty */ {
-				$$ = EnNew(PtrList<SnFunction>());
+				$$ = new PtrList<SnFunction>();
 			} ;
 
 EnumMethodList:	EnumMethodList EnumMethod {
@@ -944,7 +943,7 @@ EnumMethodList:	EnumMethodList EnumMethod {
 				$$ = $1;
 			} |
 				EnumMethod {
-				$$ = EnNew(PtrList<SnFunction>());
+				$$ = new PtrList<SnFunction>();
 				$$->push_back($1);
 			} ;
 
@@ -954,7 +953,7 @@ unlike ClassMember. Bodyless declarations still parse (FunctionBodyOrSemi)
 so the resolver can reject them with a proper diagnostic.
 */
 EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-				auto* func = EnNew(SnFunction($1, NF_NONE, $2, $3, $5, @2));
+				auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 				if ($7 == nullptr)
 					func->AddFlags(NF_Abstract);
 				else
@@ -962,7 +961,7 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 				$$ = func;
 			} |
 				AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-				auto* func = EnNew(SnFunction($1, NF_NONE, nullptr, $3, $5, @2));
+				auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
 				if ($7 == nullptr)
 					func->AddFlags(NF_Abstract);
 				else
@@ -974,7 +973,7 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 Struct type declaration.
 */
 StructDecl:	KT_Struct TT_Identifier '{' StructFieldList '}' {
-					$$ = EnNew(SnStructDecl($2, $4, @1));
+					$$ = new SnStructDecl($2, $4, @1);
 				} ;
 
 StructFieldList:	StructFieldList StructField {
@@ -982,12 +981,12 @@ StructFieldList:	StructFieldList StructField {
 					$$ = $1;
 				} |
 					StructField {
-					$$ = EnNew(PtrList<SnStructField>());
+					$$ = new PtrList<SnStructField>();
 					$$->push_back($1);
 				} ;
 
 StructField:	Type TT_Identifier ';' {
-					$$ = EnNew(SnStructField($1, $2, @1));
+					$$ = new SnStructField($1, $2, @1);
 				} ;
 
 
@@ -995,7 +994,7 @@ StructField:	Type TT_Identifier ';' {
 Class type declaration.
 */
 ClassDecl:	KT_Class TT_Identifier ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
-					auto* pClass = EnNew(SnClassDecl($2, $3, $6, @1));
+					auto* pClass = new SnClassDecl($2, $3, $6, @1);
 					if ($4)
 						for (auto *pNode : *$4)
 							pClass->AddImplementsName(pNode);
@@ -1022,7 +1021,7 @@ Comma-separated list of NameExpr values (for the implements clause).
 Returns a PtrList<SnFieldExpr> owning the name expressions.
 */
 NameList:	NameExpr {
-					$$ = EnNew(PtrList<SnFieldExpr>());
+					$$ = new PtrList<SnFieldExpr>();
 					$$->push_back($1);
 				} |
 				NameList ',' NameExpr {
@@ -1036,10 +1035,10 @@ fields, no bodies). An interface establishes a contract that
 implementing classes must satisfy.
 */
 InterfaceDecl:	KT_Interface TT_Identifier '{' InterfaceMemberList '}' {
-					$$ = EnNew(SnInterfaceDecl($2, $4, @1));
+					$$ = new SnInterfaceDecl($2, $4, @1);
 				} |
 				KT_Interface TT_Identifier '{' '}' {
-					$$ = EnNew(SnInterfaceDecl($2, EnNew(PtrList<SnField>()), @1));
+					$$ = new SnInterfaceDecl($2, new PtrList<SnField>(), @1);
 				} ;
 
 InterfaceMemberList:	InterfaceMemberList InterfaceMember {
@@ -1047,27 +1046,27 @@ InterfaceMemberList:	InterfaceMemberList InterfaceMember {
 					$$ = $1;
 				} |
 				InterfaceMember {
-					$$ = EnNew(PtrList<SnField>());
+					$$ = new PtrList<SnField>();
 					$$->push_back($1);
 				} ;
 
 InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' ';' {
-					auto* func = EnNew(SnFunction($1, $2, $3, $4, $6, @2));
+					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
 					func->AddFlags(NF_Abstract);
 					$$ = func;
 				} |
 				AccessType Type TT_Identifier '(' FormalParamList ')' ';' {
-					auto* func = EnNew(SnFunction($1, NF_NONE, $2, $3, $5, @2));
+					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					func->AddFlags(NF_Abstract);
 					$$ = func;
 				}
 				| AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' ';' {
-					auto* func = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
+					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
 					func->AddFlags(NF_Abstract);
 					$$ = func;
 				}
 				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' ';' {
-					auto* func = EnNew(SnFunction($1, NF_NONE, nullptr, $3, $5, @2));
+					auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
 					func->AddFlags(NF_Abstract);
 					$$ = func;
 				} ;
@@ -1077,12 +1076,12 @@ ClassMemberList:	ClassMemberList ClassMember {
 					$$ = $1;
 				} |
 					ClassMember {
-					$$ = EnNew(PtrList<SnField>());
+					$$ = new PtrList<SnField>();
 					$$->push_back($1);
 				} ;
 
 ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = EnNew(SnFunction($1, $2, $3, $4, $6, @2));
+					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1090,7 +1089,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				} |
 				AccessType NodeFlags Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = EnNew(SnFunction($1, $2, $3, $4, $6, @2));
+					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1098,7 +1097,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				} |
 				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = EnNew(SnFunction($1, NF_NONE, $2, $3, $5, @2));
+					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1107,7 +1106,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				} |
 
 				AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
+					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1115,7 +1114,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				}
 				| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = EnNew(SnFunction($1, $2, nullptr, $4, $6, @2));
+					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1123,7 +1122,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				}
 				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = EnNew(SnFunction($1, NF_NONE, nullptr, $3, $5, @2));
+					auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1132,7 +1131,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				} |
 
 				AccessType Type TT_Identifier ';' {
-					$$ = EnNew(SnClassField($2, $3, $1, @1));
+					$$ = new SnClassField($2, $3, $1, @1);
 				} ;
 
 FunctionBodyOrSemi:	Paragraph { $$ = $1; } |
@@ -1175,7 +1174,7 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //(generic type) vs a less-than comparison. bison's reduce-first
 //default picks the NameExpr/Type derivation, which keeps
 //`Foo<int> x;` parsing as a declaration — the intended behavior.
-NameExpr:	IdentifierExpr	{ $$ = EnNew(SnNameExpr($1, @1)); } ;
+NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
 //Uses OT_Brackets ('[]' as single token) to disambiguate array type
@@ -1187,8 +1186,8 @@ NameExpr:	IdentifierExpr	{ $$ = EnNew(SnNameExpr($1, @1)); } ;
 //is only reached in declaration contexts where Expression is not a valid
 //reduction (Type is never an Expression in NLang grammar).
 Type:	NameExpr		{ $$ = $1; } |
-				NameExpr '<' TypeList '>'	{ $$ = EnNew(SnGenericTypeExpr($1, $3, @1)); } |
-				Type OT_Brackets	{ $$ = EnNew(SnArrayTypeExpr($1, @2)); } ;
+				NameExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr($1, $3, @1); } |
+				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } ;
 
 //Comma-separated list of type arguments inside `<...>`. Used only by
 //the generic Type rule above.
@@ -1208,89 +1207,89 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				NewExpr		{ $$ = $1; } |
 				NewArrayExpr		{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
-				KT_This		{ $$ = EnNew(SnThisExpr(@1)); } |
-				KT_Null		{ auto* _nl = EnNew(SnLiteralExpr(*RnInt32::Instance(), 0, @1)); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
+				KT_This		{ $$ = new SnThisExpr(@1); } |
+				KT_Null		{ auto* _nl = new SnLiteralExpr(*RnInt32::Instance(), 0, @1); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
 				//Phase 8e-6: bare `[...]` array/list literal. Only the bracket
 				//form is allowed bare; dict/struct `{...}` requires explicit
 				//`new Type{...}` because bare `{...}` would LALR-conflict
 				//with Paragraph (block statement).
-				'[' InitListElements ']'	{ $$ = EnNew(SnInitListExpr(nullptr, *$2, true, @1)); delete $2; } |
-				Expression '+' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1)); } |
-				Expression '-' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1)); } |
-				Expression '*' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Mul, $1, $3, @1)); } |
-				Expression '/' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Div, $1, $3, @1)); } |
-				Expression '%' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Mod, $1, $3, @1)); } |
-				Expression '<' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Less, $1, $3, @1)); } |
-				Expression OT_LE Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LessEqual, $1, $3, @1)); } |
-				Expression '>' Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Greater, $1, $3, @1)); } |
-				Expression OT_GE Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_GreaterEqual, $1, $3, @1)); } |
-				Expression OT_EQ Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Equal, $1, $3, @1)); } |
-				Expression OT_NE Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_NotEqual, $1, $3, @1)); } |
-				Expression OT_AND Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1)); } |
-				Expression OT_OR Expression	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LogicalOr, $1, $3, @1)); } |
-				'-' Expression %prec P_Minus	{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1)); } |
-				'!' Expression					{ $$ = EnNew(SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1)); } |
-				Expression KT_As NameExpr		{ $$ = EnNew(SnAsExpr($1, $3, @2)); } ;
+				'[' InitListElements ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
+				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
+				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |
+				Expression '*' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Mul, $1, $3, @1); } |
+				Expression '/' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Div, $1, $3, @1); } |
+				Expression '%' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Mod, $1, $3, @1); } |
+				Expression '<' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Less, $1, $3, @1); } |
+				Expression OT_LE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LessEqual, $1, $3, @1); } |
+				Expression '>' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Greater, $1, $3, @1); } |
+				Expression OT_GE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_GreaterEqual, $1, $3, @1); } |
+				Expression OT_EQ Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Equal, $1, $3, @1); } |
+				Expression OT_NE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_NotEqual, $1, $3, @1); } |
+				Expression OT_AND Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1); } |
+				Expression OT_OR Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalOr, $1, $3, @1); } |
+				'-' Expression %prec P_Minus	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1); } |
+				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
+				Expression KT_As NameExpr		{ $$ = new SnAsExpr($1, $3, @2); } ;
 
 ParenthesesExpr: '(' Expression ')' { $$ = $2; } ;
 
 MemberExpr:	Expression '.' InvokeExpr		{
-					$$ = EnNew(SnMemberExpr($1, $3, @1));
+					$$ = new SnMemberExpr($1, $3, @1);
 				} |
 				Expression '.' IdentifierExpr	{
-					$$ = EnNew(SnMemberExpr($1, $3, @1));
+					$$ = new SnMemberExpr($1, $3, @1);
 				} ;
 
-LiteralExpr:	TT_Int		{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	$1,	@1));	} |
-					TT_UInt		{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1));	} |
-					TT_Short	{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1));	} |
-					TT_UShort	{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1));	} |
-					TT_Byte		{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1));	} |
-					TT_UByte	{ $$ = EnNew(SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1));	} |
-					TT_Float	{ $$ = EnNew(SnLiteralExpr(*RnFloat::Instance(),	$1,	@1));	} |
+LiteralExpr:	TT_Int		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	$1,	@1);	} |
+					TT_UInt		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
+					TT_Short	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
+					TT_UShort	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
+					TT_Byte		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
+					TT_UByte	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
+					TT_Float	{ $$ = new SnLiteralExpr(*RnFloat::Instance(),	$1,	@1);	} |
 					TT_String 	{ $$ = BuildStringExpr($1, @1, parser);	} ;
 
 InvokeExpr:	TT_Identifier '(' ConcreteParamList ')' {
-					$$ = EnNew(SnInvokeExpr($1, $3, @1));
+					$$ = new SnInvokeExpr($1, $3, @1);
 				} ;
 
-IdentifierExpr:	TT_Identifier	{ $$ = EnNew(SnIdentifierExpr($1, @1));			} |
-					KT_Int   		{ $$ = EnNew(SnIdentifierExpr(NK_Int32, @1));	} |
-					KT_Float		{ $$ = EnNew(SnIdentifierExpr(NK_Float, @1));	} |
-					KT_String		{ $$ = EnNew(SnIdentifierExpr(NK_String, @1));	} ;
+IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
+					KT_Int   		{ $$ = new SnIdentifierExpr(NK_Int32, @1);	} |
+					KT_Float		{ $$ = new SnIdentifierExpr(NK_Float, @1);	} |
+					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} ;
 
 NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
-					auto* pId = EnNew(SnIdentifierExpr($2, @2));
-					$$ = EnNew(SnNewExpr(EnNew(SnNameExpr(pId, @2)), $4, @1));
+					auto* pId = new SnIdentifierExpr($2, @2);
+					$$ = new SnNewExpr(new SnNameExpr(pId, @2), $4, @1);
 				} |
 				//Phase 8e-3: generic construction `new List<int>()`.
 				//Separate rule to avoid touching the plain `new Foo()` parse
 				//(which has its own LALR state). $2 is the base class name;
 				//$4 is the type-args list; $7 is the constructor args.
 				KT_New TT_Identifier '<' TypeList '>' '(' ConcreteParamList ')' {
-					auto* pId = EnNew(SnIdentifierExpr($2, @2));
-					auto* pName = EnNew(SnNameExpr(pId, @2));
-					$$ = EnNew(SnNewExpr(EnNew(SnGenericTypeExpr(pName, $4, @2)), $7, @1));
+					auto* pId = new SnIdentifierExpr($2, @2);
+					auto* pName = new SnNameExpr(pId, @2);
+					$$ = new SnNewExpr(new SnGenericTypeExpr(pName, $4, @2), $7, @1);
 				} |
 				//Phase 8e-6: explicit collection init `new Foo{...}` /
 				//`new List<int>{...}`. Initializes a fresh instance with
 				//the given entries (dict key:value pairs or struct fields).
 				KT_New TT_Identifier '{' InitEntries '}' {
-					auto* pId = EnNew(SnIdentifierExpr($2, @2));
-					auto* pName = EnNew(SnNameExpr(pId, @2));
-					$$ = EnNew(SnInitListExpr(pName, *$4, false, @1));
+					auto* pId = new SnIdentifierExpr($2, @2);
+					auto* pName = new SnNameExpr(pId, @2);
+					$$ = new SnInitListExpr(pName, *$4, false, @1);
 					delete $4;
 				} |
 				KT_New TT_Identifier '<' TypeList '>' '{' InitEntries '}' {
-					auto* pId = EnNew(SnIdentifierExpr($2, @2));
-					auto* pName = EnNew(SnNameExpr(pId, @2));
-					$$ = EnNew(SnInitListExpr(
-						EnNew(SnGenericTypeExpr(pName, $4, @2)), *$7, false, @1));
+					auto* pId = new SnIdentifierExpr($2, @2);
+					auto* pName = new SnNameExpr(pId, @2);
+					$$ = new SnInitListExpr(
+						new SnGenericTypeExpr(pName, $4, @2), *$7, false, @1);
 					delete $7;
 				} ;
 
 NewArrayExpr:	KT_New Type '[' Expression ']' {
-					$$ = EnNew(SnNewArrayExpr($2, $4, @1));
+					$$ = new SnNewArrayExpr($2, $4, @1);
 				} |
 				//Array of a generic-instantiated type: `new List<int>[2]`.
 				//Separate rule for the same reason as the generic NewExpr
@@ -1299,14 +1298,14 @@ NewArrayExpr:	KT_New Type '[' Expression ']' {
 				//over the IdentifierExpr reduce), so the NameExpr-based
 				//Type path never reaches the plain rule's '['.
 				KT_New TT_Identifier '<' TypeList '>' '[' Expression ']' {
-					auto* pId = EnNew(SnIdentifierExpr($2, @2));
-					auto* pName = EnNew(SnNameExpr(pId, @2));
-					$$ = EnNew(SnNewArrayExpr(
-						EnNew(SnGenericTypeExpr(pName, $4, @2)), $7, @1));
+					auto* pId = new SnIdentifierExpr($2, @2);
+					auto* pName = new SnNameExpr(pId, @2);
+					$$ = new SnNewArrayExpr(
+						new SnGenericTypeExpr(pName, $4, @2), $7, @1);
 				} ;
 
 SubscriptExpr:	Expression '[' Expression ']' {
-					$$ = EnNew(SnSubscriptExpr($1, $3, @1));
+					$$ = new SnSubscriptExpr($1, $3, @1);
 				} ;
 
 //Phase 8e-6: collection initializer element lists.
@@ -1393,12 +1392,12 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 							$$ = $1;
 						} |
 						ConcreteParam {
-							$$ = EnNew(PtrList<SnExpression>());
+							$$ = new PtrList<SnExpression>();
 							$$->push_back($1);
 						} |
 						{
 							//on empty
-							$$ = EnNew(PtrList<SnExpression>());
+							$$ = new PtrList<SnExpression>();
 						} ;
 
 //Phase 9c: a concrete parameter is either a positional argument (any
@@ -1406,14 +1405,14 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 //call-site parameter level — NLang has no assignment-as-expression, so
 //inside `foo(...)` the form `Identifier '=' Expression` is unambiguous.
 ConcreteParam:	TT_Identifier '=' Expression {
-						$$ = EnNew(SnNamedArgExpr($1, $3, @1));
+						$$ = new SnNamedArgExpr($1, $3, @1);
 					} |
 					/* Phase 9e: out argument. Restricted to a plain identifier
 					 * at the grammar level — out targets must be assignable
 					 * local slots; fields/elements are rejected here. */
 					KT_Out TT_Identifier {
-						auto* pId = EnNew(SnIdentifierExpr($2, @2));
-						$$ = EnNew(SnOutArgExpr(pId, @1));
+						auto* pId = new SnIdentifierExpr($2, @2);
+						$$ = new SnOutArgExpr(pId, @1);
 					} |
 					Expression {
 						$$ = $1;
