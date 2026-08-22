@@ -1825,10 +1825,11 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
         uint16_t d = ExprPeakDepth(*sw.Cond(), visited);
         for (auto* c : sw.Cases()) {
             //SnCaseClause inherits SyntaxNode, not SnStatement — inline the walk.
-            //Claim 1 stages each case-cond (codegen, round-9; cases are
-            //sequential so one claim's worth suffices).
-            if (c->Cond()) {
-                uint16_t cd = 1 + ExprPeakDepth(*c->Cond(), visited);
+            //Claim 1 stages each case-label (codegen, round-9; labels are
+            //sequential so one claim's worth suffices — Phase 12 multi-label
+            //keeps the same reasoning: one label claims at a time).
+            for (auto* pLabel : c->Labels()) {
+                uint16_t cd = 1 + ExprPeakDepth(*pLabel, visited);
                 if (cd > d) d = cd;
             }
             if (c->Body()) {
@@ -2099,7 +2100,8 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 walkExpr(*sw.Cond());
                 for (auto* c : sw.Cases()) {
                     //SnCaseClause inherits SyntaxNode, not SnStatement.
-                    if (c->Cond()) walkExpr(*c->Cond());
+                    for (auto* pLabel : c->Labels())
+                        walkExpr(*pLabel);
                     if (c->Body()) {
                         for (auto& s : c->Body()->Statements())
                             walkStmt(s);
@@ -5404,7 +5406,14 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //5. Compile each case clause
         //Reference: EN's SwitchStmt::DoCompile — for each case, emit
         //I_Base_Case + jump-to-next-handler placeholder + condition + body.
-        std::vector<size_t> nextJumps;
+        //Phase 12 multi-value labels: a clause holds N labels (`case 1, 2:`)
+        //and ANY match enters the body. The opcode set has no jump-if-true,
+        //so an INTERMEDIATE label emits a dual jump (JumpIfNot → the next
+        //label's compare on miss, unconditional Jump → the clause body on
+        //hit); only the LAST label's JumpIfNot targets the clause exit.
+        //A single-label clause degenerates to the pre-Phase-12 shape.
+        std::vector<std::vector<size_t>> exitJumps;   //per clause: OP_Case placeholder + last label's miss
+        std::vector<size_t> bodyExitJumps;            //implicit no-fallthrough jumps, one per clause body
         std::vector<size_t> caseStartOffsets;
 
         for (auto* pCase : switchStmt.Cases()) {
@@ -5420,40 +5429,83 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             emitter.Emit(OpCode::OP_Case);
             size_t jumpToNext = emitter.CurrentOffset();
             emitter.EmitUint16(0);  //placeholder, patched by FixChainedJumps
-            nextJumps.push_back(jumpToNext);
+            exitJumps.emplace_back(1, jumpToNext);
 
             //Compile condition: switch_value == case_constant
             //Case-cond staging: EvalAreaClaim, never tempSlot (round-9 —
             //same binary-LEFT vs. struct deep-copy scratch family; a
             //corrupted cond silently fell through to default). The switch
-            //value load is deliberately emitted AFTER the cond so it is
+            //value load is deliberately emitted AFTER the label so it is
             //never parked in a temp across a nested emission. The claim
-            //releases before the case body emits (bodies re-claim).
-            //StmtPeakDepth's SwitchStmt case tracks the claim=1.
-            size_t condJumpPos;
-            {
-                EvalAreaClaim condClaim(*this, 1);
-                uint16_t condSlot = condClaim.base();
-                EmitExpression(*pCase->Cond(), emitter, condSlot);
-                //Load switch value from dedicated slot to tempSlot2
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(switchSlot);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(m_currFunc->tempSlot2);
-                //Compare: tempSlot2 == condSlot → result in tempSlot2
-                emitter.Emit(OpCode::OP_Equal_i32);
-                emitter.EmitUint16(m_currFunc->tempSlot2);
-                emitter.EmitUint16(condSlot);
-                //If not equal, jump to next case handler
-                emitter.Emit(OpCode::OP_JumpIfNot);
-                condJumpPos = emitter.CurrentOffset();
-                emitter.EmitUint16(0);  //placeholder, same target as nextJump
-                emitter.EmitUint16(m_currFunc->tempSlot2);
+            //releases per label (labels are sequential; one claim's worth
+            //suffices — StmtPeakDepth's SwitchStmt case tracks claim=1).
+            const auto& labels = pCase->Labels();
+            std::vector<size_t> labelStarts;      //start of each label's compare
+            std::vector<size_t> missPositions;    //intermediate labels' JumpIfNot
+            std::vector<size_t> hitPositions;     //intermediate labels' Jump
+            for (size_t li = 0; li < labels.size(); ++li) {
+                labelStarts.push_back(emitter.CurrentOffset());
+                size_t condJumpPos;
+                {
+                    EvalAreaClaim condClaim(*this, 1);
+                    uint16_t condSlot = condClaim.base();
+                    EmitExpression(*labels[li], emitter, condSlot);
+                    //Load switch value from dedicated slot to tempSlot2.
+                    //Reloaded for EVERY label: the previous compare's result
+                    //occupies tempSlot2 and must not feed the next compare.
+                    emitter.Emit(OpCode::OP_VarLocal);
+                    emitter.EmitUint16(switchSlot);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    //Compare: tempSlot2 == condSlot → result in tempSlot2
+                    emitter.Emit(OpCode::OP_Equal_i32);
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                    emitter.EmitUint16(condSlot);
+                    //If not equal: intermediate labels try the next label,
+                    //the last label exits to the next case handler.
+                    emitter.Emit(OpCode::OP_JumpIfNot);
+                    condJumpPos = emitter.CurrentOffset();
+                    emitter.EmitUint16(0);  //placeholder
+                    emitter.EmitUint16(m_currFunc->tempSlot2);
+                }
+                if (li + 1 == labels.size()) {
+                    exitJumps.back().push_back(condJumpPos);
+                } else {
+                    //If equal, jump straight into the clause body.
+                    emitter.Emit(OpCode::OP_Jump);
+                    hitPositions.push_back(emitter.CurrentOffset());
+                    emitter.EmitUint16(0);  //placeholder → body start
+                    missPositions.push_back(condJumpPos);
+                }
             }
-            nextJumps.push_back(condJumpPos);
+
+            //Clause body — every hit-jump of this clause targets this offset,
+            //and each intermediate miss targets the NEXT label's compare.
+            //missPositions/hitPositions are pushed in pairs per intermediate
+            //label, so indexing both by the same bound is safe by construction.
+            size_t bodyStart = emitter.CurrentOffset();
+            for (size_t mi = 0; mi < missPositions.size(); ++mi) {
+                emitter.PatchUint16(missPositions[mi],
+                    static_cast<uint16_t>(labelStarts[mi + 1]));
+                emitter.PatchUint16(hitPositions[mi],
+                    static_cast<uint16_t>(bodyStart));
+            }
 
             //Compile case body
             EmitStatement(*pCase->Body(), emitter);
+
+            //Implicit clause exit (Java/C# style — no C fallthrough, no
+            //`break` needed). Pre-Phase-12 this jump was missing: a body
+            //fell into the NEXT clause's compares and, with a duplicate
+            //label there, re-matched and ran that body too (probed:
+            //case 1 / case 1 with x=1 summed both bodies). Distinct labels
+            //masked the gap because the compare cascade merely drained to
+            //the switch exit; multi-value labels widen the duplicate-
+            //collision surface, so the exit is now explicit. Dead but
+            //harmless after terminal statements (return/break/continue).
+            emitter.Emit(OpCode::OP_Jump);
+            bodyExitJumps.push_back(emitter.CurrentOffset());
+            emitter.EmitUint16(0);  //placeholder → locEnd
         }
 
         //5. Mark locCaseEnd (after all cases, before default)
@@ -5466,8 +5518,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //7. Mark locEnd (after default)
         size_t locEnd = emitter.CurrentOffset();
 
-        //8. FixChainedJumps: patch nextJumps so each case's jumps point
-        //to the next case's start. The last case's jumps point to
+        //8. FixChainedJumps: patch each clause's exit jumps so they point
+        //to the next clause's start. The last clause's jumps point to
         //default (if present) or switch end.
         //Reference: EN's Compiler::FixChainedJumps (Compiler.h:86).
         {
@@ -5480,16 +5532,20 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                     target = static_cast<uint16_t>(
                         switchStmt.Default() ? locCaseEnd : locEnd);
 
-                //Each case has 2 entries in nextJumps: jumpToNext and condJumpPos
-                size_t baseIdx = i * 2;
-                emitter.PatchUint16(nextJumps[baseIdx], target);
-                emitter.PatchUint16(nextJumps[baseIdx + 1], target);
+                //Variable entry count per clause: the OP_Case placeholder
+                //plus the last label's miss jump (pre-Phase-12: exactly 2).
+                for (size_t pos : exitJumps[i])
+                    emitter.PatchUint16(pos, target);
             }
         }
 
         //9. Fix break jumps (jump to switch end)
         auto& ctx = m_loopStack.back();
         for (size_t pos : ctx.breakJumps)
+            emitter.PatchUint16(pos, static_cast<uint16_t>(locEnd));
+
+        //10. Patch implicit clause exits (no-fallthrough) to the switch end.
+        for (size_t pos : bodyExitJumps)
             emitter.PatchUint16(pos, static_cast<uint16_t>(locEnd));
 
         m_loopStack.pop_back();

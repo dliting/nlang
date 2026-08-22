@@ -1,8 +1,11 @@
 int main() {
-    //Switch on string — NLang supports string in switch discriminators
-    //(OP_EqStr compares against each case label). Verifies the early
-    //"hi" case fails (string != comparison), the "hello" case matches,
-    //and execution jumps to the matching case body.
+    //Switch on string — NLang supports string in switch discriminators.
+    //Mechanism note (pre-Phase-12-Step-1): labels compare by string-pool
+    //index (OP_Equal_i32 on interned literals), NOT string content —
+    //equal literals share one pool entry so they match; computed strings
+    //("hel"+"lo") would fall to default. Step 1 changes this to value
+    //comparison (OP_Eq_str). Verifies the early "hi" case fails, the
+    //"hello" case matches.
     string s = "hello";
     switch (s) {
         case "hi": return 1;

@@ -261,6 +261,7 @@ static SnExpression* BuildStringExpr(
 %type <v_pCatchClauseList>	CatchClauseList
 %type <v_pDoStmt>		DoStmt
 %type <v_pSwitchStmt>	SwitchStmt
+%type <v_pExpressionList>	CaseLabelList
 %type <v_pCaseClause>	CaseClause
 %type <v_pCaseClauseList>	CaseClauseList
 %type <v_pBreakStmt>		BreakStmt
@@ -875,7 +876,18 @@ CaseClauseList:	CaseClauseList CaseClause {
 					$$ = EnNew(std::vector<SnCaseClause*>());
 				} ;
 
-CaseClause:	KT_Case Expression ':' StatementList {
+//Phase 12: comma-separated case labels — `case 1, 2:` enters the clause
+//body when ANY label matches. PtrList<SnExpression> follows ConcreteParamList.
+CaseLabelList:	CaseLabelList ',' Expression {
+					$1->push_back($3);
+					$$ = $1;
+			} |
+				Expression {
+					$$ = EnNew(PtrList<SnExpression>());
+					$$->push_back($1);
+			} ;
+
+CaseClause:	KT_Case CaseLabelList ':' StatementList {
 				$$ = EnNew(SnCaseClause($2, $4, @1));
 			} ;
 

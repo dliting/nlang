@@ -1,0 +1,23 @@
+int one() { return 1; }
+
+int pick(int x) {
+    int r = 0;
+    switch (x) {
+        case one(): r = r + 10;
+        case one(): r = r + 20;        //duplicate label across clauses
+        case one(), one(): r = r + 40; //duplicate multi-value label
+    }
+    return r;
+}
+
+int main() {
+    //Lock: no-fallthrough holds even with DUPLICATE labels across clauses.
+    //Labels are function calls (non-foldable) so D8's duplicate-label
+    //rejection (Step 1) does not reject this file — runtime semantics are
+    //first-match-wins. Pre-Phase-12 the compare cascade re-matched and
+    //summed all three bodies → 70; the implicit clause exits make it 10
+    //like Java/C#.
+    if (pick(1) != 10) return 1;
+    if (pick(2) != 0) return 2;   //no match, no default → r stays 0
+    return 0;
+}

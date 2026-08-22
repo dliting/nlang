@@ -524,6 +524,9 @@ public:
 /*
 Case clause in a switch statement.
 Reference: EN's CondClause (SeStatements.h:141).
+Phase 12: holds a comma-separated label list — `case 1, 2:` enters the
+body when ANY label matches. Cond() was replaced by Labels() so every
+consumer had to move to the list (no silent single-label assumption).
 */
 class NLANG_COMPILER_API SnCaseClause : public SyntaxNode
 {
@@ -532,10 +535,10 @@ public:
 	static const NodeKind	s_Kind			= NK_CaseClause;
 	static const NodeBits	s_DefaultFlags	= NF_NONE;
 
-	SnCaseClause(SnExpression *pCond, PtrList<SnStatement> *pStmts,
+	SnCaseClause(PtrList<SnExpression> *pLabels, PtrList<SnStatement> *pStmts,
 		const ISourceLocation &loc);
 
-	SnExpression *Cond() const { return m_pCond; }
+	const std::vector<SnExpression*> &Labels() const { return *m_upLabels; }
 	SnParagraph *Body() const { return m_pBody; }
 
 	std::string ToString() const override;
@@ -543,7 +546,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
-	SnExpression *m_pCond;
+	std::unique_ptr<std::vector<SnExpression*>> m_upLabels;
 	SnParagraph *m_pBody;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };

@@ -555,20 +555,28 @@ SnField *SnContinueStmt::FindField(const std::string& sName) const
 
 //SnCaseClause
 
-SnCaseClause::SnCaseClause(SnExpression *pCond,
+SnCaseClause::SnCaseClause(PtrList<SnExpression> *pLabels,
 	PtrList<SnStatement> *pStmts, const ISourceLocation &loc) :
-	Super_(s_Kind, FA_Public, s_DefaultFlags, loc), m_pCond(pCond),
+	Super_(s_Kind, FA_Public, s_DefaultFlags, loc),
+	m_upLabels(new std::vector<SnExpression*>(pLabels->begin(), pLabels->end())),
 	m_pBody(new SnParagraph(UniquePtrList<SnStatement>(pStmts), loc)),
 	m_upChildren(new ImmutableNodeList())
 {
-	assert(m_pCond);
-	AddChild(m_pCond);
+	assert(!m_upLabels->empty());  //grammar guarantees ≥1 label
+	delete pLabels;
+	for (auto* pLabel : *m_upLabels)
+		AddChild(pLabel);
 	AddChild(m_pBody);
 }
 
 std::string SnCaseClause::ToString() const
 {
-	return "case " + m_pCond->ToString() + ": " + m_pBody->ToString();
+	std::string s = "case ";
+	for (size_t i = 0; i < m_upLabels->size(); ++i) {
+		if (i) s += ", ";
+		s += (*m_upLabels)[i]->ToString();
+	}
+	return s + ": " + m_pBody->ToString();
 }
 
 void SnCaseClause::Accept(nlang::ISyntaxNodeVisitor& v)

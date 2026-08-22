@@ -1,0 +1,17 @@
+enum Color { Red, Green, Blue }
+
+int pick(Color c) {
+    switch (c) {
+        case Color.Red, Color.Blue: return 10;
+        case Color.Green: return 20;
+    }
+    return 99;
+}
+
+int main() {
+    //Multi-value case with enum labels: first and last member both match.
+    if (pick(Color.Red) != 10) return 1;
+    if (pick(Color.Blue) != 10) return 2;
+    if (pick(Color.Green) != 20) return 3;
+    return 0;
+}

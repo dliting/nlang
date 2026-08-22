@@ -614,7 +614,8 @@ public:
 	void Access(SnCaseClause &sn)
 	{
 		assert(m_pVisitor);
-		sn.Cond()->Accept(*m_pVisitor);
+		for (auto* pLabel : sn.Labels())
+			pLabel->Accept(*m_pVisitor);
 		sn.Body()->Accept(*m_pVisitor);
 	}
 

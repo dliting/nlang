@@ -1,0 +1,21 @@
+int pick(int x) {
+    int r = 0;
+    switch (x) {
+        case 1, 2:
+        case 3: r = r + 10;
+        case 4: r = r + 20;
+    }
+    return r;
+}
+
+int main() {
+    //Lock: an EMPTY case body does nothing and does NOT fall into the next
+    //clause's body — NLang is arrow-form semantics (decision #4), unlike
+    //Java/C#/C colon-form where stacked empty labels fall through. Grouping
+    //is expressed by multi-value labels (case 1, 2:) instead.
+    if (pick(1) != 0) return 1;
+    if (pick(2) != 0) return 2;
+    if (pick(3) != 10) return 3;
+    if (pick(4) != 20) return 4;
+    return 0;
+}

@@ -1,0 +1,28 @@
+int main() {
+    //Multi-value case labels (Phase 12): any matching label enters the body.
+    //x=1 hits the FIRST label (must jump straight to the body, not fall into
+    //label 2's compare); x=2 hits the LAST label; x=3 reaches default.
+    int r = 0;
+    int x = 1;
+    switch (x) {
+        case 1, 2: r = 10; break;
+        default: r = 99; break;
+    }
+    if (r != 10) return 1;
+
+    x = 2;
+    switch (x) {
+        case 1, 2: r = 20; break;
+        default: r = 99; break;
+    }
+    if (r != 20) return 2;
+
+    x = 3;
+    switch (x) {
+        case 1, 2: r = 30; break;
+        default: r = 40; break;
+    }
+    if (r != 40) return 3;
+
+    return r;   //40
+}

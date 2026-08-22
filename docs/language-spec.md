@@ -1216,14 +1216,12 @@ switch (value) {
 
 Switch values are int32 (including enum values). Break exits the switch.
 
-**No fall-through.** Each case body ends with an implicit break — execution
-does not cascade into the next case body even without an explicit `break`
-statement. This matches Java/C# semantics, not C/C++. (The codegen emits a
-per-case equality check; after a case body runs, control flows into the next
-case's comparison, which skips its body because the value no longer matches.
-Distinct case values therefore trigger exactly one body.) The `break` keyword
-is only needed to exit early from inside a multi-statement case body or to
-break out of an enclosing loop.
+**No fall-through.** Each case body ends with an implicit jump out of the
+switch — execution does not cascade into the next case body even without an
+explicit `break` statement. This matches Java/C# semantics, not C/C++. The
+`break` keyword is only needed to exit early from inside a multi-statement
+case body. A `break` inside a case body always binds to the switch itself,
+never to an enclosing loop.
 
 ### Null Check
 

@@ -1,0 +1,12 @@
+int one() { return 1; }
+int three() { return 3; }
+
+int main() {
+    //Labels containing calls exercise the walker's per-label depth path
+    //(each label claims one staging slot; nested call args claim more).
+    int x = 3;
+    switch (x) {
+        case one() + one(), three(): return 10;
+        default: return 90;
+    }
+}
