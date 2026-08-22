@@ -17,6 +17,7 @@
 #include "nlang.tab.h"
 #include "ScriptScanner.h"
 #include <cassert>
+#include <cmath>
 #include <cstring>
 
 /* handle locations */
@@ -273,16 +274,28 @@ LineComment	\/\/[^\n]*
             }
 
 {DecInt}    {
+                /*Full-value parse. The pattern admits exponent forms
+                 *("2e5"), and sscanf("%d") silently stops at 'e' (the
+                 *whole literal would read as 2). atof applies the
+                 *exponent; values that are not integral or fall outside
+                 *the 32-bit token range (int32 signed / uint32 unsigned)
+                 *are rejected as TT_Error — same channel as the unknown
+                 *string-escape rejection. */
+                double full = atof(yytext);
                 if (yytext[0] == '-')
                 {
+                    if (full < INT32_MIN || full != std::floor(full))
+                        return TT_Error;
                     nlang::int32 n;
-                    sscanf(yytext, "%d", &n);
+                    n = (nlang::int32)full;
                     DEAL_INT_TOKEN(n);
                 }
                 else
                 {
+                    if (full > UINT32_MAX || full != std::floor(full))
+                        return TT_Error;
                     nlang::uint32 n;
-                    sscanf(yytext, "%u", &n);
+                    n = (nlang::uint32)full;
                     DEAL_UINT_TOKEN(n);
                 }
             }

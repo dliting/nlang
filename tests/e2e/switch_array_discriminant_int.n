@@ -1,0 +1,10 @@
+int main() {
+    //compile_error: int[] discriminant. Array EvalDataType() reports the
+    //ELEMENT type (NK_Int32), which would slip past an Int-only family
+    //gate — IsArrayValuedExpr must intercept it first.
+    int[] a = new int[3];
+    switch (a) {
+        case 1: return 1;
+        default: return 2;
+    }
+}

@@ -1,0 +1,6 @@
+int main() {
+    //2e-1 = 0.2 is not an integer — rejected as an int literal. The
+    //Float rule requires a decimal point: write "2.0e-1" for 0.2.
+    int x = 2e-1;
+    return x;
+}

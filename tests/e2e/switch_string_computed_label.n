@@ -1,0 +1,19 @@
+int pick(string s, string t) {
+    int r = 0;
+    switch (s) {
+        case t: r = r + 1;         //computed label: runtime value equality
+        case "hi": r = r + 10;
+        default: r = r + 100;
+    }
+    return r;
+}
+
+int main() {
+    //Step 1 lock, symmetric side: computed STRING LABEL vs literal
+    //discriminant. Pre-Step-1 the label's runtime pool index differs
+    //from the literal's, so only default runs (returns 100). Bodies
+    //accumulate so the implicit exit stays observable in this test.
+    if (pick("hello", "hel" + "lo") != 1) return 1;
+    if (pick("hello", "zz") != 100) return 2;
+    return 0;
+}

@@ -1,0 +1,11 @@
+int main() {
+    //compile_error (D8): duplicate foldable label across clauses — no
+    //fall-through makes duplicates silent first-match-wins, so they are
+    //rejected at compile time.
+    int x = 1;
+    switch (x) {
+        case 1: return 1;
+        case 1: return 2;
+        default: return 3;
+    }
+}

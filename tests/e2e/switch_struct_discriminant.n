@@ -1,0 +1,16 @@
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    //Struct discriminant: value-typed aggregate, no equality family.
+    //Rejected on the same resolver path as class discriminants.
+    Point p;
+    p.x = 1;
+    p.y = 2;
+    switch (p) {
+        case 1: return 1;
+        default: return 2;
+    }
+}

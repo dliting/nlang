@@ -1,0 +1,24 @@
+int pick(string s) {
+    int r = 0;
+    switch (s) {
+        case "zebra": r = r + 1;    //declared FIRST: lower pool index than "apple"
+        case "apple": r = r + 10;
+        case "hel" + "lo": r = r + 100;   //computed label, value "hello"
+        default: r = r + 1000;
+    }
+    return r;
+}
+
+int main() {
+    //Adversarial for value-semantics string switch: "zebra" precedes
+    //"apple" in source, so the pool ORDER is reversed vs. lexicographic.
+    //Value comparison must be order-blind; the old pool-index compare
+    //would break computed strings crossing entries. Bodies accumulate
+    //so the implicit clause exit stays observable.
+    if (pick("zebra") != 1) return 1;
+    if (pick("apple") != 10) return 2;
+    if (pick("hel" + "lo") != 100) return 3;
+    if (pick("hello") != 100) return 4;   //same content via literal discriminant
+    if (pick("zz") != 1000) return 5;
+    return 0;
+}

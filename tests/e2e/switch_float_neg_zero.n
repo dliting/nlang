@@ -1,0 +1,14 @@
+int main() {
+    //IEEE-equality anchor (red until Step 1): a -0.0 discriminant must
+    //MATCH a 0.0 label — `a == b` semantics. Today's bit compare treats
+    //them as different (default runs, exit 6). Body accumulates so the
+    //implicit exit stays observable in this test.
+    int r = 0;
+    float f = -0.0;
+    switch (f) {
+        case 0.0: r = r + 5;
+        default: r = r + 60;
+    }
+    if (r != 5) return 6;
+    return 0;
+}

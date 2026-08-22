@@ -1,0 +1,9 @@
+int main() {
+    //compile_error (D8): duplicate float label.
+    float f = 1.5;
+    switch (f) {
+        case 1.5: return 1;
+        case 1.5: return 2;
+        default: return 3;
+    }
+}

@@ -1,0 +1,20 @@
+int one() { return 1; }
+int uno() { return 1; }
+
+int pick(int x) {
+    int r = 0;
+    switch (x) {
+        case one(): r = r + 1;    //both labels EVALUATE to 1 — non-foldable,
+        case uno(): r = r + 10;   //so D8 must NOT reject; runtime first-match-wins
+        default: r = r + 100;
+    }
+    return r;
+}
+
+int main() {
+    //D8 negative guard: non-constant labels with colliding values must
+    //compile fine — duplicate rejection covers only foldable labels.
+    if (pick(1) != 1) return 1;
+    if (pick(2) != 100) return 2;
+    return 0;
+}

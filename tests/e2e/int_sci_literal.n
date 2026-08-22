@@ -1,0 +1,17 @@
+int main() {
+    //Scientific-notation integer literals (DecInt rule): the exponent
+    //must be applied, not silently dropped — "2e5" is 200000, not 2.
+    int a = 2e5;
+    if (a != 200000) return 1;
+    int b = 2E3;
+    if (b != 2000) return 2;
+    int c = 1e0;
+    if (c != 1) return 3;
+    int d = 21e1;
+    if (d != 210) return 4;
+    int e = -2e3;
+    if (e != -2000) return 5;
+    int f = +5e1;
+    if (f != 50) return 6;
+    return 0;
+}

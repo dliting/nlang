@@ -38,6 +38,25 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 	return false;
 }
 
+//--- Phase 12 Step 1: switch family model (D1/D2) ----------------------
+//Switch discriminants and labels come in three families: int (including
+//enum values), float, string. Enum member references masquerade as
+//NK_Int32 (SnEnumMember::EvalDataType), and enum-typed variables carry
+//NK_EnumDecl — both map to Int, making enum and int labels one family.
+enum class SwitchFamily { None, Int, Float, String };
+
+static SwitchFamily SwitchFamilyOfKind(NodeKind kind)
+{
+	switch (kind)
+	{
+	case NK_Int32:
+	case NK_EnumDecl:	return SwitchFamily::Int;
+	case NK_Float:	return SwitchFamily::Float;
+	case NK_String:	return SwitchFamily::String;
+	default:	return SwitchFamily::None;
+	}
+}
+
 class StatementResolveAccessor
 {
 public:
@@ -45,6 +64,122 @@ public:
 		m_Env(env), m_pCurrType(nullptr), m_pVisitor(nullptr),
 		m_ExprResolver(m_Env)
 	{
+	}
+
+	//--- Phase 12 Step 1: switch family gating (D1/D2/D8) ---------------
+	//D8 duplicate detection: only FOLDABLE labels (literals and enum
+	//member references) are keyed — anything else (calls, variables,
+	//computed expressions) is left to runtime first-match-wins.
+	struct SwitchLabelKey
+	{
+		SwitchFamily	family = SwitchFamily::None;
+		int32_t		intValue = 0;
+		double		floatValue = 0.0;
+		std::string	stringValue;
+	};
+
+	static bool ExtractSwitchLabelKey(SnExpression& label,
+		SwitchLabelKey& key)
+	{
+		if (!label.IsResolved())
+			return false;
+		//Enum member reference (`Color.Red`): the resolved Field() chain
+		//carries the member node.
+		if (label.Kind() == NK_MemberExpr || label.Kind() == NK_IdentifierExpr)
+		{
+			auto* pField = static_cast<SnFieldExpr&>(label).Field();
+			if (pField && pField->Kind() == NK_EnumMember)
+			{
+				auto& member = static_cast<SnEnumMember&>(*pField);
+				//Defense in depth. In the normal flow the value pre-pass
+				//(Resolve -> PreAssignEnumMemberValues) has already
+				//assigned values for every enum by the time any switch
+				//resolves, so this gate never fires. It guards against a
+				//future reordering (e.g. the pre-pass removed or the data
+				//pass's early NF_Resolved trusted again) reintroducing
+				//stale-0 member keys as false duplicates.
+				auto* pDecl = member.Parent();
+				if (!pDecl || pDecl->Kind() != NK_EnumDecl
+					|| !pDecl->ContainFlags(NF_Resolved))
+					return false;
+				key.family = SwitchFamily::Int;
+				key.intValue = member.Value();
+				return true;
+			}
+			return false;
+		}
+		if (label.Kind() != NK_LiteralExpr)
+			return false;
+		auto& lit = static_cast<SnLiteralExpr&>(label);
+		auto* pType = lit.EvalDataType();
+		if (!pType)
+			return false;
+		switch (pType->Kind())
+		{
+		case NK_Int32:
+			key.family = SwitchFamily::Int;
+			key.intValue = lit.Value().Get<int32_t>();
+			return true;
+		case NK_Float:
+			key.family = SwitchFamily::Float;
+			key.floatValue = lit.Value().Get<float>();
+			return true;
+		case NK_String:
+		{
+			key.family = SwitchFamily::String;
+			auto* pStr = lit.Value().Data().m_String;
+			key.stringValue = pStr ? *pStr : "";
+			return true;
+		}
+		default:
+			return false;
+		}
+	}
+
+	//Report one error per redundant occurrence of a foldable value.
+	//Int-family keys (int literals + enum members, D2 one family) share
+	//one set; float keys compare as doubles, so 0.0 and -0.0 are one key
+	//(they match the same discriminant under IEEE equality).
+	void CheckDuplicateCaseLabels(SnSwitchStmt& sn)
+	{
+		std::vector<SwitchLabelKey> seen;
+		std::vector<std::string> reprs;
+		for (auto* pCase : sn.Cases())
+		{
+			for (auto* pLabel : pCase->Labels())
+			{
+				SwitchLabelKey key;
+				if (!ExtractSwitchLabelKey(*pLabel, key))
+					continue;
+				bool duplicate = false;
+				for (size_t n = 0; n < seen.size() && !duplicate; ++n)
+				{
+					if (seen[n].family != key.family)
+						continue;
+					duplicate = key.family == SwitchFamily::Int
+						? seen[n].intValue == key.intValue
+						: key.family == SwitchFamily::Float
+						? seen[n].floatValue == key.floatValue
+						: seen[n].stringValue == key.stringValue;
+					if (duplicate)
+						m_Env.Log(CLL_Error, pLabel->Location(),
+							"duplicate case label '%s'", reprs[n].c_str());
+				}
+				if (duplicate)
+					continue;
+				seen.push_back(key);
+				if (key.family == SwitchFamily::Int)
+					reprs.push_back(std::to_string(key.intValue));
+				else if (key.family == SwitchFamily::Float)
+				{
+					char buf[32];
+					snprintf(buf, sizeof(buf), "%g", key.floatValue);
+					reprs.push_back(buf);
+				}
+				else
+					reprs.push_back(key.stringValue);
+			}
+		}
 	}
 
 	void Visitor(ISyntaxNodeVisitor *pVisitor)
@@ -605,17 +740,64 @@ public:
 	{
 		assert(m_pVisitor);
 		sn.Cond()->Accept(*m_pVisitor);
+		//D1 family gate. Arrays masquerade as their element type
+		//(EvalDataType trap), so the array check comes FIRST. An
+		//unresolved cond already reported its own error — skip the
+		//family check to avoid cascades. The null literal is Int32-typed
+		//(nlang.y KT_Null) and would slip through the family check as
+		//Int — reject it on the cond side too, mirroring the label side.
+		if (sn.Cond()->ContainFlags(NF_NullLiteral))
+			m_Env.Log(CLL_Error, sn.Cond()->Location(),
+				"switch discriminant must be int, float, string, or enum");
+		else if (IsArrayValuedExpr(*sn.Cond()))
+			m_Env.Log(CLL_Error, sn.Cond()->Location(),
+				"switch discriminant must be int, float, string, or enum");
+		else if (sn.Cond()->IsResolved())
+		{
+			auto* pType = sn.Cond()->EvalDataType();
+			if (pType
+				&& SwitchFamilyOfKind(pType->Kind()) == SwitchFamily::None)
+				m_Env.Log(CLL_Error, sn.Cond()->Location(),
+					"switch discriminant must be int, float, string, or enum");
+		}
 		for (auto* pCase : sn.Cases())
 			pCase->Accept(*m_pVisitor);
 		if (sn.Default())
 			sn.Default()->Accept(*m_pVisitor);
+		CheckDuplicateCaseLabels(sn);
 	}
 
 	void Access(SnCaseClause &sn)
 	{
 		assert(m_pVisitor);
+		//D2: every label must belong to the discriminant's family. The
+		//cond's resolved type is read back through the parent switch
+		//(zero new AST state); an unresolved cond skips the check.
+		auto* pParent = sn.Parent();
+		auto* pSwitch = (pParent && pParent->Kind() == NK_SwitchStmt)
+			? static_cast<SnSwitchStmt*>(pParent) : nullptr;
+		auto* pCondType = pSwitch ? pSwitch->Cond()->EvalDataType() : nullptr;
+		auto condFamily = pCondType
+			? SwitchFamilyOfKind(pCondType->Kind()) : SwitchFamily::None;
 		for (auto* pLabel : sn.Labels())
+		{
 			pLabel->Accept(*m_pVisitor);
+			if (!pLabel->IsResolved())
+				continue;   //its own resolution already reported
+			if (pLabel->ContainFlags(NF_NullLiteral))
+			{
+				m_Env.Log(CLL_Error, pLabel->Location(),
+					"null is not a valid case label");
+				continue;
+			}
+			if (condFamily == SwitchFamily::None)
+				continue;
+			auto* pLabelType = pLabel->EvalDataType();
+			if (pLabelType
+				&& SwitchFamilyOfKind(pLabelType->Kind()) != condFamily)
+				m_Env.Log(CLL_Error, pLabel->Location(),
+					"case label type must match the switch discriminant family");
+		}
 		sn.Body()->Accept(*m_pVisitor);
 	}
 
@@ -1129,11 +1311,28 @@ public:
 	{
 	}
 
+	//Pre-pass for Resolve: run Access(SnEnumDecl) on every enum decl in
+	//the tree before normal document-order traversal. The ResolveDataTypes
+	//pass flags enum decls NF_Resolved WITHOUT assigning member values, so
+	//a forward-referenced enum (a function above the decl using
+	//`case Color.Red`) would otherwise read stale 0s — e.g. false
+	//"duplicate case label" errors. Value assignment is pure literal work,
+	//so pre-pass + in-order Access is idempotent.
+	static void PreAssignEnumMemberValues(Node& node,
+		StatementResolveAccessor& accessor)
+	{
+		if (node.Kind() == NK_EnumDecl)
+			accessor.Access(static_cast<SnEnumDecl&>(node));
+		for (auto& child : node.Children())
+			PreAssignEnumMemberValues(child, accessor);
+	}
+
 	void Resolve(SnNamespace &root)
 	{
 		SyntaxNodeVisitor<StatementResolveAccessor>
 			visitor(m_Accessor, NVK_CustomTraverse);
 		m_Accessor.Visitor(&visitor);
+		PreAssignEnumMemberValues(root, m_Accessor);
 		root.Accept(visitor);
 	}
 private:

@@ -1,0 +1,10 @@
+int main() {
+    //compile_error (D8): duplicate string label (keyed by content, pool
+    //interning irrelevant).
+    string s = "a";
+    switch (s) {
+        case "a": return 1;
+        case "a": return 2;
+        default: return 3;
+    }
+}

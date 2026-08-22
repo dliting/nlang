@@ -274,7 +274,7 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 //instantiation), so Kind()-based container/array dispatch must consult
 //the IsArrayType flag on the resolved field first (EvalDataType
 //dispatch-order trap — same family as toString/assign/member/length).
-static bool IsArrayTypedBase(SnExpression& baseExpr) {
+bool IsArrayTypedBase(SnExpression& baseExpr) {
 	SnIdentifierExpr* pId = nullptr;
 	if (baseExpr.Kind() == NK_IdentifierExpr)
 		pId = static_cast<SnIdentifierExpr*>(&baseExpr);
@@ -293,7 +293,7 @@ static bool IsArrayTypedBase(SnExpression& baseExpr) {
 //so a Kind()-based type check alone would let the array handle through
 //(Step 0 review round 2: `math.sqrt(new int[3])` and `math.sqrt(mk())`
 //with `int[] mk()` both slipped past the lvalue-only guard).
-static bool IsArrayValuedExpr(SnExpression& expr) {
+bool IsArrayValuedExpr(SnExpression& expr) {
 	switch (expr.Kind()) {
 	case NK_IdentifierExpr:
 	case NK_MemberExpr:

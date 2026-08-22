@@ -62,6 +62,12 @@ PascalCase to camelCase. Notable: `Length→length`, `Add→add`, `Equals→equa
 | float  | 4 bytes | 32-bit IEEE 754 float |
 | string | 4 bytes | Reference to string pool entry |
 
+**Numeric literals**: Integer literals may use exponent notation — `2e5`
+is 200000. The value must be integral and fit the 32-bit integer range;
+`1e30` (out of range) and `2e-1` (= 0.2, fractional) are compile errors.
+Float literals require a decimal point and may use exponents (`1.0e30`,
+`2.5e-3`); a bare `1e30` is an int literal, not a float.
+
 **String encoding**: String literals are stored as their UTF-8 byte sequence
 in the module string pool. `string.length()` returns the **byte count**, not
 the Unicode code-point count — `"héllo".length()` is 6 (5 code points but `é`
@@ -1208,13 +1214,28 @@ out of scope for Phase 9a and may be revisited in a future phase.
 
 ```
 switch (value) {
-    case 1: ...
-    case 2: ...
+    case 1, 2: ...
+    case 3: ...
     default: ...
 }
 ```
 
-Switch values are int32 (including enum values). Break exits the switch.
+**Discriminant families.** The switch discriminant may be an `int`, a
+`float`, a `string`, or an enum-typed value (enums compare as their int
+values). Class, struct, array, and `null` discriminants are rejected at
+compile time.
+
+**Typed equality.** Comparison uses the equality operator of the
+discriminant's family: ints and enums compare exactly; floats compare under
+IEEE semantics (`-0.0 == 0.0` is true, NaN never equals anything, including
+itself); strings compare by content, not by identity. Case labels must
+belong to the same family as the discriminant — no cross-family conversion
+(`case "1"` on an int discriminant is a compile error). `null` is not a
+valid case label. Labels may be computed expressions (e.g. `case f(x):`) —
+they are evaluated in clause order at run time.
+
+**Multi-value labels.** A case clause may list several labels
+(`case 1, 2:`); the body runs when any of them matches.
 
 **No fall-through.** Each case body ends with an implicit jump out of the
 switch — execution does not cascade into the next case body even without an
@@ -1222,6 +1243,12 @@ explicit `break` statement. This matches Java/C# semantics, not C/C++. The
 `break` keyword is only needed to exit early from inside a multi-statement
 case body. A `break` inside a case body always binds to the switch itself,
 never to an enclosing loop.
+
+**Duplicate labels.** Constant labels (numeric/string literals and enum
+members) with the same value within one switch — across clauses or inside
+one multi-value clause — are rejected at compile time (`case 1:` plus
+`case Color.Red:` where `Red = 0` is a duplicate). Duplicate non-constant
+labels (two calls that both return 1) are allowed; the first match wins.
 
 ### Null Check
 

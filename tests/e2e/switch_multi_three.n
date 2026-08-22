@@ -1,14 +1,17 @@
 int pick(int x) {
+    int r = 0;
     switch (x) {
-        case 1, 2, 3: return 10;
-        default: return 90;
+        case 1, 2, 3: r = r + 10;
+        default: r = r + 90;
     }
+    return r;
 }
 
 int main() {
     //Three labels per clause: first / middle / last each enter the body
     //(intermediate labels use the dual-jump shape; the last uses the
-    //single JumpIfNot-to-next-clause). All misses reach default.
+    //single JumpIfNot-to-next-clause). All misses reach default. Bodies
+    //accumulate so the implicit clause exit stays observable here.
     if (pick(1) != 10) return 1;
     if (pick(2) != 10) return 2;
     if (pick(3) != 10) return 3;

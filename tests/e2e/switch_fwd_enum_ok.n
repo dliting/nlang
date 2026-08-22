@@ -1,0 +1,25 @@
+int pick(int x) {
+    //Function BEFORE the enum decl: when this switch resolves, Color has
+    //not been visited yet (document order), so its member values are
+    //stale zeros. The D8 defensive gate (NF_Resolved check on the decl)
+    //must SKIP these labels rather than flag Red/Blue as duplicate 0s.
+    //Codegen runs after the full resolve pass, so runtime values are
+    //correct regardless of declaration order.
+    int r = 0;
+    switch (x) {
+        case Color.Red: r = r + 10;
+        case Color.Blue: r = r + 20;
+    }
+    return r;
+}
+
+enum Color { Red, Green, Blue }
+
+int main() {
+    //Forward-referenced enum labels compile and run correctly — locks
+    //the defensive gate against being "cleaned up" into false rejects.
+    if (pick(0) != 10) return 1;
+    if (pick(2) != 20) return 2;
+    if (pick(1) != 0) return 3;
+    return 0;
+}

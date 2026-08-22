@@ -1,0 +1,13 @@
+enum Color { Red, Green }
+
+int main() {
+    //compile_error (D8): enum member and int literal collide on value —
+    //enum labels are keyed by their int value in the same duplicate set
+    //as int labels (D2: enum and int are one family).
+    int x = 0;
+    switch (x) {
+        case 0: return 1;
+        case Color.Red: return 2;
+        default: return 3;
+    }
+}

@@ -30,6 +30,13 @@ enum ExprResolveFlag : uint8
 
 typedef uint8 ExprResolveFlagSet;
 
+//Array-masquerade predicates, shared with StatementResolver (Phase 12:
+//switch-discriminant family gating). EvalDataType() of an array returns
+//the ELEMENT type, so Kind()-based checks alone would let array handles
+//through. Definitions live in ExprResolver.cpp.
+bool IsArrayTypedBase(SnExpression& baseExpr);
+bool IsArrayValuedExpr(SnExpression& expr);
+
 /*
 The syntax node accessor for expression resolving.
 This class should be used with \a ExprResolver.

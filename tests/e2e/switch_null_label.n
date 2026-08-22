@@ -1,0 +1,8 @@
+int main() {
+    //compile_error: null is not a valid case label.
+    int x = 1;
+    switch (x) {
+        case null: return 1;
+        default: return 2;
+    }
+}

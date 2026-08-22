@@ -1,0 +1,21 @@
+int pick(string s) {
+    int r = 0;
+    switch (s) {
+        case "hello": r = r + 1;    //normal body end: must EXIT, not cascade
+        case "hi": r = r + 10;
+        default: r = r + 100;
+    }
+    return r;
+}
+
+int main() {
+    //Step 1 lock: VALUE-semantics string switch. Bodies accumulate instead
+    //of returning so the implicit clause exit stays observable here
+    //(return-bodies would mask a fallthrough regression). Pre-Step-1 the
+    //compare is by pool index: the computed discriminant never matches,
+    //pick returns 100 (observed). After the fix: value match + no cascade.
+    if (pick("hel" + "lo") != 1) return 1;   //cascade would give 11 or 111
+    if (pick("hi") != 10) return 2;
+    if (pick("zz") != 100) return 3;
+    return 0;
+}

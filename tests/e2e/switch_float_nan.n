@@ -1,0 +1,19 @@
+int main() {
+    //NaN never matches any label under IEEE equality (a == b is false
+    //when either side is NaN — even NaN == NaN). Constructed as
+    //inf - inf: 1.0e30 squared overflows to +inf on IEEE hardware
+    //(deterministic), and inf - inf is the canonical qNaN. The point
+    //form makes this a float literal: bare "1e30" is an int literal
+    //and is rejected for exceeding the 32-bit range (int_sci_overflow).
+    float big = 1.0e30;
+    big = big * big;             //+inf
+    float nanVal = big - big;    //inf - inf = NaN (canonical qNaN)
+    int r = 0;
+    switch (nanVal) {
+        case 0.0: r = r + 1;
+        case nanVal: r = r + 10; //NaN == NaN is false even with itself
+        default: r = r + 100;
+    }
+    if (r != 100) return 1;      //nothing matches; default runs
+    return 0;
+}

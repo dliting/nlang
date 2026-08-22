@@ -1,0 +1,9 @@
+int main() {
+    //compile_error: int label on a string discriminant (strict family
+    //match, no cross-family literals).
+    string s = "hello";
+    switch (s) {
+        case 1: return 1;
+        default: return 2;
+    }
+}

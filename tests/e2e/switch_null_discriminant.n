@@ -1,0 +1,9 @@
+int main() {
+    //The null literal is Int32-typed (KT_Null) and would slip through
+    //the family check as Int; rejected explicitly on the cond side,
+    //mirroring the label-side null rejection.
+    switch (null) {
+        case 0: return 1;
+        default: return 2;
+    }
+}

@@ -1,0 +1,10 @@
+int main() {
+    //compile_error: int label on a float discriminant. Today this is a
+    //silent never-match (float bits compared as int32 against 1) — Step 1
+    //must reject it at compile time.
+    float f = 1.5;
+    switch (f) {
+        case 1: return 1;
+        default: return 2;
+    }
+}

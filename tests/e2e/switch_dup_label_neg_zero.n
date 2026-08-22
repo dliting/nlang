@@ -1,0 +1,10 @@
+int main() {
+    //compile_error (D8): 0.0 and -0.0 are one key — IEEE equality makes
+    //them match the same discriminant, so they count as duplicates.
+    float f = 0.0;
+    switch (f) {
+        case 0.0: return 1;
+        case -0.0: return 2;
+        default: return 3;
+    }
+}

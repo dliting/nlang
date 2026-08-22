@@ -1,0 +1,16 @@
+enum Color { Red, Green }        //Red = 0
+enum Signal { Yellow, Red }      //Red = 1
+
+int main() {
+    //D8 negative guard: same member NAME in different enums with
+    //different VALUES — not duplicates (keys are values, not names).
+    int x = 1;
+    int r = 0;
+    switch (x) {
+        case Color.Red: r = r + 1;
+        case Signal.Red: r = r + 10;
+        default: r = r + 100;
+    }
+    if (r != 10) return 1;   //Signal.Red==1 matches; Color.Red==0 does not
+    return 0;
+}

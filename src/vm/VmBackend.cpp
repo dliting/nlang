@@ -5416,6 +5416,19 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         std::vector<size_t> bodyExitJumps;            //implicit no-fallthrough jumps, one per clause body
         std::vector<size_t> caseStartOffsets;
 
+        //Phase 12 Step 1: typed switch equality. The resolver family-gated
+        //the discriminant; pick the compare opcode per family. All three
+        //share the (lhs, rhs) operand layout and write the int result to
+        //the lhs slot, so the emission below is family-agnostic. Enum
+        //discriminants are int32 values — OP_Equal_i32 (default).
+        OpCode compareOp = OpCode::OP_Equal_i32;
+        if (auto* pCondType = switchStmt.Cond()->EvalDataType()) {
+            if (pCondType->Kind() == NK_Float)
+                compareOp = OpCode::OP_Equal_f32;
+            else if (pCondType->Kind() == NK_String)
+                compareOp = OpCode::OP_Eq_str;
+        }
+
         for (auto* pCase : switchStmt.Cases()) {
             //Record this case's start offset
             size_t caseStart = emitter.CurrentOffset();
@@ -5458,7 +5471,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                     emitter.Emit(OpCode::OP_Assign);
                     emitter.EmitUint16(m_currFunc->tempSlot2);
                     //Compare: tempSlot2 == condSlot → result in tempSlot2
-                    emitter.Emit(OpCode::OP_Equal_i32);
+                    emitter.Emit(compareOp);
                     emitter.EmitUint16(m_currFunc->tempSlot2);
                     emitter.EmitUint16(condSlot);
                     //If not equal: intermediate labels try the next label,

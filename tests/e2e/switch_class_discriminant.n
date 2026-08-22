@@ -1,0 +1,9 @@
+int main() {
+    //compile_error: class/struct/List/Dict switch discriminant rejected —
+    //suggest if/else + equals() instead (Java likewise refuses).
+    List<int> xs = new List<int>();
+    switch (xs) {
+        case 1: return 1;
+        default: return 2;
+    }
+}

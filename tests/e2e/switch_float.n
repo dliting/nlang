@@ -1,0 +1,20 @@
+int pick(float f) {
+    int r = 0;
+    switch (f) {
+        case 1.5: r = r + 7;
+        case 2.5: r = r + 80;
+        default: r = r + 900;
+    }
+    return r;
+}
+
+int main() {
+    //Regression lock (green BEFORE the Step 1 change): float discriminant
+    //with bit-identical literal labels matches under today's bit compare;
+    //Step 1's IEEE-equality compare must keep it green. Bodies accumulate
+    //so the implicit clause exit stays observable in this test.
+    if (pick(1.5) != 7) return 1;    //cascade would give 987
+    if (pick(2.5) != 80) return 2;
+    if (pick(3.5) != 900) return 3;
+    return 0;
+}

@@ -1,0 +1,9 @@
+int main() {
+    //compile_error: string[] discriminant masquerading as NK_String via
+    //its element type — the String family gate must reject arrays.
+    string[] a = new string[3];
+    switch (a) {
+        case "x": return 1;
+        default: return 2;
+    }
+}

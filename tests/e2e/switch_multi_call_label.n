@@ -4,9 +4,13 @@ int three() { return 3; }
 int main() {
     //Labels containing calls exercise the walker's per-label depth path
     //(each label claims one staging slot; nested call args claim more).
+    //Body accumulates so the implicit clause exit stays observable here
+    //(a return-body would mask a fallthrough regression).
+    int r = 0;
     int x = 3;
     switch (x) {
-        case one() + one(), three(): return 10;
-        default: return 90;
+        case one() + one(), three(): r = r + 10;
+        default: r = r + 90;
     }
+    return r;   //10: matched via the call label, exited without cascade
 }

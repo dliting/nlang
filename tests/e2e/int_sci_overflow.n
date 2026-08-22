@@ -1,0 +1,6 @@
+int main() {
+    //1e30 = 10^30 exceeds int32 — the lexer must reject the literal
+    //instead of silently truncating the exponent away ("1e30" -> 1).
+    int x = 1e30;
+    return x;
+}
