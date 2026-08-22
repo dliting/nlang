@@ -212,9 +212,10 @@ ImmutableNodeList *SnEnumMember::ChildrenPtr() const
 //--- SnEnumDecl ---
 
 SnEnumDecl::SnEnumDecl(std::string *pName, UniquePtrList<SnEnumMember> upMembers,
-	const ISourceLocation &loc) :
+	UniquePtrList<SnFunction> upMethods, const ISourceLocation &loc) :
 	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, loc),
-	m_upMembers(CreateChildFields(upMembers, this))
+	m_upMembers(CreateChildList<MemberList>(upMembers, this)),
+	m_upMethods(CreateChildList<MethodList>(upMethods, this))
 {
 }
 
@@ -229,7 +230,10 @@ SnField *SnEnumDecl::EvalDataType() const
 
 SnField *SnEnumDecl::FindField(const std::string& sName) const
 {
-	return m_upMembers->find(sName);
+	//Members first, then methods: "Color.Red" is a member lookup while
+	//"color.rank()" resolves the method through the same entry point.
+	SnField *pMember = m_upMembers->find(sName);
+	return pMember ? pMember : m_upMethods->find(sName);
 }
 
 void SnEnumDecl::Accept(ISyntaxNodeVisitor &v)

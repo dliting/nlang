@@ -5,6 +5,7 @@ This file define the interface of miscellaneous syntax node types.
 
 #pragma once
 #include "SnExpressions.h"
+#include "SnData.h"
 #include <nlang/runtime/RnMisc.h>
 #include <memory>
 
@@ -129,15 +130,25 @@ class NLANG_COMPILER_API SnEnumDecl : public SnCompoundField
 public:
 	static const NodeKind	s_Kind			= NK_EnumDecl;
 	static const NodeBits	s_DefaultFlags	= NF_Type | NF_Field | NF_Plain;
-	typedef ChildFieldList<SnEnumMember> MemberList;
+	/*
+	Members and methods share one child node list, so both views are kind
+	filtered: DefaultFieldFilter tests the IsField() flag, and every
+	SnFunction carries NF_Field — a flag-based MemberList would iterate
+	method nodes and cast them to SnEnumMember.
+	*/
+	typedef ChildFieldList<SnEnumMember, KindFieldFilter<NK_EnumMember>> MemberList;
+	typedef ChildFieldList<SnFunction, KindFieldFilter<NK_Function>> MethodList;
 public:
 	SnEnumDecl(std::string *pName, UniquePtrList<SnEnumMember> upMembers,
-		const ISourceLocation &loc);
+		UniquePtrList<SnFunction> upMethods, const ISourceLocation &loc);
 
 	~SnEnumDecl() override;
 
 	MemberList &Members() { return *m_upMembers; }
 	const MemberList &Members() const { return *m_upMembers; }
+
+	MethodList &Methods() { return *m_upMethods; }
+	const MethodList &Methods() const { return *m_upMethods; }
 
 	//enum values are int32 at runtime.
 	SnField *EvalDataType() const override;
@@ -146,6 +157,7 @@ public:
 	std::string ToString() const override;
 private:
 	std::unique_ptr<MemberList> m_upMembers;
+	std::unique_ptr<MethodList> m_upMethods;
 };
 
 //A struct field declaration (e.g. "int x" in struct Point { int x; int y; }).

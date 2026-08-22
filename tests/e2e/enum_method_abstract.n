@@ -1,0 +1,9 @@
+enum Color {
+    Red, Green;
+
+    public int f();
+}
+
+int main() {
+    return Color.Red.f();
+}

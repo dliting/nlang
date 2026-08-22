@@ -1,0 +1,20 @@
+enum Color {
+    Red, Green;
+
+    public int pick() {
+        //Duplicate enum-member labels inside a switch in an ENUM method
+        //body: the value pre-pass + resolve ordering must let the D8
+        //duplicate check see real member values here (diagnostic, not a
+        //parse failure).
+        int r = 0;
+        switch (this) {
+            case Color.Red, Color.Red: r = r + 1;
+            case Color.Green: r = r + 10;
+        }
+        return r;
+    }
+}
+
+int main() {
+    return Color.Green.pick();
+}

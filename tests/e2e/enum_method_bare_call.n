@@ -1,0 +1,19 @@
+//D9: a bare (receiver-less) invoke bound to an enum method shifts the
+//callee frame — the first argument is read as `this`. Rejected at the
+//resolver; use a receiver (this.combine(3) or c.combine(3)).
+enum Color {
+    Red, Green, Blue;
+
+    public int combine(int v) {
+        return this * 10 + v;
+    }
+
+    public int caller() {
+        return combine(3);
+    }
+}
+
+int main() {
+    Color c = Color.Green;
+    return c.caller();
+}

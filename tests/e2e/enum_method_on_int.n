@@ -1,0 +1,4 @@
+int main() {
+    //5 is an int, not an enum value — no method table to dispatch on.
+    return 5.label();
+}

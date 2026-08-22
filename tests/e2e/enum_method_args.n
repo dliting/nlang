@@ -1,0 +1,18 @@
+enum Scale {
+    One, Two, Three;
+
+    public int add(int offset) {
+        return this + offset;
+    }
+
+    public int combine(int a, int b) {
+        return this * 100 + a * 10 + b;
+    }
+}
+
+int main() {
+    if (Scale.Three.add(10) != 12) return 1;
+    if (Scale.One.add(-1) != -1) return 2;
+    if (Scale.Three.combine(3, 4) != 234) return 3;
+    return 0;
+}

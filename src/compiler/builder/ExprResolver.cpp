@@ -479,6 +479,35 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		}
 	}
 
+	//Phase 12 (D9): a bare (receiver-less) invoke that binds to a METHOD
+	//is a frame-shift bug — codegen's bare-invoke path emits OP_CallFunc
+	//with slotBase 0 while the callee's frame expects `this` at slot 0,
+	//so the first argument is read as the receiver (enum methods return
+	//silent garbage; class methods fail with a field-access error — the
+	//class side pre-dates Phase 12). The grammar only produces method
+	//calls as the Inner of a MemberExpr (`c.f()`, `this.f()`); an invoke
+	//in any other position (statement, nested argument, outer of a member
+	//access) that binds to a method is bare. Free functions (parent
+	//namespace) are unaffected.
+	auto *pInvokeParent = snInvoke.Parent();
+	bool bIsMethodCallShape = pInvokeParent
+		&& pInvokeParent->Kind() == NK_MemberExpr
+		&& static_cast<SnMemberExpr*>(pInvokeParent)->Inner() == &snInvoke;
+	if (pCallee && !bIsMethodCallShape)
+	{
+		auto *pCalleeParent = pCallee->Parent();
+		if (pCalleeParent && (pCalleeParent->Kind() == NK_ClassDecl
+			|| pCalleeParent->Kind() == NK_InterfaceDecl
+			|| pCalleeParent->Kind() == NK_EnumDecl))
+		{
+			m_Env.Log(CLL_Error, snInvoke.Location(),
+				"method \"%s\" must be called through a receiver "
+				"(e.g. this.%s(...)).",
+				pCallee->Name().c_str(), pCallee->Name().c_str());
+			return;
+		}
+	}
+
 	switch (res)
 	{
 	case FFR_ApproximateMatch:
@@ -814,6 +843,38 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		m_pContext = pOuterField;
 		if (pOuterField && !pOuterField->IsTypeField())
 			m_pContext = snMember.Outer()->EvalDataType();
+		//Phase 12: enum member receiver (`Color.Blue.rank()`). The member
+		//masquerades as Int32 (SnEnumMember::EvalDataType), which would
+		//land the context on the int builtin — re-anchor to the owning
+		//enum decl so the method search starts at the enum scope.
+		if (pOuterField && pOuterField->Kind() == NK_EnumMember)
+			m_pContext = pOuterField->Parent();
+	}
+
+	//Phase 12 review MAJOR-1: array-valued receivers masquerade as their
+	//ELEMENT type in EvalDataType (trap-12 family, instance #7). Without
+	//this gate the element type's method table binds — string[] receivers
+	//enter the string-builtin block, enum/class receivers bind user
+	//methods — and codegen passes the array's heap index as the receiver
+	//(silent wrong value; verified: enum[].rank() returned heapIdx+10).
+	//toString is exempt: the non-class toString dispatch below handles
+	//array receivers explicitly via the IsArrayType() field check.
+	{
+		auto* pInnerForGate = snMember.Inner();
+		if (pInnerForGate && pInnerForGate->Kind() == NK_InvokeExpr
+			&& IsArrayValuedExpr(*pOuterExpr))
+		{
+			auto& invoke = static_cast<SnInvokeExpr&>(*pInnerForGate);
+			if (invoke.CalleeName() != "toString")
+			{
+				m_Env.Log(CLL_Error, invoke.Location(),
+					"methods cannot be called on an array; index an element "
+					"first (e.g. a[i].%s(...)).",
+					invoke.CalleeName().c_str());
+				m_pContext = pSavedContext;
+				return;
+			}
+		}
 	}
 
 	SCOPED_FLAG_RESETER(*this);
@@ -2073,11 +2134,20 @@ void ExprResolveAccessor::Access(SnThisExpr &sn)
 				sn.AddFlags(NF_Resolved);
 				return;
 			}
+			//Phase 12: enum methods. `this` is the enum value — the decl
+			//masquerades as Int32 at runtime (SnEnumDecl::EvalDataType),
+			//so arithmetic and switch on `this` work unchanged.
+			if (pParent && pParent->Kind() == NK_EnumDecl)
+			{
+				sn.EvalDataType(static_cast<SnEnumDecl*>(pParent));
+				sn.AddFlags(NF_Resolved);
+				return;
+			}
 		}
 		pContext = pContext->Parent();
 	}
 	m_Env.Log(CLL_Error, sn.Location(),
-		"'this' can only be used inside a class method.");
+		"'this' can only be used inside a class or enum method.");
 }
 
 void ExprResolveAccessor::Access(SnClassDecl &sn)
@@ -2268,6 +2338,30 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 					searchScope(*pSuper);
 					pSuper = pSuper->SuperClass();
 				}
+			}
+			if (!bSearchInAncestor)
+				break;
+		}
+		else if (pParent->Kind() == NK_EnumDecl)
+		{
+			/*
+			Phase 12: enum methods. SnEnumDecl is not a
+			SnFunctionParentField — its members and methods are separate
+			kind-filtered child lists — so searchScope cannot be reused.
+			Enums have no inheritance chain. Like the class branch above,
+			a member-call context (ERF_SearchInParentOnly) stops here:
+			method-call syntax does not fall through to namespace scope.
+			*/
+			auto &rEnumDecl = static_cast<SnEnumDecl&>(*pParent);
+			auto range = rEnumDecl.Methods().NameDict().equal_range(sFuncName);
+			for (auto iField = range.first; iField != range.second; ++iField)
+			{
+				auto *pFunc = static_cast<SnFunction *>(iField->second);
+				if (!pFunc->AllowAccess(*m_pAccessor))
+					continue;
+				if (!bFoundByName)
+					bFoundByName = true;
+				consider(pFunc);
 			}
 			if (!bSearchInAncestor)
 				break;

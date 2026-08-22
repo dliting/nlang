@@ -743,6 +743,21 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             cf.name = func.Name();
             m_compiledModule.functions.push_back(std::move(cf));
             m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
+        } else if (member.Kind() == NK_EnumDecl) {
+            //Phase 12: enum methods. SnEnumDecl is not a
+            //SnFunctionParentField — methods live in a separate
+            //kind-filtered child list.
+            for (auto& method : static_cast<SnEnumDecl&>(member).Methods()) {
+                //Body-less methods were rejected by the resolver (D4);
+                //skipping here only mirrors the class path's defense.
+                if (!method.Body() && !method.ContainFlags(NF_Native))
+                    continue;
+                CompiledFunction cf;
+                cf.name = method.Name();
+                m_compiledModule.functions.push_back(std::move(cf));
+                m_funcIndexMap[&method] =
+                    m_compiledModule.functions.size() - 1;
+            }
         } else if (CanBeFuncParentEx(member.Kind())) {
             for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
                 if (child.Kind() == NK_Function) {
@@ -795,6 +810,16 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
             auto it = m_funcIndexMap.find(&func);
             if (it != m_funcIndexMap.end())
                 GenerateFunction(func, it->second);
+        } else if (member.Kind() == NK_EnumDecl) {
+            //Phase 12: generate enum method bodies (separate kind-
+            //filtered list; SnEnumDecl is not a SnFunctionParentField).
+            for (auto& method : static_cast<SnEnumDecl&>(member).Methods()) {
+                if (!method.Body() && !method.ContainFlags(NF_Native))
+                    continue;
+                auto it = m_funcIndexMap.find(&method);
+                if (it != m_funcIndexMap.end())
+                    GenerateFunction(method, it->second);
+            }
         } else if (CanBeFuncParentEx(member.Kind())) {
             //Phase 9d-2: super(...) emission needs the enclosing class.
             SnClassDecl* prevClass = m_pCurrClass;
@@ -2195,7 +2220,9 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     //callParamBase cells and writes the return into pResult.
     if (func.ContainFlags(NF_Native)) {
         compiledFunc.isNative = true;
-        bool isMethod = func.Parent() && func.Parent()->Kind() == NK_ClassDecl;
+        bool isMethod = func.Parent()
+            && (func.Parent()->Kind() == NK_ClassDecl
+                || func.Parent()->Kind() == NK_EnumDecl);
         compiledFunc.paramCount = static_cast<uint16_t>(
             func.Params().size() + (isMethod ? 1 : 0));
         compiledFunc.localsSize = compiledFunc.paramCount * VALUE_SIZE;
@@ -2223,10 +2250,17 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     ctx.nextOffset = 0;
     m_currFunc = &ctx;
 
-    // If this is a class method, allocate slot 0 for the 'this' pointer.
-    bool isMethod = func.Parent() && func.Parent()->Kind() == NK_ClassDecl;
+    // If this is a class or enum method, allocate slot 0 for 'this'.
+    bool isMethod = func.Parent()
+        && (func.Parent()->Kind() == NK_ClassDecl
+            || func.Parent()->Kind() == NK_EnumDecl);
     if (isMethod) {
-        AllocLocal("__this", VALUE_SIZE, RTK_Class, true);
+        //Phase 12: an enum method's `this` is the enum VALUE (int32), not
+        //a heap reference — RTK_Class here would make GC root scanning
+        //treat the integer as a heap index (plan 12b round-1 MAJOR 2/3).
+        uint8_t thisKind =
+            (func.Parent()->Kind() == NK_EnumDecl) ? RTK_Int32 : RTK_Class;
+        AllocLocal("__this", VALUE_SIZE, thisKind, true);
     }
 
     // Allocate slots for parameters
@@ -2991,6 +3025,53 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(resultOffset);
             return;
+        }
+        //Phase 12: user-defined enum method call (c.rank(),
+        //Color.Blue.rank(), this.weight()). Detection is by the resolver
+        //binding: invoke.Field() is the SnFunction whose parent is the
+        //enum decl — both receiver shapes bind identically. The receiver
+        //is the enum VALUE (an int32 slot), so unlike the class path
+        //there is no null check and no boxing; the claim shape is the
+        //same receiver-first form with thisSlot=resultOffset. The builtin
+        //toString dispatch below stays reachable: user methods of that
+        //name are rejected at declaration (D5), so a bound enum-method
+        //callee is never toString.
+        {
+            auto* inner = member.Inner();
+            if (inner && inner->Kind() == NK_InvokeExpr)
+            {
+                auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+                auto* callee = invoke.Callee();
+                if (callee && callee->Parent()
+                    && callee->Parent()->Kind() == NK_EnumDecl)
+                {
+                    //Evaluate the receiver (enum value) into resultOffset.
+                    EmitExpression(*member.Outer(), emitter, resultOffset);
+                    std::vector<OutSpill> outSpills;
+                    //Enum methods reject default and out formals at
+                    //declaration (D4) — the binding path emits exactly
+                    //the actual arguments.
+                    EmitCallArgs(invoke, callee, emitter, /*slotBase=*/1,
+                                 /*pArgPlans=*/nullptr,
+                                 /*thisSlot=*/resultOffset, &outSpills);
+                    if (!outSpills.empty())
+                        throw std::runtime_error(
+                            "NLang backend: out argument on enum method "
+                            "call");
+                    auto it = m_funcIndexMap.find(callee);
+                    if (it == m_funcIndexMap.end())
+                        throw std::runtime_error(
+                            "NLang backend: call to enum method without "
+                            "a body: " + callee->Name());
+                    emitter.Emit(OpCode::OP_CallMethodDirect);
+                    emitter.EmitUint16(static_cast<uint16_t>(it->second));
+                    emitter.EmitUint16(m_currFunc->callParamBase);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.Emit(OpCode::OP_ParaEnd);
+                    return;
+                }
+            }
         }
         //Phase 8e-9b: non-class receiver toString() dispatch.
         //For enum/int/float receivers, the resolver accepted the call

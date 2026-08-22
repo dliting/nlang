@@ -1,0 +1,15 @@
+//Review MAJOR-1: an array-of-enum receiver masquerades as its element
+//type — without the array gate the enum method table binds and the
+//array's heap index is passed as `this` (silent wrong value).
+enum Color {
+    Red, Green;
+
+    public int rank() {
+        return this + 10;
+    }
+}
+
+int main() {
+    Color[] a = new Color[2];
+    return a.rank();
+}

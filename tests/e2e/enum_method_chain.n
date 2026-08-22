@@ -1,0 +1,23 @@
+enum Planet {
+    Mercury, Venus, Earth;
+
+    public int weight() {
+        return this + 100;
+    }
+
+    public int doubled() {
+        //Method calling another method through this.
+        return this.weight() * 2;
+    }
+}
+
+int main() {
+    //this.weight() chain inside doubled(): Earth=2 -> 102*2.
+    if (Planet.Earth.doubled() != 204) return 1;
+    //Member-style receiver calling the inner method directly.
+    if (Planet.Venus.weight() != 101) return 2;
+    //Enum-typed local receiver.
+    Planet p = Planet.Mercury;
+    if (p.doubled() != 200) return 3;
+    return 0;
+}

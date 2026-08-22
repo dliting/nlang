@@ -1,0 +1,11 @@
+enum Color {
+    Red, Green;
+
+    public string toString() {
+        return "nope";
+    }
+}
+
+int main() {
+    return 0;
+}

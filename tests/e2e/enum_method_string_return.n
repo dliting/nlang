@@ -1,0 +1,17 @@
+enum Color {
+    Red, Green, Blue;
+
+    public string label() {
+        if (this == Color.Red) return "rouge";
+        if (this == Color.Green) return "vert";
+        return "bleu";
+    }
+}
+
+int main() {
+    if (Color.Green.label() != "vert") return 1;
+    if (Color.Blue.label() != "bleu") return 2;
+    Color c = Color.Red;
+    if (c.label() != "rouge") return 3;
+    return 0;
+}

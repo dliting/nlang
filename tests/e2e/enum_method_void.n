@@ -1,0 +1,14 @@
+enum Level {
+    Low, High;
+
+    public void announce() {
+        //void method: no return value, called at statement position.
+        //High = 1 (Low=0), so this + 100 prints 101.
+        io.print(this + 100);
+    }
+}
+
+int main() {
+    Level.High.announce();
+    return 0;
+}

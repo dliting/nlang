@@ -1,0 +1,17 @@
+enum Color {
+    Red, Green, Blue;
+
+    public int rank() {
+        return this * 10;
+    }
+}
+
+int main() {
+    //Both receiver shapes: enum-typed local (variable) and member-style
+    //(Color.Blue masquerades as NK_Int32 through the member's type).
+    Color c = Color.Green;
+    if (c.rank() != 10) return 1;
+    if (Color.Blue.rank() != 20) return 2;
+    if (Color.Red.rank() != 0) return 3;
+    return 0;
+}

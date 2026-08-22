@@ -837,3 +837,23 @@ int_sci_overflow compile_error
 int_sci_fractional compile_error
 switch_struct_discriminant compile_error
 switch_null_discriminant compile_error
+enum_method_basic 0
+enum_method_args 0
+enum_method_chain 0
+enum_method_switch_this 0
+enum_method_string_return 0
+enum_method_void 0 101
+enum_semicolon_tail 0
+enum_method_abstract compile_error
+enum_method_default_param compile_error
+enum_method_out_param compile_error
+enum_method_tostring_reserved compile_error
+enum_method_on_int compile_error
+switch_dup_label_enum_method compile_error
+enum_method_bare_call compile_error
+class_bare_method_call compile_error
+enum_method_this_member 7
+enum_method_this_field compile_error
+enum_method_array_receiver compile_error
+string_array_method_call compile_error
+class_array_method_call compile_error

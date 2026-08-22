@@ -202,6 +202,7 @@ static SnExpression* BuildStringExpr(
 	nlang::SnEnumDecl *					v_pEnumDecl;
 	nlang::SnEnumMember *				v_pEnumMember;
 	nlang::PtrList<nlang::SnEnumMember> *	v_pEnumMemberList;
+	nlang::PtrList<nlang::SnFunction> *	v_pEnumMethodList;
 	nlang::SnStructDecl *				v_pStructDecl;
 	nlang::SnStructField *				v_pStructField;
 	nlang::PtrList<nlang::SnStructField> *	v_pStructFieldList;
@@ -270,6 +271,8 @@ static SnExpression* BuildStringExpr(
 %type <v_pEnumDecl>			EnumDecl
 %type <v_pEnumMember>		EnumMember
 %type <v_pEnumMemberList>	EnumMemberList
+%type <v_pEnumMethodList>	EnumMethodSection EnumMethodList
+%type <v_pFunction>		EnumMethod
 %type <v_pStructDecl>		StructDecl
 %type <v_pStructField>		StructField
 %type <v_pStructFieldList>	StructFieldList
@@ -901,8 +904,8 @@ DefaultCase:	{
 /*
 Enum type declaration.
 */
-EnumDecl:	KT_Enum TT_Identifier '{' EnumMemberList '}' {
-					$$ = EnNew(SnEnumDecl($2, $4, @1));
+EnumDecl:	KT_Enum TT_Identifier '{' EnumMemberList EnumMethodSection '}' {
+					$$ = EnNew(SnEnumDecl($2, $4, $5, @1));
 				} ;
 
 EnumMemberList:	EnumMemberList ',' EnumMember {
@@ -920,6 +923,52 @@ EnumMember:	TT_Identifier {
 				TT_Identifier '=' Expression {
 					$$ = EnNew(SnEnumMember($1, $3, @1));
 				} ;
+
+/*
+Optional method table, separated from the member list by a ';' tail.
+The lone ';' production accepts the Java-style "enum E { A; }" closing
+separator with no methods following.
+*/
+EnumMethodSection:	';' EnumMethodList {
+				$$ = $2;
+			} |
+				';' {
+				$$ = EnNew(PtrList<SnFunction>());
+			} |
+				/* empty */ {
+				$$ = EnNew(PtrList<SnFunction>());
+			} ;
+
+EnumMethodList:	EnumMethodList EnumMethod {
+				$1->push_back($2);
+				$$ = $1;
+			} |
+				EnumMethod {
+				$$ = EnNew(PtrList<SnFunction>());
+				$$->push_back($1);
+			} ;
+
+/*
+Enum methods take no NodeFlag modifiers (no static/override/native),
+unlike ClassMember. Bodyless declarations still parse (FunctionBodyOrSemi)
+so the resolver can reject them with a proper diagnostic.
+*/
+EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+				auto* func = EnNew(SnFunction($1, NF_NONE, $2, $3, $5, @2));
+				if ($7 == nullptr)
+					func->AddFlags(NF_Abstract);
+				else
+					func->Body($7);
+				$$ = func;
+			} |
+				AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+				auto* func = EnNew(SnFunction($1, NF_NONE, nullptr, $3, $5, @2));
+				if ($7 == nullptr)
+					func->AddFlags(NF_Abstract);
+				else
+					func->Body($7);
+				$$ = func;
+			} ;
 
 /*
 Struct type declaration.

@@ -1,0 +1,13 @@
+enum Scale {
+    One, Two;
+
+    public int split(out int o) {
+        o = this * 10;
+        return this;
+    }
+}
+
+int main() {
+    int o = 0;
+    return Scale.Two.split(o);
+}

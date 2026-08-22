@@ -20,6 +20,27 @@ struct DefaultFieldFilter
 };
 
 /*
+Kind-based child filter. DefaultFieldFilter tests the IsField() FLAG, and
+every SnFunction carries NF_Field — so a ChildFieldList<SnEnumMember>
+over a decl that also stores methods would iterate SnFunction nodes and
+dereference them as members. Lists mixing leaf node kinds must filter by
+Kind() instead (e.g. SnEnumDecl members vs methods).
+*/
+template <NodeKind K>
+struct KindFieldFilter
+{
+	KindFieldFilter()
+	{
+	}
+
+	bool operator()(const Node *pNode) const
+	{
+		assert(pNode);
+		return pNode->Kind() == K;
+	}
+};
+
+/*
 Proxy class provides child node list modification of a given parent node.
 This class is often used as a base class of those ones who like to modify the
 child node list.

@@ -1,0 +1,20 @@
+//D9: bare invokes bound to methods are a pre-existing frame-shift bug on
+//the class side too (runtime "struct field access out of bounds" before
+//this rejection). Methods must be called through a receiver.
+class Point {
+    public int x;
+
+    public int helper(int v) {
+        return this.x + v;
+    }
+
+    public int caller() {
+        return helper(3);
+    }
+}
+
+int main() {
+    Point p = new Point();
+    p.x = 10;
+    return p.caller();
+}

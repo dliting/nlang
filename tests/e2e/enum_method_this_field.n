@@ -1,0 +1,14 @@
+//Trap 13 miss path: this.<unknown> inside an enum method finds no member
+//and no field — clean resolver error.
+enum Color {
+    Red, Green, Blue;
+
+    public int broken() {
+        return this.nope;
+    }
+}
+
+int main() {
+    Color c = Color.Green;
+    return c.broken();
+}

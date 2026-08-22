@@ -1,0 +1,15 @@
+//Review MAJOR-1 (class side): an array-of-class receiver masquerades as
+//its element type and binds the class method table — previously a loud
+//runtime field-access error, now a compile-time rejection.
+class Point {
+    public int x;
+
+    public int helper() {
+        return this.x + 1;
+    }
+}
+
+int main() {
+    Point[] ps = new Point[2];
+    return ps.helper();
+}

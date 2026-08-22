@@ -1,0 +1,8 @@
+//Review MAJOR-1 (string side, pre-existing silent hole closed by the
+//same gate): a string[] receiver masquerades as NK_String and enters
+//the string-builtin block — words.length() silently measured garbage.
+int main() {
+    string[] words = new string[2];
+    words[0] = "abc";
+    return words.length();
+}

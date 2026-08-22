@@ -1,0 +1,11 @@
+enum Scale {
+    One, Two;
+
+    public int add(int a, int b = 5) {
+        return this + a + b;
+    }
+}
+
+int main() {
+    return Scale.One.add(1);
+}

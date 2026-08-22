@@ -34,7 +34,29 @@ public:
 
 	void Access(SnEnumDecl &sn)
 	{
+		/*
+		Phase 12: enum methods live in a separate kind-filtered list.
+		Check each table for internal duplicates, then across the two
+		tables (a method sharing a member's name is a conflict — the
+		member would shadow the method in FindField). CheckFields Accepts
+		every field, so the methods' param checks run through their own
+		NameDict pass — no separate descend loop needed. (Param
+		diagnostics are multi-logged by the pre-existing pass machinery,
+		same as class methods.)
+		*/
 		CheckFields(sn.Members().NameDict());
+		CheckFields(sn.Methods().NameDict());
+		for (auto &method : sn.Methods()) {
+			auto *pMember = sn.Members().find(method.Name());
+			if (pMember) {
+				m_Env.Log(CLL_Error, method.Location(),
+					"The field \"%s\" is conflicted with a exist field "
+					"definition.", method.ToString().c_str());
+				m_Env.Log(CLL_More, pMember->Location(),
+					"See also the definition of \"%s\".",
+					pMember->ToString().c_str());
+			}
+		}
 	}
 
 	void Access(SnStructDecl &sn)

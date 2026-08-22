@@ -1,0 +1,15 @@
+//Trap 13 (documented behavior): inside an enum method, this.<member>
+//resolves through the enum's member table as a constant — this.Red reads
+//Red's value, it is not a self comparison. Distinctive value 7 pins it.
+enum Color {
+    Red = 7, Green, Blue;
+
+    public int aliasRed() {
+        return this.Red;
+    }
+}
+
+int main() {
+    Color c = Color.Green;
+    return c.aliasRed();
+}

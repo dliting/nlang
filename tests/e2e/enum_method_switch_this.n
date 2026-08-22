@@ -1,0 +1,21 @@
+enum State {
+    Idle, Running, Done;
+
+    public int phase() {
+        //12a x 12b crossing: multi-value case labels on `this`.
+        //Bodies accumulate so the implicit clause exit stays observable.
+        int r = 0;
+        switch (this) {
+            case State.Idle, State.Running: r = r + 1;
+            case State.Done: r = r + 10;
+        }
+        return r;
+    }
+}
+
+int main() {
+    if (State.Idle.phase() != 1) return 1;
+    if (State.Running.phase() != 1) return 2;
+    if (State.Done.phase() != 10) return 3;
+    return 0;
+}
