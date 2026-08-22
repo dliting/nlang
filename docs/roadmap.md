@@ -68,6 +68,8 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 - lambda 表达式 + 闭包捕获；enum 方法引用；跨模块函数引用；多播委托；Func 协变/逆变
 - 用户定义泛型：`class Foo<T>`
+- 内存管理全面 RAII 化：智能指针替换文法/构建器中的裸 `new` 与自定义 `UniquePtr` 容器（EnNew/EnDelete 宏已于 2026-08-23 移除）
+- 基于LLVM的本地字节码生成编译器
 - 包管理器：模块依赖管理（阶段 11 延后项）
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
 - 数组动态增长重设计（Python list 风格，基于 class）
