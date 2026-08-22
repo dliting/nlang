@@ -181,6 +181,56 @@ enum Direction { North = 0, East = 90, South = 180, West = 270 }
 
 Enum values are int32 at runtime. Members can be explicit or auto-incremented.
 
+#### Enum Methods (Phase 12)
+
+```
+enum Color {
+    Red = 1, Green = 2, Blue = 4;
+
+    public int weight(int base) {
+        return this * base;
+    }
+
+    public int isPrimary() {
+        switch (this) {
+            case Color.Red, Color.Green, Color.Blue: return 1;
+        }
+        return 0;
+    }
+}
+```
+
+Methods are declared after the member list, separated by a `;`. A lone
+trailing `;` with no methods (`enum E { A; }`) is accepted Java-style
+closing syntax. Every method must have a body (abstract methods are
+rejected).
+
+- **`this` is the enum value.** Inside a method, `this` is the int32
+  value of the receiver: it participates in arithmetic and `switch`
+  directly (`this * base`, `switch (this)`), with no boxing. Methods
+  are statically dispatched (`OP_CallMethodDirect`) — enums have no
+  inheritance and no virtual dispatch.
+- **Call through a receiver.** `c.weight(3)`, `this.weight(3)`,
+  `Color.Red.weight(3)` — any enum-valued expression works. A bare
+  `weight(3)` (receiver-less) is a compile error, matching class
+  methods.
+- **Parameters:** no default values (`int f(int a, int b = 5)` is
+  rejected) and no `out` parameters.
+- **`toString` is reserved.** The built-in `toString()` intrinsic
+  (value → name) cannot be shadowed by a user method.
+- **`this.<member>` resolves as a constant.** `this.Red` inside a
+  method reads the member `Red`'s value — it does not compare against
+  the receiver. Convenient, but easy to misread; name receivers
+  explicitly when in doubt.
+- **Member/method name sharing is a conflict** (`enum E { f; int f() {...} }`
+  is rejected). Access modifiers follow class-method rules.
+- **Cross-module enums are not supported.** An enum type declared in an
+  imported module is not visible to the importer (the `.nmod` format
+  serializes enum names only, not declarations) — this is a pre-existing
+  limitation of the module format, not specific to methods.
+- Arrays of enums: methods cannot be called on the array itself — index
+  an element first (`a[i].rank()`, not `a.rank()`).
+
 ### Struct Declaration
 
 ```
@@ -1666,6 +1716,15 @@ or return a derived value that fits in the exit code range.
 
 - **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
   built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
+- **Array values inside generic containers** (Phase 12 residual):
+  `List<T[]>` / `Dict<K,T[]>` store arrays as erased references — pulling
+  one out (`li[0]`, `li.get(0)`) yields an expression whose array-ness is
+  invisible to the compiler's array gates. Calling a method on it
+  (`li[0].rank()`) or switching on it (`switch (li[0])`) compiles but
+  misbehaves at run time (the array's heap index is used as the value).
+  Workaround: pull it into a typed local first (`Color[] a = li[0];`),
+  which restores the array gates. Direct array-typed shapes
+  (`a.rank()`, `switch (arr)`) are rejected at compile time.
 - **Bare `{...}` collection init**: dict/struct/class init requires the
   explicit `new Type{...}` form (the bare `{...}` form conflicts with
   block-statement grammar). See Collection Initializers above.

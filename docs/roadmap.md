@@ -390,7 +390,7 @@ switch (x) {
 | P2 | 9. 高级特性 | 分批实施 9a-9f ✅ |
 | P2 | 10. IDE 移植（nide） | 开发效率 ✅（LSP 已拆至最后） |
 | P3 | 11. 标准库 | ✅ math/io/fs/string 已交付（包管理延后） |
-| P3 | 12. 语言特性增强 | switch 多值/多类型（equals 语义）+ enum class 化 |
+| P3 | 12. 语言特性增强 | ✅ switch 多值 case + 类型化相等 + 重复标签拒绝 + enum 方法（Java 式，this=int）（2026-08-22） |
 | P4 | LSP 支持 | 最后实施（用户指示 2026-08-21） |
 
 > 阶段 12（EN 引擎集成）已移除：NLang 作为独立语言演进，不再以与 EN 集成为目标。
@@ -407,7 +407,8 @@ switch (x) {
 - Phase 9f（2026-08-16）：native 函数绑定 MVP——`.nmod` v1.6 + VmExecutor RegisterNative 按名派发（CallNative 统一 OP_CallFunc/方法路径/Execute(main)）+ intrinsic 同构 4 字节 ABI + 默认参数（含跨模块，native 分支补 defaultValues 序列化 + MergeImported placeholder 透传 isNative）+ native+body/out 编译拒绝 + ncc/nvm TestNatives 测试面 + 8 新测试（547 total）；同轮修复：FindFuncByInvoke FFR_FuncNameNotFound 路径不写 out-param → 调用方读栈垃圾指针段错误 ncc（潜伏 bug，import stub 改变栈布局后显形；callee 入口清零根治）+ ncc/nvm 内建 SEH+dbghelp 符号化崩溃报告器（本轮定位即靠它）
 - 9f-2 遗留：string/struct/class 参数列集、注册表签名校验（class-member native 已实证可用：`this` 在 args[0] 的方法 ABI，e2e native_method.n 锁定）
 - Phase 11 标准库（2026-08-21 完成）：Steps 0-5 全部交付并评审提交（机制金丝雀 ea86b7b → math 87431eb → io b79a467 → string 5ff2a76 → null 哨兵修复 2d1c0cf → 关系比较修复 b7df9bf → fs 库 7bbe321 → Step 5 文档/示例/收尾；634 e2e 全绿）。IDE 移植（阶段 10）已于 2026-08-20 完成（Step 10 journey 测试 0311ba7）
-- 下一步：Phase 12 语言特性增强（switch 多值 case + equals 语义 + enum class 化）
+- Phase 12 语言特性增强（2026-08-22 完成）：**Step 0**（a877da5）switch 多值 case 标签 + 隐式子句出口（Java/C# 无穿透，用户决策）+ FixChainedJumps 可变长记录；**Step 1**（e02102a）switch 类型化相等（OP_Equal_i32/f32/Eq_str 三分派 + 判别值/标签族门 + 数组伪装 IsArrayValuedExpr 共享谓词）+ 重复标签编译期拒绝（值键三族 + PreAssignEnumMemberValues 预跑）+ 裸指数 int 字面量 lexer 修复（strtod 全量求值 + 范围检查）；**Step 2**（e96e08a）Java 式 enum 方法（this=int32、OP_CallMethodDirect、this 槽 RTK_Int32 防 GC 毒化、D4/D5 声明侧边界）+ 两项实施期根修：D9 裸调用绑定方法拒绝（帧错位：enum 静默垃圾/类侧既有崩溃，AST 形状判据一条规则关两侧）、数组接收者门（EvalDataType 伪装家族第 7 例：`Color[] a; a.rank()` 静默传堆索引作 this，一门关 enum/string 内建/类方法表三路，toString 豁免；已知残余：List<T[]> 容器内数组值绕门，记未来方向）；**Step 3** 文档/示例（language-spec Enum Methods 小节 + vm-architecture Switch/enum 调用约定 + examples switch_tour.n/enum_methods.n）。**687 e2e 全绿**
+- 下一步：Phase 12 横切收尾（如 IsArrayValuedExpr 容器元素臂——同时关接收者门与 switch 族门的 List<T[]> 残余）或 P4 LSP 支持
 
 ## 文档索引
 

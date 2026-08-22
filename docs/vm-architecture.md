@@ -448,12 +448,52 @@ Emit sites:
 - `VmBackend.cpp` `EmitExpression(SnCastExpr&)` for binary `+` coercion
   (enum/int/float→string when the other operand is string).
 
-### Switch
+### Switch (Phase 12)
 
 | Opcode     | Operands       | Description                    |
 |------------|----------------|--------------------------------|
 | OP_Switch  | uint16 localOff | Marker (no runtime effect)    |
 | OP_Case    | uint16 nextOff  | Marker (patched by compiler)  |
+
+A switch compiles to a chain of per-label comparisons and conditional
+jumps — there is no jump-table opcode. The comparison opcode is chosen
+from the discriminant's **family** (not its static type):
+
+- int family (int + enums, which compare as their int values) →
+  `OP_Equal` (i32)
+- float family → `OP_Equal_f32` (IEEE `==`: `-0.0 == 0.0` is true, NaN
+  never matches)
+- string family → `OP_Eq_str` (byte-content compare, pool order is
+  irrelevant)
+
+Multi-value clauses (`case 1, 2:`) emit one comparison per label: every
+label's test jumps to the clause body on hit and to the next label's
+test on miss; a single-label clause degenerates to today's two-jump
+shape. Because a clause carries 2+N jumps of four distinct target
+kinds (clause exit / next label / body / implicit exit), the jump
+back-patcher (`FixChainedJumps`) walks a variable-length record list —
+the historical `i * 2` fixed-stride assumption is gone. Each case body
+ends with an implicit jump out of the switch (Java/C# no-fall-through);
+an explicit `break` additionally pops handlers, as it may leave catch
+regions lexically.
+
+### Enum Method Calling Convention (Phase 12)
+
+Enum methods reuse the class-method call path with one convention:
+**`this` is the enum's int32 value, not a heap reference**.
+
+- Calls emit `OP_CallMethodDirect funcIdx callParamBase` after the
+  receiver expression is evaluated into the claim area's slot 0
+  (receiver-first shape, same as `s.equals`).
+- The callee frame's `this` local is allocated with typeKind
+  `RTK_Int32` (class methods use `RTK_Class`). This matters: the GC
+  root scan walks locals by typeKind — an enum `this` typed as a class
+  would be traced as a heap index and corrupt the heap.
+- Representation decision (D3): enums stay nominal-int32 at runtime —
+  `==`, `switch`, argument passing, and `.nmod` serialization are all
+  untouched. Java-style heap-singleton enums would need a module-level
+  instance-init subsystem (init function execution order + GC roots)
+  and are deliberately deferred.
 
 ### Misc
 

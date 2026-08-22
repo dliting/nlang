@@ -1,0 +1,36 @@
+// enum_methods.n — Java-style enum methods (Phase 12): `this` is the
+// enum's int value, calls go through any enum-valued receiver.
+
+enum Planet {
+    Mercury = 1, Venus = 2, Earth = 3, Mars = 4;
+
+    public int weight(int mass) {
+        // `this` participates in arithmetic directly (int32, no boxing).
+        return this * mass;
+    }
+
+    public string describe() {
+        switch (this) {
+            case Planet.Earth:
+                return "home";
+            case Planet.Mars, Planet.Venus:
+                return "neighbor";
+        }
+        return "inner";
+    }
+}
+
+int main() {
+    Planet p = Planet.Earth;
+    io.print(p.weight(10));            // 30 — receiver is a variable
+    io.print(Planet.Mars.weight(10));  // 40 — receiver is a member
+    io.print(p.describe());            // "home"
+    io.print(Planet.Venus.describe()); // "neighbor" — multi-value label hit
+
+    // Methods chain through expressions and work with toString():
+    io.print(p.weight(2).toString());  // "6"
+
+    // Duplicate labels are caught at compile time; methods can't be
+    // called on an enum array (index it first) — see language spec.
+    return 0;
+}

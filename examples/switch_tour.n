@@ -1,0 +1,57 @@
+// switch_tour.n — the Phase 12 switch: multi-value labels, typed
+// equality across all four families, and no-fallthrough bodies.
+
+int classify(int n) {
+    switch (n) {
+        case 0:
+            return 100;
+        case 1, 2, 3:            // multi-value label
+            return 200;
+        default:
+            return 300;
+    }
+}
+
+int spell(string s) {
+    switch (s) {                 // string family: content compare
+        case "one", "uno":
+            return 1;
+        case "two":
+            return 2;
+    }
+    return 0;
+}
+
+int bucket(float f) {
+    switch (f) {                 // float family: IEEE equality
+        case 0.5, 1.5:
+            return 5;
+        case -0.0:               // matches 0.0 too: -0.0 == 0.0
+            return 9;
+    }
+    return -1;
+}
+
+enum Color { Red, Green, Blue }
+
+int pick(Color c) {
+    switch (c) {                 // enum family: compares as int values
+        case Color.Red, Color.Blue:
+            return 10;
+        case Color.Green:
+            return 20;
+    }
+    return 0;
+}
+
+int main() {
+    io.print(classify(0));       // 100
+    io.print(classify(2));       // 200 — second label of the same clause
+    io.print(classify(7));       // 300 — default
+    io.print(spell("uno"));      // 1 — multi-value works for strings
+    io.print(spell("other"));    // 0
+    io.print(bucket(1.5));       // 5
+    io.print(bucket(0.0));       // 9 — IEEE: -0.0 label matches 0.0
+    io.print(pick(Color.Blue));  // 10 — first clause's second label
+    return 0;
+}
