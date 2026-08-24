@@ -217,6 +217,16 @@ SnField *SnLocalDeclStmt::FindField(const std::string& sName) const
 	return nullptr;
 }
 
+bool SnLocalDeclStmt::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pType == pOld)
+	{
+		ResetChild(m_pType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 //SnAssignStmt
 
 SnAssignStmt::SnAssignStmt(SnExpression *pLeft, SnExpression *pRight,
@@ -509,6 +519,18 @@ SnField *SnForeachStmt::FindField(const std::string& sName) const
 	return nullptr;
 }
 
+bool SnForeachStmt::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The loop variable type is cached in a typed slot beside the children
+	//list; keep it in sync when an alias expansion splices the child.
+	if (m_pVarType == pOld)
+	{
+		ResetChild(m_pVarType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 //SnBreakStmt
 
 SnBreakStmt::SnBreakStmt(const ISourceLocation &loc) :
@@ -656,6 +678,16 @@ std::string SnCatchClause::ToString() const
 {
 	return "catch (" + m_pType->ToString() + " " + m_sVarName + ") " +
 		(m_pBody ? m_pBody->ToString() : std::string("{}"));
+}
+
+bool SnCatchClause::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pType == pOld)
+	{
+		ResetChild(m_pType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
 void SnCatchClause::Accept(nlang::ISyntaxNodeVisitor& v)

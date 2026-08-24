@@ -108,6 +108,20 @@ public:
 	//Get the namespace using list of this node.
 	const UsingList *Usings() const;
 
+	/*
+	Replace a direct child node with another one, in the same slot.
+	\return false if pOld is not a child of this node.
+	Precondition: pOld is a child of this node; pNew has no parent.
+
+	The base implementation only splices the children list. Node classes
+	that cache a typed member pointer to a child (e.g. a type slot like
+	SnDataField::m_pType) MUST override this to route through ResetChild,
+	keeping the member and the children list in sync.
+	Used by the Phase 13 TU-level alias expansion pre-pass; node classes
+	that may hold a type name expression child must stay reachable here.
+	*/
+	virtual bool ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew);
+
 	//Accept a visitor using the Visitor design pattern.
 	virtual void Accept(ISyntaxNodeVisitor&) = 0;
 

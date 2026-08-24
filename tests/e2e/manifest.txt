@@ -857,3 +857,27 @@ enum_method_this_field compile_error
 enum_method_array_receiver compile_error
 string_array_method_call compile_error
 class_array_method_call compile_error
+alias_basic 5
+alias_to_class 5
+alias_to_array 9
+alias_in_generic 7
+alias_in_params_return 4
+alias_chain 6
+alias_new_expr 2
+alias_as_target 3
+alias_cycle compile_error
+alias_redef compile_error
+alias_clash_class compile_error
+alias_fwd_alias compile_error
+alias_clash_builtin compile_error
+#Phase 13 Step 0 fix round (superpowers r1): crash repros + coverage locks.
+alias_foreach 6
+alias_initlist 42
+alias_param_checker compile_error is not a valid data type.
+alias_catch 5
+alias_super 3
+alias_newarray_elem 7
+alias_multi_decl 4
+alias_struct_field 6
+alias_iface_method 5
+alias_subscript 12

@@ -50,6 +50,20 @@ SnField *SnDataField::EvalDataType() const
 	return static_cast<SnField *>(m_pType->Field());
 }
 
+bool SnDataField::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pType == pOld)
+	{
+		ResetChild(m_pType, static_cast<SnFieldExpr *>(pNew));
+		//The type checker is a property of the slot owner, not of the
+		//node: a spliced-in clone (alias expansion) arrives without one,
+		//so re-install the same checker Init() puts on a parsed type.
+		m_pType->Checker(&SnFieldExpr::DataTypeChecker());
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 bool SnDataField::IsArrayType() const
 {
 	return m_pType && m_pType->IsArrayType();
@@ -146,6 +160,21 @@ std::string SnFunction::ToString() const
 	}
 	ss << ")";
 	return ss.str();
+}
+
+bool SnFunction::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pReturnType == pOld)
+	{
+		ResetChild(m_pReturnType, static_cast<SnFieldExpr *>(pNew));
+		//The type checker is a property of the slot owner, not of the
+		//node: a spliced-in clone (alias expansion) arrives without one,
+		//so re-install the same checker the constructor puts on a
+		//parsed return type.
+		m_pReturnType->Checker(&SnFieldExpr::DataTypeChecker());
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
 bool SnFunction::ConflictedWith(const SnField &other) const

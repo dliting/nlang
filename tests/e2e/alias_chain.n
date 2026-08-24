@@ -1,0 +1,10 @@
+//Phase 13 Step 0: chained aliases (an alias referencing an earlier
+//alias — text order matters).
+using A = Dict<string, int>;
+using B = A;
+
+int main() {
+	B x = new Dict<string, int>();
+	x["k"] = 6;
+	return x["k"];
+}

@@ -4,6 +4,7 @@
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
+#include "BuiltinNames.h"
 #include <nlang/vm/StdLib.h>
 #include <map>
 #include <set>
@@ -30,23 +31,11 @@ static SnClassDecl* s_pAssertExcClass = nullptr;
 static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
 
 //Phase 9d: returns true for any name in the built-in Exception hierarchy.
-static bool IsBuiltinExceptionClassName(const std::string& name)
-{
-    return name == "Exception" || name == "NullPointerException"
-        || name == "DivByZeroException" || name == "IndexOutOfBoundsException"
-        || name == "AssertionException" || name == "IOException";
-}
+//Phase 13: the name predicates moved to builder/BuiltinNames.h (shared with
+//the alias clash check); local statics are no longer needed.
 
-//Phase 10 audit H2: single predicate for every name GetBuiltinClassDecl
-//can synthesize. Call sites used to duplicate this filter three times —
-//a future builtin added to one copy but not the chain below would fall
-//into the old `s_pObjectClass` fallback and silently corrupt the Object
-//singleton. Everything routes through this one function now.
-static bool IsBuiltinClassName(const std::string& name)
-{
-    return name == "ByteStream" || name == "FileStream" || name == "Object"
-        || IsBuiltinExceptionClassName(name);
-}
+//Phase 10 audit H2: IsBuiltinClassName moved to builder/BuiltinNames.h
+//(shared with the Phase 13 alias clash check in DuplicateFieldChecker).
 
 //Precondition: name passes IsBuiltinClassName. Returns nullptr for any
 //other name (defensive — callers skip resolution and the identifier

@@ -1,0 +1,17 @@
+//Phase 13 Step 0 fix round coverage lock: alias in the extends clause.
+//Triangle extends via the alias name; virtual dispatch through the
+//base-typed parameter must still reach the override. Verified working
+//before the fix; this test pins it.
+using Shape2 = Shape;
+
+class Shape {
+    public virtual int sides() { return 0; }
+}
+class Triangle : Shape2 {
+    public int sides() { return 3; }
+}
+int count(Shape s) { return s.sides(); }
+int main() {
+    Triangle t = new Triangle();
+    return count(t);
+}

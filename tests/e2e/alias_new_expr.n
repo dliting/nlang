@@ -1,0 +1,10 @@
+//Phase 13 Step 0: alias as the class name of a new-expression
+//(NewExpr must accept a generic type node in its class-name slot
+//after expansion).
+using Grid = Dict<string, int>;
+
+int main() {
+	Grid g = new Grid();
+	g["a"] = 2;
+	return g["a"];
+}

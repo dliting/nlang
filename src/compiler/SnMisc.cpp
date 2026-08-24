@@ -299,6 +299,16 @@ ImmutableNodeList *SnStructField::ChildrenPtr() const
 	return m_upChildren.get();
 }
 
+bool SnStructField::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pType == pOld)
+	{
+		ResetChild(m_pType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 //--- SnStructDecl ---
 
 SnStructDecl::SnStructDecl(std::string *pName, UniquePtrList<SnStructField> upMembers,
@@ -385,6 +395,16 @@ ImmutableNodeList *SnClassField::ChildrenPtr() const
 	return m_upChildren.get();
 }
 
+bool SnClassField::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pType == pOld)
+	{
+		ResetChild(m_pType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 //--- SnClassDecl ---
 
 SnClassDecl::SnClassDecl(std::string *pName, SnFieldExpr *pSuper,
@@ -405,6 +425,26 @@ void SnClassDecl::AddImplementsName(SnFieldExpr *pName)
 	m_implementsNames.push_back(pName);
 	if (pName)
 		AddChild(pName);
+}
+
+bool SnClassDecl::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The super-class name and the implements names are both cached in
+	//typed slots beside the children list; keep them in sync on splice.
+	if (m_pSuper == pOld)
+	{
+		ResetChild(m_pSuper, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	for (auto &pName : m_implementsNames)
+	{
+		if (pName == pOld)
+		{
+			ResetChild(pName, static_cast<SnFieldExpr *>(pNew));
+			return true;
+		}
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
 size_t SnClassDecl::FieldCount() const
@@ -478,17 +518,18 @@ std::string SnInterfaceDecl::ToString() const
 
 SnUsing::SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc) :
 	Super_(s_Kind, FA_Public, NF_NONE, loc), m_pPath(pPath),
-	m_pNamespace(nullptr), m_upChildren(new ImmutableNodeList())
+	m_pAliasType(nullptr), m_pNamespace(nullptr),
+	m_upChildren(new ImmutableNodeList())
 {
 	static SnFieldExpr::FieldChecker pathChecker =
-		[](SnFieldExpr& path, BuildEnvironment& env)->bool 
+		[](SnFieldExpr& path, BuildEnvironment& env)->bool
 	{
 		auto pField = path.Field();
 		assert(pField);
 		if (pField->Kind() == NK_Namespace)
 			return true;
 		env.Log(CLL_Error, path.Location(),
-			"The field \"%s\" is not a namespace.", 
+			"The field \"%s\" is not a namespace.",
 			pField->ToString().c_str());
 		env.Log(CLL_More, pField->Location(),
 			"See the declaration of \"%s\".",
@@ -501,13 +542,40 @@ SnUsing::SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc) :
 	AddChild(m_pPath);
 }
 
+SnUsing::SnUsing(SnFieldExpr *pPath, SnFieldExpr *pAliasType,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, FA_Public, NF_NONE, loc), m_pPath(pPath),
+	m_pAliasType(pAliasType), m_pNamespace(nullptr),
+	m_upChildren(new ImmutableNodeList())
+{
+	//Alias form: the path is the alias name, never resolved as a
+	//namespace — no path checker is installed and ModuleBuilder's
+	//ResolveUsingLists skips alias-form usings entirely.
+	assert(m_pPath);
+	assert(m_pAliasType);
+	AddChild(m_pPath);
+	AddChild(m_pAliasType);
+}
+
 SnUsing::~SnUsing()
 {
 	// m_upChildren is now unique_ptr - auto-deleted
 }
 
+std::string SnUsing::AliasName() const
+{
+	assert(IsAlias());
+	assert(m_pPath->Kind() == NK_NameExpr);
+	auto pExpr = static_cast<SnNameExpr *>(m_pPath)->Expr();
+	assert(pExpr && pExpr->Kind() == NK_IdentifierExpr);
+	return static_cast<SnIdentifierExpr *>(pExpr)->Name();
+}
+
 std::string SnUsing::ToString() const
 {
+	if (IsAlias())
+		return "using " + m_pPath->ToString() + " = " +
+			m_pAliasType->ToString();
 	return "using " + m_pPath->ToString();
 }
 

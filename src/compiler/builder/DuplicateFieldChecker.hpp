@@ -2,7 +2,11 @@
 #include "SnExtraTypes.h"
 #include "BuildEnvironment.h"
 #include "SyntaxNodeVisitor.h"
+#include "BuiltinNames.h"
+#include "TranslationUnit.h"
 #include <nlang/vm/StdLib.h>
+#include <set>
+#include <string>
 
 namespace nlang
 {
@@ -194,6 +198,51 @@ public:
 		SyntaxNodeVisitor<DuplicateFieldCheckAccessor> visitor(m_Accessor);
 		m_Accessor.m_pVisitor = &visitor;
 		root.Accept(visitor);
+	}
+
+	/*
+	Phase 13: check the alias-form usings of one translation unit for name
+	clashes. The comparison is deliberately TU-local: it must run BEFORE the
+	units are merged (unit roots intact), because an alias in TU1 may legally
+	share its name with a member of TU2 — TU1's use sites are already
+	expanded by then. Compared sets: other aliases of the same unit, the
+	unit's own root members, built-in type names in the tree root (int/
+	float/string), lazily synthesized built-in class names, the built-in
+	generic class names, and the reserved stdlib namespace names.
+	*/
+	void CheckUnitAliases(const TranslationUnit &unit, SnNamespace &treeRoot)
+	{
+		auto pUsings = unit.Usings();
+		if (!pUsings)
+			return;
+
+		std::set<std::string> aliasNames;
+		for (auto pUsing : *pUsings)
+		{
+			if (!pUsing->IsAlias())
+				continue;
+			const auto sName = pUsing->AliasName();
+			if (!aliasNames.insert(sName).second)
+			{
+				m_Accessor.m_Env.Log(CLL_Error, pUsing->Location(),
+					"The type alias \"%s\" is defined more than once in "
+					"this translation unit.", sName.c_str());
+				continue;
+			}
+			//Names that resolution would route somewhere else than the
+			//alias: same-unit declarations, built-in types and classes,
+			//built-in generics, reserved stdlib namespaces.
+			if ((unit.Root() && unit.Root()->FindField(sName))
+				|| treeRoot.FindField(sName)
+				|| sName == "List" || sName == "Dict" || sName == "Func"
+				|| IsBuiltinClassName(sName)
+				|| IsStdLibNamespaceName(sName))
+			{
+				m_Accessor.m_Env.Log(CLL_Error, pUsing->Location(),
+					"The name \"%s\" cannot be used as a type alias.",
+					sName.c_str());
+			}
+		}
 	}
 private:
 	DuplicateFieldCheckAccessor m_Accessor;

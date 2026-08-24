@@ -1,0 +1,12 @@
+//Phase 13 Step 0 fix round coverage lock: alias as the element type of
+//"new Elem[...]". The element type slot is held outside the children
+//list; the alias pre-pass reaches it through the explicit NewArrayExpr
+//branch. Verified working before the fix; this test pins it.
+using Elem = int;
+
+int main() {
+    Elem[] outer = new Elem[2];
+    outer[1] = new int[1];
+    outer[1][0] = 7;
+    return outer[1][0];
+}

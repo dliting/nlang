@@ -34,8 +34,6 @@ private:
 
 	//Create a empty module as the current module to be built.
 	bool CreateModule();
-	//Parse source files.
-	bool ParseSources();
 	//Load imported symbols to a rebuilt AST.
 	bool LoadImports();
 	//Find .nmod file for a module name in m_ImportDirs. Returns empty if not found.
@@ -46,6 +44,11 @@ private:
 	bool SaveModule();
 	//Roughly parse the source files as translation units.
 	void ParseTransUnits();
+	//Phase 13: register `using N = T;` aliases and expand them at use
+	//sites. Runs per translation unit after parsing and before merging —
+	//alias scope is the translation unit, and the unit boundaries (and
+	//roots) are gone after the merge.
+	void ExpandTypeAliases();
 	//Merge the root fields in different translation units into the AST.
 	void MergeTransUnits();
 

@@ -233,6 +233,7 @@ public:
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr *m_pType;
 	std::unique_ptr<std::vector<LocalDecl>> m_upDecls;
@@ -478,6 +479,7 @@ public:
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr  *m_pVarType;
 	std::string   m_varName;
@@ -605,6 +607,7 @@ public:
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;

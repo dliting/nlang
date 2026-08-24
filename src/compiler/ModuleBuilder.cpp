@@ -11,6 +11,7 @@
 #include "builder/ImportedNodeBuilder.hpp"
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/DuplicateFieldChecker.hpp"
+#include "builder/AliasExpander.hpp"
 #include "builder/StatementResolver.hpp"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/Module.h>
@@ -74,6 +75,12 @@ bool ModuleBuilder::Build()
 	//Parse sources first so TranslationUnit.m_Imports is populated; the
 	//list of imports to load comes from source, not from CLI.
 	ParseTransUnits();
+	if (m_upEnv->HasError())
+		return false;
+
+	//Phase 13: type alias pre-pass — must run before the units are merged
+	//(alias scope is the translation unit; the merge clears unit roots).
+	ExpandTypeAliases();
 	if (m_upEnv->HasError())
 		return false;
 
@@ -212,31 +219,6 @@ std::string ModuleBuilder::FindModuleFile(const std::string &name) const
 	return std::string();
 }
 
-bool ModuleBuilder::ParseSources()
-{
-	ParseTransUnits();
-
-	//Bail out before MergeTransUnits if any parse failed — on a top-level
-	//syntax error the CompileUnit rule never reduces, so
-	//TranslationUnit::Root() stays null and MergeFrom would deref null.
-	if (m_upEnv->HasError())
-		return false;
-
-	MergeTransUnits();
-
-	ResolveUsingLists();
-
-	ResolveDataTypes();
-
-	CheckDuplicateFields();
-
-	ResolveDataValues();
-
-	ResolveStatements();
-
-	return !m_upEnv->HasError();
-}
-
 bool ModuleBuilder::GenerateCodes()
 {
 	ICodeBackend* backend = m_upEnv->Backend();
@@ -274,6 +256,20 @@ void ModuleBuilder::ParseTransUnits()
 	}
 }
 
+void ModuleBuilder::ExpandTypeAliases()
+{
+	//Per unit: clash check first (needs the unit root and the built-in
+	//members of the tree root), then registration + use-site expansion.
+	//Errors abort Build() right after this step.
+	DuplicateFieldChecker checker(*m_upEnv);
+	AliasExpander expander(*m_upEnv);
+	for (auto pTransUnit : *m_upTransUnits)
+	{
+		checker.CheckUnitAliases(*pTransUnit, TreeRoot());
+		expander.ProcessUnit(*pTransUnit);
+	}
+}
+
 void ModuleBuilder::MergeTransUnits()
 {
 	SnNamespace &root = TreeRoot();
@@ -295,6 +291,11 @@ void ModuleBuilder::ResolveUsingLists()
 		assert(pUsings);
 		for (auto pUsing : *pUsings)
 		{
+			//Phase 13: alias-form usings are consumed by the alias
+			//pre-pass (ExpandTypeAliases); their path is the alias NAME,
+			//not a namespace path, and must not be resolved here.
+			if (pUsing->IsAlias())
+				continue;
 			assert(!pUsing->IsResolved());
 			SnFieldExpr *pPath = pUsing->Path();
 			assert(pPath);

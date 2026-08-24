@@ -1,0 +1,12 @@
+//Phase 13 Step 0 fix round coverage lock: alias in a catch parameter
+//type slot. Verified working before the fix; this test pins it.
+using Exc = Exception;
+
+int main() {
+    try {
+        throw new Exception("boom");
+    } catch (Exc e) {
+        return 5;
+    }
+    return 1;
+}

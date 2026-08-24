@@ -489,6 +489,8 @@ public:
 	void Accept(ISyntaxNodeVisitor &) override;
 
 	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr *m_pElementType;
 };
@@ -522,6 +524,8 @@ public:
 	void Accept(ISyntaxNodeVisitor &) override;
 
 	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr							*m_pBase;
 	std::unique_ptr<std::vector<SnFieldExpr*>>	m_upTypeArgs;
@@ -599,7 +603,10 @@ public:
 	}
 
 	SnExpression *Operand() const { return m_pOperand; }
-	SnNameExpr *TargetType() const { return m_pTargetType; }
+	//The as-target type slot. Widened from SnNameExpr* in Phase 13 so the
+	//alias pre-pass can splice a cloned generic/array alias RHS in place of
+	//the parsed name; resolution goes through the generic Accept dispatch.
+	SnFieldExpr *TargetType() const { return m_pTargetType; }
 
 	//Filled by ExprResolver.Access(SnAsExpr&).
 	SnField *ResolvedTarget() const { return m_pResolvedTarget; }
@@ -614,9 +621,11 @@ public:
 	virtual bool IsDataExpr() const override;
 	void Accept(nlang::ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnExpression *m_pOperand;
-	SnNameExpr	*m_pTargetType;
+	SnFieldExpr	*m_pTargetType;
 	SnField		*m_pResolvedTarget;
 	TypeCastKind m_CastKind;
 };
@@ -688,6 +697,8 @@ public:
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr *m_pClassName;
 	SnExpressionList *m_pArgs;
@@ -750,6 +761,8 @@ public:
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr *m_pElemType;
 	SnExpression *m_pSize;
@@ -799,6 +812,7 @@ public:
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr                 *m_pExplicitType;        //nullptr for bare form
 	std::vector<InitEntry>       m_entries;              //empty allowed

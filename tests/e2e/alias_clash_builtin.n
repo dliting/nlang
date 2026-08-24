@@ -1,0 +1,7 @@
+//Phase 13 Step 0: an alias may not hijack a built-in generic
+//type name.
+using List = int;
+
+int main() {
+	return 0;
+}

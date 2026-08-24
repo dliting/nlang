@@ -1,0 +1,13 @@
+//Phase 13 Step 0: alias to a nested generic container type.
+//Grid expands to Dict<string, List<int[]>> at every use site.
+using Grid = Dict<string, List<int[]>>;
+
+int main() {
+	Grid g = new Dict<string, List<int[]>>();
+	List<int[]> l = new List<int[]>();
+	int[] a = new int[2];
+	a[1] = 5;
+	l.add(a);
+	g["a"] = l;
+	return g["a"][0][1];
+}

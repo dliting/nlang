@@ -6,6 +6,10 @@ Usage:
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .nmod, and reports results.
+For compile_error tests the optional third column is instead the substring
+ncc's compile diagnostics must contain (rejection reason pinning) — this is
+implemented for single-file tests only; cross-module directory tests ignore
+a third column.
 A <name>.stdin file next to the source is piped to the program's stdin.
 """
 
@@ -215,7 +219,7 @@ def main():
             # Compile
             nmod_file = os.path.join(SCRIPT_DIR, f"{name}.nmod")
             try:
-                subprocess.run(
+                compile_result = subprocess.run(
                     [ncc, 'build', test_file, '-o', nmod_file],
                     capture_output=True, timeout=TIMEOUT_SEC)
             except Exception as e:
@@ -230,6 +234,21 @@ def main():
                 if os.path.isfile(cwd_nmod):
                     shutil.move(cwd_nmod, nmod_file)
                 elif expected == "compile_error":
+                    #For compile_error tests an optional column 3 is the
+                    #substring ncc's diagnostics (stderr) must contain —
+                    #it pins the rejection reason, not just the failure.
+                    if expected_stdout:
+                        stderr_text = (compile_result.stderr.decode(
+                            'utf-8', errors='replace')
+                            if compile_result.stderr else '')
+                        if expected_stdout not in stderr_text:
+                            print(f"FAIL {name} (diagnostic mismatch)")
+                            failed += 1
+                            errors.append(
+                                f"  {name}: expected diagnostic containing "
+                                f"{expected_stdout!r}; stderr: "
+                                f"{stderr_text[:300]}")
+                            continue
                     print(f"PASS {name} (compile error as expected)")
                     passed += 1
                     continue

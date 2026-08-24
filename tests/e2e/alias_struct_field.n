@@ -1,0 +1,13 @@
+//Phase 13 Step 0 fix round coverage lock: alias in a struct field type
+//slot. Verified working before the fix; this test pins it.
+using Num = int;
+
+struct S {
+    Num n;
+}
+
+int main() {
+    S s;
+    s.n = 5;
+    return s.n + 1;
+}

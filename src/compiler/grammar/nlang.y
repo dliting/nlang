@@ -459,6 +459,12 @@ UsingList:	UsingList Using {
 
 Using:	KT_Using NameExpr ';' {
 			   $$ = new SnUsing($2, @2);
+			} |
+			//Phase 13: type alias form. The NameExpr is the alias name; the
+			//Type is the aliased target, expanded at use sites by the TU-level
+			//alias pre-pass (runs before translation units are merged).
+			KT_Using NameExpr '=' Type ';' {
+			   $$ = new SnUsing($2, $4, @2);
 			} ;
 
 NamespaceMemberList:	NamespaceMemberList NamespaceMember {

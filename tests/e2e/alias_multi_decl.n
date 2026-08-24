@@ -1,0 +1,10 @@
+//Phase 13 Step 0 fix round coverage lock: alias with multiple
+//declarators in one statement. Verified working before the fix; this
+//test pins it.
+using Num = int;
+
+int main() {
+    Num a = 1, b = 2, c;
+    c = a + b;
+    return c + 1;
+}

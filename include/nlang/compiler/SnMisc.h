@@ -181,6 +181,7 @@ public:
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
@@ -238,6 +239,7 @@ public:
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
@@ -280,6 +282,7 @@ public:
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 
 	//Built-in class marker (ByteStream, FileStream, etc.).
 	//Set by the resolver when it synthesizes a SnClassDecl for
@@ -340,6 +343,9 @@ public:
 };
 
 //The "using" directive in nlang.
+//Phase 13 adds the type alias form: "using Name = Type;". The namespace
+//form ("using NameSpace;") is unchanged; the two are distinguished by
+//the presence of the alias target node.
 class NLANG_COMPILER_API SnUsing : public SyntaxNode
 {
 	friend class ModuleBuilder;
@@ -348,11 +354,34 @@ public:
 	static const NodeKind	s_Kind			= NK_Using;
 	static const NodeBits	s_DefaultFlags  = NF_NONE;
 public:
+	//Namespace form: pPath is the namespace path to resolve.
 	SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc);
+
+	//Type alias form: pPath is the alias name (a plain name expression),
+	//pAliasType is the aliased target type expression.
+	SnUsing(SnFieldExpr *pPath, SnFieldExpr *pAliasType,
+		const ISourceLocation &loc);
 
 	~SnUsing() override;
 
-	//Get the namespace which is used.
+	//Is this the type alias form?
+	bool IsAlias() const
+	{
+		return m_pAliasType != nullptr;
+	}
+
+	//Get the aliased target type expression (alias form only).
+	SnFieldExpr *AliasType() const
+	{
+		return m_pAliasType;
+	}
+
+	//Get the alias name (alias form only; the identifier of the path
+	//name expression). Returned by value — SnIdentifierExpr::Name()
+	//materializes the string.
+	std::string AliasName() const;
+
+	//Get the namespace which is used (namespace form only).
 	SnNamespace *Namespace() const
 	{
 		return m_pNamespace;
@@ -371,8 +400,10 @@ public:
 protected:
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
-	//The unresolved namespace path.
+	//The unresolved namespace path / the alias name.
 	SnFieldExpr *m_pPath;
+	//The aliased target type (null for the namespace form).
+	SnFieldExpr *m_pAliasType;
 	SnNamespace *m_pNamespace;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };

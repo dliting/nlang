@@ -79,6 +79,22 @@ const UsingList *SyntaxNode::Usings() const
 	return pTransUnit ? pTransUnit->Usings() : nullptr;
 }
 
+bool SyntaxNode::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	assert(pOld && pOld->Parent() == this);
+	assert(!pNew || !pNew->Parent());
+
+	auto &children = Children();
+	auto iRemove = children.find(pOld);
+	if (iRemove == children.end())
+		return false;
+	auto iInsert = RemoveChild(iRemove);
+	delete pOld;
+	if (pNew)
+		InsertChild(iInsert, pNew);
+	return true;
+}
+
 void SyntaxNode::Dump(std::ostream &os) const
 {
 	SyntaxNode &root = const_cast<SyntaxNode&>(*this);

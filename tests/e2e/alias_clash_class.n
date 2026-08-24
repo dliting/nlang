@@ -1,0 +1,11 @@
+//Phase 13 Step 0: an alias may not shadow a class declared in the
+//same translation unit.
+using Point = int;
+
+class Point {
+	public int x;
+}
+
+int main() {
+	return 0;
+}

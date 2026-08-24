@@ -1,0 +1,9 @@
+//Phase 13 Step 0: cyclic aliases are rejected. The registration
+//pass reports an unknown-type diagnostic on the first line (B is
+//neither registered nor resolvable as a type when A is registered).
+using A = B;
+using B = A;
+
+int main() {
+	return 0;
+}

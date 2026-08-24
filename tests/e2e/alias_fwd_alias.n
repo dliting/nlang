@@ -1,0 +1,9 @@
+//Phase 13 Step 0: an alias may only reference an alias whose
+//definition appears earlier in the file. B is defined after A, so
+//registering A reports an unknown-type diagnostic.
+using A = B;
+using B = int;
+
+int main() {
+	return 0;
+}

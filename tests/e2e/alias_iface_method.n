@@ -1,0 +1,19 @@
+//Phase 13 Step 0 fix round coverage lock: alias in an interface method
+//signature (return type and parameter type). Verified working before
+//the fix; this test pins it.
+using Num = int;
+
+interface IGet {
+    public Num get(Num v);
+}
+
+class Holder implements IGet {
+    public Num get(Num v) {
+        return v + 1;
+    }
+}
+
+int main() {
+    IGet g = new Holder();
+    return g.get(4);
+}

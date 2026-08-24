@@ -1,0 +1,9 @@
+//Phase 13 Step 0: alias to an array type. The expansion must keep
+//array-ness (IsArrayType is read on the use-site node).
+using Ints = int[];
+
+int main() {
+	Ints a = new int[3];
+	a[2] = 9;
+	return a[2];
+}

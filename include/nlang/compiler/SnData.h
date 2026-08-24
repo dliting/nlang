@@ -60,6 +60,8 @@ public:
 	bool IsArrayType() const override;
 
 	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 protected:
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
@@ -153,6 +155,8 @@ public:
 	std::string ToString() const override;
 
 	bool ConflictedWith(const SnField &other) const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 
 	virtual SnField *EvalDataType() const override;
 

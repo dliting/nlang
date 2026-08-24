@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 namespace nlang
 {
@@ -68,10 +69,32 @@ public:
 		m_pRoot = nullptr;
 	}
 
+	/*
+	Phase 13: the type alias table (translation-unit scope). Populated by
+	the TU-level alias pre-pass from `using Name = Type;` directives before
+	translation units are merged; the table maps an alias name to the
+	aliased type expression. The expressions stay owned by their SnUsing
+	nodes — the table holds non-owning pointers and is only read during
+	the pre-pass (before any using node is destroyed).
+	*/
+	//@{
+	void SetAlias(const std::string& sName, SnFieldExpr *pType)
+	{
+		m_aliasTable[sName] = pType;
+	}
+
+	SnFieldExpr *FindAlias(const std::string& sName) const
+	{
+		auto iFound = m_aliasTable.find(sName);
+		return iFound == m_aliasTable.end() ? nullptr : iFound->second;
+	}
+	//@}
+
 private:
 	std::unique_ptr<UsingList> m_upUsings;
 	std::unique_ptr<std::vector<std::string>> m_upImports;
 	SnNamespace *m_pRoot;
+	std::unordered_map<std::string, SnFieldExpr*> m_aliasTable;
 	const std::string m_sFilePath;
 };
 

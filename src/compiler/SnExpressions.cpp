@@ -382,6 +382,16 @@ std::string SnArrayTypeExpr::ToString() const
 	return m_pElementType->ToString() + "[]";
 }
 
+bool SnArrayTypeExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pElementType == pOld)
+	{
+		ResetChild(m_pElementType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 //--- SnGenericTypeExpr (Phase 8e-3) ---
 
 SnGenericTypeExpr::SnGenericTypeExpr(SnFieldExpr *pBase,
@@ -417,6 +427,26 @@ std::string SnGenericTypeExpr::ToString() const
 	}
 	ss << '>';
 	return std::move(ss.str());
+}
+
+bool SnGenericTypeExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The base name and every type argument are cached in typed slots beside
+	//the children list; keep them in sync on splice.
+	if (m_pBase == pOld)
+	{
+		ResetChild(m_pBase, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	for (auto &pArg : *m_upTypeArgs)
+	{
+		if (pArg == pOld)
+		{
+			ResetChild(pArg, static_cast<SnFieldExpr *>(pNew));
+			return true;
+		}
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
 SnCastExpr::SnCastExpr(SnExpression *pSource, TypeCastInfo &ci, 
@@ -472,6 +502,16 @@ std::string SnAsExpr::ToString() const
 	else ss << "<unknown>";
 	ss << ")";
 	return std::move(ss.str());
+}
+
+bool SnAsExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pTargetType == pOld)
+	{
+		ResetChild(m_pTargetType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
 //SnBinaryExpr
@@ -554,6 +594,16 @@ std::string SnNewExpr::ToString() const
 	return std::move(ss.str());
 }
 
+bool SnNewExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pClassName == pOld)
+	{
+		ResetChild(m_pClassName, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 //--- SnThisExpr ---
 
 SnThisExpr::SnThisExpr(const ISourceLocation &loc) :
@@ -615,6 +665,20 @@ std::string SnNewArrayExpr::ToString() const
 	return "new_array";
 }
 
+bool SnNewArrayExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The element type is not kept in the children list (legacy shape: the
+	//resolver reaches it through ElementType() with a direct Accept), so
+	//splice it with a plain pointer swap instead of a list operation.
+	if (m_pElemType == pOld)
+	{
+		delete m_pElemType;
+		m_pElemType = static_cast<SnFieldExpr *>(pNew);
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 //--- SnInitListExpr (Phase 8e-6) ---
 
 SnInitListExpr::SnInitListExpr(SnFieldExpr *pExplicitType,
@@ -645,6 +709,18 @@ bool SnInitListExpr::IsDataExpr() const
 void SnInitListExpr::Accept(ISyntaxNodeVisitor &v)
 {
 	v.Visit(*this);
+}
+
+bool SnInitListExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The explicit type of "new Type{...}" is cached in a typed slot beside
+	//the children list; keep it in sync when an alias expansion splices it.
+	if (m_pExplicitType == pOld)
+	{
+		ResetChild(m_pExplicitType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
 std::string SnInitListExpr::ToString() const

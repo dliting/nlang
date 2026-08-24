@@ -1,0 +1,14 @@
+//Phase 13 Step 0: alias to a user class; type target may be
+//forward-referenced (the alias precedes the class declaration).
+using P = Point;
+
+class Point {
+	public int x;
+	public int y;
+	public int Point(int a, int b) { this.x = a; this.y = b; return 0; }
+}
+
+int main() {
+	P p = new Point(2, 3);
+	return p.x + p.y;
+}

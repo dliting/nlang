@@ -1,0 +1,11 @@
+//Phase 13 Step 0 fix round r2: alias uses inside subscript operands. The
+//array base and the index are held outside the children list (legacy
+//shape), so the alias pre-pass must walk them explicitly — both the cast
+//target in the index ("1 as Elem") and the element type of an array
+//constructor in the base position ("new Elem[1][0]").
+using Elem = int;
+
+int main() {
+    int[] a = [4, 9];
+    return a[1 as Elem] + new Elem[1][0] + 3;
+}

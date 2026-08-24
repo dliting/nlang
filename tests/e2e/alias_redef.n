@@ -1,0 +1,8 @@
+//Phase 13 Step 0: the same alias name may not be defined twice
+//in one translation unit.
+using A = int;
+using A = float;
+
+int main() {
+	return 0;
+}

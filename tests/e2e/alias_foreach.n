@@ -1,0 +1,14 @@
+//Phase 13 Step 0 fix round: alias in the foreach variable type slot.
+//The expansion splice used to leave SnForeachStmt::m_pVarType dangling
+//(missing ReplaceChildNode override) and crash the compiler; the loop
+//body must accumulate 1+2+3 and exit normally.
+using Elem = int;
+
+int main() {
+    int[] arr = [1, 2, 3];
+    int total = 0;
+    foreach (Elem x in arr) {
+        total = total + x;
+    }
+    return total;
+}

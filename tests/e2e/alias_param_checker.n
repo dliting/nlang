@@ -1,0 +1,17 @@
+//Phase 13 Step 0 fix round: the cloned alias target in a parameter
+//type slot must carry the same DataTypeChecker as the direct form, so
+//"int bar(F x)" reports the precise "not a valid data type" diagnostic
+//when F aliases a function name (foo) — exactly like "int bar(foo x)".
+using F = foo;
+
+int foo() {
+    return 1;
+}
+
+int bar(F x) {
+    return 3;
+}
+
+int main() {
+    return bar(1);
+}

@@ -1,0 +1,9 @@
+//Phase 13 Step 0: alias as the target of an `as` cast.
+using Grid = Dict<string, int>;
+
+int main() {
+	Object o = new Dict<string, int>();
+	Grid g = o as Grid;
+	g["a"] = 3;
+	return g["a"];
+}

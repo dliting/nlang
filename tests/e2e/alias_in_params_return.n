@@ -1,0 +1,17 @@
+//Phase 13 Step 0: alias in parameter and return type positions.
+using Pair = Dict<string, int>;
+
+Pair make(string k, int v) {
+	Pair p = new Dict<string, int>();
+	p[k] = v;
+	return p;
+}
+
+int take(Pair p) {
+	return p["n"];
+}
+
+int main() {
+	Pair p = make("n", 4);
+	return take(p);
+}
