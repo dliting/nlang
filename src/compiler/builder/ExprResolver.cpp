@@ -95,10 +95,16 @@ static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 struct GenericInstKey {
 	std::string baseName;
 	std::vector<SnField*> typeArgs;
+	//Phase 13: out markers live on the type-arg expression nodes (NF_Out),
+	//not on the canonical fields, so the key needs a parallel flag vector —
+	//without it Func<void,int> and Func<void,out int> collapse into one
+	//declaration and the first instantiation silently wins.
+	std::vector<uint8> outFlags;
 	bool operator<(const GenericInstKey& rhs) const {
 		if (baseName != rhs.baseName) return baseName < rhs.baseName;
 		if (typeArgs.size() != rhs.typeArgs.size())
 			return typeArgs.size() < rhs.typeArgs.size();
+		if (outFlags != rhs.outFlags) return outFlags < rhs.outFlags;
 		for (size_t i = 0; i < typeArgs.size(); ++i) {
 			if (typeArgs[i] != rhs.typeArgs[i])
 				return typeArgs[i] < rhs.typeArgs[i];
@@ -113,9 +119,14 @@ static std::map<GenericInstKey, SnClassDecl*> s_genericInstances;
 //Also mirrored on SnClassDecl::GenericTypeArgs() for VmBackend codegen.
 static std::map<SnClassDecl*, std::vector<SnField*>> s_genericTypeArgs;
 
+//Phase 13: parallel out-flag side table (same key discipline as
+//s_genericTypeArgs). Func's delegate-binding channel reads the signature
+//(return type + out-marked params) from these two tables.
+static std::map<SnClassDecl*, std::vector<uint8>> s_genericOutFlags;
+
 //Lookup type arguments for a synthetic generic class. Returns empty vector
 //if not a generic instantiation.
-static std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
+std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
 {
 	if (pClass && pClass->IsGenericInstantiation())
 		return pClass->GenericTypeArgs();
@@ -127,9 +138,10 @@ static std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
 
 //Returns true if name is a recognized built-in generic class.
 //Phase 8e-3: "List" (arity 1). Phase 8e-4: "Dict" (arity 2).
+//Phase 13: "Func" (variadic, at least the return type).
 static bool IsBuiltinGenericClassName(const std::string& name)
 {
-	return name == "List" || name == "Dict";
+	return name == "List" || name == "Dict" || name == "Func";
 }
 
 //Round-12: built-in methods dispatch by name with no real SnFunction, so a
@@ -183,17 +195,28 @@ static bool IsGenericClassDecl(SnClassDecl* pClass)
 
 //Mints (or fetches) a synthetic SnClassDecl for the given generic
 //instantiation. Phase 8e-3: List<T> (arity 1). Phase 8e-4: Dict<K,V> (arity 2).
+//Phase 13: Func<R, P...> (variadic, >= 1). outFlags is normalized here so
+//callers that infer instantiations (List element inference) can pass an
+//empty vector while declaration-path keys stay distinct.
 static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
-	const std::vector<SnField*>& typeArgs, const ISourceLocation* pLoc)
+	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
+	const ISourceLocation* pLoc)
 {
-	GenericInstKey key{baseName, typeArgs};
+	std::vector<uint8> normOutFlags(outFlags);
+	normOutFlags.resize(typeArgs.size(), 0);
+	GenericInstKey key{baseName, typeArgs, normOutFlags};
 	auto it = s_genericInstances.find(key);
 	if (it != s_genericInstances.end())
 		return it->second;
 
-	//Built-in generic + arity check.
+	//Built-in generic + arity check. List/Dict have fixed arity; Func is
+	//variadic: first argument is the return type, the rest are params.
+	bool isFunc = baseName == "Func";
 	size_t expectedArity = (baseName == "Dict") ? 2 : 1;
-	if (!IsBuiltinGenericClassName(baseName) || typeArgs.size() != expectedArity)
+	size_t minArity = isFunc ? 1 : expectedArity;
+	size_t maxArity = isFunc ? static_cast<size_t>(-1) : expectedArity;
+	if (!IsBuiltinGenericClassName(baseName)
+		|| typeArgs.size() < minArity || typeArgs.size() > maxArity)
 		return nullptr;
 
 	//Build display name e.g. "List<int>", "Dict<string, int>".
@@ -217,7 +240,151 @@ static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	s_genericInstances[key] = pClass;
 	//Side table for member-call return-type lookup (List<int>.Get() → int).
 	s_genericTypeArgs[pClass] = typeArgs;
+	s_genericOutFlags[pClass] = normOutFlags;
 	return pClass;
+}
+
+//Phase 13: true when the field is a synthetic Func<...> instantiation.
+static bool IsFuncTypeDecl(SnField *pType)
+{
+	return pType && pType->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pType)->IsFuncType();
+}
+
+//Phase 13: exact-signature comparison between a function declaration and
+//a Func<...> instantiation (no variance). Return slot: a nullptr return
+//type matches a void type argument. Parameter slots: declared type field
+//pointer identity plus out-flag agreement — the same discipline that
+//keeps Func<void,int> and Func<void,out int> distinct in GenericInstKey.
+static bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
+{
+	const auto &typeArgs = GetGenericTypeArgs(pFuncDecl);
+	const auto &outFlags = s_genericOutFlags[pFuncDecl];
+	auto *pRet = func.ReturnType();
+	if (pRet)
+	{
+		if (!pRet->IsResolved() || pRet->Field() != typeArgs[0])
+			return false;
+	}
+	else if (typeArgs[0]->Kind() != NK_Void)
+	{
+		return false;
+	}
+	const auto &params = func.Params();
+	if (params.size() + 1 != typeArgs.size())
+		return false;
+	size_t i = 0;
+	for (auto &param : params)
+	{
+		if (param.EvalDataType() != typeArgs[i + 1])
+			return false;
+		if (param.ContainFlags(NF_Out) != (outFlags[i + 1] != 0))
+			return false;
+		++i;
+	}
+	return true;
+}
+
+bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
+	SnField *pExpected)
+{
+	auto *pFunc = static_cast<SnFunction*>(idExpr.Field());
+	assert(pFunc && pFunc->Kind() == NK_Function);
+	if (!IsFuncTypeDecl(pExpected))
+	{
+		env.Log(CLL_Error, idExpr.Location(),
+			"function reference \"%s\" requires an expected function type.",
+			idExpr.Name().c_str());
+		return false;
+	}
+	//Methods are not free-function references (receiver-bound references
+	//arrive in Step 2); enum methods additionally carry an int receiver,
+	//which cannot live in a heap-index slot.
+	auto *pOwner = pFunc->Parent();
+	if (pOwner && (pOwner->Kind() == NK_ClassDecl
+		|| pOwner->Kind() == NK_InterfaceDecl
+		|| pOwner->Kind() == NK_EnumDecl))
+	{
+		env.Log(CLL_Error, idExpr.Location(),
+			"cannot reference the method \"%s\" without a receiver.",
+			idExpr.Name().c_str());
+		return false;
+	}
+	//Imported stubs synthesize their parameter types from the return kind
+	//(real signatures are not serialized) — matching them would be wrong.
+	if (pFunc->ContainFlags(NF_Imported))
+	{
+		env.Log(CLL_Error, idExpr.Location(),
+			"cannot reference the imported function \"%s\": parameter "
+			"signatures are not serialized.",
+			idExpr.Name().c_str());
+		return false;
+	}
+	//Default parameters are filled only on the direct-call path.
+	for (auto &param : pFunc->Params())
+	{
+		if (param.Value())
+		{
+			env.Log(CLL_Error, idExpr.Location(),
+				"functions with default parameters cannot be referenced: "
+				"\"%s\".", idExpr.Name().c_str());
+			return false;
+		}
+	}
+	auto *pFuncDecl = static_cast<SnClassDecl*>(pExpected);
+	if (!FuncRefMatchesDecl(*pFunc, pFuncDecl))
+	{
+		env.Log(CLL_Error, idExpr.Location(),
+			"function \"%s\" does not match the signature of \"%s\".",
+			idExpr.Name().c_str(), pFuncDecl->Name().c_str());
+		return false;
+	}
+	//Bound state is structural: EvalDataType becomes the Func declaration
+	//(codegen detects Field()->Kind() == NK_Function in a value position
+	//and emits OP_MakeFunc). No dedicated node flag exists — the 24 flag
+	//bits are fully allocated.
+	idExpr.EvalDataType(pFuncDecl);
+	return true;
+}
+
+//Phase 13: loose pending predicate — true while a bare function
+//reference carries a non-Func EvalDataType (its function's return
+//type). Review round-1 F1 split this into two predicates: a Func-typed
+//EvalDataType does NOT prove a binding (it may be the function's Func
+//RETURN type leaking through ResolveFieldExprAs), so all bind sites use
+//the strict IsUnboundFuncRef below. This loose form survives only for
+//the end-of-build sweep (ModuleBuilder::SweepPendingFuncRefs): a ref a
+//Func-accepting consumer already handled via MakeFunc (e.g. io.print of
+//a Func-returning function's bare name) must not be re-flagged there.
+bool IsPendingFuncRef(SyntaxNode &expr)
+{
+	if (expr.Kind() != NK_IdentifierExpr)
+		return false;
+	auto &idExpr = static_cast<SnIdentifierExpr&>(expr);
+	return idExpr.Field() && idExpr.Field()->Kind() == NK_Function
+		&& !IsFuncTypeDecl(idExpr.EvalDataType());
+}
+
+//Phase 13 (review round-1 F1): strict bind-site predicate. A bare name
+//is bound only when its OWN signature satisfies the Func type it
+//carries. Without this, `Func<int,int> f = pick;` (where pick RETURNS
+//Func<int,int> but takes no parameters) was misread as an already-bound
+//reference and silently compiled into a wrong-signature handle.
+//Binding is idempotent when the expected type matches, and a genuine
+//mismatch gets BindFuncRefToExpected's named diagnostic.
+bool IsUnboundFuncRef(SyntaxNode &expr)
+{
+	if (expr.Kind() != NK_IdentifierExpr)
+		return false;
+	auto &idExpr = static_cast<SnIdentifierExpr&>(expr);
+	if (!idExpr.Field() || idExpr.Field()->Kind() != NK_Function)
+		return false;
+	auto *pType = idExpr.EvalDataType();
+	if (!IsFuncTypeDecl(pType))
+		return true;
+	return !FuncRefMatchesDecl(
+		*static_cast<SnFunction*>(idExpr.Field()),
+		static_cast<SnClassDecl*>(pType));
 }
 
 void ExprResolveAccessor::Access(SnLiteralExpr &sn)
@@ -300,6 +467,11 @@ bool IsArrayValuedExpr(SnExpression& expr) {
 		auto* pCallee = invoke.Callee();
 		auto* pReturnType = pCallee ? pCallee->ReturnType() : nullptr;
 		return pReturnType && pReturnType->IsArrayType();
+		//Phase 13 (review round-1 F10): a DELEGATE invoke has no
+		//SnFunction callee (Callee() is null-safe), so a Func returning
+		//T[] invoked through a handle is NOT detected here (returns
+		//false). No current consumer reaches that shape; revisit if a
+		//foreach source or switch discriminant ever takes a delegate call.
 	}
 	default:
 		return false;
@@ -349,6 +521,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 
 	//Resolve each type argument (e.g., int, Point).
 	std::vector<SnField*> typeArgs;
+	std::vector<uint8> outFlags;
 	for (auto *pTA : genType.TypeArgs())
 	{
 		if (!pTA) continue;
@@ -368,10 +541,28 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 				pTA->ToString().c_str());
 			return;
 		}
+		//Phase 13: void and out are Func-only type-argument features.
+		//void may only occupy Func's first (return) type slot; out may
+		//only mark Func parameter slots (any position after the first).
+		bool isVoidArg = pField->Kind() == NK_Void;
+		bool isOutArg = pTA->ContainFlags(NF_Out);
+		if (isVoidArg && !(baseName == "Func" && typeArgs.empty()))
+		{
+			m_Env.Log(CLL_Error, pTA->Location(),
+				"void is only allowed as the return slot of Func<...>.");
+			return;
+		}
+		if (isOutArg && !(baseName == "Func" && !typeArgs.empty()))
+		{
+			m_Env.Log(CLL_Error, pTA->Location(),
+				"out is only allowed on Func<...> parameters.");
+			return;
+		}
 		typeArgs.push_back(pField);
+		outFlags.push_back(isOutArg ? 1 : 0);
 	}
 
-	auto *pSynClass = GetGenericClassDecl(baseName, typeArgs,
+	auto *pSynClass = GetGenericClassDecl(baseName, typeArgs, outFlags,
 		pBase->Location());
 	if (!pSynClass)
 	{
@@ -437,6 +628,16 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	if (!ValidateInvokeSyntax(snInvoke))
 		return;
 
+	//Phase 13: delegate call — the callee name resolves to a Func-typed
+	//value (local / param / class field) rather than a function. Name
+	//lookup order puts the Func value first (Python-style shadowing of a
+	//same-named function); every path inside consumes the invoke.
+	if (auto *pDelegateField = FindDelegateTarget(snInvoke))
+	{
+		BindDelegateInvoke(snInvoke, pDelegateField);
+		return;
+	}
+
 	SnFunction *pCallee;
 	std::vector<FormalBinding> bindings;
 	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings);
@@ -497,6 +698,22 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		}
 	}
 
+	//Phase 13: argument-position function references bind against the
+	//formal Func types of the chosen overload (ComputeBindingDistance
+	//already required an exact signature match for candidacy).
+	if (res == FFR_ExactMatch || res == FFR_ApproximateMatch)
+	{
+		for (auto &b : bindings)
+		{
+			if (b.kind != FormalBinding::B_Default && b.pCallerExpr
+				&& IsUnboundFuncRef(*b.pCallerExpr)
+				&& !BindFuncRefToExpected(m_Env,
+					*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
+					b.pFormal->EvalDataType()))
+				return;
+		}
+	}
+
 	switch (res)
 	{
 	case FFR_ApproximateMatch:
@@ -509,6 +726,22 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		snInvoke.SetBindings(std::move(bindings));
 		break;
 	case FFR_Incompatible:
+		//Phase 13: a still-pending function reference among the arguments
+		//had no matching Func-typed formal — sweep it with the named
+		//diagnostic (the generic incompatibility text would not say why).
+		for (auto &arg : snInvoke.Params())
+		{
+			SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
+				? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
+			if (IsUnboundFuncRef(*pValue))
+			{
+				m_Env.Log(CLL_Error, pValue->Location(),
+					"function reference \"%s\" requires an expected "
+					"function type.",
+					pValue->ToString().c_str());
+				return;
+			}
+		}
 		m_Env.Log(CLL_Error, snInvoke.Location(),
 			"The function invoke \"%s\" is not compatible with the "
 			"declaration.", snInvoke.ToString().c_str());
@@ -723,7 +956,11 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 					(int)paramIdx + 1, ns.c_str(), fnName.c_str());
 			}
 			else if (argKind != NK_String && argKind != NK_Int32
-				&& argKind != NK_Float)
+				&& argKind != NK_Float
+				//Phase 13: function handles print through the direct
+				//conversion path ("func <name>") like the other three
+				//toString routes.
+				&& !IsFuncTypeDecl(pArgType))
 			{
 				m_Env.Log(CLL_Error, arg.Location(),
 					"Argument %d of \"%s.%s\" has type \"%s\"; string, int "
@@ -776,7 +1013,7 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	{
 		std::vector<SnField*> listArgs{
 			SnBuiltinDataType::InstanceOf(NK_String) };
-		pResultField = GetGenericClassDecl("List", listArgs,
+		pResultField = GetGenericClassDecl("List", listArgs, {},
 			invoke.Location());
 		break;
 	}
@@ -1034,7 +1271,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			{
 				std::vector<SnField*> listArgs{
 					SnBuiltinDataType::InstanceOf(NK_String) };
-				pResultField = GetGenericClassDecl("List", listArgs,
+				pResultField = GetGenericClassDecl("List", listArgs, {},
 					invoke.Location());
 				break;
 			}
@@ -1410,6 +1647,9 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				|| name == "containsKey" || name == "remove"
 				|| name == "clear" || name == "count"
 				|| name == "keys" || name == "toString");
+		} else if (baseName == "Func") {
+			//Phase 13: function handles expose toString only.
+			isGenericMethod = (name == "toString");
 		}
 		if (isGenericMethod)
 		{
@@ -1443,8 +1683,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				{"set", 2}, {"get", 1}, {"containsKey", 1}, {"remove", 1},
 				{"clear", 0}, {"count", 0}, {"keys", 0}, {"toString", 0},
 			};
+			static const std::map<std::string, size_t> kFuncMethodArities = {
+				{"toString", 0},
+			};
 			const auto& arities = (baseName == "List")
-				? kListMethodArities : kDictMethodArities;
+				? kListMethodArities
+				: (baseName == "Dict") ? kDictMethodArities
+					: kFuncMethodArities;
 			auto arityIt = arities.find(name);
 			if (arityIt != arities.end() && ArgCountOf(invoke) != arityIt->second)
 			{
@@ -1460,6 +1705,54 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			SnField* pResultField = nullptr;
 			auto typeArgs = GetGenericTypeArgs(pGenClass);
+			//Phase 13 (D11 site 6, review round-1 F3): built-in container
+			//methods dispatch by name — no overload set is ever scored, so a
+			//pending function reference in an argument never meets a formal
+			//and was rejected. Bind it here against the container's type
+			//argument at the value position. Value positions by (base,
+			//method): List add/indexOf/contains arg 0 → T; List set arg 1 → T
+			//(arg 0 is the int index); Dict get/containsKey/remove arg 0 → K;
+			//Dict set arg 1 → V (arg 0 is the key).
+			{
+				int elemSlot = -1;
+				size_t valArg = 0;
+				if (baseName == "List"
+					&& (name == "add" || name == "indexOf"
+						|| name == "contains"))
+					elemSlot = 0;
+				else if (baseName == "List" && name == "set")
+				{
+					elemSlot = 0;
+					valArg = 1;
+				}
+				else if (baseName == "Dict"
+					&& (name == "get" || name == "containsKey"
+						|| name == "remove"))
+					elemSlot = 0;
+				else if (baseName == "Dict" && name == "set")
+				{
+					elemSlot = 1;
+					valArg = 1;
+				}
+				if (elemSlot >= 0
+					&& typeArgs.size() > static_cast<size_t>(elemSlot)
+					&& typeArgs[elemSlot])
+				{
+					size_t argIdx = 0;
+					for (auto &arg : invoke.Params())
+					{
+						SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
+							? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
+						if (argIdx == valArg && IsUnboundFuncRef(*pValue)
+							&& !BindFuncRefToExpected(m_Env,
+								*static_cast<SnIdentifierExpr*>(pValue),
+								typeArgs[elemSlot]))
+							return;
+						++argIdx;
+					}
+				}
+			}
+
 			if (baseName == "List" && name == "get") {
 				//Return type = T (typeArgs[0]).
 				if (!typeArgs.empty() && typeArgs[0]) {
@@ -1488,7 +1781,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				if (!typeArgs.empty() && typeArgs[0]) {
 					std::vector<SnField*> listArgs{ typeArgs[0] };
 					auto* pListClass = GetGenericClassDecl("List", listArgs,
-						pInnerExpr->Location());
+						{}, pInnerExpr->Location());
 					if (pListClass) {
 						//SnClassDecl IS-A SnField, so it can serve as EvalDataType.
 						snMember.EvalDataType(pListClass);
@@ -1544,7 +1837,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				//backtrace is List<string> — synthesize the generic instantiation.
 				auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
 				std::vector<SnField*> listArgs{ pStr };
-				pResultField = GetGenericClassDecl("List", listArgs,
+				pResultField = GetGenericClassDecl("List", listArgs, {},
 					pInnerExpr->Location());
 			}
 			if (pResultField) {
@@ -1617,6 +1910,19 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 
 	TypeCastInfo castInfo(pSrcType, pTgtType);
 	auto kind = castInfo.Kind();
+
+	//Phase 13: `f as string` renders the handle ("func <name>"). Class→
+	//string is normally an assignment-only coercion (TCK_Auto is rejected
+	//for `as`); function handles get an explicit branch so all four
+	//conversion paths agree (codegen emits OP_Func_to_str).
+	if (pSrcType->Kind() == NK_ClassDecl && pTgtType->Kind() == NK_String
+		&& static_cast<SnClassDecl*>(pSrcType)->IsFuncType())
+	{
+		sn.SetResolved(pTgtType, TCK_Auto);
+		sn.EvalDataType(pTgtType);
+		return;
+	}
+
 	if (kind == TCK_None)
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
@@ -1696,6 +2002,33 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 					"cannot compare string with a non-string operand "
 					"(only null is allowed as the other side).");
 				return;
+			}
+
+			//Phase 13: function handles support content equality only
+			//(==/!=), and only against another function handle or null.
+			//Without this gate codegen's dispatch would silently fall to
+			//the integer variant comparing raw heap indices.
+			bool lFunc = IsFuncTypeDecl(L);
+			bool rFunc = IsFuncTypeDecl(R);
+			if (lFunc || rFunc)
+			{
+				bool bEq = op == SnBinaryExpr::OP_Equal
+					|| op == SnBinaryExpr::OP_NotEqual;
+				if (!bEq)
+				{
+					m_Env.Log(CLL_Error, sn.Location(),
+						"function values cannot be ordered; only == and != "
+						"are supported.");
+					return;
+				}
+				if (!((lFunc && rFunc) || (lFunc && rNull)
+					|| (rFunc && lNull)))
+				{
+					m_Env.Log(CLL_Error, sn.Location(),
+						"a function value can only be compared with a "
+						"function value or null.");
+					return;
+				}
 			}
 
 			//Symmetric int/float promotion (Phase 8e-8 mechanism) extended
@@ -1825,6 +2158,15 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	}
 
 	auto pClassDecl = static_cast<SnClassDecl*>(pClassField);
+	//Phase 13: Func types are structural — values come only from function
+	//or method references, so there is no by-name construction.
+	if (IsGenericClassDecl(pClassDecl) && pClassDecl->BaseName() == "Func")
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Func types cannot be constructed by name; bind a function "
+			"or method reference");
+		return;
+	}
 	sn.ClassDecl(pClassDecl);
 	sn.EvalDataType(pClassDecl);
 	sn.AddFlags(NF_Resolved);
@@ -2047,6 +2389,35 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 	{
 		if (entry.pValue)
 			entry.pValue->Accept(*m_pVisitor);
+	}
+
+	//Phase 13: init-list entries bind pending function references to the
+	//element type — the array element type, or T of a generic container
+	//(`List<Func<int,int>> l = [bar];`). Class targets carry no element
+	//type and are skipped.
+	SnField *pElemType = nullptr;
+	if (bIsArray)
+	{
+		pElemType = pTargetField;
+	}
+	else if (pTargetField->Kind() == NK_ClassDecl)
+	{
+		auto elemArgs = GetGenericTypeArgs(
+			static_cast<SnClassDecl*>(pTargetField));
+		if (!elemArgs.empty())
+			pElemType = elemArgs[0];
+	}
+	if (pElemType)
+	{
+		for (auto &entry : sn.Entries())
+		{
+			if (entry.pValue && IsUnboundFuncRef(*entry.pValue))
+			{
+				BindFuncRefToExpected(m_Env,
+					*static_cast<SnIdentifierExpr*>(entry.pValue),
+					pElemType);
+			}
+		}
 	}
 }
 
@@ -2383,6 +2754,104 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	return (nBestDistance == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
 }
 
+SnField *ExprResolveAccessor::FindDelegateTarget(SnInvokeExpr &invoke)
+{
+	auto *pField = FindFieldInAncestor(invoke.CalleeName(), *m_pContext,
+		*m_pAccessor, Flags());
+	if (!pField || pField->Kind() == NK_Function)
+		return nullptr;
+	return IsFuncTypeDecl(pField->EvalDataType()) ? pField : nullptr;
+}
+
+void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
+	SnField *pDelegateField)
+{
+	auto *pFuncDecl = static_cast<SnClassDecl*>(
+		pDelegateField->EvalDataType());
+	const auto typeArgs = GetGenericTypeArgs(pFuncDecl);
+	const auto &outFlags = s_genericOutFlags[pFuncDecl];
+	//The Func signature has no parameter names — by-name dispatch is
+	//impossible.
+	if (HasNamedArgument(invoke))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"named arguments are not supported in delegate calls.");
+		return;
+	}
+	size_t paramCount = typeArgs.size() - 1;
+	if (ArgCountOf(invoke) != paramCount)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"delegate call expects %zu argument(s), got %zu.",
+			paramCount, ArgCountOf(invoke));
+		return;
+	}
+	//Step 1 scope (review round-1 F4): out-carrying delegate calls
+	//need OP_CallDelegateOut (Step 2). Reject here with a named
+	//diagnostic — codegen would otherwise die as an internal
+	//out-argument error.
+	for (size_t k = 1; k < outFlags.size(); ++k)
+	{
+		if (outFlags[k] != 0)
+		{
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"delegate calls with out parameters are not supported "
+				"yet.");
+			return;
+		}
+	}
+	bool bOK = true;
+	size_t i = 0;
+	for (auto &arg : invoke.Params())
+	{
+		SnField *pFormal = typeArgs[i + 1];
+		bool bWantOut = outFlags[i + 1] != 0;
+		bool bIsOut = arg.Kind() == NK_OutArgExpr;
+		SnExpression *pValue = bIsOut
+			? static_cast<SnOutArgExpr&>(arg).Inner() : &arg;
+		if (bIsOut != bWantOut)
+		{
+			m_Env.Log(CLL_Error, arg.Location(),
+				"argument %zu of the delegate call %s the out marker.",
+				i + 1, bWantOut ? "requires" : "does not accept");
+			bOK = false;
+		}
+		//Pending bare function references bind against the Func's own
+		//parameter slot type.
+		if (IsUnboundFuncRef(*pValue))
+		{
+			if (!BindFuncRefToExpected(m_Env,
+				static_cast<SnIdentifierExpr&>(*pValue), pFormal))
+				bOK = false;
+		}
+		else if (!bIsOut)
+		{
+			auto *pArgType = pValue->EvalDataType();
+			if (!pArgType || CalcTypeDistance(*pArgType, *pFormal) < 0)
+			{
+				m_Env.Log(CLL_Error, arg.Location(),
+					"argument %zu of the delegate call is incompatible "
+					"with \"%s\".", i + 1, pFormal->Name().c_str());
+				bOK = false;
+			}
+		}
+		++i;
+	}
+	if (!bOK)
+		return;
+	//Field() carries the delegate value — codegen detects the delegate
+	//shape structurally (a resolved invoke whose Field() is not an
+	//SnFunction), so no dedicated flag exists. EvalDataType follows the
+	//Func's return slot — nullptr for void, the established void-invoke
+	//convention. Set directly (like the generic-method path) rather than
+	//through ResolveFieldExprAs, whose PostResolveCheck expects a type
+	//field here.
+	invoke.m_pField = pDelegateField;
+	if (typeArgs[0]->Kind() != NK_Void)
+		invoke.EvalDataType(typeArgs[0]);
+	invoke.AddFlags(NF_Resolved);
+}
+
 //Phase 9c: try to bind an invoke's actual arguments to a candidate
 //callee's formal parameters. Handles positional args, named args, and
 //default param expressions. Returns true if every formal is bound
@@ -2515,6 +2984,22 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		if (b.kind == FormalBinding::B_Default)
 			continue;
 		assert(b.pCallerExpr && b.pFormal);
+		//Phase 13: a pending function reference binds only to a Func
+		//formal whose signature matches exactly (distance 0). This also
+		//closes the legacy hole where the bare name's RETURN type let it
+		//bind approximately to non-Func formals.
+		if (IsUnboundFuncRef(*b.pCallerExpr))
+		{
+			auto *pTgt = b.pFormal->EvalDataType();
+			auto *pRefFunc = static_cast<SnIdentifierExpr*>(
+				b.pCallerExpr)->Field();
+			if (!IsFuncTypeDecl(pTgt) || !pRefFunc
+				|| !FuncRefMatchesDecl(
+					*static_cast<SnFunction*>(pRefFunc),
+					static_cast<SnClassDecl*>(pTgt)))
+				return -1;
+			continue;
+		}
 		auto *pSrc = b.pCallerExpr->EvalDataType();
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)

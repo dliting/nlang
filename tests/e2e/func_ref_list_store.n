@@ -1,0 +1,16 @@
+//Phase 13 Step 1: function values live in List<Func<...>> — the
+//init-list entry is the bare-name injection site; the container
+//formatter renders the element as "func <name>"; foreach invokes every
+//stored handle (review round-1 F5).
+int bar(int x) { return x + 1; }
+
+int main() {
+    List<Func<int, int>> l = [bar];
+    Func<int, int> f = l.get(0);
+    int total = 0;
+    foreach (Func<int, int> g in l) { total = total + g(4); }
+    if (f(4) == 5 && total == 5 && l.toString() == "[func bar]") {
+        return 0;
+    }
+    return 1;
+}

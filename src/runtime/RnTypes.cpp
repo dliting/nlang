@@ -150,6 +150,32 @@ std::string RnType::ValueToString(const void *pValue) const
 	return v->ToString();
 }
 
+RnVoid::RnVoid() :
+	Super_(NK_Void, NameOf(NK_Void), typeid(void))
+{
+}
+
+void RnVoid::InitValue(void *pDst, const void *pSrc) const
+{
+	//A void slot stores nothing.
+}
+
+void RnVoid::CopyValue(void *pDst, const void *pSrc) const
+{
+	//No value of this type can exist; reachable only via type confusion.
+	assert(false && "RnVoid::CopyValue must not be called.");
+}
+
+void RnVoid::Accept(IRuntimeNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string RnVoid::ValueToString(const void *pValue) const
+{
+	return "void";
+}
+
 //Class *RootClass()
 //{
 //	assert(false && "Not implemented.");

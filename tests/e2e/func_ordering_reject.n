@@ -1,0 +1,10 @@
+//Phase 13 Step 1: ordering comparisons on function handles are rejected
+//with a named diagnostic (both Func<->Func and Func<->int forms).
+int bar(int x) { return x; }
+int baz(int x) { return x; }
+
+int main() {
+    Func<int, int> f = bar;
+    Func<int, int> g = baz;
+    return f < g;
+}

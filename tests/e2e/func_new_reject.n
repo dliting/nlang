@@ -1,0 +1,6 @@
+//Phase 13 Step 1: Func types have no by-name constructor — bind a
+//function or method reference instead.
+int main() {
+    Func<int, int> f = new Func<int, int>();
+    return 0;
+}

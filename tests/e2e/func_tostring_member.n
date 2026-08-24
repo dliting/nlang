@@ -1,0 +1,10 @@
+//Phase 13 Step 1: member-form toString on a function value.
+int bar(int x) { return x; }
+
+int main() {
+    Func<int, int> f = bar;
+    if (f.toString() == "func bar") {
+        return 0;
+    }
+    return 1;
+}

@@ -1,0 +1,8 @@
+//Phase 13 Step 1: calling a null handle raises the regular null
+//reference error (heap index 0 is the null sentinel).
+int bar(int x) { return x; }
+
+int main() {
+    Func<int, int> f = null;
+    return f(1);
+}

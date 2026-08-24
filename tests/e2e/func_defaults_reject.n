@@ -1,0 +1,8 @@
+//Phase 13 Step 1: functions with default parameters cannot be referenced
+//— default filling only exists on the direct-call path.
+int bar(int x, int y = 5) { return x + y; }
+
+int main() {
+    Func<int, int, int> f = bar;
+    return 0;
+}

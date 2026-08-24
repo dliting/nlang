@@ -172,6 +172,38 @@ public:
 	void Accept(IRuntimeNodeVisitor &v) override;
 };
 
+/*
+The void type, the type of "no value".
+It only appears in the return slot of Func<...> (e.g. Func<void, int>).
+No value of this type ever exists, so the value operations are no-ops.
+*/
+class NLANG_RUNTIME_API RnVoid : public RnBuiltinDataType
+{
+	typedef RnBuiltinDataType Super_;
+public:
+	//Mirror the RnBuiltinDataTypeT interface for the Sn mirror template.
+	//CppType is void; no value of this type exists, so nothing ever
+	//instantiates a member that would dereference it.
+	typedef void			CppType;
+	static const NodeKind	s_Kind = NK_Void;
+
+	static RnVoid *Instance()
+	{
+		static RnVoid s_Instance;
+		return &s_Instance;
+	}
+
+	void InitValue(void *pDst, const void *pSrc) const override;
+
+	void CopyValue(void *pDst, const void *pSrc) const override;
+
+	std::string ValueToString(const void *pValue) const override;
+
+	void Accept(IRuntimeNodeVisitor &v) override;
+protected:
+	RnVoid();
+};
+
 ///*
 //The type of an object at runtime.
 //Every C++ instance of Class delegates a script class in OOP. Every class 

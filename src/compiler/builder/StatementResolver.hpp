@@ -395,6 +395,16 @@ public:
 
 		pResultExpr->Accept(*m_pVisitor);
 
+		//Phase 13: a return-position function reference binds against the
+		//function's declared return type.
+		if (IsUnboundFuncRef(*pResultExpr))
+		{
+			if (!BindFuncRefToExpected(m_Env,
+				static_cast<SnIdentifierExpr&>(*pResultExpr),
+				pOuterFunc->EvalDataType()))
+				return;
+		}
+
 		if (!pReturnType->IsResolved())
 			return;
 		auto pSourceType = pResultExpr->EvalDataType();
@@ -557,6 +567,15 @@ public:
 		else if (sn.Left()->Kind() == NK_MemberExpr)
 		{
 			pTargetType = sn.Left()->EvalDataType();
+		}
+		//Phase 13: an assignment-position function reference binds
+		//against the LHS type. Local-decl decomposition, plain assignment
+		//and field stores all flow through here.
+		if (IsUnboundFuncRef(*sn.Right()))
+		{
+			if (!BindFuncRefToExpected(m_Env,
+				static_cast<SnIdentifierExpr&>(*sn.Right()), pTargetType))
+				return;
 		}
 		auto* pSourceType = sn.Right()->EvalDataType();
 		if (!pTargetType || !pSourceType)
@@ -1319,6 +1338,38 @@ public:
 			m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
 		if (sn.Value() && !sn.Value()->IsResolved())
 			m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
+		//Phase 13: a function reference stored into an array element
+		//binds against the element type (an array-typed field's
+		//EvalDataType IS the element type).
+		if (sn.Value() && IsUnboundFuncRef(*sn.Value()))
+		{
+			SnField* pElemType = nullptr;
+			if (sn.Array() && sn.Array()->Kind() == NK_IdentifierExpr)
+			{
+				auto* pArrField = static_cast<SnIdentifierExpr&>(
+					*sn.Array()).Field();
+				if (pArrField && pArrField->IsArrayType())
+					pElemType = pArrField->EvalDataType();
+				//Phase 13 (review round-1 F7): `d[key] = value` binds against
+				//the Dict's VALUE type argument (typeArgs[1]), not the key.
+				else if (pArrField && pArrField->EvalDataType()
+					&& pArrField->EvalDataType()->Kind() == NK_ClassDecl)
+				{
+					auto* pDictDecl = static_cast<SnClassDecl*>(
+						pArrField->EvalDataType());
+					if (pDictDecl->IsGenericInstantiation()
+						&& pDictDecl->BaseName() == "Dict")
+					{
+						auto typeArgs = GetGenericTypeArgs(pDictDecl);
+						if (typeArgs.size() > 1)
+							pElemType = typeArgs[1];
+					}
+				}
+			}
+			if (!BindFuncRefToExpected(m_Env,
+				static_cast<SnIdentifierExpr&>(*sn.Value()), pElemType))
+				return;
+		}
 		//Void-support: reject a resolved void call as the stored value —
 		//codegen would store a stale pResult.
 		if (sn.Value() && sn.Value()->IsResolved()

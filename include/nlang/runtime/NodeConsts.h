@@ -30,12 +30,14 @@ const size_t	NODE_FLAG_LIMIT = 1 << NODE_FLAG_BITS;
 
 //Extend data type nodes.
 #define EXTEND_TYPE_NODE_DECL(MACRO_IMPL)									\
-	MACRO_IMPL(Type)		/* type of types */
+	MACRO_IMPL(Type)		/* type of types */								\
+	MACRO_IMPL(Void)		/* Phase 13: void, the no-value type */
 
 //Builtin data type nodes.
 #define BUILTIN_TYPE_NODE_DECL(MACRO_IMPL)									\
 	PRIMITIVE_TYPE_NODE_DECL(MACRO_IMPL)									\
-	MACRO_IMPL(Type)
+	MACRO_IMPL(Type)														\
+	MACRO_IMPL(Void)
 
 //All data types nodes.
 #define TYPE_NODE_DECL(MACRO_IMPL)											\
@@ -118,7 +120,7 @@ inline bool IsPrimitiveType(NodeKind k)
 
 inline bool IsBuiltinType(NodeKind k)
 {
-	return IsPrimitiveType(k) || k == NK_Type; //TODO
+	return IsPrimitiveType(k) || k == NK_Type || k == NK_Void;
 }
 
 //Access type of a field.

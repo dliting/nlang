@@ -81,6 +81,11 @@ static const char* s_OpCodeNames[] = {
     "pop_handler",
     "call_out",
     "call_method_direct_out",
+    "make_func",
+    "call_delegate",
+    "eq_func",
+    "ne_func",
+    "func_to_str",
 };
 
 const char* OpCodeName(OpCode op) {

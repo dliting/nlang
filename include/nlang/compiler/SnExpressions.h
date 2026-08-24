@@ -27,10 +27,18 @@ namespace nlang
 {
 
 //The abstract expression syntax node.
+class BuildEnvironment;
+class SnIdentifierExpr;
+
 class NLANG_COMPILER_API SnExpression: public SyntaxNode
 {
 	friend class ExprResolveAccessor;
 	friend class StatementGenerateAccessor;
+	//Phase 13: binds a pending bare function reference to an expected
+	//Func type — free function shared by the expression and statement
+	//resolvers (needs the protected EvalDataType setter).
+	friend bool BindFuncRefToExpected(BuildEnvironment &env,
+		SnIdentifierExpr &idExpr, SnField *pExpected);
 	typedef SyntaxNode Super_;
 public:
 	SnExpression(NodeKind);
@@ -337,8 +345,13 @@ public:
 
 	SnFunction *Callee() const
 	{
-		assert(!Field() || Field()->Kind() == NK_Function);
-		return (SnFunction *)(Field());
+		//Phase 13: a delegate invoke binds Field() to the Func-typed
+		//value declaration, not an SnFunction — miscasting it made
+		//Release builds read garbage through Params(). Null-safe on
+		//purpose: callers (codegen + both frame walkers) dispatch on a
+		//null callee for the delegate shape.
+		return (Field() && Field()->Kind() == NK_Function)
+			? (SnFunction *)(Field()) : nullptr;
 	}
 
 	void Accept(nlang::ISyntaxNodeVisitor&) override;

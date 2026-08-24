@@ -1,0 +1,13 @@
+//Phase 13 Step 1 (review round-1 F3): a pending function reference in
+//a built-in container method argument binds against the container's
+//type argument — the built-in path has no overload set to score it
+//against.
+int dbl(int x) { return x * 2; }
+
+int main() {
+    List<Func<int, int>> l = [dbl];
+    l.add(dbl);
+    int total = 0;
+    foreach (Func<int, int> f in l) { total = total + f(3); }
+    return total;
+}

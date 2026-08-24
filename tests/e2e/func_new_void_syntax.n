@@ -1,0 +1,8 @@
+//Phase 13 Step 1: `new Func<void, int>()` is a SYNTAX error — the void
+//return slot exists only in the Func type grammar (bare base name
+//followed by KT_Void), not in TypeList, which the NewExpr production
+//consumes.
+int main() {
+    Func<int, int> f = new Func<void, int>();
+    return 0;
+}

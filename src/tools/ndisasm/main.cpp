@@ -437,6 +437,35 @@ static void DisassembleFunction(const CompiledFunction& func,
             std::cout << "    " << offsetBuf << ": " << name << "\n";
             break;
 
+        //Phase 13: first-class function value opcodes.
+        case OpCode::OP_MakeFunc: {
+            uint16_t funcIdx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " funcIdx=" << funcIdx;
+            if (funcIdx < module.functions.size())
+                std::cout << " (" << module.functions[funcIdx].name << ")";
+            std::cout << "\n";
+            break;
+        }
+        case OpCode::OP_CallDelegate: {
+            uint16_t callee = reader.ReadUint16();
+            uint16_t base = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " callee=" << callee << " base=" << base << "\n";
+            break;
+        }
+        case OpCode::OP_Eq_func:
+        case OpCode::OP_Ne_func: {
+            uint16_t lhs = reader.ReadUint16();
+            uint16_t rhs = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " lhs=" << lhs << " rhs=" << rhs << "\n";
+            break;
+        }
+        case OpCode::OP_Func_to_str:
+            std::cout << "    " << offsetBuf << ": " << name << "\n";
+            break;
+
         default:
             std::cout << "    " << offsetBuf << ": unknown_op("
                       << static_cast<int>(op) << ")\n";

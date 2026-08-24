@@ -1,0 +1,13 @@
+//Phase 13 Step 1: the as-cast and string-concat conversion paths produce
+//the same "func name" rendering as the member form.
+int bar(int x) { return x; }
+
+int main() {
+    Func<int, int> f = bar;
+    string a = f as string;
+    string b = "" + f;
+    if (a == "func bar" && b == "func bar") {
+        return 0;
+    }
+    return 1;
+}

@@ -306,6 +306,13 @@ public:
 	{ return m_bIsGenericInst ? m_baseName : Name(); }
 	void SetBaseName(const std::string& name) { m_baseName = name; }
 
+	//Phase 13: true for synthetic Func<...> instantiations (first-class
+	//function values). Shared by CastInfo (function handles do not
+	//participate in class upcasting), the resolver (delegate binding)
+	//and the VM backend (RTK_Func dispatch).
+	bool IsFuncType() const
+	{ return m_bIsGenericInst && m_baseName == "Func"; }
+
 private:
 	SnFieldExpr *m_pSuper;
 	SnClassDecl *m_pSuperClass;

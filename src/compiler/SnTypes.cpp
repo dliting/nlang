@@ -68,4 +68,9 @@ void SnType::Accept(ISyntaxNodeVisitor &v)
 	v.Visit(*this);
 }
 
+void SnVoid::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
 }

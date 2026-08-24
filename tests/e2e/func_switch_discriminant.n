@@ -1,0 +1,11 @@
+//Phase 13 Step 1: a function handle is not a valid switch discriminant
+//(outside the int/float/string family gate).
+int bar(int x) { return x; }
+
+int main() {
+    Func<int, int> f = bar;
+    switch (f) {
+    case 1: return 1;
+    }
+    return 0;
+}

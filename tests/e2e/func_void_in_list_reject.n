@@ -1,0 +1,6 @@
+//Phase 13 Step 1: void as a generic type argument is Func-return-slot
+//only — List<void> is rejected with the named diagnostic.
+int main() {
+    List<void> l = null;
+    return 0;
+}

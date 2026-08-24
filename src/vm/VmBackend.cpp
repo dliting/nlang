@@ -856,6 +856,7 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_Int32_to_str:
         case OpCode::OP_Float_to_str:
         case OpCode::OP_Array_to_str:
+        case OpCode::OP_Func_to_str:
         case OpCode::OP_ParaEnd:
         case OpCode::OP_Rethrow:
         case OpCode::OP_PopHandler:
@@ -882,6 +883,7 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_NullCheck:
         case OpCode::OP_CheckCast:
         case OpCode::OP_Throw:
+        case OpCode::OP_MakeFunc:
             return 1 + 2;  // one uint16 operand
         case OpCode::OP_JumpIfNot:
         case OpCode::OP_Add_i32:
@@ -919,6 +921,9 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_CallMethod:
         case OpCode::OP_CallMethodDirect:
         case OpCode::OP_CallIntrinsic:
+        case OpCode::OP_CallDelegate:
+        case OpCode::OP_Eq_func:
+        case OpCode::OP_Ne_func:
         case OpCode::OP_New:
         case OpCode::OP_ArrayLength:
             return 1 + 2 + 2;  // two uint16 operands
@@ -970,6 +975,7 @@ void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm
             case OpCode::OP_CallMethodDirect:
             case OpCode::OP_CallFuncOut:
             case OpCode::OP_CallMethodDirectOut:
+            case OpCode::OP_MakeFunc:
                 patchU16(pos + 1, pm.functionMap);
                 break;
             case OpCode::OP_New:
@@ -1189,7 +1195,15 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     auto k = pType->Kind();
     if (k == NK_EnumDecl) return RTK_Int32;
     if (k == NK_StructDecl) return RTK_Struct;
-    if (k == NK_ClassDecl) return RTK_Class;
+    if (k == NK_ClassDecl) {
+        //Phase 13: synthetic Func<...> declarations are function-handle
+        //values (RTK_Func), not classes. Every kind-keyed consumer (local
+        //descriptors, field kinds, GC gates) dispatches on this, so the
+        //fallthrough to RTK_Class must not swallow them.
+        if (static_cast<SnClassDecl*>(pType)->IsFuncType())
+            return RTK_Func;
+        return RTK_Class;
+    }
     return static_cast<uint8_t>(k);
 }
 
@@ -1359,6 +1373,9 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
                 conv = OpCode::OP_Int32_to_str;
             else if (pArgType && pArgType->Kind() == NK_Float)
                 conv = OpCode::OP_Float_to_str;
+            else if (pArgType && pArgType->Kind() == NK_ClassDecl
+                && static_cast<SnClassDecl*>(pArgType)->IsFuncType())
+                conv = OpCode::OP_Func_to_str;
             if (conv != OpCode::OP_Count) {
                 const uint16_t slot = claimBase + paramIdx * VALUE_SIZE;
                 emitter.Emit(OpCode::OP_VarLocal);
@@ -1550,6 +1567,16 @@ static uint16_t StmtPeakDepth(SnStatement& stmt,
 //cause the walker to underreserve evalArea slots and EmitCallArgs
 //(called with slotBase=1 from the MemberExpr handler) would overflow
 //into user variable space.
+//Phase 13: a delegate invoke is a resolved invoke whose Field() carries
+//a Func-typed value (local/param/field) rather than an SnFunction. Shared
+//by codegen and both frame-size walkers so their claim shapes stay in
+//lockstep (walker symmetry, 6th instance).
+static bool IsDelegateInvoke(const SnInvokeExpr& invoke)
+{
+    return invoke.Field() != nullptr
+        && invoke.Field()->Kind() != NK_Function;
+}
+
 static uint16_t ExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited,
     bool isMethodContext) {
@@ -1569,6 +1596,11 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
                 || callee->Parent()->Kind() == NK_InterfaceDecl));
         size_t slotBase = isMethod ? 1 : 0;
         size_t claimSize = formalCount + slotBase;
+        //Phase 13: a delegate invoke materializes its callee handle into
+        //one scratch slot. The claims are sequential (args first, then
+        //callee), so this is over-reservation — the safe direction.
+        if (!callee && IsDelegateInvoke(invoke))
+            claimSize += 1;
 
         //Peak depth of argument sub-expressions.
         uint16_t argDepth = 0;
@@ -1986,6 +2018,10 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 size_t slotBase = isMethod ? 1 : 0;
                 uint16_t claimSize = static_cast<uint16_t>(
                     formalCount + slotBase);
+                //Phase 13: delegate invoke callee scratch slot — mirror
+                //ExprPeakDepth (over-reservation, safe direction).
+                if (!callee && IsDelegateInvoke(invoke))
+                    claimSize = static_cast<uint16_t>(claimSize + 1);
                 //Phase 11 Step 3 symmetry (review BLOCKER): a built-in
                 // string method with a staged trailing argument (the
                 //1-arg substring form) bulk-copies 1+maxArgs slots into
@@ -2668,6 +2704,23 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(resultOffset);
             return;
         }
+        if (field && field->Kind() == NK_Function) {
+            //Phase 13: a bound function reference in value position —
+            //emit a static-bound handle. Bare-name invokes never reach
+            //here (the invoke arm dispatches on Callee() first); the
+            //pending-ref sweep rejects unbound references at resolve.
+            auto it = m_funcIndexMap.find(
+                static_cast<SnFunction*>(field));
+            if (it == m_funcIndexMap.end())
+                throw std::runtime_error(
+                    "NLang backend: function reference without an index: "
+                    + field->Name());
+            emitter.Emit(OpCode::OP_MakeFunc);
+            emitter.EmitUint16(static_cast<uint16_t>(it->second));
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
         if (field) {
             auto target = ResolveBareIdentifier(field);
             if (target.kind == BareIdTarget::Local) {
@@ -2719,6 +2772,52 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
                      /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
                      &outSpills);
+
+        //Phase 13: delegate invoke — the resolver bound the callee name to
+        //a Func-typed value (local/param, or an implicit this-field)
+        //instead of a function declaration (Callee() null, Field() set).
+        //Args are already staged at callParamBase by the positional emit
+        //above; materialize the handle into a scratch evalArea slot (the
+        //field form must not disturb callParamBase) and dispatch.
+        if (IsDelegateInvoke(invoke)) {
+            if (!outSpills.empty())
+                throw std::runtime_error(
+                    "NLang backend: out arguments in a delegate call are "
+                    "not supported yet");
+            auto target = ResolveBareIdentifier(invoke.Field());
+            EvalAreaClaim calleeClaim(*this, 1);
+            uint16_t calleeSlot = calleeClaim.base();
+            if (target.kind == BareIdTarget::Local) {
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(target.localOffset);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(calleeSlot);
+            } else if (target.kind == BareIdTarget::ThisField) {
+                //Implicit this.<field> — same load shape as the
+                //identifier arm's ThisField branch.
+                emitter.Emit(OpCode::OP_VarLocal);
+                emitter.EmitUint16(ImplicitThisSlot());
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(calleeSlot);
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(calleeSlot);
+                emitter.Emit(OpCode::OP_LoadField);
+                emitter.EmitUint16(calleeSlot);
+                emitter.EmitUint16(calleeSlot);
+                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+            } else {
+                throw std::runtime_error(
+                    "NLang backend: delegate callee has no codegen "
+                    "binding: " + invoke.CalleeName());
+            }
+            emitter.Emit(OpCode::OP_CallDelegate);
+            emitter.EmitUint16(calleeSlot);
+            emitter.EmitUint16(m_currFunc->callParamBase);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            emitter.Emit(OpCode::OP_ParaEnd);
+            return;
+        }
 
         // Find function index
         int funcIndex = -1;
@@ -2846,6 +2945,19 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         return;
                     }
                 }
+            }
+            //Phase 13: Func → string renders the handle ("func <name>")
+            //via OP_Func_to_str. MUST precede the class→string branch —
+            //a handle's slot[0] is a function index, and the virtual
+            //toString dispatch would read it as a class index.
+            if (srcKind == NK_ClassDecl && dstKind == NK_String
+                && static_cast<SnClassDecl*>(
+                    cast.Source()->EvalDataType())->IsFuncType()) {
+                EmitPResultRefresh(emitter, resultOffset);
+                emitter.Emit(OpCode::OP_Func_to_str);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                return;
             }
             //Phase 8e-9b: class → string emits a virtual toString() call.
             //Setup: copy resultOffset → callParamBase[0], OP_CallMethod by
@@ -2975,6 +3087,19 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.Emit(OpCode::OP_Assign);
             emitter.EmitUint16(resultOffset);
             return;
+        }
+        //Phase 13: `f as string` is the one resolver-approved TCK_Auto
+        //`as` form — function handles render as "func <name>".
+        if (kind == TCK_Auto) {
+            auto* srcType = asExpr.Operand()->EvalDataType();
+            if (srcType && srcType->Kind() == NK_ClassDecl
+                && static_cast<SnClassDecl*>(srcType)->IsFuncType()) {
+                EmitPResultRefresh(emitter, resultOffset);
+                emitter.Emit(OpCode::OP_Func_to_str);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                return;
+            }
         }
         //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None) are rejected by
         //ExprResolver.Access(SnAsExpr&) before codegen — reaching here is
@@ -3268,6 +3393,21 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             } else if (inner && inner->Kind() == NK_InvokeExpr) {
                 //Class method call
                 auto& invoke = static_cast<SnInvokeExpr&>(*inner);
+
+                //Phase 13: function-handle toString() — the only built-in
+                //method on a Func<...> receiver. The receiver is already
+                //at resultOffset (loaded by the class-receiver prologue
+                //above). Must precede the boxing-plan and method-table
+                //machinery: a handle is a VM primitive (like an array),
+                //Func has no backing CompiledClass.
+                if (classDecl->IsFuncType()
+                    && invoke.CalleeName() == "toString") {
+                    EmitPResultRefresh(emitter, resultOffset);
+                    emitter.Emit(OpCode::OP_Func_to_str);
+                    emitter.Emit(OpCode::OP_Assign);
+                    emitter.EmitUint16(resultOffset);
+                    return;
+                }
 
                 //Phase 8e-4: per-method boxing plan for built-in generic
                 //classes (List<T>, Dict<K,V>). For primitive type arguments,
@@ -4262,6 +4402,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         auto* evalType = leftChild.EvalDataType();
         bool isFloat = evalType && evalType->Kind() == NK_Float;
         bool isString = evalType && evalType->Kind() == NK_String;
+        //Phase 13: Func operands compare by handle content, not by heap
+        //index (no interning) — keyed on the LEFT operand like the other
+        //flags; mixed non-null operands are resolver-rejected.
+        bool isFunc = evalType && evalType->Kind() == NK_ClassDecl
+            && static_cast<SnClassDecl*>(evalType)->IsFuncType();
 
         switch (op) {
         case SnBinaryExpr::OP_Add:
@@ -4320,7 +4465,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_Equal:
-            if (isString)
+            if (isFunc)
+                emitter.Emit(OpCode::OP_Eq_func);
+            else if (isString)
                 emitter.Emit(OpCode::OP_Eq_str);
             else
                 emitter.Emit(isFloat ? OpCode::OP_Equal_f32 : OpCode::OP_Equal_i32);
@@ -4328,7 +4475,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(rightSlot);
             break;
         case SnBinaryExpr::OP_NotEqual:
-            if (isString)
+            if (isFunc)
+                emitter.Emit(OpCode::OP_Ne_func);
+            else if (isString)
                 emitter.Emit(OpCode::OP_Ne_str);
             else
                 emitter.Emit(isFloat ? OpCode::OP_NotEqual_f32 : OpCode::OP_NotEqual_i32);

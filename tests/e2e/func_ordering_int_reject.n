@@ -1,0 +1,9 @@
+//Phase 13 Step 1 (review round-1 F5): the Func<->int ordering form is
+//locked separately — in a mixed file the earlier Func<->Func form
+//would mask it (compilation stops at the first error).
+int bar(int x) { return x; }
+
+int main() {
+    Func<int, int> f = bar;
+    return f < 5;
+}

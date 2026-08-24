@@ -1,0 +1,10 @@
+//Phase 13 Step 1 (review round-1 F7): a function reference stored via
+//a Dict subscript binds against the Dict's value type argument.
+int inc(int x) { return x + 1; }
+
+int main() {
+    Dict<string, Func<int, int>> d = new Dict<string, Func<int, int>>();
+    d["one"] = inc;
+    Func<int, int> f = d["one"];
+    return f(4);
+}

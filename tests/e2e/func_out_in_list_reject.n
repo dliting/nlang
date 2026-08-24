@@ -1,0 +1,6 @@
+//Phase 13 Step 1: out type arguments are Func-only; both the type
+//position and the constructor form of List<out int> are rejected.
+int main() {
+    List<out int> l = new List<out int>(2);
+    return 0;
+}

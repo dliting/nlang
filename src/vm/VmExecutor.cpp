@@ -694,6 +694,113 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
+        // === Phase 13: first-class function values ===
+        case OpCode::OP_MakeFunc: {
+            //Static-bound handle to a free function: {funcIdx, this=0,
+            //form=0}. Allocation always happens (no interning) so two
+            //references to one function are distinct-but-equal records.
+            uint16_t funcIdx = reader.ReadUint16();
+            if (funcIdx >= m_currModule->functions.size())
+                throw std::runtime_error("NLang VM: invalid function index in MakeFunc");
+            int32_t heapIdx = AllocFuncRecord(
+                static_cast<int32_t>(funcIdx), 0, 0);
+            std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
+            break;
+        }
+
+        case OpCode::OP_CallDelegate: {
+            uint16_t calleeLocal = reader.ReadUint16();
+            uint16_t callParamBase = reader.ReadUint16();
+            int32_t handleIdx;
+            std::memcpy(&handleIdx, locals + calleeLocal, sizeof(handleIdx));
+            if (handleIdx <= 0
+                || static_cast<size_t>(handleIdx) >= m_structHeap.size()
+                || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null function value in CallDelegate");
+            const auto& handle = m_structHeap[static_cast<size_t>(handleIdx)];
+            //Step 1 ships static (free-function) handles only - bound
+            //method handles (form 1, this != 0) arrive with Step 2.
+            if (handle[2] != 0 || handle[1] != 0)
+                throw std::runtime_error(
+                    "NLang VM: bound-method delegates are not supported yet");
+            uint16_t funcIdx = static_cast<uint16_t>(handle[0]);
+            if (funcIdx >= m_currModule->functions.size())
+                throw std::runtime_error("NLang VM: invalid function index in delegate handle");
+            const CompiledFunction& callee = m_currModule->functions[funcIdx];
+            //Free-function ABI - identical to OP_CallFunc: natives read
+            //their args straight from the caller's callParamBase cells.
+            if (callee.isNative) {
+                CallNative(callee, callParamBase, locals, pResult);
+                break;
+            }
+            std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+            uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+            //Review round-1 F9: silently skipping an oversized parameter
+            //block would run the callee on uninitialized locals — fail
+            //loudly instead.
+            if (paramBytes > callee.localsSize)
+                throw std::runtime_error(
+                    "NLang VM: callee locals smaller than the parameter "
+                    "block in CallDelegate");
+            if (paramBytes > 0)
+                std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
+            ExecuteFunction(callee, pResult, calleeLocals.data());
+            break;
+        }
+
+        case OpCode::OP_Eq_func:
+        case OpCode::OP_Ne_func: {
+            bool bNeg = (op == OpCode::OP_Ne_func);
+            uint16_t lhs = reader.ReadUint16();
+            uint16_t rhs = reader.ReadUint16();
+            int32_t idxA, idxB;
+            std::memcpy(&idxA, locals + lhs, sizeof(idxA));
+            std::memcpy(&idxB, locals + rhs, sizeof(idxB));
+            //Heap index 0 is the null sentinel - reading its slots is UB,
+            //so null participates as plain index comparison.
+            bool bEqual;
+            if (idxA <= 0 || idxB <= 0) {
+                bEqual = (idxA == idxB);
+            } else if (static_cast<size_t>(idxA) >= m_structHeap.size()
+                || static_cast<size_t>(idxB) >= m_structHeap.size()
+                || m_slotKinds[static_cast<size_t>(idxA)] != RTK_Func
+                || m_slotKinds[static_cast<size_t>(idxB)] != RTK_Func) {
+                throw std::runtime_error(
+                    "NLang VM: function equality on a stale non-function value");
+            } else {
+                const auto& a = m_structHeap[static_cast<size_t>(idxA)];
+                const auto& b = m_structHeap[static_cast<size_t>(idxB)];
+                bEqual = (a[0] == b[0] && a[1] == b[1] && a[2] == b[2]);
+            }
+            int32_t r = ((bEqual != bNeg) ? 1 : 0);
+            std::memcpy(locals + lhs, &r, sizeof(r));
+            break;
+        }
+
+        case OpCode::OP_Func_to_str: {
+            //Accumulator-shaped like OP_Array_to_str: the handle comes in
+            //via pResult, the interned string index goes back out through
+            //pResult. Direct conversion paths bypass the member-dispatch
+            //NPE site, so guard the null sentinel here.
+            int32_t heapIdx;
+            std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
+            std::string s;
+            if (heapIdx <= 0) {
+                s = "<null>";
+            } else if (static_cast<size_t>(heapIdx) >= m_structHeap.size()
+                || m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Func) {
+                throw std::runtime_error(
+                    "NLang VM: func_to_str on stale or non-function value");
+            } else {
+                s = FormatFuncHandle(heapIdx);
+            }
+            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
+            m_stringPool.push_back(std::move(s));
+            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            break;
+        }
+
         //Phase 9e: OP_CallFunc + out-parameter writeback. Bit i of
         //outMask marks staging slot i as an out param — after the callee
         //returns, its frame slot i is copied back to the caller's
@@ -1466,7 +1573,7 @@ void VmExecutor::MarkPhase() {
     for (auto& frame : m_callStack) {
         for (auto& ld : frame.func->locals) {
             if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
-                && ld.typeKind != RTK_Array)
+                && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func)
                 continue;
             int32_t val;
             std::memcpy(&val, frame.locals + ld.offset, sizeof(val));
@@ -1480,7 +1587,7 @@ void VmExecutor::MarkPhase() {
         if (frame.pResult) {
             uint8_t retKind = frame.func->returnTypeKind;
             if (retKind == RTK_Class || retKind == RTK_Struct
-                || retKind == RTK_Array) {
+                || retKind == RTK_Array || retKind == RTK_Func) {
                 int32_t val;
                 std::memcpy(&val, frame.pResult, sizeof(val));
                 if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
@@ -1495,7 +1602,18 @@ void VmExecutor::MarkPhase() {
     while (!worklist.empty()) {
         int32_t idx = worklist.back();
         worklist.pop_back();
-        if (m_slotKinds[idx] == RTK_Class) {
+        if (m_slotKinds[idx] == RTK_Func) {
+            //Phase 13: trace the captured receiver (slot[1]) of a bound
+            //handle; slot[0] is a function/name index, not a heap slot.
+            int32_t thisIdx = m_structHeap[idx][1];
+            if (thisIdx > 0
+                && static_cast<size_t>(thisIdx) < m_slotKinds.size()
+                && m_slotKinds[static_cast<size_t>(thisIdx)] == RTK_Class
+                && !m_markBits[static_cast<size_t>(thisIdx)]) {
+                m_markBits[static_cast<size_t>(thisIdx)] = true;
+                worklist.push_back(thisIdx);
+            }
+        } else if (m_slotKinds[idx] == RTK_Class) {
             int32_t classIdx = m_structHeap[idx][0];
             auto& cc = m_currModule->classes[classIdx];
             for (uint16_t i = 0; i < cc.fieldCount; ++i) {
@@ -1510,6 +1628,7 @@ void VmExecutor::MarkPhase() {
                 //which is safe for a mark-sweep collector.
                 if ((cc.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
                     || (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
+                    || (cc.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
                     || m_slotKinds[refIdx] == RTK_Array) {
                     if (!m_markBits[refIdx]) {
                         m_markBits[refIdx] = true;
@@ -1529,9 +1648,12 @@ void VmExecutor::MarkPhase() {
                                 && !m_markBits[elem]) {
                                 auto k = m_slotKinds[elem];
                                 if (k == RTK_Class || k == RTK_Struct
-                                    || k == RTK_Boxed) {
+                                    || k == RTK_Boxed || k == RTK_Func) {
                                     m_markBits[elem] = true;
-                                    if (k == RTK_Class || k == RTK_Struct)
+                                    //Func handles are pushed (their
+                                    //slot[1] receiver must be traced).
+                                    if (k == RTK_Class || k == RTK_Struct
+                                        || k == RTK_Func)
                                         worklist.push_back(elem);
                                 }
                             }
@@ -1552,9 +1674,12 @@ void VmExecutor::MarkPhase() {
                                     && !m_markBits[elem]) {
                                     auto k = m_slotKinds[elem];
                                     if (k == RTK_Class || k == RTK_Struct
-                                        || k == RTK_Boxed) {
+                                        || k == RTK_Boxed || k == RTK_Func) {
                                         m_markBits[elem] = true;
-                                        if (k == RTK_Class || k == RTK_Struct)
+                                        //Func handles are pushed (their
+                                        //slot[1] receiver must be traced).
+                                        if (k == RTK_Class || k == RTK_Struct
+                                            || k == RTK_Func)
                                             worklist.push_back(elem);
                                     }
                                 }
@@ -1575,6 +1700,7 @@ void VmExecutor::MarkPhase() {
                 //runtime kind instead — see the RTK_Class branch above.
                 if ((cs.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
                     || (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
+                    || (cs.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
                     || m_slotKinds[refIdx] == RTK_Array) {
                     if (!m_markBits[refIdx]) {
                         m_markBits[refIdx] = true;
@@ -1596,6 +1722,12 @@ void VmExecutor::MarkPhase() {
                     worklist.push_back(elemRef);
                 }
                 else if (at.elemKind == RTK_Struct && m_slotKinds[elemRef] == RTK_Struct
+                         && !m_markBits[elemRef]) {
+                    m_markBits[elemRef] = true;
+                    worklist.push_back(elemRef);
+                }
+                else if (at.elemKind == RTK_Func
+                         && m_slotKinds[elemRef] == RTK_Func
                          && !m_markBits[elemRef]) {
                     m_markBits[elemRef] = true;
                     worklist.push_back(elemRef);
@@ -2212,6 +2344,47 @@ std::string VmExecutor::QuoteString(const std::string& s) const {
     return out;
 }
 
+//Phase 13: allocate one function-handle heap record. Mirrors
+//AllocBoxedValue's freelist discipline; 3 slots and RTK_Func kind.
+int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
+                                    int32_t form) {
+    int32_t heapIdx;
+    if (!m_freeList.empty()) {
+        heapIdx = m_freeList.back();
+        m_freeList.pop_back();
+        m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
+    } else {
+        heapIdx = static_cast<int32_t>(m_structHeap.size());
+        m_structHeap.emplace_back(3, 0);
+        m_slotKinds.push_back(0);
+        m_slotStructIdx.push_back(0);
+    }
+    m_structHeap[static_cast<size_t>(heapIdx)][0] = target;
+    m_structHeap[static_cast<size_t>(heapIdx)][1] = thisIdx;
+    m_structHeap[static_cast<size_t>(heapIdx)][2] = form;
+    m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Func;
+    m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
+    m_gcPending = true;
+    return heapIdx;
+}
+
+//Phase 13: shared renderer for function handles. slot[0] holds a function
+//index for static handles (form 0) or a string-pool index for
+//virtual-dispatch handles (form 1, Step 2).
+std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
+    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    if (slot[2] == 0) {
+        uint16_t funcIdx = static_cast<uint16_t>(slot[0]);
+        if (funcIdx < m_currModule->functions.size())
+            return "func " + m_currModule->functions[funcIdx].name;
+        return "func <invalid>";
+    }
+    int32_t nameIdx = slot[0];
+    if (nameIdx >= 0 && static_cast<size_t>(nameIdx) < m_stringPool.size())
+        return "method " + m_stringPool[static_cast<size_t>(nameIdx)];
+    return "method <invalid>";
+}
+
 std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(
@@ -2257,6 +2430,10 @@ std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
         return "<struct>";
     case RTK_Array:
         return FormatArray(heapIdx, depth + 1);
+    case RTK_Func:
+        //Fifth FormatHeapValue consumer (container formatting); the four
+        //direct conversion paths go through OP_Func_to_str instead.
+        return FormatFuncHandle(heapIdx);
     default:
         return "<unknown>";
     }

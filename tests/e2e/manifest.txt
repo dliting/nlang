@@ -881,3 +881,34 @@ alias_multi_decl 4
 alias_struct_field 6
 alias_iface_method 5
 alias_subscript 12
+
+# --- Phase 13 Step 1: Func type + free function references ---
+func_ref_basic 0
+func_ref_store 0
+func_ref_native 77
+func_ref_eq 0
+func_ref_null 1
+func_ref_tostring 0 func bar
+func_tostring_member 0
+func_tostring_cast 0
+func_ref_void_return 41
+func_ref_list_store 0
+func_sig_mismatch compile_error
+func_no_expected_type compile_error requires an expected function type
+func_ordering_reject compile_error
+func_void_param_position compile_error
+func_defaults_reject compile_error
+func_object_box_reject compile_error
+func_named_arg_reject compile_error
+func_switch_discriminant compile_error
+func_out_in_list_reject compile_error
+func_new_reject compile_error cannot be constructed by name
+func_new_void_syntax compile_error
+func_void_in_list_reject compile_error
+func_ref_to_func_reject compile_error does not match the signature of
+func_out_delegate_reject compile_error delegate calls with out parameters
+func_ordering_int_reject compile_error
+func_ref_deep 2
+func_list_add 12
+func_dict_set 5
+func_gc_basic 44

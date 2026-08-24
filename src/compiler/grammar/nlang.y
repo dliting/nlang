@@ -233,7 +233,7 @@ static SnExpression* BuildStringExpr(
 %type <v_AccessType>    		AccessType
 %type <v_NodeFlags>    			NodeFlags NodeFlag
 %type <v_pNameExpr>				NameExpr
-%type <v_pFieldExpr>				Type
+%type <v_pFieldExpr>				Type TypeArg
 %type <v_pFieldExprVec>			TypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
@@ -1193,14 +1193,41 @@ NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 //reduction (Type is never an Expression in NLang grammar).
 Type:	NameExpr		{ $$ = $1; } |
 				NameExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr($1, $3, @1); } |
+				//Phase 13: void in the first type-arg slot (Func's return
+				//slot). KT_Void never derives Type, so the void spellings
+				//need their own sister productions; the void node must be a
+				//real type argument so `Func<void,int>` and `Func<int>`
+				//produce different GenericInstKeys.
+				NameExpr '<' KT_Void '>'	{
+						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+						$$ = new SnGenericTypeExpr($1,
+							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+					} |
+				NameExpr '<' KT_Void ',' TypeList '>'	{
+						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+						$5->insert($5->begin(), pVoid);
+						$$ = new SnGenericTypeExpr($1, $5, @1);
+					} |
 				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } ;
 
-//Comma-separated list of type arguments inside `<...>`. Used only by
-//the generic Type rule above.
-TypeList:	Type {
+//A single type argument inside `<...>`: a plain type, or an
+//out-marked type (only legal as a Func parameter slot, checked at
+//instantiation). The out marker lives as an NF_Out node flag on
+//the type node so it survives into GenericInstKey comparisons.
+TypeArg:	Type {
+						$$ = $1;
+					} |
+					KT_Out Type {
+						$2->AddFlags(NF_Out);
+						$$ = $2;
+					} ;
+
+//Comma-separated list of type arguments inside `<...>`. Used by
+//the generic Type rule above and the generic NewExpr variants.
+TypeList:	TypeArg {
 						$$ = new std::vector<nlang::SnFieldExpr*>{ $1 };
 					} |
-					TypeList ',' Type {
+					TypeList ',' TypeArg {
 						$1->push_back($3);
 						$$ = $1;
 					} ;

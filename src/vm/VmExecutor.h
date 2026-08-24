@@ -163,6 +163,18 @@ private:
     //string split / fs.listFiles intrinsics.
     int32_t AllocBoxedValue(uint8_t typeTag, int32_t val);
 
+    //Phase 13: allocate one function-handle heap record (3 slots:
+    //[0]=target, [1]=this, [2]=form; m_slotKinds=RTK_Func). Always
+    //allocates — handles are never interned, two references to the same
+    //function are distinct records compared by content.
+    int32_t AllocFuncRecord(int32_t target, int32_t thisIdx, int32_t form);
+
+    //Phase 13: render a function handle for toString / container
+    //formatting ("func <name>" for static handles, "method <name>" for
+    //virtual-dispatch handles). Shared by OP_Func_to_str and
+    //FormatHeapValue.
+    std::string FormatFuncHandle(int32_t heapIdx) const;
+
     //Phase 9f: shared native-table dispatch for OP_CallFunc and the method
     //call paths (a native method receives `this` at args[0], mirroring the
     //bytecode calling convention). Throws when the host never registered

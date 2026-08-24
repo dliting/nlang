@@ -1,0 +1,15 @@
+//Phase 13 Step 1 (review round-1 F1): the positive face of the same
+//fix — a reference to a Func-returning function binds against the
+//matching higher-order expected type, and invoking through the returned
+//handle works end to end.
+int bar(int x) { return x + 1; }
+
+Func<int, int> pick() { return bar; }
+
+int apply(Func<int, int> f, int x) { return f(x); }
+
+int main() {
+    Func<Func<int, int>> g = pick;
+    Func<int, int> h = g();
+    return apply(h, 1);
+}

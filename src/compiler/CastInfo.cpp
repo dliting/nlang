@@ -27,6 +27,20 @@ void TypeCastInfo::StaticInit()
 	s_CastTable[NK_Type][NK_Float]		= TCK_None;
 	s_CastTable[NK_Type][NK_String]		= TCK_None;
 	s_CastTable[NK_Type][NK_Type]		= TCK_Same;
+
+	//Phase 13: void exists only as a Func<...> return slot and never
+	//reaches expression casting as a value type, but NK_DT_COUNT grew
+	//with the new kind — fill the row/column so the init assert holds
+	//and any accidental use yields TCK_None instead of an unset entry.
+	s_CastTable[NK_Void][NK_Int32]		= TCK_None;
+	s_CastTable[NK_Void][NK_Float]		= TCK_None;
+	s_CastTable[NK_Void][NK_String]		= TCK_None;
+	s_CastTable[NK_Void][NK_Type]		= TCK_None;
+	s_CastTable[NK_Void][NK_Void]		= TCK_Same;
+	s_CastTable[NK_Int32][NK_Void]		= TCK_None;
+	s_CastTable[NK_Float][NK_Void]		= TCK_None;
+	s_CastTable[NK_String][NK_Void]		= TCK_None;
+	s_CastTable[NK_Type][NK_Void]		= TCK_None;
 #ifndef NDEBUG
 	for (size_t i = NK_Int32; i < NK_DT_COUNT; ++i)
 		for (size_t j = NK_Int32; j < NK_DT_COUNT; ++j)
@@ -67,6 +81,16 @@ void TypeCastInfo::CalcCastKind()
 		if (m_pSource == m_pTarget)
 		{
 			m_Kind = TCK_Same;
+			return;
+		}
+		//Phase 13: function handles do not participate in class upcasting.
+		//The synthetic Func<...> declaration is an SnClassDecl, so without
+		//this guard `Object o = f` would take the Object special case below
+		//as a TCK_Same no-op and box the handle into an untracked slot.
+		if (static_cast<const SnClassDecl*>(m_pSource)->IsFuncType()
+			|| static_cast<const SnClassDecl*>(m_pTarget)->IsFuncType())
+		{
+			m_Kind = TCK_None;
 			return;
 		}
 		//Phase 8e-1: implicit upcast to Object. Object is the universal root

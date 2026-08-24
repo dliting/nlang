@@ -1,0 +1,23 @@
+//Phase 13 Step 1: content equality — two references to the same function
+//compare equal; references to different functions compare unequal. Both
+//== and != must agree.
+int bar(int x) { return x; }
+int baz(int x) { return x; }
+
+int main() {
+    Func<int, int> a = bar;
+    Func<int, int> b = bar;
+    Func<int, int> c = baz;
+    if (!(a == b)) return 1;
+    if (a == c) return 2;
+    if (a != b) return 3;
+    if (!(a != c)) return 4;
+    //Review round-1 F5: null-handle comparisons — a live handle never
+    //equals null, a null handle compares equal to the null literal.
+    Func<int, int> n = null;
+    if (a == n) return 5;
+    if (!(a != n)) return 6;
+    if (!(n == null)) return 7;
+    if (n != null) return 8;
+    return 0;
+}

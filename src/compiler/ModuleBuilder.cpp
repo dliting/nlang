@@ -99,6 +99,12 @@ bool ModuleBuilder::Build()
 	if (m_upEnv->HasError())
 		return false;
 
+	//Phase 13: sweep function references that are still pending after
+	//every consumer ran — they never met an expected Func type.
+	SweepPendingFuncRefs();
+	if (m_upEnv->HasError())
+		return false;
+
 	if (!GenerateCodes())
 		return false;
 
@@ -337,6 +343,32 @@ void ModuleBuilder::ResolveStatements()
 	CheckStructCircularRefs();
 	CheckClassCircularInheritance();
 	CheckInterfaceImplementation();
+}
+
+//Phase 13: sweep function references still pending after statement
+//resolution. A pending reference resolved to a function declaration but
+//never met a consumer supplying an expected Func type (e.g. an argument
+//position of a call that failed to bind). Left alone it would reach
+//codegen as a bare identifier with no codegen binding.
+void ModuleBuilder::SweepPendingFuncRefs()
+{
+	std::function<void(SyntaxNode&)> sweep = [&](SyntaxNode &node) {
+		for (auto &child : node.Children())
+		{
+			//Children() yields Node&; every node below the tree root is
+			//a SyntaxNode in practice.
+			auto &synChild = static_cast<SyntaxNode&>(child);
+			if (IsPendingFuncRef(synChild))
+			{
+				m_upEnv->Log(CLL_Error, synChild.Location(),
+					"function reference \"%s\" requires an expected "
+					"function type.",
+					synChild.ToString().c_str());
+			}
+			sweep(synChild);
+		}
+	};
+	sweep(TreeRoot());
 }
 
 void ModuleBuilder::CheckStructCircularRefs()

@@ -2,6 +2,7 @@
 #include "SnExpressions.h"
 #include "SyntaxNodeVisitor.h"
 #include <nlang/runtime/Flagable.h>
+#include <vector>
 
 namespace nlang
 {
@@ -36,6 +37,45 @@ typedef uint8 ExprResolveFlagSet;
 //through. Definitions live in ExprResolver.cpp.
 bool IsArrayTypedBase(SnExpression& baseExpr);
 bool IsArrayValuedExpr(SnExpression& expr);
+
+/*
+Phase 13: bind a pending bare-function reference (see IsUnboundFuncRef)
+to the expected Func<...> type of the injection site. Validates the
+exact signature, then rebinds the identifier: EvalDataType becomes the
+Func declaration — codegen detects the bound state structurally (a
+value-position identifier whose Field() is an SnFunction) and emits
+OP_MakeFunc. The 24 node-flag bits are fully allocated, so pending and
+bound states are structural, not flag-based.
+\return false after logging a named diagnostic (non-Func expected type,
+method without receiver, default parameters, imported stub, signature
+mismatch) — the caller should stop resolving the statement.
+Shared by ExprResolver (argument positions) and StatementResolver
+(assignment / return / subscript-store positions).
+*/
+bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
+	SnField *pExpected);
+
+/*
+Phase 13: loose pending predicate — true while a bare function
+reference carries a non-Func EvalDataType (its function's return type).
+Consumed ONLY by the ModuleBuilder TU-end sweep, which reports any
+reference that never met an expected type; the bind sites (argument /
+assignment / return / subscript / init-list positions) use the strict
+IsUnboundFuncRef below (review round-1 F1 split — see the .cpp comments
+for why a Func-typed EvalDataType alone does not prove a binding).
+*/
+bool IsPendingFuncRef(SyntaxNode &expr);
+//Phase 13 (review round-1 F1): strict bind-site predicate — true unless
+//the reference's own signature satisfies the Func type it carries (a
+//Func-typed RETURN type leaking through ResolveFieldExprAs is NOT a
+//binding). All bind sites use this form; IsPendingFuncRef above is the
+//loose form kept for the end-of-build sweep only.
+bool IsUnboundFuncRef(SyntaxNode &expr);
+//Phase 13 (review round-1 F7): type arguments of a generic instantiation
+//(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
+//StatementResolver's Dict subscript-store bind site.
+std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
+
 
 /*
 The syntax node accessor for expression resolving.
@@ -145,6 +185,26 @@ private:
 	*/
 	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &outBindings);
+
+	/*
+	Phase 13: locate the delegate target of a bare invoke — a non-function
+	field (local / param / class field) whose value type is a Func<...>
+	instantiation. Returns nullptr when the callee name is not a Func
+	value (the normal free-function/method paths take over). Shadowing
+	rule: name lookup finds the Func value before any same-named function.
+	*/
+	SnField *FindDelegateTarget(SnInvokeExpr &invoke);
+
+	/*
+	Phase 13: bind an invoke to a Func-typed field's signature (delegate
+	call). Validates arity, out agreement and argument types, rebinds
+	pending function-reference arguments against the Func's parameter
+	slots, then resolves the invoke with the Func's return type as
+	EvalDataType (nullptr for a void return — the established
+	void-invoke convention). Every path consumes the invoke: errors are
+	logged here, success resolves it.
+	*/
+	void BindDelegateInvoke(SnInvokeExpr &invoke, SnField *pDelegateField);
 
 	/*
 	Phase 9c: validate caller-side argument syntax — independent of any

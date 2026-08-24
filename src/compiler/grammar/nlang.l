@@ -257,14 +257,16 @@ LineComment	\/\/[^\n]*
 
 {Name}      {
                 SET_TEXT(yytext);
-                /* Flag List/Dict so a following '<' opens a type-argument
-                 * list (see the '<' rule). Every identifier rewrites this
-                 * flag, so it can only reach a '<' across blanks/comments
-                 * — a comparison `List < 3` against a variable shadowing
-                 * the type name is misread (documented limitation). */
+                /* Flag List/Dict/Func so a following '<' opens a
+                 * type-argument list (see the '<' rule). Every identifier
+                 * rewrites this flag, so it can only reach a '<' across
+                 * blanks/comments — a comparison `List < 3` against a
+                 * variable shadowing the type name is misread (documented
+                 * limitation). */
                 scanner.PendingGenericOpen(
                     strcmp(yytext, "List") == 0
-                    || strcmp(yytext, "Dict") == 0);
+                    || strcmp(yytext, "Dict") == 0
+                    || strcmp(yytext, "Func") == 0);
                 return TT_Identifier;
             }
 

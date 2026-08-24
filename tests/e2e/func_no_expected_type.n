@@ -1,0 +1,11 @@
+//Phase 13 Step 1: a bare function name with no consumer that supplies an
+//expected function type — the pending reference must be swept with the
+//named diagnostic, not a plain unknown-identifier error.
+int bar(int x) { return x; }
+
+void consumer(int x) { }
+
+int main() {
+    consumer(bar);
+    return 0;
+}

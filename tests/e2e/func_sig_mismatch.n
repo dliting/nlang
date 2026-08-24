@@ -1,0 +1,8 @@
+//Phase 13 Step 1: signature mismatch — bar takes one parameter, the
+//expected type Func<int> (zero params, int return) does not match.
+int bar(int x) { return x; }
+
+int main() {
+    Func<int> f = bar;
+    return 0;
+}

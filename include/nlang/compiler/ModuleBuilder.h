@@ -63,6 +63,10 @@ private:
 
 	void ResolveStatements();
 
+	//Phase 13: report every function reference still pending after all
+	//consumers ran (never met an expected Func type).
+	void SweepPendingFuncRefs();
+
 	//Check for circular struct references.
 	void CheckStructCircularRefs();
 

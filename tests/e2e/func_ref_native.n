@@ -1,0 +1,8 @@
+//Phase 13 Step 1: referencing a native function — the handle stores the
+//function index; the delegate call dispatches to CallNative by name.
+native int natConst();
+
+int main() {
+    Func<int> f = natConst;
+    return f();
+}

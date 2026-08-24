@@ -1,0 +1,12 @@
+//Phase 13 Step 1: void-returning delegate called in statement position.
+//The observable side effect runs through the object reference.
+class Holder { int v; }
+
+void setter(Holder h) { h.v = 41; }
+
+int main() {
+    Func<void, Holder> f = setter;
+    Holder h = new Holder();
+    f(h);
+    return h.v;
+}

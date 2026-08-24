@@ -1,0 +1,9 @@
+//Phase 13 Step 1: io.print accepts a function value via the direct
+//conversion path — "func " + the function's name.
+int bar(int x) { return x; }
+
+int main() {
+    Func<int, int> f = bar;
+    io.print(f);
+    return 0;
+}

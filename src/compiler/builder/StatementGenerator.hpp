@@ -13,6 +13,7 @@ for statements in an nlang AST.
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Analysis/Verifier.h>
 #include <llvm/IR/Constants.h>
+#include <stdexcept>
 
 namespace nlang
 {
@@ -138,7 +139,14 @@ public:
 	void Access(SnInvokeExpr &sn)
 	{
 		SnFunction *pCallee = sn.Callee();
-		assert(pCallee && pCallee->MetaValue());
+		//Phase 13 (review round-1 F8): a delegate invoke has no
+		//SnFunction callee (Callee() is null-safe since Step 1) — the
+		//old assert compiled out in Release and null-dereferenced. The
+		//LLVM backend does not implement delegates; fail by name.
+		if (!pCallee)
+			throw std::runtime_error(
+				"NLang LLVM backend: delegate invokes are not supported.");
+		assert(pCallee->MetaValue());
 
 		std::vector<llvm::Value*> metaParams;
 		for (auto &param : sn.Params()) 

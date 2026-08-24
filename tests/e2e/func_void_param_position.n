@@ -1,0 +1,6 @@
+//Phase 13 Step 1: void is only valid in the return position of Func<...>
+//(`Func<void>` / `Func<void, ...>`); a parameter slot is a syntax error.
+int main() {
+    Func<int, void> f = null;
+    return 0;
+}

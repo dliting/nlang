@@ -13,7 +13,10 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //v1.7 (Phase 11): stdlib namespace intrinsics + reserved namespaces. No
 //field-layout change, but the later relational string opcodes share this
 //version step, so older VMs must refuse these modules outright.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 7;
+//v1.8 (Phase 13): first-class function values — RTK_Func heap records and
+//the OP_MakeFunc/OP_CallDelegate/OP_Eq_func/OP_Ne_func/OP_Func_to_str
+//opcodes. Older VMs cannot execute these opcodes; refuse outright.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 8;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -24,6 +27,7 @@ static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;
 static constexpr uint8_t RTK_Array  = 5;
 static constexpr uint8_t RTK_Boxed  = 6;  //Phase 8e-1: boxed primitive (slot[0]=tag, slot[1]=value)
+static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=target, slot[1]=this, slot[2]=form; 0=static, 1=virtual)
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
 static constexpr uint8_t RTK_Unfoldable = 0xFC;  //Option B: had default but not constant-foldable
 static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
