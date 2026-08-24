@@ -630,6 +630,11 @@ SnSubscriptExpr::SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pArray(pArray), m_pIndex(pIndex)
 {
+	//Phase 13 Step 0.5 container unification: both operands are regular
+	//children (dual-storage invariant); the resolvers reach them through
+	//the Array()/Index() accessors with direct Accepts.
+	AddChild(m_pArray);
+	AddChild(m_pIndex);
 }
 
 void SnSubscriptExpr::Accept(ISyntaxNodeVisitor &v)
@@ -642,10 +647,32 @@ std::string SnSubscriptExpr::ToString() const
 	return "subscript";
 }
 
+bool SnSubscriptExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//Both slots are cached typed members over the children list; route
+	//splices through ResetChild to keep them in sync.
+	if (m_pArray == pOld)
+	{
+		ResetChild(m_pArray, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	if (m_pIndex == pOld)
+	{
+		ResetChild(m_pIndex, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 SnNewArrayExpr::SnNewArrayExpr(SnFieldExpr *pElemType, SnExpression *pSize,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pElemType(pElemType), m_pSize(pSize)
 {
+	//Phase 13 Step 0.5 container unification: the element type and size
+	//are regular children (dual-storage invariant); the resolver reaches
+	//them through ElementType()/Size() with direct Accepts.
+	AddChild(m_pElemType);
+	AddChild(m_pSize);
 }
 
 SnNewArrayExpr::~SnNewArrayExpr() = default;
@@ -667,13 +694,17 @@ std::string SnNewArrayExpr::ToString() const
 
 bool SnNewArrayExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 {
-	//The element type is not kept in the children list (legacy shape: the
-	//resolver reaches it through ElementType() with a direct Accept), so
-	//splice it with a plain pointer swap instead of a list operation.
+	//Both slots are cached typed members over the children list; route
+	//splices through ResetChild (the old pointer-swap form predates the
+	//container unification and left Size() unreachable).
 	if (m_pElemType == pOld)
 	{
-		delete m_pElemType;
-		m_pElemType = static_cast<SnFieldExpr *>(pNew);
+		ResetChild(m_pElemType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	if (m_pSize == pOld)
+	{
+		ResetChild(m_pSize, static_cast<SnExpression *>(pNew));
 		return true;
 	}
 	return Super_::ReplaceChildNode(pOld, pNew);

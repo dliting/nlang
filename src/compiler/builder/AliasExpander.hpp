@@ -144,53 +144,13 @@ private:
 	//Expand the alias references among the direct children of one node.
 	void ExpandChildren(SyntaxNode *pParent, std::set<std::string> &visitedNames)
 	{
-		//Slots held outside the children list need explicit treatment:
-		// - SnNewArrayExpr keeps its element type (and size) there (legacy
-		//   shape — the resolver reaches the element type through
-		//   ElementType() with a direct Accept);
-		// - SnSubscriptExpr keeps its array base and index there;
-		// - SnLocalDeclStmt keeps its init expressions there (temporary
-		//   ownership until the resolver decomposes the declaration into
-		//   AssignStmts) — they carry new/as expressions with type slots.
-		switch (pParent->Kind())
-		{
-		case NK_NewArrayExpr:
-		{
-			//Both the element type and the size live outside the children
-			//list (legacy shape), so neither is reached by the child loop
-			//below. The grammar never produces a bare type name in the
-			//size position — walking it is defensive symmetry.
-			auto *pNewArray = static_cast<SnNewArrayExpr*>(pParent);
-			if (pNewArray->ElementType() && !pNewArray->ElementType()->Parent())
-				ExpandSlot(pParent, pNewArray->ElementType(), visitedNames);
-			if (pNewArray->Size() && !pNewArray->Size()->Parent())
-				ExpandSlot(pParent, pNewArray->Size(), visitedNames);
-			break;
-		}
-		case NK_SubscriptExpr:
-		{
-			//The array base and the index also live outside the children
-			//list (legacy shape): alias uses inside them — a cast target in
-			//the index (`a[1 as T]`) or an array constructor in the base
-			//(`new T[1][0]`) — must expand like anywhere else.
-			auto *pSubscript = static_cast<SnSubscriptExpr*>(pParent);
-			if (pSubscript->Array() && !pSubscript->Array()->Parent())
-				ExpandSlot(pParent, pSubscript->Array(), visitedNames);
-			if (pSubscript->Index() && !pSubscript->Index()->Parent())
-				ExpandSlot(pParent, pSubscript->Index(), visitedNames);
-			break;
-		}
-		case NK_LocalDeclStmt:
-			for (auto &decl : static_cast<SnLocalDeclStmt*>(pParent)->Decls())
-				if (decl.pInitExpr)
-					ExpandSlot(pParent, decl.pInitExpr, visitedNames);
-			break;
-		default:
-			break;
-		}
-
-		//Snapshot first: ReplaceChildNode splices the children list while
-		//the loop runs (the replaced node is deleted in place).
+		//Since the Phase 13 Step 0.5 container unification every
+		//contained member is a regular child — including the former
+		//out-of-list slots (new-array element type/size, subscript
+		//base/index, local-decl init expressions) that this walk used to
+		//special-case — so one loop covers them all. Snapshot first:
+		//ReplaceChildNode splices the children list while the loop runs
+		//(the replaced node is deleted in place).
 		std::vector<SyntaxNode*> children;
 		for (auto &child : pParent->Children())
 			children.push_back(static_cast<SyntaxNode*>(&child));

@@ -159,12 +159,14 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 {
 	assert(m_pType);
 	AddChild(m_pType);
-	//Init expressions are NOT added as children here. They are temporary
-	//ownership — the decomposition pattern in StatementResolver transfers
-	//them to SnAssignStmt nodes. If resolution never happens (e.g. type
-	//unresolved), the destructor cleans them up.
-	//Reference: EN's DataDeclBase stores m_pDefaultValue as a raw pointer
-	//without calling AddChild.
+	//Phase 13 Step 0.5 container unification: init expressions are
+	//regular children. Ownership lives with the children list until the
+	//resolver's decomposition detaches them into SnAssignStmts
+	//(SyntaxNode::DetachChild); if resolution never runs, the base
+	//destructor still frees them through the list.
+	for (auto &decl : *m_upDecls)
+		if (decl.pInitExpr)
+			AddChild(decl.pInitExpr);
 }
 
 //Phase 9a: const local variant.
@@ -175,20 +177,9 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 {
 	assert(m_pType);
 	AddChild(m_pType);
-}
-
-SnLocalDeclStmt::~SnLocalDeclStmt()
-{
-	//Clean up any init expressions that were not transferred to AssignStmts
-	//(i.e. resolution never ran, typically because the type was unresolved).
-	for (auto& decl : *m_upDecls)
-	{
+	for (auto &decl : *m_upDecls)
 		if (decl.pInitExpr)
-		{
-			delete decl.pInitExpr;
-			decl.pInitExpr = nullptr;
-		}
-	}
+			AddChild(decl.pInitExpr);
 }
 
 std::string SnLocalDeclStmt::ToString() const
@@ -223,6 +214,16 @@ bool SnLocalDeclStmt::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	{
 		ResetChild(m_pType, static_cast<SnFieldExpr *>(pNew));
 		return true;
+	}
+	//Init slots share the dual-storage invariant after the container
+	//unification; keep every typed slot in sync on splice.
+	for (auto &decl : *m_upDecls)
+	{
+		if (decl.pInitExpr == pOld)
+		{
+			ResetChild(decl.pInitExpr, static_cast<SnExpression *>(pNew));
+			return true;
+		}
 	}
 	return Super_::ReplaceChildNode(pOld, pNew);
 }

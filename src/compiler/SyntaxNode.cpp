@@ -95,6 +95,18 @@ bool SyntaxNode::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	return true;
 }
 
+SyntaxNode *SyntaxNode::DetachChild(SyntaxNode *pChild)
+{
+	if (!pChild || pChild->Parent() != this)
+		return nullptr;
+	auto &children = Children();
+	auto iRemove = children.find(pChild);
+	if (iRemove == children.end())
+		return nullptr;
+	RemoveChild(iRemove);
+	return pChild;
+}
+
 void SyntaxNode::Dump(std::ostream &os) const
 {
 	SyntaxNode &root = const_cast<SyntaxNode&>(*this);

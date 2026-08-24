@@ -218,8 +218,6 @@ public:
 		std::vector<LocalDecl> *pDecls, bool isConst,
 		const ISourceLocation &loc);
 
-	~SnLocalDeclStmt() override;
-
 	//Get the type name expression.
 	SnFieldExpr *Type() const { return m_pType; }
 

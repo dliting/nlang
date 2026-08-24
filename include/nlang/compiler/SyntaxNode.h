@@ -122,6 +122,24 @@ public:
 	*/
 	virtual bool ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew);
 
+	/*
+	Detach a direct child from this node without deleting it; ownership
+	passes back to the caller, who typically re-parents it with AddChild
+	on the new owner (DOM removeChild protocol). The typed member slot of
+	the old owner is intentionally left pointing at the detached node so
+	existing readers keep working until the caller re-parents it.
+	\return the detached node, or null if pChild is not a child of this
+	node (including null input and foreign nodes).
+	Used by the local-decl decomposition in StatementResolver (Phase 13
+	Step 0.5 container unification).
+	*/
+	SyntaxNode *DetachChild(SyntaxNode *pChild);
+	template <class NODE_T>
+	NODE_T *DetachChild(NODE_T *pChild)
+	{
+		return static_cast<NODE_T *>(DetachChild(static_cast<SyntaxNode *>(pChild)));
+	}
+
 	//Accept a visitor using the Visitor design pattern.
 	virtual void Accept(ISyntaxNodeVisitor&) = 0;
 

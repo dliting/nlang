@@ -466,8 +466,12 @@ public:
 			{
 				auto *pLeft = new SnIdentifierExpr(
 					new std::string(decl.name), *sn.Location());
+				//The init expr is a child of sn since the container
+				//unification; hand its ownership over to the AssignStmt
+				//instead of letting both own it.
 				auto *pAssign = new SnAssignStmt(
-					pLeft, decl.pInitExpr, *sn.Location());
+					pLeft, sn.DetachChild(decl.pInitExpr),
+					*sn.Location());
 
 				auto iPos = pParagraph->Children().find(&sn);
 				++iPos;
@@ -633,8 +637,14 @@ public:
 					if (d.pInitExpr) {
 						auto *pLeft = new SnIdentifierExpr(
 							new std::string(d.name), *decl.Location());
+						//Detach from the inner LocalDeclStmt (decl — not
+						//sn!) so the AssignStmt becomes the sole owner.
+						//The typed slot keeps aliasing the node until
+						//the nulling below, so the d.pInitExpr reads in
+						//this block stay valid.
 						auto *pAssign = new SnAssignStmt(
-							pLeft, d.pInitExpr, *decl.Location());
+							pLeft, decl.DetachChild(d.pInitExpr),
+							*decl.Location());
 						sn.InitExtras().push_back(pAssign);
 
 						if (pParagraph) {

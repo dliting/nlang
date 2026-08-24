@@ -50,6 +50,19 @@ target_link_libraries(test_scanner
 
 add_test(NAME scanner_tests COMMAND test_scanner)
 
+# AST container model tests (Phase 13 Step 0.5): dual-storage invariant
+# for the former out-of-list slots + DetachChild semantics.
+add_executable(test_ast_containment
+    test_compiler/test_ast_containment.cpp
+)
+
+target_link_libraries(test_ast_containment
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME ast_containment_tests COMMAND test_ast_containment)
 
 # ncc .nproj loader unit tests (Phase 10 Step 0).
 add_executable(test_projectfile

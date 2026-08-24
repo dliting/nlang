@@ -737,6 +737,8 @@ public:
 	bool IsDataExpr() const override { return true; }
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnExpression *m_pArray;
 	SnExpression *m_pIndex;
