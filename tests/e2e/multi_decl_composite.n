@@ -1,0 +1,11 @@
+//Array- and struct-typed multi declarators decompose through the same
+//assign chain as primitives (q must see p's fields).
+struct Point {
+    int x;
+    int y;
+}
+int main() {
+    int[] a = [10, 20], b = [1, 2, 3];
+    Point p = new Point{3, 4}, q = p;
+    return a[0] + b[2] + p.y + q.x;
+}

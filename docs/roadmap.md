@@ -81,7 +81,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- **781 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`）；ctest 10 项（编译器/VM）+ IDE 18 项
+- **787 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`）；ctest 10 项（编译器/VM）+ IDE 18 项
 - 工具链：ncc / nvm / ndisasm / nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
 - 模块格式 v1.8（Func 句柄：RTK_Func + 8 个函数值 opcode）
 - 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器 + 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名

@@ -154,7 +154,7 @@ protected:
 	The node will be added before the location pointed by iPos.
 	\return The iterator pointing to the inserted node.
 	*/
-	iterator insert(iterator& iPos, Node *pNode)
+	iterator insert(const iterator& iPos, Node *pNode)
 	{
 		assert(this != NullList());
 		assert(&iPos.m_Items == m_upItems.get() && pNode != nullptr);
@@ -168,7 +168,7 @@ protected:
 	\return The iterator following the removed node.
 	\note Remove a child will not destroy it.
 	*/
-	iterator erase(iterator& iPos)
+	iterator erase(const iterator& iPos)
 	{
 		assert(this != NullList());
 		assert(&iPos.m_Items == m_upItems.get() && iPos != end());
@@ -251,7 +251,7 @@ protected:
 	*/
 	iterator insert(iterator iPos, NodeType *pNode)
 	{
-		assert(pNode == nullptr);
+		assert(pNode != nullptr);
 		assert(FILTER_T()(pNode));
 		auto iNode = InsertChildInto(iPos.NodeIterator(), pNode, *m_pParent);
 		return iterator(iNode);

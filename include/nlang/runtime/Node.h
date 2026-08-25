@@ -182,7 +182,7 @@ protected:
 	The node will be added before the location pointed by iPos.
 	\return The iterator pointing to the inserted node. 
 	*/
-	NodeIterator InsertChild(NodeIterator& iPos, Node *pNode);
+	NodeIterator InsertChild(const NodeIterator& iPos, Node *pNode);
 
 	/*
 	Remove a child from this node and release the ownership of it.
@@ -190,7 +190,7 @@ protected:
 	\return The iterator following the removed node.
 	\note Remove a child will not destroy it.
 	*/
-	NodeIterator RemoveChild(NodeIterator& iPos);
+	NodeIterator RemoveChild(const NodeIterator& iPos);
 
 	/*
 	Remove a child from this node and release the ownership of it.

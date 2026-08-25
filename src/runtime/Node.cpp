@@ -50,7 +50,7 @@ void Node::AddChild(Node *pNode)
 	pNode->OnAddedToParent(*this);
 }
 
-NodeIterator Node::InsertChild(NodeIterator& iPos, Node *pNode)
+NodeIterator Node::InsertChild(const NodeIterator& iPos, Node *pNode)
 {
 	assert(pNode && !pNode->Parent());
 	pNode->m_pParent = this;
@@ -59,7 +59,7 @@ NodeIterator Node::InsertChild(NodeIterator& iPos, Node *pNode)
 	return it;
 }
 
-NodeIterator Node::RemoveChild(NodeIterator& iPos)
+NodeIterator Node::RemoveChild(const NodeIterator& iPos)
 {
 	assert(iPos != Children().end() && iPos->Parent() == this);
 	iPos->m_pParent = nullptr;

@@ -1,0 +1,6 @@
+//compile_error: declarators register left to right, so a later
+//declarator is not visible in an earlier initializer.
+int main() {
+    int a = b, b = 2;
+    return a;
+}

@@ -1,0 +1,8 @@
+//Mixed init/no-init multi declarators: skipping an init-less declarator
+//must not disturb the insertion order of the decomposed assigns
+//(c must see b = 3, giving 4).
+int main() {
+    int a, b = 3, c = b + 1;
+    a = c * 10;
+    return a;
+}

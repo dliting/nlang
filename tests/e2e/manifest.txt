@@ -954,3 +954,9 @@ array_elem_dict_value_reject compile_error methods cannot be called on an array
 array_elem_dict_value_switch_reject compile_error switch discriminant must be int, float, string, or enum
 array_elem_pow_sub_reject compile_error is an array
 array_elem_switch_method_reject compile_error switch discriminant must be int, float, string, or enum
+multi_decl_order 10
+multi_decl_mixed 40
+multi_decl_composite 20
+for_multi_decl 18
+local_decl_unbraced_reject compile_error use braces
+multi_decl_fwd_reject compile_error Cannot resolve the field: b

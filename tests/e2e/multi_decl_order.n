@@ -1,0 +1,12 @@
+//Multi-declarator locals must decompose into AssignStmts that execute
+//in DECLARATOR order: each initializer sees the earlier declarators'
+//already-assigned values (b = a * 3 with a = 2 is 6, c = b + 4 is 10).
+//Regression: the decomposition used to re-derive the insertion point
+//per declarator, placing each later assign BEFORE the earlier ones.
+int main() {
+    int a = 2, b = a * 3, c = b + 4;
+    io.print(a);
+    io.print(b);
+    io.print(c);
+    return c;
+}

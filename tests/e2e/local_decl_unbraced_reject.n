@@ -1,0 +1,10 @@
+//compile_error: a local declaration as the unbraced body of a
+//control-flow statement used to compile cleanly and silently drop its
+//initializers (the decomposed AssignStmts anchored at an invalid
+//insertion position). It must be a named compile error.
+int main() {
+    int r = 0;
+    if (1 == 1)
+        int a = 2;
+    return r;
+}

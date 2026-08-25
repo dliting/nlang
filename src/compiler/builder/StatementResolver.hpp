@@ -462,9 +462,32 @@ public:
 		}
 		if (!pParagraph)
 			return;
+		//An unbraced control-flow body (the grammar accepts a bare
+		//Statement under if/while/do/for) makes sn a child of the
+		//control node, not of the paragraph. The insertion anchor below
+		//would then be an end()-derived position and the decomposed
+		//AssignStmts would land at the top of the paragraph as silently
+		//dead code (the locals are only allocated where the decl itself
+		//is emitted, inside the branch). Reject loudly instead of
+		//emitting wrong code.
+		if (sn.Parent() != pParagraph)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"a local declaration cannot be the unbraced body of a "
+				"control-flow statement; use braces");
+			return;
+		}
 
 		auto *pTypeField = sn.Type()->Field();
 		auto bIsArray = sn.Type()->IsArrayType();
+		//Insert every decomposed AssignStmt before the ORIGINAL
+		//successor of sn. Recomputing find(&sn) + 1 inside the
+		//declarator loop would treat the assign just inserted as the
+		//successor and place each later assign BEFORE the earlier
+		//ones, reversing declarator order (int a = 2, b = a * 3
+		//gave b = 0). std::list insertion keeps this iterator valid.
+		auto iInsert = pParagraph->Children().find(&sn);
+		++iInsert;
 		//Phase 9a: const locals must have an initializer.
 		if (sn.IsConst())
 		{
@@ -498,9 +521,7 @@ public:
 					pLeft, sn.DetachChild(decl.pInitExpr),
 					*sn.Location());
 
-				auto iPos = pParagraph->Children().find(&sn);
-				++iPos;
-				pParagraph->InsertChild(iPos, pAssign);
+				pParagraph->InsertChild(iInsert, pAssign);
 
 				pAssign->Accept(*m_pVisitor);
 
