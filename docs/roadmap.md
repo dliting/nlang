@@ -81,11 +81,11 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- **787 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`）；ctest 10 项（编译器/VM）+ IDE 18 项
+- **796 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`）；ctest 10 项（编译器/VM）+ IDE 18 项
 - 工具链：ncc / nvm / ndisasm / nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
 - 模块格式 v1.8（Func 句柄：RTK_Func + 8 个函数值 opcode）
 - 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器 + 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名
-- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；数组值检测（IsArrayValuedExpr 声明侧 flag）残余——泛型类型实参数组性擦除（List<T[]> 与 List<T> 共享实例化键，潜在 GC 追踪/List 槽位 elemKind 审计；flag 只记首个数组实参，Dict 数组键遮蔽数组值）、call-result 容器基座不可检测（`mk().get(0)`）、跨模块 SynthTypeExpr 占位、foreach 数组型循环变量 over List<T[]> 不解析、foreach 源为数组值表达式可编译而运行期失败、jagged `int[][]` 下标双重降级不被检测（多维数组创建被显式拒绝，缺口仅经声明形可达，数组重设计前为理论性）、call-result 接收者成员访问不解析（`l.get(0).length`；toString 已具名拒绝）、类字段 `int[]` 的 toString 运行时报 "array_to_str on non-array"（数组字段误分类家族）
+- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；数组值检测（IsArrayValuedExpr 声明侧 flag）残余——泛型类型实参数组性擦除（List<T[]> 与 List<T> 共享实例化键，潜在 GC 追踪/List 槽位 elemKind 审计；flag 只记首个数组实参，Dict 数组键遮蔽数组值）、call-result 容器基座不可检测（`mk().get(0)`）、跨模块 SynthTypeExpr 占位、foreach 数组型循环变量 over List<T[]> 不解析、foreach 源为非容器表达式（如 int 局部）无 resolve 期门（运行期失败）、jagged `int[][]` 下标双重降级不被检测（多维数组创建被显式拒绝，缺口仅经声明形可达，数组重设计前为理论性）、call-result 接收者成员访问不解析（`l.get(0).length`；toString 已具名拒绝）、类字段 `int[]` 的 toString 运行时报 "array_to_str on non-array"（数组字段误分类家族）
 
 ## 实施优先级
 

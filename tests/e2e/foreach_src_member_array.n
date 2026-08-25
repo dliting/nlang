@@ -1,0 +1,27 @@
+//foreach over an array-typed MEMBER lvalue (`b.a`): the codegen array
+//detection reads the inner identifier's field (the member's own
+//EvalDataType is the degraded element type). Also exercises a member
+//List through the same member branch (must stay on the List path).
+class Box {
+	public int[] a;
+	public List<int> xs;
+	public int Box() {
+		a = [1, 2, 3, 4, 5];
+		xs = new List<int>();
+		xs.add(6);
+		xs.add(7);
+		return 0;
+	}
+}
+
+int main() {
+	Box b = new Box();
+	int total = 0;
+	foreach (int x in b.a) {
+		total = total + x;
+	}
+	foreach (int x in b.xs) {
+		total = total + x * 10;
+	}
+	return total;  //15 + 60 + 70 = 145
+}

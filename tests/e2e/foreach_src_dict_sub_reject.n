@@ -1,0 +1,14 @@
+//foreach over an array VALUE via Dict subscript sugar: `d["k"]` on a
+//Dict<string, int[]> — the value slot's element type argument is an
+//array, so the subscript degrades like get() does. Rejected at resolve
+//time; assign to a local first.
+int main() {
+	Dict<string, int[]> d = new Dict<string, int[]>();
+	int[] v = [10, 20];
+	d.set("k", v);
+	int total = 0;
+	foreach (int x in d["k"]) {
+		total = total + x;
+	}
+	return total;
+}

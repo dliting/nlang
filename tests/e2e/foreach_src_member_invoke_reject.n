@@ -1,0 +1,20 @@
+//foreach over an array VALUE from a bound method call: `b.mk()` where
+//mk returns int[] — the member arm of the masquerade family (the member
+//field is the SnFunction; the array-ness lives on the inner invoke's
+//callee return type). Rejected at resolve time; assign to a local
+//first.
+class Box {
+	public int[] mk() {
+		int[] a = [10, 20, 30];
+		return a;
+	}
+}
+
+int main() {
+	Box b = new Box();
+	int total = 0;
+	foreach (int x in b.mk()) {
+		total = total + x;
+	}
+	return total;
+}

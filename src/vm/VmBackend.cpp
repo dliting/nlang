@@ -5483,6 +5483,22 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 isArray = true;
                 pElemType = pField->EvalDataType();
             }
+        } else if (pIter->Kind() == NK_MemberExpr) {
+            //Member lvalue (`b.a` / `this.a`) with an array-typed field —
+            //the same lvalue family as the identifier shape. Read the
+            //inner identifier's field: the member's own EvalDataType is
+            //the degraded ELEMENT type (EvalDataType dispatch-order trap),
+            //which would mis-route this into the List path. Array-valued
+            //sources (get()/subscript/call results) are rejected at
+            //resolve time and never reach this dispatch.
+            auto* pInner = static_cast<SnMemberExpr*>(pIter)->Inner();
+            if (pInner && pInner->Kind() == NK_IdentifierExpr) {
+                auto* pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
+                if (pField && pField->IsArrayType()) {
+                    isArray = true;
+                    pElemType = pField->EvalDataType();
+                }
+            }
         }
         if (!isArray) {
             auto* pIterType = pIter->EvalDataType();

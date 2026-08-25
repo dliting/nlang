@@ -1,0 +1,13 @@
+//foreach over an array VALUE read out of a Dict value slot: `d.get("k")`
+//on a Dict<string, int[]> — rejected at resolve time; assign to a local
+//first.
+int main() {
+	Dict<string, int[]> d = new Dict<string, int[]>();
+	int[] v = [10, 20];
+	d.set("k", v);
+	int total = 0;
+	foreach (int x in d.get("k")) {
+		total = total + x;
+	}
+	return total;
+}

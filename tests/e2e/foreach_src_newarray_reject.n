@@ -1,0 +1,10 @@
+//foreach over a freshly constructed array: `new int[3]` is an array
+//VALUE (NewArrayExpr), not an array-typed lvalue — same masquerade
+//family, rejected at resolve time; assign to a local first.
+int main() {
+	int total = 0;
+	foreach (int x in new int[3]) {
+		total = total + x;
+	}
+	return total;
+}

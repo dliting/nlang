@@ -773,6 +773,25 @@ public:
 		//1. Resolve iterable (EvalDataType gets populated for codegen to use).
 		sn.Iterable()->Accept(*m_pVisitor);
 
+		//An array-VALUED source (get()/subscript/call result from a
+		//List<T[]>/Dict<K,V[]> or a T[]-returning callee) masquerades as
+		//its element type, so the codegen 3-way dispatch mis-routes it
+		//and the loop fails at runtime ("method not found: length").
+		//Plain array lvalues (local/member) stay on the array path —
+		//reject only the masqueraded values, same gate family as the
+		//P2 array-receiver/stdlib-argument rejections (IsArrayValuedExpr
+		//at a consumption site). An unresolved iterable already
+		//reported its own error — skip to avoid cascades.
+		if (sn.Iterable()->IsResolved()
+			&& IsArrayValuedExpr(*sn.Iterable())
+			&& !IsArrayTypedBase(*sn.Iterable()))
+		{
+			m_Env.Log(CLL_Error, sn.Iterable()->Location(),
+				"the foreach source is an array value; assign it to a "
+				"local first");
+			return;
+		}
+
 		//2. Resolve declared var type.
 		sn.VarType()->Accept(*m_pVisitor);
 		SnField *pVarField = nullptr;

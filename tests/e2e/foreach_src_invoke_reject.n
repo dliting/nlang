@@ -1,0 +1,15 @@
+//foreach over an array VALUE from a call: `mk()` returning int[] is an
+//array value, not an array-typed lvalue — rejected at resolve time;
+//assign to a local first.
+int[] mk() {
+	int[] a = [10, 20, 30];
+	return a;
+}
+
+int main() {
+	int total = 0;
+	foreach (int x in mk()) {
+		total = total + x;
+	}
+	return total;
+}

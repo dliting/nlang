@@ -1,0 +1,17 @@
+//foreach over an array VALUE read out of a container: `l.get(0)` on a
+//List<int[]> returns an array value, which masquerades as its element
+//type in EvalDataType — the codegen 3-way dispatch would mis-route it
+//and the loop dies at runtime ("method not found: length"). Rejected at
+//resolve time; assign to a local first.
+int main() {
+	List<int[]> l = new List<int[]>();
+	int[] a = new int[2];
+	a[0] = 10;
+	a[1] = 20;
+	l.add(a);
+	int total = 0;
+	foreach (int x in l.get(0)) {
+		total = total + x;
+	}
+	return total;
+}

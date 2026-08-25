@@ -1,0 +1,18 @@
+//foreach over `this.a` inside a method: same member-lvalue array shape
+//as foreach_src_member_array, reached through the implicit receiver.
+class Box {
+	public int[] a;
+	public int sum() {
+		int total = 0;
+		foreach (int x in this.a) {
+			total = total + x;
+		}
+		return total;
+	}
+	public int Box() { a = [2, 3]; return 0; }
+}
+
+int main() {
+	Box b = new Box();
+	return b.sum();  //5
+}
