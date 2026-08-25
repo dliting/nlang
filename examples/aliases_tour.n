@@ -1,0 +1,42 @@
+// aliases_tour.n — the Phase 13 type aliases: `using Name = Type;`
+// shortens any type form, expands textually before name resolution,
+// and scopes to the translation unit.
+
+using Row = List<int>;                  // alias referenced by another alias
+using Grid = Dict<string, Row>;         // alias to a nested generic
+using Ints = int[];                     // alias to an array type
+using BinOp = Func<int, int>;           // alias to a Func type
+
+int sum(Row r) {                        // alias in a parameter position
+    int total = 0;
+    foreach (int v in r) { total = total + v; }
+    return total;
+}
+
+Grid makeGrid() {                       // alias in a return position
+    Grid g = new Grid();
+    g.set("evens", new Row());
+    List<int> evens = g.get("evens");
+    evens.add(2);
+    evens.add(4);
+    return g;
+}
+
+int main() {
+    Grid g = makeGrid();
+    io.print(sum(g.get("evens")));      // 6 — Grid/Row expand transparently
+
+    List<Grid> grids = new List<Grid>(); // alias inside another generic
+    grids.add(g);
+    io.print(grids.get(0).get("evens").get(1));  // 4
+
+    Ints xs = [10, 20, 30];             // alias to int[] takes an init list
+    Ints ys = [xs[1], xs[2]];           // ...and composes with element reads
+    io.print(ys[0] + xs.length);        // 20 + 3 = 23 (array length is
+                                        // a property-style member)
+
+    // BinOp (alias to Func) combines with the delegates tour:
+    //   int one(int x) { return x + 1; }
+    //   BinOp f = one;                  // binds via the alias
+    return 0;
+}

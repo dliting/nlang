@@ -1,0 +1,78 @@
+// delegates_tour.n — the Phase 13 function values: free-function and
+// bound-method references, virtual dispatch, out delegates, and
+// handles living in containers and fields.
+
+using BinOp = Func<int, int>;    // type alias over a Func type
+
+int bar(int x) { return x + 1; } // free function
+
+void partsOut(int v, out int doubled) { doubled = v + 1; }
+
+class Counter {
+    int n;
+    int foo(int x) { n = n + 1; return n + x; }   // non-virtual method
+    virtual int tw(int x) { return x * 2; }       // virtual method
+}
+
+class Big : Counter {
+    int tw(int x) { return x * 100; }             // override
+}
+
+class Button {                  // the classic callback shape: a Func field
+    Func<int, int> onClick;
+}
+
+void apply(BinOp f) {           // Func-typed parameter
+    io.print(f(10));            // io.print converts the int result
+}
+
+// out delegate: the Func type carries the out-ness in its signature
+void split(int value, Func<void, int, out int> f) {
+    int whole = 0;
+    f(value, out whole);
+    io.print(whole);
+}
+
+int main() {
+    // -- free-function reference --------------------------------------
+    apply(bar);                 // 11
+
+    // -- bound method reference (state persists across calls) --------
+    Counter c = new Counter();
+    apply(c.foo);               // 11  (n becomes 1: 10 + 1)
+    BinOp g = c.foo;            // store through the alias
+    int r = g(1) + g(1);        // 3 + 4 = 7 — n keeps counting
+
+    // -- virtual dispatch (runtime class wins) ------------------------
+    Counter b = new Big();
+    apply(b.tw);                // 1000 — Big.tw, not Counter.tw
+
+    // -- out delegate ---------------------------------------------------
+    split(17, partsOut);        // 18
+
+    // -- handles in containers and fields ------------------------------
+    List<BinOp> ops = [bar, c.foo, b.tw];
+    int total = 0;
+    foreach (BinOp op in ops) { total = total + op(3); }
+    io.print(total);            // 4 + 7 + 300 = 311 (n becomes 4)
+
+    Func<int, int>[] arr = [bar, c.foo];
+    Func<int, int> fromArr = arr[1];
+    io.print(fromArr(0));       // 5 — n becomes 5
+
+    Dict<string, BinOp> table = new Dict<string, BinOp>();
+    table["double"] = b.tw;
+    BinOp dbl = table["double"];
+    io.print(dbl(21));          // 2100
+
+    Button btn = new Button();
+    btn.onClick = c.foo;        // field store of a bound reference
+    io.print(btn.onClick(0));   // 6 — the obj.cb(x) call shape
+
+    // -- content equality (locals; a live handle never equals null) ----
+    BinOp h = bar;
+    BinOp h2 = bar;
+    if (h == h2 && !(h == g)) { io.print("eq-ok"); }
+
+    return r;                   // exit code 7
+}

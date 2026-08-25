@@ -54,15 +54,18 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - enum：Java 式用户自定义方法（`enum E { A; int f() {...} }`，this=int32 语义）
 - 同轮根修：裸调用绑定方法编译期拒绝、数组接收者门（`Color[] a; a.rank()` 家族）
 
+### 阶段 13：函数/方法代理 + 类型别名 ✅（2026-08-25）
+- **Step 0** `using Name = Type;` 类型别名（TU 作用域 + 合并前展开预遍历）+ **Step 0.5** AST 容器模型统一（out-of-list 槽位收编 + DetachChild 公共 API）
+- **Step 1** `Func<返回, 参数...>` 内建泛型函数类型 + 自由函数引用（MakeFunc/CallDelegate/Eq_func/Ne_func/Func_to_str；GC 8 追踪位点全落；v1.8）
+- **Step 2** 绑定方法引用（this 捕获、状态跨调用保持）+ 虚/接口运行时派发（MakeVFunc 按名句柄）+ out 委托（CallDelegateOut 移位写回）；绑定期空接收者守卫；native/enum/虚+out/默认参数等 12 类具名拒绝；三句柄形态跨模块往返
+- 8 个新 opcode、RTK_Func=7 三槽堆记录、`this==0 ⟺ 自由函数` 分派不变量；765 e2e
+- 计划：`C:\Users\dliting\.claude\plans\partitioned-roaming-garden.md`
+
 ---
 
 ## 进行中
 
-### 阶段 13：函数/方法代理 + 类型别名（2026-08-23 启动）
-- `Func<返回, 参数...>` 内建泛型函数类型（返回在前、参数在后，参数可带 out；精确签名匹配）
-- 函数引用与绑定方法引用作为一等值：局部/参数/字段/容器存储，`f(x)` 调用；虚/接口方法运行时派发
-- `using Name = Type;` 类型别名
-- 计划：`C:\Users\dliting\.claude\plans\partitioned-roaming-garden.md`
+（无）
 
 ## 远期特性
 
@@ -78,17 +81,16 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- **687 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`）；ctest 9 项（编译器/VM）+ IDE 17 项
+- **765 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`）；ctest 10 项（编译器/VM）+ IDE 18 项
 - 工具链：ncc / nvm / ndisasm / nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 v1.7（native 标志 + 标准库返回种类）；Phase 13 将升至 v1.8（Func 句柄）
-- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器 + 异常 + 原生绑定 + 标准库
+- 模块格式 v1.8（Func 句柄：RTK_Func + 8 个函数值 opcode）
+- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器 + 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名
 - 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List<T[]>` 容器内数组绕接收者门、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持、`tests/e2e/run_all.py` 旧 runner 待清理
 
 ## 实施优先级
 
 | 优先级 | 阶段 | 说明 |
 |--------|------|------|
-| P1 | 13. 函数/方法代理 + 类型别名 | 进行中（2026-08-23） |
 | P2 | 横切收尾 | IsArrayValuedExpr 容器元素臂（关接收者门与 switch 族门的 List<T[]> 残余） |
 | P4 | LSP 支持 | 最后实施（用户指示 2026-08-21） |
 
