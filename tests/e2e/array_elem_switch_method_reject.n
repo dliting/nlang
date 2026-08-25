@@ -1,0 +1,17 @@
+//compile_error: a user method WITH ARGUMENTS returning T[] as the
+//switch discriminant — the inner-invoke callee return-type path of
+//IsArrayValuedExpr must catch it exactly like the zero-arg form.
+class M {
+    public string[] mk(int i) {
+        string[] a = new string[1];
+        a[0] = "x";
+        return a;
+    }
+}
+int main() {
+    M m = new M();
+    switch (m.mk(1)) {
+        case "a": return 1;
+        default: return 2;
+    }
+}

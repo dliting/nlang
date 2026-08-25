@@ -1,0 +1,18 @@
+//toString on an array-valued CALL RESULT has no dispatch route: the
+//non-class toString dispatch only detects lvalue receivers (identifier /
+//member field), so these shapes would silently bind the ELEMENT type's
+//toString and print the array heap index as a value. Both must be
+//rejected with the array-receiver diagnostic (assign to a local first).
+class M {
+    public string[] mk() { string[] a = new string[1]; a[0] = "x"; return a; }
+}
+int main() {
+    List<string[]> l = new List<string[]>();
+    string[] a = new string[1];
+    a[0] = "x";
+    l.add(a);
+    io.print(l.get(0).toString());   // container-element receiver
+    M m = new M();
+    io.print(m.mk().toString());     // method-return receiver
+    return 0;
+}

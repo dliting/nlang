@@ -243,6 +243,25 @@ public:
 		return false;
 	}
 
+	//For a variable/field/param declared with a built-in generic type
+	//(List<T>, Dict<K,V>, Func<R,...>): the index of the first type
+	//argument that is an ARRAY type (the T of List<T[]>), or
+	//kNoArrayTypeArg when none. Generic instantiation keys erase
+	//array-ness — an ArrayTypeExpr type argument resolves to its ELEMENT
+	//field — so the declaration records it here for the resolver gates
+	//(IsArrayValuedExpr; see RecordArrayTypeArg in ExprResolver).
+	static const uint8 kNoArrayTypeArg = 0xFF;
+
+	uint8 ArrayTypeArg() const
+	{
+		return m_uArrayTypeArg;
+	}
+
+	void SetArrayTypeArg(uint8 uArgIdx)
+	{
+		m_uArrayTypeArg = uArgIdx;
+	}
+
 	std::string TypedName() const;
 
 	/*
@@ -305,6 +324,7 @@ private:
 	std::unique_ptr<std::string> m_upName;
 	RnField *m_pImportInfo;
 	std::unique_ptr<std::string> m_upMetaName;
+	uint8 m_uArrayTypeArg = kNoArrayTypeArg;
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Type *m_pMetaType;
 	llvm::Value *m_pMetaValue;

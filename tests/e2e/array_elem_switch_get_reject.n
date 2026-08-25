@@ -1,0 +1,11 @@
+//compile_error: switch discriminant read from List<int[]> via get() —
+//IsArrayValuedExpr must see the element's array-ness before the family
+//gate reads the masqueraded int kind.
+int main() {
+    List<int[]> l = new List<int[]>();
+    l.add(new int[2]);
+    switch (l.get(0)) {
+        case 1: return 1;
+        default: return 2;
+    }
+}

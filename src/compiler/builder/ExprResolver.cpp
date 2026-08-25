@@ -627,18 +627,82 @@ bool IsArrayTypedBase(SnExpression& baseExpr) {
 	return pId && pId->Field() && pId->Field()->IsArrayType();
 }
 
+//P2: true when `baseExpr` is a List/Dict lvalue (identifier or member
+//field) whose get()/subscript ELEMENT type argument is an array —
+//List<T[]> or Dict<K, V[]>. The element slot is arg 0 for List and
+//arg 1 for Dict (the V that get returns), mirroring the container-method
+//result stamping in Access(SnMemberExpr). Array-ness of a type argument
+//is erased by instantiation (see SnField::ArrayTypeArg), so this reads
+//the flag recorded at the declaration instead of the instantiated type.
+static bool ContainerElemIsArray(SnExpression& baseExpr) {
+	SnField* pBaseField = nullptr;
+	if (baseExpr.Kind() == NK_IdentifierExpr)
+		pBaseField = static_cast<SnIdentifierExpr&>(baseExpr).Field();
+	else if (baseExpr.Kind() == NK_MemberExpr) {
+		auto* pInner = static_cast<SnMemberExpr&>(baseExpr).Inner();
+		if (pInner && pInner->Kind() == NK_IdentifierExpr)
+			pBaseField = static_cast<SnIdentifierExpr*>(pInner)->Field();
+	}
+	if (!pBaseField || pBaseField->ArrayTypeArg() == SnField::kNoArrayTypeArg)
+		return false;
+	auto* pBaseType = baseExpr.IsResolved()
+		? baseExpr.EvalDataType() : nullptr;
+	if (!pBaseType || pBaseType->Kind() != NK_ClassDecl)
+		return false;
+	auto* pGenClass = static_cast<SnClassDecl*>(pBaseType);
+	if (!pGenClass->IsGenericInstantiation())
+		return false;
+	const auto& baseName = pGenClass->BaseName();
+	if (baseName == "List")
+		return pBaseField->ArrayTypeArg() == 0;
+	if (baseName == "Dict")
+		return pBaseField->ArrayTypeArg() == 1;
+	return false;
+}
+
 //True when the expression VALUE is an array, covering the shapes that can
 //flow into a call argument. IsArrayTypedBase handles the lvalue shapes
-//(identifier / member); the value shapes below share the same masquerade:
-//EvalDataType() of an array-valued expression returns the ELEMENT kind,
-//so a Kind()-based type check alone would let the array handle through
-//(Step 0 review round 2: `math.sqrt(new int[3])` and `math.sqrt(mk())`
-//with `int[] mk()` both slipped past the lvalue-only guard).
+//(identifier / member field); the value shapes below share the same
+//masquerade: EvalDataType() of an array-valued expression returns the
+//ELEMENT kind, so a Kind()-based type check alone would let the array
+//handle through (Step 0 review round 2: `math.sqrt(new int[3])` and
+//`math.sqrt(mk())` with `int[] mk()` both slipped past the lvalue-only
+//guard). Container elements and call results join the same family (P2):
+//`l.get(0)` / `l[0]` on List<T[]> and delegate calls returning T[] stamp
+//the element/return type on the node, which flags T[] exactly like a
+//declared local's field does.
 bool IsArrayValuedExpr(SnExpression& expr) {
 	switch (expr.Kind()) {
 	case NK_IdentifierExpr:
-	case NK_MemberExpr:
 		return IsArrayTypedBase(expr);
+	case NK_MemberExpr:
+	{
+		//Call-through-member (`l.get(0)`, `obj.mk()`). The result type
+		//is stamped on the member itself for container/stdlib calls
+		//(Field() and EvalDataType() = the result field); user-method
+		//members carry it on the inner invoke's callee instead (the
+		//member field IS the SnFunction, whose IsArrayType is
+		//base-false). Plain field access (`obj.arr`) is the lvalue
+		//shape below.
+		auto& member = static_cast<SnMemberExpr&>(expr);
+		auto* pInner = member.Inner();
+		if (pInner && pInner->Kind() == NK_InvokeExpr)
+		{
+			if ((member.Field() && member.Field()->IsArrayType())
+				|| (member.EvalDataType()
+					&& member.EvalDataType()->IsArrayType()))
+				return true;
+			//Container element read (`l.get(0)` on List<T[]>,
+			//`d.get(k)` on Dict<K,V[]>): the stamped result field is the
+			//degraded element field, so consult the declaration flag.
+			auto& innerInvoke = static_cast<SnInvokeExpr&>(*pInner);
+			if (innerInvoke.CalleeName() == "get" && member.Outer()
+				&& ContainerElemIsArray(*member.Outer()))
+				return true;
+			return IsArrayValuedExpr(innerInvoke);
+		}
+		return IsArrayTypedBase(expr);
+	}
 	case NK_NewArrayExpr:
 		return true;  //`new T[n]` is always an array value
 	case NK_InvokeExpr:
@@ -651,12 +715,29 @@ bool IsArrayValuedExpr(SnExpression& expr) {
 		auto& invoke = static_cast<SnInvokeExpr&>(expr);
 		auto* pCallee = invoke.Callee();
 		auto* pReturnType = pCallee ? pCallee->ReturnType() : nullptr;
-		return pReturnType && pReturnType->IsArrayType();
-		//Phase 13 (review round-1 F10): a DELEGATE invoke has no
-		//SnFunction callee (Callee() is null-safe), so a Func returning
-		//T[] invoked through a handle is NOT detected here (returns
-		//false). No current consumer reaches that shape; revisit if a
-		//foreach source or switch discriminant ever takes a delegate call.
+		if (pReturnType && pReturnType->IsArrayType())
+			return true;
+		//Phase 13 P2: a delegate invoke has no SnFunction callee — its
+		//Field() carries the Func-typed variable (BindDelegateInvoke).
+		//The Func RETURN slot is type argument 0; the stamped
+		//EvalDataType is the degraded element field, so read the
+		//declaration flag instead.
+		if (invoke.Field() && invoke.Field()->ArrayTypeArg() == 0)
+			return true;
+		return expr.EvalDataType() && expr.EvalDataType()->IsArrayType();
+	}
+	case NK_SubscriptExpr:
+	{
+		//`l[0]` container sugar over List<T[]>/Dict<K,V[]>: the stamped
+		//element field is degraded, so consult the declaration flag on
+		//the base. The EvalDataType catch-all below is only a defensive
+		//backstop for stamped elements that are still array type exprs;
+		//a jagged `int[][]` subscript degrades one level further (the
+		//element-of-element field) and is NOT detected — known gap.
+		auto& sub = static_cast<SnSubscriptExpr&>(expr);
+		if (sub.Array() && ContainerElemIsArray(*sub.Array()))
+			return true;
+		return expr.EvalDataType() && expr.EvalDataType()->IsArrayType();
 	}
 	default:
 		return false;
@@ -1323,15 +1404,20 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	//enter the string-builtin block, enum/class receivers bind user
 	//methods — and codegen passes the array's heap index as the receiver
 	//(silent wrong value; verified: enum[].rank() returned heapIdx+10).
-	//toString is exempt: the non-class toString dispatch below handles
-	//array receivers explicitly via the IsArrayType() field check.
+	//toString is exempt ONLY for lvalue receivers (identifier / member
+	//field): the non-class toString dispatch below detects exactly those
+	//shapes via the IsArrayType() field check. Call-result array values
+	//(l.get(0), obj.mk(), l[0], delegate calls) route nowhere in that
+	//dispatch — exempting them would bind the ELEMENT type's toString
+	//and pass the array heap index as the element value (P2).
 	{
 		auto* pInnerForGate = snMember.Inner();
 		if (pInnerForGate && pInnerForGate->Kind() == NK_InvokeExpr
 			&& IsArrayValuedExpr(*pOuterExpr))
 		{
 			auto& invoke = static_cast<SnInvokeExpr&>(*pInnerForGate);
-			if (invoke.CalleeName() != "toString")
+			if (invoke.CalleeName() != "toString"
+				|| !IsArrayTypedBase(*pOuterExpr))
 			{
 				m_Env.Log(CLL_Error, invoke.Location(),
 					"methods cannot be called on an array; index an element "
@@ -3540,7 +3626,15 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 		if (sn.Kind() != NK_Function)
 		{
 			auto &dataField = static_cast<SnDataField &>(sn);
-			return ResolveDataType(*dataField.Type(), outerType);
+			if (!ResolveDataType(*dataField.Type(), outerType))
+				return false;
+			//P2 (IsArrayValuedExpr gate fix): record on the declared
+			//field whether its generic type has an ARRAY type argument
+			//(SnField::ArrayTypeArg) — class/struct fields and formal
+			//params all flow through here (locals are registered in
+			//StatementResolver instead; SnLocalVar is not a tree child).
+			RecordArrayTypeArg(dataField, dataField.Type());
+			return true;
 		}
 
 		auto pReturnType = static_cast<SnFunction &>(sn).ReturnType();
@@ -3565,6 +3659,21 @@ bool ExprResolver::ResolveDataType(SnFieldExpr &typeExpr, SnField &outerType)
 		return false;
 	}
 	return true;
+}
+
+void RecordArrayTypeArg(SnField& declared, SnFieldExpr* pTypeExpr)
+{
+	if (!pTypeExpr || pTypeExpr->Kind() != NK_GenericTypeExpr)
+		return;
+	auto& args = static_cast<SnGenericTypeExpr&>(*pTypeExpr).TypeArgs();
+	for (size_t i = 0; i < args.size() && i < SnField::kNoArrayTypeArg; ++i)
+	{
+		if (args[i] && args[i]->IsArrayType())
+		{
+			declared.SetArrayTypeArg(static_cast<uint8>(i));
+			return;
+		}
+	}
 }
 
 bool ExprResolver::ResolveChildFields(SnField & sn)

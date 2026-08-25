@@ -1,0 +1,10 @@
+//compile_error: subscript-sugar variant of the discriminant — l[0] on
+//List<int[]> carries the same masquerade as l.get(0).
+int main() {
+    List<int[]> l = new List<int[]>();
+    l.add(new int[2]);
+    switch (l[0]) {
+        case 1: return 1;
+        default: return 2;
+    }
+}

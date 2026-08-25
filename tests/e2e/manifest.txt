@@ -938,3 +938,19 @@ func_out_return_reject compile_error
 func_bound_virtual_out_reject compile_error not supported on virtual method references
 func_compare_operand_reject compile_error only be compared with a function value or null
 func_bare_method_reject compile_error without a receiver
+array_elem_recv_get_reject compile_error methods cannot be called on an array
+array_elem_recv_sub_reject compile_error methods cannot be called on an array
+array_elem_recv_method_reject compile_error methods cannot be called on an array
+array_elem_switch_get_reject compile_error switch discriminant must be int, float, string, or enum
+array_elem_switch_sub_reject compile_error switch discriminant must be int, float, string, or enum
+array_elem_arg_reject compile_error is an array
+func_ret_array_switch_reject compile_error switch discriminant must be int, float, string, or enum
+array_elem_positive 2
+func_ret_array_positive 0
+array_elem_tostring_reject compile_error methods cannot be called on an array
+array_elem_param_reject compile_error methods cannot be called on an array
+array_elem_field_reject compile_error methods cannot be called on an array
+array_elem_dict_value_reject compile_error methods cannot be called on an array
+array_elem_dict_value_switch_reject compile_error switch discriminant must be int, float, string, or enum
+array_elem_pow_sub_reject compile_error is an array
+array_elem_switch_method_reject compile_error switch discriminant must be int, float, string, or enum

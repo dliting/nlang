@@ -38,6 +38,14 @@ typedef uint8 ExprResolveFlagSet;
 bool IsArrayTypedBase(SnExpression& baseExpr);
 bool IsArrayValuedExpr(SnExpression& expr);
 
+//P2: record on a declared variable/field/param whether its generic type
+//has an ARRAY type argument (SnField::ArrayTypeArg) — the instantiation
+//machinery erases that fact (an ArrayTypeExpr type argument resolves to
+//its element field, so List<T[]> and List<T> share one instantiation).
+//Called from ResolveDataTypes (tree fields/params) and the local-var
+//registration in StatementResolver (SnLocalVar is not a tree child).
+void RecordArrayTypeArg(SnField& declared, SnFieldExpr* pTypeExpr);
+
 /*
 Phase 13: bind a pending bare-function reference (see IsUnboundFuncRef)
 to the expected Func<...> type of the injection site. Validates the

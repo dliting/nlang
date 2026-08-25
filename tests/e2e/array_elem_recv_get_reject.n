@@ -1,0 +1,9 @@
+//compile_error: a container element read out of List<T[]> masquerades as
+//the element kind in EvalDataType (trap-12 family) — the array receiver
+//gate must reject method calls on l.get(0) exactly as on a plain array.
+int main() {
+    List<string[]> l = new List<string[]>();
+    l.add(new string[1]);
+    io.print(l.get(0).length());
+    return 0;
+}

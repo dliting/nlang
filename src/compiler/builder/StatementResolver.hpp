@@ -38,6 +38,12 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 	return false;
 }
 
+//P2 (IsArrayValuedExpr gate fix): RecordArrayTypeArg (ExprResolver.h)
+//records on a declared variable/field whether its generic type has an
+//ARRAY type argument. Tree declarations (class/struct fields, formal
+//params) are recorded in ExprResolver::ResolveDataTypes; SnLocalVar is
+//not a tree child, so the local registration below records it instead.
+
 //--- Phase 12 Step 1: switch family model (D1/D2) ----------------------
 //Switch discriminants and labels come in three families: int (including
 //enum values), float, string. Enum member references masquerade as
@@ -477,6 +483,7 @@ public:
 				*sn.Location());
 			if (bIsArray)
 				pLocal->SetArrayType(true);
+			RecordArrayTypeArg(*pLocal, sn.Type());
 			CheckLocalNameReserved(decl.name, sn.Location());
 			pParagraph->AddLocal(decl.name, pLocal);
 
@@ -664,6 +671,7 @@ public:
 						*decl.Location());
 					if (bIsArray)
 						pLocal->SetArrayType(true);
+					RecordArrayTypeArg(*pLocal, decl.Type());
 					CheckLocalNameReserved(d.name, decl.Location());
 					if (pParagraph) {
 						pParagraph->AddLocal(d.name, pLocal);
@@ -756,6 +764,10 @@ public:
 				*sn.Location());
 			if (sn.VarType()->IsArrayType())
 				pLocal->SetArrayType(true);
+			//P2: the loop var may itself be a container of arrays
+			//(foreach (List<int[]> x in ...)); same declaration flag as
+			//the other SnLocalVar registrations.
+			RecordArrayTypeArg(*pLocal, sn.VarType());
 			CheckLocalNameReserved(sn.VarName(), sn.Location());
 			pParagraph->AddLocal(sn.VarName(), pLocal);
 		}

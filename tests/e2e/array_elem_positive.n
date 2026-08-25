@@ -1,0 +1,22 @@
+//Positive surface: array-valued container elements stay fully usable —
+//assignment from the element, chained subscripts (read and store), and
+//array toString on the assigned local (the exempt lvalue shape).
+// Known gaps (pre-existing, separate from the gates): foreach over
+// List<T[]> with an array-typed loop variable does not resolve today;
+// property/member access through a call-result receiver (l.get(0).length,
+// l.get(0).toString) has no dispatch route and is rejected — assign to a
+// local first.
+int main() {
+    List<string[]> l = new List<string[]>();
+    string[] a = new string[2];
+    a[0] = "hi";
+    a[1] = "yo";
+    l.add(a);
+    string[] s = l.get(0);           // assignment from the element
+    io.print(s[0]);                  // hi
+    io.print(l[0][1]);               // yo — sugar chain read
+    l[0][1] = "zz";                  // sugar chain store
+    io.print(l.get(0)[1]);           // zz — get()+subscript read
+    io.print(s.toString());          // ["hi", "zz"] — local array toString
+    return s.length;                 // 2
+}

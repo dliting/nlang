@@ -1,0 +1,10 @@
+//compile_error: the SECOND-argument stdlib guard (two-argument math
+//functions) must see the subscript-sugar container element the same as
+//the get() form — the masqueraded float kind would reinterpret the
+//array handle as a float operand.
+int main() {
+    List<float[]> l = new List<float[]>();
+    l.add(new float[1]);
+    io.print(math.pow(2.0, l[0]));
+    return 0;
+}

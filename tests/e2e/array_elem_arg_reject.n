@@ -1,0 +1,9 @@
+//compile_error: stdlib argument guard — a float[] element read out of
+//List<float[]> must be rejected before the kind match reinterprets the
+//array handle as a float (silent garbage otherwise).
+int main() {
+    List<float[]> l = new List<float[]>();
+    l.add(new float[1]);
+    io.print(math.sqrt(l.get(0)));
+    return 0;
+}

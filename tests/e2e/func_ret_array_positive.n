@@ -1,0 +1,16 @@
+//Positive surface: a Func whose return slot is T[] is a legal value —
+//calling it yields the array; only gated positions (switch discriminants,
+//stdlib arguments, method receivers) reject array-valued expressions.
+string[] mk(int x) {
+    string[] a = new string[2];
+    a[0] = "p";
+    a[1] = "q";
+    return a;
+}
+int main() {
+    Func<string[], int> f = mk;
+    string[] r = f(1);
+    io.print(r[0] + r[1]);           // pq
+    io.print(r.length);              // 2 — property-style on the local
+    return 0;
+}

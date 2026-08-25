@@ -1,0 +1,11 @@
+//compile_error: the Dict VALUE side is the element slot get() returns
+//(type arg 1) — the same masqueraded array value as List's T. The
+//receiver gate must reject a method call on it.
+int main() {
+    Dict<string, int[]> d = new Dict<string, int[]>();
+    int[] a = new int[1];
+    a[0] = 7;
+    d.set("k", a);
+    io.print(d.get("k").length());   // receiver gate via get()
+    return 0;
+}
