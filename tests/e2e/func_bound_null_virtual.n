@@ -1,0 +1,13 @@
+//Phase 13 Step 2: binding a VIRTUAL method reference on a null receiver
+//must raise the NPE at BIND time (exit 1) — companion of
+//func_bound_null_receiver (the non-virtual form exits before a second
+//statement could run, so the MakeVFunc guard needs its own file).
+class C {
+    public virtual int tw(int x) { return x * 2; }
+}
+
+int main() {
+    C c = null;
+    Func<int, int> f = c.tw;
+    return f(1);
+}

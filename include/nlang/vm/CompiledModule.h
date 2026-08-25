@@ -13,9 +13,11 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //v1.7 (Phase 11): stdlib namespace intrinsics + reserved namespaces. No
 //field-layout change, but the later relational string opcodes share this
 //version step, so older VMs must refuse these modules outright.
-//v1.8 (Phase 13): first-class function values — RTK_Func heap records and
+//v1.8 (Phase 13): first-class function values — RTK_Func heap records,
 //the OP_MakeFunc/OP_CallDelegate/OP_Eq_func/OP_Ne_func/OP_Func_to_str
-//opcodes. Older VMs cannot execute these opcodes; refuse outright.
+//opcodes (Step 1: free function references) plus OP_MakeBoundFunc/
+//OP_MakeVFunc/OP_CallDelegateOut (Step 2: bound method references).
+//Older VMs cannot execute these opcodes; refuse outright.
 inline constexpr uint16_t NMOD_FORMAT_MINOR = 8;
 
 //Runtime type kind constants for serialization.

@@ -1,0 +1,4 @@
+//Phase 13 Step 2: cross-module negative — main.n must reject a bare
+//reference to an imported function (.nmod does not serialize parameter
+//signatures, so a stub cannot be match-checked).
+int dbl(int x) { return x * 2; }

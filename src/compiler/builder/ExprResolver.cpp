@@ -347,6 +347,160 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 	return true;
 }
 
+//Phase 13 Step 2: collect every class declaration in the tree under
+//(and including) `node` — input of the native-override scan below.
+static void CollectClassDecls(SyntaxNode &node,
+	std::vector<SnClassDecl*> &out)
+{
+	for (auto &child : node.Children())
+	{
+		auto &synChild = static_cast<SyntaxNode&>(child);
+		if (synChild.Kind() == NK_ClassDecl)
+			out.push_back(static_cast<SnClassDecl*>(&synChild));
+		CollectClassDecls(synChild, out);
+	}
+}
+
+//Phase 13 Step 2: a by-name binding (OP_MakeVFunc) resolves its target at
+//runtime, so a NATIVE override anywhere in the method's dispatch domain
+//would route the delegate into CallNative, which reads arguments straight
+//from callParamBase with no callee frame for the receiver shift. The
+//resolved method itself carries NF_Native only when the STATIC receiver
+//type declares it — for a virtual base declaration the scan must walk the
+//deriving classes, and for an interface declaration the implementers (the
+//implements clause is not modeled by SuperClass()).
+static bool HasNativeMethodOverride(SnFunction &method)
+{
+	auto *pOwner = method.Parent();
+	if (!pOwner || (pOwner->Kind() != NK_ClassDecl
+		&& pOwner->Kind() != NK_InterfaceDecl))
+		return false;
+	//Is `pClass` inside the dispatch domain of `pOwner`? Class owner:
+	//derive from it directly. Interface owner: the class or any ancestor
+	//names it in its implements clause.
+	auto dispatchesUnder = [](SnClassDecl *pClass, SyntaxNode *pOwner) {
+		for (SnClassDecl *cur = pClass; cur; cur = cur->SuperClass())
+		{
+			if (cur == pOwner)
+				return true;
+			if (pOwner->Kind() != NK_InterfaceDecl)
+				continue;
+			for (auto *pIface : cur->ImplementsList())
+			{
+				if (pIface == pOwner)
+					return true;
+			}
+		}
+		return false;
+	};
+	SyntaxNode *pRoot = pOwner;
+	while (pRoot->Parent())
+		pRoot = pRoot->Parent();
+	std::vector<SnClassDecl*> classes;
+	CollectClassDecls(*pRoot, classes);
+	for (auto *pClass : classes)
+	{
+		if (pClass == pOwner)
+			continue;
+		if (!dispatchesUnder(pClass, pOwner))
+			continue;
+		for (auto &member : pClass->Members())
+		{
+			if (member.Kind() == NK_Function
+				&& member.Name() == method.Name()
+				&& member.ContainFlags(NF_Native))
+				return true;
+		}
+	}
+	return false;
+}
+
+bool BindMemberFuncRefToExpected(BuildEnvironment &env,
+	SnMemberExpr &snMember, SnField *pExpected)
+{
+	auto &inner = static_cast<SnIdentifierExpr&>(*snMember.Inner());
+	auto *pMethod = static_cast<SnFunction*>(inner.Field());
+	assert(pMethod && pMethod->Kind() == NK_Function);
+	auto *pOwner = pMethod->Parent();
+	//Handle form mirrors the direct-call codegen decision exactly:
+	//virtual methods and interface declarations dispatch by name at
+	//runtime (StatementResolver's implicit virtual propagation means an
+	//override of a parent virtual method carries NF_Virtual too).
+	bool bDispatchesByName = pMethod->ContainFlags(NF_Virtual)
+		|| (pOwner && pOwner->Kind() == NK_InterfaceDecl);
+	if (!IsFuncTypeDecl(pExpected))
+	{
+		env.Log(CLL_Error, snMember.Location(),
+			"bound method reference \"%s\" requires an expected function "
+			"type.", inner.Name().c_str());
+		return false;
+	}
+	//Enum receivers are int values — slot[1] of a handle (a heap index)
+	//cannot carry the receiver.
+	if (pOwner && pOwner->Kind() == NK_EnumDecl)
+	{
+		env.Log(CLL_Error, snMember.Location(),
+			"cannot reference the enum method \"%s\": enum receivers are "
+			"int values, not heap objects.", inner.Name().c_str());
+		return false;
+	}
+	if (pMethod->ContainFlags(NF_Native)
+		|| (bDispatchesByName && HasNativeMethodOverride(*pMethod)))
+	{
+		env.Log(CLL_Error, snMember.Location(),
+			"cannot reference the native method \"%s\": native calls have "
+			"no callee frame for the receiver.", inner.Name().c_str());
+		return false;
+	}
+	//The out mask is compiled from the Func type, but a by-name handle
+	//resolves the target at runtime — an overriding method's layout may
+	//disagree. Same rationale as the existing virtual-direct-call reject.
+	if (bDispatchesByName)
+	{
+		const auto &outFlags =
+			s_genericOutFlags[static_cast<SnClassDecl*>(pExpected)];
+		for (size_t k = 1; k < outFlags.size(); ++k)
+		{
+			if (outFlags[k] != 0)
+			{
+				env.Log(CLL_Error, snMember.Location(),
+					"out parameters are not supported on virtual method "
+					"references: dispatch resolves the target at runtime.");
+				return false;
+			}
+		}
+	}
+	//Default parameters are filled only on the direct-call path (mirrors
+	//the free-function reject above).
+	for (auto &param : pMethod->Params())
+	{
+		if (param.Value())
+		{
+			env.Log(CLL_Error, snMember.Location(),
+				"methods with default parameters cannot be referenced: "
+				"\"%s\".", inner.Name().c_str());
+			return false;
+		}
+	}
+	auto *pFuncDecl = static_cast<SnClassDecl*>(pExpected);
+	if (!FuncRefMatchesDecl(*pMethod, pFuncDecl))
+	{
+		env.Log(CLL_Error, snMember.Location(),
+			"method \"%s\" does not match the signature of \"%s\".",
+			inner.Name().c_str(), pFuncDecl->Name().c_str());
+		return false;
+	}
+	//Bound state is structural (same as the bare-name form): the member
+	//carries the Func declaration while Field() stays the SnFunction;
+	//codegen emits receiver + OP_MakeBoundFunc/OP_MakeVFunc. The inner
+	//identifier carries the Func type too — the end-of-build sweep (loose
+	//predicate) would otherwise flag every bound member reference through
+	//it.
+	snMember.EvalDataType(pFuncDecl);
+	inner.EvalDataType(pFuncDecl);
+	return true;
+}
+
 //Phase 13: loose pending predicate — true while a bare function
 //reference carries a non-Func EvalDataType (its function's return
 //type). Review round-1 F1 split this into two predicates: a Func-typed
@@ -385,6 +539,37 @@ bool IsUnboundFuncRef(SyntaxNode &expr)
 	return !FuncRefMatchesDecl(
 		*static_cast<SnFunction*>(idExpr.Field()),
 		static_cast<SnClassDecl*>(pType));
+}
+
+//Phase 13 Step 2: strict bind-site predicate for receiver-bound method
+//references — `receiver.name` in a value position whose inner name
+//resolved to a method of a class/interface/enum. Unbound while the
+//member's own signature does not satisfy the Func type it carries (the
+//same round-1 F1 discipline as IsUnboundFuncRef: a Func RETURN type
+//leaking through the member tail is not a binding). Struct methods and
+//module functions never match — they stay on their existing channels.
+bool IsUnboundMemberFuncRef(SyntaxNode &expr)
+{
+	if (expr.Kind() != NK_MemberExpr)
+		return false;
+	auto &snMember = static_cast<SnMemberExpr&>(expr);
+	auto *pInner = snMember.Inner();
+	if (!pInner || pInner->Kind() != NK_IdentifierExpr)
+		return false;
+	auto *pMethod = static_cast<SnIdentifierExpr*>(pInner)->Field();
+	if (!pMethod || pMethod->Kind() != NK_Function)
+		return false;
+	auto *pOwner = pMethod->Parent();
+	if (!pOwner || (pOwner->Kind() != NK_ClassDecl
+		&& pOwner->Kind() != NK_InterfaceDecl
+		&& pOwner->Kind() != NK_EnumDecl))
+		return false;
+	auto *pType = snMember.EvalDataType();
+	if (IsFuncTypeDecl(pType)
+		&& FuncRefMatchesDecl(*static_cast<SnFunction*>(pMethod),
+			static_cast<SnClassDecl*>(pType)))
+		return false;
+	return true;
 }
 
 void ExprResolveAccessor::Access(SnLiteralExpr &sn)
@@ -562,6 +747,19 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 		outFlags.push_back(isOutArg ? 1 : 0);
 	}
 
+	//Phase 13 Step 2: Dict keyed by a Func type — DictKeysEqual is
+	//identity for Func records (no interning), so two references to the
+	//same function would store as two entries. Reject at the single
+	//instantiation point; both declaration types and new-expression
+	//types flow through here.
+	if (baseName == "Dict" && !typeArgs.empty()
+		&& IsFuncTypeDecl(typeArgs[0]))
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"function types cannot be used as Dict keys.");
+		return;
+	}
+
 	auto *pSynClass = GetGenericClassDecl(baseName, typeArgs, outFlags,
 		pBase->Location());
 	if (!pSynClass)
@@ -640,7 +838,9 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 
 	SnFunction *pCallee;
 	std::vector<FormalBinding> bindings;
-	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings);
+	bool bNameMatchedImported = false;
+	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings,
+		bNameMatchedImported);
 
 	//Phase 9e: out arguments on virtual methods are rejected — the
 	//writeback mask is baked into the call instruction against the
@@ -700,15 +900,24 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 
 	//Phase 13: argument-position function references bind against the
 	//formal Func types of the chosen overload (ComputeBindingDistance
-	//already required an exact signature match for candidacy).
+	//already required an exact signature match for candidacy). Step 2
+	//adds the receiver-bound member form (c.foo).
 	if (res == FFR_ExactMatch || res == FFR_ApproximateMatch)
 	{
 		for (auto &b : bindings)
 		{
-			if (b.kind != FormalBinding::B_Default && b.pCallerExpr
-				&& IsUnboundFuncRef(*b.pCallerExpr)
-				&& !BindFuncRefToExpected(m_Env,
+			if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
+				continue;
+			if (IsUnboundFuncRef(*b.pCallerExpr))
+			{
+				if (!BindFuncRefToExpected(m_Env,
 					*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
+					b.pFormal->EvalDataType()))
+					return;
+			}
+			else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
+				&& !BindMemberFuncRefToExpected(m_Env,
+					*static_cast<SnMemberExpr*>(b.pCallerExpr),
 					b.pFormal->EvalDataType()))
 				return;
 		}
@@ -726,6 +935,29 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		snInvoke.SetBindings(std::move(bindings));
 		break;
 	case FFR_Incompatible:
+		//Phase 13 (Step 2, cross-module): an imported stub synthesizes its
+		//parameter types from the return kind, so a Func argument can
+		//never match — name the real reason before any generic message.
+		//pCallee is null by contract on this path; the flag comes from the
+		//name-matched candidate scan inside FindFuncByInvoke.
+		if (bNameMatchedImported)
+		{
+			for (auto &arg : snInvoke.Params())
+			{
+				SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
+					? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
+				if (IsUnboundFuncRef(*pValue)
+					|| IsUnboundMemberFuncRef(*pValue)
+					|| IsFuncTypeDecl(pValue->EvalDataType()))
+				{
+					m_Env.Log(CLL_Error, snInvoke.Location(),
+						"cannot pass a function reference to the imported "
+						"function \"%s\": parameter signatures are not "
+						"serialized.", snInvoke.CalleeName().c_str());
+					return;
+				}
+			}
+		}
 		//Phase 13: a still-pending function reference among the arguments
 		//had no matching Func-typed formal — sweep it with the named
 		//diagnostic (the generic incompatibility text would not say why).
@@ -737,6 +969,14 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 			{
 				m_Env.Log(CLL_Error, pValue->Location(),
 					"function reference \"%s\" requires an expected "
+					"function type.",
+					pValue->ToString().c_str());
+				return;
+			}
+			if (IsUnboundMemberFuncRef(*pValue))
+			{
+				m_Env.Log(CLL_Error, pValue->Location(),
+					"bound method reference \"%s\" requires an expected "
 					"function type.",
 					pValue->ToString().c_str());
 				return;
@@ -1743,11 +1983,21 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 					{
 						SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
 							? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
-						if (argIdx == valArg && IsUnboundFuncRef(*pValue)
-							&& !BindFuncRefToExpected(m_Env,
-								*static_cast<SnIdentifierExpr*>(pValue),
-								typeArgs[elemSlot]))
-							return;
+						if (argIdx == valArg)
+						{
+							if (IsUnboundFuncRef(*pValue))
+							{
+								if (!BindFuncRefToExpected(m_Env,
+									*static_cast<SnIdentifierExpr*>(pValue),
+									typeArgs[elemSlot]))
+									return;
+							}
+							else if (IsUnboundMemberFuncRef(*pValue)
+								&& !BindMemberFuncRefToExpected(m_Env,
+									*static_cast<SnMemberExpr*>(pValue),
+									typeArgs[elemSlot]))
+								return;
+						}
 						++argIdx;
 					}
 				}
@@ -1873,7 +2123,26 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
-		ResolveFieldExprAs(snMember, pInnerExpr->Field());
+	{
+		//Phase 13 Step 2: a delegate member invoke (obj.cb(x)) resolved
+		//the invoke against the FIELD's Func signature — the member's type
+		//is the invoke's own return type. ResolveFieldExprAs would instead
+		//re-type the member as the delegate VALUE's declared type
+		//(Func<...>), masking the call result at every consumer.
+		if (pInnerExpr->Kind() == NK_InvokeExpr
+			&& pInnerExpr->Field()
+			&& pInnerExpr->Field()->Kind() != NK_Function)
+		{
+			snMember.m_pField = pInnerExpr->Field();
+			if (pInnerExpr->EvalDataType())
+				snMember.EvalDataType(pInnerExpr->EvalDataType());
+			snMember.AddFlags(NF_Resolved);
+		}
+		else
+		{
+			ResolveFieldExprAs(snMember, pInnerExpr->Field());
+		}
+	}
 
 	m_pContext = pSavedContext;
 }
@@ -2411,10 +2680,18 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 	{
 		for (auto &entry : sn.Entries())
 		{
-			if (entry.pValue && IsUnboundFuncRef(*entry.pValue))
+			if (!entry.pValue)
+				continue;
+			if (IsUnboundFuncRef(*entry.pValue))
 			{
 				BindFuncRefToExpected(m_Env,
 					*static_cast<SnIdentifierExpr*>(entry.pValue),
+					pElemType);
+			}
+			else if (IsUnboundMemberFuncRef(*entry.pValue))
+			{
+				BindMemberFuncRefToExpected(m_Env,
+					*static_cast<SnMemberExpr*>(entry.pValue),
 					pElemType);
 			}
 		}
@@ -2621,7 +2898,8 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
 }
 
 FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
-	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings)
+	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings,
+	bool &rbNameMatchedImported)
 {
 	//Contract: the out-param is always initialized. The NotFound path
 	//returns early without touching it — an uninitialized caller local
@@ -2629,8 +2907,10 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	//dereferences a dangling pointer (ncc crash; observed when imported
 	//stubs shifted stack layout). Clearing here covers every path.
 	pFuncFound = nullptr;
+	rbNameMatchedImported = false;
 	const bool bSearchInAncestor = !ContainFlags(ERF_SearchInParentOnly);
 	bool bFoundByName = false;
+	bool bImportedMatch = false;
 	auto &sFuncName = invoke.CalleeName();
 
 	//Best candidate across all scanned scopes.
@@ -2674,6 +2954,8 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 			if (!pFunc->AllowAccess(*m_pAccessor))
 				continue;
 
+			if (pFunc->ContainFlags(NF_Imported))
+				bImportedMatch = true;
 			if (!bFoundByName)
 				bFoundByName = true;
 			consider(pFunc);
@@ -2719,6 +3001,8 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 				auto *pFunc = static_cast<SnFunction *>(iField->second);
 				if (!pFunc->AllowAccess(*m_pAccessor))
 					continue;
+				if (pFunc->ContainFlags(NF_Imported))
+					bImportedMatch = true;
 				if (!bFoundByName)
 					bFoundByName = true;
 				consider(pFunc);
@@ -2735,7 +3019,11 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	if (nBestDistance < 0)
 	{
 		//At least one candidate matched by name but none could bind.
+		//Surface whether an imported stub was among them — its parameter
+		//types are synthesized, so the Incompatible verdict may simply
+		//mean the compiler could not see the real signature.
 		pFuncFound = nullptr;
+		rbNameMatchedImported = bImportedMatch;
 		return FFR_Incompatible;
 	}
 
@@ -2786,20 +3074,6 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 			paramCount, ArgCountOf(invoke));
 		return;
 	}
-	//Step 1 scope (review round-1 F4): out-carrying delegate calls
-	//need OP_CallDelegateOut (Step 2). Reject here with a named
-	//diagnostic — codegen would otherwise die as an internal
-	//out-argument error.
-	for (size_t k = 1; k < outFlags.size(); ++k)
-	{
-		if (outFlags[k] != 0)
-		{
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"delegate calls with out parameters are not supported "
-				"yet.");
-			return;
-		}
-	}
 	bool bOK = true;
 	size_t i = 0;
 	for (auto &arg : invoke.Params())
@@ -2817,11 +3091,17 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 			bOK = false;
 		}
 		//Pending bare function references bind against the Func's own
-		//parameter slot type.
+		//parameter slot type; Step 2 adds the receiver-bound member form.
 		if (IsUnboundFuncRef(*pValue))
 		{
 			if (!BindFuncRefToExpected(m_Env,
 				static_cast<SnIdentifierExpr&>(*pValue), pFormal))
+				bOK = false;
+		}
+		else if (IsUnboundMemberFuncRef(*pValue))
+		{
+			if (!BindMemberFuncRefToExpected(m_Env,
+				static_cast<SnMemberExpr&>(*pValue), pFormal))
 				bOK = false;
 		}
 		else if (!bIsOut)
@@ -2987,7 +3267,8 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		//Phase 13: a pending function reference binds only to a Func
 		//formal whose signature matches exactly (distance 0). This also
 		//closes the legacy hole where the bare name's RETURN type let it
-		//bind approximately to non-Func formals.
+		//bind approximately to non-Func formals. Step 2 adds the
+		//receiver-bound member form (same exact-match-only rule).
 		if (IsUnboundFuncRef(*b.pCallerExpr))
 		{
 			auto *pTgt = b.pFormal->EvalDataType();
@@ -2996,6 +3277,19 @@ int ExprResolveAccessor::ComputeBindingDistance(
 			if (!IsFuncTypeDecl(pTgt) || !pRefFunc
 				|| !FuncRefMatchesDecl(
 					*static_cast<SnFunction*>(pRefFunc),
+					static_cast<SnClassDecl*>(pTgt)))
+				return -1;
+			continue;
+		}
+		if (IsUnboundMemberFuncRef(*b.pCallerExpr))
+		{
+			auto *pTgt = b.pFormal->EvalDataType();
+			auto *pMethod = static_cast<SnIdentifierExpr*>(
+				static_cast<SnMemberExpr*>(
+					b.pCallerExpr)->Inner())->Field();
+			if (!IsFuncTypeDecl(pTgt) || !pMethod
+				|| !FuncRefMatchesDecl(
+					*static_cast<SnFunction*>(pMethod),
 					static_cast<SnClassDecl*>(pTgt)))
 				return -1;
 			continue;

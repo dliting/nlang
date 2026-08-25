@@ -29,6 +29,7 @@ namespace nlang
 //The abstract expression syntax node.
 class BuildEnvironment;
 class SnIdentifierExpr;
+class SnMemberExpr;
 
 class NLANG_COMPILER_API SnExpression: public SyntaxNode
 {
@@ -39,6 +40,9 @@ class NLANG_COMPILER_API SnExpression: public SyntaxNode
 	//resolvers (needs the protected EvalDataType setter).
 	friend bool BindFuncRefToExpected(BuildEnvironment &env,
 		SnIdentifierExpr &idExpr, SnField *pExpected);
+	//Phase 13 Step 2: receiver-bound member form of the binder above.
+	friend bool BindMemberFuncRefToExpected(BuildEnvironment &env,
+		SnMemberExpr &snMember, SnField *pExpected);
 	typedef SyntaxNode Super_;
 public:
 	SnExpression(NodeKind);

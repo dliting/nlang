@@ -396,11 +396,19 @@ public:
 		pResultExpr->Accept(*m_pVisitor);
 
 		//Phase 13: a return-position function reference binds against the
-		//function's declared return type.
+		//function's declared return type. Step 2 adds the receiver-bound
+		//member form.
 		if (IsUnboundFuncRef(*pResultExpr))
 		{
 			if (!BindFuncRefToExpected(m_Env,
 				static_cast<SnIdentifierExpr&>(*pResultExpr),
+				pOuterFunc->EvalDataType()))
+				return;
+		}
+		else if (IsUnboundMemberFuncRef(*pResultExpr))
+		{
+			if (!BindMemberFuncRefToExpected(m_Env,
+				static_cast<SnMemberExpr&>(*pResultExpr),
 				pOuterFunc->EvalDataType()))
 				return;
 		}
@@ -570,11 +578,18 @@ public:
 		}
 		//Phase 13: an assignment-position function reference binds
 		//against the LHS type. Local-decl decomposition, plain assignment
-		//and field stores all flow through here.
+		//and field stores all flow through here. Step 2 adds the
+		//receiver-bound member form (c.foo / this.handler).
 		if (IsUnboundFuncRef(*sn.Right()))
 		{
 			if (!BindFuncRefToExpected(m_Env,
 				static_cast<SnIdentifierExpr&>(*sn.Right()), pTargetType))
+				return;
+		}
+		else if (IsUnboundMemberFuncRef(*sn.Right()))
+		{
+			if (!BindMemberFuncRefToExpected(m_Env,
+				static_cast<SnMemberExpr&>(*sn.Right()), pTargetType))
 				return;
 		}
 		auto* pSourceType = sn.Right()->EvalDataType();
@@ -1340,8 +1355,10 @@ public:
 			m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
 		//Phase 13: a function reference stored into an array element
 		//binds against the element type (an array-typed field's
-		//EvalDataType IS the element type).
-		if (sn.Value() && IsUnboundFuncRef(*sn.Value()))
+		//EvalDataType IS the element type). Step 2 adds the receiver-bound
+		//member form.
+		if (sn.Value() && (IsUnboundFuncRef(*sn.Value())
+			|| IsUnboundMemberFuncRef(*sn.Value())))
 		{
 			SnField* pElemType = nullptr;
 			if (sn.Array() && sn.Array()->Kind() == NK_IdentifierExpr)
@@ -1366,8 +1383,14 @@ public:
 					}
 				}
 			}
-			if (!BindFuncRefToExpected(m_Env,
-				static_cast<SnIdentifierExpr&>(*sn.Value()), pElemType))
+			if (IsUnboundFuncRef(*sn.Value()))
+			{
+				if (!BindFuncRefToExpected(m_Env,
+					static_cast<SnIdentifierExpr&>(*sn.Value()), pElemType))
+					return;
+			}
+			else if (!BindMemberFuncRefToExpected(m_Env,
+				static_cast<SnMemberExpr&>(*sn.Value()), pElemType))
 				return;
 		}
 		//Void-support: reject a resolved void call as the stored value —

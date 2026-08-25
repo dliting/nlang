@@ -1,0 +1,10 @@
+//Phase 13 Step 2: an interface DECLARATION name is not a value
+//expression — the reference falls the existing not-found channel.
+interface Op {
+    public int run(int x);
+}
+
+int main() {
+    Func<int, int> f = Op;
+    return 0;
+}

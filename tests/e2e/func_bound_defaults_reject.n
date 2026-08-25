@@ -1,0 +1,13 @@
+//Phase 13 Step 2: bound references to methods with default parameters
+//are rejected — default filling happens only on the direct-call path
+//(the delegate invoke always stages full arity from the Func signature).
+//Mirrors the free-function reject (func_defaults_reject).
+class C {
+    public int foo(int x, int y = 5) { return x + y; }
+}
+
+int main() {
+    C c = new C();
+    Func<int, int, int> f = c.foo;
+    return 0;
+}

@@ -1,0 +1,24 @@
+//Phase 13 Step 2: bound method stored in a class FIELD — this.cb =
+//this.handler binds at assign; obj.cb(x) invokes through the field;
+//a bare cb(1) inside a method body resolves through implicit this
+//(the Func-typed-field resolution branch).
+class Reg {
+    Func<int, int> cb;
+
+    int handler(int x) { return x + 10; }
+
+    public void install() {
+        this.cb = this.handler;
+    }
+
+    public int callField(int x) {
+        return cb(x);
+    }
+}
+
+int main() {
+    Reg r = new Reg();
+    r.install();
+    if (r.cb(5) != 15) { return 1; }
+    return r.callField(1);
+}

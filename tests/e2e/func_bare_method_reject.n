@@ -1,0 +1,18 @@
+//Phase 13 Step 2: a bare method name (implicit this) does not create a
+//bound reference — the named rejection fires; `this.handler` is the
+//legal spelling.
+class C {
+    int handler(int x) { return x * 2; }
+
+    int call() {
+        foobar(handler);
+        return 0;
+    }
+}
+
+void foobar(Func<int, int> f) { }
+
+int main() {
+    C c = new C();
+    return c.call();
+}

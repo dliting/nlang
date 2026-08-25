@@ -1,0 +1,11 @@
+//Phase 13 Step 2: cross-module negative — apply's stub parameter is a
+//synthesized int32, so the compiler cannot verify the Func signature;
+//the argument must be rejected by name instead of being silently
+//misused as a heap index at runtime.
+import "lib";
+
+int dbl(int x) { return x * 2; }
+
+int main() {
+    return apply(dbl);
+}

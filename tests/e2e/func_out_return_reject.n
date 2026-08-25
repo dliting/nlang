@@ -1,0 +1,8 @@
+//Phase 13 Step 2: out in the RETURN slot of Func<...> is rejected at
+//instantiation — the return slot parses as a TypeArg (so the file is
+//not a syntax error), and the Func instantiation check confines out
+//markers to parameter positions.
+int main() {
+    Func<out int, int> f = null;
+    return 0;
+}

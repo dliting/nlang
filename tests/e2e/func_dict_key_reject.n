@@ -1,0 +1,10 @@
+//Phase 13 Step 2: Dict keyed by a Func type is rejected — DictKeysEqual
+//is identity for non-boxed/class/struct keys, so two references to the
+//same function would store as two entries.
+int dbl(int x) { return x * 2; }
+
+int main() {
+    Dict<Func<int, int>, int> d = new Dict<Func<int, int>, int>();
+    d[dbl] = 1;
+    return 0;
+}

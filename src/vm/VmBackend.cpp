@@ -884,6 +884,8 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_CheckCast:
         case OpCode::OP_Throw:
         case OpCode::OP_MakeFunc:
+        case OpCode::OP_MakeBoundFunc:
+        case OpCode::OP_MakeVFunc:
             return 1 + 2;  // one uint16 operand
         case OpCode::OP_JumpIfNot:
         case OpCode::OP_Add_i32:
@@ -929,7 +931,8 @@ static size_t InstructionStride(OpCode op) {
             return 1 + 2 + 2;  // two uint16 operands
         case OpCode::OP_CallFuncOut:
         case OpCode::OP_CallMethodDirectOut:
-            return 1 + 2 + 2 + 4;  // uint16 + uint16 + uint32 outMask (Phase 9e)
+        case OpCode::OP_CallDelegateOut:
+            return 1 + 2 + 2 + 4;  // uint16 + uint16 + uint32 outMask (Phase 9e / 13)
         case OpCode::OP_AllocStruct:
         case OpCode::OP_LoadField:
         case OpCode::OP_StoreField:
@@ -976,7 +979,11 @@ void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm
             case OpCode::OP_CallFuncOut:
             case OpCode::OP_CallMethodDirectOut:
             case OpCode::OP_MakeFunc:
+            case OpCode::OP_MakeBoundFunc:
                 patchU16(pos + 1, pm.functionMap);
+                break;
+            case OpCode::OP_MakeVFunc:
+                patchU16(pos + 1, pm.stringMap);
                 break;
             case OpCode::OP_New:
             case OpCode::OP_CheckCast:
@@ -1681,10 +1688,17 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
         uint16_t d = ExprPeakDepth(*member.Outer(), visited, false);
         //If Inner is an InvokeExpr, this is a method call shape — pass
         //isMethodContext=true so the walker reserves slot 0 for `this`.
-        uint16_t id = (member.Inner()
-            && member.Inner()->Kind() == NK_InvokeExpr)
-            ? ExprPeakDepth(*member.Inner(), visited, true)
-            : ExprPeakDepth(*member.Inner(), visited, false);
+        //Phase 13 Step 2 exception: a delegate member invoke (obj.cb(x))
+        //stages USER args only (no this at slot 0) — its callee scratch
+        //is reserved inside the invoke walker via IsDelegateInvoke.
+        uint16_t id;
+        if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr) {
+            auto& inv = static_cast<SnInvokeExpr&>(*member.Inner());
+            id = ExprPeakDepth(*member.Inner(), visited,
+                !IsDelegateInvoke(inv));
+        } else {
+            id = ExprPeakDepth(*member.Inner(), visited, false);
+        }
         //Phase 11 Step 3 symmetry: a built-in string method stages
         //synthetic trailing args (substring's end via OP_StrLen) on top
         //of the actual ones — reserve those slots here from the SAME
@@ -2074,12 +2088,19 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
                 auto& member = static_cast<SnMemberExpr&>(expr);
                 walkExpr(*member.Outer(), false);
                 //If Inner is InvokeExpr, pass method-context flag so
-                //slot 0 is reserved for `this`.
+                //slot 0 is reserved for `this` — EXCEPT delegate invokes
+                //(a Func-typed field): their args are staged without this
+                //and the invoke branch adds the callee scratch instead
+                //(mirror ExprPeakDepth's MemberExpr branch).
                 if (member.Inner()
-                    && member.Inner()->Kind() == NK_InvokeExpr)
-                    walkExpr(*member.Inner(), true);
-                else
+                    && member.Inner()->Kind() == NK_InvokeExpr) {
+                    auto& innerInvoke =
+                        static_cast<SnInvokeExpr&>(*member.Inner());
+                    walkExpr(*member.Inner(),
+                        !IsDelegateInvoke(innerInvoke));
+                } else {
                     walkExpr(*member.Inner(), false);
+                }
             } else if (expr.Kind() == NK_NewExpr) {
                 //claimSize for ctor call = 1 (this) + argCount. Skip the
                 //class-name child by identity (Args() view includes it —
@@ -2520,11 +2541,31 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
     //Emit each binding into the claimed evalArea slice.
     if (!pCallee) {
         //Unresolved invoke — fall back to legacy positional emit.
+        //Phase 13 Step 2: out arguments in this path are delegate calls
+        //binding to a Func signature (the resolver already checked the
+        //out markers). The callee fills the slot and the executor's
+        //outMask write-back refreshes it — emit nothing here, just
+        //record the spill so the post-call write-back reaches the
+        //caller's local (mirrors the binding-path OutSpill fill).
         uint16_t paramIdx = static_cast<uint16_t>(slotBase);
         for (auto& param : invoke.Params()) {
-            uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
-            EmitExpression(param, emitter, paramOffset);
-            applyBox(paramIdx);
+            if (param.Kind() == NK_OutArgExpr && pOutSpills) {
+                auto& outArg = static_cast<SnOutArgExpr&>(param);
+                if (!outArg.Inner()
+                    || outArg.Inner()->Kind() != NK_IdentifierExpr)
+                    throw std::runtime_error(
+                        "NLang backend: out argument is not a local variable");
+                auto target = ResolveBareIdentifier(
+                    static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
+                if (target.kind != BareIdTarget::Local)
+                    throw std::runtime_error(
+                        "NLang backend: out argument is not a local variable");
+                pOutSpills->push_back({paramIdx, target.localOffset});
+            } else {
+                uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+                EmitExpression(param, emitter, paramOffset);
+                applyBox(paramIdx);
+            }
             ++paramIdx;
         }
     } else if (bindings.empty()) {
@@ -2780,10 +2821,6 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //above; materialize the handle into a scratch evalArea slot (the
         //field form must not disturb callParamBase) and dispatch.
         if (IsDelegateInvoke(invoke)) {
-            if (!outSpills.empty())
-                throw std::runtime_error(
-                    "NLang backend: out arguments in a delegate call are "
-                    "not supported yet");
             auto target = ResolveBareIdentifier(invoke.Field());
             EvalAreaClaim calleeClaim(*this, 1);
             uint16_t calleeSlot = calleeClaim.base();
@@ -2810,11 +2847,27 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     "NLang backend: delegate callee has no codegen "
                     "binding: " + invoke.CalleeName());
             }
-            emitter.Emit(OpCode::OP_CallDelegate);
-            emitter.EmitUint16(calleeSlot);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            //Phase 13 Step 2: out-carrying delegate calls dispatch with
+            //OP_CallDelegateOut; the executor reverses the bound-handle
+            //this-shift when copying the marked user-parameter slots back
+            //to callParamBase. Result first — the spills below clobber
+            //pResult (same ordering discipline as OP_CallFuncOut).
+            if (!outSpills.empty()) {
+                emitter.Emit(OpCode::OP_CallDelegateOut);
+                emitter.EmitUint16(calleeSlot);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                emitter.EmitInt32(static_cast<int32_t>(
+                    BuildOutMask(outSpills)));
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                EmitOutSpills(outSpills, emitter);
+            } else {
+                emitter.Emit(OpCode::OP_CallDelegate);
+                emitter.EmitUint16(calleeSlot);
+                emitter.EmitUint16(m_currFunc->callParamBase);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+            }
             emitter.Emit(OpCode::OP_ParaEnd);
             return;
         }
@@ -3151,6 +3204,44 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             emitter.EmitUint16(resultOffset);
             return;
         }
+        //Phase 13 Step 2: bound method reference (c.foo / o.run in a
+        //value position) — the resolver bound the member's EvalDataType
+        //to the Func declaration while Field() stayed the SnFunction
+        //(mirrors the bare-name OP_MakeFunc arm). Receiver-first: emit
+        //the receiver to resultOffset, refresh pResult, then the bind
+        //opcode reads the receiver from pResult and writes the handle
+        //there. Form selection matches the direct-call codegen decision:
+        //virtual methods and interface declarations dispatch by name,
+        //everything else binds the static function index. The executor's
+        //bind-time null guard covers null receivers.
+        if (field && field->Kind() == NK_Function
+            && member.EvalDataType()
+            && member.EvalDataType()->Kind() == NK_ClassDecl
+            && static_cast<SnClassDecl*>(
+                member.EvalDataType())->IsFuncType()) {
+            auto* method = static_cast<SnFunction*>(field);
+            bool dispatchesByName = method->ContainFlags(NF_Virtual)
+                || (method->Parent()
+                    && method->Parent()->Kind() == NK_InterfaceDecl);
+            EmitExpression(*member.Outer(), emitter, resultOffset);
+            EmitPResultRefresh(emitter, resultOffset);
+            if (dispatchesByName) {
+                uint16_t nameIdx = AddStringConstant(method->Name());
+                emitter.Emit(OpCode::OP_MakeVFunc);
+                emitter.EmitUint16(nameIdx);
+            } else {
+                auto it = m_funcIndexMap.find(method);
+                if (it == m_funcIndexMap.end())
+                    throw std::runtime_error(
+                        "NLang backend: method reference without a body: "
+                        + method->Name());
+                emitter.Emit(OpCode::OP_MakeBoundFunc);
+                emitter.EmitUint16(static_cast<uint16_t>(it->second));
+            }
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return;
+        }
         //Phase 12: user-defined enum method call (c.rank(),
         //Color.Blue.rank(), this.weight()). Detection is by the resolver
         //binding: invoke.Field() is the SnFunction whose parent is the
@@ -3406,6 +3497,54 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.Emit(OpCode::OP_Func_to_str);
                     emitter.Emit(OpCode::OP_Assign);
                     emitter.EmitUint16(resultOffset);
+                    return;
+                }
+
+                //Phase 13 Step 2: delegate member invoke (obj.cb(x)) —
+                //the resolver bound the callee name to a Func-typed FIELD
+                //of this class (the invoke's Field() is that field, not
+                //an SnFunction; D13). The receiver is already at
+                //resultOffset with the null check done. Unlike a method
+                //call, staging holds USER args only — slotBase 0, no this
+                //at slot 0. The handle is materialized into a scratch
+                //claim slot (claimed BEFORE the args so nested emissions
+                //cannot clobber it), matching the bare-form delegate arm.
+                if (IsDelegateInvoke(invoke)) {
+                    int off = FindClassFieldOffset(*classDecl,
+                        invoke.CalleeName());
+                    if (off < 0) {
+                        throw std::runtime_error(
+                            "NLang backend: class field offset not found: "
+                            + invoke.CalleeName());
+                    }
+                    EvalAreaClaim calleeClaim(*this, 1);
+                    uint16_t calleeSlot = calleeClaim.base();
+                    emitter.Emit(OpCode::OP_LoadField);
+                    emitter.EmitUint16(calleeSlot);
+                    emitter.EmitUint16(resultOffset);
+                    emitter.EmitUint16(static_cast<uint16_t>(off));
+                    std::vector<OutSpill> delegateOutSpills;
+                    EmitCallArgs(invoke, nullptr, emitter, /*slotBase=*/0,
+                                 /*pArgPlans=*/nullptr,
+                                 /*thisSlot=*/UINT16_MAX,
+                                 &delegateOutSpills);
+                    if (!delegateOutSpills.empty()) {
+                        emitter.Emit(OpCode::OP_CallDelegateOut);
+                        emitter.EmitUint16(calleeSlot);
+                        emitter.EmitUint16(m_currFunc->callParamBase);
+                        emitter.EmitInt32(static_cast<int32_t>(
+                            BuildOutMask(delegateOutSpills)));
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(resultOffset);
+                        EmitOutSpills(delegateOutSpills, emitter);
+                    } else {
+                        emitter.Emit(OpCode::OP_CallDelegate);
+                        emitter.EmitUint16(calleeSlot);
+                        emitter.EmitUint16(m_currFunc->callParamBase);
+                        emitter.Emit(OpCode::OP_Assign);
+                        emitter.EmitUint16(resultOffset);
+                    }
+                    emitter.Emit(OpCode::OP_ParaEnd);
                     return;
                 }
 

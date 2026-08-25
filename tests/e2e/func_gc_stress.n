@@ -1,0 +1,36 @@
+//Phase 13 Step 2: GC stress with BOUND handles — the captured receiver
+//(slot[1]) must survive collection cycles while the loop churns the heap
+//past the threshold. Each `c.twice` creates a DISTINCT handle record, so
+//the List element (GC site 7), array element (site 6) and class field
+//(site 4) are each the ONLY root of their record — a broken trace arm
+//leaves a dangling heap index that misbehaves on the post-churn calls.
+class Counter {
+    int n;
+    public void bump() { n = n + 1; }
+    public int twice(int x) { return x * 2 + n; }
+}
+
+class Holder { Func<int, int> cb; }
+
+class P { int v; }
+
+int main() {
+    Counter c = new Counter();
+    List<Func<int, int>> l = [c.twice];
+    Func<void> b = c.bump;
+    Func<int, int>[] arr = [c.twice];
+    Holder h = new Holder();
+    h.cb = c.twice;
+    for (int i = 0; i < 3000; i = i + 1) {
+        P p = new P();
+        p.v = i;
+    }
+    b();
+    b();
+    int total = 0;
+    foreach (Func<int, int> g in l) { total = g(5); }
+    Func<int, int> fromArr = arr[0];
+    if (fromArr(5) != total) return 1;
+    if (h.cb(5) != total) return 2;
+    return total + c.n;
+}

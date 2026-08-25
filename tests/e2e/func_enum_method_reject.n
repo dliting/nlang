@@ -1,0 +1,18 @@
+//Phase 13 Step 2: enum method reference is rejected — the enum receiver
+//is an int value (methods compute `this * 10`), not a heap object; the
+//handle's receiver slot cannot hold it.
+enum Color {
+    Red, Green, Blue;
+
+    public int rank() {
+        return this * 10;
+    }
+}
+
+void foobar(Func<int> f) { }
+
+int main() {
+    Color c = Color.Green;
+    foobar(c.rank);
+    return 0;
+}

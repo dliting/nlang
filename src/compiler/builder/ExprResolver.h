@@ -56,6 +56,23 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 	SnField *pExpected);
 
 /*
+Phase 13 Step 2: bind a pending bound-method reference (receiver.name in
+a value position, see IsUnboundMemberFuncRef) to the expected Func<...>
+type of the injection site. Selects the handle form exactly like the
+direct-call codegen does (virtual / interface-declared methods dispatch
+by name at runtime, everything else binds a static function index), with
+named rejects for enum receivers, native methods (including native
+overrides found by a subclass scan for by-name bindings) and out-carrying
+signatures on by-name bindings. On success the member and its inner
+identifier carry the Func declaration — codegen detects the bound state
+structurally, like the bare-name form.
+\return false after logging a named diagnostic — the caller should stop
+resolving the statement.
+*/
+bool BindMemberFuncRefToExpected(BuildEnvironment &env,
+	SnMemberExpr &snMember, SnField *pExpected);
+
+/*
 Phase 13: loose pending predicate — true while a bare function
 reference carries a non-Func EvalDataType (its function's return type).
 Consumed ONLY by the ModuleBuilder TU-end sweep, which reports any
@@ -71,6 +88,12 @@ bool IsPendingFuncRef(SyntaxNode &expr);
 //binding). All bind sites use this form; IsPendingFuncRef above is the
 //loose form kept for the end-of-build sweep only.
 bool IsUnboundFuncRef(SyntaxNode &expr);
+//Phase 13 Step 2: strict bind-site predicate for receiver-bound method
+//references (receiver.name in a value position whose inner name resolved
+//to a class/interface/enum method). Same F1 discipline as
+//IsUnboundFuncRef; the bind sites pair it with
+//BindMemberFuncRefToExpected above.
+bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 //Phase 13 (review round-1 F7): type arguments of a generic instantiation
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site.
@@ -182,9 +205,14 @@ private:
 	Precondition: the parameters in the invoke expression are all resolved.
 	On ExactMatch / ApproximateMatch, outBindings is filled with per-formal
 	binding decisions (Phase 9c).
+	Phase 13: rbNameMatchedImported is set when any candidate matching the
+	callee NAME carries NF_Imported — only meaningful on FFR_Incompatible
+	(pFunc is nulled on that path by contract), where it lets the caller
+	report the imported-arg rejection reason instead of a generic message.
 	*/
 	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
-		std::vector<FormalBinding> &outBindings);
+		std::vector<FormalBinding> &outBindings,
+		bool &rbNameMatchedImported);
 
 	/*
 	Phase 13: locate the delegate target of a bare invoke — a non-function

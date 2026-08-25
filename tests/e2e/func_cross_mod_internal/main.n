@@ -1,0 +1,10 @@
+//Phase 13 Step 2: cross-module positive — see lib.n. Exit 7 only when
+//all three handle forms survive module merge with correct remapping.
+import "lib";
+
+int main() {
+    if (runFree() != 10) { return 1; }
+    if (runBound() != 12) { return 2; }
+    if (runVirtual() != 30) { return 3; }
+    return 7;
+}

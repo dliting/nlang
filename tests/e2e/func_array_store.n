@@ -1,0 +1,17 @@
+//Phase 13 Step 2: bound handles live in arrays of Func — element type
+//injection at the array-declaration RHS, retrieval and invocation.
+int dbl(int x) { return x * 2; }
+
+class C {
+    int k;
+    public int add(int x) { return x + k; }
+}
+
+int main() {
+    C c = new C();
+    c.k = 100;
+    Func<int, int>[] arr = [dbl, c.add];
+    Func<int, int> a0 = arr[0];
+    Func<int, int> a1 = arr[1];
+    return a0(5) + a1(5);
+}

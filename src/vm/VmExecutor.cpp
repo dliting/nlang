@@ -703,7 +703,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (funcIdx >= m_currModule->functions.size())
                 throw std::runtime_error("NLang VM: invalid function index in MakeFunc");
             int32_t heapIdx = AllocFuncRecord(
-                static_cast<int32_t>(funcIdx), 0, 0);
+                static_cast<int32_t>(funcIdx), 0, kFuncFormStatic);
             std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
             break;
         }
@@ -718,34 +718,67 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
                 RaiseNlangException(m_nullPtrExcClassIdx,
                                     "NLang VM: null function value in CallDelegate");
-            const auto& handle = m_structHeap[static_cast<size_t>(handleIdx)];
-            //Step 1 ships static (free-function) handles only - bound
-            //method handles (form 1, this != 0) arrive with Step 2.
-            if (handle[2] != 0 || handle[1] != 0)
-                throw std::runtime_error(
-                    "NLang VM: bound-method delegates are not supported yet");
-            uint16_t funcIdx = static_cast<uint16_t>(handle[0]);
+            ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
+                                callParamBase, locals, pResult, 0);
+            break;
+        }
+
+        case OpCode::OP_CallDelegateOut: {
+            uint16_t calleeLocal = reader.ReadUint16();
+            uint16_t callParamBase = reader.ReadUint16();
+            uint32_t outMask = reader.ReadUint32();
+            int32_t handleIdx;
+            std::memcpy(&handleIdx, locals + calleeLocal, sizeof(handleIdx));
+            if (handleIdx <= 0
+                || static_cast<size_t>(handleIdx) >= m_structHeap.size()
+                || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null function value in CallDelegate");
+            ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
+                                callParamBase, locals, pResult, outMask);
+            break;
+        }
+
+        case OpCode::OP_MakeBoundFunc: {
+            //Bound non-virtual method: receiver was emitted to the
+            //result slot first (receiver-first emission shape), so this
+            //reads pResult BEFORE writing the handle. A null receiver
+            //throws at BIND time — a handle materialized with this==0
+            //would dispatch as a free function and silently misframe.
+            uint16_t funcIdx = reader.ReadUint16();
+            int32_t thisIdx;
+            std::memcpy(&thisIdx, pResult, sizeof(thisIdx));
+            if (thisIdx <= 0
+                || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null receiver in method reference");
             if (funcIdx >= m_currModule->functions.size())
-                throw std::runtime_error("NLang VM: invalid function index in delegate handle");
-            const CompiledFunction& callee = m_currModule->functions[funcIdx];
-            //Free-function ABI - identical to OP_CallFunc: natives read
-            //their args straight from the caller's callParamBase cells.
-            if (callee.isNative) {
-                CallNative(callee, callParamBase, locals, pResult);
-                break;
-            }
-            std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-            uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
-            //Review round-1 F9: silently skipping an oversized parameter
-            //block would run the callee on uninitialized locals — fail
-            //loudly instead.
-            if (paramBytes > callee.localsSize)
                 throw std::runtime_error(
-                    "NLang VM: callee locals smaller than the parameter "
-                    "block in CallDelegate");
-            if (paramBytes > 0)
-                std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
-            ExecuteFunction(callee, pResult, calleeLocals.data());
+                    "NLang VM: invalid function index in MakeBoundFunc");
+            int32_t heapIdx = AllocFuncRecord(
+                static_cast<int32_t>(funcIdx), thisIdx, kFuncFormStatic);
+            std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
+            break;
+        }
+
+        case OpCode::OP_MakeVFunc: {
+            //Virtual-dispatch handle: stores the method NAME (string
+            //pool index) instead of a function index; dispatch resolves
+            //the override chain on the runtime class at call time. Same
+            //bind-time null-receiver guard as MakeBoundFunc.
+            uint16_t nameIdx = reader.ReadUint16();
+            int32_t thisIdx;
+            std::memcpy(&thisIdx, pResult, sizeof(thisIdx));
+            if (thisIdx <= 0
+                || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+                RaiseNlangException(m_nullPtrExcClassIdx,
+                                    "NLang VM: null receiver in method reference");
+            if (nameIdx >= m_currModule->stringConstants.size())
+                throw std::runtime_error(
+                    "NLang VM: invalid string index in MakeVFunc");
+            int32_t heapIdx = AllocFuncRecord(
+                static_cast<int32_t>(nameIdx), thisIdx, kFuncFormVirtual);
+            std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
             break;
         }
 
@@ -1105,21 +1138,9 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
             if (classIdx < 0 || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
                 throw std::runtime_error("NLang VM: invalid class index in object header");
-            //Walk class hierarchy to find the method by name.
-            int funcIndex = -1;
-            int searchClassIdx = classIdx;
-            while (searchClassIdx >= 0 && searchClassIdx < static_cast<int>(m_currModule->classes.size())) {
-                const auto& cc = m_currModule->classes[static_cast<size_t>(searchClassIdx)];
-                for (uint16_t idx : cc.methodIndices) {
-                    if (idx < m_currModule->functions.size()
-                        && m_currModule->functions[idx].name == methodName) {
-                        funcIndex = idx;
-                        break;
-                    }
-                }
-                if (funcIndex >= 0) break;
-                searchClassIdx = cc.superClassIdx;
-            }
+            //Walk class hierarchy to find the method by name (helper
+            //shared with virtual-dispatch delegate handles, Phase 13).
+            int funcIndex = FindMethodByName(classIdx, methodName);
             if (funcIndex < 0)
                 throw std::runtime_error("NLang VM: method not found: " + methodName);
             const CompiledFunction& callee = m_currModule->functions[static_cast<size_t>(funcIndex)];
@@ -1885,6 +1906,13 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
             throw std::runtime_error(
                 "NLang VM: WriteStruct does not support array fields (Phase 8e)");
         }
+        else if (ftk == RTK_Func)
+        {
+            //Phase 13: handles reference module functions/objects and
+            //are not serializable bytes.
+            throw std::runtime_error(
+                "NLang VM: WriteStruct does not support Func fields (Phase 13)");
+        }
     }
 }
 
@@ -1956,6 +1984,13 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
         {
             throw std::runtime_error(
                 "NLang VM: ReadStruct does not support array fields (Phase 8e)");
+        }
+        else if (ftk == RTK_Func)
+        {
+            //Phase 13: no writer can emit a Func field (the write side
+            //throws), so reaching this arm means a corrupted stream.
+            throw std::runtime_error(
+                "NLang VM: ReadStruct does not support Func fields (Phase 13)");
         }
     }
 }
@@ -2049,6 +2084,13 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         {
             throw std::runtime_error(
                 "NLang VM: WriteStruct does not support array fields (Phase 8e)");
+        }
+        else if (ftk == RTK_Func)
+        {
+            //Phase 13: handles reference module functions/objects and
+            //are not serializable bytes.
+            throw std::runtime_error(
+                "NLang VM: WriteStruct does not support Func fields (Phase 13)");
         }
     }
 }
@@ -2169,6 +2211,13 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
         {
             throw std::runtime_error(
                 "NLang VM: ReadStruct does not support array fields (Phase 8e)");
+        }
+        else if (ftk == RTK_Func)
+        {
+            //Phase 13: no writer can emit a Func field (the write side
+            //throws), so reaching this arm means a corrupted stream.
+            throw std::runtime_error(
+                "NLang VM: ReadStruct does not support Func fields (Phase 13)");
         }
     }
 
@@ -2373,7 +2422,7 @@ int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
 //virtual-dispatch handles (form 1, Step 2).
 std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    if (slot[2] == 0) {
+    if (slot[2] == kFuncFormStatic) {
         uint16_t funcIdx = static_cast<uint16_t>(slot[0]);
         if (funcIdx < m_currModule->functions.size())
             return "func " + m_currModule->functions[funcIdx].name;
@@ -2383,6 +2432,150 @@ std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
     if (nameIdx >= 0 && static_cast<size_t>(nameIdx) < m_stringPool.size())
         return "method " + m_stringPool[static_cast<size_t>(nameIdx)];
     return "method <invalid>";
+}
+
+//Phase 13 Step 2: name-based method resolution on the runtime class.
+//Walks methodIndices then up the superClassIdx chain — the lookup
+//OP_CallMethod has always performed, extracted so virtual-dispatch
+//handles share it. Returns a functions[] index or -1.
+int VmExecutor::FindMethodByName(int classIdx,
+    const std::string& methodName) const {
+    int searchClassIdx = classIdx;
+    while (searchClassIdx >= 0
+        && searchClassIdx < static_cast<int>(m_currModule->classes.size())) {
+        const auto& cc
+            = m_currModule->classes[static_cast<size_t>(searchClassIdx)];
+        for (uint16_t idx : cc.methodIndices) {
+            if (idx < m_currModule->functions.size()
+                && m_currModule->functions[idx].name == methodName)
+                return static_cast<int>(idx);
+        }
+        searchClassIdx = cc.superClassIdx;
+    }
+    return -1;
+}
+
+//Phase 13 Step 2: shared OP_CallDelegate / OP_CallDelegateOut engine.
+//Handle layout: [0]=target (funcIdx for form 0, nameIdx for form 1),
+//[1]=this (0 ⟺ free function — the bind-time null guard establishes
+//this invariant), [2]=form. Frame layout differs by form:
+//  - free function: args copy verbatim from callParamBase (OP_CallFunc
+//    ABI; natives read straight from the caller's cells);
+//  - bound method: the captured receiver occupies callee slot 0 and the
+//    caller's args (staged WITHOUT this) shift right by one.
+//outMask bit i marks USER parameter i (Func-signature order); the
+//write-back reads frame slot i+shift and stores to callParamBase+i,
+//reversing the bound-method shift.
+void VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
+    uint32_t outMask) {
+    int32_t thisIdx = handle[1];
+    int funcIndex = -1;
+    if (handle[2] == kFuncFormVirtual) {
+        //Virtual-dispatch handle: resolve the override chain by name on
+        //the receiver's runtime class.
+        if (thisIdx <= 0
+            || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+            RaiseNlangException(m_nullPtrExcClassIdx,
+                                "NLang VM: null receiver in virtual delegate");
+        int32_t nameIdx = handle[0];
+        if (nameIdx < 0
+            || static_cast<size_t>(nameIdx) >= m_currModule->stringConstants.size())
+            throw std::runtime_error(
+                "NLang VM: invalid string index in virtual delegate handle");
+        const std::string& methodName
+            = m_currModule->stringConstants[static_cast<size_t>(nameIdx)];
+        int32_t classIdx = m_structHeap[static_cast<size_t>(thisIdx)][0];
+        if (classIdx < 0
+            || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
+            throw std::runtime_error(
+                "NLang VM: invalid class index in object header");
+        funcIndex = FindMethodByName(classIdx, methodName);
+        if (funcIndex < 0)
+            throw std::runtime_error(
+                "NLang VM: method not found: " + methodName);
+    } else {
+        funcIndex = handle[0];
+        if (funcIndex < 0
+            || static_cast<size_t>(funcIndex) >= m_currModule->functions.size())
+            throw std::runtime_error(
+                "NLang VM: invalid function index in delegate handle");
+    }
+    const CompiledFunction& callee
+        = m_currModule->functions[static_cast<size_t>(funcIndex)];
+
+    if (thisIdx == 0) {
+        //Free-function ABI — identical to OP_CallFunc: natives read
+        //their args straight from the caller's callParamBase cells.
+        if (callee.isNative) {
+            if (outMask != 0)
+                throw std::runtime_error(
+                    "NLang VM: native function does not support out "
+                    "parameters: " + callee.name);
+            CallNative(callee, callParamBase, locals, pResult);
+            return;
+        }
+        std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+        uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+        if (paramBytes > callee.localsSize)
+            throw std::runtime_error(
+                "NLang VM: callee locals smaller than the parameter "
+                "block in CallDelegate");
+        if (paramBytes > 0)
+            std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
+        ExecuteFunction(callee, pResult, calleeLocals.data());
+        for (uint32_t i = 0; i < 32; ++i) {
+            if (!(outMask & (1u << i)))
+                continue;
+            uint16_t off = static_cast<uint16_t>(i * sizeof(int32_t));
+            if (off + sizeof(int32_t) > callee.localsSize)
+                throw std::runtime_error(
+                    "NLang VM: out parameter slot out of bounds");
+            std::memcpy(locals + callParamBase + off,
+                        calleeLocals.data() + off, sizeof(int32_t));
+        }
+        return;
+    }
+
+    //Bound-method ABI: the receiver rides at callee slot 0, args shift
+    //right by one. Natives and intrinsics have no callee frame to hold
+    //the shifted receiver — the resolver rejects both forms at compile
+    //time; these guards are the defense-in-depth backstop.
+    if (callee.isNative)
+        throw std::runtime_error(
+            "NLang VM: native method reached by delegate dispatch: "
+            + callee.name);
+    if (callee.intrinsicId != INTR_None)
+        throw std::runtime_error(
+            "NLang VM: intrinsic method reached by delegate dispatch: "
+            + callee.name);
+    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+    //paramCount includes `this` for methods, matching the
+    //OP_CallMethodDirect frame layout.
+    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    if (paramBytes > callee.localsSize)
+        throw std::runtime_error(
+            "NLang VM: callee locals smaller than the parameter "
+            "block in CallDelegate");
+    std::memcpy(calleeLocals.data(), &thisIdx, sizeof(thisIdx));
+    uint16_t argBytes = paramBytes - sizeof(int32_t);
+    if (argBytes > 0)
+        std::memcpy(calleeLocals.data() + sizeof(int32_t),
+                    locals + callParamBase, argBytes);
+    ExecuteFunction(callee, pResult, calleeLocals.data());
+    //Out write-back reverses the shift: user param i lives at frame
+    //slot i+1 but stages back to callParamBase+i.
+    for (uint32_t i = 0; i < 32; ++i) {
+        if (!(outMask & (1u << i)))
+            continue;
+        uint16_t srcOff = static_cast<uint16_t>((i + 1) * sizeof(int32_t));
+        uint16_t dstOff = static_cast<uint16_t>(i * sizeof(int32_t));
+        if (srcOff + sizeof(int32_t) > callee.localsSize)
+            throw std::runtime_error(
+                "NLang VM: out parameter slot out of bounds");
+        std::memcpy(locals + callParamBase + dstOff,
+                    calleeLocals.data() + srcOff, sizeof(int32_t));
+    }
 }
 
 std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {

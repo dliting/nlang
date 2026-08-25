@@ -7,9 +7,9 @@ Usage:
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .nmod, and reports results.
 For compile_error tests the optional third column is instead the substring
-ncc's compile diagnostics must contain (rejection reason pinning) — this is
-implemented for single-file tests only; cross-module directory tests ignore
-a third column.
+ncc's compile diagnostics must contain (rejection reason pinning) — works
+for single-file tests and for cross-module directory tests (checked against
+the stderr of the module compile that failed).
 A <name>.stdin file next to the source is piped to the program's stdin.
 """
 
@@ -123,6 +123,7 @@ def main():
                 #output into the test dir; -I points at the test dir so
                 #later modules can import earlier ones.
                 compile_ok = True
+                reject_stderr = ''  #diagnostics of the failed compile
                 for mod_name in modules:
                     src = os.path.join(test_dir, f"{mod_name}.n")
                     out = os.path.join(test_dir, f"{mod_name}.nmod")
@@ -144,10 +145,22 @@ def main():
                         #shouldn't clutter the failures summary.
                         if expected != "compile_error":
                             errors.append(f"  {name}: compile of {mod_name} failed; stderr: {stderr_text[:500]}")
+                        else:
+                            reject_stderr = stderr_text
                         break
 
                 if not compile_ok:
                     if expected == "compile_error":
+                        #Column 3 (rejection reason pinning) — mirrors the
+                        #single-file path below against the failing module's
+                        #diagnostics.
+                        if expected_stdout and expected_stdout not in reject_stderr:
+                            print(f"FAIL {name} (diagnostic mismatch)")
+                            failed += 1
+                            errors.append(f"  {name}: expected diagnostic "
+                                f"{expected_stdout!r}; stderr: "
+                                f"{reject_stderr[:300]}")
+                            continue
                         print(f"PASS {name} (compile error as expected)")
                         passed += 1
                         #Clean partial .nmod files

@@ -906,9 +906,35 @@ func_new_reject compile_error cannot be constructed by name
 func_new_void_syntax compile_error
 func_void_in_list_reject compile_error
 func_ref_to_func_reject compile_error does not match the signature of
-func_out_delegate_reject compile_error delegate calls with out parameters
 func_ordering_int_reject compile_error
 func_ref_deep 2
 func_list_add 12
 func_dict_set 5
 func_gc_basic 44
+func_bound_basic 7
+func_bound_virtual 30
+func_bound_interface 42
+func_bound_field_store 11
+func_bound_null_receiver 1
+func_bound_null_virtual 1
+func_out_basic 7
+func_out_bound 45
+func_out_second_position 18
+func_gc_stress 14
+func_gc_collect 9
+func_array_store 115
+func_dict_value 10
+func_cross_mod_internal 7
+func_bs_write_reject 1
+func_enum_method_reject compile_error cannot reference the enum method
+func_iface_decl_ref_reject compile_error Incompatible type
+func_cross_module_reject compile_error
+func_dict_key_reject compile_error cannot be used as Dict keys
+func_cross_module_arg_reject compile_error parameter signatures are not serialized
+func_bound_native_reject compile_error cannot reference the native method
+func_bound_iface_native_reject compile_error cannot reference the native method
+func_bound_defaults_reject compile_error default parameters cannot be referenced
+func_out_return_reject compile_error
+func_bound_virtual_out_reject compile_error not supported on virtual method references
+func_compare_operand_reject compile_error only be compared with a function value or null
+func_bare_method_reject compile_error without a receiver

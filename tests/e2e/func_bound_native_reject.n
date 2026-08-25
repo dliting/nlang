@@ -1,0 +1,27 @@
+//Phase 13 Step 2: binding a NATIVE method reference is rejected in both
+//forms — CallNative reads arguments straight from callParamBase with no
+//callee frame, so the receiver right-shift has nowhere to land.
+//Static form: plain native method (MakeBoundFunc path). Virtual form:
+//native override of an abstract virtual base (MakeVFunc path; methods
+//accept a single modifier, so `native virtual` is not declarable).
+class C {
+    public native int natA();
+}
+
+class B {
+    public virtual int natV();
+}
+
+class D : B {
+    public native int natV();
+}
+
+void foobar(Func<int> f) { }
+
+int main() {
+    C c = new C();
+    foobar(c.natA);
+    B b = new D();
+    foobar(b.natV);
+    return 0;
+}

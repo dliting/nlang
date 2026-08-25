@@ -465,6 +465,34 @@ static void DisassembleFunction(const CompiledFunction& func,
         case OpCode::OP_Func_to_str:
             std::cout << "    " << offsetBuf << ": " << name << "\n";
             break;
+        case OpCode::OP_MakeBoundFunc: {
+            uint16_t funcIdx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " funcIdx=" << funcIdx;
+            if (funcIdx < module.functions.size())
+                std::cout << " (" << module.functions[funcIdx].name << ")";
+            std::cout << "\n";
+            break;
+        }
+        case OpCode::OP_MakeVFunc: {
+            uint16_t nameIdx = reader.ReadUint16();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " nameIdx=" << nameIdx;
+            if (nameIdx < module.stringConstants.size())
+                std::cout << " (" << module.stringConstants[nameIdx] << ")";
+            std::cout << "\n";
+            break;
+        }
+        case OpCode::OP_CallDelegateOut: {
+            uint16_t callee = reader.ReadUint16();
+            uint16_t base = reader.ReadUint16();
+            uint32_t outMask = reader.ReadUint32();
+            std::cout << "    " << offsetBuf << ": " << name
+                      << " callee=" << callee << " base=" << base
+                      << " outMask=0x" << std::hex << outMask << std::dec
+                      << "\n";
+            break;
+        }
 
         default:
             std::cout << "    " << offsetBuf << ": unknown_op("

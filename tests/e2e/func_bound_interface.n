@@ -1,0 +1,17 @@
+//Phase 13 Step 2: interface method reference dispatches at runtime —
+//the handle is bound through an interface-typed variable and must reach
+// the implementing class's method.
+interface Op {
+    public int run(int x);
+}
+
+class Double implements Op {
+    public int run(int x) { return x * 2; }
+}
+
+int apply(Func<int, int> f, int v) { return f(v); }
+
+int main() {
+    Op o = new Double();
+    return apply(o.run, 21);
+}

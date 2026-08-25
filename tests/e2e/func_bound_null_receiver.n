@@ -1,0 +1,13 @@
+//Phase 13 Step 2: binding a method reference on a NULL receiver must
+//raise an NPE at BIND time (exit 1) — the handle never materializes
+//with a zeroed this. Both non-virtual and virtual forms.
+class C {
+    public int foo(int x) { return x; }
+    public virtual int tw(int x) { return x * 2; }
+}
+
+int main() {
+    C c = null;
+    Func<int, int> f = c.foo;
+    return f(1);
+}

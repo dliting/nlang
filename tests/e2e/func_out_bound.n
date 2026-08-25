@@ -1,0 +1,16 @@
+//Phase 13 Step 2: bound method + out — the callee frame shifts args by
+//one for `this`; the write-back must reverse that shift so the caller's
+//variable still receives the value.
+class Box {
+    int v;
+    public void fill(out int r) { r = v + 5; }
+}
+
+int main() {
+    Box b = new Box();
+    b.v = 40;
+    Func<void, out int> f = b.fill;
+    int r = 0;
+    f(out r);
+    return r;
+}

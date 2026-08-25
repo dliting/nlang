@@ -23,6 +23,15 @@ struct NLangThrow : public std::runtime_error {
         : std::runtime_error(msg), heapIdx(h) {}
 };
 
+//Phase 13: slot[2] of a function-handle record — selects the dispatch
+//strategy in OP_CallDelegate. Slot contents differ by form: [0] holds a
+//functions[] index for static handles, a string-pool index (method name)
+//for virtual-dispatch handles.
+enum FuncHandleForm : int32_t {
+    kFuncFormStatic = 0,
+    kFuncFormVirtual = 1,
+};
+
 class VmExecutor {
 public:
     VmExecutor() = default;
@@ -174,6 +183,24 @@ private:
     //virtual-dispatch handles). Shared by OP_Func_to_str and
     //FormatHeapValue.
     std::string FormatFuncHandle(int32_t heapIdx) const;
+
+    //Phase 13 Step 2: resolve a method by name on a runtime class —
+    //walks the class's methodIndices then up the superClassIdx chain
+    //(the OP_CallMethod lookup, extracted so virtual-dispatch handles
+    //can share it). Returns a functions[] index or -1.
+    int FindMethodByName(int classIdx, const std::string& methodName) const;
+
+    //Phase 13 Step 2: shared engine for OP_CallDelegate /
+    //OP_CallDelegateOut. Reads the handle's form, resolves the target
+    //(static funcIdx or by-name on the runtime class), builds the callee
+    //frame (free functions copy args from callParamBase verbatim; bound
+    //handles place the captured receiver at frame slot 0 and shift the
+    //args by one), executes, and for outMask != 0 copies each marked
+    //user-parameter slot back to the caller (reversing the shift for
+    //bound handles).
+    void ExecuteDelegateCall(const std::vector<int32_t>& handle,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
+        uint32_t outMask);
 
     //Phase 9f: shared native-table dispatch for OP_CallFunc and the method
     //call paths (a native method receives `this` at args[0], mirroring the

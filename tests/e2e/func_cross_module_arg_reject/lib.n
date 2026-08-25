@@ -1,0 +1,6 @@
+//Phase 13 Step 2: cross-module negative — main.n must reject passing a
+//function reference as an argument to an imported function (the stub's
+//parameter types are synthesized from the return kind, not serialized).
+int apply(Func<int, int> f) {
+    return f(1);
+}

@@ -1,0 +1,21 @@
+//Phase 13 Step 2: a native method IMPLEMENTING an interface member must
+//be rejected at bind time too — a by-name handle (MakeVFunc) created
+//from an interface-typed receiver dispatches to the native method at
+//runtime, and CallNative has no callee frame for the receiver shift.
+//The scan must therefore cross the implements clause, not only the
+//SuperClass chain.
+interface Op {
+    int run(int x);
+}
+
+class NativeOp implements Op {
+    public native int run(int x);
+}
+
+void apply(Func<int, int> f) { }
+
+int main() {
+    Op o = new NativeOp();
+    apply(o.run);
+    return 0;
+}

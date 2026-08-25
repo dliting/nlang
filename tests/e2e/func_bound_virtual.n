@@ -1,0 +1,18 @@
+//Phase 13 Step 2: virtual method reference dispatches on the RUNTIME
+//class of the captured receiver — a handle bound through a base-typed
+//variable must call the override (30), not the base implementation (20).
+class Base {
+    public virtual int tw(int x) { return x * 2; }
+}
+
+class Sub : Base {
+    public int tw(int x) { return x * 3; }
+}
+
+int apply(Func<int, int> f, int v) { return f(v); }
+
+int main() {
+    Sub s = new Sub();
+    Base b = s;
+    return apply(b.tw, 10);
+}

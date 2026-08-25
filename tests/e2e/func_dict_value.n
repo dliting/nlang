@@ -1,0 +1,15 @@
+//Phase 13 Step 2: bound handles as Dict VALUES — subscript store binds
+//against V, retrieval and invocation.
+class C {
+    int k;
+    public int add(int x) { return x + k; }
+}
+
+int main() {
+    C c = new C();
+    c.k = 7;
+    Dict<string, Func<int, int>> d = new Dict<string, Func<int, int>>();
+    d["add"] = c.add;
+    Func<int, int> f = d["add"];
+    return f(3);
+}

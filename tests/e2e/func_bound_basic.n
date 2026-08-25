@@ -1,0 +1,20 @@
+//Phase 13 Step 2: bound method reference — this captured in the handle,
+//state accumulates across calls through the delegate. User acceptance
+//example: foobar(c.foo) leaves n=1, then g(1)=3 and g(1)=4 (exit 7).
+using BinOp = Func<int, int>;
+
+class Counter {
+    int n;
+    public int foo(int x) { n = n + 1; return n + x; }
+}
+
+void foobar(Func<int, int> f) {
+    io.print(f(10));
+}
+
+int main() {
+    Counter c = new Counter();
+    foobar(c.foo);
+    BinOp g = c.foo;
+    return g(1) + g(1);
+}

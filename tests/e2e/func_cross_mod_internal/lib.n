@@ -1,0 +1,33 @@
+//Phase 13 Step 2: cross-module POSITIVE — all three handle forms are
+//created and invoked inside lib.n; main.n asserts the results. Locks
+//RemapBytecode's functionMap arm (MakeFunc / MakeBoundFunc) and the
+//stringMap arm (MakeVFunc) across module merge.
+class Counter {
+    int n;
+    public int foo(int x) { n = n + 1; return n + x; }
+    public virtual int tw(int x) { return x * 2; }
+}
+
+class SubCounter : Counter {
+    public int tw(int x) { return x * 3; }
+}
+
+int dbl(int x) { return x * 2; }
+
+int runFree() {
+    Func<int, int> f = dbl;
+    return f(5);
+}
+
+int runBound() {
+    Counter c = new Counter();
+    c.n = 10;
+    Func<int, int> f = c.foo;
+    return f(1);
+}
+
+int runVirtual() {
+    Counter c = new SubCounter();
+    Func<int, int> f = c.tw;
+    return f(10);
+}

@@ -140,6 +140,14 @@ enum class OpCode : uint8_t {
     OP_Ne_func,         // uint16 lhs, uint16 rhs — negation of OP_Eq_func
     OP_Func_to_str,     // no operands; format the handle at pResult as
                         // "func <name>", push to string pool, write idx to pResult
+    OP_MakeBoundFunc,   // uint16 funcIdx — receiver at the pResult slot →
+                        // {funcIdx, this, form=0}; null receiver throws at bind
+    OP_MakeVFunc,       // uint16 nameIdx (string pool) — receiver at the
+                        // pResult slot → {nameIdx, this, form=1}; dispatch
+                        // resolves the method by name on the runtime class
+    OP_CallDelegateOut, // uint16 calleeLocal, uint16 callParamBase, uint32
+                        // outMask — OP_CallDelegate + out write-back; bound
+                        // handles reverse the this-shift when copying back
 
     OP_Count
 };
