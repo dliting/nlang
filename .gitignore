@@ -10,6 +10,7 @@ release/
 # Temp dirs (one-off scripts and artifacts, see CLAUDE.md)
 temp/
 scratch/
+tests/e2e/_examples_tmp/
 
 # IDE files
 .vs/

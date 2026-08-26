@@ -28,6 +28,23 @@ TIMEOUT_SEC = 30
 PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
 PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
 
+#Shipped examples (examples/) run through the same compile+run gate.
+#Entries resolve against EXAMPLES_DIR; their .nmod/stdin/scratch all
+#live under EXAMPLES_TMP so the source examples/ never gains build
+#artifacts (fs-writing examples get an isolated, pre-cleaned CWD).
+EXAMPLES_MANIFEST = os.path.join(SCRIPT_DIR, 'examples_manifest.txt')
+EXAMPLES_DIR = os.path.normpath(
+    os.path.join(SCRIPT_DIR, '..', '..', 'examples'))
+EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '_examples_tmp')
+
+
+def _manifest_configs():
+    """(manifest, sources_dir, out_dir) triples to run in order."""
+    configs = [(MANIFEST, SCRIPT_DIR, SCRIPT_DIR)]
+    if os.path.isfile(EXAMPLES_MANIFEST):
+        configs.append((EXAMPLES_MANIFEST, EXAMPLES_DIR, EXAMPLES_TMP))
+    return configs
+
 #Tests that need CWD=SCRIPT_DIR for their relative file paths, plus a
 #scratch dir pre-cleaned before and removed after the run.
 def _needs_script_cwd(name):
@@ -73,7 +90,14 @@ def main():
     warnings = []
     errors = []
 
-    with open(MANIFEST, 'r', encoding='utf-8') as f:
+    for manifest_path, sources_dir, out_dir in _manifest_configs():
+      with open(manifest_path, 'r', encoding='utf-8') as f:
+        #Scratch dir for the examples pass: reset once before its lines
+        #(each example writes distinct files, so per-entry reset is not
+        #needed); the manifest pass leaves it untouched.
+        if out_dir == EXAMPLES_TMP and os.path.isdir(EXAMPLES_TMP):
+            shutil.rmtree(EXAMPLES_TMP)
+        os.makedirs(EXAMPLES_TMP, exist_ok=True)
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -93,8 +117,8 @@ def main():
                 expected = int(parts[1])
             expected_stdout = parts[2] if len(parts) > 2 else ""
 
-            test_file = os.path.join(SCRIPT_DIR, f"{name}.n")
-            test_dir = os.path.join(SCRIPT_DIR, name)
+            test_file = os.path.join(sources_dir, f"{name}.n")
+            test_dir = os.path.join(sources_dir, name)
             if not os.path.isfile(test_file) and not os.path.isdir(test_dir):
                 print(f"SKIP {name} (file missing)")
                 continue
@@ -230,7 +254,7 @@ def main():
                 os.makedirs(PHASE11_TMP, exist_ok=True)
 
             # Compile
-            nmod_file = os.path.join(SCRIPT_DIR, f"{name}.nmod")
+            nmod_file = os.path.join(out_dir, f"{name}.nmod")
             try:
                 compile_result = subprocess.run(
                     [ncc, 'build', test_file, '-o', nmod_file],
@@ -285,9 +309,12 @@ def main():
             #Phase 8/11: file-path tests need CWD = tests/e2e/ so their
             #relative paths (_phase8_tmp/..., _p11_tmp/...) resolve.
             run_cwd = SCRIPT_DIR if _needs_script_cwd(name) else None
+            #Shipped examples always run in the scratch dir: several
+            #write files next to their CWD (fs_example/, io_example.txt).
+            run_cwd = out_dir if out_dir != SCRIPT_DIR else run_cwd
             #Phase 11: <name>.stdin (if present) is piped to the program —
             #io.readLine tests drive stdin through it.
-            stdin_path = os.path.join(SCRIPT_DIR, f"{name}.stdin")
+            stdin_path = os.path.join(sources_dir, f"{name}.stdin")
             stdin_bytes = None
             if os.path.isfile(stdin_path):
                 with open(stdin_path, 'rb') as sf:
@@ -347,6 +374,8 @@ def main():
         shutil.rmtree(PHASE8_TMP)
     if os.path.isdir(PHASE11_TMP):
         shutil.rmtree(PHASE11_TMP)
+    if os.path.isdir(EXAMPLES_TMP):
+        shutil.rmtree(EXAMPLES_TMP)
 
     print()
     print(f"Results: {passed} passed, {failed} failed")

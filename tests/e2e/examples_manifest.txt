@@ -1,0 +1,12 @@
+# Shipped examples (examples/) — same gate as tests/e2e.
+# Format: name expected_exit_code [stdout_substring]
+add 42
+hello 42
+aliases_tour 0
+enum_methods 0
+switch_tour 0
+stdlib_math 0
+stdlib_string 0
+stdlib_io 0
+stdlib_fs 0
+delegates_tour 7
