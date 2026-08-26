@@ -105,6 +105,38 @@ bool ProjectNode::removeFile(FileNode* file) {
     return false;
 }
 
+bool ProjectNode::renameFile(FileNode* file, const QString& newAbsolutePath,
+                             QString* error) {
+    if (error)
+        error->clear();
+    const QString abs = resolvedPath(newAbsolutePath, m_projectDir);
+    const QString key = dedupKey(abs);
+
+    //One pass, two verdicts: ownership of the node, and whether any
+    //OTHER entry already occupies the target path.
+    bool owned = false;
+    bool clash = false;
+    for (const auto& f : m_files) {
+        if (f.get() == file)
+            owned = true;
+        else if (dedupKey(f->absolutePath()) == key)
+            clash = true;
+    }
+    if (!owned) {
+        if (error)
+            *error = "file is not part of the project: " + file->absolutePath();
+        return false;
+    }
+    if (clash) {
+        if (error)
+            *error = "another file already uses the path: " + abs;
+        return false;
+    }
+    file->setAbsolutePath(abs);
+    markDirty();
+    return true;
+}
+
 QString ProjectNode::absolutePathOf(const QString& relativePath) const {
     QDir dir(m_projectDir);
     return dir.absoluteFilePath(relativePath);

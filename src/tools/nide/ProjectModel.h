@@ -80,6 +80,15 @@ public:
     // by this project.
     bool removeFile(FileNode* file);
 
+    // Moves a file entry to a new path, keeping the node's identity: the
+    // tree item and any open editor hold FileNode pointers across the
+    // rename. Relative paths resolve against the project directory.
+    // Fails when the file is not owned here, or when another entry
+    // already occupies the normalized path (the file itself is excluded:
+    // a case-only retarget is the same physical file and stays legal).
+    bool renameFile(FileNode* file, const QString& newAbsolutePath,
+                    QString* error = nullptr);
+
     int fileCount() const { return static_cast<int>(m_files.size()); }
     const std::vector<std::unique_ptr<FileNode>>& files() const { return m_files; }
 

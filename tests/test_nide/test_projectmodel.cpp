@@ -137,6 +137,59 @@ private slots:
         QCOMPARE(proj1.fileCount(), 1);
     }
 
+    void testProjectNodeRenameFile() {
+        ProjectNode proj("Hello", m_tmpDir.path());
+        FileNode* f = proj.addFile("main.n");
+        proj.clearDirty();
+
+        QDir projDir(m_tmpDir.path());
+        QString error;
+        QVERIFY(proj.renameFile(f, projDir.absoluteFilePath("renamed.n"), &error));
+        // The node keeps its identity; only the path (and dirty flag) moves.
+        QCOMPARE(f->absolutePath(), projDir.absoluteFilePath("renamed.n"));
+        QCOMPARE(proj.fileCount(), 1);
+        QVERIFY(proj.isDirty());
+    }
+
+    void testProjectNodeRenameFileDuplicateRejected() {
+        ProjectNode proj("Hello", m_tmpDir.path());
+        FileNode* main = proj.addFile("main.n");
+        proj.addFile("utils.n");
+        proj.clearDirty();
+
+        QDir projDir(m_tmpDir.path());
+        QString error;
+        QVERIFY(!proj.renameFile(main, projDir.absoluteFilePath("utils.n"),
+                                 &error));
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(main->absolutePath(), projDir.absoluteFilePath("main.n"));
+        QVERIFY(!proj.isDirty());
+    }
+
+    void testProjectNodeRenameFileNotOwned() {
+        ProjectNode proj1("P1", m_tmpDir.path());
+        ProjectNode proj2("P2", m_tmpDir.path());
+        FileNode* f = proj1.addFile("main.n");
+
+        QString error;
+        QVERIFY(!proj2.renameFile(f, QDir(m_tmpDir.path())
+                                         .absoluteFilePath("renamed.n"),
+                                  &error));
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(proj1.fileCount(), 1);
+    }
+
+    void testProjectNodeRenameFileCaseVariantExcludesSelf() {
+        ProjectNode proj("Hello", m_tmpDir.path());
+        FileNode* f = proj.addFile("main.n");
+
+        QDir projDir(m_tmpDir.path());
+        QString error;
+        // A case-only retarget is the same physical file: not a duplicate.
+        QVERIFY(proj.renameFile(f, projDir.absoluteFilePath("MAIN.n"), &error));
+        QCOMPARE(f->absolutePath(), projDir.absoluteFilePath("MAIN.n"));
+    }
+
     void testProjectNodeFiles() {
         ProjectNode proj("Hello", m_tmpDir.path());
         proj.addFile("a.n");
