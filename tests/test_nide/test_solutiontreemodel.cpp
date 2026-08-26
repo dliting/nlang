@@ -55,6 +55,14 @@ class TestSolutionTreeModel : public QObject {
     Q_OBJECT
 
 private slots:
+    //QSignalSpy resolves each signal parameter by its moc-recorded
+    //type NAME -- which lacks the namespace ("FileNode*"), while
+    //QVariant::value uses the qualified one. Register both spellings.
+    void initTestCase() {
+        qRegisterMetaType<FileNode*>("FileNode*");
+        qRegisterMetaType<FileNode*>("nlang::FileNode*");
+    }
+
     // --- new solution ---
 
     void testNewSolutionBuildsRootItem() {
@@ -371,17 +379,140 @@ private slots:
                  QString("Renamed"));
     }
 
-    void testItemsAreNotEditable() {
+    void testOnlyFileItemsAreEditable() {
         QTemporaryDir dir;
         SolutionTreeModel model;
         model.newSolution("Solo");
         ProjectNode* project = model.addProject(dir.path() + "/app.nproj");
         model.addFile(project, dir.path() + "/main.n");
 
+        //Solution/project rows stay read-only; the file row hosts the
+        //inline rename editor.
         SolutionTreeItem* root = model.itemAt(model.index(0, 0));
         QVERIFY(!(root->flags() & Qt::ItemIsEditable));
         QVERIFY(!(root->childItem(0)->flags() & Qt::ItemIsEditable));
-        QVERIFY(!(root->childItem(0)->childItem(0)->flags() & Qt::ItemIsEditable));
+        QVERIFY(root->childItem(0)->childItem(0)->flags() & Qt::ItemIsEditable);
+    }
+
+    // --- inline rename (setData -> fileRenameRequested) ---
+
+    void testFileEditEmitsRenameRequest() {
+        QTemporaryDir dir;
+        SolutionTreeModel model;
+        model.newSolution("Solo");
+        ProjectNode* project = model.addProject(dir.path() + "/app.nproj");
+        FileNode* file = model.addFile(project, dir.path() + "/main.n");
+        const QModelIndex fileIndex =
+            model.index(0, 0).child(0, 0).child(0, 0);
+
+        QSignalSpy spy(&model, &SolutionTreeModel::fileRenameRequested);
+        QVERIFY(model.setData(fileIndex, QVariant("renamed.n"), Qt::EditRole));
+
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(spy.at(0).at(0).value<FileNode*>() == file);
+        QCOMPARE(spy.at(0).at(1).toString(), QString("renamed.n"));
+
+        //The mirror is never written directly: the text (and the domain
+        //path) only move when the owner commits the rename.
+        QCOMPARE(model.itemAt(fileIndex)->text(), QString("main.n"));
+        QCOMPARE(file->absolutePath(), dir.path() + "/main.n");
+    }
+
+    void testFileEditUnchangedNameEmitsNothing() {
+        QTemporaryDir dir;
+        SolutionTreeModel model;
+        model.newSolution("Solo");
+        ProjectNode* project = model.addProject(dir.path() + "/app.nproj");
+        model.addFile(project, dir.path() + "/main.n");
+        const QModelIndex fileIndex =
+            model.index(0, 0).child(0, 0).child(0, 0);
+
+        QSignalSpy spy(&model, &SolutionTreeModel::fileRenameRequested);
+        QVERIFY(model.setData(fileIndex, QVariant("main.n"), Qt::EditRole));
+        QVERIFY(model.setData(fileIndex, QVariant("  main.n  "), Qt::EditRole));
+
+        QCOMPARE(spy.count(), 0);  // trimmed text equals the current name
+    }
+
+    void testNonFileRowsSwallowEdit() {
+        QTemporaryDir dir;
+        SolutionTreeModel model;
+        model.newSolution("Solo");
+        model.addProject(dir.path() + "/app.nproj");
+
+        QSignalSpy spy(&model, &SolutionTreeModel::fileRenameRequested);
+        const QModelIndex solutionIndex = model.index(0, 0);
+        const QModelIndex projectIndex = solutionIndex.child(0, 0);
+        QVERIFY(model.setData(solutionIndex, QVariant("X"), Qt::EditRole));
+        QVERIFY(model.setData(projectIndex, QVariant("X"), Qt::EditRole));
+
+        QCOMPARE(spy.count(), 0);
+        QCOMPARE(model.itemAt(solutionIndex)->text(), QString("Solo"));
+        QCOMPARE(model.itemAt(projectIndex)->text(), QString("app"));
+    }
+
+    void testRefreshDoesNotEmitRenameRequest() {
+        QTemporaryDir dir;
+        SolutionTreeModel model;
+        model.newSolution("Solo");
+        model.addProject(dir.path() + "/app.nproj");
+
+        //refresh() rebuilds items through the constructors' setText,
+        //which must never surface as an edit; only a user edit does.
+        QSignalSpy spy(&model, &SolutionTreeModel::fileRenameRequested);
+        model.solutionNode()->projects()[0]->setName("Renamed");
+        model.refresh();
+
+        QCOMPARE(spy.count(), 0);
+    }
+
+    // --- renameFile (domain + mirror in lockstep) ---
+
+    void testRenameFileUpdatesDomainAndMirror() {
+        QTemporaryDir dir;
+        SolutionTreeModel model;
+        model.newSolution("Solo");
+        ProjectNode* project = model.addProject(dir.path() + "/app.nproj");
+        FileNode* file = model.addFile(project, dir.path() + "/main.n");
+
+        QString error;
+        QVERIFY(model.renameFile(file, dir.path() + "/renamed.n", &error));
+
+        QCOMPARE(file->absolutePath(), dir.path() + "/renamed.n");
+        QCOMPARE(model.itemAt(model.index(0, 0))->childItem(0)
+                     ->childItem(0)->text(),
+                 QString("renamed.n"));
+        QVERIFY(project->isDirty());
+    }
+
+    void testRenameFileDuplicateKeepsMirror() {
+        QTemporaryDir dir;
+        SolutionTreeModel model;
+        model.newSolution("Solo");
+        ProjectNode* project = model.addProject(dir.path() + "/app.nproj");
+        FileNode* main = model.addFile(project, dir.path() + "/main.n");
+        model.addFile(project, dir.path() + "/util.n");
+
+        QString error;
+        QVERIFY(!model.renameFile(main, dir.path() + "/util.n", &error));
+        QVERIFY(!error.isEmpty());
+
+        QCOMPARE(main->absolutePath(), dir.path() + "/main.n");
+        QCOMPARE(model.itemAt(model.index(0, 0))->childItem(0)
+                     ->childItem(0)->text(),
+                 QString("main.n"));
+    }
+
+    void testRenameFileForeignRejected() {
+        QTemporaryDir dir;
+        SolutionTreeModel model;
+        model.newSolution("Solo");
+        ProjectNode foreign("Foreign", dir.path());
+        FileNode* foreignFile = foreign.addFile(dir.path() + "/x.n");
+
+        QString error;
+        QVERIFY(!model.renameFile(foreignFile, dir.path() + "/y.n", &error));
+        QCOMPARE(foreignFile->absolutePath(), dir.path() + "/x.n");
     }
 };
 

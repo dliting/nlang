@@ -86,7 +86,7 @@ actually references are ported (nide.qrc).-->
             <enum>QFrame::Box</enum>
            </property>
            <property name="editTriggers">
-            <set>QAbstractItemView::NoEditTriggers</set>
+            <set>QAbstractItemView::EditKeyPressed</set>
            </property>
            <attribute name="headerVisible">
             <bool>false</bool>

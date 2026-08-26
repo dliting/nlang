@@ -55,8 +55,11 @@ SolutionTreeItem::NodeType SolutionTreeItem::nodeType() const {
 
 void SolutionTreeItem::initText(const QString& text) {
     setText(text);
-    //The tree is a mirror: edits belong to the domain nodes.
-    setFlags(flags() & ~Qt::ItemIsEditable);
+    //The tree is a mirror: edits belong to the domain nodes -- except
+    //the file row's inline rename, which the model routes through
+    //setData -> fileRenameRequested instead of writing the text.
+    if (m_file == nullptr)
+        setFlags(flags() & ~Qt::ItemIsEditable);
     //Node-kind icon: whichever typed accessor is set.
     setIcon(m_file != nullptr      ? nodeIcon("file.png")
             : m_project != nullptr ? nodeIcon("project.png")
@@ -230,6 +233,44 @@ bool SolutionTreeModel::removeFile(FileNode* file) {
     return true;
 }
 
+bool SolutionTreeModel::renameFile(FileNode* file,
+                                   const QString& newAbsolutePath,
+                                   QString* error) {
+    //Ownership first, like removeFile: a foreign file is not ours.
+    if (!hasSolution() || file == nullptr ||
+        file->project() == nullptr || !ownsProject(file->project()))
+        return false;
+
+    //The domain verdict decides; on failure neither layer moved.
+    if (!file->project()->renameFile(file, newAbsolutePath, error))
+        return false;
+
+    //Incremental mirror move (no rebuild): item->setText only emits the
+    //regular dataChanged, so callers inside a view's edit commit stay
+    //safe, and all QModelIndexes remain valid.
+    itemForFile(file)->setText(
+        QFileInfo(file->absolutePath()).fileName());
+    return true;
+}
+
+bool SolutionTreeModel::setData(const QModelIndex& index,
+                                const QVariant& value, int role) {
+    if (role == Qt::EditRole) {
+        //An inline edit is a rename request, never a mirror write: the
+        //file row hands the new name to the owner via the signal; a
+        //rejected rename therefore needs no rollback. The other rows
+        //swallow the edit to protect the mirror invariant.
+        SolutionTreeItem* item = itemAt(index);
+        if (item != nullptr && item->nodeType() == SolutionTreeItem::NT_File) {
+            const QString newName = value.toString().trimmed();
+            if (newName != item->text())
+                emit fileRenameRequested(item->file(), newName);
+        }
+        return true;
+    }
+    return QStandardItemModel::setData(index, value, role);
+}
+
 SolutionTreeItem* SolutionTreeModel::itemAt(const QModelIndex& index) const {
     return dynamic_cast<SolutionTreeItem*>(itemFromIndex(index));
 }
@@ -271,6 +312,18 @@ SolutionTreeItem* SolutionTreeModel::itemForProject(ProjectNode* project) const 
     for (int r = 0; r < root->rowCount(); ++r) {
         SolutionTreeItem* item = root->childItem(r);
         if (item->project() == project)
+            return item;
+    }
+    return nullptr;  // unreachable while domain and mirror stay in lockstep
+}
+
+//The file's tree item; same tiny-tree scan, one level deeper.
+SolutionTreeItem* SolutionTreeModel::itemForFile(FileNode* file) const {
+    SolutionTreeItem* projectItem = itemForProject(file->project());
+    Q_ASSERT(projectItem != nullptr);
+    for (int r = 0; r < projectItem->rowCount(); ++r) {
+        SolutionTreeItem* item = projectItem->childItem(r);
+        if (item->file() == file)
             return item;
     }
     return nullptr;  // unreachable while domain and mirror stay in lockstep
