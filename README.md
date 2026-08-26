@@ -122,6 +122,11 @@ from its own directory), so that folder can be copied elsewhere as-is.
 The UI language follows the system locale (Chinese and English are
 bundled; untranslated strings fall back to their authored text).
 
+Files created through 文件 → 新建文件 join the selected project in the
+solution tree (or the solution's sole project); files rename in place
+via F2 or the tree/tab context menus (an open dirty editor is saved to
+the old path first), and the splitter layout persists across sessions.
+
 `ctest -C Release -R nide_deploy_check` verifies the self-containment: it copies
 the layout to a scratch directory, pins Qt's search paths to it via
 `qt.conf`, and runs the IDE test suite from there.

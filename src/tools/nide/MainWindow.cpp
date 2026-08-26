@@ -998,10 +998,15 @@ bool MainWindow::renameFileEverywhere(const QString& oldPath,
     const QString newPath =
         QFileInfo(QFileInfo(oldPath).dir().filePath(newFileName))
             .absoluteFilePath();
-    if (samePhysicalFile(oldPath, newPath))
-        return true;  // the same file: nothing to move
+    //Only the byte-identical name is a no-op. A case-only variant
+    //(main.n -> Main.n) renames for real -- the domain and editor
+    //layers are built for it -- so the exists-check must not trip on
+    //the file itself (Windows exists() folds case).
+    if (newPath == QFileInfo(oldPath).absoluteFilePath())
+        return true;  // the same name: nothing to move
+    const bool caseVariantOnly = samePhysicalFile(oldPath, newPath);
 
-    if (QFileInfo::exists(newPath)) {
+    if (!caseVariantOnly && QFileInfo::exists(newPath)) {
         QMessageBox::warning(this, tr("Error"),
                              tr("'%1' already exists.").arg(newPath));
         return false;

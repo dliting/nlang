@@ -720,6 +720,60 @@ private slots:
         QVERIFY(readTextFile(oldPath).contains("// still here"));
     }
 
+    void testRenameCaseVariantChangesCasingEverywhere() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        currentCode(window)->appendPlainText("// dirty\n");
+
+        renameViaTree(window, "Main.n");
+
+        //exists() folds case on Windows, so read the directory's actual
+        //entry names: the casing must have moved.
+        QVERIFY(QDir(QDir(dir.path()).filePath("App"))
+                    .entryList(QStringList() << "*.n", QDir::Files)
+                    .contains("Main.n"));
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("Main.n"));
+        //The dirty save ran before the move, so the tab is clean.
+        QCOMPARE(tabCodes(window)->tabText(0), QString("Main.n"));
+        QVERIFY(readTextFile(QDir(dir.path()).filePath("App/Main.n"))
+                    .contains("// dirty"));
+    }
+
+    void testRenameDomainRejectionRollsDiskBack() {
+        MainWindow window;
+        QTemporaryDir dir;
+        QString nprojPath;
+        QString mainPath;
+        writeProjectFixture(dir.path(), &nprojPath, &mainPath);
+        //A stale project entry: ghost.n is listed in the .nproj but
+        //absent on disk, so the disk-exists check passes and only the
+        //domain's dedup catches the clash.
+        writeFile(nprojPath,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Project name=\"App\">\n"
+            "  <Sources>\n"
+            "    <File path=\"main.n\"/>\n"
+            "    <File path=\"ghost.n\"/>\n"
+            "  </Sources>\n"
+            "</Project>\n");
+        inExec([&] { acceptFileDialog(nprojPath); });
+        act(window, "actOpenProject")->trigger();
+
+        const QString ghostPath = QDir(dir.path()).filePath("App/ghost.n");
+        inExec([&] { answerMessageBox(QMessageBox::Ok); });  // error
+        renameViaTree(window, "ghost.n");
+
+        //The rollback restored the pre-rename disk state.
+        QVERIFY(QFileInfo::exists(mainPath));
+        QVERIFY(!QFileInfo::exists(ghostPath));
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("main.n"));
+    }
+
     //--- context menus (tree + tab bar) ---
 
     void testTreeContextMenuRenameEditsInPlace() {
@@ -788,6 +842,30 @@ private slots:
 
         QVERIFY(QFileInfo::exists(newPath));
         QCOMPARE(tabCodes(window)->tabText(0), QString("renamed.n"));
+    }
+
+    //A file opened outside any project: the tab menu is its only rename
+    //entry, and the pipeline runs with trackedFile == null (no domain,
+    //no tree selection -- just disk + editor).
+    void testTabContextMenuRenameStandaloneFile() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString oldPath = QDir(dir.path()).filePath("solo.n");
+        writeFile(oldPath, kMainSource);
+        inExec([&] { acceptFileDialog(oldPath); });
+        act(window, "actOpenFile")->trigger();
+        const QString newPath = QDir(dir.path()).filePath("solo2.n");
+
+        QTabBar* bar = tabCodes(window)->tabBar();
+        const QPoint pos = bar->tabRect(0).center();
+        acceptInputDialogSoon("solo2.n");
+        inExec([&] { clickMenuAction(MainWindow::tr("Rename...")); });
+        QMetaObject::invokeMethod(bar, "customContextMenuRequested",
+                                  Q_ARG(QPoint, pos));
+
+        QVERIFY(!QFileInfo::exists(oldPath));
+        QVERIFY(readTextFile(newPath).contains("return 42"));
+        QCOMPARE(tabCodes(window)->tabText(0), QString("solo2.n"));
     }
 
     void testTabContextMenuSaveNonCurrentTab() {

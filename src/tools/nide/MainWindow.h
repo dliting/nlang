@@ -47,6 +47,17 @@ namespace nlang {
 //  - addExistingFile does not open the added file in an editor.
 //  - Non-diagnostic log lines emit no status-bar message (EN showed
 //    every clicked line's text).
+//  - Files rename through one pipeline (renameFileEverywhere) with no
+//    EN counterpart: F2/tree-menu in-place edits and the tab-menu
+//    dialog converge there; a dirty editor is saved to the old path
+//    before the disk rename, and a domain rejection rolls the disk
+//    rename back.
+//  - File->New File joins a project in the tree (EN's new-file menu
+//    never touched a project): the selected project, else the
+//    solution's sole project, else a standalone editor.
+//  - Splitter proportions persist across sessions via QSettings (EN
+//    stored nothing); restore falls back to the editor-favoring
+//    defaults on garbage or a collapsed pane.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -56,7 +67,7 @@ public:
     //otherwise.
     ~MainWindow() override;
 
-    //--- layout (default proportions; QSettings persistence later) ---
+    //--- layout (default proportions + QSettings persistence) ---
     //Splitter proportions favoring the code editor: narrow solution
     //column, editor-dominant right side. Static on purpose: restore
     //logic and tests apply it to any window.
