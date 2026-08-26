@@ -14,6 +14,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QItemSelectionModel>
@@ -23,6 +24,42 @@
 #include <QTextCursor>
 
 namespace nlang {
+
+namespace {
+
+//Characters Windows forbids in file names.
+const QString kForbiddenFileNameChars = QStringLiteral("<>:\"/\\|?*");
+
+//Empty when the file NAME is usable as a rename target; otherwise the
+//reason (shown as-is, like the domain error strings).
+QString fileNameValidationError(const QString& fileName) {
+    if (fileName.isEmpty())
+        return QStringLiteral("the file name is empty");
+    if (fileName == QStringLiteral(".") || fileName == QStringLiteral(".."))
+        return QStringLiteral("'.' and '..' are not file names");
+    for (const QChar& c : fileName) {
+        if (kForbiddenFileNameChars.contains(c))
+            return QString("the file name must not contain '%1'").arg(c);
+    }
+    if (fileName.endsWith('.') || fileName.endsWith(' '))
+        return QStringLiteral(
+            "the file name must not end with a dot or a space");
+    return QString();
+}
+
+//True when the two paths spell the same physical file (Windows folds
+//case -- the same rule as editorKey and ProjectModel's dedupKey).
+bool samePhysicalFile(const QString& pathA, const QString& pathB) {
+    const QString a = QFileInfo(pathA).absoluteFilePath();
+    const QString b = QFileInfo(pathB).absoluteFilePath();
+#ifdef _WIN32
+    return a.toLower() == b.toLower();
+#else
+    return a == b;
+#endif
+}
+
+} // namespace
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -38,6 +75,8 @@ MainWindow::MainWindow(QWidget* parent)
             &MainWindow::onSolutionSelectionChanged);
     connect(&m_editors, &EditorManager::saveStateChanged, this,
             &MainWindow::onEditorSaveStateChanged);
+    connect(m_solutionTree, &SolutionTreeModel::fileRenameRequested, this,
+            &MainWindow::onFileRenameRequested);
     connect(m_ui->txtCompileOut, &CompileLogBrowser::lineSelected, this,
             &MainWindow::onCompileLogItemSelected);
 
@@ -755,6 +794,81 @@ void MainWindow::onEditorPositionChanged() {
 
 void MainWindow::onSolutionSelectionChanged() {
     updateMenuState();
+}
+
+//--- file rename pipeline ---
+
+void MainWindow::onFileRenameRequested(FileNode* file,
+                                        const QString& newName) {
+    renameFileEverywhere(file->absolutePath(), newName, file);
+}
+
+bool MainWindow::renameFileEverywhere(const QString& oldPath,
+                                      const QString& newFileName,
+                                      FileNode* trackedFile) {
+    const QString reason = fileNameValidationError(newFileName);
+    if (!reason.isEmpty()) {
+        QMessageBox::warning(this, tr("Error"), reason);
+        return false;
+    }
+
+    const QString newPath =
+        QFileInfo(QFileInfo(oldPath).dir().filePath(newFileName))
+            .absoluteFilePath();
+    if (samePhysicalFile(oldPath, newPath))
+        return true;  // the same file: nothing to move
+
+    if (QFileInfo::exists(newPath)) {
+        QMessageBox::warning(this, tr("Error"),
+                             tr("'%1' already exists.").arg(newPath));
+        return false;
+    }
+
+    //Persist dirty edits to the OLD path first: the disk rename then
+    //carries them to the new name, and a failed save aborts with
+    //nothing moved.
+    FileEditor* editor = m_editors.find(oldPath);
+    if (editor != nullptr && editor->dirty() && !saveEditor(editor))
+        return false;
+
+    if (!QFile::rename(oldPath, newPath)) {
+        QMessageBox::warning(
+            this, tr("Error"),
+            tr("Cannot rename '%1' to '%2'.").arg(oldPath, newPath));
+        return false;
+    }
+
+    QString error;
+    if (trackedFile != nullptr &&
+        !m_solutionTree->renameFile(trackedFile, newPath, &error)) {
+        //The domain rejected the move (a duplicate in another casing
+        //etc.): roll the disk back so both layers stay consistent.
+        QFile::rename(newPath, oldPath);
+        QMessageBox::warning(this, tr("Error"), error);
+        return false;
+    }
+
+    if (editor != nullptr) {
+        editor->onExternalRename(newPath);
+        onEditorSaveStateChanged(editor);  // new file name on the tab
+    }
+    if (trackedFile != nullptr)
+        selectFile(trackedFile);
+    return true;
+}
+
+FileNode* MainWindow::findFileNodeByPath(const QString& filePath) const {
+    SolutionNode* solution = m_solutionTree->solutionNode();
+    for (int i = 0; solution != nullptr && i < solution->projectCount();
+         ++i) {
+        ProjectNode* project =
+            solution->projects()[static_cast<size_t>(i)].get();
+        for (const std::unique_ptr<FileNode>& file : project->files()) {
+            if (samePhysicalFile(file->absolutePath(), filePath))
+                return file.get();
+        }
+    }
+    return nullptr;
 }
 
 //--- close ---

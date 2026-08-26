@@ -188,6 +188,30 @@ QModelIndex openFixtureProject(MainWindow& window, const QString& baseDir) {
     return solutionView(window)->model()->index(0, 0, solutionIndex);
 }
 
+//Commit an inline rename on the first file row through the view's real
+//editor (the same path F2 takes): edit() -> delegate -> commitData ->
+//model setData -> fileRenameRequested. commitData is protected, so the
+//call goes through the meta-object (name-based, like acceptDialog).
+void renameViaTree(MainWindow& window, const QString& newName) {
+    QTreeView* view = solutionView(window);
+    const QModelIndex fileIndex = firstFileIndex(window);
+    view->setCurrentIndex(fileIndex);
+    view->edit(fileIndex);  // Qt5's edit(index) returns void
+    QLineEdit* nameEdit = qobject_cast<QLineEdit*>(view->focusWidget());
+    QVERIFY(nameEdit != nullptr);
+    nameEdit->setText(newName);
+    QMetaObject::invokeMethod(view, "commitData",
+                              Q_ARG(QWidget*, nameEdit));
+}
+
+//The text inside a file on disk (empty on open failure).
+QString readTextFile(const QString& filePath) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly))
+        return QString();
+    return QString::fromUtf8(file.readAll());
+}
+
 } // namespace
 
 class TestMainWindow : public QObject {
@@ -513,6 +537,98 @@ private slots:
         QCOMPARE(tabCodes(window)->count(), 1);
         QCOMPARE(tabCodes(window)->tabText(0), QString("extra.n"));
         QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("extra.n")));
+    }
+
+    //--- file rename (tree inline edit pipeline) ---
+
+    void testRenameFileWithDirtyEditorSavesAndFollows() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        const QString oldPath = QDir(dir.path()).filePath("App/main.n");
+        const QString newPath = QDir(dir.path()).filePath("App/renamed.n");
+
+        currentCode(window)->appendPlainText("// dirty\n");
+        renameViaTree(window, "renamed.n");
+
+        //Save-then-rename: the dirty content reached the new name and
+        //the old one is gone (a move, not a copy).
+        QVERIFY(!QFileInfo::exists(oldPath));
+        QVERIFY(QFileInfo::exists(newPath));
+        QVERIFY(readTextFile(newPath).contains("// dirty"));
+        //Tree and tab follow the new name; the editor is clean after
+        //the implicit save (no asterisk).
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("renamed.n"));
+        QCOMPARE(tabCodes(window)->tabText(0), QString("renamed.n"));
+        //A later edit saves through the NEW path.
+        currentCode(window)->appendPlainText("// more\n");
+        act(window, "actSaveFile")->trigger();
+        QVERIFY(readTextFile(newPath).contains("// more"));
+    }
+
+    void testRenameFileWithoutEditorOpen() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        const QString oldPath = QDir(dir.path()).filePath("App/main.n");
+        const QString newPath = QDir(dir.path()).filePath("App/renamed.n");
+
+        renameViaTree(window, "renamed.n");
+
+        QVERIFY(!QFileInfo::exists(oldPath));
+        QVERIFY(readTextFile(newPath).contains("return 42"));
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("renamed.n"));
+        QCOMPARE(tabCodes(window)->count(), 0);
+    }
+
+    void testRenameFileInvalidNameRejected() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        const QString oldPath = QDir(dir.path()).filePath("App/main.n");
+
+        inExec([&] { answerMessageBox(QMessageBox::Ok); });  // warning
+        renameViaTree(window, "bad/name.n");
+
+        //Nothing moved: disk, tree and editors all stay on the old name.
+        QVERIFY(QFileInfo::exists(oldPath));
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("main.n"));
+        QCOMPARE(tabCodes(window)->count(), 0);
+    }
+
+    void testRenameFileLockedOnDiskKeepsEverything() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        const QString oldPath = QDir(dir.path()).filePath("App/main.n");
+        const QString newPath = QDir(dir.path()).filePath("App/renamed.n");
+
+        //An external read handle blocks both the disk rename AND any
+        //write through the old path (verified the hard way: Windows
+        //denies the write too), so the save check runs after the lock
+        //is released -- success paths open no dialogs.
+        QFile lock(oldPath);
+        QVERIFY(lock.open(QIODevice::ReadOnly));
+        inExec([&] { answerMessageBox(QMessageBox::Ok); });  // warning
+        renameViaTree(window, "renamed.n");
+
+        QVERIFY(QFileInfo::exists(oldPath));
+        QVERIFY(!QFileInfo::exists(newPath));
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("main.n"));
+        //The editor kept the old path: once the lock is gone, a later
+        //edit saves through it (nothing was redirected to the new name).
+        lock.close();
+        currentCode(window)->appendPlainText("// still here\n");
+        act(window, "actSaveFile")->trigger();
+        QVERIFY(readTextFile(oldPath).contains("// still here"));
     }
 
     //--- solution save ---

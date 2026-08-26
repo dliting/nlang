@@ -109,6 +109,7 @@ private slots:
     void onEditorSaveStateChanged(FileEditor* editor);
     void onEditorPositionChanged();
     void onSolutionSelectionChanged();
+    void onFileRenameRequested(FileNode* file, const QString& newName);
     void onCompileLogItemSelected(const CompileLogItemInfo& info);
     void onExecOutput();
     void onExecFinished(int exitCode, QProcess::ExitStatus exitStatus);
@@ -159,6 +160,19 @@ private:
     void selectProject(ProjectNode* project);
     //Select the file's tree row (after adding a file).
     void selectFile(FileNode* file);
+
+    //--- file rename pipeline ---
+    //One rename everywhere: disk, domain node + tree mirror, and the
+    //open editor. The order is fixed: validate the name, save dirty
+    //edits to the OLD path, rename on disk, move the domain (rolling
+    //the disk back if the domain rejects), then follow with the editor.
+    //False leaves nothing moved. trackedFile may be null (a standalone
+    //editor file outside the tree).
+    bool renameFileEverywhere(const QString& oldPath,
+                              const QString& newFileName,
+                              FileNode* trackedFile);
+    //The tree node for a file path; null when the file is standalone.
+    FileNode* findFileNodeByPath(const QString& filePath) const;
 
     //--- build / run ---
     void buildProject(ProjectNode& project);
