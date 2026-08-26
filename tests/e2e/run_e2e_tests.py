@@ -11,6 +11,9 @@ ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
 the stderr of the module compile that failed).
 A <name>.stdin file next to the source is piped to the program's stdin.
+Also reads examples_manifest.txt (when present): entries resolve against
+../../examples, their .nmod and scratch artifacts live under
+_examples_tmp/ (their run CWD), removed at end of run.
 """
 
 import os
@@ -94,10 +97,11 @@ def main():
       with open(manifest_path, 'r', encoding='utf-8') as f:
         #Scratch dir for the examples pass: reset once before its lines
         #(each example writes distinct files, so per-entry reset is not
-        #needed); the manifest pass leaves it untouched.
-        if out_dir == EXAMPLES_TMP and os.path.isdir(EXAMPLES_TMP):
-            shutil.rmtree(EXAMPLES_TMP)
-        os.makedirs(EXAMPLES_TMP, exist_ok=True)
+        #needed); the manifest pass never creates it.
+        if out_dir == EXAMPLES_TMP:
+            if os.path.isdir(EXAMPLES_TMP):
+                shutil.rmtree(EXAMPLES_TMP)
+            os.makedirs(EXAMPLES_TMP)
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -120,7 +124,25 @@ def main():
             test_file = os.path.join(sources_dir, f"{name}.n")
             test_dir = os.path.join(sources_dir, name)
             if not os.path.isfile(test_file) and not os.path.isdir(test_dir):
-                print(f"SKIP {name} (file missing)")
+                if out_dir != SCRIPT_DIR:
+                    print(f"FAIL {name} (file missing)")
+                    failed += 1
+                    errors.append(f"  {name}: file missing")
+                else:
+                    print(f"SKIP {name} (file missing)")
+                continue
+
+            #Directory-form (multi-module) entries only exist for the
+            #tests manifest: they compile .nmod files INTO the source
+            #dir, which must never happen under examples/. Multi-module
+            #examples are gated by ctest (project_compile/project_run).
+            if os.path.isdir(test_dir) and out_dir != SCRIPT_DIR:
+                print(f"FAIL {name} (directory-form entry not allowed"
+                      " in the examples manifest; gate multi-module"
+                      " examples via ctest instead)")
+                failed += 1
+                errors.append(f"  {name}: directory-form entry not "
+                              f"allowed in the examples manifest")
                 continue
 
             #Phase 9c cross-module: multi-file tests use a directory layout.
