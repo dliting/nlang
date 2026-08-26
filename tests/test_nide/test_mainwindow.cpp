@@ -16,9 +16,13 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
+#include <QInputDialog>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextBlock>
@@ -210,6 +214,84 @@ QString readTextFile(const QString& filePath) {
     if (!file.open(QIODevice::ReadOnly))
         return QString();
     return QString::fromUtf8(file.readAll());
+}
+
+//An exec()ed QMenu is a POPUP, not a modal widget; when driven
+//synthetic (no real mouse), it may register as neither active popup
+//nor active modal -- fall back to a scan for a visible top-level menu.
+QMenu* activeMenu() {
+    if (QMenu* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()))
+        return menu;
+    if (QMenu* menu = qobject_cast<QMenu*>(QApplication::activeModalWidget()))
+        return menu;
+    for (QWidget* widget : QApplication::topLevelWidgets()) {
+        if (QMenu* menu = qobject_cast<QMenu*>(widget)) {
+            if (menu->isVisible())
+                return menu;
+        }
+    }
+    return nullptr;
+}
+
+//Click the named action on the active popup menu the way a user does:
+//QMenu::exec only reports actions chosen through the menu's own
+//activation, so a raw action->trigger() never reaches the exec return.
+void clickMenuAction(const QString& text) {
+    QMenu* menu = activeMenu();
+    if (menu == nullptr)
+        return;
+    for (QAction* action : menu->actions()) {
+        if (action->text() == text && action->isEnabled()) {
+            QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+                              menu->actionGeometry(action).center());
+            return;
+        }
+    }
+}
+
+//Close the active popup menu without choosing anything (a check-only
+//visit still leaves the exec() loop).
+void closeActiveMenu() {
+    if (QMenu* menu = activeMenu())
+        menu->close();
+}
+
+//Accept the active input dialog with the given text.
+void acceptInputDialog(const QString& text) {
+    if (QInputDialog* dialog =
+            qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+        dialog->setTextValue(text);
+        acceptDialog(dialog);
+    }
+}
+
+//Menu handlers open their follow-up modal SYNCHRONOUSLY inside the
+//trigger call, so the answer cannot be queued from after the menu step
+//(it would deadlock behind the nested loop). Retry instead: the helper
+//re-fires until the expected modal shows up, then answers it.
+void acceptInputDialogSoon(const QString& text, int retries = 20) {
+    //Zero-delay retries would burn out inside the menu's loop before
+    //the nested dialog appears; 20ms spans the transition.
+    QTimer::singleShot(20, [text, retries]() {
+        if (qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+            acceptInputDialog(text);
+        } else if (retries > 0) {
+            acceptInputDialogSoon(text, retries - 1);
+        }
+    });
+}
+
+//Same retry pattern for a message box (see acceptInputDialogSoon).
+void answerMessageBoxSoon(QMessageBox::StandardButton button,
+                          int retries = 20) {
+    QTimer::singleShot(20, [button, retries]() {
+        QMessageBox* box =
+            qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if (box != nullptr && box->button(button) != nullptr)
+            box->button(button)->click();
+        else if (retries > 0)
+            answerMessageBoxSoon(button, retries - 1);
+    });
 }
 
 } // namespace
@@ -629,6 +711,136 @@ private slots:
         currentCode(window)->appendPlainText("// still here\n");
         act(window, "actSaveFile")->trigger();
         QVERIFY(readTextFile(oldPath).contains("// still here"));
+    }
+
+    //--- context menus (tree + tab bar) ---
+
+    void testTreeContextMenuRenameEditsInPlace() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        const QString newPath = QDir(dir.path()).filePath("App/renamed.n");
+
+        QTreeView* view = solutionView(window);
+        const QModelIndex fileIndex = firstFileIndex(window);
+        const QPoint pos = view->visualRect(fileIndex).center();
+        inExec([&] { clickMenuAction(MainWindow::tr("Rename (F2)")); });
+        QMetaObject::invokeMethod(view, "customContextMenuRequested",
+                                  Q_ARG(QPoint, pos));
+
+        //The handler opened the inline editor once the menu closed.
+        QLineEdit* nameEdit = view->findChild<QLineEdit*>();
+        QVERIFY2(nameEdit != nullptr, "inline editor must be open");
+        nameEdit->setText("renamed.n");
+        QMetaObject::invokeMethod(view, "commitData",
+                                  Q_ARG(QWidget*, nameEdit));
+
+        QVERIFY(QFileInfo::exists(newPath));
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("renamed.n"));
+    }
+
+    void testTreeContextMenuRenameDisabledOnProjectRow() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QModelIndex projectIndex =
+            openFixtureProject(window, dir.path());
+        QTreeView* view = solutionView(window);
+        const QPoint pos = view->visualRect(projectIndex).center();
+
+        inExec([&] {
+            QMenu* menu = activeMenu();
+            QVERIFY2(menu != nullptr, "context menu must open");
+            for (QAction* action : menu->actions()) {
+                if (action->text() == MainWindow::tr("Rename (F2)"))
+                    QVERIFY(!action->isEnabled());
+            }
+            menu->close();
+        });
+        QMetaObject::invokeMethod(view, "customContextMenuRequested",
+                                  Q_ARG(QPoint, pos));
+    }
+
+    void testTabContextMenuRenameViaInputDialog() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        const QString newPath = QDir(dir.path()).filePath("App/renamed.n");
+
+        //The menu handler opens the input dialog synchronously inside
+        //its trigger, so the answer is scheduled as a retry (see
+        //acceptInputDialogSoon).
+        QTabBar* bar = tabCodes(window)->tabBar();
+        const QPoint pos = bar->tabRect(0).center();
+        acceptInputDialogSoon("renamed.n");
+        inExec([&] { clickMenuAction(MainWindow::tr("Rename...")); });
+        QMetaObject::invokeMethod(bar, "customContextMenuRequested",
+                                  Q_ARG(QPoint, pos));
+
+        QVERIFY(QFileInfo::exists(newPath));
+        QCOMPARE(tabCodes(window)->tabText(0), QString("renamed.n"));
+    }
+
+    void testTabContextMenuSaveNonCurrentTab() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        const QString mainPath = QDir(dir.path()).filePath("App/main.n");
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        const QString secondPath = QDir(dir.path()).filePath("App/second.n");
+        writeFile(secondPath, kMainSource);
+        inExec([&] { acceptFileDialog(secondPath); });
+        act(window, "actOpenFile")->trigger();
+
+        //main.n is dirty AND a background tab.
+        tabCodes(window)->setCurrentIndex(0);
+        currentCode(window)->appendPlainText("// dirty\n");
+        QCOMPARE(tabCodes(window)->tabText(0), QString("main.n*"));
+        tabCodes(window)->setCurrentIndex(1);
+
+        QTabBar* bar = tabCodes(window)->tabBar();
+        const QPoint pos = bar->tabRect(0).center();
+        inExec([&] { clickMenuAction(MainWindow::tr("Save")); });
+        QMetaObject::invokeMethod(bar, "customContextMenuRequested",
+                                  Q_ARG(QPoint, pos));
+
+        //The save reached the background tab (and it became current,
+        //like the menu's other file actions).
+        QCOMPARE(tabCodes(window)->tabText(0), QString("main.n"));
+        QCOMPARE(tabCodes(window)->currentIndex(), 0);
+        QVERIFY(readTextFile(mainPath).contains("// dirty"));
+    }
+
+    void testTabContextMenuCloseOthers() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        const QString secondPath = QDir(dir.path()).filePath("App/second.n");
+        writeFile(secondPath, kMainSource);
+        inExec([&] { acceptFileDialog(secondPath); });
+        act(window, "actOpenFile")->trigger();
+
+        //main.n (tab 0) dirty; keep tab 1.
+        tabCodes(window)->setCurrentIndex(0);
+        currentCode(window)->appendPlainText("// dirty\n");
+        QCOMPARE(tabCodes(window)->count(), 2);
+
+        QTabBar* bar = tabCodes(window)->tabBar();
+        const QPoint pos = bar->tabRect(1).center();
+        //The dirty tab's prompt opens synchronously inside the menu
+        //action, hence the retry-based answer.
+        answerMessageBoxSoon(QMessageBox::Discard);
+        inExec([&] { clickMenuAction(MainWindow::tr("Close Others")); });
+        QMetaObject::invokeMethod(bar, "customContextMenuRequested",
+                                  Q_ARG(QPoint, pos));
+
+        QCOMPARE(tabCodes(window)->count(), 1);
+        QCOMPARE(tabCodes(window)->tabText(0), QString("second.n"));
     }
 
     //--- solution save ---

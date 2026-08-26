@@ -17,9 +17,13 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QInputDialog>
 #include <QItemSelectionModel>
+#include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QSignalBlocker>
+#include <QTabBar>
 #include <QTextBlock>
 #include <QTextCursor>
 
@@ -77,6 +81,12 @@ MainWindow::MainWindow(QWidget* parent)
             &MainWindow::onEditorSaveStateChanged);
     connect(m_solutionTree, &SolutionTreeModel::fileRenameRequested, this,
             &MainWindow::onFileRenameRequested);
+    //The tab bar needs its own policy: the tab widget's does not reach
+    //it. Auto-connect cannot wire this (the bar's object name is not
+    //stable across .ui generation).
+    m_ui->tabCodes->tabBar()->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_ui->tabCodes->tabBar(), &QTabBar::customContextMenuRequested,
+            this, &MainWindow::showTabContextMenu);
     connect(m_ui->txtCompileOut, &CompileLogBrowser::lineSelected, this,
             &MainWindow::onCompileLogItemSelected);
 
@@ -769,6 +779,98 @@ void MainWindow::on_tvwSolution_doubleClicked(const QModelIndex& index) {
     SolutionTreeItem* item = m_solutionTree->itemAt(index);
     if (item != nullptr && item->nodeType() == SolutionTreeItem::NT_File)
         editExistingFile(item->file()->absolutePath());
+}
+
+void MainWindow::on_tvwSolution_customContextMenuRequested(const QPoint& pos) {
+    const QModelIndex index = m_ui->tvwSolution->indexAt(pos);
+    if (!index.isValid())
+        return;
+    m_ui->tvwSolution->setCurrentIndex(index);
+    SolutionTreeItem* item = m_solutionTree->itemAt(index);
+    if (item == nullptr)
+        return;
+
+    //File-scoped entries only: the project/solution rows show the menu
+    //with everything disabled (the tree knows no project rename yet).
+    const bool isFile = item->nodeType() == SolutionTreeItem::NT_File;
+    QMenu menu(this);
+    QAction* openAction = menu.addAction(tr("Open"));
+    QAction* renameAction = menu.addAction(tr("Rename (F2)"));
+    QAction* removeAction = menu.addAction(tr("Remove from Project"));
+    openAction->setEnabled(isFile);
+    renameAction->setEnabled(isFile);
+    removeAction->setEnabled(isFile);
+
+    QAction* chosen =
+        menu.exec(m_ui->tvwSolution->viewport()->mapToGlobal(pos));
+    if (chosen == openAction)
+        editExistingFile(item->file()->absolutePath());
+    else if (chosen == renameAction) {
+        //After exec: opening the editor inside the exec stack would
+        //have the menu's closing focus churn destroy it immediately.
+        m_ui->tvwSolution->edit(index);  // the inline editor (like F2)
+    } else if (chosen == removeAction)
+        m_ui->actRemoveFile->trigger();
+}
+
+void MainWindow::showTabContextMenu(const QPoint& pos) {
+    QTabBar* bar = m_ui->tabCodes->tabBar();
+    const int index = bar->tabAt(pos);
+    QWidget* widget = m_ui->tabCodes->widget(index);
+    FileEditor* editor = m_editors.findEditor(widget);
+    if (editor == nullptr)
+        return;
+
+    QMenu menu(this);
+    QAction* saveAction = menu.addAction(tr("Save"));
+    QAction* saveAsAction = menu.addAction(tr("Save As..."));
+    menu.addSeparator();
+    QAction* renameAction = menu.addAction(tr("Rename..."));
+    QAction* closeAction = menu.addAction(tr("Close"));
+    QAction* closeOthersAction = menu.addAction(tr("Close Others"));
+
+    QAction* chosen = menu.exec(bar->mapToGlobal(pos));
+    if (chosen == saveAction || chosen == saveAsAction ||
+        chosen == closeAction) {
+        //Reuse the existing actions: they act on the CURRENT tab, so
+        //make the right-clicked tab current first.
+        m_ui->tabCodes->setCurrentIndex(index);
+        if (chosen == saveAction)
+            m_ui->actSaveFile->trigger();
+        else if (chosen == saveAsAction)
+            m_ui->actSaveFileAs->trigger();
+        else
+            m_ui->actCloseFile->trigger();
+    } else if (chosen == renameAction) {
+        const QString oldPath = editor->filePath();
+        bool accepted = false;
+        const QString name = QInputDialog::getText(
+            this, tr("Rename File"), tr("New name:"), QLineEdit::Normal,
+            QFileInfo(oldPath).fileName(), &accepted);
+        if (accepted && !name.trimmed().isEmpty())
+            renameFileEverywhere(oldPath, name.trimmed(),
+                                 findFileNodeByPath(oldPath));
+    } else if (chosen == closeOthersAction) {
+        closeOtherEditorTabs(index);
+    }
+}
+
+void MainWindow::closeOtherEditorTabs(int keepIndex) {
+    QWidget* keep = m_ui->tabCodes->widget(keepIndex);
+    if (keep == nullptr)
+        return;
+    //Descending walk anchored on widgets: closing later tabs first
+    //leaves earlier indexes alone, and a vetoed (Cancel) close just
+    //keeps that tab while the sweep continues.
+    for (int i = m_ui->tabCodes->count() - 1; i >= 0; --i) {
+        QWidget* widget = m_ui->tabCodes->widget(i);
+        if (widget == keep)
+            continue;
+        FileEditor* editor = m_editors.findEditor(widget);
+        if (editor != nullptr && closeEditor(editor))
+            closeEditorTab(editor);
+    }
+    m_ui->tabCodes->setCurrentWidget(keep);
 }
 
 void MainWindow::on_dckSolution_visibilityChanged(bool visible) {

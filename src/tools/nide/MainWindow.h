@@ -103,6 +103,7 @@ private slots:
     void on_tabCodes_tabCloseRequested(int index);
     void on_tabCodes_currentChanged(int index);
     void on_tvwSolution_doubleClicked(const QModelIndex& index);
+    void on_tvwSolution_customContextMenuRequested(const QPoint& pos);
     void on_dckSolution_visibilityChanged(bool visible);
 
     //--- non-widget signals (connected explicitly) ---
@@ -140,6 +141,15 @@ private:
     //Drop every editor without prompts (closeEvent agreed to them);
     //blocks tab signals so the half-torn state emits nothing.
     void clearEditors();
+
+    //--- context menus ---
+    //The tab bar's context menu (Save / Save As... / Rename... /
+    //Close / Close Others). Wired explicitly: the bar's object name is
+    //not stable, so .ui auto-connect cannot reach it.
+    void showTabContextMenu(const QPoint& pos);
+    //Close every tab except keepIndex. Anchored on the keep WIDGET:
+    //indexes shift as tabs close, so each round re-resolves them.
+    void closeOtherEditorTabs(int keepIndex);
 
     //--- solution / projects ---
     //The .nproj location: the solution's stored reference for this
