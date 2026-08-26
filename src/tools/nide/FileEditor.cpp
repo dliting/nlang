@@ -65,6 +65,22 @@ bool FileEditor::saveAs(const QString& absoluteFilePath) {
     return true;
 }
 
+void FileEditor::onExternalRename(const QString& newAbsolutePath) {
+    QString newPath = QFileInfo(newAbsolutePath).absoluteFilePath();
+    if (newPath == m_filePath)
+        return;
+
+    //The file already moved on disk; only the editor's view of it
+    //changes. rekey looks the editor up under its OLD path (same
+    //ordering discipline as saveAs: re-point first, rekey after).
+    QString oldPath = m_filePath;
+    m_filePath = newPath;
+    m_owner.rekey(oldPath, newPath);
+    updateWidgetTitle();
+    //createEditor keyed the accessible name to the original path.
+    widget()->setAccessibleName(newPath);
+}
+
 bool FileEditor::open() {
     m_ignoreTextChange = true;
     bool ok = doOpen();

@@ -48,6 +48,13 @@ public:
     //the rename.
     bool saveAs(const QString& absoluteFilePath);
 
+    //Follow an external rename of the file (the tree's rename pipeline):
+    //re-point the path, the manager key, the widget title and the
+    //accessible name. Writes nothing and leaves the dirty flag alone --
+    //persisting dirty content to the new path is the caller's
+    //save-before-rename step.
+    void onExternalRename(const QString& newAbsolutePath);
+
     //Load the file into the editor and mark it clean.
     bool open();
 

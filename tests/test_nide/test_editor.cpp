@@ -279,6 +279,47 @@ private slots:
 #endif
     }
 
+    // --- onExternalRename: an external rename moved the file under us ---
+
+    void testExternalRenameMovesOpenDirtyEditor() {
+        writeAllText(abs("extorig.n"), "int x = 1;\n");
+        EditorManager manager;
+        FileEditor* editor = manager.open(abs("extorig.n"));
+        editOf(editor)->setPlainText("int x = 2;\n");
+
+        editor->onExternalRename(abs("extrenamed.n"));
+
+        QCOMPARE(editor->filePath(), abs("extrenamed.n"));
+        QVERIFY(editor->dirty());  // never writes nor clears the flag
+        QCOMPARE(editOf(editor)->windowTitle(), QString("extrenamed.n*"));
+        QVERIFY(manager.find(abs("extrenamed.n")) == editor);
+        QVERIFY(manager.find(abs("extorig.n")) == nullptr);
+        QCOMPARE(manager.size(), size_t(1));
+        QCOMPARE(editOf(editor)->accessibleName(), abs("extrenamed.n"));
+        //No write through the editor: the rename caller moves the disk
+        //file itself (nothing to see here either way in this fixture).
+        QVERIFY(!QFile::exists(abs("extrenamed.n")));
+        QCOMPARE(readAllText(abs("extorig.n")), QString("int x = 1;\n"));
+    }
+
+    void testExternalRenameCaseVariantKeepsSingleEntry() {
+        writeAllText(abs("case3.n"), "int x = 1;\n");
+        EditorManager manager;
+        FileEditor* editor = manager.open(abs("case3.n"));
+
+#ifdef _WIN32
+        //A case-variant spelling is still one physical file: rekey erases
+        //before inserting, so the map keeps exactly one entry.
+        editor->onExternalRename(abs("CASE3.N"));
+        QVERIFY(manager.find(abs("case3.n")) == editor);
+        QVERIFY(manager.find(abs("CASE3.N")) == editor);
+#else
+        editor->onExternalRename(abs("case3renamed.n"));
+        QVERIFY(manager.find(abs("case3renamed.n")) == editor);
+#endif
+        QCOMPARE(manager.size(), size_t(1));
+    }
+
     // --- remove/clear ---
 
     void testRemoveDeletesEditor() {
