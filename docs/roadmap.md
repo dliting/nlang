@@ -8,7 +8,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - EN 引擎位置：`E:/cases/en/src/common/compiler_bak/`、`E:/cases/en/src/common/lang_bak/`
 - EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
 
-> 各阶段的实施细节（commit 号、opcode 清单、陷阱记录）归档于 git 历史、各阶段计划文件（`C:\Users\dliting\.claude\plans\`）与项目 memory；本文件只保留阶段成果摘要。
+> 各阶段的实施细节（commit 号、opcode 清单、陷阱记录）归档于 git 历史、各阶段计划文件（`~/.claude/plans/`）与项目 memory；本文件只保留阶段成果摘要。
 
 ---
 
@@ -59,7 +59,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - **Step 1** `Func<返回, 参数...>` 内建泛型函数类型 + 自由函数引用（MakeFunc/CallDelegate/Eq_func/Ne_func/Func_to_str；GC 8 追踪位点全落；v1.8）
 - **Step 2** 绑定方法引用（this 捕获、状态跨调用保持）+ 虚/接口运行时派发（MakeVFunc 按名句柄）+ out 委托（CallDelegateOut 移位写回）；绑定期空接收者守卫；native/enum/虚+out/默认参数等 12 类具名拒绝；三句柄形态跨模块往返
 - 8 个新 opcode、RTK_Func=7 三槽堆记录、`this==0 ⟺ 自由函数` 分派不变量；765 e2e
-- 计划：`C:\Users\dliting\.claude\plans\partitioned-roaming-garden.md`
+- 计划：`~/.claude/plans/partitioned-roaming-garden.md`
 
 ---
 

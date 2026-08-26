@@ -19,11 +19,11 @@ as a standalone teaching/research open-source project.
 
 1. Install Visual Studio 2022 with C++17 support
 2. Download [win_flex_bison](https://github.com/lexxmark/winflexbison) and place
-   `flex.exe` and `bison.exe` in a known directory (e.g. `D:\dev\win_flex_bison\`)
+   `flex.exe` and `bison.exe` in a known directory (e.g. `C:\dev\win_flex_bison\`)
 3. Configure with explicit Flex/Bison paths:
    ```bash
-   cmake -B build -DFLEX_EXE="D:/dev/win_flex_bison/flex.exe" \
-                  -DBISON_EXE="D:/dev/win_flex_bison/bison.exe"
+   cmake -B build -DFLEX_EXE="C:/dev/win_flex_bison/flex.exe" \
+                  -DBISON_EXE="C:/dev/win_flex_bison/bison.exe"
    ```
 4. Python3 is optional (only used for build scripts). If needed, override with
    `-DPYTHON3_EXECUTABLE=<path>`
@@ -122,7 +122,7 @@ from its own directory), so that folder can be copied elsewhere as-is.
 The UI language follows the system locale (Chinese and English are
 bundled; untranslated strings fall back to their authored text).
 
-`ctest -R nide_deploy_check` verifies the self-containment: it copies
+`ctest -C Release -R nide_deploy_check` verifies the self-containment: it copies
 the layout to a scratch directory, pins Qt's search paths to it via
 `qt.conf`, and runs the IDE test suite from there.
 
