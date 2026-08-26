@@ -126,6 +126,39 @@ bundled; untranslated strings fall back to their authored text).
 the layout to a scratch directory, pins Qt's search paths to it via
 `qt.conf`, and runs the IDE test suite from there.
 
+## Packaging (Windows)
+
+Release packages are produced with CPack from the IDE build tree (it contains
+all tools; a tools-only tree cannot ship `nide`):
+
+```bash
+cmake -B build-ide -DNLANG_BUILD_IDE=ON \
+    -DFLEX_EXE=<flex> -DBISON_EXE=<bison> \
+    -DCMAKE_PREFIX_PATH=<path-to-qt5.15> \
+    [-DNLANG_NSIS_MAKENSIS=C:/path/to/makensis.exe]
+cmake --build build-ide --config Release
+cd build-ide && cpack -C Release -B ../release
+```
+
+This produces `release/NLang-<version>-win64.zip` (portable) and
+`release/NLang-<version>-win64.exe` (NSIS installer; requires NSIS 3.03+ —
+either on `PATH` or passed via `-DNLANG_NSIS_MAKENSIS`). Both contain the
+same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm` and the Qt runtime,
+plus `examples/`, `docs/`, `LICENSE` and `README.md`. The installer defaults
+to `C:\Program Files\NLang` and adds a Start Menu shortcut for the IDE.
+
+Notes:
+
+- The installer defaults to `C:\Program Files\NLang`, which standard users
+  cannot write to. Copy `examples/` to a writable folder before opening them
+  in the IDE — a build writes its `.nmod` next to the project file.
+- The executables link the MSVC runtime dynamically; targets need the
+  [VC++ Redistributable for Visual Studio](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+  (already present on machines with Visual Studio 2022).
+- `python tests/packaging/verify_package.py` checks a built package:
+  extracts the zip, asserts the layout, and smoke-tests the packaged
+  toolchain by compiling and running `examples/hello.n` with it.
+
 ## Project Structure
 
 ```

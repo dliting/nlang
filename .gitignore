@@ -4,6 +4,9 @@ build-asan/
 build-ide/
 out/
 
+# Release packages (cpack output)
+release/
+
 # Temp dirs (one-off scripts and artifacts, see CLAUDE.md)
 temp/
 scratch/

@@ -76,6 +76,8 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 包管理器：模块依赖管理（阶段 11 延后项）
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
 - 数组动态增长重设计（Python list 风格，基于 class）
+- Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26，设计见 docs/superpowers/specs/2026-08-26-release-packaging-design.md）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
+- 安装包组件化（tools-only / IDE-only）与捆绑 VC++ 运行库（/MT 或 vc_redist）
 
 ---
 
