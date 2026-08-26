@@ -118,6 +118,9 @@ private:
     FileEditor* currentEditor() const;
     ProjectNode* currentProject() const;
     FileNode* currentFile() const;
+    //The project a File->New file joins: the tree selection, else the
+    //solution's sole project; null when it stays standalone.
+    ProjectNode* targetProjectForNewFile() const;
 
     //--- editors ---
     //New tab, focus, and the per-editor signal wiring.

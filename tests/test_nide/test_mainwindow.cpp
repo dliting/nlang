@@ -99,8 +99,10 @@ void acceptProjectDialog(const QString& name, const QString& dir) {
 }
 
 //Accept the active new-file dialog with the given file name (the
-//directory field keeps its per-project default).
-void acceptNewFileDialog(const QString& fileName) {
+//directory field keeps its per-project default; an explicit directory
+//overrides it -- the no-solution case would default to the CWD).
+void acceptNewFileDialog(const QString& fileName,
+                         const QString& directory = QString()) {
     QDialog* dialog =
         qobject_cast<QDialog*>(QApplication::activeModalWidget());
     QLineEdit* nameEdit =
@@ -108,6 +110,9 @@ void acceptNewFileDialog(const QString& fileName) {
                           : nullptr;
     if (nameEdit != nullptr) {
         nameEdit->setText(fileName);
+        if (!directory.isEmpty())
+            dialog->findChild<QLineEdit*>("edtDirectory")
+                ->setText(directory);
         acceptDialog(dialog);
     }
 }
@@ -458,6 +463,56 @@ private slots:
         QCOMPARE(solutionView(window)->model()->rowCount(projectIndex), 2);
         QCOMPARE(tabCodes(window)->count(), 1);
         QCOMPARE(tabCodes(window)->tabText(0), QString("created.n"));
+    }
+
+    void testNewFileFromMenuJoinsSelectedProject() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QModelIndex projectIndex =
+            openFixtureProject(window, dir.path());
+
+        inExec([&] { acceptNewFileDialog("extra.n"); });
+        act(window, "actNewFile")->trigger();
+
+        //File->New joins the selected project, not just the editor tab.
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App/extra.n")));
+        QCOMPARE(solutionView(window)->model()->rowCount(projectIndex), 2);
+        QCOMPARE(solutionView(window)->currentIndex().data().toString(),
+                 QString("extra.n"));
+        QCOMPARE(tabCodes(window)->count(), 1);
+        QCOMPARE(tabCodes(window)->tabText(0), QString("extra.n"));
+    }
+
+    void testNewFileFromMenuJoinsSoleProjectWithoutSelection() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QModelIndex projectIndex =
+            openFixtureProject(window, dir.path());
+
+        //Selection moved to the solution root: no project row is
+        //selected, so the sole project takes the file.
+        solutionView(window)->setCurrentIndex(
+            solutionView(window)->model()->index(0, 0));
+        inExec([&] { acceptNewFileDialog("extra.n"); });
+        act(window, "actNewFile")->trigger();
+
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App/extra.n")));
+        QCOMPARE(solutionView(window)->model()->rowCount(projectIndex), 2);
+        QCOMPARE(tabCodes(window)->count(), 1);
+    }
+
+    void testNewFileWithoutSolutionOpensStandaloneEditor() {
+        MainWindow window;
+        QTemporaryDir dir;
+
+        //No solution open: the new file stays standalone (editor only).
+        inExec([&] { acceptNewFileDialog("extra.n", dir.path()); });
+        act(window, "actNewFile")->trigger();
+
+        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+        QCOMPARE(tabCodes(window)->count(), 1);
+        QCOMPARE(tabCodes(window)->tabText(0), QString("extra.n"));
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("extra.n")));
     }
 
     //--- solution save ---

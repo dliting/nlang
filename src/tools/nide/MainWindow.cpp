@@ -86,6 +86,19 @@ FileNode* MainWindow::currentFile() const {
         ? item->file() : nullptr;
 }
 
+//The project a File->New file joins: the tree selection first, then the
+//solution's sole project (one project needs no choosing); without a
+//solution (or with several unselected) the file stays standalone.
+ProjectNode* MainWindow::targetProjectForNewFile() const {
+    ProjectNode* project = currentProject();
+    if (project != nullptr)
+        return project;
+    SolutionNode* solution = m_solutionTree->solutionNode();
+    if (solution != nullptr && solution->projectCount() == 1)
+        return solution->projects().front().get();
+    return nullptr;
+}
+
 //--- solution lifecycle ---
 
 void MainWindow::on_actNewSolution_triggered() {
@@ -291,7 +304,10 @@ void MainWindow::selectProject(ProjectNode* project) {
 }
 
 void MainWindow::selectFile(FileNode* file) {
-    //One level deeper than selectProject; same tiny-tree scan.
+    //One level deeper than selectProject; same tiny-tree scan. Expand
+    //first: a current index inside a collapsed project row is selected
+    //but never seen (every other caller expands right after selecting).
+    m_ui->tvwSolution->expandAll();
     QAbstractItemModel* model = m_ui->tvwSolution->model();
     for (int r = 0; r < model->rowCount(); ++r) {
         const QModelIndex solutionIndex = model->index(r, 0);
@@ -315,12 +331,25 @@ void MainWindow::selectFile(FileNode* file) {
 //--- files / editors ---
 
 void MainWindow::on_actNewFile_triggered() {
+    //The dialog defaults AND the tree join target follow this: selected
+    //project, sole project as fallback, standalone without a solution.
+    ProjectNode* project = targetProjectForNewFile();
     NewFileDialog dialog(this);
-    dialog.init(currentProject());
+    dialog.init(project);
     QString filePath;
     if (!dialog.getFilePath(filePath))
         return;
-    editNewFile(filePath);
+    if (!editNewFile(filePath))
+        return;
+    if (project == nullptr)
+        return;
+    FileNode* file = m_solutionTree->addFile(project, filePath);
+    if (file == nullptr)
+        QMessageBox::warning(
+            this, tr("Error"),
+            tr("'%1' is already part of the project.").arg(filePath));
+    else
+        selectFile(file);  // file-scoped actions come alive
 }
 
 void MainWindow::on_actOpenFile_triggered() {
