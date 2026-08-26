@@ -11,6 +11,7 @@
 
 class QCloseEvent;
 class QModelIndex;
+class QSettings;
 
 namespace nlang {
 
@@ -54,6 +55,12 @@ public:
     //Out-of-line: the unique_ptr member deletes an incomplete Ui type
     //otherwise.
     ~MainWindow() override;
+
+    //--- layout (default proportions; QSettings persistence later) ---
+    //Splitter proportions favoring the code editor: narrow solution
+    //column, editor-dominant right side. Static on purpose: restore
+    //logic and tests apply it to any window.
+    static void applyDefaultLayout(MainWindow& window);
 
 protected:
     void closeEvent(QCloseEvent* event) override;

@@ -21,6 +21,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
+#include <QSplitter>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTabWidget>
@@ -841,6 +842,29 @@ private slots:
 
         QCOMPARE(tabCodes(window)->count(), 1);
         QCOMPARE(tabCodes(window)->tabText(0), QString("second.n"));
+    }
+
+    //--- layout ---
+
+    void testDefaultLayoutFavorsEditor() {
+        MainWindow window;
+        MainWindow::applyDefaultLayout(window);
+        window.resize(1000, 700);
+        window.show();
+
+        //sizes() (not width()) sidesteps frame/handle widths. The
+        //solution column stays under a third of the editor pane; inside
+        //the right column the editor keeps most of the vertical space.
+        QSplitter* solutionSplitter =
+            window.findChild<QSplitter*>("splitter");
+        QSplitter* editorSplitter =
+            window.findChild<QSplitter*>("splitter_2");
+        QVERIFY(solutionSplitter != nullptr);
+        QVERIFY(editorSplitter != nullptr);
+        QVERIFY(solutionSplitter->sizes().at(0)
+                < solutionSplitter->sizes().at(1) * 0.5);
+        QVERIFY(editorSplitter->sizes().at(0)
+                > editorSplitter->sizes().at(1) * 1.5);
     }
 
     //--- solution save ---

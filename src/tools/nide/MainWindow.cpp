@@ -23,6 +23,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QSignalBlocker>
+#include <QSplitter>
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -63,6 +64,14 @@ bool samePhysicalFile(const QString& pathA, const QString& pathB) {
 #endif
 }
 
+//Default splitter proportions. QSplitter::setSizes reads them as
+//RELATIVE shares, so these are not pixels: the solution column keeps a
+//narrow fifth, the output pane a quarter of the vertical space.
+const int DEFAULT_SOLUTION_TREE_SHARE = 20;
+const int DEFAULT_EDITOR_SHARE = 80;
+const int DEFAULT_CODE_SHARE = 75;
+const int DEFAULT_OUTPUT_SHARE = 25;
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -100,6 +109,7 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onExecFinished);
 
     m_ui->statusBar->showMessage(tr("Ready"));
+    applyDefaultLayout(*this);
     updateMenuState();
 }
 
@@ -107,6 +117,29 @@ MainWindow::~MainWindow() {
     //Same teardown as closeEvent (whose prompts already ran or don't
     //apply): drop the editors before the members destroy themselves.
     clearEditors();
+}
+
+//--- layout ---
+
+void MainWindow::applyDefaultLayout(MainWindow& window) {
+    //The tree column must not grab horizontal space (stretch 0/1);
+    //inside the right column the editor pane wins (stretch 1/0).
+    QSplitter* solutionSplitter =
+        window.findChild<QSplitter*>(QStringLiteral("splitter"));
+    if (solutionSplitter != nullptr) {
+        solutionSplitter->setStretchFactor(0, 0);
+        solutionSplitter->setStretchFactor(1, 1);
+        solutionSplitter->setSizes({DEFAULT_SOLUTION_TREE_SHARE,
+                                     DEFAULT_EDITOR_SHARE});
+    }
+    QSplitter* editorSplitter =
+        window.findChild<QSplitter*>(QStringLiteral("splitter_2"));
+    if (editorSplitter != nullptr) {
+        editorSplitter->setStretchFactor(0, 1);
+        editorSplitter->setStretchFactor(1, 0);
+        editorSplitter->setSizes({DEFAULT_CODE_SHARE,
+                                  DEFAULT_OUTPUT_SHARE});
+    }
 }
 
 //--- context accessors ---
