@@ -22,6 +22,7 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QSplitter>
+#include <QSettings>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTabWidget>
@@ -307,6 +308,11 @@ private slots:
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
         qRegisterMetaType<nlang::CompileLogItemInfo>(
             "nlang::CompileLogItemInfo");
+        //The MainWindow ctor restores layout from DEFAULT-constructed
+        //QSettings: pin the app name so tests never touch the real
+        //nide registry entry.
+        QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
+        QCoreApplication::setApplicationName(QStringLiteral("nide-test"));
     }
 
     //--- initial state ---
@@ -865,6 +871,49 @@ private slots:
                 < solutionSplitter->sizes().at(1) * 0.5);
         QVERIFY(editorSplitter->sizes().at(0)
                 > editorSplitter->sizes().at(1) * 1.5);
+    }
+
+    void testLayoutRoundTripsThroughSettings() {
+        QTemporaryDir dir;
+        QSettings writer(QDir(dir.path()).filePath("layout.ini"),
+                         QSettings::IniFormat);
+        QSettings reader(QDir(dir.path()).filePath("layout.ini"),
+                         QSettings::IniFormat);
+
+        MainWindow window1;
+        window1.resize(1000, 700);
+        window1.show();
+        QSplitter* solutionSplitter =
+            window1.findChild<QSplitter*>("splitter");
+        solutionSplitter->setSizes({300, 700});
+        MainWindow::saveLayout(window1, writer);
+
+        MainWindow window2;
+        window2.resize(1000, 700);
+        window2.show();
+        QVERIFY(MainWindow::restoreLayout(window2, reader));
+        QCOMPARE(window2.findChild<QSplitter*>("splitter")->sizes(),
+                 solutionSplitter->sizes());
+    }
+
+    void testLayoutRestoreGarbageFallsBackToDefault() {
+        QTemporaryDir dir;
+        const QString iniPath = QDir(dir.path()).filePath("garbage.ini");
+        writeFile(iniPath, "this is not splitter state");
+
+        QSettings settings(iniPath, QSettings::IniFormat);
+        MainWindow window;
+        //A hidden splitter reports no meaningful sizes; show first so the
+        //fallback proportions are measurable (same as the default-layout
+        //test).
+        window.resize(1000, 700);
+        window.show();
+        QVERIFY(!MainWindow::restoreLayout(window, settings));
+        //The fallback is the editor-favoring default proportions.
+        QSplitter* solutionSplitter =
+            window.findChild<QSplitter*>("splitter");
+        QVERIFY(solutionSplitter->sizes().at(0)
+                < solutionSplitter->sizes().at(1) * 0.5);
     }
 
     //--- solution save ---

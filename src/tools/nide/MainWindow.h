@@ -62,6 +62,13 @@ public:
     //logic and tests apply it to any window.
     static void applyDefaultLayout(MainWindow& window);
 
+    //Persist/restore both splitter states (QMainWindow::saveState does
+    //NOT cover central-widget splitters). Tests inject a temporary ini;
+    //restore falls back to the default layout and returns false on
+    //garbage or a collapsed pane.
+    static void saveLayout(const MainWindow& window, QSettings& settings);
+    static bool restoreLayout(MainWindow& window, QSettings& settings);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 

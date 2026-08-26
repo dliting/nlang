@@ -22,6 +22,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTabBar>
@@ -72,6 +73,11 @@ const int DEFAULT_EDITOR_SHARE = 80;
 const int DEFAULT_CODE_SHARE = 75;
 const int DEFAULT_OUTPUT_SHARE = 25;
 
+//QSettings keys for the two splitter states.
+const char* const LAYOUT_SOLUTION_SPLITTER_KEY =
+    "layout/solutionSplitter";
+const char* const LAYOUT_EDITOR_SPLITTER_KEY = "layout/editorSplitter";
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -109,7 +115,11 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onExecFinished);
 
     m_ui->statusBar->showMessage(tr("Ready"));
-    applyDefaultLayout(*this);
+    //A saved layout wins; the first run (or unreadable state) gets the
+    //editor-favoring default proportions.
+    QSettings settings;
+    if (!restoreLayout(*this, settings))
+        applyDefaultLayout(*this);
     updateMenuState();
 }
 
@@ -140,6 +150,44 @@ void MainWindow::applyDefaultLayout(MainWindow& window) {
         editorSplitter->setSizes({DEFAULT_CODE_SHARE,
                                   DEFAULT_OUTPUT_SHARE});
     }
+}
+
+void MainWindow::saveLayout(const MainWindow& window,
+                            QSettings& settings) {
+    if (QSplitter* splitter =
+            window.findChild<QSplitter*>(QStringLiteral("splitter")))
+        settings.setValue(LAYOUT_SOLUTION_SPLITTER_KEY,
+                          splitter->saveState());
+    if (QSplitter* splitter =
+            window.findChild<QSplitter*>(QStringLiteral("splitter_2")))
+        settings.setValue(LAYOUT_EDITOR_SPLITTER_KEY,
+                          splitter->saveState());
+}
+
+bool MainWindow::restoreLayout(MainWindow& window, QSettings& settings) {
+    QSplitter* solutionSplitter =
+        window.findChild<QSplitter*>(QStringLiteral("splitter"));
+    QSplitter* editorSplitter =
+        window.findChild<QSplitter*>(QStringLiteral("splitter_2"));
+    if (solutionSplitter == nullptr || editorSplitter == nullptr)
+        return false;
+
+    const bool restored =
+        solutionSplitter->restoreState(
+            settings.value(LAYOUT_SOLUTION_SPLITTER_KEY).toByteArray())
+        && editorSplitter->restoreState(
+            settings.value(LAYOUT_EDITOR_SPLITTER_KEY).toByteArray());
+    //A state with a collapsed pane is as useless as no state at all.
+    const bool panesVisible =
+        solutionSplitter->sizes().at(0) > 0
+        && solutionSplitter->sizes().at(1) > 0
+        && editorSplitter->sizes().at(0) > 0
+        && editorSplitter->sizes().at(1) > 0;
+    if (!restored || !panesVisible) {
+        applyDefaultLayout(window);
+        return false;
+    }
+    return true;
 }
 
 //--- context accessors ---
@@ -1020,6 +1068,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         }
     }
     clearEditors();
+    //Only an accepted close persists the layout -- a vetoed one keeps
+    //the previous state.
+    QSettings settings;
+    saveLayout(*this, settings);
     event->accept();
 }
 
