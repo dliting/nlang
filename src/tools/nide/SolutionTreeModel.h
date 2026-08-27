@@ -135,8 +135,10 @@ public:
     //and hands it here. Empty list = no group row at all. Sync does no
     //tree rebuild: indexes outside the group stay valid. paths arrive
     //normalized (absolute, unique, order = display order); the model
-    //neither sorts nor dedupes.
-    void setStandaloneFiles(const QStringList& paths);
+    //neither sorts nor dedupes. Returns whether the membership changed
+    //(an unchanged list is an idempotent no-op) -- callers gate
+    //view-side expansion on it so a collapsed group stays collapsed.
+    bool setStandaloneFiles(const QStringList& paths);
 
     //The group's row, wherever it currently sits; null when absent.
     //Public for MainWindow's expand-the-group-chain refresh.

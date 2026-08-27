@@ -319,9 +319,9 @@ void SolutionTreeModel::refresh() {
         buildStandaloneGroup(root);
 }
 
-void SolutionTreeModel::setStandaloneFiles(const QStringList& paths) {
+bool SolutionTreeModel::setStandaloneFiles(const QStringList& paths) {
     if (m_standaloneFiles == paths)
-        return;
+        return false;
     m_standaloneFiles = paths;
 
     if (paths.isEmpty()) {
@@ -333,7 +333,7 @@ void SolutionTreeModel::setStandaloneFiles(const QStringList& paths) {
             else
                 removeRow(group->row());
         }
-        return;
+        return true;
     }
 
     if (SolutionTreeItem* group = standaloneGroupItem()) {
@@ -349,6 +349,7 @@ void SolutionTreeModel::setStandaloneFiles(const QStringList& paths) {
         buildStandaloneGroup(hasSolution() ? itemAt(index(0, 0))
                                            : nullptr);
     }
+    return true;
 }
 
 void SolutionTreeModel::buildStandaloneGroup(SolutionTreeItem* parent) {

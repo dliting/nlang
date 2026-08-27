@@ -1238,11 +1238,12 @@ QStringList MainWindow::standaloneEditorPaths() const {
 }
 
 void MainWindow::refreshStandaloneFiles() {
-    m_solutionTree->setStandaloneFiles(standaloneEditorPaths());
-    //Expand only the group's own chain -- this refresh runs on every
-    //menu-state update (tab switch, save, tree selection...), an
-    //expandAll() here would keep re-expanding whatever the user had
-    //collapsed.
+    //Expand the group's chain only when its membership actually
+    //changed: this refresh runs on every menu-state update (tab
+    //switch, save, tree selection...), an unconditional expand would
+    //keep re-opening whatever the user had collapsed.
+    if (!m_solutionTree->setStandaloneFiles(standaloneEditorPaths()))
+        return;
     if (SolutionTreeItem* group = m_solutionTree->standaloneGroupItem()) {
         const QModelIndex groupIndex = m_solutionTree->indexFromItem(group);
         m_ui->tvwSolution->expand(groupIndex);

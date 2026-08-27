@@ -60,9 +60,8 @@ target_include_directories(nide_compilelog
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Dialogs library -- new-file and project-properties forms plus the
-# markdown help viewer. The .ui files ride along as target sources so
-# AUTOUIC generates ui_*.h.
+# Dialogs library -- new-file and project-properties forms. The .ui
+# files ride along as target sources so AUTOUIC generates ui_*.h.
 # AUTOUIC matches an #include "ui_Foo.h" against Foo.ui in the source
 # file's directory by default; ours sit in ui/, so point the search
 # there.

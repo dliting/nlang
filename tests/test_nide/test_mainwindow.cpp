@@ -1102,6 +1102,32 @@ private slots:
 
     //--- standalone build / run ---
 
+    void testCollapsedStandaloneGroupStaysCollapsed() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo_collapse.n");
+        writeFile(path, kMainSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+
+        QTreeView* view = solutionView(window);
+        QAbstractItemModel* model = view->model();
+        const QModelIndex groupIndex = model->index(0, 0);
+        QCOMPARE(groupIndex.data().toString(),
+                 QString("Standalone Files"));
+        QVERIFY(view->isExpanded(groupIndex));  // fresh group is open
+
+        //Collapse, then run a menu refresh that does NOT change the
+        //group's membership (edit + save flips the dirty state): only
+        //a real membership change may re-expand the group.
+        view->collapse(groupIndex);
+        CodeEditor* code = window.findChild<CodeEditor*>();
+        QVERIFY(code != nullptr);
+        code->appendPlainText("// touch");  // dirty via real text edit
+        act(window, "actSaveFile")->trigger();
+        QVERIFY(!view->isExpanded(groupIndex));
+    }
+
     void testBuildActionsFollowStandaloneTarget() {
         MainWindow window;
         QVERIFY(!act(window, "actBuild")->isEnabled());
