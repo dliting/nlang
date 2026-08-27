@@ -40,7 +40,7 @@ HelpWindow::HelpWindow(const QString& documentBaseName, QWidget* parent)
     : QDialog(parent)
     , m_browser(new QTextBrowser(this))
 {
-    setWindowTitle(tr("NLang Documentation"));
+    setWindowTitle(tr("NLang Documentation - %1").arg(documentBaseName));
     resize(800, 600);
 
     QVBoxLayout* layout = new QVBoxLayout(this);

@@ -6,7 +6,10 @@
 #include <QMainWindow>
 
 #include "FileEditor.h"  // EditorManager is a value member
+#include "HelpWindow.h"  // QPointer map value needs a complete type
 
+#include <QMap>
+#include <QPointer>
 #include <memory>
 
 class QCloseEvent;
@@ -123,6 +126,9 @@ private slots:
     void on_actViewOutput_triggered(bool checked);
     void on_actViewToolBar_triggered(bool checked);
     void on_actHelpAbout_triggered();
+    void on_actHelpGettingStarted_triggered();
+    void on_actHelpLanguageSpec_triggered();
+    void on_actHelpVmArch_triggered();
 
     //--- widgets ---
     void on_tabCodes_tabCloseRequested(int index);
@@ -228,6 +234,12 @@ private:
     //Menu/toolbar enablement from the current tree/editor selection.
     void updateMenuState();
 
+    //--- help ---
+    //One non-modal HelpWindow per document; reopening a document raises
+    //its existing window. The QPointer self-clears when the window is
+    //destroyed (WA_DeleteOnClose), so the map never dangles.
+    void openHelpDocument(const QString& documentBaseName);
+
     //Declaration order matters: m_ui first, so it is destroyed LAST --
     //tabCodes must outlive the editors that clearEditors() tears down.
     std::unique_ptr<Ui::MainWindow> m_ui;
@@ -235,6 +247,7 @@ private:
     EditorManager m_editors;
     QString m_solutionFilePath;  // empty = unsaved new solution
     QProcess m_executed;         // the program under Run (nvm child)
+    QMap<QString, QPointer<HelpWindow>> m_helpWindows;  // open docs
 };
 
 } // namespace nlang

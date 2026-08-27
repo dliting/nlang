@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
+#include "HelpWindow.h"
 #include "MainStatusBar.h"
 #include "NewFileDialog.h"
 #include "ProjectModel.h"
@@ -838,6 +839,31 @@ void MainWindow::on_actHelpAbout_triggered() {
         this, tr("About NLang IDE"),
         tr("NLang IDE\nThe integrated development environment for the "
            "NLang scripting language."));
+}
+
+void MainWindow::on_actHelpGettingStarted_triggered() {
+    openHelpDocument(QStringLiteral("nlang-getting-started"));
+}
+
+void MainWindow::on_actHelpLanguageSpec_triggered() {
+    openHelpDocument(QStringLiteral("language-spec"));
+}
+
+void MainWindow::on_actHelpVmArch_triggered() {
+    openHelpDocument(QStringLiteral("vm-architecture"));
+}
+
+void MainWindow::openHelpDocument(const QString& documentBaseName) {
+    QPointer<HelpWindow>& open = m_helpWindows[documentBaseName];
+    if (open != nullptr) {  // already open: bring it forward
+        open->raise();
+        open->activateWindow();
+        return;
+    }
+    HelpWindow* window = new HelpWindow(documentBaseName, this);
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    open = window;
+    window->show();
 }
 
 //--- widget slots ---

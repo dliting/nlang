@@ -297,6 +297,10 @@ actually references are ported (nide.qrc).-->
     <property name="title">
      <string>帮助(&amp;H)</string>
     </property>
+    <addaction name="actHelpGettingStarted"/>
+    <addaction name="actHelpLanguageSpec"/>
+    <addaction name="actHelpVmArch"/>
+    <addaction name="separator"/>
     <addaction name="actHelpAbout"/>
    </widget>
    <addaction name="menuFile"/>
@@ -650,6 +654,21 @@ actually references are ported (nide.qrc).-->
    </property>
    <property name="toolTip">
     <string>关于 NLang IDE</string>
+   </property>
+  </action>
+  <action name="actHelpGettingStarted">
+   <property name="text">
+    <string>NLang 入门(&amp;G)...</string>
+   </property>
+  </action>
+  <action name="actHelpLanguageSpec">
+   <property name="text">
+    <string>语言规格(&amp;L)...</string>
+   </property>
+  </action>
+  <action name="actHelpVmArch">
+   <property name="text">
+    <string>VM 架构(&amp;V)...</string>
    </property>
   </action>
  </widget>

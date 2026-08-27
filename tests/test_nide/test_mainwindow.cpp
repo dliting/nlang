@@ -3,6 +3,7 @@
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
 #include "FileEditor.h"
+#include "HelpWindow.h"
 #include "ProjectModel.h"
 #include "TranslationLoader.h"
 
@@ -1342,6 +1343,40 @@ private slots:
         QVERIFY(act(window, "actViewSolution")->isChecked());
         dock->hide();
         QVERIFY(!act(window, "actViewSolution")->isChecked());
+    }
+
+    //--- help menu ---
+
+    void testHelpMenuOpensOneWindowPerDocument() {
+        MainWindow window;
+        act(window, "actHelpLanguageSpec")->trigger();
+        act(window, "actHelpGettingStarted")->trigger();
+        QCOMPARE(window.findChildren<HelpWindow*>().size(), 2);
+        const QList<HelpWindow*> windows =
+            window.findChildren<HelpWindow*>();
+        for (HelpWindow* helpWindow : windows)
+            QVERIFY(helpWindow->documentLoaded());
+    }
+
+    void testHelpMenuReopensRaiseExistingWindow() {
+        MainWindow window;
+        act(window, "actHelpVmArch")->trigger();
+        act(window, "actHelpVmArch")->trigger();
+        QCOMPARE(window.findChildren<HelpWindow*>().size(), 1);
+        QVERIFY(window.findChild<HelpWindow*>()->documentLoaded());
+    }
+
+    void testHelpWindowCloseThenReopenCreatesFresh() {
+        MainWindow window;
+        act(window, "actHelpVmArch")->trigger();
+        HelpWindow* first = window.findChildren<HelpWindow*>().at(0);
+        QVERIFY(first != nullptr);
+        first->close();  // WA_DeleteOnClose -> deferred delete
+        QTRY_VERIFY(window.findChildren<HelpWindow*>().isEmpty());
+        act(window, "actHelpVmArch")->trigger();
+        QCOMPARE(window.findChildren<HelpWindow*>().size(), 1);
+        QVERIFY(window.findChildren<HelpWindow*>().at(0) != first);
+        QVERIFY(window.findChildren<HelpWindow*>().at(0)->documentLoaded());
     }
 
     //--- user journey (Step 10) ---
