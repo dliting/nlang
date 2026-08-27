@@ -1,0 +1,43 @@
+// inheritance_super.n — extends, super(), overriding, virtual dispatch.
+class Shape {
+    public string name;
+
+    public int Shape(string name) {
+        this.name = name;
+        return 0;
+    }
+
+    public virtual int sides() { return 0; }
+
+    public string toString() { return name; }
+}
+
+class Triangle : Shape {
+    public int Triangle() {
+        super("triangle");
+        return 0;
+    }
+
+    public int sides() { return 3; }
+}
+
+class Square : Shape {
+    public int Square() {
+        super("square");
+        return 0;
+    }
+
+    public int sides() { return 4; }
+}
+
+int main() {
+    Shape s = new Triangle();      // base-typed reference
+    io.print(s.toString() + " has " + s.sides() + " sides");
+    if (s.sides() != 3)
+        return 1;
+    s = new Square();
+    io.print(s.toString() + " has " + s.sides() + " sides");
+    if (s.sides() == 4)
+        return 4;
+    return 1;
+}

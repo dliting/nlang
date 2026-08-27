@@ -1,0 +1,18 @@
+// list_tour.n — List<T>: growable, add/contains/indexOf/length, foreach.
+int main() {
+    int[] basis = [1, 2, 3, 4];
+    List<int> squares = new List<int>();
+    foreach (int i in basis) {
+        squares.add(i * i);        // 1 4 9 16
+    }
+    io.print(squares.length());    // 4
+    io.print(squares.contains(9)); // 1
+    io.print(squares.indexOf(16)); // 3
+    int total = 0;
+    foreach (int v in squares) {
+        total = total + v;
+    }
+    if (total == 30)
+        return 6;
+    return 1;
+}

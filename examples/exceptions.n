@@ -1,0 +1,40 @@
+// exceptions.n — throw/try/catch/finally, built-in subclasses,
+// user subclass with a field.
+int risky(int mode) {
+    try {
+        if (mode == 1)
+            throw new Exception("manual");
+        int[] a = new int[2];
+        return a[9];               // out of bounds -> IndexOutOfBoundsException
+    } catch (IndexOutOfBoundsException e) {
+        return 2;
+    } catch (Exception e) {
+        return 1;
+    } finally {
+        io.print("finally always runs");
+    }
+}
+
+class AppError : Exception {
+    public int code;
+
+    public int AppError(string msg, int code) {
+        super(msg);
+        this.code = code;
+        return 0;
+    }
+}
+
+int main() {
+    if (risky(0) != 2)
+        return 1;
+    if (risky(1) != 1)
+        return 1;
+    try {
+        throw new AppError("bad input", 5);
+    } catch (AppError e) {
+        io.print(e.message);       // bad input
+        return e.code;             // 5
+    }
+    return 1;
+}

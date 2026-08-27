@@ -1,0 +1,16 @@
+// array_initlist.n — fixed arrays: [..] initializer, new T[n], foreach.
+int main() {
+    int[] evens = [2, 4, 6, 8];
+    string[] names = new string[2];
+    names[0] = "ncc";
+    names[1] = "nvm";
+    int total = 0;
+    foreach (int e in evens) {
+        total = total + e;
+    }
+    io.print(names[0] + " + " + names[1]);
+    io.print(evens.length);           // 4 — arrays expose length as a field
+    if (total == 20)
+        return 8;
+    return 1;
+}

@@ -1,0 +1,12 @@
+// const_assert.n — const locals, assert, compound assignment.
+int main() {
+    const int LIMIT = 100;
+    const string NAME = "nlang";
+    int used = 20;
+    used += LIMIT / 4;             // 45
+    assert(used == 45);            // throws when violated
+    io.print(NAME + " used " + used);
+    if (used == 45)
+        return 11;
+    return 1;
+}

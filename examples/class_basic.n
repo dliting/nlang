@@ -1,0 +1,30 @@
+// class_basic.n — classes: fields, constructor, methods, toString.
+class Point {
+    public int x;
+    public int y;
+
+    public int Point(int x, int y) {
+        this.x = x;
+        this.y = y;
+        return 0;
+    }
+
+    public int manhattan() {
+        return x + y;              // implicit this.field access
+    }
+
+    public string toString() {
+        return "Point(" + x + ", " + y + ")";
+    }
+}
+
+int main() {
+    Point p = new Point(2, 5);
+    io.print(p.manhattan());       // 7
+    io.print(p.toString());        // Point(2, 5)
+    string where = "at " + p;      // implicit toString in concatenation
+    io.print(where);               // at Point(2, 5)
+    if (p.manhattan() == 7)
+        return 3;
+    return 1;
+}

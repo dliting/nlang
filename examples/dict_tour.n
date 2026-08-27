@@ -1,0 +1,17 @@
+// dict_tour.n — Dict<K,V>: keyed access, containsKey/count, foreach keys.
+int main() {
+    Dict<string, int> scores = new Dict<string, int>();
+    scores["alice"] = 90;
+    scores["bob"] = 75;
+    scores["alice"] = 95;              // overwrite
+    io.print(scores.count());          // 2
+    io.print(scores.containsKey("alice"));  // 1
+    io.print(scores["alice"]);         // 95
+    int total = 0;
+    foreach (string name in scores.keys()) {
+        total = total + scores[name];
+    }
+    if (total == 170)
+        return 7;
+    return 1;
+}
