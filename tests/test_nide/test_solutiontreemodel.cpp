@@ -538,6 +538,13 @@ private slots:
         model.setStandaloneFiles({"/x/a.n"});
         model.setStandaloneFiles({});
         QCOMPARE(model.rowCount(), 0);
+        QVERIFY(model.standaloneGroupItem() == nullptr);
+
+        //The next non-empty list rebuilds the group from nothing.
+        model.setStandaloneFiles({"/x/c.n"});
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.itemAt(model.index(0, 0))->childItem(0)->text(),
+                 QString("c.n"));
     }
 
     void testStandaloneGroupUnderSolutionRoot() {
@@ -581,8 +588,15 @@ private slots:
         SolutionTreeModel model;
         QVERIFY(model.loadSolution(nsln));
         model.setStandaloneFiles({"/x/a.n"});
-        const QModelIndex rootIndex = model.index(0, 0);
+        //Persistent (not raw): a sync regression into refresh() would
+        //reset the model and invalidate this index -- a raw one would
+        //dangle into UB instead of failing deterministically.
+        QPersistentModelIndex rootIndex = model.index(0, 0);
         model.setStandaloneFiles({"/x/b.n", "/x/c.n"});  // no rebuild
+        //A refresh() regression would invalidate the persistent index
+        //(model reset) -- fail cleanly instead of dereferencing null.
+        QVERIFY(rootIndex.isValid());
+        QVERIFY(model.itemAt(rootIndex) != nullptr);
         QCOMPARE(model.itemAt(rootIndex)->nodeType(),
                  SolutionTreeItem::NT_Solution);  // index still valid
         SolutionTreeItem* group = model.itemAt(rootIndex)->childItem(1);

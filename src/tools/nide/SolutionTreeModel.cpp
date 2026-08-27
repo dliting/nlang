@@ -47,14 +47,15 @@ SolutionTreeItem::SolutionTreeItem(FileNode* file)
 
 SolutionTreeItem::SolutionTreeItem(NodeType mirrorKind, const QString& text,
                                    const QString& standalonePath)
-    : m_solution(nullptr)
-    , m_project(nullptr)
-    , m_file(nullptr)
-    , m_standalonePath(mirrorKind == NT_StandaloneFile ? standalonePath
+    : m_solution(nullptr), m_project(nullptr), m_file(nullptr),
+      m_standalonePath(mirrorKind == NT_StandaloneFile ? standalonePath
                                                        : QString())
 {
     Q_ASSERT(mirrorKind == NT_StandaloneFiles ||
              mirrorKind == NT_StandaloneFile);
+    //A pathless NT_StandaloneFile would silently classify (and icon)
+    //as the group row in nodeType().
+    Q_ASSERT(mirrorKind != NT_StandaloneFile || !standalonePath.isEmpty());
     initText(text);
 }
 
@@ -76,7 +77,9 @@ void SolutionTreeItem::initText(const QString& text) {
     //setData -> fileRenameRequested instead of writing the text.
     if (m_file == nullptr)
         setFlags(flags() & ~Qt::ItemIsEditable);
-    //Node-kind icon: whichever typed accessor is set.
+    //Node-kind icon: whichever typed accessor is set. The group row
+    //(no pointer, no path) deliberately falls back to solution.png --
+    //the resource ships no folder icon.
     setIcon(m_file != nullptr || !m_standalonePath.isEmpty()
                 ? nodeIcon("file.png")
                 : m_project != nullptr ? nodeIcon("project.png")
@@ -324,31 +327,19 @@ void SolutionTreeModel::setStandaloneFiles(const QStringList& paths) {
     if (paths.isEmpty()) {
         //The group's row dies with its last file -- an empty group
         //would be a dangling header.
-        SolutionTreeItem* group = standaloneGroupItem();
-        if (group == nullptr)
-            return;
-        if (hasSolution()) {
-            SolutionTreeItem* root = itemAt(index(0, 0));
-            for (int r = 0; r < root->rowCount(); ++r) {
-                if (root->childItem(r) == group) {
-                    root->removeRow(r);
-                    return;
-                }
-            }
-        } else {
-            for (int r = 0; r < rowCount(); ++r) {
-                if (itemAt(index(r, 0)) == group) {
-                    removeRow(r);
-                    return;
-                }
-            }
+        if (SolutionTreeItem* group = standaloneGroupItem()) {
+            if (QStandardItem* parentItem = group->parent())
+                parentItem->removeRow(group->row());
+            else
+                removeRow(group->row());
         }
         return;
     }
 
     if (SolutionTreeItem* group = standaloneGroupItem()) {
-        //Incremental sync (the addFile/removeFile discipline): no
-        //rebuild, so every other row's QModelIndex stays valid.
+        //Incremental sync (the addFile/removeFile discipline): no tree
+        //rebuild -- indexes outside the group stay valid (the group's
+        //own rows are rebuilt wholesale).
         group->removeRows(0, group->rowCount());
         for (const QString& path : paths)
             group->appendRow(new SolutionTreeItem(

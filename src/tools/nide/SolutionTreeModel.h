@@ -132,8 +132,10 @@ public:
     //--- standalone files (mirror-only group) ---
     //The group lists the open editors no project tracks; MainWindow
     //recomputes the list whenever editors or the solution graph change
-    //and hands it here. Empty list = no group row at all. Sync is
-    //incremental (no refresh) so project indexes stay valid.
+    //and hands it here. Empty list = no group row at all. Sync does no
+    //tree rebuild: indexes outside the group stay valid. paths arrive
+    //normalized (absolute, unique, order = display order); the model
+    //neither sorts nor dedupes.
     void setStandaloneFiles(const QStringList& paths);
 
     //The group's row, wherever it currently sits; null when absent.
