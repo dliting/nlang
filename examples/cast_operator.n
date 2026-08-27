@@ -1,6 +1,7 @@
 // cast_operator.n — the `as` cast: boxed unbox + reference downcast.
 // (Numeric float->int is an implicit assignment conversion, not `as`;
-//  `as` targets are plain class names, not generic instantiations.)
+//  `as` targets are single type names — primitives (unbox) or classes
+//  (downcast) — never generic instantiations.)
 class Config {
     public int answer;
 }

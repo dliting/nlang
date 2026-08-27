@@ -10,13 +10,13 @@ stdlib_string 0
 stdlib_io 0
 stdlib_fs 0
 delegates_tour 7
-class_basic 3
-inheritance_super 4
-exceptions 5
+class_basic 3 at Point(2, 5)
+inheritance_super 4 square has 4 sides
+exceptions 5 finally always runs
 list_tour 6
 dict_tour 7
 array_initlist 8
-interpolation_tour 9
+interpolation_tour 9 costs 4990c
 cast_operator 10
 const_assert 11
-out_params 12
+out_params 12 17 = 5*3 + 2
