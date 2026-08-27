@@ -5,6 +5,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# MSVC decodes narrow string literals in the system codepage unless
+# told otherwise, silently corrupting UTF-8 sources (e.g. Chinese
+# document/UI text pinned by the nide tests). GCC/Clang already
+# default to UTF-8, so the flag is only needed there.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # Options
 option(NLANG_ENABLE_LLVM "Enable LLVM code generation backend" OFF)
 option(NLANG_BUILD_IDE "Build the NLang IDE (requires Qt5)" OFF)

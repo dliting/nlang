@@ -1,4 +1,5 @@
-/*--- test_dialogs.cpp - NewFileDialog / ProjectPropDialog unit tests ---*/
+/*--- test_dialogs.cpp - NewFileDialog / ProjectPropDialog / HelpWindow unit tests ---*/
+#include "HelpWindow.h"
 #include "NewFileDialog.h"
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
@@ -11,6 +12,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QTextBrowser>
 #include <QTimer>
 #include <QtTest>
 
@@ -329,6 +331,38 @@ private slots:
         QVERIFY(nameReadOnly);
         QVERIFY(dirReadOnly);
         QVERIFY(!browseEnabled);
+    }
+
+    //--- HelpWindow ---
+
+    void testHelpWindowRendersRealDocument() {
+        //test exes sit in build-ide/tests/Release; the ancestor walk
+        //reaches the repo's docs/ (language-spec ships there).
+        HelpWindow window("language-spec");
+        QVERIFY(window.documentLoaded());
+        QTextBrowser* browser = window.findChild<QTextBrowser*>();
+        QVERIFY(browser != nullptr);
+        QVERIFY(!browser->toPlainText().isEmpty());
+    }
+
+    void testHelpWindowMissingDocumentShowsNotice() {
+        HelpWindow window("no-such-document");
+        QVERIFY(!window.documentLoaded());
+        QTextBrowser* browser = window.findChild<QTextBrowser*>();
+        QVERIFY(browser != nullptr);
+        QVERIFY(browser->toPlainText().contains("no-such-document.md"));
+    }
+
+    void testHelpWindowRendersGettingStartedTable() {
+        //docs/nlang-getting-started.md leads with a GFM pipe table; Qt's
+        //GitHub-dialect markdown import must parse it (not dump raw pipes).
+        HelpWindow window("nlang-getting-started");
+        QVERIFY(window.documentLoaded());
+        QTextBrowser* browser = window.findChild<QTextBrowser*>();
+        QVERIFY(browser != nullptr);
+        const QString text = browser->toPlainText();
+        QVERIFY(text.contains(QStringLiteral("拆箱/引用下转")));
+        QVERIFY(!text.contains(QStringLiteral("|---")));
     }
 };
 
