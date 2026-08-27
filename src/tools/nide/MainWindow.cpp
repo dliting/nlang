@@ -2,7 +2,6 @@
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
-#include "HelpWindow.h"
 #include "MainStatusBar.h"
 #include "NewFileDialog.h"
 #include "ProjectModel.h"
@@ -15,6 +14,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -30,6 +30,7 @@
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <QUrl>
 
 namespace nlang {
 
@@ -950,6 +951,27 @@ void MainWindow::on_actHelpAbout_triggered() {
            "NLang scripting language."));
 }
 
+namespace {
+//How far above the executable to search for the docs site. The
+//installed layout resolves at hop 1 (bin/../docs/site); the dev nide
+//exe (build-ide/src/tools/nide/Release) and the test exes
+//(<build>/tests/Release) sit deeper -- cap covers both.
+const int MAX_DOC_SITE_HOPS = 6;
+} // namespace
+
+QString MainWindow::locateHelpPage(const QString& documentBaseName) {
+    QDir dir = QCoreApplication::applicationDirPath();
+    for (int hop = 0; hop < MAX_DOC_SITE_HOPS; ++hop) {
+        const QString candidate = dir.absoluteFilePath(
+            "docs/site/" + documentBaseName + "/index.html");
+        if (QFileInfo::exists(candidate))
+            return candidate;
+        if (!dir.cdUp())
+            break;
+    }
+    return QString();
+}
+
 void MainWindow::on_actHelpGettingStarted_triggered() {
     openHelpDocument(QStringLiteral("nlang-getting-started"));
 }
@@ -963,16 +985,16 @@ void MainWindow::on_actHelpVmArch_triggered() {
 }
 
 void MainWindow::openHelpDocument(const QString& documentBaseName) {
-    QPointer<HelpWindow>& open = m_helpWindows[documentBaseName];
-    if (open != nullptr) {  // already open: bring it forward
-        open->raise();
-        open->activateWindow();
+    const QString page = locateHelpPage(documentBaseName);
+    if (page.isEmpty()) {
+        //Same notice the old in-app viewer showed, now modal.
+        QMessageBox::warning(
+            this, tr("Error"),
+            tr("The document '%1' was not found next to the IDE "
+               "installation.").arg(documentBaseName));
         return;
     }
-    HelpWindow* window = new HelpWindow(documentBaseName, this);
-    window->setAttribute(Qt::WA_DeleteOnClose);
-    open = window;
-    window->show();
+    QDesktopServices::openUrl(QUrl::fromLocalFile(page));
 }
 
 //--- widget slots ---

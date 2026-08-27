@@ -246,6 +246,12 @@ if(NLANG_BUILD_IDE)
             Qt5::Test
     )
     add_dependencies(test_mainwindow ncc nvm)
+    #The help-page test walks up to <build>/docs/site, so the site must
+    #exist first. Guarded: NLANG_BUILD_DOCS=OFF defines no such target,
+    #and the root CMakeLists defines it before this directory is added.
+    if(TARGET nlang_docs)
+        add_dependencies(test_mainwindow nlang_docs)
+    endif()
     if(WIN32)
         add_custom_command(TARGET test_mainwindow POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different

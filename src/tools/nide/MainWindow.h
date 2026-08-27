@@ -6,10 +6,7 @@
 #include <QMainWindow>
 
 #include "FileEditor.h"  // EditorManager is a value member
-#include "HelpWindow.h"  // QPointer map value needs a complete type
 
-#include <QMap>
-#include <QPointer>
 #include <QStringList>
 #include <memory>
 
@@ -83,6 +80,12 @@ public:
     //garbage or a collapsed pane.
     static void saveLayout(const MainWindow& window, QSettings& settings);
     static bool restoreLayout(MainWindow& window, QSettings& settings);
+
+    //--- help (docs site in the default browser) ---
+    //First ancestor dir whose docs/site holds the page; empty when
+    //none (installed layout: bin/../docs/site one hop up; dev tree
+    //resolves a few hops deeper). Tests call it directly.
+    static QString locateHelpPage(const QString& documentBaseName);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -255,9 +258,7 @@ private:
     void updateMenuState();
 
     //--- help ---
-    //One non-modal HelpWindow per document; reopening a document raises
-    //its existing window. The QPointer self-clears when the window is
-    //destroyed (WA_DeleteOnClose), so the map never dangles.
+    //Open the generated docs-site page in the default browser.
     void openHelpDocument(const QString& documentBaseName);
 
     //Declaration order matters: m_ui first, so it is destroyed LAST --
@@ -267,7 +268,6 @@ private:
     EditorManager m_editors;
     QString m_solutionFilePath;  // empty = unsaved new solution
     QProcess m_executed;         // the program under Run (nvm child)
-    QMap<QString, QPointer<HelpWindow>> m_helpWindows;  // open docs
 };
 
 } // namespace nlang

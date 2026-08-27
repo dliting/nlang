@@ -67,7 +67,6 @@ target_include_directories(nide_compilelog
 # file's directory by default; ours sit in ui/, so point the search
 # there.
 add_library(nide_dialogs
-    HelpWindow.cpp
     NewFileDialog.cpp
     ProjectPropDialog.cpp
     ui/NewFileDialog.ui

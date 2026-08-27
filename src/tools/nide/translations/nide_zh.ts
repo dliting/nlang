@@ -447,24 +447,16 @@
     </message>
 </context>
 <context>
-    <name>nlang::HelpWindow</name>
-    <message>
-        <location filename="../HelpWindow.cpp" line="43"/>
-        <source>NLang Documentation - %1</source>
-        <translation>NLang 文档 - %1</translation>
-    </message>
-    <message>
-        <location filename="../HelpWindow.cpp" line="61"/>
-        <source>The document &apos;%1&apos; was not found next to the IDE installation.</source>
-        <translation>文档“%1”未随 IDE 安装提供。</translation>
-    </message>
-</context>
-<context>
     <name>nlang::MainWindow</name>
     <message>
         <location filename="../MainWindow.cpp" line="118"/>
         <source>Ready</source>
         <translation>就绪</translation>
+    </message>
+    <message>
+        <location filename="../MainWindow.cpp" line="0"/>
+        <source>The document &apos;%1&apos; was not found next to the IDE installation.</source>
+        <translation>文档“%1”未随 IDE 安装提供。</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="238"/>

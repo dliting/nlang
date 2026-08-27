@@ -3,7 +3,6 @@
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
 #include "FileEditor.h"
-#include "HelpWindow.h"
 #include "ProjectModel.h"
 #include "TranslationLoader.h"
 
@@ -1616,63 +1615,16 @@ private slots:
         QVERIFY(!act(window, "actViewSolution")->isChecked());
     }
 
-    //--- help menu ---
+    //--- help (docs site in the default browser) ---
 
-    void testHelpMenuOpensOneWindowPerDocument() {
-        MainWindow window;
-        act(window, "actHelpLanguageSpec")->trigger();
-        act(window, "actHelpGettingStarted")->trigger();
-        QCOMPARE(window.findChildren<HelpWindow*>().size(), 2);
-        const QList<HelpWindow*> windows =
-            window.findChildren<HelpWindow*>();
-        for (HelpWindow* helpWindow : windows)
-            QVERIFY(helpWindow->documentLoaded());
-    }
-
-    void testHelpMenuReopensRaiseExistingWindow() {
-        MainWindow window;
-        act(window, "actHelpVmArch")->trigger();
-        act(window, "actHelpVmArch")->trigger();
-        QCOMPARE(window.findChildren<HelpWindow*>().size(), 1);
-        QVERIFY(window.findChild<HelpWindow*>()->documentLoaded());
-    }
-
-    //Identity of the reopened window is NOT asserted by pointer: the
-    //allocator may legally reuse the freed address (ABA). Destruction is
-    //proven by the QTRY isEmpty below; without WA_DeleteOnClose the
-    //window would survive it.
-    void testHelpWindowCloseThenReopenCreatesFresh() {
-        MainWindow window;
-        act(window, "actHelpVmArch")->trigger();
-        HelpWindow* first = window.findChildren<HelpWindow*>().at(0);
-        QVERIFY(first != nullptr);
-        first->close();  // closeEvent -> reject(); same delete path as Esc
-        QTRY_VERIFY(window.findChildren<HelpWindow*>().isEmpty());
-        act(window, "actHelpVmArch")->trigger();
-        QCOMPARE(window.findChildren<HelpWindow*>().size(), 1);
-        QVERIFY(window.findChildren<HelpWindow*>().at(0)->documentLoaded());
-    }
-
-    //Esc dismisses a QDialog via reject() -> done(), and done() runs the
-    //same WA_DeleteOnClose handling as close() (QDialogPrivate::hide
-    //calls close_helper, Qt 5.15 qdialog.cpp): the window is destroyed
-    //either way and the menu action then opens a fresh one. The event
-    //loop spin below mirrors the real user gap in which deleteLater runs.
-    //Fresh-object identity is NOT asserted by pointer: the allocator may
-    //reuse the freed address. The QTRY isEmpty above is the load-bearing
-    //check (without WA_DeleteOnClose the window would survive it).
-    void testHelpWindowEscDismissThenReopenCreatesFresh() {
-        MainWindow window;
-        act(window, "actHelpGettingStarted")->trigger();
-        HelpWindow* first = window.findChildren<HelpWindow*>().at(0);
-        QVERIFY(first != nullptr);
-        first->reject();
-        QVERIFY(!first->isVisible());
-        QTRY_VERIFY(window.findChildren<HelpWindow*>().isEmpty());
-        act(window, "actHelpGettingStarted")->trigger();
-        QCOMPARE(window.findChildren<HelpWindow*>().size(), 1);
-        QVERIFY(window.findChildren<HelpWindow*>().at(0)->isVisible());
-        QVERIFY(window.findChildren<HelpWindow*>().at(0)->documentLoaded());
+    void testLocateHelpPageFindsDevTreeSite() {
+        // nlang_docs generates <build>/docs/site; the test exe sits at
+        // <build>/tests/Release -- the ancestor walk finds it two hops
+        // up (installed layout: bin/../docs/site, one hop).
+        QVERIFY(!MainWindow::locateHelpPage("language-spec").isEmpty());
+        QVERIFY(!MainWindow::locateHelpPage("nlang-getting-started")
+                     .isEmpty());
+        QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
     }
 
     //--- user journey (Step 10) ---
