@@ -3,7 +3,7 @@
 
 Locates the newest NLang-*-win64.zip under release/, extracts it to a
 temporary directory, asserts the install layout (binaries, Qt runtime,
-examples, docs, license), then smoke-tests the packaged toolchain by
+examples, docs site, license), then smoke-tests the packaged toolchain by
 compiling and running examples/hello.n with the packaged ncc/nvm.
 Also asserts the NSIS installer (.exe) exists and is non-empty.
 
@@ -34,16 +34,22 @@ BIN_FILES = [
     'platforms/qwindows.dll',
 ]
 ROOT_FILES = ['LICENSE', 'README.md']
-# All three ship: the nide Help menu opens them from <prefix>/docs.
+# The mkdocs-generated site ships (the nide Help menu opens it in the
+# browser from <prefix>/docs/site).
 DOC_FILES = [
+    'docs/site/index.html',
+    'docs/site/nlang-getting-started/index.html',
+    'docs/site/language-spec/index.html',
+    'docs/site/vm-architecture/index.html',
+    'docs/site/search/search_index.json',
+]
+# Markdown sources and internal dev-process docs stay out of the public
+# package (only the rendered site ships; roadmap and ci_design reference
+# spec files the package doesn't include); Qt debug plugin variants must
+# not ship either (release Qt has separate d-suffixed dlls).
+ABSENT_PATHS = [
     'docs/language-spec.md', 'docs/nlang-getting-started.md',
     'docs/vm-architecture.md',
-]
-# Internal dev-process docs must not ship in the public package (roadmap
-# and ci_design reference spec files the package doesn't include); Qt
-# debug plugin variants must not either (release Qt has separate
-# d-suffixed dlls).
-ABSENT_PATHS = [
     'docs/superpowers', 'docs/roadmap.md', 'docs/ci_design.md',
     'docs/nide-file-rename-and-layout.md', 'bin/platforms/qwindowsd.dll',
 ]
@@ -103,7 +109,7 @@ def main():
             if os.path.exists(path):
                 fail(f'internal path shipped in package: {rel}')
         print(f'layout: OK ({len(BIN_FILES)} bin files, '
-              f'{len(ROOT_FILES)} root files, {len(DOC_FILES)} docs)')
+              f'{len(ROOT_FILES)} root files, {len(DOC_FILES)} site files)')
 
         # --- Toolchain smoke: compile + run examples/hello.n --------------
         smoke_cwd = os.path.join(tmp, 'smoke')

@@ -25,8 +25,11 @@ as a standalone teaching/research open-source project.
    cmake -B build -DFLEX_EXE="C:/dev/win_flex_bison/flex.exe" \
                   -DBISON_EXE="C:/dev/win_flex_bison/bison.exe"
    ```
-4. Python3 is optional (only used for build scripts). If needed, override with
-   `-DPYTHON3_EXECUTABLE=<path>`
+4. Python3 is used by build scripts and — with the default
+   `NLANG_BUILD_DOCS=ON` — by the mkdocs docs site (`pip install -r
+   tools/docs-requirements.txt`, interpreter selectable via
+   `-DNLANG_DOCS_PYTHON=<path>`; docs off with `-DNLANG_BUILD_DOCS=OFF`).
+   `-DPYTHON3_EXECUTABLE=<path>` overrides the build-script interpreter.
 
 ## Building
 
@@ -42,6 +45,8 @@ cmake --build build
 | `-DNLANG_ENABLE_LLVM` | OFF | Enable LLVM code generation backend |
 | `-DNLANG_BUILD_IDE` | OFF | Build the Qt5 IDE (nide) |
 | `-DNLANG_BUILD_TESTS` | OFF | Build unit tests |
+| `-DNLANG_BUILD_DOCS` | ON | Build the mkdocs documentation site |
+| `-DNLANG_DOCS_PYTHON` | `python` | Interpreter running mkdocs (see `tools/docs-requirements.txt`) |
 | `-DFLEX_EXE` | auto | Path to flex executable |
 | `-DBISON_EXE` | auto | Path to bison executable |
 | `-DPYTHON3_EXECUTABLE` | auto | Python3 path for build scripts |
@@ -130,6 +135,12 @@ solution tree (or the solution's sole project); files rename in place
 via F2 or the tree/tab context menus (an open dirty editor is saved to
 the old path first), and the splitter layout persists across sessions.
 
+Standalone `.n` files opened through 文件 → 打开 (no project needed)
+appear in a “独立文件” tree group and can be built and run directly:
+the module lands under `%TEMP%\nlang-nide\`, and Run auto-rebuilds it
+when the source changed. The Help menu opens the bundled documentation
+site (`docs/site`) in the system browser.
+
 `ctest -C Release -R nide_deploy_check` verifies the self-containment: it copies
 the layout to a scratch directory, pins Qt's search paths to it via
 `qt.conf`, and runs the IDE test suite from there.
@@ -152,8 +163,9 @@ This produces `release/NLang-<version>-win64.zip` (portable) and
 `release/NLang-<version>-win64.exe` (NSIS installer; requires NSIS 3.03+ —
 either on `PATH` or passed via `-DNLANG_NSIS_MAKENSIS`). Both contain the
 same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm` and the Qt runtime,
-plus `examples/`, `docs/`, `LICENSE` and `README.md`. The installer defaults
-to `C:\Program Files\NLang` and adds a Start Menu shortcut for the IDE.
+plus `examples/`, the generated documentation site (`docs/site/`), `LICENSE`
+and `README.md`. The installer defaults to `C:\Program Files\NLang` and adds
+a Start Menu shortcut for the IDE.
 
 Notes:
 
