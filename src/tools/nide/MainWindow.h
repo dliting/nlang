@@ -10,6 +10,7 @@
 
 #include <QMap>
 #include <QPointer>
+#include <QStringList>
 #include <memory>
 
 class QCloseEvent;
@@ -214,6 +215,14 @@ private:
                               FileNode* trackedFile);
     //The tree node for a file path; null when the file is standalone.
     FileNode* findFileNodeByPath(const QString& filePath) const;
+
+    //--- standalone files (mirror of open untracked editors) ---
+    //Absolute paths of the open editors no project tracks -- the tree's
+    //standalone group is fed from this (nothing is persisted).
+    QStringList standaloneEditorPaths() const;
+    //Push standaloneEditorPaths() into the tree model and expand the
+    //group's chain.
+    void refreshStandaloneFiles();
 
     //--- build / run ---
     void buildProject(ProjectNode& project);

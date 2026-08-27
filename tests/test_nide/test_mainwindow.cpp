@@ -619,11 +619,17 @@ private slots:
         MainWindow window;
         QTemporaryDir dir;
 
-        //No solution open: the new file stays standalone (editor only).
+        //No solution open: the new file stays standalone, mirrored in
+        //the tree's standalone group.
         inExec([&] { acceptNewFileDialog("extra.n", dir.path()); });
         act(window, "actNewFile")->trigger();
 
-        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+        QAbstractItemModel* model = solutionView(window)->model();
+        QCOMPARE(model->rowCount(), 1);  // the standalone group
+        QCOMPARE(model->index(0, 0).data().toString(),
+                 QString("Standalone Files"));
+        QCOMPARE(model->index(0, 0, model->index(0, 0)).data().toString(),
+                 QString("extra.n"));
         QCOMPARE(tabCodes(window)->count(), 1);
         QCOMPARE(tabCodes(window)->tabText(0), QString("extra.n"));
         QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("extra.n")));
@@ -857,6 +863,12 @@ private slots:
         act(window, "actOpenFile")->trigger();
         const QString newPath = QDir(dir.path()).filePath("solo2.n");
 
+        //Before the rename: the tree's group row mirrors the old name.
+        QAbstractItemModel* treeModel = solutionView(window)->model();
+        QCOMPARE(treeModel->index(0, 0, treeModel->index(0, 0))
+                     .data().toString(),
+                 QString("solo.n"));
+
         QTabBar* bar = tabCodes(window)->tabBar();
         const QPoint pos = bar->tabRect(0).center();
         acceptInputDialogSoon("solo2.n");
@@ -867,6 +879,13 @@ private slots:
         QVERIFY(!QFileInfo::exists(oldPath));
         QVERIFY(readTextFile(newPath).contains("return 42"));
         QCOMPARE(tabCodes(window)->tabText(0), QString("solo2.n"));
+        //The group row followed the rename for free
+        //(onEditorSaveStateChanged ends in updateMenuState).
+        QCOMPARE(treeModel->index(0, 0).data().toString(),
+                 QString("Standalone Files"));
+        QCOMPARE(treeModel->index(0, 0, treeModel->index(0, 0))
+                     .data().toString(),
+                 QString("solo2.n"));
     }
 
     void testTabContextMenuSaveNonCurrentTab() {
@@ -927,6 +946,158 @@ private slots:
 
         QCOMPARE(tabCodes(window)->count(), 1);
         QCOMPARE(tabCodes(window)->tabText(0), QString("second.n"));
+    }
+
+    //--- standalone files: tree membership ---
+
+    void testOpenStandaloneFileJoinsTree() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo.n");
+        writeFile(path, kMainSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+
+        QAbstractItemModel* model = solutionView(window)->model();
+        QCOMPARE(model->rowCount(), 1);  // group, no solution open
+        QCOMPARE(model->index(0, 0).data().toString(),
+                 QString("Standalone Files"));
+        QCOMPARE(model->rowCount(model->index(0, 0)), 1);
+        QCOMPARE(model->index(0, 0, model->index(0, 0)).data().toString(),
+                 QString("solo.n"));
+        QCOMPARE(tabCodes(window)->count(), 1);
+    }
+
+    void testCloseStandaloneTabRemovesGroupRow() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo.n");
+        writeFile(path, kMainSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        QCOMPARE(solutionView(window)->model()->rowCount(), 1);
+
+        // The tab-bar close path (same route as the close button).
+        QMetaObject::invokeMethod(&window, "on_tabCodes_tabCloseRequested",
+                                  Q_ARG(int, 0));
+        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+        QCOMPARE(tabCodes(window)->count(), 0);
+    }
+
+    void testOpenProjectAdoptsStandaloneEditor() {
+        MainWindow window;
+        QTemporaryDir dir;
+        QString nprojPath, mainPath;
+        writeProjectFixture(dir.path(), &nprojPath, &mainPath);
+        // The project's file opened FIRST: standalone until tracked.
+        inExec([&mainPath] { acceptFileDialog(mainPath); });
+        act(window, "actOpenFile")->trigger();
+        QAbstractItemModel* model = solutionView(window)->model();
+        QCOMPARE(model->rowCount(), 1);  // the standalone group
+
+        inExec([&nprojPath] { acceptFileDialog(nprojPath); });
+        act(window, "actOpenProject")->trigger();
+        // Tracked now: solution -> project -> main.n, no group row.
+        QCOMPARE(model->rowCount(), 1);  // the solution root
+        const QModelIndex solutionIndex = model->index(0, 0);
+        QCOMPARE(model->rowCount(solutionIndex), 1);  // the project
+        const QModelIndex projectIndex =
+            model->index(0, 0, solutionIndex);
+        QCOMPARE(model->rowCount(projectIndex), 1);   // the file
+        QCOMPARE(model->index(0, 0, projectIndex).data().toString(),
+                 QString("main.n"));
+
+        // A second standalone editor under an OPEN solution: the group
+        // sits at the solution root's end, and closing its tab removes
+        // the group while the solution stays (open-state empty removal).
+        const QString extra = QDir(dir.path()).filePath("extra.n");
+        writeFile(extra, kMainSource);
+        inExec([&extra] { acceptFileDialog(extra); });
+        act(window, "actOpenFile")->trigger();
+        QCOMPARE(model->rowCount(model->index(0, 0)), 2);  // project + group
+        QMetaObject::invokeMethod(&window, "on_tabCodes_tabCloseRequested",
+                                  Q_ARG(int, 1));  // extra's tab (0 = main.n)
+        QCOMPARE(model->rowCount(model->index(0, 0)), 1);  // project only
+
+        // Closing the solution flips main.n's editor back to standalone
+        // (the reverse membership flip). The implicitly created solution
+        // is still dirty (the project was never saved into a solution),
+        // so Discard answers the close prompt.
+        inExec([&] { answerMessageBox(QMessageBox::Discard); });
+        act(window, "actCloseSolution")->trigger();
+        QCOMPARE(model->rowCount(), 1);  // the group again
+        QCOMPARE(model->index(0, 0).data().toString(),
+                 QString("Standalone Files"));
+        QCOMPARE(model->index(0, 0, model->index(0, 0)).data().toString(),
+                 QString("main.n"));
+    }
+
+    //A standalone row only exists while its editor is open (the group
+    //mirrors open untracked editors), so "reopen" here is the real
+    //user-facing behavior: refocusing a backgrounded standalone tab
+    //from the tree opens no second editor.
+    void testDoubleClickStandaloneRowReopensTab() {
+        MainWindow window;
+        QTemporaryDir dir;
+        //Names picked so path order (a.n < b.n) matches open order: the
+        //group lists editors in EditorManager's path-keyed order.
+        const QString firstPath = QDir(dir.path()).filePath("a.n");
+        writeFile(firstPath, kMainSource);
+        inExec([&firstPath] { acceptFileDialog(firstPath); });
+        act(window, "actOpenFile")->trigger();
+        const QString secondPath = QDir(dir.path()).filePath("b.n");
+        writeFile(secondPath, kMainSource);
+        inExec([&secondPath] { acceptFileDialog(secondPath); });
+        act(window, "actOpenFile")->trigger();
+        QCOMPARE(tabCodes(window)->count(), 2);
+
+        //Focus moved on to b.n; double-clicking a.n's group row routes
+        //through the standalone path (NT_StandaloneFile) and brings the
+        //existing tab back.
+        tabCodes(window)->setCurrentIndex(1);
+        QAbstractItemModel* model = solutionView(window)->model();
+        const QModelIndex firstIndex =
+            model->index(0, 0, model->index(0, 0));  // group child 0: a.n
+        QCOMPARE(firstIndex.data().toString(), QString("a.n"));
+        QMetaObject::invokeMethod(&window, "on_tvwSolution_doubleClicked",
+                                  Q_ARG(QModelIndex, firstIndex));
+        QCOMPARE(tabCodes(window)->count(), 2);
+        QCOMPARE(tabCodes(window)->currentIndex(), 0);
+    }
+
+    void testTreeContextMenuOnStandaloneRow() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo.n");
+        writeFile(path, kMainSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        QAbstractItemModel* model = solutionView(window)->model();
+        const QModelIndex fileIndex =
+            model->index(0, 0, model->index(0, 0));
+        solutionView(window)->setCurrentIndex(fileIndex);
+
+        //activeMenu()'s three-level fallback (see the helper): a
+        //synthetic QMenu::exec may register as neither active popup nor
+        //active modal -- leaving it open would hang the test.
+        inExec([] {
+            QMenu* menu = activeMenu();
+            QVERIFY2(menu != nullptr, "context menu must open");
+            const QList<QAction*> actions = menu->actions();
+            QVERIFY(actions.at(0)->isEnabled());    // Open
+            QVERIFY(!actions.at(1)->isEnabled());   // Rename (F2)
+            QVERIFY(!actions.at(2)->isEnabled());   // Remove
+            menu->close();
+        });
+        const QPoint pos =
+            solutionView(window)->visualRect(fileIndex).center();
+        QMetaObject::invokeMethod(
+            solutionView(window), "customContextMenuRequested",
+            Q_ARG(QPoint, pos));
+        //Drain the helper's singleShot even when the menu never opened,
+        //so its failure lands on THIS test instead of the next one.
+        QTest::qWait(1);
+        QCOMPARE(tabCodes(window)->count(), 1);  // untouched
     }
 
     //--- layout ---

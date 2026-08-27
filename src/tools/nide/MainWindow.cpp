@@ -590,6 +590,11 @@ void MainWindow::closeEditorTab(FileEditor* editor) {
     if (index >= 0)
         m_ui->tabCodes->removeTab(index);
     m_editors.remove(editor);
+    //A removed CURRENT tab fires currentChanged inside removeTab, while
+    //the editor is still registered -- only this late snapshot reflects
+    //the closed editor's membership (a background close fires no
+    //currentChanged at all).
+    updateMenuState();
 }
 
 void MainWindow::clearEditors() {
@@ -597,6 +602,7 @@ void MainWindow::clearEditors() {
     //on a half-torn state -- block them for the sweep.
     QSignalBlocker blocker(m_ui->tabCodes);
     m_editors.clear();
+    refreshStandaloneFiles();
 }
 
 //--- 项目 menu ---
@@ -884,8 +890,12 @@ void MainWindow::on_tabCodes_currentChanged(int) {
 
 void MainWindow::on_tvwSolution_doubleClicked(const QModelIndex& index) {
     SolutionTreeItem* item = m_solutionTree->itemAt(index);
-    if (item != nullptr && item->nodeType() == SolutionTreeItem::NT_File)
+    if (item == nullptr)
+        return;
+    if (item->nodeType() == SolutionTreeItem::NT_File)
         editExistingFile(item->file()->absolutePath());
+    else if (item->nodeType() == SolutionTreeItem::NT_StandaloneFile)
+        editExistingFile(item->standalonePath());
 }
 
 void MainWindow::on_tvwSolution_customContextMenuRequested(const QPoint& pos) {
@@ -897,21 +907,27 @@ void MainWindow::on_tvwSolution_customContextMenuRequested(const QPoint& pos) {
     if (item == nullptr)
         return;
 
-    //File-scoped entries only: the project/solution rows show the menu
-    //with everything disabled (the tree knows no project rename yet).
-    const bool isFile = item->nodeType() == SolutionTreeItem::NT_File;
+    //File-scoped entries: a standalone row only gets Open (no domain
+    //node behind it to rename or remove); the project/solution/group
+    //rows show the menu with everything disabled (the tree knows no
+    //project rename yet).
+    const bool isProjectFile =
+        item->nodeType() == SolutionTreeItem::NT_File;
+    const bool isStandalone =
+        item->nodeType() == SolutionTreeItem::NT_StandaloneFile;
     QMenu menu(this);
     QAction* openAction = menu.addAction(tr("Open"));
     QAction* renameAction = menu.addAction(tr("Rename (F2)"));
     QAction* removeAction = menu.addAction(tr("Remove from Project"));
-    openAction->setEnabled(isFile);
-    renameAction->setEnabled(isFile);
-    removeAction->setEnabled(isFile);
+    openAction->setEnabled(isProjectFile || isStandalone);
+    renameAction->setEnabled(isProjectFile);
+    removeAction->setEnabled(isProjectFile);
 
     QAction* chosen =
         menu.exec(m_ui->tvwSolution->viewport()->mapToGlobal(pos));
     if (chosen == openAction)
-        editExistingFile(item->file()->absolutePath());
+        editExistingFile(isProjectFile ? item->file()->absolutePath()
+                                       : item->standalonePath());
     else if (chosen == renameAction) {
         //After exec: opening the editor inside the exec stack would
         //have the menu's closing focus churn destroy it immediately.
@@ -1085,6 +1101,32 @@ FileNode* MainWindow::findFileNodeByPath(const QString& filePath) const {
     return nullptr;
 }
 
+//--- standalone files ---
+
+QStringList MainWindow::standaloneEditorPaths() const {
+    QStringList paths;
+    for (FileEditor* editor : m_editors.editors()) {
+        if (findFileNodeByPath(editor->filePath()) == nullptr)
+            paths << editor->filePath();
+    }
+    return paths;
+}
+
+void MainWindow::refreshStandaloneFiles() {
+    m_solutionTree->setStandaloneFiles(standaloneEditorPaths());
+    //Expand only the group's own chain -- this refresh runs on every
+    //menu-state update (tab switch, save, tree selection...), an
+    //expandAll() here would keep re-expanding whatever the user had
+    //collapsed.
+    if (SolutionTreeItem* group = m_solutionTree->standaloneGroupItem()) {
+        const QModelIndex groupIndex = m_solutionTree->indexFromItem(group);
+        m_ui->tvwSolution->expand(groupIndex);
+        for (QModelIndex parent = groupIndex.parent(); parent.isValid();
+             parent = parent.parent())
+            m_ui->tvwSolution->expand(parent);
+    }
+}
+
 //--- close ---
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -1109,6 +1151,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 //--- menu state ---
 
 void MainWindow::updateMenuState() {
+    //First line on purpose: the group must mirror the editors BEFORE
+    //the enablement reads below consult the (possibly just-mutated)
+    //tree selection. Every editor/solution mutation converges here.
+    refreshStandaloneFiles();
     const bool hasEditor = currentEditor() != nullptr;
     const ProjectNode* project = currentProject();
     const FileNode* file = currentFile();
