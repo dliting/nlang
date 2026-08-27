@@ -42,7 +42,6 @@ cmake --build build
 | `-DNLANG_ENABLE_LLVM` | OFF | Enable LLVM code generation backend |
 | `-DNLANG_BUILD_IDE` | OFF | Build the Qt5 IDE (nide) |
 | `-DNLANG_BUILD_TESTS` | OFF | Build unit tests |
-| `-DNLANG_BUILD_EXAMPLES` | OFF | Build example programs |
 | `-DFLEX_EXE` | auto | Path to flex executable |
 | `-DBISON_EXE` | auto | Path to bison executable |
 | `-DPYTHON3_EXECUTABLE` | auto | Python3 path for build scripts |

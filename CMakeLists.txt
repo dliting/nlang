@@ -9,7 +9,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(NLANG_ENABLE_LLVM "Enable LLVM code generation backend" OFF)
 option(NLANG_BUILD_IDE "Build the NLang IDE (requires Qt5)" OFF)
 option(NLANG_BUILD_TESTS "Build tests" OFF)
-option(NLANG_BUILD_EXAMPLES "Build examples" OFF)
 # Full path to makensis.exe for the NSIS installer (leave empty to look it
 # up on PATH). Only needed on the machine producing the release packages.
 set(NLANG_NSIS_MAKENSIS "" CACHE FILEPATH "Path to makensis.exe for CPack NSIS")
