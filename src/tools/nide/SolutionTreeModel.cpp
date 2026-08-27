@@ -45,12 +45,28 @@ SolutionTreeItem::SolutionTreeItem(FileNode* file)
     initText(QFileInfo(file->absolutePath()).fileName());
 }
 
+SolutionTreeItem::SolutionTreeItem(NodeType mirrorKind, const QString& text,
+                                   const QString& standalonePath)
+    : m_solution(nullptr)
+    , m_project(nullptr)
+    , m_file(nullptr)
+    , m_standalonePath(mirrorKind == NT_StandaloneFile ? standalonePath
+                                                       : QString())
+{
+    Q_ASSERT(mirrorKind == NT_StandaloneFiles ||
+             mirrorKind == NT_StandaloneFile);
+    initText(text);
+}
+
 SolutionTreeItem::NodeType SolutionTreeItem::nodeType() const {
     if (m_solution != nullptr)
         return NT_Solution;
     if (m_project != nullptr)
         return NT_Project;
-    return NT_File;
+    if (m_file != nullptr)
+        return NT_File;
+    return m_standalonePath.isEmpty() ? NT_StandaloneFiles
+                                      : NT_StandaloneFile;
 }
 
 void SolutionTreeItem::initText(const QString& text) {
@@ -61,9 +77,10 @@ void SolutionTreeItem::initText(const QString& text) {
     if (m_file == nullptr)
         setFlags(flags() & ~Qt::ItemIsEditable);
     //Node-kind icon: whichever typed accessor is set.
-    setIcon(m_file != nullptr      ? nodeIcon("file.png")
-            : m_project != nullptr ? nodeIcon("project.png")
-                                   : nodeIcon("solution.png"));
+    setIcon(m_file != nullptr || !m_standalonePath.isEmpty()
+                ? nodeIcon("file.png")
+                : m_project != nullptr ? nodeIcon("project.png")
+                                       : nodeIcon("solution.png"));
 }
 
 //--- SolutionTreeModel ---
@@ -278,8 +295,11 @@ SolutionTreeItem* SolutionTreeModel::itemAt(const QModelIndex& index) const {
 void SolutionTreeModel::refresh() {
     clear();
 
-    if (!hasSolution())
+    if (!hasSolution()) {
+        if (!m_standaloneFiles.isEmpty())
+            buildStandaloneGroup(nullptr);
         return;
+    }
 
     SolutionTreeItem* root = new SolutionTreeItem(m_solution.get());
     appendRow(root);
@@ -291,6 +311,82 @@ void SolutionTreeModel::refresh() {
         for (const std::unique_ptr<FileNode>& file : project->files())
             projectItem->appendRow(new SolutionTreeItem(file.get()));
     }
+
+    if (!m_standaloneFiles.isEmpty())
+        buildStandaloneGroup(root);
+}
+
+void SolutionTreeModel::setStandaloneFiles(const QStringList& paths) {
+    if (m_standaloneFiles == paths)
+        return;
+    m_standaloneFiles = paths;
+
+    if (paths.isEmpty()) {
+        //The group's row dies with its last file -- an empty group
+        //would be a dangling header.
+        SolutionTreeItem* group = standaloneGroupItem();
+        if (group == nullptr)
+            return;
+        if (hasSolution()) {
+            SolutionTreeItem* root = itemAt(index(0, 0));
+            for (int r = 0; r < root->rowCount(); ++r) {
+                if (root->childItem(r) == group) {
+                    root->removeRow(r);
+                    return;
+                }
+            }
+        } else {
+            for (int r = 0; r < rowCount(); ++r) {
+                if (itemAt(index(r, 0)) == group) {
+                    removeRow(r);
+                    return;
+                }
+            }
+        }
+        return;
+    }
+
+    if (SolutionTreeItem* group = standaloneGroupItem()) {
+        //Incremental sync (the addFile/removeFile discipline): no
+        //rebuild, so every other row's QModelIndex stays valid.
+        group->removeRows(0, group->rowCount());
+        for (const QString& path : paths)
+            group->appendRow(new SolutionTreeItem(
+                SolutionTreeItem::NT_StandaloneFile,
+                QFileInfo(path).fileName(), path));
+    } else {
+        buildStandaloneGroup(hasSolution() ? itemAt(index(0, 0))
+                                           : nullptr);
+    }
+}
+
+void SolutionTreeModel::buildStandaloneGroup(SolutionTreeItem* parent) {
+    SolutionTreeItem* group = new SolutionTreeItem(
+        SolutionTreeItem::NT_StandaloneFiles, tr("Standalone Files"));
+    if (parent != nullptr)
+        parent->appendRow(group);
+    else
+        appendRow(group);
+    for (const QString& path : m_standaloneFiles)
+        group->appendRow(new SolutionTreeItem(
+            SolutionTreeItem::NT_StandaloneFile,
+            QFileInfo(path).fileName(), path));
+}
+
+SolutionTreeItem* SolutionTreeModel::standaloneGroupItem() const {
+    if (hasSolution()) {
+        SolutionTreeItem* root = itemAt(index(0, 0));
+        for (int r = 0; r < root->rowCount(); ++r)
+            if (root->childItem(r)->nodeType() ==
+                SolutionTreeItem::NT_StandaloneFiles)
+                return root->childItem(r);
+    } else {
+        for (int r = 0; r < rowCount(); ++r)
+            if (itemAt(index(r, 0))->nodeType() ==
+                SolutionTreeItem::NT_StandaloneFiles)
+                return itemAt(index(r, 0));
+    }
+    return nullptr;
 }
 
 //True when the project is owned by this solution (a null or foreign

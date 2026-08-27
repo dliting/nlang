@@ -439,6 +439,14 @@
     </message>
 </context>
 <context>
+    <name>nlang::SolutionTreeModel</name>
+    <message>
+        <location filename="../SolutionTreeModel.cpp" line="0"/>
+        <source>Standalone Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>nlang::HelpWindow</name>
     <message>
         <location filename="../HelpWindow.cpp" line="43"/>

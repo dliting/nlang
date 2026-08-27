@@ -19,12 +19,20 @@ public:
     enum NodeType {
         NT_Solution,
         NT_Project,
-        NT_File
+        NT_File,
+        NT_StandaloneFiles,   // mirror-only group of open standalone files
+        NT_StandaloneFile     // open editor file no project tracks
     };
 
     explicit SolutionTreeItem(SolutionNode* solution);
     explicit SolutionTreeItem(ProjectNode* project);
     explicit SolutionTreeItem(FileNode* file);
+
+    //Mirror-only rows (no domain node): the group collects the open
+    //editor files no project tracks. mirrorKind must be
+    //NT_StandaloneFiles (standalonePath ignored) or NT_StandaloneFile.
+    SolutionTreeItem(NodeType mirrorKind, const QString& text,
+                     const QString& standalonePath = QString());
 
     NodeType nodeType() const;
 
@@ -38,6 +46,9 @@ public:
     ProjectNode* project() const { return m_project; }
     FileNode* file() const { return m_file; }
 
+    //Absolute path for NT_StandaloneFile rows; empty otherwise.
+    const QString& standalonePath() const { return m_standalonePath; }
+
 private:
     //Display text derives from the node (name, or the file name).
     void initText(const QString& text);
@@ -45,13 +56,15 @@ private:
     SolutionNode* m_solution;  // non-null only for NT_Solution
     ProjectNode* m_project;    // non-null only for NT_Project
     FileNode* m_file;          // non-null only for NT_File
+    QString m_standalonePath;  // non-empty only for NT_StandaloneFile
 };
 
 //--- SolutionTreeModel: owns the SolutionNode and mirrors it as a
-//  three-level item tree (Solution -> Project -> File). All mutations
-//  go through this class (or the domain node + refresh()); the mirror
-//  is never edited directly. Double-click and selection wiring is the
-//  view's job (MainWindow, later step) via itemAt().
+//  three-level item tree (Solution -> Project -> File) + a mirror-only
+//  standalone group (see setStandaloneFiles). All mutations go through
+//  this class (or the domain node + refresh()); the mirror is never
+//  edited directly. Double-click and selection wiring is the view's job
+//  (MainWindow, later step) via itemAt().
 class SolutionTreeModel : public QStandardItemModel {
     Q_OBJECT
 public:
@@ -116,6 +129,17 @@ public:
     //directly on the nodes (property dialogs etc.).
     void refresh();
 
+    //--- standalone files (mirror-only group) ---
+    //The group lists the open editors no project tracks; MainWindow
+    //recomputes the list whenever editors or the solution graph change
+    //and hands it here. Empty list = no group row at all. Sync is
+    //incremental (no refresh) so project indexes stay valid.
+    void setStandaloneFiles(const QStringList& paths);
+
+    //The group's row, wherever it currently sits; null when absent.
+    //Public for MainWindow's expand-the-group-chain refresh.
+    SolutionTreeItem* standaloneGroupItem() const;
+
 signals:
     //An inline edit on a file row: the new NAME (not a path). The owner
     //validates, renames on disk/domain/editor, and calls renameFile.
@@ -132,7 +156,13 @@ private:
     //The file's tree item; same tiny-tree scan as itemForProject.
     SolutionTreeItem* itemForFile(FileNode* file) const;
 
+    //Create the group (plus its rows) under parent; null parent = the
+    //closed model, the group becomes the tree's only top-level row.
+    void buildStandaloneGroup(SolutionTreeItem* parent);
+
     std::unique_ptr<SolutionNode> m_solution;
+
+    QStringList m_standaloneFiles;  // setStandaloneFiles' last value
 };
 
 } // namespace nlang

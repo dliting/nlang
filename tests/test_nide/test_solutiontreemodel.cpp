@@ -514,6 +514,90 @@ private slots:
         QVERIFY(!model.renameFile(foreignFile, dir.path() + "/y.n", &error));
         QCOMPARE(foreignFile->absolutePath(), dir.path() + "/x.n");
     }
+
+    // --- standalone files group ---
+
+    void testStandaloneGroupAsSoleRootWithoutSolution() {
+        SolutionTreeModel model;  // closed: no solution open
+        model.setStandaloneFiles({"/x/a.n", "/x/b.n"});
+        QCOMPARE(model.rowCount(), 1);
+        SolutionTreeItem* group = model.itemAt(model.index(0, 0));
+        QCOMPARE(group->nodeType(), SolutionTreeItem::NT_StandaloneFiles);
+        QVERIFY(group->solution() == nullptr);
+        QCOMPARE(group->text(), QString("Standalone Files"));
+        QCOMPARE(group->rowCount(), 2);
+        SolutionTreeItem* first = group->childItem(0);
+        QCOMPARE(first->nodeType(), SolutionTreeItem::NT_StandaloneFile);
+        QCOMPARE(first->text(), QString("a.n"));
+        QCOMPARE(first->standalonePath(), QString("/x/a.n"));
+        QCOMPARE(model.standaloneGroupItem(), group);  // public lookup
+    }
+
+    void testStandaloneEmptyListShowsNoRow() {
+        SolutionTreeModel model;
+        model.setStandaloneFiles({"/x/a.n"});
+        model.setStandaloneFiles({});
+        QCOMPARE(model.rowCount(), 0);
+    }
+
+    void testStandaloneGroupUnderSolutionRoot() {
+        QTemporaryDir dir;
+        const QString nproj =
+            writeFile(dir, "P.nproj", projectXml("P"));
+        const QString nsln = writeFile(dir, "S.nsln",
+                                       solutionXml("S", {nproj}));
+        SolutionTreeModel model;
+        QVERIFY(model.loadSolution(nsln));
+        model.setStandaloneFiles({"/x/solo.n"});
+        // Solution root; project; then the group appended LAST (D1).
+        SolutionTreeItem* root = model.itemAt(model.index(0, 0));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(root->rowCount(), 2);  // project + group
+        SolutionTreeItem* group = root->childItem(1);
+        QCOMPARE(group->nodeType(), SolutionTreeItem::NT_StandaloneFiles);
+        QCOMPARE(group->childItem(0)->standalonePath(), QString("/x/solo.n"));
+    }
+
+    void testRefreshKeepsStandaloneGroup() {
+        SolutionTreeModel model;
+        model.setStandaloneFiles({"/x/solo.n"});
+        model.newSolution("Solo");  // refresh() inside
+        QCOMPARE(model.rowCount(), 1);  // solution root
+        SolutionTreeItem* root = model.itemAt(model.index(0, 0));
+        QCOMPARE(root->rowCount(), 1);  // the group
+        QCOMPARE(root->childItem(0)->childItem(0)->text(),
+                 QString("solo.n"));
+        model.closeSolution();  // refresh again: group survives as root
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.itemAt(model.index(0, 0))->nodeType(),
+                 SolutionTreeItem::NT_StandaloneFiles);
+    }
+
+    void testSetStandaloneFilesSyncsIncrementally() {
+        QTemporaryDir dir;
+        const QString nproj = writeFile(dir, "app.nproj", projectXml("App"));
+        const QString nsln = writeFile(dir, "S.nsln",
+                                       solutionXml("S", {nproj}));
+        SolutionTreeModel model;
+        QVERIFY(model.loadSolution(nsln));
+        model.setStandaloneFiles({"/x/a.n"});
+        const QModelIndex rootIndex = model.index(0, 0);
+        model.setStandaloneFiles({"/x/b.n", "/x/c.n"});  // no rebuild
+        QCOMPARE(model.itemAt(rootIndex)->nodeType(),
+                 SolutionTreeItem::NT_Solution);  // index still valid
+        SolutionTreeItem* group = model.itemAt(rootIndex)->childItem(1);
+        QCOMPARE(group->rowCount(), 2);
+        QCOMPARE(group->childItem(0)->standalonePath(), QString("/x/b.n"));
+    }
+
+    void testStandaloneRowsNotEditable() {
+        SolutionTreeModel model;
+        model.setStandaloneFiles({"/x/a.n"});
+        const QModelIndex fileIndex =
+            model.index(0, 0, model.index(0, 0));
+        QVERIFY(!(model.flags(fileIndex) & Qt::ItemIsEditable));
+        QVERIFY(!(model.flags(model.index(0, 0)) & Qt::ItemIsEditable));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestSolutionTreeModel)
