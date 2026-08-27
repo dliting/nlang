@@ -64,231 +64,246 @@
         <translation>&amp;Help</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="344"/>
-        <location filename="../ui/MainWindow.ui" line="352"/>
+        <location filename="../ui/MainWindow.ui" line="348"/>
+        <location filename="../ui/MainWindow.ui" line="356"/>
         <source>解决方案...</source>
         <translation>Solution...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="347"/>
+        <location filename="../ui/MainWindow.ui" line="351"/>
         <source>新建解决方案...</source>
         <translation>New Solution...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="355"/>
+        <location filename="../ui/MainWindow.ui" line="359"/>
         <source>打开解决方案...</source>
         <translation>Open Solution...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="360"/>
-        <location filename="../ui/MainWindow.ui" line="363"/>
+        <location filename="../ui/MainWindow.ui" line="364"/>
+        <location filename="../ui/MainWindow.ui" line="367"/>
         <source>保存解决方案</source>
         <translation>Save Solution</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="368"/>
-        <location filename="../ui/MainWindow.ui" line="371"/>
+        <location filename="../ui/MainWindow.ui" line="372"/>
+        <location filename="../ui/MainWindow.ui" line="375"/>
         <source>关闭解决方案</source>
         <translation>Close Solution</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="380"/>
-        <location filename="../ui/MainWindow.ui" line="395"/>
+        <location filename="../ui/MainWindow.ui" line="384"/>
+        <location filename="../ui/MainWindow.ui" line="399"/>
         <source>文件...</source>
         <translation>File...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="383"/>
+        <location filename="../ui/MainWindow.ui" line="387"/>
         <source>新建文件...</source>
         <translation>New File...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="386"/>
+        <location filename="../ui/MainWindow.ui" line="390"/>
         <source>Ctrl+N, Ctrl+F</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="398"/>
+        <location filename="../ui/MainWindow.ui" line="402"/>
         <source>打开文件...</source>
         <translation>Open File...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="401"/>
+        <location filename="../ui/MainWindow.ui" line="405"/>
         <source>Ctrl+O, Ctrl+F</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="410"/>
-        <location filename="../ui/MainWindow.ui" line="413"/>
+        <location filename="../ui/MainWindow.ui" line="414"/>
+        <location filename="../ui/MainWindow.ui" line="417"/>
         <source>保存文件</source>
         <translation>Save File</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="416"/>
+        <location filename="../ui/MainWindow.ui" line="420"/>
         <source>Ctrl+S</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="421"/>
-        <location filename="../ui/MainWindow.ui" line="424"/>
+        <location filename="../ui/MainWindow.ui" line="425"/>
+        <location filename="../ui/MainWindow.ui" line="428"/>
         <source>文件另存为...</source>
         <translation>Save File As...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="429"/>
-        <location filename="../ui/MainWindow.ui" line="432"/>
+        <location filename="../ui/MainWindow.ui" line="433"/>
+        <location filename="../ui/MainWindow.ui" line="436"/>
         <source>关闭文件</source>
         <translation>Close File</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="441"/>
-        <location filename="../ui/MainWindow.ui" line="453"/>
+        <location filename="../ui/MainWindow.ui" line="445"/>
+        <location filename="../ui/MainWindow.ui" line="457"/>
         <source>项目...</source>
         <translation>Project...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="444"/>
+        <location filename="../ui/MainWindow.ui" line="448"/>
         <source>新建项目...</source>
         <translation>New Project...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="456"/>
+        <location filename="../ui/MainWindow.ui" line="460"/>
         <source>打开项目...</source>
         <translation>Open Project...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="465"/>
-        <location filename="../ui/MainWindow.ui" line="468"/>
+        <location filename="../ui/MainWindow.ui" line="469"/>
+        <location filename="../ui/MainWindow.ui" line="472"/>
         <source>保存项目</source>
         <translation>Save Project</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="477"/>
-        <location filename="../ui/MainWindow.ui" line="480"/>
+        <location filename="../ui/MainWindow.ui" line="481"/>
+        <location filename="../ui/MainWindow.ui" line="484"/>
         <source>保存所有</source>
         <translation>Save All</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="483"/>
+        <location filename="../ui/MainWindow.ui" line="487"/>
         <source>Ctrl+Shift+S</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="488"/>
-        <location filename="../ui/MainWindow.ui" line="491"/>
+        <location filename="../ui/MainWindow.ui" line="492"/>
+        <location filename="../ui/MainWindow.ui" line="495"/>
         <source>关闭项目</source>
         <translation>Close Project</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="496"/>
+        <location filename="../ui/MainWindow.ui" line="500"/>
         <source>退出</source>
         <translation>Exit</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="499"/>
+        <location filename="../ui/MainWindow.ui" line="503"/>
         <source>退出程序</source>
         <translation>Exit the application</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="508"/>
-        <location filename="../ui/MainWindow.ui" line="511"/>
+        <location filename="../ui/MainWindow.ui" line="512"/>
+        <location filename="../ui/MainWindow.ui" line="515"/>
         <source>添加现有文件...</source>
         <translation>Add Existing File...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="514"/>
+        <location filename="../ui/MainWindow.ui" line="518"/>
         <source>Ctrl+Shift+E</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="523"/>
-        <location filename="../ui/MainWindow.ui" line="526"/>
+        <location filename="../ui/MainWindow.ui" line="527"/>
+        <location filename="../ui/MainWindow.ui" line="530"/>
         <source>添加新文件...</source>
         <translation>Add New File...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="535"/>
-        <location filename="../ui/MainWindow.ui" line="538"/>
+        <location filename="../ui/MainWindow.ui" line="539"/>
+        <location filename="../ui/MainWindow.ui" line="542"/>
         <source>从项目中移除文件...</source>
         <translation>Remove File from Project...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="541"/>
+        <location filename="../ui/MainWindow.ui" line="545"/>
         <source>Del</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="550"/>
-        <location filename="../ui/MainWindow.ui" line="553"/>
+        <location filename="../ui/MainWindow.ui" line="554"/>
+        <location filename="../ui/MainWindow.ui" line="557"/>
         <source>项目属性...</source>
         <translation>Project Properties...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="562"/>
+        <location filename="../ui/MainWindow.ui" line="566"/>
         <source>构建项目</source>
         <translation>Build Project</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="565"/>
+        <location filename="../ui/MainWindow.ui" line="569"/>
         <source>构建选定项目</source>
         <translation>Build the selected project</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="570"/>
+        <location filename="../ui/MainWindow.ui" line="574"/>
         <source>清除输出</source>
         <translation>Clear Output</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="573"/>
+        <location filename="../ui/MainWindow.ui" line="577"/>
         <source>清除输出窗口</source>
         <translation>Clear the output panes</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="582"/>
-        <location filename="../ui/MainWindow.ui" line="585"/>
+        <location filename="../ui/MainWindow.ui" line="586"/>
+        <location filename="../ui/MainWindow.ui" line="589"/>
         <source>开始运行</source>
         <translation>Start</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="588"/>
+        <location filename="../ui/MainWindow.ui" line="592"/>
         <source>F5</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="597"/>
-        <location filename="../ui/MainWindow.ui" line="600"/>
+        <location filename="../ui/MainWindow.ui" line="601"/>
+        <location filename="../ui/MainWindow.ui" line="604"/>
         <source>停止运行</source>
         <translation>Stop</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="611"/>
+        <location filename="../ui/MainWindow.ui" line="615"/>
         <source>解决方案视图</source>
         <translation>Solution Explorer</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="622"/>
+        <location filename="../ui/MainWindow.ui" line="626"/>
         <source>代码编辑器</source>
         <translation>Code Editor</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="633"/>
+        <location filename="../ui/MainWindow.ui" line="637"/>
         <source>输出窗口</source>
         <translation>Output</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="644"/>
+        <location filename="../ui/MainWindow.ui" line="648"/>
         <source>工具栏</source>
         <translation>Toolbar</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="649"/>
+        <location filename="../ui/MainWindow.ui" line="653"/>
         <source>关于(&amp;A)...</source>
         <translation>&amp;About...</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="652"/>
+        <location filename="../ui/MainWindow.ui" line="656"/>
         <source>关于 NLang IDE</source>
         <translation>About NLang IDE</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="661"/>
+        <source>NLang 入门(&amp;G)...</source>
+        <translation>NLang &amp;Getting Started...</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="666"/>
+        <source>语言规格(&amp;L)...</source>
+        <translation>&amp;Language Specification...</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="671"/>
+        <source>VM 架构(&amp;V)...</source>
+        <translation>&amp;VM Architecture...</translation>
     </message>
 </context>
 <context>
@@ -424,236 +439,249 @@
     </message>
 </context>
 <context>
+    <name>nlang::HelpWindow</name>
+    <message>
+        <location filename="../HelpWindow.cpp" line="43"/>
+        <source>NLang Documentation - %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../HelpWindow.cpp" line="61"/>
+        <source>The document &apos;%1&apos; was not found next to the IDE installation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>nlang::MainWindow</name>
     <message>
-        <location filename="../MainWindow.cpp" line="117"/>
+        <location filename="../MainWindow.cpp" line="118"/>
         <source>Ready</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="237"/>
-        <location filename="../MainWindow.cpp" line="329"/>
+        <location filename="../MainWindow.cpp" line="238"/>
+        <location filename="../MainWindow.cpp" line="330"/>
         <source>Solution1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="247"/>
+        <location filename="../MainWindow.cpp" line="248"/>
         <source>Open Solution</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="248"/>
+        <location filename="../MainWindow.cpp" line="249"/>
         <source>NLang Solution (*.nsln);;All Files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="253"/>
-        <location filename="../MainWindow.cpp" line="285"/>
-        <location filename="../MainWindow.cpp" line="359"/>
-        <location filename="../MainWindow.cpp" line="414"/>
-        <location filename="../MainWindow.cpp" line="479"/>
-        <location filename="../MainWindow.cpp" line="515"/>
-        <location filename="../MainWindow.cpp" line="544"/>
-        <location filename="../MainWindow.cpp" line="557"/>
-        <location filename="../MainWindow.cpp" line="566"/>
-        <location filename="../MainWindow.cpp" line="615"/>
-        <location filename="../MainWindow.cpp" line="635"/>
-        <location filename="../MainWindow.cpp" line="682"/>
-        <location filename="../MainWindow.cpp" line="728"/>
-        <location filename="../MainWindow.cpp" line="994"/>
-        <location filename="../MainWindow.cpp" line="1005"/>
-        <location filename="../MainWindow.cpp" line="1019"/>
-        <location filename="../MainWindow.cpp" line="1030"/>
+        <location filename="../MainWindow.cpp" line="254"/>
+        <location filename="../MainWindow.cpp" line="286"/>
+        <location filename="../MainWindow.cpp" line="360"/>
+        <location filename="../MainWindow.cpp" line="415"/>
+        <location filename="../MainWindow.cpp" line="480"/>
+        <location filename="../MainWindow.cpp" line="516"/>
+        <location filename="../MainWindow.cpp" line="545"/>
+        <location filename="../MainWindow.cpp" line="558"/>
+        <location filename="../MainWindow.cpp" line="567"/>
+        <location filename="../MainWindow.cpp" line="616"/>
+        <location filename="../MainWindow.cpp" line="636"/>
+        <location filename="../MainWindow.cpp" line="683"/>
+        <location filename="../MainWindow.cpp" line="729"/>
+        <location filename="../MainWindow.cpp" line="1020"/>
+        <location filename="../MainWindow.cpp" line="1036"/>
+        <location filename="../MainWindow.cpp" line="1050"/>
+        <location filename="../MainWindow.cpp" line="1061"/>
         <source>Error</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="275"/>
+        <location filename="../MainWindow.cpp" line="276"/>
         <source>Save Solution</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="275"/>
+        <location filename="../MainWindow.cpp" line="276"/>
         <source>Solution1.nsln</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="276"/>
+        <location filename="../MainWindow.cpp" line="277"/>
         <source>NLang Solution (*.nsln)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="308"/>
+        <location filename="../MainWindow.cpp" line="309"/>
         <source>Close Solution</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="309"/>
+        <location filename="../MainWindow.cpp" line="310"/>
         <source>The solution or its projects have unsaved changes. Save before closing?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="352"/>
+        <location filename="../MainWindow.cpp" line="353"/>
         <source>Open Project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="353"/>
+        <location filename="../MainWindow.cpp" line="354"/>
         <source>NLang Project (*.nproj);;All Files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="379"/>
+        <location filename="../MainWindow.cpp" line="380"/>
         <source>Close Project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="380"/>
+        <location filename="../MainWindow.cpp" line="381"/>
         <source>Project &apos;%1&apos; has unsaved changes. Save before closing?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="487"/>
+        <location filename="../MainWindow.cpp" line="488"/>
         <source>Open File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="488"/>
-        <location filename="../MainWindow.cpp" line="511"/>
-        <location filename="../MainWindow.cpp" line="609"/>
+        <location filename="../MainWindow.cpp" line="489"/>
+        <location filename="../MainWindow.cpp" line="512"/>
+        <location filename="../MainWindow.cpp" line="610"/>
         <source>NLang Source (*.n);;All Files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="510"/>
+        <location filename="../MainWindow.cpp" line="511"/>
         <source>Save File As</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="575"/>
+        <location filename="../MainWindow.cpp" line="576"/>
         <source>Close File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="576"/>
+        <location filename="../MainWindow.cpp" line="577"/>
         <source>&apos;%1&apos; has been modified. Save changes?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="608"/>
+        <location filename="../MainWindow.cpp" line="609"/>
         <source>Add Existing File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="878"/>
+        <location filename="../MainWindow.cpp" line="904"/>
         <source>Open</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="879"/>
+        <location filename="../MainWindow.cpp" line="905"/>
         <source>Rename (F2)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="880"/>
+        <location filename="../MainWindow.cpp" line="906"/>
         <source>Remove from Project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="906"/>
+        <location filename="../MainWindow.cpp" line="932"/>
         <source>Save</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="907"/>
+        <location filename="../MainWindow.cpp" line="933"/>
         <source>Save As...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="909"/>
+        <location filename="../MainWindow.cpp" line="935"/>
         <source>Rename...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="910"/>
+        <location filename="../MainWindow.cpp" line="936"/>
         <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="911"/>
+        <location filename="../MainWindow.cpp" line="937"/>
         <source>Close Others</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="929"/>
+        <location filename="../MainWindow.cpp" line="955"/>
         <source>Rename File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="929"/>
+        <location filename="../MainWindow.cpp" line="955"/>
         <source>New name:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1006"/>
+        <location filename="../MainWindow.cpp" line="1037"/>
         <source>&apos;%1&apos; already exists.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1020"/>
+        <location filename="../MainWindow.cpp" line="1051"/>
         <source>Cannot rename &apos;%1&apos; to &apos;%2&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="480"/>
-        <location filename="../MainWindow.cpp" line="616"/>
-        <location filename="../MainWindow.cpp" line="636"/>
+        <location filename="../MainWindow.cpp" line="481"/>
+        <location filename="../MainWindow.cpp" line="617"/>
+        <location filename="../MainWindow.cpp" line="637"/>
         <source>&apos;%1&apos; is already part of the project.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="683"/>
+        <location filename="../MainWindow.cpp" line="684"/>
         <source>Cannot create the output directory &apos;%1&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="699"/>
-        <location filename="../MainWindow.cpp" line="738"/>
+        <location filename="../MainWindow.cpp" line="700"/>
+        <location filename="../MainWindow.cpp" line="739"/>
         <source>Failed to start &apos;%1&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="711"/>
+        <location filename="../MainWindow.cpp" line="712"/>
         <source>Build succeeded</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="711"/>
+        <location filename="../MainWindow.cpp" line="712"/>
         <source>Build failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="729"/>
+        <location filename="../MainWindow.cpp" line="730"/>
         <source>&apos;%1&apos; does not exist. Build the project first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="767"/>
+        <location filename="../MainWindow.cpp" line="768"/>
         <source>The process crashed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="770"/>
+        <location filename="../MainWindow.cpp" line="771"/>
         <source>Program exited with code %1.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="838"/>
+        <location filename="../MainWindow.cpp" line="839"/>
         <source>About NLang IDE</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="839"/>
+        <location filename="../MainWindow.cpp" line="840"/>
         <source>NLang IDE
 The integrated development environment for the NLang scripting language.</source>
         <translation type="unfinished"></translation>
