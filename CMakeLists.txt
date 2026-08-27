@@ -105,7 +105,9 @@ install(DIRECTORY examples/ DESTINATION examples)
 # of the public package — they reference files the package doesn't ship.
 install(DIRECTORY docs/ DESTINATION docs
     PATTERN "superpowers" EXCLUDE
-    PATTERN "roadmap.md" EXCLUDE)
+    PATTERN "roadmap.md" EXCLUDE
+    PATTERN "ci_design.md" EXCLUDE
+    PATTERN "nide-file-rename-and-layout.md" EXCLUDE)
 install(FILES LICENSE README.md DESTINATION .)
 
 set(CPACK_PACKAGE_NAME "NLang")

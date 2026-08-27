@@ -34,12 +34,18 @@ BIN_FILES = [
     'platforms/qwindows.dll',
 ]
 ROOT_FILES = ['LICENSE', 'README.md']
-DOC_FILES = ['docs/language-spec.md', 'docs/vm-architecture.md']
+# All three ship: the nide Help menu opens them from <prefix>/docs.
+DOC_FILES = [
+    'docs/language-spec.md', 'docs/nlang-getting-started.md',
+    'docs/vm-architecture.md',
+]
 # Internal dev-process docs must not ship in the public package (roadmap
-# references spec files the package doesn't include); Qt debug plugin
-# variants must not either (release Qt has separate d-suffixed dlls).
+# and ci_design reference spec files the package doesn't include); Qt
+# debug plugin variants must not either (release Qt has separate
+# d-suffixed dlls).
 ABSENT_PATHS = [
-    'docs/superpowers', 'docs/roadmap.md', 'bin/platforms/qwindowsd.dll',
+    'docs/superpowers', 'docs/roadmap.md', 'docs/ci_design.md',
+    'docs/nide-file-rename-and-layout.md', 'bin/platforms/qwindowsd.dll',
 ]
 
 

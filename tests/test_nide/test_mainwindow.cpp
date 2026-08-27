@@ -1366,16 +1366,41 @@ private slots:
         QVERIFY(window.findChild<HelpWindow*>()->documentLoaded());
     }
 
+    //Identity of the reopened window is NOT asserted by pointer: the
+    //allocator may legally reuse the freed address (ABA). Destruction is
+    //proven by the QTRY isEmpty below; without WA_DeleteOnClose the
+    //window would survive it.
     void testHelpWindowCloseThenReopenCreatesFresh() {
         MainWindow window;
         act(window, "actHelpVmArch")->trigger();
         HelpWindow* first = window.findChildren<HelpWindow*>().at(0);
         QVERIFY(first != nullptr);
-        first->close();  // WA_DeleteOnClose -> deferred delete
+        first->close();  // closeEvent -> reject(); same delete path as Esc
         QTRY_VERIFY(window.findChildren<HelpWindow*>().isEmpty());
         act(window, "actHelpVmArch")->trigger();
         QCOMPARE(window.findChildren<HelpWindow*>().size(), 1);
-        QVERIFY(window.findChildren<HelpWindow*>().at(0) != first);
+        QVERIFY(window.findChildren<HelpWindow*>().at(0)->documentLoaded());
+    }
+
+    //Esc dismisses a QDialog via reject() -> done(), and done() runs the
+    //same WA_DeleteOnClose handling as close() (QDialogPrivate::hide
+    //calls close_helper, Qt 5.15 qdialog.cpp): the window is destroyed
+    //either way and the menu action then opens a fresh one. The event
+    //loop spin below mirrors the real user gap in which deleteLater runs.
+    //Fresh-object identity is NOT asserted by pointer: the allocator may
+    //reuse the freed address. The QTRY isEmpty above is the load-bearing
+    //check (without WA_DeleteOnClose the window would survive it).
+    void testHelpWindowEscDismissThenReopenCreatesFresh() {
+        MainWindow window;
+        act(window, "actHelpGettingStarted")->trigger();
+        HelpWindow* first = window.findChildren<HelpWindow*>().at(0);
+        QVERIFY(first != nullptr);
+        first->reject();
+        QVERIFY(!first->isVisible());
+        QTRY_VERIFY(window.findChildren<HelpWindow*>().isEmpty());
+        act(window, "actHelpGettingStarted")->trigger();
+        QCOMPARE(window.findChildren<HelpWindow*>().size(), 1);
+        QVERIFY(window.findChildren<HelpWindow*>().at(0)->isVisible());
         QVERIFY(window.findChildren<HelpWindow*>().at(0)->documentLoaded());
     }
 

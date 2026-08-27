@@ -265,9 +265,14 @@ def main():
                         errors.append(f"    stderr: {stderr_text.splitlines()[0]}")
                 continue
 
+            #Pass-1 (manifest.txt) entries only. The examples pass always
+            #runs with CWD = its own scratch dir, and a future example
+            #whose name happens to start with one of the prefixes below
+            #must not churn the phase scratch dirs mid-pass.
+            needs_script_cwd = out_dir == SCRIPT_DIR and _needs_script_cwd(name)
             #Phase 8/11: ensure the scratch dirs exist and are clean for
             #file-path tests (file_stream_*/fs_*_*/stdlib_io_*/stdlib_fs_*).
-            if _needs_script_cwd(name):
+            if needs_script_cwd:
                 if os.path.isdir(PHASE8_TMP):
                     shutil.rmtree(PHASE8_TMP)
                 os.makedirs(PHASE8_TMP, exist_ok=True)
@@ -330,7 +335,7 @@ def main():
             # Run
             #Phase 8/11: file-path tests need CWD = tests/e2e/ so their
             #relative paths (_phase8_tmp/..., _p11_tmp/...) resolve.
-            run_cwd = SCRIPT_DIR if _needs_script_cwd(name) else None
+            run_cwd = SCRIPT_DIR if needs_script_cwd else None
             #Shipped examples always run in the scratch dir: several
             #write files next to their CWD (fs_example/, io_example.txt).
             run_cwd = out_dir if out_dir != SCRIPT_DIR else run_cwd

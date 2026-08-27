@@ -106,6 +106,10 @@ deterministic PRNG — are in the Standard Library chapter of
 `docs/language-spec.md`; runnable copies of the example live in
 `examples/stdlib_*.n`.
 
+New to NLang? `docs/nlang-getting-started.md` walks the language, the CLI
+and the IDE in one page (it is also reachable from the nide Help menu);
+`examples/README.md` indexes every runnable example.
+
 ## IDE (nide)
 
 ```bash
