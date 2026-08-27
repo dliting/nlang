@@ -1,0 +1,7 @@
+# Pinned toolchain for the mkdocs documentation site (CMake target
+# nlang_docs). One-time setup into the conda env:
+#   pip install -r tools/docs-requirements.txt
+# Configure the build with the same interpreter:
+#   -DNLANG_DOCS_PYTHON=<env>/python.exe
+mkdocs==1.6.1
+mkdocs-material==9.7.7

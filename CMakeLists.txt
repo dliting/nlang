@@ -69,6 +69,47 @@ if(NLANG_BUILD_IDE)
     add_subdirectory(src/tools/nide)
 endif()
 
+# --- Static documentation site (mkdocs) --------------------------------------
+# Defined BEFORE add_subdirectory(tests): test targets hook a dependency on
+# nlang_docs via if(TARGET nlang_docs), which only sees targets defined at
+# that point (Task 5 wiring in tests/CMakeLists.txt).
+option(NLANG_BUILD_DOCS
+    "Build the mkdocs documentation site (needs the pinned Python env)"
+    ON)
+set(NLANG_DOCS_PYTHON "python" CACHE STRING
+    "Python interpreter for the mkdocs docs target (py313's python.exe)")
+if(NLANG_BUILD_DOCS)
+    #Fail fast with a pointed hint instead of a Python stack trace at
+    #build time when the pinned env is missing.
+    execute_process(
+        COMMAND ${NLANG_DOCS_PYTHON} -m mkdocs --version
+        RESULT_VARIABLE NLANG_MKDOCS_PROBE
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT NLANG_MKDOCS_PROBE EQUAL 0)
+        message(FATAL_ERROR
+            "NLANG_BUILD_DOCS needs mkdocs in '${NLANG_DOCS_PYTHON}': "
+            "pip install -r tools/docs-requirements.txt "
+            "(or configure with -DNLANG_BUILD_DOCS=OFF)")
+    endif()
+    #ALL + no OUTPUT: every build reruns mkdocs once (seconds of Python
+    #startup, accepted; add a stamp file if it ever becomes a pain).
+    add_custom_target(nlang_docs ALL
+        COMMAND ${NLANG_DOCS_PYTHON} -m mkdocs build --strict
+                -f ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.yml
+                -d ${CMAKE_CURRENT_BINARY_DIR}/docs/site
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.yml
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/index.md
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/language-spec.md
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/nlang-getting-started.md
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/vm-architecture.md
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "mkdocs: building docs site"
+        VERBATIM)
+    # The package ships the generated site, not the markdown sources.
+    install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/docs/site/
+            DESTINATION docs/site)
+endif()
+
 if(NLANG_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
@@ -101,13 +142,6 @@ if(NLANG_BUILD_IDE)
 endif()
 
 install(DIRECTORY examples/ DESTINATION examples)
-# Internal dev-process docs (specs/plans, phase-history roadmap) stay out
-# of the public package — they reference files the package doesn't ship.
-install(DIRECTORY docs/ DESTINATION docs
-    PATTERN "superpowers" EXCLUDE
-    PATTERN "roadmap.md" EXCLUDE
-    PATTERN "ci_design.md" EXCLUDE
-    PATTERN "nide-file-rename-and-layout.md" EXCLUDE)
 install(FILES LICENSE README.md DESTINATION .)
 
 set(CPACK_PACKAGE_NAME "NLang")
