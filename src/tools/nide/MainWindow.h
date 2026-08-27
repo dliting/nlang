@@ -227,6 +227,17 @@ private:
     //--- build / run ---
     void buildProject(ProjectNode& project);
     void runProject(ProjectNode& project);
+    //Standalone .n target: the selected standalone tree row, or -- when the
+    //tree points at no project/standalone row -- the active editor tab if
+    //it is an untracked file. A project target always wins over either.
+    QString currentStandaloneTarget() const;
+    //ncc build <file> -o <nmod> into the temp dir; false when ncc fails.
+    bool buildStandaloneFile(const QString& filePath);
+    //Auto-build first when the nmod is missing or older than the source,
+    //then run it with nvm from the temp dir.
+    void runStandaloneFile(const QString& filePath);
+    //%TEMP%/nlang-nide/<stem>.nmod -- one slot per file stem.
+    QString standaloneNmodPath(const QString& filePath) const;
     //Bring the output pane up (it may be toggled off) and switch to the
     //given page.
     void showOutputPage(QWidget* page);

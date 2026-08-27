@@ -14,6 +14,7 @@
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -664,8 +665,13 @@ void MainWindow::on_actProjectProp_triggered() {
 
 void MainWindow::on_actBuild_triggered() {
     ProjectNode* project = currentProject();
-    if (project != nullptr)
+    if (project != nullptr) {
         buildProject(*project);
+        return;
+    }
+    const QString standalone = currentStandaloneTarget();
+    if (!standalone.isEmpty())
+        buildStandaloneFile(standalone);
 }
 
 void MainWindow::buildProject(ProjectNode& project) {
@@ -750,8 +756,96 @@ void MainWindow::runProject(ProjectNode& project) {
 
 void MainWindow::on_actStartRunning_triggered() {
     ProjectNode* project = currentProject();
-    if (project != nullptr)
+    if (project != nullptr) {
         runProject(*project);
+        return;
+    }
+    const QString standalone = currentStandaloneTarget();
+    if (!standalone.isEmpty())
+        runStandaloneFile(standalone);
+}
+
+QString MainWindow::currentStandaloneTarget() const {
+    SolutionTreeItem* item =
+        m_solutionTree->itemAt(m_ui->tvwSolution->currentIndex());
+    if (item != nullptr &&
+        item->nodeType() == SolutionTreeItem::NT_StandaloneFile)
+        return item->standalonePath();
+    if (currentProject() != nullptr)
+        return QString();  // the project target wins (spec 3.4)
+    //Tree points at no project/standalone row: fall back to the active
+    //editor when no project tracks its file.
+    FileEditor* editor = currentEditor();
+    if (editor != nullptr &&
+        findFileNodeByPath(editor->filePath()) == nullptr)
+        return editor->filePath();
+    return QString();
+}
+
+bool MainWindow::buildStandaloneFile(const QString& filePath) {
+    //The target's editor must not sit on unsaved edits (buildProject
+    //saves the project's files for the same reason).
+    FileEditor* editor = m_editors.find(filePath);
+    if (editor != nullptr && editor->dirty() && !saveEditor(editor))
+        return false;
+
+    //No ProjectNode to resolve relative paths in diagnostics.
+    m_ui->txtCompileOut->setProject(nullptr);
+    m_ui->txtCompileOut->clear();
+    showOutputPage(m_ui->tabCompileOut);
+
+    const QString output = standaloneNmodPath(filePath);
+    QProcess ncc(this);
+    ncc.setProcessChannelMode(QProcess::MergedChannels);
+    ncc.setWorkingDirectory(QFileInfo(filePath).absolutePath());
+    ncc.start(toolPath("ncc"), {"build", filePath, "-o", output});
+    QString log;
+    bool succeeded = false;
+    if (!ncc.waitForStarted(-1)) {
+        log = tr("Failed to start '%1'.").arg(toolPath("ncc"));
+    } else {
+        ncc.waitForFinished(-1);
+        log = QString::fromLocal8Bit(ncc.readAll());
+        //Read the exit state only after a real run (same trap as
+        //buildProject: a failed start would fake success here).
+        succeeded = ncc.exitStatus() == QProcess::NormalExit
+            && ncc.exitCode() == 0;
+    }
+    m_ui->txtCompileOut->append(log);
+    m_ui->statusBar->showMessage(
+        succeeded ? tr("Build succeeded") : tr("Build failed"));
+    return succeeded;
+}
+
+void MainWindow::runStandaloneFile(const QString& filePath) {
+    if (m_executed.state() != QProcess::NotRunning)
+        return;
+    //A dirty editor must not run as the stale on-disk build.
+    FileEditor* editor = m_editors.find(filePath);
+    if (editor != nullptr && editor->dirty() && !saveEditor(editor))
+        return;
+    const QString output = standaloneNmodPath(filePath);
+    //D2: unlike the project Run (which asks for a manual build first),
+    //a missing/outdated module is rebuilt here automatically.
+    if (!QFileInfo::exists(output) ||
+        QFileInfo(output).lastModified() <
+            QFileInfo(filePath).lastModified()) {
+        if (!buildStandaloneFile(filePath))
+            return;
+    }
+    m_ui->txtExecuteOut->clear();
+    showOutputPage(m_ui->tabExecuteOut);
+    //Run from the module's dir: an example writing files stays inside
+    //the temp area (never the install dir); no example needs the
+    //source dir as CWD (the e2e suite proves that).
+    m_executed.setWorkingDirectory(QFileInfo(output).absolutePath());
+    m_executed.start(toolPath("nvm"), {output});
+    if (!m_executed.waitForStarted(-1)) {
+        m_ui->txtExecuteOut->append(
+            tr("Failed to start '%1'.").arg(toolPath("nvm")));
+        return;
+    }
+    updateMenuState();  // Running now: Start off, Stop on
 }
 
 void MainWindow::on_actStopRunning_triggered() {
@@ -784,6 +878,15 @@ QString MainWindow::outputFilePath(const ProjectNode& project) const {
         ? project.projectDir()
         : project.absolutePathOf(project.outputDir());
     return QDir(dir).filePath(project.name() + ".nmod");
+}
+
+QString MainWindow::standaloneNmodPath(const QString& filePath) const {
+    //Per-user temp area: the examples dir may be read-only (installed
+    //layout) and we never write next to the source.
+    const QString dir = QDir(QDir::temp()).filePath("nlang-nide");
+    QDir().mkpath(dir);
+    return QDir(dir).filePath(
+        QFileInfo(filePath).completeBaseName() + ".nmod");
 }
 
 QString MainWindow::toolPath(const QString& toolName) const {
@@ -1174,13 +1277,16 @@ void MainWindow::updateMenuState() {
     m_ui->actAddNewFile->setEnabled(hasProject);
     m_ui->actRemoveFile->setEnabled(file != nullptr);
     m_ui->actProjectProp->setEnabled(hasProject);
-    m_ui->actBuild->setEnabled(hasProject);
+    //A project OR a standalone .n target can be built.
+    const bool hasStandaloneTarget = !currentStandaloneTarget().isEmpty();
+    const bool canBuild = hasProject || hasStandaloneTarget;
+    m_ui->actBuild->setEnabled(canBuild);
 
-    //Run lifecycle: Start needs a project AND an idle process; Stop is
-    //live exactly while the process runs.
+    //Run lifecycle: Start needs a build target AND an idle process; Stop
+    //is live exactly while the process runs.
     const bool running =
         m_executed.state() != QProcess::NotRunning;
-    m_ui->actStartRunning->setEnabled(hasProject && !running);
+    m_ui->actStartRunning->setEnabled(canBuild && !running);
     m_ui->actStopRunning->setEnabled(running);
 
     const bool hasSolution = m_solutionTree->hasSolution();

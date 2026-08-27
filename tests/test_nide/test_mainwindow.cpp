@@ -30,6 +30,7 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextBrowser>
+#include <QTextEdit>
 #include <QTextLayout>
 #include <QTimer>
 #include <QTreeView>
@@ -1098,6 +1099,105 @@ private slots:
         //so its failure lands on THIS test instead of the next one.
         QTest::qWait(1);
         QCOMPARE(tabCodes(window)->count(), 1);  // untouched
+    }
+
+    //--- standalone build / run ---
+
+    void testBuildActionsFollowStandaloneTarget() {
+        MainWindow window;
+        QVERIFY(!act(window, "actBuild")->isEnabled());
+        QVERIFY(!act(window, "actStartRunning")->isEnabled());
+
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo_enable.n");
+        writeFile(path, kMainSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        QVERIFY(act(window, "actBuild")->isEnabled());
+        QVERIFY(act(window, "actStartRunning")->isEnabled());
+
+        QMetaObject::invokeMethod(&window, "on_tabCodes_tabCloseRequested",
+                                  Q_ARG(int, 0));
+        QVERIFY(!act(window, "actBuild")->isEnabled());
+        QVERIFY(!act(window, "actStartRunning")->isEnabled());
+    }
+
+    void testBuildStandaloneFileWritesTempNmod() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo_build.n");
+        writeFile(path, kMainSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actBuild")->trigger();  // synchronous QProcess
+
+        const QString nmod = QDir(QDir::temp())
+            .filePath("nlang-nide/solo_build.nmod");
+        QVERIFY(QFileInfo::exists(nmod));
+        QFile::remove(nmod);  // scratch cleanup
+    }
+
+    void testBuildStandaloneDiagnosticsReachOutput() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo_bad.n");
+        writeFile(path, "public int main() {\n    return oops\n}\n");
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actBuild")->trigger();
+        //ncc diagnoses on stderr: only MergedChannels brings the text
+        //into the pane (same trap as the project build).
+        QTextEdit* out = window.findChild<QTextEdit*>("txtCompileOut");
+        QVERIFY(out != nullptr);
+        QVERIFY(out->toPlainText().contains("Error", Qt::CaseInsensitive));
+    }
+
+    void testRunStandaloneFileAutoBuildsAndExits() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo_run.n");
+        writeFile(path, kMainSource);  // exit code 42
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+
+        const QString nmod =
+            QDir(QDir::temp()).filePath("nlang-nide/solo_run.nmod");
+        QFile::remove(nmod);  // force the auto-build path (D2)
+        act(window, "actStartRunning")->trigger();
+
+        QTextEdit* out = window.findChild<QTextEdit*>("txtExecuteOut");
+        QVERIFY(out != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            out->toPlainText().contains("exited with code 42"), 30000);
+        QFile::remove(nmod);
+    }
+
+    void testTreeSelectedStandaloneRowWinsOverActiveEditor() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString pathA = QDir(dir.path()).filePath("solo_sel_a.n");
+        const QString pathB = QDir(dir.path()).filePath("solo_sel_b.n");
+        writeFile(pathA, kMainSource);
+        writeFile(pathB, kMainSource);
+        inExec([&pathA] { acceptFileDialog(pathA); });
+        act(window, "actOpenFile")->trigger();
+        inExec([&pathB] { acceptFileDialog(pathB); });
+        act(window, "actOpenFile")->trigger();  // B is the active editor
+        const QString nmodA = QDir(QDir::temp())
+            .filePath("nlang-nide/solo_sel_a.nmod");
+        const QString nmodB = QDir(QDir::temp())
+            .filePath("nlang-nide/solo_sel_b.nmod");
+
+        //Select A's row in the tree: it wins over the active editor
+        //(spec 3.4: rule 2 beats rule 3).
+        QAbstractItemModel* model = solutionView(window)->model();
+        solutionView(window)->setCurrentIndex(
+            model->index(0, 0, model->index(0, 0)));
+        act(window, "actBuild")->trigger();
+
+        QVERIFY(QFileInfo::exists(nmodA));
+        QVERIFY(!QFileInfo::exists(nmodB));
+        QFile::remove(nmodA);
     }
 
     //--- layout ---
