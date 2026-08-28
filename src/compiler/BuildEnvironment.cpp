@@ -5,6 +5,7 @@
 
 #include "BuildEnvironment.h"
 #include "SnExtraTypes.h"
+#include "builder/ModuleRegistry.h"
 #include <cstdarg>
 
 #ifdef NLANG_ENABLE_LLVM
@@ -17,7 +18,8 @@ namespace nlang
 
 BuildEnvironment::BuildEnvironment(const BuildParams& params,
 	CompileLogger& logger):
-	m_Params(params), m_Logger(logger), m_pCurrModule(nullptr)
+	m_Params(params), m_Logger(logger), m_pCurrModule(nullptr),
+	m_upRegistry(std::make_unique<ModuleRegistry>())
 #ifdef NLANG_ENABLE_LLVM
 	, m_pCurrMetaModule(nullptr)
 #endif
@@ -31,6 +33,11 @@ BuildEnvironment::~BuildEnvironment()
 #ifdef NLANG_ENABLE_LLVM
 	delete m_pCurrMetaModule;
 #endif
+}
+
+ModuleRegistry& BuildEnvironment::Registry()
+{
+	return *m_upRegistry;
 }
 
 void BuildEnvironment::Log(CompileLogLevel level, const char* szFormat, ...)

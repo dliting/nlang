@@ -14,6 +14,10 @@
 namespace nlang
 {
 
+//Internal builder type (src/compiler/builder/ModuleRegistry.h); opaque
+//in this public header.
+class ModuleRegistry;
+
 //A tool for compiling some nlang source files to a binary module.
 class NLANG_COMPILER_API ModuleBuilder
 {
@@ -24,6 +28,10 @@ public:
 
 	//Compile source files to a module file.
 	bool Build();
+
+	//Compile-time module registry; populated with one entry per
+	//translation unit (and per imported .nmod) during Build().
+	const ModuleRegistry& Registry() const;
 private:
 	//Get the root of the syntax tree.
 	SnNamespace &TreeRoot()

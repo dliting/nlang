@@ -202,6 +202,9 @@ int main(int argc, char* argv[]) {
     if (!projectFile.empty()) {
         for (const auto& s : project.sources)
             params.m_SourceFiles.push_back(s);
+        //Project mode: module paths are computed relative to the
+        //.nproj directory (utils/helper.n -> "utils.helper").
+        params.m_sProjectDir = project.projectDir;
     } else {
         params.m_SourceFiles.push_back(sourceFile);
     }

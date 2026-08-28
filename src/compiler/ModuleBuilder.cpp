@@ -8,6 +8,7 @@
 #include "ScriptParser.h"
 #include "SyntaxTree.h"
 #include "builder/ExprResolver.h"
+#include "builder/ModuleRegistry.h"
 #include "builder/ImportedNodeBuilder.hpp"
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/DuplicateFieldChecker.hpp"
@@ -61,6 +62,11 @@ ModuleBuilder::~ModuleBuilder()
 	TheAST().Clear();
 }
 
+const ModuleRegistry& ModuleBuilder::Registry() const
+{
+	return m_upEnv->Registry();
+}
+
 bool ModuleBuilder::Build()
 {
 	if (!CreateModule())
@@ -78,6 +84,26 @@ bool ModuleBuilder::Build()
 	ParseTransUnits();
 	if (m_upEnv->HasError())
 		return false;
+
+	//Register every TU's module path (owner tagging happens in
+	//MergeTransUnits; import gates in LoadImports — both later).
+	//Reset first: a second Build() on the same builder must not append
+	//to the previous run's entries (whose owner tags point into its
+	//destroyed AST).
+	ModuleRegistry& reg = m_upEnv->Registry();
+	reg.Reset();
+	std::vector<std::string> regErrors;
+	uint32_t moduleIndex = 0;
+	for (auto pTransUnit : *m_upTransUnits)
+	{
+		if (!reg.RegisterUnit(moduleIndex++, *pTransUnit,
+				m_upEnv->Params().m_sProjectDir, regErrors))
+		{
+			for (const auto& error : regErrors)
+				m_upEnv->Log(CLL_Error, "%s", error.c_str());
+			return false;
+		}
+	}
 
 	//Phase 13: type alias pre-pass — must run before the units are merged
 	//(alias scope is the translation unit; the merge clears unit roots).

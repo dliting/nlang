@@ -50,6 +50,7 @@ add_library(nlang_compiler
     SnMisc.cpp
     Utils.cpp
     builder/ExprResolver.cpp
+    builder/ModuleRegistry.cpp
 )
 
 target_include_directories(nlang_compiler

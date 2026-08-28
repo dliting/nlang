@@ -123,6 +123,35 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(import_parse_tests test_import_parse)
 
+    # Module registry unit tests (module import visibility Task 2):
+    # per-TU module path computation relative to the project root, the
+    # single-file stem fallback and the reserved segment gate, driven
+    # in-process through ModuleBuilder (plus one internal header, see
+    # the include dir below).
+    add_executable(test_module_import
+        test_compiler/test_module_import.cpp
+    )
+    #ModuleRegistry.h lives in the compiler's internal builder dir (the
+    #registry is opaque in the public headers).
+    target_include_directories(test_module_import
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_module_import
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_module_import POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_module_import>)
+    endif()
+    nlang_add_qtest(module_import_tests test_module_import)
+
     add_executable(test_projectmodel
         test_nide/test_projectmodel.cpp
     )

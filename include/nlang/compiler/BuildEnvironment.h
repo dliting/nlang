@@ -45,6 +45,10 @@ struct BuildParams
 	std::string m_sOutputDir;
 	//The directory for temporary files.
 	std::string m_sTempDir;
+	//Project root directory (ncc -p mode). Module paths of source
+	//files are computed relative to this (utils/helper.n →
+	//"utils.helper"); empty in single-file mode (stem only).
+	std::string m_sProjectDir;
 };
 
 //Enumerate flags of module building.
@@ -61,6 +65,9 @@ typedef uint8 ModuleBuildFlagBits;
 
 class Module;
 class TranslationUnit;
+//Internal builder type (src/compiler/builder/ModuleRegistry.h); opaque
+//in this public header.
+class ModuleRegistry;
 
 //The context during building a nlang module.
 class NLANG_COMPILER_API BuildEnvironment : public Flagable<ModuleBuildFlagBits>
@@ -75,6 +82,9 @@ public:
 	{
 		return m_Params;
 	}
+
+	//Compile-time module registry (internal type, opaque here).
+	ModuleRegistry& Registry();
 
 	//Get the current module been compiled.
 	Module* CurrModule() const
@@ -128,6 +138,7 @@ private:
 	llvm::Module *m_pCurrMetaModule;
 #endif
 	std::unique_ptr<ICodeBackend> m_upBackend;
+	std::unique_ptr<ModuleRegistry> m_upRegistry;
 };
 
 }
