@@ -366,15 +366,18 @@ std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 		}
 		//Project module: same-name functions owned by this module among
 		//the merged root's top-level members (owner tags land in
-		//MergeTransUnits). Namespaces are out of the v1 surface.
+		//MergeTransUnits). Namespaces are out of the v1 surface. The name
+		//dictionary keeps the candidate lookup off a linear scan (same
+		//pattern as FindFuncByInvoke's scope search).
 		std::vector<SnFunction*> owned;
 		SnNamespace* pRoot = TheAST().Root();
 		if (pRoot == nullptr)
 			return owned;
-		for (SnField& member : pRoot->Members())
+		auto range = pRoot->Members().NameDict().equal_range(calleeName);
+		for (auto iField = range.first; iField != range.second; ++iField)
 		{
+			SnField& member = *iField->second;
 			if (member.Kind() == NK_Function
-				&& member.Name() == calleeName
 				&& OwnerOf(member) == i)
 				owned.push_back(static_cast<SnFunction*>(&member));
 		}

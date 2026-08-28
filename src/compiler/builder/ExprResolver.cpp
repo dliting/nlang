@@ -1323,8 +1323,11 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		//only add "Cannot resolve the field" for the leftmost identifier.
 		if (modulePath.find('.') == std::string::npos)
 		{
-			//Single-segment (external .nmod): a wildcard can never reach
-			//it (§3.3), so only the exact form is suggested.
+			//Single-segment path. Only the EXTERNAL .nmod case is why no
+			//wildcard is suggested — a wildcard never matches an external
+			//single-segment name (§3.3). A project ROOT module would
+			//additionally be reachable via `import <name>.*;` (D11 union);
+			//the exact form always suffices, so the message stays minimal.
 			m_Env.Log(CLL_Error, snMember.Location(),
 				"Module '%s' is not imported. Add 'import %s;' at the top "
 				"of this file.", modulePath.c_str(), modulePath.c_str());
@@ -1361,7 +1364,9 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		reg.ModuleFunctions(modulePath, invoke.CalleeName());
 	SnFunction *pCallee = nullptr;
 	std::vector<FormalBinding> bindings;
-	auto res = MatchInvokeAgainst(invoke, candidates, pCallee, bindings);
+	bool bAmbiguous = false;
+	auto res = MatchInvokeAgainst(invoke, candidates, pCallee, bindings,
+		bAmbiguous);
 	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
 	{
 		bool bNameMatchedImported = false;
@@ -3077,38 +3082,13 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	pFuncFound = nullptr;
 	rbNameMatchedImported = false;
 	const bool bSearchInAncestor = !ContainFlags(ERF_SearchInParentOnly);
-	bool bFoundByName = false;
 	bool bImportedMatch = false;
 	auto &sFuncName = invoke.CalleeName();
 
-	//Best candidate across all scanned scopes.
-	int nBestDistance = -1;
-	bool bAmbiguous = false;
-	SnFunction *pBest = nullptr;
-	std::vector<FormalBinding> bestBindings;
-
-	//Evaluate a single candidate. Returns true if candidate is viable
-	//(non-negative distance). Updates pBest/nBestDistance/bAmbiguous.
-	auto consider = [&](SnFunction *pFunc) {
-		std::vector<FormalBinding> tryBind;
-		if (!TryBindInvoke(invoke, *pFunc, tryBind))
-			return;
-		int n = ComputeBindingDistance(tryBind);
-		if (n < 0)
-			return;
-		if (nBestDistance < 0 || n < nBestDistance)
-		{
-			nBestDistance = n;
-			pBest = pFunc;
-			bestBindings = std::move(tryBind);
-			bAmbiguous = false;
-		}
-		else if (n == nBestDistance)
-		{
-			//Tie at the smallest viable distance — ambiguous.
-			bAmbiguous = true;
-		}
-	};
+	//Collect the same-name accessible candidates along the scope chain;
+	//the bind/distance core itself is shared with the module-qualified
+	//call path via MatchInvokeAgainst below.
+	std::vector<SnFunction*> candidates;
 
 	//Search a single scope's NameDict for matching functions.
 	auto searchScope = [&](SnFunctionParentField& parent) {
@@ -3124,9 +3104,7 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 
 			if (pFunc->ContainFlags(NF_Imported))
 				bImportedMatch = true;
-			if (!bFoundByName)
-				bFoundByName = true;
-			consider(pFunc);
+			candidates.push_back(pFunc);
 		}
 	};
 
@@ -3140,10 +3118,10 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 
 			//For class contexts, also search the inheritance chain
 			//when the method is not found in the current class's Members().
-			if (pParent->Kind() == NK_ClassDecl && !bFoundByName)
+			if (pParent->Kind() == NK_ClassDecl && candidates.empty())
 			{
 				auto *pSuper = static_cast<SnClassDecl*>(pParent)->SuperClass();
-				while (pSuper && !bFoundByName)
+				while (pSuper && candidates.empty())
 				{
 					searchScope(*pSuper);
 					pSuper = pSuper->SuperClass();
@@ -3171,9 +3149,7 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 					continue;
 				if (pFunc->ContainFlags(NF_Imported))
 					bImportedMatch = true;
-				if (!bFoundByName)
-					bFoundByName = true;
-				consider(pFunc);
+				candidates.push_back(pFunc);
 			}
 			if (!bSearchInAncestor)
 				break;
@@ -3181,10 +3157,14 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 		pParent = pParent->Parent();
 	}
 
-	if (!bFoundByName)
-		return FFR_FuncNameNotFound;
-
-	if (nBestDistance < 0)
+	//One matching core for both call paths; the ambiguity log lives there.
+	//rbNameMatchedImported stays reserved for the no-viable-bind verdict
+	//(the ambiguity report is complete on its own) — the distinction is
+	//observable through the imported-argument diagnostic.
+	bool bAmbiguous = false;
+	auto res = MatchInvokeAgainst(invoke, candidates, pFuncFound,
+		outBindings, bAmbiguous);
+	if (res == FFR_Incompatible && !bAmbiguous)
 	{
 		//At least one candidate matched by name but none could bind.
 		//Surface whether an imported stub was among them — its parameter
@@ -3192,45 +3172,33 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 		//mean the compiler could not see the real signature.
 		pFuncFound = nullptr;
 		rbNameMatchedImported = bImportedMatch;
-		return FFR_Incompatible;
 	}
-
-	if (bAmbiguous)
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"ambiguous call to function \"%s\": multiple overloads match "
-			"with equal distance.",
-			sFuncName.c_str());
-		pFuncFound = nullptr;
-		return FFR_Incompatible;
-	}
-
-	pFuncFound = pBest;
-	outBindings = std::move(bestBindings);
-	return (nBestDistance == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
+	return res;
 }
 
-//M3b: the TryBindInvoke / type-distance core of FindFuncByInvoke, over a
-//caller-supplied candidate set (the scope-chain walk stays in
-//FindFuncByInvoke; the module-qualified path feeds its own candidates).
-//Silent on not-found / incompatible — the caller reports those with its
-//own context; only the ambiguity error is logged here, being
-//candidate-set independent. pFunc is nulled on every failure path.
+//M3b: the TryBindInvoke / type-distance core of FindFuncByInvoke — the
+//single matching implementation shared by the bare path (candidates
+//collected along the scope chain there) and the module-qualified path
+//(candidates from the module table). Silent on not-found / incompatible
+//— the caller reports those with its own context; the ambiguity error
+//is logged HERE (candidate-set independent) and reported through
+//rbAmbiguous so callers can tell it apart from a no-viable-bind
+//Incompatible. pFunc is nulled on every failure path.
 FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 	const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
-	std::vector<FormalBinding> &outBindings)
+	std::vector<FormalBinding> &outBindings, bool &rbAmbiguous)
 {
 	pFunc = nullptr;
+	rbAmbiguous = false;
 	if (candidates.empty())
 		return FFR_FuncNameNotFound;
 
 	int nBestDistance = -1;
-	bool bAmbiguous = false;
 	SnFunction *pBest = nullptr;
 	std::vector<FormalBinding> bestBindings;
 
-	//Same evaluation rule as FindFuncByInvoke: bind, then keep the
-	//strictest viable distance; an equal-distance tie is ambiguous.
+	//Bind, then keep the strictest viable distance; a tie at the
+	//smallest viable distance is ambiguous.
 	auto consider = [&](SnFunction *pCandidate) {
 		std::vector<FormalBinding> tryBind;
 		if (!TryBindInvoke(invoke, *pCandidate, tryBind))
@@ -3243,11 +3211,11 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 			nBestDistance = n;
 			pBest = pCandidate;
 			bestBindings = std::move(tryBind);
-			bAmbiguous = false;
+			rbAmbiguous = false;
 		}
 		else if (n == nBestDistance)
 		{
-			bAmbiguous = true;
+			rbAmbiguous = true;
 		}
 	};
 
@@ -3256,7 +3224,7 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 
 	if (nBestDistance < 0)
 		return FFR_Incompatible;
-	if (bAmbiguous)
+	if (rbAmbiguous)
 	{
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"ambiguous call to function \"%s\": multiple overloads match "

@@ -235,28 +235,32 @@ private:
 	Precondition: the parameters in the invoke expression are all resolved.
 	On ExactMatch / ApproximateMatch, outBindings is filled with per-formal
 	binding decisions (Phase 9c).
-	Phase 13: rbNameMatchedImported is set when any candidate matching the
-	callee NAME carries NF_Imported — only meaningful on FFR_Incompatible
-	(pFunc is nulled on that path by contract), where it lets the caller
-	report the imported-arg rejection reason instead of a generic message.
-	Delegates the matching itself to MatchInvokeAgainst after collecting
-	the same-name candidates along the scope chain.
+	Phase 13: rbNameMatchedImported is set when a no-viable-bind
+	FFR_Incompatible had an NF_Imported candidate among the name-matched
+	set (NOT on the ambiguity verdict, whose report is complete on its
+	own) — it lets the caller report the imported-arg rejection reason
+	instead of a generic message. Delegates the matching itself to
+	MatchInvokeAgainst after collecting the same-name candidates along
+	the scope chain (enum branch included).
 	*/
 	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &outBindings,
 		bool &rbNameMatchedImported);
 
 	/*
-	Module import visibility (M3b): pick the best candidate for an invoke
-	among the given same-name functions — the TryBindInvoke / type-distance
-	core of FindFuncByInvoke, shared with the module-qualified call path.
-	Silent on failure (the caller reports not-found / incompatible with its
-	own context); logs only the ambiguity error, which is candidate-set
-	independent. pFunc is nulled on every failure path by contract.
+	Module import visibility (M3b): the TryBindInvoke / type-distance core
+	of FindFuncByInvoke — the single matching implementation shared by the
+	bare path (candidates collected along the scope chain there) and the
+	module-qualified call path (candidates from the module table). Silent
+	on not-found / incompatible (the caller reports those with its own
+	context); the ambiguity error is logged here (candidate-set
+	independent) AND reported through rbAmbiguous so callers can tell it
+	apart from a no-viable-bind FFR_Incompatible. pFunc is nulled on every
+	failure path by contract.
 	*/
 	FindFuncResult MatchInvokeAgainst(SnInvokeExpr &invoke,
 		const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
-		std::vector<FormalBinding> &outBindings);
+		std::vector<FormalBinding> &outBindings, bool &rbAmbiguous);
 
 	/*
 	Module import visibility (M3b): the SUCCESS tail of Access(SnInvokeExpr),

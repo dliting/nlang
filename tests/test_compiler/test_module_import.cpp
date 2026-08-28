@@ -236,7 +236,8 @@ GateResult buildGateProject(const GateProjectOptions& opts)
                 "int add(int a, int b) { return a + b; }\n")) &&
         writeFile(proj / "utils" / "helper.n", szHelper) &&
         writeFile(proj / "utils" / "sub" / "deep.n",
-            "int deep() { return 4; }\n") &&
+            "int deep() { return 4; }\n"
+            "int deepFn() { return 41; }\n") &&
         writeFile(proj / "extra.n", opts.szExtraBody
             ? opts.szExtraBody : "int extra() { return 9; }\n") &&
         (!opts.withRootUtils ||
@@ -946,6 +947,25 @@ private slots:
         QVERIFY2(!containsError(res.errors, "Cannot resolve the field"),
             "the module gate must consume the chain without a spurious "
             "identifier diagnostic");
+    }
+
+    //Spec section 7 row 1, three-segment shape (D12): the wildcard in the
+    //suggestion is the PARENT prefix, not the full path and not the first
+    //segment - utils.sub.deep.deepFn() without an import must point at
+    //'import utils.sub.*;'.
+    void qualifiedThreeSegmentWithoutImportRejected()
+    {
+        auto res = buildGateProject({
+            "int main() { return utils.sub.deep.deepFn(); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "unimported three-segment call must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'utils.sub.deep' is not imported"),
+            "the diagnostic must name the full three-segment module path");
+        QVERIFY2(containsError(res.errors,
+            "(or 'import utils.sub.*;')"),
+            "the wildcard suggestion must use the parent prefix (D12)");
     }
 
     //Spec section 6.2: a leftmost identifier resolving as a class keeps
