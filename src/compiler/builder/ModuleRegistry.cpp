@@ -200,38 +200,47 @@ bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 				gate.builtins.push_back(name);
 			continue;
 		}
-		if (IsProjectModule(name))
-		{
-			if (!ContainsValue(gate.exact, name))
-				gate.exact.push_back(name);
-			continue;
-		}
+		//D11: a wildcard is a UNION — the exact module "X" (when X is a
+		//project module) plus every "X."-prefixed project module.
+		//Evaluated BEFORE IsProjectModule so a root-level namesake
+		//("utils.n" beside "utils/helper.n") cannot silently degrade the
+		//wildcard to exact-only and strand the subtree outside the gate.
 		if (spec.wildcard)
 		{
 			//Recursive prefix over PROJECT module paths (D5): external
 			//names are single-segment, so a wildcard never reaches one
-			//(§3.3). D10: zero matches is almost certainly a typo, not
-			//a silent no-op — the importing TU's own path counts toward
-			//the match surface.
+			//(§3.3). The importing TU's own path counts toward the
+			//match surface.
 			const std::string prefix = name + '.';
-			bool matched = false;
+			const bool exactExists = IsProjectModule(name);
+			bool prefixMatched = false;
 			for (const ModuleEntry& entry : m_modules)
 			{
 				if (!entry.isExternal
 					&& entry.path.rfind(prefix, 0) == 0)
 				{
-					matched = true;
+					prefixMatched = true;
 					break;
 				}
 			}
-			if (!matched)
+			//D10: an empty union (no exact module and no prefix match)
+			//is almost certainly a typo, not a silent no-op.
+			if (!exactExists && !prefixMatched)
 			{
 				outErrors.push_back("No project modules matched import '"
 					+ name + ".*'. Check the project Sources list.");
 				continue;
 			}
-			if (!ContainsValue(gate.wildcards, prefix))
+			if (exactExists && !ContainsValue(gate.exact, name))
+				gate.exact.push_back(name);
+			if (prefixMatched && !ContainsValue(gate.wildcards, prefix))
 				gate.wildcards.push_back(prefix);
+			continue;
+		}
+		if (IsProjectModule(name))
+		{
+			if (!ContainsValue(gate.exact, name))
+				gate.exact.push_back(name);
 			continue;
 		}
 		//External .nmod names are single-segment: record the candidate

@@ -146,6 +146,7 @@ uint32_t moduleIndexOfPath(const ModuleRegistry& reg,
 //  proj/utils/helper.n    cross-directory module
 //  proj/utils/sub/deep.n  recursive wildcard target
 //  proj/extra.n           root-directory peer (same-dir auto-import)
+//  proj/utils.n           root module named "utils" (D11 opt-in)
 struct GateResult
 {
     bool ok = false;
@@ -158,7 +159,8 @@ struct GateResult
     std::unique_ptr<ModuleBuilder> builder;
 };
 
-GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false)
+GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
+    bool withRootUtils = false)
 {
     namespace fs = std::filesystem;
     GateResult failure;
@@ -201,6 +203,9 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false)
         writeFile(proj / "utils" / "sub" / "deep.n",
             "int deep() { return 4; }\n") &&
         writeFile(proj / "extra.n", "int extra() { return 9; }\n") &&
+        (!withRootUtils ||
+            writeFile(proj / "utils.n",
+                "int rootUtil() { return 6; }\n")) &&
         writeFile(proj / "main.n", szMainBody);
     if (!written)
     {
@@ -246,6 +251,10 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false)
     for (const char* szRel : {"main.n", "utils/helper.n",
             "utils/sub/deep.n", "extra.n"})
         res.params->m_SourceFiles.push_back((proj / szRel).string());
+    //Appended last so module 0 (main) and the TU order of every other
+    //test stay unchanged; utils.n is registered after extra.n.
+    if (withRootUtils)
+        res.params->m_SourceFiles.push_back((proj / "utils.n").string());
     res.params->m_ImportDirs.push_back(out.string());
     res.params->m_sOutputModule =
         "gate_test_" + std::to_string(++gateRunCount);
@@ -406,6 +415,42 @@ private slots:
         QVERIFY2(containsError(res.errors,
             "No project modules matched import 'nosuch.*'."),
             "zero-match wildcard must get the dedicated diagnostic");
+    }
+
+    //D11 regression: a wildcard never reaches an external .nmod name.
+    //'lib' exists only as an external module, so the D11 union surface
+    //(exact project module OR 'lib.'-prefixed project module) is empty
+    //and the import fails loud instead of building with a closed gate.
+    void wildcardNeverMatchesExternalRejected()
+    {
+        auto res = buildGateProject(
+            "import lib.*;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok,
+            "wildcard on an external-only name must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "No project modules matched import 'lib.*'."),
+            "external-only wildcard must get the zero-match diagnostic");
+    }
+
+    //D11: 'import utils.*;' is a union — the exact module "utils"
+    //(root utils.n) AND the recursive "utils." prefix both join the
+    //gate. The prefix side is the discriminating assertion: before D11
+    //the exact hit silently degraded the wildcard to exact-only. The
+    //exact side is additionally (and unavoidably) covered by D7 here,
+    //since main.n and utils.n share the root directory.
+    void wildcardIncludesExactModule()
+    {
+        auto res = buildGateProject(
+            "import utils.*;\n"
+            "int main() { return 0; }\n", false, true);
+        QVERIFY2(res.ok, "wildcard over exact module + tree must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsModuleImported(0, "utils"));
+        QVERIFY(reg.IsModuleImported(0, "utils.helper"));
+        QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
     }
 
     //D7: files of the TU's own directory are implicitly imported.

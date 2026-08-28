@@ -91,6 +91,9 @@ bool ModuleBuilder::Build()
 	//destroyed AST).
 	ModuleRegistry& reg = m_upEnv->Registry();
 	reg.Reset();
+	//The detached import stubs are owned HERE (the registry only holds
+	//raw pointers), so they are dropped beside the registry reset.
+	m_upDetachedImportStubs.clear();
 	std::vector<std::string> regErrors;
 	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
