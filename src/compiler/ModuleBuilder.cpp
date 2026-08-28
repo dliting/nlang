@@ -17,7 +17,6 @@
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/compiler/SnMisc.h>
-#include <nlang/vm/StdLib.h>
 #include "VmBackend.h"
 #include "ModuleLoader.h"
 #include <algorithm>
@@ -164,35 +163,35 @@ bool ModuleBuilder::LoadImports()
 		m_upEnv->Log(CLL_Info, "Loading the import modules ...");
 	}
 
-	//Collect & dedupe imports across all translation units.
-	//(Temporary shape: imports still resolve by module name against the
-	//-I .nmod search. Builtin namespace imports load nothing; the
-	//per-TU import gates replace this global collection in a later step.)
-	std::vector<std::string> imports;
+	//Per-TU gates (D1: imports are file-scoped — one file's import must
+	//not leak visibility to other files). Builtin / project names land
+	//in the gate; single-segment non-project names are external .nmod
+	//candidates collected below. PtrList is a std::list (no operator[]),
+	//so the module index travels with a local counter.
+	ModuleRegistry &reg = m_upEnv->Registry();
+	std::vector<std::string> externalNames;
+	std::vector<std::string> gateErrors;
+	uint32_t gateModuleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		for (const auto &spec : pTransUnit->Imports())
+		if (!reg.BuildGate(gateModuleIndex++, pTransUnit->Imports(),
+				externalNames, gateErrors))
 		{
-			const std::string name = spec.DottedName();
-			if (IsStdLibNamespaceName(name))
-				continue;
-			if (std::find(imports.begin(), imports.end(), name) == imports.end())
-				imports.push_back(name);
+			for (const auto &error : gateErrors)
+				m_upEnv->Log(CLL_Error, "%s", error.c_str());
+			return false;
 		}
 	}
 
-	if (imports.empty())
-		return true;
-
-	for (const auto &name : imports)
+	//Load the external .nmod candidates once each (LOADING is global;
+	//VISIBILITY stays per-TU via the gates built above).
+	for (const auto &name : externalNames)
 	{
 		std::string path = FindModuleFile(name);
 		if (path.empty())
 		{
-			m_upEnv->Log(CLL_Error,
-				"Module '%s' not found in import directories. "
-				"Ensure dependencies are compiled first and -I path is correct.",
-				name.c_str());
+			const std::string notFound = ModuleNotFoundText(name);
+			m_upEnv->Log(CLL_Error, "%s", notFound.c_str());
 			return false;
 		}
 
@@ -235,6 +234,27 @@ bool ModuleBuilder::LoadImports()
 						srcModIdx, entry.srcFuncIdx);
 			}
 		}
+
+		//Import visibility (C1): the module joins the registry as an
+		//EXTERNAL entry owning every free-function stub it contributed,
+		//tagged at the same point the stubs join the root — before
+		//MergeTransUnits tags the TU members. Class methods are not free
+		//functions (they stay inside their class stub), so this table is
+		//the whole qualified-call surface for v1.
+		uint32_t extIdx = reg.AddExternalModule(name);
+		std::vector<SnFunction*> stubs;
+		stubs.reserve(builder.ImportedFunctions().size());
+		for (const auto &entry : builder.ImportedFunctions())
+		{
+			stubs.push_back(entry.stub);
+			reg.TagOwner(*entry.stub, extIdx);
+		}
+		reg.SetExternalStubs(extIdx, std::move(stubs));
+
+		//Detached stubs (names already in root) joined the tables above
+		//but not the root — keep them alive for the duration of the build.
+		for (auto &upStub : builder.TakeDetachedStubs())
+			m_upDetachedImportStubs.push_back(std::move(upStub));
 
 		if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
 			m_upEnv->Log(CLL_Info, "Loaded module '%s' from %s",

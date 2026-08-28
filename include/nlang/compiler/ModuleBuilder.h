@@ -32,6 +32,14 @@ public:
 	//Compile-time module registry; populated with one entry per
 	//translation unit (and per imported .nmod) during Build().
 	const ModuleRegistry& Registry() const;
+
+	//Read-only view of the merged syntax-tree root (tests and tooling;
+	//internal passes use TreeRoot()).
+	const SnNamespace& TreeRootView() const
+	{
+		assert(TheAST().Root());
+		return *TheAST().Root();
+	}
 private:
 	//Get the root of the syntax tree.
 	SnNamespace &TreeRoot()
@@ -112,6 +120,12 @@ private:
 	//SetImportedModules(); the backend then merges them into the user
 	//module during GenerateStatements.
 	std::vector<CompiledModule> m_loadedImports;
+	//External function stubs whose name already existed in the root
+	//(e.g. two .nmod modules exporting the same function). They are
+	//registered in the VmBackend side-table and their module's registry
+	//stub table, but are NOT root members — the builder owns them so
+	//both tables stay valid until the build ends.
+	std::vector<std::unique_ptr<SnFunction>> m_upDetachedImportStubs;
 };
 
 } //namespace nlang

@@ -2,8 +2,8 @@
 ModuleRegistry.h - compile-time module registry of the NLang compiler.
 
 Maps every translation unit to its dotted module path, tracks which
-module owns each merged top-level symbol, and will hold each unit's
-import gate (module import visibility plan, spec §6).
+module owns each merged top-level symbol, and holds each unit's import
+gate (module import visibility plan, spec §6).
 ---*/
 #pragma once
 #include <string>
@@ -16,8 +16,13 @@ namespace nlang
 {
 
 class SnField;
+class SnFunction;
 class TranslationUnit;
 struct ImportSpec;
+
+//Spec §7 module-not-found wording — single source shared by the gate
+//resolver (BuildGate) and the .nmod loader (ModuleBuilder::LoadImports).
+std::string ModuleNotFoundText(const std::string& moduleName);
 
 /*
 Compile-time module registry (spec §6): maps every translation unit
@@ -36,6 +41,17 @@ public:
 	//Sentinel owner index: "no module owns this symbol / context".
 	static constexpr uint32_t NO_OWNER = 0xFFFFFFFFu;
 
+	//--- per-TU import gates ---
+	struct ImportGate
+	{
+		//Exact module paths (project TUs + external .nmod names).
+		std::vector<std::string> exact;
+		//Wildcard prefixes ("utils." — recursive, D5).
+		std::vector<std::string> wildcards;
+		//Builtin namespaces ("io" / "math" / "fs").
+		std::vector<std::string> builtins;
+	};
+
 	//Register a TU; moduleIndex == position in registration order.
 	//Returns false after filling outErrors on a reserved path segment
 	//(io/math/fs) — the caller logs and aborts the build.
@@ -47,6 +63,17 @@ public:
 	//(stubs get TagOwner'd with it by the caller). External
 	//directories never equal TU directories (see DirectoryOf).
 	uint32_t AddExternalModule(const std::string& name);
+
+	//Resolve one TU's ImportSpec list into its gate. Priority per
+	//spec §5.1: builtin → project module → external single-segment.
+	//Same-directory project modules auto-added (D7). Wildcard only
+	//matches project paths (external names are single-segment, §3.3).
+	//Unresolved names land in outErrors (spec §7 wording); external
+	//names to load are appended (deduped) to externalOut.
+	bool BuildGate(uint32_t moduleIndex,
+		const std::vector<ImportSpec>& specs,
+		std::vector<std::string>& externalOut,
+		std::vector<std::string>& outErrors);
 
 	//"utils.helper" / "main"; empty before RegisterUnit.
 	const std::string& ModulePathOf(uint32_t moduleIndex) const;
@@ -60,6 +87,27 @@ public:
 	//callers must rule those out before comparing directories.
 	std::string DirectoryOf(uint32_t moduleIndex) const;
 	bool IsExternal(uint32_t moduleIndex) const;
+
+	//NO_OWNER context (no tagged ancestor) never passes a gate: both
+	//return false for moduleIndex == NO_OWNER — the gate queries are
+	//NO_OWNER-safe (no m_modules[NO_OWNER] indexing).
+	bool IsModuleImported(uint32_t moduleIndex,
+		const std::string& dottedPath) const;
+	bool IsBuiltinImported(uint32_t moduleIndex,
+		const std::string& ns) const;
+	//Project TU paths + external .nmod names (union).
+	bool IsKnownModule(const std::string& dottedPath) const;
+	//Stub table of an external module (filled right after its .nmod
+	//loads; consumed by ModuleFunctions).
+	void SetExternalStubs(uint32_t moduleIndex,
+		std::vector<SnFunction*> stubs);
+	//Functions of a module matching calleeName: project module →
+	//scan the global root's top-level members for same-name
+	//NK_Functions owned by that module; external module → the
+	//same-name subset of its stub table.
+	std::vector<SnFunction*> ModuleFunctions(
+		const std::string& path,
+		const std::string& calleeName) const;
 
 	//Owner side table: tag a merged top-level member (also used for
 	//namespace members one+ levels deep — namespaces can span TUs).
@@ -76,13 +124,22 @@ public:
 		return static_cast<uint32_t>(m_modules.size());
 	}
 private:
+	//A registered TU module path ("utils.helper") — externals are
+	//matched by their single-segment .nmod name only.
+	bool IsProjectModule(const std::string& dottedPath) const;
+
 	struct ModuleEntry
 	{
 		std::string path;      //"utils.helper" / "lib"
 		bool isExternal = false;
+		ImportGate gate;       //TU entries only (BuildGate)
 	};
 	std::vector<ModuleEntry> m_modules;
 	std::unordered_map<const SnField*, uint32_t> m_ownerOf;
+	//External module index → its function stubs (import visibility
+	//plan: qualified calls resolve through the stub table, never
+	//through the shared root).
+	std::unordered_map<uint32_t, std::vector<SnFunction*>> m_externalStubs;
 };
 
 } //namespace nlang

@@ -89,8 +89,10 @@ public:
 	//their methods, etc.) because SaveModule writes everything in
 	//m_compiledModule. The consumer's AST root already has these same
 	//built-ins injected by SyntaxTree::BuildFromRuntime before this method
-	//runs. Adding stubs for them would trigger DuplicateFieldChecker
-	//errors. Skip any name that already exists in m_Tree.Root().
+	//runs. Adding root entries for them would trigger DuplicateFieldChecker
+	//errors. A function whose name already exists in root stays as a
+	//DETACHED stub (registered, never pushed into root — see
+	//TakeDetachedStubs()); structs/classes are skipped entirely.
 	void BuildFromCompiledModule(const CompiledModule &cm)
 	{
 		CheckNoMainFunction(cm);
@@ -132,9 +134,18 @@ public:
 		{
 			if (methodOrCtorIndices.count(i))
 				continue;  //class method/ctor — owned by its class, not free
-			if (nameExistsInRoot(cm.functions[i].name))
-				continue;  //R10-1: built-in already in root
 			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm, loc);
+			if (nameExistsInRoot(cm.functions[i].name))
+			{
+				//R10-1: no second root entry for an existing name — but
+				//the stub stays registered (ImportedFunctions) so its
+				//module's stub table remains complete: qualified calls
+				//resolve through the stub table, never the shared root.
+				//Ownership passes to the caller via TakeDetachedStubs().
+				m_detachedStubs.emplace_back(stub);
+				m_importedFuncs.push_back({stub, i});
+				continue;
+			}
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedFuncs.push_back({stub, i});
 		}
@@ -160,9 +171,20 @@ public:
 
 	//Stubs built for each CompiledFunction entry, in source-module order.
 	//Caller (LoadImports) iterates this to populate VmBackend side-table.
+	//Complete: it also holds the detached stubs (names that already
+	//existed in root), which never became root members.
 	const std::vector<ImportedFuncEntry>& ImportedFunctions() const
 	{
 		return m_importedFuncs;
+	}
+
+	//Take ownership of the detached stubs (names that already existed
+	//in root — R10-1 collisions). They are registered in
+	//ImportedFunctions() but are NOT root members; the caller keeps
+	//them alive so the side tables stay valid until the build ends.
+	std::vector<std::unique_ptr<SnFunction>> TakeDetachedStubs()
+	{
+		return std::move(m_detachedStubs);
 	}
 
 	uint32_t SourceModuleIndex() const
@@ -361,6 +383,9 @@ private:
 	uint32_t m_srcModIdx;
 	std::string m_moduleName;
 	std::vector<ImportedFuncEntry> m_importedFuncs;
+	//Registered stubs that did NOT join the root (R10-1 collisions);
+	//owned here until the caller takes them via TakeDetachedStubs().
+	std::vector<std::unique_ptr<SnFunction>> m_detachedStubs;
 
 	//Shortcut to the root namespace (avoids repeated m_Tree.Root() calls
 	//in inner loops).

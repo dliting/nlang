@@ -2,11 +2,11 @@
 test_module_import.cpp - module registry unit tests.
 
 In-process ModuleBuilder coverage of the compile-time module registry
-(module import visibility Task 2): per-TU module path computation
+(module import visibility plan): per-TU module path computation
 relative to BuildParams::m_sProjectDir, the single-file stem fallback,
-and the reserved path-segment gate. Owner tagging and import gating
-are later tasks in the same plan — this suite only pins the
-registry's path bookkeeping.
+the reserved path-segment gate, and the per-TU import gates with their
+external .nmod stub tables. Owner tagging of merged TU members is a
+later task in the same plan.
 ---*/
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
@@ -20,6 +20,7 @@ registry's path bookkeeping.
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -118,6 +119,146 @@ bool containsError(const std::vector<std::string>& errors,
     return false;
 }
 
+//Registry index of the module with the given path; NO_OWNER when the
+//path is not registered.
+uint32_t moduleIndexOfPath(const ModuleRegistry& reg,
+    const std::string& path)
+{
+    for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
+    {
+        if (reg.ModulePathOf(i) == path)
+            return i;
+    }
+    return ModuleRegistry::NO_OWNER;
+}
+
+//Shared scaffold of the import-gate tests: a two-stage build. Stage 1
+//compiles the external lib(s) into out/; stage 2 compiles the main
+//project that reaches them through m_ImportDirs. An infrastructure
+//failure (source could not be written, stage 1 failed) returns a
+//result with a null builder — callers assert ok before touching it.
+//
+//Directory layout (<tmp>/nlang_import_gate):
+//  libsrc/lib.n           external lib source (int add(int,int))
+//  libsrc/lib2.n          twin lib exporting the same name (opt-in)
+//  out/lib.nmod           external lib artifact (stage 1)
+//  proj/main.n            main project (content injected)
+//  proj/utils/helper.n    cross-directory module
+//  proj/utils/sub/deep.n  recursive wildcard target
+//  proj/extra.n           root-directory peer (same-dir auto-import)
+struct GateResult
+{
+    bool ok = false;
+    std::vector<std::string> errors;
+    //Own the inputs: ModuleBuilder/BuildEnvironment hold REFERENCES to
+    //the params & logger, so they must outlive the builder — declared
+    //before it, destroyed after it.
+    std::unique_ptr<BuildParams> params;
+    std::unique_ptr<MemLogger> logger;
+    std::unique_ptr<ModuleBuilder> builder;
+};
+
+GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false)
+{
+    namespace fs = std::filesystem;
+    GateResult failure;
+    const fs::path root = fs::temp_directory_path() / "nlang_import_gate";
+    const fs::path libSrc = root / "libsrc";
+    const fs::path out = root / "out";
+    const fs::path proj = root / "proj";
+    std::error_code fsError;
+    //ModuleManager is process-global and refuses a second Create of the
+    //same module name, so the external libs are built once per process
+    //and later calls reuse their .nmod artifacts on disk. Only the
+    //project subtree is refreshed per call; a fresh process starts
+    //from a clean root.
+    static bool firstCall = true;
+    if (firstCall)
+    {
+        fs::remove_all(root, fsError);
+        firstCall = false;
+    }
+    fs::remove_all(proj, fsError);
+    fs::create_directories(libSrc, fsError);
+    fs::create_directories(out, fsError);
+    fs::create_directories(proj / "utils" / "sub", fsError);
+    auto writeFile = [](const fs::path& file, const char* szBody)
+    {
+        std::ofstream stream(file, std::ios::binary);
+        if (!stream)
+            return false;
+        stream << szBody;
+        return stream.good();
+    };
+    const bool written =
+        writeFile(libSrc / "lib.n",
+            "int add(int a, int b) { return a + b; }\n") &&
+        (!withTwinLib ||
+            writeFile(libSrc / "lib2.n",
+                "int add(int a, int b) { return a + b; }\n")) &&
+        writeFile(proj / "utils" / "helper.n",
+            "int help() { return 3; }\n") &&
+        writeFile(proj / "utils" / "sub" / "deep.n",
+            "int deep() { return 4; }\n") &&
+        writeFile(proj / "extra.n", "int extra() { return 9; }\n") &&
+        writeFile(proj / "main.n", szMainBody);
+    if (!written)
+    {
+        failure.errors.push_back(
+            "gate scaffold: temp source could not be written");
+        return failure;
+    }
+
+    //Stage 1: compile the external .nmod(s) into out/ (skip the ones an
+    //earlier call of this process already produced).
+    const char* libNames[] = {"lib", "lib2"};
+    const int libCount = withTwinLib ? 2 : 1;
+    for (int i = 0; i < libCount; ++i)
+    {
+        const fs::path nmod =
+            out / (std::string(libNames[i]) + ".nmod");
+        if (fs::exists(nmod))
+            continue;
+        BuildParams libParams;
+        libParams.m_SourceFiles.push_back(
+            (libSrc / (std::string(libNames[i]) + ".n")).string());
+        libParams.m_sOutputModule = libNames[i];
+        libParams.m_sOutputDir = out.string();
+        libParams.m_sTempDir = out.string();
+        MemLogger libLogger;
+        ModuleBuilder libBuilder(libParams, libLogger);
+        bool libOk = false;
+        try { libOk = libBuilder.Build(); }
+        catch (const std::exception&) { libOk = false; }
+        if (!libOk)
+        {
+            failure.errors = libLogger.errorsText();
+            return failure;
+        }
+    }
+
+    //Stage 2: compile the main project with out/ importable. The output
+    //module name must be unique per call (ModuleManager, see above).
+    static uint32_t gateRunCount = 0;
+    GateResult res;
+    res.params = std::make_unique<BuildParams>();
+    res.params->m_sProjectDir = proj.string();
+    for (const char* szRel : {"main.n", "utils/helper.n",
+            "utils/sub/deep.n", "extra.n"})
+        res.params->m_SourceFiles.push_back((proj / szRel).string());
+    res.params->m_ImportDirs.push_back(out.string());
+    res.params->m_sOutputModule =
+        "gate_test_" + std::to_string(++gateRunCount);
+    res.params->m_sOutputDir = out.string();
+    res.params->m_sTempDir = out.string();
+    res.logger = std::make_unique<MemLogger>();
+    res.builder = std::make_unique<ModuleBuilder>(*res.params, *res.logger);
+    try { res.ok = res.builder->Build(); }
+    catch (const std::exception&) { res.ok = false; }
+    res.errors = res.logger->errorsText();
+    return res;
+}
+
 } //namespace
 
 class TestModuleImport : public QObject
@@ -207,6 +348,184 @@ private slots:
         QCOMPARE(outcome.modulePaths[0], std::string("helper_solo"));
         QVERIFY2(!containsError(outcome.errors, "syntax error"),
             "helper compile must stay syntax clean");
+    }
+
+    //One gate per TU (main.n = module 0): builtin / project / external
+    //imports each land in the gate; an unimported project module stays
+    //out.
+    void importGateBuiltinAndProjectAndExternal()
+    {
+        auto res = buildGateProject(
+            "import io;\n"
+            "import utils.helper;\n"
+            "import lib;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(res.ok, "gated project with valid imports must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsBuiltinImported(0, "io"));
+        QVERIFY(reg.IsModuleImported(0, "utils.helper"));
+        QVERIFY(reg.IsModuleImported(0, "lib"));
+        QVERIFY(!reg.IsModuleImported(0, "utils.sub.deep"));
+    }
+
+    //D5: the wildcard is a recursive prefix match — nested
+    //subdirectory modules are inside the gate too.
+    void wildcardIsRecursivePrefix()
+    {
+        auto res = buildGateProject(
+            "import utils.*;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(res.ok, "wildcard-only project must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsModuleImported(0, "utils.helper"));
+        QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
+    }
+
+    //D10: a wildcard on a builtin name is rejected — builtins are
+    //namespaces, not module trees (the '*' would be silently eaten).
+    void builtinWildcardRejected()
+    {
+        auto res = buildGateProject(
+            "import io.*;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(!res.ok, "builtin wildcard must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Wildcard import cannot target builtin namespace 'io'."),
+            "builtin wildcard must get the dedicated diagnostic");
+    }
+
+    //D10: a wildcard matching no project TU module path is almost
+    //certainly a typo — external .nmod names are single-segment (§3.3)
+    //and never count as matches.
+    void wildcardZeroMatchRejected()
+    {
+        auto res = buildGateProject(
+            "import nosuch.*;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(!res.ok, "zero-match wildcard must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "No project modules matched import 'nosuch.*'."),
+            "zero-match wildcard must get the dedicated diagnostic");
+    }
+
+    //D7: files of the TU's own directory are implicitly imported.
+    void sameDirectoryAutoImported()
+    {
+        auto res = buildGateProject(
+            "int main() { return 0; }\n");
+        QVERIFY2(res.ok, "import-free project must build");
+        QVERIFY(res.builder->Registry().IsModuleImported(0, "extra"));
+    }
+
+    //§5.3: single-file mode has no project context, so a dotted import
+    //can never resolve — spec §7 module-not-found wording.
+    void dottedImportSingleFileModeFails()
+    {
+        auto path = writeTempSource("t_dotted.n",
+            "import utils.helper;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(!path.empty(), "temp source could not be written");
+        const auto outcome = compile("dotted_solo_test", {path},
+            std::string());
+        QVERIFY2(!outcome.ok, "dotted import must fail in single-file mode");
+        QVERIFY2(containsError(outcome.errors,
+            "Module 'utils.helper' not found. Check the project "
+            "Sources list or -I import path."),
+            "dotted import must get the module-not-found diagnostic");
+    }
+
+    //A single-segment import that is neither builtin, project module,
+    //nor a loadable .nmod gets the spec §7 module-not-found wording.
+    void unknownImportFails()
+    {
+        auto res = buildGateProject(
+            "import nosuch;\n"
+            "int main() { return 0; }\n");
+        //Rule out a scaffold infrastructure failure first, so the
+        //needle check below cannot mask it.
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "unknown import must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Module 'nosuch' not found. Check the project "
+            "Sources list or -I import path."),
+            "unknown import must get the module-not-found diagnostic");
+    }
+
+    //Duplicate and overlapping imports are idempotent: exact, wildcard
+    //and repeated forms union into one gate.
+    void duplicateImportIdempotent()
+    {
+        auto res = buildGateProject(
+            "import lib;\n"
+            "import lib;\n"
+            "import utils.*;\n"
+            "import utils.helper;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(res.ok, "duplicate imports must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsModuleImported(0, "lib"));
+        QVERIFY(reg.IsModuleImported(0, "utils.helper"));
+    }
+
+    //C1 regression: the imported add() stub must be owned by an
+    //EXTERNAL registry entry (never a TU directory).
+    void externalStubOwnersTagged()
+    {
+        auto res = buildGateProject(
+            "import lib;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(res.ok, "external-import project must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        bool found = false;
+        for (const auto& member : res.builder->TreeRootView().Members())
+        {
+            if (member.Name() == "add" && member.Kind() == NK_Function)
+            {
+                const uint32_t owner = reg.OwnerOf(member);
+                QVERIFY(owner != ModuleRegistry::NO_OWNER);
+                QVERIFY(reg.IsExternal(owner));
+                found = true;
+            }
+        }
+        QVERIFY2(found, "the imported add() stub must reach the root");
+    }
+
+    //Two external .nmod modules exporting the same function name: the
+    //second module's stub must not gain a second root entry (one 'add'
+    //stays) but must still land in its own module's stub table —
+    //qualified calls resolve through the stub table, never through the
+    //shared root.
+    void externalStubTableCompleteOnNameClash()
+    {
+        auto res = buildGateProject(
+            "import lib;\n"
+            "import lib2;\n"
+            "int main() { return 0; }\n", true);
+        QVERIFY2(res.ok, "twin-lib project must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        size_t rootAddCount = 0;
+        for (const auto& member : res.builder->TreeRootView().Members())
+        {
+            if (member.Name() == "add" && member.Kind() == NK_Function)
+                ++rootAddCount;
+        }
+        QCOMPARE(rootAddCount, size_t(1));
+
+        const uint32_t libIdx = moduleIndexOfPath(reg, "lib");
+        const uint32_t lib2Idx = moduleIndexOfPath(reg, "lib2");
+        QVERIFY(libIdx != ModuleRegistry::NO_OWNER);
+        QVERIFY(lib2Idx != ModuleRegistry::NO_OWNER);
+        QVERIFY(reg.IsExternal(libIdx));
+        QVERIFY(reg.IsExternal(lib2Idx));
+        const std::vector<SnFunction*> libStubs =
+            reg.ModuleFunctions("lib", "add");
+        const std::vector<SnFunction*> lib2Stubs =
+            reg.ModuleFunctions("lib2", "add");
+        QVERIFY2(!libStubs.empty(), "lib must expose its own add stub");
+        QVERIFY2(!lib2Stubs.empty(), "lib2 stub table must be complete");
+        QVERIFY(libStubs.front() != lib2Stubs.front());
+        QCOMPARE(reg.OwnerOf(*lib2Stubs.front()), lib2Idx);
     }
 };
 
