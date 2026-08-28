@@ -335,11 +335,54 @@ void ModuleBuilder::ExpandTypeAliases()
 void ModuleBuilder::MergeTransUnits()
 {
 	SnNamespace &root = TreeRoot();
+	//TU order == module index (ModuleRegistry registration contract).
+	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		assert(pTransUnit->Root());
+		//Tag this unit's top-level members (and namespace members,
+		//recursively — namespaces can span TUs) BEFORE the merge moves
+		//them: after MergeFrom the unit boundary is gone.
+		TagUnitMembers(*pTransUnit->Root(), moduleIndex);
 		root.MergeFrom(*pTransUnit->Root(), *m_upEnv);
+		//Drop the owner tags of nodes still left in the unit: a
+		//namespace declared by several TUs merges member-wise, so the
+		//losing NS shell stays in the unit root and dies with it. The
+		//owner table is pointer-keyed — keeping the dead shell's entry
+		//would let a later allocation reusing that address (e.g. a
+		//GetBuiltinClassDecl SnClassDecl created during resolution)
+		//silently inherit a stale owner. Only shells (and members left
+		//by error paths) remain here, so the sweep is cheap.
+		EraseUnitOwners(*pTransUnit->Root());
 		pTransUnit->ClearRoot();
+		++moduleIndex;
+	}
+}
+
+//Tag the direct members of a (unit-root or nested) namespace with the
+//owning module index; nested namespaces recurse.
+void ModuleBuilder::TagUnitMembers(SnNamespace &ns, uint32_t moduleIndex)
+{
+	for (auto &member : ns.Members())
+	{
+		m_upEnv->Registry().TagOwner(member, moduleIndex);
+		if (member.Kind() == NK_Namespace)
+			TagUnitMembers(static_cast<SnNamespace &>(member),
+				moduleIndex);
+	}
+}
+
+//Mirror image of TagUnitMembers: erase the owner tags of everything
+//still hanging under a (unit-root or nested) namespace — the nodes
+//that did not survive the merge and are about to die with the unit
+//root (see MergeTransUnits).
+void ModuleBuilder::EraseUnitOwners(SnNamespace &ns)
+{
+	for (auto &member : ns.Members())
+	{
+		m_upEnv->Registry().EraseOwner(member);
+		if (member.Kind() == NK_Namespace)
+			EraseUnitOwners(static_cast<SnNamespace &>(member));
 	}
 }
 

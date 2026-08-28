@@ -67,6 +67,13 @@ private:
 	void ExpandTypeAliases();
 	//Merge the root fields in different translation units into the AST.
 	void MergeTransUnits();
+	//Tag a (unit-root or nested) namespace's direct members with the
+	//owning module index; nested namespaces recurse (they can span TUs).
+	void TagUnitMembers(SnNamespace &ns, uint32_t moduleIndex);
+	//Erase the owner tags of the nodes that did not survive the merge
+	//and die with the unit root (merged-away namespace shells) — the
+	//owner table must not keep entries for dying nodes.
+	void EraseUnitOwners(SnNamespace &ns);
 
 	void ResolveUsingLists();
 	//Resolve type names of data fields in the syntax tree, but skip the 

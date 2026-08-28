@@ -112,6 +112,15 @@ public:
 	//Owner side table: tag a merged top-level member (also used for
 	//namespace members one+ levels deep — namespaces can span TUs).
 	void TagOwner(SnField& member, uint32_t moduleIndex);
+	//Forget a member's owner tag. The table is pointer-keyed, so an
+	//entry whose node dies (a merged-away namespace shell) must be
+	//dropped: a later allocation reusing the address would silently
+	//inherit the dead node's owner. Guarded by MergeTransUnits' sweep;
+	//no direct unit test — standalone SnField nodes have no supported
+	//lifetime outside the AST (hand new/delete of one crashes even with
+	//no registry involved), so only the sweep's observable effects are
+	//covered (namespaceCrossTUTagsEachSide).
+	void EraseOwner(SnField& member);
 	//NO_OWNER when the member carries no tag.
 	uint32_t OwnerOf(const SnField& member) const;
 

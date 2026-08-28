@@ -4,9 +4,9 @@ test_module_import.cpp - module registry unit tests.
 In-process ModuleBuilder coverage of the compile-time module registry
 (module import visibility plan): per-TU module path computation
 relative to BuildParams::m_sProjectDir, the single-file stem fallback,
-the reserved path-segment gate, and the per-TU import gates with their
-external .nmod stub tables. Owner tagging of merged TU members is a
-later task in the same plan.
+the reserved path-segment gate, the per-TU import gates with their
+external .nmod stub tables, and the owner tags MergeTransUnits stamps
+on every merged TU member (top-level and nested-namespace members).
 ---*/
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
@@ -132,6 +132,20 @@ uint32_t moduleIndexOfPath(const ModuleRegistry& reg,
     return ModuleRegistry::NO_OWNER;
 }
 
+//First member of the given kind and name in a namespace member list;
+//null when absent.
+const SnField* findMember(
+    const SnFunctionParentField::MemberList& members,
+    NodeKind kind, const char* szName)
+{
+    for (const auto& member : members)
+    {
+        if (member.Kind() == kind && member.Name() == szName)
+            return &member;
+    }
+    return nullptr;
+}
+
 //Shared scaffold of the import-gate tests: a two-stage build. Stage 1
 //compiles the external lib(s) into out/; stage 2 compiles the main
 //project that reaches them through m_ImportDirs. An infrastructure
@@ -160,7 +174,8 @@ struct GateResult
 };
 
 GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
-    bool withRootUtils = false, bool helperImportsLib = false)
+    bool withRootUtils = false, bool helperImportsLib = false,
+    const char* szHelperBody = nullptr)
 {
     namespace fs = std::filesystem;
     GateResult failure;
@@ -192,16 +207,20 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
         stream << szBody;
         return stream.good();
     };
+    //Explicit helper body wins (owner-tag tests need a custom one);
+    //otherwise the lib-importing variant or the default body.
+    const char* szHelper = szHelperBody;
+    if (szHelper == nullptr)
+        szHelper = helperImportsLib
+            ? "import lib;\nint help() { return 3; }\n"
+            : "int help() { return 3; }\n";
     const bool written =
         writeFile(libSrc / "lib.n",
             "int add(int a, int b) { return a + b; }\n") &&
         (!withTwinLib ||
             writeFile(libSrc / "lib2.n",
                 "int add(int a, int b) { return a + b; }\n")) &&
-        writeFile(proj / "utils" / "helper.n",
-            helperImportsLib
-                ? "import lib;\nint help() { return 3; }\n"
-                : "int help() { return 3; }\n") &&
+        writeFile(proj / "utils" / "helper.n", szHelper) &&
         writeFile(proj / "utils" / "sub" / "deep.n",
             "int deep() { return 4; }\n") &&
         writeFile(proj / "extra.n", "int extra() { return 9; }\n") &&
@@ -614,6 +633,141 @@ private slots:
         QVERIFY2(!lib2Stubs.empty(), "lib2 stub table must be complete");
         QVERIFY(libStubs.front() != lib2Stubs.front());
         QCOMPARE(reg.OwnerOf(*lib2Stubs.front()), lib2Idx);
+    }
+
+    //F18: MergeTransUnits tags every merged TU member with its owning
+    //module BEFORE the merge erases the unit boundary — top-level
+    //functions/classes and nested namespace members alike (a namespace
+    //can span TUs, so the tag must land at member level, not on the
+    //namespace alone). The resolver-context view follows the parent
+    //chain: any descendant of main resolves to main's index.
+    void ownerTagsTopLevelAndNamespaceMembers()
+    {
+        //main.n: int main + class Cfg; helper.n: int help +
+        //namespace NS { int inner }.
+        auto res = buildGateProject(
+            "class Cfg {\n"
+            "    public int size;\n"
+            "}\n"
+            "int main() { return 0; }\n",
+            false, false, false,
+            "int help() { return 3; }\n"
+            "namespace NS {\n"
+            "    int inner() { return 5; }\n"
+            "}\n");
+        QVERIFY2(res.ok, "project with class + namespace must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
+        const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
+        QVERIFY(mainIdx != ModuleRegistry::NO_OWNER);
+        QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
+
+        const SnNamespace& rootView = res.builder->TreeRootView();
+        const SnField* pMainFunc =
+            findMember(rootView.Members(), NK_Function, "main");
+        const SnField* pCfg =
+            findMember(rootView.Members(), NK_ClassDecl, "Cfg");
+        const SnField* pNSShell =
+            findMember(rootView.Members(), NK_Namespace, "NS");
+        const SnField* pHelp =
+            findMember(rootView.Members(), NK_Function, "help");
+        QVERIFY2(pMainFunc != nullptr, "main must reach the merged root");
+        QVERIFY2(pCfg != nullptr, "Cfg must reach the merged root");
+        QVERIFY2(pNSShell != nullptr, "NS must reach the merged root");
+        QVERIFY2(pHelp != nullptr, "help must reach the merged root");
+        QCOMPARE(reg.OwnerOf(*pMainFunc), mainIdx);
+        QCOMPARE(reg.OwnerOf(*pCfg), mainIdx);
+        QCOMPARE(reg.OwnerOf(*pNSShell), helperIdx);
+        QCOMPARE(reg.OwnerOf(*pHelp), helperIdx);
+
+        //Member-level tag inside a merged namespace (the F18 point).
+        const auto& mergedNS = static_cast<const SnNamespace&>(*pNSShell);
+        const SnField* pInner =
+            findMember(mergedNS.Members(), NK_Function, "inner");
+        QVERIFY2(pInner != nullptr, "inner must reach the merged NS");
+        QCOMPARE(reg.OwnerOf(*pInner), helperIdx);
+
+        //Any node of main's body carries main's owner through the
+        //ancestor chain.
+        const auto& mainFunc = static_cast<const SnFunction&>(*pMainFunc);
+        QVERIFY2(mainFunc.Body() != nullptr, "main must have a body");
+        QCOMPARE(reg.OwnerOfContext(*mainFunc.Body()), mainIdx);
+    }
+
+    //A namespace declared by several TUs merges member-wise into ONE
+    //root entry: every contributing TU's members keep their OWN module
+    //as owner inside the merged NS. (The losing NS shell dies with its
+    //unit root; which TU's shell survives follows TU order — here
+    //main.n parses first.)
+    void namespaceCrossTUTagsEachSide()
+    {
+        //main.n declares NS { outer }; helper.n declares NS { inner }.
+        auto res = buildGateProject(
+            "namespace NS {\n"
+            "    int outer() { return 7; }\n"
+            "}\n"
+            "int main() { return 0; }\n",
+            false, false, false,
+            "int help() { return 3; }\n"
+            "namespace NS {\n"
+            "    int inner() { return 5; }\n"
+            "}\n");
+        QVERIFY2(res.ok, "cross-TU namespace project must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
+        const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
+        QVERIFY(mainIdx != ModuleRegistry::NO_OWNER);
+        QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
+
+        const SnNamespace& rootView = res.builder->TreeRootView();
+        const SnField* pNSShell =
+            findMember(rootView.Members(), NK_Namespace, "NS");
+        QVERIFY2(pNSShell != nullptr, "the merged NS must reach the root");
+        QCOMPARE(reg.OwnerOf(*pNSShell), mainIdx);
+        const auto& mergedNS = static_cast<const SnNamespace&>(*pNSShell);
+
+        const SnField* pOuter =
+            findMember(mergedNS.Members(), NK_Function, "outer");
+        const SnField* pInner =
+            findMember(mergedNS.Members(), NK_Function, "inner");
+        QVERIFY2(pOuter != nullptr, "outer must reach the merged NS");
+        QVERIFY2(pInner != nullptr, "inner must reach the merged NS");
+        QCOMPARE(reg.OwnerOf(*pOuter), mainIdx);
+        QCOMPARE(reg.OwnerOf(*pInner), helperIdx);
+    }
+
+    //Task 3 review follow-up: the project branch of ModuleFunctions
+    //(dead production code until the owner tags landed) returns the
+    //same-name functions OWNED by the module — a same-name function in
+    //another module is excluded. helper's help() takes no parameters,
+    //main's help(int) takes one (distinct signatures keep the duplicate
+    //checker out of the picture; the param count tells them apart).
+    void moduleFunctionsProjectBranch()
+    {
+        auto res = buildGateProject(
+            "int help(int x) { return x; }\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(res.ok, "two-module overload project must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
+        const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
+        QVERIFY(mainIdx != ModuleRegistry::NO_OWNER);
+        QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
+
+        const std::vector<SnFunction*> helperHelp =
+            reg.ModuleFunctions("utils.helper", "help");
+        QVERIFY2(helperHelp.size() == 1,
+            "utils.helper must expose exactly its own help");
+        QVERIFY(helperHelp.front()->Params().size() == 0);
+        QCOMPARE(reg.OwnerOf(*helperHelp.front()), helperIdx);
+
+        //Same name, other module: main gets its own overload only.
+        const std::vector<SnFunction*> mainHelp =
+            reg.ModuleFunctions("main", "help");
+        QVERIFY2(mainHelp.size() == 1,
+            "main must expose exactly its own help");
+        QVERIFY(mainHelp.front()->Params().size() == 1);
+        QCOMPARE(reg.OwnerOf(*mainHelp.front()), mainIdx);
     }
 };
 

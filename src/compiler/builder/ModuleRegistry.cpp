@@ -314,6 +314,10 @@ void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 	const std::string& path, const std::string& calleeName) const
 {
+	//First path hit returns — safe because a registered name is either
+	//a project module or an external .nmod, never both: the import gate
+	//resolves project names before the external load, so the two entry
+	//kinds cannot share a path (don't "fix" this into a full scan).
 	for (uint32_t i = 0; i < m_modules.size(); ++i)
 	{
 		if (m_modules[i].path != path)
@@ -355,6 +359,11 @@ std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 void ModuleRegistry::TagOwner(SnField& member, uint32_t moduleIndex)
 {
 	m_ownerOf[&member] = moduleIndex;
+}
+
+void ModuleRegistry::EraseOwner(SnField& member)
+{
+	m_ownerOf.erase(&member);
 }
 
 uint32_t ModuleRegistry::OwnerOf(const SnField& member) const
