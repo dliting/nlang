@@ -16,6 +16,7 @@
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/vm/StdLib.h>
 #include "VmBackend.h"
 #include "ModuleLoader.h"
 #include <algorithm>
@@ -138,11 +139,17 @@ bool ModuleBuilder::LoadImports()
 	}
 
 	//Collect & dedupe imports across all translation units.
+	//(Temporary shape: imports still resolve by module name against the
+	//-I .nmod search. Builtin namespace imports load nothing; the
+	//per-TU import gates replace this global collection in a later step.)
 	std::vector<std::string> imports;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		for (const auto &name : pTransUnit->Imports())
+		for (const auto &spec : pTransUnit->Imports())
 		{
+			const std::string name = spec.DottedName();
+			if (IsStdLibNamespaceName(name))
+				continue;
 			if (std::find(imports.begin(), imports.end(), name) == imports.end())
 				imports.push_back(name);
 		}

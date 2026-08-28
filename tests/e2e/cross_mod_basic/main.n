@@ -3,7 +3,7 @@
 //pipeline: parser import stmt → ModuleLoader::Load →
 //CompiledModuleNodeBuilder stub → VmBackend Phase A/B merge →
 //RemapBytecode index patching → VmExecutor run.
-import "lib";
+import lib;
 
 int main() {
 	return add(2, 3);

@@ -19,6 +19,10 @@ namespace nlang
 
 class ScriptParser;
 
+//The %union stores ImportSpec pointers; the full definition is in
+//TranslationUnit.h, included by the parser prologue below.
+struct ImportSpec;
+
 } //namespace nlang
 
 } /*%code requires */
@@ -27,6 +31,7 @@ class ScriptParser;
 
 /*Text code parser for N-Language parser by yacc/bison */
 #include "ScriptParser.h"
+#include "TranslationUnit.h"  //complete ImportSpec for the import actions
 #include <cstdio>
 #include <cstdlib>
 #include <cstdarg>
@@ -162,7 +167,8 @@ static SnExpression* BuildStringExpr(
     std::string *           				v_pStr;
     nlang::SnUsing *						v_pUsing;
     nlang::PtrList<nlang::SnUsing> *		v_pUsingList;
-    std::vector<std::string> *             v_pImportList;
+    std::vector<nlang::ImportSpec> *		v_pImportList;
+    nlang::ImportSpec *						v_pImportSpec;
 	nlang::SnNamespace *					v_pNamespace;
     nlang::SnFunction  *      				v_pFunction;
 	nlang::PtrList<nlang::SnFormalParam> *	v_pFormalParamList;
@@ -241,6 +247,7 @@ static SnExpression* BuildStringExpr(
 %type <v_pUsing>				Using
 %type <v_pUsingList>			UsingList
 %type <v_pImportList>			ImportList
+%type <v_pImportSpec>			ImportPath ImportTail
 %type <v_pNamespace>			Namespace
 %type <v_pField>				NamespaceMember
 %type <v_pMemberList>			NamespaceMemberList
@@ -438,14 +445,43 @@ CompileUnit:	ImportList UsingList NamespaceMemberList {
 						pTransUnit->SetImports($1);
 					} ;
 
-ImportList:	ImportList KT_Import TT_String ';' {
+ImportList:	ImportList KT_Import ImportTail ';' {
 						$1->push_back(*($3));
+						delete $3;
+						$$ = $1;
+					} |
+					ImportList KT_Import TT_String ';' {
+						//The string form is removed. Keep the production so the
+						//diagnostic names the mistake instead of a generic
+						//syntax error.
+						parser.Log(CLL_Error, @3,
+							"String import is removed. Use "
+							"'import <module>;' with an identifier path.");
 						delete $3;
 						$$ = $1;
 					} |
 					{
 						/*on empty */
-						$$ = new std::vector<std::string>();
+						$$ = new std::vector<ImportSpec>();
+					} ;
+
+ImportTail:	ImportPath {
+						$$ = $1;
+					} |
+					ImportPath '.' '*' {
+						$1->wildcard = true;
+						$$ = $1;
+					} ;
+
+ImportPath:	TT_Identifier {
+						$$ = new ImportSpec();
+						$$->segments.push_back(*($1));
+						delete $1;
+					} |
+					ImportPath '.' TT_Identifier {
+						$1->segments.push_back(*($3));
+						delete $3;
+						$$ = $1;
 					} ;
 
 UsingList:	UsingList Using {

@@ -1,7 +1,7 @@
 // stdlib_str_relational_crossmod — relational string compares inside an
 // imported module exercise the new _str opcodes through RemapBytecode's
 // InstructionStride walk (cross-module merge path).
-import "lib";
+import lib;
 
 int main() {
 	if (cmp_lt() != 0) return 1;

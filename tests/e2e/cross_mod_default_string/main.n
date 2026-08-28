@@ -1,5 +1,5 @@
 //Calls lenOf() with no args → default "hello" applied → returns 7.
-import "lib";
+import lib;
 
 int main() {
 	return lenOf();

@@ -100,6 +100,29 @@ if(NLANG_BUILD_IDE)
         # House rule: every test stays under a 3-minute ceiling.
         set_tests_properties(${name} PROPERTIES TIMEOUT 180)
     endfunction()
+
+    # Import syntax unit tests (module import visibility): grammar-level
+    # acceptance of the identifier-path / wildcard import forms, driven
+    # in-process through ModuleBuilder. Public headers only, so the
+    # nlang_compiler PUBLIC include dirs cover the includes.
+    add_executable(test_import_parse
+        test_compiler/test_import_parse.cpp
+    )
+    target_link_libraries(test_import_parse
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_import_parse POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_import_parse>)
+    endif()
+    nlang_add_qtest(import_parse_tests test_import_parse)
+
     add_executable(test_projectmodel
         test_nide/test_projectmodel.cpp
     )

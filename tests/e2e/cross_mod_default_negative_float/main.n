@@ -1,5 +1,5 @@
 //Calls probe() → default -3.14 applied → x < 0 → 7.
-import "lib";
+import lib;
 
 int main() {
 	return probe();

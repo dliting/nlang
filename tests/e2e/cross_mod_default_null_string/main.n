@@ -1,5 +1,5 @@
 //Calls probe() → default null applied → s is null → 7.
-import "lib";
+import lib;
 
 int main() {
 	return probe();

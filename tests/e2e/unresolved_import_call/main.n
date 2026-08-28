@@ -2,7 +2,7 @@
 //with an access violation. FindFuncByInvoke's FFR_FuncNameNotFound path
 //returned without writing the out-param, so Access(SnInvokeExpr) read a
 //garbage SnFunction* off the stack. Must be a clean compile error.
-import "lib";
+import lib;
 
 int main() {
 	return natGhostX(20);

@@ -1,6 +1,6 @@
 //Phase 13 Step 2: cross-module negative — the imported stub for dbl
 //synthesizes its parameter types; referencing it must be rejected.
-import "lib";
+import lib;
 
 int main() {
     Func<int, int> f = dbl;

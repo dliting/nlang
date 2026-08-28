@@ -2,7 +2,7 @@
 //producer's bytecode wrapper. Expected exit 78 = 77 (direct native) +
 //78 check via wrapped().
 
-import "nativelib";
+import nativelib;
 
 int main() {
 	if (wrapped() == 78)

@@ -18,6 +18,31 @@ namespace nlang
 class SnNamespace;
 class CompileLogger;
 
+//One `import` statement: a dotted module path with an optional
+//trailing `*` wildcard. The wildcard is a PREFIX match in module-path
+//space — `import utils.*;` reaches utils/ and every nested
+//subdirectory (utils.helper, utils.sub.x, ...).
+struct NLANG_COMPILER_API ImportSpec
+{
+	//Path segments in declaration order; the '*' is not stored.
+	std::vector<std::string> segments;
+	//True when the last segment was '*'.
+	bool wildcard = false;
+
+	//"utils.helper" for {utils, helper}; wildcard excluded.
+	std::string DottedName() const
+	{
+		std::string joined;
+		for (const auto &segment : segments)
+		{
+			if (!joined.empty())
+				joined += '.';
+			joined += segment;
+		}
+		return joined;
+	}
+};
+
 //A translation unit of an nlang source file.
 class NLANG_COMPILER_API TranslationUnit
 {
@@ -33,10 +58,8 @@ public:
 	void Init(PtrList<SnUsing>* pUsings, PtrList<SnField>* pFields,
 		const ISourceLocation &loc);
 
-	//Take ownership of the imports list (names of imported modules).
-	//Phase 9c cross-module infrastructure: parser collects `import "X";`
-	//statements at the top of the file and passes them here.
-	void SetImports(std::vector<std::string>* pImports)
+	//Take ownership of the import list (parsed `import` statements).
+	void SetImports(std::vector<ImportSpec>* pImports)
 	{
 		m_upImports.reset(pImports);
 	}
@@ -53,8 +76,8 @@ public:
 		return m_upUsings.get();
 	}
 
-	//Get the imported module names (from `import "X";` statements).
-	const std::vector<std::string>& Imports() const
+	//Get the parsed `import` statements of this unit.
+	const std::vector<ImportSpec>& Imports() const
 	{
 		return *m_upImports;
 	}
@@ -92,7 +115,7 @@ public:
 
 private:
 	std::unique_ptr<UsingList> m_upUsings;
-	std::unique_ptr<std::vector<std::string>> m_upImports;
+	std::unique_ptr<std::vector<ImportSpec>> m_upImports;
 	SnNamespace *m_pRoot;
 	std::unordered_map<std::string, SnFieldExpr*> m_aliasTable;
 	const std::string m_sFilePath;

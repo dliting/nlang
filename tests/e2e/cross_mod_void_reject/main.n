@@ -1,7 +1,7 @@
 //Consumer misuse: assigning the result of an imported void function must
 //be a compile error. With the old RTK_Int32 default the stub claimed an
 //int return and this silently compiled, storing a stale pResult.
-import "lib";
+import lib;
 
 int main() {
 	int x = log(3);

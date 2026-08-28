@@ -1,4 +1,4 @@
-import "lib";
+import lib;
 
 int main() {
     float f = math.sqrt(mk());
