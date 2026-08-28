@@ -304,6 +304,10 @@ bool ModuleRegistry::IsKnownModule(const std::string& dottedPath) const
 void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 	std::vector<SnFunction*> stubs)
 {
+	//Stubs can only belong to an external entry — same defensive
+	//contract as BuildGate's moduleIndex preconditions.
+	assert(moduleIndex < m_modules.size()
+		&& m_modules[moduleIndex].isExternal);
 	m_externalStubs[moduleIndex] = std::move(stubs);
 }
 

@@ -160,7 +160,7 @@ struct GateResult
 };
 
 GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
-    bool withRootUtils = false)
+    bool withRootUtils = false, bool helperImportsLib = false)
 {
     namespace fs = std::filesystem;
     GateResult failure;
@@ -199,7 +199,9 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
             writeFile(libSrc / "lib2.n",
                 "int add(int a, int b) { return a + b; }\n")) &&
         writeFile(proj / "utils" / "helper.n",
-            "int help() { return 3; }\n") &&
+            helperImportsLib
+                ? "import lib;\nint help() { return 3; }\n"
+                : "int help() { return 3; }\n") &&
         writeFile(proj / "utils" / "sub" / "deep.n",
             "int deep() { return 4; }\n") &&
         writeFile(proj / "extra.n", "int extra() { return 9; }\n") &&
@@ -377,6 +379,23 @@ private slots:
         QVERIFY(!reg.IsModuleImported(0, "utils.sub.deep"));
     }
 
+    //Gates are per TU: helper.n imports the external lib, main.n does
+    //not — 'lib' must be inside helper's gate only. helperIdx comes
+    //from the registry path table (never a hardcoded position), which
+    //also pins the gateModuleIndex <-> TU order alignment that
+    //LoadImports' two same-order loops rely on constructively.
+    void perTUGateIsolation()
+    {
+        auto res = buildGateProject(
+            "int main() { return 0; }\n", false, false, true);
+        QVERIFY2(res.ok, "helper-only external import must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
+        QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
+        QVERIFY(reg.IsModuleImported(helperIdx, "lib"));
+        QVERIFY(!reg.IsModuleImported(0, "lib"));
+    }
+
     //D5: the wildcard is a recursive prefix match — nested
     //subdirectory modules are inside the gate too.
     void wildcardIsRecursivePrefix()
@@ -511,6 +530,30 @@ private slots:
         const ModuleRegistry& reg = res.builder->Registry();
         QVERIFY(reg.IsModuleImported(0, "lib"));
         QVERIFY(reg.IsModuleImported(0, "utils.helper"));
+        //Registry-level idempotence: exactly ONE external entry exists
+        //for 'lib' no matter how often the import is repeated.
+        size_t libEntryCount = 0;
+        for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
+        {
+            if (reg.ModulePathOf(i) == "lib")
+                ++libEntryCount;
+        }
+        QCOMPARE(libEntryCount, size_t(1));
+    }
+
+    //IsKnownModule covers both kinds of registry entries — project
+    //modules and external .nmod names — and nothing else.
+    void knownModuleTruthTable()
+    {
+        auto res = buildGateProject(
+            "import utils.helper;\n"
+            "import lib;\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(res.ok, "project + external imports must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsKnownModule("utils.helper"));
+        QVERIFY(reg.IsKnownModule("lib"));
+        QVERIFY(!reg.IsKnownModule("nosuch"));
     }
 
     //C1 regression: the imported add() stub must be owned by an
