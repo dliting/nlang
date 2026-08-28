@@ -138,8 +138,8 @@ the old path first), and the splitter layout persists across sessions.
 Standalone `.n` files opened through 文件 → 打开 (no project needed)
 appear in a “独立文件” tree group and can be built and run directly:
 the module lands under `%TEMP%\nlang-nide\`, and Run auto-rebuilds it
-when the source changed. The Help menu opens the bundled documentation
-site (`docs/site`) in the system browser.
+when the source changed. The Help menu shows the bundled documentation
+site (`docs/site`) in an embedded viewer inside the IDE.
 
 `ctest -C Release -R nide_deploy_check` verifies the self-containment: it copies
 the layout to a scratch directory, pins Qt's search paths to it via

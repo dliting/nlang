@@ -5,6 +5,9 @@
 #include <QApplication>
 
 int main(int argc, char* argv[]) {
+    //QtWebEngine (the embedded help browser) requires shared OpenGL
+    //contexts; the attribute must be set before QApplication exists.
+    QApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QApplication app(argc, argv);
     //Layout persistence keys QSettings by organization + application.
     QCoreApplication::setOrganizationName(QStringLiteral("NLang"));

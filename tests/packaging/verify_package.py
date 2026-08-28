@@ -31,27 +31,45 @@ TIMEOUT_SEC = 60
 BIN_FILES = [
     'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe',
     'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll',
+    # QtWebEngine runtime for the embedded help browser (the closure
+    # defined beside find_package(Qt5) in the root CMakeLists).
+    'Qt5WebEngineWidgets.dll', 'Qt5WebEngineCore.dll',
+    'Qt5WebChannel.dll', 'Qt5Qml.dll', 'Qt5QmlModels.dll',
+    'Qt5Quick.dll', 'Qt5QuickWidgets.dll', 'Qt5Network.dll',
+    'Qt5Positioning.dll', 'Qt5PrintSupport.dll',
+    'QtWebEngineProcess.exe',
+    'resources/icudtl.dat', 'resources/qtwebengine_resources.pak',
+    'resources/qtwebengine_resources_100p.pak',
+    'resources/qtwebengine_resources_200p.pak',
+    'translations/qtwebengine_locales/en-US.pak',
+    'translations/qtwebengine_locales/zh-CN.pak',
     'platforms/qwindows.dll',
 ]
 ROOT_FILES = ['LICENSE', 'README.md']
-# The mkdocs-generated site ships (the nide Help menu opens it in the
-# browser from <prefix>/docs/site).
+# The mkdocs-generated site ships (the nide Help menu shows it in the
+# embedded viewer from <prefix>/docs/site); the two-column stylesheet
+# is part of that site.
 DOC_FILES = [
     'docs/site/index.html',
     'docs/site/nlang-getting-started/index.html',
     'docs/site/language-spec/index.html',
     'docs/site/vm-architecture/index.html',
     'docs/site/search/search_index.json',
+    'docs/site/stylesheets/two-column-layout.css',
 ]
 # Markdown sources and internal dev-process docs stay out of the public
 # package (only the rendered site ships; roadmap and ci_design reference
 # spec files the package doesn't include); Qt debug plugin variants must
-# not ship either (release Qt has separate d-suffixed dlls).
+# not ship either (release Qt has separate d-suffixed dlls). The devtools
+# pak and non-UI locales are over-deployment canaries: the WebEngine
+# runtime ships as an exact whitelist (en-US/zh-CN only).
 ABSENT_PATHS = [
     'docs/language-spec.md', 'docs/nlang-getting-started.md',
     'docs/vm-architecture.md',
     'docs/superpowers', 'docs/roadmap.md', 'docs/ci_design.md',
     'docs/nide-file-rename-and-layout.md', 'bin/platforms/qwindowsd.dll',
+    'bin/resources/qtwebengine_devtools_resources.pak',
+    'bin/translations/qtwebengine_locales/fr.pak',
 ]
 
 

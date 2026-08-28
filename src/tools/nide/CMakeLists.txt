@@ -94,6 +94,7 @@ target_include_directories(nide_dialogs
 # using-declarations because uic cannot emit namespaced types.
 add_library(nide_mainwindow
     MainWindow.cpp
+    HelpBrowser.cpp
     MainStatusBar.cpp
     ui/MainWindow.ui
 )
@@ -106,6 +107,7 @@ set_target_properties(nide_mainwindow PROPERTIES
 target_link_libraries(nide_mainwindow
     PUBLIC
         Qt5::Widgets
+        Qt5::WebEngineWidgets  # embedded help browser
         nide_projectmodel
         nide_editor
         nide_compilelog
@@ -181,4 +183,6 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${NIDE_PLATFORM_PLUGINS_DIR}"
             "$<TARGET_FILE_DIR:nide>/platforms")
+    #QtWebEngine runtime beside the exe (embedded help browser).
+    nlang_copy_qtwebengine_runtime(nide)
 endif()

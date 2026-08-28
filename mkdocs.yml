@@ -1,6 +1,6 @@
 # NLang documentation site. docs/*.md are the source of truth; this
-# config only shapes the generated site (nide opens it in the browser,
-# the installer ships it under docs/site).
+# config only shapes the generated site (nide shows it in its embedded
+# help viewer, the installer ships it under docs/site).
 site_name: NLang Documentation
 docs_dir: docs
 exclude_docs: |
@@ -12,6 +12,10 @@ theme:
   name: material
   language: zh  # the pip package ships Simplified Chinese as "zh" (no zh-CN partial)
   font: false  # fully offline: no Google Fonts round-trip
+# Site-wide two-column help layout (left nav, right content): the
+# stylesheet hides the material theme's in-page TOC rail.
+extra_css:
+  - stylesheets/two-column-layout.css
 nav:
   - 主页: index.md
   - NLang 入门: nlang-getting-started.md

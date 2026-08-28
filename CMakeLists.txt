@@ -53,7 +53,71 @@ if(NLANG_ENABLE_LLVM)
 endif()
 
 if(NLANG_BUILD_IDE)
-    find_package(Qt5 COMPONENTS Core Widgets REQUIRED)
+    #QuickWidgets and PrintSupport are not pulled in transitively by
+    #WebEngineWidgets, yet the runtime closure needs their DLLs
+    #(Qt5WebEngineWidgets statically imports PrintSupport and delay-
+    #loads QuickWidgets; windeployqt's mapping lists both).
+    find_package(Qt5 COMPONENTS Core Widgets WebEngineWidgets
+        QuickWidgets PrintSupport REQUIRED)
+
+    # QtWebEngine runtime closure for the embedded help browser: the
+    # widget DLLs plus the helper process, Chromium resource paks and
+    # locales the view launches from the application directory (the
+    # layout from "Deploying Qt WebEngine Applications" in the Qt
+    # docs; shared by the nide/test POST_BUILD steps and the install
+    # rules below).
+    set(NLANG_QTWEBENGINE_DLLS
+        $<TARGET_FILE:Qt5::WebEngineWidgets>
+        $<TARGET_FILE:Qt5::WebEngineCore>
+        $<TARGET_FILE:Qt5::WebChannel>
+        $<TARGET_FILE:Qt5::Qml>
+        $<TARGET_FILE:Qt5::QmlModels>
+        $<TARGET_FILE:Qt5::Quick>
+        $<TARGET_FILE:Qt5::QuickWidgets>
+        $<TARGET_FILE:Qt5::Network>
+        $<TARGET_FILE:Qt5::Positioning>
+        $<TARGET_FILE:Qt5::PrintSupport>)
+    get_filename_component(NLANG_QTWEBENGINE_BIN
+        "${Qt5_DIR}/../../../bin" ABSOLUTE)
+    get_filename_component(NLANG_QTWEBENGINE_RESOURCES
+        "${Qt5_DIR}/../../../resources" ABSOLUTE)
+    get_filename_component(NLANG_QTWEBENGINE_LOCALES
+        "${Qt5_DIR}/../../../translations/qtwebengine_locales" ABSOLUTE)
+    set(NLANG_QTWEBENGINE_PROCESS
+        "${NLANG_QTWEBENGINE_BIN}/QtWebEngineProcess.exe")
+    # icudtl.dat and the 3 scale-variant paks; the devtools pak stays
+    # out (the help viewer opens no DevTools).
+    set(NLANG_QTWEBENGINE_RESOURCE_FILES
+        "${NLANG_QTWEBENGINE_RESOURCES}/icudtl.dat"
+        "${NLANG_QTWEBENGINE_RESOURCES}/qtwebengine_resources.pak"
+        "${NLANG_QTWEBENGINE_RESOURCES}/qtwebengine_resources_100p.pak"
+        "${NLANG_QTWEBENGINE_RESOURCES}/qtwebengine_resources_200p.pak")
+    # Only the UI languages the IDE itself ships.
+    set(NLANG_QTWEBENGINE_LOCALE_FILES
+        "${NLANG_QTWEBENGINE_LOCALES}/en-US.pak"
+        "${NLANG_QTWEBENGINE_LOCALES}/zh-CN.pak")
+
+    # Copy the closure next to a target's executable (DLLs and the
+    # helper process beside the exe, paks under resources/, locales
+    # under translations/qtwebengine_locales/).
+    function(nlang_copy_qtwebengine_runtime target)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${NLANG_QTWEBENGINE_DLLS}
+                "${NLANG_QTWEBENGINE_PROCESS}"
+                $<TARGET_FILE_DIR:${target}>
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                $<TARGET_FILE_DIR:${target}>/resources
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${NLANG_QTWEBENGINE_RESOURCE_FILES}
+                $<TARGET_FILE_DIR:${target}>/resources
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                $<TARGET_FILE_DIR:${target}>/translations/qtwebengine_locales
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${NLANG_QTWEBENGINE_LOCALE_FILES}
+                $<TARGET_FILE_DIR:${target}>/translations/qtwebengine_locales
+            VERBATIM)
+    endfunction()
 endif()
 
 # Subdirectories
@@ -139,6 +203,14 @@ if(NLANG_BUILD_IDE)
     install(DIRECTORY "${Qt5_DIR}/../../../plugins/platforms/"
         DESTINATION bin/platforms
         FILES_MATCHING PATTERN "qwindows.dll")
+    # QtWebEngine runtime for the embedded help browser (closure
+    # defined next to find_package(Qt5) above).
+    install(FILES ${NLANG_QTWEBENGINE_DLLS} "${NLANG_QTWEBENGINE_PROCESS}"
+        DESTINATION bin)
+    install(FILES ${NLANG_QTWEBENGINE_RESOURCE_FILES}
+        DESTINATION bin/resources)
+    install(FILES ${NLANG_QTWEBENGINE_LOCALE_FILES}
+        DESTINATION bin/translations/qtwebengine_locales)
 endif()
 
 install(DIRECTORY examples/ DESTINATION examples)

@@ -3,6 +3,7 @@
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
 #include "FileEditor.h"
+#include "HelpBrowser.h"
 #include "ProjectModel.h"
 #include "TranslationLoader.h"
 
@@ -34,6 +35,7 @@
 #include <QTimer>
 #include <QTreeView>
 #include <QTranslator>
+#include <QWebEngineView>
 #include <QtTest>
 
 using namespace nlang;
@@ -1641,7 +1643,7 @@ private slots:
         QVERIFY(!act(window, "actViewSolution")->isChecked());
     }
 
-    //--- help (docs site in the default browser) ---
+    //--- help (docs site in the embedded viewer) ---
 
     void testLocateHelpPageFindsDevTreeSite() {
         // nlang_docs generates <build>/docs/site; the test exe sits at
@@ -1651,6 +1653,33 @@ private slots:
         QVERIFY(!MainWindow::locateHelpPage("nlang-getting-started")
                      .isEmpty());
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
+    }
+
+    void testHelpOpensEmbeddedBrowser() {
+        const QString page = MainWindow::locateHelpPage("language-spec");
+        if (page.isEmpty())
+            QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
+        MainWindow window;
+        //A Help entry opens the in-IDE viewer (never the system
+        //browser) on the requested page.
+        act(window, "actHelpLanguageSpec")->trigger();
+        HelpBrowser* browser = window.findChild<HelpBrowser*>();
+        QVERIFY(browser != nullptr);
+        QVERIFY(browser->isVisible());
+        QVERIFY(browser->windowTitle() == HelpBrowser::tr("NLang Help"));
+        QWebEngineView* view =
+            browser->findChild<QWebEngineView*>("helpWebView");
+        QVERIFY(view != nullptr);
+        //Loading is asynchronous Chromium work; the view's url flips
+        //once the load starts, which is all this asserts.
+        QTRY_COMPARE(view->url(), QUrl::fromLocalFile(page));
+        //A second entry reuses the same window and navigates it.
+        act(window, "actHelpGettingStarted")->trigger();
+        QCOMPARE(window.findChildren<HelpBrowser*>().size(), 1);
+        QTRY_COMPARE(
+            view->url(),
+            QUrl::fromLocalFile(
+                MainWindow::locateHelpPage("nlang-getting-started")));
     }
 
     //--- user journey (Step 10) ---
@@ -1752,5 +1781,16 @@ private slots:
     }
 };
 
-QTEST_MAIN(TestMainWindow)
+//QTEST_MAIN cannot host the embedded help browser: QtWebEngine
+//requires AA_ShareOpenGLContexts before the QApplication exists.
+//Otherwise this mirrors QTEST_MAIN's widget branch (AA_Use96Dpi,
+//straight qExec; the keypad-navigation clause compiles to nothing in
+//this Qt build).
+int main(int argc, char* argv[]) {
+    QApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    QApplication app(argc, argv);
+    app.setAttribute(Qt::AA_Use96Dpi, true);
+    TestMainWindow tc;
+    return QTest::qExec(&tc, argc, argv);
+}
 #include "test_mainwindow.moc"

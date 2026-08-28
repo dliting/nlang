@@ -447,6 +447,14 @@
     </message>
 </context>
 <context>
+    <name>nlang::HelpBrowser</name>
+    <message>
+        <location filename="../HelpBrowser.cpp" line="23"/>
+        <source>NLang Help</source>
+        <translation>NLang 帮助</translation>
+    </message>
+</context>
+<context>
     <name>nlang::MainWindow</name>
     <message>
         <location filename="../MainWindow.cpp" line="118"/>

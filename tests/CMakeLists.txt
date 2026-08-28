@@ -314,6 +314,9 @@ if(NLANG_BUILD_IDE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
                 $<TARGET_FILE_DIR:test_mainwindow>)
+        #The embedded help browser spawns its QtWebEngine helper from
+        #the test exe's directory (see nide's POST_BUILD note).
+        nlang_copy_qtwebengine_runtime(test_mainwindow)
     endif()
     nlang_add_qtest(mainwindow_tests test_mainwindow)
     set_tests_properties(mainwindow_tests PROPERTIES

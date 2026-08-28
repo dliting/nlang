@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
+#include "HelpBrowser.h"
 #include "MainStatusBar.h"
 #include "NewFileDialog.h"
 #include "ProjectModel.h"
@@ -14,7 +15,6 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
-#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -987,14 +987,18 @@ void MainWindow::on_actHelpVmArch_triggered() {
 void MainWindow::openHelpDocument(const QString& documentBaseName) {
     const QString page = locateHelpPage(documentBaseName);
     if (page.isEmpty()) {
-        //Same notice the old in-app viewer showed, now modal.
         QMessageBox::warning(
             this, tr("Error"),
             tr("The document '%1' was not found next to the IDE "
                "installation.").arg(documentBaseName));
         return;
     }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(page));
+    //Embedded viewer instead of the system browser. The browser
+    //deletes itself on close (m_helpBrowser self-nulls), so every
+    //entry re-creates it; while it is open, entries reuse it.
+    if (m_helpBrowser.isNull())
+        m_helpBrowser = new HelpBrowser(this);
+    m_helpBrowser->openPage(QUrl::fromLocalFile(page));
 }
 
 //--- widget slots ---

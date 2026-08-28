@@ -2,6 +2,7 @@
 #ifndef NLANG_TOOLS_NIDE_MAIN_WINDOW_H
 #define NLANG_TOOLS_NIDE_MAIN_WINDOW_H
 
+#include <QPointer>
 #include <QProcess>
 #include <QMainWindow>
 
@@ -18,6 +19,7 @@ namespace nlang {
 
 struct CompileLogItemInfo;
 class FileNode;
+class HelpBrowser;
 class ProjectNode;
 class SolutionNode;
 class SolutionTreeModel;
@@ -81,7 +83,7 @@ public:
     static void saveLayout(const MainWindow& window, QSettings& settings);
     static bool restoreLayout(MainWindow& window, QSettings& settings);
 
-    //--- help (docs site in the default browser) ---
+    //--- help (docs site in the embedded viewer) ---
     //First ancestor dir whose docs/site holds the page; empty when
     //none (installed layout: bin/../docs/site one hop up; dev tree
     //resolves a few hops deeper). Tests call it directly.
@@ -258,7 +260,8 @@ private:
     void updateMenuState();
 
     //--- help ---
-    //Open the generated docs-site page in the default browser.
+    //Open the generated docs-site page in the embedded help browser
+    //(a reused HelpBrowser window; see the member).
     void openHelpDocument(const QString& documentBaseName);
 
     //Declaration order matters: m_ui first, so it is destroyed LAST --
@@ -268,6 +271,10 @@ private:
     EditorManager m_editors;
     QString m_solutionFilePath;  // empty = unsaved new solution
     QProcess m_executed;         // the program under Run (nvm child)
+    //The embedded help window. Null when closed (the browser deletes
+    //itself on close); the pointer self-nulls then, so the next Help
+    //menu entry creates a fresh one.
+    QPointer<HelpBrowser> m_helpBrowser;
 };
 
 } // namespace nlang
