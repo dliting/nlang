@@ -1347,14 +1347,18 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		return true;
 	}
 
-	//Argument handling mirrors Access(SnInvokeExpr) — the caller context
-	//is still active here (the receiver scope switch happens later).
-	if (!ValidateInvokeSyntax(invoke))
+	//Argument handling mirrors Access(SnInvokeExpr), in the same order —
+	//params resolve first, then the caller-side syntax check (the caller
+	//context is still active here; the receiver scope switch happens
+	//later). The remaining order difference to the bare path — failure
+	//logging before the out-argument guard — is unobservable: a logged
+	//failure means no viable callee, while the guard only runs on one.
+	if (!ResolveExpressionList(invoke.Params()))
 	{
 		snMember.AddFlags(NF_Resolved);
 		return true;
 	}
-	if (!ResolveExpressionList(invoke.Params()))
+	if (!ValidateInvokeSyntax(invoke))
 	{
 		snMember.AddFlags(NF_Resolved);
 		return true;
@@ -1369,10 +1373,17 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		bAmbiguous);
 	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
 	{
+		//Same contract as the bare path (FindFuncByInvoke): the imported
+		//flag is only consulted for an unambiguous Incompatible — an
+		//ambiguity report is complete on its own, and a plain NotFound has
+		//no name-matched candidates to speak of.
 		bool bNameMatchedImported = false;
-		for (auto *pCandidate : candidates)
-			if (pCandidate->ContainFlags(NF_Imported))
-				bNameMatchedImported = true;
+		if (res == FFR_Incompatible && !bAmbiguous)
+		{
+			for (auto *pCandidate : candidates)
+				if (pCandidate->ContainFlags(NF_Imported))
+					bNameMatchedImported = true;
+		}
 		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported);
 		snMember.AddFlags(NF_Resolved);
 		return true;

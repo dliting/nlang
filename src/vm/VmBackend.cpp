@@ -3207,14 +3207,23 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //Phase 13 Step 2: bound method reference (c.foo / o.run in a
         //value position) — the resolver bound the member's EvalDataType
         //to the Func declaration while Field() stayed the SnFunction
-        //(mirrors the bare-name OP_MakeFunc arm). Receiver-first: emit
-        //the receiver to resultOffset, refresh pResult, then the bind
+        //(mirrors the bare-name OP_MakeFunc arm). VALUE POSITION ONLY:
+        //the inner node must be an identifier (c.foo). A call shape
+        //(c.foo(), inner == invoke) resolves to the same Func-typed
+        //member but must fall through to the invoke emission below —
+        //binding it here would emit a bound-reference opcode over a
+        //receiver that no expression ever produced (review C1: a
+        //module-qualified Func-returning call crashed with "null
+        //receiver in method reference"). Receiver-first: emit the
+        //receiver to resultOffset, refresh pResult, then the bind
         //opcode reads the receiver from pResult and writes the handle
         //there. Form selection matches the direct-call codegen decision:
         //virtual methods and interface declarations dispatch by name,
         //everything else binds the static function index. The executor's
         //bind-time null guard covers null receivers.
         if (field && field->Kind() == NK_Function
+            && member.Inner()
+            && member.Inner()->Kind() == NK_IdentifierExpr
             && member.EvalDataType()
             && member.EvalDataType()->Kind() == NK_ClassDecl
             && static_cast<SnClassDecl*>(

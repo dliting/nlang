@@ -17,6 +17,12 @@ on every merged TU member (top-level and nested-namespace members).
 //the test adds src/compiler to its include path (same pattern as
 //test_vm reaching into src/vm).
 #include "builder/ModuleRegistry.h"
+//Execute-level coverage (review C1): qualifying a call that returns a
+//Func<...> must not be emitted as a bound method reference, so the tests
+//below load and run the built .nmod (same pattern as test_stdlib).
+#include <nlang/vm/CompiledModule.h>
+#include "ModuleLoader.h"
+#include "VmExecutor.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -306,9 +312,80 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     res.logger = std::make_unique<MemLogger>();
     res.builder = std::make_unique<ModuleBuilder>(*res.params, *res.logger);
     try { res.ok = res.builder->Build(); }
-    catch (const std::exception&) { res.ok = false; }
+    catch (const std::exception& e)
+    {
+        res.ok = false;
+        //Codegen internal errors throw (same boundary as ncc main);
+        //surface the text or a failing test reports "<none>".
+        res.errors.push_back(e.what());
+    }
     res.errors = res.logger->errorsText();
     return res;
+}
+
+//Outcome of one executed gate project: everything GateResult carries
+//plus the main() return value of the loaded module.
+struct GateRunResult
+{
+    bool ok = false;
+    std::vector<std::string> errors;
+    int exitValue = -1;
+    //Text of the exception VmExecutor::Execute rethrew (NLang-level
+    //throw or VM error); empty on a clean run.
+    std::string runtimeError;
+};
+
+//Join collected diagnostics for a failure message (an empty vector
+//means the build reported nothing).
+std::string joinErrors(const std::vector<std::string>& errors)
+{
+    std::string joined;
+    for (const auto& error : errors)
+    {
+        if (!joined.empty())
+            joined += " | ";
+        joined += error;
+    }
+    return joined.empty() ? "<none>" : joined;
+}
+
+//Failure message for an executed gate test: everything the run captured
+//(compile diagnostics and the runtime exception text).
+std::string runFailureText(const GateRunResult& run, const char* szWhat)
+{
+    return std::string(szWhat) + "; errors: " + joinErrors(run.errors)
+        + "; runtimeError: " + run.runtimeError;
+}
+
+//buildGateProject + load the produced .nmod and run its main(): the
+//review demanded executed (not compile-only) coverage for the qualified
+//paths, because the C1 bug compiled cleanly and only crashed at
+//runtime. VmExecutor::Execute throws on runtime errors, so the call is
+//wrapped and the message surfaced instead of aborting the test binary.
+GateRunResult runGateProject(const GateProjectOptions& opts)
+{
+    GateRunResult run;
+    GateResult res = buildGateProject(opts);
+    if (res.builder == nullptr || !res.ok)
+    {
+        run.errors = res.errors;
+        return run;
+    }
+    const std::filesystem::path nmod =
+        std::filesystem::path(res.params->m_sOutputDir)
+        / (res.params->m_sOutputModule + ".nmod");
+    try
+    {
+        CompiledModule mod = ModuleLoader::Load(nmod.string());
+        VmExecutor executor;
+        run.exitValue = executor.Execute(mod);
+        run.ok = true;
+    }
+    catch (const std::exception& e)
+    {
+        run.runtimeError = e.what();
+    }
+    return run;
 }
 
 } //namespace
@@ -1017,6 +1094,156 @@ private slots:
             "(note: a module path 'utils.helper' exists; module access "
             "requires an import and qualification)"),
             "the class/module conflict note must be appended");
+    }
+
+    //--- Executed qualified paths (review I2) --------------------------
+    //The qualified-path tests above are compile-only; the C1 review bug
+    //(a module-qualified call returning Func<...> was emitted as a bound
+    //method reference and crashed at runtime) compiled cleanly, so these
+    //siblings load the built .nmod and run main(). T1-T3 cover the three
+    //shapes (int return / Func return / void statement form); T4-T7 pin
+    //the m12 shadowing rule and the diagnostic contracts.
+
+    //T1: an int-returning qualified call executes and its value flows
+    //into main's exit code.
+    void qualifiedIntReturnCallExecuted()
+    {
+        auto run = runGateProject({
+            "import utils.helper;\n"
+            "int main() { return utils.helper.help(); }\n"});
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified int call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 3, "main must return help()'s value");
+    }
+
+    //T2 (review C1): a qualified call whose callee returns Func<int,int,int>
+    //(params first, return last -> (int,int)->int) is a CALL in value
+    //position. The Phase 13 bound-reference arm in VmBackend only fits
+    //value-position references (Inner is an identifier), so this used to
+    //emit OP_MakeBoundFunc over a never-emitted receiver and crashed with
+    //"null receiver in method reference".
+    void qualifiedFuncReturnCallExecuted()
+    {
+        GateProjectOptions opts;
+        opts.szHelperBody =
+            "int sub(int a, int b) { return a - b; }\n"
+            "Func<int, int, int> pick() { return sub; }\n";
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    Func<int, int, int> f = utils.helper.pick();\n"
+            "    return f(2, 3) + 5;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified Func-returning call must build and execute")
+            .c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            "a qualified call must be emitted as a call, not a bound "
+            "reference");
+        QVERIFY2(run.exitValue == 4, "(2-3)+5 must come back through f");
+    }
+
+    //T3: a void-returning qualified call in statement form (here with an
+    //out parameter, the only way a void function can have an effect).
+    void qualifiedVoidCallExecuted()
+    {
+        GateProjectOptions opts;
+        opts.szHelperBody =
+            "void set42(out int v) { v = 42; }\n";
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    int v = 0;\n"
+            "    utils.helper.set42(out v);\n"
+            "    return v;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified void call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 42, "the out write must be visible");
+    }
+
+    //T4 (review I1, m12 flagship): a FUNCTION named like the module
+    //path's first segment (here same-dir utils() in extra.n, an implicit
+    //import) must not shadow the path - m12 excludes function candidates
+    //from the priority probe, so only class/local/field shapes decline.
+    void moduleNameNotShadowedByFunction()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "int main() { return utils.helper.help(); }\n";
+        opts.szExtraBody = "int utils() { return 5; }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "a same-name function must not shadow the module path's "
+            "first segment (m12)").c_str());
+        QVERIFY2(run.exitValue == 3, "the call must reach helper.help()");
+    }
+
+    //T5 (review I3): overloads inside an imported module are selected by
+    //the argument list, matching the bare-call contract.
+    void sameModuleOverloadSelectedByArgs()
+    {
+        GateProjectOptions opts;
+        opts.szHelperBody =
+            "int pick(int a) { return a + 100; }\n"
+            "int pick(int a, int b) { return a + b; }\n";
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    return utils.helper.pick(7) + utils.helper.pick(2, 3);\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified overload calls must build and execute").c_str());
+        QVERIFY2(run.exitValue == 112, "107 + 5: each arity picks its own");
+    }
+
+    //T6 (review I3): wrong arguments against an imported module report
+    //the same incompatibility diagnostic as the bare path.
+    void qualifiedWrongArgsDiagnostic()
+    {
+        auto res = buildGateProject({
+            "import utils.helper;\n"
+            "int main() { return utils.helper.help(1, 2, 3); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "wrong-arg qualified call must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "is not compatible with the declaration"),
+            "the diagnostic must match the bare-path wording");
+    }
+
+    //T7 (review I3): a local variable named like the module path's first
+    //segment DOES shadow it (m12 excludes only functions) - the chain
+    //then resolves against the variable and must decline there.
+    void localVariableShadowsModulePath()
+    {
+        auto res = buildGateProject({
+            "import utils.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    int utils = 3;\n"
+            "    return utils.helper.help();\n"
+            "}\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok,
+            "a local shadowing the first segment must decline the chain "
+            "(a working shadow makes the call resolve and the build "
+            "succeed)");
+        QVERIFY2(!res.errors.empty(), "a diagnostic must be logged");
+        QVERIFY2(!containsError(res.errors,
+            "Module 'utils.helper' is not imported"),
+            "the module gate must stay silent: the path IS imported, the "
+            "decline happens in normal member resolution");
     }
 };
 

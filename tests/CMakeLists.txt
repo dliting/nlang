@@ -131,11 +131,13 @@ if(NLANG_BUILD_IDE)
     add_executable(test_module_import
         test_compiler/test_module_import.cpp
     )
-    #ModuleRegistry.h lives in the compiler's internal builder dir (the
-    #registry is opaque in the public headers).
+    #ModuleRegistry.h lives in the compiler's internal builder dir and
+    #VmExecutor.h/ModuleLoader.h in the vm's src dir (both are opaque in
+    #the public headers).
     target_include_directories(test_module_import
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
+            ${PROJECT_SOURCE_DIR}/src/vm
     )
     target_link_libraries(test_module_import
         PRIVATE
