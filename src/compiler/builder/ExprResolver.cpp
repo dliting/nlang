@@ -5,7 +5,9 @@
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
+#include "ModuleRegistry.h"
 #include <nlang/vm/StdLib.h>
+#include <algorithm>
 #include <map>
 #include <set>
 #include <vector>
@@ -170,6 +172,46 @@ static bool HasOutArgument(SnInvokeExpr& invoke)
 		if (p.Kind() == NK_OutArgExpr)
 			return true;
 	return false;
+}
+
+//Module import visibility (spec §6.2 rule 5): join dotted path segments.
+static std::string JoinDots(const std::vector<std::string>& segs)
+{
+	std::string joined;
+	for (size_t i = 0; i < segs.size(); ++i)
+	{
+		if (i)
+			joined += '.';
+		joined += segs[i];
+	}
+	return joined;
+}
+
+//Collect the identifier names of a member chain's OUTER side, leftmost
+//first: for `a.b.c(...)` on the member whose Inner is the invoke this is
+//{a, b} (the module path). Empty when any link is not a plain identifier
+//(a receiver value, a call result) — such a chain is outside the module
+//fallback's contract.
+static std::vector<std::string> OuterIdentifierChain(
+	const SnMemberExpr& snMember)
+{
+	std::vector<std::string> chain;  //collected inner-to-outer, reversed below
+	const SyntaxNode* pLink = snMember.Outer();
+	while (pLink && pLink->Kind() == NK_MemberExpr)
+	{
+		const auto& rLink = static_cast<const SnMemberExpr&>(*pLink);
+		const SyntaxNode* pLinkInner = rLink.Inner();
+		if (!pLinkInner || pLinkInner->Kind() != NK_IdentifierExpr)
+			return {};
+		chain.push_back(
+			static_cast<const SnIdentifierExpr*>(pLinkInner)->Name());
+		pLink = rLink.Outer();
+	}
+	if (!pLink || pLink->Kind() != NK_IdentifierExpr)
+		return {};
+	chain.push_back(static_cast<const SnIdentifierExpr*>(pLink)->Name());
+	std::reverse(chain.begin(), chain.end());
+	return chain;
 }
 
 //Phase 11: printable language name of a stdlib param kind (RTK_*). Only
@@ -888,6 +930,9 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 
 		m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
 			idExpr.Name().c_str());
+		//spec §6.2 last line: a module path sharing the name turns a bare
+		//mystery into a named fix (import + qualification).
+		MaybeLogModuleHint(idExpr.Name());
 		return;
 	}
 
@@ -923,32 +968,11 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings,
 		bNameMatchedImported);
 
-	//Phase 9e: out arguments on virtual methods are rejected — the
-	//writeback mask is baked into the call instruction against the
-	//static callee's parameter layout; a runtime override resolved by
-	//name-based dispatch could disagree with it. Interface methods are
-	//always dispatched by name (never NF_Virtual-flagged), so they are
-	//covered via the parent decl kind.
-	if (pCallee)
-	{
-		bool bDispatchedByName = pCallee->ContainFlags(NF_Virtual)
-			|| (pCallee->Parent()
-				&& pCallee->Parent()->Kind() == NK_InterfaceDecl);
-		if (bDispatchedByName)
-		{
-			for (auto &b : bindings)
-			{
-				if (b.bIsOut)
-				{
-					m_Env.Log(CLL_Error, snInvoke.Location(),
-						"out arguments are not supported on virtual method "
-						"\"%s\".",
-						pCallee->Name().c_str());
-					return;
-				}
-			}
-		}
-	}
+	//Phase 9e: out arguments on virtual (by-name dispatched) methods are
+	//rejected before anything binds — see OutArgOnDispatchedCalleeRejected.
+	if (pCallee
+		&& OutArgOnDispatchedCalleeRejected(snInvoke, *pCallee, bindings))
+		return;
 
 	//Phase 12 (D9): a bare (receiver-less) invoke that binds to a METHOD
 	//is a frame-shift bug — codegen's bare-invoke path emits OP_CallFunc
@@ -979,108 +1003,16 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		}
 	}
 
-	//Phase 13: argument-position function references bind against the
-	//formal Func types of the chosen overload (ComputeBindingDistance
-	//already required an exact signature match for candidacy). Step 2
-	//adds the receiver-bound member form (c.foo).
 	if (res == FFR_ExactMatch || res == FFR_ApproximateMatch)
 	{
-		for (auto &b : bindings)
-		{
-			if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
-				continue;
-			if (IsUnboundFuncRef(*b.pCallerExpr))
-			{
-				if (!BindFuncRefToExpected(m_Env,
-					*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
-					b.pFormal->EvalDataType()))
-					return;
-			}
-			else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
-				&& !BindMemberFuncRefToExpected(m_Env,
-					*static_cast<SnMemberExpr*>(b.pCallerExpr),
-					b.pFormal->EvalDataType()))
-				return;
-		}
-	}
-
-	switch (res)
-	{
-	case FFR_ApproximateMatch:
-		assert(pCallee);
-		FixupParamTypesWithBindings(snInvoke, bindings);
-		snInvoke.SetBindings(std::move(bindings));
-		break;
-	case FFR_ExactMatch:
-		assert(pCallee);
-		snInvoke.SetBindings(std::move(bindings));
-		break;
-	case FFR_Incompatible:
-		//Phase 13 (Step 2, cross-module): an imported stub synthesizes its
-		//parameter types from the return kind, so a Func argument can
-		//never match — name the real reason before any generic message.
-		//pCallee is null by contract on this path; the flag comes from the
-		//name-matched candidate scan inside FindFuncByInvoke.
-		if (bNameMatchedImported)
-		{
-			for (auto &arg : snInvoke.Params())
-			{
-				SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
-					? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
-				if (IsUnboundFuncRef(*pValue)
-					|| IsUnboundMemberFuncRef(*pValue)
-					|| IsFuncTypeDecl(pValue->EvalDataType()))
-				{
-					m_Env.Log(CLL_Error, snInvoke.Location(),
-						"cannot pass a function reference to the imported "
-						"function \"%s\": parameter signatures are not "
-						"serialized.", snInvoke.CalleeName().c_str());
-					return;
-				}
-			}
-		}
-		//Phase 13: a still-pending function reference among the arguments
-		//had no matching Func-typed formal — sweep it with the named
-		//diagnostic (the generic incompatibility text would not say why).
-		for (auto &arg : snInvoke.Params())
-		{
-			SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
-				? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
-			if (IsUnboundFuncRef(*pValue))
-			{
-				m_Env.Log(CLL_Error, pValue->Location(),
-					"function reference \"%s\" requires an expected "
-					"function type.",
-					pValue->ToString().c_str());
-				return;
-			}
-			if (IsUnboundMemberFuncRef(*pValue))
-			{
-				m_Env.Log(CLL_Error, pValue->Location(),
-					"bound method reference \"%s\" requires an expected "
-					"function type.",
-					pValue->ToString().c_str());
-				return;
-			}
-		}
-		m_Env.Log(CLL_Error, snInvoke.Location(),
-			"The function invoke \"%s\" is not compatible with the "
-			"declaration.", snInvoke.ToString().c_str());
-		if (pCallee) {
-			m_Env.Log(CLL_More, pCallee->Location(),
-				"See also the declaration of \"%s\".",
-				pCallee->ToString().c_str());
-		}
-		return;
-	default:
-		assert(res == FFR_FuncNameNotFound);
-		m_Env.Log(CLL_Error, snInvoke.Location(),
-			"The function \"%s\" does not exist or is not accessible.",
-			snInvoke.CalleeName().c_str());
+		//M3b: the success tail is shared with the module-qualified call
+		//path. A false return means a function-reference argument failed
+		//to bind (diagnostic already logged) — leave the invoke unresolved.
+		(void)ResolveInvokeWithFunc(snInvoke, *pCallee, res, bindings);
 		return;
 	}
 
-	ResolveFieldExprAs(snInvoke, pCallee);
+	LogInvokeFailure(snInvoke, res, pCallee, bNameMatchedImported);
 }
 
 //Phase 9c: validate caller-side argument syntax (candidate-independent).
@@ -1351,6 +1283,143 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	snMember.AddFlags(NF_Resolved);
 }
 
+//Module import visibility (spec §6.2 rule 5): the module-table fallback
+//for dotted call chains. Runs BEFORE the outer identifier resolves, so a
+//module-path diagnostic never doubles with a spurious "Cannot resolve the
+//field". Declines (returns false) whenever the chain belongs to something
+//else — the normal path then keeps the expression; every matching branch
+//consumes the member (resolved or diagnosed).
+bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
+{
+	//Shape gate: the chain must be plain identifiers with the invoke at
+	//the tip. Qualified VALUE access (utils.helper as a value) is out of
+	//the v1 surface and falls through to normal resolution.
+	if (!snMember.Outer() || !snMember.Inner()
+		|| snMember.Inner()->Kind() != NK_InvokeExpr)
+		return false;
+
+	const std::vector<std::string> pathSegs =
+		OuterIdentifierChain(snMember);
+	if (pathSegs.empty())
+		return false;
+	const std::string modulePath = JoinDots(pathSegs);
+	auto &invoke = static_cast<SnInvokeExpr &>(*snMember.Inner());
+
+	//Priority test (m12): a local / field / type with the LEFTMOST name
+	//wins — the module table is only a fallback for names that resolve as
+	//nothing else. Function candidates are excluded by the probe, so a
+	//cross-directory function name never shadows a module path's first
+	//segment; a same-named class wins (spec §6.2 last line).
+	if (ProbeNonFunctionField(pathSegs.front())
+		|| IsBuiltinClassName(pathSegs.front()))
+		return false;
+
+	auto &reg = m_Env.Registry();
+	if (!reg.IsKnownModule(modulePath))
+		return false;
+	if (!reg.IsModuleImported(reg.OwnerOfContext(*m_pContext), modulePath))
+	{
+		//Spec §7 row 1. Consume the chain here: normal resolution would
+		//only add "Cannot resolve the field" for the leftmost identifier.
+		if (modulePath.find('.') == std::string::npos)
+		{
+			//Single-segment (external .nmod): a wildcard can never reach
+			//it (§3.3), so only the exact form is suggested.
+			m_Env.Log(CLL_Error, snMember.Location(),
+				"Module '%s' is not imported. Add 'import %s;' at the top "
+				"of this file.", modulePath.c_str(), modulePath.c_str());
+		}
+		else
+		{
+			const size_t lastDot = modulePath.find_last_of('.');
+			const std::string parentPrefix =
+				modulePath.substr(0, lastDot);
+			m_Env.Log(CLL_Error, snMember.Location(),
+				"Module '%s' is not imported. Add 'import %s;' (or "
+				"'import %s.*;') at the top of this file.",
+				modulePath.c_str(), modulePath.c_str(),
+				parentPrefix.c_str());
+		}
+		snMember.AddFlags(NF_Resolved);
+		return true;
+	}
+
+	//Argument handling mirrors Access(SnInvokeExpr) — the caller context
+	//is still active here (the receiver scope switch happens later).
+	if (!ValidateInvokeSyntax(invoke))
+	{
+		snMember.AddFlags(NF_Resolved);
+		return true;
+	}
+	if (!ResolveExpressionList(invoke.Params()))
+	{
+		snMember.AddFlags(NF_Resolved);
+		return true;
+	}
+
+	std::vector<SnFunction*> candidates =
+		reg.ModuleFunctions(modulePath, invoke.CalleeName());
+	SnFunction *pCallee = nullptr;
+	std::vector<FormalBinding> bindings;
+	auto res = MatchInvokeAgainst(invoke, candidates, pCallee, bindings);
+	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
+	{
+		bool bNameMatchedImported = false;
+		for (auto *pCandidate : candidates)
+			if (pCandidate->ContainFlags(NF_Imported))
+				bNameMatchedImported = true;
+		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported);
+		snMember.AddFlags(NF_Resolved);
+		return true;
+	}
+
+	if (OutArgOnDispatchedCalleeRejected(invoke, *pCallee, bindings))
+	{
+		snMember.AddFlags(NF_Resolved);
+		return true;
+	}
+
+	if (!ResolveInvokeWithFunc(invoke, *pCallee, res, bindings))
+	{
+		snMember.AddFlags(NF_Resolved);
+		return true;
+	}
+
+	//Codegen contract (VmBackend's MemberExpr handler): the resolved inner
+	//invoke is emitted as the bare call; the member carries its result
+	//type and the callee for chained access.
+	snMember.m_pField = pCallee;
+	if (invoke.EvalDataType())
+		snMember.EvalDataType(invoke.EvalDataType());
+	snMember.AddFlags(NF_Resolved);
+	return true;
+}
+
+//Non-function probe for the m12 priority test: true when the name
+//resolves as a local / field / type in the current context. A FUNCTION
+//with the same name counts as a miss — function names must not shadow a
+//module path's first segment. using-imported namespaces are not probed
+//(spec §5.2 rule 7: using never applies to module paths), so a user
+//namespace sharing an exact module path name is outside the v1 surface.
+bool ExprResolveAccessor::ProbeNonFunctionField(const std::string &name)
+{
+	auto *pField = FindFieldInAncestor(name, *m_pContext, *m_pAccessor,
+		Flags());
+	if (pField && pField->Kind() == NK_Function)
+		return false;
+	return pField != nullptr;
+}
+
+//spec §6.2 last line: after a failed resolution whose dotted name is also
+//a module path, note the conflict (silent when none does).
+void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
+{
+	if (name.empty() || !m_Env.Registry().HasKnownModuleStartingWith(name))
+		return;
+	m_Env.Log(CLL_Error, "(note: a module path '%s' exists; module access "
+		"requires an import and qualification)", name.c_str());
+}
+
 void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 {
 	assert(!snMember.IsResolved());
@@ -1375,9 +1444,22 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 	}
 
+	//Module import visibility (spec §6.2 rule 5): module-table fallback
+	//for dotted call chains. Runs BEFORE the outer resolves — a module
+	//diagnostic must not double with a spurious "Cannot resolve the field",
+	//and a declined chain leaves normal resolution untouched.
+	if (TryResolveModuleQualified(snMember))
+		return;
+
 	pOuterExpr->Accept(*m_pVisitor);
 	if (!pOuterExpr->IsResolved())
+	{
+		//spec §6.2 last line: the outer chain died as a whole (its head
+		//resolved as nothing, or a shadowing class failed mid-chain) —
+		//note a module path sharing the dotted name, if one exists.
+		MaybeLogModuleHint(JoinDots(OuterIdentifierChain(snMember)));
 		return;
+	}
 
 	auto pSavedContext = m_pContext;
 
@@ -3126,6 +3208,210 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	pFuncFound = pBest;
 	outBindings = std::move(bestBindings);
 	return (nBestDistance == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
+}
+
+//M3b: the TryBindInvoke / type-distance core of FindFuncByInvoke, over a
+//caller-supplied candidate set (the scope-chain walk stays in
+//FindFuncByInvoke; the module-qualified path feeds its own candidates).
+//Silent on not-found / incompatible — the caller reports those with its
+//own context; only the ambiguity error is logged here, being
+//candidate-set independent. pFunc is nulled on every failure path.
+FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
+	const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
+	std::vector<FormalBinding> &outBindings)
+{
+	pFunc = nullptr;
+	if (candidates.empty())
+		return FFR_FuncNameNotFound;
+
+	int nBestDistance = -1;
+	bool bAmbiguous = false;
+	SnFunction *pBest = nullptr;
+	std::vector<FormalBinding> bestBindings;
+
+	//Same evaluation rule as FindFuncByInvoke: bind, then keep the
+	//strictest viable distance; an equal-distance tie is ambiguous.
+	auto consider = [&](SnFunction *pCandidate) {
+		std::vector<FormalBinding> tryBind;
+		if (!TryBindInvoke(invoke, *pCandidate, tryBind))
+			return;
+		int n = ComputeBindingDistance(tryBind);
+		if (n < 0)
+			return;
+		if (nBestDistance < 0 || n < nBestDistance)
+		{
+			nBestDistance = n;
+			pBest = pCandidate;
+			bestBindings = std::move(tryBind);
+			bAmbiguous = false;
+		}
+		else if (n == nBestDistance)
+		{
+			bAmbiguous = true;
+		}
+	};
+
+	for (auto *pCandidate : candidates)
+		consider(pCandidate);
+
+	if (nBestDistance < 0)
+		return FFR_Incompatible;
+	if (bAmbiguous)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"ambiguous call to function \"%s\": multiple overloads match "
+			"with equal distance.",
+			invoke.CalleeName().c_str());
+		return FFR_Incompatible;
+	}
+	pFunc = pBest;
+	outBindings = std::move(bestBindings);
+	return (nBestDistance == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
+}
+
+//M3b: the SUCCESS tail of Access(SnInvokeExpr), shared with the
+//module-qualified call path so both bind a callee exactly alike.
+bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
+	SnFunction &func, FindFuncResult match,
+	std::vector<FormalBinding> &bindings)
+{
+	//Phase 13: argument-position function references bind against the
+	//formal Func types of the chosen overload (ComputeBindingDistance
+	//already required an exact signature match for candidacy). Step 2
+	//adds the receiver-bound member form (c.foo).
+	if (match == FFR_ExactMatch || match == FFR_ApproximateMatch)
+	{
+		for (auto &b : bindings)
+		{
+			if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
+				continue;
+			if (IsUnboundFuncRef(*b.pCallerExpr))
+			{
+				if (!BindFuncRefToExpected(m_Env,
+					*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
+					b.pFormal->EvalDataType()))
+					return false;
+			}
+			else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
+				&& !BindMemberFuncRefToExpected(m_Env,
+					*static_cast<SnMemberExpr*>(b.pCallerExpr),
+					b.pFormal->EvalDataType()))
+				return false;
+		}
+	}
+
+	if (match == FFR_ApproximateMatch)
+		FixupParamTypesWithBindings(invoke, bindings);
+	invoke.SetBindings(std::move(bindings));
+	//A void return resolves to a null EvalDataType here — the established
+	//void-invoke convention.
+	ResolveFieldExprAs(invoke, &func);
+	return true;
+}
+
+//Phase 9e: out arguments on virtual methods are rejected — the
+//writeback mask is baked into the call instruction against the
+//static callee's parameter layout; a runtime override resolved by
+//name-based dispatch could disagree with it. Interface methods are
+//always dispatched by name (never NF_Virtual-flagged), so they are
+//covered via the parent decl kind. Shared by the bare and the
+//module-qualified call paths.
+bool ExprResolveAccessor::OutArgOnDispatchedCalleeRejected(
+	const SnInvokeExpr &invoke, const SnFunction &callee,
+	const std::vector<FormalBinding> &bindings) const
+{
+	bool bDispatchedByName = callee.ContainFlags(NF_Virtual)
+		|| (callee.Parent()
+			&& callee.Parent()->Kind() == NK_InterfaceDecl);
+	if (!bDispatchedByName)
+		return false;
+	for (auto &b : bindings)
+	{
+		if (b.bIsOut)
+		{
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"out arguments are not supported on virtual method "
+				"\"%s\".",
+				callee.Name().c_str());
+			return true;
+		}
+	}
+	return false;
+}
+
+//The failure branch of Access(SnInvokeExpr) — not-found, imported-stub
+//and generic incompatibility diagnostics. Shared with the module-qualified
+//call path so both surfaces report identically (spec §7 / M4).
+void ExprResolveAccessor::LogInvokeFailure(SnInvokeExpr &invoke,
+	FindFuncResult res, SnFunction *pCallee, bool bNameMatchedImported)
+{
+	assert((res == FFR_Incompatible || res == FFR_FuncNameNotFound)
+		&& "failure logging takes failure results only");
+
+	if (res == FFR_Incompatible)
+	{
+		//Phase 13 (Step 2, cross-module): an imported stub synthesizes its
+		//parameter types from the return kind, so a Func argument can
+		//never match — name the real reason before any generic message.
+		//pCallee is null by contract on this path; the flag comes from the
+		//name-matched candidate scan.
+		if (bNameMatchedImported)
+		{
+			for (auto &arg : invoke.Params())
+			{
+				SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
+					? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
+				if (IsUnboundFuncRef(*pValue)
+					|| IsUnboundMemberFuncRef(*pValue)
+					|| IsFuncTypeDecl(pValue->EvalDataType()))
+				{
+					m_Env.Log(CLL_Error, invoke.Location(),
+						"cannot pass a function reference to the imported "
+						"function \"%s\": parameter signatures are not "
+						"serialized.", invoke.CalleeName().c_str());
+					return;
+				}
+			}
+		}
+		//Phase 13: a still-pending function reference among the arguments
+		//had no matching Func-typed formal — sweep it with the named
+		//diagnostic (the generic incompatibility text would not say why).
+		for (auto &arg : invoke.Params())
+		{
+			SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
+				? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
+			if (IsUnboundFuncRef(*pValue))
+			{
+				m_Env.Log(CLL_Error, pValue->Location(),
+					"function reference \"%s\" requires an expected "
+					"function type.",
+					pValue->ToString().c_str());
+				return;
+			}
+			if (IsUnboundMemberFuncRef(*pValue))
+			{
+				m_Env.Log(CLL_Error, pValue->Location(),
+					"bound method reference \"%s\" requires an expected "
+					"function type.",
+					pValue->ToString().c_str());
+				return;
+			}
+		}
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"The function invoke \"%s\" is not compatible with the "
+			"declaration.", invoke.ToString().c_str());
+		if (pCallee) {
+			m_Env.Log(CLL_More, pCallee->Location(),
+				"See also the declaration of \"%s\".",
+				pCallee->ToString().c_str());
+		}
+		return;
+	}
+
+	assert(res == FFR_FuncNameNotFound);
+	m_Env.Log(CLL_Error, invoke.Location(),
+		"The function \"%s\" does not exist or is not accessible.",
+		invoke.CalleeName().c_str());
 }
 
 SnField *ExprResolveAccessor::FindDelegateTarget(SnInvokeExpr &invoke)

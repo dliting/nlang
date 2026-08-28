@@ -64,6 +64,20 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 	const std::filesystem::path filePath =
 		std::filesystem::path(tu.FilePath()).lexically_normal();
 
+	//A stem containing a dot ("my.lib.n") would register as module path
+	//"my.lib" while DirectoryOf reports "my" — the same-directory set and
+	//the `import my.*;` wildcard surface would both silently mis-include
+	//it. Dots in a module name mean directories, so the stem must be a
+	//single identifier; reject the shape instead of mis-registering it.
+	const std::string stem = filePath.stem().string();
+	if (stem.find('.') != std::string::npos)
+	{
+		outErrors.push_back("Source file name '" + stem +
+			"' contains a dot before the '.n' extension. Rename the file:"
+			" a dot in a module name stands for a directory.");
+		return false;
+	}
+
 	//Module path = the source path made relative to the project root
 	//and dotted ("utils/helper.n" -> "utils.helper"). Outside the root
 	//(or no root at all) the path degenerates to the file stem.
@@ -296,6 +310,19 @@ bool ModuleRegistry::IsKnownModule(const std::string& dottedPath) const
 	for (const ModuleEntry& entry : m_modules)
 	{
 		if (entry.path == dottedPath)
+			return true;
+	}
+	return false;
+}
+
+bool ModuleRegistry::HasKnownModuleStartingWith(
+	const std::string& dottedPrefix) const
+{
+	const std::string prefix = dottedPrefix + '.';
+	for (const ModuleEntry& entry : m_modules)
+	{
+		if (entry.path == dottedPrefix
+			|| entry.path.rfind(prefix, 0) == 0)
 			return true;
 	}
 	return false;

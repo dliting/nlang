@@ -97,6 +97,10 @@ public:
 		const std::string& ns) const;
 	//Project TU paths + external .nmod names (union).
 	bool IsKnownModule(const std::string& dottedPath) const;
+	//True when some known module path equals dottedPrefix or starts with
+	//"dottedPrefix." — segment-aligned, so "utils" matches "utils.helper"
+	//but not "utils2.x". Fires the class/module conflict hint (spec §6.2).
+	bool HasKnownModuleStartingWith(const std::string& dottedPrefix) const;
 	//Stub table of an external module (filled right after its .nmod
 	//loads; consumed by ModuleFunctions).
 	void SetExternalStubs(uint32_t moduleIndex,

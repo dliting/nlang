@@ -161,6 +161,7 @@ const SnField* findMember(
 //  proj/utils/sub/deep.n  recursive wildcard target
 //  proj/extra.n           root-directory peer (same-dir auto-import)
 //  proj/utils.n           root module named "utils" (D11 opt-in)
+//  proj/utils2/MyClass.n  module sharing a class name (Task 5 opt-in)
 struct GateResult
 {
     bool ok = false;
@@ -173,9 +174,21 @@ struct GateResult
     std::unique_ptr<ModuleBuilder> builder;
 };
 
-GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
-    bool withRootUtils = false, bool helperImportsLib = false,
-    const char* szHelperBody = nullptr)
+//Variants of the gate scaffold: a named struct instead of a bool
+//parameter wall, so every new variant lands here with its default
+//visible at the declaration.
+struct GateProjectOptions
+{
+    const char* szMainBody;
+    bool withTwinLib = false;        //also build libsrc/lib2.n
+    bool withRootUtils = false;      //also register root utils.n
+    bool helperImportsLib = false;   //helper.n imports the external lib
+    const char* szHelperBody = nullptr;   //explicit helper.n body
+    const char* szExtraBody = nullptr;    //explicit extra.n body
+    bool withUtils2MyClass = false;  //also register utils2/MyClass.n
+};
+
+GateResult buildGateProject(const GateProjectOptions& opts)
 {
     namespace fs = std::filesystem;
     GateResult failure;
@@ -199,6 +212,7 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
     fs::create_directories(libSrc, fsError);
     fs::create_directories(out, fsError);
     fs::create_directories(proj / "utils" / "sub", fsError);
+    fs::create_directories(proj / "utils2", fsError);
     auto writeFile = [](const fs::path& file, const char* szBody)
     {
         std::ofstream stream(file, std::ios::binary);
@@ -209,25 +223,29 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
     };
     //Explicit helper body wins (owner-tag tests need a custom one);
     //otherwise the lib-importing variant or the default body.
-    const char* szHelper = szHelperBody;
+    const char* szHelper = opts.szHelperBody;
     if (szHelper == nullptr)
-        szHelper = helperImportsLib
+        szHelper = opts.helperImportsLib
             ? "import lib;\nint help() { return 3; }\n"
             : "int help() { return 3; }\n";
     const bool written =
         writeFile(libSrc / "lib.n",
             "int add(int a, int b) { return a + b; }\n") &&
-        (!withTwinLib ||
+        (!opts.withTwinLib ||
             writeFile(libSrc / "lib2.n",
                 "int add(int a, int b) { return a + b; }\n")) &&
         writeFile(proj / "utils" / "helper.n", szHelper) &&
         writeFile(proj / "utils" / "sub" / "deep.n",
             "int deep() { return 4; }\n") &&
-        writeFile(proj / "extra.n", "int extra() { return 9; }\n") &&
-        (!withRootUtils ||
+        writeFile(proj / "extra.n", opts.szExtraBody
+            ? opts.szExtraBody : "int extra() { return 9; }\n") &&
+        (!opts.withRootUtils ||
             writeFile(proj / "utils.n",
                 "int rootUtil() { return 6; }\n")) &&
-        writeFile(proj / "main.n", szMainBody);
+        (!opts.withUtils2MyClass ||
+            writeFile(proj / "utils2" / "MyClass.n",
+                "int m() { return 8; }\n")) &&
+        writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
         failure.errors.push_back(
@@ -238,7 +256,7 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
     //Stage 1: compile the external .nmod(s) into out/ (skip the ones an
     //earlier call of this process already produced).
     const char* libNames[] = {"lib", "lib2"};
-    const int libCount = withTwinLib ? 2 : 1;
+    const int libCount = opts.withTwinLib ? 2 : 1;
     for (int i = 0; i < libCount; ++i)
     {
         const fs::path nmod =
@@ -274,8 +292,11 @@ GateResult buildGateProject(const char* szMainBody, bool withTwinLib = false,
         res.params->m_SourceFiles.push_back((proj / szRel).string());
     //Appended last so module 0 (main) and the TU order of every other
     //test stay unchanged; utils.n is registered after extra.n.
-    if (withRootUtils)
+    if (opts.withRootUtils)
         res.params->m_SourceFiles.push_back((proj / "utils.n").string());
+    if (opts.withUtils2MyClass)
+        res.params->m_SourceFiles.push_back(
+            (proj / "utils2" / "MyClass.n").string());
     res.params->m_ImportDirs.push_back(out.string());
     res.params->m_sOutputModule =
         "gate_test_" + std::to_string(++gateRunCount);
@@ -385,11 +406,11 @@ private slots:
     //out.
     void importGateBuiltinAndProjectAndExternal()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import io;\n"
             "import utils.helper;\n"
             "import lib;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "gated project with valid imports must build");
         const ModuleRegistry& reg = res.builder->Registry();
         QVERIFY(reg.IsBuiltinImported(0, "io"));
@@ -405,8 +426,10 @@ private slots:
     //LoadImports' two same-order loops rely on constructively.
     void perTUGateIsolation()
     {
-        auto res = buildGateProject(
-            "int main() { return 0; }\n", false, false, true);
+        GateProjectOptions opts;
+        opts.szMainBody = "int main() { return 0; }\n";
+        opts.helperImportsLib = true;
+        auto res = buildGateProject(opts);
         QVERIFY2(res.ok, "helper-only external import must build");
         const ModuleRegistry& reg = res.builder->Registry();
         const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
@@ -419,9 +442,9 @@ private slots:
     //subdirectory modules are inside the gate too.
     void wildcardIsRecursivePrefix()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import utils.*;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "wildcard-only project must build");
         const ModuleRegistry& reg = res.builder->Registry();
         QVERIFY(reg.IsModuleImported(0, "utils.helper"));
@@ -432,9 +455,9 @@ private slots:
     //namespaces, not module trees (the '*' would be silently eaten).
     void builtinWildcardRejected()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import io.*;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(!res.ok, "builtin wildcard must fail the build");
         QVERIFY2(containsError(res.errors,
             "Wildcard import cannot target builtin namespace 'io'."),
@@ -446,9 +469,9 @@ private slots:
     //and never count as matches.
     void wildcardZeroMatchRejected()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import nosuch.*;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(!res.ok, "zero-match wildcard must fail the build");
         QVERIFY2(containsError(res.errors,
             "No project modules matched import 'nosuch.*'."),
@@ -461,9 +484,9 @@ private slots:
     //and the import fails loud instead of building with a closed gate.
     void wildcardNeverMatchesExternalRejected()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import lib.*;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(res.builder != nullptr,
             "gate scaffold failed before the gate stage");
         QVERIFY2(!res.ok,
@@ -481,9 +504,12 @@ private slots:
     //since main.n and utils.n share the root directory.
     void wildcardIncludesExactModule()
     {
-        auto res = buildGateProject(
+        GateProjectOptions opts;
+        opts.szMainBody =
             "import utils.*;\n"
-            "int main() { return 0; }\n", false, true);
+            "int main() { return 0; }\n";
+        opts.withRootUtils = true;
+        auto res = buildGateProject(opts);
         QVERIFY2(res.ok, "wildcard over exact module + tree must build");
         const ModuleRegistry& reg = res.builder->Registry();
         QVERIFY(reg.IsModuleImported(0, "utils"));
@@ -494,8 +520,8 @@ private slots:
     //D7: files of the TU's own directory are implicitly imported.
     void sameDirectoryAutoImported()
     {
-        auto res = buildGateProject(
-            "int main() { return 0; }\n");
+        auto res = buildGateProject({
+            "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "import-free project must build");
         QVERIFY(res.builder->Registry().IsModuleImported(0, "extra"));
     }
@@ -521,9 +547,9 @@ private slots:
     //nor a loadable .nmod gets the spec §7 module-not-found wording.
     void unknownImportFails()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import nosuch;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         //Rule out a scaffold infrastructure failure first, so the
         //needle check below cannot mask it.
         QVERIFY2(res.builder != nullptr,
@@ -539,12 +565,12 @@ private slots:
     //and repeated forms union into one gate.
     void duplicateImportIdempotent()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import lib;\n"
             "import lib;\n"
             "import utils.*;\n"
             "import utils.helper;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "duplicate imports must build");
         const ModuleRegistry& reg = res.builder->Registry();
         QVERIFY(reg.IsModuleImported(0, "lib"));
@@ -564,10 +590,10 @@ private slots:
     //modules and external .nmod names — and nothing else.
     void knownModuleTruthTable()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import utils.helper;\n"
             "import lib;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "project + external imports must build");
         const ModuleRegistry& reg = res.builder->Registry();
         QVERIFY(reg.IsKnownModule("utils.helper"));
@@ -579,9 +605,9 @@ private slots:
     //EXTERNAL registry entry (never a TU directory).
     void externalStubOwnersTagged()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "import lib;\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "external-import project must build");
         const ModuleRegistry& reg = res.builder->Registry();
         bool found = false;
@@ -605,10 +631,13 @@ private slots:
     //shared root.
     void externalStubTableCompleteOnNameClash()
     {
-        auto res = buildGateProject(
+        GateProjectOptions opts;
+        opts.szMainBody =
             "import lib;\n"
             "import lib2;\n"
-            "int main() { return 0; }\n", true);
+            "int main() { return 0; }\n";
+        opts.withTwinLib = true;
+        auto res = buildGateProject(opts);
         QVERIFY2(res.ok, "twin-lib project must build");
         const ModuleRegistry& reg = res.builder->Registry();
         size_t rootAddCount = 0;
@@ -645,16 +674,18 @@ private slots:
     {
         //main.n: int main + class Cfg; helper.n: int help +
         //namespace NS { int inner }.
-        auto res = buildGateProject(
+        GateProjectOptions opts;
+        opts.szMainBody =
             "class Cfg {\n"
             "    public int size;\n"
             "}\n"
-            "int main() { return 0; }\n",
-            false, false, false,
+            "int main() { return 0; }\n";
+        opts.szHelperBody =
             "int help() { return 3; }\n"
             "namespace NS {\n"
             "    int inner() { return 5; }\n"
-            "}\n");
+            "}\n";
+        auto res = buildGateProject(opts);
         QVERIFY2(res.ok, "project with class + namespace must build");
         const ModuleRegistry& reg = res.builder->Registry();
         const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
@@ -667,21 +698,21 @@ private slots:
             findMember(rootView.Members(), NK_Function, "main");
         const SnField* pCfg =
             findMember(rootView.Members(), NK_ClassDecl, "Cfg");
-        const SnField* pNSShell =
+        const SnField* pMergedNS =
             findMember(rootView.Members(), NK_Namespace, "NS");
         const SnField* pHelp =
             findMember(rootView.Members(), NK_Function, "help");
         QVERIFY2(pMainFunc != nullptr, "main must reach the merged root");
         QVERIFY2(pCfg != nullptr, "Cfg must reach the merged root");
-        QVERIFY2(pNSShell != nullptr, "NS must reach the merged root");
+        QVERIFY2(pMergedNS != nullptr, "NS must reach the merged root");
         QVERIFY2(pHelp != nullptr, "help must reach the merged root");
         QCOMPARE(reg.OwnerOf(*pMainFunc), mainIdx);
         QCOMPARE(reg.OwnerOf(*pCfg), mainIdx);
-        QCOMPARE(reg.OwnerOf(*pNSShell), helperIdx);
+        QCOMPARE(reg.OwnerOf(*pMergedNS), helperIdx);
         QCOMPARE(reg.OwnerOf(*pHelp), helperIdx);
 
         //Member-level tag inside a merged namespace (the F18 point).
-        const auto& mergedNS = static_cast<const SnNamespace&>(*pNSShell);
+        const auto& mergedNS = static_cast<const SnNamespace&>(*pMergedNS);
         const SnField* pInner =
             findMember(mergedNS.Members(), NK_Function, "inner");
         QVERIFY2(pInner != nullptr, "inner must reach the merged NS");
@@ -702,16 +733,18 @@ private slots:
     void namespaceCrossTUTagsEachSide()
     {
         //main.n declares NS { outer }; helper.n declares NS { inner }.
-        auto res = buildGateProject(
+        GateProjectOptions opts;
+        opts.szMainBody =
             "namespace NS {\n"
             "    int outer() { return 7; }\n"
             "}\n"
-            "int main() { return 0; }\n",
-            false, false, false,
+            "int main() { return 0; }\n";
+        opts.szHelperBody =
             "int help() { return 3; }\n"
             "namespace NS {\n"
             "    int inner() { return 5; }\n"
-            "}\n");
+            "}\n";
+        auto res = buildGateProject(opts);
         QVERIFY2(res.ok, "cross-TU namespace project must build");
         const ModuleRegistry& reg = res.builder->Registry();
         const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
@@ -720,11 +753,11 @@ private slots:
         QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
 
         const SnNamespace& rootView = res.builder->TreeRootView();
-        const SnField* pNSShell =
+        const SnField* pMergedNS =
             findMember(rootView.Members(), NK_Namespace, "NS");
-        QVERIFY2(pNSShell != nullptr, "the merged NS must reach the root");
-        QCOMPARE(reg.OwnerOf(*pNSShell), mainIdx);
-        const auto& mergedNS = static_cast<const SnNamespace&>(*pNSShell);
+        QVERIFY2(pMergedNS != nullptr, "the merged NS must reach the root");
+        QCOMPARE(reg.OwnerOf(*pMergedNS), mainIdx);
+        const auto& mergedNS = static_cast<const SnNamespace&>(*pMergedNS);
 
         const SnField* pOuter =
             findMember(mergedNS.Members(), NK_Function, "outer");
@@ -744,9 +777,9 @@ private slots:
     //checker out of the picture; the param count tells them apart).
     void moduleFunctionsProjectBranch()
     {
-        auto res = buildGateProject(
+        auto res = buildGateProject({
             "int help(int x) { return x; }\n"
-            "int main() { return 0; }\n");
+            "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "two-module overload project must build");
         const ModuleRegistry& reg = res.builder->Registry();
         const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
@@ -768,6 +801,202 @@ private slots:
             "main must expose exactly its own help");
         QVERIFY(mainHelp.front()->Params().size() == 1);
         QCOMPARE(reg.OwnerOf(*mainHelp.front()), mainIdx);
+    }
+
+    //Task 4 review follow-up: the owner recursion descends through
+    //NESTED namespaces declared by different TUs - A{B{f}} in main and
+    //A{B{g}} in helper must merge into one A.B holding both functions,
+    //each keeping its own module as owner (recursive tagging + the
+    //nested MAK_Merge path).
+    void namespaceNestedCrossTUTagsEachSide()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "namespace A {\n"
+            "    namespace B {\n"
+            "        int f() { return 1; }\n"
+            "    }\n"
+            "}\n"
+            "int main() { return 0; }\n";
+        opts.szHelperBody =
+            "namespace A {\n"
+            "    namespace B {\n"
+            "        int g() { return 2; }\n"
+            "    }\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.ok, "nested cross-TU namespace project must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
+        const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
+        QVERIFY(mainIdx != ModuleRegistry::NO_OWNER);
+        QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
+
+        const SnNamespace& rootView = res.builder->TreeRootView();
+        const SnField* pA =
+            findMember(rootView.Members(), NK_Namespace, "A");
+        QVERIFY2(pA != nullptr, "A must reach the merged root");
+        const auto& nsA = static_cast<const SnNamespace&>(*pA);
+        const SnField* pB = findMember(nsA.Members(), NK_Namespace, "B");
+        QVERIFY2(pB != nullptr, "B must reach the merged A");
+        const auto& nsB = static_cast<const SnNamespace&>(*pB);
+
+        const SnField* pF = findMember(nsB.Members(), NK_Function, "f");
+        const SnField* pG = findMember(nsB.Members(), NK_Function, "g");
+        QVERIFY2(pF != nullptr, "f must reach the merged A.B");
+        QVERIFY2(pG != nullptr, "g must reach the merged A.B");
+        QCOMPARE(reg.OwnerOf(*pF), mainIdx);
+        QCOMPARE(reg.OwnerOf(*pG), helperIdx);
+    }
+
+    //Task 4 review follow-up: the NO_OWNER contract has a positive side -
+    //a node nobody tagged (the root namespace itself is never a merge
+    //member) reports NO_OWNER for both OwnerOf and OwnerOfContext instead
+    //of an index that would silently pass a gate.
+    void noOwnerForUntaggedNodes()
+    {
+        auto res = buildGateProject(
+            {"int main() { return 0; }\n"});
+        QVERIFY2(res.ok, "import-free project must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const SnNamespace& rootView = res.builder->TreeRootView();
+        QCOMPARE(reg.OwnerOf(rootView), ModuleRegistry::NO_OWNER);
+        QCOMPARE(reg.OwnerOfContext(rootView), ModuleRegistry::NO_OWNER);
+    }
+
+    //Task 3 review follow-up: a source stem containing a dot ("my.lib.n")
+    //would register as module path "my.lib" while DirectoryOf reports "my"
+    //- the same-directory set and the `import my.*;` wildcard surface
+    //would both silently mis-include it. Reject the file name up front.
+    void dottedStemSourceRejected()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_proj_dotted_stem";
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { return 0; }\n";
+        std::ofstream(dir / "my.lib.n", std::ios::binary)
+            << "int f() { return 1; }\n";
+        const auto outcome = compile("dotted_stem_test",
+            {(dir / "main.n").string(), (dir / "my.lib.n").string()},
+            dir.string());
+        QVERIFY2(!outcome.ok, "dotted stem must fail the build");
+        QVERIFY2(containsError(outcome.errors, "my.lib"),
+            "the diagnostic must name the offending stem");
+    }
+
+    //--- Task 5: module-qualified call resolution (spec section 6.2) ---
+
+    //import utils.helper; makes utils.helper.help() resolve to helper's
+    //own help() through the module table.
+    void qualifiedCrossDirectoryCall()
+    {
+        auto res = buildGateProject({
+            "import utils.helper;\n"
+            "int main() { return utils.helper.help(); }\n"});
+        QVERIFY2(res.ok, "qualified cross-directory call must build");
+    }
+
+    //import lib; makes lib.add(2,3) bind the external stub - the same
+    //qualified form as project modules.
+    void qualifiedExternalCall()
+    {
+        auto res = buildGateProject({
+            "import lib;\n"
+            "int main() { return lib.add(2, 3); }\n"});
+        QVERIFY2(res.ok, "qualified external call must build");
+    }
+
+    //D7: the own directory is implicitly imported, so extra.f() resolves
+    //without any import statement.
+    void qualifiedSameDirectoryWithoutImport()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody = "int main() { return extra.f(); }\n";
+        opts.szExtraBody = "int f() { return 7; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.ok, "same-directory qualified call must build");
+    }
+
+    //D5 recursion carries over to qualified calls: the wildcard covers
+    //the nested module path, so utils.sub.deep.deep() resolves.
+    void qualifiedWildcardReachable()
+    {
+        auto res = buildGateProject({
+            "import utils.*;\n"
+            "int main() { return utils.sub.deep.deep(); }\n"});
+        QVERIFY2(res.ok, "wildcard-imported qualified call must build");
+    }
+
+    //Spec section 7 row 1: a known module path that this TU did not
+    //import gets the not-imported wording - and nothing else, in
+    //particular no spurious "Cannot resolve the field" for the path.
+    void qualifiedWithoutImportRejected()
+    {
+        auto res = buildGateProject({
+            "int main() { return utils.helper.help(); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "unimported qualified call must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Module 'utils.helper' is not imported. Add 'import "
+            "utils.helper;' (or 'import utils.*;') at the top of this "
+            "file."),
+            "must get the spec section 7 not-imported diagnostic");
+        QVERIFY2(!containsError(res.errors, "Cannot resolve the field"),
+            "the module gate must consume the chain without a spurious "
+            "identifier diagnostic");
+    }
+
+    //Spec section 6.2: a leftmost identifier resolving as a class keeps
+    //the normal (class) path - the module fallback must not fire, even
+    //with a module literally named after the class (utils2/MyClass.n,
+    //same method name m) inside the build. As-built limit: NLang has no
+    //static dispatch in the VM (see e2e void_multi_flag.n), so codegen
+    //rejects the class-name receiver AFTER resolution; the discriminating
+    //assertion is that no resolution diagnostic is logged (a fallback
+    //capture would either log one or bind the other module's m()).
+    void classStaticWinsOverModule()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "class MyClass {\n"
+            "    public static int m() { return 5; }\n"
+            "}\n"
+            "int main() { return MyClass.m(); }\n";
+        opts.withUtils2MyClass = true;
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok,
+            "static-flagged calls stay rejected (no static dispatch in "
+            "the VM)");
+        QVERIFY2(res.errors.empty(),
+            "the class path must own the chain at resolve time: no "
+            "module-table diagnostic may appear");
+    }
+
+    //Spec section 6.2 last line: a class shadowing a module path's first
+    //segment owns the chain, and when the class path then fails the error
+    //notes the conflicting module path. The class lacks the chained member
+    //so the class path fails outright (a member that RESOLVES would let
+    //the invoke fall through to the still-global bare pool - Task 6
+    //narrows it - and the build would succeed).
+    void classModuleConflictHint()
+    {
+        auto res = buildGateProject({
+            "import utils.helper;\n"
+            "class utils {\n"
+            "    public int size;\n"
+            "}\n"
+            "int main() { return utils.helper.help(); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "class-shadowed chain must fail to resolve");
+        QVERIFY2(containsError(res.errors,
+            "(note: a module path 'utils.helper' exists; module access "
+            "requires an import and qualification)"),
+            "the class/module conflict note must be appended");
     }
 };
 

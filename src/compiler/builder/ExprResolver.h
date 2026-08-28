@@ -200,6 +200,28 @@ private:
 	void TryResolveStdLibCall(SnMemberExpr &snMember,
 		SnIdentifierExpr &outerId, SnInvokeExpr &invoke);
 
+	/*
+	Module import visibility (spec §6.2 rule 5): resolve a dotted call
+	chain (utils.helper.help(), lib.add(2,3)) against the module registry
+	when the leftmost identifier resolves as nothing else (no local, field
+	or type — m12 excludes function candidates so a cross-directory
+	function name never shadows a module path's first segment). v1 shape:
+	the chain is exactly module path + function name; qualified VALUE
+	access is out of scope. Returns false when the chain does not match
+	the module fallback's contract — the normal resolution path keeps the
+	expression. Every matching branch consumes the member (resolved or
+	diagnosed).
+	*/
+	bool TryResolveModuleQualified(SnMemberExpr &snMember);
+
+	//Non-function field probe for the priority test above: true when the
+	//name resolves as a local / field / type in the current context.
+	bool ProbeNonFunctionField(const std::string &name);
+
+	//spec §6.2 last line: after a failed class-path resolution, note the
+	//module path sharing the name (silent when none does).
+	void MaybeLogModuleHint(const std::string &name);
+
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
 	SnField *FindFieldInAncestor(const std::string &sName, SyntaxNode &parent,
@@ -217,10 +239,55 @@ private:
 	callee NAME carries NF_Imported — only meaningful on FFR_Incompatible
 	(pFunc is nulled on that path by contract), where it lets the caller
 	report the imported-arg rejection reason instead of a generic message.
+	Delegates the matching itself to MatchInvokeAgainst after collecting
+	the same-name candidates along the scope chain.
 	*/
 	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &outBindings,
 		bool &rbNameMatchedImported);
+
+	/*
+	Module import visibility (M3b): pick the best candidate for an invoke
+	among the given same-name functions — the TryBindInvoke / type-distance
+	core of FindFuncByInvoke, shared with the module-qualified call path.
+	Silent on failure (the caller reports not-found / incompatible with its
+	own context); logs only the ambiguity error, which is candidate-set
+	independent. pFunc is nulled on every failure path by contract.
+	*/
+	FindFuncResult MatchInvokeAgainst(SnInvokeExpr &invoke,
+		const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
+		std::vector<FormalBinding> &outBindings);
+
+	/*
+	Module import visibility (M3b): the SUCCESS tail of Access(SnInvokeExpr),
+	shared with the module-qualified call path so both bind a callee exactly
+	alike — Phase 13 function-reference argument rebinding, implicit cast
+	wrappers (approximate matches only), binding storage and the resolved
+	type (ResolveFieldExprAs; a void return yields a null EvalDataType).
+	\return false when a function-reference argument failed to bind (the
+	binder logged); the invoke stays unresolved and the caller just stops.
+	*/
+	bool ResolveInvokeWithFunc(SnInvokeExpr &invoke, SnFunction &func,
+		FindFuncResult match, std::vector<FormalBinding> &bindings);
+
+	//Phase 9e: out arguments on virtual (or by-name dispatched) methods are
+	//rejected — the writeback mask is baked into the call instruction
+	//against the static callee's parameter layout; a runtime override
+	//resolved by name-based dispatch could disagree with it. Shared by the
+	//bare and the module-qualified call paths (a qualified call must not
+	//bypass the restriction). Logs the error; returns true when rejected.
+	bool OutArgOnDispatchedCalleeRejected(const SnInvokeExpr &invoke,
+		const SnFunction &callee,
+		const std::vector<FormalBinding> &bindings) const;
+
+	/*
+	The failure branch of Access(SnInvokeExpr) — not-found, imported-stub
+	and generic incompatibility diagnostics. Shared with the module-qualified
+	call path so both surfaces report identically (spec §7 / M4). Takes
+	failure results only (FFR_Incompatible / FFR_FuncNameNotFound).
+	*/
+	void LogInvokeFailure(SnInvokeExpr &invoke, FindFuncResult res,
+		SnFunction *pCallee, bool bNameMatchedImported);
 
 	/*
 	Phase 13: locate the delegate target of a bare invoke — a non-function
