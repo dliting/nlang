@@ -1437,6 +1437,102 @@ private slots:
         QVERIFY2(run.exitValue == 0,
             "io.print must run and math.sqrt(4.0) must yield 2.0");
     }
+
+    //--- Task 8: owner-aware duplicate check (spec section 3.2) --------
+
+    //Same-name same-signature functions in DIFFERENT directories never
+    //conflict: their qualified paths differ and the bare pools are
+    //disjoint (main's bare f() must still bind its own directory's f).
+    void crossDirectorySameNameCoexist()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int f(int x) { return x + 1; }\n"
+            "int main() { return f(1); }\n";
+        opts.szHelperBody = "int f(int x) { return x + 99; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(res.ok, joinErrors(res.errors).c_str());
+        QVERIFY2(!containsError(res.errors,
+                "is conflicted with a exist field definition"),
+            "cross-directory same-signature functions must not be "
+            "reported as duplicate definitions");
+    }
+
+    //A local function and an imported .nmod stub with the same name and
+    //signature coexist. The bare call binds the LOCAL one (the stub is
+    //foreign, so the Task 6 bare pool drops it - asserted by execution);
+    //the qualified form compiles alongside it, never executed here.
+    void localAndImportedSameNameCoexist()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import lib;\n"
+            "int add(int a, int b) { return a * 10 + b; }\n"
+            "int main()\n"
+            "{\n"
+            "    if (add(1, 2) != 12) { return 7; }\n"
+            "    return 0;\n"
+            "}\n"
+            "int useLib() { return lib.add(2, 3); }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "a local function and an imported same-signature stub must "
+            "coexist").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 0,
+            "the bare add(1, 2) must bind the local add (12), not the "
+            "lib stub (7 sentinel)");
+        QVERIFY2(!containsError(run.errors,
+                "is conflicted with a exist field definition"),
+            "the local/imported pair must not be reported as duplicates");
+    }
+
+    //The coexistence is scoped by directory: two same-signature same-name
+    //functions in the SAME directory are still a real redefinition.
+    //(Regression pin: green before AND after the owner-aware gate.)
+    void sameDirectorySameNameStillConflicts()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int f(int x) { return x + 1; }\n"
+            "int main() { return 0; }\n";
+        opts.szExtraBody = "int f(int x) { return x + 2; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok,
+            "same-directory duplicate signatures must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "is conflicted with a exist field definition"),
+            "the legacy duplicate-definition diagnostic must stay");
+    }
+
+    //FUNCTION-PAIR GATE: the exemption is for functions only. Classes
+    //stay globally visible (spec section 5.5), so cross-directory
+    //same-name classes keep the legacy name-equality conflict.
+    void crossDirectorySameNameClassStillConflicts()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "class widget {\n"
+            "    public int size;\n"
+            "}\n"
+            "int main() { return 0; }\n";
+        opts.szHelperBody =
+            "class widget {\n"
+            "    public int size;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok,
+            "cross-directory same-name classes must still conflict");
+        QVERIFY2(containsError(res.errors,
+            "is conflicted with a exist field definition"),
+            "the legacy duplicate-definition diagnostic must stay");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestModuleImport)

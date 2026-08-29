@@ -4,6 +4,7 @@
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
 #include "TranslationUnit.h"
+#include "ModuleRegistry.h"
 #include <nlang/vm/StdLib.h>
 #include <set>
 #include <string>
@@ -164,9 +165,40 @@ private:
 		}
 	}
 
+	//Task 8 (spec §3.2): true when two same-name FUNCTIONS share a bare
+	//pool — same owner, ownerless on either side (pre-declared/host
+	//symbols keep the legacy behavior), or the same directory. An
+	//external .nmod stub never shares a bare pool with a local function.
+	bool SameBarePool(const SnField &f1, const SnField &f2)
+	{
+		auto &reg = m_Env.Registry();
+		const uint32_t owner1 = reg.OwnerOf(f1);
+		const uint32_t owner2 = reg.OwnerOf(f2);
+		if (owner1 == ModuleRegistry::NO_OWNER
+			|| owner2 == ModuleRegistry::NO_OWNER)
+			return true;
+		if (owner1 == owner2)
+			return true;
+		if (reg.IsExternal(owner1) || reg.IsExternal(owner2))
+			return false;
+		return reg.DirectoryOf(owner1) == reg.DirectoryOf(owner2);
+	}
+
 	bool DetectConflict(const SnField &f1, const SnField &f2)
 	{
 		if (!f1.ConflictedWith(f2))
+			return false;
+		//Spec §3.2: same-name FUNCTIONS in different directories (or one
+		//local + one imported stub) never conflict — their qualified
+		//paths differ and the bare pools are disjoint. Only
+		//same-directory duplicates are real redefinitions.
+		//FUNCTION-PAIR GATE: the exemption applies only when BOTH sides
+		//are NK_Function. Non-function symbols (class/struct/global
+		//fields) keep the legacy name-equality conflict — spec §5.5 keeps
+		//types globally visible in v1, and silent cross-directory class
+		//coexistence would create bare-name ambiguity with no diagnostic.
+		if (f1.Kind() == NK_Function && f2.Kind() == NK_Function
+			&& !SameBarePool(f1, f2))
 			return false;
 		auto &errorField = (f1.IsImported()) ? f2 : f1;
 		auto &existField = (&errorField == &f1) ? f2 : f1;
