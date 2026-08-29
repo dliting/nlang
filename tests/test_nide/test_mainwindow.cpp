@@ -1651,17 +1651,17 @@ private slots:
         // up (installed layout: bin/../docs/site, one hop).
         //use_directory_urls:false output: pages are flat .html files --
         //directory-form URLs would open directory listings over file://.
-        QVERIFY(MainWindow::locateHelpPage("language-spec")
-                     .endsWith("/language-spec.html"));
+        QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
+                     .endsWith("/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("nlang-getting-started")
                      .endsWith("/nlang-getting-started.html"));
-        QVERIFY(MainWindow::locateHelpPage("vm-architecture")
-                     .endsWith("/vm-architecture.html"));
+        QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
+                     .endsWith("/vm-architecture/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
     }
 
     void testHelpOpensEmbeddedBrowser() {
-        const QString page = MainWindow::locateHelpPage("language-spec");
+        const QString page = MainWindow::locateHelpPage("language-spec/overview");
         if (page.isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
@@ -1675,7 +1675,7 @@ private slots:
         QWebEngineView* view =
             browser->findChild<QWebEngineView*>("helpWebView");
         QVERIFY(view != nullptr);
-        QVERIFY(page.endsWith("/language-spec.html"));
+        QVERIFY(page.endsWith("/language-spec/overview.html"));
         //Loading is asynchronous Chromium work; the view's url flips
         //once the load starts, which is all this asserts.
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(page));

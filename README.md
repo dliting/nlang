@@ -107,9 +107,9 @@ int main() {
 ```
 
 Full details — parameter type policy, exception mapping, byte semantics,
-deterministic PRNG — are in the Standard Library chapter of
-`docs/language-spec.md`; runnable copies of the example live in
-`examples/stdlib_*.n`.
+deterministic PRNG — are in the Standard Library chapter
+(`docs/language-spec/standard-library.md`); runnable copies of the example
+live in `examples/stdlib_*.n`.
 
 New to NLang? `docs/nlang-getting-started.md` walks the language, the CLI
 and the IDE in one page (it is also reachable from the nide Help menu);

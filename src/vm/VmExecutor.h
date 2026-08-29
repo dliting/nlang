@@ -123,7 +123,8 @@ private:
     int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size);
 
     //GC: mark-sweep garbage collection.
-    //Design decisions (see docs/vm-architecture.md for full rationale):
+    //Design decisions (see docs/vm-architecture/garbage-collection-design.md
+    //for full rationale):
     //  1. Safepoint-triggered, not allocation-point-triggered.
     //     Why: avoids tracking tempSlot/tempSlot2 references in MarkPhase.
     //  2. Precise scan via LocalDescriptor, not conservative byte scan.

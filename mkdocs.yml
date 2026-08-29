@@ -23,5 +23,32 @@ extra_css:
 nav:
   - 主页: index.md
   - NLang 入门: nlang-getting-started.md
-  - 语言规格: language-spec.md
-  - VM 架构: vm-architecture.md
+  - 语言规格:
+      - 概览: language-spec/overview.md
+      - 命名约定: language-spec/naming-convention.md
+      - 类型: language-spec/types.md
+      - 类型语义: language-spec/type-semantics.md
+      - 声明: language-spec/declarations.md
+      - 内建泛型类: language-spec/builtin-generic-classes.md
+      - 表达式: language-spec/expressions.md
+      - 语句: language-spec/statements.md
+      - 函数: language-spec/functions.md
+      - 函数类型与委托: language-spec/function-types-and-delegates.md
+      - 标准库: language-spec/standard-library.md
+      - 内存管理: language-spec/memory-management.md
+      - 退出码约定: language-spec/exit-code-convention.md
+      - 已知限制: language-spec/known-limitations.md
+  - VM 架构:
+      - 概览: vm-architecture/overview.md
+      - 编译管线: vm-architecture/compilation-pipeline.md
+      - 栈帧布局: vm-architecture/stack-frame-layout.md
+      - 堆架构: vm-architecture/heap-architecture.md
+      - 字节码指令: vm-architecture/bytecode-instructions.md
+      - 垃圾回收设计: vm-architecture/garbage-collection-design.md
+      - 模块序列化: vm-architecture/module-serialization.md
+      - foreach 降级: vm-architecture/foreach-statement-lowering.md
+      - 初始化列表降级: vm-architecture/init-list-lowering.md
+      - 二元表达式提升: vm-architecture/binary-expression-promotion.md
+      - 标准库 intrinsic: vm-architecture/standard-library-intrinsics.md
+      - 一等函数值: vm-architecture/first-class-function-values.md
+      - 已知限制: vm-architecture/known-limitations.md

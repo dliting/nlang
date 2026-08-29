@@ -979,11 +979,11 @@ void MainWindow::on_actHelpGettingStarted_triggered() {
 }
 
 void MainWindow::on_actHelpLanguageSpec_triggered() {
-    openHelpDocument(QStringLiteral("language-spec"));
+    openHelpDocument(QStringLiteral("language-spec/overview"));
 }
 
 void MainWindow::on_actHelpVmArch_triggered() {
-    openHelpDocument(QStringLiteral("vm-architecture"));
+    openHelpDocument(QStringLiteral("vm-architecture/overview"));
 }
 
 void MainWindow::openHelpDocument(const QString& documentPagePath) {

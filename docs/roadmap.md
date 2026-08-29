@@ -99,5 +99,5 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 | 文档 | 说明 |
 |------|------|
-| docs/language-spec.md | NLang 语言规范（类型语义、语法、GC 行为） |
-| docs/vm-architecture.md | VM 架构设计（编译管线、堆布局、GC 算法、指令集） |
+| docs/language-spec/ | NLang 语言规范（类型语义、语法、GC 行为），一章一页 14 篇 |
+| docs/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集），一章一页 13 篇 |
