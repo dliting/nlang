@@ -51,9 +51,10 @@ ROOT_FILES = ['LICENSE', 'README.md']
 # is part of that site.
 DOC_FILES = [
     'docs/site/index.html',
-    'docs/site/nlang-getting-started/index.html',
-    'docs/site/language-spec/index.html',
-    'docs/site/vm-architecture/index.html',
+    'docs/site/nlang-getting-started.html',
+    'docs/site/language-spec/overview.html',
+    'docs/site/language-spec/standard-library.html',
+    'docs/site/vm-architecture/overview.html',
     'docs/site/search/search_index.json',
     'docs/site/stylesheets/two-column-layout.css',
 ]
@@ -64,8 +65,10 @@ DOC_FILES = [
 # pak and non-UI locales are over-deployment canaries: the WebEngine
 # runtime ships as an exact whitelist (en-US/zh-CN only).
 ABSENT_PATHS = [
-    'docs/language-spec.md', 'docs/nlang-getting-started.md',
-    'docs/vm-architecture.md',
+    #Markdown sources stay out (only the rendered site ships); the split
+    #sources live in docs/language-spec/ and docs/vm-architecture/.
+    'docs/nlang-getting-started.md', 'docs/language-spec',
+    'docs/vm-architecture',
     'docs/superpowers', 'docs/roadmap.md', 'docs/ci_design.md',
     'docs/nide-file-rename-and-layout.md', 'bin/platforms/qwindowsd.dll',
     'bin/resources/qtwebengine_devtools_resources.pak',
