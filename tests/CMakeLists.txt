@@ -460,13 +460,15 @@ add_test(NAME ncc_no_o_output_cwd
         -DCWD_DIR=${CMAKE_BINARY_DIR}/e2e_out/cwd_pin
         -P ${CMAKE_CURRENT_SOURCE_DIR}/ncc_no_o_output_cwd.cmake)
 
-#Project-mode entries are fixture compiles/runs: keep each well under
-#the 3-minute unit-test ceiling (CLAUDE.md).
+#Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
+#real compile too. Keep each well under the 3-minute unit-test ceiling
+#(CLAUDE.md).
 set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_same_dir_compile proj_same_dir_run proj_dup_import_compile
     proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
     proj_not_imported_compile proj_bare_cross_dir_compile
-    proj_reserved_segment_compile PROPERTIES TIMEOUT 180)
+    proj_reserved_segment_compile ncc_no_o_output_cwd
+    PROPERTIES TIMEOUT 180)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-

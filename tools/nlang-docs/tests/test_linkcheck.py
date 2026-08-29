@@ -4,6 +4,7 @@ import textwrap
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+import nlang_docs.linkcheck as linkcheck_module  # noqa: E402
 from nlang_docs.cli import main as cli_main  # noqa: E402
 from nlang_docs.linkcheck import check_site  # noqa: E402
 
@@ -208,7 +209,6 @@ def test_empty_config_fails_loudly(tmp_path, capsys):
 def test_yaml_unavailable_skips_nav_rule(tmp_path, capsys, monkeypatch):
     #The nav rule degrades to a skip with a note when pyyaml is
     #missing; the supplied config must not turn that into an error.
-    import nlang_docs.linkcheck as linkcheck_module
     site = make_site(tmp_path, {"index.html": "<p></p>"})
     config = write_nav_config(tmp_path, "  - 主页: index.md\n")
     monkeypatch.setattr(linkcheck_module, "yaml", None)
@@ -254,4 +254,10 @@ def test_nav_config_with_python_name_tags_parses(tmp_path, capsys):
     site.mkdir()
     (site / "index.html").write_text("<html></html>", encoding="utf-8")
     assert check_site(site, config) == 0
+    #The dotted path lands in the value: the tagged node itself is empty,
+    #so the tag's suffix is the only place the name is spelled out.
+    loader = linkcheck_module._ConfigLoader
+    assert linkcheck_module.yaml.load(
+        "slugify: !!python/name:pymdownx.slugs.gfm\n", Loader=loader) \
+        == {"slugify": "pymdownx.slugs.gfm"}
     assert "nav coverage OK" in capsys.readouterr().out

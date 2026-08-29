@@ -47,13 +47,15 @@ if yaml is not None:
 
         The nav rule only reads nav strings; a python object reference
         (e.g. a toc slugify function) is recorded as its dotted path
-        instead of failing the whole config read. No object is ever
-        instantiated — that is exactly what SafeLoader refuses.
+        instead of failing the whole config read. The tagged node itself
+        is empty — the name is spelled out in the tag's suffix — and no
+        object is ever instantiated, which is exactly what SafeLoader
+        refuses.
         """
 
     _ConfigLoader.add_multi_constructor(
         "tag:yaml.org,2002:python/name",
-        lambda loader, suffix, node: loader.construct_scalar(node))
+        lambda loader, suffix, node: suffix.lstrip(":"))
 
 
 def _check_links(site_dir):

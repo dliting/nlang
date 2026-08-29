@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from nlang_docs.cli import main as cli_main  # noqa: E402
 from nlang_docs.snippets import (  # noqa: E402
     audit_doc, expected_exit, group_programs, parse_blocks)
 
@@ -22,14 +23,28 @@ needs_tools = pytest.mark.skipif(
 
 def test_parse_blocks_keeps_labels_and_skips_other_fences():
     doc = "text\n```text\nnot nlang\n```\n```nlang\nint main() { return 7; }\n```\n"
-    blocks = parse_blocks(doc)
+    blocks, problems = parse_blocks(doc)
+    assert problems == []
     assert len(blocks) == 1
     assert blocks[0].lang == "nlang"
     assert blocks[0].label is None
     assert "return 7;" in blocks[0].code
 
-    labeled = parse_blocks("```nlang modules/main.n\nint main() { return 0; }\n```\n")
+    labeled, _ = parse_blocks(
+        "```nlang modules/main.n\nint main() { return 0; }\n```\n")
     assert labeled[0].label == "modules/main.n"
+
+
+def test_parse_blocks_reports_unclosed_fence():
+    #An unclosed fence swallows the rest of the page in markdown, so the
+    #audit must say its scope shrank instead of quietly auditing less.
+    doc = ("```nlang\nint main() { return 7; }\n```\n"
+           "prose\n```text\nnever closed\n")
+    blocks, problems = parse_blocks(doc)
+    assert len(blocks) == 1
+    assert len(problems) == 1
+    assert "line 5" in problems[0]
+    assert "not audited" in problems[0]
 
 
 def test_expected_exit_single_guard_pattern_and_no_main():
@@ -57,7 +72,9 @@ def test_grouping_labeled_helpers_join_previous_program():
         "```nlang modules/utils/helper.n\n"
         "int answer() { return 42; }\n"
         "```\n")
-    programs, skipped = group_programs(parse_blocks(doc))
+    blocks, _ = parse_blocks(doc)
+    programs, skipped, problems = group_programs(blocks)
+    assert problems == []
     assert skipped == []
     assert len(programs) == 1
     assert set(programs[0].files) == {
@@ -67,30 +84,89 @@ def test_grouping_labeled_helpers_join_previous_program():
 
 def test_grouping_bare_helpers_without_program_are_skipped():
     doc = "```nlang\nint twice(int x) { return x * 2; }\n```\n"
-    programs, skipped = group_programs(parse_blocks(doc))
+    blocks, _ = parse_blocks(doc)
+    programs, skipped, problems = group_programs(blocks)
     assert programs == []
     assert len(skipped) == 1
+    assert problems == []
+
+
+def _labeled_block_doc(label, code="int twice(int x) { return x * 2; }\n"):
+    return "```nlang %s\n%s```\n" % (label, code)
+
+
+def test_grouping_refuses_escaping_labels(tmp_path):
+    #A <path> label becomes a file under the scratch dir; one that is
+    #absolute or climbs out with '..' would write outside it, so the
+    #grouping refuses it instead of rewriting the author's path.
+    absolute = str(Path(tmp_path.anchor or "/") / "escape.n")
+    cases = [(absolute, "escape.n"),
+             ("modules/../helper.n", "'modules/../helper.n'"),
+             ("..\\helper.n", "helper.n")]
+    for label, fragment in cases:
+        doc = (_labeled_block_doc("modules/main.n",
+                                  "int main() { return 0; }\n")
+               + _labeled_block_doc(label))
+        programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+        assert len(programs) == 1
+        assert skipped == []
+        assert len(problems) == 1, label
+        assert "line 4" in problems[0]
+        assert fragment in problems[0]
+    #The guard covers entries too, not just helpers.
+    doc = _labeled_block_doc(absolute, "int main() { return 0; }\n")
+    programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+    assert programs == []
+    assert skipped == []
+    assert len(problems) == 1
+    assert "line 1" in problems[0]
+
+
+def test_grouping_refuses_duplicate_labels():
+    doc = (_labeled_block_doc("modules/main.n", "int main() { return 0; }\n")
+           + _labeled_block_doc("modules/helper.n")
+           + _labeled_block_doc("modules/helper.n"))
+    programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+    assert len(programs) == 1
+    assert set(programs[0].files) == {
+        "modules/main.n", "modules/helper.n"}
+    assert skipped == []
+    assert len(problems) == 1
+    assert "line 7" in problems[0]
+    assert "modules/helper.n" in problems[0]
+    #Duplicating the entry's own label is the same refusal.
+    doc = (_labeled_block_doc("modules/main.n", "int main() { return 0; }\n")
+           + _labeled_block_doc("modules/main.n"))
+    programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+    assert len(programs) == 1
+    assert set(programs[0].files) == {"modules/main.n"}
+    assert skipped == []
+    assert len(problems) == 1
+    assert "line 4" in problems[0]
 
 
 GOOD_DOC = "```nlang\nimport io;\nint main() { return 7; }\n```\n"
 WRONG_DOC = "```nlang\nimport io;\nint main() { if (2 + 2 == 5) { return 7; }\n" \
             "return 1; }\n```\n"
 COMPILE_ERROR_DOC = "```nlang\nint main() { return nosuchfn(); }\n```\n"
+NEGATIVE_DOC = "```nlang\nint main() { return -1; }\n```\n"
 
 
 @needs_tools
 def test_audit_green_doc_passes(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text(GOOD_DOC, encoding="utf-8")
-    problems = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, programs, skipped = audit_doc(doc, NCC, NVM, tmp_path / "work")
     assert problems == []
+    assert len(programs) == 1
+    assert skipped == []
 
 
 @needs_tools
 def test_audit_failed_expectation_names_the_block(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text(WRONG_DOC, encoding="utf-8")
-    problems = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
     assert len(problems) == 1
     assert "exited 1" in problems[0] and "expected 7" in problems[0]
 
@@ -99,9 +175,21 @@ def test_audit_failed_expectation_names_the_block(tmp_path):
 def test_audit_compile_error_is_reported(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text(COMPILE_ERROR_DOC, encoding="utf-8")
-    problems = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
     assert len(problems) == 1
     assert "compile" in problems[0]
+
+
+@needs_tools
+def test_audit_negative_return_is_a_located_problem(tmp_path):
+    #expected_exit refuses negative literals; the refusal must surface as
+    #a problem naming the block, not as an uncaught exception.
+    doc = tmp_path / "page.md"
+    doc.write_text(NEGATIVE_DOC, encoding="utf-8")
+    problems, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    assert len(problems) == 1
+    assert "line 1" in problems[0]
+    assert "negative" in problems[0]
 
 
 @needs_tools
@@ -113,8 +201,17 @@ def test_audit_multifile_project_and_skips(tmp_path):
         " { return 42; } return 1; }\n```\n"
         "`utils/helper.n`:\n```nlang modules/utils/helper.n\n"
         "int answer() { return 42; }\n```\n", encoding="utf-8")
-    problems = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, programs, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
     assert problems == []
+    assert len(programs) == 1
+
+
+def test_cli_missing_doc_fails_cleanly(tmp_path, capsys):
+    #A mistyped --doc path must be a clean error, not a traceback from
+    #the file read deep inside the audit.
+    missing = tmp_path / "nope.md"
+    assert cli_main(["snippets", "--doc", str(missing)]) == 1
+    assert "not found" in capsys.readouterr().err
 
 
 def test_audit_empty_doc_fails_not_vacuous(tmp_path):

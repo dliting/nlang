@@ -100,8 +100,14 @@ def main(argv=None):
                   else _find_nav_config())
         return check_site(Path(opts.site_dir), config)
     if opts.command == "snippets":
+        doc = Path(opts.doc)
+        if not doc.is_file():
+            #A mistyped --doc is a clean error, not a traceback from the
+            #file read inside the audit.
+            print("snippets: page not found: %s" % doc, file=sys.stderr)
+            return 1
         return _snippet_audit(
-            Path(opts.doc), opts.ncc, opts.nvm,
+            doc, opts.ncc, opts.nvm,
             Path(opts.workdir) if opts.workdir else None)
     #argparse required=True makes this unreachable today; returning
     #explicitly beats silently falling into another subcommand later.
@@ -142,12 +148,13 @@ def _snippet_audit(page, ncc, nvm, workdir):
 
 
 def _snippet_audit_run(page, ncc, nvm, workdir):
-    problems = audit_doc(page, ncc, nvm, workdir)
+    problems, programs, skipped = audit_doc(page, ncc, nvm, workdir)
     for problem in problems:
         print("snippets: " + problem, file=sys.stderr)
     if problems:
         print("snippets: %d problem(s) in %s"
               % (len(problems), page), file=sys.stderr)
         return 1
-    print("snippets: all guide snippets compile and run as documented")
+    print("snippets: %d programs OK (%d skipped)"
+          % (len(programs), len(skipped)))
     return 0
