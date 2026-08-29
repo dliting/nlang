@@ -39,6 +39,11 @@ class ModuleRegistry
 {
 public:
 	//Sentinel owner index: "no module owns this symbol / context".
+	//Ownerless nodes are judged per side, so that policy stays outside
+	//ShareBarePool: the duplicate check treats an ownerless candidate as
+	//a shared-pool member — it always coexists (DuplicateFieldChecker::
+	//SameBarePool) — while IsBareVisible treats an ownerless context as
+	//defensively invisible (it never passes the bare filter).
 	static constexpr uint32_t NO_OWNER = 0xFFFFFFFFu;
 
 	//--- per-TU import gates ---
@@ -95,8 +100,12 @@ public:
 		const std::string& dottedPath) const;
 	bool IsBuiltinImported(uint32_t moduleIndex,
 		const std::string& ns) const;
-	//Module import visibility (D1/D7): do two OWNED modules share a bare
-	//pool? Callers must rule NO_OWNER out first (DirectoryOf contract).
+	//Module import visibility (D1/D7): shared "same bare pool" core —
+	//bare-visible entities live in one pool per directory, so same-
+	//directory modules always collide and cross-directory ones never do.
+	//Callers must rule NO_OWNER out first (DirectoryOf contract); the
+	//NO_OWNER policy differs per caller and stays outside (see the
+	//NO_OWNER note above).
 	bool ShareBarePool(uint32_t ownerA, uint32_t ownerB) const
 	{
 		if (ownerA == ownerB)
