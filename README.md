@@ -182,6 +182,41 @@ site (`docs/site`) in an embedded viewer inside the IDE.
 the layout to a scratch directory, pins Qt's search paths to it via
 `qt.conf`, and runs the IDE test suite from there.
 
+## Documentation Site
+
+The user manual (`docs/*.md`) is rendered into a static site by the CMake
+target `nlang_docs` (on by default, `-DNLANG_BUILD_DOCS=OFF` to skip) into
+`<build>/docs/site/`; the IDE's Help menu shows that directory in its
+embedded viewer. Toolchain versions are pinned in
+`tools/docs-requirements.txt` (`pip install -r tools/docs-requirements.txt`,
+then configure with `-DNLANG_DOCS_PYTHON=<interpreter>`).
+
+The pipeline lives in `tools/nlang-docs/`, a self-contained package that is
+not installed — run it straight from the source tree via `PYTHONPATH`:
+
+```bash
+# Iteration preview (plain mkdocs live-reload server)
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.yml
+
+# What the CMake target runs: mkdocs build --strict, then the audit below
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
+    --config mkdocs.yml --site-dir build/docs/site
+
+# Audit an already-generated site (also reused by packaging verification)
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
+    --site-dir build/docs/site --config mkdocs.yml
+```
+
+The site must render fully offline, straight from `file://`: URLs stay flat
+(`use_directory_urls: false`), webfonts are disabled, nothing loads from a
+CDN, and instead of mkdocs-material's search index fetch (its polyfill is
+pulled from unpkg) the build inlines the index into
+`search/search_index.js`. The `check` audit enforces that shape: internal
+links must resolve to existing `.html` files, `#fragments` must exist,
+directory-form links are rejected, and every built page must appear in the
+`nav` of the `mkdocs.yml` passed via `--config`. Unit tests:
+`pytest tools/nlang-docs/tests`.
+
 ## Packaging (Windows)
 
 Release packages are produced with CPack from the IDE build tree (it contains
@@ -213,8 +248,9 @@ Notes:
   [VC++ Redistributable for Visual Studio](https://aka.ms/vs/17/release/vc_redist.x64.exe)
   (already present on machines with Visual Studio 2022).
 - `python tests/packaging/verify_package.py` checks a built package:
-  extracts the zip, asserts the layout, and smoke-tests the packaged
-  toolchain by compiling and running `examples/hello.n` with it.
+  extracts the zip, asserts the layout, audits the packaged docs site with
+  the `nlang_docs check` pipeline, and smoke-tests the packaged toolchain
+  by compiling and running `examples/hello.n` with it.
 
 ## Project Structure
 
