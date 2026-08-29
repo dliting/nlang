@@ -110,6 +110,10 @@ import sources share one syntax:
 | External `.nmod` | **yes** | qualified only (`lib.f()`) |
 | Built-in `io`/`math`/`fs` | **yes** | qualified (`io.print`) |
 
+This matrix covers root-level functions. Members of a namespace shared
+across directories are the one v1 exception — unreachable from another
+directory in any form (see the Declarations chapter, Import Declaration).
+
 A wildcard import is a recursive prefix match: `import utils.*;` reaches
 `utils/` and every nested subdirectory (`utils.helper`, `utils.sub.x`).
 Calls still use the full path — there is no `from m import *` form.

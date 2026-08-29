@@ -44,6 +44,13 @@ Visibility:
 - Duplicate imports are idempotent; exact + wildcard overlap takes the
   union; importing the own module path or a same-directory file is a
   harmless redundancy.
+- Known limitation: members of a namespace shared across directories
+  (two files declare the same `namespace NS`) are unreachable from
+  another directory in v1 — the bare call is rejected by the bare-pool
+  rule, and no qualified form exists because a module path addresses
+  root-level functions only, so the `import it and qualify the call`
+  hint does not apply to them. This closes with the type-level
+  visibility gate.
 - Resolution order for an import target: built-in → project file →
   external `.nmod` (via `-I`). No implicit fallback.
 - Project path segments may not collide with `io`/`math`/`fs` (compile
