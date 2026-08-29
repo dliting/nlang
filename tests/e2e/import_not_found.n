@@ -1,0 +1,3 @@
+import nosuch;
+
+int main() { return 0; }

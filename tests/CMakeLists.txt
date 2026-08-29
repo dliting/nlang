@@ -368,3 +368,80 @@ set_tests_properties(ncc_p_conflict PROPERTIES
 add_test(NAME project_run
     COMMAND ncc -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
     -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project_run.nmod)
+
+#--- Module import visibility matrix (module import visibility Task 10) --
+#Project-mode fixtures in tests/e2e/proj_*: the e2e runner gates only
+#single-file and order.txt layouts, so .nproj projects are ctest-only.
+#Success projects compile then run (run DEPENDS compile); failure
+#projects pin their rejection text with PASS_REGULAR_EXPRESSION (same
+#crash-safe pattern as ncc_flag_no_value above: the match overrides the
+#nonzero exit, and a crash would print no diagnostic).
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/e2e_out)
+
+#Recursive wildcard + explicit imports mixed; stdout is 3/4/5, one line
+#per imported module.
+add_test(NAME proj_import_visibility_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_import_visibility/proj_import_visibility.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.nmod)
+add_test(NAME proj_import_visibility_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.nmod)
+set_tests_properties(proj_import_visibility_run PROPERTIES
+    DEPENDS proj_import_visibility_compile
+    PASS_REGULAR_EXPRESSION "3")
+
+#D7: a same-directory function is reachable bare AND qualified.
+add_test(NAME proj_same_dir_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_same_dir/proj_same_dir.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.nmod)
+add_test(NAME proj_same_dir_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.nmod)
+set_tests_properties(proj_same_dir_run PROPERTIES
+    DEPENDS proj_same_dir_compile
+    PASS_REGULAR_EXPRESSION "7")
+
+#Duplicate and overlapping imports (exact repeat + exact/wildcard
+#overlap) are idempotent: the project compiles clean.
+add_test(NAME proj_dup_import_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_dup_import/proj_dup_import.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_dup_import.nmod)
+
+#D11 executed: the wildcard's union reaches the EXACT root module
+#(utils.f, main lives in app/ so D7 cannot mask it) and the recursive
+#prefix (utils.helper.help); main returns 9 if either value is wrong.
+add_test(NAME proj_wildcard_exact_union_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_wildcard_exact_union/proj_wildcard_exact_union.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.nmod)
+add_test(NAME proj_wildcard_exact_union_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.nmod)
+set_tests_properties(proj_wildcard_exact_union_run PROPERTIES
+    DEPENDS proj_wildcard_exact_union_compile
+    PASS_REGULAR_EXPRESSION "6")
+
+#Spec section 7 row 1: a known module path this TU did not import.
+add_test(NAME proj_not_imported_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_not_imported/proj_not_imported.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_not_imported.nmod)
+set_tests_properties(proj_not_imported_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "is not imported")
+
+#Spec section 7: the bare pool never spans directories.
+add_test(NAME proj_bare_cross_dir_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_bare_cross_dir/proj_bare_cross_dir.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_cross_dir.nmod)
+set_tests_properties(proj_bare_cross_dir_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "is not visible here")
+
+#Spec section 5.2: project path segments may not use builtin namespace
+#names (io here).
+add_test(NAME proj_reserved_segment_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_reserved_segment/proj_reserved_segment.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_reserved_segment.nmod)
+set_tests_properties(proj_reserved_segment_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "collides with a built-in namespace")

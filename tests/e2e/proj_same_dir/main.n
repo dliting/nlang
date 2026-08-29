@@ -1,0 +1,8 @@
+import io;
+
+int main()
+{
+    io.print(f());        // same-directory bare form (D7)
+    io.print(extra.f());  // same-directory qualified form
+    return 0;
+}

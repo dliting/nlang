@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project name="proj_dup_import" namespace="proj_dup_import">
+  <Sources>
+    <File path="main.n"/>
+    <File path="utils/helper.n"/>
+    <File path="utils/sub/deep.n"/>
+  </Sources>
+</Project>

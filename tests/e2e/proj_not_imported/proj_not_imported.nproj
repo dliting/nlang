@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project name="proj_not_imported" namespace="proj_not_imported">
+  <Sources>
+    <File path="main.n"/>
+    <File path="utils/helper.n"/>
+  </Sources>
+</Project>

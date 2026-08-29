@@ -1,0 +1,10 @@
+import io;
+import utils.*;
+
+int main()
+{
+    io.print(utils.f());           // 6 (D11: exact module in the union)
+    io.print(utils.helper.help()); // 3 (D11: recursive prefix)
+    if (utils.f() != 6 || utils.helper.help() != 3) { return 9; }
+    return 0;
+}

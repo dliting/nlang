@@ -1,0 +1,1 @@
+int main() { io.print("x"); return 0; }

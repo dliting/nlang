@@ -1,0 +1,12 @@
+import io;
+import utils.helper;
+import utils.*;
+import logic.samer;
+
+int main()
+{
+    io.print(utils.helper.help());      // 3 (explicit)
+    io.print(utils.sub.deep.deep());    // 4 (recursive wildcard)
+    io.print(logic.samer.same());       // 5 (cross-directory explicit)
+    return 0;
+}
