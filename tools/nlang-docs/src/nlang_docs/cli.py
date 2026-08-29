@@ -1,8 +1,10 @@
 """CLI: build / serve / check.
 
-build = mkdocs build --strict + site audit chained (a broken link
-fails the build). serve = plain mkdocs serve for iteration. check =
-audit only, for already-generated sites (verify_package reuses it).
+build = mkdocs build --strict + offline search inlining + site audit
+chained (a broken link fails the build). serve = plain mkdocs serve
+for iteration. check = audit only, for already-generated sites; it
+accepts --config to also enforce nav coverage and otherwise falls back
+to the CWD's mkdocs.yml (the cmake recipe runs from the repo root).
 """
 import argparse
 import subprocess
@@ -11,12 +13,20 @@ from pathlib import Path
 
 from . import __version__
 from .linkcheck import check_site
+from .offline_search import inline_search_index
 
 
 def _mkdocs(args):
     #Shell out so this package never imports mkdocs itself.
     return subprocess.run(
         [sys.executable, "-m", "mkdocs", *args]).returncode
+
+
+def _find_nav_config():
+    """The CWD's mkdocs.yml, or None when there is none (the nav
+    coverage rule is skipped rather than guessed about)."""
+    candidate = Path.cwd() / "mkdocs.yml"
+    return candidate if candidate.is_file() else None
 
 
 def main(argv=None):
@@ -42,6 +52,10 @@ def main(argv=None):
     p_check = sub.add_parser(
         "check", help="audit an already-generated site")
     p_check.add_argument("--site-dir", required=True)
+    p_check.add_argument("--config", default=None,
+                         help="mkdocs.yml for the nav-coverage rule "
+                              "(default: mkdocs.yml in the CWD; the "
+                              "rule is skipped when none is found)")
 
     opts = parser.parse_args(argv)
     if opts.command == "build":
@@ -49,11 +63,16 @@ def main(argv=None):
                       "-d", opts.site_dir])
         if rc != 0:
             return rc
-        return check_site(Path(opts.site_dir))
+        rc = inline_search_index(opts.site_dir)
+        if rc != 0:
+            return rc
+        return check_site(Path(opts.site_dir), Path(opts.config))
     if opts.command == "serve":
         return _mkdocs(["serve", "-f", opts.config])
     if opts.command == "check":
-        return check_site(Path(opts.site_dir))
+        config = (Path(opts.config) if opts.config is not None
+                  else _find_nav_config())
+        return check_site(Path(opts.site_dir), config)
     #argparse required=True makes this unreachable today; returning
     #explicitly beats silently falling into another subcommand later.
     return None

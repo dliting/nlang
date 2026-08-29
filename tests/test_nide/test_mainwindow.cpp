@@ -13,6 +13,7 @@
 #include <QDialog>
 #include <QDir>
 #include <QDockWidget>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -48,6 +49,16 @@ const char* const kMainSource =
     "public int main() {\n"
     "    return 42;\n"
     "}\n";
+
+//The embedded help's mkdocs-material search needs the page-side retry
+//loop to report (its bundle binds the input handler asynchronously),
+//so the test polls the reported flag at this interval and gives up
+//after the timeout.
+constexpr int kHelpSearchProbeMs = 250;
+constexpr int kHelpSearchTimeoutMs = 15000;
+//Parallel builds make the first page load slow; QTRY's 5s default is
+//not enough for the loadFinished wait under that contention.
+constexpr int kHelpPageLoadTimeoutMs = 15000;
 
 //Schedule an action to run inside the modal exec() loop that the NEXT
 //blocking call opens (queue right before triggering it).
@@ -1686,6 +1697,100 @@ private slots:
             MainWindow::locateHelpPage("nlang-getting-started");
         QVERIFY(gettingStarted.endsWith("/nlang-getting-started.html"));
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(gettingStarted));
+    }
+
+    void testHelpSearchFindsResults() {
+        //Over file:// material's search cannot fetch the JSON index; it
+        //script-tags search/search_index.js (defining __index) instead,
+        //which the docs pipeline must therefore generate (the mkdocs
+        //search plugin emits only the .json). A real query must surface
+        //real results, covering index load and the search run in one go.
+        if (MainWindow::locateHelpPage("language-spec/overview").isEmpty())
+            QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
+        MainWindow window;
+        act(window, "actHelpLanguageSpec")->trigger();
+        QWebEngineView* view = window.findChild<QWebEngineView*>("helpWebView");
+        QVERIFY(view != nullptr);
+        QTRY_VERIFY(view->url().toString().endsWith(".html"));
+        //The url flips at load START; the search form only exists once
+        //the document finished parsing.
+        QSignalSpy loaded(view->page(), &QWebEnginePage::loadFinished);
+        QTRY_VERIFY_WITH_TIMEOUT(loaded.count() > 0,
+                                 kHelpPageLoadTimeoutMs);
+        //Type into the real search box and let material react to the
+        //input event the way a user's keystrokes arrive. Material
+        //binds its search handler only once its bundle has run, so the
+        //typing retries IN THE PAGE (a setTimeout loop reporting into
+        //window.__helpSearch) -- one bridge call to start it, then
+        //throttled flag reads, instead of a runJavaScript per poll.
+        const char* const kickSearchJs =
+            "(()=>{"
+            "const type=()=>{const q=document.querySelector("
+            "'[data-md-component=\"search-query\"]');"
+            "if(!q)return 'no-input';"
+            "q.focus();q.value='foreach';"
+            "q.dispatchEvent(new Event('focus',{bubbles:true}));"
+            "q.dispatchEvent(new Event('input',{bubbles:true}));"
+            "return 'typed';};"
+            //Result entries by their wrapping link, not bare articles:
+            //material renders <a ...><article>...</article></a>, and
+            //the queryless help placeholder counts as an article.
+            "const resultCount=()=>document.querySelectorAll("
+            "'.md-search-result__list a[href$=\".html\"] article').length;"
+            "window.__helpSearch='waiting';"
+            "let tries=0;"
+            "const attempt=()=>{const typed=type();"
+            "if(typed!=='typed'){window.__helpSearch=typed;return;}"
+            "const hits=resultCount();"
+            "if(hits>0){window.__helpSearch='ok:'+hits;return;}"
+            "if(++tries>=40){window.__helpSearch='timeout:'+hits;return;}"
+            "setTimeout(attempt,300);};"
+            "attempt();return 'kicked';})()";
+        QString kickStatus;
+        view->page()->runJavaScript(QLatin1String(kickSearchJs),
+            [&](const QVariant& v){ kickStatus = v.toString(); });
+        QTRY_VERIFY_WITH_TIMEOUT(kickStatus == QLatin1String("kicked"),
+                                 kHelpPageLoadTimeoutMs);
+        QString searchState;
+        QElapsedTimer sinceProbe;
+        sinceProbe.start();
+        QVERIFY2(QTest::qWaitFor([&]() {
+            if (sinceProbe.hasExpired(kHelpSearchProbeMs)) {
+                sinceProbe.restart();
+                view->page()->runJavaScript(
+                    QLatin1String("window.__helpSearch || ''"),
+                    [&](const QVariant& v){ searchState = v.toString(); });
+            }
+            return searchState.startsWith(QLatin1String("ok:"));
+        }, kHelpSearchTimeoutMs), qPrintable(searchState));
+    }
+
+    void testHelpLinksNavigateToHtmlPages() {
+        //Regression for the directory-listing bug: every internal link in
+        //the site must land on a .html page, never a directory index.
+        if (MainWindow::locateHelpPage("language-spec/overview").isEmpty())
+            QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
+        MainWindow window;
+        act(window, "actHelpLanguageSpec")->trigger();
+        QWebEngineView* view = window.findChild<QWebEngineView*>("helpWebView");
+        QVERIFY(view != nullptr);
+        QTRY_VERIFY(view->url().toString().endsWith(".html"));
+        //The url flips at load START; anchors only exist once the
+        //document finished parsing.
+        QSignalSpy loaded(view->page(), &QWebEnginePage::loadFinished);
+        QTRY_VERIFY_WITH_TIMEOUT(loaded.count() > 0,
+                                 kHelpPageLoadTimeoutMs);
+        QString clickedUrl;
+        bool clicked = false;
+        view->page()->runJavaScript(
+            "(()=>{const a=[...document.querySelectorAll('a[href]')]"
+            ".find(a=>a.getAttribute('href').endsWith('.html'));"
+            "if(a){a.click();return a.href;}return '';})()",
+            [&](const QVariant& v){ clickedUrl = v.toString(); clicked = true; });
+        QTRY_VERIFY(clicked);
+        QVERIFY(!clickedUrl.isEmpty());
+        QTRY_COMPARE(view->url().toString(), clickedUrl);
+        QVERIFY(view->url().toString().endsWith(".html"));
     }
 
     //--- user journey (Step 10) ---

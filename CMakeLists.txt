@@ -177,6 +177,7 @@ if(NLANG_BUILD_DOCS)
                 ${NLANG_DOC_PAGES}
                 ${NLANG_DOCS_DIR}/src/nlang_docs/cli.py
                 ${NLANG_DOCS_DIR}/src/nlang_docs/linkcheck.py
+                ${NLANG_DOCS_DIR}/src/nlang_docs/offline_search.py
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "nlang-docs: building + auditing docs site"
         VERBATIM)
