@@ -214,3 +214,26 @@ def test_yaml_unavailable_skips_nav_rule(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(linkcheck_module, "yaml", None)
     assert check_site(site, config) == 0
     assert "skipped (pyyaml unavailable)" in capsys.readouterr().err
+
+
+def test_remote_resources_rejected_but_relative_ok(tmp_path, capsys):
+    #Rule 5: the site ships offline, so script[src]/link[href] may not
+    #point at http(s). The link rules only audit <a> navigation, which
+    #is exactly the blind spot that let a CDN polyfill script slip into
+    #the built site once. Relative refs (material's own bundle) stay legal.
+    remote = make_site(tmp_path / "remote", {
+        "index.html":
+            '<script src="https://unpkg.com/shim.js"></script>'
+            '<link rel="stylesheet" href="http://cdn.example/x.css">',
+    })
+    assert check_site(remote) == 1
+    err = capsys.readouterr().err
+    assert "remote script resource 'https://unpkg.com/shim.js'" in err
+    assert "remote link resource 'http://cdn.example/x.css'" in err
+
+    relative = make_site(tmp_path / "relative", {
+        "index.html":
+            '<script src="assets/js/bundle.js"></script>'
+            '<link rel="stylesheet" href="assets/css/theme.css">',
+    })
+    assert check_site(relative) == 0

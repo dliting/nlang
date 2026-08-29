@@ -14,8 +14,12 @@ built page (except 404.html) must be exactly the nav's page set --
 missing from the nav would otherwise silently vanish from the side
 navigation.
 
-Only <a href=...> is audited: stylesheets/scripts are <link>/<script>
-and must not be mistaken for navigation.
+A fifth rule keeps the site offline-only: script[src] / link[href]
+may not reference http(s). Stylesheets/scripts are deliberately not
+treated as navigation, so a CDN resource would otherwise sail through
+the audit -- which is exactly how an unpkg polyfill once slipped into
+the built site (see offline_search.py for why the pipeline inlines
+the search index itself).
 """
 import re
 import sys
@@ -31,6 +35,8 @@ except ImportError:
     yaml = None
 
 _A_HREF_RE = re.compile(r'<a\b[^>]*href="([^"]*)"')
+_SCRIPT_SRC_RE = re.compile(r'<script\b[^>]*\bsrc="([^"]*)"')
+_LINK_HREF_RE = re.compile(r'<link\b[^>]*\bhref="([^"]*)"')
 _ID_RE = re.compile(r'\bid="([^"]+)"')
 _EXTERNAL = ("http:", "https:", "mailto:", "data:")
 
@@ -97,6 +103,30 @@ def _check_links(site_dir):
               % (len(violations), site), file=sys.stderr)
         return 1
     print("linkcheck: %d pages, all internal links OK" % len(pages))
+    return 0
+
+
+def _check_remote_resources(site_dir):
+    """Rule 5: no http(s) script[src] / link[href] in any page."""
+    site = Path(site_dir).resolve()
+    pages = sorted(site.rglob("*.html"))
+    violations = []
+    for page in pages:
+        html = page.read_text(encoding="utf-8", errors="replace")
+        refs = [("script", url) for url in _SCRIPT_SRC_RE.findall(html)]
+        refs += [("link", url) for url in _LINK_HREF_RE.findall(html)]
+        for tag, url in refs:
+            if url.startswith(("http:", "https:")):
+                violations.append(
+                    "%s: remote %s resource '%s' (site must stay offline)"
+                    % (page.relative_to(site), tag, url))
+    for v in violations:
+        print("linkcheck: " + v, file=sys.stderr)
+    if violations:
+        print("linkcheck: %d remote-resource violation(s) under %s"
+              % (len(violations), site), file=sys.stderr)
+        return 1
+    print("linkcheck: %d pages, no remote resources" % len(pages))
     return 0
 
 
@@ -175,4 +205,5 @@ def check_site(site_dir, config_path=None):
     """
     link_rc = _check_links(site_dir)
     nav_rc = _check_nav_coverage(site_dir, config_path)
-    return 1 if (link_rc != 0 or nav_rc != 0) else 0
+    remote_rc = _check_remote_resources(site_dir)
+    return 1 if (link_rc != 0 or nav_rc != 0 or remote_rc != 0) else 0

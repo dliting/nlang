@@ -223,10 +223,12 @@ it, but it injects a CDN polyfill from unpkg, so the pipeline hand-rolls
 the inlining — see `tools/nlang-docs/src/nlang_docs/offline_search.py`).
 The `check` audit enforces that shape: internal
 links must resolve to existing `.html` files, `#fragments` must exist,
-directory-form links are rejected, and the set of built pages must equal
+directory-form links are rejected, the set of built pages must equal
 the `nav` of the `mkdocs.yml` passed via `--config` (missing and
-unreachable pages both fail). Unit tests:
-`pytest tools/nlang-docs/tests`.
+unreachable pages both fail), and no `script[src]`/`link[href]` may
+reference http(s) — the site must load with no network at all. Unit
+tests: `pytest tools/nlang-docs/tests` (also wired into ctest as
+`nlang_docs_pytest`).
 
 ## Packaging (Windows)
 
