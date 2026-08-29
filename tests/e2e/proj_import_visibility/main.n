@@ -5,6 +5,11 @@ import logic.samer;
 
 int main()
 {
+    //Self-check before printing: a wrong value exits 9 with empty stdout,
+    //failing the ctest regex (its match overrides the exit code).
+    if (utils.helper.help() != 3) { return 9; }
+    if (utils.sub.deep.deep() != 4) { return 9; }
+    if (logic.samer.same() != 5) { return 9; }
     io.print(utils.helper.help());      // 3 (explicit)
     io.print(utils.sub.deep.deep());    // 4 (recursive wildcard)
     io.print(logic.samer.same());       // 5 (cross-directory explicit)

@@ -1,10 +1,15 @@
+//main lives in app/ so utils.n is cross-directory: D7 same-directory
+//visibility cannot mask the union under test (D11). The self-check runs
+//BEFORE printing — a wrong value exits 9 with empty stdout, so the ctest
+//regex (whose match overrides the exit code) cannot pass on garbage.
 import io;
 import utils.*;
 
 int main()
 {
+    if (utils.f() != 6) { return 9; }
+    if (utils.helper.help() != 3) { return 9; }
     io.print(utils.f());           // 6 (D11: exact module in the union)
     io.print(utils.helper.help()); // 3 (D11: recursive prefix)
-    if (utils.f() != 6 || utils.helper.help() != 3) { return 9; }
     return 0;
 }

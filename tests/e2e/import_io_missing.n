@@ -1,1 +1,3 @@
+//Task 10: io gate — a bare io.print call without 'import io;' must fail
+//with the section 7 builtin-namespace sentence.
 int main() { io.print("x"); return 0; }

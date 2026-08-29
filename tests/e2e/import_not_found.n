@@ -1,3 +1,5 @@
+//Task 10: a single-segment import that matches no builtin, project file
+//or .nmod — section 7 not-found sentence.
 import nosuch;
 
 int main() { return 0; }

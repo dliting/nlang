@@ -2,6 +2,10 @@ import io;
 
 int main()
 {
+    //Both forms must agree (7): self-check before printing so a wrong
+    //value exits 9 with empty stdout, failing the ctest regex.
+    if (f() != 7) { return 9; }
+    if (extra.f() != 7) { return 9; }
     io.print(f());        // same-directory bare form (D7)
     io.print(extra.f());  // same-directory qualified form
     return 0;

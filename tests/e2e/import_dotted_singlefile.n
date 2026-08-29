@@ -1,3 +1,5 @@
+//Task 10: single-file mode has no project context, so a dotted import
+//path cannot resolve (spec section 5.3) — section 7 not-found sentence.
 import utils.helper;
 
 int main() { return 0; }

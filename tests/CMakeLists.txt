@@ -375,11 +375,13 @@ add_test(NAME project_run
 #Success projects compile then run (run DEPENDS compile); failure
 #projects pin their rejection text with PASS_REGULAR_EXPRESSION (same
 #crash-safe pattern as ncc_flag_no_value above: the match overrides the
-#nonzero exit, and a crash would print no diagnostic).
+#nonzero exit, and a crash would print no diagnostic). Run entries rely
+#on the same override, so their fixtures self-check BEFORE printing: a
+#wrong value exits 9 with empty stdout and the regex cannot match.
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/e2e_out)
 
-#Recursive wildcard + explicit imports mixed; stdout is 3/4/5, one line
-#per imported module.
+#Recursive wildcard + explicit imports mixed; the fixture self-checks
+#3/4/5 before printing (one line per imported module).
 add_test(NAME proj_import_visibility_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_import_visibility/proj_import_visibility.nproj
@@ -390,7 +392,8 @@ set_tests_properties(proj_import_visibility_run PROPERTIES
     DEPENDS proj_import_visibility_compile
     PASS_REGULAR_EXPRESSION "3")
 
-#D7: a same-directory function is reachable bare AND qualified.
+#D7: a same-directory function is reachable bare AND qualified; the
+#fixture self-checks both forms agree (7) before printing.
 add_test(NAME proj_same_dir_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_same_dir/proj_same_dir.nproj
@@ -410,7 +413,8 @@ add_test(NAME proj_dup_import_compile
 
 #D11 executed: the wildcard's union reaches the EXACT root module
 #(utils.f, main lives in app/ so D7 cannot mask it) and the recursive
-#prefix (utils.helper.help); main returns 9 if either value is wrong.
+#prefix (utils.helper.help); the fixture self-checks both values before
+#printing, so a wrong value exits 9 with empty output.
 add_test(NAME proj_wildcard_exact_union_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_wildcard_exact_union/proj_wildcard_exact_union.nproj
@@ -445,3 +449,11 @@ add_test(NAME proj_reserved_segment_compile
         -o ${CMAKE_BINARY_DIR}/e2e_out/proj_reserved_segment.nmod)
 set_tests_properties(proj_reserved_segment_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "collides with a built-in namespace")
+
+#Project-mode entries are fixture compiles/runs: keep each well under
+#the 3-minute unit-test ceiling (CLAUDE.md).
+set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
+    proj_same_dir_compile proj_same_dir_run proj_dup_import_compile
+    proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
+    proj_not_imported_compile proj_bare_cross_dir_compile
+    proj_reserved_segment_compile PROPERTIES TIMEOUT 180)

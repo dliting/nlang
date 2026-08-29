@@ -1,3 +1,5 @@
+//Task 10: the removed string form 'import "lib";' — section 7 removal
+//sentence with the identifier-path hint.
 import "lib";
 
 int main() { return 0; }
