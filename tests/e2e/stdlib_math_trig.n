@@ -1,6 +1,7 @@
 // stdlib_math_trig — math trig family. Exact-representation anchors where
 // possible (0/1 arguments); tolerance checks go through math.absf, which
 // is itself pinned with exact literals (IEEE negation is exact).
+import math;
 int main() {
     // Exact anchors.
     if (math.sin(0.0) != 0.0) return 1;

@@ -1,6 +1,8 @@
 // stdlib_fs.n — fs namespace tour (Phase 11): names, directories, metadata.
 // fs never reads or writes content — that is io's job.
 
+import io;
+import fs;
 int main() {
     fs.makeDirs("fs_example/nested");
     io.writeFile(fs.join("fs_example/nested", "note.txt"), "hi");

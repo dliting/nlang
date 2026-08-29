@@ -1,6 +1,7 @@
 // switch_tour.n — the Phase 12 switch: multi-value labels, typed
 // equality across all four families, and no-fallthrough bodies.
 
+import io;
 int classify(int n) {
     switch (n) {
         case 0:

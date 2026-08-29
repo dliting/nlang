@@ -3,6 +3,7 @@
 //already-assigned values (b = a * 3 with a = 2 is 6, c = b + 4 is 10).
 //Regression: the decomposition used to re-derive the insertion point
 //per declarator, placing each later assign BEFORE the earlier ones.
+import io;
 int main() {
     int a = 2, b = a * 3, c = b + 4;
     io.print(a);

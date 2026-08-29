@@ -1,5 +1,6 @@
 // stdlib_math_rounding — floor/ceil/round return int; round is half away
 // from zero (std::round): round(-2.5) == -3 and round(2.5) == 3.
+import math;
 int main() {
     if (math.floor(-1.5) != -2) return 1;
     if (math.floor(1.9) != 1) return 2;

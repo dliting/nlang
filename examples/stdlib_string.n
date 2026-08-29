@@ -1,6 +1,7 @@
 // stdlib_string.n — built-in string methods (Phase 11).
 // Byte semantics: offsets are byte offsets; case conversion is ASCII-only.
 
+import io;
 int main() {
     string s = "Hello, NLang";
     io.print(s.substring(7));             // "NLang" — end defaults to length

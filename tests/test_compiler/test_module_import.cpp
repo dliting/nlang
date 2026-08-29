@@ -1376,6 +1376,67 @@ private slots:
             "the bare utils() call must resolve to the own function (99 "
             "sentinel) and the qualified call must reach helper.help()");
     }
+
+    //D6/spec section 7 row 4: built-in namespaces are gated like any
+    //module - io/math/fs calls without the import are rejected with the
+    //namespace wording, one representative call per namespace.
+    void builtinNamespaceRequiresImport()
+    {
+        const struct GateCase
+        {
+            const char* szNs;
+            const char* szCall;
+        } cases[] = {
+            {"io", "io.print(\"x\")"},
+            {"math", "math.sqrt(4.0)"},
+            {"fs", "fs.exists(\"a\")"},
+        };
+        for (const GateCase& gateCase : cases)
+        {
+            const std::string body = "int main() { " +
+                std::string(gateCase.szCall) + "; return 0; }\n";
+            auto res = buildGateProject({body.c_str()});
+            QVERIFY2(res.builder != nullptr,
+                "gate scaffold failed before the gate stage");
+            QVERIFY2(!res.ok,
+                "an unimported builtin namespace call must fail the build");
+            const std::string needle = std::string("Namespace '") +
+                gateCase.szNs + "' is not imported. Add 'import " +
+                gateCase.szNs + ";' at the top of this file.";
+            QVERIFY2(containsError(res.errors, needle.c_str()),
+                ("missing not-imported diagnostic for " +
+                    std::string(gateCase.szCall) + ": " +
+                    joinErrors(res.errors)).c_str());
+            QVERIFY2(!containsError(res.errors,
+                    "Unknown standard library function"),
+                "the gate must fire before the stdlib table lookup");
+            QVERIFY2(!containsError(res.errors, "Cannot resolve the field"),
+                "the builtin gate must consume the chain without a spurious "
+                "identifier diagnostic");
+        }
+    }
+
+    //D6: with the import the namespace call resolves and executes exactly
+    //as before the gate - executed (not compile-only) so a consumed-but
+    //-never-emitted member cannot silently pass.
+    void builtinNamespaceImportedWorks()
+    {
+        auto run = runGateProject({
+            "import io;\n"
+            "import math;\n"
+            "int main()\n"
+            "{\n"
+            "    io.print(\"x\");\n"
+            "    if (math.sqrt(4.0) != 2.0) { return 7; }\n"
+            "    return 0;\n"
+            "}\n"});
+        QVERIFY2(run.ok, runFailureText(run,
+            "an imported builtin namespace call must build and execute")
+            .c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 0,
+            "io.print must run and math.sqrt(4.0) must yield 2.0");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestModuleImport)

@@ -1,6 +1,8 @@
 // stdlib_fs_listfiles — names only (no directories), lexicographically
 // sorted (the OS directory-iterator order is unspecified; sorting is what
 // makes the result testable). Creation order b,a,c differs from sorted.
+import io;
+import fs;
 int main() {
     fs.makeDirs("_p11_tmp/fs_list");
     io.writeFile("_p11_tmp/fs_list/b.txt", "b");

@@ -1,4 +1,5 @@
 // interpolation_tour.n — "${identifier}" interpolation + toString coercion.
+import io;
 class Money {
     public int cents;
 

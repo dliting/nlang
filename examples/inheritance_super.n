@@ -1,4 +1,5 @@
 // inheritance_super.n — extends, super(), overriding, virtual dispatch.
+import io;
 class Shape {
     public string name;
 

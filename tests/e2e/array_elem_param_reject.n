@@ -2,6 +2,7 @@
 //flag (ResolveDataTypes records tree declarations) — reading its element
 //and calling a method on it is the same masqueraded array value as
 //through a local, and the receiver gate must reject it.
+import io;
 class Box {
     void probe(List<string[]> p) {
         io.print(p.get(0).length());

@@ -1,5 +1,6 @@
 // exceptions.n — throw/try/catch/finally, built-in subclasses,
 // user subclass with a field.
+import io;
 int risky(int mode) {
     try {
         if (mode == 1)

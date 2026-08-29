@@ -1,4 +1,5 @@
 // class_basic.n — classes: fields, constructor, methods, toString.
+import io;
 class Point {
     public int x;
     public int y;

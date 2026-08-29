@@ -6,6 +6,7 @@
 // property/member access through a call-result receiver (l.get(0).length,
 // l.get(0).toString) has no dispatch route and is rejected — assign to a
 // local first.
+import io;
 int main() {
     List<string[]> l = new List<string[]>();
     string[] a = new string[2];

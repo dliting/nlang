@@ -1,6 +1,7 @@
 // stdlib_io.n — io namespace tour (Phase 11): console and text-file content.
 // io owns all content; fs (see stdlib_fs.n) owns names/directories/metadata.
 
+import io;
 int main() {
     io.print("console output");           // string
     io.print(42);                         // int, converted at the call site

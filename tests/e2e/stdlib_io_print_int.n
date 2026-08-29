@@ -1,5 +1,6 @@
 // stdlib_io_print_int — io.print accepts an int argument: codegen converts
 // it to string at the call site (same OP_Int32_to_str coercion as int+string).
+import io;
 int main() {
     io.print(42);
     return 0;

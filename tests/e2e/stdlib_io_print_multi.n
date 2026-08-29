@@ -1,5 +1,6 @@
 // stdlib_io_print_multi — consecutive io.print calls each get their own
 // line; arguments may be literals or typed variables (string/int/float).
+import io;
 int main() {
     string s = "abc";
     int n = 7;

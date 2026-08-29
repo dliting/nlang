@@ -1,4 +1,5 @@
 // out_params.n — out parameters: multiple results from one call.
+import io;
 void divmod(int a, int b, out int quotient, out int remainder) {
     quotient = a / b;
     remainder = a - quotient * b;

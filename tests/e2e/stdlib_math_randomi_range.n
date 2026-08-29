@@ -2,6 +2,7 @@
 // and never escapes the range. With 1000 draws over 5 outcomes, missing
 // an endpoint has probability (4/5)^1000 — effectively zero, so requiring
 // both ends to appear is a safe pin.
+import math;
 int main() {
     math.srand(7);
     int minSeen = 999;

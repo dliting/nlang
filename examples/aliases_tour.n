@@ -2,6 +2,7 @@
 // shortens any type form, expands textually before name resolution,
 // and scopes to the translation unit.
 
+import io;
 using Row = List<int>;                  // alias referenced by another alias
 using Grid = Dict<string, Row>;         // alias to a nested generic
 using Ints = int[];                     // alias to an array type

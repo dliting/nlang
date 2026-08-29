@@ -1,5 +1,6 @@
 // stdlib_io_read_missing_throws — io.readFile on a missing path raises
 // IOException; uncaught, it exits 1.
+import io;
 int main() {
     string s = io.readFile("_p11_tmp/definitely_missing.txt");
     return 0;

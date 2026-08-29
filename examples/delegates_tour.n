@@ -2,6 +2,7 @@
 // bound-method references, virtual dispatch, out delegates, and
 // handles living in containers and fields.
 
+import io;
 using BinOp = Func<int, int>;    // type alias over a Func type
 
 int bar(int x) { return x + 1; } // free function

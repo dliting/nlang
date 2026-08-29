@@ -1,6 +1,7 @@
 //compile_error: a user method call returning T[] is array-valued through
 //the member wrapper (obj.mk()) — the receiver gate must catch this shape
 //like the bare array-returning function call it already handles.
+import io;
 class M {
     public string[] mk() { return new string[2]; }
 }

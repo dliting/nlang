@@ -1,6 +1,7 @@
 //Phase 13 Step 2: bound method reference — this captured in the handle,
 //state accumulates across calls through the delegate. User acceptance
 //example: foobar(c.foo) leaves n=1, then g(1)=3 and g(1)=4 (exit 7).
+import io;
 using BinOp = Func<int, int>;
 
 class Counter {

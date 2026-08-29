@@ -1,4 +1,5 @@
 // stdlib_math_pow_exp_log — pow is exactly 2 params, exp(x)=e^x, log=ln.
+import math;
 int main() {
     if (math.pow(2.0, 10.0) != 1024.0) return 1;
     if (math.pow(2.0, 0.0) != 1.0) return 2;

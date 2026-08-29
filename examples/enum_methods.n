@@ -1,6 +1,7 @@
 // enum_methods.n — Java-style enum methods (Phase 12): `this` is the
 // enum's int value, calls go through any enum-valued receiver.
 
+import io;
 enum Planet {
     Mercury = 1, Venus = 2, Earth = 3, Mars = 4;
 

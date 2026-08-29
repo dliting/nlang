@@ -3,6 +3,7 @@
 //member field), so these shapes would silently bind the ELEMENT type's
 //toString and print the array heap index as a value. Both must be
 //rejected with the array-receiver diagnostic (assign to a local first).
+import io;
 class M {
     public string[] mk() { string[] a = new string[1]; a[0] = "x"; return a; }
 }

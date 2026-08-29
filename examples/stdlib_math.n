@@ -1,6 +1,8 @@
 // stdlib_math.n — math namespace tour (Phase 11).
 // Trigonometry is radians; log is ln; floor/ceil/round return int.
 
+import io;
+import math;
 int main() {
     io.print(math.sqrt(2.0));             // 1.41421
     io.print(math.pow(2.0, 10.0));        // 1024

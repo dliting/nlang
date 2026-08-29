@@ -1,5 +1,6 @@
 // stdlib_io_file_roundtrip — io.writeFile creates/truncates, io.readFile
 // returns the exact bytes written ('\n' escape round-trips).
+import io;
 int main() {
     io.writeFile("_p11_tmp/rt.txt", "line1\nline2");
     string s = io.readFile("_p11_tmp/rt.txt");

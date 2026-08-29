@@ -1,6 +1,7 @@
 //compile_error: the Dict VALUE side is the element slot get() returns
 //(type arg 1) — the same masqueraded array value as List's T. The
 //receiver gate must reject a method call on it.
+import io;
 int main() {
     Dict<string, int[]> d = new Dict<string, int[]>();
     int[] a = new int[1];

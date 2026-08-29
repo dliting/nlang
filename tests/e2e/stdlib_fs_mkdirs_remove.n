@@ -2,6 +2,8 @@
 // idempotent (mkdir -p, also on a non-empty directory); remove deletes
 // files and empty directories, and a missing path is a silent no-op
 // (fs::remove semantics).
+import io;
+import fs;
 int main() {
     fs.makeDirs("_p11_tmp/fs_mkdir/a/b/c");
     if (!fs.isDirectory("_p11_tmp/fs_mkdir/a/b/c")) return 1;

@@ -1,4 +1,5 @@
 // dict_tour.n — Dict<K,V>: keyed access, containsKey/count, foreach keys.
+import io;
 int main() {
     Dict<string, int> scores = new Dict<string, int>();
     scores["alice"] = 90;

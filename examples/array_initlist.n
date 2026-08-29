@@ -1,4 +1,5 @@
 // array_initlist.n — fixed arrays: [..] initializer, new T[n], foreach.
+import io;
 int main() {
     int[] evens = [2, 4, 6, 8];
     string[] names = new string[2];

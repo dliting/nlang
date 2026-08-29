@@ -1,5 +1,7 @@
 // stdlib_fs_remove_nonempty_caught — pins the exception class for the
 // non-empty-directory error: IOException, with a non-empty message.
+import io;
+import fs;
 int main() {
     fs.makeDirs("_p11_tmp/fs_rmc/dir");
     io.writeFile("_p11_tmp/fs_rmc/dir/f.txt", "x");

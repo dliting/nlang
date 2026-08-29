@@ -1,3 +1,4 @@
+import math;
 int main() {
     //Lock: NLang float-to-int conversion truncates toward zero (C/C#/Java
     //style), not floor (Python math.floor / round-toward-negative-infinity).

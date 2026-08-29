@@ -1,5 +1,7 @@
 // stdlib_fs_size — byte size of a file (UTF-8 content: "héllo" is 6
 // bytes, echoing the string byte-semantics decision #7); empty file is 0.
+import io;
+import fs;
 int main() {
     fs.makeDirs("_p11_tmp/fs_size");
     io.writeFile("_p11_tmp/fs_size/plain.txt", "hello");

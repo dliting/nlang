@@ -3,6 +3,7 @@
 // trailing-'\r' strip in the intrinsic is cross-platform CRLF defense and
 // is not reachable through a Windows text-mode pipe). Documented
 // semantics: EOF and an empty input line are both "".
+import io;
 int main() {
     string a = io.readLine();
     string b = io.readLine();

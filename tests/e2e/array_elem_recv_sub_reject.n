@@ -1,6 +1,7 @@
 //compile_error: subscript-sugar variant — l[0] on List<T[]> is the same
 //array-valued shape as l.get(0); the receiver gate must catch it before
 //the string builtin block binds on the masqueraded element kind.
+import io;
 int main() {
     List<string[]> l = new List<string[]>();
     l.add(new string[1]);

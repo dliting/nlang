@@ -3,6 +3,7 @@
 // kind, so without the IsArrayTypedBase guard `int[]` masqueraded as int
 // and math.sqrt reinterpreted the array handle as a float (Step 0 review
 // MAJOR regression guard).
+import math;
 int main() {
     int[] arr = new int[3];
     float f = math.sqrt(arr);

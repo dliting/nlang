@@ -2,6 +2,7 @@
 // (Numeric float->int is an implicit assignment conversion, not `as`;
 //  `as` targets are single type names — primitives (unbox) or classes
 //  (downcast) — never generic instantiations.)
+import io;
 class Config {
     public int answer;
 }

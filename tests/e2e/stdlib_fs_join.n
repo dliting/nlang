@@ -2,6 +2,7 @@
 // every platform, no doubled separators, empty left side yields the
 // right side alone. A rooted right side replaces the left (Python
 // os.path.join semantics); an empty right side keeps a trailing slash.
+import fs;
 int main() {
     if (fs.join("a", "b") != "a/b") return 1;
     if (fs.join("a/", "b") != "a/b") return 2;

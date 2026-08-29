@@ -1,3 +1,4 @@
+import io;
 enum Level {
     Low, High;
 

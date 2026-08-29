@@ -1,5 +1,6 @@
 // stdlib_io_append_file — io.appendFile appends to an existing file and
 // creates a missing one.
+import io;
 int main() {
     io.writeFile("_p11_tmp/ap.txt", "one");
     io.appendFile("_p11_tmp/ap.txt", "two");

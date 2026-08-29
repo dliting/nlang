@@ -1,4 +1,5 @@
 // const_assert.n — const locals, assert, compound assignment.
+import io;
 int main() {
     const int LIMIT = 100;
     const string NAME = "nlang";

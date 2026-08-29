@@ -1474,6 +1474,20 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		if (IsStdLibNamespaceName(outerId.Name())
 			&& pInnerExpr && pInnerExpr->Kind() == NK_InvokeExpr)
 		{
+			//D6: built-in namespaces are gated like any module — the
+			//gate fires before the table lookup so an unimported call
+			//names the missing import, not an unknown function.
+			auto &reg = m_Env.Registry();
+			const uint32_t curModule = reg.OwnerOfContext(*m_pContext);
+			if (!reg.IsBuiltinImported(curModule, outerId.Name()))
+			{
+				m_Env.Log(CLL_Error, snMember.Location(),
+					"Namespace '%s' is not imported. Add 'import %s;' at "
+					"the top of this file.",
+					outerId.Name().c_str(), outerId.Name().c_str());
+				snMember.AddFlags(NF_Resolved);
+				return;
+			}
 			TryResolveStdLibCall(snMember, outerId,
 				static_cast<SnInvokeExpr&>(*pInnerExpr));
 			return;

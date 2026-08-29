@@ -1,6 +1,7 @@
 // stdlib_io_void_arg_compile_error — a void function result has no value;
 // passing it as an argument must be a compile error (without the guard a
 // stale pResult lands in the claim slot and print outputs garbage).
+import io;
 void f() { }
 int main() {
     io.print(f());

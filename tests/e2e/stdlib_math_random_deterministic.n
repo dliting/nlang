@@ -2,6 +2,7 @@
 // two sequences drawn after identical srand(42) calls are identical, and
 // random() stays in [0,1). Pure mt19937 arithmetic — no distribution
 // adapters — so the sequence is portable by construction.
+import math;
 int main() {
     math.srand(42);
     float a1 = math.random();

@@ -1,5 +1,6 @@
 //Phase 13 Step 1: io.print accepts a function value via the direct
 //conversion path — "func " + the function's name.
+import io;
 int bar(int x) { return x; }
 
 int main() {

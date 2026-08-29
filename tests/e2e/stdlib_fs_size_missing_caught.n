@@ -2,6 +2,7 @@
 // base Exception) both on a missing path and on a directory: fs failures
 // map to IOException per the Phase 11 exception mapping, and size is
 // defined for regular files only.
+import fs;
 int main() {
     try {
         int s = fs.size("_p11_tmp/fs_missing/nope.txt");

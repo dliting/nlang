@@ -1,6 +1,7 @@
 // stdlib_math_int_helpers — dual-typed helpers: absi/absf, mini/maxi/
 // minf/maxf, clampi/clampf. Dual types are separate names, never implicit
 // float->int narrowing.
+import math;
 int main() {
     if (math.absi(-5) != 5) return 1;
     if (math.absi(7) != 7) return 2;

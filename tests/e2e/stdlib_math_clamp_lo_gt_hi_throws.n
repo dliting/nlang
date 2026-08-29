@@ -1,5 +1,6 @@
 // stdlib_math_clamp_lo_gt_hi_throws — clamp with low > high is a range
 // error: throws the base Exception (named message), uncaught → nonzero.
+import math;
 int main() {
     int v = math.clampi(1, 10, 5);
     return v;

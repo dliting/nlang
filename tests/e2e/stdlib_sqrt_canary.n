@@ -1,6 +1,7 @@
 // Phase 11 Step 0 canary: one namespace-qualified intrinsic call through
 // the whole pipeline (resolver intercept -> OP_CallIntrinsic codegen ->
 // .nmod -> VM execution).
+import math;
 int main() {
     float a = math.sqrt(4.0);   // exact float argument
     float b = math.sqrt(4);     // int literal auto-promoted (int->float)

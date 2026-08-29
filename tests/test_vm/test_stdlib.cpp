@@ -53,6 +53,9 @@ struct BuildOutcome
 
 //Compile source text; on success returns true. The module is written to
 //<tag>.nmod in the scratch dir, ready to be loaded by the caller.
+//Task 7 (D6): every source gets the built-in namespace imports prepended,
+//so the tests below exercise stdlib behavior — the import gate itself is
+//covered in test_module_import.cpp.
 static BuildOutcome buildSource(const std::string& tag,
     const std::string& source)
 {
@@ -63,7 +66,7 @@ static BuildOutcome buildSource(const std::string& tag,
 
     {
         std::ofstream out(nPath, std::ios::binary);
-        out << source;
+        out << "import io;\nimport math;\nimport fs;\n" << source;
     }
 
     BuildParams params;

@@ -5,6 +5,7 @@
 // element RTK_Int32) and the import stub must rebuild it as an array-typed
 // expression, so math.sqrt(mk()) fails compilation instead of passing the
 // array handle off as a float (Step 0 review round-3 residue).
+import math;
 int[] mk() {
     int[] a = new int[2];
     a[0] = 1;
