@@ -66,9 +66,10 @@ DOC_FILES = [
     'docs/site/vm-architecture/overview.html',
     'docs/site/search/search_index.json',
     # The file:// search enabler: material's bundle script-tags this
-    # .js (written by the build's offline-search inlining step) because
-    # Chromium blocks the .json XHR over file://. Without it the
-    # installed IDE's help search is silently empty.
+    # .js (written by the build's offline-search inlining step) when it
+    # detects the file: protocol — its own fallback choice, not a
+    # Chromium restriction (file:// XHR to file:// works). Without the
+    # .js the installed IDE's help search is silently empty.
     'docs/site/search/search_index.js',
     'docs/site/stylesheets/two-column-layout.css',
 ]
