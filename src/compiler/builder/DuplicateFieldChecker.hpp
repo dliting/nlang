@@ -166,9 +166,11 @@ private:
 	}
 
 	//Task 8 (spec §3.2): true when two same-name FUNCTIONS share a bare
-	//pool — same owner, ownerless on either side (pre-declared/host
-	//symbols keep the legacy behavior), or the same directory. An
+	//pool — same owner, the same directory, or ownerless on either side:
+	//ownerless symbols (root built-ins, runtime tables) stay visible. An
 	//external .nmod stub never shares a bare pool with a local function.
+	//Owned pairs delegate to ModuleRegistry::ShareBarePool (single
+	//authority, same-source discipline as IsBarePoolScope).
 	bool SameBarePool(const SnField &f1, const SnField &f2)
 	{
 		auto &reg = m_Env.Registry();
@@ -177,11 +179,7 @@ private:
 		if (owner1 == ModuleRegistry::NO_OWNER
 			|| owner2 == ModuleRegistry::NO_OWNER)
 			return true;
-		if (owner1 == owner2)
-			return true;
-		if (reg.IsExternal(owner1) || reg.IsExternal(owner2))
-			return false;
-		return reg.DirectoryOf(owner1) == reg.DirectoryOf(owner2);
+		return reg.ShareBarePool(owner1, owner2);
 	}
 
 	bool DetectConflict(const SnField &f1, const SnField &f2)

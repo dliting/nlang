@@ -95,6 +95,16 @@ public:
 		const std::string& dottedPath) const;
 	bool IsBuiltinImported(uint32_t moduleIndex,
 		const std::string& ns) const;
+	//Module import visibility (D1/D7): do two OWNED modules share a bare
+	//pool? Callers must rule NO_OWNER out first (DirectoryOf contract).
+	bool ShareBarePool(uint32_t ownerA, uint32_t ownerB) const
+	{
+		if (ownerA == ownerB)
+			return true;
+		if (IsExternal(ownerA) || IsExternal(ownerB))
+			return false;
+		return DirectoryOf(ownerA) == DirectoryOf(ownerB);
+	}
 	//Project TU paths + external .nmod names (union).
 	bool IsKnownModule(const std::string& dottedPath) const;
 	//True when some known module path equals dottedPrefix or starts with

@@ -1442,7 +1442,8 @@ private slots:
 
     //Same-name same-signature functions in DIFFERENT directories never
     //conflict: their qualified paths differ and the bare pools are
-    //disjoint (main's bare f() must still bind its own directory's f).
+    //disjoint. Pinned by execution: the bare f(1) in main must bind its
+    //own directory's f (x+1 -> 2); binding the helper's f would give 100.
     void crossDirectorySameNameCoexist()
     {
         GateProjectOptions opts;
@@ -1450,14 +1451,18 @@ private slots:
             "int f(int x) { return x + 1; }\n"
             "int main() { return f(1); }\n";
         opts.szHelperBody = "int f(int x) { return x + 99; }\n";
-        auto res = buildGateProject(opts);
-        QVERIFY2(res.builder != nullptr,
-            "gate scaffold failed before the gate stage");
-        QVERIFY2(res.ok, joinErrors(res.errors).c_str());
-        QVERIFY2(!containsError(res.errors,
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "cross-directory same-signature functions must coexist")
+            .c_str());
+        QVERIFY2(!containsError(run.errors,
                 "is conflicted with a exist field definition"),
             "cross-directory same-signature functions must not be "
             "reported as duplicate definitions");
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 2,
+            "the bare f(1) must bind the local f (1+1=2); the helper's "
+            "f would return 100");
     }
 
     //A local function and an imported .nmod stub with the same name and
@@ -1482,8 +1487,8 @@ private slots:
             "coexist").c_str());
         QVERIFY2(run.runtimeError.empty(), "execution must be clean");
         QVERIFY2(run.exitValue == 0,
-            "the bare add(1, 2) must bind the local add (12), not the "
-            "lib stub (7 sentinel)");
+            "the bare add(1, 2) must bind the local add (12); the lib "
+            "stub computes 3, tripping the 7 guard");
         QVERIFY2(!containsError(run.errors,
                 "is conflicted with a exist field definition"),
             "the local/imported pair must not be reported as duplicates");

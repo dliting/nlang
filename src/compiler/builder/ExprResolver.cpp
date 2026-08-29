@@ -3121,7 +3121,8 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 //built-ins, runtime tables) stay visible — the filter applies ONLY to
 //owned NK_Function members of bare-pool scopes (M2: a namespace declared
 //in another directory is just as foreign); class/interface/enum scopes
-//are untouched (types stay global, spec §5.5).
+//are untouched (types stay global, spec §5.5). The owned-pair core
+//delegates to ModuleRegistry::ShareBarePool (single authority).
 bool ExprResolveAccessor::IsBareVisible(SnFunction &func, uint32_t curModule)
 {
 	auto &reg = m_Env.Registry();
@@ -3137,9 +3138,7 @@ bool ExprResolveAccessor::IsBareVisible(SnFunction &func, uint32_t curModule)
 	//to the same "" directory as the root.
 	if (curModule == ModuleRegistry::NO_OWNER)
 		return false;
-	if (reg.IsExternal(owner))
-		return false;
-	return reg.DirectoryOf(owner) == reg.DirectoryOf(curModule);
+	return reg.ShareBarePool(owner, curModule);
 }
 
 SnField *ExprResolveAccessor::FindFieldInUsings(std::string &sName,
