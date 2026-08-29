@@ -457,3 +457,28 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
     proj_not_imported_compile proj_bare_cross_dir_compile
     proj_reserved_segment_compile PROPERTIES TIMEOUT 180)
+
+#--- Docs-pipeline unit tests (pytest) ---------------------------------------
+#The nlang-docs subproject's pytest suite pins the linkcheck and offline-
+#search rules; run it from the repo root exactly like the manual gate in
+#the README (the tests add the package's src/ to sys.path themselves).
+#pytest is not a mkdocs dependency, so a missing pytest must not fail the
+#configure -- but the skip must say so: a silently absent entry is
+#indistinguishable from a green one.
+if(NLANG_BUILD_DOCS)
+    execute_process(
+        COMMAND ${NLANG_DOCS_PYTHON} -c "import pytest"
+        RESULT_VARIABLE NLANG_DOCS_PYTEST_PROBE
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NLANG_DOCS_PYTEST_PROBE EQUAL 0)
+        add_test(NAME nlang_docs_pytest
+            COMMAND ${CMAKE_COMMAND} -E env
+                PYTHONPATH=${NLANG_DOCS_DIR}/src
+                ${NLANG_DOCS_PYTHON} -m pytest ${NLANG_DOCS_DIR}/tests -q
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)
+        set_tests_properties(nlang_docs_pytest PROPERTIES TIMEOUT 180)
+    else()
+        message(STATUS "nlang_docs_pytest skipped: pytest is not importable "
+            "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+    endif()
+endif()
