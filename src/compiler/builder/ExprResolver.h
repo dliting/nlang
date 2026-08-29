@@ -225,16 +225,24 @@ private:
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
+	/*
+	Walk the scope chain from parent upward, returning the first field
+	named sName that grants access. pFuncFilter (Module import visibility,
+	D1/D7) narrows the bare pool: when set, an NK_Function candidate in a
+	bare-pool scope (IsBarePoolScope) must also pass it, other scopes and
+	other field kinds are untouched.
+	*/
 	SnField *FindFieldInAncestor(const std::string &sName, SyntaxNode &parent,
 		const SnField &accessor, ExprResolveFlagSet flags,
-		const std::function<bool(SnField &)> *pFuncFilter = nullptr);
+		std::function<bool(SnField &)> pFuncFilter = nullptr);
 
 	SnField *FindFieldInUsings(std::string &sName, const UsingList &usings,
 		const SnField & accessor);
 
 	/*
 	Module import visibility (D1/D7): the bare-pool visibility test for a
-	ROOT or NAMESPACE scope function candidate. curModule is the caller's
+	function candidate in a bare-pool scope (IsBarePoolScope is the scope-
+	side authority; this is the owner-side test). curModule is the caller's
 	precomputed OwnerOfContext (the "current TU"). Ownerless symbols (root
 	built-ins, runtime tables) stay visible; an owned function must belong
 	to the current TU or share its directory — external owners and other
@@ -250,12 +258,13 @@ private:
 	only exists as a function OUTSIDE the current TU's bare pool. Silent
 	under ERF_SearchInParentOnly (a member-scoped miss is never fixed by
 	an import — obj.method() cannot resolve to a global function) and when
-	no foreign function carries the name.
+	no foreign function carries the name. curModule is the caller's
+	precomputed OwnerOfContext, shared with the visibility test.
 	\return true when the hint was logged — the caller must then suppress
 	its generic failure text (M4).
 	*/
 	bool MaybeLogVisibilityHint(const std::string &name,
-		const ISourceLocation *pLoc);
+		const ISourceLocation *pLoc, uint32_t curModule);
 
 	/*
 	Find the best function declaration matched witch an invoke expression.

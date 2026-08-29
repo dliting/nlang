@@ -906,21 +906,20 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	}
 
 	SnField *pField;
+	//Module import visibility (D1/D7): the value-position bare pool spans
+	//the current TU's directory too — foreign root/namespace function
+	//candidates are skipped (ownerless symbols stay visible). curModule is
+	//computed once and shared by the filter and the visibility hint below.
+	const uint32_t curModule = m_Env.Registry().OwnerOfContext(*m_pContext);
+	std::function<bool(SnField &)> bareFuncFilter =
+		[this, curModule](SnField &field) -> bool
 	{
-		//Module import visibility (D1/D7): the value-position bare pool
-		//spans the current TU's directory too — foreign root/namespace
-		//function candidates are skipped (ownerless symbols stay visible).
-		std::function<bool(SnField &)> bareFuncFilter =
-			[this](SnField &field) -> bool
-		{
-			if (field.Kind() != NK_Function)
-				return true;
-			return IsBareVisible(static_cast<SnFunction &>(field),
-				m_Env.Registry().OwnerOfContext(*m_pContext));
-		};
-		pField = FindFieldInAncestor(idExpr.Name(), *m_pContext,
-			*m_pAccessor, Flags(), &bareFuncFilter);
-	}
+		//No NK_Function pre-check: FindFieldInAncestor only invokes the
+		//filter on function candidates in bare-pool scopes.
+		return IsBareVisible(static_cast<SnFunction &>(field), curModule);
+	};
+	pField = FindFieldInAncestor(idExpr.Name(), *m_pContext,
+		*m_pAccessor, Flags(), bareFuncFilter);
 
 	if (!pField && ContainFlags(ERF_IgnoreUsings))
 	{
@@ -945,7 +944,7 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 			idExpr.Name().c_str());
 		//Module import visibility (F20): the name may only exist as a
 		//function outside this TU's bare pool — name the owning module.
-		MaybeLogVisibilityHint(idExpr.Name(), idExpr.Location());
+		MaybeLogVisibilityHint(idExpr.Name(), idExpr.Location(), curModule);
 		//spec §6.2 last line: a module path sharing the name turns a bare
 		//mystery into a named fix (import + qualification).
 		MaybeLogModuleHint(idExpr.Name());
@@ -3054,23 +3053,46 @@ void ExprResolveAccessor::ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)
 	return;
 }
 
+//Module import visibility (D1/D7): THE single authority for "this scope
+//is part of the bare pool" — the merged tree root (null parent) and every
+//namespace. Every consumer of the narrowing rule (FindFieldInAncestor's
+//filter gate, FindFuncByInvoke's scope walk, FindOwnedFunctionElsewhere's
+//scan surface) must ask THIS predicate, so Tasks 7/9 can evolve the rule
+//in one place. (Same-source discipline as the EvalDataType dispatch-order
+//bug family: several sites, one definition.)
+static bool IsBarePoolScope(const SyntaxNode &scope)
+{
+	return scope.Parent() == nullptr || scope.Kind() == NK_Namespace;
+}
+
 SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 	SyntaxNode &parent, const SnField &accessor, ExprResolveFlagSet flags,
-	const std::function<bool(SnField &)> *pFuncFilter)
+	std::function<bool(SnField &)> pFuncFilter)
 {
 	SnField *pField = parent.FindField(sName);
 	if (pField && pField->AllowAccess(accessor))
 	{
 		//Module import visibility (D1/D7): the caller may narrow the bare
-		//pool — a function candidate sitting in the global root or a
-		//namespace scope must also pass the filter. Every other scope
+		//pool — a function candidate sitting in a bare-pool scope
+		//(IsBarePoolScope) must also pass the filter. Every other scope
 		//(class members etc.) and every non-function field is untouched.
-		const bool isBarePoolScope = parent.Parent() == nullptr
-			|| parent.Kind() == NK_Namespace;
-		if (!(pFuncFilter && isBarePoolScope
-				&& pField->Kind() == NK_Function
-				&& !(*pFuncFilter)(*pField)))
+		const bool rejectedByFilter = pFuncFilter && IsBarePoolScope(parent)
+			&& pField->Kind() == NK_Function
+			&& !pFuncFilter(*pField);
+		if (!rejectedByFilter)
 			return pField;
+		//Shotgun: with ERF_SearchInParentOnly the fall-through below would
+		//return the filter-rejected candidate as a hit; a rejected
+		//candidate must read as "not found". Currently unreachable — the
+		//sole filter call site (Access(SnIdentifierExpr)) never runs with
+		//SPO, and a namespace receiver resolves its context to
+		//SnType::Instance() rather than the NS node (SnNamespace::
+		//EvalDataType), so SPO contexts never land on a bare-pool scope
+		//with the filter set. Re-verify when call-site configs change.
+		//Without SPO the fall-through correctly keeps walking ancestors: a
+		//same-name function higher up may still be visible.
+		if (flags & ERF_SearchInParentOnly)
+			return nullptr;
 	}
 	if (flags & ERF_SearchInParentOnly)
 		return pField;
@@ -3080,12 +3102,12 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 	return FindFieldInAncestor(sName, *pParent, accessor, flags, pFuncFilter);
 }
 
-//Module import visibility (D1/D7): the bare pool only spans the current
-//TU's directory. Ownerless symbols (root built-ins, runtime tables) stay
-//visible — the filter applies ONLY to owned NK_Function members of the
-//GLOBAL ROOT and NAMESPACE scopes (M2: a namespace declared in another
-//directory is just as foreign); class/interface/enum scopes are untouched
-//(types stay global, spec §5.5).
+//Module import visibility (D1/D7): the owner-side half of the bare-pool
+//rule (scope side: IsBarePoolScope above). Ownerless symbols (root
+//built-ins, runtime tables) stay visible — the filter applies ONLY to
+//owned NK_Function members of bare-pool scopes (M2: a namespace declared
+//in another directory is just as foreign); class/interface/enum scopes
+//are untouched (types stay global, spec §5.5).
 bool ExprResolveAccessor::IsBareVisible(SnFunction &func, uint32_t curModule)
 {
 	auto &reg = m_Env.Registry();
@@ -3094,8 +3116,13 @@ bool ExprResolveAccessor::IsBareVisible(SnFunction &func, uint32_t curModule)
 		return true;
 	if (owner == curModule)
 		return true;
+	//Defensive: an untagged context cannot share a directory with anyone.
+	//Reachable only if a caller skips the OwnerOfContext precondition —
+	//ModuleRegistry.h (DirectoryOf contract, ~:84) requires callers to
+	//rule NO_OWNER out before directory comparison, since NO_OWNER maps
+	//to the same "" directory as the root.
 	if (curModule == ModuleRegistry::NO_OWNER)
-		return false;   // defensive: no tagged context
+		return false;
 	if (reg.IsExternal(owner))
 		return false;
 	return reg.DirectoryOf(owner) == reg.DirectoryOf(curModule);
@@ -3139,7 +3166,11 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
 //pool's surface that isVisible rejects — the target the "not visible here"
 //hint names. The scan mirrors the filtered pool exactly: the GLOBAL ROOT
 //and every NAMESPACE scope, recursively; class/interface/enum members are
-//not bare-pool material, so their scopes are not scanned.
+//not bare-pool material, so their scopes are not scanned. With several
+//external modules declaring the same name, which one the hint names is
+//the first scan hit: name-dict range order within a scope, then child
+//namespaces in insertion order — deterministic, but an arbitrary pick
+//among equals (any of them fixes the diagnosis).
 static SnFunction* FindOwnedFunctionElsewhere(SnFunctionParentField &scope,
 	const std::string &name,
 	const std::function<bool(SnFunction &)> &isVisible)
@@ -3155,7 +3186,7 @@ static SnFunction* FindOwnedFunctionElsewhere(SnFunctionParentField &scope,
 	}
 	for (auto &member : scope.Members())
 	{
-		if (member.Kind() != NK_Namespace)
+		if (!IsBarePoolScope(member))
 			continue;
 		if (auto *pForeign = FindOwnedFunctionElsewhere(
 				static_cast<SnNamespace &>(member), name, isVisible))
@@ -3165,7 +3196,7 @@ static SnFunction* FindOwnedFunctionElsewhere(SnFunctionParentField &scope,
 }
 
 bool ExprResolveAccessor::MaybeLogVisibilityHint(const std::string &name,
-	const ISourceLocation *pLoc)
+	const ISourceLocation *pLoc, uint32_t curModule)
 {
 	//Method-call context: a same-named global function was never reachable
 	//through member resolution, so suggesting it would mislead.
@@ -3176,12 +3207,12 @@ bool ExprResolveAccessor::MaybeLogVisibilityHint(const std::string &name,
 	auto *pRoot = m_pContext;
 	while (pRoot->Parent())
 		pRoot = pRoot->Parent();
+	assert(IsBarePoolScope(*pRoot));
 	auto *pForeign = FindOwnedFunctionElsewhere(
 		static_cast<SnNamespace &>(*pRoot), name,
-		[this](SnFunction &func)
+		[this, curModule](SnFunction &func)
 		{
-			return IsBareVisible(func,
-				m_Env.Registry().OwnerOfContext(*m_pContext));
+			return IsBareVisible(func, curModule);
 		});
 	if (!pForeign)
 		return false;
@@ -3248,11 +3279,9 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 		if (CanBeFuncParentEx(pParent->Kind()))
 		{
 			auto pParentType = static_cast<SnFunctionParentField*>(pParent);
-			//Root (null parent) and namespaces are the bare pool; class
+			//Root and namespaces are the bare pool (IsBarePoolScope); class
 			//and interface scopes keep full visibility (D1/D7).
-			const bool bBarePoolScope = pParent->Parent() == nullptr
-				|| pParent->Kind() == NK_Namespace;
-			searchScope(*pParentType, bBarePoolScope);
+			searchScope(*pParentType, IsBarePoolScope(*pParent));
 
 			//For class contexts, also search the inheritance chain
 			//when the method is not found in the current class's Members().
@@ -3298,14 +3327,15 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 
 	//F20: nothing on the (narrowed) bare pool carries the name. When the
 	//name does exist elsewhere on the pool's surface, the visibility hint
-	//is the real diagnosis — surface it as an Incompatible carrying
-	//rbVisibilityHintLogged so the caller skips its generic text (M4).
+	//is the real diagnosis — rbVisibilityHintLogged tells the caller to
+	//skip its generic text (M4). The verdict stays FuncNameNotFound: the
+	//name IS unknown to this pool, no type mismatch happened.
 	if (candidates.empty())
 	{
-		if (MaybeLogVisibilityHint(sFuncName, invoke.Location()))
+		if (MaybeLogVisibilityHint(sFuncName, invoke.Location(), curModule))
 		{
 			rbVisibilityHintLogged = true;
-			return FFR_Incompatible;
+			return FFR_FuncNameNotFound;
 		}
 		return FFR_FuncNameNotFound;
 	}

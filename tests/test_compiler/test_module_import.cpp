@@ -1250,8 +1250,10 @@ private slots:
 
     //Spec §7: a bare call to a function that only exists in another
     //directory is rejected with the dedicated visibility wording - and
-    //nothing else, in particular no second generic "does not exist" or
-    //"not compatible" report behind it.
+    //no second generic "does not exist" or "not compatible" report at
+    //the invoke layer behind it. The statement layer still emits its
+    //pre-existing universal "Incompatible type" echo for the unresolved
+    //expression, so the full diagnostic set is exactly two lines.
     void bareCrossDirectoryRejected()
     {
         auto res = buildGateProject({
@@ -1269,6 +1271,10 @@ private slots:
         QVERIFY2(!containsError(res.errors,
             "is not compatible with the declaration"),
             "the hint must replace the generic incompatibility report");
+        QVERIFY2(containsError(res.errors, "Incompatible type"),
+            "the statement layer must still emit its universal echo for "
+            "the unresolved expression (pre-existing behavior)");
+        QVERIFY2(res.errors.size() == 2, joinErrors(res.errors).c_str());
     }
 
     //D7: the own directory stays bare-visible - two root files keep
@@ -1298,6 +1304,12 @@ private slots:
             "Function 'add' is not visible here. It lives in module "
             "'lib'; import it and qualify the call."),
             "must get the spec section 7 visibility diagnostic");
+        QVERIFY2(!containsError(res.errors,
+            "does not exist or is not accessible"),
+            "the hint must replace the generic not-found report");
+        QVERIFY2(!containsError(res.errors,
+            "is not compatible with the declaration"),
+            "the hint must replace the generic incompatibility report");
     }
 
     //The bare pool filter also holds when the call site sits INSIDE a
@@ -1308,45 +1320,61 @@ private slots:
     //usings are a separate lookup path that Task 6 does not touch.)
     void bareNamespaceScopeFiltered()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_ns_filter";
-        std::filesystem::create_directories(dir / "utils");
-        std::ofstream(dir / "utils" / "a.n")
-            << "namespace NS { int f() { return 1; } }\n";
-        std::ofstream(dir / "main.n")
-            << "namespace NS {\n"
-            << "int main() { return f(); }\n"
-            << "}\n";
-        BuildParams params;
-        params.m_sProjectDir = dir.string();
-        params.m_SourceFiles.push_back((dir / "main.n").string());
-        params.m_SourceFiles.push_back((dir / "utils" / "a.n").string());
-        params.m_sOutputModule = "ns_filter_test";
-        params.m_sOutputDir = dir.string();
-        MemLogger logger;
-        ModuleBuilder builder(params, logger);
-        QVERIFY(!builder.Build());
-        QVERIFY(containsError(logger.errorsText(), "is not visible here"));
+        //The gate scaffold pins the same shape as the plan's hand-rolled
+        //fixture (main.n + a utils/ directory file both declaring NS);
+        //helper.n lands at module path utils.helper, so the hint names
+        //utils.helper. main() sits INSIDE NS, so FindFuncByInvoke reaches
+        //the merged NS through the parent chain - where the foreign f
+        //(owned by utils.helper) must be dropped from the bare pool.
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "namespace NS {\n"
+            "int main() { return f(); }\n"
+            "}\n";
+        opts.szHelperBody = "namespace NS { int f() { return 1; } }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok,
+            "bare cross-directory namespace call must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Function 'f' is not visible here. It lives in module "
+            "'utils.helper'; import it and qualify the call."),
+            "the hint must name the owning module (utils.helper)");
+        QVERIFY2(!containsError(res.errors,
+            "does not exist or is not accessible"),
+            "the hint must replace the generic not-found report");
+        QVERIFY2(!containsError(res.errors,
+            "is not compatible with the declaration"),
+            "the hint must replace the generic incompatibility report");
     }
 
-    //T4 sibling pinning m12 against Task 6: a same-name function declared
-    //in the MAIN module itself stays inside the bare pool under any pool
-    //width, so only the m12 function-exclusion rule can keep the module
-    //path winning. (The original T4 relies on a same-name function in
-    //extra.n, which the narrowing may drop from main's scope chain - this
-    //variant keeps that pin permanently discriminating.)
+    //T4 sibling pinning m12 from the other side. extra.n is a
+    //same-directory peer, so D7 keeps it bare-visible and the narrowing
+    //does NOT remove it - the original T4 probe (module path vs same-name
+    //function) still sees the function and declines into the module path.
+    //This variant uses main's OWN same-name function instead, so the bare
+    //pool composition is irrelevant: the probe sees a function candidate,
+    //misses, and the module path must still win. Same mechanism as the
+    //original T4, giving the rule double coverage from both sides.
     void moduleNameNotShadowedByOwnModuleFunction()
     {
         GateProjectOptions opts;
         opts.szMainBody =
             "import utils.helper;\n"
             "int utils() { return 5; }\n"
-            "int main() { return utils.helper.help(); }\n";
+            "int main()\n"
+            "{\n"
+            "    if (utils() != 5) { return 99; }\n"
+            "    return utils.helper.help();\n"
+            "}\n";
         auto run = runGateProject(opts);
         QVERIFY2(run.ok, runFailureText(run,
             "an own-module same-name function must not shadow the module "
             "path's first segment (m12)").c_str());
-        QVERIFY2(run.exitValue == 3, "the call must reach helper.help()");
+        QVERIFY2(run.exitValue == 3,
+            "the bare utils() call must resolve to the own function (99 "
+            "sentinel) and the qualified call must reach helper.help()");
     }
 };
 
