@@ -1,6 +1,6 @@
 # NLang 入门
 
-NLang 是一门从 EN 游戏引擎脚本语言独立出来的教学/研究型脚本语言，
+NLang 是一门受 EN 游戏引擎脚本语言启发的教学/研究型脚本语言，
 自带编译器（ncc）、字节码虚拟机（nvm）与 IDE（nide）。
 
 本页带你完成安装、跑通第一个程序，并用可运行的片段快速过一遍语言核心特性。
@@ -416,7 +416,9 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」都在 ID
 1. [概览](language-spec/overview.md)——语言定位与整体结构
 2. [命名约定](language-spec/naming-convention.md)——类型/方法/变量的命名规则
 3. [类型](language-spec/types.md) → [类型语义](language-spec/type-semantics.md) →
-   [声明](language-spec/declarations.md)——类型系统与各种声明
+   [声明](language-spec/declarations.md) →
+   [内建泛型类](language-spec/builtin-generic-classes.md)
+   ——类型系统、声明与 List/Dict
 4. [表达式](language-spec/expressions.md) → [语句](language-spec/statements.md)
    ——运算符、控制流、异常
 5. [函数](language-spec/functions.md) →
