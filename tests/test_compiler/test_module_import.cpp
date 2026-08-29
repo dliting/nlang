@@ -639,6 +639,23 @@ private slots:
             "unknown import must get the module-not-found diagnostic");
     }
 
+    //A single-segment import whose name exists only as a directory
+    //(utils/helper.n is on disk, but there is no utils.n) is not a
+    //module: spec §7 module-not-found wording, naming the name.
+    void directoryOnlyNameImportFails()
+    {
+        auto res = buildGateProject({
+            "import utils;\n"
+            "int main() { return 0; }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok,
+            "an import naming a bare directory must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Module 'utils' not found"),
+            "the not-found diagnostic must name the directory-only name");
+    }
+
     //Duplicate and overlapping imports are idempotent: exact, wildcard
     //and repeated forms union into one gate.
     void duplicateImportIdempotent()
@@ -662,6 +679,25 @@ private slots:
                 ++libEntryCount;
         }
         QCOMPARE(libEntryCount, size_t(1));
+    }
+
+    //Importing one's own module path (self-import) and the same-directory
+    //peer is harmless: the names just join the gate, resolution is
+    //unchanged (spec §4 keeps duplicate/self references idempotent).
+    void selfImportAndNeighborImportCoexist()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import main;\n"
+            "import extra;\n"
+            "int main() { return extra(); }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "self-import plus same-directory import must build and "
+            "execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 9,
+            "extra() must still resolve to the same-directory peer (9)");
     }
 
     //IsKnownModule covers both kinds of registry entries — project
