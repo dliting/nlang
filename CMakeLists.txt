@@ -153,7 +153,7 @@ if(NLANG_BUILD_DOCS)
     #Fail fast with a pointed hint instead of a Python stack trace at
     #build time when the pinned env is missing.
     execute_process(
-        COMMAND ${NLANG_DOCS_RUN} --version
+        COMMAND ${NLANG_DOCS_PYTHON} -m mkdocs --version
         RESULT_VARIABLE NLANG_DOCS_PROBE
         OUTPUT_QUIET ERROR_QUIET)
     if(NOT NLANG_DOCS_PROBE EQUAL 0)

@@ -52,4 +52,8 @@ def main(argv=None):
         return check_site(Path(opts.site_dir))
     if opts.command == "serve":
         return _mkdocs(["serve", "-f", opts.config])
-    return check_site(Path(opts.site_dir))
+    if opts.command == "check":
+        return check_site(Path(opts.site_dir))
+    #argparse required=True makes this unreachable today; returning
+    #explicitly beats silently falling into another subcommand later.
+    return None

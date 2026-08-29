@@ -25,6 +25,11 @@ def check_site(site_dir):
     """Print violations, return process exit code (0 = clean)."""
     site = Path(site_dir).resolve()
     pages = sorted(site.rglob("*.html"))
+    if not pages:
+        #An empty or mistargeted site dir must fail the audit, not
+        #pass vacuously (verify_package reuses this check).
+        print("linkcheck: no .html pages under %s" % site, file=sys.stderr)
+        return 1
     anchor_ids = {}
     for page in pages:
         html = page.read_text(encoding="utf-8", errors="replace")
@@ -52,7 +57,7 @@ def check_site(site_dir):
                 continue
             if not target.endswith(".html"):
                 violations.append(
-                    "%s: directory-form link '%s'"
+                    "%s: non-.html internal link '%s'"
                     % (page.relative_to(site), target))
                 continue
             resolved = (base / unquote(target)).resolve()
