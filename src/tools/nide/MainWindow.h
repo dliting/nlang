@@ -86,8 +86,9 @@ public:
     //--- help (docs site in the embedded viewer) ---
     //First ancestor dir whose docs/site holds the page; empty when
     //none (installed layout: bin/../docs/site one hop up; dev tree
-    //resolves a few hops deeper). Tests call it directly.
-    static QString locateHelpPage(const QString& documentBaseName);
+    //resolves a few hops deeper). documentPagePath is relative to
+    //docs/site without the .html suffix. Tests call it directly.
+    static QString locateHelpPage(const QString& documentPagePath);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -262,7 +263,7 @@ private:
     //--- help ---
     //Open the generated docs-site page in the embedded help browser
     //(a reused HelpBrowser window; see the member).
-    void openHelpDocument(const QString& documentBaseName);
+    void openHelpDocument(const QString& documentPagePath);
 
     //Declaration order matters: m_ui first, so it is destroyed LAST --
     //tabCodes must outlive the editors that clearEditors() tears down.

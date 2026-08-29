@@ -31,6 +31,10 @@ src/compiler/generated/nlang.output
 # Compiled module artifacts
 *.nmod
 
+# Python (tools/nlang-docs subproject)
+__pycache__/
+*.pyc
+
 # OS files
 Thumbs.db
 .DS_Store

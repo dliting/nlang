@@ -959,11 +959,13 @@ namespace {
 const int MAX_DOC_SITE_HOPS = 6;
 } // namespace
 
-QString MainWindow::locateHelpPage(const QString& documentBaseName) {
+QString MainWindow::locateHelpPage(const QString& documentPagePath) {
     QDir dir = QCoreApplication::applicationDirPath();
     for (int hop = 0; hop < MAX_DOC_SITE_HOPS; ++hop) {
+        //use_directory_urls:false output: flat .html files
+        //(e.g. "language-spec.html", later "language-spec/overview.html").
         const QString candidate = dir.absoluteFilePath(
-            "docs/site/" + documentBaseName + "/index.html");
+            "docs/site/" + documentPagePath + ".html");
         if (QFileInfo::exists(candidate))
             return candidate;
         if (!dir.cdUp())
@@ -984,13 +986,13 @@ void MainWindow::on_actHelpVmArch_triggered() {
     openHelpDocument(QStringLiteral("vm-architecture"));
 }
 
-void MainWindow::openHelpDocument(const QString& documentBaseName) {
-    const QString page = locateHelpPage(documentBaseName);
+void MainWindow::openHelpDocument(const QString& documentPagePath) {
+    const QString page = locateHelpPage(documentPagePath);
     if (page.isEmpty()) {
         QMessageBox::warning(
             this, tr("Error"),
             tr("The document '%1' was not found next to the IDE "
-               "installation.").arg(documentBaseName));
+               "installation.").arg(documentPagePath));
         return;
     }
     //Embedded viewer instead of the system browser. The browser

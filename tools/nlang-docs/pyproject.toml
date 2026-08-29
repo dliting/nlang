@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nlang-docs"
+version = "1.0.0"
+description = "NLang help-manual build pipeline (mkdocs wrapper + link audits)"
+requires-python = ">=3.9"
+# Versions are pinned by tools/docs-requirements.txt in the conda
+# env (offline constraint); this metadata is for optional editable
+# installs by docs developers only.
+dependencies = ["mkdocs", "mkdocs-material"]
+
+[project.scripts]
+nlang-docs = "nlang_docs.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

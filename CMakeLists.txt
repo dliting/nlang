@@ -133,41 +133,52 @@ if(NLANG_BUILD_IDE)
     add_subdirectory(src/tools/nide)
 endif()
 
-# --- Static documentation site (mkdocs) --------------------------------------
+# --- Documentation site (nlang-docs subproject) -----------------------------
 # Defined BEFORE add_subdirectory(tests): test targets hook a dependency on
 # nlang_docs via if(TARGET nlang_docs), which only sees targets defined at
-# that point (Task 5 wiring in tests/CMakeLists.txt).
+# that point.
 option(NLANG_BUILD_DOCS
     "Build the mkdocs documentation site (needs the pinned Python env)"
     ON)
 set(NLANG_DOCS_PYTHON "python" CACHE STRING
-    "Python interpreter for the mkdocs docs target (py313's python.exe)")
+    "Python interpreter for the docs target (py313's python.exe)")
+set(NLANG_DOCS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/nlang-docs)
+#The subproject is invoked without installing it (offline builds must
+#not need pip): its src/ goes through PYTHONPATH.
+set(NLANG_DOCS_RUN
+    ${CMAKE_COMMAND} -E env
+    PYTHONPATH=${NLANG_DOCS_DIR}/src
+    ${NLANG_DOCS_PYTHON} -m nlang_docs)
 if(NLANG_BUILD_DOCS)
     #Fail fast with a pointed hint instead of a Python stack trace at
     #build time when the pinned env is missing.
     execute_process(
-        COMMAND ${NLANG_DOCS_PYTHON} -m mkdocs --version
-        RESULT_VARIABLE NLANG_MKDOCS_PROBE
+        COMMAND ${NLANG_DOCS_RUN} --version
+        RESULT_VARIABLE NLANG_DOCS_PROBE
         OUTPUT_QUIET ERROR_QUIET)
-    if(NOT NLANG_MKDOCS_PROBE EQUAL 0)
+    if(NOT NLANG_DOCS_PROBE EQUAL 0)
         message(FATAL_ERROR
-            "NLANG_BUILD_DOCS needs mkdocs in '${NLANG_DOCS_PYTHON}': "
-            "pip install -r tools/docs-requirements.txt "
+            "NLANG_BUILD_DOCS needs the nlang-docs pipeline runnable via "
+            "'${NLANG_DOCS_PYTHON}': pip install -r "
+            "tools/docs-requirements.txt "
             "(or configure with -DNLANG_BUILD_DOCS=OFF)")
     endif()
-    #ALL + no OUTPUT: every build reruns mkdocs once (seconds of Python
-    #startup, accepted; add a stamp file if it ever becomes a pain).
+    file(GLOB_RECURSE NLANG_DOC_PAGES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/*.md)
+    #ALL + no OUTPUT: every build reruns the pipeline once (seconds of
+    #Python startup, accepted; add a stamp file if it ever becomes a
+    #pain). build = mkdocs --strict + linkcheck chained, so a broken
+    #link fails the build.
     add_custom_target(nlang_docs ALL
-        COMMAND ${NLANG_DOCS_PYTHON} -m mkdocs build --strict
-                -f ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.yml
-                -d ${CMAKE_CURRENT_BINARY_DIR}/docs/site
+        COMMAND ${NLANG_DOCS_RUN} build
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.yml
+                --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.yml
-                ${CMAKE_CURRENT_SOURCE_DIR}/docs/index.md
-                ${CMAKE_CURRENT_SOURCE_DIR}/docs/language-spec.md
-                ${CMAKE_CURRENT_SOURCE_DIR}/docs/nlang-getting-started.md
-                ${CMAKE_CURRENT_SOURCE_DIR}/docs/vm-architecture.md
+                ${NLANG_DOC_PAGES}
+                ${NLANG_DOCS_DIR}/src/nlang_docs/cli.py
+                ${NLANG_DOCS_DIR}/src/nlang_docs/linkcheck.py
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "mkdocs: building docs site"
+        COMMENT "nlang-docs: building + auditing docs site"
         VERBATIM)
     # The package ships the generated site, not the markdown sources.
     install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/docs/site/

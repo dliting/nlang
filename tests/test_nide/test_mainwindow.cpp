@@ -1649,9 +1649,14 @@ private slots:
         // nlang_docs generates <build>/docs/site; the test exe sits at
         // <build>/tests/Release -- the ancestor walk finds it two hops
         // up (installed layout: bin/../docs/site, one hop).
-        QVERIFY(!MainWindow::locateHelpPage("language-spec").isEmpty());
-        QVERIFY(!MainWindow::locateHelpPage("nlang-getting-started")
-                     .isEmpty());
+        //use_directory_urls:false output: pages are flat .html files --
+        //directory-form URLs would open directory listings over file://.
+        QVERIFY(MainWindow::locateHelpPage("language-spec")
+                     .endsWith("/language-spec.html"));
+        QVERIFY(MainWindow::locateHelpPage("nlang-getting-started")
+                     .endsWith("/nlang-getting-started.html"));
+        QVERIFY(MainWindow::locateHelpPage("vm-architecture")
+                     .endsWith("/vm-architecture.html"));
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
     }
 
@@ -1670,16 +1675,17 @@ private slots:
         QWebEngineView* view =
             browser->findChild<QWebEngineView*>("helpWebView");
         QVERIFY(view != nullptr);
+        QVERIFY(page.endsWith("/language-spec.html"));
         //Loading is asynchronous Chromium work; the view's url flips
         //once the load starts, which is all this asserts.
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(page));
         //A second entry reuses the same window and navigates it.
         act(window, "actHelpGettingStarted")->trigger();
         QCOMPARE(window.findChildren<HelpBrowser*>().size(), 1);
-        QTRY_COMPARE(
-            view->url(),
-            QUrl::fromLocalFile(
-                MainWindow::locateHelpPage("nlang-getting-started")));
+        const QString gettingStarted =
+            MainWindow::locateHelpPage("nlang-getting-started");
+        QVERIFY(gettingStarted.endsWith("/nlang-getting-started.html"));
+        QTRY_COMPARE(view->url(), QUrl::fromLocalFile(gettingStarted));
     }
 
     //--- user journey (Step 10) ---

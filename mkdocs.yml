@@ -12,6 +12,10 @@ theme:
   name: material
   language: zh  # the pip package ships Simplified Chinese as "zh" (no zh-CN partial)
   font: false  # fully offline: no Google Fonts round-trip
+#file://-navigable output: links keep the .html suffix (Chromium
+#resolves no index.html over file://, directory links would open
+#directory listings -- spec D2 root cause #2).
+use_directory_urls: false
 # Site-wide two-column help layout (left nav, right content): the
 # stylesheet hides the material theme's in-page TOC rail.
 extra_css:
