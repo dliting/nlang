@@ -275,7 +275,7 @@ int main() {
 
 `main.n`：
 
-```nlang
+```nlang modules/main.n
 import io;
 import utils.helper;
 
@@ -290,13 +290,13 @@ int main() {
 
 `helper.n`（与 main.n 同目录）：
 
-```nlang
+```nlang modules/helper.n
 int twice(int x) { return x * 2; }
 ```
 
 `utils/helper.n`（模块路径 `utils.helper`）：
 
-```nlang
+```nlang modules/utils/helper.n
 int answer() { return 42; }
 ```
 
@@ -395,9 +395,10 @@ int main() {
 
 ### 退出码不是想要的值？
 
-Windows 进程退出码只有 8 位（0–255）：`return 300` 的实际退出码是
-44（300 对 256 取模）。`main` 返回负数或大数时都会被截断，
-跨平台脚本判断退出码时注意。
+进程退出码就是 `main` 的返回值，Windows 保留 32 位原值；但 POSIX shell
+（bash、Git-Bash、CI 的 bash 步骤）按惯例只保留低 8 位——`return 300`
+在 Python/cmd/PowerShell 里看到 300，在 bash 里看到 44（对 256 取模）。
+测试约定预期值 0–255，让所有观察者的视图一致。
 
 详见 → [语言规格/退出码约定](language-spec/exit-code-convention.md)。
 

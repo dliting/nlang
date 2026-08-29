@@ -206,14 +206,27 @@ uses):
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.yml
 
 # What the CMake target runs: mkdocs build --strict, the offline-search
-# inlining, then the audit below
+# inlining, then the audits below
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
-    --config mkdocs.yml --site-dir build/docs/site
+    --config mkdocs.yml --site-dir build/docs/site \
+    --ncc build/src/tools/ncc/Release/ncc.exe \
+    --nvm build/src/tools/nvm/Release/nvm.exe
 
 # Audit an already-generated site (also reused by packaging verification)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
     --site-dir build/docs/site --config mkdocs.yml
+
+# Audit one page's ```nlang snippets standalone (compile + run + exit code)
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \
+    --doc docs/nlang-getting-started.md --ncc <ncc> --nvm <nvm>
 ```
+
+`build` chains four stages: the mkdocs build, offline search inlining, the
+site audit, and — when `--ncc`/`--nvm` are known, which the CMake target
+always passes — a snippet audit that compiles and runs every ```nlang
+program in the getting-started guide and compares the process exit code
+against the one the snippet promises, so a language change that breaks a
+documented example fails the docs build.
 
 The site must render fully offline, straight from `file://`: URLs stay flat
 (`use_directory_urls: false`), webfonts are disabled, nothing loads from a

@@ -476,6 +476,10 @@ if(NLANG_BUILD_DOCS)
         add_test(NAME nlang_docs_pytest
             COMMAND ${CMAKE_COMMAND} -E env
                 PYTHONPATH=${NLANG_DOCS_DIR}/src
+                #Snippet-audit tests compile+run for real; the env hands
+                #them this tree's tools (tests skip loudly without them).
+                NLANG_NCC=$<TARGET_FILE:ncc>
+                NLANG_NVM=$<TARGET_FILE:nvm>
                 ${NLANG_DOCS_PYTHON} -m pytest ${NLANG_DOCS_DIR}/tests -q
             WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
         set_tests_properties(nlang_docs_pytest PROPERTIES TIMEOUT 180)
