@@ -16,6 +16,15 @@ theme:
 #resolves no index.html over file://, directory links would open
 #directory listings -- spec D2 root cause #2).
 use_directory_urls: false
+#CJK headings keep readable anchors: the default slugify strips
+#non-ASCII, so Chinese titles degraded to positional _1/_2 ids. gfm
+#preserves the characters unencoded (anchor ids and in-page toc links
+#regenerate consistently; ASCII headings slug identically to before).
+markdown_extensions:
+  - toc:
+      slugify: !!python/name:pymdownx.slugs.gfm
+  - tables
+  - fenced_code
 # Site-wide two-column help layout (left nav, right content): the
 # stylesheet hides the material theme's in-page TOC rail.
 extra_css:

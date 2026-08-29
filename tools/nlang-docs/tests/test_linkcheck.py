@@ -237,3 +237,21 @@ def test_remote_resources_rejected_but_relative_ok(tmp_path, capsys):
             '<link rel="stylesheet" href="assets/css/theme.css">',
     })
     assert check_site(relative) == 0
+
+
+def test_nav_config_with_python_name_tags_parses(tmp_path, capsys):
+    #mkdocs.yml may carry `!!python/name:` values (e.g. a toc slugify
+    #function); the nav rule only reads nav strings, so those tags must
+    #degrade to their dotted path instead of failing the whole read.
+    config = tmp_path / "mkdocs.yml"
+    config.write_text(
+        "markdown_extensions:\n"
+        "  - toc:\n"
+        "      slugify: !!python/name:pymdownx.slugs.gfm\n"
+        "nav:\n"
+        "  - 主页: index.md\n", encoding="utf-8")
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "index.html").write_text("<html></html>", encoding="utf-8")
+    assert check_site(site, config) == 0
+    assert "nav coverage OK" in capsys.readouterr().out

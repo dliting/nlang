@@ -41,6 +41,21 @@ _ID_RE = re.compile(r'\bid="([^"]+)"')
 _EXTERNAL = ("http:", "https:", "mailto:", "data:")
 
 
+if yaml is not None:
+    class _ConfigLoader(yaml.SafeLoader):
+        """SafeLoader that tolerates mkdocs' `!!python/name:` tags.
+
+        The nav rule only reads nav strings; a python object reference
+        (e.g. a toc slugify function) is recorded as its dotted path
+        instead of failing the whole config read. No object is ever
+        instantiated — that is exactly what SafeLoader refuses.
+        """
+
+    _ConfigLoader.add_multi_constructor(
+        "tag:yaml.org,2002:python/name",
+        lambda loader, suffix, node: loader.construct_scalar(node))
+
+
 def _check_links(site_dir):
     """The three <a href> rules; prints violations, returns exit code."""
     site = Path(site_dir).resolve()
@@ -138,7 +153,8 @@ def _nav_html_pages(config_path):
     docs tree one-to-one, so docs/<path>.md becomes site <path>.html.
     """
     #An empty (or all-comments) mkdocs.yml parses to None.
-    config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+    config = yaml.load(
+        Path(config_path).read_text(encoding="utf-8"), Loader=_ConfigLoader)
     if not isinstance(config, dict):
         raise yaml.YAMLError("config is not a mapping")
     leaves = []
