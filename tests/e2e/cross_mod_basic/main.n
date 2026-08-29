@@ -6,5 +6,5 @@
 import lib;
 
 int main() {
-	return add(2, 3);
+	return lib.add(2, 3);
 }

@@ -5,5 +5,5 @@
 import lib;
 
 int main() {
-	return add(8, 20);
+	return lib.add(8, 20);
 }

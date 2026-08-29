@@ -3,8 +3,8 @@
 import lib;
 
 int main() {
-    if (runFree() != 10) { return 1; }
-    if (runBound() != 12) { return 2; }
-    if (runVirtual() != 30) { return 3; }
+    if (lib.runFree() != 10) { return 1; }
+    if (lib.runBound() != 12) { return 2; }
+    if (lib.runVirtual() != 30) { return 3; }
     return 7;
 }

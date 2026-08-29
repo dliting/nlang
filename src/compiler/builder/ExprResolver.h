@@ -2,6 +2,7 @@
 #include "SnExpressions.h"
 #include "SyntaxNodeVisitor.h"
 #include <nlang/runtime/Flagable.h>
+#include <functional>
 #include <vector>
 
 namespace nlang
@@ -225,10 +226,36 @@ private:
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
 	SnField *FindFieldInAncestor(const std::string &sName, SyntaxNode &parent,
-		const SnField &accessor, ExprResolveFlagSet flags);
+		const SnField &accessor, ExprResolveFlagSet flags,
+		const std::function<bool(SnField &)> *pFuncFilter = nullptr);
 
 	SnField *FindFieldInUsings(std::string &sName, const UsingList &usings,
 		const SnField & accessor);
+
+	/*
+	Module import visibility (D1/D7): the bare-pool visibility test for a
+	ROOT or NAMESPACE scope function candidate. curModule is the caller's
+	precomputed OwnerOfContext (the "current TU"). Ownerless symbols (root
+	built-ins, runtime tables) stay visible; an owned function must belong
+	to the current TU or share its directory — external owners and other
+	directories are out (M2: a namespace declared in another directory is
+	just as foreign). Class/interface/enum scope candidates never reach
+	this test: their scopes keep full visibility (types stay global, spec
+	§5.5).
+	*/
+	bool IsBareVisible(SnFunction &func, uint32_t curModule);
+
+	/*
+	Module import visibility (F20): the guiding diagnostic for a name that
+	only exists as a function OUTSIDE the current TU's bare pool. Silent
+	under ERF_SearchInParentOnly (a member-scoped miss is never fixed by
+	an import — obj.method() cannot resolve to a global function) and when
+	no foreign function carries the name.
+	\return true when the hint was logged — the caller must then suppress
+	its generic failure text (M4).
+	*/
+	bool MaybeLogVisibilityHint(const std::string &name,
+		const ISourceLocation *pLoc);
 
 	/*
 	Find the best function declaration matched witch an invoke expression.
@@ -239,13 +266,18 @@ private:
 	FFR_Incompatible had an NF_Imported candidate among the name-matched
 	set (NOT on the ambiguity verdict, whose report is complete on its
 	own) — it lets the caller report the imported-arg rejection reason
-	instead of a generic message. Delegates the matching itself to
-	MatchInvokeAgainst after collecting the same-name candidates along
-	the scope chain (enum branch included).
+	instead of a generic message.
+	Module import visibility (Task 6): the root and namespace scopes of
+	the chain are filtered to the current TU's directory (the bare pool,
+	D1/D7). rbVisibilityHintLogged mirrors rbNameMatchedImported: it is
+	set when this Incompatible already logged the "not visible here"
+	hint, so the caller does not append its generic failure text (M4).
+	Delegates the matching itself to MatchInvokeAgainst after collecting
+	the same-name candidates along the scope chain (enum branch included).
 	*/
 	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &outBindings,
-		bool &rbNameMatchedImported);
+		bool &rbNameMatchedImported, bool &rbVisibilityHintLogged);
 
 	/*
 	Module import visibility (M3b): the TryBindInvoke / type-distance core

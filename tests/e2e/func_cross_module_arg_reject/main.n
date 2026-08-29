@@ -7,5 +7,5 @@ import lib;
 int dbl(int x) { return x * 2; }
 
 int main() {
-    return apply(dbl);
+    return lib.apply(dbl);
 }

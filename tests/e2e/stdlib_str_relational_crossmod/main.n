@@ -4,9 +4,9 @@
 import lib;
 
 int main() {
-	if (cmp_lt() != 0) return 1;
-	if (cmp_gt() != 1) return 2;
-	if (cmp_le() != 0) return 3;
-	if (cmp_ge() != 1) return 4;
+	if (lib.cmp_lt() != 0) return 1;
+	if (lib.cmp_gt() != 1) return 2;
+	if (lib.cmp_le() != 0) return 3;
+	if (lib.cmp_ge() != 1) return 4;
 	return 0;
 }

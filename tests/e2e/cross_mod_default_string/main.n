@@ -2,5 +2,5 @@
 import lib;
 
 int main() {
-	return lenOf();
+	return lib.lenOf();
 }

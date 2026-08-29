@@ -3,5 +3,5 @@
 import lib;
 
 int main() {
-	return foo(5);
+	return lib.foo(5);
 }

@@ -1245,6 +1245,109 @@ private slots:
             "the module gate must stay silent: the path IS imported, the "
             "decline happens in normal member resolution");
     }
+
+    //--- Task 6: bare-pool narrowing (spec §7, D1/D7) -------------------
+
+    //Spec §7: a bare call to a function that only exists in another
+    //directory is rejected with the dedicated visibility wording - and
+    //nothing else, in particular no second generic "does not exist" or
+    //"not compatible" report behind it.
+    void bareCrossDirectoryRejected()
+    {
+        auto res = buildGateProject({
+            "int main() { return help(); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "bare cross-directory call must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Function 'help' is not visible here. It lives in module "
+            "'utils.helper'; import it and qualify the call."),
+            "must get the spec section 7 visibility diagnostic");
+        QVERIFY2(!containsError(res.errors,
+            "does not exist or is not accessible"),
+            "the hint must replace the generic not-found report");
+        QVERIFY2(!containsError(res.errors,
+            "is not compatible with the declaration"),
+            "the hint must replace the generic incompatibility report");
+    }
+
+    //D7: the own directory stays bare-visible - two root files keep
+    //calling each other without any import statement.
+    void bareSameDirectoryStillWorks()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody = "int main() { return extra(); }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "same-directory bare call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 9, "extra() must return 9");
+    }
+
+    //An imported external .nmod function is foreign even when imported:
+    //the bare pool never spans module boundaries - qualify instead.
+    void bareCrossModuleRejected()
+    {
+        auto res = buildGateProject({
+            "import lib;\n"
+            "int main() { return add(2, 3); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "bare external call must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Function 'add' is not visible here. It lives in module "
+            "'lib'; import it and qualify the call."),
+            "must get the spec section 7 visibility diagnostic");
+    }
+
+    //The bare pool filter also holds when the call site sits INSIDE a
+    //namespace: main.n and utils/a.n both declare NS, so the merged NS
+    //scope holds f() twice (utils.a's copy foreign). FindFuncByInvoke
+    //reaches NS through the parent chain, and the filtered search must
+    //drop the foreign overload. (A `using NS;` form cannot pin this -
+    //usings are a separate lookup path that Task 6 does not touch.)
+    void bareNamespaceScopeFiltered()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_ns_filter";
+        std::filesystem::create_directories(dir / "utils");
+        std::ofstream(dir / "utils" / "a.n")
+            << "namespace NS { int f() { return 1; } }\n";
+        std::ofstream(dir / "main.n")
+            << "namespace NS {\n"
+            << "int main() { return f(); }\n"
+            << "}\n";
+        BuildParams params;
+        params.m_sProjectDir = dir.string();
+        params.m_SourceFiles.push_back((dir / "main.n").string());
+        params.m_SourceFiles.push_back((dir / "utils" / "a.n").string());
+        params.m_sOutputModule = "ns_filter_test";
+        params.m_sOutputDir = dir.string();
+        MemLogger logger;
+        ModuleBuilder builder(params, logger);
+        QVERIFY(!builder.Build());
+        QVERIFY(containsError(logger.errorsText(), "is not visible here"));
+    }
+
+    //T4 sibling pinning m12 against Task 6: a same-name function declared
+    //in the MAIN module itself stays inside the bare pool under any pool
+    //width, so only the m12 function-exclusion rule can keep the module
+    //path winning. (The original T4 relies on a same-name function in
+    //extra.n, which the narrowing may drop from main's scope chain - this
+    //variant keeps that pin permanently discriminating.)
+    void moduleNameNotShadowedByOwnModuleFunction()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "int utils() { return 5; }\n"
+            "int main() { return utils.helper.help(); }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "an own-module same-name function must not shadow the module "
+            "path's first segment (m12)").c_str());
+        QVERIFY2(run.exitValue == 3, "the call must reach helper.help()");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestModuleImport)

@@ -4,6 +4,6 @@
 import lib;
 
 int main() {
-	log(3);
-	return add(2, 3);
+	lib.log(3);
+	return lib.add(2, 3);
 }

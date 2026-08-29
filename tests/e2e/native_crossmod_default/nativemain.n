@@ -4,9 +4,9 @@
 import nativelib;
 
 int main() {
-    if (wrapped() != 15)
+    if (nativelib.wrapped() != 15)
         return 1;
-    if (natAdd(37) != 42)
+    if (nativelib.natAdd(37) != 42)
         return 2;
     return 0;
 }

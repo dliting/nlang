@@ -2,5 +2,5 @@
 import lib;
 
 int main() {
-	return sub(5);
+	return lib.sub(5);
 }
