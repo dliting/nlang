@@ -192,13 +192,17 @@ embedded viewer. Toolchain versions are pinned in
 then configure with `-DNLANG_DOCS_PYTHON=<interpreter>`).
 
 The pipeline lives in `tools/nlang-docs/`, a self-contained package that is
-not installed — run it straight from the source tree via `PYTHONPATH`:
+not installed — run it straight from the source tree via `PYTHONPATH`
+(env-prefix syntax as in Git Bash; on PowerShell/cmd use the
+`cmake -E env PYTHONPATH=... <python> ...` idiom the CMake recipe itself
+uses):
 
 ```bash
 # Iteration preview (plain mkdocs live-reload server)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.yml
 
-# What the CMake target runs: mkdocs build --strict, then the audit below
+# What the CMake target runs: mkdocs build --strict, the offline-search
+# inlining, then the audit below
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
     --config mkdocs.yml --site-dir build/docs/site
 
@@ -209,12 +213,15 @@ PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
 
 The site must render fully offline, straight from `file://`: URLs stay flat
 (`use_directory_urls: false`), webfonts are disabled, nothing loads from a
-CDN, and instead of mkdocs-material's search index fetch (its polyfill is
-pulled from unpkg) the build inlines the index into
-`search/search_index.js`. The `check` audit enforces that shape: internal
+CDN, and the build inlines the search index into
+`search/search_index.js` itself (mkdocs-material's offline plugin would do
+it, but it injects a CDN polyfill from unpkg, so the pipeline hand-rolls
+the inlining — see `tools/nlang-docs/src/nlang_docs/offline_search.py`).
+The `check` audit enforces that shape: internal
 links must resolve to existing `.html` files, `#fragments` must exist,
-directory-form links are rejected, and every built page must appear in the
-`nav` of the `mkdocs.yml` passed via `--config`. Unit tests:
+directory-form links are rejected, and the set of built pages must equal
+the `nav` of the `mkdocs.yml` passed via `--config` (missing and
+unreachable pages both fail). Unit tests:
 `pytest tools/nlang-docs/tests`.
 
 ## Packaging (Windows)

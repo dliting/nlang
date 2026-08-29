@@ -186,6 +186,11 @@ def main():
         if r.returncode != 0:
             fail('packaged docs site failed the nlang_docs audit:\n'
                  + (r.stdout + r.stderr).decode('utf-8', 'replace')[:1500])
+        # Success-path stderr still carries degradation notes (e.g. pyyaml
+        # missing → nav rule skipped); a silently narrowed audit must not
+        # pass unnoticed.
+        if r.stderr:
+            sys.stderr.write(r.stderr.decode('utf-8', 'replace'))
         print('docs-site audit: OK (nlang_docs check passed)')
 
     print('PASS')
