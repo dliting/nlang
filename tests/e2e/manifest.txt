@@ -977,3 +977,10 @@ import_io_missing compile_error Namespace 'io' is not imported. Add 'import io;'
 import_dotted_singlefile compile_error Module 'utils.helper' not found. Check the project Sources list or -I import path.
 import_not_found compile_error Module 'nosuch' not found. Check the project Sources list or -I import path.
 import_string_form compile_error String import is removed. Use 'import <module>;' with an identifier path.
+
+# Getting-started FAQ pins. The process exit code IS main's return value,
+# verbatim (nvm ExitProcess(UINT), 32-bit preserved): the runner compares
+# the full Windows exit code, so 300 is expected here. POSIX shells show
+# only the low 8 bits (300 -> 44) -- see docs/language-spec/exit-code-
+# convention.md for the two-view table.
+exit_code_full_passthrough 300

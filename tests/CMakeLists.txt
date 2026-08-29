@@ -450,6 +450,16 @@ add_test(NAME proj_reserved_segment_compile
 set_tests_properties(proj_reserved_segment_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "collides with a built-in namespace")
 
+#Getting-started FAQ pin: without -o the .nmod lands in the process CWD,
+#not beside the source (both halves asserted by the script, since ctest
+#regexes cannot check the filesystem).
+add_test(NAME ncc_no_o_output_cwd
+    COMMAND ${CMAKE_COMMAND}
+        -DNCC=$<TARGET_FILE:ncc>
+        -DSOURCE=${PROJECT_SOURCE_DIR}/examples/hello.n
+        -DCWD_DIR=${CMAKE_BINARY_DIR}/e2e_out/cwd_pin
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/ncc_no_o_output_cwd.cmake)
+
 #Project-mode entries are fixture compiles/runs: keep each well under
 #the 3-minute unit-test ceiling (CLAUDE.md).
 set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
