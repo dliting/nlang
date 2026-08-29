@@ -1377,7 +1377,7 @@ private slots:
             "sentinel) and the qualified call must reach helper.help()");
     }
 
-    //D6/spec section 7 row 4: built-in namespaces are gated like any
+    //D6/spec section 7 row 2: built-in namespaces are gated like any
     //module - io/math/fs calls without the import are rejected with the
     //namespace wording, one representative call per namespace.
     void builtinNamespaceRequiresImport()
