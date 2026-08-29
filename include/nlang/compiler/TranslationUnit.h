@@ -43,7 +43,9 @@ struct NLANG_COMPILER_API ImportSpec
 	}
 };
 
-//A translation unit of an nlang source file.
+//A translation unit of an nlang source file. The import set (parsed
+//`import` statements, see ImportSpec) belongs to the unit: one file's
+//imports never make modules visible to another file in the project.
 class NLANG_COMPILER_API TranslationUnit
 {
 public:

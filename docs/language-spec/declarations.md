@@ -1,6 +1,66 @@
 # Declarations
 
 
+### Import Declaration
+
+```
+import io;                 // built-in namespace
+import lib;                // external lib.nmod
+import utils.helper;       // project file utils/helper.n
+import utils.*;            // recursive wildcard
+```
+
+An `import` declares which modules this **file** may reference — the
+import set belongs to the translation unit and never leaks to other
+files. Three sources share one syntax:
+
+| Source | Module path | Example |
+|---|---|---|
+| Project file | dotted path relative to the `.nproj` root: directory path + file stem | `utils/helper.n` → `utils.helper`; root `main.n` → `main` |
+| External `.nmod` | file stem (single segment) | `lib.nmod` → `lib` |
+| Built-in namespace | `io` / `math` / `fs` (reserved names, preset modules) | `io` |
+
+Visibility:
+
+| Reference | Import needed? | Call form |
+|---|---|---|
+| Same file | no | bare |
+| Same directory, other project files | no (implicit) | bare **or** qualified |
+| Cross-directory, same project | **yes** (`import utils.helper;` or `import utils.*;`) | qualified only: `utils.helper.f()` |
+| External `.nmod` | **yes** (`import lib;`) | qualified only: `lib.f()` |
+| Built-in `io`/`math`/`fs` | **yes** (`import io;`) | qualified: `io.print` |
+
+- Bare-name resolution covers only the own file plus same-directory
+  files; everything else must be qualified by module path. Ownerless
+  symbols (root built-ins such as the `Exception` class family, native
+  host bindings) stay globally bare-visible.
+- Wildcard `import utils.*;` is a **recursive prefix match** in module
+  path space: every path starting with `utils.` is importable
+  (`utils.helper`, `utils.sub.x`, ...). It only abbreviates the import
+  list — calls still write the full path. Wildcards match project files
+  only; external `.nmod` names are single-segment and never match.
+- `import utils;` matches only the root file `utils.n`; to reach the
+  `utils/` directory use the full path or a wildcard.
+- Duplicate imports are idempotent; exact + wildcard overlap takes the
+  union; importing the own module path or a same-directory file is a
+  harmless redundancy.
+- Resolution order for an import target: built-in → project file →
+  external `.nmod` (via `-I`). No implicit fallback.
+- Project path segments may not collide with `io`/`math`/`fs` (compile
+  error). Single-file mode (no `.nproj`) supports single-segment imports
+  only — built-ins and external `.nmod`; dotted paths cannot resolve.
+
+Diagnostics (examples):
+
+```
+Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.
+Namespace 'io' is not imported. Add 'import io;' at the top of this file.
+Module 'utils.helper' not found. Check the project Sources list or -I import path.
+String import is removed. Use 'import <module>;' with an identifier path.
+Module path segment 'io' collides with a built-in namespace.
+Function 'add' is not visible here. It lives in module 'utils.helper'; import it and qualify the call.
+```
+
 ### Variable Declaration
 
 ```

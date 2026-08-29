@@ -89,12 +89,49 @@ Multi-source projects are described by a `.nproj` XML file (see
 optionally redirects the `.nmod` (relative to the project file), and `File`
 paths are relative to the project file's directory.
 
+## Modules and Imports
+
+Cross-file references are explicit: an `import` declares which modules a
+file may call, and the compiler rejects anything else (same-directory
+files are the one exception — they see each other implicitly). Three
+import sources share one syntax:
+
+| Source | Module path | Example |
+|---|---|---|
+| Project file | dotted path relative to the `.nproj` | `utils/helper.n` → `import utils.helper;` |
+| External `.nmod` | file stem (single segment) | `lib.nmod` → `import lib;` |
+| Built-in namespace | `io` / `math` / `fs` | `import io;` |
+
+| Reference | Import needed? | Call form |
+|---|---|---|
+| Same file | no | bare |
+| Same directory, other files | no (implicit) | bare or qualified |
+| Cross-directory, same project | **yes** | qualified only (`utils.helper.f()`) |
+| External `.nmod` | **yes** | qualified only (`lib.f()`) |
+| Built-in `io`/`math`/`fs` | **yes** | qualified (`io.print`) |
+
+A wildcard import is a recursive prefix match: `import utils.*;` reaches
+`utils/` and every nested subdirectory (`utils.helper`, `utils.sub.x`).
+Calls still use the full path — there is no `from m import *` form.
+Duplicate and overlapping imports are idempotent.
+
+An unimported reference fails with a pointed diagnostic, e.g.
+`Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
+Full semantics — resolution order, reserved path segments, single-file
+mode — are in the Declarations chapter
+(`docs/language-spec/declarations.md`, Import Declaration).
+
 ## Standard Library (Phase 11)
 
-`math`, `io` and `fs` are built-in namespaces — reserved names, called
-qualified, no import needed. Strings carry built-in methods:
+`math`, `io` and `fs` are built-in namespaces — reserved names that need
+an explicit `import` before their qualified calls. Strings carry built-in
+methods:
 
 ```n
+import io;
+import math;
+import fs;
+
 int main() {
     io.print(math.sqrt(2.0));                     // 1.41421
     string s = "hello world".substring(0, 5);     // "hello" (byte offsets)

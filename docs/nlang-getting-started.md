@@ -309,6 +309,13 @@ int answer() { return 42; }
 用到 `io.print` 的片段顶部的 `import io;` 就是它；漏写会得到编译错误
 「Namespace 'io' is not imported」。
 
+`import` 还支持递归通配：`import utils.*;` 一次性导入 `utils/` 及其全部
+嵌套子目录（调用仍写全限定 `utils.helper.f()`）。重复导入、通配与精确
+混合都是幂等的，效果取并集。
+
+完整的可见性矩阵（谁需要 import、允许什么调用形式）与全部六类报错
+文案，见语言规格的 Import Declaration 一节。
+
 详见 → [语言规格/声明](language-spec/declarations.md)、
 [标准库](language-spec/standard-library.md)。
 
