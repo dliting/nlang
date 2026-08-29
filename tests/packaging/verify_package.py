@@ -23,6 +23,15 @@ import zipfile
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
 DEFAULT_RELEASE_DIR = os.path.join(REPO_ROOT, 'release')
+# The packaged site is audited by the same nlang-docs checker the build
+# gates on (spec D6: single audit source, no hand-rolled link sampling).
+# The tool is not installed; PYTHONPATH into the subproject's src/ is its
+# documented no-install invocation. The repo mkdocs.yml is passed
+# explicitly so the nav-coverage rule is enforced (the CWD fallback in
+# the CLI would silently skip it) — the package site is the exact build
+# product of that config, so page/nav drift means a stale package.
+DOCS_CONFIG = os.path.join(REPO_ROOT, 'mkdocs.yml')
+DOCS_TOOL_SRC = os.path.join(REPO_ROOT, 'tools', 'nlang-docs', 'src')
 
 # examples/hello.n: public int main() { return 42; }
 SMOKE_EXIT_CODE = 42
@@ -56,6 +65,11 @@ DOC_FILES = [
     'docs/site/language-spec/standard-library.html',
     'docs/site/vm-architecture/overview.html',
     'docs/site/search/search_index.json',
+    # The file:// search enabler: material's bundle script-tags this
+    # .js (written by the build's offline-search inlining step) because
+    # Chromium blocks the .json XHR over file://. Without it the
+    # installed IDE's help search is silently empty.
+    'docs/site/search/search_index.js',
     'docs/site/stylesheets/two-column-layout.css',
 ]
 # Markdown sources and internal dev-process docs stay out of the public
@@ -155,6 +169,23 @@ def main():
             fail(f'nvm returned {r.returncode}, expected {SMOKE_EXIT_CODE}: '
                  f'{r.stderr.decode("utf-8", "replace")[:500]}')
         print('smoke: OK (packaged ncc compiled and nvm ran hello.n)')
+
+        # --- Docs-site audit: same checker the build gates on -------------
+        # Catches broken internal links / #fragments and page-vs-nav drift
+        # inside the shipped site (a stale package fails here even though
+        # its files all exist). The repo mkdocs.yml is the config the site
+        # was built from; see the DOCS_* note above the constants.
+        docs_site = os.path.join(pkg, 'docs', 'site')
+        env = dict(os.environ)
+        env['PYTHONPATH'] = DOCS_TOOL_SRC
+        r = subprocess.run(
+            [sys.executable, '-m', 'nlang_docs', 'check',
+             '--site-dir', docs_site, '--config', DOCS_CONFIG],
+            capture_output=True, timeout=TIMEOUT_SEC, env=env)
+        if r.returncode != 0:
+            fail('packaged docs site failed the nlang_docs audit:\n'
+                 + (r.stdout + r.stderr).decode('utf-8', 'replace')[:1500])
+        print('docs-site audit: OK (nlang_docs check passed)')
 
     print('PASS')
 
