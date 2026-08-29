@@ -25,12 +25,17 @@ def inline_search_index(site_dir):
               "search index not inlined" % index_json, file=sys.stderr)
         return 0
     try:
-        data = index_json.read_text(encoding="utf-8")
+        #newline="" keeps both ends byte-exact: the default universal
+        #translation would rewrite a pretty-printed .json's line breaks
+        #on Windows and break the copy of the plugin's output.
+        with open(index_json, encoding="utf-8", newline="") as f:
+            data = f.read()
         json.loads(data)  # a truncated .json would ship a broken .js
     except (OSError, json.JSONDecodeError) as err:
         print("offline_search: cannot inline %s (%s)" % (index_json, err),
               file=sys.stderr)
         return 1
     index_js = index_json.with_name("search_index.js")
-    index_js.write_text("var __index = " + data, encoding="utf-8")
+    with open(index_js, "w", encoding="utf-8", newline="") as f:
+        f.write("var __index = " + data)
     return 0

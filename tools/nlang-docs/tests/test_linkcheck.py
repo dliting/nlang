@@ -203,3 +203,14 @@ def test_empty_config_fails_loudly(tmp_path, capsys):
     config.write_text("# comments only\n", encoding="utf-8")
     assert check_site(site, config) == 1
     assert "cannot read" in capsys.readouterr().err
+
+
+def test_yaml_unavailable_skips_nav_rule(tmp_path, capsys, monkeypatch):
+    #The nav rule degrades to a skip with a note when pyyaml is
+    #missing; the supplied config must not turn that into an error.
+    import nlang_docs.linkcheck as linkcheck_module
+    site = make_site(tmp_path, {"index.html": "<p></p>"})
+    config = write_nav_config(tmp_path, "  - 主页: index.md\n")
+    monkeypatch.setattr(linkcheck_module, "yaml", None)
+    assert check_site(site, config) == 0
+    assert "skipped (pyyaml unavailable)" in capsys.readouterr().err

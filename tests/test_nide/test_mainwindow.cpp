@@ -53,7 +53,8 @@ const char* const kMainSource =
 //The embedded help's mkdocs-material search needs the page-side retry
 //loop to report (its bundle binds the input handler asynchronously),
 //so the test polls the reported flag at this interval and gives up
-//after the timeout.
+//after the timeout. Keep the polling throttled: a runJavaScript per
+//poll crashed the renderer once (thousands of queued IPC round trips).
 constexpr int kHelpSearchProbeMs = 250;
 constexpr int kHelpSearchTimeoutMs = 15000;
 //Parallel builds make the first page load slow; QTRY's 5s default is
@@ -1711,10 +1712,14 @@ private slots:
         act(window, "actHelpLanguageSpec")->trigger();
         QWebEngineView* view = window.findChild<QWebEngineView*>("helpWebView");
         QVERIFY(view != nullptr);
-        QTRY_VERIFY(view->url().toString().endsWith(".html"));
+        //The spy attaches synchronously right after trigger(), while
+        //loadFinished reaches the page asynchronously over Chromium IPC
+        //-- so it can never be missed (a later attach, after the url
+        //has flipped, could lose a fast local load and dead-wait).
+        QSignalSpy loaded(view->page(), &QWebEnginePage::loadFinished);
         //The url flips at load START; the search form only exists once
         //the document finished parsing.
-        QSignalSpy loaded(view->page(), &QWebEnginePage::loadFinished);
+        QTRY_VERIFY(view->url().toString().endsWith(".html"));
         QTRY_VERIFY_WITH_TIMEOUT(loaded.count() > 0,
                                  kHelpPageLoadTimeoutMs);
         //Type into the real search box and let material react to the
@@ -1774,10 +1779,11 @@ private slots:
         act(window, "actHelpLanguageSpec")->trigger();
         QWebEngineView* view = window.findChild<QWebEngineView*>("helpWebView");
         QVERIFY(view != nullptr);
-        QTRY_VERIFY(view->url().toString().endsWith(".html"));
+        //Same early-spy rationale as in testHelpSearchFindsResults.
+        QSignalSpy loaded(view->page(), &QWebEnginePage::loadFinished);
         //The url flips at load START; anchors only exist once the
         //document finished parsing.
-        QSignalSpy loaded(view->page(), &QWebEnginePage::loadFinished);
+        QTRY_VERIFY(view->url().toString().endsWith(".html"));
         QTRY_VERIFY_WITH_TIMEOUT(loaded.count() > 0,
                                  kHelpPageLoadTimeoutMs);
         QString clickedUrl;
