@@ -41,9 +41,10 @@ public:
 	//Sentinel owner index: "no module owns this symbol / context".
 	//Ownerless nodes are judged per side, so that policy stays outside
 	//ShareBarePool: the duplicate check treats an ownerless candidate as
-	//a shared-pool member — it always coexists (DuplicateFieldChecker::
-	//SameBarePool) — while IsBareVisible treats an ownerless context as
-	//defensively invisible (it never passes the bare filter).
+	//a shared-pool member — it shares every pool, so the legacy
+	//name-equality conflict stays (DuplicateFieldChecker::SameBarePool)
+	//— while IsBareVisible treats an ownerless context as defensively
+	//invisible (it never passes the bare filter).
 	static constexpr uint32_t NO_OWNER = 0xFFFFFFFFu;
 
 	//--- per-TU import gates ---
