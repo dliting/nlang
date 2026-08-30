@@ -25,6 +25,9 @@ public:
     FileNode(const FileNode&) = delete;
     FileNode& operator=(const FileNode&) = delete;
 
+    //Returns a reference to the member; renameFile/save rewrites it mid-call
+    //(setAbsolutePath below) -- copy into a local before holding it across
+    //a rename (see renameFileEverywhere's by-value parameter).
     const QString& absolutePath() const { return m_absolutePath; }
     ProjectNode* project() const { return m_project; }
 
