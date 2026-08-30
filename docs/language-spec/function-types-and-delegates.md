@@ -6,7 +6,7 @@ values**. The first type argument is always the **return type** (may be
 `void`); the remaining arguments are the parameter types in declaration
 order, each optionally prefixed with `out`:
 
-```
+```nlang
 Func<int>                 // int f()
 Func<void>                // void f()
 Func<int, int>            // int f(int)
@@ -32,7 +32,7 @@ arrays and containers, passed around, and invoked later:
   by-name handle that resolves the override chain on the receiver's
   **runtime class at each call** (late binding).
 
-```
+```nlang
 using BinOp = Func<int, int>;
 
 class Counter {

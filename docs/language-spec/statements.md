@@ -3,7 +3,7 @@
 
 ### Control Flow
 
-```
+```nlang
 if (cond) { ... }
 if (cond) { ... } else { ... }
 
@@ -27,7 +27,7 @@ have no meaningful truthiness. Use an explicit comparison instead:
 
 ### Foreach Statement (Phase 8e-5)
 
-```
+```nlang
 foreach (Type var in iterable) { body }
 ```
 
@@ -43,7 +43,7 @@ Supported iterables:
 `break` and `continue` work identically to `for`. The loop variable is
 **function-scoped** (NLang has no block scope, consistent with `for`):
 
-```
+```nlang
 List<int> nums = new List<int>();
 nums.add(10); nums.add(20); nums.add(30);
 int sum = 0;
@@ -55,7 +55,7 @@ foreach (int x in nums) {
 
 **Dict iteration example**:
 
-```
+```nlang
 Dict<string, int> ages = new Dict<string, int>();
 ages.set("alice", 30);
 ages.set("bob",   25);
@@ -90,7 +90,7 @@ null-sentinel design.
 
 ### Compound Assignment (Phase 9a)
 
-```
+```nlang
 x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;
 ```
 
@@ -105,7 +105,7 @@ subscript read-modify-write. Use the explicit form `arr[i] = arr[i] + 1`.
 
 ### Assert Statement (Phase 9a)
 
-```
+```nlang
 assert(condition);
 ```
 
@@ -130,7 +130,7 @@ hierarchy. All exceptions are instances of `Exception` or its subclasses.
 
 **try/catch:**
 
-```
+```nlang
 try {
     // code that may throw
 } catch (DivByZeroException e) {
@@ -147,7 +147,7 @@ try {
 
 **throw:**
 
-```
+```nlang
 throw new Exception("error message");   // throw a new exception
 throw;                                   // re-throw current exception (only inside catch)
 ```
@@ -159,7 +159,7 @@ throw;                                   // re-throw current exception (only ins
 
 **User-defined exception subclasses:**
 
-```
+```nlang
 class MyException : Exception {
     int code;
     public int MyException(string msg) {
@@ -185,7 +185,7 @@ Exception instances expose two readable/writable fields:
   VM-thrown exceptions (`funcName.n:line` entries, innermost first).
   User-constructed exceptions start with an empty backtrace.
 
-```
+```nlang
 try {
     int x = 0;
     int y = 1 / x;
@@ -201,6 +201,7 @@ class MyException : Exception {
 MyException e = new MyException();
 e.message = "custom";   // writable
 e.code = 42;
+```
 
 **VM errors are catchable:**
 
@@ -208,7 +209,7 @@ Runtime errors that previously caused hard crashes (NPE, division by zero,
 array/list index out of bounds, assertion failure) now throw the corresponding
 Exception subclass and can be caught:
 
-```
+```nlang
 try {
     int x = 0;
     int y = 1 / x;           // throws DivByZeroException
@@ -229,7 +230,7 @@ the program terminates with exit code 1 (same as the pre-9d behavior).
 
 **finally (Phase 9d-2):**
 
-```
+```nlang
 try {
     riskyWork();
 } catch (Exception e) {
@@ -266,7 +267,7 @@ swallow the in-flight control flow or exception.
 
 **super() — constructor chaining (Phase 9d-2):**
 
-```
+```nlang
 class Base {
     public int v;
     public int Base(int x) { this.v = x; return 0; }
@@ -293,7 +294,7 @@ class Kid : Base {
 
 ### Const Local Variables (Phase 9a)
 
-```
+```nlang
 const int X = 5;
 const string Greeting = "hello";
 ```
@@ -307,7 +308,7 @@ initialization order would add complexity, deferred to a future phase).
 *name* but does not freeze the referenced object's state. Member mutation
 through a const local is allowed:
 
-```
+```nlang
 const Foo f = new Foo();
 f.x = 5;            // OK — f itself is not reassigned
 f = new Foo();      // ERROR — cannot reassign const local
@@ -321,7 +322,7 @@ out of scope for Phase 9a and may be revisited in a future phase.
 
 ### Switch
 
-```
+```nlang
 switch (value) {
     case 1, 2: ...
     case 3: ...

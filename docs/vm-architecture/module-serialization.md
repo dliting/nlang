@@ -3,7 +3,7 @@
 
 Compiled modules are saved as `.nmod` files with this layout:
 
-```
+```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
 uint16 minorVer = 8

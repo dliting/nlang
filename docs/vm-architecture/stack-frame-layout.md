@@ -3,7 +3,7 @@
 
 Each function invocation has a local variable frame:
 
-```
+```text
 [this (methods)] [params...] [returnSlot] [tempSlot] [tempSlot2] [callParamBase(8 slots)] [user locals...]
 ```
 

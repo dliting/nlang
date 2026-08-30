@@ -70,7 +70,7 @@ the throw's exit code happened to equal the expected value.)
 A primitive value (int/float/string) assigned to an Object-typed target is
 boxed into a 2-slot heap entry:
 
-```
+```text
 slot[0] = type tag (RTK_Int32 / RTK_Float / RTK_String)
 slot[1] = value bits (int32 / float bits / string pool idx)
 ```
@@ -168,7 +168,7 @@ constructor args, allocate the OP_New result into the slot *after* the
 last param (`callParamBase + paramIdx * VALUE_SIZE`), then copy to
 resultOffset:
 
-```
+```text
 // args evaluated into callParamBase[1..N]
 allocSlot = callParamBase + N * VALUE_SIZE
 OP_New allocSlot, classIdx

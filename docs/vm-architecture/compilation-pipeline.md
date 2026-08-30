@@ -1,7 +1,7 @@
 # Compilation Pipeline
 
 
-```
+```text
 AST → VmBackend → CompiledModule (.nmod)
                       ↓
               BytecodeEmitter → bytecode

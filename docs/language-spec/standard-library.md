@@ -44,7 +44,7 @@ class and enum values need an explicit `.toString()` before printing
 program start. `math.srand(n)` reseeds explicitly — after it, sequences are
 fully deterministic and identical across platforms:
 
-```
+```text
 random()  = (float)((next() >> 8) * (1.0f / 16777216.0f))   // 24-bit mantissa, exact in [0,1)
 randomi(min,max) = min + (int32)(next() % (uint32)(max - min + 1))   // small modular bias, documented
 ```

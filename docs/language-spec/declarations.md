@@ -3,7 +3,7 @@
 
 ### Import Declaration
 
-```
+```nlang
 import io;                 // built-in namespace
 import lib;                // external lib.nmod
 import utils.helper;       // project file utils/helper.n
@@ -70,7 +70,7 @@ Function 'add' is not visible here. It lives in module 'utils.helper'; import it
 
 ### Variable Declaration
 
-```
+```nlang
 int x = 5;
 float y = 3.14;
 string s = "hello";
@@ -85,7 +85,7 @@ default to null.
 
 ### Enum Declaration
 
-```
+```nlang
 enum Color { Red, Green, Blue }
 enum Direction { North = 0, East = 90, South = 180, West = 270 }
 ```
@@ -94,7 +94,7 @@ Enum values are int32 at runtime. Members can be explicit or auto-incremented.
 
 #### Enum Methods (Phase 12)
 
-```
+```nlang
 enum Color {
     Red = 1, Green = 2, Blue = 4;
 
@@ -144,7 +144,7 @@ rejected).
 
 ### Struct Declaration
 
-```
+```nlang
 struct Point {
     int x;
     int y;
@@ -161,7 +161,7 @@ Structs cannot contain methods. Use classes for behavior.
 
 ### Class Declaration
 
-```
+```nlang
 class Node {
     public int value;
     public Node next;
@@ -207,7 +207,7 @@ Java/C# semantics.
 
 ### Interface Declaration
 
-```
+```nlang
 interface IShape {
     public int Area();
     public int Perimeter();
@@ -250,7 +250,7 @@ source-level `class Object { ... }` declaration, and users do not write
 
 Object provides two virtual methods with default identity semantics:
 
-```
+```nlang
 int Equals(Object other);    // identity: same heap reference → 1, else 0
 int GetHashCode();           // identity: heap index of `this` (or 0 for null)
 ```
@@ -260,7 +260,7 @@ override them simply by declaring a method with the same name (no `override`
 keyword needed; the runtime walks the class hierarchy and finds the
 most-derived implementation first):
 
-```
+```nlang
 class Point {
     public int x;
     public int y;
@@ -286,7 +286,7 @@ codebase.
 **Boxing (primitive → Object)**: A primitive value (int / float / string) is
 implicitly boxed when assigned to an Object-typed target:
 
-```
+```nlang
 Object o = 5;            // int boxed
 Object f = 3.14;         // float boxed
 Object s = "hi";         // string boxed
@@ -306,7 +306,7 @@ remains as the Object slot's contents. This keeps `Object o = null` and
 
 **Unbox and class downcast (`as` operator)** — Phase 8e-1.5:
 
-```
+```nlang
 Object o = 5;
 int x = o as int;          // explicit unbox — throws if boxed type ≠ int
 
@@ -349,7 +349,7 @@ Point's AST parent chain to mention Object.
 `using Name = Type;` declares a **type alias** — a shorthand for any
 type expression, usable everywhere a type is expected:
 
-```
+```nlang
 using Grid = Dict<string, List<int[]>>;
 using Ints = int[];
 using BinOp = Func<int, int>;

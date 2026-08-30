@@ -8,7 +8,7 @@ a **built-in generic class** — only `List` (and future `Dict`) are
 recognized by the compiler; user-defined `class Foo<T>` is not (yet)
 supported.
 
-```
+```nlang
 List<int> nums = new List<int>();
 nums.add(1);
 nums.add(2);
@@ -74,7 +74,7 @@ of type `V`. Like `List<T>`, it is a **built-in generic class** — only
 `List` and `Dict` are recognized by the compiler; user-defined generics
 are not (yet) supported.
 
-```
+```nlang
 Dict<string,int> scores = new Dict<string,int>();
 scores.set("alice", 90);
 scores.set("bob",   85);
@@ -150,7 +150,7 @@ values.
 Both containers support subscript syntax as pure sugar over the
 `get` / `set` intrinsics (zero new opcodes):
 
-```
+```nlang
 List<int> li = new List<int>();
 li.add(2);
 li.add(5);
@@ -168,7 +168,7 @@ method forms do (IndexOutOfBoundsException family).
 Because the resolver peels the element type T/V off the container
 type, subscripts compose with the rest of the language:
 
-```
+```nlang
 List<List<int>> m = ...;
 m[0][1] = 47;           // chained subscript write
 

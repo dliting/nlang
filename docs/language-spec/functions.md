@@ -1,7 +1,7 @@
 # Functions
 
 
-```
+```nlang
 int add(int a, int b) {
     return a + b;
 }
@@ -19,7 +19,7 @@ Works for free functions, class methods (any modifier combination, e.g.
 `public static void f()`), and interface members (which still require
 `public`, like all interface members).
 
-```
+```nlang
 void log(int level) {
     if (level == 0) { return; }   // bare `return;` for early exit
 }
@@ -47,7 +47,7 @@ Function parameters may have default values. Defaults can appear at any
 position (not just trailing). A default expression may reference earlier
 formal parameters.
 
-```
+```nlang
 int foo(int a, int b = 0) { return a + b; }
 int foo(int a, int b = a + 1) { return b; }       // references earlier param
 int foo(int a, int b = 0, int c) { return c; }     // default not at end
@@ -63,7 +63,7 @@ int foo(int a, int b = 0, int c) { return c; }     // default not at end
 Arguments may be passed by name using `name = expr` syntax. Positional
 arguments must precede named arguments.
 
-```
+```nlang
 int foo(int a, int b) { return a * 10 + b; }
 foo(a = 5, b = 7);     // named, any order
 foo(5, b = 7);          // mixed: positional then named
@@ -81,7 +81,7 @@ When multiple overloads exist, the compiler selects the best match by
 computing a type-distance score. If two or more overloads match with equal
 distance, the call is ambiguous and a compile error is reported.
 
-```
+```nlang
 int foo(int a) { return 100; }
 int foo(int a, int b = 0) { return 200; }
 foo(5, 10);   // OK: second overload (2 args match 2 formals)
@@ -94,7 +94,7 @@ Parameters declared with `out` are writeback slots: the caller's local
 variable is seeded into the callee's frame slot, and after the call
 returns, the callee's value is copied back to the caller's variable.
 
-```
+```nlang
 int divide(int a, int b, out int rem) {
     rem = a % b;
     return a / b;
@@ -130,7 +130,7 @@ int q = divide(17, 5, out r);  // q=3, r=2
 A function declaration marked `native` has **no body** — the
 implementation is provided by the embedding host at runtime:
 
-```
+```nlang
 native int natAdd(int a, int b);
 native float natFAdd(float a, float b);
 native void natPing();
@@ -187,7 +187,7 @@ invokes the native directly with the caller's staged argument cells:
 
 Each function's local frame is sized dynamically based on its body:
 
-```
+```text
 [this?][params][returnSlot][temp1-4][callParamBase(N)][evalArea(peakDepth)][user locals...]
 ```
 

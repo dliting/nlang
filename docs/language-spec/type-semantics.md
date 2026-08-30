@@ -29,7 +29,7 @@ the heap. This is consistent with C#'s behavior for struct fields of reference
 type.
 
 Example:
-```
+```nlang
 class Inner { public int x; }
 struct Wrapper { public Inner ref; }
 

@@ -52,7 +52,7 @@ risk of stack overflow.
 
 ### GC Algorithm
 
-```
+```text
 CheckGCSafepoint():
   if m_gcPending && heap.size() > threshold:
     m_gcPending = false
@@ -94,7 +94,7 @@ emplace_back a new slot.
 
 ### GC Trigger Flow
 
-```
+```text
 OP_New / OP_AllocStruct → set m_gcPending = true
                             ↓
 Function entry (ExecuteFunction) → CheckGCSafepoint()

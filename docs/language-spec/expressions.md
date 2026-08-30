@@ -3,7 +3,7 @@
 
 ### Arithmetic
 
-```
+```nlang
 a + b    a - b    a * b    a / b    a % b
 ```
 
@@ -31,7 +31,7 @@ are compile errors.
 
 ### Comparison
 
-```
+```nlang
 a == b   a != b   a < b   a > b   a <= b   a >= b
 ```
 
@@ -61,7 +61,7 @@ could flip the result.)
 
 ### Logical
 
-```
+```nlang
 a && b   a || b   !a
 ```
 
@@ -72,7 +72,7 @@ from C/C++/Java/Python which all short-circuit.
 
 ### Member Access
 
-```
+```nlang
 obj.field          // field read
 obj.field = value  // field write
 obj.method(args)   // method call
@@ -82,7 +82,7 @@ For class objects, `obj` must be non-null (runtime null check).
 
 ### Object Creation
 
-```
+```nlang
 Node n = new Node();
 Node n = new Node(42);
 ```
@@ -91,7 +91,7 @@ Allocates on the heap, calls constructor if present.
 
 ### Type Casts
 
-```
+```nlang
 int x = 5;
 float y = (float)x;
 int z = (int)y;
@@ -106,7 +106,7 @@ When a primitive (int or float) appears in a context expecting string,
 NLang auto-coerces it to its decimal string form. This is most common in
 string concatenation, but also fires in direct assignment and field stores.
 
-```
+```nlang
 string s1 = "x" + 5;       // "x5" — int coerced to "5"
 string s2 = 5 + "x";       // "5x" — symmetric
 string s3 = "x=" + 2.5;    // "x=2.5" — float uses %g format
@@ -132,7 +132,7 @@ implementation returns `"ClassName@heapIdxHex"` (e.g. `"Point@7"`, `"Point@ff"`)
 User classes override it by declaring `string toString() { ... }` — virtual
 dispatch by name, same as `equals`/`getHashCode`.
 
-```
+```nlang
 class Point {
     public int x;
     public int y;
@@ -183,7 +183,7 @@ through as literal backslash pairs. Interpolation and escapes compose:
 
 ### String Interpolation (Phase 9b)
 
-```
+```nlang
 string name = "world";
 string s = "Hello ${name}!";   // "Hello world!"
 ```
@@ -233,7 +233,7 @@ applied automatically:
 
 ### Runtime-checked Cast (`as`)
 
-```
+```nlang
 expr as TypeName
 ```
 
@@ -258,7 +258,7 @@ and aggregate (struct/class) initialization. Two syntactic forms:
 target lets the resolver infer the collection type. Works for arrays
 (`T[]`) and `List<T>`:
 
-```
+```nlang
 int[] arr = [1, 2, 3];
 string[] names = ["alice", "bob"];
 List<int> nums = [10, 20, 30];
@@ -270,7 +270,7 @@ List<Point> pts = [new Point{x:1, y:2}, new Point{x:3, y:4}];
 dict, struct, and class initialization because bare `{...}` would
 conflict with the `Paragraph` (block statement) grammar:
 
-```
+```nlang
 Dict<string, int> d = new Dict<string, int>{"a":1, "b":2};
 Point p = new Point{x:1, y:2};
 List<int> lst = new List<int>{1, 2, 3};
