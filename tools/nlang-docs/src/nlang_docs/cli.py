@@ -34,6 +34,23 @@ def _find_nav_config():
     return candidate if candidate.is_file() else None
 
 
+def _export_site_version(config_path):
+    """Single-source the site footer's version: read the repo's VERSION
+    file (sibling of mkdocs.yml) into NLANG_COPYRIGHT, which mkdocs.yml
+    picks up via its !ENV tag. The variable is owned for the duration of
+    the invocation: with no (or empty) VERSION file it is explicitly
+    unset, so mkdocs falls back to the config's dev label instead of a
+    stale value left by an earlier build in the same process."""
+    version_file = Path(config_path).parent / "VERSION"
+    version = ""
+    if version_file.is_file():
+        version = version_file.read_text(encoding="utf-8").strip()
+    if version:
+        os.environ["NLANG_COPYRIGHT"] = "NLang v" + version
+    else:
+        os.environ.pop("NLANG_COPYRIGHT", None)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="nlang-docs",
@@ -82,6 +99,7 @@ def main(argv=None):
 
     opts = parser.parse_args(argv)
     if opts.command == "build":
+        _export_site_version(opts.config)
         rc = _mkdocs(["build", "--strict", "-f", opts.config,
                       "-d", opts.site_dir])
         if rc != 0:
@@ -95,6 +113,7 @@ def main(argv=None):
         rc, _ = _snippet_stage(opts)
         return rc
     if opts.command == "serve":
+        _export_site_version(opts.config)
         return _mkdocs(["serve", "-f", opts.config])
     if opts.command == "check":
         config = (Path(opts.config) if opts.config is not None

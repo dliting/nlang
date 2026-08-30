@@ -3,6 +3,12 @@
 # help viewer, the installer ships it under docs/site).
 site_name: NLang Documentation
 docs_dir: docs
+#Footer version: the nlang-docs pipeline exports NLANG_COPYRIGHT from
+#the repository VERSION file before invoking mkdocs (build & serve), so
+#the shipped site shows the release version; a bare `mkdocs build`
+#without that env falls back to the dev label. !ENV is mkdocs' built-in
+#config tag (not a theme feature).
+copyright: !ENV [NLANG_COPYRIGHT, NLang dev build]
 exclude_docs: |
   superpowers/*
   roadmap.md

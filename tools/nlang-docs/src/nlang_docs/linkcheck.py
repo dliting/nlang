@@ -20,6 +20,7 @@ the audit -- which is exactly how an unpkg polyfill once slipped into
 the built site (see offline_search.py for why the pipeline inlines
 the search index itself).
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -55,6 +56,20 @@ if yaml is not None:
     _ConfigLoader.add_multi_constructor(
         "tag:yaml.org,2002:python/name",
         lambda loader, suffix, node: suffix.lstrip(":"))
+
+    #mkdocs' !ENV tag (e.g. the copyright line): `!ENV VAR` or
+    #`!ENV [VAR, default]`. The nav rule never consumes the value, but
+    #the config must stay readable the moment any line uses the tag
+    #(SafeLoader alone raises on it).
+    def _env_tag(loader, node):
+        if isinstance(node, yaml.SequenceNode):
+            parts = [loader.construct_object(item, deep=True)
+                     for item in node.value]
+            default = parts[1] if len(parts) > 1 else ""
+            return os.environ.get(parts[0], default)
+        return os.environ.get(loader.construct_scalar(node), "")
+
+    _ConfigLoader.add_constructor("!ENV", _env_tag)
 
 
 def _check_links(site_dir):
