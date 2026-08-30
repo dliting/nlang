@@ -104,6 +104,10 @@ ncc build -p <project.nproj> [-o out.nmod]        Compile a project
 ncc run <module.nmod>                             Execute only
 ```
 
+All three command-line tools report their version with `--version`
+(e.g. `ncc (NLang) 0.1.0`). The IDE shows it in Help → About, and the
+documentation site in its footer.
+
 Multi-source projects are described by a `.nproj` XML file (see
 `examples/hello_project/`):
 

@@ -42,6 +42,20 @@ The e2e runner takes ncc/nvm paths as positional arguments and defaults to the
 Tests should exercise real behavior (compile real `.n` files, execute real
 bytecode), not mocks of the compiler.
 
+## Release Process
+
+The version number lives in one place: the repository root `VERSION` file.
+CMake reads it at configure time and feeds the tools' `--version`, the IDE's
+About dialog, the documentation-site footer and the CPack package names —
+bumping the file is the only version edit a release needs.
+
+1. Edit `VERSION` (semantic versioning, e.g. `0.2.0`).
+2. Rebuild and run the gates — ctest includes a guard that every tool's
+   `--version` echoes the file, and `verify_package.py` checks the package
+   name against it.
+3. `git tag -a v<version> -m "NLang <version>"` and push the tag.
+4. Package and upload as described in [Packaging](README.md#packaging-windows).
+
 ## Code Style
 
 - C++17; everything lives in the `nlang::` namespace.
