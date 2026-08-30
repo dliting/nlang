@@ -204,7 +204,7 @@ void writeSolutionFixture(const QString& baseDir, const QString& name,
                           const QStringList& projectRelPaths) {
     QDir(baseDir).mkpath(".");
     QFile file(QDir(baseDir).filePath(name + ".nsln"));
-    file.open(QIODevice::WriteOnly | QIODevice::Text);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
     file.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     file.write(("<Solution name=\"" + name + "\">\n").toUtf8());
     file.write(" <Projects>\n");
