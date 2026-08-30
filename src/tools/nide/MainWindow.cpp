@@ -22,14 +22,17 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QIcon>
 #include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
 #include <QSettings>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QSplitter>
+#include <QStyle>
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -127,6 +130,11 @@ MainWindow::MainWindow(QWidget* parent)
     if (!restoreLayout(*this, settings))
         applyDefaultLayout(*this);
     m_recent.load(settings);
+    //The FILE menu's aboutToShow drives the rebuild: an empty submenu
+    //entry must be hidden before the menu shows (menuRecent's own
+    //signal would fire too late, entry already visible).
+    connect(m_ui->menuFile, &QMenu::aboutToShow,
+            this, &MainWindow::rebuildRecentMenu);
     updateMenuState();
 }
 
@@ -1364,6 +1372,75 @@ void MainWindow::noteRecent(const QString& absolutePath) {
 void MainWindow::saveRecent() {
     QSettings settings;
     m_recent.save(settings);
+}
+
+void MainWindow::rebuildRecentMenu() {
+    QMenu* menu = m_ui->menuRecent;
+    menu->clear();
+    //Existing-on-disk entries only: a missing file is hidden but
+    //stays stored until a newer entry evicts it.
+    QStringList visible;
+    QSet<QString> names;
+    QSet<QString> duplicated;
+    for (const QString& path : m_recent.entries()) {
+        if (!QFileInfo::exists(path))
+            continue;
+        visible << path;
+        const QString name = QFileInfo(path).fileName();
+        if (names.contains(name))
+            duplicated << name;
+        names << name;
+    }
+    for (const QString& path : visible) {
+        const QFileInfo info(path);
+        QString text = info.fileName();
+        if (duplicated.contains(text))
+            text += QStringLiteral(" (") + QDir(path).dirName() +
+                    QStringLiteral(")");
+        //Keep & out of the mnemonic role.
+        text.replace(QLatin1Char('&'), QStringLiteral("&&"));
+        QAction* action = menu->addAction(
+            recentEntryIcon(info), text, this,
+            &MainWindow::onRecentEntryTriggered);
+        action->setToolTip(path);
+        action->setData(path);
+    }
+    menu->addSeparator();
+    menu->addAction(tr("Clear Recent List"), this,
+                    &MainWindow::onClearRecentTriggered);
+    //Shown with something clickable in it, hidden otherwise.
+    menu->menuAction()->setVisible(!visible.isEmpty());
+}
+
+QIcon MainWindow::recentEntryIcon(const QFileInfo& info) const {
+    //Container metaphor: solution = drive, project = folder, file =
+    //document. QFileIconProvider cannot tell custom extensions apart.
+    const QString suffix = info.suffix().toLower();
+    if (suffix == QStringLiteral("nsln"))
+        return style()->standardIcon(QStyle::SP_DriveHDIcon);
+    if (suffix == QStringLiteral("nproj"))
+        return style()->standardIcon(QStyle::SP_DirIcon);
+    return style()->standardIcon(QStyle::SP_FileIcon);
+}
+
+void MainWindow::onRecentEntryTriggered() {
+    QAction* action = qobject_cast<QAction*>(sender());
+    if (action == nullptr)
+        return;
+    const QString path = action->data().toString();
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QStringLiteral("nsln"))
+        openSolutionAtPath(path);
+    else if (suffix == QStringLiteral("nproj"))
+        openProjectAtPath(path);
+    else
+        editExistingFile(path);
+}
+
+void MainWindow::onClearRecentTriggered() {
+    m_recent.clear();
+    saveRecent();
+    rebuildRecentMenu();
 }
 
 } // namespace nlang

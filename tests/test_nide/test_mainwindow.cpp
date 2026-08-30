@@ -263,6 +263,23 @@ QStringList recentEntries() {
     return settings.value(QStringLiteral("recent/entries")).toStringList();
 }
 
+//Fire the File menu's aboutToShow rebuild (popup emits it before
+//showing; close right after -- the menu is non-modal).
+void rebuildRecentMenu(MainWindow& window) {
+    QMenu* fileMenu = window.findChild<QMenu*>("menuFile");
+    fileMenu->popup(QPoint(0, 0));
+    fileMenu->close();
+}
+
+QMenu* recentMenu(MainWindow& window) {
+    return window.findChild<QMenu*>("menuRecent");
+}
+
+//The last action of a rebuilt menu is always Clear Recent List.
+QAction* clearRecentAction(MainWindow& window) {
+    return recentMenu(window)->actions().last();
+}
+
 //An exec()ed QMenu is a POPUP, not a modal widget; when driven
 //synthetic (no real mouse), it may register as neither active popup
 //nor active modal -- fall back to a scan for a visible top-level menu.
@@ -1345,6 +1362,145 @@ private slots:
         QVERIFY(recentEntries().first().endsWith("Sol.nsln"));
         //The solution's project loaded: the file row exists again.
         QVERIFY(firstFileIndex(window).isValid());
+    }
+
+    void testRecentMenuListsAndReopensFiles() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        openFixtureProject(window, dir.path());
+        //Open the file through the tree (the editExistingFile funnel).
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        //Close the (clean) editor so reopening is observable.
+        act(window, "actCloseFile")->trigger();
+        QCOMPARE(tabCodes(window)->count(), 0);
+
+        rebuildRecentMenu(window);
+        QMenu* menu = recentMenu(window);
+        QVERIFY(menu != nullptr);
+        QVERIFY(menu->menuAction()->isVisible());
+        QAction* entry = nullptr;
+        for (QAction* action : menu->actions()) {
+            if (action->data().toString().endsWith("main.n"))
+                entry = action;
+        }
+        QVERIFY(entry != nullptr);
+        QCOMPARE(entry->toolTip(), recentEntries().first());
+        entry->trigger();
+        QCOMPARE(tabCodes(window)->count(), 1);
+        //The reopen pushed it back to the top (MRU).
+        QVERIFY(recentEntries().first().endsWith("main.n"));
+    }
+
+    void testRecentMenuHidesMissingEntries() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        QString nprojPath, mainPath;
+        writeProjectFixture(dir.path(), &nprojPath, &mainPath);
+        inExec([&] { acceptFileDialog(nprojPath); });
+        act(window, "actOpenProject")->trigger();
+        inExec([&] { acceptFileDialog(mainPath); });
+        act(window, "actOpenFile")->trigger();
+        QFile::remove(mainPath);
+
+        rebuildRecentMenu(window);
+        for (QAction* action : recentMenu(window)->actions()) {
+            QVERIFY(!action->data().toString().endsWith("main.n"));
+        }
+        //Hidden, not dropped: the store still holds it until evicted.
+        QVERIFY(recentEntries().first().endsWith("main.n"));
+    }
+
+    void testRecentMenuClearHidesItself() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        openFixtureProject(window, dir.path());
+        rebuildRecentMenu(window);
+        QVERIFY(recentMenu(window)->menuAction()->isVisible());
+        clearRecentAction(window)->trigger();
+        QVERIFY(recentEntries().isEmpty());
+        QVERIFY(!recentMenu(window)->menuAction()->isVisible());
+    }
+
+    void testRecentSolutionEntryHonorsUnsavedPrompt() {
+        QTemporaryDir dir1, dir2;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        //Two one-project solutions on disk.
+        QString nproj1, main1, nproj2, main2;
+        writeProjectFixture(dir1.path(), &nproj1, &main1);
+        writeProjectFixture(dir2.path(), &nproj2, &main2);
+        writeSolutionFixture(dir1.path(), "Sol1", {"App/App.nproj"});
+        writeSolutionFixture(dir2.path(), "Sol2", {"App/App.nproj"});
+        const QString nsln1 = QDir(dir1.path()).filePath("Sol1.nsln");
+        const QString nsln2 = QDir(dir2.path()).filePath("Sol2.nsln");
+
+        inExec([&] { acceptFileDialog(nsln1); });
+        act(window, "actOpenSolution")->trigger();
+        //Sol1 loaded from disk is CLEAN: closing it to open Sol2 is silent.
+        inExec([&] { acceptFileDialog(nsln2); });
+        act(window, "actOpenSolution")->trigger();
+        QCOMPARE(recentEntries().first(), nsln2);
+
+        //Make Sol2's project dirty: a tree rename marks the project.
+        renameViaTree(window, "renamed.n");
+
+        rebuildRecentMenu(window);
+        QAction* entry = nullptr;
+        for (QAction* action : recentMenu(window)->actions()) {
+            if (action->data().toString() == nsln1)
+                entry = action;
+        }
+        QVERIFY(entry != nullptr);
+        inExec([] { answerMessageBox(QMessageBox::Cancel); });
+        entry->trigger();
+        //Cancel aborted before load AND before push: Sol2 still on top and
+        //still open.
+        QCOMPARE(recentEntries().first(), nsln2);
+        QVERIFY(firstFileIndex(window).isValid());
+    }
+
+    void testRecentProjectEntryEnsuresSolution() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        openFixtureProject(window, dir.path());
+        //The implicit solution IS dirty (addProject marks it): the close
+        //prompts; answer Discard (deterministic, writes nothing).
+        inExec([] { answerMessageBox(QMessageBox::Discard); });
+        act(window, "actCloseSolution")->trigger();
+        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+
+        rebuildRecentMenu(window);
+        QAction* entry = nullptr;
+        for (QAction* action : recentMenu(window)->actions()) {
+            if (action->data().toString().endsWith("App.nproj"))
+                entry = action;
+        }
+        QVERIFY(entry != nullptr);
+        entry->trigger();
+        //ensureSolution silently created Solution1, the project reopened.
+        QVERIFY(solutionView(window)->model()->rowCount() > 0);
+        QVERIFY(recentEntries().first().endsWith("App.nproj"));
+    }
+
+    void testRecentSurvivesWindowRestart() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        {
+            MainWindow window;
+            openFixtureProject(window, dir.path());
+            QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+                Q_ARG(QModelIndex, firstFileIndex(window)));
+        }  //destroyed: write-through already persisted
+        MainWindow second;
+        rebuildRecentMenu(second);
+        QCOMPARE(recentEntries().size(), 2);
+        QVERIFY(recentEntries().first().endsWith("main.n"));
+        QVERIFY(recentMenu(second)->menuAction()->isVisible());
     }
 
     //--- layout ---

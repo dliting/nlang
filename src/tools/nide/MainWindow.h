@@ -13,6 +13,8 @@
 #include <memory>
 
 class QCloseEvent;
+class QFileInfo;
+class QIcon;
 class QModelIndex;
 class QSettings;
 
@@ -159,6 +161,14 @@ private:
     //push + write-through persist (QSettings org/app from main.cpp).
     void noteRecent(const QString& absolutePath);
     void saveRecent();
+    //Rebuild menuRecent from the store: existing-on-disk entries only,
+    //same-name disambiguation, Clear at the end; the submenu hides
+    //when nothing is clickable.
+    void rebuildRecentMenu();
+    //Dispatch a recent entry by extension (case-insensitive).
+    void onRecentEntryTriggered();
+    void onClearRecentTriggered();
+    QIcon recentEntryIcon(const QFileInfo& info) const;
 
     //--- context accessors (null when nothing applicable is selected) ---
     FileEditor* currentEditor() const;

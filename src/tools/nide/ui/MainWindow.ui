@@ -242,9 +242,15 @@ actually references are ported (nide.qrc).-->
      <addaction name="actOpenProject"/>
      <addaction name="actOpenFile"/>
     </widget>
+    <widget class="QMenu" name="menuRecent">
+     <property name="title">
+      <string>最近打开</string>
+     </property>
+    </widget>
     <addaction name="separator"/>
     <addaction name="menuNew"/>
     <addaction name="menuOpen"/>
+    <addaction name="menuRecent"/>
     <addaction name="separator"/>
     <addaction name="actSaveFile"/>
     <addaction name="actSaveFileAs"/>
