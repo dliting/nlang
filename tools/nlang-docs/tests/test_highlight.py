@@ -1,11 +1,16 @@
-"""NLangLexer token 断言：清单与 nlang.l 对齐，防漂移。"""
+"""NLangLexer token assertions, anchored to the flex scanner (nlang.l)."""
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from pygments.token import Comment, Keyword, Number, String  # noqa: E402
+from pygments.token import Comment, Error, Keyword, Number, String  # noqa: E402
 
-from nlang_docs.highlight import NLANG_KEYWORDS, NLANG_TYPES, NLangLexer  # noqa: E402
+from nlang_docs.highlight import (  # noqa: E402
+    NLANG_CONSTANTS, NLANG_KEYWORDS, NLANG_TYPES, NLangLexer)
+
+_SCANNER = (Path(__file__).resolve().parents[3]
+            / "src" / "compiler" / "grammar" / "nlang.l")
 
 
 def _tokens(code):
@@ -49,15 +54,33 @@ def test_numbers_int_and_float():
     assert toks["2.5"] in Number
 
 
+def test_realistic_program_has_no_error_tokens():
+    #Unmatched characters fall to Token.Error, so a whole real program
+    #(imports, calls, arithmetic, strings, comments) must yield none —
+    #this is the guard that catches a missing punctuation/operator rule.
+    program = (
+        "import io;\n"
+        "\n"
+        "int add(int a, int b) {\n"
+        "    return a + b * 2;\n"
+        "}\n"
+        "\n"
+        "void main() {\n"
+        "    io.print(\"sum: \" + add(1, 2));  // greet\n"
+        "}\n")
+    errors = [t for t, v in _tokens(program) if v is Error]
+    assert [] == errors
+
+
 def test_keyword_list_matches_scanner_surface():
-    #锚定 nlang.l 全表（2026-08-30 提取）；清理 EN 残留关键字时
-    #此清单必须同步——这就是防漂移机制。
-    assert NLANG_KEYWORDS == frozenset(
-        "as assert break case catch class const continue default do else "
-        "elseif enum finally for foreach if implements import in interface "
-        "namespace native new out private protected public return state "
-        "static struct super switch this throw try using virtual "
-        "while".split())
-    assert NLANG_TYPES == frozenset(
-        "bool byte char float int short string ubyte uint ushort void "
-        "Dict Func List".split())
+    #Drift guard: the scanner's reserved words are extracted from the
+    #flex source itself, so a keyword added or removed in nlang.l turns
+    #this red instead of silently diverging from the lexer's sets.
+    scanner = frozenset(re.findall(
+        r'"([A-Za-z]+)"\s*\{\s*return KT_\w+;',
+        _SCANNER.read_text(encoding="utf-8")))
+    #List/Dict/Func are docs-side builtin types, not scanner words.
+    docs_types = NLANG_TYPES - scanner
+    assert not docs_types & scanner
+    assert scanner == ((NLANG_KEYWORDS | NLANG_TYPES | NLANG_CONSTANTS)
+                       - docs_types)
