@@ -358,6 +358,28 @@ if(NLANG_BUILD_IDE)
         TIMEOUT 90)
 endif()
 
+# Version single-source guard: each tool's --version must echo the
+# repository VERSION file (the configure-time value is passed in), so a
+# bumped VERSION that missed a rebuild -- or a hardcoded copy -- fails
+# here. A Python script asserts exit code AND exact output (ctest regex
+# properties cannot check the exit code).
+if(Python3_FOUND)
+    add_test(NAME version_ncc
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
+            $<TARGET_FILE:ncc> ncc ${NLANG_VERSION})
+    add_test(NAME version_nvm
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
+            $<TARGET_FILE:nvm> nvm ${NLANG_VERSION})
+    add_test(NAME version_ndisasm
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
+            $<TARGET_FILE:ndisasm> ndisasm ${NLANG_VERSION})
+    set_tests_properties(version_ncc version_nvm version_ndisasm
+        PROPERTIES TIMEOUT 60)
+endif()
+
 # End-to-end test: compile-only (exits 0)
 add_test(NAME e2e_compile
     COMMAND ncc build ${PROJECT_SOURCE_DIR}/examples/hello.n)
