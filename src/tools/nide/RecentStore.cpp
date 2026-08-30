@@ -8,6 +8,8 @@ namespace nlang {
 namespace {
 //House ceiling for the recent list.
 const int DEFAULT_RECENT_CAPACITY = 10;
+//QSettings key holding the recent-path list.
+const char* const RECENT_ENTRIES_KEY = "recent/entries";
 }
 
 QString RecentStore::keyOf(const QString& path) {
@@ -42,14 +44,13 @@ void RecentStore::replace(const QString& oldPath, const QString& newPath) {
 }
 
 void RecentStore::save(QSettings& settings) const {
-    settings.setValue(QStringLiteral("recent/entries"), m_entries);
+    settings.setValue(RECENT_ENTRIES_KEY, m_entries);
 }
 
 void RecentStore::load(QSettings& settings) {
     //toStringList() also maps a lone QString variant to a one-element
     //list, so a hand-edited store reads back sanely.
-    m_entries =
-        settings.value(QStringLiteral("recent/entries")).toStringList();
+    m_entries = settings.value(RECENT_ENTRIES_KEY).toStringList();
     while (m_entries.size() > DEFAULT_RECENT_CAPACITY)
         m_entries.removeLast();
 }

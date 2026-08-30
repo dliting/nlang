@@ -19,6 +19,7 @@ private slots:
     void clearEmpties();
     void saveLoadRoundTrips();
     void loadReadsALoneStringEntry();
+    void loadClampsAnOversizedList();
 
 private:
     //A fresh ini per test function: no cross-test bleed.
@@ -115,6 +116,23 @@ void TestRecentStore::loadReadsALoneStringEntry() {
     store.load(settings);
     QCOMPARE(store.entries().size(), 1);
     QVERIFY(store.entries().first().endsWith("only.n"));
+}
+
+void TestRecentStore::loadClampsAnOversizedList() {
+    //A store written by a build with a larger ceiling (or a hand-edited
+    //one) may hold more entries than the capacity: load() keeps the
+    //first 10 in order and drops the tail.
+    QStringList seeded;
+    for (int i = 0; i < 12; ++i)
+        seeded << m_dir.filePath(QString("s%1.n").arg(i));
+    QSettings settings(iniPath(), QSettings::IniFormat);
+    settings.setValue("recent/entries", seeded);
+    RecentStore store;
+    store.load(settings);
+    QCOMPARE(store.entries().size(), 10);
+    //The kept ones are the first 10 of the seeded list, in order.
+    for (int i = 0; i < 10; ++i)
+        QCOMPARE(store.entries().at(i), seeded.at(i));
 }
 
 QTEST_GUILESS_MAIN(TestRecentStore)
