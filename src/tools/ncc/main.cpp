@@ -8,6 +8,7 @@
 #include "ModuleLoader.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
+#include <nlang_version.h>  // generated from the repo VERSION file
 #include "ProjectFile.h"
 #ifdef _WIN32
 #include <crtdbg.h>
@@ -29,13 +30,22 @@ static void PrintUsage() {
               << "  ncc -p <project.nproj> [-o out.nmod] [-I <dir>...]  Compile and execute a project\n"
               << "  ncc build -p <project.nproj> [-o out.nmod]  Compile a project\n"
               << "  ncc run <module.nmod>       Execute only\n"
-              << "  -I <dir>                    Add directory to .nmod import search path\n";
+              << "  -I <dir>                    Add directory to .nmod import search path\n"
+              << "  ncc --version               Print the compiler version\n";
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         PrintUsage();
         return 1;
+    }
+
+    //Version gate: reported before any runtime/compiler machinery starts,
+    //so the Windows ExitProcess/static-destructor notes below don't apply
+    //to this path (plain return flushes stdout normally).
+    if (std::string(argv[1]) == "--version") {
+        std::cout << "ncc (NLang) " << NLANG_VERSION << "\n";
+        return 0;
     }
 
     //Suppress error/crash popup dialogs so failures terminate
