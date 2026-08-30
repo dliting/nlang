@@ -2,6 +2,7 @@
 #include "VmExecutor.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
+#include <nlang_version.h>  // generated from the repo VERSION file
 #ifdef _WIN32
 #include <crtdbg.h>
 #endif
@@ -13,8 +14,17 @@ using namespace nlang;
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: nvm <module.nmod>\n";
+        std::cerr << "Usage: nvm <module.nmod>\n"
+                  << "       nvm --version\n";
         return 1;
+    }
+
+    //Version gate first: no runtime is initialized yet, so the plain
+    //return is safe (the ExitProcess notes below only apply after
+    //Runtime::StaticInit registers static destructors).
+    if (std::string(argv[1]) == "--version") {
+        std::cout << "nvm (NLang) " << NLANG_VERSION << "\n";
+        return 0;
     }
 
 #ifdef _WIN32
