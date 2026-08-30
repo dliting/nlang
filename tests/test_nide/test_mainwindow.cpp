@@ -1665,8 +1665,8 @@ private slots:
         //directory-form URLs would open directory listings over file://.
         QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
                      .endsWith("/language-spec/overview.html"));
-        QVERIFY(MainWindow::locateHelpPage("nlang-getting-started")
-                     .endsWith("/nlang-getting-started.html"));
+        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
+                     .endsWith("/getting-started/what-is-nolang.html"));
         QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
                      .endsWith("/vm-architecture/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
@@ -1695,8 +1695,8 @@ private slots:
         act(window, "actHelpGettingStarted")->trigger();
         QCOMPARE(window.findChildren<HelpBrowser*>().size(), 1);
         const QString gettingStarted =
-            MainWindow::locateHelpPage("nlang-getting-started");
-        QVERIFY(gettingStarted.endsWith("/nlang-getting-started.html"));
+            MainWindow::locateHelpPage("getting-started/what-is-nolang");
+        QVERIFY(gettingStarted.endsWith("/getting-started/what-is-nolang.html"));
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(gettingStarted));
     }
 

@@ -1,7 +1,7 @@
 # NLang 示例索引
 
 每个示例聚焦一个主题，可独立编译运行。三种运行方式见
-`docs/nlang-getting-started.md`（nide 帮助菜单 → NLang 入门）。
+`docs/getting-started/running.md`（nide 帮助菜单 → NLang 入门）。
 
 命令行方式（在仓库根目录；安装包用户在安装根目录运行，ncc/nvm 位于 `bin\` 下）：
 

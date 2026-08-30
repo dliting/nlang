@@ -45,7 +45,18 @@ extra_css:
   - stylesheets/two-column-layout.css
 nav:
   - 主页: index.md
-  - NLang 入门: nlang-getting-started.md
+  - NLang 入门:
+      - NLang 是什么: getting-started/what-is-nolang.md
+      - 安装与布局: getting-started/install-layout.md
+      - 五分钟上手: getting-started/first-program.md
+      - "速览: 类型与变量": getting-started/types-and-variables.md
+      - "速览: 容器": getting-started/containers.md
+      - "速览: 控制流": getting-started/control-flow.md
+      - "速览: 类与继承": getting-started/classes-and-inheritance.md
+      - "速览: 函数与模块": getting-started/function-features.md
+      - 三种运行方式: getting-started/running.md
+      - 常见问题: getting-started/faq.md
+      - 下一步阅读: getting-started/further-reading.md
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md

@@ -41,4 +41,4 @@ ncc 与 nvm 自身的失败一律退出 1，与程序退出码区分：
 - 需要大数值时用模运算或派生值，把「自检通过」编码进小退出码，
   例如循环求和后 `if (total == 25) return 25; return 1;`。
 
-详见 → [入门指南/常见问题](../nlang-getting-started.md)。
+详见 → [入门指南/常见问题](../getting-started/faq.md)。

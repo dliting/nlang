@@ -152,9 +152,9 @@ deterministic PRNG — are in the Standard Library chapter
 (`docs/language-spec/standard-library.md`); runnable copies of the example
 live in `examples/stdlib_*.n`.
 
-New to NLang? `docs/nlang-getting-started.md` walks the language, the CLI
-and the IDE in one page (it is also reachable from the nide Help menu);
-`examples/README.md` indexes every runnable example.
+New to NLang? The `docs/getting-started/` chapters walk the language, the
+CLI and the IDE one topic per page (they are also reachable from the nide
+Help menu); `examples/README.md` indexes every runnable example.
 
 ## IDE (nide)
 
@@ -218,7 +218,7 @@ PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
 
 # Audit one page's ```nlang snippets standalone (compile + run + exit code)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \
-    --doc docs/nlang-getting-started.md --ncc <ncc> --nvm <nvm>
+    --doc docs/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
 ```
 
 `build` chains four stages: the mkdocs build, offline search inlining, the

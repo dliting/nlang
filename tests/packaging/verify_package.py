@@ -60,7 +60,7 @@ ROOT_FILES = ['LICENSE', 'README.md']
 # is part of that site.
 DOC_FILES = [
     'docs/site/index.html',
-    'docs/site/nlang-getting-started.html',
+    'docs/site/getting-started/what-is-nolang.html',
     'docs/site/language-spec/overview.html',
     'docs/site/language-spec/standard-library.html',
     'docs/site/vm-architecture/overview.html',
@@ -81,8 +81,9 @@ DOC_FILES = [
 # runtime ships as an exact whitelist (en-US/zh-CN only).
 ABSENT_PATHS = [
     #Markdown sources stay out (only the rendered site ships); the split
-    #sources live in docs/language-spec/ and docs/vm-architecture/.
-    'docs/nlang-getting-started.md', 'docs/language-spec',
+    #sources live in docs/getting-started/, docs/language-spec/ and
+    #docs/vm-architecture/.
+    'docs/getting-started', 'docs/language-spec',
     'docs/vm-architecture',
     'docs/superpowers', 'docs/roadmap.md', 'docs/ci_design.md',
     'docs/nide-file-rename-and-layout.md', 'bin/platforms/qwindowsd.dll',
