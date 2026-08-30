@@ -196,6 +196,23 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(solutiontreemodel_tests test_solutiontreemodel)
 
+    # RecentStore unit tests: pure state, no widgets.
+    add_executable(test_recentstore
+        test_nide/test_recentstore.cpp
+    )
+    target_link_libraries(test_recentstore
+        PRIVATE
+            nide_recent
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_recentstore POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_recentstore>)
+    endif()
+    nlang_add_qtest(recentstore_tests test_recentstore)
+
     # IDE editor unit tests (Phase 10 Step 2). Widget tests instantiate
     # QApplication, which needs a Qt platform plugin even without showing
     # windows -- point QPA at the Qt install's plugins/platforms.

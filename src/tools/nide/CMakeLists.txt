@@ -60,6 +60,22 @@ target_include_directories(nide_compilelog
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# RecentStore: pure MRU state for File > Recent. Own (tiny) library so
+# the GUI-less unit test can link Core only, without Widgets.
+add_library(nide_recent
+    RecentStore.cpp
+)
+
+target_link_libraries(nide_recent
+    PUBLIC
+        Qt5::Core
+)
+
+target_include_directories(nide_recent
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # Dialogs library -- new-file and project-properties forms. The .ui
 # files ride along as target sources so AUTOUIC generates ui_*.h.
 # AUTOUIC matches an #include "ui_Foo.h" against Foo.ui in the source
@@ -112,6 +128,7 @@ target_link_libraries(nide_mainwindow
         nide_editor
         nide_compilelog
         nide_dialogs
+        nide_recent
 )
 
 #--- translations ---
