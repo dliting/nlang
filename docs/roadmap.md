@@ -61,6 +61,7 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 8 个新 opcode、RTK_Func=7 三槽堆记录、`this==0 ⟺ 自由函数` 分派不变量；765 e2e
 - 计划：`~/.claude/plans/partitioned-roaming-garden.md`
 
+
 ---
 
 ## 进行中
@@ -71,11 +72,14 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 - lambda 表达式 + 闭包捕获；enum 方法引用；跨模块函数引用；多播委托；Func 协变/逆变
 - 用户定义泛型：`class Foo<T>`
-- 内存管理全面 RAII 化：智能指针替换文法/构建器中的裸 `new` 与自定义 `UniquePtr` 容器（EnNew/EnDelete 宏已于 2026-08-23 移除）
+- 底层实现的内存管理全面 RAII 化：智能指针替换文法/构建器中的裸 `new` 与自定义 `UniquePtr` 容器（EnNew/EnDelete 宏已于 2026-08-23 移除）
 - 基于LLVM的本地字节码生成编译器
 - 包管理器：模块依赖管理（阶段 11 延后项）
+- 基于class的数组实现（非动态容量，但是属性和方法重用class的机制）
+- 基于class的字符串实现（非动态容量，但是属性和方法重用class的机制）
+- foreach 支持string遍历（阶段 8e 延后项）
+- Unicode字符串支持（阶段 8e 延后项）
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
-- 数组动态增长重设计（Python list 风格，基于 class）
 - Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26，设计见 docs/superpowers/specs/2026-08-26-release-packaging-design.md）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
 - 安装包组件化（tools-only / IDE-only）与捆绑 VC++ 运行库（/MT 或 vc_redist）
 - 文档子系统延后项：①片段审计扩展到 language-spec/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮规格吸收，见 docs/superpowers/specs/2026-08-30-docs-nav-and-highlight-design.md §5；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向：exit-code-convention.md 为中文而 13 篇同级章节页为英文——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳，见同规格 §7）
