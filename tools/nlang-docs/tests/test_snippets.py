@@ -252,3 +252,33 @@ def test_stage_audits_every_page_in_the_guide_dir(tmp_path, monkeypatch):
     rc, line = cli._snippet_stage(opts)
     assert rc == 0
     assert line == "snippets: 3 pages, 2 programs OK (0 skipped, 1 prose)"
+
+
+def test_stage_fails_when_any_page_has_problems(tmp_path, monkeypatch,
+                                                capsys):
+    #One clean page plus one refusing page: the stage fails the build
+    #(rc=1, no summary line) and prefixes each problem with its page
+    #name, so multi-page reports stay attributable.
+    from nlang_docs import cli
+    guide = tmp_path / "docs" / "getting-started"
+    guide.mkdir(parents=True)
+    for name in ("a.md", "b.md"):
+        (guide / name).write_text(
+            "```nlang\nint main() { return 0; }\n```\n", encoding="utf-8")
+    (tmp_path / "mkdocs.yml").write_text("site_name: t\n", encoding="utf-8")
+
+    def fake_audit_doc(page, ncc, nvm, wd):
+        if page.name == "b.md":
+            return ["exit code 1, expected 0"], [], []
+        return [], [object()], []
+
+    opts = types.SimpleNamespace(
+        config=str(tmp_path / "mkdocs.yml"), doc=None, workdir=None,
+        ncc=None, nvm=None)
+    monkeypatch.setattr(cli, "audit_doc", fake_audit_doc)
+    monkeypatch.setenv("NLANG_NCC", "x")
+    monkeypatch.setenv("NLANG_NVM", "x")
+    rc, line = cli._snippet_stage(opts)
+    assert rc == 1
+    assert line is None
+    assert "b.md: exit code 1, expected 0" in capsys.readouterr().err
