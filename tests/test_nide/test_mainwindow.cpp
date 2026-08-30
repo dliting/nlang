@@ -1503,6 +1503,40 @@ private slots:
         QVERIFY(recentMenu(second)->menuAction()->isVisible());
     }
 
+    void testRecentMenuDisambiguatesSameNames() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        //Two same-named files in different directories, both opened.
+        const QString dirA = QDir(dir.path()).filePath("alpha");
+        const QString dirB = QDir(dir.path()).filePath("beta");
+        QDir().mkpath(dirA);
+        QDir().mkpath(dirB);
+        const QString pathA = QDir(dirA).filePath("main.n");
+        const QString pathB = QDir(dirB).filePath("main.n");
+        writeFile(pathA, kMainSource);
+        writeFile(pathB, kMainSource);
+        inExec([&] { acceptFileDialog(pathA); });
+        act(window, "actOpenFile")->trigger();
+        inExec([&] { acceptFileDialog(pathB); });
+        act(window, "actOpenFile")->trigger();
+
+        rebuildRecentMenu(window);
+        const QStringList texts = [&] {
+            QStringList result;
+            for (QAction* action : recentMenu(window)->actions())
+                if (!action->data().toString().isEmpty())
+                    result << action->text();
+            return result;
+        }();
+        //Both entries carry their PARENT DIRECTORY name (not the file
+        //name again).
+        QVERIFY(texts.contains(QStringLiteral("main.n (beta)")));
+        QVERIFY(texts.contains(QStringLiteral("main.n (alpha)")));
+        QVERIFY(!texts.contains(QStringLiteral("main.n (main.n)")));
+        QVERIFY(!texts.contains(QStringLiteral("main.n")));
+    }
+
     //--- layout ---
 
     void testDefaultLayoutFavorsEditor() {

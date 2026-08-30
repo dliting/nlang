@@ -1395,7 +1395,7 @@ void MainWindow::rebuildRecentMenu() {
         const QFileInfo info(path);
         QString text = info.fileName();
         if (duplicated.contains(text))
-            text += QStringLiteral(" (") + QDir(path).dirName() +
+            text += QStringLiteral(" (") + info.dir().dirName() +
                     QStringLiteral(")");
         //Keep & out of the mnemonic role.
         text.replace(QLatin1Char('&'), QStringLiteral("&&"));
