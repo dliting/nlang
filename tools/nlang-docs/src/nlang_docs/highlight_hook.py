@@ -9,7 +9,7 @@
 #leaves nlang_docs.highlight in sys.modules, which is what pygments'
 #render-time lazy load of the registry entry resolves through. Removing
 #it keeps the build rc=0 but silently uncolors every fence (pymdownx
-#swallows the ClassNotFound).
+#swallows the import failure via its broad except Exception).
 import sys
 from pathlib import Path
 
