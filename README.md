@@ -3,6 +3,12 @@
 NLang is a scripting language compiler and IDE, extracted from a game engine I
 previously developed, as a standalone teaching/research open-source project.
 
+![NLang IDE (nide)](docs/images/nide-overview.png)
+
+The NLang IDE: solution tree on the left (projects plus standalone `.n`
+files), editor in the middle, build and execution output below. The UI
+follows the system locale (Chinese and English are bundled).
+
 ## Quick Start
 
 The fastest way to deploy and learn NLang is the prebuilt Windows release —
