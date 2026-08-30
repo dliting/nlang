@@ -276,8 +276,13 @@ QMenu* recentMenu(MainWindow& window) {
 }
 
 //The last action of a rebuilt menu is always Clear Recent List.
+//Callers rebuild first; a null/empty menu here is a test-authoring
+//error -- fail loudly instead of crashing.
 QAction* clearRecentAction(MainWindow& window) {
-    return recentMenu(window)->actions().last();
+    QMenu* menu = recentMenu(window);
+    if (menu == nullptr || menu->actions().isEmpty())
+        return nullptr;
+    return menu->actions().last();
 }
 
 //An exec()ed QMenu is a POPUP, not a modal widget; when driven
@@ -1420,7 +1425,9 @@ private slots:
         openFixtureProject(window, dir.path());
         rebuildRecentMenu(window);
         QVERIFY(recentMenu(window)->menuAction()->isVisible());
-        clearRecentAction(window)->trigger();
+        QAction* clearAction = clearRecentAction(window);
+        QVERIFY(clearAction != nullptr);
+        clearAction->trigger();
         QVERIFY(recentEntries().isEmpty());
         QVERIFY(!recentMenu(window)->menuAction()->isVisible());
     }
@@ -1535,6 +1542,22 @@ private slots:
         QVERIFY(texts.contains(QStringLiteral("main.n (alpha)")));
         QVERIFY(!texts.contains(QStringLiteral("main.n (main.n)")));
         QVERIFY(!texts.contains(QStringLiteral("main.n")));
+    }
+
+    void testRecentMenuEscapesAmpersands() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        const QString path = QDir(dir.path()).filePath("a&b.n");
+        writeFile(path, kMainSource);
+        inExec([&] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+
+        rebuildRecentMenu(window);
+        for (QAction* action : recentMenu(window)->actions()) {
+            if (action->data().toString() == path)
+                QCOMPARE(action->text(), QStringLiteral("a&&b.n"));
+        }
     }
 
     //--- layout ---
