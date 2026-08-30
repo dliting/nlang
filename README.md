@@ -1,6 +1,6 @@
 # NLang
 
-NLang is a scripting language compiler and IDE, extracted from the EN game engine
+NLang is a scripting language compiler and IDE, extracted from the a game engine I previous devoloped and
 as a standalone teaching/research open-source project.
 
 ## Build Dependencies
