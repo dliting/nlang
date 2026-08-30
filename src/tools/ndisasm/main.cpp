@@ -1,6 +1,7 @@
 #include "ModuleLoader.h"
 #include "BytecodeReader.h"
 #include "BytecodeOps.h"
+#include <nlang_version.h>  // generated from the repo VERSION file
 #include <cstdio>
 #include <iostream>
 #include <iterator>  //std::size for s_typeKindNames bound
@@ -518,8 +519,15 @@ static void DisassembleFunction(const CompiledFunction& func,
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: ndisasm <module.nmod>\n"
-                  << "       ndisasm -func <name> <module.nmod>\n";
+                  << "       ndisasm -func <name> <module.nmod>\n"
+                  << "       ndisasm --version\n";
         return 1;
+    }
+
+    //Version gate: before any module loading, so no runtime init runs.
+    if (std::string(argv[1]) == "--version") {
+        std::cout << "ndisasm (NLang) " << NLANG_VERSION << "\n";
+        return 0;
     }
 
     std::string funcFilter;
