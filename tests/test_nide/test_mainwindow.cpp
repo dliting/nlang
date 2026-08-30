@@ -1392,6 +1392,9 @@ private slots:
         }
         QVERIFY(entry != nullptr);
         QCOMPARE(entry->toolTip(), recentEntries().first());
+        //QMenu hides item tooltips by default; the full-path tooltip is the
+        //same-name disambiguation fallback and must actually display.
+        QVERIFY(menu->toolTipsVisible());
         entry->trigger();
         QCOMPARE(tabCodes(window)->count(), 1);
         //The reopen pushed it back to the top (MRU).

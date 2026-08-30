@@ -135,6 +135,9 @@ MainWindow::MainWindow(QWidget* parent)
     //signal would fire too late, entry already visible).
     connect(m_ui->menuFile, &QMenu::aboutToShow,
             this, &MainWindow::rebuildRecentMenu);
+    //QMenu hides item tooltips by default; the recent list relies on the
+    //full-path tooltip to disambiguate same-name entries (spec §6).
+    m_ui->menuRecent->setToolTipsVisible(true);
     updateMenuState();
 }
 
