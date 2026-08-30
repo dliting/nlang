@@ -92,7 +92,8 @@ def main(argv=None):
         rc = check_site(Path(opts.site_dir), Path(opts.config))
         if rc != 0:
             return rc
-        return _snippet_stage(opts)
+        rc, _ = _snippet_stage(opts)
+        return rc
     if opts.command == "serve":
         return _mkdocs(["serve", "-f", opts.config])
     if opts.command == "check":
@@ -115,18 +116,56 @@ def main(argv=None):
 
 
 def _snippet_stage(opts):
-    """The build chain's 4th stage: the guide's snippets compile+run.
+    """The build chain's 4th stage: the guide directory's snippets.
 
     Only runs when both binaries are known (--ncc/--nvm or env); the
     cmake recipe always passes them, so a bare manual build says so
-    instead of silently skipping the audit. The page is looked up under
-    the config's sibling docs/ tree (this repo's docs_dir).
+    instead of silently skipping the audit. Pages are looked up under
+    the config's sibling docs/getting-started/ tree, filename order;
+    pages without any ```nlang block count as prose, not as audited.
     """
-    page = Path(opts.config).parent / "docs" / "nlang-getting-started.md"
-    if not page.is_file():
-        print("snippets: skipped (%s not found)" % page, file=sys.stderr)
-        return 0
-    return _snippet_audit(page, opts.ncc, opts.nvm, None)
+    guide = Path(opts.config).parent / "docs" / "getting-started"
+    pages = sorted(guide.glob("*.md")) if guide.is_dir() else []
+    if not pages:
+        print("snippets: skipped (%s not found)" % guide,
+              file=sys.stderr)
+        return 0, None
+    ncc = opts.ncc or os.environ.get("NLANG_NCC")
+    nvm = opts.nvm or os.environ.get("NLANG_NVM")
+    if not (ncc and nvm):
+        print("snippets: skipped (give --ncc/--nvm or set NLANG_NCC/"
+              "NLANG_NVM to audit the guide's snippets)", file=sys.stderr)
+        return 0, None
+    ncc, nvm = os.path.abspath(ncc), os.path.abspath(nvm)
+    problems, programs, skipped = [], 0, 0
+    audited = prose = 0
+    with tempfile.TemporaryDirectory(prefix="nlang_snippets_") as tmp:
+        for page in pages:
+            try:
+                p, prog, skip = audit_doc(page, ncc, nvm, Path(tmp))
+            except ValueError:
+                #audit_doc raises ValueError only for a page with no
+                #```nlang block at all (a broken fence is a problem
+                #instead), so here it means a prose page, not an audit
+                #that silently checked nothing.
+                prose += 1
+                continue
+            problems += ["%s: %s" % (page.name, x) for x in p]
+            programs += len(prog)
+            skipped += len(skip)
+            audited += 1
+    for problem in problems:
+        print("snippets: " + problem, file=sys.stderr)
+    if problems:
+        print("snippets: %d problem(s) under %s" % (len(problems), guide),
+              file=sys.stderr)
+        return 1, None
+    #First field is the whole page universe: a code page losing its
+    #fences moves from audited to prose, which the line makes visible.
+    line = "snippets: %d pages, %d programs OK (%d skipped, %d prose)" \
+        % (audited + prose, programs, skipped, prose)
+    print(line)
+    return 0, line
 
 
 def _snippet_audit(page, ncc, nvm, workdir):

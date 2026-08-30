@@ -2,6 +2,7 @@
 derivation, program grouping, and the compile+run gate itself."""
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -219,3 +220,35 @@ def test_audit_empty_doc_fails_not_vacuous(tmp_path):
     doc.write_text("no code here\n", encoding="utf-8")
     with pytest.raises(ValueError):
         audit_doc(doc, "ignored", "ignored", tmp_path / "work")
+
+
+def test_stage_audits_every_page_in_the_guide_dir(tmp_path, monkeypatch):
+    #Two one-program pages plus one prose page in a getting-started/
+    #tree: the stage must audit the code pages, count the prose page
+    #separately, and sum the accounting (3 pages, 2 programs, 1 prose).
+    from nlang_docs import cli
+    guide = tmp_path / "docs" / "getting-started"
+    guide.mkdir(parents=True)
+    for name in ("a.md", "b.md"):
+        (guide / name).write_text(
+            "```nlang\nint main() { return 0; }\n```\n", encoding="utf-8")
+    (guide / "c.md").write_text("prose only, no fenced code\n",
+                                encoding="utf-8")
+
+    def fake_audit_doc(page, ncc, nvm, wd):
+        #audit_doc raises ValueError only for a page with no ```nlang
+        #block at all; a broken fence comes back as problems instead.
+        if page.name == "c.md":
+            raise ValueError("no ```nlang blocks found")
+        return [], [object()], []
+
+    (tmp_path / "mkdocs.yml").write_text("site_name: t\n", encoding="utf-8")
+    opts = types.SimpleNamespace(
+        config=str(tmp_path / "mkdocs.yml"), doc=None, workdir=None,
+        ncc=None, nvm=None)
+    monkeypatch.setattr(cli, "audit_doc", fake_audit_doc)
+    monkeypatch.setenv("NLANG_NCC", "x")   #fake binaries so the audit runs
+    monkeypatch.setenv("NLANG_NVM", "x")
+    rc, line = cli._snippet_stage(opts)
+    assert rc == 0
+    assert line == "snippets: 3 pages, 2 programs OK (0 skipped, 1 prose)"
