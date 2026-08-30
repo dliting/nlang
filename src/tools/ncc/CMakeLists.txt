@@ -14,4 +14,5 @@ target_link_libraries(ncc
         nlang_runtime
         nlang_vm
         tinyxml2
+        nlang_version
 )

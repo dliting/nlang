@@ -129,6 +129,7 @@ target_link_libraries(nide_mainwindow
         nide_compilelog
         nide_dialogs
         nide_recent
+        nlang_version   # generated NLANG_VERSION macros (VERSION file)
 )
 
 #--- translations ---

@@ -1,5 +1,22 @@
 cmake_minimum_required(VERSION 3.16)
-project(NLang VERSION 0.1.0 LANGUAGES CXX)
+
+#Single version source: the VERSION file feeds project()/CPack, the
+#generated nlang_version.h and the docs site. file(READ) does not watch
+#its input, so the file must be registered as a re-configure dependency
+#explicitly -- otherwise a version bump would not retrigger configure.
+set_property(DIRECTORY PROPERTY CMAKE_CONFIGURE_DEPENDS VERSION)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+    message(FATAL_ERROR "VERSION file missing at the repository root "
+        "(it holds the single-source NLang version, e.g. 0.1.0)")
+endif()
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" NLANG_VERSION)
+string(STRIP "${NLANG_VERSION}" NLANG_VERSION)
+if(NOT NLANG_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must be a semantic version (x.y.z), "
+        "found: '${NLANG_VERSION}'")
+endif()
+
+project(NLang VERSION ${NLANG_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +29,18 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_options(/utf-8)
 endif()
+
+#Generated version header (build tree only, single source: the VERSION
+#file). The INTERFACE target carries the include dir to the tools.
+string(REPLACE "." ";" NLANG_VERSION_LIST "${NLANG_VERSION}")
+list(GET NLANG_VERSION_LIST 0 NLANG_VERSION_MAJOR)
+list(GET NLANG_VERSION_LIST 1 NLANG_VERSION_MINOR)
+list(GET NLANG_VERSION_LIST 2 NLANG_VERSION_PATCH)
+configure_file(cmake/nlang_version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/nlang_version.h @ONLY)
+add_library(nlang_version INTERFACE)
+target_include_directories(nlang_version INTERFACE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 # Options
 option(NLANG_ENABLE_LLVM "Enable LLVM code generation backend" OFF)

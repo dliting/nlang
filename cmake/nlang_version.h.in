@@ -1,0 +1,10 @@
+/*--- Generated from the repository VERSION file by CMake; do not edit ---*/
+#ifndef NLANG_VERSION_H
+#define NLANG_VERSION_H
+
+#define NLANG_VERSION "@NLANG_VERSION@"
+#define NLANG_VERSION_MAJOR @NLANG_VERSION_MAJOR@
+#define NLANG_VERSION_MINOR @NLANG_VERSION_MINOR@
+#define NLANG_VERSION_PATCH @NLANG_VERSION_PATCH@
+
+#endif /* NLANG_VERSION_H */
