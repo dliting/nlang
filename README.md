@@ -105,7 +105,7 @@ ncc run <module.nmod>                             Execute only
 ```
 
 All three command-line tools report their version with `--version`
-(e.g. `ncc (NLang) 0.1.0`). The IDE shows it in Help → About, and the
+(e.g. `ncc (NLang) <version>`). The IDE shows it in Help → About, and the
 documentation site in its footer.
 
 Multi-source projects are described by a `.nproj` XML file (see
@@ -298,9 +298,9 @@ This produces `release/NLang-<version>-win64.zip` (portable) and
 `release/NLang-<version>-win64.exe` (NSIS installer; requires NSIS 3.03+ —
 either on `PATH` or passed via `-DNLANG_NSIS_MAKENSIS`). Both contain the
 same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm` and the Qt runtime,
-plus `examples/`, the generated documentation site (`docs/site/`), `LICENSE`
-and `README.md`. The installer defaults to `C:\Program Files\NLang` and adds
-a Start Menu shortcut for the IDE.
+plus `examples/`, the generated documentation site (`docs/site/`), `LICENSE`,
+`CHANGELOG.md` and `README.md`. The installer defaults to
+`C:\Program Files\NLang` and adds a Start Menu shortcut for the IDE.
 
 Notes:
 

@@ -42,19 +42,30 @@ The e2e runner takes ncc/nvm paths as positional arguments and defaults to the
 Tests should exercise real behavior (compile real `.n` files, execute real
 bytecode), not mocks of the compiler.
 
-## Release Process
+## Versioning and Releases
 
 The version number lives in one place: the repository root `VERSION` file.
 CMake reads it at configure time and feeds the tools' `--version`, the IDE's
-About dialog, the documentation-site footer and the CPack package names —
-bumping the file is the only version edit a release needs.
+About dialog, the documentation-site footer and the CPack package names.
 
-1. Edit `VERSION` (semantic versioning, e.g. `0.2.0`).
-2. Rebuild and run the gates — ctest includes a guard that every tool's
+**Bump the version when a change lands, not when you release:**
+
+1. A user-visible feature addition or change bumps the minor version
+   (`0.2.0 → 0.3.0`); a fix bumps the patch version (`0.2.0 → 0.2.1`).
+2. With the bump, record the change under that version in
+   [CHANGELOG.md](CHANGELOG.md) (Keep a Changelog style; the top section is
+   the in-development version and carries no date yet). If the current
+   version was never released, fold its unreleased entries into the new
+   section instead of leaving an empty one.
+3. Rebuild and run the gates — ctest includes a guard that every tool's
    `--version` echoes the file, and `verify_package.py` checks the package
    name against it.
-3. `git tag -a v<version> -m "NLang <version>"` and push the tag.
-4. Package and upload as described in [Packaging](README.md#packaging-windows).
+
+**Releasing** means publishing the version the tree already carries:
+
+1. Date the top changelog section and commit.
+2. `git tag -a v<version> -m "NLang <version>"` and push the tag.
+3. Package and upload as described in [Packaging](README.md#packaging-windows).
 
 ## Code Style
 
