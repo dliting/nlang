@@ -10,12 +10,16 @@ from pygments.token import Comment, Keyword, Name, Number, String, Whitespace
 
 __all__ = ["NLangLexer", "NLANG_KEYWORDS", "NLANG_TYPES"]
 
-#Aligned to nlang.l 2026-08-30 (EN-residue scanner words included for
-#parity; true/false/null are constants, handled separately below).
+#Full nlang.l keyword table (2026-08-30): 40 keywords + 11 builtin-type
+#words (in NLANG_TYPES below) + 3 constants (true/false/null, their own
+#rule below) = the scanner's 54 reserved words. "state" has no parser
+#production (EN residue, %token only) but stays so lexer == scanner;
+#when the scanner's table changes, test_highlight forces a sync here.
 NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "
     "elseif enum finally for foreach if implements import in interface "
-    "namespace native new out return super switch this throw try using "
+    "namespace native new out private protected public return state "
+    "static struct super switch this throw try using virtual "
     "while".split())
 NLANG_TYPES = frozenset(
     "bool byte char float int short string ubyte uint ushort void "

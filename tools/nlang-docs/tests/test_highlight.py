@@ -37,6 +37,10 @@ def test_comments_both_kinds():
     toks = _tokens("int a; // line\nint b; /*--- block ---*/")
     assert any(v in Comment and "line" in t for t, v in toks)
     assert any(v in Comment and "block" in t for t, v in toks)
+    #Regression face of the (?s:) multiline rule: a block comment spanning
+    #lines must stay one token (a plain .*? would stop at the first \n).
+    spans = [t for t, v in _tokens("/*--- a\nb\nc ---*/") if v in Comment]
+    assert ["/*--- a\nb\nc ---*/"] == spans
 
 
 def test_numbers_int_and_float():
@@ -51,7 +55,8 @@ def test_keyword_list_matches_scanner_surface():
     assert NLANG_KEYWORDS == frozenset(
         "as assert break case catch class const continue default do else "
         "elseif enum finally for foreach if implements import in interface "
-        "namespace native new out return super switch this throw try using "
+        "namespace native new out private protected public return state "
+        "static struct super switch this throw try using virtual "
         "while".split())
     assert NLANG_TYPES == frozenset(
         "bool byte char float int short string ubyte uint ushort void "
