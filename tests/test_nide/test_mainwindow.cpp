@@ -196,6 +196,21 @@ void writeProjectFixture(const QString& baseDir, QString* nprojPath,
     writeFile(*mainPath, kMainSource);
 }
 
+//An on-disk solution fixture referencing projects by .nsln-relative
+//paths (mirrors SolutionNode::writeToXml).
+void writeSolutionFixture(const QString& baseDir, const QString& name,
+                          const QStringList& projectRelPaths) {
+    QDir(baseDir).mkpath(".");
+    QFile file(QDir(baseDir).filePath(name + ".nsln"));
+    file.open(QIODevice::WriteOnly | QIODevice::Text);
+    file.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    file.write(("<Solution name=\"" + name + "\">\n").toUtf8());
+    file.write(" <Projects>\n");
+    for (const QString& rel : projectRelPaths)
+        file.write(("  <Project path=\"" + rel + "\"/>\n").toUtf8());
+    file.write(" </Projects>\n</Solution>\n");
+}
+
 //Open the fixture project through the real menu action + file dialog
 //(ensureSolution, load, select). Returns the project's tree index.
 QModelIndex openFixtureProject(MainWindow& window, const QString& baseDir) {
@@ -1281,6 +1296,33 @@ private slots:
         act(window, "actNewFile")->trigger();
         QCOMPARE(recentEntries().size(), 1);
         QVERIFY(recentEntries().first().endsWith("scratch.n"));
+    }
+
+    void testOpenedSolutionAndProjectPushRecent() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        //Project through the real dialog path.
+        QString nprojPath, mainPath;
+        writeProjectFixture(dir.path(), &nprojPath, &mainPath);
+        inExec([&] { acceptFileDialog(nprojPath); });
+        act(window, "actOpenProject")->trigger();
+        QCOMPARE(recentEntries().size(), 1);
+        QVERIFY(recentEntries().first().endsWith("App.nproj"));
+
+        //A .nsln over that solution: the close is NOT silent (opening a
+        //project marks the implicit solution dirty), so Discard answers
+        //the prompt and the file dialog follows -- then the solution
+        //itself is pushed on top.
+        writeSolutionFixture(dir.path(), "Sol", {"App/App.nproj"});
+        const QString nslnPath = QDir(dir.path()).filePath("Sol.nsln");
+        inExecSteps2([&] { answerMessageBox(QMessageBox::Discard); },
+                     [&] { acceptFileDialog(nslnPath); });
+        act(window, "actOpenSolution")->trigger();
+        QCOMPARE(recentEntries().size(), 2);
+        QVERIFY(recentEntries().first().endsWith("Sol.nsln"));
+        //The solution's project loaded: the file row exists again.
+        QVERIFY(firstFileIndex(window).isValid());
     }
 
     //--- layout ---

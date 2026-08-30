@@ -253,14 +253,26 @@ void MainWindow::on_actOpenSolution_triggered() {
         tr("NLang Solution (*.nsln);;All Files (*)"));
     if (path.isEmpty())
         return;
+    //The close above already ran; the helper's own close is a no-op
+    //then (hasSolution() is false).
+    openSolutionAtPath(path);
+}
+
+bool MainWindow::openSolutionAtPath(const QString& path) {
+    //Inside, not in the caller: loadSolution silently replaces an open
+    //model, so the unsaved-work gate must be here.
+    if (!closeSolution())
+        return false;
     QString error;
     if (!m_solutionTree->loadSolution(path, &error)) {
         QMessageBox::critical(this, tr("Error"), error);
-        return;
+        return false;
     }
     m_solutionFilePath = path;
     m_ui->tvwSolution->expandAll();
     updateMenuState();
+    noteRecent(path);
+    return true;
 }
 
 void MainWindow::on_actSaveSolution_triggered() {
@@ -358,15 +370,24 @@ void MainWindow::on_actOpenProject_triggered() {
         tr("NLang Project (*.nproj);;All Files (*)"));
     if (path.isEmpty())
         return;
+    //ensureSolution above already ran; the helper's own call is an
+    //idempotent no-op then.
+    openProjectAtPath(path);
+}
+
+ProjectNode* MainWindow::openProjectAtPath(const QString& path) {
+    ensureSolution();
     QString error;
     ProjectNode* project = m_solutionTree->openProject(path, &error);
     if (project == nullptr) {
         QMessageBox::warning(this, tr("Error"), error);
-        return;
+        return nullptr;
     }
     selectProject(project);
     m_ui->tvwSolution->expandAll();
     updateMenuState();
+    noteRecent(path);
+    return project;
 }
 
 void MainWindow::on_actSaveProject_triggered() {

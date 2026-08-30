@@ -210,6 +210,14 @@ private:
     bool closeSolution();
     //No solution open -> create an empty one (EN always had a solution).
     void ensureSolution();
+    //Open a .nsln from a path. The unsaved-work gate (closeSolution)
+    //lives INSIDE, not only in the menu handler: loadSolution replaces
+    //an open model without any prompt. Pushes into the recent store on
+    //success.
+    bool openSolutionAtPath(const QString& path);
+    //Open a .nproj from a path (ensureSolution first); pushes on
+    //success. Null on failure (the error was shown here).
+    ProjectNode* openProjectAtPath(const QString& path);
     //Select the project's tree row (after adding a project).
     void selectProject(ProjectNode* project);
     //Select the file's tree row (after adding a file).
