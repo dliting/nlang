@@ -92,7 +92,13 @@ def test_keyword_list_matches_scanner_surface():
 
 _HOOK = Path(__file__).resolve().parents[1] / "src" / "nlang_docs" / \
     "highlight_hook.py"
-_REPO_MKDOCS_EXT = ["pymdownx.highlight", "pymdownx.superfences"]
+#Mirrors mkdocs.yml's extension list including options: the labeled-fence
+#test below only exercises the real behavior when this probe config
+#carries the same superfences options as the repo build.
+_REPO_MKDOCS_EXT = [
+    "pymdownx.highlight",
+    "pymdownx.superfences:\n      relaxed_headers: true",
+]
 
 
 def _build_mini_site(tmp_path, page_md):
@@ -132,6 +138,20 @@ def test_bare_fences_stay_uncolored(tmp_path):
     assert '<span class="kt">' not in html
 
 
+def test_labeled_fence_path_still_forms_a_block(tmp_path):
+    #Permanent guard for the #19 <path> label face: "```nlang main.n" is
+    #not a strict superfences header (the path holds a '/', outside the
+    #lang regex), so without relaxed_headers the whole line is rejected,
+    #the ``` leaks into the paragraph, and the fence mispairs with the
+    #next one — swallowing following prose into the code block.
+    r = _build_mini_site(
+        tmp_path, "```nlang modules/main.n\nint main() { return 0; }\n```\n")
+    assert r.returncode == 0, r.stderr
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert '<span class="kt">int</span>' in html
+    assert "```nlang" not in html
+
+
 def test_hook_is_self_sufficient_without_pythonpath(tmp_path):
     r = _build_mini_site(tmp_path, "```nlang\nint x = 1;\n```\n")
     assert r.returncode == 0, r.stderr
@@ -150,5 +170,6 @@ def test_repo_config_mounts_hook_and_superfences():
     text = _REPO_CONFIG.read_text(encoding="utf-8")
     assert "highlight_hook.py" in text
     assert "pymdownx.superfences" in text
+    assert "relaxed_headers: true" in text
     assert "pymdownx.highlight" in text
     assert "- fenced_code" not in text

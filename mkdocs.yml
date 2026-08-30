@@ -33,7 +33,12 @@ markdown_extensions:
   #superfences supersedes fenced_code (superset); pymdownx.highlight
   #renders ```nlang server-side via the hook-registered NLang lexer.
   - pymdownx.highlight
-  - pymdownx.superfences
+  #relaxed_headers: strict header parsing rejects "```nlang main.n" as
+  #a fence header (the path's '/' is outside the lang regex), leaking
+  #the ``` into the paragraph; relaxed mode takes the first word as the
+  #language and ignores the rest (#19 labeled fences).
+  - pymdownx.superfences:
+      relaxed_headers: true
 # Site-wide two-column help layout (left nav, right content): the
 # stylesheet hides the material theme's in-page TOC rail.
 extra_css:
