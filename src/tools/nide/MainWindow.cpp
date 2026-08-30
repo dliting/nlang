@@ -7,6 +7,7 @@
 #include "NewFileDialog.h"
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
+#include "RecentStore.h"
 #include "SolutionTreeModel.h"
 #include "FileEditor.h"
 
@@ -123,6 +124,7 @@ MainWindow::MainWindow(QWidget* parent)
     QSettings settings;
     if (!restoreLayout(*this, settings))
         applyDefaultLayout(*this);
+    m_recent.load(settings);
     updateMenuState();
 }
 
@@ -547,6 +549,7 @@ void MainWindow::editExistingFile(const QString& filePath) {
         QMessageBox::warning(this, tr("Error"), m_editors.lastError());
         return;
     }
+    noteRecent(editor->filePath());  //normalized absolute path
     QWidget* widget = editor->widget();
     if (m_ui->tabCodes->indexOf(widget) < 0)
         addEditorTab(editor);
@@ -561,6 +564,7 @@ bool MainWindow::editNewFile(const QString& filePath) {
         return false;
     }
     addEditorTab(editor);
+    noteRecent(editor->filePath());
     return true;
 }
 
@@ -1323,6 +1327,18 @@ void MainWindow::updateMenuState() {
     m_ui->actCloseSolution->setEnabled(hasSolution);
     m_ui->actNewSolution->setEnabled(true);
     m_ui->actOpenSolution->setEnabled(true);
+}
+
+//--- recent list ---
+
+void MainWindow::noteRecent(const QString& absolutePath) {
+    m_recent.push(absolutePath);
+    saveRecent();
+}
+
+void MainWindow::saveRecent() {
+    QSettings settings;
+    m_recent.save(settings);
 }
 
 } // namespace nlang

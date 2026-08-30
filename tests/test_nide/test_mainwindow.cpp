@@ -233,6 +233,19 @@ QString readTextFile(const QString& filePath) {
     return QString::fromUtf8(file.readAll());
 }
 
+//Recent-list plumbing reads/writes the same QSettings the app uses;
+//tests pin org/app in initTestCase, so this never touches the real
+//registry entry.
+void clearRecentStore() {
+    QSettings settings;
+    settings.remove(QStringLiteral("recent/entries"));
+}
+
+QStringList recentEntries() {
+    QSettings settings;
+    return settings.value(QStringLiteral("recent/entries")).toStringList();
+}
+
 //An exec()ed QMenu is a POPUP, not a modal widget; when driven
 //synthetic (no real mouse), it may register as neither active popup
 //nor active modal -- fall back to a scan for a visible top-level menu.
@@ -1237,6 +1250,37 @@ private slots:
         QVERIFY(QFileInfo::exists(nmodA));
         QVERIFY(!QFileInfo::exists(nmodB));
         QFile::remove(nmodA);
+    }
+
+    //--- recent list ---
+
+    void testOpenedFileJoinsRecent() {
+        //Clear BEFORE the ctor: MainWindow loads the store from
+        //QSettings when it is constructed.
+        clearRecentStore();
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("hello.n");
+        writeFile(path, kMainSource);
+        inExec([&] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        QCOMPARE(recentEntries().size(), 1);
+        QVERIFY(recentEntries().first().endsWith("hello.n"));
+        //Opening the already-open file again just refocuses: MRU top, no
+        //duplicate entry.
+        inExec([&] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        QCOMPARE(recentEntries().size(), 1);
+    }
+
+    void testNewFileJoinsRecent() {
+        clearRecentStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        inExec([&] { acceptNewFileDialog("scratch.n", dir.path()); });
+        act(window, "actNewFile")->trigger();
+        QCOMPARE(recentEntries().size(), 1);
+        QVERIFY(recentEntries().first().endsWith("scratch.n"));
     }
 
     //--- layout ---

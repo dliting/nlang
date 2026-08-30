@@ -7,6 +7,7 @@
 #include <QMainWindow>
 
 #include "FileEditor.h"  // EditorManager is a value member
+#include "RecentStore.h"  // RecentStore is a value member
 
 #include <QStringList>
 #include <memory>
@@ -154,6 +155,11 @@ private slots:
     void onExecFinished(int exitCode, QProcess::ExitStatus exitStatus);
 
 private:
+    //--- recent list (File > Recent) ---
+    //push + write-through persist (QSettings org/app from main.cpp).
+    void noteRecent(const QString& absolutePath);
+    void saveRecent();
+
     //--- context accessors (null when nothing applicable is selected) ---
     FileEditor* currentEditor() const;
     ProjectNode* currentProject() const;
@@ -270,6 +276,7 @@ private:
     std::unique_ptr<Ui::MainWindow> m_ui;
     SolutionTreeModel* m_solutionTree;
     EditorManager m_editors;
+    RecentStore m_recent;
     QString m_solutionFilePath;  // empty = unsaved new solution
     QProcess m_executed;         // the program under Run (nvm child)
     //The embedded help window. Null when closed (the browser deletes
