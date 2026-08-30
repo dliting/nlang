@@ -1,7 +1,33 @@
 # NLang
 
-NLang is a scripting language compiler and IDE, extracted from the a game engine I previous devoloped and
-as a standalone teaching/research open-source project.
+NLang is a scripting language compiler and IDE, extracted from a game engine I
+previously developed, as a standalone teaching/research open-source project.
+
+## Quick Start
+
+The fastest way to deploy and learn NLang is the prebuilt Windows release —
+no toolchain, no build:
+
+1. **Download** the installer `NLang-<version>-win64.exe` (or the portable
+   `NLang-<version>-win64.zip`) from the
+   [releases page](https://github.com/dliting/nlang/releases).
+2. **Install** — run the installer (defaults to `C:\Program Files\NLang`, adds
+   a Start Menu entry for the IDE; expect a UAC prompt). No installation
+   preferred? Unzip the portable archive to any writable folder and run
+   `bin\nide.exe`.
+3. **Read the manual** — launch **NLang IDE** and open its **Help menu**: the
+   complete documentation site ships in the package and works fully offline.
+   The *Getting Started* chapters walk the language, the CLI and the IDE one
+   topic per page, with runnable example programs.
+4. **Run something** — open the bundled `examples/` in the IDE and press Run
+   (copy them to a writable folder first — a build writes its `.nmod` next to
+   the source). `examples/README.md` indexes every example.
+
+The executables link the MSVC runtime dynamically — install the
+[VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) if
+Visual Studio 2022 is not on the machine.
+
+Building from source instead? The rest of this page covers that.
 
 ## Build Dependencies
 
