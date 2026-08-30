@@ -63,7 +63,7 @@ bytecode), not mocks of the compiler.
 
 Architecture notes that will save you a debugging afternoon — the visitor
 macros, the result-pointer VM model, the local-declaration lowering — are in
-`CLAUDE.md` and `docs/` (start with `docs/vm-architecture/`).
+`docs/` (start with `docs/vm-architecture/`).
 
 ## Commits and Pull Requests
 

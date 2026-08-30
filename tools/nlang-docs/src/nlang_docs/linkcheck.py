@@ -1,7 +1,6 @@
 """Site-wide link/anchor audit over generated HTML.
 
-Three rules (see docs/superpowers/specs/
-2026-08-29-nlang-docs-subsystem-design.md):
+Three rules:
  1. internal relative link targets must exist as .html files;
  2. #fragments must exist in the target page (mkdocs heading ids
     and explicit id="..." attributes both count);

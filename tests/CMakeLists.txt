@@ -461,8 +461,7 @@ add_test(NAME ncc_no_o_output_cwd
         -P ${CMAKE_CURRENT_SOURCE_DIR}/ncc_no_o_output_cwd.cmake)
 
 #Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
-#real compile too. Keep each well under the 3-minute unit-test ceiling
-#(CLAUDE.md).
+#real compile too. Keep each well under the 3-minute unit-test ceiling.
 set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_same_dir_compile proj_same_dir_run proj_dup_import_compile
     proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
