@@ -90,7 +90,7 @@ CompiledClass ("List") with one hidden field `__handle` of type int.
 **Compile-time model.** The resolver maintains a per-(baseName, typeArgs)
 cache of synthetic SnClassDecl instances:
 
-```
+```cpp
 static std::map<std::tuple<std::string, std::vector<SnField*>>,
                 SnClassDecl*> s_genericInstances;
 ```
@@ -117,7 +117,7 @@ parameters and `OP_Unbox` for primitive-T Get() returns.
 
 **Runtime storage.** List elements live in a side table:
 
-```
+```cpp
 struct ListSlot {
     std::vector<int32_t> elements;   // heap idxs (boxed primitives or class refs)
 };
@@ -187,7 +187,7 @@ is shared regardless of K and V.
 
 **Runtime storage.** Entries live in a side table:
 
-```
+```cpp
 struct DictSlot {
     std::vector<std::pair<int32_t,int32_t>> entries;  // (K heap idx, V heap idx)
 };
@@ -234,7 +234,7 @@ codegen block. When the call target's class is a generic instantiation
 (`SnClassDecl::IsGenericInstantiation()`), the codegen builds a per-
 method plan based on `(baseName, methodName, typeArgs)`:
 
-```
+```cpp
 struct ArgBoxPlan { uint8_t tag; bool needsBox; };
 std::map<uint16_t, ArgBoxPlan> argPlans;   // paramIdx -> plan
 bool    returnsBoxed = false;
