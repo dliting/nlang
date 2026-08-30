@@ -549,8 +549,10 @@ void MainWindow::on_actSaveFileAs_triggered() {
         return;
     if (!editor->saveAs(QFileInfo(path).absoluteFilePath()))
         QMessageBox::warning(this, tr("Error"), editor->lastError());
-    else
+    else {
+        noteRecent(editor->filePath());  //the saved-as path joins the list
         onEditorSaveStateChanged(editor);  // new file name on the tab
+    }
 }
 
 void MainWindow::on_actSaveAll_triggered() {
@@ -1196,7 +1198,7 @@ void MainWindow::onFileRenameRequested(FileNode* file,
     renameFileEverywhere(file->absolutePath(), newName, file);
 }
 
-bool MainWindow::renameFileEverywhere(const QString& oldPath,
+bool MainWindow::renameFileEverywhere(QString oldPath,
                                       const QString& newFileName,
                                       FileNode* trackedFile) {
     const QString reason = fileNameValidationError(newFileName);
@@ -1252,6 +1254,10 @@ bool MainWindow::renameFileEverywhere(const QString& oldPath,
     }
     if (trackedFile != nullptr)
         selectFile(trackedFile);
+    //In-place swap in the recent list (rank kept); a rename is not an
+    //open, so an unlisted file does not join the list.
+    m_recent.replace(oldPath, newPath);
+    saveRecent();
     return true;
 }
 

@@ -240,7 +240,10 @@ private:
     //the disk back if the domain rejects), then follow with the editor.
     //False leaves nothing moved. trackedFile may be null (a standalone
     //editor file outside the tree).
-    bool renameFileEverywhere(const QString& oldPath,
+    //oldPath is BY VALUE on purpose: the domain rename rewrites the
+    //FileNode's path member mid-call, and a reference parameter bound
+    //to it would read the NEW path by the time the tail runs.
+    bool renameFileEverywhere(QString oldPath,
                               const QString& newFileName,
                               FileNode* trackedFile);
     //The tree node for a file path; null when the file is standalone.

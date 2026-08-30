@@ -1560,6 +1560,50 @@ private slots:
         }
     }
 
+    void testSaveAsPushesNewPath() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        openFixtureProject(window, dir.path());
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+
+        const QString copyPath = QDir(dir.path()).filePath("App/copy.n");
+        inExec([&] { acceptFileDialog(copyPath); });
+        act(window, "actSaveFileAs")->trigger();
+        QCOMPARE(tabCodes(window)->tabText(0), QString("copy.n"));
+
+        const QStringList entries = recentEntries();
+        QCOMPARE(entries.size(), 3);
+        QVERIFY(entries.first().endsWith("copy.n"));
+        bool keptOld = false;
+        for (const QString& entry : entries) {
+            if (entry.endsWith("main.n"))
+                keptOld = true;
+        }
+        QVERIFY(keptOld);  //the old path stays: its file still exists
+    }
+
+    void testRenameReplacesRecentInPlace() {
+        QTemporaryDir dir;
+        clearRecentStore();  //must precede the ctor: MainWindow loads the store
+        MainWindow window;
+        openFixtureProject(window, dir.path());
+        QMetaObject::invokeMethod(solutionView(window), "doubleClicked",
+            Q_ARG(QModelIndex, firstFileIndex(window)));
+        //entries: [main.n, App.nproj]
+        renameViaTree(window, "renamed.n");
+        QStringList entries = recentEntries();
+        QCOMPARE(entries.size(), 2);
+        QVERIFY(entries.first().endsWith("renamed.n"));  //rank kept (top)
+
+        //Case-only variant: one entry, new spelling (Windows folding).
+        renameViaTree(window, "Renamed.n");
+        entries = recentEntries();
+        QCOMPARE(entries.size(), 2);
+        QVERIFY(entries.first().endsWith("Renamed.n"));
+    }
+
     //--- layout ---
 
     void testDefaultLayoutFavorsEditor() {
