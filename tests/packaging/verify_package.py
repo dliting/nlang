@@ -121,6 +121,16 @@ def main():
     print(f'installer: {os.path.basename(installer)} '
           f'({os.path.getsize(installer) // 1024} KiB)')
 
+    # Version single-source guard: the package stem must carry the repo's
+    # VERSION (CPack derives both from the same file), so a stale package
+    # from a pre-bump build fails here instead of shipping silently.
+    with open(os.path.join(REPO_ROOT, 'VERSION'), encoding='utf-8') as f:
+        version = f.read().strip()
+    if os.path.basename(zip_path) != f'NLang-{version}-win64.zip':
+        fail(f'package {os.path.basename(zip_path)} does not match '
+             f'repository VERSION {version}')
+    print(f'version: OK ({version})')
+
     # --- Extract and assert layout ----------------------------------------
     with tempfile.TemporaryDirectory(prefix='nlang_pkg_') as tmp:
         with zipfile.ZipFile(zip_path) as zf:
