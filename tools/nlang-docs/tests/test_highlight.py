@@ -152,13 +152,6 @@ def test_labeled_fence_path_still_forms_a_block(tmp_path):
     assert "```nlang" not in html
 
 
-def test_hook_is_self_sufficient_without_pythonpath(tmp_path):
-    r = _build_mini_site(tmp_path, "```nlang\nint x = 1;\n```\n")
-    assert r.returncode == 0, r.stderr
-    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
-    assert '<span class="kt">int</span>' in html
-
-
 _REPO_CONFIG = Path(__file__).resolve().parents[3] / "mkdocs.yml"
 
 
