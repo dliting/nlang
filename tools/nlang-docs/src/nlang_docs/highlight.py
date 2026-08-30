@@ -15,7 +15,11 @@ from pygments.lexer import RegexLexer
 from pygments.token import (Comment, Keyword, Name, Number, Operator,
                             Punctuation, String, Whitespace)
 
-__all__ = ["NLangLexer", "NLANG_KEYWORDS", "NLANG_TYPES", "NLANG_CONSTANTS"]
+#Pygments' registry loader (_load_lexers) imports this module and
+#iterates __all__ taking .name on every entry, so __all__ must list
+#the lexer class only; the keyword sets below stay module-level and
+#are imported directly by the hook's consumers (never via import *).
+__all__ = ["NLangLexer"]
 
 #Full nlang.l keyword table (2026-08-30): 40 keywords + 11 builtin-type
 #words (NLANG_TYPES below) + 3 constants (NLANG_CONSTANTS below) = the

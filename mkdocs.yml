@@ -20,11 +20,20 @@ use_directory_urls: false
 #non-ASCII, so Chinese titles degraded to positional _1/_2 ids. gfm
 #preserves the characters unencoded (anchor ids and in-page toc links
 #regenerate consistently; ASCII headings slug identically to before).
+#Registers the NLang Pygments lexer before rendering (see the hook
+#file): ```nlang fences get server-side colored spans. Path resolves
+#relative to this config file; the hook is self-sufficient (it appends
+#the package's src/ to sys.path itself, no PYTHONPATH needed).
+hooks:
+  - tools/nlang-docs/src/nlang_docs/highlight_hook.py
 markdown_extensions:
   - toc:
       slugify: !!python/name:pymdownx.slugs.gfm
   - tables
-  - fenced_code
+  #superfences supersedes fenced_code (superset); pymdownx.highlight
+  #renders ```nlang server-side via the hook-registered NLang lexer.
+  - pymdownx.highlight
+  - pymdownx.superfences
 # Site-wide two-column help layout (left nav, right content): the
 # stylesheet hides the material theme's in-page TOC rail.
 extra_css:

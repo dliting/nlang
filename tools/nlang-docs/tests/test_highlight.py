@@ -1,5 +1,7 @@
 """NLangLexer token assertions, anchored to the flex scanner (nlang.l)."""
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -86,3 +88,67 @@ def test_keyword_list_matches_scanner_surface():
     assert frozenset({"List", "Dict", "Func"}) == docs_types
     assert scanner == ((NLANG_KEYWORDS | NLANG_TYPES | NLANG_CONSTANTS)
                        - docs_types)
+
+
+_HOOK = Path(__file__).resolve().parents[1] / "src" / "nlang_docs" / \
+    "highlight_hook.py"
+_REPO_MKDOCS_EXT = ["pymdownx.highlight", "pymdownx.superfences"]
+
+
+def _build_mini_site(tmp_path, page_md):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(page_md, encoding="utf-8")
+    (tmp_path / "mkdocs.yml").write_text(
+        "site_name: probe\n"
+        "docs_dir: docs\n"
+        "hooks:\n"
+        "  - %s\n"
+        "markdown_extensions:\n" % _HOOK.as_posix() +
+        "".join("  - %s\n" % e for e in _REPO_MKDOCS_EXT),
+        encoding="utf-8")
+    #theme omitted on purpose: we only assert span emission, not colors.
+    #PYTHONPATH stripped so the self-sufficiency claim is tested for real
+    #even when pytest itself was launched with PYTHONPATH set.
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    return subprocess.run(
+        [sys.executable, "-m", "mkdocs", "build", "--strict",
+         "-f", str(tmp_path / "mkdocs.yml"),
+         "-d", str(tmp_path / "site")],
+        capture_output=True, text=True, timeout=60, env=env)
+
+
+def test_nlang_fences_get_colored_spans(tmp_path):
+    r = _build_mini_site(tmp_path, "```nlang\nint x = 1;\n```\n")
+    assert r.returncode == 0, r.stderr
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert '<span class="kt">int</span>' in html
+
+
+def test_bare_fences_stay_uncolored(tmp_path):
+    r = _build_mini_site(tmp_path, "```\nError: boom\n```\n")
+    assert r.returncode == 0, r.stderr
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert '<span class="kt">' not in html
+
+
+def test_hook_is_self_sufficient_without_pythonpath(tmp_path):
+    r = _build_mini_site(tmp_path, "```nlang\nint x = 1;\n```\n")
+    assert r.returncode == 0, r.stderr
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert '<span class="kt">int</span>' in html
+
+
+_REPO_CONFIG = Path(__file__).resolve().parents[3] / "mkdocs.yml"
+
+
+def test_repo_config_mounts_hook_and_superfences():
+    #The three tests above prove the hook works when mounted; this pins
+    #the real site's mount (spec 4.2): deleting the hooks block or
+    #reverting to fenced_code turns red instead of silently uncoloring
+    #the built site that the mini-site tests never see.
+    text = _REPO_CONFIG.read_text(encoding="utf-8")
+    assert "highlight_hook.py" in text
+    assert "pymdownx.superfences" in text
+    assert "pymdownx.highlight" in text
+    assert "- fenced_code" not in text
