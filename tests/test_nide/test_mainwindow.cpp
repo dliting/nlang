@@ -7,6 +7,8 @@
 #include "ProjectModel.h"
 #include "TranslationLoader.h"
 
+#include <nlang_version.h>  // generated from the repo VERSION file
+
 #include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
@@ -383,6 +385,26 @@ private slots:
         QVERIFY(!act(window, "actStopRunning")->isEnabled());
         QCOMPARE(tabCodes(window)->count(), 0);
         QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+    }
+
+    void testAboutShowsVersion() {
+        MainWindow window;
+        QMessageBox* box = nullptr;
+        QString aboutText;
+        inExec([&] {
+            box = qobject_cast<QMessageBox*>(
+                QApplication::activeModalWidget());
+            if (box) {
+                aboutText = box->text();
+                box->accept();
+            }
+        });
+        act(window, "actHelpAbout")->trigger();
+        QVERIFY(box != nullptr);
+        //Only the version substring is pinned: the prose is translatable
+        //and the locale may differ from English in this environment.
+        QVERIFY2(aboutText.contains(QLatin1String(NLANG_VERSION)),
+                 qPrintable(aboutText));
     }
 
     //--- solution lifecycle ---

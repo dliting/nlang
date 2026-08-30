@@ -314,6 +314,7 @@ if(NLANG_BUILD_IDE)
     target_link_libraries(test_mainwindow
         PRIVATE
             nide_mainwindow
+            nlang_version  # NLANG_VERSION macro for the About-version test
             Qt5::Test
     )
     add_dependencies(test_mainwindow ncc nvm)

@@ -13,6 +13,8 @@
 
 #include "ui_MainWindow.h"
 
+#include <nlang_version.h>  // generated from the repo VERSION file
+
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
@@ -970,10 +972,12 @@ void MainWindow::on_actViewToolBar_triggered(bool checked) {
 }
 
 void MainWindow::on_actHelpAbout_triggered() {
+    //The version line comes from the generated nlang_version.h (single
+    //source: the repository VERSION file).
     QMessageBox::about(
         this, tr("About NLang IDE"),
-        tr("NLang IDE\nThe integrated development environment for the "
-           "NLang scripting language."));
+        tr("NLang IDE %1\nThe integrated development environment for the "
+           "NLang scripting language.").arg(QLatin1String(NLANG_VERSION)));
 }
 
 namespace {

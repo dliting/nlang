@@ -690,7 +690,7 @@
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="840"/>
-        <source>NLang IDE
+        <source>NLang IDE %1
 The integrated development environment for the NLang scripting language.</source>
         <translation type="unfinished"></translation>
     </message>
