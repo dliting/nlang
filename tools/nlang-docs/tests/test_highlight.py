@@ -79,8 +79,10 @@ def test_keyword_list_matches_scanner_surface():
     scanner = frozenset(re.findall(
         r'"([A-Za-z]+)"\s*\{\s*return KT_\w+;',
         _SCANNER.read_text(encoding="utf-8")))
-    #List/Dict/Func are docs-side builtin types, not scanner words.
+    #List/Dict/Func are docs-side builtin types, not scanner words; the
+    #exact pin turns red both when a stray word joins NLANG_TYPES and
+    #when the scanner adopts one of the three.
     docs_types = NLANG_TYPES - scanner
-    assert not docs_types & scanner
+    assert frozenset({"List", "Dict", "Func"}) == docs_types
     assert scanner == ((NLANG_KEYWORDS | NLANG_TYPES | NLANG_CONSTANTS)
                        - docs_types)
