@@ -695,6 +695,10 @@ The integrated development environment for the NLang scripting language.</source
         <translation>NLang IDE %1
 NLang 脚本语言的集成开发环境。</translation>
     </message>
+    <message>
+        <source>Clear Recent List</source>
+        <translation>清空最近列表</translation>
+    </message>
 </context>
 <context>
     <name>nlang::NewFileDialog</name>

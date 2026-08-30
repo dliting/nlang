@@ -68,3 +68,10 @@ keys under organization "NLang", application "nide").
 - **Restore**: at construction. Garbage bytes, a missing key, or a
   state with any collapsed pane falls back to the default proportions
   and `restoreLayout` reports false.
+
+## 最近打开（File > Recent）
+
+`文件 → 最近打开` 跨会话记忆最近打开的 解决方案 / 项目 / 文件（至多 10 条），
+按最近使用排序；条目随打开、新建、另存为入账，重命名在原位更新。
+清单持久化在 QSettings（组织 NLang / 应用 nide）；已不存在的文件在菜单中
+隐藏但保留在记录里，直到被新条目挤出。「清空最近列表」一键清空。

@@ -39,6 +39,10 @@
         <translation>Open</translation>
     </message>
     <message>
+        <source>最近打开</source>
+        <translation>Recent</translation>
+    </message>
+    <message>
         <location filename="../ui/MainWindow.ui" line="263"/>
         <source>项目(&amp;P)</source>
         <translation>&amp;Project</translation>

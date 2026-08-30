@@ -210,7 +210,8 @@ bundled; untranslated strings fall back to their authored text).
 Files created through 文件 → 新建文件 join the selected project in the
 solution tree (or the solution's sole project); files rename in place
 via F2 or the tree/tab context menus (an open dirty editor is saved to
-the old path first), and the splitter layout persists across sessions.
+the old path first), the splitter layout persists across sessions, and
+文件 → 最近打开 remembers recent solutions, projects and files.
 
 Standalone `.n` files opened through 文件 → 打开 (no project needed)
 appear in a “独立文件” tree group and can be built and run directly:
