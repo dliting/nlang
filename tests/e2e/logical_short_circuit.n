@@ -1,0 +1,13 @@
+//Short-circuit semantics: the skipped operand must not evaluate at all —
+//its division by zero would throw (uncaught -> exit 1). Exit 7 pins both
+//the skip AND the 0/1 result values.
+int main() {
+    int x = 0;
+    //&&: left false -> right (1/0) must not run; result 0
+    int r1 = (x == 1) && (1 / 0 == 0);
+    //||: left true -> right (1/0) must not run; result 1
+    int r2 = (x == 0) || (1 / 0 == 0);
+    if (r1 != 0) return 2;
+    if (r2 != 1) return 3;
+    return 7;
+}

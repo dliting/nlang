@@ -1,0 +1,12 @@
+//Value semantics: && and || always yield int 0/1 (C-style), never the
+//raw operand value.
+int main() {
+    if ((5 && 3) != 1) return 2;
+    if ((5 || 0) != 1) return 3;
+    if ((0 && 7) != 0) return 4;
+    if ((0 || 7) != 1) return 5;
+    if ((2 && 2) != 1) return 6;
+    if (!(0) != 1) return 8;
+    if (!(5) != 0) return 9;
+    return 42;
+}

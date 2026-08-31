@@ -213,6 +213,8 @@ private:
 	//false), structs/arrays are heap indices, floats only work by bit
 	//luck (IEEE non-zero bits ≠ int 0). Static typing: conditions must
 	//be int; comparisons already produce int.
+	//The logical-operator operand gate in ExprResolver.cpp (Access(SnBinaryExpr),
+	//"Short-circuit hardening") mirrors this policy — widen both together.
 	void CheckIntCondition(SnExpression &cond, const char *what)
 	{
 		if (!cond.IsResolved())

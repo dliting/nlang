@@ -1640,6 +1640,13 @@ static uint16_t ExprPeakDepth(SnExpression& expr,
         uint16_t l = ExprPeakDepth(*bin.Left(), visited);
         if (bin.Right()) {
             uint16_t r = ExprPeakDepth(*bin.Right(), visited);
+            //Short-circuit lowering: logical nodes claim no eval-area
+            //slot — both operands emit into resultOffset sequentially.
+            //Keep symmetric with EmitExpression's logical special-case.
+            auto bop = bin.Op();
+            if (bop == SnBinaryExpr::OP_LogicalAnd
+                || bop == SnBinaryExpr::OP_LogicalOr)
+                return l > r ? l : r;
             //Right operand parks in a per-level EvalAreaClaim(1) (round-4 —
             //the old PickTempSlot chain wrapped tempSlot4 → tempSlot at
             //depth 5); operand sub-expressions claim above it.
@@ -4515,6 +4522,70 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 emitter.Emit(OpCode::OP_LogicalNot);
                 emitter.EmitUint16(resultOffset);
             }
+            return;
+        }
+
+        //Short-circuit lowering (2026-08-31): && and || must not evaluate
+        //the skipped operand. Lowered entirely from existing primitives —
+        //OP_JumpIfNot for the branch and double OP_LogicalNot as the raw
+        //int32 -> {0,1} normalization. The logical node claims NO
+        //eval-area slot: both operands emit into resultOffset
+        //sequentially (the right one only on the fall-through path).
+        //ExprPeakDepth's BinaryExpr case mirrors this shape — keep them
+        //symmetric.
+        if (op == SnBinaryExpr::OP_LogicalAnd || op == SnBinaryExpr::OP_LogicalOr)
+        {
+            auto& logicChildren = bin.Children();
+            auto logicIt = logicChildren.begin();
+            auto& leftChild = static_cast<SnExpression&>(*logicIt);
+            ++logicIt;
+            auto& rightChild = static_cast<SnExpression&>(*logicIt);
+
+            if (op == SnBinaryExpr::OP_LogicalAnd) {
+                //Invariant: JumpIfNot only jumps when the slot's int32 is
+                //exactly 0, so the jump target lands with resultOffset
+                //already normalized to 0 — no store needed on the false
+                //path, and no trailing Jump (false path and end coincide).
+                EmitExpression(leftChild, emitter, resultOffset);
+                emitter.Emit(OpCode::OP_JumpIfNot);
+                size_t jumpToEndAnd = emitter.CurrentOffset();
+                emitter.EmitUint16(0);  //placeholder
+                emitter.EmitUint16(resultOffset);
+                EmitExpression(rightChild, emitter, resultOffset);
+                emitter.Emit(OpCode::OP_LogicalNot);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_LogicalNot);
+                emitter.EmitUint16(resultOffset);
+                emitter.PatchUint16(jumpToEndAnd,
+                    static_cast<uint16_t>(emitter.CurrentOffset()));
+                return;
+            }
+
+            //op == OP_LogicalOr: normalize the LEFT operand first — the
+            //true path keeps resultOffset = 1, but a raw truthy left value
+            //(e.g. 5) must not leak out as the result.
+            EmitExpression(leftChild, emitter, resultOffset);
+            emitter.Emit(OpCode::OP_LogicalNot);
+            emitter.EmitUint16(resultOffset);
+            emitter.Emit(OpCode::OP_LogicalNot);
+            emitter.EmitUint16(resultOffset);
+            emitter.Emit(OpCode::OP_JumpIfNot);
+            size_t jumpToRight = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder
+            emitter.EmitUint16(resultOffset);
+            emitter.Emit(OpCode::OP_Jump);
+            size_t jumpToEndOr = emitter.CurrentOffset();
+            emitter.EmitUint16(0);  //placeholder
+            size_t rightStart = emitter.CurrentOffset();
+            EmitExpression(rightChild, emitter, resultOffset);
+            emitter.Emit(OpCode::OP_LogicalNot);
+            emitter.EmitUint16(resultOffset);
+            emitter.Emit(OpCode::OP_LogicalNot);
+            emitter.EmitUint16(resultOffset);
+            emitter.PatchUint16(jumpToRight,
+                static_cast<uint16_t>(rightStart));
+            emitter.PatchUint16(jumpToEndOr,
+                static_cast<uint16_t>(emitter.CurrentOffset()));
             return;
         }
 

@@ -435,8 +435,11 @@ cast_float_to_int_truncate 7
 string_relational_cmp 7
 # --- P3.8: lock string length() returns byte count (not Unicode code-point count) ---
 string_length_is_bytes 7
-# --- P3.8 revised 2026-08-31: logical && || short-circuit; operands must be int ---
-logical_no_short_circuit_throws 1
+# --- P3.8 revised 2026-08-31: logical && || short-circuit (C-style; skipped operand not evaluated) ---
+logical_short_circuit 7
+logical_short_circuit_values 42
+logical_short_circuit_side_effect 7
+logical_short_circuit_nested 7
 # --- 2026-08-31: logical/! operands must be int (aligns with if/while condition gate) ---
 logical_operand_float compile_error operator '&&' requires int operands
 logical_operand_string compile_error operator '||' requires int operands
