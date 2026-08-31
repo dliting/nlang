@@ -182,9 +182,7 @@ static void DisassembleFunction(const CompiledFunction& func,
         case OpCode::OP_Greater_f32:
         case OpCode::OP_GreaterEqual_f32:
         case OpCode::OP_Equal_f32:
-        case OpCode::OP_NotEqual_f32:
-        case OpCode::OP_LogicalAnd:
-        case OpCode::OP_LogicalOr: {
+        case OpCode::OP_NotEqual_f32: {
             uint16_t lhs = reader.ReadUint16();
             uint16_t rhs = reader.ReadUint16();
             std::cout << "    " << offsetBuf << ": " << name

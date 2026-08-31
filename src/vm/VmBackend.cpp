@@ -909,8 +909,6 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_GreaterEqual_f32:
         case OpCode::OP_Equal_f32:
         case OpCode::OP_NotEqual_f32:
-        case OpCode::OP_LogicalAnd:
-        case OpCode::OP_LogicalOr:
         case OpCode::OP_Concat_str:
         case OpCode::OP_Eq_str:
         case OpCode::OP_Ne_str:
@@ -4700,16 +4698,6 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 emitter.Emit(OpCode::OP_Ne_str);
             else
                 emitter.Emit(isFloat ? OpCode::OP_NotEqual_f32 : OpCode::OP_NotEqual_i32);
-            emitter.EmitUint16(resultOffset);
-            emitter.EmitUint16(rightSlot);
-            break;
-        case SnBinaryExpr::OP_LogicalAnd:
-            emitter.Emit(OpCode::OP_LogicalAnd);
-            emitter.EmitUint16(resultOffset);
-            emitter.EmitUint16(rightSlot);
-            break;
-        case SnBinaryExpr::OP_LogicalOr:
-            emitter.Emit(OpCode::OP_LogicalOr);
             emitter.EmitUint16(resultOffset);
             emitter.EmitUint16(rightSlot);
             break;

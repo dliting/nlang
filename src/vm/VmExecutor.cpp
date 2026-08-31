@@ -621,28 +621,6 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
-        case OpCode::OP_LogicalAnd: {
-            uint16_t lhs = reader.ReadUint16();
-            uint16_t rhs = reader.ReadUint16();
-            int32_t a, b;
-            std::memcpy(&a, locals + lhs, sizeof(a));
-            std::memcpy(&b, locals + rhs, sizeof(b));
-            int32_t r = (a && b) ? 1 : 0;
-            std::memcpy(locals + lhs, &r, sizeof(r));
-            break;
-        }
-
-        case OpCode::OP_LogicalOr: {
-            uint16_t lhs = reader.ReadUint16();
-            uint16_t rhs = reader.ReadUint16();
-            int32_t a, b;
-            std::memcpy(&a, locals + lhs, sizeof(a));
-            std::memcpy(&b, locals + rhs, sizeof(b));
-            int32_t r = (a || b) ? 1 : 0;
-            std::memcpy(locals + lhs, &r, sizeof(r));
-            break;
-        }
-
         case OpCode::OP_LogicalNot: {
             uint16_t dst = reader.ReadUint16();
             int32_t a;

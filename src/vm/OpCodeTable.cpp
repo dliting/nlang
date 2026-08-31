@@ -44,8 +44,6 @@ static const char* s_OpCodeNames[] = {
     "ge_f32",
     "eq_f32",
     "ne_f32",
-    "and",
-    "or",
     "not",
     "call",
     "para_end",
