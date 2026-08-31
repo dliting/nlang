@@ -694,10 +694,7 @@
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="840"/>
-        <source>NLang IDE %1
-The integrated development environment for the NLang scripting language.
-
-https://github.com/dliting/nlang</source>
+        <source>NLang IDE %1&lt;br&gt;The integrated development environment for the NLang scripting language.&lt;br&gt;&lt;br&gt;&lt;a href=&quot;https://github.com/dliting/nlang&quot;&gt;https://github.com/dliting/nlang&lt;/a&gt;</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

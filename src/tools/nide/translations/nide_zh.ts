@@ -690,14 +690,8 @@
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="840"/>
-        <source>NLang IDE %1
-The integrated development environment for the NLang scripting language.
-
-https://github.com/dliting/nlang</source>
-        <translation>NLang IDE %1
-NLang 脚本语言的集成开发环境。
-
-https://github.com/dliting/nlang</translation>
+        <source>NLang IDE %1&lt;br&gt;The integrated development environment for the NLang scripting language.&lt;br&gt;&lt;br&gt;&lt;a href=&quot;https://github.com/dliting/nlang&quot;&gt;https://github.com/dliting/nlang&lt;/a&gt;</source>
+        <translation>NLang IDE %1&lt;br&gt;NLang 脚本语言的集成开发环境。&lt;br&gt;&lt;br&gt;&lt;a href=&quot;https://github.com/dliting/nlang&quot;&gt;https://github.com/dliting/nlang&lt;/a&gt;</translation>
     </message>
     <message>
         <source>Clear Recent List</source>

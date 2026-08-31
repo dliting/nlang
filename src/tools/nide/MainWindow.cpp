@@ -986,12 +986,16 @@ void MainWindow::on_actViewToolBar_triggered(bool checked) {
 
 void MainWindow::on_actHelpAbout_triggered() {
     //The version line comes from the generated nlang_version.h (single
-    //source: the repository VERSION file). The URL is plain text on
-    //purpose: the message box label does not open external links.
+    //source: the repository VERSION file). The anchor makes Qt treat
+    //the whole text as rich text, so line breaks must be <br> -- a raw
+    //\n collapses to a space. The message box label opens external
+    //links by default and renders anchors as blue underlined text.
     QMessageBox::about(
         this, tr("About NLang IDE"),
-        tr("NLang IDE %1\nThe integrated development environment for the "
-           "NLang scripting language.\n\nhttps://github.com/dliting/nlang")
+        tr("NLang IDE %1<br>The integrated development environment for "
+           "the NLang scripting language.<br><br>"
+           "<a href=\"https://github.com/dliting/nlang\">"
+           "https://github.com/dliting/nlang</a>")
             .arg(QLatin1String(NLANG_VERSION)));
 }
 

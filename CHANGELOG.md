@@ -9,7 +9,8 @@ All notable changes to NLang are documented here. The format follows
 ### Added
 
 - nide: the About dialog now shows the project's GitHub address
-  (https://github.com/dliting/nlang).
+  (https://github.com/dliting/nlang) as a blue underlined link; clicking
+  it opens the default browser.
 
 ### Changed
 
