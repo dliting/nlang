@@ -435,8 +435,12 @@ cast_float_to_int_truncate 7
 string_relational_cmp 7
 # --- P3.8: lock string length() returns byte count (not Unicode code-point count) ---
 string_length_is_bytes 7
-# --- P3.8: lock logical && || eager (no short-circuit, both operands evaluated) ---
+# --- P3.8 revised 2026-08-31: logical && || short-circuit; operands must be int ---
 logical_no_short_circuit_throws 1
+# --- 2026-08-31: logical/! operands must be int (aligns with if/while condition gate) ---
+logical_operand_float compile_error operator '&&' requires int operands
+logical_operand_string compile_error operator '||' requires int operands
+not_operand_float compile_error operator '!' requires an int operand
 # --- P3.8: lock array negative-index throws (mirrors list_negative_index_throws) ---
 array_negative_index_throws 1
 # --- Phase 8e-9b: Object.toString() protocol (class/enum/string/int/float) ---

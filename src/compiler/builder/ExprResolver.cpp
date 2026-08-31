@@ -2542,6 +2542,40 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 				FixupExprType(it, rightCI);
 			}
 		}
+		//Short-circuit hardening (2026-08-31): logical operands feed
+		//OP_JumpIfNot, which reads one int32 — the same policy as
+		//statement conditions (CheckIntCondition in
+		//StatementResolver.hpp; widen both together). Without this
+		//gate a float/string operand is read as raw bits, giving
+		//garbage truthiness.
+		if (!isCompare)
+		{
+			auto bop = sn.Op();
+			const char* szOp = bop == SnBinaryExpr::OP_LogicalAnd
+				? "&&" : bop == SnBinaryExpr::OP_LogicalOr
+				? "||" : "!";
+			const char* szShape = sn.Right()
+				? "int operands" : "an int operand";
+			auto* pLT = sn.Left()->EvalDataType();
+			if (pLT && pLT->Kind() != NK_Int32)
+			{
+				m_Env.Log(CLL_Error, sn.Left()->Location(),
+					"operator '%s' requires %s, got \"%s\".",
+					szOp, szShape, pLT->ToString().c_str());
+				return;
+			}
+			if (sn.Right())
+			{
+				auto* pRT = sn.Right()->EvalDataType();
+				if (pRT && pRT->Kind() != NK_Int32)
+				{
+					m_Env.Log(CLL_Error, sn.Right()->Location(),
+						"operator '%s' requires %s, got \"%s\".",
+						szOp, szShape, pRT->ToString().c_str());
+					return;
+				}
+			}
+		}
 		auto* intType = SnBuiltinDataType::InstanceOf(NK_Int32);
 		sn.EvalDataType(intType);
 	}
