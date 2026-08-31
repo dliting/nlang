@@ -66,8 +66,8 @@ enum class OpCode : uint8_t {
     OP_NotEqual_f32,
 
     // === Logical ===
-    //&& and || are lowered to short-circuit jump sequences at codegen
-    //(see VmBackend.cpp); OP_LogicalNot is the only eager logical opcode.
+    //&& and || are lowered to short-circuit jump sequences in
+    //VmBackend::EmitExpression; OP_LogicalNot is the only eager logical opcode.
     OP_LogicalNot,      // uint16 dst, locals[dst] = !locals[dst]
 
     // === Function call ===

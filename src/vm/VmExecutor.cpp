@@ -487,7 +487,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
         }
 
-        //Comparison and logical ops: result written to locals[lhs], like arithmetic ops.
+        //Comparison ops: result written to locals[lhs], like arithmetic ops.
         //Reference: EN's IfStmt::Compile pattern.
         case OpCode::OP_Less_i32: {
             uint16_t lhs = reader.ReadUint16();
