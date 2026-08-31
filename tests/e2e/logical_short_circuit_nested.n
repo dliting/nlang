@@ -1,5 +1,5 @@
 //Nested chains: left associativity (a&&b)&&c — each link can short-
-//circuit the rest. Mixed precedence: && binds tighter than ||.
+//circuit the rest.
 int main() {
     int a = 0;
     int b = 1;
@@ -8,7 +8,8 @@ int main() {
     int r1 = (a != 0) && (b != 0) && (1 / 0 == 0);
     //|| chain: first link true -> rest (1/0) must not run
     int r2 = (b == 1) || (a == 5) || (1 / 0 == 0);
-    //mixed: (b==1 && c==2) is true -> || short-circuits the 1/0
+    //mixed: a truthy compound && result short-circuits ||'s right;
+    //grouping is explicit (parenthesized), so precedence is not exercised
     int r3 = (b == 1 && c == 2) || (1 / 0 == 0);
     if (r1 != 0) return 2;
     if (r2 != 1) return 3;

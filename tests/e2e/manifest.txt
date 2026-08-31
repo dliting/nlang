@@ -438,7 +438,7 @@ string_length_is_bytes 7
 # --- P3.8 revised 2026-08-31: logical && || short-circuit (C-style; skipped operand not evaluated) ---
 logical_short_circuit 7
 logical_short_circuit_values 42
-logical_short_circuit_side_effect 7
+logical_short_circuit_side_effect 42
 logical_short_circuit_nested 7
 # --- 2026-08-31: logical/! operands must be int (aligns with if/while condition gate) ---
 logical_operand_float compile_error operator '&&' requires int operands

@@ -2,6 +2,8 @@
 //the evaluated one must. Counter observed via a class field.
 class Counter {
     public int n;
+    //bump()'s return value 1 is load-bearing: r3/r4 below assert the
+    //evaluated operand's value flows through as the logical result.
     public int bump() { this.n = this.n + 1; return 1; }
 }
 int main() {
@@ -16,6 +18,9 @@ int main() {
     if (c.n != 1) return 4;
     int r4 = (a != 0) || c.bump();  //evaluated
     if (c.n != 2) return 5;
-    if (r1 != 0 || r2 != 1 || r3 != 1 || r4 != 1) return 6;
-    return 7;
+    if (r1 != 0) return 6;
+    if (r2 != 1) return 7;
+    if (r3 != 1) return 8;
+    if (r4 != 1) return 9;
+    return 42;
 }
