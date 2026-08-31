@@ -423,9 +423,13 @@ private slots:
         });
         act(window, "actHelpAbout")->trigger();
         QVERIFY(box != nullptr);
-        //Only the version substring is pinned: the prose is translatable
-        //and the locale may differ from English in this environment.
+        //Only the version substring and the GitHub address are pinned: the
+        //prose is translatable and the locale may differ from English in
+        //this environment.
         QVERIFY2(aboutText.contains(QLatin1String(NLANG_VERSION)),
+                 qPrintable(aboutText));
+        QVERIFY2(aboutText.contains(
+                     QLatin1String("https://github.com/dliting/nlang")),
                  qPrintable(aboutText));
     }
 

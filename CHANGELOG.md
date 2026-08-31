@@ -4,6 +4,13 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — in development
+
+### Added
+
+- nide: the About dialog now shows the project's GitHub address
+  (https://github.com/dliting/nlang).
+
 ## [0.2.0] - 2026-08-31
 
 ### Added
@@ -41,5 +48,6 @@ First public release.
   `examples/`.
 - Windows packaging: portable zip and NSIS installer.
 
+[0.3.0]: https://github.com/dliting/nlang/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dliting/nlang/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dliting/nlang/releases/tag/v0.1.0
