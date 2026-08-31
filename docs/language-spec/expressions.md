@@ -65,10 +65,12 @@ could flip the result.)
 a && b   a || b   !a
 ```
 
-Non-zero is truthy. Both operands are always evaluated — there is **no
-short-circuit**. `false && expr` and `true || expr` will still evaluate
-`expr` (including any side effects or throws it triggers). This differs
-from C/C++/Java/Python which all short-circuit.
+Short-circuit, C-style: `&&` evaluates `b` only when `a` is non-zero;
+`||` evaluates `b` only when `a` is zero. The skipped operand produces no
+observable effect at all — no calls, no throws. The result is always
+`int` `0` or `1` (never the raw operand value). Operands of `&&`, `||`
+and `!` must be `int` — the same rule as `if`/`while` conditions
+(comparisons already produce `int`).
 
 ### Member Access
 

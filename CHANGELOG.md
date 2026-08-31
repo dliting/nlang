@@ -11,6 +11,16 @@ All notable changes to NLang are documented here. The format follows
 - nide: the About dialog now shows the project's GitHub address
   (https://github.com/dliting/nlang).
 
+### Changed
+
+- Language: `&&` and `||` now short-circuit (the skipped operand is never
+  evaluated — no side effects, no throws), matching C/C++/Java/Python
+  conventions; results stay `int` `0`/`1`. Operands of `&&`, `||` and `!`
+  must now be `int` (float/string operands were previously read as raw
+  bits with meaningless truthiness — now a compile error). Old bytecode
+  modules containing the removed eager `OP_LogicalAnd`/`OP_LogicalOr`
+  instructions must be recompiled.
+
 ## [0.2.0] - 2026-08-31
 
 ### Added

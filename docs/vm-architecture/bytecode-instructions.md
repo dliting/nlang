@@ -36,9 +36,11 @@
 | OP_Less_i32     | lhs, rhs    | locals[lhs] = (a < b) ? 1 : 0     |
 | OP_Equal_i32    | lhs, rhs    | locals[lhs] = (a == b) ? 1 : 0    |
 | ...             |             | (same pattern for all comparisons) |
-| OP_LogicalAnd   | lhs, rhs    | locals[lhs] = (a && b) ? 1 : 0    |
-| OP_LogicalOr    | lhs, rhs    | locals[lhs] = (a || b) ? 1 : 0    |
 | OP_LogicalNot   | dst         | locals[dst] = !locals[dst]         |
+
+`&&` and `||` have no dedicated instruction — they are lowered at codegen
+to a short-circuit jump sequence (`OP_JumpIfNot` plus double
+`OP_LogicalNot` normalization); `OP_LogicalNot` is what implements `!`.
 
 ### Control Flow
 
