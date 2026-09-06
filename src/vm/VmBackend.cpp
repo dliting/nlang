@@ -6,6 +6,7 @@
 #include <nlang/compiler/SnStatements.h>
 #include <nlang/compiler/SnExtraTypes.h>
 #include <nlang/compiler/ScriptLocation.h>
+#include <nlang/compiler/TranslationUnit.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <cassert>
@@ -730,6 +731,16 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
     }
 }
 
+//v1.9 (debugger): source file path recorded per function. Location() is
+//null only for synthesized/imported stubs (those paths don't reach
+//RegisterFunctions), so the null checks are defensive double-cover.
+static std::string SourceFilePathOf(const SnFunction& func) {
+    auto* pLoc = func.Location();
+    if (!pLoc) return std::string();
+    auto* pTu = pLoc->TransUnit();
+    return pTu ? pTu->FilePath() : std::string();
+}
+
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
     for (auto& member : root.Members()) {
@@ -741,6 +752,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
                 continue;
             CompiledFunction cf;
             cf.name = func.Name();
+            cf.sourceFile = SourceFilePathOf(func);
             m_compiledModule.functions.push_back(std::move(cf));
             m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
         } else if (member.Kind() == NK_EnumDecl) {
@@ -754,6 +766,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
                     continue;
                 CompiledFunction cf;
                 cf.name = method.Name();
+                cf.sourceFile = SourceFilePathOf(method);
                 m_compiledModule.functions.push_back(std::move(cf));
                 m_funcIndexMap[&method] =
                     m_compiledModule.functions.size() - 1;
@@ -766,6 +779,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
                         continue;
                     CompiledFunction cf;
                     cf.name = func.Name();
+                    cf.sourceFile = SourceFilePathOf(func);
                     m_compiledModule.functions.push_back(std::move(cf));
                     m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
                 }
@@ -1133,6 +1147,13 @@ void VmBackend::MergeImportedFinalize() {
             //would leave the consumer calling empty bytecode (silent stale
             //pResult instead of a native table lookup).
             placeholder.isNative = im.functions[i].isNative;
+            //v1.9 (debugger): locals + source file must survive the
+            //merge. locals absence was a pre-existing GC root-set hole:
+            //MarkPhase walks func->locals of every frame, so imported
+            //frames had an empty root set and live objects could be
+            //swept; the debugger also needs them for `info locals`.
+            placeholder.locals = im.functions[i].locals;
+            placeholder.sourceFile = im.functions[i].sourceFile;
             //bytecode filled in stage B.2
             m_compiledModule.functions.push_back(std::move(placeholder));
         }

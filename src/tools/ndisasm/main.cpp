@@ -35,6 +35,8 @@ static void DisassembleFunction(const CompiledFunction& func,
         std::cout << ", native";
     if (func.intrinsicId != 0xFFFF)
         std::cout << ", intrinsic=" << func.intrinsicId;
+    if (!func.sourceFile.empty())
+        std::cout << ", file=" << func.sourceFile;
     std::cout << ")\n";
 
     if (func.bytecode.empty()) {

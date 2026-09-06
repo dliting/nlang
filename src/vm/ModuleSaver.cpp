@@ -128,6 +128,12 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
                      sizeof(lnameLen));
             fs.write(ld.name.c_str(), lnameLen);
         }
+
+        //v1.9 (debugger): source file path, always emitted (len+bytes,
+        //like the name field above). Readers gate on minorVer>=9.
+        uint32_t sfileLen = static_cast<uint32_t>(func.sourceFile.size());
+        fs.write(reinterpret_cast<const char*>(&sfileLen), sizeof(sfileLen));
+        fs.write(func.sourceFile.c_str(), sfileLen);
     }
 
     // Struct descriptors

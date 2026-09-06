@@ -545,10 +545,10 @@ Function:	FunctionHeader FunctionBody {
 				} ;
 
 FunctionHeader:	AccessType NodeFlags Type TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, $3, $4, $6, @2);
+						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
 					}
 					| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, nullptr, $4, $6, @2);
+						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
 					} ;
 
 FunctionBody:	Paragraph {
@@ -1131,7 +1131,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				} |
 				AccessType NodeFlags Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
+					auto* func = new SnFunction($1, $2, $3, $4, $6, @3);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1156,7 +1156,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				}
 				| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
+					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @3);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else

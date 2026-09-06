@@ -37,8 +37,10 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
     const uint16_t kCurrentMinorVer = NMOD_FORMAT_MINOR;
-    //v1.7 (Phase 11): stdlib intrinsics + reserved namespaces.
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 8)
+    //v1.9 (debugger): per-function source files. v1.8 added the Phase 13
+    //function-value opcodes, so an older VM cannot execute them either —
+    //floor/ceiling double-reject semantics unchanged.
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 9)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
@@ -174,6 +176,17 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                 ld.name.resize(lnameLen);
                 fs.read(ld.name.data(), lnameLen);
             }
+        }
+
+        //v1.9 (debugger): per-function source file path.
+        if (minorVer >= 9) {
+            uint32_t sfileLen = 0;
+            fs.read(reinterpret_cast<char*>(&sfileLen), sizeof(sfileLen));
+            if (!fs.good() || sfileLen > (1u << 16))
+                throw std::runtime_error(
+                    "Invalid module: bad source file length");
+            func.sourceFile.resize(sfileLen);
+            fs.read(func.sourceFile.data(), sfileLen);
         }
     }
 

@@ -18,7 +18,10 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //opcodes (Step 1: free function references) plus OP_MakeBoundFunc/
 //OP_MakeVFunc/OP_CallDelegateOut (Step 2: bound method references).
 //Older VMs cannot execute these opcodes; refuse outright.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 8;
+//v1.9 (debugger): per-function source file path — CompiledFunction::
+//sourceFile, emitted unconditionally after the locals block. Cross-module
+//breakpoint addressing (b file.n:LINE) depends on it. No new opcodes.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 9;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -301,6 +304,10 @@ struct CompiledFunction {
     std::vector<DefaultValueDesc> defaultValues;
     //Phase 9d: try/catch table. Empty for functions without try blocks.
     std::vector<TryBlock> tryBlocks;
+    //v1.9 (debugger): source file path this function was compiled from,
+    //as recorded by the TU (empty for intrinsics/unknown). Survives the
+    //import merge so breakpoints can address imported functions.
+    std::string sourceFile;
 };
 
 struct CompiledModule;
