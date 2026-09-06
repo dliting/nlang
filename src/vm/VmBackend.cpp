@@ -731,9 +731,10 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
     }
 }
 
-//v1.9 (debugger): source file path recorded per function. Location() is
-//null only for synthesized/imported stubs (those paths don't reach
-//RegisterFunctions), so the null checks are defensive double-cover.
+//v1.9 (debugger): source file path recorded per function. Imported
+//stubs carry a location whose TransUnit() is null and are normally
+//filtered by the body-less check inside RegisterFunctions; the null
+//guards are defensive cover for anything that slips through.
 static std::string SourceFilePathOf(const SnFunction& func) {
     auto* pLoc = func.Location();
     if (!pLoc) return std::string();
