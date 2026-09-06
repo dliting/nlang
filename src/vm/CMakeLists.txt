@@ -1,6 +1,7 @@
 add_library(nlang_vm
     OpCodeTable.cpp
     VmExecutor.cpp
+    VmExecutorDebug.cpp
     IntrinsicsMath.cpp
     IntrinsicsIo.cpp
     IntrinsicsString.cpp

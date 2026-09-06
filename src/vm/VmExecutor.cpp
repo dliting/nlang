@@ -177,6 +177,9 @@ bool VmExecutor::IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx) 
     //further allocations happen before the throw.
     if (listHeapIdx > 0)
         m_structHeap[static_cast<size_t>(heapIdx)][2] = listHeapIdx;
+    //Debugger checkpoint at the throw site, before unwinding starts
+    //(the full NLang stack is still alive).
+    FireOnThrow();
     throw NLangThrow(heapIdx, msg);
 }
 
@@ -194,7 +197,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
     } guard(m_recurseDepth);
 
     //Push call frame for GC root set. RAII pop on exit.
-    m_callStack.push_back({locals, pResult, &func, 0});
+    m_callStack.push_back({locals, pResult, &func, 0, 0});
     struct FrameGuard {
         std::vector<CallFrame>& stack;
         std::vector<UnwindFrame>& unwind;
@@ -878,8 +881,22 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
 
         case OpCode::OP_DebugInfo: {
             uint16_t line = reader.ReadUint16();
-            if (!m_callStack.empty())
+            if (!m_callStack.empty()) {
                 m_callStack.back().currentLine = line;
+                m_callStack.back().currentPc = opPc;
+            }
+            //Debugger checkpoint: the callback runs with the program
+            //frozen at this statement; returning resumes in place.
+            //Front ends must not let exceptions escape into the VM
+            //(they would cross the NLang try/catch boundary).
+            if (m_pDebugHooks) {
+                DebugStopInfo stop;
+                stop.pc = opPc;
+                stop.line = line;
+                stop.funcIdx = CurrentFuncIdx();
+                stop.depth = m_callStack.size();
+                m_pDebugHooks->OnStatement(stop, *this);
+            }
             break;
         }
 
@@ -1348,6 +1365,10 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             uint16_t src = reader.ReadUint16();
             int32_t heapIdx;
             std::memcpy(&heapIdx, locals + src, sizeof(heapIdx));
+            //Debugger checkpoint at the throw site, before unwinding
+            //starts (user throws do not pass through
+            //RaiseNlangException — same checkpoint, shared helper).
+            FireOnThrow();
             throw NLangThrow(heapIdx, "user throw");
         }
 
@@ -1360,6 +1381,9 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 throw std::runtime_error(
                     "NLang VM: rethrow outside catch handler");
             int32_t h = s.back();
+            //Debugger checkpoint at the rethrow site (same contract as
+            //OP_Throw / RaiseNlangException).
+            FireOnThrow();
             throw NLangThrow(h, "rethrow");
         }
 

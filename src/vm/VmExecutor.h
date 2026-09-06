@@ -1,6 +1,7 @@
 #pragma once
 #include "nlang/vm/CompiledModule.h"
 #include "BytecodeReader.h"
+#include "IDebugHooks.h"
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -32,12 +33,21 @@ enum FuncHandleForm : int32_t {
     kFuncFormVirtual = 1,
 };
 
-class VmExecutor {
+class VmExecutor : public IVmDebugView {
 public:
     VmExecutor() = default;
     ~VmExecutor();
 
     int Execute(const CompiledModule& module);
+
+    //ndb: install a debugger front end. null (default) = previous
+    //behavior; checkpoints then cost one null test per statement.
+    void SetDebugHooks(IDebugHooks* hooks) { m_pDebugHooks = hooks; }
+
+    //IVmDebugView — definitions in VmExecutorDebug.cpp.
+    size_t FrameCount() const override;
+    DebugFrameInfo FrameInfo(size_t depth) const override;
+    std::vector<DebugLocalValue> FrameLocals(size_t depth) const override;
 
     //Phase 9f: host-registered native function. Called when OP_CallFunc
     //reaches a CompiledFunction with isNative set:
@@ -261,6 +271,39 @@ private:
     //Last captured backtrace (filled by Execute's catch block).
     std::string m_lastBacktrace;
 
+    //ndb: debugger front end (null = disabled).
+    IDebugHooks* m_pDebugHooks = nullptr;
+
+    //ndb: functions[] index of the innermost frame. Module functions
+    //vector is stable after load (no reallocation), so pointer
+    //difference is valid.
+    uint16_t CurrentFuncIdx() const;
+
+    //ndb: OnThrow checkpoint fired from every NLangThrow raise site
+    //(built-in RaiseNlangException, OP_Throw, OP_Rethrow) before the
+    //throw, so the full NLang stack is still alive. pc/line use the
+    //frame's current statement anchor — a raise has no OP_DebugInfo of
+    //its own. Definition in VmExecutorDebug.cpp.
+    void FireOnThrow();
+
+    //ndb: shallow value formatters + view plumbing. Definitions live in
+    //VmExecutorDebug.cpp (separate TU: the executor core only gains
+    //checkpoint calls, all inspection logic stays out of it). All
+    //const; none may execute NLang code or touch the NLang heap.
+    std::string FormatDebugLocalSlot(const LocalDescriptor& ld,
+        const uint8_t* frameLocals) const;
+    std::string FormatDebugHeapValue(int32_t heapIdx) const;
+    std::string FormatDebugClassInstance(int32_t heapIdx) const;
+    std::string FormatDebugStructInstance(int32_t heapIdx) const;
+    std::string FormatDebugArray(int32_t heapIdx) const;
+    std::string FormatDebugList(int32_t handle) const;
+    std::string FormatDebugDict(int32_t handle) const;
+    std::string FormatDebugField(int32_t raw, uint16_t declaredKind) const;
+    std::string FormatDebugElementHeap(int32_t heapIdx) const;
+    std::string FormatDebugRefShort(int32_t heapIdx) const;
+    std::string FormatDebugBoxed(int32_t tag, int32_t val) const;
+    std::string FormatDebugStringIdx(int32_t idx) const;
+
     //Struct heap: each slot is a vector of int32 values (one per field).
     //Index 0 is a sentinel (empty slot).
     using StructSlot = std::vector<int32_t>;
@@ -280,6 +323,7 @@ private:
         uint8_t* pResult;
         const CompiledFunction* func;
         uint16_t currentLine = 0;   //updated by OP_DebugInfo; 0 = unknown
+        uint16_t currentPc = 0;     //ndb: pc of the current statement anchor
         //Phase 9d: per-frame stack of currently-caught exception heap idxs.
         //Pushed when a catch handler is entered, popped by OP_PopHandler at
         //catch-block exit. OP_Rethrow reads the top entry to re-raise. Per-

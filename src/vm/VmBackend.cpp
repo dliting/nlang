@@ -4744,9 +4744,16 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     NodeKind kind = stmt.Kind();
 
     //Emit a line marker at every statement so the VM can produce source
-    //location info in backtraces and runtime errors. Skipped for paragraphs
-    //(they are containers, not statements with their own source location).
-    if (kind != NK_Paragraph) {
+    //location info in backtraces and runtime errors. Skipped for
+    //paragraphs (they are containers, not statements with their own
+    //source location) and local declarations: the decomposition pattern
+    //inserts an auto-created AssignStmt per initializer at the same
+    //source line, so a declaration anchor would double every
+    //`int x = init;` stop (ndb steps one stop per user statement; each
+    //declarator's initializer keeps its own AssignStmt anchor, and a
+    //bare `int x;` emits nothing executable beyond struct slot
+    //allocation, which cannot raise).
+    if (kind != NK_Paragraph && kind != NK_LocalDeclStmt) {
         if (auto* pLoc = stmt.Location()) {
             if (auto* pScript = dynamic_cast<const ScriptLocation*>(pLoc)) {
                 uint16_t line = static_cast<uint16_t>(
