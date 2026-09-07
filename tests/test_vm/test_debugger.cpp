@@ -381,8 +381,22 @@ void test_view_frames_and_locals()
     CHECK(hooks.frameNames.size() == 2
         && hooks.frameNames[0] == "inner"
         && hooks.frameNames[1] == "main", "innermost-first ordering");
-    bool sawP = false, sawS = false;
+    //Exact visible-locals pin: filter hidden names (the ndb info-locals
+    //contract), then the visible set must be exactly {p, s} — no extra
+    //descriptors leak into the display. (Frame temps never appear here:
+    //tempSlot1-4/returnSlot/evalArea are raw offsets outside func->locals.)
+    std::vector<std::string> visible;
     for (const auto& l : hooks.localLines) {
+        size_t eq = l.find('=');
+        REQUIRE(eq != std::string::npos);
+        std::string name = l.substr(0, eq);
+        if (name.size() >= 2 && name[0] == '_' && name[1] == '_') continue;
+        if (!name.empty() && name[0] == '$') continue;
+        visible.push_back(l);
+    }
+    CHECK(visible.size() == 2, "exactly two visible locals (param p, s)");
+    bool sawP = false, sawS = false;
+    for (const auto& l : visible) {
         if (l == "p=Point{x=6, y=7}") sawP = true;
         if (l == "s=13") sawS = true;
     }
@@ -439,11 +453,13 @@ void test_view_value_kinds()
     exec.SetDebugHooks(&hooks);
     CHECK(exec.Execute(mod) == 0, "program result");
     REQUIRE(hooks.captured);
+    //Exact full-line pins (no substring slop — the render format is
+    //the e2e assertion contract).
     bool sawS = false, sawP = false, sawA = false;
     for (const auto& l : hooks.localLines) {
-        if (l.find("s=\"hi\"") != std::string::npos) sawS = true;
-        if (l.find("p=P{x=1, y=2}") != std::string::npos) sawP = true;
-        if (l.find("a=int[2]{7, 8}") != std::string::npos) sawA = true;
+        if (l == "s=\"hi\"") sawS = true;
+        if (l == "p=P{x=1, y=2}") sawP = true;
+        if (l == "a=int[2]{7, 8}") sawA = true;
     }
     CHECK(sawS, "string local renders quoted");
     CHECK(sawP, "struct local renders one-level fields");
