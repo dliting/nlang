@@ -495,12 +495,12 @@ std::string DisassembleTryBlocks(const CompiledFunction& func) {
     return out.str();
 }
 
-//Read-side twin of VmBackend.cpp's compiler-side static walk (used by
-//RemapBytecode); the two copies stay separate — merging would couple
-//the front end to the read side. ONE deviation from the compiler copy:
-//the compiler-side default arm asserts (fine for a trusted self-built
-//module), but a debugger walking arbitrary bytecode must fail soft, so
-//the unknown-opcode arm throws instead.
+//Read-side twin of VmBackend.cpp's compiler-side emission walk (used by
+//RemapBytecode); two tables on purpose — they differ by failure policy
+//(the compiler side asserts on a bug in code it just emitted; here the
+//unknown-opcode arm throws so a debugger walking garbage bytecode
+//reports it instead of dying). Equivalence is pinned by
+//test_instruction_stride_exact_landing.
 size_t InstructionStride(OpCode op) {
     switch (op) {
         case OpCode::OP_Return:
@@ -612,9 +612,7 @@ std::vector<LinePcEntry> BuildLinePcMap(const CompiledFunction& func) {
             if (map.empty() || map.back().line != line)
                 map.push_back({line, static_cast<uint16_t>(pc)});
         }
-        size_t stride = InstructionStride(op);
-        if (stride == 0) break;  //defensive: never loop forever
-        pc += stride;
+        pc += InstructionStride(op);
     }
     return map;
 }
