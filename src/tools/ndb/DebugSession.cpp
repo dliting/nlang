@@ -87,7 +87,7 @@ bool IsAllDigits(const std::string& s) {
 DebugSession::DebugSession(const CompiledModule& module,
     std::string modulePath, std::istream& in, std::ostream& out)
     : m_module(module), m_modulePath(std::move(modulePath)),
-      m_in(in), m_out(out) {}
+      m_in(in), m_out(out), m_sourceCache(m_modulePath) {}
 
 DebugSession::~DebugSession() = default;
 
@@ -131,8 +131,16 @@ void DebugSession::OnStatement(const DebugStopInfo& stop,
     m_pView = nullptr;
 }
 
-void DebugSession::OnThrow(const DebugStopInfo&, IVmDebugView&) {
-    //break-on-throw lands in Task 5 with `catch on|off`.
+void DebugSession::OnThrow(const DebugStopInfo& stop, IVmDebugView& view) {
+    //`catch on`: freeze at the throw site before unwinding starts —
+    //the full NLang stack and locals are still alive here.
+    if (!m_breakOnThrow)
+        return;
+    m_pView = &view;
+    m_selectedFrame = 0;
+    ReportStop("Throw:", stop);
+    RunCommandLoop();
+    m_pView = nullptr;
 }
 
 // --- stop reporting ---
@@ -208,6 +216,12 @@ bool DebugSession::RunCommand(const std::string& cmd) {
         DoFrame(arg);
     } else if (head == "p" || head == "print") {
         DoPrint(arg);
+    } else if (head == "l" || head == "list") {
+        DoList(arg);
+    } else if (head == "x") {
+        DoDisassemble();
+    } else if (head == "catch") {
+        DoCatch(arg);
     } else if (head == "q" || head == "quit") {
         Quit();
     } else if (head == "help") {
@@ -436,8 +450,79 @@ void DebugSession::DoHelp() {
         "frame <n>                          select frame\n"
         "info locals                        locals of selected frame\n"
         "p <name>                           print one local\n"
+        "l [line]                           list source around line\n"
+        "x                                  disassemble current frame\n"
+        "catch on|off                       break on throw (default off)\n"
         "q                                  quit (kills the program)\n"
         "help                               this text\n";
+    m_out.flush();
+}
+
+void DebugSession::DoList(const std::string& arg) {
+    if (!m_pView) return;
+    if (!arg.empty() && !IsAllDigits(arg)) {
+        m_out << "Usage: l [line]\n";
+        return;
+    }
+    DebugFrameInfo fi = m_pView->FrameInfo(m_selectedFrame);
+    if (fi.sourceFile.empty()) {
+        m_out << "No source file for this frame.\n";
+        return;
+    }
+    //Window centered on the stop line (or the given line).
+    const int kListWindowLines = 10;
+    int center = fi.line;
+    if (!arg.empty())
+        center = std::atoi(arg.c_str());
+    int begin = center - kListWindowLines / 2;
+    if (begin < 1)
+        begin = 1;
+    const auto& lines = m_sourceCache.Lines(fi.sourceFile);
+    for (int n = begin; n < begin + kListWindowLines; ++n) {
+        const char* marker = (n == fi.line) ? "->" : "  ";
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%s%5d", marker, n);
+        if (n >= 1 && static_cast<size_t>(n) <= lines.size())
+            m_out << buf << "\t" << lines[static_cast<size_t>(n) - 1]
+                  << "\n";
+        else
+            m_out << buf << "\n";  //degraded / past EOF: number only
+    }
+    m_out.flush();
+}
+
+void DebugSession::DoDisassemble() {
+    if (!m_pView) return;
+    DebugFrameInfo fi = m_pView->FrameInfo(m_selectedFrame);
+    if (fi.funcIdx >= m_module.functions.size())
+        return;
+    const auto& func = m_module.functions[fi.funcIdx];
+    if (func.bytecode.empty()) {
+        m_out << "No bytecode for " << fi.funcName << ".\n";
+        m_out.flush();
+        return;
+    }
+    //Shared Disassembler (same source as ndisasm); >> marks the
+    //frame's current statement anchor pc.
+    for (const auto& dl : DisassembleCode(func, m_module))
+        m_out << (dl.pc == fi.pc ? ">>" : "  ") << "  " << dl.text
+              << "\n";
+    m_out << DisassembleTryBlocks(func);
+    m_out.flush();
+}
+
+void DebugSession::DoCatch(const std::string& arg) {
+    if (arg == "on") {
+        m_breakOnThrow = true;
+    } else if (arg == "off") {
+        m_breakOnThrow = false;
+    } else if (!arg.empty()) {
+        m_out << "Usage: catch on|off\n";
+        m_out.flush();
+        return;
+    }
+    m_out << "Break on throw: " << (m_breakOnThrow ? "on" : "off")
+          << "\n";
     m_out.flush();
 }
 

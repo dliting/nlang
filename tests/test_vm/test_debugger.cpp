@@ -15,6 +15,7 @@
 #include "ModuleLoader.h"
 #include "Disassembler.h"
 #include "DebugSession.h"
+#include "SourceCache.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -882,6 +883,113 @@ void test_session_break_by_func()
     PASS();
 }
 
+// --- Task 5: SourceCache / l / x / catch ---
+
+void test_sourcecache_resolution()
+{
+    //As-recorded path resolves; stale recorded path falls back to the
+    //.nmod's directory by basename; unresolvable degrades to empty
+    //(and the negative result is cached).
+    TEST(sourcecache_resolution);
+    BuildOutcome b = buildSource("src_cache",
+        "int main() {\n"      //1
+        "    return 0;\n"     //2
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("src_cache");
+    int idx = mod.FindFunction("main");
+    REQUIRE(idx >= 0);
+    const auto& mainf = mod.functions[static_cast<size_t>(idx)];
+    SourceCache cache((scratchDir() / "src_cache.nmod").string());
+    const auto& lines = cache.Lines(mainf.sourceFile);
+    REQUIRE(lines.size() >= 3);
+    CHECK(lines[0].find("int main()") != std::string::npos,
+        "as-recorded path resolves to the real source");
+    {
+        std::ofstream out(scratchDir() / "sibling.n", std::ios::binary);
+        out << "line one\nline two\n";
+    }
+    const auto& sib = cache.Lines("D:\\gone\\away\\sibling.n");
+    CHECK(sib.size() == 2 && sib[1] == "line two",
+        "stale recorded path falls back to the .nmod directory");
+    const auto& none = cache.Lines("Z:\\no\\such\\file.n");
+    CHECK(none.empty(), "unresolvable file degrades to empty");
+    CHECK(&cache.Lines("Z:\\no\\such\\file.n") == &none,
+        "negative result is cached (stable reference)");
+    PASS();
+}
+
+void test_session_source_list()
+{
+    TEST(session_source_list);
+    std::string out = RunSession("sess_list",
+        "int fib(int n) {\n"                  //1
+        "    if (n < 2) {\n"                  //2
+        "        return n;\n"                 //3
+        "    }\n"                             //4
+        "    return fib(n - 1) + fib(n - 2);\n"//5
+        "}\n"                                 //6
+        "int main() {\n"                      //7
+        "    int r = fib(10);\n"              //8
+        "    return r - 55;\n"                //9
+        "}\n",                                //10
+        "b 9\nc\nl\nc\n");
+    //Initial stop is main:8 (the first statement) — a breakpoint on 8
+    //can never hit again, so the script breaks on 9 instead. Window is
+    //centered on the stop line: marker on 9, neighbors 4..13 unmarked.
+    //Line format = 2-char marker + 5-char right-aligned number + TAB
+    //(unmarked line 4 = 6 spaces + '4').
+    CHECK(out.find("->    9\t") != std::string::npos,
+        "stop line carries the -> marker");
+    CHECK(out.find("      4\t") != std::string::npos,
+        "window shows unmarked lines (4 = 9 - 5)");
+    CHECK(out.find("     10\t") != std::string::npos,
+        "window spans past the stop line (10 = 9 + 1 < 9 + 5)");
+    PASS();
+}
+
+void test_session_disasm_marker()
+{
+    TEST(session_disasm_marker);
+    std::string out = RunSession("sess_x",
+        "int main() {\n"       //1
+        "    int a = 6;\n"     //2
+        "    int b = a * 7;\n" //3
+        "    return b - 42;\n" //4
+        "}\n",
+        "x\nc\n");
+    //`x` at the initial stop: the first statement's pc carries the
+    //>> marker; the rest are blank-marked disassembly lines.
+    CHECK(out.find(">>  00") != std::string::npos,
+        "current pc is marked with >>");
+    CHECK(out.find("    00") != std::string::npos,
+        "other instructions are blank-marked");
+    PASS();
+}
+
+void test_session_catch_throw()
+{
+    TEST(session_catch_throw);
+    std::string out = RunSession("sess_catch",
+        "int main() {\n"                             //1
+        "    int a = 1;\n"                           //2
+        "    try {\n"                                //3
+        "        throw new Exception(\"boom\");\n"   //4
+        "    } catch (Exception e) {\n"              //5
+        "        return 7;\n"                        //6
+        "    }\n"                                    //7
+        "}\n",
+        "catch on\nc\nc\n");
+    //The throw statement's own OP_DebugInfo sets currentLine=4 before
+    //OP_Throw runs, so the Throw: report anchors at line 4 with the
+    //stack still alive; the second c completes the unwind into catch.
+    CHECK(out.find("Break on throw: on") != std::string::npos,
+        "catch on echoes the new state");
+    CHECK(out.find("Throw: main (sess_catch.n:4)") != std::string::npos,
+        "throw site freeze report");
+    PASS();
+}
+
 int main()
 {
     //In-process host init: ModuleBuilder's Build() dereferences the
@@ -912,6 +1020,11 @@ int main()
     test_session_bt_and_locals();
     test_session_frame_select();
     test_session_break_by_func();
+
+    test_sourcecache_resolution();
+    test_session_source_list();
+    test_session_disasm_marker();
+    test_session_catch_throw();
 
     std::cerr << "\ndebugger_tests: " << g_pass << " passed, "
               << g_fail << " failed\n";

@@ -1,0 +1,6 @@
+//e2e dbg_disasm: `x` shows disassembly with the current pc marked.
+int main() {
+    int a = 6;
+    int b = a * 7;
+    return b - 42;
+}

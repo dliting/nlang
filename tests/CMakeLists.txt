@@ -40,11 +40,12 @@ add_test(NAME stdlib_tests COMMAND test_stdlib)
 
 # ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSession stepping. DebugSession.cpp
-# is compiled into the test (the tool's main.cpp is not) so RunSession
-# can drive the command loop with string streams.
+# and SourceCache.cpp are compiled into the test (the tool's main.cpp
+# is not) so RunSession can drive the command loop with string streams.
 add_executable(test_debugger
     test_vm/test_debugger.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSession.cpp
+    ${PROJECT_SOURCE_DIR}/src/tools/ndb/SourceCache.cpp
 )
 
 target_include_directories(test_debugger

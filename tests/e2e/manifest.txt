@@ -997,3 +997,6 @@ dbg_bt_locals 0 Point{x=2, y=3}
 dbg_exit_code 42 Program exited with code 42.
 dbg_multifile_break 0 Breakpoint 1, triple (mathutil.n:3)
 dbg_quit_eof 0 Breakpoint 1, main (dbg_quit_eof.n:4)
+dbg_source_list 0 ->   10
+dbg_disasm 0 >>  00
+dbg_catch_throw 3 Throw: main (dbg_catch_throw.n:4)

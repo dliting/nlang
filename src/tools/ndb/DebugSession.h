@@ -1,5 +1,6 @@
 #pragma once
 #include "IDebugHooks.h"
+#include "SourceCache.h"
 #include "nlang/vm/CompiledModule.h"
 #include <cstdint>
 #include <iosfwd>
@@ -58,6 +59,9 @@ private:
     void DoFrame(const std::string& arg);
     void DoInfoLocals();
     void DoPrint(const std::string& arg);
+    void DoList(const std::string& arg);
+    void DoDisassemble();
+    void DoCatch(const std::string& arg);
     void DoHelp();
     [[noreturn]] void Quit();
 
@@ -71,6 +75,8 @@ private:
     size_t m_selectedFrame = 0;
     int m_nextBreakpointId = 1;
     std::vector<Breakpoint> m_breakpoints;
+    SourceCache m_sourceCache;   //`l` source resolution + caching
+    bool m_breakOnThrow = false; //`catch on|off` (default off)
 };
 
 } // namespace nlang
