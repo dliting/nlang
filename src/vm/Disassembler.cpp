@@ -608,9 +608,11 @@ std::vector<LinePcEntry> BuildLinePcMap(const CompiledFunction& func) {
         if (op == OpCode::OP_DebugInfo && pc + 2 < bc.size()) {
             uint16_t line = static_cast<uint16_t>(
                 bc[pc + 1] | (bc[pc + 2] << 8));
-            //First pc wins: entries ascend, only push unseen lines.
-            if (map.empty() || map.back().line != line)
-                map.push_back({line, static_cast<uint16_t>(pc)});
+            //Every statement anchor is an entry (gdb-style one line,
+            //multiple locations) — no same-line dedup: a collapsed copy
+            //would drop real execution paths (finally normal path,
+            //if/else arms) from breakpoint addressing.
+            map.push_back({line, static_cast<uint16_t>(pc)});
         }
         pc += InstructionStride(op);
     }

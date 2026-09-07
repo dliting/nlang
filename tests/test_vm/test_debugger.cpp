@@ -538,30 +538,33 @@ void test_linepc_map_first_pc()
     PASS();
 }
 
-void test_linepc_map_same_line_collapse()
+void test_linepc_map_same_line_multi_anchor()
 {
-    //CONSECUTIVE same-line anchors collapse to the first entry: the
-    //multi-declarator line and the one-line if/else each yield ONE
-    //entry, not one per declarator/statement (post-D7 each declarator's
-    //initializer AssignStmt carries its own anchor — all on one line).
-    TEST(linepc_map_same_line_collapse);
-    BuildOutcome b = buildSource("linepc_collapse",
+    //EVERY statement anchor is an entry (gdb-style one line, multiple
+    //locations): the multi-declarator line keeps both declarator
+    //anchors, the one-line if/else keeps cond + both arms — `b LINE`
+    //can cover each statement on the line, not just the first.
+    TEST(linepc_map_same_line_multi_anchor);
+    BuildOutcome b = buildSource("linepc_multi_anchor",
         "int main() {\n"                               //1
         "    int a = 1, b = 2;\n"                      //2 (two anchors)
         "    if (a > b) { a = 3; } else { b = 4; }\n"  //3 (three anchors)
         "    return a + b;\n"                          //4
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    CompiledModule mod = loadBuilt("linepc_collapse");
+    CompiledModule mod = loadBuilt("linepc_multi_anchor");
     int mainIdx = mod.FindFunction("main");
     REQUIRE(mainIdx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(mainIdx)];
     auto map = BuildLinePcMap(mainf);
-    //Without collapse this map would hold 2 + 3 + 1 = 6 entries.
-    CHECK(map.size() == 3, "one entry per line, not per anchor");
-    CHECK(map[0].line == 2 && map[1].line == 3 && map[2].line == 4,
-        "lines 2,3,4 in order");
-    CHECK(map[0].pc < map[1].pc && map[1].pc < map[2].pc, "pcs ascend");
+    //2 (multidecl) + 3 (cond + both if/else arms) + 1 (return) = 6.
+    CHECK(map.size() == 6, "one entry per statement anchor");
+    const uint16_t want[] = {2, 2, 3, 3, 3, 4};
+    for (size_t i = 0; i < map.size(); ++i)
+        CHECK(map[i].line == want[i],
+            "entry " + std::to_string(i) + " line");
+    for (size_t i = 1; i < map.size(); ++i)
+        CHECK(map[i - 1].pc < map[i].pc, "pcs ascend");
     PASS();
 }
 
@@ -569,10 +572,10 @@ void test_linepc_map_finally_duplicates()
 {
     //try/finally emits each finally-body statement's anchor TWICE: the
     //exception-path copy in the handler region FIRST, then the
-    //normal-path copy. With >=2 finally statements the copies are
-    //non-adjacent markers, so BOTH survive in the map (review probe
-    //temp/linepc_probe.cpp; a single-statement body's copies are
-    //consecutive and collapse — pinned separately below).
+    //normal-path copy. Every anchor is an entry, so BOTH copies appear
+    //for every finally-body statement (review probe
+    //temp/linepc_probe.cpp; the single-statement body is pinned by
+    //test_linepc_map_finally_single_two_copies below).
     TEST(linepc_map_finally_duplicates);
     BuildOutcome b = buildSource("linepc_finally_dup",
         "int main() {\n"          //1
@@ -612,14 +615,13 @@ void test_linepc_map_finally_duplicates()
     PASS();
 }
 
-void test_linepc_map_finally_single_collapses()
+void test_linepc_map_finally_single_two_copies()
 {
-    //Characterization (do NOT read as an endorsement): a SINGLE-statement
-    //finally body's exception-path and normal-path anchors are CONSECUTIVE
-    //same-line markers, so they collapse to the exception-path entry —
-    //the normal-path pc is NOT in the map. T4 breakpoint placement must
-    //not assume the map covers every execution path of a finally line.
-    TEST(linepc_map_finally_single_collapses);
+    //try/finally compiles a single-statement finally body TWICE: the
+    //exception-path copy (handler region) and the normal-path copy.
+    //Both are entries — under the old adjacent-collapse the normal-path
+    //pc was dropped, so `b LINE` could never fire on the normal path.
+    TEST(linepc_map_finally_single_two_copies);
     BuildOutcome b = buildSource("linepc_finally_single",
         "int main() {\n"          //1
         "    int a = 0;\n"        //2
@@ -636,12 +638,22 @@ void test_linepc_map_finally_single_collapses()
     REQUIRE(mainIdx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(mainIdx)];
     auto map = BuildLinePcMap(mainf);
-    //Observed marker stream: 2,3,4,6,6,8 — the two L6 anchors collapse.
-    REQUIRE(map.size() == 5);
-    const uint16_t want[] = {2, 3, 4, 6, 8};
+    //Observed marker stream: 2,3,4,6,6,8 — the finally line twice.
+    REQUIRE(map.size() == 6);
+    const uint16_t want[] = {2, 3, 4, 6, 6, 8};
     for (size_t i = 0; i < map.size(); ++i)
         CHECK(map[i].line == want[i],
             "entry " + std::to_string(i) + " line");
+    CHECK(map[3].line == 6 && map[4].line == 6 && map[3].pc < map[4].pc,
+        "finally line twice, exception-path copy first");
+    //Both copies' pcs sit on OP_DebugInfo round-tripping the line.
+    const auto& bc = mainf.bytecode;
+    for (size_t i = 3; i <= 4; ++i) {
+        REQUIRE(map[i].pc + 2 < bc.size());
+        uint16_t dec = static_cast<uint16_t>(
+            bc[map[i].pc + 1] | (bc[map[i].pc + 2] << 8));
+        CHECK(dec == 6, "finally copy pc points at line 6");
+    }
     PASS();
 }
 
@@ -719,9 +731,9 @@ int main()
     test_view_value_kinds();
     test_hooks_cpp_exception_propagates();
     test_linepc_map_first_pc();
-    test_linepc_map_same_line_collapse();
+    test_linepc_map_same_line_multi_anchor();
     test_linepc_map_finally_duplicates();
-    test_linepc_map_finally_single_collapses();
+    test_linepc_map_finally_single_two_copies();
     test_instruction_stride_exact_landing();
 
     std::cerr << "\ndebugger_tests: " << g_pass << " passed, "

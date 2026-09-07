@@ -29,17 +29,17 @@ std::string DisassembleTryBlocks(const CompiledFunction& func);
 //pinned by test_instruction_stride_exact_landing.
 size_t InstructionStride(OpCode op);
 
-//line -> pc(s) of its statement markers. Built by walking bytecode
+//line -> pc(s) of its statement anchors. Built by walking bytecode
 //with InstructionStride and reading OP_DebugInfo operands directly
 //(parsing disassembly text would be the wrong direction). Entries
-//ascend by pc; CONSECUTIVE same-line anchors collapse to the first
-//(multi-declarator lines, one-line if/else, while cond+body). A line
-//may still appear more than once NON-adjacently: try/finally emits an
-//exception-path copy of each finally-body line (handler region, first)
-//and a normal-path copy — both real executions, so consumers picking
-//breakpoint addresses must handle multiple entries per line. (A
-//single-statement finally body's two copies are consecutive and
-//collapse to the exception-path entry.) Also the `l`/`x` anchor table.
+//ascend by pc; EVERY statement anchor is an entry (gdb-style one line,
+//multiple locations) — no same-line dedup. A line may appear multiple
+//times: consecutively (several statements on one line — multi-
+//declarators, one-line if/else arms, while cond+body) and non-adjacently
+//(try/finally compiles each finally-body statement twice: exception-
+//path copy in the handler region first, then the normal-path copy).
+//Consumers resolving `b LINE` must break on ALL entries of the line.
+//Also the `l`/`x` anchor table.
 struct LinePcEntry {
     uint16_t line = 0;
     //u16 pc on purpose: jump-address width (Phase 9d executor precedent
