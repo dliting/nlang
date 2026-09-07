@@ -1,0 +1,5 @@
+//Imported module: one free function, no main().
+int triple(int v) {
+    int t = v * 3;
+    return t;
+}

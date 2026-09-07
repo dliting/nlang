@@ -1,0 +1,6 @@
+//e2e dbg_exit_code: ndb exits with the program's code.
+int main() {
+    int v = 40;
+    v = v + 2;
+    return v;
+}

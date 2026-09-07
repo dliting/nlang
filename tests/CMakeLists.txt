@@ -39,14 +39,18 @@ target_link_libraries(test_stdlib
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
 # ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
-# debug hooks, read-only view, DebugSession stepping.
+# debug hooks, read-only view, DebugSession stepping. DebugSession.cpp
+# is compiled into the test (the tool's main.cpp is not) so RunSession
+# can drive the command loop with string streams.
 add_executable(test_debugger
     test_vm/test_debugger.cpp
+    ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSession.cpp
 )
 
 target_include_directories(test_debugger
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/tools/ndb
         ${PROJECT_SOURCE_DIR}/include
 )
 
@@ -399,7 +403,11 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
             $<TARGET_FILE:ndisasm> ndisasm ${NLANG_VERSION})
-    set_tests_properties(version_ncc version_nvm version_ndisasm
+    add_test(NAME version_ndb
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
+            $<TARGET_FILE:ndb> ndb ${NLANG_VERSION})
+    set_tests_properties(version_ncc version_nvm version_ndisasm version_ndb
         PROPERTIES TIMEOUT 60)
 endif()
 

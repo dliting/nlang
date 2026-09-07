@@ -14,10 +14,12 @@
 #include "IDebugHooks.h"
 #include "ModuleLoader.h"
 #include "Disassembler.h"
+#include "DebugSession.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -712,6 +714,174 @@ void test_instruction_stride_exact_landing()
     PASS();
 }
 
+// --- Task 4: DebugSession (CLI front end) ---
+
+//Drive a DebugSession over a compiled source with a command script;
+//returns everything the session wrote. Scripts MUST run the program
+//to completion (final `c`) — hitting EOF while frozen would quit the
+//whole test binary (EOF = q by contract; dbg_quit_eof e2e pins that
+//in a subprocess instead).
+static std::string RunSession(const std::string& tag,
+    const std::string& source, const std::string& commands)
+{
+    BuildOutcome b = buildSource(tag, source);
+    if (!b.ok) return "BUILD FAILED: " + b.diagnostics;
+    CompiledModule mod = loadBuilt(tag);
+    std::ostringstream out;
+    std::istringstream in(commands);
+    DebugSession session(mod,
+        (scratchDir() / (tag + ".nmod")).string(), in, out);
+    VmExecutor exec;
+    exec.SetDebugHooks(&session);
+    exec.Execute(mod);
+    return out.str();
+}
+
+void test_session_initial_stop_and_continue()
+{
+    TEST(session_initial_stop_and_continue);
+    std::string out = RunSession("sess_init",
+        "int main() {\n"      //1
+        "    int a = 1;\n"    //2
+        "    return a;\n"     //3
+        "}\n",
+        "c\n");
+    CHECK(out.find("Stopped: main (sess_init.n:2)") != std::string::npos,
+        "initial stop at main's first statement");
+    CHECK(out.find("(ndb) ") != std::string::npos, "prompt shown");
+    PASS();
+}
+
+void test_session_step_semantics()
+{
+    TEST(session_step_semantics);
+    std::string out = RunSession("sess_step",
+        "int inner(int v) {\n"   //1
+        "    int r = v + 1;\n"   //2
+        "    return r;\n"        //3
+        "}\n"                    //4
+        "int main() {\n"         //5
+        "    int a = 4;\n"       //6
+        "    int b = inner(a);\n"//7
+        "    return 0;\n"        //8
+        "}\n",
+        "s\ns\nf\nc\n");
+    //s: main:6 -> main:7; s: into inner:2; f: skips inner:3, lands
+    //back in main:8 (depth 1 < recorded 2).
+    CHECK(out.find("Stopped: main (sess_step.n:6)") != std::string::npos,
+        "initial stop line 6");
+    CHECK(out.find("Stopped: main (sess_step.n:7)") != std::string::npos,
+        "step-into advances one statement");
+    CHECK(out.find("Stopped: inner (sess_step.n:2)") != std::string::npos,
+        "step-into descends into the call");
+    CHECK(out.find("Stopped: main (sess_step.n:8)") != std::string::npos,
+        "step-out returns past remaining callee statements");
+    CHECK(out.find("Stopped: inner (sess_step.n:3)") == std::string::npos,
+        "inner:3 is passed over by finish");
+    PASS();
+}
+
+void test_session_breakpoint_hit()
+{
+    TEST(session_breakpoint_hit);
+    std::string out = RunSession("sess_bp",
+        "int main() {\n"        //1
+        "    int t = 0;\n"      //2
+        "    int i = 1;\n"      //3
+        "    while (i <= 3) {\n"//4
+        "        t = t + i;\n"  //5
+        "        i = i + 1;\n"  //6
+        "    }\n"               //7
+        "    return t;\n"       //8
+        "}\n",
+        "b 5\nc\nc\nc\ni b\nc\n");
+    //Loop body line 5 executes 3 times; the script continues past all
+    //three stops, checks the hit counter, then runs to completion
+    //(final `c` — never end a script frozen, EOF would quit the test
+    //binary).
+    CHECK(out.find("Breakpoint 1 at main (sess_bp.n:5)") != std::string::npos,
+        "set-time report names the resolved location");
+    CHECK(out.find("Breakpoint 1, main (sess_bp.n:5)") != std::string::npos,
+        "hit-time report");
+    CHECK(out.find("hits=3") != std::string::npos,
+        "breakpoint counts every hit");
+    PASS();
+}
+
+void test_session_bt_and_locals()
+{
+    TEST(session_bt_and_locals);
+    std::string out = RunSession("sess_bt",
+        "int scale(int v, int k) {\n" //1
+        "    int s = v * k;\n"        //2
+        "    return s;\n"             //3
+        "}\n"                         //4
+        "int main() {\n"              //5
+        "    int r = scale(5, 3);\n"  //6
+        "    return 0;\n"             //7
+        "}\n",
+        "b 2\nc\nbt\ninfo locals\nc\n");
+    CHECK(out.find("#0  scale (sess_bt.n:2)") != std::string::npos,
+        "bt frame 0 format");
+    CHECK(out.find("#1  main (sess_bt.n:6)") != std::string::npos,
+        "bt frame 1 carries the CALLING statement anchor");
+    CHECK(out.find("v = 5") != std::string::npos, "param local shown");
+    CHECK(out.find("k = 3") != std::string::npos, "param local shown");
+    //Hidden-name filter: synthesized locals stay out of the display.
+    bool leaked = out.find("__foreach") != std::string::npos
+        || out.find("$finally") != std::string::npos;
+    CHECK(!leaked, "hidden local names stay internal");
+    PASS();
+}
+
+void test_session_frame_select()
+{
+    TEST(session_frame_select);
+    std::string out = RunSession("sess_frame",
+        "int callee(int v) {\n"  //1
+        "    int r = v + 1;\n"   //2
+        "    return r;\n"        //3
+        "}\n"                    //4
+        "int main() {\n"         //5
+        "    int a = 9;\n"       //6
+        "    int b = callee(a);\n"//7
+        "    return 0;\n"        //8
+        "}\n",
+        "b 2\nc\ninfo locals\nframe 1\ninfo locals\nc\n");
+    //First `info locals` runs on frame 0 (callee: v = 9), the second
+    //after `frame 1` (main: a = 9) — selection routes the query.
+    CHECK(out.find("v = 9") != std::string::npos,
+        "frame 0 (default) shows callee's param");
+    CHECK(out.find("a = 9") != std::string::npos,
+        "frame 1 locals belong to main");
+    PASS();
+}
+
+void test_session_break_by_func()
+{
+    TEST(session_break_by_func);
+    std::string out = RunSession("sess_bpfunc",
+        "int inner(int v) {\n"  //1
+        "    int r = v + 1;\n"  //2
+        "    return r;\n"       //3
+        "}\n"                   //4
+        "int main() {\n"        //5
+        "    int a = 3;\n"      //6
+        "    int b = inner(a);\n"//7
+        "    return 0;\n"       //8
+        "}\n",
+        "b inner\nc\nc\n");
+    //b funcName resolves to the function's FIRST statement (line 2)
+    //and reports the resolved location at set time (spec §8).
+    CHECK(out.find("Breakpoint 1 at inner (sess_bpfunc.n:2)")
+            != std::string::npos,
+        "set-time report names the first statement");
+    CHECK(out.find("Breakpoint 1, inner (sess_bpfunc.n:2)")
+            != std::string::npos,
+        "hit-time report at the same location");
+    PASS();
+}
+
 int main()
 {
     //In-process host init: ModuleBuilder's Build() dereferences the
@@ -735,6 +905,13 @@ int main()
     test_linepc_map_finally_duplicates();
     test_linepc_map_finally_single_two_copies();
     test_instruction_stride_exact_landing();
+
+    test_session_initial_stop_and_continue();
+    test_session_step_semantics();
+    test_session_breakpoint_hit();
+    test_session_bt_and_locals();
+    test_session_frame_select();
+    test_session_break_by_func();
 
     std::cerr << "\ndebugger_tests: " << g_pass << " passed, "
               << g_fail << " failed\n";

@@ -1,0 +1,10 @@
+//e2e dbg_step_semantics: s descends, f finishes out of the call.
+int inner(int v) {
+    int r = v * 2;
+    return r;
+}
+int main() {
+    int a = 10;
+    int b = inner(a);
+    return 0;
+}

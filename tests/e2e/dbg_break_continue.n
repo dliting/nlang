@@ -1,0 +1,11 @@
+//e2e dbg_break_continue: breakpoint set/hit/continue + exit code.
+int main() {
+    int total = 0;
+    int i = 1;
+    while (i <= 3) {
+        total = total + i;
+        i = i + 1;
+    }
+    int answer = total * 7;
+    return answer;
+}

@@ -1,0 +1,6 @@
+import mathutil;
+
+int main() {
+    int r = mathutil.triple(5);
+    return 0;
+}

@@ -157,6 +157,7 @@ add_subdirectory(src/3rdparty/tinyxml2)
 add_subdirectory(src/tools/ncc)
 add_subdirectory(src/tools/nvm)
 add_subdirectory(src/tools/ndisasm)
+add_subdirectory(src/tools/ndb)
 
 if(NLANG_BUILD_IDE)
     add_subdirectory(src/tools/nide)
@@ -233,7 +234,7 @@ endif()
 # together in bin/, because nide invokes ncc/nvm from its own directory.
 # Build packages from the IDE tree (NLANG_BUILD_IDE=ON, which contains all
 # tools) with:  cpack -C Release -B <release_dir>
-install(TARGETS ncc nvm ndisasm RUNTIME DESTINATION bin)
+install(TARGETS ncc nvm ndisasm ndb RUNTIME DESTINATION bin)
 
 if(NLANG_BUILD_IDE)
     install(TARGETS nide RUNTIME DESTINATION bin)

@@ -83,6 +83,11 @@ def _is_intentional_throw_test(name):
 def main():
     ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
     nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
+    #dbg_ tests run under the debugger. Each tool builds into its own
+    #build/src/tools/<tool>/Release directory, so ndb sits two levels
+    #over from the nvm binary (build-tree layout), not next to it.
+    tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
+    ndb = os.path.join(tools_dir, 'ndb', 'Release', 'ndb.exe')
 
     if not os.path.isfile(MANIFEST):
         print(f"ERROR: manifest.txt not found at {MANIFEST}")
@@ -232,10 +237,19 @@ def main():
 
                 #Run the last module
                 main_nmod = os.path.join(test_dir, f"{modules[-1]}.nmod")
+                #dbg_ prefix: run under ndb instead of nvm, driving it
+                #with the <name>.stdin command script (ndb stops at the
+                #first statement, so it always needs input).
+                stdin_bytes = None
+                if name.startswith('dbg_'):
+                    stdin_path = os.path.join(test_dir, f"{name}.stdin")
+                    with open(stdin_path, 'rb') as sf:
+                        stdin_bytes = sf.read()
                 try:
                     result = subprocess.run(
-                        [nvm, main_nmod],
-                        capture_output=True, timeout=TIMEOUT_SEC)
+                        [ndb if name.startswith('dbg_') else nvm, main_nmod],
+                        capture_output=True, timeout=TIMEOUT_SEC,
+                        input=stdin_bytes)
                     actual = result.returncode
                     stderr_text = result.stderr.decode('utf-8', errors='replace')
                 except Exception as e:
@@ -255,6 +269,15 @@ def main():
                         os.remove(p)
 
                 if actual == expected:
+                    #dbg_ tests: optional stdout-substring assertion
+                    #(manifest column 3), mirroring the single-file path.
+                    if expected_stdout:
+                        stdout_text = result.stdout.decode('utf-8', errors='replace')
+                        if expected_stdout not in stdout_text:
+                            print(f"FAIL {name} (stdout missing {expected_stdout!r})")
+                            failed += 1
+                            errors.append(f"  {name}: stdout missing {expected_stdout!r}")
+                            continue
                     print(f"PASS {name} (exit={actual})")
                     passed += 1
                 else:
@@ -348,7 +371,7 @@ def main():
                     stdin_bytes = sf.read()
             try:
                 result = subprocess.run(
-                    [nvm, nmod_file],
+                    [ndb if name.startswith('dbg_') else nvm, nmod_file],
                     capture_output=True, timeout=TIMEOUT_SEC,
                     cwd=run_cwd, input=stdin_bytes)
                 actual = result.returncode

@@ -1,0 +1,5 @@
+//e2e dbg_quit_eof: stdin EOF behaves like q (exit 0).
+int main() {
+    int a = 1;
+    return a;
+}
