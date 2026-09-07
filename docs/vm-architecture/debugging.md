@@ -1,0 +1,77 @@
+# Debugging Support
+
+NLang ships **ndb**, a CLI debugger (`ndb <module.nmod>`). It loads the
+module in-process, runs it on the standard `VmExecutor`, and drives the
+VM through two small interfaces — the same engine layer a future DAP
+adapter or the IDE would reuse (the debugpy/dlv "engine + thin front
+end" model).
+
+## Hook model
+
+- `IDebugHooks` (src/vm/IDebugHooks.h) — the callback face. Two
+  checkpoints:
+  - `OnStatement` fires after every `OP_DebugInfo` (each statement is
+    preceded by one, carrying its source line).
+  - `OnThrow` fires at every raise site (built-in failures in
+    `RaiseNlangException`, user `throw` and `rethrow` at their opcodes)
+    after the exception object exists but **before** unwinding starts —
+    the full NLang call stack and every frame's locals are still alive.
+- `IVmDebugView` — read-only queries over the frozen state: frame
+  count, per-frame function name/source file/line/pc, and per-frame
+  locals with display strings.
+
+Installing hooks (`VmExecutor::SetDebugHooks`) is optional; with no
+front end installed the checkpoints cost one null test per statement.
+
+## Stop semantics
+
+The callback runs with the program frozen (NLang function calls are
+C++ recursion, so the whole stack lives inside `OnStatement`). Not
+returning keeps it frozen; returning resumes in place. ndb's command
+loop runs inside the callback.
+
+Statement granularity: one stop per statement. Two statements on the
+same line stop twice; a statement spanning lines stops once.
+
+## Freeze-time discipline
+
+Inside a callback:
+
+- never execute NLang code (no `toString` dispatch — formatters are
+  shallow, one level of fields/elements with short tags for nested
+  references);
+- never allocate on the NLang heap (the heap is consistent at freeze
+  time and must stay that way — C++ allocation is fine, the collector
+  only runs at safepoints during execution);
+- never let C++ exceptions escape into the VM (they would cross the
+  NLang try/catch boundary) — ndb's command loop catches everything.
+
+Reference-typed values are discriminated like the GC marker does:
+declared kind prunes primitives, reference decisions trust the runtime
+slot kind (array-typed fields record their element kind in the declared
+kinds — the runtime kind is the only reliable array detector). One
+cosmetic consequence: a plain int whose value happens to equal a live
+array's heap index renders as a short array tag. Rare and display-only;
+the same class of ambiguity GC over-retention already accepts.
+
+## Breakpoint addressing (`.nmod` v1.9)
+
+Each function records the path of the translation unit it was compiled
+from (`CompiledFunction::sourceFile`). `b file.n:LINE` suffix-matches
+recorded paths, `b LINE` resolves in the selected frame's file,
+`b funcName` stops at the function's first statement. The import merge
+copies `sourceFile` and `locals`, so imported functions are
+breakpoint-addressable and their frames inspectable.
+
+## Known limits (v1)
+
+No conditional breakpoints or watchpoints; empty-bodied `b func` never
+hits; function names render bare (no `Class.method` qualification); the
+exception object is not exposed as a pseudo-variable at the throw stop;
+no attach to running processes; native calls step through transparently;
+throw stops anchor at the statement's pc approximation; pc values are
+16-bit bytecode offsets (inherited from the executor's existing
+`uint16_t opPc`, Phase 9d precedent — a function with >64 KiB of
+bytecode would wrap; a pre-existing VM bound, not a debugger limit); a
+shared `.nmod` may carry stale source paths (ndb falls back to the
+`.nmod`'s directory, then degrades `l` to numbers-only).

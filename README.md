@@ -104,7 +104,23 @@ ncc build -p <project.nproj> [-o out.nmod]        Compile a project
 ncc run <module.nmod>                             Execute only
 ```
 
-All three command-line tools report their version with `--version`
+### Debugging
+
+```text
+ndb <module.nmod>   Debug a compiled module (initial stop at the first
+                    statement, like gdb `start`)
+```
+
+Commands: `b <file.n:LINE | LINE | funcName>` set a breakpoint (a bare
+`LINE` resolves in the current frame's file), `i b` list breakpoints,
+`d <id>` delete, `c` continue, `s`/`n`/`f` step into/over/out, `bt`
+backtrace, `frame <n>` select a frame, `info locals`, `p <name>` print
+one local, `l [line]` source window, `x` disassembly of the selected
+frame, `catch on|off` break on throw (default off), `q` quit — stdin EOF
+behaves like `q`. When the program finishes, ndb prints
+`Program exited with code N.` and exits with that same code.
+
+All command-line tools report their version with `--version`
 (e.g. `ncc (NLang) <version>`). The IDE shows it in Help → About, and the
 documentation site in its footer.
 
@@ -297,7 +313,7 @@ cd build-ide && cpack -C Release -B ../release
 This produces `release/NLang-<version>-win64.zip` (portable) and
 `release/NLang-<version>-win64.exe` (NSIS installer; requires NSIS 3.03+ —
 either on `PATH` or passed via `-DNLANG_NSIS_MAKENSIS`). Both contain the
-same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm` and the Qt runtime,
+same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm`, `ndb` and the Qt runtime,
 plus `examples/`, the generated documentation site (`docs/site/`), `LICENSE`,
 `CHANGELOG.md` and `README.md`. The installer defaults to
 `C:\Program Files\NLang` and adds a Start Menu shortcut for the IDE.
@@ -327,6 +343,7 @@ src/vm/                    - VM backend implementation
 src/tools/ncc/             - Command-line compiler
 src/tools/nvm/             - VM runner
 src/tools/ndisasm/         - Bytecode disassembler
+src/tools/ndb/             - Debugger
 src/tools/nide/            - Qt5 IDE
 src/3rdparty/tinyxml2/     - Vendored tinyxml2 10.1.0 (.nproj parsing)
 ```

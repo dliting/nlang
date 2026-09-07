@@ -38,7 +38,7 @@ SMOKE_EXIT_CODE = 42
 TIMEOUT_SEC = 60
 
 BIN_FILES = [
-    'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe',
+    'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe', 'ndb.exe',
     'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll',
     # QtWebEngine runtime for the embedded help browser (the closure
     # defined beside find_package(Qt5) in the root CMakeLists).
@@ -181,6 +181,15 @@ def main():
             fail(f'nvm returned {r.returncode}, expected {SMOKE_EXIT_CODE}: '
                  f'{r.stderr.decode("utf-8", "replace")[:500]}')
         print('smoke: OK (packaged ncc compiled and nvm ran hello.n)')
+
+        # --- ndb version smoke: debugger ships and reports its version ----
+        ndb = os.path.join(bin_dir, 'ndb.exe')
+        r = subprocess.run([ndb, '--version'], capture_output=True,
+                           timeout=TIMEOUT_SEC, cwd=smoke_cwd)
+        if r.returncode != 0 or b'ndb (NLang)' not in r.stdout:
+            fail(f'ndb --version failed: rc={r.returncode}, '
+                 f'stdout={r.stdout[:200]!r}')
+        print('ndb: OK (packaged ndb reports its version)')
 
         # --- Docs-site audit: same checker the build gates on -------------
         # Catches broken internal links / #fragments and page-vs-nav drift

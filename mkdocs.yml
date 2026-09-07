@@ -85,6 +85,7 @@ nav:
       - 堆架构: vm-architecture/heap-architecture.md
       - 字节码指令: vm-architecture/bytecode-instructions.md
       - 垃圾回收设计: vm-architecture/garbage-collection-design.md
+      - 调试支持: vm-architecture/debugging.md
       - 模块序列化: vm-architecture/module-serialization.md
       - foreach 降级: vm-architecture/foreach-statement-lowering.md
       - 初始化列表降级: vm-architecture/init-list-lowering.md

@@ -61,6 +61,12 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - 8 个新 opcode、RTK_Func=7 三槽堆记录、`this==0 ⟺ 自由函数` 分派不变量；765 e2e
 - 计划：`~/.claude/plans/partitioned-roaming-garden.md`
 
+### 调试器 ndb ✅（2026-09-07）
+- `.nmod` v1.9：per-function sourceFile（跨文件断点寻址）+ B.1 导入合并补拷 locals（兼修既有 GC 根集洞）；D5 语法修复（SnFunction 产生式锚定 Type——原 @2 NodeFlags 位置 TU 恒 null）
+- VM：进程内 `IDebugHooks`（语句/throw 检查点，D6 勘误后三 raise 位点统一 FireOnThrow）+ `IVmDebugView` 只读冻结视图（前端无关，DAP/nide 可复用）；指令打印抽取共享 `Disassembler`（ndisasm golden 逐字节对拍）；D7 行标记去重（LocalDeclStmt 双锚点）
+- ndb：断点（file:LINE / LINE / funcName，同行多锚点全设）、步进 s/n/f、bt、frame、info locals（隐藏名过滤）、p、l（SourceCache 三级解析）、x（pc 标记）、catch on|off；初停 gdb start 语义；EOF=q
+- 836 e2e（含 9 个 dbg_*）；设计/计划：docs/superpowers/{specs,plans}/2026-09-06-nlang-debugger*
+
 
 ---
 
@@ -88,9 +94,9 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- **796 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`）；ctest 10 项（编译器/VM）+ IDE 18 项
-- 工具链：ncc / nvm / ndisasm / nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 v1.8（Func 句柄：RTK_Func + 8 个函数值 opcode）
+- **836 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，含 9 个 dbg_* 调试器 e2e）；ctest 27 项（build 树）/ 38 项（build-ide 树）
+- 工具链：ncc / nvm / ndisasm / ndb（调试器）/ nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
+- 模块格式 v1.9（v1.8 Func 句柄 + per-function sourceFile 调试器寻址）
 - 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器 + 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名
 - 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；数组值检测（IsArrayValuedExpr 声明侧 flag）残余——泛型类型实参数组性擦除（List<T[]> 与 List<T> 共享实例化键，潜在 GC 追踪/List 槽位 elemKind 审计；flag 只记首个数组实参，Dict 数组键遮蔽数组值）、call-result 容器基座不可检测（`mk().get(0)`）、跨模块 SynthTypeExpr 占位、foreach 数组型循环变量 over List<T[]> 不解析、foreach 源为非容器表达式（如 int 局部）无 resolve 期门（运行期失败）、jagged `int[][]` 下标双重降级不被检测（多维数组创建被显式拒绝，缺口仅经声明形可达，数组重设计前为理论性）、call-result 接收者成员访问不解析（`l.get(0).length`；toString 已具名拒绝）、类字段 `int[]` 的 toString 运行时报 "array_to_str on non-array"（数组字段误分类家族）、B.1 导入合并不拷贝 defaultValues（executor 零消费——纯编译期数据，调用点内联；但消费方再导出 .nmod 的链路默认参数会丢）
 

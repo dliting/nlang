@@ -4,6 +4,31 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0]
+
+### Added
+
+- ndb: a CLI debugger for compiled modules. Breakpoints
+  (`b <file.n:LINE | LINE | funcName>`), continue, step into/over/out,
+  backtrace, frame selection, `info locals`, `p`, source listing `l`,
+  disassembly `x`, `catch on|off` (break on throw). Initial stop at the
+  first statement (like gdb `start`); stdin EOF behaves like `q`; ndb
+  exits with the debugged program's exit code.
+- VM: in-process debug hooks (`IDebugHooks` — statement and throw
+  checkpoints) plus a read-only frozen-state view (`IVmDebugView`);
+  front-end-agnostic interfaces a future DAP adapter or the IDE can
+  reuse. Disassembly printing extracted into a shared `Disassembler`
+  (ndisasm output byte-identical).
+- `.nmod` v1.9: each function records its source file path (cross-file
+  breakpoint addressing). The import merge now also copies
+  `func.locals`, fixing a pre-existing GC root-set hole where imported
+  frames had an empty root set (live objects could be swept).
+
+### Changed
+
+- `.nmod` format floor raised from 8 to 9: older modules are refused
+  by the loader and must be recompiled.
+
 ## [0.3.0] - 2026-08-31
 
 ### Added
@@ -59,6 +84,7 @@ First public release.
   `examples/`.
 - Windows packaging: portable zip and NSIS installer.
 
+[0.4.0]: https://github.com/dliting/nlang/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dliting/nlang/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dliting/nlang/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dliting/nlang/releases/tag/v0.1.0
