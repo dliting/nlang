@@ -13,6 +13,7 @@
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
 #include "ModuleLoader.h"
+#include "Disassembler.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -504,6 +505,39 @@ void test_hooks_cpp_exception_propagates()
     PASS();
 }
 
+// --- Task 3: line/pc map ---
+
+void test_linepc_map_first_pc()
+{
+    //Each line maps to its first statement pc; map ascends by pc.
+    TEST(linepc_map_first_pc);
+    BuildOutcome b = buildSource("linepc_map",
+        "int main() {\n"        //1
+        "    int a = 1;\n"      //2
+        "    a = a + 1;\n"      //3
+        "    return a;\n"       //4
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("linepc_map");
+    int mainIdx = mod.FindFunction("main");
+    REQUIRE(mainIdx >= 0);
+    const auto& mainf = mod.functions[static_cast<size_t>(mainIdx)];
+    auto map = BuildLinePcMap(mainf);
+    CHECK(map.size() == 3, "3 statement lines (2,3,4)");
+    CHECK(map[0].line == 2 && map[1].line == 3 && map[2].line == 4,
+        "lines ascend in order");
+    CHECK(map[0].pc < map[1].pc && map[1].pc < map[2].pc, "pcs ascend");
+    //Each mapped pc must actually sit on an OP_DebugInfo whose
+    //operand round-trips the line (self-consistency of the decode).
+    const auto& bc = mainf.bytecode;
+    for (const auto& e : map) {
+        REQUIRE(e.pc + 2 < bc.size());
+        uint16_t dec = static_cast<uint16_t>(bc[e.pc + 1] | (bc[e.pc + 2] << 8));
+        CHECK(dec == e.line, "pc points at its own line operand");
+    }
+    PASS();
+}
+
 int main()
 {
     //In-process host init: ModuleBuilder's Build() dereferences the
@@ -522,6 +556,7 @@ int main()
     test_hooks_on_throw();
     test_view_value_kinds();
     test_hooks_cpp_exception_propagates();
+    test_linepc_map_first_pc();
 
     std::cerr << "\ndebugger_tests: " << g_pass << " passed, "
               << g_fail << " failed\n";
