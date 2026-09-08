@@ -4740,6 +4740,23 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         + (expr.Location() ? expr.Location()->ToString() : std::string("?")));
 }
 
+//Line anchor shared by the statement prologue and the loop emitters.
+//Loop statements skip the prologue and call this at their back-edge
+//landing instead, so the loop line fires every iteration (first pass
+//falls through; each back edge re-hits it — gdb break-on-loop-line
+//semantics). Anchor strategy lives only here.
+void VmBackend::EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter)
+{
+    if (auto* pLoc = stmt.Location()) {
+        if (auto* pScript = dynamic_cast<const ScriptLocation*>(pLoc)) {
+            uint16_t line = static_cast<uint16_t>(
+                pScript->m_nStartLine & 0xFFFF);
+            emitter.Emit(OpCode::OP_DebugInfo);
+            emitter.EmitUint16(line);
+        }
+    }
+}
+
 void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     NodeKind kind = stmt.Kind();
 
@@ -4753,15 +4770,14 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //declarator's initializer keeps its own AssignStmt anchor, and a
     //bare `int x;` emits nothing executable beyond struct slot
     //allocation, which cannot raise).
-    if (kind != NK_Paragraph && kind != NK_LocalDeclStmt) {
-        if (auto* pLoc = stmt.Location()) {
-            if (auto* pScript = dynamic_cast<const ScriptLocation*>(pLoc)) {
-                uint16_t line = static_cast<uint16_t>(
-                    pScript->m_nStartLine & 0xFFFF);
-                emitter.Emit(OpCode::OP_DebugInfo);
-                emitter.EmitUint16(line);
-            }
-        }
+    //Loop statements skip the prologue too: their anchor is emitted at
+    //the back-edge landing inside each loop emitter (EmitStatementAnchor
+    //there), so the loop line fires every iteration instead of only on
+    //entry — an empty-body loop otherwise has zero checkpoints per
+    //iteration and a break on its line can never re-hit.
+    if (kind != NK_Paragraph && kind != NK_LocalDeclStmt
+        && kind != NK_WhileStmt && kind != NK_DoStmt && kind != NK_ForStmt) {
+        EmitStatementAnchor(stmt, emitter);
     }
 
     if (kind == NK_ReturnStmt) {
@@ -5416,6 +5432,9 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     if (kind == NK_WhileStmt) {
         auto& whileStmt = static_cast<SnWhileStmt&>(stmt);
         size_t loopStart = emitter.CurrentOffset();
+        //Back-edge landing: the re-jump and `continue` both target
+        //loopStart, so the while line re-fires every iteration.
+        EmitStatementAnchor(whileStmt, emitter);
 
         PushLoopContext();
 
@@ -5469,6 +5488,10 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
         //2. Continue target: condition check
         size_t continueTarget = emitter.CurrentOffset();
+        //Anchor at the tail condition re-check — the per-iteration pass
+        //point for do-while (first iteration falls through from entry;
+        //see EmitStatementAnchor).
+        EmitStatementAnchor(doStmt, emitter);
 
         //3. Condition check (claim staging — see WhileStmt above, round-9;
         //scope ends at the JumpIfNot operand)
@@ -5515,6 +5538,9 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
         //2. Loop start
         size_t loopStart = emitter.CurrentOffset();
+        //Back-edge landing: the re-jump reaches here after fini, so the
+        //for line re-fires every iteration (see WhileStmt).
+        EmitStatementAnchor(forStmt, emitter);
 
         //3. Enter loop context (reference: EN's LoopStmt::Compile)
         PushLoopContext();

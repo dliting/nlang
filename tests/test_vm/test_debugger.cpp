@@ -1051,6 +1051,72 @@ void test_hostio_readline_rejected()
     PASS();
 }
 
+// --- Loop per-iteration anchors (VmBackend) ---
+
+//Loop anchors must fire every iteration (the back edge has to land on
+//the condition-entry anchor). The sentinel C++ exception escapes
+//Execute cleanly (pinned by hooks_cpp_exception_propagates) — that is
+//the in-process "halt" for an otherwise-infinite loop.
+struct StopCountingHooks : IDebugHooks
+{
+    int stops = 0;
+    std::vector<uint16_t> lines;
+    void OnStatement(const DebugStopInfo& info, IVmDebugView&) override
+    {
+        ++stops;
+        lines.push_back(info.line);
+        if (stops >= 3)
+            throw std::runtime_error("sentinel");
+    }
+    void OnThrow(const DebugStopInfo&, IVmDebugView&) override {}
+};
+
+void test_loop_anchor_per_iteration()
+{
+    //spin's body is empty, so its while line is the only repeatable
+    //anchor. The pinned stop sequence nails the fix exactly: stop 1 is
+    //the `spin();` call-statement anchor in main (line 6), then one stop
+    //per iteration on the while line (2) — neither more nor fewer. Before
+    //the fix the loop anchor fired only at entry and the empty back edge
+    //never re-hit it, so no 3rd stop existed and Execute hung instead of
+    //raising the sentinel.
+    TEST(loop_anchor_per_iteration);
+    BuildOutcome b = buildSource("loop_anchor",
+        "int spin() {\n"        //1
+        "    while (1) {}\n"    //2
+        "    return 0;\n"       //3
+        "}\n"                   //4
+        "int main() {\n"        //5
+        "    spin();\n"         //6
+        "    return 0;\n"       //7
+        "}\n");                 //8
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("loop_anchor");
+    VmExecutor exec;
+    StopCountingHooks hooks;
+    exec.SetDebugHooks(&hooks);
+    bool sentinel = false;
+    try {
+        exec.Execute(mod);
+    } catch (const std::runtime_error&) {
+        sentinel = true;
+    }
+    CHECK(sentinel, "3rd stop must raise the sentinel (per-iteration "
+          "anchors keep a halt reachable in an empty-body loop)");
+    CHECK(hooks.lines.size() == 3, "expected exactly 3 stops, got: "
+          + std::to_string(hooks.lines.size()));
+    std::string seq;
+    for (uint16_t l : hooks.lines) {
+        if (!seq.empty()) seq += ", ";
+        seq += std::to_string(l);
+    }
+    CHECK(hooks.lines.size() == 3 && hooks.lines[0] == 6
+          && hooks.lines[1] == 2 && hooks.lines[2] == 2,
+          "stop sequence must be {6, 2, 2} (main's spin() call, then the "
+          "while line once per iteration), got: {" + seq + "}");
+    PASS();
+}
+
 int main()
 {
     //In-process host init: ModuleBuilder's Build() dereferences the
@@ -1089,6 +1155,8 @@ int main()
 
     test_hostio_output_capture();
     test_hostio_readline_rejected();
+
+    test_loop_anchor_per_iteration();
 
     std::cerr << "\ndebugger_tests: " << g_pass << " passed, "
               << g_fail << " failed\n";

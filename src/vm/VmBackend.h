@@ -63,6 +63,7 @@ private:
     void EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         uint16_t resultOffset);
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);
+    void EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter);
 
     //Phase 9c: per-argument boxing plan for built-in generic class methods
     //(List<T>, Dict<K,V>). Maps callParamBase slot index to {type tag, needs
