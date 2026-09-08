@@ -4,6 +4,16 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - In development
+
+### Changed
+
+- VM: loop-line breakpoints and stepping now hit on every iteration —
+  the loop back edge lands on the condition anchor (gdb semantics).
+  Previously the anchor fired only at loop entry, so an empty-body loop
+  had no per-iteration checkpoint. (ndb/nide debugging work in progress
+  — this section will grow.)
+
 ## [0.4.0] - 2026-09-07
 
 ### Added
@@ -84,6 +94,7 @@ First public release.
   `examples/`.
 - Windows packaging: portable zip and NSIS installer.
 
+[0.5.0]: https://github.com/dliting/nlang/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dliting/nlang/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dliting/nlang/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dliting/nlang/compare/v0.1.0...v0.2.0
