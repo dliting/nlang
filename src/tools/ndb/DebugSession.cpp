@@ -1,9 +1,10 @@
-// --- ndb command session ---
-// Implements IDebugHooks for the CLI debugger. The command loop runs
-// inside the callback (program frozen); returning resumes in place.
-// RunCommandLoop's try/catch is the exception boundary the VM relies
-// on: a C++ exception escaping into the executor would cross the
-// NLang try/catch boundary (IDebugHooks.h contract).
+// --- ndb command session (CLI adapter over DebugSessionController) ---
+// Command parsing, text formatting and the source cache; all session
+// state lives in the controller. The command loop runs inside the
+// frozen window (program frozen); returning from a resume command
+// resumes in place. The loop's try/catch is the exception boundary the
+// VM relies on: a C++ exception escaping into the executor would cross
+// the NLang try/catch boundary (IDebugHooks.h contract).
 
 #include "DebugSession.h"
 #include "Disassembler.h"
@@ -23,30 +24,13 @@ namespace nlang {
 
 namespace {
 
-//Display filter: synthesized locals (statement lowering, foreach
-//expansion, finally trampolines) stay internal to the compiler.
-bool IsHiddenLocalName(const std::string& name) {
-    if (name.size() >= 2 && name[0] == '_' && name[1] == '_')
-        return true;
-    if (!name.empty() && name[0] == '$')
-        return true;
-    return false;
-}
-
-std::string DisplayName(const std::string& name) {
-    if (name == "__this") return "this";
-    return name;
-}
-
+//Basename/NormalizePath mirror DebugSessionController.cpp: the CLI
+//formats the frame locations the controller matches breakpoints with.
 std::string Basename(const std::string& path) {
-    //Both separators: FilePath() records as-compiled (Windows
-    //backslashes), user input may use either.
     size_t pos = path.find_last_of("/\\");
     return pos == std::string::npos ? path : path.substr(pos + 1);
 }
 
-//Normalize for matching: forward slashes + lowercase (Windows paths
-//are case-insensitive).
 std::string NormalizePath(const std::string& p) {
     std::string s;
     s.reserve(p.size());
@@ -55,19 +39,6 @@ std::string NormalizePath(const std::string& p) {
             : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     return s;
-}
-
-//Does a function's recorded source match the user's file spec? The
-//spec may be a full path or a suffix like "mathutil.n".
-bool SourceFileMatches(const std::string& sourceFile,
-    const std::string& fileSpec) {
-    if (sourceFile.empty() || fileSpec.empty()) return false;
-    std::string sf = NormalizePath(sourceFile);
-    std::string spec = NormalizePath(fileSpec);
-    if (sf == spec) return true;
-    return sf.size() > spec.size()
-        && sf.compare(sf.size() - spec.size(), spec.size(), spec) == 0
-        && sf[sf.size() - spec.size() - 1] == '/';
 }
 
 std::string Trim(const std::string& s) {
@@ -91,73 +62,34 @@ DebugSession::DebugSession(const CompiledModule& module,
 
 DebugSession::~DebugSession() = default;
 
-// --- hooks ---
+// --- IDebugFrontEnd ---
 
-void DebugSession::OnStatement(const DebugStopInfo& stop,
-    IVmDebugView& view) {
-    m_pView = &view;
+void DebugSession::OnStopped(const StopInfo& stop) {
     m_selectedFrame = 0;
-
-    auto it = std::find_if(m_breakpoints.begin(), m_breakpoints.end(),
-        [&](const Breakpoint& bp) {
-            return bp.funcIdx == stop.funcIdx && bp.pc == stop.pc;
-        });
-    if (it != m_breakpoints.end()) {
-        it->hits += 1;
-        ReportStop("Breakpoint " + std::to_string(it->id) + ",", stop);
-        RunCommandLoop();
-        m_pView = nullptr;
-        return;
-    }
-    bool stopHere = false;
-    switch (m_mode) {
-    case RunMode::Continue:
+    switch (stop.reason) {
+    case StopInfo::Reason::Breakpoint:
+        ReportStop("Breakpoint " + std::to_string(stop.breakpointId) + ",");
         break;
-    case RunMode::InitialStop:
-    case RunMode::StepInto:
-        stopHere = true;
+    case StopInfo::Reason::Throw:
+        ReportStop("Throw:");
         break;
-    case RunMode::StepOver:
-        stopHere = (stop.depth <= m_stepDepth);
-        break;
-    case RunMode::StepOut:
-        stopHere = (stop.depth < m_stepDepth);
+    case StopInfo::Reason::Initial:
+    case StopInfo::Reason::Step:
+        ReportStop("Stopped:");
         break;
     }
-    if (stopHere) {
-        ReportStop("Stopped:", stop);
-        RunCommandLoop();
-    }
-    m_pView = nullptr;
 }
 
-void DebugSession::OnThrow(const DebugStopInfo& stop, IVmDebugView& view) {
-    //`catch on`: freeze at the throw site before unwinding starts —
-    //the full NLang stack and locals are still alive here.
-    if (!m_breakOnThrow)
-        return;
-    m_pView = &view;
-    m_selectedFrame = 0;
-    ReportStop("Throw:", stop);
-    RunCommandLoop();
-    m_pView = nullptr;
-}
-
-// --- stop reporting ---
-
-void DebugSession::ReportStop(const std::string& prefix,
-    const DebugStopInfo& stop) {
-    DebugFrameInfo fi = m_pView->FrameInfo(0);
-    m_out << prefix << " " << fi.funcName << " ("
-          << (fi.sourceFile.empty() ? std::string("?")
-                                    : Basename(fi.sourceFile))
-          << ":" << fi.line << ")\n";
-    m_out.flush();
-}
+//CLI parity: main() prints the exit code / runtime error itself (same
+//bytes as before the controller extraction), so the CLI front end has
+//nothing to add on session end. (The machine front end reports through
+//these instead.)
+void DebugSession::OnExited(int) {}
+void DebugSession::OnRuntimeError(const std::string&) {}
 
 // --- command loop ---
 
-void DebugSession::RunCommandLoop() {
+void DebugSession::WaitUntilResume() {
     for (;;) {
         m_out << "(ndb) ";
         m_out.flush();
@@ -197,18 +129,16 @@ bool DebugSession::RunCommand(const std::string& cmd) {
     } else if (head == "d" || head == "delete") {
         DoDelete(arg);
     } else if (head == "c" || head == "continue") {
-        m_mode = RunMode::Continue;
+        m_pController->Continue();
         return true;
     } else if (head == "s" || head == "step") {
-        m_mode = RunMode::StepInto;
+        m_pController->StepInto();
         return true;
     } else if (head == "n" || head == "next") {
-        m_mode = RunMode::StepOver;
-        m_stepDepth = m_pView ? m_pView->FrameCount() : 1;
+        m_pController->StepOver();
         return true;
     } else if (head == "f" || head == "finish") {
-        m_mode = RunMode::StepOut;
-        m_stepDepth = m_pView ? m_pView->FrameCount() : 1;
+        m_pController->StepOut();
         return true;
     } else if (head == "bt" || head == "backtrace") {
         DoBacktrace();
@@ -232,14 +162,34 @@ bool DebugSession::RunCommand(const std::string& cmd) {
     return false;
 }
 
+// --- stop reporting ---
+
+void DebugSession::ReportStop(const std::string& prefix) {
+    DebugFrameInfo fi = m_pController->View().FrameInfo(0);
+    m_out << prefix << " " << fi.funcName << " ("
+          << (fi.sourceFile.empty() ? std::string("?")
+                                    : Basename(fi.sourceFile))
+          << ":" << fi.line << ")\n";
+    m_out.flush();
+}
+
+//Set-time echo: "Breakpoint <id> at <label>" (gdb form).
+void DebugSession::ReportBreakpoint(int id) {
+    for (const auto& row : m_pController->BreakpointRows()) {
+        if (row.id == id) {
+            m_out << "Breakpoint " << row.id << " at " << row.label
+                  << "\n";
+            return;
+        }
+    }
+}
+
 // --- commands ---
 
 void DebugSession::DoBreak(const std::string& arg) {
     //Three address forms: <file.n:LINE>, bare LINE (selected frame's
     //file, exact match), or function name (every same-named function
     //— methods and free functions share the bare-name pool).
-    struct Candidate { uint16_t funcIdx; uint16_t pc; uint16_t line; };
-    std::vector<Candidate> found;
     std::string fileSpec;
     int lineNo = 0;
     bool byLine = false;
@@ -256,8 +206,8 @@ void DebugSession::DoBreak(const std::string& arg) {
         lineNo = std::atoi(arg.c_str());
         byLine = true;
         exactFile = true;
-        if (m_pView)
-            fileSpec = m_pView->FrameInfo(m_selectedFrame).sourceFile;
+        fileSpec = m_pController->View()
+                       .FrameInfo(m_selectedFrame).sourceFile;
         if (fileSpec.empty()) {
             m_out << "Current frame has no source file; "
                      "use b <file.n:LINE>.\n";
@@ -265,69 +215,43 @@ void DebugSession::DoBreak(const std::string& arg) {
         }
     }
 
-    for (size_t i = 0; i < m_module.functions.size(); ++i) {
-        const auto& func = m_module.functions[i];
-        if (byLine) {
-            bool match = exactFile
-                ? NormalizePath(func.sourceFile) == NormalizePath(fileSpec)
-                : SourceFileMatches(func.sourceFile, fileSpec);
-            if (!match) continue;
-            //ALL entries of the line become breakpoints: a line may hold
-            //several statement anchors — consecutive (multi-declarators,
-            //one-line if/else arms) or non-adjacent (try/finally compiles
-            //each finally-body statement twice) — and every anchor is a
-            //real execution path (see fact table, BuildLinePcMap same-line
-            //semantics; the map keeps every anchor, no dedup).
-            for (const auto& e : BuildLinePcMap(func)) {
-                //Int promotion compare: a lineNo beyond the u16 line
-                //range must find nothing, not wrap onto a wrong line.
-                if (e.line == lineNo)
-                    found.push_back({static_cast<uint16_t>(i),
-                                     e.pc, e.line});
-            }
-        } else {
-            if (func.name != arg) continue;
-            auto map = BuildLinePcMap(func);
-            if (map.empty()) {
+    if (byLine) {
+        //One id per line: every anchor of the line lives under it.
+        int id = m_pController->AddBreakpoint(fileSpec, lineNo, exactFile);
+        if (id == 0) {
+            m_out << "No statement at " << arg << ".\n";
+            return;
+        }
+        ReportBreakpoint(id);
+    } else {
+        //The controller folds all same-named functions into one id and
+        //reports 0 for both "no such function" and "no statements"; the
+        //distinction only shapes the message, so scan for it here.
+        bool anyFunc = std::any_of(m_module.functions.begin(),
+            m_module.functions.end(),
+            [&](const CompiledFunction& f) { return f.name == arg; });
+        int id = m_pController->AddFunctionBreakpoint(arg);
+        if (id == 0) {
+            if (!anyFunc)
+                m_out << "No function '" << arg << "'.\n";
+            else
                 m_out << "Function '" << arg << "' has no statements; "
                          "a breakpoint would never hit.\n";
-                continue;
-            }
-            found.push_back({static_cast<uint16_t>(i),
-                             map.front().pc, map.front().line});
+            return;
         }
-    }
-
-    if (found.empty()) {
-        if (byLine)
-            m_out << "No statement at " << arg << ".\n";
-        else
-            m_out << "No function '" << arg << "'.\n";
-        return;
-    }
-    for (const auto& c : found) {
-        const auto& func = m_module.functions[c.funcIdx];
-        Breakpoint bp;
-        bp.id = m_nextBreakpointId++;
-        bp.funcIdx = c.funcIdx;
-        bp.pc = c.pc;
-        bp.label = func.name + " ("
-            + (func.sourceFile.empty() ? std::string("?")
-                                       : Basename(func.sourceFile))
-            + ":" + std::to_string(c.line) + ")";
-        m_out << "Breakpoint " << bp.id << " at " << bp.label << "\n";
-        m_breakpoints.push_back(std::move(bp));
+        ReportBreakpoint(id);
     }
     m_out.flush();
 }
 
 void DebugSession::DoInfoBreakpoints() {
-    if (m_breakpoints.empty()) {
+    const auto rows = m_pController->BreakpointRows();
+    if (rows.empty()) {
         m_out << "No breakpoints.\n";
     } else {
-        for (const auto& bp : m_breakpoints)
-            m_out << "  " << bp.id << "  " << bp.label
-                  << "  hits=" << bp.hits << "\n";
+        for (const auto& row : rows)
+            m_out << "  " << row.id << "  " << row.label
+                  << "  hits=" << row.hits << "\n";
     }
     m_out.flush();
 }
@@ -338,28 +262,25 @@ void DebugSession::DoDelete(const std::string& arg) {
         return;
     }
     int id = std::atoi(arg.c_str());
-    auto it = std::find_if(m_breakpoints.begin(), m_breakpoints.end(),
-        [&](const Breakpoint& bp) { return bp.id == id; });
-    if (it == m_breakpoints.end()) {
+    if (!m_pController->DeleteBreakpoint(id)) {
         m_out << "No breakpoint number " << id << ".\n";
         return;
     }
-    m_breakpoints.erase(it);
     m_out << "Deleted breakpoint " << id << ".\n";
     m_out.flush();
 }
 
 void DebugSession::DoBacktrace() {
-    if (!m_pView) return;
-    size_t count = m_pView->FrameCount();
+    const IVmDebugView& view = m_pController->View();
+    size_t count = view.FrameCount();
     //Basename disambiguation: the same basename from two different
     //paths prints the full path for those frames.
     std::vector<std::string> files;
     files.reserve(count);
     for (size_t d = 0; d < count; ++d)
-        files.push_back(m_pView->FrameInfo(d).sourceFile);
+        files.push_back(view.FrameInfo(d).sourceFile);
     for (size_t d = 0; d < count; ++d) {
-        DebugFrameInfo fi = m_pView->FrameInfo(d);
+        DebugFrameInfo fi = view.FrameInfo(d);
         std::string shown = fi.sourceFile.empty()
             ? "?" : Basename(fi.sourceFile);
         for (size_t o = 0; o < count; ++o) {
@@ -382,7 +303,7 @@ void DebugSession::DoBacktrace() {
 }
 
 void DebugSession::DoFrame(const std::string& arg) {
-    if (!m_pView) return;
+    const IVmDebugView& view = m_pController->View();
     if (arg.empty()) {
         m_out << "Frame " << m_selectedFrame << " selected.\n";
         return;
@@ -392,12 +313,12 @@ void DebugSession::DoFrame(const std::string& arg) {
         return;
     }
     size_t n = static_cast<size_t>(std::atoi(arg.c_str()));
-    if (n >= m_pView->FrameCount()) {
+    if (n >= view.FrameCount()) {
         m_out << "No such frame.\n";
         return;
     }
     m_selectedFrame = n;
-    DebugFrameInfo fi = m_pView->FrameInfo(n);
+    DebugFrameInfo fi = view.FrameInfo(n);
     m_out << "#" << n << "  " << fi.funcName << " ("
           << (fi.sourceFile.empty() ? std::string("?")
                                     : Basename(fi.sourceFile))
@@ -406,11 +327,12 @@ void DebugSession::DoFrame(const std::string& arg) {
 }
 
 void DebugSession::DoInfoLocals() {
-    if (!m_pView) return;
     bool any = false;
-    for (const auto& l : m_pView->FrameLocals(m_selectedFrame)) {
-        if (IsHiddenLocalName(l.name)) continue;
-        m_out << DisplayName(l.name) << " = " << l.display << "\n";
+    for (const auto& l
+            : m_pController->View().FrameLocals(m_selectedFrame)) {
+        if (DebugSessionController::IsHiddenLocalName(l.name)) continue;
+        m_out << DebugSessionController::DisplayName(l.name) << " = "
+              << l.display << "\n";
         any = true;
     }
     if (!any) m_out << "No visible locals.\n";
@@ -422,14 +344,15 @@ void DebugSession::DoPrint(const std::string& arg) {
         m_out << "Usage: p <name>\n";
         return;
     }
-    if (!m_pView) return;
     //p searches ALL names (hidden included — it is the escape hatch
     //when the filtered display hides something relevant); `this`
     //aliases the __this slot.
     std::string alias = (arg == "this") ? "__this" : "";
-    for (const auto& l : m_pView->FrameLocals(m_selectedFrame)) {
+    for (const auto& l
+            : m_pController->View().FrameLocals(m_selectedFrame)) {
         if (l.name == arg || (!alias.empty() && l.name == alias)) {
-            m_out << DisplayName(l.name) << " = " << l.display << "\n";
+            m_out << DebugSessionController::DisplayName(l.name) << " = "
+                  << l.display << "\n";
             m_out.flush();
             return;
         }
@@ -459,12 +382,11 @@ void DebugSession::DoHelp() {
 }
 
 void DebugSession::DoList(const std::string& arg) {
-    if (!m_pView) return;
     if (!arg.empty() && !IsAllDigits(arg)) {
         m_out << "Usage: l [line]\n";
         return;
     }
-    DebugFrameInfo fi = m_pView->FrameInfo(m_selectedFrame);
+    DebugFrameInfo fi = m_pController->View().FrameInfo(m_selectedFrame);
     if (fi.sourceFile.empty()) {
         m_out << "No source file for this frame.\n";
         return;
@@ -492,8 +414,7 @@ void DebugSession::DoList(const std::string& arg) {
 }
 
 void DebugSession::DoDisassemble() {
-    if (!m_pView) return;
-    DebugFrameInfo fi = m_pView->FrameInfo(m_selectedFrame);
+    DebugFrameInfo fi = m_pController->View().FrameInfo(m_selectedFrame);
     if (fi.funcIdx >= m_module.functions.size())
         return;
     const auto& func = m_module.functions[fi.funcIdx];
@@ -513,15 +434,16 @@ void DebugSession::DoDisassemble() {
 
 void DebugSession::DoCatch(const std::string& arg) {
     if (arg == "on") {
-        m_breakOnThrow = true;
+        m_pController->SetBreakOnThrow(true);
     } else if (arg == "off") {
-        m_breakOnThrow = false;
+        m_pController->SetBreakOnThrow(false);
     } else if (!arg.empty()) {
         m_out << "Usage: catch on|off\n";
         m_out.flush();
         return;
     }
-    m_out << "Break on throw: " << (m_breakOnThrow ? "on" : "off")
+    m_out << "Break on throw: "
+          << (m_pController->BreakOnThrow() ? "on" : "off")
           << "\n";
     m_out.flush();
 }

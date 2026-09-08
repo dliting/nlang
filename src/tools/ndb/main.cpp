@@ -1,6 +1,7 @@
 #include "ModuleLoader.h"
 #include "VmExecutor.h"
 #include "DebugSession.h"
+#include "DebugSessionController.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
 #include <nlang_version.h>  // generated from the repo VERSION file
@@ -45,11 +46,14 @@ int main(int argc, char* argv[]) {
     int result = 1;
     try {
         module = ModuleLoader::Load(argv[1]);
-        //Debug session: initial stop at the first statement (gdb
-        //`start` behavior); the interactive loop runs inside the
-        //frozen callbacks.
+        //Debug session: the controller owns breakpoints/step state; the
+        //CLI session is its terminal adapter. Initial stop at the first
+        //statement (gdb `start` behavior); the interactive loop runs
+        //inside the frozen window (controller's WaitUntilResume).
         DebugSession session(module, argv[1], std::cin, std::cout);
-        executor.SetDebugHooks(&session);
+        DebugSessionController controller(module, session);
+        session.SetController(&controller);
+        executor.SetDebugHooks(&controller);
         result = executor.Execute(module);
         std::cout << "Program exited with code " << result << ".\n";
     } catch (const std::exception& e) {
