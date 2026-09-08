@@ -19,6 +19,9 @@ a raw tab in the wire is always a field separator:
   exited\t<code>
   error\t<report>
   err\t<message>
+Frame numbering: <depth> in stopped is 1-based and always equals
+<frameCount> (a stop freezes the innermost frame); the frame command
+and bt index frames 0-based, innermost frame = 0.
 Commands (IDE -> front end) are plain space-separated tokens, unescaped:
 b <file> <line> (file/line split at the LAST space), bfunc <name>,
 d <id>, breakthrow on|off, bt, frame <n> (also selects for locals),
@@ -37,9 +40,15 @@ PumpUntilRun; before it, window-bound commands err (no frozen window).
 namespace nlang {
 
 //Protocol primitives, header-only so the unit tests pin the codec
-//directly (the IDE side carries its own copy of this codec — nide does
-//not link ndb).
+//directly. The IDE side carries its OWN implementation of this codec —
+//that duplication is a deliberate module boundary (nide links no nlang
+//headers, keeping the IDE client buildable standalone). Drift is pinned
+//closed by identical test vectors on both sides: when changing the wire
+//format here, mirror the change in the nide codec and its tests.
 namespace protocol {
+
+//Version announced by the hello event.
+inline constexpr char kProtocolVersion[] = "1";
 
 //Escape the framing metacharacters so one field stays one line and
 //tab-joined fields stay unambiguous: \ -> \\, tab -> \t, newline ->

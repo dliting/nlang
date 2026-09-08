@@ -50,7 +50,7 @@ MachineFrontEnd::MachineFrontEnd(const CompiledModule& module,
 
 void MachineFrontEnd::PumpUntilRun()
 {
-    EmitLine(protocol::MakeEvent("hello", {"1"}));
+    EmitLine(protocol::MakeEvent("hello", {protocol::kProtocolVersion}));
     for (;;) {
         std::string line;
         if (!std::getline(m_in, line))
@@ -119,11 +119,12 @@ void MachineFrontEnd::DoBreakpoint(const std::string& arg)
 {
     //Machine form `b <file> <line>`: the line is the tail after the
     //LAST space, so paths containing spaces stay one field (mirrors the
-    //CLI's rfind(':') split of <file.n:LINE>).
+    //CLI's rfind(':') split of <file.n:LINE>). The file part is trimmed:
+    //scripts are hand-written, so double spaces are a real input shape.
     const size_t sp = arg.rfind(' ');
     if (sp == std::string::npos || !IsAllDigits(arg.substr(sp + 1)))
         throw std::runtime_error("b expects <file> <line>");
-    const std::string file = arg.substr(0, sp);
+    const std::string file = Trim(arg.substr(0, sp));
     const int line = std::atoi(arg.substr(sp + 1).c_str());
     const int id = m_pController->AddBreakpoint(file, line);
     EmitLine(protocol::MakeEvent("bp",

@@ -17,9 +17,9 @@ using namespace nlang;
 
 //Machine mode run: wire the protocol front end + controller, take
 //pre-run commands until `run`, then execute once. The process exit code
-//is the program's code; an uncaught NLang exception reports as an error
-//event and yields 1 (stderr stays untouched — the CrashReporter's
-//diagnostic channel).
+//is the program's code; a failed module load or an uncaught NLang
+//exception reports as an error event and yields 1 (stderr stays
+//untouched — the CrashReporter's diagnostic channel).
 static int RunMachine(const char* modulePath) {
     CompiledModule module;
     VmExecutor executor;
@@ -38,8 +38,12 @@ static int RunMachine(const char* modulePath) {
         front.OnExited(code);
         return code;
     } catch (const std::exception& e) {
-        //Uncaught NLang throw: message + backtrace to the client as one
-        //escaped error event (the CLI prints the same parts to stderr).
+        //Two failure classes land here: a failed ModuleLoader::Load —
+        //thrown before PumpUntilRun, so the error event PRECEDES hello,
+        //and machine clients must tolerate that ordering — and an
+        //uncaught NLang throw during Execute. Both report message +
+        //backtrace as one escaped error event (the CLI prints the same
+        //parts to stderr).
         std::string report = e.what();
         const std::string& backtrace = executor.Backtrace();
         if (!backtrace.empty())

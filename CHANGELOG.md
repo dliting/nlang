@@ -6,6 +6,13 @@ All notable changes to NLang are documented here. The format follows
 
 ## [0.5.0] - In development
 
+### Added
+
+- ndb: `--machine` mode — a line protocol over stdin/stdout for IDE
+  embedding (tab-joined events with escaped fields:
+  hello/bp/stopped/frame/local/done/output/exited/error/err; breakpoint
+  setup before `run`).
+
 ### Changed
 
 - VM: while/for/do-while line breakpoints and stepping now hit on every

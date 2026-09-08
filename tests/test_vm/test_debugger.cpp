@@ -1598,6 +1598,10 @@ void test_protocol_escape_roundtrip()
     const std::string encoded = protocol::EncodeField(tricky);
     CHECK(encoded == "a\\\\b\\tc\\nd\\r", "encode");
     CHECK(protocol::DecodeField(encoded) == tricky, "decode");
+    //The decoder stays total over arbitrary input: unknown escapes and a
+    //trailing lone backslash pass through verbatim.
+    CHECK(protocol::DecodeField("\\x") == "\\x", "unknown escape");
+    CHECK(protocol::DecodeField("a\\") == "a\\", "trailing backslash");
     PASS();
 }
 
@@ -1741,6 +1745,79 @@ void test_machine_bfunc_and_output()
     PASS();
 }
 
+//Session discipline over a two-frame freeze: frame selection routes
+//locals, a deleted breakpoint's id is not reused, stepping reports the
+//step reason, and a mis-timed `run` errs without derailing the session.
+//Also pins human-written-script tolerance: `b` splits file/line at the
+//LAST space and trims the file part, so a double space still binds.
+void test_machine_frame_and_discipline()
+{
+    TEST(machine_frame_and_discipline);
+    BuildOutcome b = buildSource("mach_frame",
+        "int helper(int v) {\n"    //1
+        "    return v + 1;\n"      //2
+        "}\n"                      //3
+        "\n"                       //4
+        "int main() {\n"           //5
+        "    int a = 5;\n"         //6
+        "    int r = helper(a);\n" //7
+        "    return r * 3;\n"      //8
+        "}\n");                    //9
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("mach_frame");
+    const std::string src = (scratchDir() / "mach_frame.n").string();
+    const std::string escaped = protocol::EncodeField(src);
+    std::ostringstream events;
+    std::istringstream in(
+        "bfunc helper\n"        //bp 1 binds helper's first anchor (line 2)
+        "run\n"                 //initial stop at main line 6
+        "c\n"                   //the helper bp hits -> frozen at 2 frames
+        "frame 1\n"             //select main's frame
+        "locals\n"              //frame 1's locals, not helper's v
+        "d 1\n"                 //delete the bound bp
+        "b " + src + "  2\n"    //double space; re-add at the same line
+        "s\n"                   //step out of the helper
+        "run\n"                 //mis-timed run -> err, session survives
+        "c\n");                 //resume to completion
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);
+    front.PumpUntilRun();
+    front.OnExited(exec.Execute(mod));
+
+    const std::string wire = events.str();
+    CHECK(wire.find("stopped\tbreakpoint\t1\thelper\t" + escaped
+            + "\t2\t2\t2\n") != std::string::npos,
+        "the bfunc bp freezes inside helper (depth == frameCount == 2)");
+    CHECK(wire.find("frame\t1\tmain\t" + escaped + "\t7\n")
+            != std::string::npos,
+        "frame 1 is main, still at the call line");
+    CHECK(wire.find("local\ta\tint\t5\n") != std::string::npos,
+        "locals follow the frame selection (main's a)");
+    CHECK(wire.find("local\tv\t") == std::string::npos,
+        "helper's v is not rendered for the selected frame");
+    CHECK(wire.find("done\td\n") != std::string::npos,
+        "deleting a bound bp answers done");
+    CHECK(wire.find("bp\t2\t" + escaped + "\t2\tbound\n")
+            != std::string::npos,
+        "re-adding binds with a fresh id and a trimmed file part");
+    CHECK(wire.find("stopped\tstep\t0\tmain\t" + escaped + "\t8\t1\t1\n")
+            != std::string::npos,
+        "stepping out of helper reports the step and drops to 1 frame");
+    CHECK(wire.find("err\trun is only valid before the program starts\n")
+            != std::string::npos,
+        "run errs inside the frozen window");
+    CHECK(wire.find("err\trun is only valid before the program starts\n")
+            < wire.find("exited\t18\n"),
+        "the session stays sane: commands after the err still work");
+    CHECK(wire.find("exited\t18\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
 // --- Loop per-iteration anchors (VmBackend) ---
 
 //Loop anchors must fire every iteration (the back edge has to land on
@@ -1862,6 +1939,7 @@ int main()
     test_protocol_escape_roundtrip();
     test_machine_session_roundtrip();
     test_machine_bfunc_and_output();
+    test_machine_frame_and_discipline();
 
     test_loop_anchor_per_iteration();
 

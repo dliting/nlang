@@ -17,6 +17,8 @@ namespace nlang {
 class IHostIo {
 public:
     virtual ~IHostIo() = default;
+    //Must not throw: it runs on the execution thread, and an escaping
+    //exception would surface inside the executor.
     virtual void OnOutput(std::string_view text) = 0;
     //True only re-enables the executor's own std::cin readLine path;
     //input is never supplied through this seam.
