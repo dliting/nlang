@@ -86,9 +86,9 @@ int DebugSessionController::AddBreakpoint(const std::string& file, int line,
     if (line <= 0)
         return 0;   //source lines are 1-based: nothing can bind
     //Table key: one id per (normalized file, line).
-    const std::string fileKey = NormalizePath(file);
+    const std::string key = NormalizePath(file);
     for (const auto& bp : m_breakpoints)
-        if (bp.line == line && bp.fileKey == fileKey)
+        if (bp.line == line && bp.key == key)
             return bp.id;
 
     //Every function whose recorded source matches contributes ALL of the
@@ -101,7 +101,7 @@ int DebugSessionController::AddBreakpoint(const std::string& file, int line,
     for (size_t i = 0; i < m_module.functions.size(); ++i) {
         const auto& func = m_module.functions[i];
         bool match = exactFile
-            ? NormalizePath(func.sourceFile) == fileKey
+            ? NormalizePath(func.sourceFile) == key
             : SourceFileMatches(func.sourceFile, file);
         if (!match) continue;
         for (const auto& e : BuildLinePcMap(func)) {
@@ -116,7 +116,7 @@ int DebugSessionController::AddBreakpoint(const std::string& file, int line,
     if (bp.anchors.empty())
         return 0;   //unbound: no statement anchor on that line
     bp.id = m_nextBreakpointId++;
-    bp.fileKey = fileKey;
+    bp.key = key;
     bp.line = line;
     m_breakpoints.push_back(std::move(bp));
     return m_breakpoints.back().id;
@@ -124,6 +124,13 @@ int DebugSessionController::AddBreakpoint(const std::string& file, int line,
 
 int DebugSessionController::AddFunctionBreakpoint(
     const std::string& funcName) {
+    //Table key: one id per function name (identifiers are case-sensitive,
+    //so the raw name is the key). Line bps always carry line > 0, so the
+    //two key spaces cannot collide.
+    for (const auto& bp : m_breakpoints)
+        if (bp.line == 0 && bp.key == funcName)
+            return bp.id;
+
     //One id covers every same-named function's first statement.
     Breakpoint bp;
     for (size_t i = 0; i < m_module.functions.size(); ++i) {
@@ -138,6 +145,7 @@ int DebugSessionController::AddFunctionBreakpoint(
     if (bp.anchors.empty())
         return 0;
     bp.id = m_nextBreakpointId++;
+    bp.key = funcName;
     m_breakpoints.push_back(std::move(bp));
     return m_breakpoints.back().id;
 }

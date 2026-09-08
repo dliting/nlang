@@ -123,8 +123,8 @@ private:
         int id = 0;
         std::string label;   //"main (file.n:9)" for front-end reports
         int hits = 0;
-        std::string fileKey;  //normalized file — line breakpoints' table key
-        int line = 0;         //line breakpoints' table key (0 = function bp)
+        std::string key;   //table key: normalized file (line bp) / func name
+        int line = 0;      //line bp's source line; 0 marks a function bp
         std::vector<std::pair<uint16_t, uint16_t>> anchors;  //(funcIdx, pc)
     };
 

@@ -1166,6 +1166,46 @@ void test_controller_funcbp_all_same_name()
     PASS();
 }
 
+void test_controller_funcbp_idempotent()
+{
+    //A repeated request for the same name returns the existing id — the
+    //table key is the function name, mirroring (file, line) idempotency.
+    //Without it the duplicate would be a zero-hit twin: OnStatement
+    //credits the first matching id only.
+    TEST(controller_funcbp_idempotent);
+    BuildOutcome b = buildSource("ctrl_funcbp_dup",
+        "int inner(int v) {\n"   //1
+        "    int r = v + 1;\n"   //2
+        "    return r;\n"        //3
+        "}\n"                    //4
+        "int main() {\n"         //5
+        "    int a = 3;\n"       //6
+        "    int b = inner(a);\n"//7
+        "    return 0;\n"        //8
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("ctrl_funcbp_dup");
+    ScriptedFrontEnd fe;
+    DebugSessionController controller(mod, fe);
+    fe.controller = &controller;
+    int id = controller.AddFunctionBreakpoint("inner");
+    CHECK(id != 0, "first request binds");
+    CHECK(controller.AddFunctionBreakpoint("inner") == id,
+        "repeated request returns the existing id");
+    CHECK(controller.BreakpointRows().size() == 1,
+        "the duplicate did not create a second row");
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    REQUIRE(fe.stops.size() == 2);
+    CHECK(fe.stops[1].reason == StopInfo::Reason::Breakpoint
+        && fe.stops[1].breakpointId == id,
+        "the hit reports under the one existing id");
+    CHECK(controller.BreakpointRows()[0].hits == 1,
+        "hit count lands on the single row (no zero-hit twin)");
+    PASS();
+}
+
 void test_controller_multianchor_finally_one_id()
 {
     //try/finally compiles each finally-body statement TWICE (exception-
@@ -1647,6 +1687,7 @@ int main()
     test_controller_breakpoint_hit_and_count();
     test_controller_break_by_func();
     test_controller_funcbp_all_same_name();
+    test_controller_funcbp_idempotent();
     test_controller_multianchor_finally_one_id();
     test_controller_multianchor_exception_copy();
     test_controller_unbound_lines();
