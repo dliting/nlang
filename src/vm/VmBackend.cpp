@@ -4741,9 +4741,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
 }
 
 //Line anchor shared by the statement prologue and the loop emitters.
-//Loop statements skip the prologue and call this at their back-edge
-//landing instead, so the loop line fires every iteration (first pass
-//falls through; each back edge re-hits it — gdb break-on-loop-line
+//Loop statements skip the prologue and call this at their per-iteration
+//pass point instead (loop head for while/for — where the back edge
+//lands; tail condition re-check for do-while), so the loop line fires
+//every iteration (first pass falls through — gdb break-on-loop-line
 //semantics). Anchor strategy lives only here.
 void VmBackend::EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter)
 {

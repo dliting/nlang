@@ -8,11 +8,12 @@ All notable changes to NLang are documented here. The format follows
 
 ### Changed
 
-- VM: loop-line breakpoints and stepping now hit on every iteration —
-  the loop back edge lands on the condition anchor (gdb semantics).
-  Previously the anchor fired only at loop entry, so an empty-body loop
-  had no per-iteration checkpoint. (ndb/nide debugging work in progress
-  — this section will grow.)
+- VM: while/for/do-while line breakpoints and stepping now hit on every
+  iteration — the back edge lands on the anchor (condition entry for
+  while/for, tail condition for do-while; gdb semantics). Previously
+  the anchor fired only at loop entry, so an empty-body loop had no
+  per-iteration checkpoint. (ndb/nide debugging work in progress —
+  this section will grow.)
 
 ## [0.4.0] - 2026-09-07
 

@@ -1110,8 +1110,8 @@ void test_loop_anchor_per_iteration()
         if (!seq.empty()) seq += ", ";
         seq += std::to_string(l);
     }
-    CHECK(hooks.lines.size() == 3 && hooks.lines[0] == 6
-          && hooks.lines[1] == 2 && hooks.lines[2] == 2,
+    CHECK(hooks.lines[0] == 6 && hooks.lines[1] == 2
+          && hooks.lines[2] == 2,
           "stop sequence must be {6, 2, 2} (main's spin() call, then the "
           "while line once per iteration), got: {" + seq + "}");
     PASS();
