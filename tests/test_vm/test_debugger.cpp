@@ -2,7 +2,8 @@
 // In-process compile+run via the public ModuleBuilder API (see
 // test_stdlib.cpp for the harness rationale). Covers the .nmod v1.9
 // sourceFile field, the B.1 imported-locals fix, debug hooks, the
-// read-only view, and DebugSession stepping semantics (Task 4).
+// read-only view, DebugSession stepping semantics (Task 4), and the
+// IHostIo seam (output capture + readLine rejection).
 // MUST call Runtime::StaticInit() before any Build() (IdString tables).
 
 #include "nlang/compiler/ModuleBuilder.h"
@@ -12,6 +13,7 @@
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
+#include "IHostIo.h"
 #include "ModuleLoader.h"
 #include "Disassembler.h"
 #include "DebugSession.h"
@@ -23,6 +25,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace nlang;
@@ -990,6 +993,64 @@ void test_session_catch_throw()
     PASS();
 }
 
+// --- Machine-mode debugging: host I/O seam ---
+
+//Captures what io.print emits. IsInputAvailable() keeps the interface
+//default (false): output-capable only.
+class CapturingHostIo : public IHostIo
+{
+public:
+    std::string captured;
+    void OnOutput(std::string_view text) override { captured.append(text); }
+};
+
+void test_hostio_output_capture()
+{
+    //Output bytes arrive verbatim, including the '\n' io.print appends.
+    TEST(hostio_output_capture);
+    BuildOutcome b = buildSource("hostio_print",
+        "import io;\n"
+        "int main() { io.print(\"hi\"); return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("hostio_print");
+    VmExecutor exec;
+    CapturingHostIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    CHECK(io.captured == "hi\n", "expected \"hi\\n\", got: " + io.captured);
+    PASS();
+}
+
+void test_hostio_readline_rejected()
+{
+    //A host without input must make io.readLine raise IOException
+    //(uncaught here -> NLangThrow escapes Execute) instead of silently
+    //consuming the embedder's stream.
+    TEST(hostio_readline_rejected);
+    BuildOutcome b = buildSource("hostio_readline",
+        "import io;\n"
+        "int main() { string s = io.readLine(); return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("hostio_readline");
+    VmExecutor exec;
+    CapturingHostIo io;
+    exec.SetHostIo(&io);
+    std::string raiseText;
+    bool raised = false;
+    try {
+        exec.Execute(mod);
+    } catch (const NLangThrow& ex) {
+        raised = true;
+        raiseText = ex.what();
+    }
+    CHECK(raised, "readLine must raise IOException when input is unavailable");
+    //Identity pin: the raise must come from the io.readLine site itself,
+    //not some other channel that happens to throw.
+    CHECK(raiseText.rfind("io.readLine", 0) == 0,
+        "raise must originate at io.readLine, got: " + raiseText);
+    PASS();
+}
+
 int main()
 {
     //In-process host init: ModuleBuilder's Build() dereferences the
@@ -1025,6 +1086,9 @@ int main()
     test_session_source_list();
     test_session_disasm_marker();
     test_session_catch_throw();
+
+    test_hostio_output_capture();
+    test_hostio_readline_rejected();
 
     std::cerr << "\ndebugger_tests: " << g_pass << " passed, "
               << g_fail << " failed\n";

@@ -2,6 +2,7 @@
 #include "nlang/vm/CompiledModule.h"
 #include "BytecodeReader.h"
 #include "IDebugHooks.h"
+#include "IHostIo.h"
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -43,6 +44,10 @@ public:
     //ndb: install a debugger front end. null (default) = previous
     //behavior; checkpoints then cost one null test per statement.
     void SetDebugHooks(IDebugHooks* hooks) { m_pDebugHooks = hooks; }
+
+    //Machine mode / IDE front ends: install a host I/O sink. null
+    //(default) = the executor keeps its stdout/stdin behavior.
+    void SetHostIo(IHostIo* io) { m_pHostIo = io; }
 
     //IVmDebugView — definitions in VmExecutorDebug.cpp.
     size_t FrameCount() const override;
@@ -273,6 +278,9 @@ private:
 
     //ndb: debugger front end (null = disabled).
     IDebugHooks* m_pDebugHooks = nullptr;
+
+    //Host I/O sink (null = write stdout / read stdin as before).
+    IHostIo* m_pHostIo = nullptr;
 
     //ndb: functions[] index of the innermost frame. Module functions
     //vector is stable after load (no reallocation), so pointer

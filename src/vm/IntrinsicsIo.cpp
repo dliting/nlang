@@ -7,8 +7,10 @@ ABI per StdLib.h: arguments are read from callParamBase slot 0 upward —
 no this pointer.
 
 Error model: file open/write failures raise IOException (class index
-cached in m_ioExcClassIdx). io.readLine has no failure mode — EOF and an
-empty input line are both "" (documented semantics, see language-spec).
+cached in m_ioExcClassIdx). io.readLine has no failure mode on its own —
+EOF and an empty input line are both "" (documented semantics, see
+language-spec); only an installed IHostIo without input makes it raise
+(see INTR_Io_ReadLine below).
 ---*/
 #include "VmExecutor.h"
 #include <cstdio>
@@ -43,14 +45,30 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
     {
         std::string s = ReadIoStringArg(m_stringPool, locals,
             callParamBase, 0);
-        std::fwrite(s.data(), 1, s.size(), stdout);
-        std::fputc('\n', stdout);
-        std::fflush(stdout);
+        if (m_pHostIo)
+        {
+            //Two calls, not one concatenation: same bytes, no temp alloc.
+            m_pHostIo->OnOutput(s);
+            m_pHostIo->OnOutput("\n");
+        }
+        else
+        {
+            std::fwrite(s.data(), 1, s.size(), stdout);
+            std::fputc('\n', stdout);
+            std::fflush(stdout);
+        }
         //Void return: leave pResult untouched.
         return true;
     }
     case INTR_Io_ReadLine:
     {
+        //An installed host without input must fail loudly: in machine
+        //mode the subprocess stdin is the protocol channel, and a silent
+        //getline would consume protocol bytes. No host at all keeps the
+        //console getline behavior (nvm / CLI ndb).
+        if (m_pHostIo && !m_pHostIo->IsInputAvailable())
+            RaiseNlangException(m_ioExcClassIdx,
+                "io.readLine: stdin is not available in this session.");
         std::string line;
         //getline fails (and leaves line empty) at EOF with no chars read,
         //so an empty final line and EOF are indistinguishable — documented
