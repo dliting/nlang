@@ -76,6 +76,27 @@ target_include_directories(nide_recent
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# DebugClient/DebugProtocolCodec: line-protocol codec + session client
+# for `ndb --machine`. Own (tiny) library so the GUI-less unit tests can
+# link Core only. Like the engine tool it drives, this side deliberately
+# links no nlang headers (crash isolation + standalone IDE builds); the
+# duplicated codec is pinned closed by identical test vectors on both
+# sides.
+add_library(nide_debug
+    DebugProtocolCodec.cpp
+    DebugClient.cpp
+)
+
+target_link_libraries(nide_debug
+    PUBLIC
+        Qt5::Core
+)
+
+target_include_directories(nide_debug
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # Dialogs library -- new-file and project-properties forms. The .ui
 # files ride along as target sources so AUTOUIC generates ui_*.h.
 # AUTOUIC matches an #include "ui_Foo.h" against Foo.ui in the source

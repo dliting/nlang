@@ -243,6 +243,52 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(recentstore_tests test_recentstore)
 
+    # Debug-protocol codec unit tests: the Qt-side mirror of the engine
+    # codec (MachineFrontEnd.h documents the wire format; nide_debug
+    # deliberately reimplements it, and the identical vectors in
+    # tests/test_vm/test_debugger.cpp keep the two sides from drifting).
+    add_executable(test_debug_protocol
+        test_nide/test_debug_protocol.cpp
+    )
+    target_link_libraries(test_debug_protocol
+        PRIVATE
+            nide_debug
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_debug_protocol POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_debug_protocol>)
+    endif()
+    nlang_add_qtest(debug_protocol_tests test_debug_protocol)
+
+    # DebugClient session tests: a real `ndb --machine` child plus a
+    # real .nmod built by real ncc (no mocks; the real-tools pattern of
+    # test_mainwindow). The tool paths arrive as compile definitions --
+    # generator expressions, so forward slashes QProcess accepts as-is.
+    add_executable(test_debug_client
+        test_nide/test_debug_client.cpp
+    )
+    target_compile_definitions(test_debug_client
+        PRIVATE
+            NDB_EXE="$<TARGET_FILE:ndb>"
+            NCC_EXE="$<TARGET_FILE:ncc>"
+    )
+    target_link_libraries(test_debug_client
+        PRIVATE
+            nide_debug
+            Qt5::Test
+    )
+    add_dependencies(test_debug_client ndb ncc)
+    if(WIN32)
+        add_custom_command(TARGET test_debug_client POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_debug_client>)
+    endif()
+    nlang_add_qtest(debug_client_tests test_debug_client)
+
     # IDE editor unit tests (Phase 10 Step 2). Widget tests instantiate
     # QApplication, which needs a Qt platform plugin even without showing
     # windows -- point QPA at the Qt install's plugins/platforms.
