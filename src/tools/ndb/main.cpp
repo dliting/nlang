@@ -2,6 +2,7 @@
 #include "VmExecutor.h"
 #include "DebugSession.h"
 #include "DebugSessionController.h"
+#include "MachineFrontEnd.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
 #include <nlang_version.h>  // generated from the repo VERSION file
@@ -14,9 +15,44 @@
 
 using namespace nlang;
 
+//Machine mode run: wire the protocol front end + controller, take
+//pre-run commands until `run`, then execute once. The process exit code
+//is the program's code; an uncaught NLang exception reports as an error
+//event and yields 1 (stderr stays untouched — the CrashReporter's
+//diagnostic channel).
+static int RunMachine(const char* modulePath) {
+    CompiledModule module;
+    VmExecutor executor;
+    //Phase 9f: host-provided natives (e2e test surface) — CLI parity.
+    RegisterTestNatives(executor);
+    MachineFrontEnd front(module, std::cin, std::cout);
+    try {
+        module = ModuleLoader::Load(modulePath);
+        DebugSessionController controller(module, front);
+        front.SetController(&controller);
+        executor.SetDebugHooks(&controller);
+        executor.SetHostIo(&front);
+        //hello goes out wired-but-idle; the prelude takes breakpoints.
+        front.PumpUntilRun();
+        const int code = executor.Execute(module);
+        front.OnExited(code);
+        return code;
+    } catch (const std::exception& e) {
+        //Uncaught NLang throw: message + backtrace to the client as one
+        //escaped error event (the CLI prints the same parts to stderr).
+        std::string report = e.what();
+        const std::string& backtrace = executor.Backtrace();
+        if (!backtrace.empty())
+            report += "\n" + backtrace;
+        front.OnRuntimeError(report);
+        return 1;
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: ndb <module.nmod>\n"
+                  << "       ndb --machine <module.nmod>\n"
                   << "       ndb --version\n";
         return 1;
     }
@@ -29,6 +65,14 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    //Machine mode: stdin/stdout are the IDE protocol channel — banners
+    //and prompts are suppressed, program output travels as events.
+    const bool machine = std::string(argv[1]) == "--machine";
+    if (machine && argc < 3) {
+        std::cerr << "Usage: ndb --machine <module.nmod>\n";
+        return 1;
+    }
+
 #ifdef _WIN32
     //SetErrorMode first, then the crash reporter (CrashReporter.h contract)
     //so a crash during startup can't pop a WER dialog first.
@@ -38,6 +82,15 @@ int main(int argc, char* argv[]) {
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     nlang::InstallCrashReporter("ndb");
 #endif
+
+    if (machine) {
+        const int code = RunMachine(argv[2]);
+#ifdef _WIN32
+        ExitProcess(static_cast<UINT>(code));
+#else
+        return code;
+#endif
+    }
 
     CompiledModule module;
     VmExecutor executor;

@@ -16,16 +16,40 @@ namespace nlang {
 
 namespace {
 
+//Does a function's recorded source match the user's file spec? The
+//spec may be a full path or a suffix like "mathutil.n".
+bool SourceFileMatches(const std::string& sourceFile,
+    const std::string& fileSpec) {
+    if (sourceFile.empty() || fileSpec.empty()) return false;
+    std::string sf = DebugSessionController::NormalizePath(sourceFile);
+    std::string spec = DebugSessionController::NormalizePath(fileSpec);
+    if (sf == spec) return true;
+    return sf.size() > spec.size()
+        && sf.compare(sf.size() - spec.size(), spec.size(), spec) == 0
+        && sf[sf.size() - spec.size() - 1] == '/';
+}
+
+//Set-time report label: "main (file.n:9)".
+std::string LabelOf(const CompiledFunction& func, int line) {
+    return DebugSessionController::LocationLabel(func.name,
+        DebugSessionController::ShownFile(func.sourceFile),
+        static_cast<unsigned>(line));
+}
+
+} // namespace
+
+// --- shared path/location formatting ---
+
 //Both separators: FilePath() records as-compiled (Windows backslashes),
 //user input may use either.
-std::string Basename(const std::string& path) {
+std::string DebugSessionController::Basename(const std::string& path) {
     size_t pos = path.find_last_of("/\\");
     return pos == std::string::npos ? path : path.substr(pos + 1);
 }
 
 //Normalize for matching: forward slashes + lowercase (Windows paths
 //are case-insensitive).
-std::string NormalizePath(const std::string& p) {
+std::string DebugSessionController::NormalizePath(const std::string& p) {
     std::string s;
     s.reserve(p.size());
     for (char c : p) {
@@ -35,28 +59,18 @@ std::string NormalizePath(const std::string& p) {
     return s;
 }
 
-//Does a function's recorded source match the user's file spec? The
-//spec may be a full path or a suffix like "mathutil.n".
-bool SourceFileMatches(const std::string& sourceFile,
-    const std::string& fileSpec) {
-    if (sourceFile.empty() || fileSpec.empty()) return false;
-    std::string sf = NormalizePath(sourceFile);
-    std::string spec = NormalizePath(fileSpec);
-    if (sf == spec) return true;
-    return sf.size() > spec.size()
-        && sf.compare(sf.size() - spec.size(), spec.size(), spec) == 0
-        && sf[sf.size() - spec.size() - 1] == '/';
+std::string DebugSessionController::ShownFile(
+    const std::string& sourceFile) {
+    return sourceFile.empty() ? std::string("?")
+                              : Basename(sourceFile);
 }
 
-//Set-time report label: "main (file.n:9)".
-std::string LabelOf(const CompiledFunction& func, int line) {
-    return func.name + " ("
-        + (func.sourceFile.empty() ? std::string("?")
-                                   : Basename(func.sourceFile))
-        + ":" + std::to_string(line) + ")";
+std::string DebugSessionController::LocationLabel(
+    const std::string& funcName, const std::string& shownFile,
+    unsigned line) {
+    return funcName + " (" + shownFile + ":" + std::to_string(line)
+        + ")";
 }
-
-} // namespace
 
 // --- display filter ---
 
@@ -222,7 +236,7 @@ void DebugSessionController::OnStatement(const DebugStopInfo& stop,
     if (it != m_breakpoints.end()) {
         it->hits += 1;
         Freeze(StopInfo{StopInfo::Reason::Breakpoint, it->id,
-                        stop.pc, stop.line, stop.funcIdx, stop.depth});
+                        stop.line, stop.funcIdx, stop.depth});
         m_pView = nullptr;
         return;
     }
@@ -245,8 +259,7 @@ void DebugSessionController::OnStatement(const DebugStopInfo& stop,
         const auto reason = (m_mode == RunMode::InitialStop)
             ? StopInfo::Reason::Initial
             : StopInfo::Reason::Step;
-        Freeze(StopInfo{reason, 0, stop.pc, stop.line, stop.funcIdx,
-                        stop.depth});
+        Freeze(StopInfo{reason, 0, stop.line, stop.funcIdx, stop.depth});
     }
     m_pView = nullptr;
 }
@@ -259,7 +272,7 @@ void DebugSessionController::OnThrow(const DebugStopInfo& stop,
         return;
     m_pView = &view;
     Freeze(StopInfo{StopInfo::Reason::Throw, 0,
-                    stop.pc, stop.line, stop.funcIdx, stop.depth});
+                    stop.line, stop.funcIdx, stop.depth});
     m_pView = nullptr;
 }
 

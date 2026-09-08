@@ -22,14 +22,16 @@ the first run (a front end may preset breakpoints).
 namespace nlang {
 
 //Payload of one freeze. reason selects the front end's report flavor;
-//pc/line/funcIdx/depth mirror the engine's DebugStopInfo; breakpointId
-//is set only for Reason::Breakpoint.
+//line/funcIdx/depth mirror the engine's DebugStopInfo; breakpointId is
+//set only for Reason::Breakpoint. (No pc: front ends that need it read
+//FrameInfo, which also carries the func/file the reports are built
+//from.)
 struct StopInfo
 {
     enum class Reason { Initial, Breakpoint, Step, Throw };
     Reason reason = Reason::Initial;
     int breakpointId = 0;
-    uint16_t pc = 0, line = 0, funcIdx = 0;
+    uint16_t line = 0, funcIdx = 0;
     size_t depth = 0;
 };
 
@@ -39,6 +41,12 @@ struct StopInfo
 //OnRuntimeError are session-end notifications fired by the embedder
 //around Execute() — the controller never calls them (it does not own
 //the run loop).
+//Contract: OnStopped/WaitUntilResume must not let C++ exceptions escape
+//(they would cross the NLang try/catch boundary into the executor — the
+//front end now owns its command pump's exception boundary). And
+//WaitUntilResume must issue a resume command — or end the process —
+//before returning; returning without a resume leaves the run mode
+//undefined.
 class IDebugFrontEnd
 {
 public:
@@ -103,6 +111,17 @@ public:
     //internal; __this shows as this.
     static bool IsHiddenLocalName(const std::string& name);
     static std::string DisplayName(const std::string& name);
+
+    //Path/location formatting shared by the front ends: the CLI prints
+    //the frame locations the controller matches breakpoints with, under
+    //the same rules (both separators, case-insensitive paths).
+    static std::string Basename(const std::string& path);
+    static std::string NormalizePath(const std::string& path);
+    //Frame file for display: basename, "?" when there is none.
+    static std::string ShownFile(const std::string& sourceFile);
+    //"func (file:line)" — the shared stop/frame location format.
+    static std::string LocationLabel(const std::string& funcName,
+        const std::string& shownFile, unsigned line);
 
     //IDebugHooks — install via VmExecutor::SetDebugHooks.
     void OnStatement(const DebugStopInfo& stop, IVmDebugView& view) override;

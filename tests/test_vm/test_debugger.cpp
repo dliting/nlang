@@ -19,6 +19,7 @@
 #include "Disassembler.h"
 #include "DebugSessionController.h"
 #include "DebugSession.h"
+#include "MachineFrontEnd.h"
 #include "SourceCache.h"
 #include <filesystem>
 #include <fstream>
@@ -1250,8 +1251,11 @@ void test_controller_multianchor_finally_one_id()
     }
     CHECK(controller.BreakpointRows()[0].hits == 2,
         "one hit per executed anchor copy");
-    //Deleting the id once must release BOTH anchors: a second run over
-    //the same session stops nowhere.
+    //Deleting the id once removes the one row that owns BOTH anchors.
+    //Directly observable only for the normal-path copy (the re-run
+    //executes just that one); the exception copy's release is pinned
+    //jointly by controller_multianchor_exception_copy, which proves both
+    //copies share this single id.
     CHECK(controller.DeleteBreakpoint(id), "delete succeeds");
     CHECK(!controller.DeleteBreakpoint(id), "second delete fails");
     fe.stops.clear();
@@ -1584,6 +1588,97 @@ void test_hostio_readline_rejected()
     PASS();
 }
 
+// --- Machine-mode line protocol (ndb --machine) ---
+
+void test_protocol_escape_roundtrip()
+{
+    //Escape round-trip: the framing metacharacters must survive.
+    TEST(protocol_escape_roundtrip);
+    const std::string tricky = "a\\b\tc\nd\r";
+    const std::string encoded = protocol::EncodeField(tricky);
+    CHECK(encoded == "a\\\\b\\tc\\nd\\r", "encode");
+    CHECK(protocol::DecodeField(encoded) == tricky, "decode");
+    PASS();
+}
+
+//Drives MachineFrontEnd in-process (commands from a stringstream, event
+//lines from an ostringstream); the embedder sequence mirrors the tool's
+//RunMachine: wire, PumpUntilRun, Execute, OnExited. The script must run
+//the program to completion — EOF while frozen would quit the whole test
+//binary (EOF = session quit by contract; dbg_quit_eof pins that in a
+//subprocess instead).
+void test_machine_session_roundtrip()
+{
+    TEST(machine_session_roundtrip);
+    BuildOutcome b = buildSource("mach_basic",
+        "int main() {\n"               //1
+        "    int total = 0;\n"         //2
+        "    int i = 7;\n"             //3
+        "    total = total + i * 6;\n" //4
+        "    return total;\n"          //5
+        "}\n");                        //6
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("mach_basic");
+    const std::string src = (scratchDir() / "mach_basic.n").string();
+    const std::string escaped = protocol::EncodeField(src);
+    std::ostringstream events;
+    std::istringstream in(
+        "wat\n"                 //unknown command -> err
+        "locals\n"              //window-bound before run -> err
+        "b " + src + " 99\n"    //past EOF -> unbound receipt
+        "b " + src + " 4\n"     //binds the third statement
+        "run\n"                 //ends the prelude; initial stop follows
+        "bt\n"                  //read at the initial stop (line 2)
+        "c\n"                   //resume; the line-4 breakpoint hits
+        "locals\n"              //total/i assigned, line 4 not yet run
+        "c\n");                 //resume to completion
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    front.PumpUntilRun();
+    //Embedder contract (RunMachine): session-end events are fired by the
+    //embedder around Execute, not by the controller.
+    front.OnExited(exec.Execute(mod));
+
+    //Path fields are tab-joined and escaped; scalar events are
+    //space-joined with the value as rest-of-line.
+    const std::string wire = events.str();
+    CHECK(wire.find("hello 1\n") == 0, "hello is the first event");
+    CHECK(wire.find("err unknown command 'wat'\n") != std::string::npos,
+        "unknown commands answer err");
+    CHECK(wire.find("err View outside the frozen window")
+            != std::string::npos,
+        "window-bound commands err before run");
+    CHECK(wire.find("bp\t0\t" + escaped + "\t99\tunbound\n")
+            != std::string::npos,
+        "unbound requests report id 0");
+    CHECK(wire.find("bp\t1\t" + escaped + "\t4\tbound\n")
+            != std::string::npos,
+        "bound requests report the receipt");
+    CHECK(wire.find("stopped\tinitial\t0\tmain\t" + escaped
+            + "\t2\t1\t1\n") != std::string::npos,
+        "initial stop event (tab-joined fields)");
+    CHECK(wire.find("frame\t0\tmain\t" + escaped + "\t2\n")
+            != std::string::npos,
+        "bt frame 0 anchors at the initial stop");
+    CHECK(wire.find("done bt\n") != std::string::npos,
+        "bt terminates with done");
+    CHECK(wire.find("stopped\tbreakpoint\t1\tmain\t" + escaped
+            + "\t4\t1\t1\n") != std::string::npos,
+        "breakpoint stop carries the id");
+    CHECK(wire.find("local total int 0\n") != std::string::npos,
+        "locals render space-joined name/type/value");
+    CHECK(wire.find("local i int 7\n") != std::string::npos,
+        "second local");
+    CHECK(wire.find("done locals\n") != std::string::npos,
+        "locals terminate with done");
+    CHECK(wire.find("exited 42\n") != std::string::npos,
+        "exited event carries the program's code");
+    PASS();
+}
+
 // --- Loop per-iteration anchors (VmBackend) ---
 
 //Loop anchors must fire every iteration (the back edge has to land on
@@ -1701,6 +1796,9 @@ int main()
 
     test_hostio_output_capture();
     test_hostio_readline_rejected();
+
+    test_protocol_escape_roundtrip();
+    test_machine_session_roundtrip();
 
     test_loop_anchor_per_iteration();
 

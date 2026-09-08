@@ -1,0 +1,8 @@
+//e2e dbgm_breakthrow: breakthrow on freezes at the throw site.
+int main() {
+    try {
+        throw new Exception("boom");
+    } catch (Exception e) {
+        return 3;
+    }
+}

@@ -1,0 +1,6 @@
+//e2e dbgm_readline_rejected: io.readLine is refused in machine mode.
+import io;
+int main() {
+    string s = io.readLine();
+    return 0;
+}

@@ -9,7 +9,6 @@
 #include "DebugSession.h"
 #include "Disassembler.h"
 #include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <istream>
@@ -24,22 +23,10 @@ namespace nlang {
 
 namespace {
 
-//Basename/NormalizePath mirror DebugSessionController.cpp: the CLI
-//formats the frame locations the controller matches breakpoints with.
-std::string Basename(const std::string& path) {
-    size_t pos = path.find_last_of("/\\");
-    return pos == std::string::npos ? path : path.substr(pos + 1);
-}
-
-std::string NormalizePath(const std::string& p) {
-    std::string s;
-    s.reserve(p.size());
-    for (char c : p) {
-        s += (c == '\\') ? '/'
-            : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return s;
-}
+//Path/location formatting lives on the controller: the CLI prints the
+//frame locations the controller matches breakpoints with, under the
+//same rules (DebugSessionController::Basename/NormalizePath/ShownFile/
+//LocationLabel).
 
 std::string Trim(const std::string& s) {
     size_t b = s.find_first_not_of(" \t\r\n");
@@ -166,10 +153,11 @@ bool DebugSession::RunCommand(const std::string& cmd) {
 
 void DebugSession::ReportStop(const std::string& prefix) {
     DebugFrameInfo fi = m_pController->View().FrameInfo(0);
-    m_out << prefix << " " << fi.funcName << " ("
-          << (fi.sourceFile.empty() ? std::string("?")
-                                    : Basename(fi.sourceFile))
-          << ":" << fi.line << ")\n";
+    m_out << prefix << " "
+          << DebugSessionController::LocationLabel(fi.funcName,
+                 DebugSessionController::ShownFile(fi.sourceFile),
+                 fi.line)
+          << "\n";
     m_out.flush();
 }
 
@@ -282,22 +270,22 @@ void DebugSession::DoBacktrace() {
     for (size_t d = 0; d < count; ++d) {
         DebugFrameInfo fi = view.FrameInfo(d);
         std::string shown = fi.sourceFile.empty()
-            ? "?" : Basename(fi.sourceFile);
+            ? "?" : DebugSessionController::Basename(fi.sourceFile);
         for (size_t o = 0; o < count; ++o) {
             if (o == d || fi.sourceFile.empty()) continue;
-            if (Basename(files[o]) == shown
-                && NormalizePath(files[o])
-                    != NormalizePath(fi.sourceFile)) {
+            if (DebugSessionController::Basename(files[o]) == shown
+                && DebugSessionController::NormalizePath(files[o])
+                    != DebugSessionController::NormalizePath(
+                        fi.sourceFile)) {
                 shown = fi.sourceFile;
                 break;
             }
         }
-        char buf[512];
         //Two spaces after the number, matching DoFrame's "#N  " form.
-        std::snprintf(buf, sizeof(buf), "#%zu  %s (%s:%u)",
-            d, fi.funcName.c_str(), shown.c_str(),
-            static_cast<unsigned>(fi.line));
-        m_out << buf << "\n";
+        m_out << "#" << d << "  "
+              << DebugSessionController::LocationLabel(fi.funcName,
+                     shown, fi.line)
+              << "\n";
     }
     m_out.flush();
 }
@@ -319,10 +307,11 @@ void DebugSession::DoFrame(const std::string& arg) {
     }
     m_selectedFrame = n;
     DebugFrameInfo fi = view.FrameInfo(n);
-    m_out << "#" << n << "  " << fi.funcName << " ("
-          << (fi.sourceFile.empty() ? std::string("?")
-                                    : Basename(fi.sourceFile))
-          << ":" << fi.line << ")\n";
+    m_out << "#" << n << "  "
+          << DebugSessionController::LocationLabel(fi.funcName,
+                 DebugSessionController::ShownFile(fi.sourceFile),
+                 fi.line)
+          << "\n";
     m_out.flush();
 }
 

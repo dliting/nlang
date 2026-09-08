@@ -80,6 +80,23 @@ def _is_intentional_throw_test(name):
     return False
 
 
+def _is_debugger_run(name):
+    """dbg_ runs under interactive ndb, dbgm_ under ndb --machine; both
+    always need their .stdin command script (ndb stops immediately)."""
+    return name.startswith('dbg_') or name.startswith('dbgm_')
+
+
+def _runner_argv(name, ndb, nvm):
+    """Tool argv for one manifest entry. dbgm_ speaks the machine line
+    protocol (--machine); dbg_ the interactive CLI; everything else is
+    plain nvm."""
+    if name.startswith('dbgm_'):
+        return [ndb, '--machine']
+    if name.startswith('dbg_'):
+        return [ndb]
+    return [nvm]
+
+
 def main():
     ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
     nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
@@ -237,17 +254,17 @@ def main():
 
                 #Run the last module
                 main_nmod = os.path.join(test_dir, f"{modules[-1]}.nmod")
-                #dbg_ prefix: run under ndb instead of nvm, driving it
-                #with the <name>.stdin command script (ndb stops at the
-                #first statement, so it always needs input).
+                #dbg_/dbgm_ prefixes: run under ndb instead of nvm,
+                #driving it with the <name>.stdin command script (ndb
+                #stops at the first statement, so it always needs input).
                 stdin_bytes = None
-                if name.startswith('dbg_'):
+                if _is_debugger_run(name):
                     stdin_path = os.path.join(test_dir, f"{name}.stdin")
                     with open(stdin_path, 'rb') as sf:
                         stdin_bytes = sf.read()
                 try:
                     result = subprocess.run(
-                        [ndb if name.startswith('dbg_') else nvm, main_nmod],
+                        _runner_argv(name, ndb, nvm) + [main_nmod],
                         capture_output=True, timeout=TIMEOUT_SEC,
                         input=stdin_bytes)
                     actual = result.returncode
@@ -371,7 +388,7 @@ def main():
                     stdin_bytes = sf.read()
             try:
                 result = subprocess.run(
-                    [ndb if name.startswith('dbg_') else nvm, nmod_file],
+                    _runner_argv(name, ndb, nvm) + [nmod_file],
                     capture_output=True, timeout=TIMEOUT_SEC,
                     cwd=run_cwd, input=stdin_bytes)
                 actual = result.returncode

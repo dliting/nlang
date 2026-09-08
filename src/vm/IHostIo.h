@@ -12,15 +12,15 @@ today (contract describes the present fact, not a threading guarantee).
 #pragma once
 #include <string_view>
 
-namespace nlang
-{
+namespace nlang {
 
-class IHostIo
-{
+class IHostIo {
 public:
     virtual ~IHostIo() = default;
     virtual void OnOutput(std::string_view text) = 0;
+    //True only re-enables the executor's own std::cin readLine path;
+    //input is never supplied through this seam.
     virtual bool IsInputAvailable() const { return false; }
 };
 
-} //namespace nlang
+} // namespace nlang

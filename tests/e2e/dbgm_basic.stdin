@@ -1,0 +1,6 @@
+b dbgm_basic.n 5
+run
+bt
+c
+locals
+c

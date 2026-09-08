@@ -1,0 +1,7 @@
+//e2e dbgm_basic: machine mode — breakpoint, locals, exit code.
+int main() {
+    int total = 0;
+    int i = 7;
+    total = total + i * 6;
+    return total;
+}
