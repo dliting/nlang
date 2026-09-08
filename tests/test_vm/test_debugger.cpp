@@ -1679,6 +1679,68 @@ void test_machine_session_roundtrip()
     PASS();
 }
 
+//Machine-face coverage the session roundtrip does not reach: bfunc's
+//receipt (the mirror of the controller's binding scan in DoBreakFunction)
+//and output events (the IHostIo wiring). io.print fires TWO OnOutput
+//calls — text, then the newline — so the wire shows two output lines.
+void test_machine_bfunc_and_output()
+{
+    TEST(machine_bfunc_and_output);
+    BuildOutcome b = buildSource("mach_bfunc",
+        "import io;\n"                 //1
+        "\n"                           //2
+        "int helper() {\n"             //3
+        "    return 3;\n"              //4
+        "}\n"                          //5
+        "\n"                           //6
+        "int main() {\n"               //7
+        "    io.print(\"a\\tb\");\n"   //8
+        "    return helper() + 4;\n"   //9
+        "}\n");                        //10
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("mach_bfunc");
+    const std::string src = (scratchDir() / "mach_bfunc.n").string();
+    const std::string escaped = protocol::EncodeField(src);
+    std::ostringstream events;
+    std::istringstream in(
+        "bfunc helper\n"        //binds helper's first anchor (line 4)
+        "bfunc nosuch\n"        //no such function -> id 0, empty location
+        "run\n"                 //initial stop at main line 8
+        "c\n"                   //output fires, then the helper bp hits
+        "c\n");                 //resume to completion
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);   //the embedder wiring the tool's RunMachine does
+    front.PumpUntilRun();
+    front.OnExited(exec.Execute(mod));
+
+    const std::string wire = events.str();
+    CHECK(wire.find("bp\t1\t" + escaped + "\t4\tbound\n")
+            != std::string::npos,
+        "bfunc resolves the function's first anchor");
+    CHECK(wire.find("bp\t0\t\t0\tunbound\n") != std::string::npos,
+        "unknown bfunc reports id 0 with an empty location");
+    CHECK(wire.find("stopped\tinitial\t0\tmain\t" + escaped
+            + "\t8\t1\t1\n") != std::string::npos,
+        "initial stop anchors main's first statement");
+    CHECK(wire.find("output\ta\\tb\n") != std::string::npos,
+        "print text arrives as one escaped output event");
+    CHECK(wire.find("output\t\\n\n") != std::string::npos,
+        "print's newline is a second output event");
+    CHECK(wire.find("output\ta\\tb\n") < wire.find("exited\t7\n"),
+        "output events stream before the exit event");
+    CHECK(wire.find("stopped\tbreakpoint\t1\thelper\t" + escaped
+            + "\t4\t2\t2\n") != std::string::npos,
+        "the bfunc breakpoint hits inside helper (depth is 1-based: "
+        "2 frames total)");
+    CHECK(wire.find("exited\t7\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
 // --- Loop per-iteration anchors (VmBackend) ---
 
 //Loop anchors must fire every iteration (the back edge has to land on
@@ -1799,6 +1861,7 @@ int main()
 
     test_protocol_escape_roundtrip();
     test_machine_session_roundtrip();
+    test_machine_bfunc_and_output();
 
     test_loop_anchor_per_iteration();
 
