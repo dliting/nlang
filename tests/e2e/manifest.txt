@@ -1001,5 +1001,5 @@ dbg_source_list 0 ->   10
 dbg_disasm 0 >>  00
 dbg_catch_throw 3 Throw: main (dbg_catch_throw.n:4)
 dbgm_basic 42 local total int
-dbgm_breakthrow 0 done bt
+dbgm_breakthrow 0 stopped throw
 dbgm_readline_rejected 1 readLine

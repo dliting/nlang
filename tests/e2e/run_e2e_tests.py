@@ -97,6 +97,18 @@ def _runner_argv(name, ndb, nvm):
     return [nvm]
 
 
+def _matchable_stdout(name, raw_stdout):
+    """Decode a run's stdout for manifest substring matching. Machine-mode
+    (dbgm_) events are tab-joined; separator tabs fold to spaces so
+    manifest substrings stay space-separated. Protocol fields never carry
+    raw tabs (EncodeField escapes them to literal \\t), so folding only
+    ever touches framework separators — no false hits."""
+    text = raw_stdout.decode('utf-8', errors='replace')
+    if name.startswith('dbgm_'):
+        text = text.replace('\t', ' ')
+    return text
+
+
 def main():
     ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
     nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
@@ -286,10 +298,11 @@ def main():
                         os.remove(p)
 
                 if actual == expected:
-                    #dbg_ tests: optional stdout-substring assertion
-                    #(manifest column 3), mirroring the single-file path.
+                    #dbg_/dbgm_ tests: optional stdout-substring
+                    #assertion (manifest column 3), mirroring the
+                    #single-file path.
                     if expected_stdout:
-                        stdout_text = result.stdout.decode('utf-8', errors='replace')
+                        stdout_text = _matchable_stdout(name, result.stdout)
                         if expected_stdout not in stdout_text:
                             print(f"FAIL {name} (stdout missing {expected_stdout!r})")
                             failed += 1
@@ -410,7 +423,7 @@ def main():
                 #column 3). Checked before declaring the pass so a wrong
                 #stdout is a FAIL, not a warning.
                 if expected_stdout:
-                    stdout_text = result.stdout.decode('utf-8', errors='replace')
+                    stdout_text = _matchable_stdout(name, result.stdout)
                     if expected_stdout not in stdout_text:
                         print(f"FAIL {name} (stdout missing {expected_stdout!r})")
                         failed += 1

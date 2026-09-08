@@ -1642,13 +1642,13 @@ void test_machine_session_roundtrip()
     //embedder around Execute, not by the controller.
     front.OnExited(exec.Execute(mod));
 
-    //Path fields are tab-joined and escaped; scalar events are
-    //space-joined with the value as rest-of-line.
+    //Every event is tab-joined with all fields encoded; data tabs are
+    //escaped, so a raw tab in the wire is always a field separator.
     const std::string wire = events.str();
-    CHECK(wire.find("hello 1\n") == 0, "hello is the first event");
-    CHECK(wire.find("err unknown command 'wat'\n") != std::string::npos,
+    CHECK(wire.find("hello\t1\n") == 0, "hello is the first event");
+    CHECK(wire.find("err\tunknown command 'wat'\n") != std::string::npos,
         "unknown commands answer err");
-    CHECK(wire.find("err View outside the frozen window")
+    CHECK(wire.find("err\tView outside the frozen window")
             != std::string::npos,
         "window-bound commands err before run");
     CHECK(wire.find("bp\t0\t" + escaped + "\t99\tunbound\n")
@@ -1663,18 +1663,18 @@ void test_machine_session_roundtrip()
     CHECK(wire.find("frame\t0\tmain\t" + escaped + "\t2\n")
             != std::string::npos,
         "bt frame 0 anchors at the initial stop");
-    CHECK(wire.find("done bt\n") != std::string::npos,
+    CHECK(wire.find("done\tbt\n") != std::string::npos,
         "bt terminates with done");
     CHECK(wire.find("stopped\tbreakpoint\t1\tmain\t" + escaped
             + "\t4\t1\t1\n") != std::string::npos,
         "breakpoint stop carries the id");
-    CHECK(wire.find("local total int 0\n") != std::string::npos,
-        "locals render space-joined name/type/value");
-    CHECK(wire.find("local i int 7\n") != std::string::npos,
+    CHECK(wire.find("local\ttotal\tint\t0\n") != std::string::npos,
+        "locals render tab-joined name/type/value");
+    CHECK(wire.find("local\ti\tint\t7\n") != std::string::npos,
         "second local");
-    CHECK(wire.find("done locals\n") != std::string::npos,
+    CHECK(wire.find("done\tlocals\n") != std::string::npos,
         "locals terminate with done");
-    CHECK(wire.find("exited 42\n") != std::string::npos,
+    CHECK(wire.find("exited\t42\n") != std::string::npos,
         "exited event carries the program's code");
     PASS();
 }

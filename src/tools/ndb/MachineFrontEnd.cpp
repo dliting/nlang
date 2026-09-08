@@ -50,7 +50,7 @@ MachineFrontEnd::MachineFrontEnd(const CompiledModule& module,
 
 void MachineFrontEnd::PumpUntilRun()
 {
-    EmitLine(protocol::MakeEvent("hello", {"1"}, ' '));
+    EmitLine(protocol::MakeEvent("hello", {"1"}));
     for (;;) {
         std::string line;
         if (!std::getline(m_in, line))
@@ -95,7 +95,7 @@ bool MachineFrontEnd::Dispatch(const std::string& line)
         if (head == "run") {
             if (m_started)
                 EmitLine(protocol::MakeEvent("err",
-                    {"run is only valid before the program starts"}, ' '));
+                    {"run is only valid before the program starts"}));
             return !m_started;
         }
         if (head == "c") { m_pController->Continue(); return true; }
@@ -103,12 +103,12 @@ bool MachineFrontEnd::Dispatch(const std::string& line)
         if (head == "n") { m_pController->StepOver(); return true; }
         if (head == "f") { m_pController->StepOut(); return true; }
         EmitLine(protocol::MakeEvent("err",
-            {"unknown command '" + head + "'"}, ' '));
+            {"unknown command '" + head + "'"}));
         return false;
     } catch (const std::exception& e) {
         //Exception boundary: window violations (std::logic_error) and
         //malformed requests surface as err events, never escape.
-        EmitLine(protocol::MakeEvent("err", {e.what()}, ' '));
+        EmitLine(protocol::MakeEvent("err", {e.what()}));
         return false;
     }
 }
@@ -128,7 +128,7 @@ void MachineFrontEnd::DoBreakpoint(const std::string& arg)
     const int id = m_pController->AddBreakpoint(file, line);
     EmitLine(protocol::MakeEvent("bp",
         {std::to_string(id), file, std::to_string(line),
-         id == 0 ? "unbound" : "bound"}, '\t'));
+         id == 0 ? "unbound" : "bound"}));
 }
 
 void MachineFrontEnd::DoBreakFunction(const std::string& name)
@@ -150,7 +150,7 @@ void MachineFrontEnd::DoBreakFunction(const std::string& name)
     }
     EmitLine(protocol::MakeEvent("bp",
         {std::to_string(id), file, std::to_string(line),
-         id == 0 ? "unbound" : "bound"}, '\t'));
+         id == 0 ? "unbound" : "bound"}));
 }
 
 void MachineFrontEnd::DoDelete(const std::string& arg)
@@ -159,7 +159,7 @@ void MachineFrontEnd::DoDelete(const std::string& arg)
         throw std::runtime_error("d expects <id>");
     if (!m_pController->DeleteBreakpoint(std::atoi(arg.c_str())))
         throw std::runtime_error("no breakpoint " + arg);
-    EmitLine(protocol::MakeEvent("done", {"d"}, ' '));
+    EmitLine(protocol::MakeEvent("done", {"d"}));
 }
 
 void MachineFrontEnd::DoBreakThrow(const std::string& arg)
@@ -170,7 +170,7 @@ void MachineFrontEnd::DoBreakThrow(const std::string& arg)
         m_pController->SetBreakOnThrow(false);
     else
         throw std::runtime_error("breakthrow expects on|off");
-    EmitLine(protocol::MakeEvent("done", {"breakthrow"}, ' '));
+    EmitLine(protocol::MakeEvent("done", {"breakthrow"}));
 }
 
 void MachineFrontEnd::DoBacktrace()
@@ -179,7 +179,7 @@ void MachineFrontEnd::DoBacktrace()
     const size_t count = view.FrameCount();
     for (size_t depth = 0; depth < count; ++depth)
         EmitFrame(depth);
-    EmitLine(protocol::MakeEvent("done", {"bt"}, ' '));
+    EmitLine(protocol::MakeEvent("done", {"bt"}));
 }
 
 void MachineFrontEnd::DoFrame(const std::string& arg)
@@ -193,7 +193,7 @@ void MachineFrontEnd::DoFrame(const std::string& arg)
         throw std::runtime_error("no frame " + arg);
     m_selectedFrame = depth;   //selection routes later locals requests
     EmitFrame(depth);
-    EmitLine(protocol::MakeEvent("done", {"frame"}, ' '));
+    EmitLine(protocol::MakeEvent("done", {"frame"}));
 }
 
 void MachineFrontEnd::DoLocals()
@@ -204,9 +204,9 @@ void MachineFrontEnd::DoLocals()
             continue;
         EmitLine(protocol::MakeEvent("local",
             {DebugSessionController::DisplayName(local.name),
-             local.kindName, local.display}, ' '));
+             local.kindName, local.display}));
     }
-    EmitLine(protocol::MakeEvent("done", {"locals"}, ' '));
+    EmitLine(protocol::MakeEvent("done", {"locals"}));
 }
 
 // --- IDebugFrontEnd ---
@@ -219,24 +219,24 @@ void MachineFrontEnd::OnStopped(const StopInfo& stop)
         {ReasonName(stop.reason), std::to_string(stop.breakpointId),
          frame.funcName, frame.sourceFile, std::to_string(frame.line),
          std::to_string(stop.depth),
-         std::to_string(m_pController->View().FrameCount())}, '\t'));
+         std::to_string(m_pController->View().FrameCount())}));
 }
 
 void MachineFrontEnd::OnExited(int code)
 {
-    EmitLine(protocol::MakeEvent("exited", {std::to_string(code)}, ' '));
+    EmitLine(protocol::MakeEvent("exited", {std::to_string(code)}));
 }
 
 void MachineFrontEnd::OnRuntimeError(const std::string& report)
 {
-    EmitLine(protocol::MakeEvent("error", {report}, ' '));
+    EmitLine(protocol::MakeEvent("error", {report}));
 }
 
 // --- IHostIo ---
 
 void MachineFrontEnd::OnOutput(std::string_view text)
 {
-    EmitLine(protocol::MakeEvent("output", {std::string(text)}, ' '));
+    EmitLine(protocol::MakeEvent("output", {std::string(text)}));
 }
 
 // --- emission ---
@@ -246,7 +246,7 @@ void MachineFrontEnd::EmitFrame(size_t depth)
     const DebugFrameInfo frame = m_pController->View().FrameInfo(depth);
     EmitLine(protocol::MakeEvent("frame",
         {std::to_string(depth), frame.funcName, frame.sourceFile,
-         std::to_string(frame.line)}, '\t'));
+         std::to_string(frame.line)}));
 }
 
 void MachineFrontEnd::EmitLine(const std::string& line)

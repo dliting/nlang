@@ -5,20 +5,20 @@ stdin/stdout, one line per event (out) and command (in). The same object
 implements IHostIo: program output becomes output events, and io.readLine
 stays refused (the base-interface default) because stdin is the protocol
 channel.
-Events (front end -> IDE) — every field is protocol::EncodeField'd, then
-joined by tab when a field can contain spaces (file paths), otherwise by
-single spaces with the last field as rest-of-line:
-  hello 1
-  bp <id> <file> <line> <bound|unbound>   (tab-joined; id 0 = unbound)
-  stopped <initial|breakpoint|step|throw> <bpId> <func> <file> <line>
-          <depth> <frameCount>             (tab-joined)
-  frame <n> <func> <file> <line>           (tab-joined)
-  local <name> <type> <value>
-  done <req>
-  output <text>
-  exited <code>
-  error <report>
-  err <message>
+Events (front end -> IDE) are tab-joined lines and every field is
+protocol::EncodeField'd, so data tabs/newlines never break the framing —
+a raw tab in the wire is always a field separator:
+  hello\t1
+  bp\t<id>\t<file>\t<line>\t<bound|unbound>   (id 0 = unbound)
+  stopped\t<initial|breakpoint|step|throw>\t<bpId>\t<func>\t<file>
+          \t<line>\t<depth>\t<frameCount>
+  frame\t<n>\t<func>\t<file>\t<line>
+  local\t<name>\t<type>\t<value>
+  done\t<req>
+  output\t<text>
+  exited\t<code>
+  error\t<report>
+  err\t<message>
 Commands (IDE -> front end) are plain space-separated tokens, unescaped:
 b <file> <line> (file/line split at the LAST space), bfunc <name>,
 d <id>, breakthrow on|off, bt, frame <n> (also selects for locals),
@@ -82,14 +82,14 @@ inline std::string DecodeField(const std::string& field)
     return out;
 }
 
-//Assemble one event line: keyword + separator-joined encoded fields.
-//Encoding is structural — callers cannot forget a field.
+//Assemble one event line: keyword + tab-joined encoded fields. Encoding
+//is structural — callers cannot forget a field or misplace a separator.
 inline std::string MakeEvent(const std::string& keyword,
-    const std::vector<std::string>& fields, char separator)
+    const std::vector<std::string>& fields)
 {
     std::string line = keyword;
     for (const auto& field : fields) {
-        line += separator;
+        line += '\t';
         line += EncodeField(field);
     }
     return line;
