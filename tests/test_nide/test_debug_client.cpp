@@ -207,6 +207,10 @@ void TestDebugClient::breakpointAddedWhileStoppedHitsLater() {
     QSignalSpy bound(&client, &DebugClient::breakpointBound);
     QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
     QSignalSpy exited(&client, &DebugClient::exited);
+    //Pins the one-shot run gate: a stopped-window bp receipt must NOT
+    //re-fire `run` (the server would answer err and this spy would see
+    //it, even though the session survives).
+    QSignalSpy failed(&client, &DebugClient::commandFailed);
 
     QVERIFY(client.launch(m_progNmod));
     QVERIFY(client.addBreakpoint(m_progSource, 7));
@@ -229,6 +233,7 @@ void TestDebugClient::breakpointAddedWhileStoppedHitsLater() {
     QTRY_COMPARE_WITH_TIMEOUT(
         client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
     QCOMPARE(exited.first().at(0).toInt(), 42);
+    QCOMPARE(failed.count(), 0);
 }
 
 void TestDebugClient::killGuaranteeOnAnInfiniteLoop() {

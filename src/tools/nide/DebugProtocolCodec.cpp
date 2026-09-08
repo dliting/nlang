@@ -58,7 +58,7 @@ DebugEvent parseEvent(const QString& line)
     while (trimmed.endsWith(QLatin1Char('\r')))
         trimmed.chop(1);
     const QStringList rawFields =
-        trimmed.split(QLatin1Char('\t'), QString::KeepEmptyParts);
+        trimmed.split(QLatin1Char('\t'), Qt::KeepEmptyParts);
     DebugEvent ev;
     ev.fields.reserve(rawFields.size());
     for (const QString& raw : rawFields)
