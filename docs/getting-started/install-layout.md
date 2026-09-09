@@ -10,7 +10,7 @@
 
 | 目录/文件 | 内容 |
 |---|---|
-| `bin\` | ncc.exe、nvm.exe、ndisasm.exe、nide.exe 与 Qt 运行时 |
+| `bin\` | ncc.exe、nvm.exe、ndisasm.exe、ndb.exe、nide.exe 与 Qt 运行时 |
 | `examples\` | 全部示例程序，含多文件项目 `hello_project` |
 | `docs\site\` | 本帮助文档站——nide 内嵌帮助窗口加载的正是它 |
 | `LICENSE`、`README.md` | 许可证与项目说明 |

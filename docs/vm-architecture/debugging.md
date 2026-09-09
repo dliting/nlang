@@ -142,4 +142,4 @@ shared `.nmod` may carry stale source paths (ndb falls back to the
 session inherits these and adds user-facing ones — no stdin inside a
 debug session, per-session line-number snapshots (no mid-session
 edit/rebuild), hard-terminate stop — documented in the Getting Started
-debugging guide (在 nide 中调试).
+debugging guide, [在 nide 中调试](../getting-started/debugging.md).

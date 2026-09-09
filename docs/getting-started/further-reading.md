@@ -18,8 +18,8 @@
    [已知限制](../language-spec/known-limitations.md)
 
 想了解执行引擎：[VM 架构/概览](../vm-architecture/overview.md)，
-再按需读编译管线、栈帧布局、字节码指令等章节。在 IDE 里调试程序见
-[在 nide 中调试](debugging.md)。
+再按需读编译管线、栈帧布局、字节码指令等章节。
+在 IDE 里调试程序见 [在 nide 中调试](debugging.md)。
 
 想看能跑的完整程序：`examples/README.md` 按主题列出全部示例与预期退出码，
 本页速览片段也大多能在其中找到对应示例。

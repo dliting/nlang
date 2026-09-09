@@ -223,8 +223,9 @@ cmake --build build-ide --config Release
 
 The build output in `build-ide/src/tools/nide/Release/` is a runnable
 layout: the Qt runtime DLLs, the `platforms/` plugin directory, and the
-`ncc`/`nvm` tools are copied next to `nide.exe` (the IDE invokes them
-from its own directory), so that folder can be copied elsewhere as-is.
+`ncc`/`nvm`/`ndb` tools are copied next to `nide.exe` (the IDE invokes
+them from its own directory), so that folder can be copied elsewhere
+as-is.
 The UI language follows the system locale (Chinese and English are
 bundled; untranslated strings fall back to their authored text).
 
