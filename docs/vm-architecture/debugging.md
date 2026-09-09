@@ -38,11 +38,14 @@ same line stop twice; a statement spanning lines stops once.
 The loop statements carry their debug anchor on the back edge, so a
 breakpoint on the anchor line — or stepping — stops on **every**
 iteration, not only at loop entry (gdb semantics): the condition entry
-for `while`/`for`, the tail condition for `do-while`. Previously the
-anchor fired once at loop entry, leaving an empty-bodied loop without a
-per-iteration checkpoint. The anchor is the statement line the grammar
-records for the loop header, so `b <file>:<loop line>` behaves the way
-line-oriented debuggers have always behaved.
+for `while`/`for` — evaluated once per iteration, including the final
+evaluation that ends the loop — and the tail condition for `do-while`.
+Previously the anchor fired once at loop entry, leaving an empty-bodied
+loop without a per-iteration checkpoint. The anchor is the statement
+line the grammar records for the loop header, so `b <file>:<loop line>`
+behaves the way line-oriented debuggers have always behaved; a `for`
+header also carries its init and increment statements on that line, and
+each of those anchors stops under the line's single breakpoint id.
 
 ## Session layering
 
