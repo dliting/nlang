@@ -2374,6 +2374,34 @@ private slots:
         QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
     }
 
+    //A child line can still drain after the session is torn down
+    //(closeEvent stops and tears down synchronously while ndb is still
+    //running, so a buffered stop/bp-receipt line can dispatch into a
+    //released client): the debug slots must tolerate a dead session,
+    //like their on_* siblings that guard m_debugClient.
+    void testDebugSlotsTolerateDeadSession() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_dead.n");
+        writeFile(path, kDebugSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        QVERIFY(currentCode(window) != nullptr);
+        QVERIFY(window.findChildren<DebugClient*>().isEmpty());  // no session
+
+        //Direct slot invocation with no live session (m_debugClient is
+        //null): neither call may dereference it.
+        QVERIFY(QMetaObject::invokeMethod(&window, "onDebugStopped",
+            Q_ARG(QString, QStringLiteral("breakpoint")), Q_ARG(int, 1),
+            Q_ARG(QString, QStringLiteral("main")),
+            Q_ARG(QString, path), Q_ARG(int, 6), Q_ARG(int, 1),
+            Q_ARG(int, 1)));
+        QVERIFY(QMetaObject::invokeMethod(&window, "onDebugBreakpointBound",
+            Q_ARG(int, 1), Q_ARG(QString, path), Q_ARG(int, 6),
+            Q_ARG(bool, true)));
+    }
+
     //Toggle a known-id breakpoint OFF while Running: the queued remove
     //replays at the next stop and the line must not hit afterwards.
     void testQueuedRemoveReplaysAtNextStop() {

@@ -1028,6 +1028,8 @@ void MainWindow::on_chkBreakOnThrow_toggled(bool checked) {
 
 void MainWindow::onDebugBreakpointBound(int id, const QString& file,
                                         int line, bool bound) {
+    if (m_debugClient == nullptr)
+        return;   //the session is already torn down
     if (bound && id > 0) {
         if (m_breakpoints.contains(file, line)) {
             m_breakpointIds[{BreakpointStore::normalizedKey(file), line}] = id;
@@ -1056,6 +1058,8 @@ void MainWindow::onDebugStopped(const QString& reason, int breakpointId,
     Q_UNUSED(breakpointId);
     Q_UNUSED(depth);
     Q_UNUSED(frameCount);   // the stack tree fills from `bt` frames
+    if (m_debugClient == nullptr)
+        return;   //the session is already torn down
     showOutputPage(m_ui->tabDebug);
     flushDeferredBreakpointRetires();
     flushPendingBreakpointChanges();
@@ -1165,6 +1169,12 @@ void MainWindow::endDebugSession() {
         //Deferred delete: this usually runs inside one of the client's
         //own signal handlers, so the object must outlive the emit.
         //release() hands the ownership to the event loop.
+        //The client stays ALIVE until the deferred delete runs, and a
+        //child line still buffered in the pipe can dispatch in that
+        //window (closeEvent tears the session down while the process is
+        //still running) -- cut the signal path before releasing, so no
+        //late event reaches the slots with a released client.
+        disconnect(m_debugClient.get(), nullptr, this, nullptr);
         m_debugClient->deleteLater();
         m_debugClient.release();
     }

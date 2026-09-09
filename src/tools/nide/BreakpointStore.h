@@ -26,7 +26,6 @@ public:
     QStringList files() const;
     //Follow a file rename so the breakpoints survive (no rank to keep).
     void rename(const QString& oldPath, const QString& newPath);
-    void clear() { m_linesByFile.clear(); }
     //Single key "breakpoints/entries": one "<path>\t<line>,<line>,..."
     //entry per file; cheap enough for write-through on every toggle.
     void save(QSettings& settings) const;

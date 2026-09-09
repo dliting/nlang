@@ -178,6 +178,12 @@ void DebugClient::onReadyReadStandardOutput()
 
 void DebugClient::handleEvent(const DebugEvent& ev)
 {
+    //Ended is terminal: a line still buffered in the pipe when the
+    //session converged (an exit racing a pending stop, a stopped line
+    //draining after `exited`) is post-convergence noise -- acting on it
+    //would resurrect the state machine and re-emit session events.
+    if (m_state == State::Ended)
+        return;
     const QStringList& f = ev.fields;
     switch (ev.kind) {
     case DebugEvent::Hello:
