@@ -1,10 +1,13 @@
-/*--- test_editor.cpp - FileEditor/CodeEditor/EditorManager unit tests ---*/
+/*--- test_editor.cpp - FileEditor/CodeEditor/EditorManager/BreakpointStore
+unit tests ---*/
+#include "../../../src/tools/nide/BreakpointStore.h"
 #include "../../../src/tools/nide/CodeEditor.h"
 #include "../../../src/tools/nide/FileEditor.h"
 
 #include <QDir>
 #include <QFile>
 #include <QPlainTextEdit>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QtTest>
@@ -19,6 +22,12 @@ private:
 
     // Absolute path of a file under the temp dir.
     QString abs(const QString& relPath) { return m_tmpDir.path() + "/" + relPath; }
+
+    // A fresh ini per test function: no cross-test bleed.
+    QString iniPath() const {
+        return m_tmpDir.filePath(
+            QString::fromLatin1(QTest::currentTestFunction()) + ".ini");
+    }
 
     // The QPlainTextEdit behind a CodeFileEditor (content is ASCII-only
     // in these tests, so QTextStream's default codec is fine here).
@@ -436,6 +445,63 @@ private slots:
         CodeEditor editor;
         QCOMPARE(editor.tabStopDistance(),
                  4.0 * editor.fontMetrics().horizontalAdvance(' '));
+    }
+
+    // --- BreakpointStore: rename + cross-restart load ---
+
+    void testBreakpointStoreRenameMovesLines() {
+        BreakpointStore store;
+        const QString before = abs("old.n");
+        const QString after = abs("new.n");
+        QVERIFY(store.toggle(before, 3));
+        QVERIFY(store.toggle(before, 7));
+
+        store.rename(before, after);
+        QVERIFY(!store.contains(before, 3));
+        QVERIFY(!store.contains(before, 7));
+        QCOMPARE(store.linesOf(after), QSet<int>({3, 7}));
+        QCOMPARE(store.files(),
+                 QStringList({BreakpointStore::normalizedKey(after)}));
+
+        //A rename of an unlisted file is a no-op (a rename is not an
+        //open, mirroring the recent list).
+        store.rename(abs("stranger.n"), abs("stranger2.n"));
+        QCOMPARE(store.files().size(), 1);
+    }
+
+    void testBreakpointStoreLoadRestoresAfterRestart() {
+        //Write through one store, then load into a FRESH one from the
+        //same settings scope: the cross-restart path (the ctor's load).
+        {
+            BreakpointStore store;
+            QVERIFY(store.toggle(abs("keep.n"), 4));
+            QVERIFY(store.toggle(abs("keep.n"), 9));
+            QSettings settings(iniPath(), QSettings::IniFormat);
+            store.save(settings);
+        }
+        BreakpointStore restored;
+        QSettings settings(iniPath(), QSettings::IniFormat);
+        restored.load(settings);
+        QCOMPARE(restored.linesOf(abs("keep.n")), QSet<int>({4, 9}));
+    }
+
+    void testBreakpointStoreLoadSkipsCorruptEntries() {
+        //load() is the store's only real parsing: one good entry plus
+        //the broken shapes (no tab, no line half, non-numeric / <=0
+        //lines) -- only the valid data survives.
+        QSettings settings(iniPath(), QSettings::IniFormat);
+        settings.setValue(QStringLiteral("breakpoints/entries"),
+                          QStringList({abs("good.n") + QLatin1Char('\t')
+                                           + QLatin1String("2,5"),
+                                       abs("notab.n"),
+                                       abs("nolines.n") + QLatin1Char('\t'),
+                                       abs("badlines.n") + QLatin1Char('\t')
+                                           + QLatin1String("x,0,-3")}));
+        BreakpointStore store;
+        store.load(settings);
+        QCOMPARE(store.files(),
+                 QStringList({BreakpointStore::normalizedKey(abs("good.n"))}));
+        QCOMPARE(store.linesOf(abs("good.n")), QSet<int>({2, 5}));
     }
 };
 

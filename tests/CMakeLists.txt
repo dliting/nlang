@@ -378,21 +378,15 @@ if(NLANG_BUILD_IDE)
 
     # Main-window integration tests (Phase 10 Step 7). These drive the
     # real modal flows (file dialogs, message boxes) and run the real
-    # ncc/nvm for build & run, so both exes are copied next to the test
-    # binary (MainWindow looks for them in the application directory).
+    # ncc/nvm/ndb for build, run and debug, so all three exes are copied
+    # next to the test binary (MainWindow resolves them in the
+    # application directory via toolPath -- no compile definitions).
     # The file dialogs need AA_DontUseNativeDialogs (set in the test) to
     # be drivable as QFileDialog widgets. Same QApplication/windows-
     # platform harness as the dialog tests (the offscreen platform has
     # no deployed fonts and crashes in QMessageBox layout).
     add_executable(test_mainwindow
         test_nide/test_mainwindow.cpp
-    )
-    #NDB_EXE/NCC_EXE: the debug tests launch the real ndb/ncc like the
-    #build/run tests do (compile definitions, generator expressions).
-    target_compile_definitions(test_mainwindow
-        PRIVATE
-            NDB_EXE="$<TARGET_FILE:ndb>"
-            NCC_EXE="$<TARGET_FILE:ncc>"
     )
     target_link_libraries(test_mainwindow
         PRIVATE

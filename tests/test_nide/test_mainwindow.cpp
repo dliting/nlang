@@ -77,6 +77,25 @@ const char* const kSpinSource =
     "    return 0;\n"
     "}\n";
 
+//Long-Running-window fixture: the counted loop runs ~5s under ndb, so
+//toggles made after QTRY(state == Running) reliably land in the Running
+//window (the only state where the wire queue is used). touch() runs
+//once AFTER the loop, and line 10 freezes before the call -- so a
+//breakpoint on line 2 that ndb still holds would stop there.
+const char* const kLoopSource =
+    "public int touch() {\n"          //1
+    "    return 1;\n"                 //2  <- toggled line
+    "}\n"                             //3
+    "\n"                              //4
+    "public int main() {\n"           //5
+    "    int spin = 0;\n"             //6
+    "    while (spin < 100000000) {\n"//7
+    "        spin = spin + 1;\n"      //8
+    "    }\n"                         //9
+    "    int t = touch();\n"          //10 <- prelude breakpoint
+    "    return 42;\n"                //11
+    "}\n";                            //12
+
 //The embedded help's mkdocs-material search needs the page-side retry
 //loop to report (its bundle binds the input handler asynchronously),
 //so the test polls the reported flag at this interval and gives up
@@ -179,6 +198,16 @@ QTreeView* solutionView(MainWindow& window) {
 
 CodeEditor* currentCode(MainWindow& window) {
     return qobject_cast<CodeEditor*>(tabCodes(window)->currentWidget());
+}
+
+//Park the editor caret on the 1-based line (F9 places breakpoints at
+//the cursor line).
+void moveCursorToLine(CodeEditor* code, int line) {
+    QTextCursor cursor = code->textCursor();
+    cursor.movePosition(QTextCursor::Start);
+    for (int i = 1; i < line; ++i)
+        cursor.movePosition(QTextCursor::NextBlock);
+    code->setTextCursor(cursor);
 }
 
 //The first file row (solution -> project -> file); the single-project
@@ -2013,6 +2042,8 @@ private slots:
         QAction* startDebug = act(window, "actStartDebug");
         QAction* stopDebug = act(window, "actStopDebug");
         QAction* stepInto = act(window, "actStepInto");
+        QAction* startRunning = act(window, "actStartRunning");
+        QAction* buildAction = act(window, "actBuild");
 
         //Nothing open: no debug target, so every debug action is off.
         QVERIFY(!startDebug->isEnabled());
@@ -2028,13 +2059,19 @@ private slots:
         QVERIFY(startDebug->isEnabled());
         QVERIFY(!stopDebug->isEnabled());
         QVERIFY(!stepInto->isEnabled());
+        QVERIFY(startRunning->isEnabled());
+        QVERIFY(buildAction->isEnabled());
 
         //Live session: Stop is on; Start is off until a pause makes it
-        //the Continue button, and the steps need a pause too.
+        //the Continue button, and the steps need a pause too. Build/Run
+        //gate off as well -- a mid-session rebuild would rewrite the
+        //.nmod the debugger is executing.
         startDebug->trigger();  // synchronous build + launch
         QVERIFY(stopDebug->isEnabled());
         QVERIFY(!startDebug->isEnabled());
         QVERIFY(!stepInto->isEnabled());
+        QVERIFY(!startRunning->isEnabled());
+        QVERIFY(!buildAction->isEnabled());
 
         //User stop: the session converges and retires; Start is back.
         stopDebug->trigger();
@@ -2043,6 +2080,8 @@ private slots:
         QVERIFY(startDebug->isEnabled());
         QVERIFY(!stopDebug->isEnabled());
         QVERIFY(!stepInto->isEnabled());
+        QVERIFY(startRunning->isEnabled());
+        QVERIFY(buildAction->isEnabled());
         QCOMPARE(window.findChild<QLabel*>("lblDebugStatus")->text(),
                  MainWindow::tr("Debug stopped"));
     }
@@ -2098,13 +2137,20 @@ private slots:
             return false;
         };
         QTRY_VERIFY_WITH_TIMEOUT(hasTotalRow(), 10000);
-        //Program output landed on the run page before the pause.
-        QVERIFY(window.findChild<QTextBrowser*>("txtExecuteOut")
-                    ->toPlainText().contains("hi"));
+        //Program output landed on the run page before the pause --
+        //verbatim: io.print rides in as a text half plus a newline half,
+        //so the cleared page holds exactly "hi\n" (append()'s paragraph
+        //breaks would inflate it to "hi\n\n").
+        QCOMPARE(window.findChild<QTextBrowser*>("txtExecuteOut")
+                     ->toPlainText(),
+                 QStringLiteral("hi\n"));
         //Paused session: F5 doubles as Continue, the steps are live.
         QVERIFY(act(window, "actStartDebug")->isEnabled());
         QVERIFY(act(window, "actStopDebug")->isEnabled());
         QVERIFY(act(window, "actStepInto")->isEnabled());
+        //Build/Run stay gated off for the whole live session.
+        QVERIFY(!act(window, "actStartRunning")->isEnabled());
+        QVERIFY(!act(window, "actBuild")->isEnabled());
 
         //Continue: the program runs to its exit and the session retires.
         act(window, "actStartDebug")->trigger();
@@ -2114,6 +2160,8 @@ private slots:
             status->text() == MainWindow::tr("Exited (code 42)"), 30000);
         QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
         QVERIFY(!act(window, "actStopDebug")->isEnabled());
+        QVERIFY(act(window, "actStartRunning")->isEnabled());
+        QVERIFY(act(window, "actBuild")->isEnabled());
         //The paused-line highlight did not survive the session.
         QCOMPARE(stoppedEditor->stoppedLine(), 0);
     }
@@ -2154,6 +2202,163 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(
             window.findChildren<DebugClient*>().isEmpty(), 30000);
         QVERIFY(!window.isVisible());
+    }
+
+    //Toggle ON+OFF inside the launch window, before ndb's receipt for
+    //the add can arrive: the remove lookup finds no wire id yet, so the
+    //receipt handler must retire the materialized breakpoint -- without
+    //that self-heal ndb ghosts on line 6 and stops there.
+    void testToggleOffInLaunchWindowLeavesNoGhost() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_ghost.n");
+        writeFile(path, kDebugSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        moveCursorToLine(code, 6);
+
+        //The trigger is synchronous and no event turn runs after the
+        //launch, so both toggles land while ndb's receipt is in flight.
+        act(window, "actStartDebug")->trigger();
+        act(window, "actToggleBreakpoint")->trigger();  // on  -> `b` out
+        act(window, "actToggleBreakpoint")->trigger();  // off -> id unknown
+        QVERIFY(code->breakpointLines().isEmpty());
+
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QCOMPARE(code->stoppedLine(), 0);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+    }
+
+    //Toggle a breakpoint ON while Running, reach the next stop: the
+    //queued add replays there and behaves like a real breakpoint (bound
+    //dot, then an actual hit when the line runs).
+    void testQueuedBreakpointReplaysAtNextStop() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_qadd.n");
+        writeFile(path, kLoopSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        moveCursorToLine(code, 10);  // the post-loop freeze line
+        act(window, "actToggleBreakpoint")->trigger();  // prelude bp
+
+        act(window, "actStartDebug")->trigger();
+        QVERIFY(!window.findChildren<DebugClient*>().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(
+            window.findChildren<DebugClient*>().first()->state(),
+            DebugClient::State::Running, 30000);
+
+        //Running: the toggle must queue (store flips now, wire waits).
+        moveCursorToLine(code, 2);
+        act(window, "actToggleBreakpoint")->trigger();
+        QCOMPARE(code->breakpointLines(), QSet<int>({2, 10}));
+
+        //The loop ends, the line-10 prelude stop lands, the queue
+        //replays: the line-2 breakpoint binds (dot goes filled).
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            code->boundBreakpointLines().contains(2), 10000);
+
+        //Resume: the replayed breakpoint actually hits in touch().
+        act(window, "actStartDebug")->trigger();  // Continue
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 2, 30000);
+        act(window, "actStartDebug")->trigger();  // Continue
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+    }
+
+    //Toggle ON and OFF while Running (the issue shape: the add and its
+    //undo replay back to back at the next stop, where the remove cannot
+    //know the add's wire id yet): the receipt handler must retire the
+    //ghost or the resumed program stops on the removed line.
+    void testQueuedAddRemoveLeavesNoGhost() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_qghost.n");
+        writeFile(path, kLoopSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        moveCursorToLine(code, 10);
+        act(window, "actToggleBreakpoint")->trigger();  // prelude bp
+
+        act(window, "actStartDebug")->trigger();
+        QVERIFY(!window.findChildren<DebugClient*>().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(
+            window.findChildren<DebugClient*>().first()->state(),
+            DebugClient::State::Running, 30000);
+
+        //Both toggles queue (no stop in between); only the prelude
+        //breakpoint on line 10 remains in the store.
+        moveCursorToLine(code, 2);
+        act(window, "actToggleBreakpoint")->trigger();  // on
+        act(window, "actToggleBreakpoint")->trigger();  // off
+        QCOMPARE(code->breakpointLines(), QSet<int>{10});
+
+        //The stop replays the add; its receipt arrives after the undo
+        //lookup, so the receipt handler must delete the materialized bp.
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        act(window, "actStartDebug")->trigger();  // Continue
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QCOMPARE(code->stoppedLine(), 0);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+    }
+
+    //Toggle a known-id breakpoint OFF while Running: the queued remove
+    //replays at the next stop and the line must not hit afterwards.
+    void testQueuedRemoveReplaysAtNextStop() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_qrem.n");
+        writeFile(path, kLoopSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        moveCursorToLine(code, 2);
+        act(window, "actToggleBreakpoint")->trigger();  // bp in touch
+        moveCursorToLine(code, 10);
+        act(window, "actToggleBreakpoint")->trigger();  // post-loop bp
+
+        act(window, "actStartDebug")->trigger();
+        QVERIFY(!window.findChildren<DebugClient*>().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(
+            window.findChildren<DebugClient*>().first()->state(),
+            DebugClient::State::Running, 30000);
+
+        //Running: undo the touch breakpoint (its wire id is known); only
+        //the prelude breakpoint on line 10 remains in the store.
+        moveCursorToLine(code, 2);
+        act(window, "actToggleBreakpoint")->trigger();
+        QCOMPARE(code->breakpointLines(), QSet<int>{10});
+
+        //The line-10 stop replays the remove; resuming must NOT hit the
+        //removed touch breakpoint.
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        act(window, "actStartDebug")->trigger();  // Continue
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QCOMPARE(code->stoppedLine(), 0);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
     }
 
     //--- compile-log navigation ---

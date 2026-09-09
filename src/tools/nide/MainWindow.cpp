@@ -1027,8 +1027,18 @@ void MainWindow::on_chkBreakOnThrow_toggled(bool checked) {
 
 void MainWindow::onDebugBreakpointBound(int id, const QString& file,
                                         int line, bool bound) {
-    if (bound && id > 0)
-        m_breakpointIds[{BreakpointStore::normalizedKey(file), line}] = id;
+    if (bound && id > 0) {
+        if (m_breakpoints.contains(file, line)) {
+            m_breakpointIds[{BreakpointStore::normalizedKey(file), line}] = id;
+        } else {
+            //A receipt can lag its own undo (a Running-phase toggle
+            //replays the add and the remove back to back at the next
+            //stop, and the remove finds no wire id yet). Retire the
+            //breakpoint ndb just materialized -- left alone it ghosts
+            //(spurious stops) and the stale id duplicates on a re-toggle.
+            m_debugClient->deleteBreakpoint(id);
+        }
+    }
     refreshBreakpointMarkers();   // the dot goes filled
 }
 
@@ -1644,7 +1654,10 @@ bool MainWindow::renameFileEverywhere(QString oldPath,
     //open, so an unlisted file does not join the list.
     m_recent.replace(oldPath, newPath);
     saveRecent();
-    //Breakpoints follow the file too (persistence re-keyed in place).
+    //Breakpoints follow the file too (persistence re-keyed in place). A
+    //live session keeps its already-sent wire ids and ndb's recorded
+    //paths on the old name until the session ends -- accepted staleness
+    //in v1 (breakpoint hits are a line snapshot, not a live path watch).
     m_breakpoints.rename(oldPath, newPath);
     saveBreakpoints();
     refreshBreakpointMarkers();
@@ -1746,23 +1759,27 @@ void MainWindow::updateMenuState() {
     m_ui->actAddNewFile->setEnabled(hasProject);
     m_ui->actRemoveFile->setEnabled(file != nullptr);
     m_ui->actProjectProp->setEnabled(hasProject);
-    //A project OR a standalone .n target can be built.
+    //A project OR a standalone .n target can be built. While a debug
+    //session is live, Build/Run stay off: a mid-session rebuild would
+    //rewrite the very .nmod the debugger is executing (bytecode offsets
+    //shift under the session) and a Run child would interleave its
+    //output on the shared run page.
     const bool hasStandaloneTarget = !currentStandaloneTarget().isEmpty();
     const bool canBuild = hasProject || hasStandaloneTarget;
-    m_ui->actBuild->setEnabled(canBuild);
+    const bool debugLive = debugSessionLive();
+    m_ui->actBuild->setEnabled(canBuild && !debugLive);
 
     //Run lifecycle: Start needs a build target AND an idle process; Stop
     //is live exactly while the process runs.
     const bool running =
         m_executed.state() != QProcess::NotRunning;
-    m_ui->actStartRunning->setEnabled(canBuild && !running);
+    m_ui->actStartRunning->setEnabled(canBuild && !running && !debugLive);
     m_ui->actStopRunning->setEnabled(running);
 
     //Debug lifecycle: F5 doubles as Continue while paused; Stop and the
     //steps track the session windows; the checkbox grays out while the
     //program runs (the wire accepts the toggle only in the command
     //windows, Launching/Stopped).
-    const bool debugLive = debugSessionLive();
     const bool debugStopped = debugLive
         && m_debugClient->state() == DebugClient::State::Stopped;
     m_ui->actStartDebug->setEnabled(

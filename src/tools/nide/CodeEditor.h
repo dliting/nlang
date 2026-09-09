@@ -54,6 +54,10 @@ public:
     void setBoundBreakpointLines(const QSet<int>& lines);
     void setStoppedLine(int line);
     const QSet<int>& breakpointLines() const { return m_breakpointLines; }
+    const QSet<int>& boundBreakpointLines() const
+    {
+        return m_boundBreakpointLines;
+    }
     int stoppedLine() const { return m_stoppedLine; }
 
     //Handle a press inside the gutter (mapped by LineArea): a hit in the

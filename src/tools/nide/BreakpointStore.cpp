@@ -91,7 +91,11 @@ void BreakpointStore::load(QSettings& settings) {
                 lines.insert(value);
         }
         if (!lines.isEmpty())
-            m_linesByFile.insert(entry.left(separator), lines);
+            //Normalize like every other write path: a hand-edited store
+            //may spell the path in any case, and an unnormalized key
+            //could never be matched (or toggled away) again.
+            m_linesByFile.insert(normalizedKey(entry.left(separator)),
+                                 lines);
     }
 }
 
