@@ -2320,6 +2320,60 @@ private slots:
         QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
     }
 
+    //F9 auto-repeat on/off/on in ONE Running phase: three toggles queue
+    //for the same line, and the flush must replay only the NET effect --
+    //exactly one breakpoint reaches ndb. The stop hits once, the
+    //toggle-off retires it, and the resumed program exits without any
+    //further stop.
+    void testTripleToggleLeavesExactlyOneBreakpoint() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_3tog.n");
+        writeFile(path, kLoopSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        moveCursorToLine(code, 10);
+        act(window, "actToggleBreakpoint")->trigger();  // prelude bp
+
+        act(window, "actStartDebug")->trigger();
+        QVERIFY(!window.findChildren<DebugClient*>().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(
+            window.findChildren<DebugClient*>().first()->state(),
+            DebugClient::State::Running, 30000);
+
+        //Three toggles, no stop in between: on / off / on.
+        moveCursorToLine(code, 2);
+        act(window, "actToggleBreakpoint")->trigger();  // on
+        act(window, "actToggleBreakpoint")->trigger();  // off
+        act(window, "actToggleBreakpoint")->trigger();  // on
+        QCOMPARE(code->breakpointLines(), QSet<int>({2, 10}));
+
+        //The stop coalesces the queue; the single breakpoint binds.
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            code->boundBreakpointLines().contains(2), 10000);
+
+        //Resume: the one breakpoint hits in touch().
+        act(window, "actStartDebug")->trigger();  // Continue
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 2, 30000);
+
+        //Toggle-off (immediate in the stop window), then resume: no
+        //second breakpoint may linger -- the program just exits.
+        moveCursorToLine(code, 2);
+        act(window, "actToggleBreakpoint")->trigger();
+        QCOMPARE(code->breakpointLines(), QSet<int>{10});
+        act(window, "actStartDebug")->trigger();  // Continue
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QCOMPARE(code->stoppedLine(), 0);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+    }
+
     //Toggle a known-id breakpoint OFF while Running: the queued remove
     //replays at the next stop and the line must not hit afterwards.
     void testQueuedRemoveReplaysAtNextStop() {

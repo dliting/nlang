@@ -947,6 +947,7 @@ bool MainWindow::startDebugSession() {
     m_debugStopRequested = false;
     m_breakpointIds.clear();
     m_pendingBreakpointChanges.clear();
+    m_deferredBreakpointRetires.clear();
     DebugClient* const client = m_debugClient.get();
     connect(client, &DebugClient::breakpointBound, this,
             &MainWindow::onDebugBreakpointBound);
@@ -1036,7 +1037,12 @@ void MainWindow::onDebugBreakpointBound(int id, const QString& file,
             //stop, and the remove finds no wire id yet). Retire the
             //breakpoint ndb just materialized -- left alone it ghosts
             //(spurious stops) and the stale id duplicates on a re-toggle.
-            m_debugClient->deleteBreakpoint(id);
+            //The wire takes `d` only in the command windows, and a
+            //continue dispatched in the same event pass as the stop can
+            //put the receipt in the Running window: defer that retire
+            //to the next stop instead of dropping it.
+            if (!m_debugClient->deleteBreakpoint(id))
+                m_deferredBreakpointRetires.push_back(id);
         }
     }
     refreshBreakpointMarkers();   // the dot goes filled
@@ -1051,6 +1057,7 @@ void MainWindow::onDebugStopped(const QString& reason, int breakpointId,
     Q_UNUSED(depth);
     Q_UNUSED(frameCount);   // the stack tree fills from `bt` frames
     showOutputPage(m_ui->tabDebug);
+    flushDeferredBreakpointRetires();
     flushPendingBreakpointChanges();
     clearStoppedMarker();
     const QString absolute = resolveDebugPath(file);
@@ -1153,6 +1160,7 @@ void MainWindow::onDebugFailedToLaunch(const QString& error) {
 
 void MainWindow::endDebugSession() {
     m_pendingBreakpointChanges.clear();
+    m_deferredBreakpointRetires.clear();
     if (m_debugClient != nullptr) {
         //Deferred delete: this usually runs inside one of the client's
         //own signal handlers, so the object must outlive the emit.
@@ -1220,10 +1228,26 @@ void MainWindow::sendBreakpointChange(const QString& filePath, int line,
 }
 
 void MainWindow::flushPendingBreakpointChanges() {
-    for (const PendingBreakpointChange& change :
-            m_pendingBreakpointChanges)
-        sendBreakpointChange(change.filePath, change.line, change.add);
+    //The stored table is the truth; the wire needs the NET effect per
+    //line only. Coalescing to the last toggle keeps an F9 on/off/on
+    //burst from replaying raw wire commands (a re-add next to an
+    //already-materialized twin), and makes an add+undo pair send
+    //nothing at all -- so no receipt can lag behind its own removal.
+    std::map<std::pair<QString, int>, PendingBreakpointChange>
+        lastChangeByLine;
+    for (const PendingBreakpointChange& change : m_pendingBreakpointChanges)
+        lastChangeByLine[{BreakpointStore::normalizedKey(change.filePath),
+                          change.line}] = change;
+    for (const auto& last : lastChangeByLine)
+        sendBreakpointChange(last.second.filePath, last.second.line,
+                             last.second.add);
     m_pendingBreakpointChanges.clear();
+}
+
+void MainWindow::flushDeferredBreakpointRetires() {
+    for (int breakpointId : m_deferredBreakpointRetires)
+        m_debugClient->deleteBreakpoint(breakpointId);
+    m_deferredBreakpointRetires.clear();
 }
 
 void MainWindow::refreshBreakpointMarkers() {

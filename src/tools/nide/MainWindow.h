@@ -331,6 +331,9 @@ private:
     //flushed at the next stop.
     void sendBreakpointChange(const QString& filePath, int line, bool add);
     void flushPendingBreakpointChanges();
+    //Retires at the next frozen window the ids whose `d` the wire
+    //rejected while Running.
+    void flushDeferredBreakpointRetires();
     //Push the table + session binding into every open editor's gutter.
     void refreshBreakpointMarkers();
     //Persist-through, like the recent list.
@@ -391,6 +394,10 @@ private:
         bool add = false;
     };
     std::vector<PendingBreakpointChange> m_pendingBreakpointChanges;
+    //Wire ids the receipt-site self-heal could not retire because the
+    //session was Running (the wire takes `d` only in the command
+    //windows); flushed at the next stop.
+    std::vector<int> m_deferredBreakpointRetires;
 
     //The embedded help window. Null when closed (the browser deletes
     //itself on close); the pointer self-nulls then, so the next Help
