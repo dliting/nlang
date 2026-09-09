@@ -6,21 +6,28 @@
 #include <QProcess>
 #include <QMainWindow>
 
+#include "BreakpointStore.h"  // BreakpointStore is a value member
 #include "FileEditor.h"  // EditorManager is a value member
 #include "RecentStore.h"  // RecentStore is a value member
 
 #include <QStringList>
+#include <map>
 #include <memory>
+#include <utility>
+#include <vector>
 
 class QCloseEvent;
 class QFileInfo;
 class QIcon;
 class QModelIndex;
 class QSettings;
+class QTreeWidgetItem;
 
 namespace nlang {
 
 struct CompileLogItemInfo;
+class CodeEditor;
+class DebugClient;
 class FileNode;
 class HelpBrowser;
 class ProjectNode;
@@ -39,8 +46,11 @@ namespace nlang {
 //  Ported from EN's MainWindow with these deviations:
 //  - The .nsln solution is explicit (EN always had an implicit in-memory
 //    one): new/open/save/close solution actions were added.
-//  - Dead EN menu actions (BuildAll/Rebuild*/ClearAll/CancelBuild and
-//    the whole debug family -- EN never implemented them) are dropped.
+//  - Dead EN menu actions (BuildAll/Rebuild*/ClearAll/CancelBuild --
+//    EN never implemented them) are dropped. EN's dead debug menu stubs
+//    came back as a real implementation on top of `ndb --machine`
+//    (DebugClient): F5 debug sessions, breakpoints, stepping and the
+//    debug output page.
 //  - The output panes are direct tabOutput pages (EN reparented two
 //    QDockWidgets into the tab widget from the constructor).
 //  - Build runs `ncc build -p <nproj> -o <nmod>`, run launches
@@ -124,11 +134,18 @@ private slots:
     void on_actRemoveFile_triggered();
     void on_actProjectProp_triggered();
 
-    //--- 构建 / 运行 ---
+    //--- 构建 / 运行 / 调试 ---
     void on_actBuild_triggered();
     void on_actClearBuild_triggered();
     void on_actStartRunning_triggered();
     void on_actStopRunning_triggered();
+    void on_actStartDebug_triggered();
+    void on_actStopDebug_triggered();
+    void on_actStepInto_triggered();
+    void on_actStepOver_triggered();
+    void on_actStepOut_triggered();
+    void on_actToggleBreakpoint_triggered();
+    void on_chkBreakOnThrow_toggled(bool checked);
 
     //--- 视图 / 帮助 ---
     void on_actViewSolution_triggered(bool checked);
@@ -146,6 +163,7 @@ private slots:
     void on_tvwSolution_doubleClicked(const QModelIndex& index);
     void on_tvwSolution_customContextMenuRequested(const QPoint& pos);
     void on_dckSolution_visibilityChanged(bool visible);
+    void on_tvwDebugStack_itemClicked(QTreeWidgetItem* item, int column);
 
     //--- non-widget signals (connected explicitly) ---
     void onEditorSaveStateChanged(FileEditor* editor);
@@ -155,6 +173,24 @@ private slots:
     void onCompileLogItemSelected(const CompileLogItemInfo& info);
     void onExecOutput();
     void onExecFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void onBreakpointGutterClicked(int line);
+
+    //--- debug session (DebugClient signals, connected per session) ---
+    void onDebugBreakpointBound(int id, const QString& file, int line,
+                                bool bound);
+    void onDebugStopped(const QString& reason, int breakpointId,
+                        const QString& funcName, const QString& file,
+                        int line, int depth, int frameCount);
+    void onDebugFrameReceived(int frameIndex, const QString& funcName,
+                              const QString& file, int line);
+    void onDebugLocalReceived(const QString& name, const QString& typeName,
+                              const QString& value);
+    void onDebugOutput(const QString& text);
+    void onDebugError(const QString& report);
+    void onDebugExited(int exitCode);
+    void onDebugAbnormallyExited(const QString& diagnostic);
+    void onDebugCommandFailed(const QString& message);
+    void onDebugFailedToLaunch(const QString& error);
 
 private:
     //--- recent list (File > Recent) ---
@@ -258,7 +294,8 @@ private:
     void refreshStandaloneFiles();
 
     //--- build / run ---
-    void buildProject(ProjectNode& project);
+    //Synchronous ncc build; false on failure (the log browser shows why).
+    bool buildProject(ProjectNode& project);
     void runProject(ProjectNode& project);
     //Standalone .n target: the selected standalone tree row, or -- when the
     //tree points at no project/standalone row -- the active editor tab if
@@ -275,10 +312,45 @@ private:
     //given page.
     void showOutputPage(QWidget* page);
 
+    //--- debug ---
+    //Resolve the current target, build it synchronously and launch a
+    //fresh ndb session with every stored breakpoint preset. False keeps
+    //the window idle (the compile log shows why).
+    bool startDebugSession();
+    //One convergence point for every session end: tear the client down
+    //safely (deferred delete -- a signal may still be on the stack),
+    //clear the stop marker and refresh the action states.
+    void endDebugSession();
+    //True while an ndb session is live (Launching/Running/Stopped).
+    bool debugSessionLive() const;
+    //One toggle path for F9 and gutter clicks: flips the stored table,
+    //persists, repaints the gutters and mirrors into the live session.
+    void toggleBreakpoint(CodeEditor* code, int line);
+    //Mirrors a (path, line) toggle into the live session: immediate in
+    //the command windows (Launching/Stopped), queued while Running and
+    //flushed at the next stop.
+    void sendBreakpointChange(const QString& filePath, int line, bool add);
+    void flushPendingBreakpointChanges();
+    //Push the table + session binding into every open editor's gutter.
+    void refreshBreakpointMarkers();
+    //Persist-through, like the recent list.
+    void saveBreakpoints();
+    //The stopped file field of the wire: absolute already for standalone
+    //builds, project-relative for project builds -- anchor the latter at
+    //the debug target's directory.
+    QString resolveDebugPath(const QString& file) const;
+    void setDebugStatus(const QString& text);
+    void clearDebugViews();
+    void clearStoppedMarker();
+    //Insert text verbatim at the end of the run-output page (the wire
+    //splits io.print into a text half and a newline half, so append()'s
+    //implicit paragraph breaks would corrupt the output).
+    void appendExecuteOutput(const QString& text);
+
     //outputDir ("" = the project directory) + name + ".nmod"; the same
     //path is passed to ncc -o, so build output and run target agree.
     QString outputFilePath(const ProjectNode& project) const;
-    //ncc.exe/nvm.exe live next to nide.exe.
+    //ncc.exe/nvm.exe/ndb.exe live next to nide.exe.
     QString toolPath(const QString& toolName) const;
 
     //Open filePath at line/column (1-based), opening an editor if needed.
@@ -298,8 +370,28 @@ private:
     SolutionTreeModel* m_solutionTree;
     EditorManager m_editors;
     RecentStore m_recent;
+    BreakpointStore m_breakpoints;
     QString m_solutionFilePath;  // empty = unsaved new solution
     QProcess m_executed;         // the program under Run (nvm child)
+
+    //--- debug session state (all of it per-session) ---
+    //One DebugClient per session: Ended is terminal on the client, so
+    //every session creates a fresh one and endDebugSession() retires it.
+    //Null whenever no session is live.
+    std::unique_ptr<DebugClient> m_debugClient;
+    bool m_debugStopRequested = false;  //stop was user-initiated
+    QString m_debugBaseDir;  //anchors project-relative stopped files
+    //Wire id per accepted breakpoint (the receipt's (file, line) -> id).
+    std::map<std::pair<QString, int>, int> m_breakpointIds;
+    //Toggles made while Running, replayed at the next frozen window.
+    struct PendingBreakpointChange
+    {
+        QString filePath;
+        int line = 0;
+        bool add = false;
+    };
+    std::vector<PendingBreakpointChange> m_pendingBreakpointChanges;
+
     //The embedded help window. Null when closed (the browser deletes
     //itself on close); the pointer self-nulls then, so the next Help
     //menu entry creates a fresh one.

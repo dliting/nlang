@@ -387,13 +387,20 @@ if(NLANG_BUILD_IDE)
     add_executable(test_mainwindow
         test_nide/test_mainwindow.cpp
     )
+    #NDB_EXE/NCC_EXE: the debug tests launch the real ndb/ncc like the
+    #build/run tests do (compile definitions, generator expressions).
+    target_compile_definitions(test_mainwindow
+        PRIVATE
+            NDB_EXE="$<TARGET_FILE:ndb>"
+            NCC_EXE="$<TARGET_FILE:ncc>"
+    )
     target_link_libraries(test_mainwindow
         PRIVATE
             nide_mainwindow
             nlang_version  # NLANG_VERSION macro for the About-version test
             Qt5::Test
     )
-    add_dependencies(test_mainwindow ncc nvm)
+    add_dependencies(test_mainwindow ncc nvm ndb)
     #The help-page test walks up to <build>/docs/site, so the site must
     #exist first. Guarded: NLANG_BUILD_DOCS=OFF defines no such target,
     #and the root CMakeLists defines it before this directory is added.
@@ -408,7 +415,7 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_mainwindow>)
         add_custom_command(TARGET test_mainwindow POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
+                $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
                 $<TARGET_FILE_DIR:test_mainwindow>)
         #The embedded help browser spawns its QtWebEngine helper from
         #the test exe's directory (see nide's POST_BUILD note).
@@ -432,7 +439,7 @@ if(NLANG_BUILD_IDE)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
-        TIMEOUT 90)
+        TIMEOUT 180)
 endif()
 
 # Version single-source guard: each tool's --version must echo the

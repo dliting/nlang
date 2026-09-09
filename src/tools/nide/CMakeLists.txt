@@ -25,11 +25,14 @@ target_include_directories(nide_projectmodel
 )
 
 # Editor library -- FileEditor/CodeEditor widgets + token coloring via
-# the compiler's lexer.
+# the compiler's lexer. BreakpointStore rides here: pure Core state, but
+# its only consumers (MainWindow, the gutter painting) live behind this
+# library in the link graph.
 add_library(nide_editor
     FileEditor.cpp
     CodeEditor.cpp
     SyntaxHighlighter.cpp
+    BreakpointStore.cpp
 )
 
 target_link_libraries(nide_editor
@@ -150,6 +153,7 @@ target_link_libraries(nide_mainwindow
         nide_compilelog
         nide_dialogs
         nide_recent
+        nide_debug  # DebugClient: the ndb --machine session driver
         nlang_version   # generated NLANG_VERSION macros (VERSION file)
 )
 
@@ -206,13 +210,13 @@ target_link_libraries(nide
 #must sit next to nide.exe (MainWindow runs them from its own
 #directory). Self-containment of this layout is verified by the
 #nide_deploy_check test (tests/test_nide/).
-add_dependencies(nide ncc nvm)
+add_dependencies(nide ncc nvm ndb)
 if(WIN32)
     add_custom_command(TARGET nide POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
             $<TARGET_FILE:Qt5::Widgets>
-            $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
+            $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
             $<TARGET_FILE_DIR:nide>)
     #The platform plugin (qwindows.dll) sits outside Qt5_DIR's lib
     #tree; walk up to the install prefix and back down into it.

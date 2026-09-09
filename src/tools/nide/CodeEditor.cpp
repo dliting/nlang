@@ -4,6 +4,7 @@
 #include "SyntaxHighlighter.h"
 
 #include <QFileInfo>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QSaveFile>
 #include <QTextBlock>
@@ -14,6 +15,8 @@ namespace nlang {
 namespace {
 const int kTabStopWidthChars = 4;  // tab stop = 4 spaces
 const int kLineAreaMarginPx = 8;   // padding on each side of line numbers
+const int kBreakpointDotRadius = 4;  // gutter breakpoint dot
+const int kStopArrowHeadPx = 5;    // gutter stopped-line arrow half-height
 }
 
 //--- LineArea ---
@@ -30,6 +33,10 @@ QSize LineArea::sizeHint() const {
 
 void LineArea::paintEvent(QPaintEvent* event) {
     m_editor->paintLineArea(event);
+}
+
+void LineArea::mousePressEvent(QMouseEvent* event) {
+    m_editor->handleGutterPress(event->pos());
 }
 
 //--- CodeEditor ---
@@ -64,12 +71,14 @@ int CodeEditor::lineAreaWidth() const {
         ++digits;
     }
 
-    return kLineAreaMarginPx * 2 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    return kBreakpointColumnWidth + kLineAreaMarginPx * 2
+        + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
 }
 
 void CodeEditor::paintLineArea(QPaintEvent* event) {
     QPainter painter(m_lineArea);
     painter.fillRect(event->rect(), QColor(Qt::lightGray).lighter(120));
+    painter.setRenderHint(QPainter::Antialiasing);
 
     QTextBlock block = firstVisibleBlock();
     int blockNumber = block.blockNumber();
@@ -80,8 +89,38 @@ void CodeEditor::paintLineArea(QPaintEvent* event) {
         if (block.isVisible() && bottom >= event->rect().top()) {
             QString number = QString::number(blockNumber + 1);
             painter.setPen(Qt::darkCyan);
-            painter.drawText(0, top, m_lineArea->width() - kLineAreaMarginPx,
+            painter.drawText(kBreakpointColumnWidth, top,
+                             m_lineArea->width() - kBreakpointColumnWidth
+                                 - kLineAreaMarginPx,
                              fontMetrics().height(), Qt::AlignRight, number);
+
+            const int centerY = top + fontMetrics().height() / 2;
+            const int centerX = kBreakpointColumnWidth / 2;
+            if (m_breakpointLines.contains(blockNumber + 1)) {
+                //Bound in the live session = filled; unbound or no
+                //session = hollow.
+                if (m_boundBreakpointLines.contains(blockNumber + 1)) {
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(Qt::red);
+                } else {
+                    painter.setPen(QPen(Qt::red, 1));
+                    painter.setBrush(Qt::NoBrush);
+                }
+                painter.drawEllipse(QPoint(centerX, centerY),
+                                    kBreakpointDotRadius,
+                                    kBreakpointDotRadius);
+            }
+            if (m_stoppedLine == blockNumber + 1) {
+                //The paused line's arrow; drawn over the dot when both
+                //mark the same line.
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(Qt::red);
+                static const QPointF arrow[] = {
+                    QPointF(2, centerY - kStopArrowHeadPx),
+                    QPointF(2, centerY + kStopArrowHeadPx),
+                    QPointF(kBreakpointColumnWidth - 2.0, centerY)};
+                painter.drawPolygon(arrow, 3);
+            }
         }
 
         block = block.next();
@@ -89,6 +128,41 @@ void CodeEditor::paintLineArea(QPaintEvent* event) {
         bottom = top + static_cast<int>(blockBoundingRect(block).height());
         ++blockNumber;
     }
+}
+
+void CodeEditor::setBreakpointLines(const QSet<int>& lines) {
+    m_breakpointLines = lines;
+    m_lineArea->update();
+}
+
+void CodeEditor::setBoundBreakpointLines(const QSet<int>& lines) {
+    m_boundBreakpointLines = lines;
+    m_lineArea->update();
+}
+
+void CodeEditor::setStoppedLine(int line) {
+    m_stoppedLine = line;
+    m_lineArea->update();
+    highlightCurrentLine();
+}
+
+void CodeEditor::handleGutterPress(const QPoint& pos) {
+    //Only the breakpoint column toggles; presses on the line numbers
+    //are ignored. Rejects clicks below the last line: cursorForPosition
+    //snaps to the nearest block, which would toggle line 9 for a click
+    //in the empty space under a 3-line file.
+    if (pos.x() >= kBreakpointColumnWidth)
+        return;
+    const QTextBlock block =
+        cursorForPosition(QPoint(0, pos.y())).block();
+    if (!block.isValid())
+        return;
+    const QRectF geometry =
+        blockBoundingGeometry(block).translated(contentOffset());
+    if (pos.y() < geometry.top()
+            || pos.y() >= geometry.top() + blockBoundingRect(block).height())
+        return;
+    emit breakpointToggled(block.blockNumber() + 1);
 }
 
 void CodeEditor::resizeEvent(QResizeEvent* event) {
@@ -117,6 +191,23 @@ void CodeEditor::updateLineAreaWidth(int newBlockCount) {
 
 void CodeEditor::highlightCurrentLine() {
     QList<QTextEdit::ExtraSelection> selections;
+
+    //The debug-stop line is a SEPARATE selection set from the current
+    //line: it survives cursor moves (which rebuild this list), so the
+    //paused line stays marked while the user clicks around the stack.
+    if (m_stoppedLine > 0) {
+        const QTextBlock stopped = document()->findBlockByNumber(
+            m_stoppedLine - 1);
+        if (stopped.isValid()) {
+            QTextEdit::ExtraSelection selection;
+            selection.format.setBackground(QColor(Qt::red).lighter(176));
+            selection.format.setProperty(QTextFormat::FullWidthSelection,
+                                         true);
+            selection.cursor = QTextCursor(stopped);
+            selection.cursor.clearSelection();
+            selections.append(selection);
+        }
+    }
 
     if (!isReadOnly()) {
         QTextEdit::ExtraSelection selection;

@@ -390,15 +390,18 @@ private slots:
     void testLineAreaWidthGrowsWithDigits() {
         CodeEditor editor;
         editor.setPlainText("one line");  // 1 block -> 1 digit
+        //The leading breakpoint column joins the margin + digits sum.
         QCOMPARE(editor.lineAreaWidth(),
-                 8 * 2 + editor.fontMetrics().horizontalAdvance('9') * 1);
+                 CodeEditor::kBreakpointColumnWidth + 8 * 2
+                     + editor.fontMetrics().horizontalAdvance('9') * 1);
 
         QStringList lines;
         for (int i = 0; i < 12; ++i)
             lines << QString("line %1").arg(i);
         editor.setPlainText(lines.join('\n'));  // 12 blocks -> 2 digits
         QCOMPARE(editor.lineAreaWidth(),
-                 8 * 2 + editor.fontMetrics().horizontalAdvance('9') * 2);
+                 CodeEditor::kBreakpointColumnWidth + 8 * 2
+                     + editor.fontMetrics().horizontalAdvance('9') * 2);
     }
 
     void testLineAreaGeometryFollowsResize() {

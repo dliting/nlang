@@ -65,6 +65,8 @@ private slots:
     void uncaughtThrowEndsWithTheErrorEvent();
     void stateGuardsAndLaunchRejection();
     void failedToLaunchWhenNdbIsMissing();
+    void breakOnThrowStopsAtTheThrowSite();
+    void deleteBreakpointRemovesTheHit();
 
 private:
     //Void-on-purpose: QVERIFY/QFAIL expand to `return;`, so helpers
@@ -303,6 +305,8 @@ void TestDebugClient::stateGuardsAndLaunchRejection() {
     QVERIFY(!client.stepInto());
     QVERIFY(!client.requestBacktrace());
     QVERIFY(!client.requestLocals(0));
+    QVERIFY(!client.setBreakOnThrow(true));
+    QVERIFY(!client.deleteBreakpoint(1));
     client.stop();   //no-op, must not crash
     QCOMPARE(client.state(), DebugClient::State::Idle);
 
@@ -312,6 +316,77 @@ void TestDebugClient::stateGuardsAndLaunchRejection() {
     client.stop();   //tidy: kill the idle-at-hello child
     QTRY_COMPARE_WITH_TIMEOUT(
         client.state(), DebugClient::State::Ended, kKillTimeoutMs);
+}
+
+//breakthrow on turns an uncaught throw into a frozen stop at the throw
+//site (the full stack is still alive); resuming then converges the
+//session through the error channel, exactly like the default-off path.
+void TestDebugClient::breakOnThrowStopsAtTheThrowSite() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
+    QSignalSpy errorSpy(&client, &DebugClient::errorReceived);
+    QSignalSpy failed(&client, &DebugClient::commandFailed);
+
+    QVERIFY(client.launch(m_throwNmod));
+    QVERIFY(client.setBreakOnThrow(true));   //prelude window
+    QVERIFY(client.run());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Stopped, kSessionTimeoutMs);
+    QCOMPARE(stoppedSpy.count(), 1);
+    const QList<QVariant> stop = stoppedSpy.first();
+    QCOMPARE(stop.at(0).toString(), QStringLiteral("throw"));
+    QCOMPARE(stop.at(4).toInt(), 2);   //the throw site line
+    //The error event has not fired yet: the exception is still frozen.
+    QCOMPARE(errorSpy.count(), 0);
+
+    QVERIFY(client.continueRun());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
+    QCOMPARE(errorSpy.count(), 1);   //the (still uncaught) throw
+    QCOMPARE(failed.count(), 0);
+}
+
+//`d <id>` mid-session really removes the hit: the continued run runs to
+//the exit code with no second stop. An unknown id answers err and the
+//session survives.
+void TestDebugClient::deleteBreakpointRemovesTheHit() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    QSignalSpy bound(&client, &DebugClient::breakpointBound);
+    QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
+    QSignalSpy exited(&client, &DebugClient::exited);
+    QSignalSpy failed(&client, &DebugClient::commandFailed);
+
+    QVERIFY(client.launch(m_progNmod));
+    QVERIFY(client.addBreakpoint(m_progSource, 7));
+    QVERIFY(client.run());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Stopped, kSessionTimeoutMs);
+    QCOMPARE(stoppedSpy.count(), 1);
+    const int id = bound.first().at(0).toInt();
+    QVERIFY(id > 0);
+
+    QVERIFY(client.deleteBreakpoint(id));   //stopped window
+    QVERIFY(client.continueRun());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
+    QCOMPARE(stoppedSpy.count(), 1);   //the deleted line never hits again
+    QCOMPARE(exited.first().at(0).toInt(), 42);
+
+    //A second client for the err path (the first session is over):
+    //deleting an unknown id fails the command, not the session.
+    DebugClient second(QString::fromUtf8(NDB_EXE));
+    QSignalSpy secondFailed(&second, &DebugClient::commandFailed);
+    QSignalSpy secondAbnormal(&second, &DebugClient::abnormallyExited);
+    QVERIFY(second.launch(m_progNmod));
+    QVERIFY(second.addBreakpoint(m_progSource, 7));
+    QVERIFY(second.run());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        second.state(), DebugClient::State::Stopped, kSessionTimeoutMs);
+    QVERIFY(second.deleteBreakpoint(id + 1000));
+    QTRY_COMPARE_WITH_TIMEOUT(secondFailed.count(), 1, kSessionTimeoutMs);
+    QVERIFY(!secondFailed.first().at(0).toString().isEmpty());
+    QCOMPARE(secondAbnormal.count(), 0);
+    second.stop();
 }
 
 void TestDebugClient::failedToLaunchWhenNdbIsMissing() {

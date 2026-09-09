@@ -48,6 +48,11 @@ DebugClient::~DebugClient()
 
 // --- session commands ---
 
+void DebugClient::setWorkingDirectory(const QString& dir)
+{
+    m_upProcess->setWorkingDirectory(dir);
+}
+
 bool DebugClient::launch(const QString& modulePath)
 {
     if (m_state != State::Idle)
@@ -129,6 +134,24 @@ bool DebugClient::requestLocals(int frameIndex)
     writeLine(encodeCommand(QStringLiteral("frame"),
         {QString::number(frameIndex)}));
     writeLine(QStringLiteral("locals"));
+    return true;
+}
+
+bool DebugClient::setBreakOnThrow(bool enabled)
+{
+    if (m_state != State::Launching && m_state != State::Stopped)
+        return false;
+    writeLine(encodeCommand(QStringLiteral("breakthrow"),
+        {enabled ? QStringLiteral("on") : QStringLiteral("off")}));
+    return true;
+}
+
+bool DebugClient::deleteBreakpoint(int id)
+{
+    if (m_state != State::Launching && m_state != State::Stopped)
+        return false;
+    writeLine(encodeCommand(QStringLiteral("d"),
+        {QString::number(id)}));
     return true;
 }
 

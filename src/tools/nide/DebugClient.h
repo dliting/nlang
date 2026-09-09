@@ -44,6 +44,9 @@ public:
 
     //Start `ndb --machine <modulePath>`. Only valid from Idle.
     bool launch(const QString& modulePath);
+    //Child working directory; read at start() time, so set it before
+    //launch() (MainWindow mirrors the Run page's CWD policy with it).
+    void setWorkingDirectory(const QString& dir);
     //Prelude command (also accepted while Stopped): queued until hello,
     //then sent; the bound/unbound receipt arrives as breakpointBound.
     bool addBreakpoint(const QString& file, int line);
@@ -61,6 +64,11 @@ public:
     bool stepOut();
     bool requestBacktrace();
     bool requestLocals(int frameIndex);
+    //Non-resume toggles/removals, valid in the Launching prelude and the
+    //Stopped window like addBreakpoint; the `done` receipts carry no
+    //signal (observable through the session behavior, not the wire).
+    bool setBreakOnThrow(bool enabled);
+    bool deleteBreakpoint(int id);
     //Terminate unconditionally: kill(), no graceful handshake (an
     //infinite loop must stay terminable); finished() is the one
     //convergence point. No-op when not live.

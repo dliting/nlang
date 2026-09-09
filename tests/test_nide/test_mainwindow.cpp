@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
+#include "DebugClient.h"
 #include "FileEditor.h"
 #include "HelpBrowser.h"
 #include "ProjectModel.h"
@@ -20,7 +21,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
+#include <QImage>
 #include <QInputDialog>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
@@ -38,6 +41,7 @@
 #include <QTimer>
 #include <QTreeView>
 #include <QTranslator>
+#include <QTreeWidget>
 #include <QWebEngineView>
 #include <QtTest>
 
@@ -50,6 +54,27 @@ namespace {
 const char* const kMainSource =
     "public int main() {\n"
     "    return 42;\n"
+    "}\n";
+
+//Debug fixture: an output line, a local and a mid-program breakpoint
+//site (line 6). A stop there shows total == 40; continuing exits 42.
+const char* const kDebugSource =
+    "import io;\n"
+    "\n"
+    "public int main() {\n"
+    "    io.print(\"hi\");\n"
+    "    int total = 40;\n"
+    "    total = total + 2;\n"
+    "    return 42;\n"
+    "}\n";
+
+//A program that never returns: the stop/teardown tests need a session
+//that stays alive until killed.
+const char* const kSpinSource =
+    "public int main() {\n"
+    "    while (1 < 2) {\n"
+    "    }\n"
+    "    return 0;\n"
     "}\n";
 
 //The embedded help's mkdocs-material search needs the page-side retry
@@ -261,6 +286,19 @@ void clearRecentStore() {
 QStringList recentEntries() {
     QSettings settings;
     return settings.value(QStringLiteral("recent/entries")).toStringList();
+}
+
+//Breakpoint-table plumbing (the ctor loads the store, so every
+//breakpoint/debug test clears BEFORE constructing the window).
+void clearBreakpointStore() {
+    QSettings settings;
+    settings.remove(QStringLiteral("breakpoints/entries"));
+}
+
+QStringList breakpointEntries() {
+    QSettings settings;
+    return settings.value(QStringLiteral("breakpoints/entries"))
+        .toStringList();
 }
 
 //Fire the File menu's aboutToShow rebuild (popup emits it before
@@ -1860,6 +1898,264 @@ private slots:
                  QString());
     }
 
+    //--- debugging (real ncc + ndb) ---
+
+    void testRunShortcutMoved() {
+        MainWindow window;
+        //F5 is the debugger now; plain Run moved to Ctrl+F5.
+        QCOMPARE(act(window, "actStartRunning")->shortcut().toString(),
+                 QString("Ctrl+F5"));
+        QCOMPARE(act(window, "actStartDebug")->shortcut().toString(),
+                 QString("F5"));
+        QCOMPARE(act(window, "actStopDebug")->shortcut().toString(),
+                 QString("Shift+F5"));
+        QCOMPARE(act(window, "actStepInto")->shortcut().toString(),
+                 QString("F11"));
+        QCOMPARE(act(window, "actStepOver")->shortcut().toString(),
+                 QString("F10"));
+        QCOMPARE(act(window, "actStepOut")->shortcut().toString(),
+                 QString("Shift+F11"));
+        QCOMPARE(act(window, "actToggleBreakpoint")->shortcut().toString(),
+                 QString("F9"));
+    }
+
+    void testGutterClickTogglesBreakpoint() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_gut.n");
+        writeFile(path, kDebugSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        code->resize(400, 300);
+
+        //A click in the leftmost gutter column toggles line 1. The line's
+        //y comes from cursorRect (public); the gutter's LineArea and the
+        //viewport share the same y origin inside the editor.
+        const QTextCursor firstLineCursor(code->document()->firstBlock());
+        const int firstLineY = code->cursorRect(firstLineCursor).center().y();
+        QTest::mouseClick(
+            code->lineArea(), Qt::LeftButton, Qt::NoModifier,
+            QPoint(CodeEditor::kBreakpointColumnWidth / 2, firstLineY));
+        QVERIFY2(code->breakpointLines() == QSet<int>{1},
+                 "line 1 must carry the breakpoint");
+        //Write-through: the store reached QSettings (path + line).
+        const QStringList entries = breakpointEntries();
+        QCOMPARE(entries.size(), 1);
+        QVERIFY(entries.first().contains(QStringLiteral("dbg_gut.n")));
+        QVERIFY(entries.first().endsWith(QLatin1String("\t1")));
+
+        //The gutter paints a red dot (antialiasing keeps the core red).
+        bool redFound = false;
+        const QImage gutterShot = code->grab().toImage();
+        for (int y = 0; y < gutterShot.height() && !redFound; ++y) {
+            for (int x = 0; x < CodeEditor::kBreakpointColumnWidth; ++x) {
+                const QColor c = gutterShot.pixelColor(x, y);
+                if (c.red() > 180 && c.green() < 90 && c.blue() < 90) {
+                    redFound = true;
+                    break;
+                }
+            }
+        }
+        QVERIFY(redFound);
+
+        //A press on the line-number area toggles nothing.
+        QTest::mouseClick(
+            code->lineArea(), Qt::LeftButton, Qt::NoModifier,
+            QPoint(CodeEditor::kBreakpointColumnWidth + 4, firstLineY));
+        QVERIFY2(code->breakpointLines() == QSet<int>{1},
+                 "line-number press must not toggle");
+
+        //Second click removes it (and empties the persisted entry).
+        QTest::mouseClick(
+            code->lineArea(), Qt::LeftButton, Qt::NoModifier,
+            QPoint(CodeEditor::kBreakpointColumnWidth / 2, firstLineY));
+        QVERIFY2(code->breakpointLines().isEmpty(),
+                 "second click must remove the breakpoint");
+        QVERIFY(breakpointEntries().isEmpty());
+    }
+
+    void testF9TogglesBreakpointOnCurrentLine() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_f9.n");
+        writeFile(path, kDebugSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+
+        //Cursor on line 2: F9 puts the breakpoint THERE, not on line 1.
+        QTextCursor cursor = code->textCursor();
+        cursor.movePosition(QTextCursor::Start);
+        cursor.movePosition(QTextCursor::NextBlock);
+        code->setTextCursor(cursor);
+        act(window, "actToggleBreakpoint")->trigger();
+        QVERIFY2(code->breakpointLines() == QSet<int>{2}, "F9 marks line 2");
+
+        //Line 3 joins; a second F9 on line 3 removes it again.
+        cursor.movePosition(QTextCursor::NextBlock);
+        code->setTextCursor(cursor);
+        act(window, "actToggleBreakpoint")->trigger();
+        QVERIFY2(code->breakpointLines() == QSet<int>({2, 3}),
+                 "lines 2 and 3 marked");
+        act(window, "actToggleBreakpoint")->trigger();
+        QVERIFY2(code->breakpointLines() == QSet<int>{2},
+                 "line 3 removed again");
+    }
+
+    void testDebugActionsFollowState() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QAction* startDebug = act(window, "actStartDebug");
+        QAction* stopDebug = act(window, "actStopDebug");
+        QAction* stepInto = act(window, "actStepInto");
+
+        //Nothing open: no debug target, so every debug action is off.
+        QVERIFY(!startDebug->isEnabled());
+        QVERIFY(!stopDebug->isEnabled());
+        QVERIFY(!stepInto->isEnabled());
+
+        //A standalone target: Start is on, the session controls stay off.
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_state.n");
+        writeFile(path, kSpinSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        QVERIFY(startDebug->isEnabled());
+        QVERIFY(!stopDebug->isEnabled());
+        QVERIFY(!stepInto->isEnabled());
+
+        //Live session: Stop is on; Start is off until a pause makes it
+        //the Continue button, and the steps need a pause too.
+        startDebug->trigger();  // synchronous build + launch
+        QVERIFY(stopDebug->isEnabled());
+        QVERIFY(!startDebug->isEnabled());
+        QVERIFY(!stepInto->isEnabled());
+
+        //User stop: the session converges and retires; Start is back.
+        stopDebug->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            window.findChildren<DebugClient*>().isEmpty(), 30000);
+        QVERIFY(startDebug->isEnabled());
+        QVERIFY(!stopDebug->isEnabled());
+        QVERIFY(!stepInto->isEnabled());
+        QCOMPARE(window.findChild<QLabel*>("lblDebugStatus")->text(),
+                 MainWindow::tr("Debug stopped"));
+    }
+
+    void testDebugPagePopulatesOnStop() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_page.n");
+        writeFile(path, kDebugSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+
+        //Breakpoint on line 6 (total = total + 2), then debug.
+        QTextCursor cursor = code->textCursor();
+        cursor.movePosition(QTextCursor::Start);
+        for (int i = 0; i < 5; ++i)  // 0-based block 5 == line 6
+            cursor.movePosition(QTextCursor::NextBlock);
+        code->setTextCursor(cursor);
+        act(window, "actToggleBreakpoint")->trigger();
+        act(window, "actStartDebug")->trigger();  // synchronous build
+
+        //The pause flips to the debug page.
+        QTabWidget* output = window.findChild<QTabWidget*>("tabOutput");
+        QVERIFY(output != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            output->currentWidget()
+                == window.findChild<QWidget*>("tabDebug"),
+            30000);
+        //The stop lands on line 6: paused line marked, caret moved there.
+        CodeEditor* stoppedEditor = currentCode(window);
+        QVERIFY(stoppedEditor != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(stoppedEditor->stoppedLine() == 6, 30000);
+        QCOMPARE(stoppedEditor->textCursor().blockNumber(), 5);
+        //Stack tree: the innermost frame is main.
+        QTreeWidget* stack = window.findChild<QTreeWidget*>("tvwDebugStack");
+        QVERIFY(stack != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(stack->topLevelItemCount() >= 1, 10000);
+        QCOMPARE(stack->topLevelItem(0)->text(1), QString("main"));
+        //Variables tree: total == 40 (int) at the pause.
+        QTreeWidget* vars = window.findChild<QTreeWidget*>("tvwDebugVars");
+        QVERIFY(vars != nullptr);
+        const auto hasTotalRow = [&] {
+            for (int i = 0; i < vars->topLevelItemCount(); ++i) {
+                const QTreeWidgetItem* item = vars->topLevelItem(i);
+                if (item->text(0) == QLatin1String("total")
+                    && item->text(1) == QLatin1String("int")
+                    && item->text(2) == QLatin1String("40"))
+                    return true;
+            }
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(hasTotalRow(), 10000);
+        //Program output landed on the run page before the pause.
+        QVERIFY(window.findChild<QTextBrowser*>("txtExecuteOut")
+                    ->toPlainText().contains("hi"));
+        //Paused session: F5 doubles as Continue, the steps are live.
+        QVERIFY(act(window, "actStartDebug")->isEnabled());
+        QVERIFY(act(window, "actStopDebug")->isEnabled());
+        QVERIFY(act(window, "actStepInto")->isEnabled());
+
+        //Continue: the program runs to its exit and the session retires.
+        act(window, "actStartDebug")->trigger();
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+        QVERIFY(!act(window, "actStopDebug")->isEnabled());
+        //The paused-line highlight did not survive the session.
+        QCOMPARE(stoppedEditor->stoppedLine(), 0);
+    }
+
+    void testStopButtonEndsInfiniteLoop() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_spin.n");
+        writeFile(path, kSpinSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actStartDebug")->trigger();  // synchronous build
+
+        act(window, "actStopDebug")->trigger();
+        //The child must be gone (no orphan ndb) and the user-initiated
+        //stop reports as the normal end it was, not as a crash.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            window.findChildren<DebugClient*>().isEmpty(), 30000);
+        QCOMPARE(window.findChild<QLabel*>("lblDebugStatus")->text(),
+                 MainWindow::tr("Debug stopped"));
+    }
+
+    void testCloseEventKillsDebugChild() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        window.show();
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_close.n");
+        writeFile(path, kSpinSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actStartDebug")->trigger();  // synchronous build
+        QVERIFY(!window.findChildren<DebugClient*>().isEmpty());
+
+        //Closing the window kills the live session without prompts.
+        window.close();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            window.findChildren<DebugClient*>().isEmpty(), 30000);
+        QVERIFY(!window.isVisible());
+    }
+
     //--- compile-log navigation ---
 
     void testCompileLogNavigation() {
@@ -1980,6 +2276,12 @@ private slots:
                  QString::fromUtf16(u"\u6784\u5EFA\u6210\u529F"));
         QCOMPARE(MainWindow::tr("Ready"),
                  QString::fromUtf16(u"\u5C31\u7EEA"));
+        //Debug session strings land in the C++ context (one pin each;
+        //the debugger chapter wording).
+        QCOMPARE(MainWindow::tr("Debug stopped"),
+                 QString::fromUtf16(u"\u8C03\u8BD5\u5DF2\u505C\u6B62"));
+        QCOMPARE(MainWindow::tr("Exited (code %1)").arg(42),
+                 QString::fromUtf16(u"\u5DF2\u9000\u51FA\uFF08\u8FD4\u56DE\u7801 %1\uFF09").arg(42));
         //Default names stay untranslated so they match the (also
         //untranslated) default file names.
         QCOMPARE(MainWindow::tr("Solution1"), QString("Solution1"));
@@ -1994,6 +2296,13 @@ private slots:
         QCOMPARE(QApplication::translate("MainWindow",
                                          u8"\u6587\u4EF6(&F)"),
                  QString("&File"));
+        //The debug actions group (uic context) flips to English too.
+        QCOMPARE(QApplication::translate("MainWindow",
+                                         u8"\u542F\u52A8\u8C03\u8BD5"),
+                 QString("Start Debugging"));
+        QCOMPARE(QApplication::translate("MainWindow",
+                                         u8"\u5207\u6362\u65AD\u70B9"),
+                 QString("Toggle Breakpoint"));
         qApp->removeTranslator(en);
         delete en;
 
