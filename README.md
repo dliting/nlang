@@ -120,6 +120,11 @@ frame, `catch on|off` break on throw (default off), `q` quit — stdin EOF
 behaves like `q`. When the program finishes, ndb prints
 `Program exited with code N.` and exits with that same code.
 
+For embedding, `ndb --machine <module.nmod>` exposes the same session
+over a tab-separated line protocol on stdin/stdout — the nide debugger
+is built on it. The engine-side layering is described in
+`docs/vm-architecture/debugging.md`.
+
 All command-line tools report their version with `--version`
 (e.g. `ncc (NLang) <version>`). The IDE shows it in Help → About, and the
 documentation site in its footer.
@@ -234,6 +239,28 @@ appear in a “独立文件” tree group and can be built and run directly:
 the module lands under `%TEMP%\nlang-nide\`, and Run auto-rebuilds it
 when the source changed. The Help menu shows the bundled documentation
 site (`docs/site`) in an embedded viewer inside the IDE.
+
+nide also ships a built-in debugger (driving `ndb --machine` under the
+hood; a walkthrough lives in `docs/getting-started/debugging.md`). F5
+starts a debug session — the program runs to the first breakpoint or to
+completion — and Shift+F5 stops it at any time: the stop is a hard
+terminate, so an infinite loop or a stuck native call never blocks the
+IDE. Breakpoints toggle with F9 or a gutter click (a gutter dot starts
+hollow and turns filled once the live session confirms the line is in
+the compiled module), persist across sessions and follow file renames.
+While paused, the 调试 page in the output area shows the call stack
+(click a frame to jump there and refresh locals), the frame's locals,
+and a 抛异常时中断 switch that breaks at every throw site.
+
+| 动作 | 快捷键 |
+|------|--------|
+| 启动调试 / 继续 | F5 |
+| 运行（不调试） | Ctrl+F5 |
+| 停止调试 | Shift+F5 |
+| 切换断点 | F9 |
+| 单步跳过 | F10 |
+| 单步进入 | F11 |
+| 单步跳出 | Shift+F11 |
 
 `ctest -C Release -R nide_deploy_check` verifies the self-containment: it copies
 the layout to a scratch directory, pins Qt's search paths to it via

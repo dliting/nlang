@@ -8,6 +8,26 @@ All notable changes to NLang are documented here. The format follows
 
 ### Added
 
+- nide: a debugging suite. F5 starts a session — the program builds,
+  then runs to the first breakpoint or to completion — and pressing F5
+  again continues; Shift+F5 stops the session at any time (a hard
+  terminate that always works, including inside infinite loops or
+  native code). F9 or a gutter click toggles a breakpoint (filled dot =
+  bound in the live session, hollow = not bound); breakpoints persist
+  across restarts and follow file renames. F10/F11/Shift+F11 step
+  over/into/out. The new 调试 page in the output area shows the session
+  status, a 抛异常时中断 (break-on-throw) switch, the call stack
+  (clicking a frame selects it, jumps to the line and refreshes locals)
+  and the selected frame's locals; the paused line is highlighted in
+  the editor with a gutter arrow. Program output and error backtraces
+  stream to the 运行输出 page. Build/Run are disabled while a session
+  is live, and closing nide terminates the debugged process.
+- VM: `IHostIo` — a host I/O seam for embedded front ends: output bytes
+  arrive verbatim through a callback, and an installed host that
+  declares no input makes `io.readLine` raise a catchable IOException
+  instead of silently consuming the embedder's stream. With no host
+  installed (the default) the console behavior is unchanged, so ncc,
+  nvm and the CLI debugger are unaffected.
 - ndb: `--machine` mode — a line protocol over stdin/stdout for IDE
   embedding (tab-joined events with escaped fields:
   hello/bp/stopped/frame/local/done/output/exited/error/err; breakpoint
@@ -19,8 +39,13 @@ All notable changes to NLang are documented here. The format follows
   iteration — the back edge lands on the anchor (condition entry for
   while/for, tail condition for do-while; gdb semantics). Previously
   the anchor fired only at loop entry, so an empty-body loop had no
-  per-iteration checkpoint. (ndb/nide debugging work in progress —
-  this section will grow.)
+  per-iteration checkpoint.
+- ndb: breakpoint identity is now one id per source line — a line
+  carrying several statement anchors (e.g. a loop header) merges them
+  under a single breakpoint id, so setting, deleting and reporting
+  breakpoints behave identically in the CLI and machine mode.
+- nide: 运行 → 开始运行 moved from F5 to Ctrl+F5; F5 now starts (and
+  continues) the debugger.
 
 ## [0.4.0] - 2026-09-07
 

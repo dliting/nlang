@@ -61,6 +61,7 @@ nav:
       - "速览: 类与继承": getting-started/classes-and-inheritance.md
       - "速览: 函数与模块": getting-started/function-features.md
       - 三种运行方式: getting-started/running.md
+      - 在 nide 中调试: getting-started/debugging.md
       - 常见问题: getting-started/faq.md
       - 下一步阅读: getting-started/further-reading.md
   - 语言规格:
