@@ -801,13 +801,33 @@ public:
 		//at a consumption site). An unresolved iterable already
 		//reported its own error — skip to avoid cascades.
 		if (sn.Iterable()->IsResolved()
-			&& IsArrayValuedExpr(*sn.Iterable())
-			&& !IsArrayTypedBase(*sn.Iterable()))
+			&& sn.Iterable()->IsArrayValued()
+			&& !IsPlainLvalueShape(*sn.Iterable()))
 		{
 			m_Env.Log(CLL_Error, sn.Iterable()->Location(),
 				"the foreach source is an array value; assign it to a "
 				"local first");
 			return;
+		}
+
+		//Array redesign B (spec §5.5 #3): a resolved source that is
+		//neither an array nor a List/Dict used to compile and die at
+		//runtime (null reference in CallMethod) — reject by name here.
+		//Shape-agnostic: array-value shapes already returned in the
+		//masquerade gate above (old message); container values (incl.
+		//invoke form) pass isContainer below.
+		if (sn.Iterable()->IsResolved())
+		{
+			auto* pSrcType = sn.Iterable()->EvalDataType();
+			const bool isArray = sn.Iterable()->IsArrayValued();
+			const bool isContainer = pSrcType
+				&& pSrcType->Kind() == NK_ClassDecl
+				&& static_cast<SnClassDecl*>(pSrcType)->IsGenericInstantiation()
+				&& (static_cast<SnClassDecl*>(pSrcType)->BaseName() == "List"
+					|| static_cast<SnClassDecl*>(pSrcType)->BaseName() == "Dict");
+			if (!isArray && !isContainer)
+				m_Env.Log(CLL_Error, sn.Iterable()->Location(),
+					"the foreach source must be an array, List, or Dict");
 		}
 
 		//2. Resolve declared var type.
@@ -873,7 +893,7 @@ public:
 		if (sn.Cond()->ContainFlags(NF_NullLiteral))
 			m_Env.Log(CLL_Error, sn.Cond()->Location(),
 				"switch discriminant must be int, float, string, or enum");
-		else if (IsArrayValuedExpr(*sn.Cond()))
+		else if (sn.Cond()->IsArrayValued())
 			m_Env.Log(CLL_Error, sn.Cond()->Location(),
 				"switch discriminant must be int, float, string, or enum");
 		else if (sn.Cond()->IsResolved())

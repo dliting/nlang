@@ -1,0 +1,7 @@
+//e2e: a delegate invoke yielding an array stays rejected at stdlib gates
+import math;
+int[] mk() { return new int[2]; }
+int main() {
+    Func<int[]> f = mk;
+    return math.sqrt(f());
+}

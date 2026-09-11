@@ -39,6 +39,12 @@ typedef uint8 ExprResolveFlagSet;
 bool IsArrayTypedBase(SnExpression& baseExpr);
 bool IsArrayValuedExpr(SnExpression& expr);
 
+//Array redesign B: pure SHAPE test — identifier, or member access whose
+//inner name is an identifier (the lvalue shapes whose Field() binding IS
+//the variable/field itself). Array-ness is the IsArrayValued() property
+//on SnExpression, not part of this check. Shared with StatementResolver.
+bool IsPlainLvalueShape(const SnExpression& expr);
+
 //P2: record on a declared variable/field/param whether its generic type
 //has an ARRAY type argument (SnField::ArrayTypeArg) — the instantiation
 //machinery erases that fact (an ArrayTypeExpr type argument resolves to

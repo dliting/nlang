@@ -1,0 +1,7 @@
+//e2e: foreach over a string source is rejected at resolve time
+int main() {
+    int total = 0;
+    string s = "abc";
+    foreach (int x in s) { total += x; }
+    return total;
+}

@@ -3442,8 +3442,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             }
         }
         //Array.length builtin property (e.g. arr.length).
-        //The outer expression refers to an array-typed field/local; check
-        //its IsArrayType() flag (forwarded from the type's SnNameExpr).
+        //Array redesign B: the receiver check is the array-valued
+        //property on the outer expression (stamped at resolver binding
+        //tails — any shape: identifier, member like li.get(0), or call
+        //result like mk()/lib.mk(3)); the emission itself is
+        //shape-agnostic (EmitExpression handles any receiver form).
         //MUST be checked BEFORE the struct/class dispatch below: for
         //struct-element arrays (`Point[] b`), EvalDataType returns the
         //ELEMENT type (NK_StructDecl), so the struct branch would match
@@ -3452,23 +3455,17 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         //path above.
         {
             auto* inner = member.Inner();
-            if (inner && inner->Kind() == NK_IdentifierExpr) {
-                auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
-                SnField* outerField = nullptr;
-                if (member.Outer()->Kind() == NK_IdentifierExpr)
-                    outerField = static_cast<SnIdentifierExpr*>(
-                        member.Outer())->Field();
-                if (outerField && outerField->IsArrayType()
-                    && fieldName == "length")
-                {
-                    EmitExpression(*member.Outer(), emitter, resultOffset);
-                    emitter.Emit(OpCode::OP_NullCheck);
-                    emitter.EmitUint16(resultOffset);
-                    emitter.Emit(OpCode::OP_ArrayLength);
-                    emitter.EmitUint16(resultOffset);
-                    emitter.EmitUint16(resultOffset);
-                    return;
-                }
+            if (inner && inner->Kind() == NK_IdentifierExpr
+                && static_cast<SnIdentifierExpr*>(inner)->Name() == "length"
+                && member.Outer()->IsArrayValued())
+            {
+                EmitExpression(*member.Outer(), emitter, resultOffset);
+                emitter.Emit(OpCode::OP_NullCheck);
+                emitter.EmitUint16(resultOffset);
+                emitter.Emit(OpCode::OP_ArrayLength);
+                emitter.EmitUint16(resultOffset);
+                emitter.EmitUint16(resultOffset);
+                return;
             }
         }
         //Struct field access (e.g. pt.x, pt.inner.x)

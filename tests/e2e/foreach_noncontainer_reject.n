@@ -1,0 +1,7 @@
+//e2e: foreach over a non-container source is rejected at resolve time
+int getn() { return 5; }
+int main() {
+    int total = 0;
+    foreach (int x in getn()) { total += x; }
+    return total;
+}

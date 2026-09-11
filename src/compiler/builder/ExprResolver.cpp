@@ -669,6 +669,20 @@ bool IsArrayTypedBase(SnExpression& baseExpr) {
 	return pId && pId->Field() && pId->Field()->IsArrayType();
 }
 
+//True when `expr` is a plain field lvalue (identifier, or member access
+//whose inner name is an identifier) — the shapes whose Field() binding
+//IS the variable/field itself. Pure SHAPE test (array redesign B):
+//array-ness is the IsArrayValued() property, not part of this check.
+bool IsPlainLvalueShape(const SnExpression& expr) {
+	if (expr.Kind() == NK_IdentifierExpr)
+		return true;
+	if (expr.Kind() == NK_MemberExpr) {
+		auto* pInner = static_cast<const SnMemberExpr&>(expr).Inner();
+		return pInner && pInner->Kind() == NK_IdentifierExpr;
+	}
+	return false;
+}
+
 //P2: true when `baseExpr` is a List/Dict lvalue (identifier or member
 //field) whose get()/subscript ELEMENT type argument is an array —
 //List<T[]> or Dict<K, V[]>. The element slot is arg 0 for List and
@@ -1285,7 +1299,7 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 		//handle — garbage values today, an out-of-bounds pool read once
 		//io.print widens the accepted kinds (Step 2). Covers identifier,
 		//member, new-array and array-returning-call shapes.
-		if (IsArrayValuedExpr(arg))
+		if (arg.IsArrayValued())
 		{
 			m_Env.Log(CLL_Error, arg.Location(),
 				"Argument %d of \"%s.%s\" is an array; \"%s\" expected.",
@@ -1648,11 +1662,12 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	{
 		auto* pInnerForGate = snMember.Inner();
 		if (pInnerForGate && pInnerForGate->Kind() == NK_InvokeExpr
-			&& IsArrayValuedExpr(*pOuterExpr))
+			&& pOuterExpr->IsArrayValued())
 		{
 			auto& invoke = static_cast<SnInvokeExpr&>(*pInnerForGate);
 			if (invoke.CalleeName() != "toString"
-				|| !IsArrayTypedBase(*pOuterExpr))
+				|| !(pOuterExpr->IsArrayValued()
+					&& IsPlainLvalueShape(*pOuterExpr)))
 			{
 				m_Env.Log(CLL_Error, invoke.Location(),
 					"methods cannot be called on an array; index an element "
@@ -1785,7 +1800,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				++it, ++paramIdx)
 			{
 				auto& arg = static_cast<SnExpression&>(*it);
-				if (IsArrayValuedExpr(arg))
+				if (arg.IsArrayValued())
 				{
 					m_Env.Log(CLL_Error, arg.Location(),
 						"Argument %d of string.%s is an array; \"%s\" "
@@ -1872,22 +1887,21 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		}
 	}
 
-		//Builtin array.length property.
-		if (pOuterExpr->Kind() == NK_IdentifierExpr
-			&& pInnerExpr->Kind() == NK_IdentifierExpr)
+		//Builtin array.length property. Array redesign B: the receiver
+		//check widens from identifier-shape to the array-valued property
+		//(any bound shape — identifier, member like li.get(0), or call
+		//result like mk()/lib.mk(3)).
+		if (pOuterExpr->IsArrayValued()
+			&& pInnerExpr->Kind() == NK_IdentifierExpr
+			&& static_cast<SnIdentifierExpr*>(pInnerExpr)->Name()
+				== "length")
 		{
-			auto* pOuterField = static_cast<SnIdentifierExpr*>(pOuterExpr)->Field();
-			auto& innerId = static_cast<SnIdentifierExpr&>(*pInnerExpr);
-			if (pOuterField && pOuterField->IsArrayType()
-				&& innerId.Name() == "length")
-			{
-				pInnerExpr->AddFlags(NF_Resolved);
-				snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-				snMember.AddFlags(NF_Resolved);
-				StampArrayValued(snMember);
-				m_pContext = pSavedContext;
-				return;
-			}
+			pInnerExpr->AddFlags(NF_Resolved);
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
+			m_pContext = pSavedContext;
+			return;
 		}
 
 		//Builtin stream methods: ByteStream/FileStream member calls.
@@ -3094,12 +3108,13 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//subscript keeps the container type and every consumer (assignment,
 	//member chains, nested subscripts) mis-types it.
 	//
-	//Array-ness is a SEPARATE flag (field->IsArrayType()) — EvalDataType
-	//of `List<int>[] a` returns the element type, which IS a generic
-	//instantiation, so the Kind() check below would mistake the array
-	//for a container (EvalDataType-dispatch-order trap, 5th instance).
-	//Array bases keep the plain element-type propagation below.
-	if (!IsArrayTypedBase(arrayExpr)
+	//Array-ness is the IsArrayValued() property on the expression —
+	//EvalDataType of `List<int>[] a` returns the element type, which IS
+	//a generic instantiation, so the Kind() check below would mistake
+	//the array for a container (EvalDataType-dispatch-order trap, 5th
+	//instance). Array bases keep the plain element-type propagation
+	//below.
+	if (!(arrayExpr.IsArrayValued() && IsPlainLvalueShape(arrayExpr))
 		&& arrayType && arrayType->Kind() == NK_ClassDecl)
 	{
 		auto* pClass = static_cast<SnClassDecl*>(arrayType);

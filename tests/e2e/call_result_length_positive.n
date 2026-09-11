@@ -1,0 +1,6 @@
+//e2e: .length on an array-valued call result compiles
+int main() {
+    List<int[]> li = new List<int[]>();
+    li.add(new int[2]);
+    return li.get(0).length;
+}

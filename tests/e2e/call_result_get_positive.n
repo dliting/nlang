@@ -1,0 +1,9 @@
+//e2e: member access on a container-returning call result compiles
+List<int> mk() {
+    List<int> l = new List<int>();
+    l.add(7);
+    return l;
+}
+int main() {
+    return mk().get(0);
+}

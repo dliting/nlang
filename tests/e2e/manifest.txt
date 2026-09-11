@@ -762,8 +762,12 @@ compile_error_outarg_builtin compile_error
 stdlib_sqrt_canary 0
 stdlib_reserved_names compile_error
 stdlib_array_arg compile_error
+delegate_result_arg_reject compile_error is an array
 cross_mod_stdlib_array_arg compile_error
 cross_mod_array_return 0
+cross_mod_array_member 0
+call_result_get_positive 7
+call_result_length_positive 2
 stdlib_math_trig 0
 stdlib_math_pow_exp_log 0
 stdlib_math_rounding 0
@@ -982,6 +986,8 @@ foreach_src_member_array 145
 foreach_src_this_member 5
 foreach_src_member_invoke_reject compile_error the foreach source is an array value
 foreach_src_dict_sub_reject compile_error the foreach source is an array value
+foreach_noncontainer_reject compile_error the foreach source must be an array, List, or Dict
+foreach_string_reject compile_error the foreach source must be an array, List, or Dict
 
 # Module import visibility (Task 10): single-file error matrix. Column 3
 # pins the exact rejection sentence from spec section 7; the project-mode

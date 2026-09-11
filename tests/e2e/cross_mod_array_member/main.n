@@ -1,0 +1,7 @@
+import lib;
+
+int main() {
+    if (lib.mk(3)[0] == 7 && lib.mk(3).length == 3)
+        return 0;
+    return 1;
+}
