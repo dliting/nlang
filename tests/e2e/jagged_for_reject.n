@@ -1,0 +1,6 @@
+//e2e: jagged for-init declarations are rejected at resolve time
+int main() {
+    int[] a = new int[2];
+    for (int[][] i = a; a.length < 0; a = a) { break; }
+    return 0;
+}

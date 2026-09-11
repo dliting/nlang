@@ -1,0 +1,7 @@
+//e2e: jagged foreach loop-var declarations are rejected at resolve time
+int main() {
+    List<int[]> li = new List<int[]>();
+    li.add(new int[2]);
+    foreach (int[][] x in li) { }
+    return 0;
+}

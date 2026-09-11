@@ -451,6 +451,12 @@ public:
 		if (!sn.Type()->IsResolved())
 			return;
 
+		//Array redesign B: jagged declarations (T[][]) have no VM
+		//layout and used to degrade silently — reject here.
+		if (ArrayTypeDepth(sn.Type()) >= 2)
+			m_Env.Log(CLL_Error, sn.Location(),
+				"jagged arrays (T[][]) are not supported");
+
 		auto pParent = sn.Parent();
 		SnParagraph *pParagraph = nullptr;
 		while (pParent)
@@ -677,6 +683,16 @@ public:
 		if (sn.Init() && sn.Init()->Kind() == NK_LocalDeclStmt) {
 			auto& decl = static_cast<SnLocalDeclStmt&>(*sn.Init());
 			decl.Type()->Accept(*m_pVisitor);
+			//Array redesign B: a jagged for-init (int[][] i) used to
+			//compile through whenever the loop var was never used — the
+			//type resolves via the StatementResolver visitor, where an
+			//SnArrayTypeExpr NEVER resolves (see the note at the top of
+			//Access(SnLocalDeclStmt&)), so the registration block below
+			//is skipped entirely. ArrayTypeDepth is shape-based (Kind
+			//chain), so the gate works on the unresolved chain.
+			if (ArrayTypeDepth(decl.Type()) >= 2)
+				m_Env.Log(CLL_Error, decl.Location(),
+					"jagged arrays (T[][]) are not supported");
 			if (decl.Type()->IsResolved()) {
 				auto *pTypeField = decl.Type()->Field();
 				auto pParent = sn.Parent();
@@ -796,6 +812,16 @@ public:
 
 		//2. Resolve declared var type.
 		sn.VarType()->Accept(*m_pVisitor);
+		//Array redesign B: a jagged loop var (foreach (int[][] x in ...))
+		//used to compile through whenever the body never referenced x —
+		//VarType() resolves via the StatementResolver visitor, where an
+		//SnArrayTypeExpr NEVER resolves (see the note at the top of
+		//Access(SnLocalDeclStmt&)), so the registration below is skipped
+		//entirely. ArrayTypeDepth is shape-based (Kind chain), so the
+		//gate works on the unresolved chain.
+		if (ArrayTypeDepth(sn.VarType()) >= 2)
+			m_Env.Log(CLL_Error, sn.VarType()->Location(),
+				"jagged arrays (T[][]) are not supported");
 		SnField *pVarField = nullptr;
 		if (sn.VarType()->IsResolved())
 			pVarField = sn.VarType()->Field();

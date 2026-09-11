@@ -196,6 +196,12 @@ foreach_struct_copy 1
 field_array_struct 7
 field_array_struct_gc 7
 field_array_class_gc 7
+# --- array redesign B: jagged declaration rejection ---
+jagged_decl_reject compile_error jagged arrays
+jagged_param_reject compile_error jagged arrays
+jagged_field_reject compile_error jagged arrays
+jagged_for_reject compile_error jagged arrays
+jagged_foreach_reject compile_error jagged arrays
 
 # --- pResult accumulator refresh (string pool dedup bug fix) ---
 string_concat_inline_arith 7

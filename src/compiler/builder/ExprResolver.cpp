@@ -780,6 +780,19 @@ static void StampArrayValued(SnExpression& expr) {
 	}
 }
 
+//Depth of the array-type chain (int[] = 1, int[][] = 2, …). Depth >= 2
+//is a jagged declaration form: the VM has no multi-dimensional layout
+//and EvalDataType masquerade degrades it twice silently, so it is
+//rejected at the declaration site (array redesign B, spec §5.5).
+int ArrayTypeDepth(const SnFieldExpr* pType)
+{
+	int depth = 0;
+	for (const auto* pCur = pType; pCur
+		&& pCur->Kind() == NK_ArrayTypeExpr; ++depth)
+		pCur = static_cast<const SnArrayTypeExpr*>(pCur)->ElementType();
+	return depth;
+}
+
 //True when the expression VALUE is an array, covering the shapes that can
 //flow into a call argument. IsArrayTypedBase handles the lvalue shapes
 //(identifier / member field); the value shapes below share the same
@@ -4228,6 +4241,11 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 			//params all flow through here (locals are registered in
 			//StatementResolver instead; SnLocalVar is not a tree child).
 			RecordArrayTypeArg(dataField, dataField.Type());
+			//Array redesign B: jagged declarations (T[][]) have no VM
+			//layout and used to degrade silently — reject here.
+			if (ArrayTypeDepth(dataField.Type()) >= 2)
+				m_Accessor.m_Env.Log(CLL_Error, dataField.Location(),
+					"jagged arrays (T[][]) are not supported");
 			return true;
 		}
 
@@ -4236,6 +4254,12 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 		{
 			if (!ResolveDataType(*pReturnType, outerType))
 				return false;
+			//Array redesign B: jagged return types are rejected like the
+			//other declaration forms (no VM layout).
+			if (ArrayTypeDepth(
+				static_cast<SnFunction &>(sn).ReturnType()) >= 2)
+				m_Accessor.m_Env.Log(CLL_Error, sn.Location(),
+					"jagged arrays (T[][]) are not supported");
 		}
 	}
 

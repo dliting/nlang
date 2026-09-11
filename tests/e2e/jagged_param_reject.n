@@ -1,0 +1,3 @@
+//e2e: jagged array parameter types are rejected at resolve time
+int f(int[][] m) { return 0; }
+int main() { return f(new int[2]); }

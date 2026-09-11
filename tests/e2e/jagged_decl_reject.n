@@ -1,0 +1,5 @@
+//e2e: jagged array declarations are rejected at resolve time
+int main() {
+    int[][] a = new int[2];
+    return 0;
+}
