@@ -2284,7 +2284,7 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
 //not on Field(): for `int[]` Field() resolves to the ELEMENT field, so the
 //kind would degrade to RTK_Int32 and imported array-returning stubs would
 //masquerade as int at type-check sites (Step 0 review round 3; same
-//node-level trap the resolver's IsArrayValuedExpr guards against).
+//node-level trap the resolver's array-valued gates guard against).
 uint16_t VmBackend::SerializedReturnKind(SnFunction& func)
 {
     SnFieldExpr* pRetExpr = func.ReturnType();

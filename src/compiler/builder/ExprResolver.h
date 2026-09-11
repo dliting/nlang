@@ -32,13 +32,6 @@ enum ExprResolveFlag : uint8
 
 typedef uint8 ExprResolveFlagSet;
 
-//Array-masquerade predicates, shared with StatementResolver (Phase 12:
-//switch-discriminant family gating). EvalDataType() of an array returns
-//the ELEMENT type, so Kind()-based checks alone would let array handles
-//through. Definitions live in ExprResolver.cpp.
-bool IsArrayTypedBase(SnExpression& baseExpr);
-bool IsArrayValuedExpr(SnExpression& expr);
-
 //Array redesign B: pure SHAPE test — identifier, or member access whose
 //inner name is an identifier (the lvalue shapes whose Field() binding IS
 //the variable/field itself). Array-ness is the IsArrayValued() property

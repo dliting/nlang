@@ -249,7 +249,7 @@ public:
 	//kNoArrayTypeArg when none. Generic instantiation keys erase
 	//array-ness — an ArrayTypeExpr type argument resolves to its ELEMENT
 	//field — so the declaration records it here for the resolver gates
-	//(IsArrayValuedExpr; see RecordArrayTypeArg in ExprResolver).
+	//(see RecordArrayTypeArg in ExprResolver).
 	static const uint8 kNoArrayTypeArg = 0xFF;
 
 	uint8 ArrayTypeArg() const

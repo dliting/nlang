@@ -1,6 +1,6 @@
 //compile_error: delegate invoke returning T[] — the Func return slot is
 //array-typed; the switch family gate must not see the masqueraded element
-//kind (IsArrayValuedExpr revisit condition from Phase 13 review r1-F10).
+//kind (array-valued property revisit condition from Phase 13 review r1-F10).
 string[] mk(int x) { return new string[2]; }
 int main() {
     Func<string[], int> f = mk;

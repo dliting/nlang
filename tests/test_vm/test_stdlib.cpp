@@ -165,8 +165,9 @@ void test_stdlib_array_arg_rejected()
     TEST(stdlib_array_arg_rejected);
     //Regression guard (Step 0 review MAJOR): EvalDataType of an array
     //valued expression returns the ELEMENT kind, so without the
-    //IsArrayValuedExpr guard `int[]` masqueraded as int and the intrinsic
-    //reinterpreted the array handle as a float — silently wrong code.
+    //array-valued property guard `int[]` masqueraded as int and the
+    //intrinsic reinterpreted the array handle as a float — silently
+    //wrong code.
     //One case per masquerade shape: lvalue, new-array, array-returning
     //call (the e2e canary keeps the lvalue representative).
     BuildOutcome lvalue = buildSource("array_arg_lvalue",
@@ -286,7 +287,7 @@ void test_io_print_rejects_nonprintable()
     TEST(io_print_rejects_nonprintable);
     //class values must call .toString() explicitly; null would print "0";
     //arrays masquerade as their element kind via EvalDataType and are
-    //rejected by the IsArrayValuedExpr guard before the coercion branch.
+    //rejected by the array-valued property check before the coercion branch.
     BuildOutcome cls = buildSource("io_print_cls",
         "class P { int x; }\n"
         "int main() { P p = new P{1}; io.print(p); return 0; }\n");
@@ -435,7 +436,7 @@ void test_string_array_arg_rejected()
 {
     TEST(string_array_arg_rejected);
     //string[] masquerades as string via EvalDataType (element kind) —
-    //the IsArrayValuedExpr guard must reject it before the kind check.
+    //the array-valued property check must reject it before the kind check.
     BuildOutcome outcome = buildSource("str_arg_arr",
         "int main() {\n"
         "    string[] a = new string[2];\n"

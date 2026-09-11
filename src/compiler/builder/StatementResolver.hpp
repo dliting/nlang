@@ -38,7 +38,7 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 	return false;
 }
 
-//P2 (IsArrayValuedExpr gate fix): RecordArrayTypeArg (ExprResolver.h)
+//P2: RecordArrayTypeArg (ExprResolver.h)
 //records on a declared variable/field whether its generic type has an
 //ARRAY type argument. Tree declarations (class/struct fields, formal
 //params) are recorded in ExprResolver::ResolveDataTypes; SnLocalVar is
@@ -797,8 +797,8 @@ public:
 		//and the loop fails at runtime ("method not found: length").
 		//Plain array lvalues (local/member) stay on the array path —
 		//reject only the masqueraded values, same gate family as the
-		//P2 array-receiver/stdlib-argument rejections (IsArrayValuedExpr
-		//at a consumption site). An unresolved iterable already
+		//P2 array-receiver/stdlib-argument rejections (the array-valued
+		//property at a consumption site). An unresolved iterable already
 		//reported its own error — skip to avoid cascades.
 		if (sn.Iterable()->IsResolved()
 			&& sn.Iterable()->IsArrayValued()

@@ -651,24 +651,6 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	ResolveFieldExprAs(nameExpr, pFieldExpr->Field());
 }
 
-//True when `baseExpr` denotes an ARRAY-typed lvalue (local, param, or
-//member field). EvalDataType() alone cannot tell: for array types it
-//returns the ELEMENT type (e.g. `List<int>[] a` → the List<int>
-//instantiation), so Kind()-based container/array dispatch must consult
-//the IsArrayType flag on the resolved field first (EvalDataType
-//dispatch-order trap — same family as toString/assign/member/length).
-bool IsArrayTypedBase(SnExpression& baseExpr) {
-	SnIdentifierExpr* pId = nullptr;
-	if (baseExpr.Kind() == NK_IdentifierExpr)
-		pId = static_cast<SnIdentifierExpr*>(&baseExpr);
-	else if (baseExpr.Kind() == NK_MemberExpr) {
-		auto* pInner = static_cast<SnMemberExpr&>(baseExpr).Inner();
-		if (pInner && pInner->Kind() == NK_IdentifierExpr)
-			pId = static_cast<SnIdentifierExpr*>(pInner);
-	}
-	return pId && pId->Field() && pId->Field()->IsArrayType();
-}
-
 //True when `expr` is a plain field lvalue (identifier, or member access
 //whose inner name is an identifier) — the shapes whose Field() binding
 //IS the variable/field itself. Pure SHAPE test (array redesign B):
@@ -720,17 +702,14 @@ static bool ContainerElemIsArray(SnExpression& baseExpr) {
 //expression from its declared/bound type. Called at the binding
 //success sites of the five expression shapes — resolution is
 //inner-first, so every base expression is stamped before an outer
-//consumer queries it. The arms are a 1:1 transcription of
-//IsArrayValuedExpr below (query form); unresolved nodes have no
-//bindings and stamp false, which is inert. A binding tail WITHOUT the
-//call leaves that shape silently false — reopening the shape-inference
-//bug family — so every new NF_Resolved success site must add one.
+//consumer queries it. Unresolved nodes have no bindings and stamp
+//false, which is inert. A binding tail WITHOUT the call leaves that
+//shape silently false — reopening the shape-inference bug family — so
+//every new NF_Resolved success site must add one.
 static void StampArrayValued(SnExpression& expr) {
 	switch (expr.Kind()) {
 	case NK_IdentifierExpr:
-		//lvalue shape: the bound field's own type flag. Inlined from
-		//IsArrayTypedBase's identifier case — the helper itself is
-		//deleted once all gates read the property (Task 4).
+		//lvalue shape: the bound field's own type flag.
 	{
 		auto* pField = static_cast<SnIdentifierExpr&>(expr).Field();
 		expr.SetArrayValued(pField && pField->IsArrayType());
@@ -756,8 +735,7 @@ static void StampArrayValued(SnExpression& expr) {
 			return;
 		}
 		//plain field lvalue (`obj.arr`): the inner identifier's bound
-		//field carries the flag (inlined from IsArrayTypedBase's
-		//member case).
+		//field carries the flag.
 		if (pInner && pInner->Kind() == NK_IdentifierExpr) {
 			auto* pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
 			expr.SetArrayValued(pField && pField->IsArrayType());
@@ -770,9 +748,18 @@ static void StampArrayValued(SnExpression& expr) {
 		expr.SetArrayValued(true);  //`new T[n]` is always an array value
 		return;
 	case NK_InvokeExpr: {
+		//Call returning T[]: the invoke resolves AS the callee
+		//(ResolveFieldExprAs), so the array-ness flag lives on the
+		//callee's return TYPE EXPR — NOT on Field()->IsArrayType(),
+		//which is the local-var level and would read the element
+		//type's flag (wrong-simplification trap).
 		auto& invoke = static_cast<SnInvokeExpr&>(expr);
 		auto* pCallee = invoke.Callee();
 		auto* pReturnType = pCallee ? pCallee->ReturnType() : nullptr;
+		//A delegate invoke has no SnFunction callee — Field() carries
+		//the Func-typed variable (BindDelegateInvoke); its RETURN slot
+		//is type argument 0. The stamped EvalDataType is the degraded
+		//element field, so read the declaration flag instead.
 		expr.SetArrayValued(
 			(pReturnType && pReturnType->IsArrayType())
 			|| (invoke.Field()
@@ -782,6 +769,11 @@ static void StampArrayValued(SnExpression& expr) {
 		return;
 	}
 	case NK_SubscriptExpr: {
+		//`l[0]` container sugar over List<T[]>/Dict<K,V[]>: the stamped
+		//element field is degraded, so the declaration flag on the base
+		//is authoritative; the EvalDataType term is a defensive backstop
+		//only (a jagged `int[][]` base double-degrades and is not
+		//caught here — declaration-form gates reject the common forms).
 		auto& sub = static_cast<SnSubscriptExpr&>(expr);
 		expr.SetArrayValued(
 			(sub.Array() && ContainerElemIsArray(*sub.Array()))
@@ -805,92 +797,6 @@ int ArrayTypeDepth(const SnFieldExpr* pType)
 		&& pCur->Kind() == NK_ArrayTypeExpr; ++depth)
 		pCur = static_cast<const SnArrayTypeExpr*>(pCur)->ElementType();
 	return depth;
-}
-
-//True when the expression VALUE is an array, covering the shapes that can
-//flow into a call argument. IsArrayTypedBase handles the lvalue shapes
-//(identifier / member field); the value shapes below share the same
-//masquerade: EvalDataType() of an array-valued expression returns the
-//ELEMENT kind, so a Kind()-based type check alone would let the array
-//handle through (Step 0 review round 2: `math.sqrt(new int[3])` and
-//`math.sqrt(mk())` with `int[] mk()` both slipped past the lvalue-only
-//guard). Container elements and call results join the same family (P2):
-//`l.get(0)` / `l[0]` on List<T[]> and delegate calls returning T[] stamp
-//the element/return type on the node, which flags T[] exactly like a
-//declared local's field does.
-//Keep in sync with StampArrayValued above (its write form); both die in
-//Task 4 when every gate reads the stamped property.
-bool IsArrayValuedExpr(SnExpression& expr) {
-	switch (expr.Kind()) {
-	case NK_IdentifierExpr:
-		return IsArrayTypedBase(expr);
-	case NK_MemberExpr:
-	{
-		//Call-through-member (`l.get(0)`, `obj.mk()`). The result type
-		//is stamped on the member itself for container/stdlib calls
-		//(Field() and EvalDataType() = the result field); user-method
-		//members carry it on the inner invoke's callee instead (the
-		//member field IS the SnFunction, whose IsArrayType is
-		//base-false). Plain field access (`obj.arr`) is the lvalue
-		//shape below.
-		auto& member = static_cast<SnMemberExpr&>(expr);
-		auto* pInner = member.Inner();
-		if (pInner && pInner->Kind() == NK_InvokeExpr)
-		{
-			if ((member.Field() && member.Field()->IsArrayType())
-				|| (member.EvalDataType()
-					&& member.EvalDataType()->IsArrayType()))
-				return true;
-			//Container element read (`l.get(0)` on List<T[]>,
-			//`d.get(k)` on Dict<K,V[]>): the stamped result field is the
-			//degraded element field, so consult the declaration flag.
-			auto& innerInvoke = static_cast<SnInvokeExpr&>(*pInner);
-			if (innerInvoke.CalleeName() == "get" && member.Outer()
-				&& ContainerElemIsArray(*member.Outer()))
-				return true;
-			return IsArrayValuedExpr(innerInvoke);
-		}
-		return IsArrayTypedBase(expr);
-	}
-	case NK_NewArrayExpr:
-		return true;  //`new T[n]` is always an array value
-	case NK_InvokeExpr:
-	{
-		//Call returning T[]: the invoke resolves AS the callee
-		//(ResolveFieldExprAs), so the callee's return TYPE EXPR carries
-		//the IsArrayType flag (same level as `sn.Type()->IsArrayType()`
-		//in local declarations — NOT Field()->IsArrayType(), which is
-		//the local-var level and would read the element type's flag).
-		auto& invoke = static_cast<SnInvokeExpr&>(expr);
-		auto* pCallee = invoke.Callee();
-		auto* pReturnType = pCallee ? pCallee->ReturnType() : nullptr;
-		if (pReturnType && pReturnType->IsArrayType())
-			return true;
-		//Phase 13 P2: a delegate invoke has no SnFunction callee — its
-		//Field() carries the Func-typed variable (BindDelegateInvoke).
-		//The Func RETURN slot is type argument 0; the stamped
-		//EvalDataType is the degraded element field, so read the
-		//declaration flag instead.
-		if (invoke.Field() && invoke.Field()->ArrayTypeArg() == 0)
-			return true;
-		return expr.EvalDataType() && expr.EvalDataType()->IsArrayType();
-	}
-	case NK_SubscriptExpr:
-	{
-		//`l[0]` container sugar over List<T[]>/Dict<K,V[]>: the stamped
-		//element field is degraded, so consult the declaration flag on
-		//the base. The EvalDataType catch-all below is only a defensive
-		//backstop for stamped elements that are still array type exprs;
-		//a jagged `int[][]` subscript degrades one level further (the
-		//element-of-element field) and is NOT detected — known gap.
-		auto& sub = static_cast<SnSubscriptExpr&>(expr);
-		if (sub.Array() && ContainerElemIsArray(*sub.Array()))
-			return true;
-		return expr.EvalDataType() && expr.EvalDataType()->IsArrayType();
-	}
-	default:
-		return false;
-	}
 }
 
 void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
@@ -4250,8 +4156,8 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 			auto &dataField = static_cast<SnDataField &>(sn);
 			if (!ResolveDataType(*dataField.Type(), outerType))
 				return false;
-			//P2 (IsArrayValuedExpr gate fix): record on the declared
-			//field whether its generic type has an ARRAY type argument
+			//P2: record on the declared field whether its generic type
+			//has an ARRAY type argument
 			//(SnField::ArrayTypeArg) — class/struct fields and formal
 			//params all flow through here (locals are registered in
 			//StatementResolver instead; SnLocalVar is not a tree child).

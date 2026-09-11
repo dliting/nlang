@@ -1,6 +1,6 @@
 //compile_error: a user method WITH ARGUMENTS returning T[] as the
-//switch discriminant — the inner-invoke callee return-type path of
-//IsArrayValuedExpr must catch it exactly like the zero-arg form.
+//switch discriminant — the array-valued property must catch it
+//exactly like the zero-arg form.
 class M {
     public string[] mk(int i) {
         string[] a = new string[1];
