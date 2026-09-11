@@ -3,7 +3,7 @@ class Box {
 }
 
 //9d-3 audit: array-typed class field kept live across a real GC
-//(class-instance branch of MarkPhase, same runtime-kind tracing).
+//(class-instance branch of MarkPhase, declared-kind RTK_Array route).
 int main() {
     Box b = new Box();
     b.a = new int[2];

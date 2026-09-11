@@ -402,7 +402,12 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
         for (auto& field : sn.Members()) {
             cs.fieldNames.push_back(field.Name());
             auto* fieldType = field.EvalDataType();
-            uint16_t ftk = RuntimeTypeKind(fieldType);
+            //Array redesign B: the kind must come from the DECLARED type
+            //(SnField::IsArrayType). EvalDataType of an array field returns
+            //the ELEMENT type, which mis-filed `int[]` as RTK_Int32 and let
+            //writeStruct serialize the array handle as 4 opaque bytes.
+            uint16_t ftk = field.IsArrayType()
+                ? RTK_Array : RuntimeTypeKind(fieldType);
             cs.fieldTypeKinds.push_back(ftk);
             cs.fieldStructIndices.push_back(0xFFFF);
             cs.fieldClassIndices.push_back(0xFFFF);
@@ -489,8 +494,9 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                 if (member.Kind() == NK_ClassField) {
                     auto& cf = static_cast<SnClassField&>(member);
                     cc.fieldNames.push_back(cf.Name());
-                    auto* fieldType = cf.EvalDataType();
-                    uint16_t ftk = fieldType ? RuntimeTypeKind(fieldType) : RTK_Int32;
+                    //Declared-type kind, mirroring RegisterStructs.
+                    uint16_t ftk = cf.IsArrayType()
+                        ? RTK_Array : RuntimeTypeKind(cf.EvalDataType());
                     cc.fieldTypeKinds.push_back(ftk);
                     cc.fieldStructIndices.push_back(0xFFFF);
                     cc.fieldClassIndices.push_back(0xFFFF);
@@ -503,8 +509,9 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
             if (member.Kind() == NK_ClassField) {
                 auto& cf = static_cast<SnClassField&>(member);
                 cc.fieldNames.push_back(cf.Name());
-                auto* fieldType = cf.EvalDataType();
-                uint16_t ftk = fieldType ? RuntimeTypeKind(fieldType) : RTK_Int32;
+                //Declared-type kind, mirroring RegisterStructs.
+                uint16_t ftk = cf.IsArrayType()
+                    ? RTK_Array : RuntimeTypeKind(cf.EvalDataType());
                 cc.fieldTypeKinds.push_back(ftk);
                 cc.fieldStructIndices.push_back(0xFFFF);
                 cc.fieldClassIndices.push_back(0xFFFF);
@@ -3069,6 +3076,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         *cast.Source());
                     auto* srcField = srcFieldExpr.Field();
                     if (srcField && srcField->IsArrayType()) {
+                        //A member-source emit ends in OP_LoadField, which
+                        //writes the slot but leaves the accumulator stale.
+                        EmitPResultRefresh(emitter, resultOffset);
                         emitter.Emit(OpCode::OP_Array_to_str);
                         emitter.Emit(OpCode::OP_Assign);
                         emitter.EmitUint16(resultOffset);
@@ -3359,6 +3369,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                             if (outerField && outerField->IsArrayType())
                             {
                                 EmitExpression(*member.Outer(), emitter, resultOffset);
+                                //Field loads leave the pResult accumulator
+                                //stale (see EmitPResultRefresh); array_to_str
+                                //reads the accumulator, so reload first.
+                                EmitPResultRefresh(emitter, resultOffset);
                                 emitter.Emit(OpCode::OP_Array_to_str);
                                 emitter.Emit(OpCode::OP_Assign);
                                 emitter.EmitUint16(resultOffset);

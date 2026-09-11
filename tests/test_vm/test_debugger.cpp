@@ -478,6 +478,38 @@ void test_view_value_kinds()
     PASS();
 }
 
+void test_view_struct_array_field_local()
+{
+    //Array redesign B Task 5 pin: an array-typed struct field renders
+    //through FormatDebugField's declared RTK_Array case (the array
+    //formatter). Before the declared-kind fix, `int[]` was filed as
+    //RTK_Int32 and the field rendered as a raw integer.
+    TEST(view_struct_array_field_local);
+    BuildOutcome b = buildSource("view_struct_arr_field",
+        "struct Box { int[] a; }\n"                  //1
+        "int main() {\n"                             //2
+        "    Box b;\n"                               //3
+        "    b.a = new int[2];\n"                    //4
+        "    b.a[0] = 7;\n"                          //5
+        "    b.a[1] = 8;\n"                          //6
+        "    return 0;\n"                            //7
+        "}\n");                                      //8
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("view_struct_arr_field");
+    VmExecutor exec;
+    InspectHooks hooks;
+    hooks.target = "main";
+    hooks.stopLine = 7;  //return 0; — b.a fully assigned by then
+    exec.SetDebugHooks(&hooks);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    REQUIRE(hooks.captured);
+    bool sawBox = false;
+    for (const auto& l : hooks.localLines)
+        if (l == "b=Box{a=int[2]{7, 8}}") sawBox = true;
+    CHECK(sawBox, "struct local's array field renders via array formatter");
+    PASS();
+}
+
 void test_hooks_cpp_exception_propagates()
 {
     //A front end that breaks the contract and throws from a
@@ -1901,6 +1933,7 @@ int main()
     test_view_frames_and_locals();
     test_hooks_on_throw();
     test_view_value_kinds();
+    test_view_struct_array_field_local();
     test_hooks_cpp_exception_propagates();
     test_linepc_map_first_pc();
     test_linepc_map_same_line_multi_anchor();

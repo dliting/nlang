@@ -211,20 +211,21 @@ std::string VmExecutor::FormatDebugStructInstance(int32_t heapIdx) const {
 }
 
 //One field/element cell by declared kind. Dual discriminators (mirror
-//MarkPhase): declared kind prunes primitives; reference decisions
-//trust the runtime slotKind, because array-typed fields record their
-//ELEMENT kind in fieldTypeKinds (known misclassification) — the
-//RTK_Array runtime fallback is the only array detector. Consequence
-//(same class of ambiguity GC over-retention already accepts): a plain
-//int field whose value equals a live array heap idx renders as a short
-//array tag. Rare and cosmetic; fixing it needs declaration-side
-//array-ness in .nmod (out of scope, see spec §10).
+//MarkPhase): declared kind prunes primitives; array fields carry the
+//declaration-side RTK_Array in .nmod (array redesign B) and render via
+//the array formatter. Only Class/Struct/Func declared kinds fall
+//through to the runtime slotKind — primitives early-return above, so
+//no int value can reach the ref-tag path.
 std::string VmExecutor::FormatDebugField(int32_t raw,
     uint16_t declaredKind) const {
     switch (declaredKind) {
     case RTK_Int32:  return std::to_string(raw);
     case RTK_Float:  return FormatFloatBits(raw);
     case RTK_String: return FormatDebugStringIdx(raw);
+    case RTK_Array:
+        if (raw > 0 && static_cast<size_t>(raw) < m_slotKinds.size())
+            return FormatDebugArray(raw);
+        return "null";
     default: break;
     }
     if (raw <= 0 || static_cast<size_t>(raw) >= m_slotKinds.size())

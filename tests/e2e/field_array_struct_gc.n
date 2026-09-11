@@ -3,9 +3,9 @@ struct Box {
 }
 
 //9d-3 audit: array-typed struct field kept live across a real GC.
-//MarkPhase must trace RTK_Array fields of live structs (fieldTypeKinds
-//records the ELEMENT kind for array fields, so tracing goes by the
-//runtime slot kind).
+//MarkPhase traces RTK_Array fields of live structs via the declared
+//field kind (fieldTypeKinds files `int[]` as RTK_Array — array
+//redesign B).
 int main() {
     Box b;
     b.a = new int[2];

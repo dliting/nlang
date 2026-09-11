@@ -1643,16 +1643,19 @@ void VmExecutor::MarkPhase() {
                 int32_t refIdx = m_structHeap[idx][i + 1];
                 if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
                     continue;
-                //Array-typed fields are recorded in fieldTypeKinds with
-                //their ELEMENT kind (known misclassification), so static
-                //kinds can't identify them — trace any field slot whose
-                //runtime kind is RTK_Array. Worst case this over-retains
-                //an int field holding a value equal to an array heap idx,
-                //which is safe for a mark-sweep collector.
+                //Array redesign B: field kinds come from the declared type,
+                //so RTK_Array fields are routed explicitly (same declared-
+                //plus-runtime double condition as the reference kinds).
+                //The old unconditional runtime-kind fallback is safe to drop:
+                //jagged declaration forms that could smuggle an array record
+                //into a non-array field slot are rejected at resolve time.
+                //Pre-fix v1.9 modules also misfile array fields as
+                //RTK_Int32 here; the v1.10 loader floor (same release)
+                //refuses them, closing the GC under-trace window.
                 if ((cc.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
                     || (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
                     || (cc.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
-                    || m_slotKinds[refIdx] == RTK_Array) {
+                    || (cc.fieldTypeKinds[i] == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
                     if (!m_markBits[refIdx]) {
                         m_markBits[refIdx] = true;
                         worklist.push_back(refIdx);
@@ -1718,13 +1721,13 @@ void VmExecutor::MarkPhase() {
                 int32_t refIdx = m_structHeap[idx][i];
                 if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
                     continue;
-                //Array-typed fields record their ELEMENT kind in
-                //fieldTypeKinds (known misclassification), so trace by
-                //runtime kind instead — see the RTK_Class branch above.
+                //Explicit RTK_Array route (declared kind now authoritative) —
+                //see the RTK_Class branch above for why the old runtime-kind
+                //fallback is gone, including the v1.10 module-floor coupling.
                 if ((cs.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
                     || (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
                     || (cs.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
-                    || m_slotKinds[refIdx] == RTK_Array) {
+                    || (cs.fieldTypeKinds[i] == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
                     if (!m_markBits[refIdx]) {
                         m_markBits[refIdx] = true;
                         worklist.push_back(refIdx);
@@ -1984,6 +1987,9 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
         }
         else if (ftk == RTK_Array)
         {
+            //Defensive: SerializeStructFields rejects array fields on the
+            //write side, so no writer can produce this record — reaching
+            //it means a corrupted or hand-crafted stream.
             throw std::runtime_error(
                 "NLang VM: ReadStruct does not support array fields (Phase 8e)");
         }
@@ -2211,6 +2217,9 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
         }
         else if (ftk == RTK_Array)
         {
+            //Defensive: SerializeClassFields rejects array fields on the
+            //write side, so no writer can produce this record — reaching
+            //it means a corrupted or hand-crafted stream.
             throw std::runtime_error(
                 "NLang VM: ReadStruct does not support array fields (Phase 8e)");
         }

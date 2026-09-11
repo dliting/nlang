@@ -1,0 +1,12 @@
+//e2e: toString on an int[] class field formats through the array
+//formatter (roadmap ledger: "array_to_str on non-array" — the member
+//receiver's field load left the pResult accumulator stale).
+class C { int[] f; }
+int main() {
+    C c = new C();
+    c.f = new int[2];
+    c.f[0] = 5;
+    string s = c.f.toString();
+    if (s == "[5, 0]") { return 0; }
+    return 1;
+}

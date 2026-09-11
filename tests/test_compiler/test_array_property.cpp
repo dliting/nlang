@@ -15,6 +15,11 @@ the old shape-inference predicate computed post hoc.
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SyntaxNode.h>
+#include <nlang/vm/CompiledModule.h>
+//Internal header: ModuleLoader is opaque in the public API (same pattern
+//as test_module_import; the src/vm include dir is on this target).
+#include "ModuleLoader.h"
+#include "VmExecutor.h"
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -127,6 +132,8 @@ private slots:
 
     void identifierAndMemberShapes();
     void valueShapes();
+    void structFieldKindStoredAsArray();
+    void writeStructArrayFieldThrows();
 };
 
 void TestArrayProperty::identifierAndMemberShapes()
@@ -199,6 +206,68 @@ void TestArrayProperty::valueShapes()
     auto gets = collectByKind(root, NK_MemberExpr, "li.get(0)");
     QVERIFY(!gets.empty());
     QVERIFY(gets[0]->IsArrayValued());
+}
+
+//Array redesign B Task 5: the compiled struct table must file an
+//`int[]` field as RTK_Array. Registration derived the kind from
+//EvalDataType(), which for array types returns the ELEMENT type, so
+//the .nmod recorded RTK_Int32 — the silent-corruption family
+//(writeStruct serialized the handle as 4 opaque bytes).
+void TestArrayProperty::structFieldKindStoredAsArray()
+{
+    auto out = compileOne(
+        "struct S { int[] f; int g; }\n"
+        "int main() { S s; return s.g; }\n");
+    QVERIFY(out.ok);
+    //fieldTypeKinds is a .nmod-borne fact: read the built module back
+    //through ModuleLoader (static, throws on failure — same pattern as
+    //test_module_import's execute path).
+    const auto nmod = std::filesystem::path(out.params->m_sOutputDir)
+        / (out.params->m_sOutputModule + ".nmod");
+    CompiledModule mod;
+    bool loaded = false;
+    try {
+        mod = ModuleLoader::Load(nmod.string());
+        loaded = true;
+    } catch (const std::exception&) {}
+    QVERIFY(loaded);
+    int structIdx = -1;
+    for (size_t i = 0; i < mod.structs.size(); ++i)
+        if (mod.structs[i].name == "S") { structIdx = (int)i; break; }
+    QVERIFY(structIdx >= 0);
+    const auto& cs = mod.structs[structIdx];
+    QCOMPARE(int(cs.fieldTypeKinds[0]), int(RTK_Array));   //int[] f
+    QCOMPARE(int(cs.fieldTypeKinds[1]), int(RTK_Int32));   //int g
+}
+
+//With the field kind fixed, SerializeStructFields reaches its dormant
+//RTK_Array arm: writeStruct must throw the NAMED error instead of
+//silently serializing the array handle as 4 opaque bytes. The e2e
+//manifest can only pin the exit code (its substring column matches
+//stdout), so the message text is pinned here.
+void TestArrayProperty::writeStructArrayFieldThrows()
+{
+    auto out = compileOne(
+        "struct S { int[] f; }\n"
+        "int main() {\n"
+        "    S s;\n"
+        "    ByteStream bs = new ByteStream();\n"
+        "    bs.writeStruct(s);\n"
+        "    return 0;\n"
+        "}\n");
+    QVERIFY(out.ok);
+    const auto nmod = std::filesystem::path(out.params->m_sOutputDir)
+        / (out.params->m_sOutputModule + ".nmod");
+    std::string errorText;
+    try {
+        CompiledModule mod = ModuleLoader::Load(nmod.string());
+        VmExecutor executor;
+        executor.Execute(mod);
+    } catch (const std::exception& e) {
+        errorText = e.what();
+    }
+    QVERIFY(errorText.find("does not support array fields")
+            != std::string::npos);
 }
 
 QTEST_GUILESS_MAIN(TestArrayProperty)

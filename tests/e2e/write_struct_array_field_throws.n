@@ -1,0 +1,10 @@
+//e2e: streaming a struct with an array field throws a named error
+//(the writeStruct rejection arm activates once fieldTypeKinds files
+//`int[]` as RTK_Array instead of the element kind).
+struct S { int[] f; }
+int main() {
+    S s;
+    ByteStream bs = new ByteStream();
+    bs.writeStruct(s);
+    return 0;
+}

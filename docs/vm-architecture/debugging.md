@@ -111,12 +111,12 @@ Inside a callback:
   NLang try/catch boundary) — ndb's command loop catches everything.
 
 Reference-typed values are discriminated like the GC marker does:
-declared kind prunes primitives, reference decisions trust the runtime
-slot kind (array-typed fields record their element kind in the declared
-kinds — the runtime kind is the only reliable array detector). One
-cosmetic consequence: a plain int whose value happens to equal a live
-array's heap index renders as a short array tag. Rare and display-only;
-the same class of ambiguity GC over-retention already accepts.
+declared kind prunes primitives; array-typed fields carry the
+declaration-side `RTK_Array` in `.nmod` (array redesign B), so the
+declared kind is the reliable array detector and the runtime slot kind
+corroborates it. Only Class/Struct/Func declared kinds fall through to
+the runtime slot kind; Int32/Float/String/Array render directly from
+the declared kind, so a plain int never reaches the ref-tag path.
 
 ## Breakpoint addressing (`.nmod` v1.9)
 

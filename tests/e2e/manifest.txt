@@ -249,6 +249,10 @@ bs_struct_class_field 0
 bs_struct_eos 1
 fs_struct_roundtrip 30
 
+# --- array redesign B Task 5: array-field kind fix ---
+write_struct_array_field_throws 1
+class_array_field_tostring 0
+
 # --- Phase 8c: class field serialization ---
 bs_struct_class_simple 42
 bs_struct_class_null 1
