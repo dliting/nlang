@@ -184,6 +184,37 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(module_import_tests test_module_import)
 
+    # Array-valued type property unit tests (array redesign B Task 1):
+    # IsArrayValued() is stamped at resolver binding tails from the
+    # declared/bound type, so each expression shape (identifier, member
+    # field, new-array, array-returning call, container element read,
+    # container subscript) carries the property the old shape-inference
+    # predicate computed post hoc. Driven in-process through
+    # ModuleBuilder; the src include dirs cover later tasks reading the
+    # built .nmod back through ModuleLoader.
+    add_executable(test_array_property
+        test_compiler/test_array_property.cpp
+    )
+    target_include_directories(test_array_property
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+            ${PROJECT_SOURCE_DIR}/src/vm
+    )
+    target_link_libraries(test_array_property
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_array_property POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_array_property>)
+    endif()
+    nlang_add_qtest(array_property_tests test_array_property)
+
     add_executable(test_projectmodel
         test_nide/test_projectmodel.cpp
     )

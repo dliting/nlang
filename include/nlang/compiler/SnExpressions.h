@@ -55,6 +55,21 @@ public:
 		return m_pEvalDataType;
 	}
 
+	//Array-valued type property (array redesign B): written by the
+	//resolver at binding tails from the DECLARED/bound type — never
+	//inferred from the expression shape downstream. Dispatch sites ask
+	//this before Kind()/EvalDataType(): EvalDataType of an array value
+	//returns the ELEMENT type (dispatch-order trap).
+	bool IsArrayValued() const
+	{
+		return m_bArrayValued;
+	}
+
+	void SetArrayValued(bool bArrayValued)
+	{
+		m_bArrayValued = bArrayValued;
+	}
+
 	//llvm::Type *MetaType() const
 	//{
 	//	return m_pEvalDataType ? m_pEvalDataType->MetaType() : nullptr;
@@ -87,6 +102,7 @@ protected:
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
 	SnField *m_pEvalDataType;
+	bool m_bArrayValued = false;
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Value *m_pMetaValue;
 #endif

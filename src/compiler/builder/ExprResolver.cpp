@@ -702,6 +702,84 @@ static bool ContainerElemIsArray(SnExpression& baseExpr) {
 	return false;
 }
 
+//Array redesign B: stamp the array-valued property on a VALUE
+//expression from its declared/bound type. Called at the binding
+//success sites of the five expression shapes — resolution is
+//inner-first, so every base expression is stamped before an outer
+//consumer queries it. The arms are a 1:1 transcription of
+//IsArrayValuedExpr below (query form); unresolved nodes have no
+//bindings and stamp false, which is inert. A binding tail WITHOUT the
+//call leaves that shape silently false — reopening the shape-inference
+//bug family — so every new NF_Resolved success site must add one.
+static void StampArrayValued(SnExpression& expr) {
+	switch (expr.Kind()) {
+	case NK_IdentifierExpr:
+		//lvalue shape: the bound field's own type flag. Inlined from
+		//IsArrayTypedBase's identifier case — the helper itself is
+		//deleted once all gates read the property (Task 4).
+	{
+		auto* pField = static_cast<SnIdentifierExpr&>(expr).Field();
+		expr.SetArrayValued(pField && pField->IsArrayType());
+		return;
+	}
+	case NK_MemberExpr: {
+		auto& member = static_cast<SnMemberExpr&>(expr);
+		auto* pInner = member.Inner();
+		if (pInner && pInner->Kind() == NK_InvokeExpr) {
+			//call-through-member (`l.get(0)`, `obj.mk()`): result type
+			//is stamped on the member for container/stdlib calls; user
+			//methods carry it on the inner invoke (already stamped —
+			//inner-first resolution replaces the old recursion).
+			auto& innerInvoke = static_cast<SnInvokeExpr&>(*pInner);
+			expr.SetArrayValued(
+				(member.Field() && member.Field()->IsArrayType())
+				|| (member.EvalDataType()
+					&& member.EvalDataType()->IsArrayType())
+				|| (innerInvoke.CalleeName() == "get"
+					&& member.Outer()
+					&& ContainerElemIsArray(*member.Outer()))
+				|| innerInvoke.IsArrayValued());
+			return;
+		}
+		//plain field lvalue (`obj.arr`): the inner identifier's bound
+		//field carries the flag (inlined from IsArrayTypedBase's
+		//member case).
+		if (pInner && pInner->Kind() == NK_IdentifierExpr) {
+			auto* pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
+			expr.SetArrayValued(pField && pField->IsArrayType());
+			return;
+		}
+		expr.SetArrayValued(false);
+		return;
+	}
+	case NK_NewArrayExpr:
+		expr.SetArrayValued(true);  //`new T[n]` is always an array value
+		return;
+	case NK_InvokeExpr: {
+		auto& invoke = static_cast<SnInvokeExpr&>(expr);
+		auto* pCallee = invoke.Callee();
+		auto* pReturnType = pCallee ? pCallee->ReturnType() : nullptr;
+		expr.SetArrayValued(
+			(pReturnType && pReturnType->IsArrayType())
+			|| (invoke.Field()
+				&& invoke.Field()->ArrayTypeArg() == 0)
+			|| (expr.EvalDataType()
+				&& expr.EvalDataType()->IsArrayType()));
+		return;
+	}
+	case NK_SubscriptExpr: {
+		auto& sub = static_cast<SnSubscriptExpr&>(expr);
+		expr.SetArrayValued(
+			(sub.Array() && ContainerElemIsArray(*sub.Array()))
+			|| (expr.EvalDataType()
+				&& expr.EvalDataType()->IsArrayType()));
+		return;
+	}
+	default:
+		return;
+	}
+}
+
 //True when the expression VALUE is an array, covering the shapes that can
 //flow into a call argument. IsArrayTypedBase handles the lvalue shapes
 //(identifier / member field); the value shapes below share the same
@@ -713,6 +791,8 @@ static bool ContainerElemIsArray(SnExpression& baseExpr) {
 //`l.get(0)` / `l[0]` on List<T[]> and delegate calls returning T[] stamp
 //the element/return type on the node, which flags T[] exactly like a
 //declared local's field does.
+//Keep in sync with StampArrayValued above (its write form); both die in
+//Task 4 when every gate reads the stamped property.
 bool IsArrayValuedExpr(SnExpression& expr) {
 	switch (expr.Kind()) {
 	case NK_IdentifierExpr:
@@ -952,6 +1032,7 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	}
 
 	ResolveFieldExprAs(idExpr, pField);
+	StampArrayValued(idExpr);
 }
 
 void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
@@ -1301,6 +1382,7 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 		snMember.m_pField = pResultField;
 	}
 	snMember.AddFlags(NF_Resolved);
+	StampArrayValued(snMember);
 }
 
 //Module import visibility (spec §6.2 rule 5): the module-table fallback
@@ -1364,6 +1446,7 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 				parentPrefix.c_str());
 		}
 		snMember.AddFlags(NF_Resolved);
+		StampArrayValued(snMember);
 		return true;
 	}
 
@@ -1376,11 +1459,13 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 	if (!ResolveExpressionList(invoke.Params()))
 	{
 		snMember.AddFlags(NF_Resolved);
+		StampArrayValued(snMember);
 		return true;
 	}
 	if (!ValidateInvokeSyntax(invoke))
 	{
 		snMember.AddFlags(NF_Resolved);
+		StampArrayValued(snMember);
 		return true;
 	}
 
@@ -1406,18 +1491,21 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		}
 		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported);
 		snMember.AddFlags(NF_Resolved);
+		StampArrayValued(snMember);
 		return true;
 	}
 
 	if (OutArgOnDispatchedCalleeRejected(invoke, *pCallee, bindings))
 	{
 		snMember.AddFlags(NF_Resolved);
+		StampArrayValued(snMember);
 		return true;
 	}
 
 	if (!ResolveInvokeWithFunc(invoke, *pCallee, res, bindings))
 	{
 		snMember.AddFlags(NF_Resolved);
+		StampArrayValued(snMember);
 		return true;
 	}
 
@@ -1428,6 +1516,7 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 	if (invoke.EvalDataType())
 		snMember.EvalDataType(invoke.EvalDataType());
 	snMember.AddFlags(NF_Resolved);
+	StampArrayValued(snMember);
 	return true;
 }
 
@@ -1486,6 +1575,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 					"the top of this file.",
 					outerId.Name().c_str(), outerId.Name().c_str());
 				snMember.AddFlags(NF_Resolved);
+				StampArrayValued(snMember);
 				return;
 			}
 			TryResolveStdLibCall(snMember, outerId,
@@ -1577,6 +1667,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1587,6 +1678,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1627,6 +1719,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1745,6 +1838,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				snMember.m_pField = pResultField;
 			}
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1756,6 +1850,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 			//Mark the invoke as folded so codegen skips it. Use NF_Resolved flag
 			//on the inner expression (already set above) and leave callee as-is;
 			//VmBackend detects string receiver + toString name and emits nothing.
@@ -1776,6 +1871,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				pInnerExpr->AddFlags(NF_Resolved);
 				snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 				snMember.AddFlags(NF_Resolved);
+				StampArrayValued(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -1923,6 +2019,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 						snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
 				}
 				snMember.AddFlags(NF_Resolved);
+				StampArrayValued(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -1981,6 +2078,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -1999,6 +2097,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -2072,6 +2171,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				pInnerExpr->AddFlags(NF_Resolved);
 				snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
 				snMember.AddFlags(NF_Resolved);
+				StampArrayValued(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -2269,6 +2369,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			if (pResultField)
 				snMember.m_pField = pResultField;
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -2313,6 +2414,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				snMember.EvalDataType(pResultField);
 				snMember.m_pField = pResultField;
 				snMember.AddFlags(NF_Resolved);
+				StampArrayValued(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -2355,10 +2457,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			if (pInnerExpr->EvalDataType())
 				snMember.EvalDataType(pInnerExpr->EvalDataType());
 			snMember.AddFlags(NF_Resolved);
+			StampArrayValued(snMember);
 		}
 		else
 		{
 			ResolveFieldExprAs(snMember, pInnerExpr->Field());
+			//Plain member-field path: the shared helper above sets NF_Resolved internally.
+			StampArrayValued(snMember);
 		}
 	}
 
@@ -2810,6 +2915,7 @@ void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
 	//backend registers a CompiledArrayType entry from this element type.
 	sn.EvalDataType(pElemField);
 	sn.AddFlags(NF_Resolved);
+	StampArrayValued(sn);
 }
 
 //Phase 8e-6: Collection initializer resolver.
@@ -2997,6 +3103,7 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 			{
 				sn.EvalDataType(elem);
 				sn.AddFlags(NF_Resolved);
+				StampArrayValued(sn);
 				return;
 			}
 		}
@@ -3004,6 +3111,7 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	if (arrayType)
 		sn.EvalDataType(arrayType);
 	sn.AddFlags(NF_Resolved);
+	StampArrayValued(sn);
 }
 
 void ExprResolveAccessor::Access(SnThisExpr &sn)
@@ -3504,6 +3612,7 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	//A void return resolves to a null EvalDataType here — the established
 	//void-invoke convention.
 	ResolveFieldExprAs(invoke, &func);
+	StampArrayValued(invoke);
 	return true;
 }
 
@@ -3700,6 +3809,7 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	if (typeArgs[0]->Kind() != NK_Void)
 		invoke.EvalDataType(typeArgs[0]);
 	invoke.AddFlags(NF_Resolved);
+	StampArrayValued(invoke);
 }
 
 //Phase 9c: try to bind an invoke's actual arguments to a candidate
