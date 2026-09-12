@@ -118,7 +118,7 @@ corroborates it. Only Class/Struct/Func declared kinds fall through to
 the runtime slot kind; Int32/Float/String/Array render directly from
 the declared kind, so a plain int never reaches the ref-tag path.
 
-## Breakpoint addressing (`.nmod` v1.9)
+## Breakpoint addressing
 
 Each function records the path of the translation unit it was compiled
 from (`CompiledFunction::sourceFile`). `b file.n:LINE` suffix-matches
