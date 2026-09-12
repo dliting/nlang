@@ -75,9 +75,8 @@ enum class OpCode : uint8_t {
     OP_ParaEnd,         // mark end of parameter evaluation
 
     // === Switch/case ===
-    //Reference: EN's I_Base_Switch/I_Base_Case (Compiler.h).
     OP_Switch,          // uint16 switch_local_offset (the switch value slot)
-    OP_Case,            // uint16 jump_to_next (placeholder, patched by FixChainedJumps)
+    OP_Case,            // uint16 jump_to_next (placeholder, patched by clause-exit fixup)
                         // After OP_Case: condition comparison code + OP_JumpIfNot to next case,
                         // then case body code.
 

@@ -62,7 +62,6 @@ void SnParagraph::Accept(nlang::ISyntaxNodeVisitor& v)
 SnField * SnParagraph::FindField(const std::string& sName) const
 {
 	//Search in local variables first, then delegate to parent.
-	//Reference: EN's CompositeStatement::FindField (SeStatements.cpp:57).
 	SnField *pLocal = FindLocal(sName);
 	if (pLocal)
 		return pLocal;

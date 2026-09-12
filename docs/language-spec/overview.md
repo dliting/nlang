@@ -2,9 +2,8 @@
 
 
 NLang is a statically-typed scripting language with C-like syntax. It
-compiles to bytecode executed by a register-based VM. Originally inspired
-by the EN engine's `compiler_bak`/`lang_bak`, it now evolves as an
-independent language.
+compiles to bytecode executed by a register-based VM, and is designed for
+embedding and automation — a testbed for AI-friendly language features.
 
 Key design goals:
 - Familiar C-family syntax for low learning curve

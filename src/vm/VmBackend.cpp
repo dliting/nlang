@@ -3669,7 +3669,6 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 bool isVirtual = callee && callee->ContainFlags(NF_Virtual);
                 if (isVirtual) {
                     //Virtual method dispatch — name-based lookup at runtime
-                    //(like EN's I_Base_CallVirtualFunc + FindFunctionChecked)
                     //Phase 9e: out args are resolver-rejected on virtual
                     //methods; spills here would be silently lost.
                     if (!outSpills.empty())
@@ -3681,7 +3680,6 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.EmitUint16(m_currFunc->callParamBase);
                 } else if (callee) {
                     //Non-virtual (final) method — direct call by function index
-                    //(like EN's I_Base_CallFinalFunc + NFunction*).
                     //Round-12: a miss on the function map means the resolver
                     //bound a method that never got registered — today that is
                     //a body-less declaration (the backend skips functions with
@@ -4833,7 +4831,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //After the decomposition pattern, initializers are handled by
     //AssignStmts inserted after this declaration. We only allocate
     //the local variable slot here.
-    //Reference: EN's LocalDeclStmt::Compile (SeStatements.cpp:226).
     if (kind == NK_LocalDeclStmt) {
         auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
         //Detect array type via IsArrayType() on the type expression.
@@ -4871,7 +4868,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Assignment statement.
-    //Reference: EN's AssignStmt::Compile (SeStatements.cpp:313).
     if (kind == NK_AssignStmt) {
         auto& assign = static_cast<SnAssignStmt&>(stmt);
         if (assign.Left()->Kind() == NK_IdentifierExpr) {
@@ -5293,7 +5289,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Subscript assignment: arr[index] = value
-    //Reference: EN's AssignStmt::Compile pattern for indexed stores.
     if (kind == NK_SubscriptAssignStmt) {
         auto& sub = static_cast<SnSubscriptAssignStmt&>(stmt);
         //List<T>/Dict<K,V> subscript store: li[i] = v == li.set(i, v),
@@ -5403,7 +5398,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //If/else statement.
-    //Reference: EN's IfStmt::Compile (SeStatements.cpp:367).
     if (kind == NK_IfStmt) {
         auto& ifStmt = static_cast<SnIfStmt&>(stmt);
         //Condition staging: EvalAreaClaim, never tempSlot (round-9 —
@@ -5440,7 +5434,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //While loop statement.
-    //Reference: EN's WhileStmt::DoCompile (SeStatements.cpp:468).
     if (kind == NK_WhileStmt) {
         auto& whileStmt = static_cast<SnWhileStmt&>(stmt);
         size_t loopStart = emitter.CurrentOffset();
@@ -5479,7 +5472,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         auto& ctx = m_loopStack.back();
         for (size_t pos : ctx.breakJumps)
             emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
-        //Reference: EN's WhileStmt continue jumps back to locStart (condition check)
+        //continue jumps back to locStart (condition check)
         for (size_t pos : ctx.continueJumps)
             emitter.PatchUint16(pos, static_cast<uint16_t>(loopStart));
 
@@ -5488,7 +5481,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Do-while loop statement.
-    //Reference: EN's DoStmt::DoCompile (SeStatements.cpp:507).
     if (kind == NK_DoStmt) {
         auto& doStmt = static_cast<SnDoStmt&>(stmt);
 
@@ -5528,7 +5520,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         auto& ctx = m_loopStack.back();
         for (size_t pos : ctx.breakJumps)
             emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
-        //Reference: EN's DoStmt continue jumps to locCondition
+        //continue jumps to locCondition
         for (size_t pos : ctx.continueJumps)
             emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
 
@@ -5537,7 +5529,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //For loop statement.
-    //Reference: EN's ForStmt::DoCompile (SeStatements.cpp:546).
     if (kind == NK_ForStmt) {
         auto& forStmt = static_cast<SnForStmt&>(stmt);
 
@@ -5554,7 +5545,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //for line re-fires every iteration (see WhileStmt).
         EmitStatementAnchor(forStmt, emitter);
 
-        //3. Enter loop context (reference: EN's LoopStmt::Compile)
+        //3. Enter loop context
         PushLoopContext();
 
         //4. Condition check (claim staging — see WhileStmt above, round-9;
@@ -5588,7 +5579,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //9. Loop end
         size_t loopEnd = emitter.CurrentOffset();
 
-        //10. Fixup jumps (reference: EN's FixDirectJumps)
+        //10. Fixup jumps
         auto& ctx = m_loopStack.back();
         for (size_t pos : ctx.breakJumps)
             emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
@@ -5835,12 +5826,10 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Break statement.
-    //Reference: EN's BreakStmt::Compile (SeStatements.cpp:860).
     //Break exits the innermost enclosing switch or loop.
     if (kind == NK_BreakStmt) {
         if (m_loopStack.empty()) {
             //This should be caught by an earlier validation pass.
-            //Reference: EN's BreakStmt::Compile checks NestBreaks.
             assert(!"break statement not in loop or switch");
             return;
         }
@@ -5868,17 +5857,15 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Continue statement.
-    //Reference: EN's ContinueStmt::Compile (SeStatements.cpp:886).
     //Continue targets the innermost enclosing *loop*, not switch.
     if (kind == NK_ContinueStmt) {
         //Walk the stack to find the nearest actual loop (not switch).
-        //Reference: EN's ContinueStmt skips switch contexts.
+        //continue skips switch contexts.
         auto it = m_loopStack.rbegin();
         while (it != m_loopStack.rend() && it->isSwitch)
             ++it;
         if (it == m_loopStack.rend()) {
             //This should be caught by an earlier validation pass.
-            //Reference: EN's ContinueStmt::Compile checks NestContinues.
             assert(!"continue statement not in loop");
             return;
         }
@@ -5901,7 +5888,6 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Switch statement.
-    //Reference: EN's SwitchStmt::DoCompile (SeStatements.cpp:725).
     if (kind == NK_SwitchStmt) {
         auto& switchStmt = static_cast<SnSwitchStmt&>(stmt);
 
@@ -5924,8 +5910,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         PushLoopContext(true);
 
         //5. Compile each case clause
-        //Reference: EN's SwitchStmt::DoCompile — for each case, emit
-        //I_Base_Case + jump-to-next-handler placeholder + condition + body.
+        //For each case, emit OP_Case + a jump-to-next-handler placeholder + condition + body.
         //Phase 12 multi-value labels: a clause holds N labels (`case 1, 2:`)
         //and ANY match enters the body. The opcode set has no jump-if-true,
         //so an INTERMEDIATE label emits a dual jump (JumpIfNot → the next
@@ -5956,12 +5941,12 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
             //Emit OP_Case with jump-to-next-handler placeholder.
             //Note: OP_Case is a marker opcode. Its uint16 operand is patched by
-            //FixChainedJumps but never used at runtime (branching is done by
-            //OP_JumpIfNot). A future optimization could merge OP_Case with the
-            //condition check into a single opcode.
+            //the clause-exit fixup (step 8) but never used at runtime (branching
+            //is done by OP_JumpIfNot). A future optimization could merge OP_Case
+            //with the condition check into a single opcode.
             emitter.Emit(OpCode::OP_Case);
             size_t jumpToNext = emitter.CurrentOffset();
-            emitter.EmitUint16(0);  //placeholder, patched by FixChainedJumps
+            emitter.EmitUint16(0);  //placeholder, patched by the clause-exit fixup
             exitJumps.emplace_back(1, jumpToNext);
 
             //Compile condition: switch_value == case_constant
@@ -6051,10 +6036,9 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         //7. Mark locEnd (after default)
         size_t locEnd = emitter.CurrentOffset();
 
-        //8. FixChainedJumps: patch each clause's exit jumps so they point
-        //to the next clause's start. The last clause's jumps point to
-        //default (if present) or switch end.
-        //Reference: EN's Compiler::FixChainedJumps (Compiler.h:86).
+        //8. Clause-exit fixup: patch each clause's exit jumps so they
+        //point to the next clause's start. The last clause's jumps point
+        //to default (if present) or switch end.
         {
             size_t caseCount = caseStartOffsets.size();
             for (size_t i = 0; i < caseCount; ++i) {

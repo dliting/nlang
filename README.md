@@ -1,7 +1,9 @@
 # NLang
 
-NLang is a scripting language compiler and IDE, extracted from a game engine I
-previously developed, as a standalone teaching/research open-source project.
+NLang is a statically-typed scripting language for embedding and automation —
+with a small C++ host API, native bindings and in-process debug hooks — and a
+testbed for AI-friendly language features. It ships its own compiler, bytecode
+VM, debugger and IDE, and is developed as an open teaching/research project.
 
 ![NLang IDE (nide)](docs/images/nide-overview.png)
 
@@ -361,9 +363,11 @@ Notes:
   [VC++ Redistributable for Visual Studio](https://aka.ms/vs/17/release/vc_redist.x64.exe)
   (already present on machines with Visual Studio 2022).
 - `python tests/packaging/verify_package.py` checks a built package:
-  extracts the zip, asserts the layout, audits the packaged docs site with
-  the `nlang_docs check` pipeline, and smoke-tests the packaged toolchain
-  by compiling and running `examples/hello.n` with it.
+  extracts the zip, asserts the layout, scans the shipped prose with the
+  public-text guard (no references to private predecessor codebases — the
+  same pattern source as the `nlang_docs_pytest` gate), audits the packaged
+  docs site with the `nlang_docs check` pipeline, and smoke-tests the
+  packaged toolchain by compiling and running `examples/hello.n` with it.
 
 ## Project Structure
 

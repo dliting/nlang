@@ -4,6 +4,27 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.1]
+
+### Changed
+
+- Positioning rewrite across README, CONTRIBUTING and the docs site:
+  NLang is described as a statically-typed scripting language for
+  embedding and automation — with a small C++ host API, native bindings
+  and in-process debug hooks — and a testbed for AI-friendly language
+  features. All references to the private predecessor codebase were
+  removed from the shipped sources and documentation.
+- The getting-started `switch` example no longer returns from each case
+  arm; the accumulated-result form makes the no-fall-through semantics
+  visible.
+
+### Added
+
+- Public-text guard: a single pattern source scans every tracked file
+  (ctest `nlang_docs_pytest`) and every release package
+  (`verify_package.py`), failing the build or the release when
+  predecessor references reappear in public prose.
+
 ## [0.6.0] - 2026-09-12
 
 ### Added

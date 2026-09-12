@@ -21,7 +21,7 @@ struct CompileLogItemInfo {
 
 //--- CompileLogBrowser: shows compiler output; double-clicking a
 //  diagnostic line emits lineSelected so the MainWindow can open the
-//  error site in an editor. Deviations from EN: parsing does not require
+//  error site in an editor. Design notes: parsing does not require
 //  a project -- ncc prints the path as given (absolute in project mode,
 //  otherwise as typed on the command line), so a project only resolves
 //  relative paths; blank lines emit nothing; only the left button

@@ -81,8 +81,8 @@ About dialog, the documentation-site footer and the CPack package names.
 - Disable copying with `= delete`.
 - File paths: `std::filesystem`.
 - Magic numbers become named constants (`DEFAULT_*`).
-- Comments follow the EN tradition: `/*--- file header ---*/`, short line
-  comments explaining *why*; no Doxygen essays.
+- Comments: `/*--- file header ---*/`, short line comments
+  explaining *why*; no Doxygen essays.
 - X-macro generated `case` labels align with the `default:` in the enclosing
   switch.
 

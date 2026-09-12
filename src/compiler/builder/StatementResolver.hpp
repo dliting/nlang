@@ -1095,7 +1095,7 @@ public:
 						pName->ToString().c_str());
 			}
 		}
-		//Like EN: a method that overrides a parent virtual method
+		//A method that overrides a parent virtual method
 		//is also virtual (implicit virtual propagation).
 		//Check both name and parameter count to avoid false matches.
 		auto *pSuper = sn.SuperClass();

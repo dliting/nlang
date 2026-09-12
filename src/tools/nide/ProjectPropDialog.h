@@ -22,14 +22,13 @@ namespace nlang {
 //  new .nproj to the solution (retrying on conflicts); editProject()
 //  changes the mutable properties of an existing project (name and
 //  location are fixed once the project exists).
-//  Deviations from EN: the empty output/intermediate directories
-//  default to the project directory (EN had fixed "bin"/"obj"
-//  constants -- NLang's .nproj omits the attributes when empty);
+//  Design notes: the empty output/intermediate directories
+//  default to the project directory (the .nproj omits the
+//  attributes when empty);
 //  the "referenced packages" list is gone (the NLang project format
 //  has no such element); the namespace is optional (ncc does not read
-//  it) and editProject() actually applies it (EN discarded the value
-//  of the editable field); the namespace label's buddy now points at
-//  edtNamespace (EN's wrongly pointed at edtProjectName).
+//  it) and editProject() actually applies it; the namespace label's
+//  buddy now points at edtNamespace.
 class ProjectPropDialog : public QDialog {
     Q_OBJECT
 public:

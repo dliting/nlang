@@ -18,7 +18,7 @@ namespace nlang {
 
 namespace {
 
-//The three node-kind icons (EN's SolutionModel.cpp:35-36,82).
+//The three node-kind icons.
 QIcon nodeIcon(const char* fileName) {
     return QIcon(QString(":/nide/Resources/") + fileName);
 }

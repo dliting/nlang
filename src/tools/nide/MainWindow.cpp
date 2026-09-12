@@ -750,7 +750,7 @@ bool MainWindow::buildProject(ProjectNode& project) {
         return false;
     }
 
-    //Synchronous build (EN did the same): ncc writes diagnostics in the
+    //Synchronous build: ncc writes diagnostics in the
     //shape CompileLogBrowser parses -- on stderr, so merge the channels
     //before reading (plain readAll() would only see stdout).
     QProcess ncc(this);

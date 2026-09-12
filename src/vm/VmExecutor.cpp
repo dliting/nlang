@@ -491,7 +491,6 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         //Comparison ops: result written to locals[lhs], like arithmetic ops.
-        //Reference: EN's IfStmt::Compile pattern.
         case OpCode::OP_Less_i32: {
             uint16_t lhs = reader.ReadUint16();
             uint16_t rhs = reader.ReadUint16();
@@ -864,15 +863,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         case OpCode::OP_Switch: {
             //Read the switch value local offset — no action needed,
             //the switch value is already in the local slot.
-            //Reference: EN's I_Base_Switch.
             reader.ReadUint16();
             break;
         }
 
         case OpCode::OP_Case: {
             //Read the jump-to-next-handler offset.
-            //Reference: EN's I_Base_Case.
-            //The jump target is patched by FixChainedJumps at compile time.
+            //The jump target is patched at compile time (clause-exit fixup).
             //At runtime, we just read and skip the placeholder — the actual
             //branching is done by OP_JumpIfNot after the condition code.
             reader.ReadUint16();
@@ -1110,8 +1107,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         case OpCode::OP_CallMethod: {
-            //Virtual method dispatch — name-based lookup (like EN's
-            //I_Base_CallVirtualFunc + FindFunctionChecked).
+            //Virtual method dispatch — name-based lookup.
             //
             //Note: the null-receiver check below throws *before* the
             //dispatched method's frame is constructed. The backtrace
@@ -1169,7 +1165,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         //Hard crash on null — consistent with Java NPE / C# NullReferenceException.
-        //EN uses "safe null" (skip + default), but we prefer fail-fast for bug detection.
+        //Safe-null (skip + default) was considered and rejected:
+        //fail-fast surfaces bugs sooner.
         case OpCode::OP_NullCheck: {
             uint16_t obj = reader.ReadUint16();
             int32_t heapIdx;

@@ -37,7 +37,7 @@ bool CompileLogBrowser::parseLogLine(const QString& logLine,
 void CompileLogBrowser::mouseDoubleClickEvent(QMouseEvent* event) {
     QTextBrowser::mouseDoubleClickEvent(event);
     //Only a left double-click navigates; other buttons keep the base
-    //behavior (EN emitted on any button).
+    //behavior.
     if (event->button() == Qt::LeftButton)
         emitLineUnderCursor();
 }

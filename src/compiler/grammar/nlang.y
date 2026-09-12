@@ -678,7 +678,6 @@ InvokeStmt: InvokeExpr ';' { $$ = new SnInvokeStmt($1, @1); } |
 
 /*
 Local variable declaration statement.
-Reference: EN's LocalDeclStmt (compiler_bak/grammer/nlang.y:535).
 Phase 9a: `const Type decls;` form marks all locals as const (NF_Const).
 */
 LocalDeclStmt: Type LocalDeclList ';' {
@@ -707,7 +706,6 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 
 /*
 Assignment statement.
-Reference: EN's AssignStmt (compiler_bak/grammer/nlang.y:546).
 */
 AssignStmt: IdentifierExpr '=' Expression ';' {
 					$$ = new SnAssignStmt($1, $3, @1);
@@ -820,7 +818,6 @@ SubscriptAssignStmt: Expression '[' Expression ']' '=' Expression ';' {
 
 /*
 If/else statement.
-Reference: EN's IfStmt (compiler_bak/grammer/nlang.y:554).
 */
 IfStmt:	KT_If '(' Expression ')' Statement %prec P_Then {
 				$$ = new SnIfStmt($3, $5, nullptr, @1);
@@ -832,7 +829,6 @@ IfStmt:	KT_If '(' Expression ')' Statement %prec P_Then {
 
 /*
 While loop statement.
-Reference: EN's WhileStmt (compiler_bak/grammer/nlang.y:561).
 */
 WhileStmt:	KT_While '(' Expression ')' Statement {
 					$$ = new SnWhileStmt($3, $5, @1);
@@ -840,7 +836,6 @@ WhileStmt:	KT_While '(' Expression ')' Statement {
 
 /*
 Do-while loop statement.
-Reference: EN's DoStmt (compiler_bak/grammer/nlang.y:565).
 */
 DoStmt:	KT_Do Statement KT_While '(' Expression ')' ';' {
 				$$ = new SnDoStmt($5, $2, @1);
@@ -848,7 +843,6 @@ DoStmt:	KT_Do Statement KT_While '(' Expression ')' ';' {
 
 /*
 For loop statement.
-Reference: EN's ForStmt (compiler_bak/grammer/nlang.y:569).
 */
 ForStmt:	KT_For '(' InitFor ';' Expression ';' FiniFor ')' Statement {
 					$$ = new SnForStmt($3, $5, $7, $9, @1);
@@ -889,7 +883,6 @@ ForeachStmt:	KT_Foreach '(' Type TT_Identifier KT_In Expression ')' Statement {
 
 /*
 Break statement.
-Reference: EN's BreakStmt (compiler_bak/grammer/nlang.y:624).
 */
 BreakStmt:	KT_Break ';' {
 					$$ = new SnBreakStmt(@1);
@@ -897,7 +890,6 @@ BreakStmt:	KT_Break ';' {
 
 /*
 Continue statement.
-Reference: EN's ContinueStmt (compiler_bak/grammer/nlang.y:628).
 */
 ContinueStmt:	KT_Continue ';' {
 					$$ = new SnContinueStmt(@1);
@@ -905,7 +897,6 @@ ContinueStmt:	KT_Continue ';' {
 
 /*
 Switch statement.
-Reference: EN's SwitchStmt (compiler_bak/grammer/nlang.y:598).
 */
 SwitchStmt:	KT_Switch '(' Expression ')' '{' CaseClauseList DefaultCase '}' {
 				$$ = new SnSwitchStmt($3, $6, $7, @1);

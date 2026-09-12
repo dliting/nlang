@@ -2,13 +2,9 @@
 
 ## 项目背景
 
-NLang 是一门独立的静态类型脚本语言，配有字节码编译器和虚拟机。语法和早期实现受 EN 引擎中 `compiler_bak/`（编译器）和 `lang_bak/`（VM）启发，但作为独立语言演进，不再以 EN 集成为目标。
+NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配有字节码编译器和虚拟机，并作为探索 AI 友好语言特性的试验台演进。
 
-历史参考：
-- EN 引擎位置：`E:/cases/en/src/common/compiler_bak/`、`E:/cases/en/src/common/lang_bak/`
-- EN IDE 位置：`E:/cases/en/src/tools/nide/`（基于 Qt 的 IDE）
-
-> 各阶段的实施细节（commit 号、opcode 清单、陷阱记录）归档于 git 历史、各阶段计划文件（`~/.claude/plans/`）与项目 memory；本文件只保留阶段成果摘要。
+> 各阶段的实施细节（commit 号、opcode 清单、陷阱记录）归档于 git 历史；本文件只保留阶段成果摘要。
 
 ---
 

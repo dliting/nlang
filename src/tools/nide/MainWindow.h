@@ -43,36 +43,34 @@ class MainWindow;
 namespace nlang {
 
 //--- MainWindow: menus, editor tabs, solution tree, build & run.
-//  Ported from EN's MainWindow with these deviations:
-//  - The .nsln solution is explicit (EN always had an implicit in-memory
-//    one): new/open/save/close solution actions were added.
-//  - Dead EN menu actions (BuildAll/Rebuild*/ClearAll/CancelBuild --
-//    EN never implemented them) are dropped. EN's dead debug menu stubs
-//    came back as a real implementation on top of `ndb --machine`
+//  Design notes:
+//  - The .nsln solution is explicit: new/open/save/close solution
+//    actions exist for it.
+//  - BuildAll/Rebuild*/ClearAll/CancelBuild actions are omitted; the
+//    debug menu is a real implementation on top of `ndb --machine`
 //    (DebugClient): F5 debug sessions, breakpoints, stepping and the
 //    debug output page.
-//  - The output panes are direct tabOutput pages (EN reparented two
-//    QDockWidgets into the tab widget from the constructor).
+//  - The output panes are direct tabOutput pages (not reparented
+//    QDockWidgets).
 //  - Build runs `ncc build -p <nproj> -o <nmod>`, run launches
-//    `nvm <nmod>` (EN: `ncc -f <nprj>` / `nloader <npkg>`).
+//    `nvm <nmod>`.
 //  - Unsaved-work prompts key on solution-level state (the solution is
 //    dirty after add/remove), never on per-project isDirty() alone: a
 //    project created with all-default properties is not project-dirty.
 //  - removeFile never prompts for a dirty editor of that file (the
 //    editor stays open, so no edits are lost).
 //  - addExistingFile does not open the added file in an editor.
-//  - Non-diagnostic log lines emit no status-bar message (EN showed
-//    every clicked line's text).
-//  - Files rename through one pipeline (renameFileEverywhere) with no
-//    EN counterpart: F2/tree-menu in-place edits and the tab-menu
+//  - Non-diagnostic log lines emit no status-bar message.
+//  - Files rename through one pipeline (renameFileEverywhere):
+//    F2/tree-menu in-place edits and the tab-menu
 //    dialog converge there; a dirty editor is saved to the old path
 //    before the disk rename, and a domain rejection rolls the disk
 //    rename back.
-//  - File->New File joins a project in the tree (EN's new-file menu
-//    never touched a project): the selected project, else the
-//    solution's sole project, else a standalone editor.
-//  - Splitter proportions persist across sessions via QSettings (EN
-//    stored nothing); restore falls back to the editor-favoring
+//  - File->New File joins a project in the tree: the selected
+//    project, else the solution's sole project, else a standalone
+//    editor.
+//  - Splitter proportions persist across sessions via QSettings;
+//    restore falls back to the editor-favoring
 //    defaults on garbage or a collapsed pane.
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -254,7 +252,7 @@ private:
     bool isSolutionModified() const;
     //Prompt for unsaved work; false vetoes the close.
     bool closeSolution();
-    //No solution open -> create an empty one (EN always had a solution).
+    //No solution open -> create an empty one.
     void ensureSolution();
     //Open a .nsln from a path. The unsaved-work gate (closeSolution)
     //lives INSIDE, not only in the menu handler: loadSolution replaces

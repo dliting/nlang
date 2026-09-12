@@ -91,7 +91,7 @@ private slots:
         dialog.init(&project);
 
         //NLang sources live next to the .nproj -- not in a src/ child
-        //directory as EN assumed.
+        //directory.
         QCOMPARE(edit(&dialog, "edtDirectory")->text(), dir.path());
     }
 
@@ -296,7 +296,7 @@ private slots:
         QCOMPARE(project.namespace_(), QString("new"));
         QCOMPARE(project.outputDir(), QString("newBin"));
         QCOMPARE(project.intermediateDir(), QString("newObj"));
-        //Unlike EN, the editable namespace field is actually applied.
+        //The editable namespace field is actually applied.
         QVERIFY(project.isDirty());
     }
 

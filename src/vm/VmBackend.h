@@ -269,7 +269,6 @@ private:
     std::unordered_set<SnFunction*> m_defaultEmitting;
 
     //Per-loop code generation context.
-    //Reference: EN's Compiler::NestBreaks/NestContinues (Compiler.h:108-111).
     struct LoopContext {
         std::vector<size_t> breakJumps;
         std::vector<size_t> continueJumps;

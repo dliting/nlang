@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--MainWindow.ui - deviations from EN's MainWindow.ui: the debug and
-build-all action family EN never implemented is dropped; solution
-lifecycle actions EN lacked are added (NLang has a persistent .nsln);
-the two output docks become direct tabOutput pages (EN reparented
-QDockWidgets into the tab widget from C++ at startup); the 17 icons EN
-actually references are ported (nide.qrc).-->
+<!--MainWindow.ui: the build-all action family is omitted (no stubs);
+solution lifecycle actions are present (NLang has a persistent .nsln);
+the two output docks are direct tabOutput pages (not reparented
+QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">

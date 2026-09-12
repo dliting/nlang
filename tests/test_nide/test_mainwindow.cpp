@@ -2514,7 +2514,7 @@ private slots:
     void testActionAndTreeIcons() {
         MainWindow window;
 
-        //The 14 ported actions carry EN's icons. Force a real pixmap
+        //The 14 icon-bearing actions. Force a real pixmap
         //load -- QIcon(path).isNull() stays false even for a missing
         //file (the engine is lazy), a null pixmap does not.
         const char* const iconActions[] = {

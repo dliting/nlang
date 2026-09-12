@@ -18,8 +18,8 @@ class NewFileDialog;
 namespace nlang {
 
 //--- NewFileDialog: collects the name and directory for a new source
-//  file. Deviations from EN's NewFileDiaLog: the "add to project" combo
-//  is gone -- EN filled it but no code ever read it (dead UI); a new
+//  file. Design notes: there is no "add to project" combo (dead UI
+//  is deliberately not carried over); a new
 //  file reaches its project through the solution-tree selection
 //  (MainWindow, Step 7). The default directory is the project directory
 //  itself -- NLang sources sit next to their .nproj, not in a src/

@@ -18,8 +18,6 @@ Unlike SnFormalParam (which owns its type and init expressions via AddChild),
 SnLocalVar only stores a reference to the resolved type field. This avoids
 double-parenting: the type expression is already owned by SnLocalDeclStmt,
 so we cannot pass it to another node that calls AddChild.
-Reference: EN's LocalDecl (SeBasics.h:823), which stores m_pDataType as a
-raw pointer without taking ownership.
 */
 class NLANG_COMPILER_API SnLocalVar : public SnField
 {
@@ -115,11 +113,9 @@ public:
 	//@}
 
 	//Register a local variable.
-	//Reference: EN's CompositeStatement::AddLocal (SeStatements.cpp:37).
 	bool AddLocal(const std::string &sName, SnField *pField);
 
 	//Find a local variable by name.
-	//Reference: EN's CompositeStatement::FindField (SeStatements.cpp:57).
 	SnField *FindLocal(const std::string &sName) const;
 
 	std::string ToString() const override;
@@ -192,7 +188,6 @@ private:
 
 /*
 Local variable declaration statement.
-Reference: EN's LocalDeclStmt (SeStatements.h:230).
 */
 class NLANG_COMPILER_API SnLocalDeclStmt : public SnStatement
 {
@@ -240,7 +235,6 @@ private:
 
 /*
 Assignment statement.
-Reference: EN's AssignStmt (SeStatements.h:267).
 */
 class NLANG_COMPILER_API SnAssignStmt : public SnStatement
 {
@@ -339,7 +333,6 @@ private:
 
 /*
 If/else statement.
-Reference: EN's IfStmt (SeStatements.h:324).
 */
 class NLANG_COMPILER_API SnIfStmt : public SnStatement
 {
@@ -366,7 +359,6 @@ private:
 
 /*
 While loop statement.
-Reference: EN's WhileStmt (SeStatements.h:428).
 */
 class NLANG_COMPILER_API SnWhileStmt : public SnStatement
 {
@@ -391,7 +383,6 @@ private:
 
 /*
 Do-while loop statement.
-Reference: EN's DoStmt (SeStatements.h:449).
 */
 class NLANG_COMPILER_API SnDoStmt : public SnStatement
 {
@@ -416,7 +407,6 @@ private:
 
 /*
 For loop statement.
-Reference: EN's ForStmt (SeStatements.h:470).
 */
 class NLANG_COMPILER_API SnForStmt : public SnStatement
 {
@@ -437,7 +427,7 @@ public:
 	SnStatement *Body() const { return m_pBody; }
 
 	//Decomposition extras: AssignStmts from init LocalDeclStmt decomposition.
-	//Reference: EN's ForStmt child list contains decomposed AssignStmts.
+	//The child list contains the decomposed AssignStmts.
 	std::vector<SnAssignStmt*> &InitExtras() { return m_initExtras; }
 	const std::vector<SnAssignStmt*> &InitExtras() const { return m_initExtras; }
 
@@ -487,7 +477,6 @@ private:
 
 /*
 Break statement.
-Reference: EN's BreakStmt (SeStatements.h:596).
 */
 class NLANG_COMPILER_API SnBreakStmt : public SnStatement
 {
@@ -505,7 +494,6 @@ public:
 
 /*
 Continue statement.
-Reference: EN's ContinueStmt (SeStatements.h:617).
 */
 class NLANG_COMPILER_API SnContinueStmt : public SnStatement
 {
@@ -523,7 +511,6 @@ public:
 
 /*
 Case clause in a switch statement.
-Reference: EN's CondClause (SeStatements.h:141).
 Phase 12: holds a comma-separated label list — `case 1, 2:` enters the
 body when ANY label matches. Cond() was replaced by Labels() so every
 consumer had to move to the list (no silent single-label assumption).
@@ -553,7 +540,6 @@ private:
 
 /*
 Switch statement.
-Reference: EN's SwitchStmt (SeStatements.h:522).
 */
 class NLANG_COMPILER_API SnSwitchStmt : public SnStatement
 {

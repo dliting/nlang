@@ -164,7 +164,7 @@ label's test jumps to the clause body on hit and to the next label's
 test on miss; a single-label clause degenerates to today's two-jump
 shape. Because a clause carries 2+N jumps of four distinct target
 kinds (clause exit / next label / body / implicit exit), the jump
-back-patcher (`FixChainedJumps`) walks a variable-length record list —
+back-patcher (the clause-exit fixup) walks a variable-length record list —
 the historical `i * 2` fixed-stride assumption is gone. Each case body
 ends with an implicit jump out of the switch (Java/C# no-fall-through);
 an explicit `break` additionally pops handlers, as it may leave catch

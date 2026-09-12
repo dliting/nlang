@@ -33,6 +33,9 @@ DEFAULT_RELEASE_DIR = os.path.join(REPO_ROOT, 'release')
 DOCS_CONFIG = os.path.join(REPO_ROOT, 'mkdocs.yml')
 DOCS_TOOL_SRC = os.path.join(REPO_ROOT, 'tools', 'nlang-docs', 'src')
 
+sys.path.insert(0, DOCS_TOOL_SRC)
+from nlang_docs.public_text import find_violations  # noqa: E402
+
 # examples/hello.n: public int main() { return 42; }
 SMOKE_EXIT_CODE = 42
 TIMEOUT_SEC = 60
@@ -97,6 +100,31 @@ def fail(msg):
     sys.exit(1)
 
 
+def scan_public_text(pkg):
+    """Assert the package's prose surfaces carry no predecessor refs.
+
+    Shares the single pattern source with the repo-level pytest gate
+    (tools/nlang-docs/src/nlang_docs/public_text.py), so the two gates
+    cannot drift. Scans root documents, the rendered docs site and
+    examples; binaries are skipped by null-byte probe.
+    """
+    paths = [os.path.join(pkg, f) for f in ROOT_FILES]
+    for rel in ('docs' + os.sep + 'site', 'examples'):
+        for dirpath, _, filenames in os.walk(os.path.join(pkg, rel)):
+            paths.extend(os.path.join(dirpath, f) for f in filenames)
+    violations = []
+    for path in paths:
+        with open(path, 'rb') as f:
+            raw = f.read()
+        if b'\0' in raw[:8192]:
+            continue
+        for name, line_no, excerpt in find_violations(
+                raw.decode('utf-8', errors='replace')):
+            rel = os.path.relpath(path, pkg)
+            violations.append(f'{rel}:{line_no} [{name}] {excerpt}')
+    return violations
+
+
 def main():
     release_dir = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_RELEASE_DIR
 
@@ -157,6 +185,13 @@ def main():
                 fail(f'internal path shipped in package: {rel}')
         print(f'layout: OK ({len(BIN_FILES)} bin files, '
               f'{len(ROOT_FILES)} root files, {len(DOC_FILES)} site files)')
+
+        # --- Public-text scan: shipped prose names no predecessor ------
+        forbidden = scan_public_text(pkg)
+        if forbidden:
+            fail('forbidden public text in package:\n  '
+                 + '\n  '.join(forbidden[:10]))
+        print('public-text: OK (no predecessor references in shipped prose)')
 
         # --- Toolchain smoke: compile + run examples/hello.n --------------
         smoke_cwd = os.path.join(tmp, 'smoke')

@@ -664,7 +664,6 @@ private:
 };
 
 //Binary/unary operator expression.
-//Reference: EN's OperatorExpr (SeExpressions.h:377).
 class NLANG_COMPILER_API SnBinaryExpr : public SnCompoundPlainExpr
 {
 	typedef SnCompoundPlainExpr Super_;

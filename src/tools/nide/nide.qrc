@@ -1,8 +1,7 @@
 <!DOCTYPE RCC><RCC version="2.0">
-<!--The 17 icons EN actually references: 14 action iconsets in
+<!--The 17 icons actually referenced: 14 action iconsets in
 MainWindow.ui plus the 3 solution-tree decorations in
-SolutionTreeModel.cpp. EN's remaining ~28 unused assets (the 32px .ico
-family, compile.png, ...) were dead weight and stay unported.-->
+SolutionTreeModel.cpp.-->
 <qresource prefix="/nide">
     <file>Resources/add_exist_file.png</file>
     <file>Resources/add_new_file.png</file>

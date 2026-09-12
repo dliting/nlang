@@ -23,8 +23,8 @@ __all__ = ["NLangLexer"]
 
 #Full nlang.l keyword table (2026-08-30): 40 keywords + 11 builtin-type
 #words (NLANG_TYPES below) + 3 constants (NLANG_CONSTANTS below) = the
-#scanner's 54 reserved words. "state" has no parser production (EN
-#residue, %token only) but stays so lexer == scanner; test_highlight
+#scanner's 54 reserved words. "state" has no parser production
+#(%token only) but stays so lexer == scanner; test_highlight
 #anchors all three sets to the scanner source directly.
 NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "

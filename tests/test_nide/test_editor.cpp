@@ -215,7 +215,7 @@ private slots:
         QVERIFY(manager.find(abs("nowhere-src.n")) == editor);  // rekey skipped
     }
 
-    // --- saveAs: re-keying the manager (EN bug: map key went stale) ---
+    // --- saveAs: re-keying the manager (stale map key hazard) ---
 
     void testSaveAsRekeysManager() {
         writeAllText(abs("orig.n"), "int x = 1;\n");
