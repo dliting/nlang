@@ -1758,6 +1758,19 @@ void VmExecutor::MarkPhase() {
                     m_markBits[elemRef] = true;
                     worklist.push_back(elemRef);
                 }
+                //Array redesign B (spec §5.3#1): an array whose ELEMENTS are
+                //themselves array records (elemKind == RTK_Array). Currently
+                //unreachable from compilable source (jagged declarations are
+                //rejected; List<int[]> elements live in the container store) —
+                //defensive base for future/external .nmod paths. Declared
+                //elemKind and runtime slot kind must BOTH be RTK_Array (same
+                //double condition as the field arms above).
+                else if (at.elemKind == RTK_Array
+                         && m_slotKinds[elemRef] == RTK_Array
+                         && !m_markBits[elemRef]) {
+                    m_markBits[elemRef] = true;
+                    worklist.push_back(elemRef);
+                }
             }
         }
     }
