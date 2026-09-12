@@ -4,6 +4,29 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - Unreleased
+
+### Added
+
+- Array-valued expressions carry a resolve-time type property; jagged
+  array declarations (`T[][]`) and non-container `foreach` sources are
+  rejected at compile time with named diagnostics.
+- GC tracks array records held in array-typed element slots.
+
+### Changed
+
+- `.nmod` format floor raised to v1.10: array struct/class fields now
+  store `RTK_Array` as their field kind (previously the element kind);
+  older modules must be recompiled.
+- Streaming a struct with an array field (`bs.writeStruct`) now throws
+  a named error instead of silently writing the raw heap handle.
+
+### Fixed
+
+- Class fields typed `int[]` no longer break `toString()` dispatch.
+- `.length` resolves on any array-valued receiver (`li.get(0).length`,
+  `lib.mk(3).length`), not just identifier locals/fields.
+
 ## [0.5.0] - 2026-09-09
 
 ### Added

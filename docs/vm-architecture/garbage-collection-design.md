@@ -85,6 +85,27 @@ SweepPhase():
       clear slot, mark as free, add to free list
 ```
 
+### Array Field and Element Tracing (array redesign B)
+
+- **Array-typed fields are declared, not inferred**: array struct/class
+  fields store `RTK_Array` as their `fieldTypeKinds` entry in the
+  `.nmod` (semantic floor v1.10). MarkPhase routes class and struct
+  field references with an explicit declared-kind + runtime-slot-kind
+  double condition — `fieldTypeKinds[i] == RTK_Array` paired with the
+  slot actually holding an array record — alongside the existing
+  RTK_Class/RTK_Struct/RTK_Func arms.
+- **The old runtime-kind fallback is gone**: MarkPhase no longer traces
+  a field slot just because its runtime kind looks like an array. This
+  is safe because jagged declarations (`T[][]`), the one source form
+  that could smuggle an array record into a non-array-typed field slot,
+  are rejected at resolve time by the compiler.
+- **Defensive RTK_Array element arm**: the array branch traces elements
+  whose declared `elemKind` is `RTK_Array` (same double condition as
+  the field arms). This arm is unreachable from compilable source today
+  (jagged declarations are rejected; `List<int[]>` elements live in the
+  container store, traced by the List branch) — it is the correctness
+  base for future or externally produced `.nmod` paths.
+
 ### Free List Integration
 
 Allocation functions (AllocClassOnHeap, AllocStructOnHeap, DeepCopyStruct)

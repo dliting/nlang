@@ -94,11 +94,11 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 
 ## 当前状态
 
-- **836 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，含 9 个 dbg_* 调试器 e2e）；ctest 27 项（build 树）/ 38 项（build-ide 树）
+- **852 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，含 12 个 dbg_*/dbgm_* 调试器 e2e）；ctest 27 项（build 树）/ 41 项（build-ide 树）
 - 工具链：ncc / nvm / ndisasm / ndb（调试器）/ nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 v1.9（v1.8 Func 句柄 + per-function sourceFile 调试器寻址）
+- 模块格式 v1.10（v1.8 Func 句柄 + per-function sourceFile 调试器寻址；v1.10 语义地板：数组 struct/class 字段 kind 存 RTK_Array——旧模块须重编译）
 - 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器 + 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名
-- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；数组值检测（IsArrayValuedExpr 声明侧 flag）残余——泛型类型实参数组性擦除（List<T[]> 与 List<T> 共享实例化键，潜在 GC 追踪/List 槽位 elemKind 审计；flag 只记首个数组实参，Dict 数组键遮蔽数组值）、call-result 容器基座不可检测（`mk().get(0)`）、跨模块 SynthTypeExpr 占位、foreach 数组型循环变量 over List<T[]> 不解析、foreach 源为非容器表达式（如 int 局部）无 resolve 期门（运行期失败）、jagged `int[][]` 下标双重降级不被检测（多维数组创建被显式拒绝，缺口仅经声明形可达，数组重设计前为理论性）、call-result 接收者成员访问不解析（`l.get(0).length`；toString 已具名拒绝）、类字段 `int[]` 的 toString 运行时报 "array_to_str on non-array"（数组字段误分类家族）、B.1 导入合并不拷贝 defaultValues（executor 零消费——纯编译期数据，调用点内联；但消费方再导出 .nmod 的链路默认参数会丢）
+- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；数组值检测残余（属性化后仍开的洞）——泛型实例化键擦除（List<T[]> 与 List<T> 共享实例化键，键只记首个数组实参，Dict 数组键遮蔽数组值）：List<T[]> 元素经 BoxingTagFor 装进 RTK_Int32 标签的箱子（元素字段 masquerade 为 NK_Int32）→ 载荷结构性不可追踪、被 GC 清扫，读残留位 Release 巧合幸存（Sweep clear() 不清位 + freeList LIFO 复用不触底 + 元素 opcode 不查槽 kind——幽灵读），ASan 下为 container-overflow（2026-09-12 实测）；invoke 形基座 `mk().get(0)` 同根因（ContainerElemIsArray 不识别 invoke 形 Outer），今日实测可用且有 e2e `call_result_get_positive` 行为钉——真正的洞是 `List<int[]>` invoke 形基座，并入本条；均归 C 期修复、foreach 数组型循环变量 over List<T[]> 不解析——根因主为 resolve 路径缺口：数组类型循环变量的类型表达式经 StatementResolver visitor 解析，SnArrayTypeExpr 命中空 Access() 永不 resolve（任意深度数组类型循环变量声明「半坏」：体/条件引用之 → "Cannot resolve the field"；不引用 → 静默编译通过），泛型擦除为次因，归 C 期或独立线、数组元素 opcode（OP_LoadElement/StoreElement/ArrayLength）不校验槽 kind——kind-blind 读使 GC 追踪回归在 Release 下幽灵绿（ASan 可显形），kind 校验加固为独立候选、B.1 导入合并不拷贝 defaultValues（executor 零消费——纯编译期数据，调用点内联；但消费方再导出 .nmod 的链路默认参数会丢）
 
 ## 实施优先级
 

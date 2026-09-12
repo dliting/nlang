@@ -12,6 +12,11 @@
   Workaround: pull it into a typed local first (`Color[] a = li[0];`),
   which restores the array gates. Direct array-typed shapes
   (`a.rank()`, `switch (arr)`) are rejected at compile time.
+- **Jagged arrays (`T[][]`)**: multi-dimensional array declarations are
+  rejected at compile time ("jagged arrays (T[][]) are not supported") —
+  at locals, fields, parameters, return types, and `for`/`foreach` loop
+  variables. The VM has no multi-dimensional array layout; declare
+  flat arrays or use `List<List<T>>`-style containers instead.
 - **Bare `{...}` collection init**: dict/struct/class init requires the
   explicit `new Type{...}` form (the bare `{...}` form conflicts with
   block-statement grammar). See Collection Initializers above.

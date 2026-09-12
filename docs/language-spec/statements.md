@@ -40,6 +40,11 @@ Supported iterables:
 | `List<T>` | elements in insertion order | `List<T>.get(i)` |
 | `Dict<K,V>` | **keys** (Python style) | inline `dict.keys()` then `List<K>.get(i)` |
 
+**Source constraint**: the source expression must be an array, `List`, or
+`Dict` — an lvalue or a container-valued call result both work. Any other
+source (an `int` local, a `string`, a non-container call result) is a
+compile error: "the foreach source must be an array, List, or Dict".
+
 `break` and `continue` work identically to `for`. The loop variable is
 **function-scoped** (NLang has no block scope, consistent with `for`):
 
