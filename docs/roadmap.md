@@ -67,6 +67,12 @@ NLang 是一门独立的静态类型脚本语言，配有字节码编译器和�
 - ndb：断点（file:LINE / LINE / funcName，同行多锚点全设）、步进 s/n/f、bt、frame、info locals（隐藏名过滤）、p、l（SourceCache 三级解析）、x（pc 标记）、catch on|off；初停 gdb start 语义；EOF=q
 - 836 e2e（含 9 个 dbg_*）；设计/计划：docs/superpowers/{specs,plans}/2026-09-06-nlang-debugger*
 
+### 数组类型属性化（数组重设计 B）✅（2026-09-12）
+- 属性化：数组值 array-ness 由表达式形状事后推断改为 resolve 期绑定 stamp（`SnExpression::IsArrayValued`，五个表达式形状绑定尾写入）；8 个门位 + `.length` 接收者（resolver/codegen 两侧对称）改查属性；形状推断谓词家族（IsArrayValuedExpr/IsArrayTypedBase）删除——调用点归零
+- 三处直修（同根：`EvalDataType()` 对数组字段返回元素类型）：字段 kind 改喂声明类型表达式（`int[]` 存 RTK_Array——writeStruct 静默腐蚀/类字段 toString 报错/GC 欠追踪一家）；MarkPhase 字段显式路由 + 撤运行时 kind 兜底 + 防御性 RTK_Array 元素追踪臂；writeStruct 数组字段死抛错臂激活（具名拒绝）
+- 边缘语义具名化：jagged `T[][]` 六声明位点 resolve 期拒绝、foreach 非容器源拒绝（string 源含）、`.length` 任意数组值接收者可解析（`li.get(0).length`/`lib.mk(3).length`）
+- `.nmod` v1.10 语义地板（字段 kind 语义变更烤在格式里，旧模块须重编译）；852 e2e / ctest 27+41；设计/计划：docs/superpowers/{specs,plans}/2026-09-10-array-*
+
 
 ---
 
