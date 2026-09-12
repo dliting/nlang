@@ -1216,6 +1216,23 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //(generic type) vs a less-than comparison. bison's reduce-first
 //default picks the NameExpr/Type derivation, which keeps
 //`Foo<int> x;` parsing as a declaration — the intended behavior.
+//Accepted-conflict ledger (measured 2026-09-12, bison 3.8.2, `-r
+//state`): 1 reduce/reduce (state 133, above) + 12 shift/reduce in
+//three families, every one resolved by bison's default to the
+//intended reading. The notices stay in the build log on purpose:
+//%expect cannot pin this set (it errors on any rr while the lone
+//rr above exists — %expect-rr is GLR-only), so the log lines are
+//the drift signal; a count change means an unaudited grammar edit.
+//The 12 shift/reduce are:
+//- state 167 (1): the lone sr on '<' at the `new C` prefix — shift
+//  commits to the explicit generic NewExpr/NewArrayExpr productions
+//  (`new C<T>(...)`, `new C<T>{...}`, `new C<T>[n]`).
+//- state 225 (9): ClassMember's NodeFlag-singular vs NodeFlags-plural
+//  productions overlap on the flag/type first tokens — both
+//  derivations parse the same member; shift keeps reading flags.
+//- state 260 (2): catch/finally after a nested `try` statement — the
+//  dangling-clause shape; shift binds the clause to the innermost
+//  try (the Java/C++ rule).
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
