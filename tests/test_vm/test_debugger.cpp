@@ -215,7 +215,56 @@ void test_v19_loader_rejects_v1_8()
     } catch (const std::exception&) {
         threw = true;
     }
-    CHECK(threw, "loader must reject a v1.8 module (floor is 9)");
+    CHECK(threw, "loader must reject a v1.8 module (below the format floor)");
+    PASS();
+}
+
+void test_loader_rejects_v1_9()
+{
+    TEST(loader_rejects_v1_9);
+    //Distinct build tag: ModuleManager::Create keys the process-global
+    //loaded map by module name, so reusing "oldver" from the v1.8 test
+    //would fail the build with "already exists".
+    BuildOutcome b = buildSource("oldver9",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "oldver9.nmod";
+
+    //Patch the minorVer field (header offset 10, little-endian u16:
+    //magic[8] + major(u16) + minor(u16)) down to 9. v1.10 is a SEMANTIC
+    //floor: no layout change, but v1.9 array struct/class fields carry
+    //the element kind where the VM now expects RTK_Array, which would
+    //misroute GC marking and struct serialization dispatch.
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    //Guard the patch anchor: if a future header change moves minorVer,
+    //the patch below would silently hit another field — fail loudly on
+    //layout drift instead (fresh build must carry the current minor 10).
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0A
+        && static_cast<uint8_t>(bytes[11]) == 0x00,
+        "fresh module should be stamped minorVer 10");
+    bytes[10] = 0x09;
+    bytes[11] = 0x00;
+    const auto oldPath = scratchDir() / "oldver_v19.nmod";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must reject a v1.9 module (floor is 10)");
+    CHECK(what.find("outdated") != std::string::npos,
+        "rejection should hit the floor path, got: " + what);
     PASS();
 }
 
@@ -2023,6 +2072,7 @@ int main()
     test_v19_sourcefile_single_tu();
     test_v19_import_roundtrip();
     test_v19_loader_rejects_v1_8();
+    test_loader_rejects_v1_9();
     test_v19_import_gc_roots();
 
     //Task 6 GC stress pins (real allocation + real collection).

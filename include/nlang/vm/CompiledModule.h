@@ -21,7 +21,12 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //v1.9 (debugger): per-function source file path — CompiledFunction::
 //sourceFile, emitted unconditionally after the locals block. Cross-module
 //breakpoint addressing (b file.n:LINE) depends on it. No new opcodes.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 9;
+//v1.10 (array redesign): SEMANTIC floor — no new serialized fields, but
+//array struct/class fields now store RTK_Array as their fieldTypeKinds
+//entry (previously the element kind, e.g. RTK_Int32). A v1.9 module from
+//an older ncc carries the old field-kind meaning and would misroute GC
+//marking and struct serialization dispatch; the loader refuses it.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 10;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
