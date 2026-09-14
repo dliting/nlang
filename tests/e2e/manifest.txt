@@ -1022,3 +1022,8 @@ dbgm_readline_rejected 1 readLine
 generic_key_cross_assign_reject compile_error Incompatible type
 func_generic_coexist 0 8
 func_bind_array_mismatch_reject compile_error does not match the signature
+gc_survive_list_int_array 0 81
+gc_survive_list_point_array 0 23
+dict_value_array_roundtrip 0 4.5
+list_string_array_roundtrip 0 abc
+initlist_array_elem 0 7

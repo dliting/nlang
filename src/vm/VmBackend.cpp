@@ -3615,10 +3615,19 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     const auto& typeArgs = classDecl->GenericTypeArgs();
                     const auto& methodName = invoke.CalleeName();
                     const auto& baseName = classDecl->BaseName();
+                    //Hole-1 consumption: a type argument that is itself an
+                    //array flows as a raw handle (class-style) — boxing is
+                    //only for true primitives. Slots follow the family
+                    //convention (ElemIsArrayValued in ExprResolver is the
+                    //resolver twin): List T / Dict K = flags[0],
+                    //Dict V = flags[1].
+                    const auto& elemFlags = classDecl->GenericArrayFlags();
+                    bool arg0IsArray = !elemFlags.empty() && elemFlags[0] != 0;
+                    bool arg1IsArray = elemFlags.size() > 1 && elemFlags[1] != 0;
                     if (baseName == "List") {
                         auto t = BoxingTagFor(
                             typeArgs.empty() ? nullptr : typeArgs[0]);
-                        if (t.isPrimitive) {
+                        if (t.isPrimitive && !arg0IsArray) {
                             //List<T> method signatures:
                             //  Add(T)         — T at paramIdx 1
                             //  Set(int, T)    — T at paramIdx 2
@@ -3641,14 +3650,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         auto v = (typeArgs.size() > 1)
                             ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
                         if (methodName == "set") {
-                            if (k.isPrimitive) argPlans[1] = {k.tag, true};
-                            if (v.isPrimitive) argPlans[2] = {v.tag, true};
+                            if (k.isPrimitive && !arg0IsArray) argPlans[1] = {k.tag, true};
+                            if (v.isPrimitive && !arg1IsArray) argPlans[2] = {v.tag, true};
                         } else if (methodName == "get") {
-                            if (k.isPrimitive) argPlans[1] = {k.tag, true};
-                            if (v.isPrimitive) { returnsBoxed = true; returnTag = v.tag; }
+                            if (k.isPrimitive && !arg0IsArray) argPlans[1] = {k.tag, true};
+                            if (v.isPrimitive && !arg1IsArray) { returnsBoxed = true; returnTag = v.tag; }
                         } else if (methodName == "containsKey"
                             || methodName == "remove") {
-                            if (k.isPrimitive) argPlans[1] = {k.tag, true};
+                            if (k.isPrimitive && !arg0IsArray) argPlans[1] = {k.tag, true};
                         }
                     }
                 }
@@ -4202,8 +4211,11 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.EmitUint16(m_currFunc->callParamBase);
                     emitter.Emit(OpCode::OP_ParaEnd);
                 }
-                //Boxing plan for primitive T.
+                //Boxing plan for primitive T. An array-typed T (hole-1)
+                //flows raw handles — no box (ElemIsArrayValued twin).
                 const auto& typeArgs = pClassDecl->GenericTypeArgs();
+                bool elemIsArray = !pClassDecl->GenericArrayFlags().empty()
+                    && pClassDecl->GenericArrayFlags()[0] != 0;
                 auto t = BoxingTagFor(
                     typeArgs.empty() ? nullptr : typeArgs[0]);
                 uint16_t addNameIdx = AddStringConstant("add");
@@ -4221,7 +4233,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     uint16_t claimBase = claim.base();
                     uint16_t valOff = claimBase + 1 * VALUE_SIZE;
                     EmitExpression(*entry.pValue, emitter, valOff);
-                    if (t.isPrimitive) {
+                    if (t.isPrimitive && !elemIsArray) {
                         EmitPResultRefresh(emitter, valOff);
                         emitter.Emit(OpCode::OP_Box);
                         emitter.EmitByte(t.tag);
@@ -4270,6 +4282,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.Emit(OpCode::OP_ParaEnd);
                 }
                 const auto& typeArgs = pClassDecl->GenericTypeArgs();
+                //Hole-1: array-typed K/V slots flow raw handles — no box.
+                const auto& elemFlags = pClassDecl->GenericArrayFlags();
+                bool keyIsArray = !elemFlags.empty() && elemFlags[0] != 0;
+                bool valIsArray = elemFlags.size() > 1 && elemFlags[1] != 0;
                 auto kBox = BoxingTagFor(
                     typeArgs.empty() ? nullptr : typeArgs[0]);
                 auto vBox = (typeArgs.size() > 1)
@@ -4297,7 +4313,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     emitter.EmitUint16(keyPoolIdx);
                     emitter.Emit(OpCode::OP_Assign);
                     emitter.EmitUint16(keyOff);
-                    if (kBox.isPrimitive) {
+                    if (kBox.isPrimitive && !keyIsArray) {
                         emitter.Emit(OpCode::OP_Box);
                         emitter.EmitByte(kBox.tag);
                         emitter.Emit(OpCode::OP_Assign);
@@ -4305,7 +4321,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                     }
                     //Value
                     EmitExpression(*entry.pValue, emitter, valOff);
-                    if (vBox.isPrimitive) {
+                    if (vBox.isPrimitive && !valIsArray) {
                         EmitPResultRefresh(emitter, valOff);
                         emitter.Emit(OpCode::OP_Box);
                         emitter.EmitByte(vBox.tag);
@@ -4457,6 +4473,15 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             bool isList = (baseName == "List" && !typeArgs.empty());
             bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
             {
+                        //Hole-1: array-typed slots flow raw handles — no box
+                        //(List T = flags[0]; Dict K = flags[0], V = flags[1]).
+                        const auto& elemFlags = pGenClass->GenericArrayFlags();
+                        bool keyIsArray = isDict
+                            && !elemFlags.empty() && elemFlags[0] != 0;
+                        bool valIsArray = (isList
+                                && !elemFlags.empty() && elemFlags[0] != 0)
+                            || (isDict && elemFlags.size() > 1
+                                && elemFlags[1] != 0);
                         //Dict keys box when primitive; List's index is int.
                         auto keyBox = isDict
                             ? BoxingTagFor(typeArgs[0])
@@ -4478,7 +4503,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         //arg0 = index (box primitive Dict keys).
                         uint16_t keyOffset = claimBase + VALUE_SIZE;
                         EmitExpression(*sub.Index(), emitter, keyOffset);
-                        if (keyBox.isPrimitive) {
+                        if (keyBox.isPrimitive && !keyIsArray) {
                             EmitPResultRefresh(emitter, keyOffset);
                             emitter.Emit(OpCode::OP_Box);
                             emitter.EmitByte(keyBox.tag);
@@ -4498,7 +4523,7 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         emitter.Emit(OpCode::OP_CallMethod);
                         emitter.EmitUint16(nameIdx);
                         emitter.EmitUint16(m_currFunc->callParamBase);
-                        if (valBox.isPrimitive) {
+                        if (valBox.isPrimitive && !valIsArray) {
                             emitter.Emit(OpCode::OP_Unbox);
                             emitter.EmitByte(valBox.tag);
                         }
@@ -5309,6 +5334,15 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             bool isList = (baseName == "List" && !typeArgs.empty());
             bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
             {
+                        //Hole-1: array-typed slots flow raw handles — no box
+                        //(List T = flags[0]; Dict K = flags[0], V = flags[1]).
+                        const auto& elemFlags = pGenClass->GenericArrayFlags();
+                        bool keyIsArray = isDict
+                            && !elemFlags.empty() && elemFlags[0] != 0;
+                        bool valIsArray = (isList
+                                && !elemFlags.empty() && elemFlags[0] != 0)
+                            || (isDict && elemFlags.size() > 1
+                                && elemFlags[1] != 0);
                         //Dict keys box when primitive; List's index is int.
                         auto keyBox = isDict
                             ? BoxingTagFor(typeArgs[0])
@@ -5323,7 +5357,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                         //arg0 = index → claim[1]
                         uint16_t keyOffset = claimBase + VALUE_SIZE;
                         EmitExpression(*sub.Index(), emitter, keyOffset);
-                        if (keyBox.isPrimitive) {
+                        if (keyBox.isPrimitive && !keyIsArray) {
                             EmitPResultRefresh(emitter, keyOffset);
                             emitter.Emit(OpCode::OP_Box);
                             emitter.EmitByte(keyBox.tag);
@@ -5333,7 +5367,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                         //arg1 = value → claim[2]
                         uint16_t valOffset = claimBase + 2 * VALUE_SIZE;
                         EmitExpression(*sub.Value(), emitter, valOffset);
-                        if (valBox.isPrimitive) {
+                        if (valBox.isPrimitive && !valIsArray) {
                             EmitPResultRefresh(emitter, valOffset);
                             emitter.Emit(OpCode::OP_Box);
                             emitter.EmitByte(valBox.tag);
@@ -5607,6 +5641,10 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         bool isList  = false;
         bool isDict  = false;
         SnField* pElemType = nullptr;
+        //Hole-1: array-typed element slots flow raw handles — the get()
+        //below must not unbox them. Both List T and the Dict-via-Keys
+        //element are slot 0 of the instantiation's array flags.
+        bool elemIsArray = false;
 
         if (pIter->Kind() == NK_IdentifierExpr) {
             auto* pField = static_cast<SnIdentifierExpr*>(pIter)->Field();
@@ -5641,9 +5679,13 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                     if (baseName == "List") {
                         isList = true;
                         pElemType = typeArgs.empty() ? nullptr : typeArgs[0];
+                        elemIsArray = !pClass->GenericArrayFlags().empty()
+                            && pClass->GenericArrayFlags()[0] != 0;
                     } else if (baseName == "Dict") {
                         isDict = true;
                         pElemType = typeArgs.empty() ? nullptr : typeArgs[0];
+                        elemIsArray = !pClass->GenericArrayFlags().empty()
+                            && pClass->GenericArrayFlags()[0] != 0;
                     }
                 }
             }
@@ -5791,7 +5833,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             emitter.EmitUint16(nameIdx);
             emitter.EmitUint16(m_currFunc->callParamBase);
             auto t = BoxingTagFor(pElemType);
-            if (t.isPrimitive) {
+            if (t.isPrimitive && !elemIsArray) {
                 emitter.Emit(OpCode::OP_Unbox);
                 emitter.EmitByte(t.tag);
             }

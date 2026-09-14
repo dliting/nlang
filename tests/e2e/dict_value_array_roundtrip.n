@@ -1,0 +1,19 @@
+//Dict<string,float[]> roundtrip: pins the boxing V arm + subscript
+//sugar through a GC pressure phase between store and read-back.
+import io;
+float[] mk(float v) {
+    float[] f = new float[2];
+    f[0] = v;
+    f[1] = v + 0.5;
+    return f;
+}
+int main() {
+    Dict<string,float[]> d = new Dict<string,float[]>();
+    d.set("a", mk(1.5));
+    d["b"] = mk(2.5);                    // subscript-sugar store
+    List<float[]> tmp = new List<float[]>();
+    for (int i = 0; i < 3000; i = i + 1) { tmp.add(mk(i)); }   // GC pressure
+    float s = d.get("a")[0] + d["b"][1]; // get + sugar read: 1.5+3.0
+    io.print(s.toString());
+    return 0;
+}

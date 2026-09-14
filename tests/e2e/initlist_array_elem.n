@@ -1,0 +1,11 @@
+//Array elements inside collection initializers: bare List [...] and
+//the explicit new Dict<string,int[]>{ "k": a } form.
+import io;
+int main() {
+    int[] a = new int[2]; a[0] = 1; a[1] = 2;
+    int[] b = new int[2]; b[0] = 3; b[1] = 4;
+    List<int[]> la = [a, b];                      // bare init-list
+    Dict<string,int[]> dd = new Dict<string,int[]>{ "k": a };
+    io.print((la[0][0] + la[1][1] + dd.get("k")[1]).toString());  // 1+4+2=7
+    return 0;
+}

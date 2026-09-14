@@ -422,13 +422,15 @@ void test_gc_tracks_class_elements_through_arrays()
 // --- C-period hole 3: element-opcode slot kind checks ---
 //The three element opcodes are only emitted for array-typed bases, so
 //a non-array slot kind at any of them is a compiler invariant
-//violation. The one constructible shape is the generic-erasure
-//dangling handle: List<int[]> boxes elements under an RTK_Int32 tag,
-//so MarkPhase traces the box but never the wrapped RTK_Array record;
-//after churn the sweep clears its kind to 0, and the kept element's
-//read reaches OP_LoadElement on a non-array slot. Before the kind
-//checks this survived as a ghost read on stale bytes (probe 2026-09:
-//3/3 runs returned 40 without throwing).
+//violation. Born as the hole-3 red: List<int[]> boxed elements under
+//an RTK_Int32 tag, MarkPhase traced the box but never the wrapped
+//RTK_Array record, the sweep cleared its kind, and the kept element's
+//read reached OP_LoadElement on a non-array slot (named throw).
+//C-period Task 5 landed raw-handle flow + GC RTK_Array tracing, so the
+//same program is now the positive lifetime pin: the array survives GC
+//pressure through the List slot and main returns 40. The kind checks
+//stay in place — any regression back to dangling handles turns this
+//green value assertion into the named throw again.
 void test_array_opcode_kind_check()
 {
     TEST(array_opcode_kind_check);
@@ -452,17 +454,15 @@ void test_array_opcode_kind_check()
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadBuilt("arr_kind_check");
     VmExecutor exec;
-    bool threw = false;
-    std::string msg;
+    int rc = -1;
     try {
-        exec.Execute(mod);
+        rc = exec.Execute(mod);
     } catch (const std::runtime_error& e) {
-        threw = true;
-        msg = e.what();
+        CHECK(false, std::string("raw-handle array must stay GC-traced, ")
+            + "got: " + e.what());
     }
-    CHECK(threw, "kind-blind element read must throw");
-    CHECK(msg.find("expects an array slot") != std::string::npos,
-        "named runtime error, got: " + msg);
+    CHECK(rc == 40, "element survives GC pressure with its value, "
+        "main returned " + std::to_string(rc));
     PASS();
 }
 

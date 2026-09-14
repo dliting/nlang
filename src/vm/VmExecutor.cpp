@@ -1694,12 +1694,16 @@ void VmExecutor::MarkPhase() {
                                 && !m_markBits[elem]) {
                                 auto k = m_slotKinds[elem];
                                 if (k == RTK_Class || k == RTK_Struct
-                                    || k == RTK_Boxed || k == RTK_Func) {
+                                    || k == RTK_Boxed || k == RTK_Func
+                                    || k == RTK_Array) {
                                     m_markBits[elem] = true;
                                     //Func handles are pushed (their
-                                    //slot[1] receiver must be traced).
+                                    //slot[1] receiver must be traced);
+                                    //array records too (their elements
+                                    //are traced by the RTK_Array arm —
+                                    //raw-handle elements, hole-1).
                                     if (k == RTK_Class || k == RTK_Struct
-                                        || k == RTK_Func)
+                                        || k == RTK_Func || k == RTK_Array)
                                         worklist.push_back(elem);
                                 }
                             }
@@ -1720,12 +1724,16 @@ void VmExecutor::MarkPhase() {
                                     && !m_markBits[elem]) {
                                     auto k = m_slotKinds[elem];
                                     if (k == RTK_Class || k == RTK_Struct
-                                        || k == RTK_Boxed || k == RTK_Func) {
+                                        || k == RTK_Boxed || k == RTK_Func
+                                        || k == RTK_Array) {
                                         m_markBits[elem] = true;
                                         //Func handles are pushed (their
-                                        //slot[1] receiver must be traced).
+                                        //slot[1] receiver must be traced);
+                                        //array records too (their elements
+                                        //are traced by the RTK_Array arm —
+                                        //raw-handle elements, hole-1).
                                         if (k == RTK_Class || k == RTK_Struct
-                                            || k == RTK_Func)
+                                            || k == RTK_Func || k == RTK_Array)
                                             worklist.push_back(elem);
                                     }
                                 }

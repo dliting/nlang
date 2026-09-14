@@ -1,0 +1,23 @@
+//GC liveness: elements are raw int[] handles; after GC pressure the
+//handles must still resolve (sweep clears kind of dead records; hole-3
+//kind check turns any dangling read into a named error).
+import io;
+int[] mkArr(int v) {
+    int[] a = new int[2];
+    a[0] = v;
+    a[1] = v + 1;
+    return a;
+}
+int churn() {
+    List<int[]> keep = new List<int[]>();
+    keep.add(mkArr(40));
+    for (int i = 0; i < 3000; i = i + 1) {
+        List<int[]> tmp = new List<int[]>();
+        tmp.add(mkArr(i));
+    }
+    return keep.get(0)[0] + keep.get(0)[1];   // 40+41=81, element opcode assertion
+}
+int main() {
+    io.print(churn().toString());
+    return 0;
+}

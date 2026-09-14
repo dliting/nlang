@@ -1,0 +1,9 @@
+//List<string[]> element roundtrip through get + subscript sugar.
+import io;
+int main() {
+    string[] s1 = new string[2]; s1[0] = "ab"; s1[1] = "c";
+    List<string[]> ls = new List<string[]>();
+    ls.add(s1);
+    io.print(ls.get(0)[0] + ls[0][1]);   // abc
+    return 0;
+}

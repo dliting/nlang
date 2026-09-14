@@ -1,0 +1,25 @@
+//GC liveness for class-element arrays: the array record must be PUSHED
+//(not just marked) so the nested Point records survive; the assertion
+//must drill into the nested class field (array-level assertions stay
+//green in the push-miss half-state, spec r16).
+import io;
+class Point { int x; int y; public int Point(int a, int b) { x = a; y = b; return 0; } }
+Point[] mkPts(int v) {
+    Point[] pts = new Point[2];
+    pts[0] = new Point(v, v + 1);
+    pts[1] = new Point(v + 2, v + 3);
+    return pts;
+}
+int churn() {
+    List<Point[]> keep = new List<Point[]>();
+    keep.add(mkPts(10));
+    for (int i = 0; i < 3000; i = i + 1) {
+        List<Point[]> tmp = new List<Point[]>();
+        tmp.add(mkPts(i));
+    }
+    return keep.get(0)[0].x + keep.get(0)[1].y;   // 10+13=23, nested field assertion
+}
+int main() {
+    io.print(churn().toString());
+    return 0;
+}

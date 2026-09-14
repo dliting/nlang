@@ -15,6 +15,8 @@ e2e suite pins the end-to-end compile/run behavior.
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SyntaxNode.h>
+#include "VmExecutor.h"
+#include "ModuleLoader.h"
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -128,6 +130,90 @@ static std::string joinErrors(const MemLogger& logger)
     return all;
 }
 
+//Compile + execute (test_stdlib's runSource shape): loads the .nmod the
+//build wrote and runs main, returning its value. A VM runtime error
+//propagates out — the red signal of the GC-arm tests below.
+static int runOne(const char* szBody)
+{
+    auto out = compileOne(szBody);
+    if (!out.ok)
+        return -1;
+    const auto modPath = std::filesystem::temp_directory_path()
+        / "nlang_array_flags_tests"
+        / (out.params->m_sOutputModule + ".nmod");
+    CompiledModule mod = ModuleLoader::Load(modPath.string());
+    VmExecutor exec;
+    return exec.Execute(mod);
+}
+
+//C-period hole 4 (List arm): an array reachable ONLY through a List
+//element slot must survive GC pressure. Today the boxed int handle
+//hides the record from the tracer, the sweep clears its kind, and the
+//hole-3 opcode kind check turns the dangling read into a named throw.
+static void test_gc_list_arm_traces_array()
+{
+    TEST(gc_list_arm_traces_array);
+    int rc = -1;
+    try {
+        rc = runOne(
+            "int[] mkArr(int v) {\n"
+            "    int[] a = new int[2];\n"
+            "    a[0] = v;\n"
+            "    a[1] = v + 1;\n"
+            "    return a;\n"
+            "}\n"
+            "int churn() {\n"
+            "    List<int[]> keep = new List<int[]>();\n"
+            "    keep.add(mkArr(40));\n"
+            "    for (int i = 0; i < 3000; i = i + 1) {\n"
+            "        List<int[]> tmp = new List<int[]>();\n"
+            "        tmp.add(mkArr(i));\n"
+            "    }\n"
+            "    return keep.get(0)[0] + keep.get(0)[1];\n"
+            "}\n"
+            "int main() { return churn(); }\n");
+    } catch (const std::runtime_error& e) {
+        CHECK(false, std::string("array must stay traceable through ")
+            + "the List slot, got: " + e.what());
+    }
+    CHECK(rc == 81, "elements survive with values, main returned "
+        + std::to_string(rc));
+    PASS();
+}
+
+//C-period hole 4 (Dict arm): same liveness discipline through the
+//Dict VALUE slot.
+static void test_gc_dict_arm_traces_array()
+{
+    TEST(gc_dict_arm_traces_array);
+    int rc = -1;
+    try {
+        rc = runOne(
+            "int[] mkArr(int v) {\n"
+            "    int[] a = new int[2];\n"
+            "    a[0] = v;\n"
+            "    a[1] = v + 1;\n"
+            "    return a;\n"
+            "}\n"
+            "int churn() {\n"
+            "    Dict<string,int[]> keep = new Dict<string,int[]>();\n"
+            "    keep.set(\"k\", mkArr(5));\n"
+            "    for (int i = 0; i < 3000; i = i + 1) {\n"
+            "        Dict<string,int[]> tmp = new Dict<string,int[]>();\n"
+            "        tmp.set(\"x\", mkArr(i));\n"
+            "    }\n"
+            "    return keep.get(\"k\")[0] + keep.get(\"k\")[1];\n"
+            "}\n"
+            "int main() { return churn(); }\n");
+    } catch (const std::runtime_error& e) {
+        CHECK(false, std::string("array must stay traceable through ")
+            + "the Dict value slot, got: " + e.what());
+    }
+    CHECK(rc == 11, "elements survive with values, main returned "
+        + std::to_string(rc));
+    PASS();
+}
+
 //C-period hole 1: instantiations differing only in the array-ness of a
 //type argument must NOT share the cached synthetic class (the erased
 //key collapsed them), and the mirror must expose the flag.
@@ -228,6 +314,8 @@ int main()
     Runtime::StaticInit();
     test_generic_array_flags_split_keys();
     test_dict_keys_recast_carries_array_flag();
+    test_gc_list_arm_traces_array();
+    test_gc_dict_arm_traces_array();
     std::cerr << "\narray_flags: " << g_pass << " passed, "
         << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
