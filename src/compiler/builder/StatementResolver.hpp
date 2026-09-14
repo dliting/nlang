@@ -786,14 +786,17 @@ public:
 		sn.Iterable()->Accept(*m_pVisitor);
 
 		//An array-VALUED source (get()/subscript/call result from a
-		//List<T[]>/Dict<K,V[]> or a T[]-returning callee) masquerades as
-		//its element type, so the codegen 3-way dispatch mis-routes it
-		//and the loop fails at runtime ("method not found: length").
+		//List<T[]>/Dict<K,V[]> or a T[]-returning callee) is rejected as
+		//a policy, not a detection limit: IsArrayValued is resolve-time
+		//information (stamped from the GenericArrayFlags mirror since
+		//the C-period), but the codegen 3-way dispatch routes by the
+		//degraded EvalDataType, which carries no container identity.
 		//Plain array lvalues (local/member) stay on the array path —
-		//reject only the masqueraded values, same gate family as the
-		//P2 array-receiver/stdlib-argument rejections (the array-valued
-		//property at a consumption site). An unresolved iterable already
-		//reported its own error — skip to avoid cascades.
+		//reject only the value forms; assign to a typed local first,
+		//same gate family as the P2 array-receiver/stdlib-argument
+		//rejections (the array-valued property at a consumption site).
+		//An unresolved iterable already reported its own error — skip to
+		//avoid cascades.
 		if (sn.Iterable()->IsResolved()
 			&& sn.Iterable()->IsArrayValued()
 			&& !IsPlainLvalueShape(*sn.Iterable()))
@@ -808,7 +811,7 @@ public:
 		//neither an array nor a List/Dict used to compile and die at
 		//runtime (null reference in CallMethod) — reject by name here.
 		//Shape-agnostic: array-value shapes already returned in the
-		//masquerade gate above (old message); container values (incl.
+		//array-value gate above; container values (incl.
 		//invoke form) pass isContainer below.
 		if (sn.Iterable()->IsResolved())
 		{

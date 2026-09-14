@@ -1,0 +1,14 @@
+//Dict keyed on array types uses HANDLE identity (D6): two arrays with
+//equal contents are distinct keys, so both entries coexist. Distinct
+//from content-equality keying (string/int keys), which would collapse
+//them into one entry.
+import io;
+int main() {
+	Dict<int[],int> d = new Dict<int[],int>();
+	int[] k1 = new int[2]; k1[0] = 4; k1[1] = 5;
+	int[] k2 = new int[2]; k2[0] = 4; k2[1] = 5;   // same contents, distinct handle
+	d.set(k1, 10);
+	d.set(k2, 20);
+	io.print(d.count().toString());    // 2 — identity keying, not content
+	return d.get(k1) + d.get(k2);      // 30
+}

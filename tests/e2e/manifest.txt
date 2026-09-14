@@ -1038,3 +1038,4 @@ foreach_var_mismatch_reject compile_error does not match the element type
 foreach_var_widen_reject compile_error does not match the element type
 generic_arg_jagged_reject compile_error jagged arrays
 alias_array_typearg 0 11
+dict_identical_content_keys 30 2
