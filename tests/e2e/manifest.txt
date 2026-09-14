@@ -1021,3 +1021,4 @@ dbgm_breakthrow 0 stopped throw
 dbgm_readline_rejected 1 readLine
 generic_key_cross_assign_reject compile_error Incompatible type
 func_generic_coexist 0 8
+func_bind_array_mismatch_reject compile_error does not match the signature

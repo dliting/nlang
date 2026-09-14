@@ -321,14 +321,21 @@ static bool IsFuncTypeDecl(SnField *pType)
 //type matches a void type argument. Parameter slots: declared type field
 //pointer identity plus out-flag agreement — the same discipline that
 //keeps Func<void,int> and Func<void,out int> distinct in GenericInstKey.
+//C-period: array-ness joins the comparison on every slot. The type
+//fields degrade to the element (int[] masquerades as int), so without
+//this gate Func<int> happily binds a function returning int[]. The
+//flags come from the GenericArrayFlags() mirror (single read channel).
 static bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 {
 	const auto &typeArgs = GetGenericTypeArgs(pFuncDecl);
 	const auto &outFlags = s_genericOutFlags[pFuncDecl];
+	const auto &declFlags = pFuncDecl->GenericArrayFlags();
 	auto *pRet = func.ReturnType();
 	if (pRet)
 	{
 		if (!pRet->IsResolved() || pRet->Field() != typeArgs[0])
+			return false;
+		if (pRet->IsArrayType() != (declFlags[0] != 0))
 			return false;
 	}
 	else if (typeArgs[0]->Kind() != NK_Void)
@@ -342,6 +349,8 @@ static bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 	for (auto &param : params)
 	{
 		if (param.EvalDataType() != typeArgs[i + 1])
+			return false;
+		if (param.IsArrayType() != (declFlags[i + 1] != 0))
 			return false;
 		if (param.ContainFlags(NF_Out) != (outFlags[i + 1] != 0))
 			return false;
