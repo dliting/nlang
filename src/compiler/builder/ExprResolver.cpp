@@ -133,12 +133,6 @@ static std::map<SnClassDecl*, std::vector<SnField*>> s_genericTypeArgs;
 //(return type + out-marked params) from these two tables.
 static std::map<SnClassDecl*, std::vector<uint8>> s_genericOutFlags;
 
-//C-period: per-type-arg array-ness side table (same key discipline as
-//s_genericTypeArgs). Cache-management only — every consumer reads the
-//SnClassDecl::GenericArrayFlags() mirror instead (single-read-channel
-//invariant, see SnMisc.h).
-static std::map<SnClassDecl*, std::vector<uint8>> s_genericArrayFlags;
-
 //Lookup type arguments for a synthetic generic class. Returns empty vector
 //if not a generic instantiation.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
@@ -303,8 +297,8 @@ static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	//Side table for member-call return-type lookup (List<int>.Get() → int).
 	s_genericTypeArgs[pClass] = typeArgs;
 	s_genericOutFlags[pClass] = normOutFlags;
-	s_genericArrayFlags[pClass] = normArrayFlags;
-	//Mirror on the decl: the single public read channel for array-ness.
+	//Array-ness lives ONLY on the decl — the single public read channel
+	//for every consumer (single-read-channel invariant, see SnMisc.h).
 	pClass->SetGenericArrayFlags(normArrayFlags);
 	return pClass;
 }
@@ -694,39 +688,6 @@ bool IsPlainLvalueShape(const SnExpression& expr) {
 		auto* pInner = static_cast<const SnMemberExpr&>(expr).Inner();
 		return pInner && pInner->Kind() == NK_IdentifierExpr;
 	}
-	return false;
-}
-
-//P2: true when `baseExpr` is a List/Dict lvalue (identifier or member
-//field) whose get()/subscript ELEMENT type argument is an array —
-//List<T[]> or Dict<K, V[]>. The element slot is arg 0 for List and
-//arg 1 for Dict (the V that get returns), mirroring the container-method
-//result stamping in Access(SnMemberExpr). Array-ness of a type argument
-//is erased by instantiation (see SnField::ArrayTypeArg), so this reads
-//the flag recorded at the declaration instead of the instantiated type.
-static bool ContainerElemIsArray(SnExpression& baseExpr) {
-	SnField* pBaseField = nullptr;
-	if (baseExpr.Kind() == NK_IdentifierExpr)
-		pBaseField = static_cast<SnIdentifierExpr&>(baseExpr).Field();
-	else if (baseExpr.Kind() == NK_MemberExpr) {
-		auto* pInner = static_cast<SnMemberExpr&>(baseExpr).Inner();
-		if (pInner && pInner->Kind() == NK_IdentifierExpr)
-			pBaseField = static_cast<SnIdentifierExpr*>(pInner)->Field();
-	}
-	if (!pBaseField || pBaseField->ArrayTypeArg() == SnField::kNoArrayTypeArg)
-		return false;
-	auto* pBaseType = baseExpr.IsResolved()
-		? baseExpr.EvalDataType() : nullptr;
-	if (!pBaseType || pBaseType->Kind() != NK_ClassDecl)
-		return false;
-	auto* pGenClass = static_cast<SnClassDecl*>(pBaseType);
-	if (!pGenClass->IsGenericInstantiation())
-		return false;
-	const auto& baseName = pGenClass->BaseName();
-	if (baseName == "List")
-		return pBaseField->ArrayTypeArg() == 0;
-	if (baseName == "Dict")
-		return pBaseField->ArrayTypeArg() == 1;
 	return false;
 }
 
@@ -4245,12 +4206,6 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 			auto &dataField = static_cast<SnDataField &>(sn);
 			if (!ResolveDataType(*dataField.Type(), outerType))
 				return false;
-			//P2: record on the declared field whether its generic type
-			//has an ARRAY type argument
-			//(SnField::ArrayTypeArg) — class/struct fields and formal
-			//params all flow through here (locals are registered in
-			//StatementResolver instead; SnLocalVar is not a tree child).
-			RecordArrayTypeArg(dataField, dataField.Type());
 			//Array redesign B: jagged declarations (T[][]) have no VM
 			//layout and used to degrade silently — reject here.
 			if (ArrayTypeDepth(dataField.Type()) >= 2)
@@ -4287,21 +4242,6 @@ bool ExprResolver::ResolveDataType(SnFieldExpr &typeExpr, SnField &outerType)
 		return false;
 	}
 	return true;
-}
-
-void RecordArrayTypeArg(SnField& declared, SnFieldExpr* pTypeExpr)
-{
-	if (!pTypeExpr || pTypeExpr->Kind() != NK_GenericTypeExpr)
-		return;
-	auto& args = static_cast<SnGenericTypeExpr&>(*pTypeExpr).TypeArgs();
-	for (size_t i = 0; i < args.size() && i < SnField::kNoArrayTypeArg; ++i)
-	{
-		if (args[i] && args[i]->IsArrayType())
-		{
-			declared.SetArrayTypeArg(static_cast<uint8>(i));
-			return;
-		}
-	}
 }
 
 bool ExprResolver::ResolveChildFields(SnField & sn)
