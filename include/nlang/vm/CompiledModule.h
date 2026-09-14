@@ -26,7 +26,13 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //entry (previously the element kind, e.g. RTK_Int32). A v1.9 module from
 //an older ncc carries the old field-kind meaning and would misroute GC
 //marking and struct serialization dispatch; the loader refuses it.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 10;
+//v1.11 (C-period generic array args): SEMANTIC floor — no new serialized
+//fields, but array-typed elements of generic containers (List<T[]> /
+//Dict keys and values) now flow as raw array handles with no boxing, and
+//foreach loop variables over them occupy RTK_Array local slots the GC
+//traces. A v1.10 module from an older ncc boxes those elements into
+//primitive slots the GC never traces; the loader refuses it.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 11;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.

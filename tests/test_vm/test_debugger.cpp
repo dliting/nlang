@@ -231,10 +231,10 @@ void test_loader_rejects_v1_9()
     const auto modPath = scratchDir() / "oldver9.nmod";
 
     //Patch the minorVer field (header offset 10, little-endian u16:
-    //magic[8] + major(u16) + minor(u16)) down to 9. v1.10 is a SEMANTIC
-    //floor: no layout change, but v1.9 array struct/class fields carry
-    //the element kind where the VM now expects RTK_Array, which would
-    //misroute GC marking and struct serialization dispatch.
+    //magic[8] + major(u16) + minor(u16)) down to 9. v1.11 is a SEMANTIC
+    //floor: no layout change, but v1.10 generic-container array elements
+    //flow boxed into primitive slots where the VM now expects raw traced
+    //handles, which the GC would never trace.
     std::vector<char> bytes;
     {
         std::ifstream in(modPath, std::ios::binary);
@@ -243,10 +243,10 @@ void test_loader_rejects_v1_9()
     CHECK(bytes.size() >= 12, "module file should have a full header");
     //Guard the patch anchor: if a future header change moves minorVer,
     //the patch below would silently hit another field — fail loudly on
-    //layout drift instead (fresh build must carry the current minor 10).
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0A
+    //layout drift instead (fresh build must carry the current minor 11).
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0B
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 10");
+        "fresh module should be stamped minorVer 11");
     bytes[10] = 0x09;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v19.nmod";
@@ -262,7 +262,53 @@ void test_loader_rejects_v1_9()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.9 module (floor is 10)");
+    CHECK(threw, "loader must reject a v1.9 module (floor is 11)");
+    CHECK(what.find("outdated") != std::string::npos,
+        "rejection should hit the floor path, got: " + what);
+    PASS();
+}
+
+void test_loader_rejects_v1_10()
+{
+    TEST(loader_rejects_v1_10);
+    //Distinct build tag: ModuleManager::Create keys the process-global
+    //loaded map by module name, so reusing "oldver"/"oldver9" from the
+    //other floor tests would fail the build with "already exists".
+    BuildOutcome b = buildSource("oldver10",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "oldver10.nmod";
+
+    //Patch the minorVer field (header offset 10, little-endian u16:
+    //magic[8] + major(u16) + minor(u16)) down to 10. v1.11 is a SEMANTIC
+    //floor (see the v1_9 test above for the rationale): a v1.10 module
+    //boxes generic-container array elements into primitive slots the GC
+    //never traces.
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0B
+        && static_cast<uint8_t>(bytes[11]) == 0x00,
+        "fresh module should be stamped minorVer 11");
+    bytes[10] = 0x0A;
+    bytes[11] = 0x00;
+    const auto oldPath = scratchDir() / "oldver_v110.nmod";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must reject a v1.10 module (floor is 11)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -2120,6 +2166,7 @@ int main()
     test_v19_import_roundtrip();
     test_v19_loader_rejects_v1_8();
     test_loader_rejects_v1_9();
+    test_loader_rejects_v1_10();
     test_v19_import_gc_roots();
 
     //Task 6 GC stress pins (real allocation + real collection).

@@ -37,13 +37,15 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
     const uint16_t kCurrentMinorVer = NMOD_FORMAT_MINOR;
-    //v1.10 (array redesign): SEMANTIC floor, not a layout bump — no new
-    //serialized fields, but array struct/class fields now store RTK_Array
-    //as their field kind (previously the element kind). A v1.9 module
-    //from an older ncc carries the old field-kind meaning and would
-    //misroute GC marking and struct serialization dispatch, so refuse
-    //v1.9 and older outright (floor/ceiling double-reject unchanged).
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 10)
+    //v1.11 (C-period generic array args): SEMANTIC floor, not a layout
+    //bump — no new serialized fields, but array-typed elements of generic
+    //containers (List<T[]> / Dict keys and values) now flow as raw array
+    //handles with no boxing, and foreach loop variables over them hold
+    //RTK_Array slots the GC traces. A v1.10 module from an older ncc
+    //boxes those elements into primitive slots the GC never traces, so
+    //refuse v1.10 and older outright (floor/ceiling double-reject
+    //unchanged).
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 11)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
