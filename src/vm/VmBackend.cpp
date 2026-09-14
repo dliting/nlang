@@ -2487,9 +2487,14 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     }
 
     //Struct deep-copy: if the formal is a struct type, copy the heap
-    //subtree so the callee gets its own.
+    //subtree so the callee gets its own. Array-typed formals pass by
+    //reference regardless of element kind (Phase 9d-3 IsArrayType
+    //dispatch invariant): EvalDataType() degrades `Point[]` to its
+    //element type, which would otherwise route the array through the
+    //struct copy and mislabel the record (C-period hole 3 exposure).
     auto* pFormalType = b.pFormal->EvalDataType();
-    if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct) {
+    if (pFormalType && !b.pFormal->IsArrayType()
+        && RuntimeTypeKind(pFormalType) == RTK_Struct) {
         int structIdx = m_compiledModule.FindStruct(pFormalType->Name());
         emitter.Emit(OpCode::OP_CopyStruct);
         emitter.EmitUint16(m_currFunc->tempSlot);
