@@ -38,6 +38,28 @@ target_link_libraries(test_stdlib
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
+# C-period: generic instance key array-flag unit tests (console suite).
+# In-process ModuleBuilder compile of real .n sources, asserting the
+# key split (List<int> vs List<int[]> mint distinct classes) and the
+# GenericArrayFlags() mirror through TreeRootView.
+add_executable(test_array_flags
+    test_compiler/test_array_flags.cpp
+)
+
+target_include_directories(test_array_flags
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_array_flags
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME array_flags_tests COMMAND test_array_flags)
+
 # ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,

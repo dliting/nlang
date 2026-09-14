@@ -1,0 +1,14 @@
+//Func<string,int> and Func<string[],int> share the erased instance
+//key today (boxing coincidence keeps values right); after the key
+//split both must stay correct independently.
+import io;
+int lenOne(string s) { return s.length(); }
+int firstLen(string[] a) { return a[0].length(); }
+int main() {
+    string[] arr = new string[2];
+    arr[0] = "hello"; arr[1] = "world";
+    Func<int,string> f1 = lenOne;
+    Func<int,string[]> f2 = firstLen;
+    io.print((f1("abc") + f2(arr)).toString());
+    return 0;
+}

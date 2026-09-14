@@ -1019,3 +1019,5 @@ dbg_catch_throw 3 Throw: main (dbg_catch_throw.n:4)
 dbgm_basic 42 local total int
 dbgm_breakthrow 0 stopped throw
 dbgm_readline_rejected 1 readLine
+generic_key_cross_assign_reject compile_error Incompatible type
+func_generic_coexist 0 8

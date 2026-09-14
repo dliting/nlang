@@ -102,11 +102,18 @@ struct GenericInstKey {
 	//without it Func<void,int> and Func<void,out int> collapse into one
 	//declaration and the first instantiation silently wins.
 	std::vector<uint8> outFlags;
+	//C-period: array-ness of each type argument. Array-typed arguments
+	//degrade to the ELEMENT field in typeArgs (EvalDataType masquerade),
+	//so List<int> and List<int[]> would collapse into one key without
+	//this vector — the split instance is the foundation for distinct
+	//stamps, boxing plans and Func delegate gates.
+	std::vector<uint8> arrayFlags;
 	bool operator<(const GenericInstKey& rhs) const {
 		if (baseName != rhs.baseName) return baseName < rhs.baseName;
 		if (typeArgs.size() != rhs.typeArgs.size())
 			return typeArgs.size() < rhs.typeArgs.size();
 		if (outFlags != rhs.outFlags) return outFlags < rhs.outFlags;
+		if (arrayFlags != rhs.arrayFlags) return arrayFlags < rhs.arrayFlags;
 		for (size_t i = 0; i < typeArgs.size(); ++i) {
 			if (typeArgs[i] != rhs.typeArgs[i])
 				return typeArgs[i] < rhs.typeArgs[i];
@@ -125,6 +132,12 @@ static std::map<SnClassDecl*, std::vector<SnField*>> s_genericTypeArgs;
 //s_genericTypeArgs). Func's delegate-binding channel reads the signature
 //(return type + out-marked params) from these two tables.
 static std::map<SnClassDecl*, std::vector<uint8>> s_genericOutFlags;
+
+//C-period: per-type-arg array-ness side table (same key discipline as
+//s_genericTypeArgs). Cache-management only — every consumer reads the
+//SnClassDecl::GenericArrayFlags() mirror instead (single-read-channel
+//invariant, see SnMisc.h).
+static std::map<SnClassDecl*, std::vector<uint8>> s_genericArrayFlags;
 
 //Lookup type arguments for a synthetic generic class. Returns empty vector
 //if not a generic instantiation.
@@ -237,16 +250,19 @@ static bool IsGenericClassDecl(SnClassDecl* pClass)
 
 //Mints (or fetches) a synthetic SnClassDecl for the given generic
 //instantiation. Phase 8e-3: List<T> (arity 1). Phase 8e-4: Dict<K,V> (arity 2).
-//Phase 13: Func<R, P...> (variadic, >= 1). outFlags is normalized here so
-//callers that infer instantiations (List element inference) can pass an
-//empty vector while declaration-path keys stay distinct.
+//Phase 13: Func<R, P...> (variadic, >= 1). outFlags/arrayFlags are
+//normalized here so callers that infer instantiations (List element
+//inference) can pass an empty vector while declaration-path keys stay
+//distinct.
 static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
-	const ISourceLocation* pLoc)
+	const std::vector<uint8>& arrayFlags, const ISourceLocation* pLoc)
 {
 	std::vector<uint8> normOutFlags(outFlags);
 	normOutFlags.resize(typeArgs.size(), 0);
-	GenericInstKey key{baseName, typeArgs, normOutFlags};
+	std::vector<uint8> normArrayFlags(arrayFlags);
+	normArrayFlags.resize(typeArgs.size(), 0);
+	GenericInstKey key{baseName, typeArgs, normOutFlags, normArrayFlags};
 	auto it = s_genericInstances.find(key);
 	if (it != s_genericInstances.end())
 		return it->second;
@@ -261,11 +277,15 @@ static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 		|| typeArgs.size() < minArity || typeArgs.size() > maxArity)
 		return nullptr;
 
-	//Build display name e.g. "List<int>", "Dict<string, int>".
+	//Build display name e.g. "List<int>", "Dict<string, int>". Array-typed
+	//arguments render their array-ness ("List<int[]>") — typeArgs carry the
+	//degraded element name, so without this the split instantiations would
+	//be indistinguishable in diagnostics.
 	std::string instName = baseName + "<";
 	for (size_t i = 0; i < typeArgs.size(); ++i) {
 		if (i) instName += ", ";
 		instName += typeArgs[i]->Name();
+		if (normArrayFlags[i]) instName += "[]";
 	}
 	instName += ">";
 
@@ -283,6 +303,9 @@ static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	//Side table for member-call return-type lookup (List<int>.Get() → int).
 	s_genericTypeArgs[pClass] = typeArgs;
 	s_genericOutFlags[pClass] = normOutFlags;
+	s_genericArrayFlags[pClass] = normArrayFlags;
+	//Mirror on the decl: the single public read channel for array-ness.
+	pClass->SetGenericArrayFlags(normArrayFlags);
 	return pClass;
 }
 
@@ -843,6 +866,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	//Resolve each type argument (e.g., int, Point).
 	std::vector<SnField*> typeArgs;
 	std::vector<uint8> outFlags;
+	std::vector<uint8> arrayFlags;
 	for (auto *pTA : genType.TypeArgs())
 	{
 		if (!pTA) continue;
@@ -879,8 +903,20 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 				"out is only allowed on Func<...> parameters.");
 			return;
 		}
+		//Array redesign B: a jagged type argument has no VM layout — the
+		//same gate as declaration sites (spec §5.5), enforced here because
+		//generic type-arg position is a distinct declaration form.
+		if (ArrayTypeDepth(pTA) >= 2)
+		{
+			m_Env.Log(CLL_Error, pTA->Location(),
+				"jagged arrays (T[][]) are not supported.");
+			return;
+		}
+		//C-period: the argument's array-ness is the only surviving witness
+		//of `T[]` vs `T` — the resolved field above degraded to the element.
 		typeArgs.push_back(pField);
 		outFlags.push_back(isOutArg ? 1 : 0);
+		arrayFlags.push_back(pTA->Kind() == NK_ArrayTypeExpr ? 1 : 0);
 	}
 
 	//Phase 13 Step 2: Dict keyed by a Func type — DictKeysEqual is
@@ -897,7 +933,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	auto *pSynClass = GetGenericClassDecl(baseName, typeArgs, outFlags,
-		pBase->Location());
+		arrayFlags, pBase->Location());
 	if (!pSynClass)
 	{
 		m_Env.Log(CLL_Error, genType.Location(),
@@ -1300,7 +1336,7 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	{
 		std::vector<SnField*> listArgs{
 			SnBuiltinDataType::InstanceOf(NK_String) };
-		pResultField = GetGenericClassDecl("List", listArgs, {},
+		pResultField = GetGenericClassDecl("List", listArgs, {}, {},
 			invoke.Location());
 		break;
 	}
@@ -1756,7 +1792,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			{
 				std::vector<SnField*> listArgs{
 					SnBuiltinDataType::InstanceOf(NK_String) };
-				pResultField = GetGenericClassDecl("List", listArgs, {},
+				pResultField = GetGenericClassDecl("List", listArgs, {}, {},
 					invoke.Location());
 				break;
 			}
@@ -2279,10 +2315,16 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				//Phase 8e-5: Dict.Keys() returns List<K> where K = typeArgs[0].
 				//Synthesize a List<K> generic instantiation so foreach lowering
 				//and codegen's per-method boxing plan see the right element type.
+				//C-period ⑥: the re-cast must carry the key slot's array-ness —
+				//the split key would otherwise mint List<int> here and reject
+				//the explicit `List<int[]> ks = d.keys()` form.
 				if (!typeArgs.empty() && typeArgs[0]) {
 					std::vector<SnField*> listArgs{ typeArgs[0] };
+					const auto& dictFlags = pGenClass->GenericArrayFlags();
+					std::vector<uint8> listFlags{ static_cast<uint8>(
+						dictFlags.empty() ? 0 : dictFlags[0]) };
 					auto* pListClass = GetGenericClassDecl("List", listArgs,
-						{}, pInnerExpr->Location());
+						{}, listFlags, pInnerExpr->Location());
 					if (pListClass) {
 						//SnClassDecl IS-A SnField, so it can serve as EvalDataType.
 						snMember.EvalDataType(pListClass);
@@ -2339,7 +2381,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				//backtrace is List<string> — synthesize the generic instantiation.
 				auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
 				std::vector<SnField*> listArgs{ pStr };
-				pResultField = GetGenericClassDecl("List", listArgs, {},
+				pResultField = GetGenericClassDecl("List", listArgs, {}, {},
 					pInnerExpr->Location());
 			}
 			if (pResultField) {

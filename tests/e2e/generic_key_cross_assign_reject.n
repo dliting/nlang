@@ -1,0 +1,7 @@
+//List<int> a = b where b : List<int[]> must be a named compile
+//error after the key split (today it is silently accepted).
+int main() {
+    List<int[]> b = new List<int[]>();
+    List<int> a = b;
+    return 0;
+}

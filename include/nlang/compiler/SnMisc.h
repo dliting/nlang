@@ -299,6 +299,14 @@ public:
 	void SetGenericInstantiation() { m_bIsGenericInst = true; }
 	const std::vector<SnField*>& GenericTypeArgs() const { return m_genericTypeArgs; }
 	void SetGenericTypeArgs(std::vector<SnField*> args) { m_genericTypeArgs = std::move(args); }
+	//C-period: per-type-arg array-ness of this instantiation (1 = the
+	//argument is an array type, e.g. List<int[]> carries {1}). The ONLY
+	//public consumption channel for array-ness (single-read-channel
+	//invariant): stamp plans, boxing regions, FuncRefMatchesDecl, and
+	//the keys() re-cast all read this mirror, never the file-static side
+	//table and never re-derived from the degraded element field.
+	const std::vector<uint8>& GenericArrayFlags() const { return m_genericArrayFlags; }
+	void SetGenericArrayFlags(std::vector<uint8> flags) { m_genericArrayFlags = std::move(flags); }
 	//Base name without <...> suffix. For generic instantiations only;
 	//Equals Name() for ordinary classes. Used by VmBackend to look up the
 	//shared backing CompiledClass (e.g. "List" for List<int>).
@@ -321,6 +329,7 @@ private:
 	bool m_bIsBuiltinClass = false;
 	bool m_bIsGenericInst = false;
 	std::vector<SnField*> m_genericTypeArgs;
+	std::vector<uint8> m_genericArrayFlags;  //C-period: see GenericArrayFlags()
 	std::string m_baseName;  //e.g. "List" (without <T>) for generic instances
 };
 
