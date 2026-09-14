@@ -39,8 +39,11 @@ own type.
 The `List<T>` and `Dict<K,V>` branches reuse the per-method boxing
 infrastructure from Phase 8e-3/8e-4: `BoxingTagFor(typeArg)` returns
 `{tag, isPrimitive}`, and `OP_Box` is emitted before `Add`/`Set` only
-when the element type is primitive. This keeps initialization consistent
-with `lst.add(x)` and `d.set(k, v)` calls written by hand.
+when the element type is primitive **and not an array type** — an
+array-typed type argument (`List<int[]>`, `Dict` value `V[]`) flows as
+a raw handle with no boxing, the same exception as hand-written
+`lst.add(x)` calls. This keeps initialization consistent with
+`lst.add(x)` and `d.set(k, v)` calls written by hand.
 
 ### Temp slot allocation
 

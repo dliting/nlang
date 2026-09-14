@@ -3,20 +3,22 @@
 
 - **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
   built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
-- **Array values inside generic containers** (Phase 12 residual):
-  `List<T[]>` / `Dict<K,T[]>` store arrays as erased references — pulling
-  one out (`li[0]`, `li.get(0)`) yields an expression whose array-ness is
-  invisible to the compiler's array gates. Calling a method on it
-  (`li[0].rank()`) or switching on it (`switch (li[0])`) compiles but
-  misbehaves at run time (the array's heap index is used as the value).
-  Workaround: pull it into a typed local first (`Color[] a = li[0];`),
-  which restores the array gates. Direct array-typed shapes
-  (`a.rank()`, `switch (arr)`) are rejected at compile time.
+- **Array values inside generic containers**: array-ness of
+  `List<T[]>` / `Dict<K,T[]>` elements is visible to the compiler —
+  method-receiver and `switch`-discriminant uses of a pulled-out
+  element (`li[0].rank()`, `switch (li.get(0))`) are rejected at
+  compile time by name, `foreach` can iterate them into an array-typed
+  loop variable, and `Dict` keyed on array types uses handle identity.
+  Residual: in other value positions the expression still degrades to
+  its element type in the resolver (e.g. assigning a pulled-out
+  `int[]` element to an `int` local passes silently) — the unified
+  "array value in a primitive context" gate is tracked separately.
 - **Jagged arrays (`T[][]`)**: multi-dimensional array declarations are
   rejected at compile time ("jagged arrays (T[][]) are not supported") —
-  at locals, fields, parameters, return types, and `for`/`foreach` loop
-  variables. The VM has no multi-dimensional array layout; declare
-  flat arrays or use `List<List<T>>`-style containers instead.
+  at locals, fields, parameters, return types, `for`/`foreach` loop
+  variables, and as generic type arguments. The VM has no
+  multi-dimensional array layout; declare flat arrays or use
+  `List<List<T>>`-style containers instead.
 - **Bare `{...}` collection init**: dict/struct/class init requires the
   explicit `new Type{...}` form (the bare `{...}` form conflicts with
   block-statement grammar). See Collection Initializers above.

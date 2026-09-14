@@ -45,6 +45,14 @@ backing class at runtime. Elements are stored uniformly as heap indices
 in a side table (`m_listStore`); primitive elements are boxed via
 `OP_Box` at the call site. GC traces list elements as additional roots.
 
+**Array type arguments**: `T` may be an array type — `List<int[]>`
+stores `int[]` values as raw, GC-traced handles; the primitive-boxing
+rule above does not apply to array-typed elements. Elements pulled out
+with `Get`/subscript keep their array-ness for the compiler's gates,
+and `foreach (int[] row in grid)` iterates them directly. `IndexOf`/
+`Contains` compare by handle identity. Jagged arguments
+(`List<int[][]>`) are rejected like other jagged declarations.
+
 **Null List reference**: a `List<T>` field or variable that has not been
 assigned `new List<T>()` holds null. Calling any method on null throws
 `null reference in CallMethod` (same NPE semantics as other class refs).
@@ -66,6 +74,13 @@ no production, so `x >> 2` is a compile error (the shift operator
 itself is not implemented). Limitation: a comparison against a variable
 shadowing the type name (`List < 3`, only blanks/comments between name
 and `<`) is misread as a generic open.
+
+**Cross-module limitation**: container generic signatures do not cross
+`.nmod` import boundaries — imported function signatures serialize each
+type as a single kind byte, so a `List<int[]>` parameter or return in
+an imported function degrades to a plain class reference and the
+array-ness is not reachable. Plain `T[]` signatures do cross (they
+serialize as `RTK_Array`); container instantiations do not.
 
 ### `Dict<K,V>` — Phase 8e-4
 
@@ -120,6 +135,8 @@ additional roots.
   `IdentityHashMap` and C#'s default `object.Equals`. A user `Equals`
   override is **not** consulted — override-based dictionary semantics
   are a separate future phase.
+- Array keys (`Dict<int[], V>`): compare handle identity — two separate
+  `int[2]` arrays with equal contents are different keys.
 
 **Null Dict reference**: a `Dict<K,V>` field or variable that has not
 been assigned `new Dict<K,V>()` holds null. Calling any method on null

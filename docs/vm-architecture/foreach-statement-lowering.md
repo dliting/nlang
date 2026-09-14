@@ -14,7 +14,7 @@ by-name collision in nested loops:
 
 | Local | typeKind | Purpose |
 |-------|----------|---------|
-| `<varName>` | derived from element type | user-visible loop variable |
+| `<varName>` | derived from element type — `RTK_Array` when the element is array-typed | user-visible loop variable |
 | `__foreach_iter_<N>` | `RTK_Array` (Array) or `RTK_Class` (List/Dict) | iterable reference |
 | `__foreach_i_<N>` | `RTK_Int32` | loop counter |
 | `__foreach_n_<N>` | `RTK_Int32` | cached length |
@@ -33,7 +33,9 @@ preserving the user-visible AST:
 - **List<T>**: iterable's `EvalDataType()` is `SnClassDecl` with
   `BaseName()=="List"` and `IsGenericInstantiation()`. Length via
   `OP_CallMethod "Length"`; element via `OP_CallMethod "Get"` followed
-  by `OP_Unbox` for primitive T (per-method boxing plan).
+  by `OP_Unbox` for primitive T — skipped when the type argument is an
+  array type (`List<int[]>` elements flow as raw handles; per-method
+  boxing plan, array-argument exception).
 - **Dict<K,V>**: iterable's `EvalDataType()` is `SnClassDecl` with
   `BaseName()=="Dict"`. **Inline `Keys()` call** materializes a fresh
   `List<K>` into `iterSlot` first (step 2b), then the rest mirrors the
@@ -43,7 +45,10 @@ The `typeKind` of each hidden local is what GC uses at safepoints to
 identify reference roots, so `iterSlot` must be `RTK_Array` for the
 Array path and `RTK_Class` for List/Dict — incorrect tags would cause
 either leaked references (root missed) or spurious tracing of integer
-slots as heap idxs.
+slots as heap idxs. The same applies to the user-visible loop variable:
+an array-typed loop variable (`foreach (int[] row in grid)`) allocates
+its slot as `RTK_Array`, so the handle each iteration binds is a traced
+root.
 
 ### `Dict.keys()` intrinsic
 

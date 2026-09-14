@@ -87,12 +87,16 @@ frees them like any other unreachable slot.
 runtime, all `List<X>` instantiations share a single backing
 CompiledClass ("List") with one hidden field `__handle` of type int.
 
-**Compile-time model.** The resolver maintains a per-(baseName, typeArgs)
-cache of synthetic SnClassDecl instances:
+**Compile-time model.** The resolver maintains a cache of synthetic
+SnClassDecl instances keyed by the full instantiation signature:
 
 ```cpp
-static std::map<std::tuple<std::string, std::vector<SnField*>>,
-                SnClassDecl*> s_genericInstances;
+struct GenericInstKey {
+    std::string baseName;            // "List" / "Dict" / "Func"
+    std::vector<SnField*> typeArgs;  // resolved type-argument fields
+    std::vector<uint8> outFlags;     // Phase 13: out-marked params (Func)
+    std::vector<uint8> arrayFlags;   // C-period: array-typed type args
+};
 ```
 
 Each cache miss mints a new SnClassDecl named e.g. `"List<int>"` whose
@@ -113,13 +117,18 @@ substitution:
 
 A `m_bIsGenericInst = true` flag on the SnClassDecl marks synthetic
 instances so codegen knows to emit `OP_Box` for primitive-T method
-parameters and `OP_Unbox` for primitive-T Get() returns.
+parameters and `OP_Unbox` for primitive-T Get() returns — **except when
+the type argument is an array type** (`List<int[]>`): the erased T is a
+primitive kind, but elements flow as raw array handles with no boxing;
+the per-argument array-ness travels on the instantiation
+(`GenericArrayFlags()`), so every boxing region and the resolver gates
+read it from there.
 
 **Runtime storage.** List elements live in a side table:
 
 ```cpp
 struct ListSlot {
-    std::vector<int32_t> elements;   // heap idxs (boxed primitives or class refs)
+    std::vector<int32_t> elements;   // heap idxs (boxed primitives, class refs, or raw array handles)
 };
 
 std::vector<ListSlot>   m_listStore;       // index = __handle - 1 (0 reserved for null)
@@ -128,8 +137,11 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 
 All elements are heap indices uniformly — primitive T values are boxed
 at the call site (`OP_Box typeKind` before `OP_CallMethod`), class-T
-values pass through unchanged. This trades storage density for
-uniformity: GC tracing has no per-element kind check.
+and array-T values pass through unchanged. The GC does dispatch on each
+element's runtime slot kind when tracing: reference-kind elements
+(class/struct/array/func) are marked and pushed to the worklist, so
+their children — class fields or, for array elements, the array's own
+elements by elemKind — are traced too.
 
 **Intrinsics (9 new IDs).** List methods are dispatched through
 `OP_CallMethod` like any class method, but the function backing each
@@ -138,7 +150,7 @@ name is a no-op stub that triggers `ExecuteIntrinsic`:
 | Intrinsic ID            | Behavior                                                |
 |-------------------------|---------------------------------------------------------|
 | `INTR_List_Ctor`        | Allocate ListSlot, store idx in `this.__handle`         |
-| `INTR_List_Add`         | Read boxed value heap idx from param, push_back         |
+| `INTR_List_Add`         | Read value heap idx from param (boxed primitive or raw handle), push_back |
 | `INTR_List_Get`         | Read int idx, return elements[idx]                      |
 | `INTR_List_Set`         | Read int idx + heap idx, replace elements[idx]          |
 | `INTR_List_Length`      | Return elements.size()                                  |
@@ -151,7 +163,11 @@ name is a no-op stub that triggers `ExecuteIntrinsic`:
 when it encounters an instance whose slot[0] (`classIdx`) equals the
 cached `m_listClassIdx`, it additionally reads `__handle` (slot[1]) and
 marks every entry in `m_listStore[__handle-1].elements` as a heap
-reference. Out-of-bounds and free indices are skipped.
+reference, pushing reference-kind entries (class/struct/array/func)
+onto the worklist so their children are traced — an array element
+pushed here reaches the worklist's `RTK_Array` arm, which traces the
+array's own elements by elemKind (this is how `List<Point[]>` keeps
+the `Point` records alive). Out-of-bounds and free indices are skipped.
 
 SweepPhase mirrors this: when a List instance is collected, its
 `__handle` is pushed onto `m_listFreeList` for reuse by the next

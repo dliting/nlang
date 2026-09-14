@@ -44,6 +44,22 @@ Supported iterables:
 `Dict` — an lvalue or a container-valued call result both work. Any other
 source (an `int` local, a `string`, a non-container call result) is a
 compile error: "the foreach source must be an array, List, or Dict".
+An **array-valued** call result (`li.get(0)` where `li : List<int[]>`)
+is rejected separately — "the foreach source is an array value; assign
+it to a local first" — because the value masquerades as its element
+type; iterate the container itself, or bind the result to a typed
+local first.
+
+**Loop variable typing**: the declared type must match the element type
+**exactly** — same underlying field and same arrayness. The variable may
+be array-typed: `foreach (int[] row in grid)` where `grid : List<int[]>`
+binds each element as an array. Mismatches in either dimension are
+compile errors: `foreach (int r in grid)` (element is an array, the
+variable is not) and `foreach (float x in nums)` where
+`nums : List<int>` (numeric widening) both fail with "the foreach
+variable type does not match the element type". Array-typed declarations
+also work as `for` initializers (`for (int[] x = arr; ...)`) — the
+initializer takes effect and the body can reference the variable.
 
 `break` and `continue` work identically to `for`. The loop variable is
 **function-scoped** (NLang has no block scope, consistent with `for`):

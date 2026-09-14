@@ -65,7 +65,7 @@ CollectGarbage():
 MarkPhase():
   clear all mark bits
   for each CallFrame:
-    for each LocalDescriptor with typeKind in {RTK_Class, RTK_Struct}:
+    for each LocalDescriptor with typeKind in {RTK_Class, RTK_Struct, RTK_Array, RTK_Func}:
       read heap index from frame.locals + ld.offset
       if valid and not marked: set mark bit, push to worklist
     if pResult has reference return type:
@@ -75,6 +75,7 @@ MarkPhase():
     pop entry from worklist
     if class: for each field, push unmarked reference children
     if struct: for each field, push unmarked reference children
+    if array: push unmarked element records whose elemKind is a reference kind
 
 SweepPhase():
   clear free list
@@ -89,7 +90,7 @@ SweepPhase():
 
 - **Array-typed fields are declared, not inferred**: array struct/class
   fields store `RTK_Array` as their `fieldTypeKinds` entry in the
-  `.nmod` (semantic floor v1.10). MarkPhase routes class and struct
+  `.nmod` (semantic floor v1.11). MarkPhase routes class and struct
   field references with an explicit declared-kind + runtime-slot-kind
   double condition — `fieldTypeKinds[i] == RTK_Array` paired with the
   slot actually holding an array record — alongside the existing
@@ -101,10 +102,14 @@ SweepPhase():
   are rejected at resolve time by the compiler.
 - **Defensive RTK_Array element arm**: the array branch traces elements
   whose declared `elemKind` is `RTK_Array` (same double condition as
-  the field arms). This arm is unreachable from compilable source today
-  (jagged declarations are rejected; `List<int[]>` elements live in the
-  container store, traced by the List branch) — it is the correctness
-  base for future or externally produced `.nmod` paths.
+  the field arms). Unreachable from compilable source today (jagged
+  declarations are rejected) — it is the correctness base for future
+  or externally produced `.nmod` paths. Array-typed *container*
+  elements (`List<int[]>`, `Dict` keys/values) are traced by the
+  container branch instead: the List/Dict arm marks and pushes
+  reference-kind entries, so an array element reaches the worklist's
+  `RTK_Array` arm, which traces the array's own elements by elemKind
+  (this is how `List<Point[]>` keeps the `Point` records alive).
 
 ### Free List Integration
 

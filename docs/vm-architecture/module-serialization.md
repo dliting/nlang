@@ -6,7 +6,7 @@ Compiled modules are saved as `.nmod` files with this layout:
 ```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
-uint16 minorVer = 10
+uint16 minorVer = 11
 string moduleName
 string[] stringConstants
 function[] functions
@@ -14,7 +14,15 @@ struct[] structs
 class[] classes
 ```
 
-**Version history**: v1.10 (array redesign B) — a semantic floor, not a
+**Version history**: v1.11 (generic array type arguments) — a semantic
+floor, not a layout change: no new serialized fields, but array-typed
+elements of generic containers (`List<T[]>`, `Dict` keys/values) now
+flow as raw array handles with no boxing, and `foreach` loop variables
+over them occupy `RTK_Array` local slots the GC traces. A v1.10 module
+from an older ncc boxes those elements into primitive slots the GC
+never traces, so the loader refuses minor < 11 outright — older
+modules must be recompiled.
+v1.10 (array redesign B) — a semantic floor, not a
 layout change: no new serialized fields, but array struct/class fields
 now store `RTK_Array` as their `fieldTypeKinds` entry (previously the
 element kind was stored), and the GC's field tracing and struct

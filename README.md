@@ -184,7 +184,7 @@ Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
 (`docs/language-spec/declarations.md`, Import Declaration).
 
-Compiled modules use a versioned binary format, currently v1.10. The
+Compiled modules use a versioned binary format, currently v1.11. The
 loader enforces a compatibility floor: after a floor bump, older
 `.nmod` files are rejected as outdated and must be recompiled with the
 matching `ncc`. The format history (what each version added or changed)

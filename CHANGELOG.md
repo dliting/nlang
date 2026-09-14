@@ -4,6 +4,30 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0]
+
+### Added
+
+- Generic type arguments may be array types (`List<int[]>`,
+  `Dict<int[], int>`): instantiation keys carry per-argument
+  array-ness, array-typed elements flow as raw GC-traced handles
+  instead of boxed primitives, and `Func` signature matching and
+  `Dict.keys()` preserve array-ness across the erasure boundary.
+- `foreach` and `for` loop variables may be array-typed
+  (`foreach (int[] row in grid)`); the loop-variable type must match
+  the element type exactly — same field and same arrayness, no numeric
+  widening (`foreach_var_mismatch_reject`, `foreach_var_widen_reject`).
+- Array element opcodes (`OP_LoadElement`, `OP_StoreElement`,
+  `OP_ArrayLength`) validate the base slot kind at run time and fail
+  with a named diagnostic instead of reading a dangling handle.
+
+### Changed
+
+- `.nmod` format floor raised to v1.10 → v1.11: a semantic change in
+  generic container element storage (raw traced handles, no primitive
+  boxing); older modules are rejected as outdated and must be
+  recompiled.
+
 ## [0.6.1] - 2026-09-12
 
 ### Changed
