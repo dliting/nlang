@@ -1,0 +1,10 @@
+//foreach (int r in List<int[]>) — the element is an array and the loop
+//var is not: same element field (int) but arrayness differs, so the old
+//field-identity check alone would wave it through and the loop would
+//read a raw handle into an int slot.
+int main() {
+	List<int[]> xs = new List<int[]>();
+	foreach (int r in xs) {
+	}
+	return 0;
+}

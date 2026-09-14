@@ -1,0 +1,14 @@
+//for-init with an array-typed declaration (D8): init must take effect
+//and the body must be able to reference the variable (today the init
+//is silently dropped).
+import io;
+int main() {
+    int[] a = new int[2]; a[0] = 1; a[1] = 2;
+    int total = 0;
+    for (int[] x = a; x.length > 0; ) {
+        total = total + x[0];
+        break;
+    }
+    io.print(total.toString());    // 1 -- init effective + body reference
+    return 0;
+}

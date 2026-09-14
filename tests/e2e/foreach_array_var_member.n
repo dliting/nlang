@@ -1,0 +1,15 @@
+//foreach array-typed loop variable with a member source (h.xs).
+import io;
+class Holder { List<int[]> xs; public int Holder() { xs = new List<int[]>(); return 0; } }
+int main() {
+    int[] a = new int[2]; a[0] = 1; a[1] = 2;
+    int[] b = new int[2]; b[0] = 3; b[1] = 4;
+    Holder h = new Holder();
+    h.xs.add(a); h.xs.add(b);
+    int sum = 0;
+    foreach (int[] row in h.xs) {
+        sum = sum + row[0] + row[1];
+    }
+    io.print(sum.toString());      // 10
+    return 0;
+}

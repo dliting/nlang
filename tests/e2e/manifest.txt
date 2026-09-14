@@ -1027,3 +1027,14 @@ gc_survive_list_point_array 0 23
 dict_value_array_roundtrip 0 4.5
 list_string_array_roundtrip 0 abc
 initlist_array_elem 0 7
+foreach_array_var_list 0 10
+foreach_array_var_member 0 10
+foreach_dict_array_key 0 10
+forinit_array_local 0 1
+keys_explicit_typed 0 9
+generic_key_coexist 49
+# --- C-period Task 6: exact-match gate + declaration-side jagged pin ---
+foreach_var_mismatch_reject compile_error does not match the element type
+foreach_var_widen_reject compile_error does not match the element type
+generic_arg_jagged_reject compile_error jagged arrays
+alias_array_typearg 0 11

@@ -1,0 +1,12 @@
+//A type alias to an array type used as a generic type argument — the
+//array-ness must survive the alias indirection into GenericArrayFlags.
+import io;
+using Ints = int[];
+int main() {
+	List<Ints> xs = new List<Ints>();
+	int[] a = new int[2]; a[0] = 5; a[1] = 6;
+	xs.add(a);
+	int[] b = xs.get(0);
+	io.print((b[0] + b[1]).toString());   // 11
+	return 0;
+}

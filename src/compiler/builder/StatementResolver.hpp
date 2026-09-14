@@ -682,14 +682,16 @@ public:
 
 		if (sn.Init() && sn.Init()->Kind() == NK_LocalDeclStmt) {
 			auto& decl = static_cast<SnLocalDeclStmt&>(*sn.Init());
-			decl.Type()->Accept(*m_pVisitor);
-			//Array redesign B: a jagged for-init (int[][] i) used to
-			//compile through whenever the loop var was never used — the
-			//type resolves via the StatementResolver visitor, where an
-			//SnArrayTypeExpr NEVER resolves (see the note at the top of
-			//Access(SnLocalDeclStmt&)), so the registration block below
-			//is skipped entirely. ArrayTypeDepth is shape-based (Kind
-			//chain), so the gate works on the unresolved chain.
+			//Route the type through ExprResolver, not the StatementResolver
+			//visitor — its Access(SnArrayTypeExpr&) is empty, so an
+			//array-typed for-init (for (int[] x = ...)) would never
+			//resolve and body references die (same trap as
+			//SnLocalDeclStmt above).
+			m_ExprResolver.Resolve(*decl.Type(), *sn.Parent(), *m_pCurrType,
+				ERF_None);
+			//Array redesign B: reject jagged for-init (int[][] i);
+			//ArrayTypeDepth is shape-based (Kind chain) and works whether
+			//or not the type resolved.
 			if (ArrayTypeDepth(decl.Type()) >= 2)
 				m_Env.Log(CLL_Error, decl.Location(),
 					"jagged arrays (T[][]) are not supported");
@@ -830,21 +832,62 @@ public:
 					"the foreach source must be an array, List, or Dict");
 		}
 
-		//2. Resolve declared var type.
-		sn.VarType()->Accept(*m_pVisitor);
-		//Array redesign B: a jagged loop var (foreach (int[][] x in ...))
-		//used to compile through whenever the body never referenced x —
-		//VarType() resolves via the StatementResolver visitor, where an
-		//SnArrayTypeExpr NEVER resolves (see the note at the top of
-		//Access(SnLocalDeclStmt&)), so the registration below is skipped
-		//entirely. ArrayTypeDepth is shape-based (Kind chain), so the
-		//gate works on the unresolved chain.
+		//2. Resolve declared var type. Route through ExprResolver, not
+		//the StatementResolver visitor — its Access(SnArrayTypeExpr&) is
+		//empty, so an array-typed loop var (foreach (int[] row in ...))
+		//would never resolve and body references die with "Cannot
+		//resolve the field" (same trap as SnLocalDeclStmt above).
+		m_ExprResolver.Resolve(*sn.VarType(), *sn.Parent(), *m_pCurrType,
+			ERF_None);
+		//Array redesign B: reject jagged loop vars (foreach (int[][] x in
+		//...)); ArrayTypeDepth is shape-based (Kind chain) and works
+		//whether or not the type resolved.
 		if (ArrayTypeDepth(sn.VarType()) >= 2)
 			m_Env.Log(CLL_Error, sn.VarType()->Location(),
 				"jagged arrays (T[][]) are not supported");
 		SnField *pVarField = nullptr;
 		if (sn.VarType()->IsResolved())
 			pVarField = sn.VarType()->Field();
+
+		//C-period exact-match gate: the loop variable type must match the
+		//source element type — same field pointer AND same arrayness.
+		//Field identity alone waves `foreach (int r in List<int[]>)`
+		//through (both sides resolve to the int field) and the loop then
+		//reads a raw handle into an int slot. Dict sources iterate KEYS:
+		//the element slot is GenericArrayFlags()[0] — the same slot a
+		//List<T> uses, NOT the Dict value slot (flags[1]).
+		if (pVarField && sn.Iterable()->IsResolved())
+		{
+			auto* pSrcType = sn.Iterable()->EvalDataType();
+			SnField *pElemField = nullptr;
+			bool elemIsArray = false;
+			if (sn.Iterable()->IsArrayValued() && pSrcType)
+			{
+				//Plain array source: EvalDataType masquerades as the
+				//element type, and an array's element is never itself an
+				//array (jagged is rejected above).
+				pElemField = pSrcType;
+			}
+			else if (pSrcType && pSrcType->Kind() == NK_ClassDecl)
+			{
+				auto* pGen = static_cast<SnClassDecl*>(pSrcType);
+				if (pGen->IsGenericInstantiation()
+					&& (pGen->BaseName() == "List" || pGen->BaseName() == "Dict")
+					&& pGen->GenericTypeArgs().size()
+						== pGen->GenericArrayFlags().size()
+					&& !pGen->GenericTypeArgs().empty())
+				{
+					pElemField = pGen->GenericTypeArgs()[0];
+					elemIsArray = pGen->GenericArrayFlags()[0] != 0;
+				}
+			}
+			if (pElemField
+				&& (pElemField != pVarField
+					|| elemIsArray != sn.VarType()->IsArrayType()))
+				m_Env.Log(CLL_Error, sn.VarType()->Location(),
+					"the foreach variable type does not match the "
+					"element type");
+		}
 
 		//3. Register loop var in paragraph scope (function-scoped).
 		if (pVarField && pParagraph) {

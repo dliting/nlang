@@ -1,0 +1,15 @@
+//foreach over Dict<K[],V> iterates the array-typed KEYS (identity
+//keying).
+import io;
+int main() {
+    Dict<int[],int> d = new Dict<int[],int>();
+    int[] k1 = new int[2]; k1[0] = 4; k1[1] = 5;
+    int[] k2 = new int[2]; k2[0] = 6; k2[1] = 7;
+    d.set(k1, 10); d.set(k2, 20);
+    int sum = 0;
+    foreach (int[] k in d) {
+        sum = sum + k[0];
+    }
+    io.print(sum.toString());      // 10 (key iteration, identity keys)
+    return 0;
+}

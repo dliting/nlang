@@ -5695,7 +5695,13 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         assert((isArray || isList || isDict)
             && "foreach iterable must be Array, List<T>, or Dict<K,V>");
 
-        uint8_t elemKind = RuntimeTypeKind(pElemType);
+        //C-period hole-②: an array-typed element (List<int[]> / Dict<K[],V>
+        //key iteration) must land in an RTK_Array local slot so the GC
+        //traces the handle; RuntimeTypeKind(pElemType) alone would tag it
+        //with the degraded element kind (EvalDataType masquerade).
+        uint8_t elemKind = elemIsArray
+            ? static_cast<uint8_t>(RTK_Array)
+            : RuntimeTypeKind(pElemType);
 
         //--- 1. Allocate hidden locals BEFORE LoopContext push -------------
         //AllocLocal dedupes by name, so uniquify hidden locals via per-function

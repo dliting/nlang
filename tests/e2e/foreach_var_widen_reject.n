@@ -1,0 +1,8 @@
+//foreach (float r in List<int>) — the loop variable type must match the
+//element type exactly; numeric widening is not applied.
+int main() {
+	List<int> xs = new List<int>();
+	foreach (float r in xs) {
+	}
+	return 0;
+}

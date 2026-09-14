@@ -1,0 +1,16 @@
+//foreach with an array-typed loop variable over List<T[]>: hole-2
+//routing (array type exprs never resolved through the statement
+//visitor's empty Access(SnArrayTypeExpr&)).
+import io;
+int main() {
+    int[] a = new int[2]; a[0] = 1; a[1] = 2;
+    int[] b = new int[2]; b[0] = 3; b[1] = 4;
+    List<int[]> li = new List<int[]>();
+    li.add(a); li.add(b);
+    int sum = 0;
+    foreach (int[] row in li) {
+        sum = sum + row[0] + row[1];
+    }
+    io.print(sum.toString());      // 10
+    return 0;
+}

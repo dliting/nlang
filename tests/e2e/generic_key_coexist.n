@@ -1,0 +1,19 @@
+//Coexistence: List<int> and List<int[]> in one TU must not cross-wire
+//after the key split (today the shared instance + boxing coincidence
+//keeps both correct). Body carries the chained-member carrier via an
+//intermediate local (direct ".length.toString()" chains crash ncc --
+//known compiler bug, see backlog).
+import io;
+int main() {
+    List<int> plain = new List<int>();
+    plain.add(7); plain.add(8);
+    int[] a = new int[2]; a[0] = 40; a[1] = 41;
+    List<int[]> arrs = new List<int[]>();
+    arrs.add(a);
+    io.print(plain.get(0).toString());       // 7
+    int n = arrs.get(0).length;              // 2 -- chained-member carrier
+    io.print(n.toString());
+    io.print(arrs.indexOf(a).toString());    // 0  -- identity equality
+    io.print(arrs.contains(a).toString());   // 1
+    return plain.get(1) + arrs.get(0)[1];    // 8+41=49
+}

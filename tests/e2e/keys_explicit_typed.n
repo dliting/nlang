@@ -1,0 +1,13 @@
+//Explicit typed keys() + the combined foreach-over-d.keys() form
+//(invoke source + exact-match gate + unbox skip in one row).
+import io;
+int main() {
+    Dict<int[],int> d = new Dict<int[],int>();
+    int[] k1 = new int[2]; k1[0] = 4; k1[1] = 5;
+    d.set(k1, 40);
+    List<int[]> ks = d.keys();
+    int v = ks.get(0)[1];                 // 5
+    foreach (int[] k in d.keys()) { v = v + k[0]; }   // combined form
+    io.print(v.toString());               // 9
+    return 0;
+}
