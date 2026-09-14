@@ -730,6 +730,45 @@ static bool ContainerElemIsArray(SnExpression& baseExpr) {
 	return false;
 }
 
+//C-period single read channel: array-ness of a container's element
+//flow comes from the synthetic instantiation's GenericArrayFlags()
+//mirror — never re-derived from the degraded field. Slot convention
+//follows the container family (VmBackend.cpp:4456-4461 is the codegen
+//twin): List element = flags[0]; Dict VALUE slot = flags[1] (stamp
+//context reads the value flow — NOT the flags[0] key slot used by
+//foreach key iteration; sharing the two would stamp both wrong).
+static bool ElemIsArrayValued(const SnExpression& base)
+{
+	const SnField* f = base.EvalDataType();
+	if (!f || f->Kind() != NK_ClassDecl)
+		return false;
+	auto* pGen = static_cast<const SnClassDecl*>(f);
+	const auto& flags = pGen->GenericArrayFlags();
+	const std::string& family = pGen->BaseName();
+	if (family == "Dict" && flags.size() > 1)
+		return flags[1] != 0;
+	return flags.size() == 1 && flags[0] != 0;   // List<T> element
+}
+
+//C-period: delegate-invoke result (`f(args)` where f : Func<R, P...>).
+//The variable's declared type is the synthetic Func class; the RESULT
+//array-ness is its return slot flags[0] (params occupy the later
+//slots, so the size==1 List convention must not be reused here).
+static bool DelegateReturnIsArray(const SnInvokeExpr& invoke)
+{
+	auto* pVar = invoke.Field();
+	if (!pVar || pVar->Kind() == NK_Function)
+		return false;
+	auto* pFuncClass = pVar->EvalDataType();
+	if (!pFuncClass || pFuncClass->Kind() != NK_ClassDecl)
+		return false;
+	auto* pGen = static_cast<const SnClassDecl*>(pFuncClass);
+	if (!pGen->IsFuncType())
+		return false;
+	const auto& flags = pGen->GenericArrayFlags();
+	return !flags.empty() && flags[0] != 0;
+}
+
 //Array redesign B: stamp the array-valued property on a VALUE
 //expression from its declared/bound type. Called at the binding
 //success sites of the five expression shapes — resolution is
@@ -762,7 +801,7 @@ static void StampArrayValued(SnExpression& expr) {
 					&& member.EvalDataType()->IsArrayType())
 				|| (innerInvoke.CalleeName() == "get"
 					&& member.Outer()
-					&& ContainerElemIsArray(*member.Outer()))
+					&& ElemIsArrayValued(*member.Outer()))
 				|| innerInvoke.IsArrayValued());
 			return;
 		}
@@ -791,11 +830,10 @@ static void StampArrayValued(SnExpression& expr) {
 		//A delegate invoke has no SnFunction callee — Field() carries
 		//the Func-typed variable (BindDelegateInvoke); its RETURN slot
 		//is type argument 0. The stamped EvalDataType is the degraded
-		//element field, so read the declaration flag instead.
+		//element field, so the Func class's flag mirror is the source.
 		expr.SetArrayValued(
 			(pReturnType && pReturnType->IsArrayType())
-			|| (invoke.Field()
-				&& invoke.Field()->ArrayTypeArg() == 0)
+			|| DelegateReturnIsArray(invoke)
 			|| (expr.EvalDataType()
 				&& expr.EvalDataType()->IsArrayType()));
 		return;
@@ -808,7 +846,7 @@ static void StampArrayValued(SnExpression& expr) {
 		//caught here — declaration-form gates reject the common forms).
 		auto& sub = static_cast<SnSubscriptExpr&>(expr);
 		expr.SetArrayValued(
-			(sub.Array() && ContainerElemIsArray(*sub.Array()))
+			(sub.Array() && ElemIsArrayValued(*sub.Array()))
 			|| (expr.EvalDataType()
 				&& expr.EvalDataType()->IsArrayType()));
 		return;
