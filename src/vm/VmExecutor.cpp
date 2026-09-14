@@ -1213,6 +1213,18 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
                 RaiseNlangException(m_nullPtrExcClassIdx,
                                     "NLang VM: null array access");
+            //C-period hole 3: element opcodes are only emitted for
+            //array-typed bases; any other slot kind here is a compiler
+            //invariant violation (canonically a dangling handle after
+            //sweep cleared its kind to 0). Uncatchable by design --
+            //same family as "invalid array type index". Order: after
+            //the range check (protects the m_slotKinds index AND keeps
+            //the catchable null-array-access path unchanged), before
+            //the length read (slot[2] on a cleared record would be a
+            //vector OOB read -- kind must gate it first).
+            if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+                throw std::runtime_error(
+                    "NLang VM: OP_LoadElement expects an array slot");
             auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
             int32_t length = slot[2];
             if (idx < 0 || idx >= length)
@@ -1234,6 +1246,11 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
                 RaiseNlangException(m_nullPtrExcClassIdx,
                                     "NLang VM: null array access");
+            //Same kind gate as OP_LoadElement (hole 3), same ordering:
+            //range check first, then kind, then the length read.
+            if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+                throw std::runtime_error(
+                    "NLang VM: OP_StoreElement expects an array slot");
             auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
             int32_t length = slot[2];
             if (idx < 0 || idx >= length)
@@ -1251,6 +1268,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
                 RaiseNlangException(m_nullPtrExcClassIdx,
                                     "NLang VM: null array access");
+            //Same kind gate as OP_LoadElement (hole 3). No index
+            //operand here, so only the range check precedes it; the
+            //kind must still gate the slot[2] length read.
+            if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+                throw std::runtime_error(
+                    "NLang VM: OP_ArrayLength expects an array slot");
             int32_t len = m_structHeap[static_cast<size_t>(heapIdx)][2];
             std::memcpy(locals + dst, &len, sizeof(len));
             break;

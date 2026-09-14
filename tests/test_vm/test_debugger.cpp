@@ -419,6 +419,53 @@ void test_gc_tracks_class_elements_through_arrays()
     PASS();
 }
 
+// --- C-period hole 3: element-opcode slot kind checks ---
+//The three element opcodes are only emitted for array-typed bases, so
+//a non-array slot kind at any of them is a compiler invariant
+//violation. The one constructible shape is the generic-erasure
+//dangling handle: List<int[]> boxes elements under an RTK_Int32 tag,
+//so MarkPhase traces the box but never the wrapped RTK_Array record;
+//after churn the sweep clears its kind to 0, and the kept element's
+//read reaches OP_LoadElement on a non-array slot. Before the kind
+//checks this survived as a ghost read on stale bytes (probe 2026-09:
+//3/3 runs returned 40 without throwing).
+void test_array_opcode_kind_check()
+{
+    TEST(array_opcode_kind_check);
+    BuildOutcome b = buildSource("arr_kind_check",
+        "int[] mkArr(int v) {\n"
+        "    int[] a = new int[2];\n"
+        "    a[0] = v;\n"
+        "    a[1] = v + 1;\n"
+        "    return a;\n"
+        "}\n"
+        "int churn() {\n"
+        "    List<int[]> keep = new List<int[]>();\n"
+        "    keep.add(mkArr(40));\n"
+        "    for (int i = 0; i < 3000; i = i + 1) {\n"
+        "        List<int[]> tmp = new List<int[]>();\n"
+        "        tmp.add(mkArr(i));\n"
+        "    }\n"
+        "    return keep.get(0)[0];\n"
+        "}\n"
+        "int main() { return churn(); }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("arr_kind_check");
+    VmExecutor exec;
+    bool threw = false;
+    std::string msg;
+    try {
+        exec.Execute(mod);
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        msg = e.what();
+    }
+    CHECK(threw, "kind-blind element read must throw");
+    CHECK(msg.find("expects an array slot") != std::string::npos,
+        "named runtime error, got: " + msg);
+    PASS();
+}
+
 // --- Task 2: hooks + read-only view ---
 
 //Records every checkpoint as (line, depth) pairs.
@@ -2078,6 +2125,9 @@ int main()
     //Task 6 GC stress pins (real allocation + real collection).
     test_gc_tracks_class_elements_through_lists();
     test_gc_tracks_class_elements_through_arrays();
+
+    //C-period hole 3: element-opcode slot kind checks.
+    test_array_opcode_kind_check();
 
     test_hooks_line_sequence();
     test_hooks_call_depths();
