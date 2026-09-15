@@ -79,6 +79,23 @@ target_include_directories(nide_recent
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# SettingsStore: persisted Tools > Options values (language, build
+# output directory). Own (tiny) library so the GUI-less unit test
+# links Core only, without Widgets.
+add_library(nide_settings
+    SettingsStore.cpp
+)
+
+target_link_libraries(nide_settings
+    PUBLIC
+        Qt5::Core
+)
+
+target_include_directories(nide_settings
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # DebugClient/DebugProtocolCodec: line-protocol codec + session client
 # for `ndb --machine`. Own (tiny) library so the GUI-less unit tests can
 # link Core only. Like the engine tool it drives, this side deliberately
@@ -153,6 +170,7 @@ target_link_libraries(nide_mainwindow
         nide_compilelog
         nide_dialogs
         nide_recent
+        nide_settings
         nide_debug  # DebugClient: the ndb --machine session driver
         nlang_version   # generated NLANG_VERSION macros (VERSION file)
 )

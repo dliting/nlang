@@ -297,6 +297,23 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(recentstore_tests test_recentstore)
 
+    # SettingsStore unit tests: pure state + resolvers, no widgets.
+    add_executable(test_settingsstore
+        test_nide/test_settingsstore.cpp
+    )
+    target_link_libraries(test_settingsstore
+        PRIVATE
+            nide_settings
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_settingsstore POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_settingsstore>)
+    endif()
+    nlang_add_qtest(settingsstore_tests test_settingsstore)
+
     # Debug-protocol codec unit tests: the Qt-side mirror of the engine
     # codec (MachineFrontEnd.h documents the wire format; nide_debug
     # deliberately reimplements it, and the identical vectors in
