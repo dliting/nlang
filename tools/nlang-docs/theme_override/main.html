@@ -1,0 +1,16 @@
+<!-- Language switch v1: a header link to the OTHER tree's home page
+     (same-page switching stays a future upgrade). The relative depth
+     is computed from page.url because file:// has no server root --
+     an absolute path would break the nide embedded help browser.
+     Both language configs set extra.lang_switch_target/label; the
+     guard keeps the override inert for any config that does not. -->
+{% extends "base.html" %}
+{% block header %}
+  {{ super() }}
+  {% if config.extra and config.extra.lang_switch_target %}
+    {% set ups = (page.url.count('/') + 1) if page.url else 1 %}
+    <a class="nlang-lang-switch"
+       href="{{ '../' * ups }}{{ config.extra.lang_switch_target }}/index.html"
+       hreflang="{{ config.extra.lang_switch_target }}">{{ config.extra.lang_switch_label }}</a>
+  {% endif %}
+{% endblock header %}

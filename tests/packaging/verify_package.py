@@ -257,7 +257,25 @@ def main():
             if r.stderr:
                 sys.stderr.write(r.stderr.decode('utf-8', 'replace'))
             print(f'docs-site audit: OK ({tree}/ tree, nlang_docs check '
-                  'passed)')
+                  'passed')
+
+        # Every generated page carries the language-switch anchor (the
+        # link target itself is depth-dependent; presence is the gate).
+        for tree in ('zh', 'en'):
+            tree_dir = os.path.join(pkg, 'docs', 'site', tree)
+            checked = 0
+            for root, _dirs, files in os.walk(tree_dir):
+                for name in files:
+                    if not name.endswith('.html'):
+                        continue
+                    full = os.path.join(root, name)
+                    with open(full, encoding='utf-8') as handle:
+                        if 'nlang-lang-switch' not in handle.read():
+                            fail(f'no language switch on {full}')
+                    checked += 1
+            if checked == 0:
+                fail(f'docs/site/{tree} has no pages')
+        print('lang-switch: OK (anchor present on every shipped page)')
 
     print('PASS')
 

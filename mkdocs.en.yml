@@ -9,6 +9,7 @@ site_name: NLang Documentation
 docs_dir: docs/en
 theme:
   language: en
+  custom_dir: tools/nlang-docs/theme_override
 nav:
   - Home: index.md
   - Language Specification:
@@ -41,3 +42,8 @@ nav:
       - Standard Library Intrinsics: vm-architecture/standard-library-intrinsics.md
       - First-Class Function Values: vm-architecture/first-class-function-values.md
       - Known Limitations: vm-architecture/known-limitations.md
+#The per-tree header link to the other tree's home page (rendered by
+#theme_override main.html; its guard keeps absent keys inert).
+extra:
+  lang_switch_target: zh
+  lang_switch_label: 中文

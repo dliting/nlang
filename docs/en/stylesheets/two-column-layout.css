@@ -20,3 +20,18 @@ content column reclaim the freed width instead of leaving dead space.
 .md-grid {
     max-width: 1440px;
 }
+
+/* Per-tree language switch link (theme_override main.html): pinned
+   to the viewport corner so it survives material's header layout;
+   right offset clears the theme's search toggle. */
+.nlang-lang-switch {
+    position: fixed;
+    top: 8px;
+    right: 3.5em;
+    z-index: 1000;
+    padding: 4px 10px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    font-size: 14px;
+    opacity: 0.9;
+}
