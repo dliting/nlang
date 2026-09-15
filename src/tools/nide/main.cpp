@@ -1,5 +1,6 @@
 /*--- main.cpp - nide entry point ---*/
 #include "MainWindow.h"
+#include "SettingsStore.h"
 #include "TranslationLoader.h"
 
 #include <QApplication>
@@ -12,8 +13,11 @@ int main(int argc, char* argv[]) {
     //Layout persistence keys QSettings by organization + application.
     QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
     QCoreApplication::setApplicationName(QStringLiteral("nide"));
-    //Catalogs are embedded (qrc); falls back to the authored strings.
-    nlang::installTranslations(&app);
+    //Catalogs are embedded (qrc); the Tools > Options language picks
+    //the locale ("system" keeps today's behavior). Falls back to the
+    //authored strings.
+    nlang::installTranslations(
+        &app, nlang::SettingsStore::persisted().languageLocale());
     nlang::MainWindow window;
     window.showMaximized();
     return app.exec();
