@@ -304,6 +304,7 @@ private:
     //Auto-build first when the nmod is missing or older than the source,
     //then run it with nvm from the temp dir.
     void runStandaloneFile(const QString& filePath);
+    //The global build output directory when set, else
     //%TEMP%/nlang-nide/<stem>.nmod -- one slot per file stem.
     QString standaloneNmodPath(const QString& filePath) const;
     //Bring the output pane up (it may be toggled off) and switch to the
@@ -348,8 +349,9 @@ private:
     //implicit paragraph breaks would corrupt the output).
     void appendExecuteOutput(const QString& text);
 
-    //outputDir ("" = the project directory) + name + ".nmod"; the same
-    //path is passed to ncc -o, so build output and run target agree.
+    //outputDir wins; else the global build output directory; else the
+    //project directory + name + ".nmod". The same path is passed to
+    //ncc -o, so build output and run target agree.
     QString outputFilePath(const ProjectNode& project) const;
     //ncc.exe/nvm.exe/ndb.exe live next to nide.exe.
     QString toolPath(const QString& toolName) const;

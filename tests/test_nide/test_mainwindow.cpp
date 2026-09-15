@@ -447,6 +447,9 @@ private slots:
         //nide registry entry.
         QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
         QCoreApplication::setApplicationName(QStringLiteral("nide-test"));
+        //A build-output test that fails mid-way leaves the key behind
+        //(QVERIFY returns early): start every run from the unset state.
+        QSettings().remove("ide/buildOutputDir");
     }
 
     //--- initial state ---
@@ -1318,6 +1321,51 @@ private slots:
             .filePath("nlang-nide/solo_build.nmod");
         QVERIFY(QFileInfo::exists(nmod));
         QFile::remove(nmod);  // scratch cleanup
+    }
+
+    void testBuildStandaloneHonorsBuildOutputDir() {
+        //The global build output directory redirects the standalone
+        //.nmod slot (org/app are pinned to NLang/nide-test in
+        //initTestCase, so this QSettings is test-local).
+        QTemporaryDir outDir;
+        QSettings settings;
+        settings.setValue("ide/buildOutputDir", outDir.path());
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo_out.n");
+        writeFile(path, kMainSource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actBuild")->trigger();  // synchronous QProcess
+
+        const QString nmod = QDir(outDir.path()).filePath("solo_out.nmod");
+        QVERIFY(QFileInfo::exists(nmod));
+        QFile::remove(nmod);
+        settings.remove("ide/buildOutputDir");
+    }
+
+    void testBuildProjectHonorsBuildOutputDir() {
+        QTemporaryDir outDir;
+        QSettings settings;
+        settings.setValue("ide/buildOutputDir", outDir.path());
+        MainWindow window;
+        QTemporaryDir dir;
+
+        inExec([&] { acceptProjectDialog("App", dir.path()); });
+        act(window, "actNewProject")->trigger();
+        inExec([&] { acceptNewFileDialog("main.n"); });
+        act(window, "actAddNewFile")->trigger();
+        currentCode(window)->setPlainText(kMainSource);
+        act(window, "actBuild")->trigger();
+
+        //Unset .nproj outputDir falls back to the global directory.
+        const QString nmod = QDir(outDir.path()).filePath("App.nmod");
+        QVERIFY(QFileInfo::exists(nmod));
+        QCOMPARE(window.statusBar()->currentMessage(),
+                 QString("Build succeeded"));
+        QFile::remove(nmod);
+        QFile::remove(QDir(dir.path()).filePath("App.nproj"));
+        settings.remove("ide/buildOutputDir");
     }
 
     void testBuildStandaloneDiagnosticsReachOutput() {

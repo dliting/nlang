@@ -10,6 +10,7 @@
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
 #include "RecentStore.h"
+#include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 #include "FileEditor.h"
 
@@ -1335,20 +1336,23 @@ void MainWindow::onExecFinished(int exitCode, QProcess::ExitStatus status) {
 }
 
 QString MainWindow::outputFilePath(const ProjectNode& project) const {
-    //Empty outputDir = the project directory (the .nproj default).
-    const QString dir = project.outputDir().isEmpty()
-        ? project.projectDir()
-        : project.absolutePathOf(project.outputDir());
-    return QDir(dir).filePath(project.name() + ".nmod");
+    //Explicit .nproj outputDir wins; the global build output directory
+    //(Tools > Options) applies when unset; the project directory
+    //remains the default (the .nproj default).
+    return SettingsStore::resolveProjectNmodPath(
+        project.outputDir(), project.projectDir(),
+        SettingsStore::persisted().buildOutputDir(), project.name());
 }
 
 QString MainWindow::standaloneNmodPath(const QString& filePath) const {
-    //Per-user temp area: the examples dir may be read-only (installed
-    //layout) and we never write next to the source.
-    const QString dir = QDir(QDir::temp()).filePath("nlang-nide");
-    QDir().mkpath(dir);
-    return QDir(dir).filePath(
-        QFileInfo(filePath).completeBaseName() + ".nmod");
+    //The global build output directory redirects the per-stem slot;
+    //unset keeps the per-user temp area (the examples dir may be
+    //read-only in the installed layout, and we never write next to
+    //the source).
+    const QString path = SettingsStore::resolveStandaloneNmodPath(
+        SettingsStore::persisted().buildOutputDir(), filePath);
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    return path;
 }
 
 QString MainWindow::toolPath(const QString& toolName) const {
