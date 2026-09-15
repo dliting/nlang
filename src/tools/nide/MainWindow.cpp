@@ -10,6 +10,7 @@
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
 #include "RecentStore.h"
+#include "SettingsDialog.h"
 #include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 #include "FileEditor.h"
@@ -1389,6 +1390,28 @@ void MainWindow::locateSource(const QString& filePath, int line,
     code->setTextCursor(cursor);
     code->ensureCursorVisible();
     code->setFocus();
+}
+
+//--- 工具 ---
+
+void MainWindow::on_actToolsOptions_triggered() {
+    const SettingsStore stored = SettingsStore::persisted();
+    SettingsDialog dialog(this);
+    dialog.init(stored.language(), stored.buildOutputDir());
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    SettingsStore updated = stored;
+    updated.setLanguage(dialog.language());
+    updated.setBuildOutputDir(dialog.buildOutputDir());
+    updated.persist();
+    //The catalogs install once at startup, so a language change needs
+    //a restart (no per-widget retranslate pass exists); the build
+    //output directory applies from the next build on.
+    if (updated.language() != stored.language())
+        QMessageBox::information(
+            this, tr("Settings"),
+            tr("The language change takes effect after restarting "
+               "NLang IDE."));
 }
 
 //--- view / help ---

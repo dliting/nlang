@@ -418,6 +418,12 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
     <addaction name="separator"/>
     <addaction name="actViewToolBar"/>
    </widget>
+   <widget class="QMenu" name="menuTools">
+    <property name="title">
+     <string>工具(&amp;T)</string>
+    </property>
+    <addaction name="actToolsOptions"/>
+   </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
      <string>帮助(&amp;H)</string>
@@ -433,6 +439,7 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    <addaction name="menuProject"/>
    <addaction name="menuBuild"/>
    <addaction name="menuRun"/>
+   <addaction name="menuTools"/>
    <addaction name="menuHelp"/>
   </widget>
   <widget class="QToolBar" name="mainToolBar">
@@ -848,6 +855,14 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
    <property name="text">
     <string>工具栏</string>
+   </property>
+  </action>
+  <action name="actToolsOptions">
+   <property name="text">
+    <string>选项(&amp;O)...</string>
+   </property>
+   <property name="toolTip">
+    <string>选项</string>
    </property>
   </action>
   <action name="actHelpAbout">

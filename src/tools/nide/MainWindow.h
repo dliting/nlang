@@ -145,6 +145,9 @@ private slots:
     void on_actToggleBreakpoint_triggered();
     void on_chkBreakOnThrow_toggled(bool checked);
 
+    //--- 工具 ---
+    void on_actToolsOptions_triggered();
+
     //--- 视图 / 帮助 ---
     void on_actViewSolution_triggered(bool checked);
     void on_actViewCodeEditor_triggered(bool checked);

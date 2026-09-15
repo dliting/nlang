@@ -1,9 +1,11 @@
-/*--- test_dialogs.cpp - NewFileDialog / ProjectPropDialog unit tests ---*/
+/*--- test_dialogs.cpp - nide dialog unit tests ---*/
 #include "NewFileDialog.h"
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
+#include "SettingsDialog.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -329,6 +331,33 @@ private slots:
         QVERIFY(nameReadOnly);
         QVERIFY(dirReadOnly);
         QVERIFY(!browseEnabled);
+    }
+
+    //--- SettingsDialog ---
+
+    void testSettingsDialogSeedsAndEchoes() {
+        SettingsDialog dialog;
+        dialog.init("system", "");
+        QComboBox* combo =
+            dialog.findChild<QComboBox*>("cmbLanguage");
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 3);
+        QCOMPARE(dialog.language(), QString("system"));
+        QVERIFY(dialog.buildOutputDir().isEmpty());
+        //Unknown seeds fall back to system, never an unset combo.
+        dialog.init("klingon", "D:/out");
+        QCOMPARE(dialog.language(), QString("system"));
+        QCOMPARE(dialog.buildOutputDir(), QString("D:/out"));
+    }
+
+    void testSettingsDialogReturnsSelectedValues() {
+        SettingsDialog dialog;
+        dialog.init("system", "");
+        dialog.findChild<QComboBox*>("cmbLanguage")->setCurrentIndex(1);
+        dialog.findChild<QLineEdit*>("edtBuildOutputDir")
+            ->setText("  D:/out  ");
+        QCOMPARE(dialog.language(), QString("zh"));
+        QCOMPARE(dialog.buildOutputDir(), QString("D:/out"));  // trimmed
     }
 };
 

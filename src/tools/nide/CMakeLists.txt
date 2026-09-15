@@ -117,16 +117,18 @@ target_include_directories(nide_debug
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Dialogs library -- new-file and project-properties forms. The .ui
-# files ride along as target sources so AUTOUIC generates ui_*.h.
-# AUTOUIC matches an #include "ui_Foo.h" against Foo.ui in the source
-# file's directory by default; ours sit in ui/, so point the search
-# there.
+# Dialogs library -- new-file, project-properties and settings forms.
+# The .ui files ride along as target sources so AUTOUIC generates
+# ui_*.h. AUTOUIC matches an #include "ui_Foo.h" against Foo.ui in the
+# source file's directory by default; ours sit in ui/, so point the
+# search there.
 add_library(nide_dialogs
     NewFileDialog.cpp
     ProjectPropDialog.cpp
+    SettingsDialog.cpp
     ui/NewFileDialog.ui
     ui/ProjectPropDialog.ui
+    ui/SettingsDialog.ui
 )
 
 set_target_properties(nide_dialogs PROPERTIES
@@ -137,6 +139,7 @@ target_link_libraries(nide_dialogs
     PUBLIC
         Qt5::Widgets
         nide_projectmodel
+        nide_settings  # SettingsDialog seeds the LANGUAGE_* item values
 )
 
 target_include_directories(nide_dialogs

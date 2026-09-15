@@ -13,6 +13,7 @@
 #include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QDialog>
 #include <QDir>
 #include <QDockWidget>
@@ -1366,6 +1367,41 @@ private slots:
         QFile::remove(nmod);
         QFile::remove(QDir(dir.path()).filePath("App.nproj"));
         settings.remove("ide/buildOutputDir");
+    }
+
+    //--- Tools > Options ---
+
+    void testToolsOptionsPersistsSettings() {
+        MainWindow window;
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("ide");
+        //Two modals: accept the Options dialog, then dismiss the restart notice.
+        inExecSteps2(
+            [&] {
+                QDialog* dialog = qobject_cast<QDialog*>(
+                    QApplication::activeModalWidget());
+                dialog->findChild<QComboBox*>("cmbLanguage")
+                    ->setCurrentIndex(2);  // data "en"
+                acceptDialog(dialog);
+            },
+            [] { answerMessageBox(QMessageBox::Ok); });
+        act(window, "actToolsOptions")->trigger();
+        QCOMPARE(QSettings().value("ide/language").toString(),
+                 QString("en"));
+        settings.remove("ide");
+    }
+
+    void testToolsOptionsRejectPersistsNothing() {
+        MainWindow window;
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("ide");
+        inExec([&] {
+            qobject_cast<QDialog*>(QApplication::activeModalWidget())
+                ->reject();
+        });
+        act(window, "actToolsOptions")->trigger();
+        QVERIFY(!settings.contains("ide/language"));
+        settings.remove("ide");
     }
 
     void testBuildStandaloneDiagnosticsReachOutput() {
