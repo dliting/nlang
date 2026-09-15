@@ -277,10 +277,13 @@ the layout to a scratch directory, pins Qt's search paths to it via
 
 ## Documentation Site
 
-The user manual (`docs/*.md`) is rendered into a static site by the CMake
-target `nlang_docs` (on by default, `-DNLANG_BUILD_DOCS=OFF` to skip) into
-`<build>/docs/site/`; the IDE's Help menu shows that directory in its
-embedded viewer. Toolchain versions are pinned in
+The bilingual user manual (`docs/zh/` and `docs/en/`, one mkdocs config
+per tree, both inheriting `mkdocs.base.yml`) is rendered into a static
+site by the CMake target `nlang_docs` (on by default,
+`-DNLANG_BUILD_DOCS=OFF` to skip), merged under `<build>/docs/site/{zh,en}`
+behind a language-picking landing page (`docs/site/index.html`); the
+IDE's Help menu opens pages in the tree matching its language setting.
+Toolchain versions are pinned in
 `tools/docs-requirements.txt` (`pip install -r tools/docs-requirements.txt`,
 then configure with `-DNLANG_DOCS_PYTHON=<interpreter>`).
 
@@ -291,23 +294,27 @@ not installed — run it straight from the source tree via `PYTHONPATH`
 uses):
 
 ```bash
-# Iteration preview (plain mkdocs live-reload server)
-PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.yml
+# Iteration preview (plain mkdocs live-reload server; pick a tree)
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.zh.yml
 
-# What the CMake target runs: mkdocs build --strict, the offline-search
-# inlining, then the audits below
+# What the CMake target runs per tree (for BOTH mkdocs.zh.yml and
+# mkdocs.en.yml): mkdocs build --strict, the offline-search inlining and
+# the snippet audit -- the site audit is deferred until both trees are
+# built (they cross-link each other), then `check` runs once per tree
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
-    --config mkdocs.yml --site-dir build/docs/site \
+    --config mkdocs.zh.yml --site-dir build/docs/site/zh \
+    --defer-site-audit \
     --ncc build/src/tools/ncc/Release/ncc.exe \
     --nvm build/src/tools/nvm/Release/nvm.exe
 
-# Audit an already-generated site (also reused by packaging verification)
+# Audit one tree of an already-generated site (also reused by
+# packaging verification)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
-    --site-dir build/docs/site --config mkdocs.yml
+    --site-dir build/docs/site/zh --config mkdocs.zh.yml
 
 # Audit one page's ```nlang snippets standalone (compile + run + exit code)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \
-    --doc docs/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
+    --doc docs/zh/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
 ```
 
 `build` chains four stages: the mkdocs build, offline search inlining, the
@@ -326,7 +333,7 @@ the inlining — see `tools/nlang-docs/src/nlang_docs/offline_search.py`).
 The `check` audit enforces that shape: internal
 links must resolve to existing `.html` files, `#fragments` must exist,
 directory-form links are rejected, the set of built pages must equal
-the `nav` of the `mkdocs.yml` passed via `--config` (missing and
+the `nav` of the per-tree config passed via `--config` (missing and
 unreachable pages both fail), and no `script[src]`/`link[href]` may
 reference http(s) — the site must load with no network at all. Unit
 tests: `pytest tools/nlang-docs/tests` (also wired into ctest as

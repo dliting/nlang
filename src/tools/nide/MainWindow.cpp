@@ -1456,16 +1456,28 @@ const int MAX_DOC_SITE_HOPS = 6;
 } // namespace
 
 QString MainWindow::locateHelpPage(const QString& documentPagePath) {
-    QDir dir = QCoreApplication::applicationDirPath();
-    for (int hop = 0; hop < MAX_DOC_SITE_HOPS; ++hop) {
-        //use_directory_urls:false output: flat .html files
-        //(e.g. "language-spec.html", later "language-spec/overview.html").
-        const QString candidate = dir.absoluteFilePath(
-            "docs/site/" + documentPagePath + ".html");
-        if (QFileInfo::exists(candidate))
-            return candidate;
-        if (!dir.cdUp())
-            break;
+    //Tree order: the language setting's tree first, the other
+    //language as a fallback (translations land per section, and even
+    //a fully shipped tree can miss a brand-new page).
+    const QString primary = SettingsStore::persisted().helpTree();
+    const QStringList trees =
+        primary == QLatin1String("zh")
+        ? QStringList{QStringLiteral("zh"), QStringLiteral("en")}
+        : QStringList{QStringLiteral("en"), QStringLiteral("zh")};
+    for (const QString& tree : trees) {
+        QDir dir = QCoreApplication::applicationDirPath();
+        for (int hop = 0; hop < MAX_DOC_SITE_HOPS; ++hop) {
+            //use_directory_urls:false output: flat .html files under
+            //the tree root (e.g. "zh/language-spec/overview.html").
+            const QString candidate = dir.absoluteFilePath(
+                QStringLiteral("docs/site/") + tree
+                + QLatin1Char('/') + documentPagePath
+                + QStringLiteral(".html"));
+            if (QFileInfo::exists(candidate))
+                return candidate;
+            if (!dir.cdUp())
+                break;
+        }
     }
     return QString();
 }

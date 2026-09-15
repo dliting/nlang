@@ -2711,18 +2711,26 @@ private slots:
     //--- help (docs site in the embedded viewer) ---
 
     void testLocateHelpPageFindsDevTreeSite() {
-        // nlang_docs generates <build>/docs/site; the test exe sits at
-        // <build>/tests/Release -- the ancestor walk finds it two hops
-        // up (installed layout: bin/../docs/site, one hop).
-        //use_directory_urls:false output: pages are flat .html files --
-        //directory-form URLs would open directory listings over file://.
-        QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
-                     .endsWith("/language-spec/overview.html"));
+        // nlang_docs generates <build>/docs/site/{zh,en}; the test exe
+        // sits at <build>/tests/Release -- the ancestor walk finds the
+        // trees two hops up. The language setting picks the primary
+        // tree; the other language is the fallback for pages whose
+        // translation has not landed yet (pending-list state).
+        QSettings settings;
+        settings.setValue("ide/language", "zh");
         QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
-                     .endsWith("/getting-started/what-is-nolang.html"));
+                     .endsWith("/zh/getting-started/what-is-nolang.html"));
+        QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
+                     .endsWith("/en/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
-                     .endsWith("/vm-architecture/overview.html"));
+                     .endsWith("/en/vm-architecture/overview.html"));
+        settings.setValue("ide/language", "en");
+        QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
+                     .endsWith("/en/language-spec/overview.html"));
+        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
+                     .endsWith("/zh/getting-started/what-is-nolang.html"));
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
+        settings.remove("ide");
     }
 
     void testHelpOpensEmbeddedBrowser() {

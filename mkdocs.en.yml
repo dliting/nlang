@@ -1,0 +1,41 @@
+# English tree. INHERIT pulls every shared setting from the base; the
+# seed pages are today's English-authored pages (language-spec +
+#vm-architecture). getting-started joins the nav as its English
+# translations land (docs/translation-pending.txt).
+INHERIT: mkdocs.base.yml
+site_name: NLang Documentation
+docs_dir: docs/en
+theme:
+  language: en
+nav:
+  - Home: index.md
+  - Language Specification:
+      - Overview: language-spec/overview.md
+      - Naming Convention: language-spec/naming-convention.md
+      - Types: language-spec/types.md
+      - Type Semantics: language-spec/type-semantics.md
+      - Declarations: language-spec/declarations.md
+      - Built-in Generic Classes: language-spec/builtin-generic-classes.md
+      - Expressions: language-spec/expressions.md
+      - Statements: language-spec/statements.md
+      - Functions: language-spec/functions.md
+      - Function Types and Delegates: language-spec/function-types-and-delegates.md
+      - Standard Library: language-spec/standard-library.md
+      - Memory Management: language-spec/memory-management.md
+      - Exit Code Convention: language-spec/exit-code-convention.md
+      - Known Limitations: language-spec/known-limitations.md
+  - VM Architecture:
+      - Overview: vm-architecture/overview.md
+      - Compilation Pipeline: vm-architecture/compilation-pipeline.md
+      - Stack Frame Layout: vm-architecture/stack-frame-layout.md
+      - Heap Architecture: vm-architecture/heap-architecture.md
+      - Bytecode Instructions: vm-architecture/bytecode-instructions.md
+      - Garbage Collection Design: vm-architecture/garbage-collection-design.md
+      - Debugging Support: vm-architecture/debugging.md
+      - Module Serialization: vm-architecture/module-serialization.md
+      - foreach Lowering: vm-architecture/foreach-statement-lowering.md
+      - Init-List Lowering: vm-architecture/init-list-lowering.md
+      - Binary Expression Promotion: vm-architecture/binary-expression-promotion.md
+      - Standard Library Intrinsics: vm-architecture/standard-library-intrinsics.md
+      - First-Class Function Values: vm-architecture/first-class-function-values.md
+      - Known Limitations: vm-architecture/known-limitations.md

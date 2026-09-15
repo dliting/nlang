@@ -1,8 +1,12 @@
 """CLI: build / serve / check / snippets.
 
 build = mkdocs build --strict + offline search inlining + site audit
-chained (a broken link fails the build), plus -- when --ncc/--nvm are
-given -- the runnable-snippet audit of the guide. serve = plain mkdocs
+chained (a broken link fails the build; skipped with
+--defer-site-audit), plus -- when --ncc/--nvm are given -- the
+runnable-snippet audit of the guide. --defer-site-audit exists for the
+bilingual pair build: the zh and en trees cross-link each other, so
+their links only resolve once both are built -- the cmake recipe builds
+both deferred, then audits each tree with `check`. serve = plain mkdocs
 serve for iteration. check = site audit only, for already-generated
 sites; it accepts --config to also enforce nav coverage and otherwise
 falls back to the CWD's mkdocs.yml (the cmake recipe runs from the repo
@@ -14,6 +18,14 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    #pyyaml is a hard mkdocs dependency (same degradation as
+    #linkcheck.py's nav rule): the guide lookup then falls back to
+    #mkdocs' built-in docs_dir default.
+    yaml = None
 
 from . import __version__
 from .linkcheck import check_site
@@ -73,6 +85,12 @@ def main(argv=None):
     p_build.add_argument("--nvm", default=None,
                          help="nvm binary for the snippet audit "
                               "(env NLANG_NVM)")
+    p_build.add_argument("--defer-site-audit", action="store_true",
+                         help="skip the chained site audit; the "
+                              "bilingual build pairs two trees whose "
+                              "cross-links only resolve once both are "
+                              "built, so each tree is audited via "
+                              "'check' after both builds")
 
     p_serve = sub.add_parser(
         "serve", help="mkdocs serve (dev preview loop)")
@@ -107,9 +125,10 @@ def main(argv=None):
         rc = inline_search_index(opts.site_dir)
         if rc != 0:
             return rc
-        rc = check_site(Path(opts.site_dir), Path(opts.config))
-        if rc != 0:
-            return rc
+        if not opts.defer_site_audit:
+            rc = check_site(Path(opts.site_dir), Path(opts.config))
+            if rc != 0:
+                return rc
         rc, _ = _snippet_stage(opts)
         return rc
     if opts.command == "serve":
@@ -134,16 +153,36 @@ def main(argv=None):
     return None
 
 
+def _config_docs_dir(config_path):
+    """The config's docs_dir, resolved exactly as mkdocs does (relative
+    paths -- and the 'docs' default -- sit against the config file's
+    parent; the bilingual leaf configs each declare their tree). The
+    tolerant loader comes from linkcheck, so !ENV / !!python/name
+    values stay opaque strings."""
+    config_dir = Path(config_path).parent
+    if yaml is None:
+        return config_dir / "docs"
+    from .linkcheck import _ConfigLoader
+    doc = yaml.load(Path(config_path).read_text(encoding="utf-8"),
+                    Loader=_ConfigLoader)
+    if not isinstance(doc, dict) or not doc.get("docs_dir"):
+        return config_dir / "docs"
+    docs_dir = Path(str(doc["docs_dir"]))
+    if docs_dir.is_absolute():
+        return docs_dir
+    return config_dir / docs_dir
+
+
 def _snippet_stage(opts):
     """The build chain's 4th stage: the guide directory's snippets.
 
     Only runs when both binaries are known (--ncc/--nvm or env); the
     cmake recipe always passes them, so a bare manual build says so
     instead of silently skipping the audit. Pages are looked up under
-    the config's sibling docs/getting-started/ tree, filename order;
+    the config tree's <docs_dir>/getting-started/, filename order;
     pages without any ```nlang block count as prose, not as audited.
     """
-    guide = Path(opts.config).parent / "docs" / "getting-started"
+    guide = _config_docs_dir(opts.config) / "getting-started"
     pages = sorted(guide.glob("*.md")) if guide.is_dir() else []
     if not pages:
         print("snippets: skipped (%s not found)" % guide,

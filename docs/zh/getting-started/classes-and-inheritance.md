@@ -38,5 +38,5 @@ int main() {
 输出 `dog has 4 legs`，退出码 4。类是引用类型；`toString()` 覆写后，
 对象可直接参与字符串拼接。
 
-详见 → [语言规格/声明](../language-spec/declarations.md)。
+详见 → <a href="../../en/language-spec/declarations.html">语言规格/声明</a>。
 

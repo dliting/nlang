@@ -194,29 +194,54 @@ if(NLANG_BUILD_DOCS)
             "(or configure with -DNLANG_BUILD_DOCS=OFF)")
     endif()
     file(GLOB_RECURSE NLANG_DOC_PAGES CONFIGURE_DEPENDS
-        ${CMAKE_CURRENT_SOURCE_DIR}/docs/*.md)
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/zh/*.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/en/*.md)
     #ALL + no OUTPUT: every build reruns the pipeline once (seconds of
     #Python startup, accepted; add a stamp file if it ever becomes a
-    #pain). build = mkdocs --strict + linkcheck chained, so a broken
-    #link fails the build.
+    #pain). Each language tree is its own mkdocs build (strict + offline
+    #search + snippet audit), merged under site/{zh,en}; the static
+    #landing page becomes site/index.html (two links + a
+    #navigator.language jump, all file:// friendly).
     add_custom_target(nlang_docs ALL
         COMMAND ${NLANG_DOCS_RUN} build
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.yml
-                --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
+                --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh
                 #The 4th build stage audits the guide's snippets by
                 #compiling+running them with the tree's own tools, so a
                 #language change that breaks a documented snippet fails
                 #the docs build.
                 --ncc $<TARGET_FILE:ncc>
                 --nvm $<TARGET_FILE:nvm>
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.yml
+                #The trees cross-link each other, so their pages only
+                #resolve once BOTH are built: defer the site audits
+                #until after the second build (see the check commands).
+                --defer-site-audit
+        COMMAND ${NLANG_DOCS_RUN} build
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+                --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/en
+                --ncc $<TARGET_FILE:ncc>
+                --nvm $<TARGET_FILE:nvm>
+                --defer-site-audit
+        COMMAND ${NLANG_DOCS_RUN} check
+                --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
+        COMMAND ${NLANG_DOCS_RUN} check
+                --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/en
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${NLANG_DOCS_DIR}/src/nlang_docs/data/landing.html
+                ${CMAKE_CURRENT_BINARY_DIR}/docs/site/index.html
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.base.yml
+                ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
+                ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
                 ${NLANG_DOC_PAGES}
                 ${NLANG_DOCS_DIR}/src/nlang_docs/cli.py
                 ${NLANG_DOCS_DIR}/src/nlang_docs/linkcheck.py
                 ${NLANG_DOCS_DIR}/src/nlang_docs/offline_search.py
                 ${NLANG_DOCS_DIR}/src/nlang_docs/snippets.py
+                ${NLANG_DOCS_DIR}/src/nlang_docs/data/landing.html
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "nlang-docs: building + auditing docs site"
+        COMMENT "nlang-docs: building + auditing bilingual docs site"
         VERBATIM)
     # The package ships the generated site, not the markdown sources.
     install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/docs/site/

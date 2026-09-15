@@ -282,3 +282,18 @@ def test_stage_fails_when_any_page_has_problems(tmp_path, monkeypatch,
     assert rc == 1
     assert line is None
     assert "b.md: exit code 1, expected 0" in capsys.readouterr().err
+
+
+def test_real_zh_config_resolves_a_nonempty_guide():
+    #Bilingual split: the stage derives the guide from the config's
+    #docs_dir instead of the old repo-root docs/getting-started. A
+    #regression there silently degrades the zh build's 4th stage to
+    #"snippets: skipped" while the build stays green -- this pins the
+    #real tree's audit path to resolve and to hold pages. (The en tree
+    #legitimately skips until its guide translation lands, so only the
+    #zh path is pinned.)
+    from nlang_docs import cli
+    repo = Path(__file__).resolve().parents[3]
+    guide = cli._config_docs_dir(repo / "mkdocs.zh.yml") / "getting-started"
+    assert sorted(guide.glob("*.md")), \
+        f"zh guide unresolved via mkdocs.zh.yml docs_dir: {guide}"

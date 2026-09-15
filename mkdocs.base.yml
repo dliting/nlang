@@ -1,0 +1,38 @@
+# Shared base for mkdocs.zh.yml / mkdocs.en.yml (both INHERIT this).
+# Everything language-independent lives here so the two trees cannot
+# drift; nlang-docs exports NLANG_COPYRIGHT from the repository
+# VERSION file before invoking mkdocs (build & serve) -- !ENV is
+# mkdocs' built-in config tag.
+copyright: !ENV [NLANG_COPYRIGHT, NLang dev build]
+theme:
+  name: material
+  font: false  # fully offline: no Google Fonts round-trip
+use_directory_urls: false
+#file://-navigable output: links keep the .html suffix (Chromium
+#resolves no index.html over file://, directory links would open
+#directory listings).
+#CJK headings keep readable anchors: the default slugify strips
+#non-ASCII, so Chinese titles degraded to positional _1/_2 ids. gfm
+#preserves the characters unencoded. Registers the NLang Pygments
+#lexer before rendering (see the hook file): ```nlang fences get
+#server-side colored spans. Paths resolve relative to the INHERITing
+#config file (both sit at the repository root, next to this base).
+hooks:
+  - tools/nlang-docs/src/nlang_docs/highlight_hook.py
+markdown_extensions:
+  - toc:
+      slugify: !!python/name:pymdownx.slugs.gfm
+  - tables
+  #superfences supersedes fenced_code (superset); pymdownx.highlight
+  #renders ```nlang server-side via the hook-registered NLang lexer.
+  - pymdownx.highlight
+  #relaxed_headers: strict header parsing rejects "```nlang main.n" as
+  #a fence header (the path's '/' is outside the lang regex), leaking
+  #the ``` into the paragraph; relaxed mode takes the first word as
+  #the language and ignores the rest.
+  - pymdownx.superfences:
+      relaxed_headers: true
+# Site-wide two-column help layout (left nav, right content): the
+# stylesheet hides the material theme's in-page TOC rail.
+extra_css:
+  - stylesheets/two-column-layout.css

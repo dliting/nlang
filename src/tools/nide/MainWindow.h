@@ -95,10 +95,12 @@ public:
     static bool restoreLayout(MainWindow& window, QSettings& settings);
 
     //--- help (docs site in the embedded viewer) ---
-    //First ancestor dir whose docs/site holds the page; empty when
-    //none (installed layout: bin/../docs/site one hop up; dev tree
-    //resolves a few hops deeper). documentPagePath is relative to
-    //docs/site without the .html suffix. Tests call it directly.
+    //First ancestor dir whose docs/site/<tree> holds the page, where
+    //<tree> follows the language setting ("zh"/"en") with the other
+    //language as fallback; empty when none (installed layout:
+    //bin/../docs/site one hop up; dev tree resolves a few hops
+    //deeper). documentPagePath is relative to docs/site/<tree>
+    //without the .html suffix. Tests call it directly.
     static QString locateHelpPage(const QString& documentPagePath);
 
 protected:

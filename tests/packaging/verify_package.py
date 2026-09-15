@@ -26,11 +26,15 @@ DEFAULT_RELEASE_DIR = os.path.join(REPO_ROOT, 'release')
 # The packaged site is audited by the same nlang-docs checker the build
 # gates on (spec D6: single audit source, no hand-rolled link sampling).
 # The tool is not installed; PYTHONPATH into the subproject's src/ is its
-# documented no-install invocation. The repo mkdocs.yml is passed
+# documented no-install invocation. Each tree's repo config is passed
 # explicitly so the nav-coverage rule is enforced (the CWD fallback in
-# the CLI would silently skip it) — the package site is the exact build
-# product of that config, so page/nav drift means a stale package.
-DOCS_CONFIG = os.path.join(REPO_ROOT, 'mkdocs.yml')
+# the CLI would silently skip it) — the package site subtree is the
+# exact build product of that config, so page/nav drift means a stale
+# package.
+DOCS_CONFIGS = [
+    ('mkdocs.zh.yml', 'zh'),
+    ('mkdocs.en.yml', 'en'),
+]
 DOCS_TOOL_SRC = os.path.join(REPO_ROOT, 'tools', 'nlang-docs', 'src')
 
 sys.path.insert(0, DOCS_TOOL_SRC)
@@ -60,21 +64,26 @@ BIN_FILES = [
 ROOT_FILES = ['LICENSE', 'README.md', 'CHANGELOG.md']
 # The mkdocs-generated site ships (the nide Help menu shows it in the
 # embedded viewer from <prefix>/docs/site); the two-column stylesheet
-# is part of that site.
+# is part of that site. The landing page picks the tree, then each
+# tree keeps its own pages, search index and stylesheet.
 DOC_FILES = [
-    'docs/site/index.html',
-    'docs/site/getting-started/what-is-nolang.html',
-    'docs/site/language-spec/overview.html',
-    'docs/site/language-spec/standard-library.html',
-    'docs/site/vm-architecture/overview.html',
-    'docs/site/search/search_index.json',
+    'docs/site/index.html',  # bilingual landing page
+    'docs/site/zh/index.html',
+    'docs/site/zh/getting-started/what-is-nolang.html',
+    'docs/site/zh/search/search_index.json',
     # The file:// search enabler: material's bundle script-tags this
     # .js (written by the build's offline-search inlining step) when it
     # detects the file: protocol — its own fallback choice, not a
     # Chromium restriction (file:// XHR to file:// works). Without the
     # .js the installed IDE's help search is silently empty.
-    'docs/site/search/search_index.js',
-    'docs/site/stylesheets/two-column-layout.css',
+    'docs/site/zh/search/search_index.js',
+    'docs/site/zh/stylesheets/two-column-layout.css',
+    'docs/site/en/index.html',
+    'docs/site/en/language-spec/overview.html',
+    'docs/site/en/vm-architecture/overview.html',
+    'docs/site/en/search/search_index.json',
+    'docs/site/en/search/search_index.js',
+    'docs/site/en/stylesheets/two-column-layout.css',
 ]
 # Markdown sources and internal dev-process docs stay out of the public
 # package (only the rendered site ships; roadmap and ci_design reference
@@ -83,11 +92,10 @@ DOC_FILES = [
 # pak and non-UI locales are over-deployment canaries: the WebEngine
 # runtime ships as an exact whitelist (en-US/zh-CN only).
 ABSENT_PATHS = [
-    #Markdown sources stay out (only the rendered site ships); the split
-    #sources live in docs/getting-started/, docs/language-spec/ and
-    #docs/vm-architecture/.
-    'docs/getting-started', 'docs/language-spec',
-    'docs/vm-architecture',
+    #Markdown sources stay out (only the rendered site ships); the
+    #bilingual sources live in docs/zh/ and docs/en/ (the rendered site
+    #under docs/site/<tree> is a different path, not caught here).
+    'docs/zh', 'docs/en',
     'docs/superpowers', 'docs/roadmap.md', 'docs/ci_design.md',
     'docs/nide-file-rename-and-layout.md', 'bin/platforms/qwindowsd.dll',
     'bin/resources/qtwebengine_devtools_resources.pak',
@@ -229,24 +237,27 @@ def main():
         # --- Docs-site audit: same checker the build gates on -------------
         # Catches broken internal links / #fragments and page-vs-nav drift
         # inside the shipped site (a stale package fails here even though
-        # its files all exist). The repo mkdocs.yml is the config the site
-        # was built from; see the DOCS_* note above the constants.
-        docs_site = os.path.join(pkg, 'docs', 'site')
+        # its files all exist). Each tree is audited with the repo config
+        # it was built from; see the DOCS_* note above the constants.
         env = dict(os.environ)
         env['PYTHONPATH'] = DOCS_TOOL_SRC
-        r = subprocess.run(
-            [sys.executable, '-m', 'nlang_docs', 'check',
-             '--site-dir', docs_site, '--config', DOCS_CONFIG],
-            capture_output=True, timeout=TIMEOUT_SEC, env=env)
-        if r.returncode != 0:
-            fail('packaged docs site failed the nlang_docs audit:\n'
-                 + (r.stdout + r.stderr).decode('utf-8', 'replace')[:1500])
-        # Success-path stderr still carries degradation notes (e.g. pyyaml
-        # missing → nav rule skipped); a silently narrowed audit must not
-        # pass unnoticed.
-        if r.stderr:
-            sys.stderr.write(r.stderr.decode('utf-8', 'replace'))
-        print('docs-site audit: OK (nlang_docs check passed)')
+        for config_name, tree in DOCS_CONFIGS:
+            r = subprocess.run(
+                [sys.executable, '-m', 'nlang_docs', 'check',
+                 '--site-dir', os.path.join(pkg, 'docs', 'site', tree),
+                 '--config', os.path.join(REPO_ROOT, config_name)],
+                capture_output=True, timeout=TIMEOUT_SEC, env=env)
+            if r.returncode != 0:
+                fail(f'packaged docs site {tree}/ failed the nlang_docs '
+                     'audit:\n'
+                     + (r.stdout + r.stderr).decode('utf-8', 'replace')[:1500])
+            # Success-path stderr still carries degradation notes (e.g.
+            # pyyaml missing → nav rule skipped); a silently narrowed
+            # audit must not pass unnoticed.
+            if r.stderr:
+                sys.stderr.write(r.stderr.decode('utf-8', 'replace'))
+            print(f'docs-site audit: OK ({tree}/ tree, nlang_docs check '
+                  'passed)')
 
     print('PASS')
 

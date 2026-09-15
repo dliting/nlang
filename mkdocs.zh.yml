@@ -1,0 +1,24 @@
+# Chinese tree. INHERIT pulls every shared setting from the base; the
+# seed pages are today's Chinese-authored pages (getting-started +
+#index). language-spec/vm-architecture join the nav as their Chinese
+# translations land (tracked by docs/translation-pending.txt).
+INHERIT: mkdocs.base.yml
+site_name: NLang 中文文档
+docs_dir: docs/zh
+theme:
+  language: zh
+nav:
+  - 主页: index.md
+  - NLang 入门:
+      - NLang 是什么: getting-started/what-is-nolang.md
+      - 安装与布局: getting-started/install-layout.md
+      - 五分钟上手: getting-started/first-program.md
+      - "速览: 类型与变量": getting-started/types-and-variables.md
+      - "速览: 容器": getting-started/containers.md
+      - "速览: 控制流": getting-started/control-flow.md
+      - "速览: 类与继承": getting-started/classes-and-inheritance.md
+      - "速览: 函数与模块": getting-started/function-features.md
+      - 三种运行方式: getting-started/running.md
+      - 在 nide 中调试: getting-started/debugging.md
+      - 常见问题: getting-started/faq.md
+      - 下一步阅读: getting-started/further-reading.md

@@ -1,0 +1,47 @@
+# Bilingual manual translation backlog. One line per existing page
+# that lacks its counterpart in the other language tree:
+#   <tree>/<relative-path>.md
+# The tree-parity pytest (tools/nlang-docs/tests/test_tree_parity.py)
+# requires every untranslated page to be listed here, and locks into
+# strict parity once this list is empty -- remove lines as batches
+# land (vm-architecture, language-spec, getting-started+index).
+zh/getting-started/what-is-nolang.md
+zh/getting-started/install-layout.md
+zh/getting-started/first-program.md
+zh/getting-started/types-and-variables.md
+zh/getting-started/containers.md
+zh/getting-started/control-flow.md
+zh/getting-started/classes-and-inheritance.md
+zh/getting-started/function-features.md
+zh/getting-started/running.md
+zh/getting-started/debugging.md
+zh/getting-started/faq.md
+zh/getting-started/further-reading.md
+en/language-spec/overview.md
+en/language-spec/naming-convention.md
+en/language-spec/types.md
+en/language-spec/type-semantics.md
+en/language-spec/declarations.md
+en/language-spec/builtin-generic-classes.md
+en/language-spec/expressions.md
+en/language-spec/statements.md
+en/language-spec/functions.md
+en/language-spec/function-types-and-delegates.md
+en/language-spec/standard-library.md
+en/language-spec/memory-management.md
+en/language-spec/exit-code-convention.md
+en/language-spec/known-limitations.md
+en/vm-architecture/overview.md
+en/vm-architecture/compilation-pipeline.md
+en/vm-architecture/stack-frame-layout.md
+en/vm-architecture/heap-architecture.md
+en/vm-architecture/bytecode-instructions.md
+en/vm-architecture/garbage-collection-design.md
+en/vm-architecture/debugging.md
+en/vm-architecture/module-serialization.md
+en/vm-architecture/foreach-statement-lowering.md
+en/vm-architecture/init-list-lowering.md
+en/vm-architecture/binary-expression-promotion.md
+en/vm-architecture/standard-library-intrinsics.md
+en/vm-architecture/first-class-function-values.md
+en/vm-architecture/known-limitations.md

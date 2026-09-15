@@ -2,7 +2,7 @@
 
 nide 内置调试器：设断点、单步执行、查看调用栈与局部变量都可以在 IDE
 里完成。调试会话由 `ndb --machine` 在后台驱动，语义与命令行 ndb 一致，
-引擎侧的分层见 [VM 架构/调试支持](../vm-architecture/debugging.md)。
+引擎侧的分层见 <a href="../../en/vm-architecture/debugging.html">VM 架构/调试支持</a>。
 
 用下面的程序走一遍调试流程：
 
@@ -86,4 +86,4 @@ int main() {
 - 原生代码内部不可中断，但进程始终可以被终止；
 - 暂不支持条件断点、监视点、编辑并继续以及附加到已运行进程。
 
-详见 → [VM 架构/调试支持](../vm-architecture/debugging.md)。
+详见 → <a href="../../en/vm-architecture/debugging.html">VM 架构/调试支持</a>。

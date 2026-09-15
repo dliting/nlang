@@ -1,0 +1,22 @@
+/*---
+Two-column help layout: navigation on the left, content on the right.
+The material theme adds a third rail (the in-page table of contents,
+.md-sidebar--secondary); a standard help manual reads as two columns,
+so that rail is hidden site-wide here. Widening .md-grid lets the
+content column reclaim the freed width instead of leaving dead space.
+---*/
+
+/* Drop the in-page TOC rail (right column of the default theme).
+   The material theme re-shows it at >=60em via
+   ".md-sidebar--secondary:not([hidden])" (specificity 0,2,0); a bare
+   class selector here would lose that cascade, so the :not([hidden])
+   is mirrored to tie and win by stylesheet order (extra_css loads
+   after the theme). */
+.md-sidebar--secondary:not([hidden]) {
+    display: none;
+}
+
+/* Reclaim the freed width for the content column. */
+.md-grid {
+    max-width: 1440px;
+}
