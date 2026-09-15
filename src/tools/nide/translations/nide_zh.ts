@@ -6,425 +6,440 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="20"/>
         <source>NLang IDE</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang IDE</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="55"/>
         <source>解决方案</source>
-        <translation type="unfinished"></translation>
+        <translation>解决方案</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="153"/>
         <source>编译输出</source>
-        <translation type="unfinished"></translation>
+        <translation>编译输出</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="185"/>
         <source>运行输出</source>
-        <translation type="unfinished"></translation>
+        <translation>运行输出</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="217"/>
         <source>调试</source>
-        <translation type="unfinished"></translation>
+        <translation>调试</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="243"/>
         <source>未在调试</source>
-        <translation type="unfinished"></translation>
+        <translation>未在调试</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="263"/>
         <source>抛出异常时暂停会话</source>
-        <translation type="unfinished"></translation>
+        <translation>抛出异常时暂停会话</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="266"/>
         <source>抛异常时中断</source>
-        <translation type="unfinished"></translation>
+        <translation>抛异常时中断</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="286"/>
         <source>#</source>
-        <translation type="unfinished"></translation>
+        <translation>#</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="291"/>
         <source>函数</source>
-        <translation type="unfinished"></translation>
+        <translation>函数</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="296"/>
         <source>位置</source>
-        <translation type="unfinished"></translation>
+        <translation>位置</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="309"/>
         <source>名称</source>
-        <translation type="unfinished"></translation>
+        <translation>名称</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="314"/>
         <source>类型</source>
-        <translation type="unfinished"></translation>
+        <translation>类型</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="319"/>
         <source>值</source>
-        <translation type="unfinished"></translation>
+        <translation>值</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="339"/>
         <source>文件(&amp;F)</source>
-        <translation type="unfinished"></translation>
+        <translation>文件(&amp;F)</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="343"/>
         <source>新建</source>
-        <translation type="unfinished"></translation>
+        <translation>新建</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="351"/>
         <source>打开</source>
-        <translation type="unfinished"></translation>
+        <translation>打开</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="359"/>
         <source>最近打开</source>
-        <translation type="unfinished"></translation>
+        <translation>最近打开</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="381"/>
         <source>项目(&amp;P)</source>
-        <translation type="unfinished"></translation>
+        <translation>项目(&amp;P)</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="391"/>
         <source>构建(&amp;B)</source>
-        <translation type="unfinished"></translation>
+        <translation>构建(&amp;B)</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="399"/>
         <source>运行(&amp;R)</source>
-        <translation type="unfinished"></translation>
+        <translation>运行(&amp;R)</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="415"/>
         <source>视图(&amp;V)</source>
-        <translation type="unfinished"></translation>
+        <translation>视图(&amp;V)</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="423"/>
+        <source>工具(&amp;T)</source>
+        <translation>工具(&amp;T)</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="425"/>
         <source>帮助(&amp;H)</source>
-        <translation type="unfinished"></translation>
+        <translation>帮助(&amp;H)</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="478"/>
         <location filename="../ui/MainWindow.ui" line="486"/>
         <source>解决方案...</source>
-        <translation type="unfinished"></translation>
+        <translation>解决方案...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="481"/>
         <source>新建解决方案...</source>
-        <translation type="unfinished"></translation>
+        <translation>新建解决方案...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="489"/>
         <source>打开解决方案...</source>
-        <translation type="unfinished"></translation>
+        <translation>打开解决方案...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="494"/>
         <location filename="../ui/MainWindow.ui" line="497"/>
         <source>保存解决方案</source>
-        <translation type="unfinished"></translation>
+        <translation>保存解决方案</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="502"/>
         <location filename="../ui/MainWindow.ui" line="505"/>
         <source>关闭解决方案</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭解决方案</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="514"/>
         <location filename="../ui/MainWindow.ui" line="529"/>
         <source>文件...</source>
-        <translation type="unfinished"></translation>
+        <translation>文件...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="517"/>
         <source>新建文件...</source>
-        <translation type="unfinished"></translation>
+        <translation>新建文件...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="520"/>
         <source>Ctrl+N, Ctrl+F</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+N, Ctrl+F</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="532"/>
         <source>打开文件...</source>
-        <translation type="unfinished"></translation>
+        <translation>打开文件...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="535"/>
         <source>Ctrl+O, Ctrl+F</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+O, Ctrl+F</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="544"/>
         <location filename="../ui/MainWindow.ui" line="547"/>
         <source>保存文件</source>
-        <translation type="unfinished"></translation>
+        <translation>保存文件</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="550"/>
         <source>Ctrl+S</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+S</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="555"/>
         <location filename="../ui/MainWindow.ui" line="558"/>
         <source>文件另存为...</source>
-        <translation type="unfinished"></translation>
+        <translation>文件另存为...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="563"/>
         <location filename="../ui/MainWindow.ui" line="566"/>
         <source>关闭文件</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭文件</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="575"/>
         <location filename="../ui/MainWindow.ui" line="587"/>
         <source>项目...</source>
-        <translation type="unfinished"></translation>
+        <translation>项目...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="578"/>
         <source>新建项目...</source>
-        <translation type="unfinished"></translation>
+        <translation>新建项目...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="590"/>
         <source>打开项目...</source>
-        <translation type="unfinished"></translation>
+        <translation>打开项目...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="599"/>
         <location filename="../ui/MainWindow.ui" line="602"/>
         <source>保存项目</source>
-        <translation type="unfinished"></translation>
+        <translation>保存项目</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="611"/>
         <location filename="../ui/MainWindow.ui" line="614"/>
         <source>保存所有</source>
-        <translation type="unfinished"></translation>
+        <translation>保存所有</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="617"/>
         <source>Ctrl+Shift+S</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+Shift+S</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="622"/>
         <location filename="../ui/MainWindow.ui" line="625"/>
         <source>关闭项目</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭项目</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="630"/>
         <source>退出</source>
-        <translation type="unfinished"></translation>
+        <translation>退出</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="633"/>
         <source>退出程序</source>
-        <translation type="unfinished"></translation>
+        <translation>退出程序</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="642"/>
         <location filename="../ui/MainWindow.ui" line="645"/>
         <source>添加现有文件...</source>
-        <translation type="unfinished"></translation>
+        <translation>添加现有文件...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="648"/>
         <source>Ctrl+Shift+E</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+Shift+E</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="657"/>
         <location filename="../ui/MainWindow.ui" line="660"/>
         <source>添加新文件...</source>
-        <translation type="unfinished"></translation>
+        <translation>添加新文件...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="669"/>
         <location filename="../ui/MainWindow.ui" line="672"/>
         <source>从项目中移除文件...</source>
-        <translation type="unfinished"></translation>
+        <translation>从项目中移除文件...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="675"/>
         <source>Del</source>
-        <translation type="unfinished"></translation>
+        <translation>Del</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="684"/>
         <location filename="../ui/MainWindow.ui" line="687"/>
         <source>项目属性...</source>
-        <translation type="unfinished"></translation>
+        <translation>项目属性...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="696"/>
         <source>构建项目</source>
-        <translation type="unfinished"></translation>
+        <translation>构建项目</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="699"/>
         <source>构建选定项目</source>
-        <translation type="unfinished"></translation>
+        <translation>构建选定项目</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="704"/>
         <source>清除输出</source>
-        <translation type="unfinished"></translation>
+        <translation>清除输出</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="707"/>
         <source>清除输出窗口</source>
-        <translation type="unfinished"></translation>
+        <translation>清除输出窗口</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="716"/>
         <location filename="../ui/MainWindow.ui" line="719"/>
         <source>开始运行</source>
-        <translation type="unfinished"></translation>
+        <translation>开始运行</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="722"/>
         <source>Ctrl+F5</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+F5</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="743"/>
         <location filename="../ui/MainWindow.ui" line="746"/>
         <source>启动调试</source>
-        <translation type="unfinished"></translation>
+        <translation>启动调试</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="749"/>
         <source>F5</source>
-        <translation type="unfinished"></translation>
+        <translation>F5</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="731"/>
         <location filename="../ui/MainWindow.ui" line="734"/>
         <source>停止运行</source>
-        <translation type="unfinished"></translation>
+        <translation>停止运行</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="758"/>
         <location filename="../ui/MainWindow.ui" line="761"/>
         <source>停止调试</source>
-        <translation type="unfinished"></translation>
+        <translation>停止调试</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="764"/>
         <source>Shift+F5</source>
-        <translation type="unfinished"></translation>
+        <translation>Shift+F5</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="769"/>
         <location filename="../ui/MainWindow.ui" line="772"/>
         <source>单步进入</source>
-        <translation type="unfinished"></translation>
+        <translation>单步进入</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="775"/>
         <source>F11</source>
-        <translation type="unfinished"></translation>
+        <translation>F11</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="780"/>
         <location filename="../ui/MainWindow.ui" line="783"/>
         <source>单步跳过</source>
-        <translation type="unfinished"></translation>
+        <translation>单步跳过</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="786"/>
         <source>F10</source>
-        <translation type="unfinished"></translation>
+        <translation>F10</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="791"/>
         <location filename="../ui/MainWindow.ui" line="794"/>
         <source>单步跳出</source>
-        <translation type="unfinished"></translation>
+        <translation>单步跳出</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="797"/>
         <source>Shift+F11</source>
-        <translation type="unfinished"></translation>
+        <translation>Shift+F11</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="802"/>
         <location filename="../ui/MainWindow.ui" line="805"/>
         <source>切换断点</source>
-        <translation type="unfinished"></translation>
+        <translation>切换断点</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="808"/>
         <source>F9</source>
-        <translation type="unfinished"></translation>
+        <translation>F9</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="819"/>
         <source>解决方案视图</source>
-        <translation type="unfinished"></translation>
+        <translation>解决方案视图</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="830"/>
         <source>代码编辑器</source>
-        <translation type="unfinished"></translation>
+        <translation>代码编辑器</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="841"/>
         <source>输出窗口</source>
-        <translation type="unfinished"></translation>
+        <translation>输出窗口</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="852"/>
         <source>工具栏</source>
-        <translation type="unfinished"></translation>
+        <translation>工具栏</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="862"/>
+        <source>选项(&amp;O)...</source>
+        <translation>选项(&amp;O)...</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="865"/>
+        <source>选项</source>
+        <translation>选项</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="857"/>
         <source>关于(&amp;A)...</source>
-        <translation type="unfinished"></translation>
+        <translation>关于(&amp;A)...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="860"/>
         <source>关于 NLang IDE</source>
-        <translation type="unfinished"></translation>
+        <translation>关于 NLang IDE</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="865"/>
         <source>NLang 入门(&amp;G)...</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang 入门(&amp;G)...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="870"/>
         <source>语言规格(&amp;L)...</source>
-        <translation type="unfinished"></translation>
+        <translation>语言规格(&amp;L)...</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="875"/>
         <source>VM 架构(&amp;V)...</source>
-        <translation type="unfinished"></translation>
+        <translation>VM 架构(&amp;V)...</translation>
     </message>
 </context>
 <context>
@@ -432,42 +447,42 @@
     <message>
         <location filename="../ui/NewFileDialog.ui" line="14"/>
         <source>新建文件</source>
-        <translation type="unfinished"></translation>
+        <translation>新建文件</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="26"/>
         <source>名称(&amp;N):</source>
-        <translation type="unfinished"></translation>
+        <translation>名称(&amp;N):</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="52"/>
         <source>路径(&amp;P)：</source>
-        <translation type="unfinished"></translation>
+        <translation>路径(&amp;P)：</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="78"/>
         <source>浏览...</source>
-        <translation type="unfinished"></translation>
+        <translation>浏览...</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="104"/>
         <source>确定</source>
-        <translation type="unfinished"></translation>
+        <translation>确定</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="107"/>
         <source>Return</source>
-        <translation type="unfinished"></translation>
+        <translation>Return</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="123"/>
         <source>取消</source>
-        <translation type="unfinished"></translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="126"/>
         <source>Esc</source>
-        <translation type="unfinished"></translation>
+        <translation>Esc</translation>
     </message>
 </context>
 <context>
@@ -475,88 +490,111 @@
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="14"/>
         <source>项目属性</source>
-        <translation type="unfinished"></translation>
+        <translation>项目属性</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="26"/>
         <location filename="../ui/ProjectPropDialog.ui" line="29"/>
         <source>项目名称</source>
-        <translation type="unfinished"></translation>
+        <translation>项目名称</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="32"/>
         <source>名称(&amp;N):</source>
-        <translation type="unfinished"></translation>
+        <translation>名称(&amp;N):</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="61"/>
         <source>模块命名空间</source>
-        <translation type="unfinished"></translation>
+        <translation>模块命名空间</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="64"/>
         <source>命名空间(&amp;S):</source>
-        <translation type="unfinished"></translation>
+        <translation>命名空间(&amp;S):</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="93"/>
         <location filename="../ui/ProjectPropDialog.ui" line="96"/>
         <source>此项目的根目录</source>
-        <translation type="unfinished"></translation>
+        <translation>此项目的根目录</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="99"/>
         <source>位置(&amp;P):</source>
-        <translation type="unfinished"></translation>
+        <translation>位置(&amp;P):</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="125"/>
         <location filename="../ui/ProjectPropDialog.ui" line="170"/>
         <location filename="../ui/ProjectPropDialog.ui" line="215"/>
         <source>浏览...</source>
-        <translation type="unfinished"></translation>
+        <translation>浏览...</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="138"/>
         <location filename="../ui/ProjectPropDialog.ui" line="141"/>
         <source>最终编译结果的输出目录</source>
-        <translation type="unfinished"></translation>
+        <translation>最终编译结果的输出目录</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="144"/>
         <source>输出目录(&amp;O)：</source>
-        <translation type="unfinished"></translation>
+        <translation>输出目录(&amp;O)：</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="183"/>
         <location filename="../ui/ProjectPropDialog.ui" line="186"/>
         <source>存放编译生成的临时文件</source>
-        <translation type="unfinished"></translation>
+        <translation>存放编译生成的临时文件</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="189"/>
         <source>中间目录(&amp;I)：</source>
-        <translation type="unfinished"></translation>
+        <translation>中间目录(&amp;I)：</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="241"/>
         <source>确定</source>
-        <translation type="unfinished"></translation>
+        <translation>确定</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="244"/>
         <source>Return</source>
-        <translation type="unfinished"></translation>
+        <translation>Return</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="260"/>
         <source>取消</source>
-        <translation type="unfinished"></translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="263"/>
         <source>Esc</source>
-        <translation type="unfinished"></translation>
+        <translation>Esc</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsDialog</name>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="14"/>
+        <source>Settings</source>
+        <translation>设置</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="20"/>
+        <source>Language:</source>
+        <translation>语言：</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="30"/>
+        <source>Build output directory:</source>
+        <translation>构建输出目录：</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="42"/>
+        <source>Browse...</source>
+        <translation>浏览...</translation>
     </message>
 </context>
 <context>
@@ -583,7 +621,7 @@
         <location filename="../MainWindow.cpp" line="259"/>
         <location filename="../MainWindow.cpp" line="363"/>
         <source>Solution1</source>
-        <translation type="unfinished"></translation>
+        <translation>Solution1</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="269"/>
@@ -625,7 +663,7 @@
     <message>
         <location filename="../MainWindow.cpp" line="309"/>
         <source>Solution1.nsln</source>
-        <translation type="unfinished"></translation>
+        <translation>Solution1.nsln</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="310"/>
@@ -848,6 +886,16 @@
         <translation>NLang IDE %1&lt;br&gt;NLang 脚本语言的集成开发环境。&lt;br&gt;&lt;br&gt;&lt;a href=&quot;https://github.com/dliting/nlang&quot;&gt;https://github.com/dliting/nlang&lt;/a&gt;</translation>
     </message>
     <message>
+        <location filename="../MainWindow.cpp" line="1412"/>
+        <source>Settings</source>
+        <translation>设置</translation>
+    </message>
+    <message>
+        <location filename="../MainWindow.cpp" line="1413"/>
+        <source>The language change takes effect after restarting NLang IDE.</source>
+        <translation>语言更改将在重启 NLang IDE 后生效。</translation>
+    </message>
+    <message>
         <location filename="../MainWindow.cpp" line="1827"/>
         <source>Clear Recent List</source>
         <translation>清空最近列表</translation>
@@ -858,7 +906,7 @@
     <message>
         <location filename="../NewFileDialog.cpp" line="25"/>
         <source>Untitled.n</source>
-        <translation type="unfinished"></translation>
+        <translation>Untitled.n</translation>
     </message>
     <message>
         <location filename="../NewFileDialog.cpp" line="52"/>
@@ -918,12 +966,25 @@
     <message>
         <location filename="../ProjectPropDialog.cpp" line="134"/>
         <source>Project1</source>
-        <translation type="unfinished"></translation>
+        <translation>Project1</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="143"/>
         <source> Property</source>
         <translation> 属性</translation>
+    </message>
+</context>
+<context>
+    <name>nlang::SettingsDialog</name>
+    <message>
+        <location filename="../SettingsDialog.cpp" line="19"/>
+        <source>Follow the system language</source>
+        <translation>跟随系统语言</translation>
+    </message>
+    <message>
+        <location filename="../SettingsDialog.cpp" line="49"/>
+        <source>Select Build Output Directory</source>
+        <translation>选择构建输出目录</translation>
     </message>
 </context>
 <context>

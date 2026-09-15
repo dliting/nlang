@@ -6,7 +6,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="20"/>
         <source>NLang IDE</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang IDE</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="55"/>
@@ -46,7 +46,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="286"/>
         <source>#</source>
-        <translation type="unfinished"></translation>
+        <translation>#</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="291"/>
@@ -114,6 +114,11 @@
         <translation>&amp;View</translation>
     </message>
     <message>
+        <location filename="../ui/MainWindow.ui" line="423"/>
+        <source>工具(&amp;T)</source>
+        <translation>&amp;Tools</translation>
+    </message>
+    <message>
         <location filename="../ui/MainWindow.ui" line="425"/>
         <source>帮助(&amp;H)</source>
         <translation>&amp;Help</translation>
@@ -160,7 +165,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="520"/>
         <source>Ctrl+N, Ctrl+F</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+N, Ctrl+F</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="532"/>
@@ -170,7 +175,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="535"/>
         <source>Ctrl+O, Ctrl+F</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+O, Ctrl+F</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="544"/>
@@ -181,7 +186,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="550"/>
         <source>Ctrl+S</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+S</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="555"/>
@@ -226,7 +231,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="617"/>
         <source>Ctrl+Shift+S</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+Shift+S</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="622"/>
@@ -253,7 +258,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="648"/>
         <source>Ctrl+Shift+E</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+Shift+E</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="657"/>
@@ -270,7 +275,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="675"/>
         <source>Del</source>
-        <translation type="unfinished"></translation>
+        <translation>Del</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="684"/>
@@ -307,7 +312,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="722"/>
         <source>Ctrl+F5</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+F5</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="743"/>
@@ -318,7 +323,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="749"/>
         <source>F5</source>
-        <translation type="unfinished"></translation>
+        <translation>F5</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="731"/>
@@ -335,7 +340,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="764"/>
         <source>Shift+F5</source>
-        <translation type="unfinished"></translation>
+        <translation>Shift+F5</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="769"/>
@@ -346,7 +351,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="775"/>
         <source>F11</source>
-        <translation type="unfinished"></translation>
+        <translation>F11</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="780"/>
@@ -357,7 +362,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="786"/>
         <source>F10</source>
-        <translation type="unfinished"></translation>
+        <translation>F10</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="791"/>
@@ -368,7 +373,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="797"/>
         <source>Shift+F11</source>
-        <translation type="unfinished"></translation>
+        <translation>Shift+F11</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="802"/>
@@ -379,7 +384,7 @@
     <message>
         <location filename="../ui/MainWindow.ui" line="808"/>
         <source>F9</source>
-        <translation type="unfinished"></translation>
+        <translation>F9</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="819"/>
@@ -400,6 +405,16 @@
         <location filename="../ui/MainWindow.ui" line="852"/>
         <source>工具栏</source>
         <translation>Toolbar</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="862"/>
+        <source>选项(&amp;O)...</source>
+        <translation>&amp;Options...</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="865"/>
+        <source>选项</source>
+        <translation>Options</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="857"/>
@@ -457,7 +472,7 @@
     <message>
         <location filename="../ui/NewFileDialog.ui" line="107"/>
         <source>Return</source>
-        <translation type="unfinished"></translation>
+        <translation>Return</translation>
     </message>
     <message>
         <location filename="../ui/NewFileDialog.ui" line="123"/>
@@ -467,7 +482,7 @@
     <message>
         <location filename="../ui/NewFileDialog.ui" line="126"/>
         <source>Esc</source>
-        <translation type="unfinished"></translation>
+        <translation>Esc</translation>
     </message>
 </context>
 <context>
@@ -546,7 +561,7 @@
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="244"/>
         <source>Return</source>
-        <translation type="unfinished"></translation>
+        <translation>Return</translation>
     </message>
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="260"/>
@@ -556,7 +571,30 @@
     <message>
         <location filename="../ui/ProjectPropDialog.ui" line="263"/>
         <source>Esc</source>
-        <translation type="unfinished"></translation>
+        <translation>Esc</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsDialog</name>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="14"/>
+        <source>Settings</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="20"/>
+        <source>Language:</source>
+        <translation>Language:</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="30"/>
+        <source>Build output directory:</source>
+        <translation>Build output directory:</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="42"/>
+        <source>Browse...</source>
+        <translation>Browse...</translation>
     </message>
 </context>
 <context>
@@ -564,7 +602,7 @@
     <message>
         <location filename="../HelpBrowser.cpp" line="20"/>
         <source>NLang Help</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang Help</translation>
     </message>
 </context>
 <context>
@@ -572,28 +610,28 @@
     <message>
         <location filename="../MainWindow.cpp" line="129"/>
         <source>Ready</source>
-        <translation type="unfinished"></translation>
+        <translation>Ready</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1417"/>
         <source>The document &apos;%1&apos; was not found next to the IDE installation.</source>
-        <translation type="unfinished"></translation>
+        <translation>The document &apos;%1&apos; was not found next to the IDE installation.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="259"/>
         <location filename="../MainWindow.cpp" line="363"/>
         <source>Solution1</source>
-        <translation type="unfinished"></translation>
+        <translation>Solution1</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="269"/>
         <source>Open Solution</source>
-        <translation type="unfinished"></translation>
+        <translation>Open Solution</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="270"/>
         <source>NLang Solution (*.nsln);;All Files (*)</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang Solution (*.nsln);;All Files (*)</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="285"/>
@@ -615,197 +653,207 @@
         <location filename="../MainWindow.cpp" line="1620"/>
         <location filename="../MainWindow.cpp" line="1631"/>
         <source>Error</source>
-        <translation type="unfinished"></translation>
+        <translation>Error</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="309"/>
         <source>Save Solution</source>
-        <translation type="unfinished"></translation>
+        <translation>Save Solution</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="309"/>
         <source>Solution1.nsln</source>
-        <translation type="unfinished"></translation>
+        <translation>Solution1.nsln</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="310"/>
         <source>NLang Solution (*.nsln)</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang Solution (*.nsln)</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="342"/>
         <source>Close Solution</source>
-        <translation type="unfinished"></translation>
+        <translation>Close Solution</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="343"/>
         <source>The solution or its projects have unsaved changes. Save before closing?</source>
-        <translation type="unfinished"></translation>
+        <translation>The solution or its projects have unsaved changes. Save before closing?</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="386"/>
         <source>Open Project</source>
-        <translation type="unfinished"></translation>
+        <translation>Open Project</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="387"/>
         <source>NLang Project (*.nproj);;All Files (*)</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang Project (*.nproj);;All Files (*)</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="422"/>
         <source>Close Project</source>
-        <translation type="unfinished"></translation>
+        <translation>Close Project</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="423"/>
         <source>Project &apos;%1&apos; has unsaved changes. Save before closing?</source>
-        <translation type="unfinished"></translation>
+        <translation>Project &apos;%1&apos; has unsaved changes. Save before closing?</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="530"/>
         <source>Open File</source>
-        <translation type="unfinished"></translation>
+        <translation>Open File</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="531"/>
         <location filename="../MainWindow.cpp" line="554"/>
         <location filename="../MainWindow.cpp" line="669"/>
         <source>NLang Source (*.n);;All Files (*)</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang Source (*.n);;All Files (*)</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="553"/>
         <source>Save File As</source>
-        <translation type="unfinished"></translation>
+        <translation>Save File As</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="629"/>
         <source>Close File</source>
-        <translation type="unfinished"></translation>
+        <translation>Close File</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="630"/>
         <source>&apos;%1&apos; has been modified. Save changes?</source>
-        <translation type="unfinished"></translation>
+        <translation>&apos;%1&apos; has been modified. Save changes?</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="668"/>
         <source>Add Existing File</source>
-        <translation type="unfinished"></translation>
+        <translation>Add Existing File</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="989"/>
         <source>Debug started</source>
-        <translation type="unfinished"></translation>
+        <translation>Debug started</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1055"/>
         <source>Paused: %1 (%2:%3)</source>
-        <translation type="unfinished"></translation>
+        <translation>Paused: %1 (%2:%3)</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1107"/>
         <source>Runtime error</source>
-        <translation type="unfinished"></translation>
+        <translation>Runtime error</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1113"/>
         <source>Exited (code %1)</source>
-        <translation type="unfinished"></translation>
+        <translation>Exited (code %1)</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1122"/>
         <source>Debug stopped</source>
-        <translation type="unfinished"></translation>
+        <translation>Debug stopped</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1124"/>
         <location filename="../MainWindow.cpp" line="1139"/>
         <source>Debug process exited abnormally</source>
-        <translation type="unfinished"></translation>
+        <translation>Debug process exited abnormally</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1135"/>
         <source>ndb: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>ndb: %1</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1473"/>
         <source>Open</source>
-        <translation type="unfinished"></translation>
+        <translation>Open</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1474"/>
         <source>Rename (F2)</source>
-        <translation type="unfinished"></translation>
+        <translation>Rename (F2)</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1475"/>
         <source>Remove from Project</source>
-        <translation type="unfinished"></translation>
+        <translation>Remove from Project</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1502"/>
         <source>Save</source>
-        <translation type="unfinished"></translation>
+        <translation>Save</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1503"/>
         <source>Save As...</source>
-        <translation type="unfinished"></translation>
+        <translation>Save As...</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1505"/>
         <source>Rename...</source>
-        <translation type="unfinished"></translation>
+        <translation>Rename...</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1506"/>
         <source>Close</source>
-        <translation type="unfinished"></translation>
+        <translation>Close</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1507"/>
         <source>Close Others</source>
-        <translation type="unfinished"></translation>
+        <translation>Close Others</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1525"/>
         <source>Rename File</source>
-        <translation type="unfinished"></translation>
+        <translation>Rename File</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1525"/>
         <source>New name:</source>
-        <translation type="unfinished"></translation>
+        <translation>New name:</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1607"/>
         <source>&apos;%1&apos; already exists.</source>
-        <translation type="unfinished"></translation>
+        <translation>&apos;%1&apos; already exists.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1621"/>
         <source>Cannot rename &apos;%1&apos; to &apos;%2&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cannot rename &apos;%1&apos; to &apos;%2&apos;.</translation>
+    </message>
+    <message>
+        <location filename="../MainWindow.cpp" line="1412"/>
+        <source>Settings</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <location filename="../MainWindow.cpp" line="1413"/>
+        <source>The language change takes effect after restarting NLang IDE.</source>
+        <translation>The language change takes effect after restarting NLang IDE.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1827"/>
         <source>Clear Recent List</source>
-        <translation type="unfinished"></translation>
+        <translation>Clear Recent List</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="523"/>
         <location filename="../MainWindow.cpp" line="676"/>
         <location filename="../MainWindow.cpp" line="696"/>
         <source>&apos;%1&apos; is already part of the project.</source>
-        <translation type="unfinished"></translation>
+        <translation>&apos;%1&apos; is already part of the project.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="748"/>
         <source>Cannot create the output directory &apos;%1&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cannot create the output directory &apos;%1&apos;.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="764"/>
@@ -813,44 +861,44 @@
         <location filename="../MainWindow.cpp" line="858"/>
         <location filename="../MainWindow.cpp" line="898"/>
         <source>Failed to start &apos;%1&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation>Failed to start &apos;%1&apos;.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="776"/>
         <location filename="../MainWindow.cpp" line="869"/>
         <source>Build succeeded</source>
-        <translation type="unfinished"></translation>
+        <translation>Build succeeded</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="776"/>
         <location filename="../MainWindow.cpp" line="869"/>
         <source>Build failed</source>
-        <translation type="unfinished"></translation>
+        <translation>Build failed</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="795"/>
         <source>&apos;%1&apos; does not exist. Build the project first.</source>
-        <translation type="unfinished"></translation>
+        <translation>&apos;%1&apos; does not exist. Build the project first.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1284"/>
         <source>The process crashed.</source>
-        <translation type="unfinished"></translation>
+        <translation>The process crashed.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1287"/>
         <source>Program exited with code %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Program exited with code %1.</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1369"/>
         <source>About NLang IDE</source>
-        <translation type="unfinished"></translation>
+        <translation>About NLang IDE</translation>
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="1370"/>
         <source>NLang IDE %1&lt;br&gt;The integrated development environment for the NLang scripting language.&lt;br&gt;&lt;br&gt;&lt;a href=&quot;https://github.com/dliting/nlang&quot;&gt;https://github.com/dliting/nlang&lt;/a&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation>NLang IDE %1&lt;br&gt;The integrated development environment for the NLang scripting language.&lt;br&gt;&lt;br&gt;&lt;a href=&quot;https://github.com/dliting/nlang&quot;&gt;https://github.com/dliting/nlang&lt;/a&gt;</translation>
     </message>
 </context>
 <context>
@@ -858,12 +906,12 @@
     <message>
         <location filename="../NewFileDialog.cpp" line="25"/>
         <source>Untitled.n</source>
-        <translation type="unfinished"></translation>
+        <translation>Untitled.n</translation>
     </message>
     <message>
         <location filename="../NewFileDialog.cpp" line="52"/>
         <source>Select Directory</source>
-        <translation type="unfinished"></translation>
+        <translation>Select Directory</translation>
     </message>
 </context>
 <context>
@@ -871,59 +919,72 @@
     <message>
         <location filename="../ProjectPropDialog.cpp" line="47"/>
         <source>Name and location must not be empty.</source>
-        <translation type="unfinished"></translation>
+        <translation>Name and location must not be empty.</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="49"/>
         <source>The project name must not contain path separators.</source>
-        <translation type="unfinished"></translation>
+        <translation>The project name must not contain path separators.</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="51"/>
         <location filename="../ProjectPropDialog.cpp" line="68"/>
         <location filename="../ProjectPropDialog.cpp" line="75"/>
         <source>Error</source>
-        <translation type="unfinished"></translation>
+        <translation>Error</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="69"/>
         <source>A project file already exists at &apos;%1&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation>A project file already exists at &apos;%1&apos;.</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="76"/>
         <source>The solution already contains the project &apos;%1&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation>The solution already contains the project &apos;%1&apos;.</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="101"/>
         <source>Select Project Directory</source>
-        <translation type="unfinished"></translation>
+        <translation>Select Project Directory</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="108"/>
         <source>Select Output Directory</source>
-        <translation type="unfinished"></translation>
+        <translation>Select Output Directory</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="115"/>
         <source>Select Intermediate Directory</source>
-        <translation type="unfinished"></translation>
+        <translation>Select Intermediate Directory</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="130"/>
         <source>New Project</source>
-        <translation type="unfinished"></translation>
+        <translation>New Project</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="134"/>
         <source>Project1</source>
-        <translation type="unfinished"></translation>
+        <translation>Project1</translation>
     </message>
     <message>
         <location filename="../ProjectPropDialog.cpp" line="143"/>
         <source> Property</source>
-        <translation type="unfinished"></translation>
+        <translation> Property</translation>
+    </message>
+</context>
+<context>
+    <name>nlang::SettingsDialog</name>
+    <message>
+        <location filename="../SettingsDialog.cpp" line="19"/>
+        <source>Follow the system language</source>
+        <translation>Follow the system language</translation>
+    </message>
+    <message>
+        <location filename="../SettingsDialog.cpp" line="49"/>
+        <source>Select Build Output Directory</source>
+        <translation>Select Build Output Directory</translation>
     </message>
 </context>
 <context>
@@ -931,7 +992,7 @@
     <message>
         <location filename="../SolutionTreeModel.cpp" line="357"/>
         <source>Standalone Files</source>
-        <translation type="unfinished"></translation>
+        <translation>Standalone Files</translation>
     </message>
 </context>
 </TS>
