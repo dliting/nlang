@@ -4,7 +4,11 @@
      always visible; the inline script additionally jumps once to the
      reader's language -- it runs before first paint and is fully
      local, so it works over file:// in the nide help viewer too.
-     A "?stay" query bypasses the jump for language picking. -->
+     A "?stay" query bypasses the jump for language picking.
+     Jump policy: any-zh wins. A reader listing Chinese anywhere in
+     the preference list gets the zh tree, which holds the original-
+     authored guide -- this is a Chinese-authored project -- and both
+     entry links below stay visible for manual override. -->
 <html lang="zh">
 <head>
 <meta charset="utf-8">
@@ -12,9 +16,9 @@
 <title>NLang Documentation</title>
 <script>
 if (!/[?&]stay/.test(location.search)) {
-  var langs = (navigator.language || "en") + ","
-            + (navigator.languages || []).join(",");
-  location.replace(langs.toLowerCase().indexOf("zh") === 0 ||
+  var langs = ((navigator.language || "en") + ","
+            + (navigator.languages || []).join(",")).toLowerCase();
+  location.replace(langs.indexOf("zh") === 0 ||
                    langs.indexOf(",zh") >= 0 ? "zh/index.html"
                                              : "en/index.html");
 }

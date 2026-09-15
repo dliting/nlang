@@ -1,6 +1,6 @@
 # mkdocs hook: register the NLang lexer before rendering. Loaded via
-# the 'hooks:' list in mkdocs.yml (resolved relative to the config
-# file; an absolute path stays absolute).
+# the 'hooks:' list in mkdocs.base.yml (paths resolve relative to the
+# INHERITing config file; an absolute path stays absolute).
 #
 #Self-sufficiency without PYTHONPATH: mkdocs execs this file at config
 #validation and restores sys.path afterwards (Hooks._load_hook's

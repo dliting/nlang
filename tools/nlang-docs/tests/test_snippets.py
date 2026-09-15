@@ -284,16 +284,30 @@ def test_stage_fails_when_any_page_has_problems(tmp_path, monkeypatch,
     assert "b.md: exit code 1, expected 0" in capsys.readouterr().err
 
 
-def test_real_zh_config_resolves_a_nonempty_guide():
+def test_real_zh_config_resolves_a_nonempty_guide(monkeypatch, capsys):
     #Bilingual split: the stage derives the guide from the config's
     #docs_dir instead of the old repo-root docs/getting-started. A
     #regression there silently degrades the zh build's 4th stage to
-    #"snippets: skipped" while the build stays green -- this pins the
-    #real tree's audit path to resolve and to hold pages. (The en tree
-    #legitimately skips until its guide translation lands, so only the
-    #zh path is pinned.)
+    #"snippets: skipped (... not found)" while the build stays green.
+    #So this drives _snippet_stage ITSELF -- the call site the build
+    #runs, not the resolution helper (a helper-only test would stay
+    #green after a call-site revert) -- with the real tree's config
+    #and no binaries. The two skip lines then discriminate the
+    #outcomes: a resolved guide reaches the "give --ncc/--nvm" skip,
+    #an unresolved one dies earlier with the path's "not found" line.
+    #(The en tree legitimately skips until its guide translation
+    #lands, so only the zh path is pinned.)
     from nlang_docs import cli
     repo = Path(__file__).resolve().parents[3]
-    guide = cli._config_docs_dir(repo / "mkdocs.zh.yml") / "getting-started"
-    assert sorted(guide.glob("*.md")), \
-        f"zh guide unresolved via mkdocs.zh.yml docs_dir: {guide}"
+    opts = types.SimpleNamespace(
+        config=str(repo / "mkdocs.zh.yml"), doc=None, workdir=None,
+        ncc=None, nvm=None)
+    monkeypatch.delenv("NLANG_NCC", raising=False)
+    monkeypatch.delenv("NLANG_NVM", raising=False)
+    rc, line = cli._snippet_stage(opts)
+    assert (rc, line) == (0, None)
+    stderr = capsys.readouterr().err
+    #The docs/zh-based outcome: the guide resolved (the stage got past
+    #the path check) and only the missing binaries stopped it.
+    assert "give --ncc/--nvm" in stderr, stderr
+    assert "not found" not in stderr, stderr

@@ -5,26 +5,23 @@ fails), so the trees can be seeded first and translated in batches
 without silent gaps. The two navs must list identical page paths once
 the pending list is empty -- a page missing from one nav stays
 invisible even when translated."""
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from nlang_docs.linkcheck import _ConfigLoader  # noqa: E402
+
 REPO = Path(__file__).resolve().parents[3]
 ZH_TREE = REPO / "docs" / "zh"
 EN_TREE = REPO / "docs" / "en"
 PENDING_FILE = REPO / "docs" / "translation-pending.txt"
-
-
-class _PermissiveLoader(yaml.SafeLoader):
-    """The configs carry ``!!python/name:`` values (toc slugify); treat
-    them as opaque strings (same tolerance as the linkcheck loader)."""
-
-    pass
-
-
-_PermissiveLoader.add_constructor(
-    "!python/name", lambda loader, node: loader.construct_scalar(node))
+#The configs carry ``!!python/name:`` values (toc slugify); the loader
+#treating them as opaque strings is linkcheck's own (single source --
+#a local reimplementation registered the exact tag '!python/name'
+#while real tags are suffixed, so it could never fire).
 
 
 def _md_rel(tree: Path) -> set:
@@ -41,7 +38,7 @@ def _pending() -> set:
 
 def _nav_paths(config_name: str) -> list:
     doc = yaml.load((REPO / config_name).read_text(encoding="utf-8"),
-                    Loader=_PermissiveLoader)
+                    Loader=_ConfigLoader)
     flat = []
 
     def walk(items):

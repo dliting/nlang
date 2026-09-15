@@ -1,7 +1,9 @@
 # English tree. INHERIT pulls every shared setting from the base; the
-# seed pages are today's English-authored pages (language-spec +
-#vm-architecture). getting-started joins the nav as its English
-# translations land (docs/translation-pending.txt).
+# seed pages are the English-authored language-spec + vm-architecture
+# pages, except language-spec/exit-code-convention.md, which is the
+# Chinese-authored original pending its English translation. Both gaps
+# are tracked by docs/translation-pending.txt; getting-started joins
+# the nav as its English translations land.
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
 docs_dir: docs/en

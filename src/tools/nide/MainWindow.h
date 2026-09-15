@@ -97,7 +97,10 @@ public:
     //--- help (docs site in the embedded viewer) ---
     //First ancestor dir whose docs/site/<tree> holds the page, where
     //<tree> follows the language setting ("zh"/"en") with the other
-    //language as fallback; empty when none (installed layout:
+    //language as fallback. The search is tree-major: the primary tree
+    //is walked across all ancestor hops before the fallback tree
+    //starts, so a primary hit at hop 5 beats a fallback hit at hop 1.
+    //Empty when no tree holds the page (installed layout:
     //bin/../docs/site one hop up; dev tree resolves a few hops
     //deeper). documentPagePath is relative to docs/site/<tree>
     //without the .html suffix. Tests call it directly.

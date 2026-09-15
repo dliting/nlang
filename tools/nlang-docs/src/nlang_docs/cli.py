@@ -162,6 +162,9 @@ def _config_docs_dir(config_path):
     config_dir = Path(config_path).parent
     if yaml is None:
         return config_dir / "docs"
+    #Deferred import on purpose: _ConfigLoader only exists when
+    #linkcheck's own yaml import succeeded, so hoisting it would break
+    #the yaml-less degradation path above.
     from .linkcheck import _ConfigLoader
     doc = yaml.load(Path(config_path).read_text(encoding="utf-8"),
                     Loader=_ConfigLoader)

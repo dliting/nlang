@@ -2716,6 +2716,8 @@ private slots:
         // trees two hops up. The language setting picks the primary
         // tree; the other language is the fallback for pages whose
         // translation has not landed yet (pending-list state).
+        if (MainWindow::locateHelpPage("language-spec/overview").isEmpty())
+            QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         QSettings settings;
         settings.setValue("ide/language", "zh");
         QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")

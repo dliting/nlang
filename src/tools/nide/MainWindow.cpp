@@ -1460,10 +1460,9 @@ QString MainWindow::locateHelpPage(const QString& documentPagePath) {
     //language as a fallback (translations land per section, and even
     //a fully shipped tree can miss a brand-new page).
     const QString primary = SettingsStore::persisted().helpTree();
-    const QStringList trees =
-        primary == QLatin1String("zh")
-        ? QStringList{QStringLiteral("zh"), QStringLiteral("en")}
-        : QStringList{QStringLiteral("en"), QStringLiteral("zh")};
+    const QStringList trees = primary == LANGUAGE_ZH
+        ? QStringList{LANGUAGE_ZH, LANGUAGE_EN}
+        : QStringList{LANGUAGE_EN, LANGUAGE_ZH};
     for (const QString& tree : trees) {
         QDir dir = QCoreApplication::applicationDirPath();
         for (int hop = 0; hop < MAX_DOC_SITE_HOPS; ++hop) {
