@@ -4,7 +4,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.0]
+## [0.6.2]
 
 ### Added
 
