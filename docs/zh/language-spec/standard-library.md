@@ -84,7 +84,7 @@ io = 全部内容（控制台 + 磁盘文本，将来的流类），fs =
 **错误模型**：`size`/`listFiles`/`makeDirs`/`remove` 失败时抛
 `IOException`。三个谓词从不抛错——无法陈述的路径（不存在或不可
 访问）直接回答 0。对缺失路径 `remove` 是静默无操作。对目录或特殊
-文件 `size` 抛 IOException（目录的"大小"是文件系统噪音）。
+文件 `size` 抛 IOException（目录的「大小」是文件系统噪音）。
 
 **join 的边界语义**（std::filesystem 路径追加，与 Python
 `os.path.join` 相同）：带根的右侧（`"/b"`）会**替换**左侧；空的
