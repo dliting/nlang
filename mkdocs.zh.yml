@@ -23,6 +23,21 @@ nav:
       - 在 nide 中调试: getting-started/debugging.md
       - 常见问题: getting-started/faq.md
       - 下一步阅读: getting-started/further-reading.md
+  - VM 架构:
+      - 概览: vm-architecture/overview.md
+      - 编译管线: vm-architecture/compilation-pipeline.md
+      - 栈帧布局: vm-architecture/stack-frame-layout.md
+      - 堆架构: vm-architecture/heap-architecture.md
+      - 字节码指令: vm-architecture/bytecode-instructions.md
+      - 垃圾回收设计: vm-architecture/garbage-collection-design.md
+      - 调试支持: vm-architecture/debugging.md
+      - 模块序列化: vm-architecture/module-serialization.md
+      - foreach 降级: vm-architecture/foreach-statement-lowering.md
+      - 初始化列表降级: vm-architecture/init-list-lowering.md
+      - 二元表达式提升: vm-architecture/binary-expression-promotion.md
+      - 标准库 intrinsic: vm-architecture/standard-library-intrinsics.md
+      - 一等函数值: vm-architecture/first-class-function-values.md
+      - 已知限制: vm-architecture/known-limitations.md
 #The per-tree header link to the other tree's home page (rendered by
 #theme_override main.html; its guard keeps absent keys inert).
 extra:

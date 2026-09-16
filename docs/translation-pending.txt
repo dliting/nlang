@@ -31,17 +31,3 @@ en/language-spec/standard-library.md
 en/language-spec/memory-management.md
 en/language-spec/exit-code-convention.md
 en/language-spec/known-limitations.md
-en/vm-architecture/overview.md
-en/vm-architecture/compilation-pipeline.md
-en/vm-architecture/stack-frame-layout.md
-en/vm-architecture/heap-architecture.md
-en/vm-architecture/bytecode-instructions.md
-en/vm-architecture/garbage-collection-design.md
-en/vm-architecture/debugging.md
-en/vm-architecture/module-serialization.md
-en/vm-architecture/foreach-statement-lowering.md
-en/vm-architecture/init-list-lowering.md
-en/vm-architecture/binary-expression-promotion.md
-en/vm-architecture/standard-library-intrinsics.md
-en/vm-architecture/first-class-function-values.md
-en/vm-architecture/known-limitations.md

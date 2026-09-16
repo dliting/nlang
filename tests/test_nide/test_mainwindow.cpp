@@ -2725,7 +2725,7 @@ private slots:
         QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
                      .endsWith("/en/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
-                     .endsWith("/en/vm-architecture/overview.html"));
+                     .endsWith("/zh/vm-architecture/overview.html"));
         settings.setValue("ide/language", "en");
         QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
                      .endsWith("/en/language-spec/overview.html"));
