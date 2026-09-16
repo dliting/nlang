@@ -17,17 +17,3 @@ zh/getting-started/running.md
 zh/getting-started/debugging.md
 zh/getting-started/faq.md
 zh/getting-started/further-reading.md
-en/language-spec/overview.md
-en/language-spec/naming-convention.md
-en/language-spec/types.md
-en/language-spec/type-semantics.md
-en/language-spec/declarations.md
-en/language-spec/builtin-generic-classes.md
-en/language-spec/expressions.md
-en/language-spec/statements.md
-en/language-spec/functions.md
-en/language-spec/function-types-and-delegates.md
-en/language-spec/standard-library.md
-en/language-spec/memory-management.md
-en/language-spec/exit-code-convention.md
-en/language-spec/known-limitations.md

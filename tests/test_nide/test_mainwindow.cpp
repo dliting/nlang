@@ -2723,7 +2723,7 @@ private slots:
         QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
                      .endsWith("/zh/getting-started/what-is-nolang.html"));
         QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
-                     .endsWith("/en/language-spec/overview.html"));
+                     .endsWith("/zh/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
                      .endsWith("/zh/vm-architecture/overview.html"));
         settings.setValue("ide/language", "en");
