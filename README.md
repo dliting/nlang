@@ -9,7 +9,8 @@ VM, debugger and IDE, and is developed as an open teaching/research project.
 
 The NLang IDE: solution tree on the left (projects plus standalone `.n`
 files), editor in the middle, build and execution output below. The UI
-follows the system locale (Chinese and English are bundled).
+language defaults to the system locale and can be pinned to Chinese or
+English in Tools → Options (applied on restart).
 
 ## Quick Start
 
@@ -125,7 +126,7 @@ behaves like `q`. When the program finishes, ndb prints
 For embedding, `ndb --machine <module.nmod>` exposes the same session
 over a tab-separated line protocol on stdin/stdout — the nide debugger
 is built on it. The engine-side layering is described in
-`docs/vm-architecture/debugging.md`.
+`docs/en/vm-architecture/debugging.md`.
 
 All command-line tools report their version with `--version`
 (e.g. `ncc (NLang) <version>`). The IDE shows it in Help → About, and the
@@ -182,7 +183,7 @@ An unimported reference fails with a pointed diagnostic, e.g.
 `Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
 Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
-(`docs/language-spec/declarations.md`, Import Declaration).
+(`docs/en/language-spec/declarations.md`, Import Declaration).
 
 Compiled modules use a versioned binary format, currently v1.11. The
 loader enforces a compatibility floor: after a floor bump, older
@@ -214,10 +215,10 @@ int main() {
 
 Full details — parameter type policy, exception mapping, byte semantics,
 deterministic PRNG — are in the Standard Library chapter
-(`docs/language-spec/standard-library.md`); runnable copies of the example
+(`docs/en/language-spec/standard-library.md`); runnable copies of the example
 live in `examples/stdlib_*.n`.
 
-New to NLang? The `docs/getting-started/` chapters walk the language, the
+New to NLang? The `docs/en/getting-started/` chapters walk the language, the
 CLI and the IDE one topic per page (they are also reachable from the nide
 Help menu); `examples/README.md` indexes every runnable example.
 
@@ -234,8 +235,9 @@ layout: the Qt runtime DLLs, the `platforms/` plugin directory, and the
 `ncc`/`nvm`/`ndb` tools are copied next to `nide.exe` (the IDE invokes
 them from its own directory), so that folder can be copied elsewhere
 as-is.
-The UI language follows the system locale (Chinese and English are
-bundled; untranslated strings fall back to their authored text).
+The UI language defaults to the system locale and can be pinned to
+Chinese or English in Tools → Options (applied on restart); untranslated
+strings fall back to their authored text.
 
 Files created through 文件 → 新建文件 join the selected project in the
 solution tree (or the solution's sole project); files rename in place
@@ -250,10 +252,10 @@ when the source changed. The Help menu shows the bundled documentation
 site (`docs/site`) in an embedded viewer inside the IDE.
 
 nide also ships a built-in debugger (driving `ndb --machine` under the
-hood; a walkthrough lives in `docs/getting-started/debugging.md`). F5
+hood; a walkthrough lives in `docs/en/getting-started/debugging.md`). F5
 starts a debug session — the program runs to the first breakpoint or to
 completion — and Shift+F5 stops it at any time: the stop is a hard
-terminate, so an infinite loop or a stuck native call never blocks the
+termination, so an infinite loop or a stuck native call never blocks the
 IDE. Breakpoints toggle with F9 or a gutter click (a gutter dot starts
 hollow and turns filled once the live session confirms the line is in
 the compiled module), persist across sessions and follow file renames.

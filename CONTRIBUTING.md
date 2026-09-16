@@ -88,7 +88,7 @@ About dialog, the documentation-site footer and the CPack package names.
 
 Architecture notes that will save you a debugging afternoon — the visitor
 macros, the result-pointer VM model, the local-declaration lowering — are in
-`docs/` (start with `docs/vm-architecture/`).
+`docs/` (start with `docs/en/vm-architecture/`).
 
 ## Commits and Pull Requests
 

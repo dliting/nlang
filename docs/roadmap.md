@@ -112,5 +112,5 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 
 | 文档 | 说明 |
 |------|------|
-| docs/language-spec/ | NLang 语言规范（类型语义、语法、GC 行为），一章一页 14 篇 |
-| docs/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集），一章一页 13 篇 |
+| docs/{zh,en}/language-spec/ | NLang 语言规范（类型语义、语法、GC 行为），一章一页 14 篇，中英双树 |
+| docs/{zh,en}/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集），一章一页 14 篇，中英双树 |

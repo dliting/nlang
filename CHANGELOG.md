@@ -4,6 +4,19 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - Unreleased
+
+### Added
+
+- nide `Tools → Options` dialog: UI language (system / Chinese /
+  English, applied on restart) and a global build output directory
+  (standalone `.nmod` files land there; projects fall back to it when
+  the `.nproj` sets no output directory).
+- The manual is now fully bilingual: the docs site builds two complete
+  trees (`zh/` + `en/`) behind a language-detecting landing page with
+  a cross-tree switch link, and the nide Help menu opens the tree
+  matching the language setting.
+
 ## [0.6.2] - 2026-09-15
 
 ### Added
