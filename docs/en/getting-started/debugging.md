@@ -43,17 +43,17 @@ Output `15`, exit code 0.
    breakpoint; arriving at any of them pauses, and the condition hits on
    every evaluation, including the final test before the loop ends.
 4. Choose Run → Stop Debugging (Shift+F5) to end the session at any
-   time. Stopping is a hard terminate: even an infinite loop or a stop
-   inside a native call ends immediately; closing nide also terminates
-   the debugged process. While a session is active, Build and Run
-   (Ctrl+F5) are disabled.
+   time. Stopping is a hard termination: the session stops immediately
+   even in an infinite loop or inside a native call; closing nide also
+   terminates the debugged process. While a session is active, Build
+   and Run (Ctrl+F5) are disabled.
 
 ### Keyboard shortcuts
 
 | Action | Shortcut |
 |------|--------|
-| Start Debugging / Continue | F5 |
-| Run without debugging | Ctrl+F5 |
+| Start Debugging (continue) | F5 |
+| Run → Start (without debugging) | Ctrl+F5 |
 | Stop Debugging | Shift+F5 |
 | Toggle breakpoint | F9 (same as clicking the gutter) |
 | Step Over | F10 |
@@ -99,8 +99,8 @@ round.
   one line-number snapshot, and editing or rebuilding mid-session is
   unsupported; the next debug start re-resolves against the latest
   sources;
-- Stop Debugging is a hard terminate: the process ends immediately with
-  no graceful unwinding (`finally` does not run);
+- Stop Debugging is a hard termination: the process ends immediately
+  with no graceful unwinding (`finally` does not run);
 - execution inside native code cannot be interrupted, but the process
   can always be killed;
 - conditional breakpoints, watchpoints, edit-and-continue, and attaching

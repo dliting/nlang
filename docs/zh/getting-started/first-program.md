@@ -23,7 +23,7 @@ nide 把产物放在 `%TEMP%\nlang-nide\`，源码变化后运行会自动重新
 
 ### 路径 B：命令行
 
-在源码所在目录执行（安装包用户写 `bin\ncc`、`bin\nvm`）：
+在源码所在目录执行（安装包用户使用 `bin\ncc`、`bin\nvm`）：
 
     ncc build hello.n -o hello.nmod    # 编译
     nvm hello.nmod                     # 运行，退出码 0

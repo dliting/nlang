@@ -29,7 +29,7 @@ automatically.
 
 ### Path B: the command line
 
-Run in the directory that holds the source (installer users write
+Run in the directory that holds the source (installer users use
 `bin\ncc`, `bin\nvm`):
 
     ncc build hello.n -o hello.nmod    # compile

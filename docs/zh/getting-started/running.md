@@ -16,7 +16,7 @@
     ncc build examples/hello.n -o hello.nmod   # 编译
     nvm hello.nmod                             # 运行（退出码 42）
 
-安装包内未设置 PATH 时写 `bin\ncc build ...`、`bin\nvm <name>.nmod`。
+安装包内未设置 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.nmod`。
 
 多文件项目用 `-p` 指定 .nproj，`-o` 指定输出位置：
 

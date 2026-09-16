@@ -34,7 +34,7 @@ int main() {
 ```
 
 Output `200`, exit code 25. `switch` supports multi-value labels and
-four discriminator families (`int`/`float`/`string`/enum); case bodies
+four discriminant families (`int`/`float`/`string`/enum); case bodies
 do not fall through, so no `break` is needed to close one off
 (Java/C# semantics); `foreach` iterates arrays, `List<T>`, and the keys
 of a `Dict`.

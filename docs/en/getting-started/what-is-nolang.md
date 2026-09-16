@@ -29,5 +29,5 @@ The four tools shipped with the package:
 |---|---|
 | ncc | command-line compiler: compiles `.n`/`.nproj` into `.nmod`, and can execute right after compiling |
 | nvm | VM runner: executes `.nmod` |
-| ndisasm | bytecode disassembler: inspect the instructions inside a `.nmod` |
+| ndisasm | bytecode disassembler: inspects the instructions inside a `.nmod` |
 | nide | IDE: edit, build, and run, with this help site embedded |

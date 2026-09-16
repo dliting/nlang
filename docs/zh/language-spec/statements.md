@@ -266,8 +266,8 @@ try {
 看到异常。每条控制流路径上每个 finally 体恰好执行一次——正常路径
 与异常路径的拷贝是不相交的代码区域。
 
-不带任何 catch 子句的 `try { } finally { }` 合法（finally 的处理器
-入口是唯一的处理器）。
+不带任何 catch 子句的 `try { } finally { }` 合法（finally 的入口是
+唯一的处理器）。
 
 **限制**：`break`、`continue`、`return`、`throw` *不得出现在
 finally 体内*（编译错误）。finally 体不得吞掉在途的控制流或

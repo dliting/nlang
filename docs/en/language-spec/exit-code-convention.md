@@ -49,4 +49,4 @@ small positive values to tell multiple failures apart.
   value and encode "self-check passed" into a small exit code — for
   example, after summing a loop, `if (total == 25) return 25; return 1;`.
 
-See also: [Getting Started/FAQ](../getting-started/faq.md).
+See also: [Getting Started / FAQ](../getting-started/faq.md).

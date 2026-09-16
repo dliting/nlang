@@ -20,7 +20,7 @@ root (ncc/nvm live under `bin\`):
     ncc build examples/hello.n -o hello.nmod   # compile
     nvm hello.nmod                             # run (exit code 42)
 
-If PATH is not set up inside the installation, write
+If PATH is not set up inside the installation, use
 `bin\ncc build ...` and `bin\nvm <name>.nmod`.
 
 Multi-file projects pass the .nproj with `-p` and the output location
