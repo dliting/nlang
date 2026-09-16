@@ -239,10 +239,10 @@ bool    returnsBoxed = false;
 uint8_t returnTag    = 0;
 ```
 
-- List 分派：`Add` → 槽 1；`Set` → 槽 2；`IndexOf`/`Contains`
-  → 槽 1；`Get` → returnsBoxed。
-- Dict 分派：`Set` → K 在槽 1 + V 在槽 2；`Get` → K 在槽
-  1 + returnsBoxed（V）；`ContainsKey`/`Remove` → K 在槽 1。
+- List 分派：`add` → 槽 1；`set` → 槽 2；`indexOf`/`contains`
+  → 槽 1；`get` → returnsBoxed。
+- Dict 分派：`set` → K 在槽 1 + V 在槽 2；`get` → K 在槽
+  1 + returnsBoxed（V）；`containsKey`/`remove` → K 在槽 1。
 
 共享辅助函数 `BoxingTagFor(SnField*)` 返回
 `BoxingTagResult {tag, isPrimitive}`，从此 `RTK_Int32 == 0` 不再与

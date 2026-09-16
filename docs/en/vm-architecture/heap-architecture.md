@@ -257,10 +257,10 @@ bool    returnsBoxed = false;
 uint8_t returnTag    = 0;
 ```
 
-- List dispatch: `Add` → slot 1; `Set` → slot 2; `IndexOf`/`Contains`
-  → slot 1; `Get` → returnsBoxed.
-- Dict dispatch: `Set` → K at slot 1 + V at slot 2; `Get` → K at slot
-  1 + returnsBoxed (V); `ContainsKey`/`Remove` → K at slot 1.
+- List dispatch: `add` → slot 1; `set` → slot 2; `indexOf`/`contains`
+  → slot 1; `get` → returnsBoxed.
+- Dict dispatch: `set` → K at slot 1 + V at slot 2; `get` → K at slot
+  1 + returnsBoxed (V); `containsKey`/`remove` → K at slot 1.
 
 A shared helper `BoxingTagFor(SnField*)` returns a
 `BoxingTagResult {tag, isPrimitive}` so that `RTK_Int32 == 0` no

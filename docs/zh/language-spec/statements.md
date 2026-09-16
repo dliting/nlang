@@ -84,8 +84,8 @@ foreach (string name in ages) {
 
 **迭代期间改动是未定义行为**。元素数在循环入口缓存（List/Dict 用
 `n = iterable.length()`，数组用 `n = arr.length`）。循环体内的结构
-性改动（`List.Add`/`RemoveAt`、`Dict.Set`/`Remove`）可能导致：越界
-访问、元素跳过/重复、`Keys()` 快照过期。数组 foreach 体内的元素
+性改动（`List.add`/`removeAt`、`Dict.set`/`remove`）可能导致：越界
+访问、元素跳过/重复、`keys()` 快照过期。数组 foreach 体内的元素
 赋值（`arr[i] = x`）没有问题（非结构性改动）。
 
 **struct 元素拷贝进循环变量**（值语义）：
@@ -93,7 +93,7 @@ foreach (string name in ages) {
 `p` 是每轮迭代的新深拷贝（与 C# 一致：对值类型元素的 foreach 同样
 得到副本）。
 
-**null 可迭代对象**在第一次 `length()`/`Length()` 调用时抛 NPE
+**null 可迭代对象**在第一次 `length()` 调用时抛 NPE
 （与所有其他 class 类型调用一致）。
 
 **含值 0 的 `List<int>`**：由于既有的 `OP_Box` 优化（字面量 `0` 按
@@ -266,11 +266,11 @@ try {
 看到异常。每条控制流路径上每个 finally 体恰好执行一次——正常路径
 与异常路径的拷贝是不相交的代码区域。
 
-不带任何 catch 子句的 `try { } finally { }` 合法（finally 条目是
-唯一的处理器）。
+不带任何 catch 子句的 `try { } finally { }` 合法（finally 的处理器
+入口是唯一的处理器）。
 
-**限制**：`break`、`continue`、`return`、`throw` **不得出现在
-finally 体内**（编译错误）。finally 体不得吞掉正在途中的控制流或
+**限制**：`break`、`continue`、`return`、`throw` *不得出现在
+finally 体内*（编译错误）。finally 体不得吞掉在途的控制流或
 异常。
 
 **super()——构造函数链（Phase 9d-2）：**
@@ -291,7 +291,7 @@ class Kid : Base {
 - `super(args);` 在同一个 `this` 对象上调用**直接父类的构造函数**。
   仅在有父类的类的构造函数内有效（`Object` 没有父类）。
 - 可出现在构造函数的**任何语句位置**（不限于第一条语句）。
-- 实参数必须与父构造函数的形参数一致。对内建 Exception 家族的父类，
+- 实参个数必须与父构造函数的形参个数一致。对内建 Exception 家族的父类，
   构造函数恰好接受一个 `message` 实参。
 - 不支持具名实参（`super(x = 1)`，编译错误）。
 - 对没有构造函数的父类调用无参 `super()` 是合法的无操作；此时传

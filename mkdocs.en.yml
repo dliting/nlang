@@ -22,7 +22,7 @@ nav:
       - Expressions: language-spec/expressions.md
       - Statements: language-spec/statements.md
       - Functions: language-spec/functions.md
-      - Function Types and Delegates: language-spec/function-types-and-delegates.md
+      - Function Types & Delegates: language-spec/function-types-and-delegates.md
       - Standard Library: language-spec/standard-library.md
       - Memory Management: language-spec/memory-management.md
       - Exit Code Convention: language-spec/exit-code-convention.md
@@ -37,7 +37,7 @@ nav:
       - Debugging Support: vm-architecture/debugging.md
       - Module Serialization: vm-architecture/module-serialization.md
       - foreach Lowering: vm-architecture/foreach-statement-lowering.md
-      - Init-List Lowering: vm-architecture/init-list-lowering.md
+      - Init List Lowering: vm-architecture/init-list-lowering.md
       - Binary Expression Promotion: vm-architecture/binary-expression-promotion.md
       - Standard Library Intrinsics: vm-architecture/standard-library-intrinsics.md
       - First-Class Function Values: vm-architecture/first-class-function-values.md

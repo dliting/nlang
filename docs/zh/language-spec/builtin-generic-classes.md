@@ -25,14 +25,14 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 
 | 方法              | 签名          | 返回 | 说明                              |
 |---------------------|--------------------|---------|------------------------------------|
-| `Add`               | `void Add(T item)` | —       | 追加到末尾                      |
-| `Get`               | `T Get(int idx)`   | T       | 按索引读取；越界抛错       |
-| `Set`               | `void Set(int i, T)` | —     | 覆写元素                  |
-| `Length`            | `int Length()`     | int     | 当前元素数              |
-| `RemoveAt`          | `void RemoveAt(int i)` | —   | 擦除；后继元素前移  |
-| `IndexOf`           | `int IndexOf(T item)` | int | `item` 的首个索引，无则 -1       |
-| `Contains`          | `int Contains(T item)` | int | 存在为 1，否则 0               |
-| `Clear`             | `void Clear()`     | —       | 移除全部元素                |
+| `add`               | `void add(T item)` | —       | 追加到末尾                      |
+| `get`               | `T get(int idx)`   | T       | 按索引读取；越界抛错       |
+| `set`               | `void set(int i, T)` | —     | 覆写元素                  |
+| `length`            | `int length()`     | int     | 当前元素数              |
+| `removeAt`          | `void removeAt(int i)` | —   | 擦除；后继元素前移  |
+| `indexOf`           | `int indexOf(T item)` | int | `item` 的首个索引，无则 -1       |
+| `contains`          | `int contains(T item)` | int | 存在为 1，否则 0               |
+| `clear`             | `void clear()`     | —       | 移除全部元素                |
 
 **类型检查**：编译器把 `List<int>`、`List<string>`、`List<Point>` 等
 识别为彼此不同的静态类型。实参类型按替换后的签名检查——
@@ -44,9 +44,9 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 
 **数组类型实参**：`T` 可以是数组类型——`List<int[]>` 把 `int[]` 值
 作为裸的、GC 可追踪的句柄存储；上文的基本类型装箱规则不适用于
-数组类型的元素。经 `Get`/下标取出的元素会为编译器的各道门保留其
-数组性，`foreach (int[] row in grid)` 可直接迭代它们。`IndexOf`/
-`Contains` 按句柄恒等比较。锯齿实参（`List<int[][]>`）与其他锯齿
+数组类型的元素。经 `get`/下标取出的元素会为编译器的各道门保留其
+数组性，`foreach (int[] row in grid)` 可直接迭代它们。`indexOf`/
+`contains` 按句柄恒等比较。锯齿实参（`List<int[][]>`）与其他锯齿
 声明一样被拒绝。
 
 **null List 引用**：未赋值 `new List<T>()` 的 `List<T>` 字段或变量
@@ -99,12 +99,12 @@ int removed = squares.remove(4);        // 1
 
 | 方法           | 签名                  | 返回 | 说明                                          |
 |------------------|----------------------------|---------|------------------------------------------------|
-| `Set`            | `void Set(K key, V value)` | —       | 插入或替换（无重复键错误）     |
-| `Get`            | `V Get(K key)`             | V       | 查找；键不存在时**抛错**               |
-| `ContainsKey`    | `int ContainsKey(K key)`   | int     | 存在为 1，否则 0                      |
-| `Remove`         | `int Remove(K key)`        | int     | 删除为 1，键未找到为 0               |
-| `Clear`          | `void Clear()`             | —       | 移除全部条目                             |
-| `Count`          | `int Count()`              | int     | 当前条目数                            |
+| `set`            | `void set(K key, V value)` | —       | 插入或替换（无重复键错误）     |
+| `get`            | `V get(K key)`             | V       | 查找；键不存在时**抛错**               |
+| `containsKey`    | `int containsKey(K key)`   | int     | 存在为 1，否则 0                      |
+| `remove`         | `int remove(K key)`        | int     | 删除为 1，键未找到为 0               |
+| `clear`          | `void clear()`             | —       | 移除全部条目                             |
+| `count`          | `int count()`              | int     | 当前条目数                            |
 
 **类型检查**：编译器把 `Dict<int,int>`、`Dict<string,Point>` 等识别
 为彼此不同的静态类型。实参类型按替换后的签名检查——
@@ -121,7 +121,7 @@ class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表
 - `string` 键：比较 string 池内容（值相等）。
 - `class` / `struct` 键：比较堆索引（恒等），与 Java 的
   `IdentityHashMap`、C# 默认的 `object.Equals` 一致。用户的 `Equals`
-  覆写**不会**被征用——基于覆写的字典语义是另一个未来阶段。
+  覆写**不参与比较**——基于覆写的字典语义是另一个未来阶段。
 - 数组键（`Dict<int[], V>`）：按句柄恒等比较——两个内容相同但独立
   的 `int[2]` 数组是不同的键。
 
@@ -129,8 +129,8 @@ class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表
 变量持有 null。对 null 调用任何方法抛出
 `NLang VM: Dict <method> on null instance`。
 
-**线性扫描查找（当前限制）**：每次 `Set`/`Get`/`ContainsKey`/
-`Remove` 都对条目向量做 O(n) 扫描。对典型的小脚本可以接受；O(1)
+**线性扫描查找（当前限制）**：每次 `set`/`get`/`containsKey`/
+`remove` 都对条目向量做 O(n) 扫描。对典型的小脚本可以接受；O(1)
 哈希表查找是未来的优化阶段。
 
 **对键的 `foreach`（Phase 8e-5）**：`foreach (K k in dict) { ... }`
@@ -139,11 +139,11 @@ class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表
 物化一个新 `List<K>`，再对该列表迭代。见下文「foreach 语句」一节。
 
 **`Dict.keys()`**：返回装好全部键的新 `List<K>`（无定义顺序）。即使
-不用 `foreach` 也有用：给键做快照以便枚举、经 `Contains` 做集合式
+不用 `foreach` 也有用：给键做快照以便枚举、经 `contains` 做集合式
 成员检查等。返回的 `List<K>` 是*副本*——此后对源 dict 的
-`Set`/`Remove` 不影响它。
+`set`/`remove` 不影响它。
 
-**`Values()`**：尚未提供。请迭代键并调用 `Get` 取值。
+**`values()`**：尚未提供。请迭代键并调用 `get` 取值。
 
 ### 下标语法糖——`li[i]` / `d[k]`
 

@@ -91,7 +91,7 @@
 | OP_Concat_str | dst, src  | 拼接字符串               |
 | OP_Eq_str   | lhs, rhs    | 字符串相等               |
 | OP_Ne_str   | lhs, rhs    | 字符串不等               |
-| OP_Less_str | lhs, rhs    | 按字节关系比较（Phase 11 Step 3b；UTF-8 字节序 == 码点序） |
+| OP_Less_str | lhs, rhs    | 按字节关系比较（Phase 11 Step 3b；UTF-8 字节顺序 == 码点序） |
 | OP_LessEqual_str | lhs, rhs | 按字节 `<=`              |
 | OP_Greater_str | lhs, rhs | 按字节 `>`               |
 | OP_GreaterEqual_str | lhs, rhs | 按字节 `>=`          |

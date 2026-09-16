@@ -29,12 +29,12 @@
   `OP_LoadElement`（struct 元素类型另加 `OP_CopyStruct`）。
 - **List<T>**：可迭代对象的 `EvalDataType()` 是满足
   `BaseName()=="List"` 且 `IsGenericInstantiation()` 的
-  `SnClassDecl`。长度走 `OP_CallMethod "Length"`；元素走
-  `OP_CallMethod "Get"`，基本类型 T 后接 `OP_Unbox`——类型实参是数组类
+  `SnClassDecl`。长度走 `OP_CallMethod "length"`；元素走
+  `OP_CallMethod "get"`，基本类型 T 后接 `OP_Unbox`——类型实参是数组类
   型时跳过（`List<int[]>` 的元素以裸句柄流动；逐方法装箱计划的数组
   实参例外）。
 - **Dict<K,V>**：可迭代对象的 `EvalDataType()` 是满足
-  `BaseName()=="Dict"` 的 `SnClassDecl`。**内联 `Keys()` 调用**先把
+  `BaseName()=="Dict"` 的 `SnClassDecl`。**内联 `keys()` 调用**先把
   一个新 `List<K>` 物化进 `iterSlot`（步骤 2b），其余照搬 List 路
   径、元素类型为 K。
 

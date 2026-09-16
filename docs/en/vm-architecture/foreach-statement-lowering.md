@@ -32,12 +32,12 @@ preserving the user-visible AST:
   `OP_LoadElement` (with `OP_CopyStruct` for struct-element types).
 - **List<T>**: iterable's `EvalDataType()` is `SnClassDecl` with
   `BaseName()=="List"` and `IsGenericInstantiation()`. Length via
-  `OP_CallMethod "Length"`; element via `OP_CallMethod "Get"` followed
+  `OP_CallMethod "length"`; element via `OP_CallMethod "get"` followed
   by `OP_Unbox` for primitive T — skipped when the type argument is an
   array type (`List<int[]>` elements flow as raw handles; per-method
   boxing plan, array-argument exception).
 - **Dict<K,V>**: iterable's `EvalDataType()` is `SnClassDecl` with
-  `BaseName()=="Dict"`. **Inline `Keys()` call** materializes a fresh
+  `BaseName()=="Dict"`. **Inline `keys()` call** materializes a fresh
   `List<K>` into `iterSlot` first (step 2b), then the rest mirrors the
   List path with element type K.
 

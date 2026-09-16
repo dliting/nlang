@@ -38,6 +38,9 @@ struct, array, and function values):
   GC from stack frame physical layout)
 - `m_slotStructIdx` parallel array for struct type identification (structs
   have no type header; smaller change than adding one)
+- Iterative mark with an explicit worklist, not recursion (deep object
+  chains would overflow the C++ call stack; memory usage stays bounded
+  by O(reachable objects))
 
 ### Struct Lifetime
 

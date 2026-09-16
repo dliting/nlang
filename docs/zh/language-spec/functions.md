@@ -85,7 +85,7 @@ foo(5);       // 错误：有歧义（两个重载都接受 1 个实参）
 
 ### out 参数（Phase 9e）
 
-以 `out` 声明的参数是写回槽位：调用者的局部变量被播种进被调方的
+以 `out` 声明的参数是写回槽位：调用者的局部变量被预置进被调方的
 栈帧槽位；调用返回后，被调方的值被拷回调用者的变量。
 
 ```nlang
@@ -173,7 +173,7 @@ VM 在宿主注册的表（`VmExecutor::RegisterNative`）中按名查找，直�
 [this?][params][returnSlot][temp1-4][callParamBase(N)][evalArea(peakDepth)][user locals...]
 ```
 
-- **N** = 本函数体内观察到的最大被调形参数（方法再加 `this` 的
+- **N** = 本函数体内观察到的最大被调形参个数（方法再加 `this` 的
   槽 0）。`callParamBase` 是 `OP_CallFunc`/`OP_CallMethod` 消费的
   最终着陆区。
 - **peakDepth** = 所有调用点（含嵌套调用）同时需要的 evalArea 槽位
@@ -186,5 +186,5 @@ evalArea 是不相交的、栈式纪律的暂存区。每次 `EmitCallArgs` 进�
 `callParamBase`。这意味着内层调用的绑定永远不会覆写外层调用已发射
 的绑定——修复了既有的 callParamBase 嵌套调用覆写 bug。
 
-64 个形参的 sanity 上限（`kMaxFuncParams`）防止不合理的超大栈帧；
+64 个形参的合理性上限（`kMaxFuncParams`）防止不合理的超大栈帧；
 超出即声明期错误。

@@ -34,7 +34,7 @@ resolver 不向子初始化列表传播期望类型（`[[1,2],[3]]` 的递归类
 
 `List<T>` 与 `Dict<K,V>` 分支复用 Phase 8e-3/8e-4 的逐方法装箱基础
 设施：`BoxingTagFor(typeArg)` 返回 `{tag, isPrimitive}`，只有当元素
-类型为基本类型**且不是数组类型**时才在 `Add`/`Set` 之前发射 `OP_Box`
+类型为基本类型**且不是数组类型**时才在 `add`/`set` 之前发射 `OP_Box`
 ——数组类型的类型实参（`List<int[]>`、`Dict` 的值 `V[]`）以裸句柄
 流动、不做装箱，与手写 `lst.add(x)` 调用的例外一致。这保证初始化与
 手写的 `lst.add(x)`、`d.set(k, v)` 调用行为一致。

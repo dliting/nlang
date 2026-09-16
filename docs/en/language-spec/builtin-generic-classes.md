@@ -26,14 +26,14 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 
 | Method              | Signature          | Returns | Notes                              |
 |---------------------|--------------------|---------|------------------------------------|
-| `Add`               | `void Add(T item)` | —       | Append to end                      |
-| `Get`               | `T Get(int idx)`   | T       | Read by index; throws if OOB       |
-| `Set`               | `void Set(int i, T)` | —     | Overwrite element                  |
-| `Length`            | `int Length()`     | int     | Current element count              |
-| `RemoveAt`          | `void RemoveAt(int i)` | —   | Erase; shifts later elements down  |
-| `IndexOf`           | `int IndexOf(T item)` | int | First index of `item`, or -1       |
-| `Contains`          | `int Contains(T item)` | int | 1 if present else 0               |
-| `Clear`             | `void Clear()`     | —       | Remove all elements                |
+| `add`               | `void add(T item)` | —       | Append to end                      |
+| `get`               | `T get(int idx)`   | T       | Read by index; throws if OOB       |
+| `set`               | `void set(int i, T)` | —     | Overwrite element                  |
+| `length`            | `int length()`     | int     | Current element count              |
+| `removeAt`          | `void removeAt(int i)` | —   | Erase; shifts later elements down  |
+| `indexOf`           | `int indexOf(T item)` | int | First index of `item`, or -1       |
+| `contains`          | `int contains(T item)` | int | 1 if present else 0               |
+| `clear`             | `void clear()`     | —       | Remove all elements                |
 
 **Type checking**: the compiler recognizes `List<int>`, `List<string>`,
 `List<Point>`, etc. as distinct static types. Argument types are checked
@@ -48,9 +48,9 @@ in a side table (`m_listStore`); primitive elements are boxed via
 **Array type arguments**: `T` may be an array type — `List<int[]>`
 stores `int[]` values as raw, GC-traced handles; the primitive-boxing
 rule above does not apply to array-typed elements. Elements pulled out
-with `Get`/subscript keep their array-ness for the compiler's gates,
-and `foreach (int[] row in grid)` iterates them directly. `IndexOf`/
-`Contains` compare by handle identity. Jagged arguments
+with `get`/subscript keep their array-ness for the compiler's gates,
+and `foreach (int[] row in grid)` iterates them directly. `indexOf`/
+`contains` compare by handle identity. Jagged arguments
 (`List<int[][]>`) are rejected like other jagged declarations.
 
 **Null List reference**: a `List<T>` field or variable that has not been
@@ -109,12 +109,12 @@ int removed = squares.remove(4);        // 1
 
 | Method           | Signature                  | Returns | Notes                                          |
 |------------------|----------------------------|---------|------------------------------------------------|
-| `Set`            | `void Set(K key, V value)` | —       | Insert-or-replace (no duplicate-key error)     |
-| `Get`            | `V Get(K key)`             | V       | Lookup; **throws** if key absent               |
-| `ContainsKey`    | `int ContainsKey(K key)`   | int     | 1 if present, 0 otherwise                      |
-| `Remove`         | `int Remove(K key)`        | int     | 1 if removed, 0 if key not found               |
-| `Clear`          | `void Clear()`             | —       | Remove all entries                             |
-| `Count`          | `int Count()`              | int     | Current entry count                            |
+| `set`            | `void set(K key, V value)` | —       | Insert-or-replace (no duplicate-key error)     |
+| `get`            | `V get(K key)`             | V       | Lookup; **throws** if key absent               |
+| `containsKey`    | `int containsKey(K key)`   | int     | 1 if present, 0 otherwise                      |
+| `remove`         | `int remove(K key)`        | int     | 1 if removed, 0 if key not found               |
+| `clear`          | `void clear()`             | —       | Remove all entries                             |
+| `count`          | `int count()`              | int     | Current entry count                            |
 
 **Type checking**: the compiler recognizes `Dict<int,int>`,
 `Dict<string,Point>`, etc. as distinct static types. Argument types are
@@ -142,8 +142,8 @@ additional roots.
 been assigned `new Dict<K,V>()` holds null. Calling any method on null
 throws `NLang VM: Dict <method> on null instance`.
 
-**Linear-scan lookup (current limitation)**: every `Set`/`Get`/
-`ContainsKey`/`Remove` does an O(n) scan of the entries vector. This is
+**Linear-scan lookup (current limitation)**: every `set`/`get`/
+`containsKey`/`remove` does an O(n) scan of the entries vector. This is
 acceptable for typical small scripts; O(1) hashtable lookup is a future
 optimization phase.
 
@@ -155,11 +155,11 @@ iterates that list. See the Foreach Statement section below.
 
 **`Dict.keys()`**: returns a new `List<K>` populated with all keys
 (no defined ordering). Useful independently of `foreach` for snapshotting
-keys for enumeration, set-style membership checks via `Contains`, etc.
-The returned `List<K>` is a *copy* — subsequent `Set`/`Remove` on the
+keys for enumeration, set-style membership checks via `contains`, etc.
+The returned `List<K>` is a *copy* — subsequent `set`/`remove` on the
 source dict do not affect it.
 
-**`Values()`**: not yet provided. Iterate keys and call `Get` to obtain
+**`values()`**: not yet provided. Iterate keys and call `get` to obtain
 values.
 
 ### Subscript Sugar — `li[i]` / `d[k]`

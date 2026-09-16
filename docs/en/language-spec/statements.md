@@ -89,9 +89,9 @@ foreach (string name in ages) {
 
 **Mutation is undefined behavior**. The element count is cached at loop
 entry (`n = iterable.length()` for List/Dict, `n = arr.length` for Array).
-Structural modifications inside the body (`List.Add`/`RemoveAt`,
-`Dict.Set`/`Remove`) may cause: out-of-bounds access, skipped/duplicated
-elements, or stale `Keys()` snapshots. Element assignment (`arr[i] = x`)
+Structural modifications inside the body (`List.add`/`removeAt`,
+`Dict.set`/`remove`) may cause: out-of-bounds access, skipped/duplicated
+elements, or stale `keys()` snapshots. Element assignment (`arr[i] = x`)
 inside an Array foreach body is fine (no structural change).
 
 **Struct elements are copied into the loop variable** (value semantics):
@@ -99,7 +99,7 @@ inside an Array foreach body is fine (no structural change).
 `p` is a fresh deep copy per iteration (consistent with C#, where foreach
 over value-type elements also yields copies).
 
-**Null iterable** throws NPE on the first `length()`/`Length()` call
+**Null iterable** throws NPE on the first `length()` call
 (consistent with all other class-typed calls).
 
 **`List<int>` with value 0**: due to a pre-existing `OP_Box` optimization
