@@ -89,7 +89,7 @@ CLI 前端）行为不变。`OnOutput` 不得抛错：它跑在执行线程上�
 - 绝不让 C++ 异常逃逸进 VM（它们会跨越 NLang 的 try/catch 边界）
   ——ndb 的命令循环捕获一切。
 
-引用类型值的判别与 GC 标记器相同：声明 kind 剪掉基元；数组类型字段
+引用类型值的判别与 GC 标记器相同：声明 kind 剪掉基本类型；数组类型字段
 在 `.nmod` 里携带声明侧的 `RTK_Array`（数组重设计 B），因此声明
 kind 是可靠的数组探测器，运行期槽位 kind 起佐证作用。只有
 Class/Struct/Func 声明 kind 才落到运行期槽位 kind；Int32/Float/
@@ -98,7 +98,7 @@ String/Array 直接按声明 kind 渲染，普通 int 永远不会走到引用�
 
 ## 断点寻址
 
-每个函数记录它编译自的翻译单元路径（`CompiledFunction::sourceFile`）。
+每个函数记录编译所在翻译单元的路径（`CompiledFunction::sourceFile`）。
 `b file.n:LINE` 对记录路径做后缀匹配；`b LINE` 在所选帧的文件里解
 析；`b funcName` 停在函数第一条语句。导入合并会拷贝 `sourceFile` 与
 `locals`，因此被导入函数可以按断点寻址、其帧可以检查。

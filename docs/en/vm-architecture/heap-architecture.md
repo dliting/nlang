@@ -171,10 +171,10 @@ the `Point` records alive). Out-of-bounds and free indices are skipped.
 
 SweepPhase mirrors this: when a List instance is collected, its
 `__handle` is pushed onto `m_listFreeList` for reuse by the next
-`INTR_List_Ctor`. The ListSlot itself is not freed (it may have live
-references from other List instances after handle reuse is impossible —
-in practice, since handle is recycled only when *this* List dies, the
-slot's contents are unreachable).
+`INTR_List_Ctor`. The ListSlot itself is not freed (a handle is
+recycled only after *this* List dies, so in practice no other List
+instance can hold a live reference into the slot — its contents are
+unreachable).
 
 **Codegen: NewExpr with constructor aliasing fix.** When `new T(args)`
 appears as a method-call argument, the naive emission (evaluate

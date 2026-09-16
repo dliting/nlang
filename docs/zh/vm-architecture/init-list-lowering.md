@@ -8,14 +8,14 @@
 
 ### resolver 数据流
 
-`StatementResolver::Access(SnAssignStmt&)` 在解析右值之前先窥视一
-眼。若右值是不带 `ExplicitType` 的裸 `SnInitListExpr` 且没有
+`StatementResolver::Access(SnAssignStmt&)` 在解析右值之前先做前瞻
+（peek）。若右值是不带 `ExplicitType` 的裸 `SnInitListExpr` 且没有
 `InferredTarget`，就把左值变量经 `InferredTarget(pLeftField)` 记录
 到该初始化列表上。随后 resolver 访问右值；
 `ExprResolveAccessor::Access(SnInitListExpr&)` 读取显式的
 `ExplicitType()` 或 `InferredTarget()`，把 `EvalDataType` 设为解析
 出的目标字段，并把数组性拷贝进 `TargetIsArray`（这一步必不可少：数
-组变量上的 `EvalDataType` 返回的是元素类型，数组性否则会丢失）。
+组变量上的 `EvalDataType` 返回的是元素类型，否则数组性会丢失）。
 
 resolver 不向子初始化列表传播期望类型（`[[1,2],[3]]` 的递归类型推断
 暂不支持）。子列表必须使用显式的 `new Type{...}` 形式自带类型。
@@ -25,8 +25,8 @@ resolver 不向子初始化列表传播期望类型（`[[1,2],[3]]` 的递归类
 | 目标 kind                    | 分配                   | 逐条目存储                           |
 |-----------------------------|------------------------|--------------------------------------|
 | `T[]` 数组                  | `OP_AllocArray` size=N | `OP_ConstInt32 i; OP_StoreElement`  |
-| `List<T>`                   | `OP_New "List"` + ctor | `OP_Box`（T 为基元时）；`OP_CallMethod "Add"` |
-| `Dict<K,V>`                 | `OP_New "Dict"` + ctor | `OP_ConstString key`；`OP_Box`（V 为基元时）；`OP_CallMethod "Set"` |
+| `List<T>`                   | `OP_New "List"` + ctor | `OP_Box`（T 为基本类型时）；`OP_CallMethod "Add"` |
+| `Dict<K,V>`                 | `OP_New "Dict"` + ctor | `OP_ConstString key`；`OP_Box`（V 为基本类型时）；`OP_CallMethod "Set"` |
 | 用户 class                  | `OP_New` + 无参 ctor   | `OP_StoreField <offset>`            |
 | struct                      | `OP_AllocStruct`       | `OP_StoreField <offset>`            |
 
@@ -34,7 +34,7 @@ resolver 不向子初始化列表传播期望类型（`[[1,2],[3]]` 的递归类
 
 `List<T>` 与 `Dict<K,V>` 分支复用 Phase 8e-3/8e-4 的逐方法装箱基础
 设施：`BoxingTagFor(typeArg)` 返回 `{tag, isPrimitive}`，只有当元素
-类型为基元**且不是数组类型**时才在 `Add`/`Set` 之前发射 `OP_Box`
+类型为基本类型**且不是数组类型**时才在 `Add`/`Set` 之前发射 `OP_Box`
 ——数组类型的类型实参（`List<int[]>`、`Dict` 的值 `V[]`）以裸句柄
 流动、不做装箱，与手写 `lst.add(x)` 调用的例外一致。这保证初始化与
 手写的 `lst.add(x)`、`d.set(k, v)` 调用行为一致。

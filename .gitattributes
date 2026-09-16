@@ -1,0 +1,6 @@
+# The two-column stylesheet ships one copy per tree, mirrored
+# byte-for-byte (test_two_column_css_is_mirrored). Pin LF so a
+# checkout under core.autocrlf=true cannot smudge a twin to CRLF
+# and break the byte-parity gate.
+docs/zh/stylesheets/*.css text eol=lf
+docs/en/stylesheets/*.css text eol=lf

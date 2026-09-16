@@ -7,7 +7,7 @@
 `include/nlang/vm/StdLib.h` 中的单一表对（`kStdLibTable` +
 `kStringMethodTable`）：resolver 拦截限定调用与成员调用并对照该表，
 `VmBackend::EmitStdlibCall` 发射调用。内建函数 id 是模块局部的——
-`RemapBytecode` 完全不碰它们——因此跨模块导入不存在 id 问题。
+`RemapBytecode` 从不改动它们——因此跨模块导入不存在 id 问题。
 
 **实参 ABI**——两种形状，有意区分：
 
@@ -18,13 +18,13 @@
   `callParamBase[0]`，实参从槽 1 起。
 
 **VM 分派链**：`ExecuteIntrinsic`（VmExecutor.cpp）委托给每个家族
-TU 的一个成员函数；id 不归其管时返回 `false`，链条继续下落——math
+TU 的一个成员函数；id 不归其管时返回 `false`，链条继续穿透——math
 → io → string → fs → 未知 id 抛错。每个家族在自己的 TU 里独立扩
 展。
 
 **内建函数 id 分配**（CompiledModule.h）。各块连续，且两侧都与
 StdLib.h 的表静态绑定（每个条目的 id 都落在自己块内，条目数 == 块
-大小——不一致是编译错误，不是运行期的 "未知内建函数" 漏洞）：
+大小——不一致是编译错误，不是运行期的「未知内建函数」漏洞）：
 
 | Id 范围 | 前缀 | 家族 |
 |-----|--------|--------|
@@ -46,7 +46,7 @@ StdLib.h 的表静态绑定（每个条目的 id 都落在自己块内，条目�
 
 **位置数组守卫**：`s_OpCodeNames`（OpCodeTable.cpp）是位置数组——
 缺一行不是编译错误，而是运行期的越界读。
-`static_assert(std::size(s_OpCodeNames) == +OpCode::OP_Count)` 把尺
-寸钉死。新增一条指令仍然是 6 处手工触点：枚举、名字表、
+`static_assert(std::size(s_OpCodeNames) == +OpCode::OP_Count)`
+在编译期锁定尺寸。新增一条指令仍然是 6 处手工触点：枚举、名字表、
 `InstructionStride`（默认 `assert(false)`——Release 下漏写会破坏跨
 模块重映射）、代码生成、执行器、ndisasm。

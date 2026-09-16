@@ -19,7 +19,7 @@ AST → VmBackend → CompiledModule (.nmod)
 5. **PopulateClassMethods** — 将类方法映射到函数索引
 6. **GenerateAllBytecode** — 为所有函数生成字节码
 
-### ResolveStructClassRefs 为何单独成段
+### ResolveStructClassRefs 为何单独一趟
 
 struct 可以包含 class 类型的字段，但 `RegisterStructs` 先于
 `RegisterClasses` 执行，此时 `FindClass` 返回 -1，因为 class 还没有

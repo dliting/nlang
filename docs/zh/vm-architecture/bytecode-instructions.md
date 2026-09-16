@@ -78,7 +78,7 @@
 | OP_MakeVFunc        | nameIdx (uint16, string 池)          | 从 pResult 读取接收者 → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | 经句柄调用                      |
 | OP_CallDelegateOut  | calleeLocal, callParamBase, outMask (uint32) | 另有 out 写回           |
-| OP_Eq_func          | lhs, rhs                             | 句柄内容相等（带空守卫）        |
+| OP_Eq_func          | lhs, rhs                             | 句柄内容相等（带 null 守卫）    |
 | OP_Ne_func          | lhs, rhs                             | 句柄内容不等                    |
 | OP_Func_to_str      | 累加器形式                           | "func N" / "method N"；null → "<null>" |
 
@@ -91,7 +91,7 @@
 | OP_Concat_str | dst, src  | 拼接字符串               |
 | OP_Eq_str   | lhs, rhs    | 字符串相等               |
 | OP_Ne_str   | lhs, rhs    | 字符串不等               |
-| OP_Less_str | lhs, rhs    | 按字节比较（Phase 11 Step 3b；UTF-8 字节序 == 码点序） |
+| OP_Less_str | lhs, rhs    | 按字节关系比较（Phase 11 Step 3b；UTF-8 字节序 == 码点序） |
 | OP_LessEqual_str | lhs, rhs | 按字节 `<=`              |
 | OP_Greater_str | lhs, rhs | 按字节 `>`               |
 | OP_GreaterEqual_str | lhs, rhs | 按字节 `>=`          |
@@ -101,12 +101,12 @@
 
 | 操作码       | 操作数               | 说明                                          |
 |--------------|------------------------|----------------------------------------------|
-| OP_Box       | typeKind (uint8)       | 把基元（在 pResult 中）装箱为 Object 引用；分配 RTK_Boxed 堆槽位。值为 0 时短路（保持 null）。 |
-| OP_Unbox     | typeKind (uint8)       | 从 pResult（堆索引）中拆出装箱基元。校验 RTK_Boxed 标签是否匹配，不匹配抛错。 |
+| OP_Box       | typeKind (uint8)       | 把基本类型值（在 pResult 中）装箱为 Object 引用；分配 RTK_Boxed 堆槽位。值为 0 时短路（保持 null）。 |
+| OP_Unbox     | typeKind (uint8)       | 从 pResult（堆索引）中拆出装箱的基本类型值。校验 RTK_Boxed 标签是否匹配，不匹配抛错。 |
 | OP_CheckCast | classIdx (uint16)      | 校验 pResult（堆索引）是 classIdx 或其子类（沿运行期父类链上溯）。不匹配抛错。引用原样推回。 |
 
 OP_Box/OP_Unbox 使用 `pResult` 寄存器约定——从 pResult 读入，输出写
-回 pResult。隐式转换的发射路径（FixupExprType）把基元包进带 TCK_Box
+回 pResult。隐式转换的发射路径（FixupExprType）把基本类型值包进带 TCK_Box
 的 SnCastExpr；显式的 `expr as T` 运算符（Phase 8e-1.5）创建
 SnAsExpr，其代码生成按解析出的转换 kind 发射 OP_Unbox/OP_CheckCast。
 
@@ -168,12 +168,12 @@ switch 编译为逐标签比较与条件跳转组成的链——没有跳转表�
 枚举方法复用类方法调用路径，只有一条约定：**`this` 是枚举的 int32
 值，不是堆引用**。
 
-- 调用在接收者表达式求值进 claim 区的槽 0 之后（接收者优先的形状，
-  与 `s.equals` 相同）发射 `OP_CallMethodDirect funcIdx callParamBase`。
+- 调用在接收者表达式求值进求值认领区（claim area）的槽 0 之后（接收者
+  优先的形状，与 `s.equals` 相同）发射 `OP_CallMethodDirect funcIdx callParamBase`。
 - 被调帧的 `this` 局部变量以 typeKind `RTK_Int32` 分配（类方法用
   `RTK_Class`）。这一点很关键：GC 根扫描按 typeKind 遍历局部变量——
   枚举的 `this` 若按 class 建档，就会被当作堆索引追踪并破坏堆。
-- 表示法决策（D3）：枚举在运行期保持 nominal int32——`==`、
+- 表示决策（D3）：枚举在运行期保持 nominal int32——`==`、
   `switch`、实参传递与 `.nmod` 序列化全部不受影响。Java 式的堆单例
   枚举需要模块级实例初始化子系统（init 函数执行顺序 + GC 根），
   被有意推迟。

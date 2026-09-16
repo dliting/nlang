@@ -30,7 +30,7 @@
 - **List<T>**：可迭代对象的 `EvalDataType()` 是满足
   `BaseName()=="List"` 且 `IsGenericInstantiation()` 的
   `SnClassDecl`。长度走 `OP_CallMethod "Length"`；元素走
-  `OP_CallMethod "Get"`，基元 T 后接 `OP_Unbox`——类型实参是数组类
+  `OP_CallMethod "Get"`，基本类型 T 后接 `OP_Unbox`——类型实参是数组类
   型时跳过（`List<int[]>` 的元素以裸句柄流动；逐方法装箱计划的数组
   实参例外）。
 - **Dict<K,V>**：可迭代对象的 `EvalDataType()` 是满足
@@ -41,7 +41,7 @@
 每个隐藏局部变量的 `typeKind` 正是 GC 在安全点识别引用根的依据，因
 此数组路径的 `iterSlot` 必须是 `RTK_Array`、List/Dict 必须是
 `RTK_Class`——标签打错要么泄漏引用（漏掉根），要么把整数槽位当堆索
-引瞎追踪。用户可见的循环变量同理：数组类型的循环变量
+引误追踪。用户可见的循环变量同理：数组类型的循环变量
 （`foreach (int[] row in grid)`）的槽位按 `RTK_Array` 分配，每轮迭
 代绑定的句柄因此是被追踪的根。
 

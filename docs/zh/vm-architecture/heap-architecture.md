@@ -55,21 +55,21 @@ Object 有三个虚方法（`Equals(Object)→int`、`GetHashCode()→int`、
 **两条内建函数分派路径（P3.2 修复）**：大多数内建函数经由
 `OP_CallMethod` / `OP_CallMethodDirect` 到达，二者检查 VmBackend 盖在
 `CompiledFunction` 上的 `callee.intrinsicId` 字段并短路进入
-`ExecuteIntrinsic`。但 string 是基元类型（没有类），
+`ExecuteIntrinsic`。但 string 是基本类型（没有类），
 `string.getHashCode()` 与 `string.equals()` 走不了这条路——VmBackend
 为它们直接发射 `OP_CallIntrinsic`，执行器同样经 `ExecuteIntrinsic`
 函数分派。（在 commit 862d7a7 之前，`OP_CallIntrinsic` 分支会抛
 "intrinsic calls not yet implemented"；两个 e2e 测试之所以通过，只是
 因为该抛错退出码恰好等于期望值。）
 
-### 装箱基元（Phase 8e-1）
+### 装箱基本类型（Phase 8e-1）
 
-基元值（int/float/string）赋给 Object 类型的目标时，会装箱（box）成
+基本类型值（int/float/string）赋给 Object 类型的目标时，会装箱（box）成
 一个 2 槽堆条目：
 
 ```text
 slot[0] = 类型标签（RTK_Int32 / RTK_Float / RTK_String）
-slot[1] = 值位（int32 / float 位型 / string 池索引）
+slot[1] = 值位（int32 / float 位模式 / string 池索引）
 ```
 
 `m_slotKinds[idx] = RTK_Boxed`（6）。GC MarkPhase 完全跳过 RTK_Boxed
@@ -110,9 +110,9 @@ struct GenericInstKey {
 | Clear      | []             | void        |
 
 SnClassDecl 上的 `m_bIsGenericInst = true` 标志标记合成实例，代码生
-成据此为基元 T 的方法参数发射 `OP_Box`、为基元 T 的 Get() 返回值发射
+成据此为基本类型 T 的方法参数发射 `OP_Box`、为基本类型 T 的 Get() 返回值发射
 `OP_Unbox`——**类型实参是数组类型时除外**（`List<int[]>`）：擦除后的
-T 是基元 kind，但元素以裸数组句柄流动、不做装箱；逐参数的数组性随
+T 是基本类型 kind，但元素以裸数组句柄流动、不做装箱；逐参数的数组性随
 实例化本身传递（`GenericArrayFlags()`），所有装箱区域与 resolver 门
 都从这里读取。
 
@@ -127,10 +127,10 @@ std::vector<ListSlot>   m_listStore;       // index = __handle - 1 (0 reserved f
 std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 ```
 
-所有元素统一都是堆索引——基元 T 的值在调用点装箱（`OP_CallMethod`
+所有元素统一都是堆索引——基本类型 T 的值在调用点装箱（`OP_CallMethod`
 之前先 `OP_Box typeKind`），class-T 与数组 T 的值原样通过。GC 在追踪
 时确实会按每个元素的运行期槽位 kind 分派：引用 kind 的元素
-（class/struct/array/func）被标记并压入工作表，其子节点——class 字段
+（class/struct/array/func）被标记并压入工作列表，其子节点——class 字段
 或（对数组元素而言）按 elemKind 的数组自身元素——也随之被追踪。
 
 **内建函数（新增 9 个 ID）。** List 方法与普通类方法一样经
@@ -140,7 +140,7 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 | 内建函数 ID             | 行为                                                    |
 |-------------------------|---------------------------------------------------------|
 | `INTR_List_Ctor`        | 分配 ListSlot，把索引存入 `this.__handle`               |
-| `INTR_List_Add`         | 从参数读取值的堆索引（装箱基元或裸句柄），push_back    |
+| `INTR_List_Add`         | 从参数读取值的堆索引（装箱的基本类型值或裸句柄），push_back    |
 | `INTR_List_Get`         | 读取 int 索引，返回 elements[idx]                       |
 | `INTR_List_Set`         | 读取 int 索引 + 堆索引，替换 elements[idx]              |
 | `INTR_List_Length`      | 返回 elements.size()                                    |
@@ -153,7 +153,7 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 （`classIdx`）等于缓存的 `m_listClassIdx` 的实例时，额外读取
 `__handle`（slot[1]），并把 `m_listStore[__handle-1].elements` 的每
 个条目按堆引用标记，把引用 kind 的条目（class/struct/array/func）压
-入工作表使其子节点也被追踪——从这里压入的数组元素会进入工作表的
+入工作列表使其子节点也被追踪——从这里压入的数组元素会进入工作列表的
 `RTK_Array` 分支，按 elemKind 追踪数组自身的元素（`List<Point[]>`
 就是这样让 `Point` 记录存活的）。越界与空闲索引直接跳过。
 
@@ -196,7 +196,7 @@ std::vector<int32_t>    m_dictFreeList;    // recycled slots after GC sweep
 int16_t                 m_dictClassIdx;    // cached at module load
 ```
 
-K 与 V 同样统一都是堆索引——基元 K/V 的值在调用点装箱（
+K 与 V 同样统一都是堆索引——基本类型 K/V 的值在调用点装箱（
 `OP_CallMethod` 之前先 `OP_Box typeKind`）。查找是**线性扫描** O(n)；
 开放寻址哈希表优化留待后续阶段。
 
@@ -246,7 +246,7 @@ uint8_t returnTag    = 0;
 
 共享辅助函数 `BoxingTagFor(SnField*)` 返回
 `BoxingTagResult {tag, isPrimitive}`，从此 `RTK_Int32 == 0` 不再与
-"无装箱" 冲突——`isPrimitive` 布尔值才是权威信号。参数循环对
+「无装箱」冲突——`isPrimitive` 布尔值才是权威信号。参数循环对
 `argPlans` 中的每个槽位在 `OP_CallMethod` 之前发射 `OP_Box <tag>`；
 调用之后若 `returnsBoxed` 则发射 `OP_Unbox <tag>`。
 

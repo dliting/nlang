@@ -3,7 +3,7 @@
 
 ### Design Decisions
 
-Three key decisions with rationale documented in VmExecutor.h:
+Four key decisions with rationale documented in VmExecutor.h:
 
 **1. Safepoint-triggered, not allocation-point-triggered**
 
