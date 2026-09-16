@@ -18,10 +18,12 @@ REPO = Path(__file__).resolve().parents[3]
 ZH_TREE = REPO / "docs" / "zh"
 EN_TREE = REPO / "docs" / "en"
 PENDING_FILE = REPO / "docs" / "translation-pending.txt"
-#The configs carry ``!!python/name:`` values (toc slugify); the loader
-#treating them as opaque strings is linkcheck's own (single source --
-#a local reimplementation registered the exact tag '!python/name'
-#while real tags are suffixed, so it could never fire).
+#The config family carries ``!!python/name:`` values (toc slugify) in
+#the shared base, which raw yaml.load never resolves through INHERIT --
+#a leaf config gaining a tag of its own must not break this read. The
+#loader treating them as opaque strings is linkcheck's own (single
+#source -- a local reimplementation registered the exact tag
+#'!python/name' while real tags are suffixed, so it could never fire).
 
 
 def _md_rel(tree: Path) -> set:
@@ -78,3 +80,13 @@ def test_nav_paths_identical_when_pending_empty():
     if _pending():
         pytest.skip("strict nav parity locks when translation completes")
     assert _nav_paths("mkdocs.zh.yml") == _nav_paths("mkdocs.en.yml")
+
+
+def test_two_column_css_is_mirrored():
+    #The two-column stylesheet ships one copy per tree; byte equality
+    #keeps the twins from drifting (each file's header names the mirror).
+    zh_css = ZH_TREE / "stylesheets" / "two-column-layout.css"
+    en_css = EN_TREE / "stylesheets" / "two-column-layout.css"
+    assert zh_css.read_bytes() == en_css.read_bytes(), \
+        "the two-column stylesheet is mirrored byte-for-byte; " \
+        "edit both trees' copies together"

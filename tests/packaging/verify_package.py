@@ -261,7 +261,7 @@ def main():
 
         # Every generated page carries the language-switch anchor (the
         # link target itself is depth-dependent; presence is the gate).
-        for tree in ('zh', 'en'):
+        for _config, tree in DOCS_CONFIGS:
             tree_dir = os.path.join(pkg, 'docs', 'site', tree)
             checked = 0
             for root, _dirs, files in os.walk(tree_dir):

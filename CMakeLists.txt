@@ -203,6 +203,14 @@ if(NLANG_BUILD_DOCS)
     #landing page becomes site/index.html (two links + a
     #navigator.language jump, all file:// friendly).
     add_custom_target(nlang_docs ALL
+        #Start every run from a clean site root, so stale artifacts of
+        #an earlier layout cannot survive into the tree that the
+        #install(DIRECTORY docs/site/) rule ships. Build-time cleanup
+        #(inside the target's command list): configure-time file()
+        #would only run on re-configure, leaving incremental builds
+        #with the stale tree.
+        COMMAND ${CMAKE_COMMAND} -E remove_directory
+                ${CMAKE_CURRENT_BINARY_DIR}/docs/site
         COMMAND ${NLANG_DOCS_RUN} build
                 --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh

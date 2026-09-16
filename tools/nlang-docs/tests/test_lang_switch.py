@@ -12,6 +12,10 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 OVERRIDE = REPO / "tools" / "nlang-docs" / "theme_override"
 SRC = REPO / "tools" / "nlang-docs" / "src"
+#(tree, other tree, switch label) for both directions; single-sourced
+#so _build_tree_pair and the parametrize decorator cannot drift.
+TREE_PAIRS = [("zh", "en", "English"),
+              ("en", "zh", "中文")]
 
 
 def _nlang_docs(args, env):
@@ -20,8 +24,8 @@ def _nlang_docs(args, env):
     run = subprocess.run([sys.executable, "-m", "nlang_docs", *args],
                          capture_output=True, text=True, env=env)
     if run.returncode != 0:
-        raise AssertionError("%s failed rc=%d:\n%s"
-                             % (" ".join(args), run.returncode, run.stderr))
+        raise AssertionError(
+            f"{' '.join(args)} failed rc={run.returncode}:\n{run.stderr}")
 
 
 def _build_tree_pair(tmp_path: Path) -> dict:
@@ -34,8 +38,7 @@ def _build_tree_pair(tmp_path: Path) -> dict:
                + os.environ.get("PYTHONPATH", ""))
     sites = {}
     configs = {}
-    for tree, other, label in [("zh", "en", "English"),
-                               ("en", "zh", "中文")]:
+    for tree, other, label in TREE_PAIRS:
         config = tmp_path / f"mkdocs.{tree}.yml"
         config.write_text(
             "site_name: t\n"
@@ -67,9 +70,7 @@ def _build_tree_pair(tmp_path: Path) -> dict:
     return sites
 
 
-@pytest.mark.parametrize("tree,other,label",
-                         [("zh", "en", "English"),
-                          ("en", "zh", "中文")])
+@pytest.mark.parametrize("tree,other,label", TREE_PAIRS)
 def test_switch_link_on_every_page(tmp_path, tree, other, label):
     site = _build_tree_pair(tmp_path)[tree]
     for page in [site / "index.html", site / "sub" / "page.html"]:

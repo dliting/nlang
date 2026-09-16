@@ -157,8 +157,8 @@ def _config_docs_dir(config_path):
     """The config's docs_dir, resolved exactly as mkdocs does (relative
     paths -- and the 'docs' default -- sit against the config file's
     parent; the bilingual leaf configs each declare their tree). The
-    tolerant loader comes from linkcheck, so !ENV / !!python/name
-    values stay opaque strings."""
+    tolerant loader comes from linkcheck, so mkdocs' custom tags (!ENV,
+    !!python/name:) never fail the read."""
     config_dir = Path(config_path).parent
     if yaml is None:
         return config_dir / "docs"

@@ -4,6 +4,8 @@ The material theme adds a third rail (the in-page table of contents,
 .md-sidebar--secondary); a standard help manual reads as two columns,
 so that rail is hidden site-wide here. Widening .md-grid lets the
 content column reclaim the freed width instead of leaving dead space.
+Mirrored byte-for-byte in docs/{zh,en}/stylesheets/ (one copy per
+tree; test_tree_parity.py asserts equality) -- edit both together.
 ---*/
 
 /* Drop the in-page TOC rail (right column of the default theme).
