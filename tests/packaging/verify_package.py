@@ -257,7 +257,7 @@ def main():
             if r.stderr:
                 sys.stderr.write(r.stderr.decode('utf-8', 'replace'))
             print(f'docs-site audit: OK ({tree}/ tree, nlang_docs check '
-                  'passed')
+                  'passed)')
 
         # Every generated page carries the language-switch anchor (the
         # link target itself is depth-dependent; presence is the gate).
