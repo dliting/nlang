@@ -23,8 +23,8 @@ int main() {
 输出 `demo: 30 / 1.5`。基本类型 `int`（32 位整型）、`float`（32 位浮点）、
 `string`（UTF-8 字节串，引用语义）；复合类型 enum、struct、class 另见声明章节。
 
-详见 → <a href="../../en/language-spec/types.html">语言规格/类型</a>、
-<a href="../../en/language-spec/type-semantics.html">类型语义</a>、<a href="../../en/language-spec/declarations.html">声明</a>。
+详见 → [语言规格/类型](../language-spec/types.md)、
+[类型语义](../language-spec/type-semantics.md)、[声明](../language-spec/declarations.md)。
 
 ### 字符串
 
@@ -45,6 +45,6 @@ int main() {
 输出 `hello, NLang`、`year: 2026`，退出码 9。字符串是 UTF-8 字节序列，
 `length()`/`substring()`/`indexOf()` 都按字节计。
 
-详见 → <a href="../../en/language-spec/types.html">语言规格/类型</a>、
-<a href="../../en/language-spec/standard-library.html">标准库</a>。
+详见 → [语言规格/类型](../language-spec/types.md)、
+[标准库](../language-spec/standard-library.md)。
 

@@ -1,19 +1,7 @@
 # Bilingual manual translation backlog. One line per existing page
 # that lacks its counterpart in the other language tree:
 #   <tree>/<relative-path>.md
-# The tree-parity pytest (tools/nlang-docs/tests/test_tree_parity.py)
-# requires every untranslated page to be listed here, and locks into
-# strict parity once this list is empty -- remove lines as batches
-# land (vm-architecture, language-spec, getting-started+index).
-zh/getting-started/what-is-nolang.md
-zh/getting-started/install-layout.md
-zh/getting-started/first-program.md
-zh/getting-started/types-and-variables.md
-zh/getting-started/containers.md
-zh/getting-started/control-flow.md
-zh/getting-started/classes-and-inheritance.md
-zh/getting-started/function-features.md
-zh/getting-started/running.md
-zh/getting-started/debugging.md
-zh/getting-started/faq.md
-zh/getting-started/further-reading.md
+# The list is now EMPTY: every page of both trees has its counterpart,
+# so the tree-parity pytest (tools/nlang-docs/tests/test_tree_parity.py)
+# runs in strict parity mode -- the two navs must list identical page
+# paths, and any new page must land in both trees in the same change.

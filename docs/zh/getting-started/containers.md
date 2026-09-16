@@ -21,5 +21,5 @@ int main() {
 输出 `7`、`24`，退出码 17。`List<T>` 可增长，`Dict<K,V>` 按键存取；
 两者都支持下标语法糖与 `foreach` 遍历。
 
-详见 → <a href="../../en/language-spec/builtin-generic-classes.html">语言规格/内建泛型类</a>。
+详见 → [语言规格/内建泛型类](../language-spec/builtin-generic-classes.md)。
 

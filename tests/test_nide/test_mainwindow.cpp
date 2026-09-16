@@ -2730,7 +2730,7 @@ private slots:
         QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
                      .endsWith("/en/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
-                     .endsWith("/zh/getting-started/what-is-nolang.html"));
+                     .endsWith("/en/getting-started/what-is-nolang.html"));
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
         settings.remove("ide");
     }

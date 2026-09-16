@@ -1,44 +1,52 @@
-# 退出码约定
+# Exit Code Convention
 
-## main 返回值 → 进程退出码
+## main return value → process exit code
 
-`main` 的返回值就是进程退出码：nvm（以及 `ncc run`、`ncc <文件>` 的执行
-阶段）以返回值调用 `ExitProcess` 结束进程。`ncc build` 只编译不执行，
-成功时退出码恒为 0。
+`main`'s return value is the process exit code: nvm (and the execution
+phase of `ncc run` and `ncc <file>`) ends the process by calling
+`ExitProcess` with that value. `ncc build` only compiles and never
+executes; on success its exit code is always 0.
 
-Windows 保留 32 位完整退出码，但**不同观察者的视图不同**。
-以 `return 300;` 为例（均已实测）：
+Windows preserves the full 32-bit exit code, but **different observers
+see different values**. Take `return 300;` as an example (all verified
+in practice):
 
-| 观察者 | 看到的值 |
+| Observer | Value seen |
 |--------|----------|
-| Python `subprocess`（e2e runner）、cmd 的 `%ERRORLEVEL%`、PowerShell 的 `$LASTEXITCODE` | 300 |
-| POSIX shell（bash 的 `$?`、Git-Bash、CI 的 bash 步骤） | 44（300 对 256 取模，即低 8 位） |
+| Python `subprocess` (the e2e runner), cmd's `%ERRORLEVEL%`, PowerShell's `$LASTEXITCODE` | 300 |
+| POSIX shell (bash `$?`, Git-Bash, CI bash steps) | 44 (300 mod 256, i.e. the low 8 bits) |
 
-负返回值不建议使用：Windows 侧按 32 位无符号解释（`return -1` 在
-Python/PowerShell/cmd 中观察到 4294967295），POSIX shell 再截断，
-两端视图都不直观。
+Negative return values are not recommended: Windows interprets the value
+as unsigned 32-bit (`return -1` is observed as 4294967295 in
+Python/PowerShell/cmd) and POSIX shells truncate it on top — neither
+view is intuitive.
 
-## 工具自身的 0/1 约定
+## The tools' own 0/1 convention
 
-ncc 与 nvm 自身的失败一律退出 1，与程序退出码区分：
+Failures of ncc and nvm themselves always exit 1, kept distinct from
+program exit codes:
 
-- **ncc**：用法/参数错误、编译失败（`Compilation failed.`）、编译器
-  内部错误（`Compiler internal error:`）→ 1；`ncc build` 成功 → 0；
-  `ncc run`/直跑模式正常结束 → `main` 的返回值，运行时错误 → 1。
-- **nvm**：模块加载失败、运行时错误（含未捕获的 NLang 异常）→ 1，
-  stderr 打印 `Runtime error: ...` 与调用回溯；正常运行 → `main`
-  的返回值。
+- **ncc**: usage/argument errors, compilation failure (`Compilation
+  failed.`), compiler internal errors (`Compiler internal error:`) → 1;
+  `ncc build` success → 0; `ncc run`/direct-run mode finishing normally
+  → `main`'s return value, runtime error → 1.
+- **nvm**: module load failure, runtime error (including an uncaught
+  NLang exception) → 1, printing `Runtime error: ...` and a call
+  backtrace to stderr; normal completion → `main`'s return value.
 
-因此惯用法是：0 表示成功；程序自检失败用 `return 1;`（入门指南片段的
-`if (条件) return <特征值>; return 1;` 护栏就是这种形状）；需要区分
-多种失败时使用不同的小正数值。
+The idioms follow from this: 0 means success; use `return 1;` for a
+failed self-check (the Getting Started snippets' `if (condition) return
+<sentinel value>; return 1;` guard has exactly this shape); use distinct
+small positive values to tell multiple failures apart.
 
-## 测试纪律
+## Test discipline
 
-- 测试的预期退出码一律取 **0–255**：同一程序在任何观察者
-  （Python/cmd/PowerShell/bash）下的视图才一致。e2e 清单
-  （`tests/e2e/manifest.txt`）第二列即预期退出码。
-- 需要大数值时用模运算或派生值，把「自检通过」编码进小退出码，
-  例如循环求和后 `if (total == 25) return 25; return 1;`。
+- Test expectations always use exit codes in **0–255**: only then does
+  the same program present the same value to every observer
+  (Python/cmd/PowerShell/bash). The second column of the e2e manifest
+  (`tests/e2e/manifest.txt`) is exactly that expected exit code.
+- When a large number is needed, use modular arithmetic or a derived
+  value and encode "self-check passed" into a small exit code — for
+  example, after summing a loop, `if (total == 25) return 25; return 1;`.
 
-详见 → <a href="../../zh/getting-started/faq.html">入门指南/常见问题</a>。
+See also: [Getting Started/FAQ](../getting-started/faq.md).

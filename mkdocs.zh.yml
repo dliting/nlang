@@ -1,7 +1,8 @@
-# Chinese tree. INHERIT pulls every shared setting from the base; the
-# seed pages are today's Chinese-authored pages (getting-started +
-#index). language-spec/vm-architecture join the nav as their Chinese
-# translations land (tracked by docs/translation-pending.txt).
+# Chinese tree. INHERIT pulls every shared setting from the base; both
+# trees are fully translated (see docs/translation-pending.txt, whose
+# list is empty) and the tree-parity pytest runs in strict nav-parity
+# mode: any new page must land in both trees and both navs in the same
+# change.
 INHERIT: mkdocs.base.yml
 site_name: NLang 中文文档
 docs_dir: docs/zh

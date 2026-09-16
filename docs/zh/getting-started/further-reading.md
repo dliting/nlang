@@ -2,22 +2,22 @@
 
 建议按下面的顺序读语言规格：
 
-1. <a href="../../en/language-spec/overview.html">概览</a>——语言定位与整体结构
-2. <a href="../../en/language-spec/naming-convention.html">命名约定</a>——类型/方法/变量的命名规则
-3. <a href="../../en/language-spec/types.html">类型</a> → <a href="../../en/language-spec/type-semantics.html">类型语义</a> →
-   <a href="../../en/language-spec/declarations.html">声明</a> →
-   <a href="../../en/language-spec/builtin-generic-classes.html">内建泛型类</a>
+1. [概览](../language-spec/overview.md)——语言定位与整体结构
+2. [命名约定](../language-spec/naming-convention.md)——类型/方法/变量的命名规则
+3. [类型](../language-spec/types.md) → [类型语义](../language-spec/type-semantics.md) →
+   [声明](../language-spec/declarations.md) →
+   [内建泛型类](../language-spec/builtin-generic-classes.md)
    ——类型系统、声明与 List/Dict
-4. <a href="../../en/language-spec/expressions.html">表达式</a> → <a href="../../en/language-spec/statements.html">语句</a>
+4. [表达式](../language-spec/expressions.md) → [语句](../language-spec/statements.md)
    ——运算符、控制流、异常
-5. <a href="../../en/language-spec/functions.html">函数</a> →
-   <a href="../../en/language-spec/function-types-and-delegates.html">函数类型与委托</a>
-6. <a href="../../en/language-spec/standard-library.html">标准库</a>、
-   <a href="../../en/language-spec/memory-management.html">内存管理</a>、
-   <a href="../../en/language-spec/exit-code-convention.html">退出码约定</a>、
-   <a href="../../en/language-spec/known-limitations.html">已知限制</a>
+5. [函数](../language-spec/functions.md) →
+   [函数类型与委托](../language-spec/function-types-and-delegates.md)
+6. [标准库](../language-spec/standard-library.md)、
+   [内存管理](../language-spec/memory-management.md)、
+   [退出码约定](../language-spec/exit-code-convention.md)、
+   [已知限制](../language-spec/known-limitations.md)
 
-想了解执行引擎：<a href="../../en/vm-architecture/overview.html">VM 架构/概览</a>，
+想了解执行引擎：[VM 架构/概览](../vm-architecture/overview.md)，
 再按需读编译管线、栈帧布局、字节码指令等章节。
 在 IDE 里调试程序见 [在 nide 中调试](debugging.md)。
 

@@ -1,9 +1,8 @@
-# English tree. INHERIT pulls every shared setting from the base; the
-# seed pages are the English-authored language-spec + vm-architecture
-# pages, except language-spec/exit-code-convention.md, which is the
-# Chinese-authored original pending its English translation. Both gaps
-# are tracked by docs/translation-pending.txt; getting-started joins
-# the nav as its English translations land.
+# English tree. INHERIT pulls every shared setting from the base; both
+# trees are fully translated (see docs/translation-pending.txt, whose
+# list is empty) and the tree-parity pytest runs in strict nav-parity
+# mode: any new page must land in both trees and both navs in the same
+# change.
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
 docs_dir: docs/en
@@ -12,6 +11,19 @@ theme:
   custom_dir: tools/nlang-docs/theme_override
 nav:
   - Home: index.md
+  - Getting Started:
+      - What is NLang: getting-started/what-is-nolang.md
+      - Installation and Layout: getting-started/install-layout.md
+      - Your First Program in Five Minutes: getting-started/first-program.md
+      - "Crash Course: Types and Variables": getting-started/types-and-variables.md
+      - "Crash Course: Containers": getting-started/containers.md
+      - "Crash Course: Control Flow": getting-started/control-flow.md
+      - "Crash Course: Classes and Inheritance": getting-started/classes-and-inheritance.md
+      - "Crash Course: Functions and Modules": getting-started/function-features.md
+      - Three Ways to Run: getting-started/running.md
+      - Debugging in nide: getting-started/debugging.md
+      - FAQ: getting-started/faq.md
+      - Further Reading: getting-started/further-reading.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

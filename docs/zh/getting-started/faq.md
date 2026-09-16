@@ -14,7 +14,7 @@
 在 Python/cmd/PowerShell 里看到 300，在 bash 里看到 44（对 256 取模）。
 测试约定预期值 0–255，让所有观察者的视图一致。
 
-详见 → <a href="../../en/language-spec/exit-code-convention.html">语言规格/退出码约定</a>。
+详见 → [语言规格/退出码约定](../language-spec/exit-code-convention.md)。
 
 ### 中文输出乱码？
 
@@ -23,7 +23,7 @@
 注意 `fs` 与 `io` 的文件路径、文件名经由系统活动代码页转换，
 非 ASCII 文件名不一定能按 UTF-8 往返。
 
-详见 → <a href="../../en/language-spec/standard-library.html">语言规格/标准库</a>。
+详见 → [语言规格/标准库](../language-spec/standard-library.md)。
 
 ### 帮助文档与搜索在哪？
 

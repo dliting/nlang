@@ -27,7 +27,7 @@ int main() {
 输出 `17 = 5*3 + 2`，退出码 13。`out` 参数让一次调用带回多个结果；
 参数可带默认值（还支持具名实参）；函数可重载，支持递归与 `void` 返回。
 
-详见 → <a href="../../en/language-spec/functions.html">语言规格/函数</a>。
+详见 → [语言规格/函数](../language-spec/functions.md)。
 
 ### 模块
 
@@ -77,6 +77,6 @@ int answer() { return 42; }
 完整的可见性矩阵（谁需要 import、允许什么调用形式）与全部六类报错
 文案，见语言规格的 Import Declaration 一节。
 
-详见 → <a href="../../en/language-spec/declarations.html">语言规格/声明</a>、
-<a href="../../en/language-spec/standard-library.html">标准库</a>。
+详见 → [语言规格/声明](../language-spec/declarations.md)、
+[标准库](../language-spec/standard-library.md)。
 
