@@ -8,7 +8,7 @@
     ncc build examples/<name>.n -o <name>.nmod
     nvm <name>.nmod
 
-安装包内无 PATH 时写 `bin\ncc build ...`、`bin\nvm <name>.nmod`。
+安装包内无 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.nmod`。
 
 `stdlib_io` 需要一行 stdin：`nvm stdlib_io.nmod < examples/stdlib_io.stdin`。
 成功运行的退出码列在「退出码」列（Windows 限 0-255）。
