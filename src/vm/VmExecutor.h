@@ -27,8 +27,8 @@ struct NLangThrow : public std::runtime_error {
 
 //Phase 13: slot[2] of a function-handle record — selects the dispatch
 //strategy in OP_CallDelegate. Slot contents differ by form: [0] holds a
-//functions[] index for static handles, a string-pool index (method name)
-//for virtual-dispatch handles.
+//functions[] index for static handles, a string-constant index (method
+//name) for virtual-dispatch handles.
 enum FuncHandleForm : int32_t {
     kFuncFormStatic = 0,
     kFuncFormVirtual = 1,
@@ -69,6 +69,12 @@ public:
     //Backtrace captured from the last Execute() call. Empty if execution
     //succeeded without throwing.
     const std::string& Backtrace() const { return m_lastBacktrace; }
+
+    //Non-mutating string read: flattens into a local buffer, never touches
+    //the node (safe for const observers). Public because the intrinsic
+    //family TUs read string arguments through file-local static helpers
+    //that are not member functions.
+    std::string StrValCopy(int32_t handle) const;   //frozen view
 
 private:
     void ExecuteFunction(const CompiledFunction& func,
@@ -177,8 +183,8 @@ private:
         uint8_t* locals, uint8_t* pResult);
     bool ExecuteIntrinsicFs(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
-    //Receiver-dispatched variant (string methods): receiver pool idx at
-    //callParamBase[0], args from slot 1 — the string.equals ABI, NOT the
+    //Receiver-dispatched variant (string methods): receiver string handle
+    //at callParamBase[0], args from slot 1 — the string.equals ABI, NOT the
     //namespace free-function ABI above.
     bool ExecuteIntrinsicString(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
@@ -245,7 +251,7 @@ private:
     //  RTK_Class/RTK_Struct → heap-idx identity
     //  RTK_Boxed + tag RTK_Int32  → value-bit equality
     //  RTK_Boxed + tag RTK_Float  → IEEE 754 value-bit equality (NaN≠NaN)
-    //  RTK_Boxed + tag RTK_String → string-pool content equality
+    //  RTK_Boxed + tag RTK_String → string content equality
     //Returns false when either idx is out of bounds or kind mismatch.
     bool DictKeysEqual(int32_t k1, int32_t k2) const;
 
@@ -269,7 +275,24 @@ private:
     static const size_t MAX_STRING_LENGTH = 16 * 1024 * 1024;  // 16 MiB
     size_t m_recurseDepth = 0;
     const CompiledModule* m_currModule = nullptr;
-    std::vector<std::string> m_stringPool;
+    //String objectization: runtime strings are GC-managed immutable objects.
+    //An RTK_String slot holds a 1-based handle into m_stringObjs (0 = null /
+    //uninitialized, reads as "" — same fallback shape the old pool-index-0
+    //path had). Compile-time constants are eagerly materialized as immortal
+    //Flat objects at Execute() start (JVM constant-pool semantics).
+    struct StrObj {
+        enum class Form : uint8_t { Flat, Cons };
+        Form form = Form::Flat;
+        bool immortal = false;   //constant materialization; never swept
+        bool interned = false;   //in the short-string table (== fast path)
+        std::string str;         //Flat: content; Cons: unused
+        int32_t left = 0, right = 0;  //Cons: child handles (0 = empty side)
+    };
+    std::vector<StrObj> m_stringObjs;
+    std::vector<bool> m_strMarkBits;   //parallel to m_stringObjs (Task 2)
+    std::vector<int32_t> m_strFreeList;
+    std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
+    int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
     //Phase 9f: name → host function table for native declarations.
     std::unordered_map<std::string, NativeFn> m_natives;
 
@@ -312,6 +335,16 @@ private:
     std::string FormatDebugBoxed(int32_t tag, int32_t val) const;
     std::string FormatDebugStringIdx(int32_t idx) const;
 
+    //String object store (definitions in VmExecutorStrings.cpp).
+    int32_t MintNewString(const std::string& content);       //runtime mint (interns <=40B in Task 4)
+    int32_t MintConstantString(const std::string& content);  //immortal flat
+    int32_t AllocConsString(int32_t left, int32_t right);    //O(1) node (Task 3)
+    int32_t AllocStringObj();                                //raw slot, sets m_gcPending
+    bool IsLiveStringHandle(int32_t handle) const;
+    const std::string& StrVal(int32_t handle);               //execution path (flattens in place)
+    void MarkString(int32_t handle);                         //Task 2
+    void SweepStrings();                                     //Task 2
+
     //Struct heap: each slot is a vector of int32 values (one per field).
     //Index 0 is a sentinel (empty slot).
     using StructSlot = std::vector<int32_t>;
@@ -324,6 +357,13 @@ private:
     std::vector<int32_t>  m_freeList;       //free heap slot indices for reuse
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;
     bool   m_gcPending = false;
+
+    //String-store GC plumbing (collection activates in Task 2).
+    static const size_t kStrGcThresholdDefault = 1024;
+    size_t m_strGcThreshold = kStrGcThresholdDefault;
+    static const size_t kShortStringMaxBytes = 40;  //Lua short-string cutoff
+    std::unordered_map<std::string, int32_t> m_shortStrTable;  //weak: content -> live handle
+    static constexpr uint8_t kStrFormDead = 0xFF;   //free-slot sentinel
 
     //Call frame stack for GC root set identification.
     struct CallFrame {

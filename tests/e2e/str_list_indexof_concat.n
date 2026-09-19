@@ -1,0 +1,11 @@
+//e2e
+int main() {
+    List<string> l = new List<string>();
+    l.add("hello");
+    string a = "hel";
+    string b = "lo";
+    if (l.indexOf(a + b) != 0) return 1;
+    if (!l.contains(a + b)) return 2;
+    if (l.indexOf("world") != -1) return 3;
+    return 0;
+}

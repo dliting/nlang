@@ -1,6 +1,7 @@
 add_library(nlang_vm
     OpCodeTable.cpp
     VmExecutor.cpp
+    VmExecutorStrings.cpp
     VmExecutorDebug.cpp
     DebugSessionController.cpp
     IntrinsicsMath.cpp

@@ -25,14 +25,14 @@ enum class OpCode : uint8_t {
     OP_CastIntToFloat,  // read int32 from pResult, write float to pResult
     OP_CastFloatToInt,  // read float from pResult, write int32 to pResult
     OP_Int32_to_str,    // Phase 8e-9a: read int32 from pResult, format decimal,
-                        // push to m_stringPool, write new string idx (int32) to pResult
+                        // mint a new string object, write its handle (int32) to pResult
     OP_Float_to_str,    // Phase 8e-9a: read float from pResult, format with "%g",
-                        // push to m_stringPool, write new string idx (int32) to pResult
+                        // mint a new string object, write its handle (int32) to pResult
     OP_Enum_to_str,     // Phase 8e-9b: uint16 enumDefIdx immediate; read int32 enum value
                         // from pResult, lookup m_compiledModule.enumNames[enumDefIdx][value],
-                        // push name to m_stringPool, write new string idx (int32) to pResult
+                        // mint a string object, write its handle (int32) to pResult
     OP_Array_to_str,    // Phase 9b-pre: no operands; read array heap idx from pResult,
-                        // format as "[e1, e2, ...]", push to m_stringPool, write idx to pResult
+                        // format as "[e1, e2, ...]", mint a string object, write handle to pResult
 
     // === Arithmetic - int32 (dst += src) ===
     OP_Add_i32,         // uint16 dst, uint16 src, locals[dst] += locals[src]
@@ -138,10 +138,10 @@ enum class OpCode : uint8_t {
     OP_Eq_func,         // uint16 lhs, uint16 rhs — content equality (null-guarded)
     OP_Ne_func,         // uint16 lhs, uint16 rhs — negation of OP_Eq_func
     OP_Func_to_str,     // no operands; format the handle at pResult as
-                        // "func <name>", push to string pool, write idx to pResult
+                        // "func <name>", mint a string object, write handle to pResult
     OP_MakeBoundFunc,   // uint16 funcIdx — receiver at the pResult slot →
                         // {funcIdx, this, form=0}; null receiver throws at bind
-    OP_MakeVFunc,       // uint16 nameIdx (string pool) — receiver at the
+    OP_MakeVFunc,       // uint16 nameIdx (string-constant index) — receiver at the
                         // pResult slot → {nameIdx, this, form=1}; dispatch
                         // resolves the method by name on the runtime class
     OP_CallDelegateOut, // uint16 calleeLocal, uint16 callParamBase, uint32

@@ -52,11 +52,22 @@ int VmExecutor::Execute(const CompiledModule& module) {
     if (mainIdx < 0)
         throw std::runtime_error("NLang VM: no 'main' function found");
 
-    //Initialize string pool from module's string constants.
-    m_stringPool = module.stringConstants;
-    //Pool index 0 is reserved for the empty string.
-    if (m_stringPool.empty())
-        m_stringPool.emplace_back("");
+    //String objectization: eagerly materialize every module string constant
+    //as an immortal Flat object (JVM constant-pool semantics — constants
+    //live as long as the execution). Value consumers resolve constant
+    //indexes through m_constStrCache and never see raw indexes.
+    m_stringObjs.clear();
+    m_strMarkBits.clear();
+    m_strFreeList.clear();
+    m_shortStrTable.clear();
+    m_stringObjs.emplace_back();   //sentinel slot 0 (handle 0 = null)
+    m_stringObjs[0].form = static_cast<StrObj::Form>(kStrFormDead);
+    m_strMarkBits.push_back(false);
+    m_constStrCache.clear();
+    m_constStrCache.reserve(module.stringConstants.size());
+    for (const std::string& s : module.stringConstants)
+        m_constStrCache.push_back(MintConstantString(s));
+    m_emptyStrHandle = MintConstantString("");
 
     //Initialize struct heap with sentinel at index 0.
     m_structHeap.clear();
@@ -136,13 +147,12 @@ bool VmExecutor::IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx) 
         throw std::runtime_error("NLang VM: exception class not registered");
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
 
-    //slot[1] = message. Intern the C++ string into m_stringPool, store idx.
+    //slot[1] = message. Mint a string object, store its handle.
     //Do NOT hold a reference to m_structHeap[heapIdx] across the List
     //allocation below — AllocClassOnHeap may push_back to m_structHeap and
     //invalidate the reference (vector resize).
-    int32_t msgIdx = static_cast<int32_t>(m_stringPool.size());
-    m_stringPool.push_back(msg);
-    m_structHeap[static_cast<size_t>(heapIdx)][1] = msgIdx;
+    int32_t msgHandle = MintNewString(msg);
+    m_structHeap[static_cast<size_t>(heapIdx)][1] = msgHandle;
 
     //slot[2] = backtrace. Allocate a List<string> and push one entry per
     //active call frame, innermost-first.
@@ -168,9 +178,13 @@ bool VmExecutor::IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx) 
                     it->func ? it->func->name.c_str() : "<unknown>",
                     moduleName.c_str());
             }
-            int32_t strIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(buf);
-            m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(strIdx);
+            //Frame text as before ("func (file.n:line)"); box the string so
+            //the List element is a real RTK_Boxed record — the old raw pool
+            //index made e.backtrace.get(i) raise "unbox on null/invalid
+            //reference".
+            int32_t frameHandle = MintNewString(buf);
+            int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
+            m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
         }
     }
     //Now write listHeapIdx to slot[2] of the Exception. Safe because no
@@ -241,10 +255,15 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             return;
 
         case OpCode::OP_AssertFail: {
+            //msgIdx is a compile-time constant index — resolve through the
+            //constant cache like OP_ConstString does.
             uint16_t msgIdx = reader.ReadUint16();
             std::string msg = "assertion failed";
-            if (msgIdx < m_stringPool.size() && !m_stringPool[msgIdx].empty())
-                msg += ": " + m_stringPool[msgIdx];
+            if (msgIdx < m_constStrCache.size()) {
+                const std::string& s = StrVal(m_constStrCache[msgIdx]);
+                if (!s.empty())
+                    msg += ": " + s;
+            }
             RaiseNlangException(m_assertExcClassIdx, msg);
         }
 
@@ -267,8 +286,11 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
 
         case OpCode::OP_ConstString: {
             uint16_t poolIdx = reader.ReadUint16();
-            int32_t idx = static_cast<int32_t>(poolIdx);
-            std::memcpy(pResult, &idx, sizeof(idx));
+            if (poolIdx >= m_constStrCache.size())
+                throw std::runtime_error(
+                    "NLang VM: string constant index out of range");
+            int32_t handle = m_constStrCache[poolIdx];
+            std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
 
@@ -303,10 +325,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         case OpCode::OP_Int32_to_str: {
             int32_t iv;
             std::memcpy(&iv, pResult, sizeof(iv));
-            std::string s = std::to_string(iv);
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(s));
-            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            int32_t handle = MintNewString(std::to_string(iv));
+            std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
         case OpCode::OP_Float_to_str: {
@@ -314,9 +334,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&fv, pResult, sizeof(fv));
             char buf[32];
             std::snprintf(buf, sizeof(buf), "%g", fv);
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(buf);
-            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            int32_t handle = MintNewString(buf);
+            std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
         case OpCode::OP_Enum_to_str: {
@@ -333,9 +352,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 || static_cast<size_t>(enumValue) >= names.size())
                 throw std::runtime_error(
                     "NLang VM: enum value out of range");
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(names[static_cast<size_t>(enumValue)]);
-            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            int32_t handle = MintNewString(names[static_cast<size_t>(enumValue)]);
+            std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
 
@@ -358,9 +376,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             } else {
                 s = FormatArray(heapIdx, 0);
             }
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(s));
-            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            int32_t handle = MintNewString(s);
+            std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
 
@@ -808,9 +825,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             } else {
                 s = FormatFuncHandle(heapIdx);
             }
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(s));
-            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            int32_t handle = MintNewString(s);
+            std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
 
@@ -898,33 +914,31 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         case OpCode::OP_Concat_str: {
+            //Task 1: content concat, semantics unchanged (Task 3 replaces
+            //this with an O(1) cons allocation). A null/dead operand
+            //handle reads as "" via StrValCopy — the old pool fallback.
             uint16_t dst = reader.ReadUint16();
             uint16_t src = reader.ReadUint16();
-            int32_t idxA, idxB;
-            std::memcpy(&idxA, locals + dst, sizeof(idxA));
-            std::memcpy(&idxB, locals + src, sizeof(idxB));
+            int32_t hA, hB;
+            std::memcpy(&hA, locals + dst, sizeof(hA));
+            std::memcpy(&hB, locals + src, sizeof(hB));
             std::string result;
-            if (idxA >= 0 && static_cast<size_t>(idxA) < m_stringPool.size())
-                result = m_stringPool[static_cast<size_t>(idxA)];
-            if (idxB >= 0 && static_cast<size_t>(idxB) < m_stringPool.size())
-                result += m_stringPool[static_cast<size_t>(idxB)];
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(result));
-            std::memcpy(locals + dst, &newIdx, sizeof(newIdx));
+            result += StrValCopy(hA);
+            result += StrValCopy(hB);
+            int32_t handle = MintNewString(result);
+            std::memcpy(locals + dst, &handle, sizeof(handle));
             break;
         }
 
         case OpCode::OP_Eq_str: {
             uint16_t lhs = reader.ReadUint16();
             uint16_t rhs = reader.ReadUint16();
-            int32_t idxA, idxB;
-            std::memcpy(&idxA, locals + lhs, sizeof(idxA));
-            std::memcpy(&idxB, locals + rhs, sizeof(idxB));
-            const std::string& a = (idxA >= 0 && static_cast<size_t>(idxA) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(idxA)] : m_stringPool[0];
-            const std::string& b = (idxB >= 0 && static_cast<size_t>(idxB) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(idxB)] : m_stringPool[0];
-            int32_t r = (a == b) ? 1 : 0;
+            int32_t hA, hB;
+            std::memcpy(&hA, locals + lhs, sizeof(hA));
+            std::memcpy(&hB, locals + rhs, sizeof(hB));
+            //Two StrVal calls, no minting between them — the returned
+            //references stay valid (no store growth).
+            int32_t r = (StrVal(hA) == StrVal(hB)) ? 1 : 0;
             std::memcpy(locals + lhs, &r, sizeof(r));
             break;
         }
@@ -932,14 +946,10 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         case OpCode::OP_Ne_str: {
             uint16_t lhs = reader.ReadUint16();
             uint16_t rhs = reader.ReadUint16();
-            int32_t idxA, idxB;
-            std::memcpy(&idxA, locals + lhs, sizeof(idxA));
-            std::memcpy(&idxB, locals + rhs, sizeof(idxB));
-            const std::string& a = (idxA >= 0 && static_cast<size_t>(idxA) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(idxA)] : m_stringPool[0];
-            const std::string& b = (idxB >= 0 && static_cast<size_t>(idxB) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(idxB)] : m_stringPool[0];
-            int32_t r = (a != b) ? 1 : 0;
+            int32_t hA, hB;
+            std::memcpy(&hA, locals + lhs, sizeof(hA));
+            std::memcpy(&hB, locals + rhs, sizeof(hB));
+            int32_t r = (StrVal(hA) != StrVal(hB)) ? 1 : 0;
             std::memcpy(locals + lhs, &r, sizeof(r));
             break;
         }
@@ -947,23 +957,15 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         //operator< is lexicographic on unsigned char values (charTraits
         //compare), so this is memcmp order — and UTF-8 byte order equals
         //code point order, making it correct for multibyte text too.
-        //A null operand (raw 0) reads pool[0], same convention as Eq/Ne.
+        //A null operand (handle 0) reads "", same convention as Eq/Ne.
 #define STR_REL(OP)                                                    \
         {                                                              \
             uint16_t lhs = reader.ReadUint16();                        \
             uint16_t rhs = reader.ReadUint16();                        \
-            int32_t idxA, idxB;                                        \
-            std::memcpy(&idxA, locals + lhs, sizeof(idxA));            \
-            std::memcpy(&idxB, locals + rhs, sizeof(idxB));            \
-            const std::string& a = (idxA >= 0                          \
-                && static_cast<size_t>(idxA) < m_stringPool.size())    \
-                ? m_stringPool[static_cast<size_t>(idxA)]              \
-                : m_stringPool[0];                                     \
-            const std::string& b = (idxB >= 0                          \
-                && static_cast<size_t>(idxB) < m_stringPool.size())    \
-                ? m_stringPool[static_cast<size_t>(idxB)]              \
-                : m_stringPool[0];                                     \
-            int32_t r = (a OP b) ? 1 : 0;                              \
+            int32_t hA, hB;                                            \
+            std::memcpy(&hA, locals + lhs, sizeof(hA));                \
+            std::memcpy(&hB, locals + rhs, sizeof(hB));                \
+            int32_t r = (StrVal(hA) OP StrVal(hB)) ? 1 : 0;            \
             std::memcpy(locals + lhs, &r, sizeof(r));                  \
         }
         case OpCode::OP_Less_str: STR_REL(<); break;
@@ -975,14 +977,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         case OpCode::OP_StrLen: {
             uint16_t dst = reader.ReadUint16();
             uint16_t src = reader.ReadUint16();
-            int32_t idx;
-            std::memcpy(&idx, locals + src, sizeof(idx));
-            int32_t len = 0;
-            if (idx >= 0 && static_cast<size_t>(idx) < m_stringPool.size())
-                //Byte length by design (Phase 11 decision #7, Go/Lua
-                //model): substring/indexOf use byte offsets too, so
-                //length stays consistent with them. "héllo".length()==6.
-                len = static_cast<int32_t>(m_stringPool[static_cast<size_t>(idx)].size());
+            int32_t handle;
+            std::memcpy(&handle, locals + src, sizeof(handle));
+            //Byte length by design (Phase 11 decision #7, Go/Lua
+            //model): substring/indexOf use byte offsets too, so
+            //length stays consistent with them. "héllo".length()==6.
+            int32_t len = static_cast<int32_t>(StrVal(handle).size());
             std::memcpy(locals + dst, &len, sizeof(len));
             break;
         }
@@ -1921,10 +1921,7 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
         }
         else if (ftk == RTK_String)
         {
-            int32_t strIdx = slot[i];
-            const std::string& s = (strIdx >= 0
-                && static_cast<size_t>(strIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(strIdx)] : "";
+            const std::string& s = StrVal(slot[i]);
             int32_t len = static_cast<int32_t>(s.size());
             uint8_t lenBytes[4];
             std::memcpy(lenBytes, &len, 4);
@@ -2004,9 +2001,7 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
                     static_cast<size_t>(len));
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(s));
-            m_structHeap[heapIdxSz][i] = newIdx;
+            m_structHeap[heapIdxSz][i] = MintNewString(s);
         }
         else if (ftk == RTK_Struct)
         {
@@ -2103,10 +2098,7 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         }
         else if (ftk == RTK_String)
         {
-            int32_t strIdx = slot[i + 1];
-            const std::string& s = (strIdx >= 0
-                && static_cast<size_t>(strIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(strIdx)] : "";
+            const std::string& s = StrVal(slot[i + 1]);
             int32_t len = static_cast<int32_t>(s.size());
             uint8_t lenBytes[4];
             std::memcpy(lenBytes, &len, 4);
@@ -2234,9 +2226,7 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
                     static_cast<size_t>(len));
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(s));
-            m_structHeap[heapIdxSz][i + 1] = newIdx;
+            m_structHeap[heapIdxSz][i + 1] = MintNewString(s);
         }
         else if (ftk == RTK_Struct)
         {
@@ -2373,10 +2363,10 @@ bool VmExecutor::DictKeysEqual(int32_t k1, int32_t k2) const {
     int32_t bits1 = m_structHeap[static_cast<size_t>(k1)][kBoxedValueSlot];
     int32_t bits2 = m_structHeap[static_cast<size_t>(k2)][kBoxedValueSlot];
     if (tag1 == RTK_String) {
-        //bits are string-pool idxs.
-        if (bits1 < 0 || bits1 >= (int32_t)m_stringPool.size()) return false;
-        if (bits2 < 0 || bits2 >= (int32_t)m_stringPool.size()) return false;
-        return m_stringPool[bits1] == m_stringPool[bits2];
+        //bits are string-object handles. This method is const (a GC/dict
+        //helper, never an execution path), so content comparison goes
+        //through the non-mutating StrValCopy; invalid handles read "".
+        return StrValCopy(bits1) == StrValCopy(bits2);
     }
     return bits1 == bits2;  //int / float value bits
 }
@@ -2470,7 +2460,7 @@ int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
 }
 
 //Phase 13: shared renderer for function handles. slot[0] holds a function
-//index for static handles (form 0) or a string-pool index for
+//index for static handles (form 0) or a string-constant index for
 //virtual-dispatch handles (form 1, Step 2).
 std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
@@ -2481,8 +2471,13 @@ std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
         return "func <invalid>";
     }
     int32_t nameIdx = slot[0];
-    if (nameIdx >= 0 && static_cast<size_t>(nameIdx) < m_stringPool.size())
-        return "method " + m_stringPool[static_cast<size_t>(nameIdx)];
+    //slot[0] of a virtual-dispatch handle stays a compile-time constant
+    //index (D2 scheme b) — read the module's constant table, not the
+    //runtime string store.
+    if (nameIdx >= 0
+        && static_cast<size_t>(nameIdx) < m_currModule->stringConstants.size())
+        return "method "
+            + m_currModule->stringConstants[static_cast<size_t>(nameIdx)];
     return "method <invalid>";
 }
 
@@ -2652,10 +2647,7 @@ std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
             std::snprintf(buf, sizeof(buf), "%g", fv);
             return buf;
         } else if (tag == RTK_String) {
-            if (val >= 0
-                && static_cast<size_t>(val) < m_stringPool.size())
-                return QuoteString(m_stringPool[static_cast<size_t>(val)]);
-            return "\"\"";
+            return QuoteString(StrVal(val));
         }
         return "<unknown>";
     }
@@ -2712,11 +2704,7 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
             break;
         }
         case RTK_String:
-            if (elemVal >= 0
-                && static_cast<size_t>(elemVal) < m_stringPool.size())
-                result += QuoteString(m_stringPool[static_cast<size_t>(elemVal)]);
-            else
-                result += "\"\"";
+            result += QuoteString(StrVal(elemVal));
             break;
         case RTK_Struct:
             result += "<struct>";
@@ -2832,10 +2820,7 @@ std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
     }
     int32_t strIdx;
     std::memcpy(&strIdx, resultBuf, sizeof(strIdx));
-    if (strIdx >= 0
-        && static_cast<size_t>(strIdx) < m_stringPool.size())
-        return m_stringPool[static_cast<size_t>(strIdx)];
-    return "";
+    return StrValCopy(strIdx);
 }
 
 void VmExecutor::RegisterNative(const std::string& name, NativeFn fn)
@@ -2931,8 +2916,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t strIdx;
             std::memcpy(&strIdx, locals + callParamBase + VALUE_SIZE, sizeof(strIdx));
-            const std::string& s = (strIdx >= 0 && static_cast<size_t>(strIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(strIdx)] : "";
+            const std::string& s = StrVal(strIdx);
             int32_t len = static_cast<int32_t>(s.size());
             uint8_t lenBytes[4];
             std::memcpy(lenBytes, &len, 4);
@@ -2964,9 +2948,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             std::string s(reinterpret_cast<const char*>(st->buf.data() + st->pos),
                           static_cast<size_t>(len));
             st->pos += static_cast<size_t>(len);
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(s));
-            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            int32_t strHandle = MintNewString(s);
+            std::memcpy(pResult, &strHandle, sizeof(strHandle));
             break;
         }
         case INTR_BS_Length: {
@@ -3030,9 +3013,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             int32_t typeNameIdx;
             std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
                 sizeof(typeNameIdx));
-            const std::string& typeName = (typeNameIdx >= 0
-                && static_cast<size_t>(typeNameIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(typeNameIdx)] : "";
+            const std::string& typeName = StrVal(typeNameIdx);
             int sIdx = m_currModule->FindStruct(typeName);
             if (sIdx < 0)
                 throw std::runtime_error(
@@ -3080,9 +3061,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             int32_t typeNameIdx;
             std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
                 sizeof(typeNameIdx));
-            const std::string& declaredName = (typeNameIdx >= 0
-                && static_cast<size_t>(typeNameIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(typeNameIdx)] : "";
+            const std::string& declaredName = StrVal(typeNameIdx);
             int declaredIdx = m_currModule->FindClass(declaredName);
             if (declaredIdx < 0)
                 throw std::runtime_error(
@@ -3132,10 +3111,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             int32_t pathIdx, modeIdx;
             std::memcpy(&pathIdx, locals + callParamBase + VALUE_SIZE, sizeof(pathIdx));
             std::memcpy(&modeIdx, locals + callParamBase + 2 * VALUE_SIZE, sizeof(modeIdx));
-            const std::string& path = (pathIdx >= 0 && static_cast<size_t>(pathIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(pathIdx)] : "";
-            const std::string& mode = (modeIdx >= 0 && static_cast<size_t>(modeIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(modeIdx)] : "";
+            const std::string& path = StrVal(pathIdx);
+            const std::string& mode = StrVal(modeIdx);
             if (mode != "r" && mode != "w" && mode != "a")
                 throw std::runtime_error("NLang VM: FileStream mode must be \"r\", \"w\", or \"a\"");
             auto fstate = std::make_unique<FileStreamState>();
@@ -3219,8 +3196,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                 throw std::runtime_error("NLang VM: FileStream not opened for writing");
             int32_t strIdx;
             std::memcpy(&strIdx, locals + callParamBase + VALUE_SIZE, sizeof(strIdx));
-            const std::string& s = (strIdx >= 0 && static_cast<size_t>(strIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(strIdx)] : "";
+            const std::string& s = StrVal(strIdx);
             int32_t len = static_cast<int32_t>(s.size());
             st->fs->write(reinterpret_cast<const char*>(&len), 4);
             st->fs->write(s.data(), len);
@@ -3248,9 +3224,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             st->fs->read(&s[0], len);
             if (st->fs->gcount() < len)
                 throw std::runtime_error("NLang VM: ReadString bytes past end of stream");
-            int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(s));
-            std::memcpy(pResult, &newIdx, sizeof(newIdx));
+            int32_t strHandle = MintNewString(s);
+            std::memcpy(pResult, &strHandle, sizeof(strHandle));
             break;
         }
         case INTR_FS_Length: {
@@ -3310,9 +3285,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             int32_t typeNameIdx;
             std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
                 sizeof(typeNameIdx));
-            const std::string& typeName = (typeNameIdx >= 0
-                && static_cast<size_t>(typeNameIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(typeNameIdx)] : "";
+            const std::string& typeName = StrVal(typeNameIdx);
             int sIdx = m_currModule->FindStruct(typeName);
             if (sIdx < 0)
                 throw std::runtime_error(
@@ -3362,9 +3335,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             int32_t typeNameIdx;
             std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
                 sizeof(typeNameIdx));
-            const std::string& declaredName = (typeNameIdx >= 0
-                && static_cast<size_t>(typeNameIdx) < m_stringPool.size())
-                ? m_stringPool[static_cast<size_t>(typeNameIdx)] : "";
+            const std::string& declaredName = StrVal(typeNameIdx);
             int declaredIdx = m_currModule->FindClass(declaredName);
             if (declaredIdx < 0)
                 throw std::runtime_error(
@@ -3457,9 +3428,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         std::snprintf(buf, sizeof(buf), "%s@%x",
                       className.c_str(),
                       static_cast<unsigned>(thisHeapIdx));
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(buf);
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(buf);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return;
     }
 
@@ -3485,14 +3455,14 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             throw std::runtime_error(
                 "NLang VM: Exception ctor on stale reference");
 
-        //Read message formal (string pool idx).
-        int32_t msgIdx;
-        std::memcpy(&msgIdx, locals + callParamBase + VALUE_SIZE,
-                    sizeof(msgIdx));
+        //Read message formal (string handle).
+        int32_t msgHandle;
+        std::memcpy(&msgHandle, locals + callParamBase + VALUE_SIZE,
+                    sizeof(msgHandle));
 
-        //slot[1] = message (string pool idx). Direct write — safe because
+        //slot[1] = message (string handle). Direct write — safe because
         //no allocation between read and write.
-        m_structHeap[static_cast<size_t>(thisHeapIdx)][1] = msgIdx;
+        m_structHeap[static_cast<size_t>(thisHeapIdx)][1] = msgHandle;
 
         //slot[2] = backtrace. Allocate a List<string>, set __handle = 0
         //(empty), then write its heap idx to slot[2]. The allocation may
@@ -3597,20 +3567,31 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         bool primitiveT = (value > 0
             && static_cast<size_t>(value) < m_slotKinds.size()
             && m_slotKinds[value] == RTK_Boxed);
-        int32_t valBits = 0;
-        if (primitiveT)
+        int32_t valTag = 0, valBits = 0;
+        if (primitiveT) {
+            valTag = m_structHeap[static_cast<size_t>(value)][0];
             valBits = m_structHeap[static_cast<size_t>(value)]
                 [kBoxedValueSlot];
+        }
         for (size_t i = 0; i < lst.elements.size(); ++i) {
             int32_t elem = lst.elements[i];
             bool match = false;
             if (primitiveT) {
                 if (elem > 0
                     && static_cast<size_t>(elem) < m_slotKinds.size()
-                    && m_slotKinds[elem] == RTK_Boxed
-                    && m_structHeap[static_cast<size_t>(elem)]
-                        [kBoxedValueSlot] == valBits) {
-                    match = true;
+                    && m_slotKinds[elem] == RTK_Boxed) {
+                    //tag==RTK_String: compare by content (aligns with ==
+                    //and Dict); the old payload bit compare made
+                    //indexOf("hel"+"lo") miss a stored "hello".
+                    int32_t elemTag =
+                        m_structHeap[static_cast<size_t>(elem)][0];
+                    int32_t elemBits =
+                        m_structHeap[static_cast<size_t>(elem)]
+                            [kBoxedValueSlot];
+                    if (elemTag == RTK_String && valTag == RTK_String)
+                        match = (StrVal(elemBits) == StrVal(valBits));
+                    else
+                        match = (elemBits == valBits);  //int/float bits
                 }
             } else {
                 if (elem == value) match = true;
@@ -3631,20 +3612,29 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         bool primitiveT = (value > 0
             && static_cast<size_t>(value) < m_slotKinds.size()
             && m_slotKinds[value] == RTK_Boxed);
-        int32_t valBits = 0;
-        if (primitiveT)
+        int32_t valTag = 0, valBits = 0;
+        if (primitiveT) {
+            valTag = m_structHeap[static_cast<size_t>(value)][0];
             valBits = m_structHeap[static_cast<size_t>(value)]
                 [kBoxedValueSlot];
+        }
         for (size_t i = 0; i < lst.elements.size(); ++i) {
             int32_t elem = lst.elements[i];
             bool match = false;
             if (primitiveT) {
                 if (elem > 0
                     && static_cast<size_t>(elem) < m_slotKinds.size()
-                    && m_slotKinds[elem] == RTK_Boxed
-                    && m_structHeap[static_cast<size_t>(elem)]
-                        [kBoxedValueSlot] == valBits) {
-                    match = true;
+                    && m_slotKinds[elem] == RTK_Boxed) {
+                    //Content compare for string elements — see IndexOf.
+                    int32_t elemTag =
+                        m_structHeap[static_cast<size_t>(elem)][0];
+                    int32_t elemBits =
+                        m_structHeap[static_cast<size_t>(elem)]
+                            [kBoxedValueSlot];
+                    if (elemTag == RTK_String && valTag == RTK_String)
+                        match = (StrVal(elemBits) == StrVal(valBits));
+                    else
+                        match = (elemBits == valBits);  //int/float bits
                 }
             } else {
                 if (elem == value) match = true;
@@ -3779,14 +3769,13 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     }
 
     //INTR_List_toString (Phase 9b-pre): format the list's elements as
-    //"[e1, e2, ...]" via FormatList. Push result to m_stringPool, write
-    //string idx to pResult. Strings inside are quoted via QuoteString.
+    //"[e1, e2, ...]" via FormatList. Mint a string object, write its
+    //handle to pResult. Strings inside are quoted via QuoteString.
     if (intrinsicId == INTR_List_toString) {
         int32_t handle = ReadListHandle(callParamBase, locals, "toString");
         std::string s = FormatList(handle, 0);
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(s));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t strHandle = MintNewString(s);
+        std::memcpy(pResult, &strHandle, sizeof(strHandle));
         return;
     }
     //INTR_Dict_toString (Phase 9b-pre): format the dict's entries as
@@ -3794,9 +3783,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_Dict_toString) {
         int32_t handle = ReadDictHandle(callParamBase, locals, "toString");
         std::string s = FormatDict(handle, 0);
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(s));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t strHandle = MintNewString(s);
+        std::memcpy(pResult, &strHandle, sizeof(strHandle));
         return;
     }
 

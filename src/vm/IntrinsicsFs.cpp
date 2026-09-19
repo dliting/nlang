@@ -31,16 +31,15 @@ namespace fsys = std::filesystem;
 
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
-//Read one string argument. Returns by value: the pool can grow during an
-//intrinsic (result strings), and a held reference would dangle.
-static std::string ReadFsStringArg(const std::vector<std::string>& pool,
+//Read one string argument. Returns by value: the store can grow during an
+//intrinsic (result strings), and a held reference would dangle. Null or
+//out-of-range handles read as "".
+static std::string ReadFsStringArg(VmExecutor& ex,
     const uint8_t* locals, uint16_t callParamBase, int slot)
 {
-    int32_t idx;
-    std::memcpy(&idx, locals + callParamBase + slot * VALUE_SIZE, sizeof(idx));
-    if (idx < 0 || static_cast<size_t>(idx) >= pool.size())
-        return "";
-    return pool[static_cast<size_t>(idx)];
+    int32_t handle;
+    std::memcpy(&handle, locals + callParamBase + slot * VALUE_SIZE, sizeof(handle));
+    return ex.StrValCopy(handle);
 }
 
 bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
@@ -52,7 +51,7 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
     case INTR_FileSystem_IsFile:
     case INTR_FileSystem_IsDir:
     {
-        std::string path = ReadFsStringArg(m_stringPool, locals,
+        std::string path = ReadFsStringArg(*this, locals,
             callParamBase, 0);
         std::error_code ec;
         int32_t result = 0;
@@ -70,7 +69,7 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
     }
     case INTR_FileSystem_Size:
     {
-        std::string path = ReadFsStringArg(m_stringPool, locals,
+        std::string path = ReadFsStringArg(*this, locals,
             callParamBase, 0);
         //Stat first: file_size on a non-regular file is unspecified in
         //the standard (directory "sizes" are filesystem noise), so the
@@ -107,7 +106,7 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
     }
     case INTR_FileSystem_ListFiles:
     {
-        std::string path = ReadFsStringArg(m_stringPool, locals,
+        std::string path = ReadFsStringArg(*this, locals,
             callParamBase, 0);
         std::error_code itEc;
         fsys::directory_iterator it(path, itEc);
@@ -149,16 +148,14 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
         dst.reserve(names.size());
         for (auto& name : names)
         {
-            int32_t poolIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(name));
-            dst.push_back(AllocBoxedValue(RTK_String, poolIdx));
+            dst.push_back(AllocBoxedValue(RTK_String, MintNewString(name)));
         }
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         return true;
     }
     case INTR_FileSystem_MakeDirs:
     {
-        std::string path = ReadFsStringArg(m_stringPool, locals,
+        std::string path = ReadFsStringArg(*this, locals,
             callParamBase, 0);
         std::error_code ec;
         //mkdir -p semantics: the false return (path already exists as a
@@ -173,7 +170,7 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
     }
     case INTR_FileSystem_Remove:
     {
-        std::string path = ReadFsStringArg(m_stringPool, locals,
+        std::string path = ReadFsStringArg(*this, locals,
             callParamBase, 0);
         std::error_code ec;
         //File or empty directory. A missing path is a silent no-op and a
@@ -188,9 +185,9 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
     }
     case INTR_FileSystem_Join:
     {
-        std::string a = ReadFsStringArg(m_stringPool, locals,
+        std::string a = ReadFsStringArg(*this, locals,
             callParamBase, 0);
-        std::string b = ReadFsStringArg(m_stringPool, locals,
+        std::string b = ReadFsStringArg(*this, locals,
             callParamBase, 1);
         //generic_string: forward slashes on every platform; path append
         //never doubles a separator and yields b alone when a is empty.
@@ -198,9 +195,8 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
         //std::filesystem append semantics, same as Python os.path.join;
         //an empty b leaves a trailing separator.
         std::string joined = (fsys::path(a) / b).generic_string();
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(joined));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(joined);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     default:

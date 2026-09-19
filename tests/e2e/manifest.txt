@@ -1039,3 +1039,7 @@ foreach_var_widen_reject compile_error does not match the element type
 generic_arg_jagged_reject compile_error jagged arrays
 alias_array_typearg 0 11
 dict_identical_content_keys 30 2
+
+# --- String object store (Task 1): backtrace boxing + content indexOf ---
+str_backtrace_get 0
+str_list_indexof_concat 0

@@ -1,0 +1,13 @@
+//e2e
+int main() {
+    int zero = 0;
+    try {
+        return 10 / zero;
+    } catch (DivByZeroException e) {
+        if (e.backtrace.length() < 1) return 1;
+        string frame = e.backtrace.get(0);
+        if (frame.length() == 0) return 2;
+        if (frame.indexOf("main") < 0) return 3;
+    }
+    return 0;
+}

@@ -7,7 +7,7 @@ Two families live here:
   ids 95-106  the 12 Phase 11 Step 3 methods (kStringMethodTable in
               StdLib.h is the resolver/codegen counterpart)
 
-ABI (mirror of string.equals): receiver string pool idx at callParamBase
+ABI (mirror of string.equals): receiver string handle at callParamBase
 slot 0, arguments from slot 1 upward.
 
 Byte semantics (user decision #7, Go/Lua model): length/substring/
@@ -32,17 +32,17 @@ namespace nlang
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Read one string operand (receiver at slot 0, args from slot 1). Returns
-//by value: the pool can grow during an intrinsic (result strings), and a
-//held reference would dangle. Out-of-range idx reads as "" — same
+//by value: the store can grow during an intrinsic (result strings), and a
+//held reference would dangle. Null/out-of-range handles read as "" — same
 //defensive shape the migrated Equals/GetHashCode always had.
-static std::string ReadStrArg(const std::vector<std::string>& pool,
+static std::string ReadStrArg(VmExecutor& ex,
     const uint8_t* locals, uint16_t callParamBase, int slot)
 {
-    int32_t idx;
-    std::memcpy(&idx, locals + callParamBase + slot * VALUE_SIZE, sizeof(idx));
-    if (idx < 0 || static_cast<size_t>(idx) >= pool.size())
-        return "";
-    return pool[static_cast<size_t>(idx)];
+    int32_t handle;
+    std::memcpy(&handle, locals + callParamBase + slot * VALUE_SIZE,
+        sizeof(handle));
+    return ex.StrValCopy(handle);   //args are consumed once; Copy avoids
+                                    //any in-place flatten surprise mid-ABI
 }
 
 //Phase 11 Step 3: allocate one boxed-value heap slot (layout per OP_Box:
@@ -80,15 +80,15 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     //---- Phase 8e-1 protocol methods (migrated verbatim) ----
     case INTR_String_Equals:
     {
-        std::string a = ReadStrArg(m_stringPool, locals, callParamBase, 0);
-        std::string b = ReadStrArg(m_stringPool, locals, callParamBase, 1);
+        std::string a = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string b = ReadStrArg(*this, locals, callParamBase, 1);
         int32_t result = (a == b) ? 1 : 0;
         std::memcpy(pResult, &result, sizeof(result));
         return true;
     }
     case INTR_String_GetHashCode:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         int32_t hash = static_cast<int32_t>(
             std::hash<std::string>{}(s));
         std::memcpy(pResult, &hash, sizeof(hash));
@@ -97,7 +97,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     //---- Phase 11 Step 3 methods ----
     case INTR_String_Substring:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         int32_t start, end;
         std::memcpy(&start, locals + callParamBase + VALUE_SIZE,
             sizeof(start));
@@ -114,15 +114,14 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
                 + std::to_string(s.size()) + " bytes.");
         std::string out = s.substr(static_cast<size_t>(start),
             static_cast<size_t>(end - start));
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(out));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(out);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     case INTR_String_IndexOf:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
-        std::string needle = ReadStrArg(m_stringPool, locals,
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string needle = ReadStrArg(*this, locals,
             callParamBase, 1);
         //Empty needle finds at offset 0 (std::string::find semantics).
         size_t hit = s.find(needle);
@@ -133,8 +132,8 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     }
     case INTR_String_StartsWith:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
-        std::string prefix = ReadStrArg(m_stringPool, locals,
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string prefix = ReadStrArg(*this, locals,
             callParamBase, 1);
         int32_t result = (s.size() >= prefix.size()
             && 0 == s.compare(0, prefix.size(), prefix)) ? 1 : 0;
@@ -143,8 +142,8 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     }
     case INTR_String_EndsWith:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
-        std::string suffix = ReadStrArg(m_stringPool, locals,
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string suffix = ReadStrArg(*this, locals,
             callParamBase, 1);
         int32_t result = (s.size() >= suffix.size()
             && 0 == s.compare(s.size() - suffix.size(), suffix.size(),
@@ -154,8 +153,8 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     }
     case INTR_String_Contains:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
-        std::string needle = ReadStrArg(m_stringPool, locals,
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string needle = ReadStrArg(*this, locals,
             callParamBase, 1);
         int32_t result = s.find(needle) != std::string::npos ? 1 : 0;
         std::memcpy(pResult, &result, sizeof(result));
@@ -164,7 +163,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     case INTR_String_ToUpper:
     case INTR_String_ToLower:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         const bool toUpper = (intrinsicId == INTR_String_ToUpper);
         //ASCII only (decision #7): no locale, no UTF-8 case mapping —
         //non-ASCII bytes pass through unchanged.
@@ -175,14 +174,13 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             else if (!toUpper && ch >= 'A' && ch <= 'Z')
                 ch = static_cast<char>(ch - 'A' + 'a');
         }
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(s));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(s);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     case INTR_String_Trim:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         auto isWs = [](char ch) {
             return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
                 || ch == '\f' || ch == '\v';
@@ -191,15 +189,14 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         while (b < e && isWs(s[b])) ++b;
         while (e > b && isWs(s[e - 1])) --e;
         std::string out = s.substr(b, e - b);
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(out));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(out);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     case INTR_String_Split:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
-        std::string sep = ReadStrArg(m_stringPool, locals,
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string sep = ReadStrArg(*this, locals,
             callParamBase, 1);
         if (sep.empty())
             RaiseNlangExceptionBase(
@@ -233,19 +230,17 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         dst.reserve(parts.size());
         for (auto& part : parts)
         {
-            int32_t poolIdx = static_cast<int32_t>(m_stringPool.size());
-            m_stringPool.push_back(std::move(part));
-            dst.push_back(AllocBoxedValue(RTK_String, poolIdx));
+            dst.push_back(AllocBoxedValue(RTK_String, MintNewString(part)));
         }
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         return true;
     }
     case INTR_String_Replace:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
-        std::string oldStr = ReadStrArg(m_stringPool, locals,
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string oldStr = ReadStrArg(*this, locals,
             callParamBase, 1);
-        std::string newStr = ReadStrArg(m_stringPool, locals,
+        std::string newStr = ReadStrArg(*this, locals,
             callParamBase, 2);
         if (oldStr.empty())
             RaiseNlangExceptionBase(
@@ -266,14 +261,13 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             out += newStr;
             pos = hit + oldStr.size();
         }
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(out));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(out);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     case INTR_String_ToInt:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         //Strict whole-string parse: no leading whitespace (strtol would
         //skip it — Java-compatible strictness) and full consumption. The
         //int32 bounds rationale lives at the check below.
@@ -296,7 +290,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     }
     case INTR_String_ToFloat:
     {
-        std::string s = ReadStrArg(m_stringPool, locals, callParamBase, 0);
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         if (s.empty() || std::isspace(static_cast<unsigned char>(s[0])))
             RaiseNlangExceptionBase(
                 "string.toFloat: \"" + s + "\" is not a valid float.");

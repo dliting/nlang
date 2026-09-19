@@ -24,16 +24,15 @@ namespace nlang
 
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
-//Read one string argument. Returns by value: the pool can grow during an
-//intrinsic (result strings), and a held reference would dangle.
-static std::string ReadIoStringArg(const std::vector<std::string>& pool,
+//Read one string argument. Returns by value: the store can grow during an
+//intrinsic (result strings), and a held reference would dangle. Null or
+//out-of-range handles read as "".
+static std::string ReadIoStringArg(VmExecutor& ex,
     const uint8_t* locals, uint16_t callParamBase, int slot)
 {
-    int32_t idx;
-    std::memcpy(&idx, locals + callParamBase + slot * VALUE_SIZE, sizeof(idx));
-    if (idx < 0 || static_cast<size_t>(idx) >= pool.size())
-        return "";
-    return pool[static_cast<size_t>(idx)];
+    int32_t handle;
+    std::memcpy(&handle, locals + callParamBase + slot * VALUE_SIZE, sizeof(handle));
+    return ex.StrValCopy(handle);
 }
 
 bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
@@ -43,7 +42,7 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
     {
     case INTR_Io_Print:
     {
-        std::string s = ReadIoStringArg(m_stringPool, locals,
+        std::string s = ReadIoStringArg(*this, locals,
             callParamBase, 0);
         if (m_pHostIo)
         {
@@ -77,14 +76,13 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
             line.clear();
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(line));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(line);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     case INTR_Io_ReadFile:
     {
-        std::string path = ReadIoStringArg(m_stringPool, locals,
+        std::string path = ReadIoStringArg(*this, locals,
             callParamBase, 0);
         std::ifstream in(path, std::ios_base::binary);
         if (!in.is_open())
@@ -109,17 +107,16 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
         if (in.bad() || in.gcount() != static_cast<std::streamsize>(size))
             RaiseNlangException(m_ioExcClassIdx,
                 "io.readFile: read error on \"" + path + "\".");
-        int32_t newIdx = static_cast<int32_t>(m_stringPool.size());
-        m_stringPool.push_back(std::move(content));
-        std::memcpy(pResult, &newIdx, sizeof(newIdx));
+        int32_t handle = MintNewString(content);
+        std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     case INTR_Io_WriteFile:
     case INTR_Io_AppendFile:
     {
-        std::string path = ReadIoStringArg(m_stringPool, locals,
+        std::string path = ReadIoStringArg(*this, locals,
             callParamBase, 0);
-        std::string content = ReadIoStringArg(m_stringPool, locals,
+        std::string content = ReadIoStringArg(*this, locals,
             callParamBase, 1);
         const char* funcName = (intrinsicId == INTR_Io_WriteFile)
             ? "writeFile" : "appendFile";

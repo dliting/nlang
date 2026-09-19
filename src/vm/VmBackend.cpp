@@ -331,7 +331,7 @@ void VmBackend::RegisterBuiltinClasses() {
     //Registered AFTER List/Dict so that backtrace field's fieldClassIndices can
     //directly reference m_listClassIdx (no post-patch needed).
     //Layout (slot numbering from 1; slot[0] is classIdx header):
-    //  slot[1] = message (RTK_String, string pool idx)
+    //  slot[1] = message (RTK_String, string-object handle)
     //  slot[2] = backtrace (RTK_Class, heap idx to List<string>)
     //Subclasses "flatten" the inherited fields into their own fieldNames /
     //fieldTypeKinds / fieldClassIndices arrays — this matches how user class
@@ -2672,7 +2672,7 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
     //Bulk-copy evalArea claim → callParamBase just before the call.
     //OP_VarLocal reads from claimBase+i*4, OP_Assign writes to
     //callParamBase+i*4. This preserves any tagged Value representation
-    //(boxed heap idx, string pool idx, etc.) since both opcodes copy
+    //(boxed heap idx, string handle, etc.) since both opcodes copy
     //4 raw bytes.
     for (uint16_t i = 0; i < n; ++i) {
         emitter.Emit(OpCode::OP_VarLocal);

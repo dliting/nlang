@@ -123,12 +123,11 @@ std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     }
 }
 
-//String locals hold a string-pool idx (no null sentinel; out-of-range
-//mirrors FormatArray's guard).
+//String locals hold a string-object handle (0 = null). StrValCopy is the
+//non-mutating accessor — const formatters must not flatten in place —
+//and reads null/invalid handles as "", rendered as "".
 std::string VmExecutor::FormatDebugStringIdx(int32_t idx) const {
-    if (idx >= 0 && static_cast<size_t>(idx) < m_stringPool.size())
-        return QuoteString(m_stringPool[static_cast<size_t>(idx)]);
-    return "\"\"";
+    return QuoteString(StrValCopy(idx));
 }
 
 std::string VmExecutor::FormatDebugBoxed(int32_t tag, int32_t val) const {
