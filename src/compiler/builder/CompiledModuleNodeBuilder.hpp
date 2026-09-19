@@ -229,10 +229,10 @@ private:
 
 	//Option B Step 4: reconstruct an SnLiteralExpr for a formal default from
 	//the serialized DefaultValueDesc. Returns nullptr when the formal has no
-	//default (tag == RTK_Void). For RTK_String, the producer's string pool
+	//default (tag == RTK_Void). For RTK_String, the producer's stringConstants
 	//index is resolved against cm.stringConstants and the content is embedded
 	//directly in the SnLiteralExpr — VmBackend's codegen will re-intern it
-	//into the consumer's pool at call-site emission.
+	//into the consumer's stringConstants at call-site emission.
 	//
 	//The returned expression is NF_Imported (set by SnLiteralExpr's RTTI
 	//ctor) so resolver/codegen treat it as already-resolved.

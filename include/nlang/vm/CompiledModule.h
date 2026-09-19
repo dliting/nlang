@@ -264,7 +264,7 @@ static_assert(INTR_FileSystem_Join
 //  RTK_Int32  — intValue holds the int32 default.
 //  RTK_Float  — floatValue holds the float default.
 //  RTK_String — stringIdx is an index into the PRODUCER module's stringConstants.
-//               The consumer loader remaps this into its own string pool.
+//               The consumer loader remaps this into its own stringConstants.
 //  RTK_Void   — sentinel: this formal has no default. Used to keep the vector
 //               dense (always == paramCount entries; entries without defaults
 //               carry RTK_Void so positional alignment is preserved).

@@ -341,6 +341,8 @@ private:
     int32_t AllocConsString(int32_t left, int32_t right);    //O(1) node (Task 3)
     int32_t AllocStringObj();                                //raw slot, sets m_gcPending
     bool IsLiveStringHandle(int32_t handle) const;
+    //Requires an Execute()-initialized store (m_emptyStrHandle); all
+    //callers are mid-execution today.
     const std::string& StrVal(int32_t handle);               //execution path (flattens in place)
     void MarkString(int32_t handle);                         //Task 2
     void SweepStrings();                                     //Task 2

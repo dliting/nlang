@@ -91,6 +91,9 @@ const std::string& VmExecutor::StrVal(int32_t handle) {
 std::string VmExecutor::StrValCopy(int32_t handle) const {
     if (!IsLiveStringHandle(handle))
         return std::string();
+    const StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
+    if (so.form != StrObj::Form::Cons)
+        return so.str;   //Flat fast path: no work vector, direct copy
     std::string flat;
     std::vector<int32_t> work;
     work.push_back(handle);
