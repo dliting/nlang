@@ -55,19 +55,18 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 - **Step 1** `Func<返回, 参数...>` 内建泛型函数类型 + 自由函数引用（MakeFunc/CallDelegate/Eq_func/Ne_func/Func_to_str；GC 8 追踪位点全落；v1.8）
 - **Step 2** 绑定方法引用（this 捕获、状态跨调用保持）+ 虚/接口运行时派发（MakeVFunc 按名句柄）+ out 委托（CallDelegateOut 移位写回）；绑定期空接收者守卫；native/enum/虚+out/默认参数等 12 类具名拒绝；三句柄形态跨模块往返
 - 8 个新 opcode、RTK_Func=7 三槽堆记录、`this==0 ⟺ 自由函数` 分派不变量；765 e2e
-- 计划：`~/.claude/plans/partitioned-roaming-garden.md`
 
 ### 调试器 ndb ✅（2026-09-07）
 - `.nmod` v1.9：per-function sourceFile（跨文件断点寻址）+ B.1 导入合并补拷 locals（兼修既有 GC 根集洞）；D5 语法修复（SnFunction 产生式锚定 Type——原 @2 NodeFlags 位置 TU 恒 null）
 - VM：进程内 `IDebugHooks`（语句/throw 检查点，D6 勘误后三 raise 位点统一 FireOnThrow）+ `IVmDebugView` 只读冻结视图（前端无关，DAP/nide 可复用）；指令打印抽取共享 `Disassembler`（ndisasm golden 逐字节对拍）；D7 行标记去重（LocalDeclStmt 双锚点）
 - ndb：断点（file:LINE / LINE / funcName，同行多锚点全设）、步进 s/n/f、bt、frame、info locals（隐藏名过滤）、p、l（SourceCache 三级解析）、x（pc 标记）、catch on|off；初停 gdb start 语义；EOF=q
-- 836 e2e（含 9 个 dbg_*）；设计/计划：docs/superpowers/{specs,plans}/2026-09-06-nlang-debugger*
+- 836 e2e（含 9 个 dbg_*）
 
 ### 数组类型属性化（数组重设计 B）✅（2026-09-12）
 - 属性化：数组值 array-ness 由表达式形状事后推断改为 resolve 期绑定 stamp（`SnExpression::IsArrayValued`，五个表达式形状绑定尾写入）；8 个门位 + `.length` 接收者（resolver/codegen 两侧对称）改查属性；形状推断谓词家族（IsArrayValuedExpr/IsArrayTypedBase）删除——调用点归零
 - 三处直修（同根：`EvalDataType()` 对数组字段返回元素类型）：字段 kind 改喂声明类型表达式（`int[]` 存 RTK_Array——writeStruct 静默腐蚀/类字段 toString 报错/GC 欠追踪一家）；MarkPhase 字段显式路由 + 撤运行时 kind 兜底 + 防御性 RTK_Array 元素追踪臂；writeStruct 数组字段死抛错臂激活（具名拒绝）
 - 边缘语义具名化：jagged `T[][]` 六声明位点 resolve 期拒绝、foreach 非容器源拒绝（string 源含）、`.length` 任意数组值接收者可解析（`li.get(0).length`/`lib.mk(3).length`）
-- `.nmod` v1.10 语义地板（字段 kind 语义变更烤在格式里，旧模块须重编译）；852 e2e / ctest 27+41；设计/计划：docs/superpowers/{specs,plans}/2026-09-10-array-*
+- `.nmod` v1.10 语义地板（字段 kind 语义变更烤在格式里，旧模块须重编译）；852 e2e / ctest 27+41
 
 
 ---
@@ -88,9 +87,9 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 - foreach 支持string遍历（阶段 8e 延后项）
 - Unicode字符串支持（阶段 8e 延后项）
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
-- Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26，设计见 docs/superpowers/specs/2026-08-26-release-packaging-design.md）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
+- Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
 - 安装包组件化（tools-only / IDE-only）与捆绑 VC++ 运行库（/MT 或 vc_redist）
-- 文档子系统延后项：①片段审计扩展到 language-spec/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮规格吸收，见 docs/superpowers/specs/2026-08-30-docs-nav-and-highlight-design.md §5；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向：exit-code-convention.md 为中文而 13 篇同级章节页为英文——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳，见同规格 §7）
+- 文档子系统延后项：①片段审计扩展到 language-spec/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮轮吸收；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳）
 
 ---
 
