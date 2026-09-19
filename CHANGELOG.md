@@ -1,5 +1,7 @@
 # Changelog
 
+**English** | [中文](CHANGELOG.zh-CN.md)
+
 All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
@@ -16,6 +18,12 @@ All notable changes to NLang are documented here. The format follows
   trees (`zh/` + `en/`) behind a language-detecting landing page with
   a cross-tree switch link, and the nide Help menu opens the tree
   matching the language setting.
+- Root documentation is bilingual: `README.zh-CN.md` and
+  `CHANGELOG.zh-CN.md` mirror the English originals (cross-linked at
+  the top of each file) and ship in the release packages.
+- nide: while the build output directory is unset, the Tools → Options
+  field shows the default location (`%TEMP%\nlang-nide`) as a
+  placeholder, and Browse starts there.
 
 ## [0.6.2] - 2026-09-15
 
@@ -208,6 +216,10 @@ First public release.
   `examples/`.
 - Windows packaging: portable zip and NSIS installer.
 
+[0.7.0]: https://github.com/dliting/nlang/compare/v0.6.2...v0.7.0
+[0.6.2]: https://github.com/dliting/nlang/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/dliting/nlang/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/dliting/nlang/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dliting/nlang/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dliting/nlang/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dliting/nlang/compare/v0.2.0...v0.3.0

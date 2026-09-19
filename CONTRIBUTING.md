@@ -56,7 +56,10 @@ About dialog, the documentation-site footer and the CPack package names.
    [CHANGELOG.md](CHANGELOG.md) (Keep a Changelog style; the top section is
    the in-development version and carries no date yet). If the current
    version was never released, fold its unreleased entries into the new
-   section instead of leaving an empty one.
+   section instead of leaving an empty one. Mirror the entry in
+   [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md): the root README and CHANGELOG
+   are maintained as English/Chinese pairs, each file cross-linking its
+   twin at the top.
 3. Rebuild and run the gates — ctest includes a guard that every tool's
    `--version` echoes the file, and `verify_package.py` checks the package
    name against it.

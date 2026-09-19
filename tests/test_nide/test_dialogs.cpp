@@ -3,6 +3,7 @@
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
 #include "SettingsDialog.h"
+#include "SettingsStore.h"  // defaultStandaloneBuildDir
 
 #include <QApplication>
 #include <QComboBox>
@@ -358,6 +359,24 @@ private slots:
             ->setText("  D:/out  ");
         QCOMPARE(dialog.language(), QString("zh"));
         QCOMPARE(dialog.buildOutputDir(), QString("D:/out"));  // trimmed
+    }
+
+    void testSettingsDialogShowsDefaultWhenUnset() {
+        SettingsDialog dialog;
+        dialog.init("system", "");
+        QLineEdit* edit =
+            dialog.findChild<QLineEdit*>("edtBuildOutputDir");
+        QVERIFY(edit != nullptr);
+        //Unset stays "" (disabled semantics: projects fall back to the
+        //project directory), but the box shows where standalone .nmod
+        //files land by default instead of looking empty.
+        QVERIFY(edit->text().isEmpty());
+        QVERIFY(dialog.buildOutputDir().isEmpty());
+        QCOMPARE(edit->placeholderText(),
+                 SettingsStore::defaultStandaloneBuildDir());
+        //A set directory seeds the real text; the placeholder is gone.
+        dialog.init("system", "D:/out");
+        QCOMPARE(edit->text(), QString("D:/out"));
     }
 };
 

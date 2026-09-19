@@ -62,6 +62,13 @@ private slots:
                      ? QString("zh") : QString("en"));
     }
 
+    void testDefaultStandaloneBuildDir() {
+        //One shared source: the resolver's unset layout and the
+        //Options dialog's prefilled default name the same directory.
+        QCOMPARE(SettingsStore::defaultStandaloneBuildDir(),
+                 QDir(QDir::temp()).filePath("nlang-nide"));
+    }
+
     void testResolveStandaloneNmodPath() {
         //Empty setting keeps today's per-user temp layout (one slot
         //per source stem, completeBaseName semantics preserved).

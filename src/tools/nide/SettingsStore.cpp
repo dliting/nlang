@@ -54,14 +54,17 @@ QString SettingsStore::helpTreeForLanguage(const QString& language) {
         ? LANGUAGE_ZH : LANGUAGE_EN;
 }
 
+QString SettingsStore::defaultStandaloneBuildDir() {
+    return QDir(QDir::temp()).filePath(QStringLiteral("nlang-nide"));
+}
+
 QString SettingsStore::resolveStandaloneNmodPath(
     const QString& buildOutputDir, const QString& sourcePath) {
     const QString fileName =
         QFileInfo(sourcePath).completeBaseName()
         + QStringLiteral(".nmod");
     if (buildOutputDir.isEmpty())
-        return QDir(QDir::temp())
-            .filePath(QStringLiteral("nlang-nide/") + fileName);
+        return QDir(defaultStandaloneBuildDir()).filePath(fileName);
     return QDir(buildOutputDir).filePath(fileName);
 }
 

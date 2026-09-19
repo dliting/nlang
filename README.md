@@ -1,5 +1,7 @@
 # NLang
 
+**English** | [中文](README.zh-CN.md)
+
 NLang is a statically-typed scripting language for embedding and automation —
 with a small C++ host API, native bindings and in-process debug hooks — and a
 testbed for AI-friendly language features. It ships its own compiler, bytecode

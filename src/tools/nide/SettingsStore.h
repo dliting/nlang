@@ -45,6 +45,10 @@ public:
 
     static QLocale localeForLanguage(const QString& language);
     static QString helpTreeForLanguage(const QString& language);
+    //The per-user directory standalone .nmod files land in when the
+    //global setting is empty; the Options dialog pre-fills it as the
+    //visible default.
+    static QString defaultStandaloneBuildDir();
     //One .nmod slot per source stem: in the global build output
     //directory when set, else the per-user temp area (today's layout).
     static QString resolveStandaloneNmodPath(const QString& buildOutputDir,

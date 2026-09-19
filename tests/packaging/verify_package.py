@@ -61,7 +61,8 @@ BIN_FILES = [
     'translations/qtwebengine_locales/zh-CN.pak',
     'platforms/qwindows.dll',
 ]
-ROOT_FILES = ['LICENSE', 'README.md', 'CHANGELOG.md']
+ROOT_FILES = ['LICENSE', 'README.md', 'README.zh-CN.md',
+              'CHANGELOG.md', 'CHANGELOG.zh-CN.md']
 # The mkdocs-generated site ships (the nide Help menu shows it in the
 # embedded viewer from <prefix>/docs/site); the two-column stylesheet
 # is part of that site. The landing page picks the tree, then each

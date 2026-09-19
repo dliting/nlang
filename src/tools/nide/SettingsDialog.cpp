@@ -33,6 +33,11 @@ void SettingsDialog::init(const QString& language,
     const int index = m_ui->cmbLanguage->findData(language);
     m_ui->cmbLanguage->setCurrentIndex(index < 0 ? 0 : index);
     m_ui->edtBuildOutputDir->setText(buildOutputDir);
+    //Empty stays "unset" (projects fall back to the project
+    //directory), but the box shows where standalone builds land by
+    //default instead of a blank field.
+    m_ui->edtBuildOutputDir->setPlaceholderText(
+        SettingsStore::defaultStandaloneBuildDir());
 }
 
 QString SettingsDialog::language() const {
@@ -45,9 +50,11 @@ QString SettingsDialog::buildOutputDir() const {
 }
 
 void SettingsDialog::onBrowseDirectory() {
+    const QString current = m_ui->edtBuildOutputDir->text().trimmed();
     const QString dir = QFileDialog::getExistingDirectory(
         this, tr("Select Build Output Directory"),
-        m_ui->edtBuildOutputDir->text());
+        current.isEmpty()
+            ? SettingsStore::defaultStandaloneBuildDir() : current);
     if (!dir.isEmpty())
         m_ui->edtBuildOutputDir->setText(dir);
 }
