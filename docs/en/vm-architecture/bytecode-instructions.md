@@ -156,8 +156,8 @@ from the discriminant's **family** (not its static type):
   `OP_Equal` (i32)
 - float family → `OP_Equal_f32` (IEEE `==`: `-0.0 == 0.0` is true, NaN
   never matches)
-- string family → `OP_Eq_str` (byte-content compare, pool order is
-  irrelevant)
+- string family → `OP_Eq_str` (byte-content compare, constant-table
+  order is irrelevant)
 
 Multi-value clauses (`case 1, 2:`) emit one comparison per label: every
 label's test jumps to the clause body on hit and to the next label's
