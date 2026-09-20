@@ -174,7 +174,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             else if (!toUpper && ch >= 'A' && ch <= 'Z')
                 ch = static_cast<char>(ch - 'A' + 'a');
         }
-        int32_t handle = MintNewString(s);
+        int32_t handle = MintNewString(std::move(s));   //s dead after the mint
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }

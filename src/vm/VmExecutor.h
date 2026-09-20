@@ -355,6 +355,7 @@ private:
     int32_t MintNewString(std::string content);              //runtime mint, interns <=kShortStringMaxBytes
     int32_t MintConstantString(const std::string& content);  //immortal flat (intern path + immortal bit)
     bool IsInternedString(int32_t handle) const;             //live + in the short-string table
+    bool StringsEqual(int32_t hA, int32_t hB);               //single source for OP_Eq_str / OP_Ne_str
     int32_t AllocConsString(int32_t left, int32_t right);    //O(1) zero-copy node
     int32_t AllocStringObj();                                //raw slot, sets m_gcPending
     bool IsLiveStringHandle(int32_t handle) const;

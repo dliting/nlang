@@ -148,7 +148,8 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
         dst.reserve(names.size());
         for (auto& name : names)
         {
-            dst.push_back(AllocBoxedValue(RTK_String, MintNewString(name)));
+            //each element is visited once — move it into the mint
+            dst.push_back(AllocBoxedValue(RTK_String, MintNewString(std::move(name))));
         }
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         return true;

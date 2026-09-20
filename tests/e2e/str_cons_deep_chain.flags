@@ -1,2 +1,2 @@
-#64 is cosmetic: once the store is permanently over threshold, GC cadence is identical at 8 or 64 (the clamp is the backoff start).
+#64 is near-cosmetic: 8 vs 64 only differs before the store first crosses 2x live >= 64; afterwards both ride the same backoff (the clamp is the backoff start, not a cap).
 --gc-stress=64

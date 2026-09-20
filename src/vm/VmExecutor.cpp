@@ -949,18 +949,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t hA, hB;
             std::memcpy(&hA, locals + lhs, sizeof(hA));
             std::memcpy(&hB, locals + rhs, sizeof(hB));
-            //Interned-vs-interned equality is a handle comparison: the
-            //at-most-one-live-interned-per-content invariant plus
-            //immutability make handle identity and content equality the
-            //same relation. Everything else compares content. Two StrVal
-            //calls, no minting between them — the returned references
-            //stay valid (no store growth).
-            bool eq;
-            if (IsInternedString(hA) && IsInternedString(hB))
-                eq = (hA == hB);
-            else
-                eq = (StrVal(hA) == StrVal(hB));
-            int32_t r = eq ? 1 : 0;
+            int32_t r = StringsEqual(hA, hB) ? 1 : 0;
             std::memcpy(locals + lhs, &r, sizeof(r));
             break;
         }
@@ -971,12 +960,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t hA, hB;
             std::memcpy(&hA, locals + lhs, sizeof(hA));
             std::memcpy(&hB, locals + rhs, sizeof(hB));
-            bool ne;
-            if (IsInternedString(hA) && IsInternedString(hB))
-                ne = (hA != hB);
-            else
-                ne = (StrVal(hA) != StrVal(hB));
-            int32_t r = ne ? 1 : 0;
+            int32_t r = StringsEqual(hA, hB) ? 0 : 1;
             std::memcpy(locals + lhs, &r, sizeof(r));
             break;
         }

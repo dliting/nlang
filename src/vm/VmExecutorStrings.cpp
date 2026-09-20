@@ -79,6 +79,17 @@ bool VmExecutor::IsInternedString(int32_t handle) const {
         && m_stringObjs[static_cast<size_t>(handle)].interned;
 }
 
+//Single source of string equality (OP_Eq_str / OP_Ne_str): both operands
+//interned compares handles (uniqueness invariant + immutability make
+//identity and content the same relation); any other pair flattens and
+//compares content. Two StrVal calls, no minting between them — the
+//returned references stay valid (no store growth).
+bool VmExecutor::StringsEqual(int32_t hA, int32_t hB) {
+    if (IsInternedString(hA) && IsInternedString(hB))
+        return hA == hB;
+    return StrVal(hA) == StrVal(hB);
+}
+
 //O(1) zero-copy concatenation: content-blind, so never interned (intern
 //sites are content-aware mints only). Null sides stay 0 and contribute
 //nothing at flatten time.
@@ -187,10 +198,14 @@ void VmExecutor::MarkString(int32_t handle) {
 //never die; dead slots get the form sentinel and join the free list.
 void VmExecutor::SweepStrings() {
     m_strFreeList.clear();
+    size_t liveCount = 0;
     for (size_t i = 1; i < m_stringObjs.size(); ++i) {
         StrObj& so = m_stringObjs[i];
         if (static_cast<uint8_t>(so.form) == kStrFormDead) continue;
-        if (so.immortal || m_strMarkBits[i]) continue;
+        if (so.immortal || m_strMarkBits[i]) {
+            ++liveCount;   //survivor — counted for the D2.2 backoff below
+            continue;
+        }
         //Weak-intern purification: drop the dying object's table entry so
         //a later mint of the same content allocates fresh instead of
         //resurrecting a dead (or slot-reused) handle.
@@ -216,9 +231,6 @@ void VmExecutor::SweepStrings() {
     //SetGcStressThresholds is a backoff START, not a cap: max() only
     //raises it, and bounded-population assertions still hold because
     //boundedness comes from the sweep itself, not the trigger rate.
-    size_t liveCount = 0;
-    for (const StrObj& so : m_stringObjs)
-        if (static_cast<uint8_t>(so.form) != kStrFormDead) ++liveCount;
     m_strGcThreshold = std::max(m_strGcThreshold, 2 * liveCount);
 }
 

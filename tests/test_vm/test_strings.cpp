@@ -127,6 +127,10 @@ void test_constants_immortal_under_stress()
     VmExecutor exec;
     exec.SetGcStressThresholds(8);
     CHECK(exec.Execute(mod) == 0, "constant must read back correct");
+    //Distinct-constant assumption: interning merges duplicate short
+    //literals into one shared object, so a fixture with a repeated
+    //literal would sit below stringConstants.size() with nothing dead —
+    //keep this fixture's constants all-distinct.
     CHECK(exec.LiveStringObjectCount() >= mod.stringConstants.size(),
         "all constants must remain live (immortal)");
     PASS();
