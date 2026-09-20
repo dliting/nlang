@@ -3,11 +3,10 @@ VmExecutorStrings.cpp — string object store: minting + accessors.
 
 Separate TU by the same discipline as VmExecutorDebug.cpp: the executor
 core only gains call sites; all store logic lives here. RTK_String slots
-hold 1-based handles into m_stringObjs (0 = null, reads as ""). Task 1
-is a pure representation migration: every object is immortal (sweep is
-implemented in Task 2), and concatenation is still content concat (cons
-arrives in Task 3 — AllocConsString / StrVal's flatten branch are
-declared/complete but never fed Cons nodes yet).
+hold 1-based handles into m_stringObjs (0 = null, reads as ""). Since
+Task 3, concatenation allocates a zero-copy Cons node; StrVal flattens
+in place on first read, StrValCopy serves frozen views, and MarkString
+traces cons children so a dropped chain is reclaimed whole.
 ---*/
 #include "VmExecutor.h"
 #include <utility>
@@ -39,7 +38,8 @@ bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
                != kStrFormDead;
 }
 
-//Task 1: flat mint only (cons arrives in Task 3, interning in Task 4).
+//Content-aware mint: a Flat object holding content (interning arrives in
+//Task 4).
 int32_t VmExecutor::MintNewString(const std::string& content) {
     int32_t handle = AllocStringObj();
     m_stringObjs[static_cast<size_t>(handle)].str = content;
@@ -52,34 +52,56 @@ int32_t VmExecutor::MintConstantString(const std::string& content) {
     return handle;
 }
 
-//Execution-path accessor: guaranteed Flat on return. A Cons node is
-//flattened iteratively (left-leaning `s += x` chains are arbitrarily
-//deep — no recursion) and rewritten in place (V8 ThinString idea:
-//every existing handle sees the flat content). Callers must not hold
-//the returned reference across further string minting (vector growth
-//invalidates it — same discipline as the old ReadStrArg by-value rule).
-const std::string& VmExecutor::StrVal(int32_t handle) {
-    if (!IsLiveStringHandle(handle))
-        return m_stringObjs[static_cast<size_t>(m_emptyStrHandle)].str;
+//O(1) zero-copy concatenation: content-blind, so never interned (intern
+//sites are content-aware mints only). Null sides stay 0 and contribute
+//nothing at flatten time. Callers must not pass the same handle on both
+//sides — that would build a DAG and the flatten walk is a tree walk
+//(OP_Concat_str guards this by materializing the operand first).
+int32_t VmExecutor::AllocConsString(int32_t left, int32_t right) {
+    int32_t handle = AllocStringObj();
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
-    if (so.form != StrObj::Form::Cons)   //Flat (Cons exists from Task 3)
-        return so.str;
-    //Explicit right-then-left stack: pops in left-to-right order.
-    std::string flat;
+    so.form = StrObj::Form::Cons;
+    so.left = left;
+    so.right = right;
+    return handle;
+}
+
+//Shared flatten walk for both accessors: collects a cons subtree's
+//content left-to-right into out. Explicit right-then-left stack (pops in
+//left-to-right order) — left-leaning `s += x` chains are arbitrarily
+//deep, so no recursion.
+void VmExecutor::FlattenInto(std::string& out, int32_t handle) const {
     std::vector<int32_t> work;
     work.push_back(handle);
     while (!work.empty()) {
         int32_t h = work.back();
         work.pop_back();
-        if (h == 0) continue;   //null side contributes nothing
+        if (h == 0 || !IsLiveStringHandle(h))
+            continue;   //null side contributes nothing; dead reads as ""
         const StrObj& n = m_stringObjs[static_cast<size_t>(h)];
         if (n.form == StrObj::Form::Cons) {
             work.push_back(n.right);
             work.push_back(n.left);
         } else {
-            flat += n.str;
+            out += n.str;
         }
     }
+}
+
+//Execution-path accessor: guaranteed Flat on return. A Cons node is
+//flattened (via the shared walk) and rewritten in place (V8 ThinString
+//idea: every existing handle sees the flat content). Callers must not
+//hold the returned reference across further string minting (vector
+//growth invalidates it — same discipline as the old ReadStrArg by-value
+//rule).
+const std::string& VmExecutor::StrVal(int32_t handle) {
+    if (!IsLiveStringHandle(handle))
+        return m_stringObjs[static_cast<size_t>(m_emptyStrHandle)].str;
+    StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
+    if (so.form != StrObj::Form::Cons)
+        return so.str;
+    std::string flat;
+    FlattenInto(flat, handle);
     so.str = std::move(flat);
     so.form = StrObj::Form::Flat;
     so.left = so.right = 0;
@@ -89,38 +111,34 @@ const std::string& VmExecutor::StrVal(int32_t handle) {
 //Frozen-view accessor: flattens into a local buffer without touching the
 //node (debugger contract: const formatters MUST NOT touch the NLang heap).
 std::string VmExecutor::StrValCopy(int32_t handle) const {
-    if (!IsLiveStringHandle(handle))
-        return std::string();
-    const StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
-    if (so.form != StrObj::Form::Cons)
-        return so.str;   //Flat fast path: no work vector, direct copy
     std::string flat;
-    std::vector<int32_t> work;
-    work.push_back(handle);
-    while (!work.empty()) {
-        int32_t h = work.back();
-        work.pop_back();
-        if (h == 0) continue;
-        const StrObj& n = m_stringObjs[static_cast<size_t>(h)];
-        if (n.form == StrObj::Form::Cons) {
-            work.push_back(n.right);
-            work.push_back(n.left);
-        } else {
-            flat += n.str;
-        }
-    }
+    if (IsLiveStringHandle(handle))
+        FlattenInto(flat, handle);
     return flat;
 }
 
-//GC mark face for one string handle. Task 2 shape: Flat objects have no
-//children, so this is a single-bit set; cons children get traced here
-//from Task 3 on. Handle validation is local (root faces pass raw handles;
+//GC mark face for one string handle: a live cons keeps its whole subtree
+//alive. Iterative worklist (left-leaning chains are arbitrarily deep —
+//no recursion). Handle validation is local (root faces pass raw handles;
 //0 = null and out-of-range are simply not marked).
 void VmExecutor::MarkString(int32_t handle) {
-    if (!IsLiveStringHandle(handle) || m_strMarkBits[static_cast<size_t>(handle)])
-        return;
-    m_strMarkBits[static_cast<size_t>(handle)] = true;
-    //Cons children traced here from Task 3 on.
+    std::vector<int32_t> work;
+    auto mark = [&](int32_t h) {
+        if (!IsLiveStringHandle(h) || m_strMarkBits[static_cast<size_t>(h)])
+            return;
+        m_strMarkBits[static_cast<size_t>(h)] = true;
+        work.push_back(h);
+    };
+    mark(handle);
+    while (!work.empty()) {
+        int32_t h = work.back();
+        work.pop_back();
+        const StrObj& so = m_stringObjs[static_cast<size_t>(h)];
+        if (so.form == StrObj::Form::Cons) {
+            mark(so.left);
+            mark(so.right);
+        }
+    }
 }
 
 //Independent of the struct-heap sweep but inside the same CollectGarbage

@@ -1052,3 +1052,5 @@ str_gc_array 0
 str_gc_list 0
 str_gc_const 0
 str_concat_stress 0
+str_cons_deep_chain 0
+dbg_str_cons 0 concat

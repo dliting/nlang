@@ -127,6 +127,42 @@ void test_constants_immortal_under_stress()
     PASS();
 }
 
+//Cons chain: appends build a left-leaning chain that flattens iteratively
+//(a deep chain must not overflow the stack), stays consistent on re-read
+//(in-place flatten), and is reclaimed whole after the root drops (the
+//mark phase traces cons children — untraced, the stress sweeps would
+//gut the chain mid-build and the first read would come back wrong).
+void test_cons_chain_flatten_and_reclaim()
+{
+    TEST(cons_chain_flatten_and_reclaim);
+    CompiledModule mod;
+    CHECK(loadSource("cons_chain",
+        "int main() {\n"
+        "    string s = \"\";\n"
+        "    int i = 0;\n"
+        "    while (i < 4000) {\n"
+        "        s = s + \"ab\";\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    if (s.length() != 8000) return 1;\n"
+        "    if (s.length() != 8000) return 2;\n"
+        "    if (s.substring(7998, 8000) != \"ab\") return 3;\n"
+        "    s = \"\";\n"
+        "    i = 0;\n"
+        "    while (i < 100) {\n"
+        "        string t = \"x\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n", mod), "build failed");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0, "chain must flatten and read correctly");
+    CHECK(exec.LiveStringObjectCount() < 100,
+        "dropped chain must be reclaimed whole (cons children traced)");
+    PASS();
+}
+
 //Handle 0 (uninitialized) reads as "" — the old pool[0] fallback shape.
 void test_uninitialized_string_reads_empty()
 {
@@ -149,6 +185,7 @@ int main()
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
     test_bounded_concat_live_count();
     test_constants_immortal_under_stress();
+    test_cons_chain_flatten_and_reclaim();
     test_uninitialized_string_reads_empty();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

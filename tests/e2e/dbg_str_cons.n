@@ -1,0 +1,8 @@
+//e2e dbg_str_cons: frozen view prints a cons string via StrValCopy.
+int main() {
+    string a = "con";
+    string b = "cat";
+    string s = a + b;
+    string probe = s;
+    return 0;
+}

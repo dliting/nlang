@@ -8,6 +8,7 @@
 #endif
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
 #include <iostream>
 #include <string>
 
@@ -47,9 +48,22 @@ int main(int argc, char* argv[]) {
     size_t gcStress = 0;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
-        if (a.rfind("--gc-stress=", 0) == 0)
-            gcStress = static_cast<size_t>(
-                std::strtoul(a.c_str() + 12, nullptr, 10));
+        if (a.rfind("--gc-stress=", 0) == 0) {
+            //A silently-off knob can green a GC mutation matrix for the
+            //wrong reason — diagnose any parse miss loudly instead.
+            const char* digits = a.c_str() + 12;   //past "--gc-stress="
+            errno = 0;
+            char* parseEnd = nullptr;
+            unsigned long parsed = std::strtoul(digits, &parseEnd, 10);
+            if (digits[0] == '-' || parseEnd == digits
+                    || *parseEnd != '\0' || errno == ERANGE) {
+                std::fprintf(stderr,
+                    "nvm: invalid --gc-stress value '%s' (flag ignored)\n",
+                    digits);
+                continue;
+            }
+            gcStress = static_cast<size_t>(parsed);
+        }
     }
     if (gcStress)
         executor.SetGcStressThresholds(gcStress);

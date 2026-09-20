@@ -914,18 +914,28 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         }
 
         case OpCode::OP_Concat_str: {
-            //Task 1: content concat, semantics unchanged (Task 3 replaces
-            //this with an O(1) cons allocation). A null/dead operand
-            //handle reads as "" via StrValCopy — the old pool fallback.
+            //Transparent cons (Task 3): O(1) zero-copy node, flattened
+            //lazily on first read (iteratively, in place — see StrVal).
+            //n appends cost n nodes, all collectable, instead of n O(n)
+            //copies. Null/dead operand handles stay 0 and contribute
+            //nothing at flatten time — same "" fallback as before.
             uint16_t dst = reader.ReadUint16();
             uint16_t src = reader.ReadUint16();
             int32_t hA, hB;
             std::memcpy(&hA, locals + dst, sizeof(hA));
             std::memcpy(&hB, locals + src, sizeof(hB));
-            std::string result;
-            result += StrValCopy(hA);
-            result += StrValCopy(hB);
-            int32_t handle = MintNewString(result);
+            if (hA == hB) {
+                //Self-concat (s = s + s) would give the node the same
+                //child on both sides — a DAG, and the flatten walk is a
+                //tree walk (it would never terminate). Materialize the
+                //operand instead: rare shape, correctness first.
+                std::string doubled = StrVal(hA);   //no mint between reads
+                doubled += StrVal(hA);
+                int32_t handle = MintNewString(std::move(doubled));
+                std::memcpy(locals + dst, &handle, sizeof(handle));
+                break;
+            }
+            int32_t handle = AllocConsString(hA, hB);
             std::memcpy(locals + dst, &handle, sizeof(handle));
             break;
         }
@@ -1618,6 +1628,18 @@ void VmExecutor::CollectGarbage() {
     SweepStrings();
 }
 
+namespace {
+//Single source for the container trace arms' kind set (was four
+//hand-expanded literals: List/Dict x mark/push). At kind granularity the
+//mark set and the worklist push set coincide — every traced kind has
+//children for the dispatch below to walk (Func's receiver, array
+//elements, boxed payload, class/struct fields).
+inline bool IsChildBearingHeapKind(uint8_t kind) {
+    return kind == RTK_Class || kind == RTK_Struct || kind == RTK_Boxed
+        || kind == RTK_Func || kind == RTK_Array;
+}
+} // namespace
+
 void VmExecutor::MarkPhase() {
     m_markBits.assign(m_structHeap.size(), false);
     m_strMarkBits.assign(m_stringObjs.size(), false);
@@ -1651,6 +1673,11 @@ void VmExecutor::MarkPhase() {
             int32_t val;
             std::memcpy(&val, frame.pResult, sizeof(val));
             //String return slot: same handle-not-heap-index split as locals.
+            //Deliberately conservative (adjudicated over-mark, spec D6
+            //note): a pResult-resident string is also reachable from the
+            //callee's own roots, so no source shape can pin this face red.
+            //Kept as defense in depth — do not "tighten" it into an
+            //under-mark.
             if (retKind == RTK_String) {
                 MarkString(val);
             } else if (retKind == RTK_Class || retKind == RTK_Struct
@@ -1727,22 +1754,9 @@ void VmExecutor::MarkPhase() {
                             if (elem > 0
                                 && static_cast<size_t>(elem) < m_slotKinds.size()
                                 && !m_markBits[elem]) {
-                                auto k = m_slotKinds[elem];
-                                if (k == RTK_Class || k == RTK_Struct
-                                    || k == RTK_Boxed || k == RTK_Func
-                                    || k == RTK_Array) {
+                                if (IsChildBearingHeapKind(m_slotKinds[elem])) {
                                     m_markBits[elem] = true;
-                                    //Func handles are pushed (their
-                                    //slot[1] receiver must be traced);
-                                    //array records too (their elements
-                                    //are traced by the RTK_Array arm —
-                                    //raw-handle elements, hole-1);
-                                    //boxed records now (a boxed string's
-                                    //payload is a string handle).
-                                    if (k == RTK_Class || k == RTK_Struct
-                                        || k == RTK_Func || k == RTK_Array
-                                        || k == RTK_Boxed)
-                                        worklist.push_back(elem);
+                                    worklist.push_back(elem);
                                 }
                             }
                         }
@@ -1760,22 +1774,9 @@ void VmExecutor::MarkPhase() {
                                 if (elem > 0
                                     && static_cast<size_t>(elem) < m_slotKinds.size()
                                     && !m_markBits[elem]) {
-                                    auto k = m_slotKinds[elem];
-                                    if (k == RTK_Class || k == RTK_Struct
-                                        || k == RTK_Boxed || k == RTK_Func
-                                        || k == RTK_Array) {
+                                    if (IsChildBearingHeapKind(m_slotKinds[elem])) {
                                         m_markBits[elem] = true;
-                                        //Func handles are pushed (their
-                                        //slot[1] receiver must be traced);
-                                        //array records too (their elements
-                                        //are traced by the RTK_Array arm —
-                                        //raw-handle elements, hole-1);
-                                        //boxed records now (a boxed string's
-                                        //payload is a string handle).
-                                        if (k == RTK_Class || k == RTK_Struct
-                                            || k == RTK_Func || k == RTK_Array
-                                            || k == RTK_Boxed)
-                                            worklist.push_back(elem);
+                                        worklist.push_back(elem);
                                     }
                                 }
                             }
@@ -2448,6 +2449,46 @@ int32_t VmExecutor::ReadListHandle(uint16_t callParamBase, uint8_t* locals,
     return handle;
 }
 
+//Shared matcher behind IndexOf/Contains (was ~25 verbatim-duplicated
+//lines in each intrinsic). Decodes the probe value, then compares it
+//against each stored element: boxed primitives by tag — strings by
+//content (aligns with == and Dict; the old payload bit compare made
+//indexOf("hel"+"lo") miss a stored "hello"), int/float by value bits —
+//and reference values by identity. Returns the matching index or -1.
+int32_t VmExecutor::FindListElement(const ListSlot& list, int32_t value)
+{
+    bool primitiveT = (value > 0
+        && static_cast<size_t>(value) < m_slotKinds.size()
+        && m_slotKinds[value] == RTK_Boxed);
+    int32_t valTag = 0, valBits = 0;
+    if (primitiveT) {
+        valTag = m_structHeap[static_cast<size_t>(value)][0];
+        valBits = m_structHeap[static_cast<size_t>(value)][kBoxedValueSlot];
+    }
+    for (size_t i = 0; i < list.elements.size(); ++i) {
+        int32_t elem = list.elements[i];
+        bool match = false;
+        if (primitiveT) {
+            if (elem > 0
+                && static_cast<size_t>(elem) < m_slotKinds.size()
+                && m_slotKinds[elem] == RTK_Boxed) {
+                int32_t elemTag =
+                    m_structHeap[static_cast<size_t>(elem)][0];
+                int32_t elemBits =
+                    m_structHeap[static_cast<size_t>(elem)][kBoxedValueSlot];
+                if (elemTag == RTK_String && valTag == RTK_String)
+                    match = (StrVal(elemBits) == StrVal(valBits));
+                else
+                    match = (elemBits == valBits);  //int/float bits
+            }
+        } else {
+            if (elem == value) match = true;
+        }
+        if (match) return static_cast<int32_t>(i);
+    }
+    return -1;
+}
+
 //Helper: read this.__handle from callParamBase[0].
 //Returns the 1-based handle. Throws if invalid or closed.
 static int32_t ReadStreamHandle(uint16_t callParamBase, uint8_t* locals,
@@ -2873,7 +2914,10 @@ std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
     }
     int32_t strIdx;
     std::memcpy(&strIdx, resultBuf, sizeof(strIdx));
-    return StrValCopy(strIdx);
+    //Execution path: StrVal flattens a cons result in place on first
+    //read; the all-StrValCopy era re-copied the whole unflattened chain
+    //on every toString call.
+    return StrVal(strIdx);
 }
 
 void VmExecutor::RegisterNative(const std::string& name, NativeFn fn)
@@ -3615,85 +3659,18 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         int32_t value;
         std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
         int32_t handle = ReadListHandle(callParamBase, locals, "indexOf");
-        auto& lst = m_listStore[handle - 1];
-        int32_t result = -1;
-        bool primitiveT = (value > 0
-            && static_cast<size_t>(value) < m_slotKinds.size()
-            && m_slotKinds[value] == RTK_Boxed);
-        int32_t valTag = 0, valBits = 0;
-        if (primitiveT) {
-            valTag = m_structHeap[static_cast<size_t>(value)][0];
-            valBits = m_structHeap[static_cast<size_t>(value)]
-                [kBoxedValueSlot];
-        }
-        for (size_t i = 0; i < lst.elements.size(); ++i) {
-            int32_t elem = lst.elements[i];
-            bool match = false;
-            if (primitiveT) {
-                if (elem > 0
-                    && static_cast<size_t>(elem) < m_slotKinds.size()
-                    && m_slotKinds[elem] == RTK_Boxed) {
-                    //tag==RTK_String: compare by content (aligns with ==
-                    //and Dict); the old payload bit compare made
-                    //indexOf("hel"+"lo") miss a stored "hello".
-                    int32_t elemTag =
-                        m_structHeap[static_cast<size_t>(elem)][0];
-                    int32_t elemBits =
-                        m_structHeap[static_cast<size_t>(elem)]
-                            [kBoxedValueSlot];
-                    if (elemTag == RTK_String && valTag == RTK_String)
-                        match = (StrVal(elemBits) == StrVal(valBits));
-                    else
-                        match = (elemBits == valBits);  //int/float bits
-                }
-            } else {
-                if (elem == value) match = true;
-            }
-            if (match) { result = static_cast<int32_t>(i); break; }
-        }
+        int32_t result = FindListElement(m_listStore[handle - 1], value);
         std::memcpy(pResult, &result, sizeof(result));
         return;
     }
     //INTR_List_Contains: return 1 if found, 0 otherwise. Same primitive-vs-
-    //class branching as IndexOf (C2 fix).
+    //class branching as IndexOf (C2 fix); matching lives in FindListElement.
     if (intrinsicId == INTR_List_Contains) {
         int32_t value;
         std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
         int32_t handle = ReadListHandle(callParamBase, locals, "contains");
-        auto& lst = m_listStore[handle - 1];
-        int32_t result = 0;
-        bool primitiveT = (value > 0
-            && static_cast<size_t>(value) < m_slotKinds.size()
-            && m_slotKinds[value] == RTK_Boxed);
-        int32_t valTag = 0, valBits = 0;
-        if (primitiveT) {
-            valTag = m_structHeap[static_cast<size_t>(value)][0];
-            valBits = m_structHeap[static_cast<size_t>(value)]
-                [kBoxedValueSlot];
-        }
-        for (size_t i = 0; i < lst.elements.size(); ++i) {
-            int32_t elem = lst.elements[i];
-            bool match = false;
-            if (primitiveT) {
-                if (elem > 0
-                    && static_cast<size_t>(elem) < m_slotKinds.size()
-                    && m_slotKinds[elem] == RTK_Boxed) {
-                    //Content compare for string elements — see IndexOf.
-                    int32_t elemTag =
-                        m_structHeap[static_cast<size_t>(elem)][0];
-                    int32_t elemBits =
-                        m_structHeap[static_cast<size_t>(elem)]
-                            [kBoxedValueSlot];
-                    if (elemTag == RTK_String && valTag == RTK_String)
-                        match = (StrVal(elemBits) == StrVal(valBits));
-                    else
-                        match = (elemBits == valBits);  //int/float bits
-                }
-            } else {
-                if (elem == value) match = true;
-            }
-            if (match) { result = 1; break; }
-        }
+        int32_t result =
+            (FindListElement(m_listStore[handle - 1], value) >= 0) ? 1 : 0;
         std::memcpy(pResult, &result, sizeof(result));
         return;
     }

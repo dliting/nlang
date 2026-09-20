@@ -298,7 +298,10 @@ private:
         int32_t left = 0, right = 0;  //Cons: child handles (0 = empty side)
     };
     std::vector<StrObj> m_stringObjs;
-    std::vector<bool> m_strMarkBits;   //parallel to m_stringObjs (Task 2)
+    //Parallel to m_stringObjs — kept in step at exactly three sites:
+    //AllocStringObj's growth arm, MarkPhase's head reset, SweepStrings'
+    //tail reset.
+    std::vector<bool> m_strMarkBits;
     std::vector<int32_t> m_strFreeList;
     std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
     int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
@@ -347,13 +350,16 @@ private:
     //String object store (definitions in VmExecutorStrings.cpp).
     int32_t MintNewString(const std::string& content);       //runtime mint (interns <=40B in Task 4)
     int32_t MintConstantString(const std::string& content);  //immortal flat
-    int32_t AllocConsString(int32_t left, int32_t right);    //O(1) node (Task 3)
+    int32_t AllocConsString(int32_t left, int32_t right);    //O(1) zero-copy node
     int32_t AllocStringObj();                                //raw slot, sets m_gcPending
     bool IsLiveStringHandle(int32_t handle) const;
     //Requires an Execute()-initialized store (m_emptyStrHandle); all
     //callers are mid-execution today.
     const std::string& StrVal(int32_t handle);               //execution path (flattens in place)
-    void MarkString(int32_t handle);                         //Task 2
+    //Shared cons-subtree walk behind both accessors (iterative; deep
+    //left-leaning chains stay stack-safe).
+    void FlattenInto(std::string& out, int32_t handle) const;
+    void MarkString(int32_t handle);                         //traces cons children
     void SweepStrings();                                     //Task 2
 
     //Struct heap: each slot is a vector of int32 values (one per field).
@@ -478,6 +484,12 @@ private:
     std::vector<ListSlot> m_listStore;       //index = handle-1 (0 reserved for null)
     std::vector<int32_t>  m_listFreeList;    //recycled slots after GC sweep
     int16_t m_listClassIdx = -1;             //set when "List" CompiledClass is located
+    //Shared INTR_List_IndexOf/Contains matcher (was ~25 verbatim-
+    //duplicated lines in each intrinsic): decodes the probe value and
+    //compares it against each stored element — boxed primitives by tag
+    //(strings by content, others by bits), reference values by identity.
+    //Returns the matching index or -1.
+    int32_t FindListElement(const ListSlot& list, int32_t value);
 
     //Phase 8e-4: Dict<K,V> side table. Entries are (K heap idx, V heap idx)
     //pairs; K and V are uniformly heap idxs (boxed primitives via OP_Box at
