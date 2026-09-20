@@ -23,6 +23,9 @@
     ncc build -p examples/hello_project/hello_project.nproj -o hello_project.nmod
     nvm hello_project.nmod
 
+完整参考（全部标志、默认输出位置、ndb 调试器与 ndisasm）见
+[命令行工具](command-line-tools.md)。
+
 ### 3. 逐例浏览
 
 `examples/README.md` 列出全部示例与其演示主题、预期退出码。

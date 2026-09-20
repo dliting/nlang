@@ -22,6 +22,7 @@ nav:
       - "Crash Course: Functions and Modules": getting-started/function-features.md
       - Three Ways to Run: getting-started/running.md
       - Debugging in nide: getting-started/debugging.md
+      - Command-line Tools: getting-started/command-line-tools.md
       - FAQ: getting-started/faq.md
       - Further Reading: getting-started/further-reading.md
   - Language Specification:

@@ -29,6 +29,10 @@ with `-o`:
     ncc build -p examples/hello_project/hello_project.nproj -o hello_project.nmod
     nvm hello_project.nmod
 
+The complete reference (all flags, default output locations, the ndb
+debugger, and ndisasm) is on the
+[Command-line Tools](command-line-tools.md) page.
+
 ### 3. Browse by example
 
 `examples/README.md` lists every example with its topic and expected
