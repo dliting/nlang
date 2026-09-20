@@ -8,6 +8,13 @@ All notable changes to NLang are documented here. The format follows
 
 ## [0.8.0] - Unreleased
 
+### Added
+- Manual: "Command-line Tools" reference chapter (ncc/nvm/ndb/ndisasm)
+  in both documentation trees, including the full ndb command table with
+  long aliases and both ncc default-output rules.
+- Manual: nide Tools → Options documentation (language setting and
+  global build output directory with its precedence rules).
+
 ### Changed
 - Runtime strings are garbage-collected immutable objects: long-running
   programs (prompt-building loops and similar) no longer grow memory
@@ -23,6 +30,9 @@ All notable changes to NLang are documented here. The format follows
   concatenated or interned equivalents of a stored element now match.
 - `Exception.backtrace.get(i)` no longer raises
   "unbox on null/invalid reference"; frame entries read normally.
+- Manual: FAQ ".nmod output location" answer now reflects the 0.7.0
+  global build output directory; the shipped-tools table now lists all
+  five tools.
 
 ## [0.7.0] - 2026-09-19
 
