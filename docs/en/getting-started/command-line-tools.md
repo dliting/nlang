@@ -175,7 +175,7 @@ section per function.
 
 The function header line carries all metadata (`file=` mirrors the
 source path form passed at compile time; built-in functions carry
-`intrinsic=N` and no `file=`):
+`intrinsic=N` and no `file=`; native-bound functions carry `native`):
 
 ```text
 function main (frameSize=28, params=0, returnType=i32, file=examples/hello.n)
@@ -186,8 +186,12 @@ function main (frameSize=28, params=0, returnType=i32, file=examples/hello.n)
     ...
 ```
 
+When a function contains try blocks, a `try blocks:` exception-table
+dump follows the instruction list (one `[pc range) handler=...
+class=... catchLocal=...` line per block).
+
 A full dump lists every built-in class method (all `(no bytecode)` —
-seventy-plus even for a hello), so day-to-day inspection of one
+fifty-seven even for a hello), so day-to-day inspection of one
 function uses the `-func` filter. Typical uses: cross-checking ndb's
 `x` command against instruction addresses, reviewing optimization
 results, and diagnosing serialization problems.
