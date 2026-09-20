@@ -41,10 +41,9 @@ import utils.*;            // 递归通配符
 - 重复导入是幂等的；精确导入与通配符重叠时取并集；导入自身模块
   路径或同目录文件是无害的冗余。
 - 已知限制：跨目录共享的命名空间（两个文件声明同一个
-  `namespace NS`）的成员在 v1 中从另一目录不可达——裸名调用被裸名
-  池规则拒绝，又不存在限定形式（模块路径只寻址根级函数），因此
-  「导入它并限定调用」提示给出的修复建议对它们无效。此限制随类型级
-  可见性门收口。
+  `namespace NS`）的成员目前从另一目录不可达——裸名解析只覆盖本文件
+  与同目录文件，又不存在限定形式（模块路径只寻址根级函数），因此
+  「导入它并限定调用」提示给出的修复建议对它们无效。
 - 导入目标的解析顺序：内建 → 项目文件 → 外部 `.nmod`（经 `-I`）。
   没有隐式回退。
 - 项目路径段不得与 `io`/`math`/`fs` 撞名（编译错误）。单文件模式
@@ -85,7 +84,7 @@ enum Direction { North = 0, East = 90, South = 180, West = 270 }
 
 枚举值在运行期是 int32。成员可显式赋值，也可自动递增。
 
-#### 枚举方法（Phase 12）
+#### 枚举方法
 
 ```nlang
 enum Color {
@@ -126,7 +125,7 @@ enum Color {
   访问修饰符遵循 class 方法规则。
 - **不支持跨模块枚举。**被导入模块里声明的枚举类型对导入方不可见
   （`.nmod` 格式只序列化枚举名，不序列化声明）——这是模块格式的
-  既有限制，与方法无关。
+  限制，与方法无关。
 - 枚举数组：不能对数组本身调用方法——先索引出元素（`a[i].rank()`，
   不是 `a.rank()`）。
 
@@ -177,8 +176,8 @@ class 支持：
 - 子类方法覆写
 
 **继承布局**：对象内存布局是
-`[classIdx, 祖先字段..., 父类字段..., 自身字段...]`。
-slot[0] 处的 `classIdx` 标识运行期类，供虚分派使用。
+`[类型ID, 祖先字段..., 父类字段..., 自身字段...]`。
+首格的类型 ID 标识运行期类，供虚分派使用。
 
 **构造函数行为**：只调用本类自己的构造函数；祖先构造函数不会被自动
 调用。子类构造函数可用 `super(args);` 转发到直接父类的构造函数
@@ -221,8 +220,7 @@ int TotalArea(IShape s) {
 是 `private`；声明成 `int m();`（无 `public`）的接口方法能通过解析，
 但按 private 对待，调用点**访问不到**。由此得到的错误消息——
 "The function X does not exist or is not accessible"——有误导性：
-方法存在，只是不公开。接口里请始终写 `public int m();`。（Java/C#
-式的「接口成员天然公开」是未来的语言设计决策，不是当前行为。）
+方法存在，只是不公开。接口里请始终写 `public int m();`。
 
 ### 隐式 `Object` 基类
 
@@ -253,13 +251,13 @@ class Point {
 
 **string 的值语义**：string 虽是基本类型，但 `string.getHashCode()`
 与 `string.equals(string)` 调用被内建化为*值*语义（哈希用
-`std::hash`，Equals 用内容比较）。这使 string 无需包装类即可在后续
-阶段用作 Dict 键。
+`std::hash`，Equals 用内容比较）。这使 string 无需包装类即可用作
+Dict 键。
 
-**`==` 运算符不变**：Object.Equals 是可选实现（opt-in）的方法。class
-引用上的 `==` 运算符继续直接比较堆索引（既有 `class_null` /
-`class_virtual` 回归测试保持通过）。`Equals` 单独存在的原因，是允许用户
-类以值相等覆写它，而不破坏更大代码库中恒等相等测试。
+**`==` 运算符不受 `Equals` 影响**：Object.Equals 是可选实现（opt-in）
+的方法。class 引用上的 `==` 运算符直接比较堆索引。`Equals` 单独存在
+的原因，是允许用户类以值相等覆写它，而不破坏更大代码库中恒等相等
+测试。
 
 **装箱（基本类型 → Object）**：基本类型值（int / float / string）
 赋给 Object 类型的目标时被隐式装箱：
@@ -273,15 +271,15 @@ int TakesObject(Object o) { return o.getHashCode(); }
 int x = TakesObject(42); // 42 在调用点装箱
 ```
 
-运行期表示是 kind 为 `RTK_Boxed` 的带标签槽位（slot[0] = 类型标签，
-slot[1] = 值位）。装箱槽位不持有引用，GC MarkPhase 显式跳过它们。
+运行期表示是带标签的装箱槽位（slot[0] = 类型标签，
+slot[1] = 值位）。装箱槽位不持有引用，GC 标记阶段显式跳过它们。
 
 **`null` 字面量的装箱保持**：字面量 `0`（用作 `null`）使 OP_Box
 短路——不分配堆槽位，值 `0` 原样留在 Object 槽位内容里。这让
 `Object o = null` 与 `Object o = 0` 都成为无操作，而不是把 0 包进
 装箱 int 的堆引用。
 
-**拆箱与 class 向下转换（`as` 运算符）**——Phase 8e-1.5：
+**拆箱与 class 向下转换（`as` 运算符）**：
 
 ```nlang
 Object o = 5;
@@ -298,29 +296,28 @@ Other o = obj as Other;    // 抛错：期望 Other，得到 Point
 ```
 
 选择 `as` 关键字而非 C 风格的 `(T)expr` 前缀转换，是因为
-`(T)expr` 会与带括号表达式产生 LALR(1) 冲突（解析器无法区分
+`(T)expr` 无法与带括号表达式可靠区分（解析器分不清
 `(foo) + bar` 与 `(foo + bar)`）。`as` 这类关键字运算符没有这种
 歧义。C#、TypeScript 与 Kotlin 采取同一思路。
 
 `as` 支持的转换：
-- `TCK_Same`——无操作（如同一种基本类型或同一个 class）
-- `TCK_Box`——基本类型到 Object（与隐式装箱路径对称）
-- `TCK_Unbox`——Object 到基本类型（经 OP_Unbox 做运行期标签检查）
-- `TCK_Downcast`——Object 到子类（经 OP_CheckCast 做运行期类检查，
+- 同类型——无操作（如同一种基本类型或同一个 class）
+- 装箱——基本类型到 Object（与隐式装箱路径对称）
+- 拆箱——Object 到基本类型（经 `OP_Unbox` 做运行期标签检查）
+- class 向下转换——Object 到子类（经 `OP_CheckCast` 做运行期类检查，
   沿堆槽位的父类链上溯）
 
 其他转换（如 `int as float`、`int as string`）是编译错误——请用
-既有的基本类型强制转换 / `ToString()` 路径。
+基本类型强制转换 / `ToString()` 路径。
 
-**Object 向上转换特例**：AST 层面的 `SnClassDecl::SuperClass()` 不
-包含隐式 Object 父类（只有 VmBackend 的
-`CompiledClass.superClassIdx` 包含）。转换检查器对
-`target == Object`（任何 class 向上转换都是 TCK_Same，无操作）与
-`source == Object`（任何 class 向下转换都是 TCK_Downcast）做了特例
-处理，因此 `Object o = somePoint;` 与 `o as Point` 无需 Point 的 AST
-父类链提及 Object 即可工作。
+**Object 向上转换特例**：隐式继承的 `Object` 不会出现在源码的继承
+声明里。转换检查器对
+`target == Object`（任何 class 向上转换都是同类型，无操作）与
+`source == Object`（任何 class 向下转换都按向下转换处理）做了特例
+处理，因此 `Object o = somePoint;` 与 `o as Point` 无需在继承声明中
+提及 Object 即可工作。
 
-### 类型别名（Phase 13）
+### 类型别名
 
 `using Name = Type;` 声明**类型别名**——任何类型表达式的简写，凡是
 期望类型的位置都可用：

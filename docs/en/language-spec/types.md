@@ -54,4 +54,4 @@ empty string.
 
 Class-typed variables can be null (represented as heap index 0). Accessing
 fields or methods on null throws a `NullPointerException` (catchable via
-try/catch since Phase 9d).
+try/catch).

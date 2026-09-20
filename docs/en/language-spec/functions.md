@@ -36,12 +36,12 @@ class Counter {
   as an operand, or returning it are all compile errors (the call must be
   an expression statement: `log(3);`)
 - Void functions combine with out parameters for side-effect-only calls
-- Cross-module: imported void stubs carry RTK_Void; the same
-  no-result-consumption rules apply on the consumer side
+- Cross-module: imported void stubs likewise carry no consumable result;
+  the same no-result-consumption rules apply on the consumer side
 - `void` is not a valid type in any other position (local, field,
   parameter, array element — all rejected at parse time)
 
-### Default Parameters (Phase 9c)
+### Default Parameters
 
 Function parameters may have default values. Defaults can appear at any
 position (not just trailing). A default expression may reference earlier
@@ -58,7 +58,7 @@ int foo(int a, int b = 0, int c) { return c; }     // default not at end
 - Default expressions are evaluated at the call site (not at declaration)
 - Type mismatch between default expression and parameter type is a compile error
 
-### Named Arguments (Phase 9c)
+### Named Arguments
 
 Arguments may be passed by name using `name = expr` syntax. Positional
 arguments must precede named arguments.
@@ -75,7 +75,7 @@ Errors:
 - `foo(1, a = 2)` — duplicate binding for `a`: compile error
 - `foo(c = 1)` — unknown parameter name: compile error
 
-### Overload Resolution with Defaults (Phase 9c)
+### Overload Resolution with Defaults
 
 When multiple overloads exist, the compiler selects the best match by
 computing a type-distance score. If two or more overloads match with equal
@@ -88,7 +88,7 @@ foo(5, 10);   // OK: second overload (2 args match 2 formals)
 foo(5);       // Error: ambiguous (both overloads accept 1 arg)
 ```
 
-### Out Parameters (Phase 9e)
+### Out Parameters
 
 Parameters declared with `out` are writeback slots: the caller's local
 variable is seeded into the callee's frame slot, and after the call
@@ -107,7 +107,7 @@ int q = divide(17, 5, out r);  // q=3, r=2
 - Out parameters are **inout**: the callee sees the caller's current value
   as the initial value of the parameter local.
 - The writeback occurs after the call returns, in slot order.
-- The call's return value (pResult) is stored to the result variable
+- The call's return value is stored to the result variable
   **before** out writebacks, so `int x = f(out x)` reads the old `x`
   for the return assignment and then overwrites `x` with the callee's
   output.
@@ -121,11 +121,12 @@ int q = divide(17, 5, out r);  // q=3, r=2
 - No `out` on virtual/interface dispatch calls (the concrete callee is
   unknown at compile time).
 - No `out` on constructor (`new`) or `super()` calls.
-- No `out` on cross-module imported functions (stub formals lack `NF_Out`).
-- At most 32 out parameters per call (outMask is uint32).
+- No `out` on cross-module imported functions (the `.nmod` stub does not
+  carry out markers).
+- At most 32 out parameters per call.
 - `out` is a reserved keyword.
 
-### Native Functions (Phase 9f)
+### Native Functions
 
 A function declaration marked `native` has **no body** — the
 implementation is provided by the embedding host at runtime:
@@ -142,7 +143,7 @@ int main() {
 
 **Model.** The declaration compiles to a function record that carries
 only its signature (no bytecode). At the call site the VM looks the
-name up in a host-registered table (`VmExecutor::RegisterNative`) and
+name up in the host-registered native function table and
 invokes the native directly with the caller's staged argument cells:
 
 - ABI: argument `i` is the raw 4-byte cell at `args[i*4]` — little-endian
@@ -152,8 +153,8 @@ invokes the native directly with the caller's staged argument cells:
 - Calling a native the host never registered throws at the call site
   (`native function not registered: <name>`) — never silent garbage.
 - Default parameters work (filled at the call site before dispatch),
-  including across module imports (defaults are serialized in v1.6
-  modules alongside the native flag).
+  including across module imports (defaults are serialized into the
+  module file alongside the native flag).
 
 **Restrictions:**
 - A `native` declaration **must not have a body** — compile error.
@@ -167,7 +168,7 @@ invokes the native directly with the caller's staged argument cells:
   not a type error. Two modules declaring the same native name share one
   table entry.
 - Cross-module: a module importing a `.nmod` containing natives calls
-  them through the same table (the v1.6 native flag survives the merge).
+  them through the same table (the native flag survives the module merge).
 - Class-member `native` methods work: dispatch reaches the native through
   the normal method path, with `this` riding at `args[0]` (the receiver's
   heap index) followed by the declared parameters — mirroring the bytecode
@@ -176,34 +177,34 @@ invokes the native directly with the caller's staged argument cells:
   a free function. Registering one implementation under both shapes is a
   signature mismatch (see above).
 - String/struct/class argument marshalling beyond the raw 4-byte ABI is
-  future work (9f-2).
+  not supported yet.
 - **Test host note**: the `ncc` and `nvm` binaries are test hosts — they
   always register `natAdd`, `natConst`, `natFAdd`, and `natPing` so the
-  e2e suite can exercise the binding path. A production embedder would
-  not include `TestNatives.h`; scripts calling those names against a
-  non-test host will get `"native function not registered"` at runtime.
+  test suite can exercise the binding path. A production embedder's host
+  does not register these test names; scripts calling those names against
+  such a host will get `"native function not registered"` at runtime.
 
-### Frame Layout (Phase 9c follow-up)
+### Frame Layout
 
 Each function's local frame is sized dynamically based on its body:
 
 ```text
-[this?][params][returnSlot][temp1-4][callParamBase(N)][evalArea(peakDepth)][user locals...]
+[this?][params][returnSlot][temp1-4][call-argument staging area(N)][evaluation scratch area(peak depth)][user locals...]
 ```
 
 - **N** = max callee formal count (plus slot 0 for `this` on methods) observed
-  in this function's body. `callParamBase` is the final landing zone consumed
-  by `OP_CallFunc`/`OP_CallMethod`.
-- **peakDepth** = max simultaneous evalArea slot need across all call sites,
-  including nested calls (e.g. `foo(helper(5), helper(10))` needs 4 slots:
-  2 for `foo`'s args + 2 for the inner `helper` calls).
+  in this function's body. The call-argument staging area is the final landing
+  zone consumed by `OP_CallFunc`/`OP_CallMethod`.
+- **Peak depth** = max simultaneous evaluation-scratch-area slot need across
+  all call sites, including nested calls (e.g. `foo(helper(5), helper(10))`
+  needs 4 slots: 2 for `foo`'s args + 2 for the inner `helper` calls).
 
-The `evalArea` is a disjoint, stack-disciplined staging area. Each
-`EmitCallArgs` invocation claims a slice via the `EvalAreaClaim` RAII guard
-on entry and releases on exit. Bindings emit to the claimed slice; a
-bulk-copy loop then moves them to `callParamBase` just before the call.
-This means inner calls' bindings never overwrite outer calls' already-emitted
-bindings — fixing the pre-existing `callParamBase` nested-call clobber bug.
+The evaluation scratch area is a disjoint, stack-disciplined staging area.
+Each call's argument emission claims a slice with stack discipline on entry
+and releases it on exit. Bindings emit to the claimed slice; a
+bulk-copy loop then moves them into the call-argument staging area just
+before the call. This means inner calls' bindings never overwrite outer
+calls' already-emitted bindings.
 
-A sanity ceiling of 64 formals (`kMaxFuncParams`) prevents unreasonably
+A sanity ceiling of 64 formals prevents unreasonably
 large frames; exceeding it is a declaration-time error.

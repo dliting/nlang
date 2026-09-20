@@ -14,7 +14,7 @@ Structs follow value semantics throughout the language:
 - **Class field**: When a struct is a class field, the class owns an
   independent deep copy. Assigning `obj.s = s1` deep-copies `s1` into the
   class's field slot.
-- **Array element** (Phase 9d-3): `new Point[n]` eagerly materializes a
+- **Array element**: `new Point[n]` eagerly materializes a
   fresh, independent struct instance per element (including nested struct
   fields, recursively). Reading an element into a struct variable
   (`Point p = arr[i]`) deep-copies it; writing through a subscript

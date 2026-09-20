@@ -12,7 +12,7 @@ struct 在整个语言中遵循值语义：
 - **返回值**：struct 返回值深拷贝到调用方的结果槽位。
 - **class 字段**：struct 作为 class 字段时，class 持有一份独立的深
   拷贝。`obj.s = s1` 会把 `s1` 深拷贝进该 class 的字段槽位。
-- **数组元素**（Phase 9d-3）：`new Point[n]` 会急切地为每个元素物化
+- **数组元素**：`new Point[n]` 会急切地为每个元素物化
   一个全新、独立的 struct 实例（含嵌套 struct 字段，递归进行）。把
   元素读入 struct 变量（`Point p = arr[i]`）时深拷贝；经下标写入
   （`arr[i].x = v`、`arr[i] = p`）则存入数组自己的元素。零长度

@@ -45,4 +45,4 @@
 ### Null
 
 class 类型的变量可以为 null（表示为堆索引 0）。对 null 访问字段或
-方法会抛出 `NullPointerException`（自 Phase 9d 起可经 try/catch 捕获）。
+方法会抛出 `NullPointerException`（可经 try/catch 捕获）。

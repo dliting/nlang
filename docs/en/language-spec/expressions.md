@@ -16,7 +16,7 @@ here).
 `INT_MAX + 1 == INT_MIN`. There is no SafeInt-style checking. Lock-in
 test: `tests/e2e/int_overflow_wrap.n`.
 
-**Numeric promotion (Phase 8e-8)**: arithmetic ops follow symmetric C-style
+**Numeric promotion**: arithmetic ops follow symmetric C-style
 promotion — both operands are promoted to the wider type before the op:
 - `int + int` → int
 - `int + float` / `float + int` → float (both operands promoted to float)
@@ -39,11 +39,9 @@ Returns 1 (true) or 0 (false). String equality compares content. String
 relational ordering (`<`, `>`, `<=`, `>=`) uses C `strcmp`-style byte-by-byte
 comparison (e.g. `"Z" < "a"` is true because `'Z'` (90) < `'a'` (97)). Because
 strings are UTF-8 and UTF-8 byte order equals code point order, ordering is
-also correct for non-ASCII text: `"é" > "z"` is true. (Before Phase 11 Step 3b
-the emitted code compared string constant table indexes — literal order in
-the source could flip the result.)
+also correct for non-ASCII text: `"é" > "z"` is true.
 
-**Comparison operands are typed (Phase 11 Step 3b)**:
+**Comparison operands are typed**:
 
 - Mixed string/non-string is a **compile error** (`"a" < 5`, `5 == "a"`).
   The one exception is the null literal: `s == null` / `c == null` compare
@@ -52,10 +50,9 @@ the source could flip the result.)
   reserved null sentinel; a real empty string has its own object, distinct
   from null by bits). `"" == null` therefore compares equal, and any
   non-empty string compares unequal.
-- int/float pairs get the same symmetric promotion as arithmetic
-  (Phase 8e-8): `-2 < -1.5` promotes to float and is true; `1 == 1.0` is
-  true. (Before Step 3b these compared raw bit patterns and could return
-  nonsense.)
+- int/float pairs get the same symmetric promotion as arithmetic:
+  `-2 < -1.5` promotes to float and is true; `1 == 1.0` is
+  true.
 - Class/reference equality (`==`, `!=`) is identity (same heap object).
 - Arithmetic/concat with a null operand is a compile error — null has a
   value only through the comparison identity path above.
@@ -103,7 +100,7 @@ int z = (int)y;
 Explicit casts between int and float. Implicit widening (int→float) is
 allowed in some contexts.
 
-### Primitive → String Coercion (Phase 8e-9a)
+### Primitive → String Coercion
 
 When a primitive (int or float) appears in a context expecting string,
 NLang auto-coerces it to its decimal string form. This is most common in
@@ -122,13 +119,13 @@ string s6 = "x" + (-7);    // "x-7" — negative formatted with sign
 - `int → string`: `OP_Int32_to_str` (decimal, via `std::to_string`)
 - `float → string`: `OP_Float_to_str` (`%g` format — `2.5` not `2.500000`)
 - Both mint the formatted string as a runtime string object and write
-  the new handle back to `pResult`. Followed by `OP_Assign` to move into the
-  destination slot.
-- `string → int/float` remains rejected (`TCK_None` in CastInfo.cpp) — use
+  the new handle into the result slot; `OP_Assign` then moves the result
+  into the destination slot.
+- `string → int/float` remains rejected — use
   the standard library's `s.toInt()` / `s.toFloat()` instead (see Standard
   Library).
 
-**Object.toString() Protocol** (Phase 8e-9b):
+**Object.toString() Protocol**:
 
 All class instances inherit `string toString()` from `Object`. The default
 implementation returns `"ClassName@heapIdxHex"` (e.g. `"Point@7"`, `"Point@ff"`).
@@ -163,10 +160,10 @@ error (struct is a pure-data type in NLang; use class for object semantics).
 compiler embeds a per-enum name table; the VM uses `OP_Enum_to_str` to look up
 the member name by value. Out-of-range enum values throw at runtime.
 
-**String identity**: `"hello".toString()` returns `"hello"` — the resolver folds
+**String identity**: `"hello".toString()` returns `"hello"` — the compiler folds
 this to a no-op (no opcode emitted).
 
-**Limitations** (deferred to future phases):
+**Limitations**:
 - No warning when implicit coercion occurs (silent, like Java)
 - `struct.toString()` / `"x" + structInstance` — permanently rejected
 
@@ -184,7 +181,7 @@ through as literal backslash pairs. Interpolation and escapes compose:
 `"${name}\n"` interpolates then appends a newline.
 
 
-### String Interpolation (Phase 9b)
+### String Interpolation
 
 ```nlang
 string name = "world";
@@ -193,19 +190,19 @@ string s = "Hello ${name}!";   // "Hello world!"
 
 NLang supports `${identifier}` interpolation inside double-quoted string
 literals — the named variable's value is rendered via the same coercion
-paths as Phase 8e-9a (primitive → string) and Phase 9b-pre (collection
-`toString()`). The interpolation is implemented by scanning the literal
-content in the bison `TT_String` rule and constructing an `OP_Add` binary
-tree; no new opcode, resolver method, or codegen handler is introduced.
+paths as primitive → string and collection
+`toString()`. Interpolation is rewritten at compile time into an
+equivalent `OP_Add` string-concatenation expression; no new opcode is
+introduced.
 
-**Syntax constraints** (MVP):
+**Syntax constraints**:
 
 - Only a single identifier is supported inside `${...}`. Complex
   expressions like `${a + b}`, `${obj.method()}`, or `${this.x}` are
   rejected at parse time. Use a separate variable: `int sum = a + b;
   "result=${sum}"`.
 - `${name}` where `name` is not in scope produces a compile error ("undefined
-  identifier") at the resolver stage — the same path as any other undefined
+  identifier") — the same path as any other undefined
   identifier reference.
 - Empty `${}` and invalid identifier contents (e.g. `${123}`, `${a b}`)
   produce a compile error.
@@ -224,15 +221,15 @@ string c = "$$100";     // literal "$100"
 **Type dispatch**: the identifier's resolved type determines the coercion
 applied automatically:
 
-| Identifier type | Coercion applied | Phase |
-|-----------------|------------------|-------|
-| `int` | `OP_Int32_to_str` | 8e-9a |
-| `float` | `OP_Float_to_str` | 8e-9a |
-| `string` | none | — |
-| `enum` | `OP_Enum_to_str` | 8e-9b |
-| `Array` | `OP_Array_to_str` | 9b-pre |
-| `List` / `Dict` | `OP_CallMethod "toString"` | 9b-pre |
-| `class` | `OP_CallMethod "toString"` | 8e-9b |
+| Identifier type | Coercion applied |
+|-----------------|------------------|
+| `int` | `OP_Int32_to_str` |
+| `float` | `OP_Float_to_str` |
+| `string` | none |
+| `enum` | `OP_Enum_to_str` |
+| `Array` | `OP_Array_to_str` |
+| `List` / `Dict` | `OP_CallMethod "toString"` |
+| `class` | `OP_CallMethod "toString"` |
 
 ### Runtime-checked Cast (`as`)
 
@@ -240,7 +237,7 @@ applied automatically:
 expr as TypeName
 ```
 
-Runtime-checked conversions, supported in Phase 8e-1.5:
+The following runtime-checked conversions are supported:
 
 - **Unbox**: `o as int` / `o as float` / `o as string` — unwrap a boxed
   primitive. Throws if `o` is null or the boxed type tag doesn't match.
@@ -252,13 +249,13 @@ Runtime-checked conversions, supported in Phase 8e-1.5:
 Type-incompatible casts (`5 as string`, `o as int` when `o` holds a
 class ref) are compile errors — `as` only permits same/box/unbox/downcast.
 
-### Collection Initializers (Phase 8e-6)
+### Collection Initializers
 
 NLang supports C-style collection literals for arrays, lists, dicts,
 and aggregate (struct/class) initialization. Two syntactic forms:
 
 **Bare bracket form `[...]`** — allowed only where the LHS or assignment
-target lets the resolver infer the collection type. Works for arrays
+target lets the compiler infer the collection type. Works for arrays
 (`T[]`) and `List<T>`:
 
 ```nlang
@@ -271,7 +268,8 @@ List<Point> pts = [new Point{x:1, y:2}, new Point{x:3, y:4}];
 **Explicit form `new Type{...}`** — works in any expression position
 (function args, return values, standalone expressions). Required for
 dict, struct, and class initialization because bare `{...}` would
-conflict with the `Paragraph` (block statement) grammar:
+conflict with the block-statement grammar (a `{...}`-surrounded
+statement group):
 
 ```nlang
 Dict<string, int> d = new Dict<string, int>{"a":1, "b":2};
@@ -283,11 +281,11 @@ foo(new Point{x:1, y:2}, new Point{x:3, y:4});
 
 **Entry forms inside `{...}`:**
 
-- `TT_String : Expression` — dict entry (string key)
-- `TT_Identifier : Expression` — struct/class field (e.g. `x:1, y:2`)
+- `string literal : Expression` — dict entry (string key)
+- `identifier : Expression` — struct/class field (e.g. `x:1, y:2`)
 - `Expression` (no key) — list element (only valid when Type is `List<T>`)
 
-**Type disambiguation:** the resolver uses the LHS variable (or the
+**Type disambiguation:** the compiler uses the LHS variable (or the
 explicit `Type` in `new Type{...}`) to pick the kind:
 
 | Target type          | Form    | Entry kind              |
@@ -304,19 +302,18 @@ explicit `Type` in `new Type{...}`) to pick the kind:
 
 **Recursive nesting:** init lists may contain other init lists.
 Nested generic element types (`List<List<int>>`, `Dict<K, List<V>>`)
-are supported since the `>>` lexer split (see Nested generics under
+are supported (see Nested generics under
 `List<T>` above).
 
 **Empty collections:** bare `[]` is not supported (the lexer matches
-`[]` as a single `OT_Brackets` token used for array-type suffix). Use
+`[]` as a single token, used by the array-type suffix grammar). Use
 the explicit empty form instead: `new List<T>{}`, `new Dict<K,V>{}`,
 or `new int[0]` for arrays.
 
 **Function arg disambiguation:** a bare `[...]` as a function argument
 is not currently supported — it produces a compile error because the
-resolver cannot infer the target type without overload resolution.
-Use the explicit `new Type{...}` form for function args (Phase 8e-6
-Phase G — overload uniqueness — is deferred).
+compiler cannot infer the target type without overload resolution.
+Use the explicit `new Type{...}` form for function args.
 
 **Mutation during init is UB.** Entries are evaluated left-to-right and
 assigned in order; reading the partially-constructed collection from

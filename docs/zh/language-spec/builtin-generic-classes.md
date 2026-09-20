@@ -1,7 +1,7 @@
 # 内建泛型类
 
 
-### `List<T>`——Phase 8e-3
+### `List<T>`
 
 `List<T>` 是可增长、有序、可按索引访问的集合。它是**内建泛型类**
 ——编译器只识别 `List`（及将来的 `Dict`）；用户自定义的
@@ -39,7 +39,7 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 `nums : List<int>` 时 `nums.add("wrong")` 是编译错误。
 
 **擦除运行期模型**：`List<int>` 与 `List<Point>` 在运行期共享同一个
-后备 class。元素统一以堆索引形式存入侧表（`m_listStore`）；基本类型
+后备 class。元素统一以堆索引形式存入侧表；基本类型
 元素在调用点经 `OP_Box` 装箱。GC 把列表元素作为附加根追踪。
 
 **数组类型实参**：`T` 可以是数组类型——`List<int[]>` 把 `int[]` 值
@@ -53,17 +53,17 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 持有 null。对 null 调用任何方法抛出 `null reference in CallMethod`
 （与其他 class 引用相同的 NPE 语义）。
 
-**集合初始化器**：自 Phase 8e-6 起支持 `[1, 2, 3]` 字面量语法（数组
+**集合初始化器**：支持 `[1, 2, 3]` 字面量语法（数组
 与 `List<T>` 的裸方括号形式）。见上文「集合初始化器」一节。
 
-**`foreach`**：自 Phase 8e-5 起支持 `foreach (Type var in iterable)`
+**`foreach`**：支持 `foreach (Type var in iterable)`
 构造。见下文「foreach 语句」一节。
 
 **嵌套泛型**（`List<List<int>>`）：支持。词法分析器跟踪类型实参的
 嵌套深度（内建泛型名 `List`/`Dict` 之后紧跟的 `<` 开一层，每个 `>`
 关一层），深度为正时把 `>>` 拆成两个 `'>'` 记号（C# 式扫描器拆分），
 因此 `List<List<int>>` 与 `Dict<string, List<int>>` 都能解析。泛型
-上下文之外的 `>>` 仍是单个 `OT_RSH` 记号——右移没有产生式，所以
+上下文之外的 `>>` 仍是单个记号（不拆分）——右移没有对应的语法规则，所以
 `x >> 2` 是编译错误（移位运算符本身未实现）。限制：与遮蔽了类型名
 的变量做比较（`List < 3`，名字与 `<` 之间只有空白/注释）会被误读为
 泛型开启。
@@ -71,9 +71,9 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 **跨模块限制**：容器泛型签名不能跨越 `.nmod` 导入边界——被导入函数
 签名把每个类型序列化为单个 kind 字节，因此被导入函数里 `List<int[]>`
 参数或返回值会退化为普通 class 引用，数组性不可达。裸 `T[]` 签名可以
-跨界（按 `RTK_Array` 序列化）；容器实例化不行。
+跨界（按数组 kind 序列化）；容器实例化不行。
 
-### `Dict<K,V>`——Phase 8e-4
+### `Dict<K,V>`
 
 `Dict<K,V>` 是把 `K` 类型的键映射到 `V` 类型值的关联数组。与
 `List<T>` 一样，它是**内建泛型类**——编译器只识别 `List` 与 `Dict`；
@@ -111,8 +111,7 @@ int removed = squares.remove(4);        // 1
 `d : Dict<string,int>` 时 `d.set("x", "y")` 是编译错误。
 
 **擦除运行期模型**：`Dict<K,V>` 在所有实例化之间共享同一个后备
-class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表
-（`m_dictStore`）；基本类型键/值在调用点经 `OP_Box` 装箱。GC 把每
+class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表；基本类型键/值在调用点经 `OP_Box` 装箱。GC 把每
 条目的 K 与 V 作为附加根追踪。
 
 **键相等**是 kind 感知的：
@@ -121,7 +120,7 @@ class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表
 - `string` 键：比较字符串内容（值相等）。
 - `class` / `struct` 键：比较堆索引（恒等），与 Java 的
   `IdentityHashMap`、C# 默认的 `object.Equals` 一致。用户的 `Equals`
-  覆写**不参与比较**——基于覆写的字典语义是另一个未来阶段。
+  覆写**不参与比较**——基于覆写 `Equals` 的键相等语义不受支持。
 - 数组键（`Dict<int[], V>`）：按句柄恒等比较——两个内容相同但独立
   的 `int[2]` 数组是不同的键。
 
@@ -130,12 +129,12 @@ class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表
 `NLang VM: Dict <method> on null instance`。
 
 **线性扫描查找（当前限制）**：每次 `set`/`get`/`containsKey`/
-`remove` 都对条目向量做 O(n) 扫描。对典型的小脚本可以接受；O(1)
-哈希表查找是未来的优化阶段。
+`remove` 都对条目向量做 O(n) 扫描。对典型的小脚本可以接受；暂不
+提供 O(1) 哈希表查找。
 
-**对键的 `foreach`（Phase 8e-5）**：`foreach (K k in dict) { ... }`
+**对键的 `foreach`**：`foreach (K k in dict) { ... }`
 以 Python/JavaScript 风格迭代 dict 的键。循环体内调用
-`dict.get(k)` 访问值。实现：代码生成内联一次 `dict.keys()` 调用，
+`dict.get(k)` 访问值。实现：编译器先内联一次 `dict.keys()` 调用
 物化一个新 `List<K>`，再对该列表迭代。见下文「foreach 语句」一节。
 
 **`Dict.keys()`**：返回装好全部键的新 `List<K>`（无定义顺序）。即使
@@ -165,7 +164,7 @@ int x = d["a"];         // == d.get("a")     -> 3
 越界读写与缺失的 dict 键的抛错行为与方法形式完全一致
 （IndexOutOfBoundsException 家族）。
 
-由于 resolver 会从容器的类型剥出元素类型 T/V，下标能与语言其余部分
+由于编译器会从容器的类型剥出元素类型 T/V，下标能与语言其余部分
 自由组合：
 
 ```nlang

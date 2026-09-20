@@ -45,12 +45,12 @@ Visibility:
   union; importing the own module path or a same-directory file is a
   harmless redundancy.
 - Known limitation: members of a namespace shared across directories
-  (two files declare the same `namespace NS`) are unreachable from
-  another directory in v1 — the bare call is rejected by the bare-pool
-  rule, and no qualified form exists because a module path addresses
-  root-level functions only, so the `import it and qualify the call`
-  hint's suggested fix does not work for them. This closes with the
-  type-level visibility gate.
+  (two files declare the same `namespace NS`) are currently unreachable
+  from another directory — bare-name resolution covers only the own file
+  plus same-directory files, and no qualified form exists because a
+  module path addresses root-level functions only, so the
+  `import it and qualify the call` hint's suggested fix does not work
+  for them.
 - Resolution order for an import target: built-in → project file →
   external `.nmod` (via `-I`). No implicit fallback.
 - Project path segments may not collide with `io`/`math`/`fs` (compile
@@ -92,7 +92,7 @@ enum Direction { North = 0, East = 90, South = 180, West = 270 }
 
 Enum values are int32 at runtime. Members can be explicit or auto-incremented.
 
-#### Enum Methods (Phase 12)
+#### Enum Methods
 
 ```nlang
 enum Color {
@@ -137,8 +137,8 @@ rejected).
   is rejected). Access modifiers follow class-method rules.
 - **Cross-module enums are not supported.** An enum type declared in an
   imported module is not visible to the importer (the `.nmod` format
-  serializes enum names only, not declarations) — this is a pre-existing
-  limitation of the module format, not specific to methods.
+  serializes enum names only, not declarations) — this is a limitation
+  of the module format, not specific to methods.
 - Arrays of enums: methods cannot be called on the array itself — index
   an element first (`a[i].rank()`, not `a.rank()`).
 
@@ -188,8 +188,8 @@ Classes support:
 - Virtual methods (`virtual` keyword, dynamic dispatch)
 - Method overriding in subclasses
 
-**Inheritance layout**: Object memory layout is `[classIdx, ancestor_fields..., parent_fields..., own_fields...]`.
-`classIdx` at slot[0] identifies the runtime class for virtual dispatch.
+**Inheritance layout**: Object memory layout is `[typeId, ancestor_fields..., parent_fields..., own_fields...]`.
+The type ID in the first slot identifies the runtime class for virtual dispatch.
 
 **Constructor behavior**: Only the direct class's constructor is called;
 ancestor constructors are not automatically invoked. A subclass ctor can
@@ -237,9 +237,7 @@ declared as `int m();` (no `public`) is parsed but treated as private
 and **not accessible** from call sites. The resulting error message
 — "The function X does not exist or is not accessible" — is
 misleading because the method does exist, just isn't public. Always
-write `public int m();` in interfaces. (Java/C#-style "interface
-members are inherently public" is a future language-design decision,
-not current behavior.)
+write `public int m();` in interfaces.
 
 ### Implicit `Object` Base Class
 
@@ -273,12 +271,12 @@ class Point {
 **String value semantics**: Although string is a primitive type, calls to
 `string.getHashCode()` and `string.equals(string)` are intrinsified to use
 *value* semantics (`std::hash` for hash, content comparison for Equals). This
-makes strings usable as Dict keys in future phases without needing a wrapper
+makes strings usable as Dict keys without needing a wrapper
 class.
 
-**`==` operator unchanged**: Object.Equals is an opt-in method. The `==`
-operator on class references continues to compare heap indices directly
-(existing `class_null` / `class_virtual` tests do not regress). The reason
+**`==` operator is unaffected by `Equals`**: Object.Equals is an opt-in
+method. The `==` operator on class references compares heap indices
+directly. The reason
 `Equals` exists as a separate method is to allow user classes to override
 with value equality without breaking identity-equality tests in the wider
 codebase.
@@ -295,16 +293,16 @@ int TakesObject(Object o) { return o.getHashCode(); }
 int x = TakesObject(42); // 42 boxed at the call site
 ```
 
-The runtime representation is a tagged slot of kind `RTK_Boxed` (slot[0] =
+The runtime representation is a tagged boxed slot (slot[0] =
 type tag, slot[1] = value bits). Boxed slots hold no references and are
-explicitly skipped by GC MarkPhase.
+explicitly skipped by the GC mark phase.
 
 **`null` literal boxing preservation**: the literal `0` (used for `null`)
 short-circuits OP_Box — no heap slot is allocated, and the value `0`
 remains as the Object slot's contents. This keeps `Object o = null` and
 `Object o = 0` as no-ops rather than wrapping 0 in a boxed-int heap ref.
 
-**Unbox and class downcast (`as` operator)** — Phase 8e-1.5:
+**Unbox and class downcast (`as` operator)**:
 
 ```nlang
 Object o = 5;
@@ -321,30 +319,30 @@ Other o = obj as Other;    // throws: expected Other, got Point
 ```
 
 The `as` keyword was chosen over C-style `(T)expr` prefix cast because
-`(T)expr` introduces LALR(1) conflicts with parenthesized expressions
-(the parser cannot disambiguate `(foo) + bar` from `(foo + bar)`).
+`(T)expr` cannot be reliably distinguished from parenthesized expressions
+(the parser cannot tell `(foo) + bar` from `(foo + bar)`).
 Keyword operators like `as` have no such ambiguity. This matches the
 approach taken by C#, TypeScript, and Kotlin.
 
 Supported conversions via `as`:
-- `TCK_Same` — no-op (e.g. same primitive type or same class)
-- `TCK_Box` — primitive to Object (symmetric to the implicit-box path)
-- `TCK_Unbox` — Object to primitive (runtime tag check via OP_Unbox)
-- `TCK_Downcast` — Object to a subclass (runtime class check via
-  OP_CheckCast, walks the heap slot's super chain)
+- Same type — no-op (e.g. same primitive type or same class)
+- Boxing — primitive to Object (symmetric to the implicit-box path)
+- Unboxing — Object to primitive (runtime tag check via `OP_Unbox`)
+- Class downcast — Object to a subclass (runtime class check via
+  `OP_CheckCast`, walks the heap slot's super chain)
 
 Other conversions (e.g. `int as float`, `int as string`) are compile
-errors — use the existing primitive cast / `ToString()` paths.
+errors — use the primitive cast / `ToString()` paths.
 
-**Object upcast special-casing**: AST-level `SnClassDecl::SuperClass()`
-does not include the implicit Object parent (only VmBackend's
-`CompiledClass.superClassIdx` does). The cast checker special-cases
-`target == Object` (any class upcast is TCK_Same, no-op) and
-`source == Object` (any class downcast is TCK_Downcast) so that
+**Object upcast special-casing**: the implicitly inherited `Object`
+does not appear in source-level inheritance declarations. The cast
+checker special-cases
+`target == Object` (any class upcast is a same-type no-op) and
+`source == Object` (any class downcast is treated as a downcast) so that
 `Object o = somePoint;` and `o as Point` work without requiring
-Point's AST parent chain to mention Object.
+the inheritance declaration to mention Object.
 
-### Type Aliases (Phase 13)
+### Type Aliases
 
 `using Name = Type;` declares a **type alias** — a shorthand for any
 type expression, usable everywhere a type is expected:

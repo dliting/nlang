@@ -14,7 +14,7 @@ a + b    a - b    a * b    a / b    a % b
 `INT_MAX + 1 == INT_MIN`。没有 SafeInt 式的检查。锁定测试：
 `tests/e2e/int_overflow_wrap.n`。
 
-**数值提升（Phase 8e-8）**：算术运算遵循对称的 C 风格提升——两个
+**数值提升**：算术运算遵循对称的 C 风格提升——两个
 操作数先提升为较宽的类型，再运算：
 - `int + int` → int
 - `int + float` / `float + int` → float（两个操作数都提升为 float）
@@ -36,10 +36,9 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 （`<`、`>`、`<=`、`>=`）用 C `strcmp` 式的逐字节比较（例如
 `"Z" < "a"` 为真，因为 `'Z'`（90）< `'a'`（97））。字符串是 UTF-8，
 而 UTF-8 字节顺序等于码点序，因此对非 ASCII 文本排序同样正确：
-`"é" > "z"` 为真。（Phase 11 Step 3b 之前，生成的代码比较的是字符串
-常量表下标——源码中字面量的出现顺序可能翻转结果。）
+`"é" > "z"` 为真。
 
-**比较操作数是带类型的（Phase 11 Step 3b）**：
+**比较操作数是带类型的**：
 
 - string 与非 string 混用是**编译错误**（`"a" < 5`、`5 == "a"`）。
   唯一例外是 null 字面量：`s == null` / `c == null` 与 null 哨兵
@@ -47,9 +46,8 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
   读作空串（句柄 0 是保留的 null 哨兵；真正的空串有自己独立的对象，
   与 null 位型不同）。因此 `"" == null` 比较相等，任何非空串与 null
   不等。
-- int/float 对适用与算术相同的对称提升（Phase 8e-8）：`-2 < -1.5`
-  提升为 float 且为真；`1 == 1.0` 为真。（Step 3b 之前，它们比较裸
-  位模式，可能返回无意义结果。）
+- int/float 对适用与算术相同的对称提升：`-2 < -1.5`
+  提升为 float 且为真；`1 == 1.0` 为真。
 - class/引用相等（`==`、`!=`）是恒等（同一个堆对象）。
 - 带 null 操作数的算术/拼接是编译错误——null 只经上述比较恒等路径
   才有值。
@@ -96,7 +94,7 @@ int z = (int)y;
 int 与 float 之间的显式强制转换。某些上下文允许隐式加宽
 （int→float）。
 
-### 基本类型 → string 强制转换（Phase 8e-9a）
+### 基本类型 → string 强制转换
 
 当基本类型（int 或 float）出现在期望 string 的上下文时，NLang 自动
 将其强制转换成十进制字符串形式。最常见于字符串拼接，但直接赋值与
@@ -115,12 +113,12 @@ string s6 = "x" + (-7);    // "x-7" —— 负数带符号格式化
 - `int → string`：`OP_Int32_to_str`（十进制，经 `std::to_string`）
 - `float → string`：`OP_Float_to_str`（`%g` 格式——`2.5` 而非
   `2.500000`）
-- 两者都把格式化后的字符串铸造为运行期字符串对象，再把新句柄写
-  回 `pResult`。后接 `OP_Assign`，把结果移入目标槽位。
-- `string → int/float` 仍被拒绝（CastInfo.cpp 中的 `TCK_None`）——
+- 两者都把格式化后的字符串铸造为运行期字符串对象，把新句柄写入
+  结果槽位；随后 `OP_Assign` 把结果移入目标槽位。
+- `string → int/float` 仍被拒绝——
   请改用标准库的 `s.toInt()` / `s.toFloat()`（见「标准库」）。
 
-**Object.toString() 协议**（Phase 8e-9b）：
+**Object.toString() 协议**：
 
 所有 class 实例从 `Object` 继承 `string toString()`。默认实现返回
 `"ClassName@heapIdxHex"`（如 `"Point@7"`、`"Point@ff"`）。用户类
@@ -155,10 +153,10 @@ class Point {
 编译器内嵌每个枚举一张名字表；VM 用 `OP_Enum_to_str` 按值查成员名。
 越界的枚举值在运行期抛错。
 
-**字符串恒等**：`"hello".toString()` 返回 `"hello"`——resolver 把它
+**字符串恒等**：`"hello".toString()` 返回 `"hello"`——编译器把它
 折叠为无操作（不发射指令）。
 
-**限制**（推迟到后续阶段）：
+**限制**：
 - 隐式强制转换发生时没有警告（静默，与 Java 相同）
 - `struct.toString()` / `"x" + structInstance` ——永久拒绝
 
@@ -175,7 +173,7 @@ class Point {
 插值与转义可组合：`"${name}\n"` 先插值再追加换行。
 
 
-### 字符串插值（Phase 9b）
+### 字符串插值
 
 ```nlang
 string name = "world";
@@ -183,17 +181,16 @@ string s = "Hello ${name}!";   // "Hello world!"
 ```
 
 NLang 在双引号字符串字面量内支持 `${identifier}` 插值——具名变量的
-值经与 Phase 8e-9a（基本类型 → string）和 Phase 9b-pre（集合
-`toString()`）相同的强制转换路径渲染。插值的实现是在 bison 的
-`TT_String` 规则里扫描字面量内容并构造 `OP_Add` 二叉树；不引入任何
-新指令、resolver 方法或代码生成处理器。
+值经与「基本类型 → string」和「集合 `toString()`」相同的强制转换
+路径渲染。插值在编译期被改写为等价的 `OP_Add` 字符串拼接表达式；
+不引入任何新指令。
 
-**语法约束**（MVP）：
+**语法约束**：
 
 - `${...}` 内只支持单个标识符。`${a + b}`、`${obj.method()}`、
   `${this.x}` 之类的复杂表达式在解析阶段被拒绝。请改用单独变量：
   `int sum = a + b; "result=${sum}"`。
-- `${name}` 中 `name` 不在作用域内时，在 resolver 阶段产生编译错误
+- `${name}` 中 `name` 不在作用域内时产生编译错误
   （"undefined identifier"）——与其他任何未定义标识符引用同一路径。
 - 空 `${}` 与非法标识符内容（如 `${123}`、`${a b}`）产生编译错误。
 
@@ -209,15 +206,15 @@ string c = "$$100";     // 字面 "$100"
 
 **类型分派**：标识符解析出的类型决定自动施加的强制转换：
 
-| 标识符类型 | 施加的强制转换 | 阶段 |
-|-----------------|------------------|-------|
-| `int` | `OP_Int32_to_str` | 8e-9a |
-| `float` | `OP_Float_to_str` | 8e-9a |
-| `string` | 无 | — |
-| `enum` | `OP_Enum_to_str` | 8e-9b |
-| `Array` | `OP_Array_to_str` | 9b-pre |
-| `List` / `Dict` | `OP_CallMethod "toString"` | 9b-pre |
-| `class` | `OP_CallMethod "toString"` | 8e-9b |
+| 标识符类型 | 施加的强制转换 |
+|-----------------|------------------|
+| `int` | `OP_Int32_to_str` |
+| `float` | `OP_Float_to_str` |
+| `string` | 无 |
+| `enum` | `OP_Enum_to_str` |
+| `Array` | `OP_Array_to_str` |
+| `List` / `Dict` | `OP_CallMethod "toString"` |
+| `class` | `OP_CallMethod "toString"` |
 
 ### 运行期检查的转换（`as`）
 
@@ -225,7 +222,7 @@ string c = "$$100";     // 字面 "$100"
 expr as TypeName
 ```
 
-运行期检查的转换，自 Phase 8e-1.5 支持：
+支持以下运行期检查的转换：
 
 - **拆箱**：`o as int` / `o as float` / `o as string`——拆开装箱的
   基本类型值。`o` 为 null 或装箱类型标签不匹配时抛错。
@@ -237,12 +234,12 @@ expr as TypeName
 类型不兼容的转换（`5 as string`；`o` 持有 class 引用时的
 `o as int`）是编译错误——`as` 只允许 same/box/unbox/downcast。
 
-### 集合初始化器（Phase 8e-6）
+### 集合初始化器
 
 NLang 为数组、列表、dict 与聚合（struct/class）初始化提供 C 风格的
 集合字面量。两种语法形式：
 
-**裸方括号形式 `[...]`**——只允许在左值或赋值目标能让 resolver 推断
+**裸方括号形式 `[...]`**——只允许在左值或赋值目标能让编译器推断
 出集合类型的位置使用。适用于数组（`T[]`）与 `List<T>`：
 
 ```nlang
@@ -254,7 +251,7 @@ List<Point> pts = [new Point{x:1, y:2}, new Point{x:3, y:4}];
 
 **显式形式 `new Type{...}`**——可用于任何表达式位置（函数实参、
 返回值、独立表达式）。dict、struct 与 class 初始化必须用它，因为
-裸 `{...}` 会与 `Paragraph`（块语句）文法冲突：
+裸 `{...}` 会与块语句（`{...}` 包围的语句组）文法冲突：
 
 ```nlang
 Dict<string, int> d = new Dict<string, int>{"a":1, "b":2};
@@ -266,11 +263,11 @@ foo(new Point{x:1, y:2}, new Point{x:3, y:4});
 
 **`{...}` 内的条目形式：**
 
-- `TT_String : Expression`——dict 条目（string 键）
-- `TT_Identifier : Expression`——struct/class 字段（如 `x:1, y:2`）
+- `字符串字面量 : Expression`——dict 条目（string 键）
+- `标识符 : Expression`——struct/class 字段（如 `x:1, y:2`）
 - `Expression`（无键）——list 元素（仅当 Type 为 `List<T>` 时合法）
 
-**类型消歧**：resolver 用左值变量（或 `new Type{...}` 中的显式
+**类型消歧**：编译器用左值变量（或 `new Type{...}` 中的显式
 `Type`）挑选种类：
 
 | 目标类型          | 形式    | 条目种类              |
@@ -286,17 +283,16 @@ foo(new Point{x:1, y:2}, new Point{x:3, y:4});
 `OP_StoreField` 赋值。
 
 **递归嵌套**：初始化列表可以包含其他初始化列表。嵌套泛型元素类型
-（`List<List<int>>`、`Dict<K, List<V>>`）自 `>>` 词法拆分起支持
+（`List<List<int>>`、`Dict<K, List<V>>`）受支持
 （见上文 `List<T>` 下的「嵌套泛型」）。
 
 **空集合**：裸 `[]` 不支持（词法分析器把 `[]` 匹配为单个
-`OT_Brackets` 记号，供数组类型后缀规则使用）。请用显式空形式：
+记号，供数组类型后缀语法使用）。请用显式空形式：
 `new List<T>{}`、`new Dict<K,V>{}`，数组用 `new int[0]`。
 
-**函数实参消歧**：裸 `[...]` 作函数实参目前不支持——resolver 无法
+**函数实参消歧**：裸 `[...]` 作函数实参目前不支持——编译器无法
 在无重载决议的情况下推断目标类型，因此产生编译错误。函数实参请用
-显式 `new Type{...}` 形式（Phase 8e-6 的 Phase G——重载唯一性——
-已推迟）。
+显式 `new Type{...}` 形式。
 
 **初始化期间的改动是未定义行为。**条目自左向右求值并按序赋值；在
 条目表达式内读取半成品集合（如 `[1, foo(arr)]`，其中 `foo` 读

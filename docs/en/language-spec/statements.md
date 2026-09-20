@@ -25,7 +25,7 @@ a single int32, and non-int values (string object handles, heap indices)
 have no meaningful truthiness. Use an explicit comparison instead:
 `if (s != "")`, `if (obj != null)`.
 
-### Foreach Statement (Phase 8e-5)
+### Foreach Statement
 
 ```nlang
 foreach (Type var in iterable) { body }
@@ -102,14 +102,13 @@ over value-type elements also yields copies).
 **Null iterable** throws NPE on the first `length()` call
 (consistent with all other class-typed calls).
 
-**`List<int>` with value 0**: due to a pre-existing `OP_Box` optimization
+**`List<int>` with value 0**: due to the `OP_Box` optimization
 (literal `0` is treated as the null sentinel), `foreach` over a `List<int>`
-containing literal-zero elements currently throws `unbox on null/invalid
-reference`. This is a boxing limitation, not a `foreach` bug — work around
-by avoiding 0 as a list element value. A future phase will revisit the
-null-sentinel design.
+containing literal-zero elements throws `unbox on null/invalid
+reference`. This is a boxing-layer limitation — work around
+by avoiding 0 as a list element value.
 
-### Compound Assignment (Phase 9a)
+### Compound Assignment
 
 ```nlang
 x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;
@@ -124,17 +123,17 @@ Not supported: subscript left-value (`arr[i] += 1`). The bytecode frame
 layout doesn't have enough scratch slots for single-evaluation of
 subscript read-modify-write. Use the explicit form `arr[i] = arr[i] + 1`.
 
-### Assert Statement (Phase 9a)
+### Assert Statement
 
 ```nlang
 assert(condition);
 ```
 
 Evaluates `condition`. If false, throws an `AssertionException` which can be
-caught by a `try/catch` block (Phase 9d). If uncaught, terminates the program
+caught by a `try/catch` block. If uncaught, terminates the program
 with exit code 1. Single-argument form only (no message override yet).
 
-### Exception Handling (Phase 9d)
+### Exception Handling
 
 NLang supports structured exception handling with a Java/C#-style class
 hierarchy. All exceptions are instances of `Exception` or its subclasses.
@@ -226,9 +225,9 @@ e.code = 42;
 
 **VM errors are catchable:**
 
-Runtime errors that previously caused hard crashes (NPE, division by zero,
-array/list index out of bounds, assertion failure) now throw the corresponding
-Exception subclass and can be caught:
+Runtime errors (NPE, division by zero,
+array/list index out of bounds, assertion failure) throw the corresponding
+Exception subclass and can be caught by `try/catch`:
 
 ```nlang
 try {
@@ -247,9 +246,9 @@ try {
 ```
 
 **Uncaught exceptions** propagate up the call stack. If no handler is found,
-the program terminates with exit code 1 (same as the pre-9d behavior).
+the program terminates with exit code 1.
 
-**finally (Phase 9d-2):**
+**finally:**
 
 ```nlang
 try {
@@ -286,7 +285,7 @@ is the only handler).
 allowed *inside a finally body* (compile error). A finally body must not
 swallow the in-flight control flow or exception.
 
-**super() — constructor chaining (Phase 9d-2):**
+**super() — constructor chaining:**
 
 ```nlang
 class Base {
@@ -313,7 +312,7 @@ class Kid : Base {
 - `super()` with no arguments against a parent with no constructor is a
   legal no-op; passing arguments in that case is a compile error.
 
-### Const Local Variables (Phase 9a)
+### Const Local Variables
 
 ```nlang
 const int X = 5;
@@ -322,8 +321,7 @@ const string Greeting = "hello";
 
 Local variables marked `const` must be initialized at declaration and
 cannot subsequently be assigned or compound-assigned. Only **local**
-const is supported; class/struct field const is not (constructor
-initialization order would add complexity, deferred to a future phase).
+const is supported; class/struct field const is not.
 
 **Const is shallow (Java-`final`-style)**: `const` prevents rebinding the
 *name* but does not freeze the referenced object's state. Member mutation
@@ -338,8 +336,8 @@ p.x = 5;            // OK — only p's binding is const
 ```
 
 For class fields and array elements this means: a `const` reference still
-permits writing through it. Deep/immutability-style const is intentionally
-out of scope for Phase 9a and may be revisited in a future phase.
+permits writing through it. Deep/immutability-style const is not
+supported and may be revisited later.
 
 ### Switch
 
@@ -384,5 +382,5 @@ labels (two calls that both return 1) are allowed; the first match wins.
 ### Null Check
 
 Accessing a field or method on a null class reference throws a
-`NullPointerException` (Phase 9d), which can be caught by a `try/catch`
+`NullPointerException`, which can be caught by a `try/catch`
 block. If uncaught, the program terminates with exit code 1.

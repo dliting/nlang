@@ -24,7 +24,7 @@ return expr;
 （字符串对象句柄、堆索引）没有有意义的真值。请用显式比较代替：
 `if (s != "")`、`if (obj != null)`。
 
-### foreach 语句（Phase 8e-5）
+### foreach 语句
 
 ```nlang
 foreach (Type var in iterable) { body }
@@ -96,13 +96,12 @@ foreach (string name in ages) {
 **null 可迭代对象**在第一次 `length()` 调用时抛 NPE
 （与所有其他 class 类型调用一致）。
 
-**含值 0 的 `List<int>`**：由于既有的 `OP_Box` 优化（字面量 `0` 按
-null 哨兵对待），对含字面量零元素的 `List<int>` 做 foreach 目前抛
-`unbox on null/invalid reference`。这是装箱限制，不是 foreach 的
-bug——规避方法是避免把 0 作为列表元素值。未来阶段会重新审视
-null 哨兵设计。
+**含值 0 的 `List<int>`**：由于 `OP_Box` 优化（字面量 `0` 按
+null 哨兵对待），对含字面量零元素的 `List<int>` 做 foreach 会抛
+`unbox on null/invalid reference`。这是装箱层的限制——规避方法是
+避免把 0 作为列表元素值。
 
-### 复合赋值（Phase 9a）
+### 复合赋值
 
 ```nlang
 x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;
@@ -116,17 +115,17 @@ x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;
 槽位来保证下标读-改-写的单次求值。请用显式形式
 `arr[i] = arr[i] + 1`。
 
-### assert 语句（Phase 9a）
+### assert 语句
 
 ```nlang
 assert(condition);
 ```
 
 求值 `condition`。为假时抛出 `AssertionException`，可被 `try/catch`
-块捕获（Phase 9d）。未捕获则以退出码 1 终止程序。仅单实参形式
+块捕获。未捕获则以退出码 1 终止程序。仅单实参形式
 （尚无消息重载）。
 
-### 异常处理（Phase 9d）
+### 异常处理
 
 NLang 支持结构化异常处理，采用 Java/C# 风格的类层次。所有异常都是
 `Exception` 或其子类的实例。
@@ -217,8 +216,8 @@ e.code = 42;
 
 **VM 错误可捕获：**
 
-以前导致硬崩溃的运行期错误（NPE、除零、数组/列表索引越界、断言
-失败）现在抛出对应的 Exception 子类并可捕获：
+运行期错误（NPE、除零、数组/列表索引越界、断言
+失败）抛出对应的 Exception 子类，可被 `try/catch` 捕获：
 
 ```nlang
 try {
@@ -237,9 +236,9 @@ try {
 ```
 
 **未捕获异常**沿调用栈向上传播。找不到处理器时，程序以退出码 1
-终止（与 9d 之前的行为相同）。
+终止。
 
-**finally（Phase 9d-2）：**
+**finally：**
 
 ```nlang
 try {
@@ -273,7 +272,7 @@ try {
 finally 体内*（编译错误）。finally 体不得吞掉在途的控制流或
 异常。
 
-**super()——构造函数链（Phase 9d-2）：**
+**super()——构造函数链：**
 
 ```nlang
 class Base {
@@ -297,7 +296,7 @@ class Kid : Base {
 - 对没有构造函数的父类调用无参 `super()` 是合法的无操作；此时传
   实参是编译错误。
 
-### const 局部变量（Phase 9a）
+### const 局部变量
 
 ```nlang
 const int X = 5;
@@ -305,8 +304,7 @@ const string Greeting = "hello";
 ```
 
 标记 `const` 的局部变量必须在声明时初始化，此后不能再赋值或复合
-赋值。只支持**局部** const；class/struct 字段 const 不支持（构造
-函数初始化顺序会引入复杂度，推迟到未来阶段）。
+赋值。只支持**局部** const；class/struct 字段 const 不支持。
 
 **const 是浅层的（Java `final` 风格）**：`const` 阻止对*名字*的
 重绑定，但不冻结被引用对象的状态。经 const 局部变量做成员改动是
@@ -321,8 +319,7 @@ p.x = 5;            // OK —— 只有 p 的绑定是 const
 ```
 
 对 class 字段与数组元素而言：`const` 引用仍允许经它写入。深层的/
-不可变风格的 const 有意不在 Phase 9a 范围内，未来阶段可能重新
-审视。
+不可变风格的 const 不受支持，将来可能重新审视。
 
 ### switch
 
@@ -361,5 +358,5 @@ switch (value) {
 
 ### Null 检查
 
-对 null class 引用访问字段或方法抛出 `NullPointerException`
-（Phase 9d），可被 `try/catch` 块捕获。未捕获时程序以退出码 1 终止。
+对 null class 引用访问字段或方法抛出 `NullPointerException`，
+可被 `try/catch` 块捕获。未捕获时程序以退出码 1 终止。

@@ -1,4 +1,4 @@
-# Function Types & Delegates (Phase 13)
+# Function Types & Delegates
 
 
 `Func<R, P1, P2, ...>` is a built-in generic type describing **function

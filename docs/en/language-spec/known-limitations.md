@@ -9,10 +9,10 @@
   element (`li[0].rank()`, `switch (li.get(0))`) are rejected at
   compile time by name, `foreach` can iterate them into an array-typed
   loop variable, and `Dict` keyed on array types uses handle identity.
-  Residual: in other value positions the expression still degrades to
-  its element type in the resolver (e.g. assigning a pulled-out
-  `int[]` element to an `int` local passes silently) — the unified
-  "array value in a primitive context" gate is tracked separately.
+  In other value positions the array value still degrades to
+  its element type (e.g. assigning a pulled-out
+  `int[]` element to an `int` local passes silently) —
+  "array value in a primitive context" handling is not yet unified.
 - **Jagged arrays (`T[][]`)**: multi-dimensional array declarations are
   rejected at compile time ("jagged arrays (T[][]) are not supported") —
   at locals, fields, parameters, return types, `for`/`foreach` loop
@@ -29,22 +29,20 @@
   production, no opcode). `>>` outside generic context is a compile
   error; inside generic closing position it is split into `'>'` tokens
   (see Nested generics under `List<T>`).
-- **Bare init list as function argument**: requires `new Type{...}`
-  explicit form. Phase 8e-6 overload uniqueness (Phase G) deferred.
+- **Bare init list as function argument**: requires the `new Type{...}`
+  explicit form.
 - **`List<struct>` value semantics**: adding the same struct variable
   to a List twice shares the underlying heap slot (reference semantics
   at the boxing layer). Use separate struct instances for distinct
   elements.
 - **`Dict<K,V>` with interface type**: interface types are not
   supported as generic type arguments. Use concrete class types.
-- **Nested-subscript receiver write** (Phase 9d-3 leftover): in
+- **Nested-subscript receiver write**: in
   `matrix[i][0].x = v` (array-of-array-of-struct), the receiver's
   inner subscript index evaluation can clobber the RHS temp slot.
-  Single-level `arr[i].field = v` works correctly. Fix deferred to the
-  array redesign.
+  Single-level `arr[i].field = v` works correctly.
 - **Eager materialization cost**: `new Point[n]` allocates n+1 heap
-  slots at creation (array + one struct per element). Cost revisited at
-  the array redesign.
+  slots at creation (array + one struct per element).
 - **Default parameters on imported functions**: cross-module imported
   functions support **constant-foldable** defaults only — int / float /
   string / null literals, plus single negation of numeric literals
@@ -70,9 +68,10 @@
   inherit default values from the base class method. Each override
   declares its own defaults independently.
 - **Parameter count ceiling**: functions with more than 64 parameters
-  (`kMaxFuncParams` sanity ceiling) trigger a compile-time error. The
-  frame layout is otherwise dynamic — callParamBase and evalArea are
-  sized per-function based on actual call patterns observed in the body.
+  (a sanity ceiling) trigger a compile-time error. The
+  frame layout is otherwise dynamic — the call-argument staging area and
+  the evaluation scratch area are sized per-function based on actual
+  call patterns observed in the body.
 - **No control flow in finally bodies**: `break` / `continue` / `return` /
   `throw` inside a `finally` body is a compile error (a finally body must
   not swallow the in-flight control flow or exception).
@@ -82,7 +81,7 @@
 - **`new C(args)` when `C` has no constructor silently drops `args`**:
   unlike an explicit `super(args)` (which errors), constructor arguments
   at allocation sites are discarded when the class declares no ctor.
-- **No lambda expressions / closures** (Phase 13 scope): only references
+- **No lambda expressions / closures**: only references
   to named functions and methods exist. Bound method references carry
   receiver state and cover the common callback scenarios; lambdas with
   captures are a future direction.

@@ -1,4 +1,4 @@
-# Naming Convention (Phase 8e-9-pre)
+# Naming Convention
 
 
 NLang adopts **camelCase** for methods and **PascalCase** for types — a hybrid
@@ -31,8 +31,3 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
   may be upgraded to `getXxx` when properties land.
 - Predicates do not use `isXxx` / `hasXxx` prefixes — `equals` and
   `contains` are clear on their own.
-
-**Built-in method migration** (Phase 8e-9-pre): all built-ins renamed from
-PascalCase to camelCase. Notable: `Length→length`, `Add→add`, `Equals→equals`,
-`GetHashCode→getHashCode`, `ReadInt→readInt`, `WriteString→writeString`,
-`Keys→keys`, `ContainsKey→containsKey`.

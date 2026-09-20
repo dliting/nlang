@@ -1,4 +1,4 @@
-# 命名约定（Phase 8e-9-pre）
+# 命名约定
 
 
 NLang 方法采用 **camelCase**、类型采用 **PascalCase**——Java 风格大小写
@@ -30,8 +30,3 @@ NLang 方法采用 **camelCase**、类型采用 **PascalCase**——Java 风格�
   `position`、`keys`）用裸 camelCase，property 落地后可升级为 `getXxx`。
 - 谓词不用 `isXxx` / `hasXxx` 前缀——`equals` 与 `contains` 本身已足够
   清晰。
-
-**内建方法迁移**（Phase 8e-9-pre）：所有内建方法已从 PascalCase 更名
-为 camelCase。代表性更名：`Length→length`、`Add→add`、`Equals→equals`、
-`GetHashCode→getHashCode`、`ReadInt→readInt`、`WriteString→writeString`、
-`Keys→keys`、`ContainsKey→containsKey`。

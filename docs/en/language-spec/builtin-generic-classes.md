@@ -1,7 +1,7 @@
 # Built-in Generic Classes
 
 
-### `List<T>` — Phase 8e-3
+### `List<T>`
 
 `List<T>` is a growable, ordered, index-addressable collection. It is
 a **built-in generic class** — only `List` (and future `Dict`) are
@@ -42,7 +42,7 @@ error when `nums : List<int>`.
 
 **Erasure runtime model**: `List<int>` and `List<Point>` share the same
 backing class at runtime. Elements are stored uniformly as heap indices
-in a side table (`m_listStore`); primitive elements are boxed via
+in a side table; primitive elements are boxed via
 `OP_Box` at the call site. GC traces list elements as additional roots.
 
 **Array type arguments**: `T` may be an array type — `List<int[]>`
@@ -57,20 +57,20 @@ and `foreach (int[] row in grid)` iterates them directly. `indexOf`/
 assigned `new List<T>()` holds null. Calling any method on null throws
 `null reference in CallMethod` (same NPE semantics as other class refs).
 
-**Collection initializer**: `[1, 2, 3]` literal syntax is supported
-since Phase 8e-6 (bare bracket form for arrays and `List<T>`). See the
+**Collection initializer**: the `[1, 2, 3]` literal syntax is supported
+(bare bracket form for arrays and `List<T>`). See the
 Collection Initializers section above.
 
-**`foreach`**: the `foreach (Type var in iterable)` construct is supported
-since Phase 8e-5. See the Foreach Statement section below.
+**`foreach`**: the `foreach (Type var in iterable)` construct is
+supported. See the Foreach Statement section below.
 
 **Nested generics** (`List<List<int>>`): supported. The lexer tracks
 type-argument nesting depth (`<` right after the built-in generic names
 `List`/`Dict` opens a level, each `>` closes one) and splits `>>` into
 two `'>'` tokens while the depth is positive (C#-style scanner split),
 so `List<List<int>>` and `Dict<string, List<int>>` parse. Outside
-generic context `>>` remains a single `OT_RSH` token — right-shift has
-no production, so `x >> 2` is a compile error (the shift operator
+generic context `>>` remains a single token (not split) — right-shift has
+no grammar production, so `x >> 2` is a compile error (the shift operator
 itself is not implemented). Limitation: a comparison against a variable
 shadowing the type name (`List < 3`, only blanks/comments between name
 and `<`) is misread as a generic open.
@@ -79,10 +79,10 @@ and `<`) is misread as a generic open.
 `.nmod` import boundaries — imported function signatures serialize each
 type as a single kind byte, so a `List<int[]>` parameter or return in
 an imported function degrades to a plain class reference and the
-array-ness is not reachable. Plain `T[]` signatures do cross (they
-serialize as `RTK_Array`); container instantiations do not.
+array-ness is not reachable. Plain `T[]` signatures do cross (serialized
+as an array kind); container instantiations do not.
 
-### `Dict<K,V>` — Phase 8e-4
+### `Dict<K,V>`
 
 `Dict<K,V>` is an associative array mapping keys of type `K` to values
 of type `V`. Like `List<T>`, it is a **built-in generic class** — only
@@ -123,7 +123,7 @@ compile error when `d : Dict<string,int>`.
 
 **Erasure runtime model**: `Dict<K,V>` shares a single backing class
 across all instantiations. Entries are stored as `(K heap idx, V heap
-idx)` pairs in a side table (`m_dictStore`); primitive keys/values are
+idx)` pairs in a side table; primitive keys/values are
 boxed via `OP_Box` at the call site. GC traces every entry's K and V as
 additional roots.
 
@@ -133,8 +133,8 @@ additional roots.
 - `string` keys: compare string content (value equality).
 - `class` / `struct` keys: compare heap idx (identity), matching Java's
   `IdentityHashMap` and C#'s default `object.Equals`. A user `Equals`
-  override is **not** consulted — override-based dictionary semantics
-  are a separate future phase.
+  override is **not** consulted — override-based key-equality semantics
+  are not supported.
 - Array keys (`Dict<int[], V>`): compare handle identity — two separate
   `int[2]` arrays with equal contents are different keys.
 
@@ -144,13 +144,13 @@ throws `NLang VM: Dict <method> on null instance`.
 
 **Linear-scan lookup (current limitation)**: every `set`/`get`/
 `containsKey`/`remove` does an O(n) scan of the entries vector. This is
-acceptable for typical small scripts; O(1) hashtable lookup is a future
-optimization phase.
+acceptable for typical small scripts; O(1) hashtable lookup is not
+provided.
 
-**`foreach` over keys (Phase 8e-5)**: `foreach (K k in dict) { ... }`
+**`foreach` over keys**: `foreach (K k in dict) { ... }`
 iterates the keys of the dict, Python/JavaScript style. Inside the body,
-call `dict.get(k)` to access the value. Implementation: codegen emits
-an inline `dict.keys()` call to materialize a fresh `List<K>`, then
+call `dict.get(k)` to access the value. Implementation: the compiler
+emits an inline `dict.keys()` call to materialize a fresh `List<K>`, then
 iterates that list. See the Foreach Statement section below.
 
 **`Dict.keys()`**: returns a new `List<K>` populated with all keys
@@ -182,7 +182,7 @@ int x = d["a"];         // == d.get("a")     -> 3
 Out-of-range reads/writes and missing dict keys throw exactly as the
 method forms do (IndexOutOfBoundsException family).
 
-Because the resolver peels the element type T/V off the container
+Because the compiler peels the element type T/V off the container
 type, subscripts compose with the rest of the language:
 
 ```nlang

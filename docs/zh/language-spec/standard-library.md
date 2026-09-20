@@ -1,4 +1,4 @@
-# 标准库（Phase 11）
+# 标准库
 
 
 NLang 附带四个内建库：`math`、`io`、`fs`（命名空间限定的自由函数）
@@ -8,8 +8,8 @@ catch 变量是编译错误。调用只写限定名（`math.sin(x)`）；裸名�
 作用域内（未来的 `using` 式关键字可能放开此限制）。命名空间名用作
 值（`int x = math;`）无法解析——命名空间不是值。
 
-绑定由编译器内建：resolver 对照内建表
-（`include/nlang/vm/StdLib.h`）拦截限定调用并做类型检查，代码生成
+绑定由编译器内建：限定调用在编译期被对照内建表
+识别为标准库函数并做类型检查，生成的代码
 发射 `OP_CallIntrinsic`——没有函数记录，没有宿主注册。
 
 **参数类型**：与声明的 kind 精确匹配；唯一自动施加的转换是 int→float
@@ -130,6 +130,6 @@ string 接收者上的方法（`s.substring(1)`；字面量接收者亦可：
 
 - `using` 式关键字，开放非限定名
 - string 类化（方法面已在上方冻结）
-- Stream 家族，把 ByteStream/FileStream 统一到 io 下
+- Stream 家族，把字节流/文件流统一到 io 下
 - `IllegalArgumentException` 内建子类
-- 包管理器（已推迟；`ModuleManager::LoadFrom(istream)` 桩保留）
+- 包管理器

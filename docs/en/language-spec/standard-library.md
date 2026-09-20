@@ -1,4 +1,4 @@
-# Standard Library (Phase 11)
+# Standard Library
 
 
 NLang ships four built-in libraries: `math`, `io`, `fs` (namespace-qualified
@@ -9,10 +9,10 @@ qualified name only (`math.sin(x)`); bare names are not in scope (a future
 `using`-style keyword may lift this). A namespace name used as a value
 (`int x = math;`) fails to resolve — namespaces are not values.
 
-Binding is compiler-intrinsic: the resolver intercepts qualified calls against
-the built-in table (`include/nlang/vm/StdLib.h`), type-checks the arguments,
-and codegen emits `OP_CallIntrinsic` — no function records, no host
-registration.
+Binding is compiler-intrinsic: qualified calls are recognized at compile
+time against the built-in table as standard-library functions and
+type-checked; the generated code emits `OP_CallIntrinsic` — no function
+records, no host registration.
 
 **Parameter types**: exact match against the declared kind; the only automatic
 conversion is int→float widening (`math.sqrt(4)` compiles). float→int is never
@@ -139,6 +139,6 @@ operator on strings.
 
 - `using`-style keyword to open up unqualified names
 - string class-ification (method surface frozen above)
-- Stream family unifying ByteStream/FileStream under io
+- Stream family unifying byte streams / file streams under io
 - `IllegalArgumentException` built-in subclass
-- package manager (deferred; `ModuleManager::LoadFrom(istream)` stub reserved)
+- package manager
