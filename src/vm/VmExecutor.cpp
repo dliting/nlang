@@ -376,7 +376,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             } else {
                 s = FormatArray(heapIdx, 0);
             }
-            int32_t handle = MintNewString(s);
+            int32_t handle = MintNewString(std::move(s));
             std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
@@ -825,7 +825,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             } else {
                 s = FormatFuncHandle(heapIdx);
             }
-            int32_t handle = MintNewString(s);
+            int32_t handle = MintNewString(std::move(s));
             std::memcpy(pResult, &handle, sizeof(handle));
             break;
         }
@@ -946,9 +946,18 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t hA, hB;
             std::memcpy(&hA, locals + lhs, sizeof(hA));
             std::memcpy(&hB, locals + rhs, sizeof(hB));
-            //Two StrVal calls, no minting between them — the returned
-            //references stay valid (no store growth).
-            int32_t r = (StrVal(hA) == StrVal(hB)) ? 1 : 0;
+            //Interned-vs-interned equality is a handle comparison: the
+            //at-most-one-live-interned-per-content invariant plus
+            //immutability make handle identity and content equality the
+            //same relation. Everything else compares content. Two StrVal
+            //calls, no minting between them — the returned references
+            //stay valid (no store growth).
+            bool eq;
+            if (IsInternedString(hA) && IsInternedString(hB))
+                eq = (hA == hB);
+            else
+                eq = (StrVal(hA) == StrVal(hB));
+            int32_t r = eq ? 1 : 0;
             std::memcpy(locals + lhs, &r, sizeof(r));
             break;
         }
@@ -959,7 +968,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             int32_t hA, hB;
             std::memcpy(&hA, locals + lhs, sizeof(hA));
             std::memcpy(&hB, locals + rhs, sizeof(hB));
-            int32_t r = (StrVal(hA) != StrVal(hB)) ? 1 : 0;
+            bool ne;
+            if (IsInternedString(hA) && IsInternedString(hB))
+                ne = (hA != hB);
+            else
+                ne = (StrVal(hA) != StrVal(hB));
+            int32_t r = ne ? 1 : 0;
             std::memcpy(locals + lhs, &r, sizeof(r));
             break;
         }
@@ -2055,7 +2069,7 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
                     static_cast<size_t>(len));
-            m_structHeap[heapIdxSz][i] = MintNewString(s);
+            m_structHeap[heapIdxSz][i] = MintNewString(std::move(s));
         }
         else if (ftk == RTK_Struct)
         {
@@ -2280,7 +2294,7 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
                     static_cast<size_t>(len));
-            m_structHeap[heapIdxSz][i + 1] = MintNewString(s);
+            m_structHeap[heapIdxSz][i + 1] = MintNewString(std::move(s));
         }
         else if (ftk == RTK_Struct)
         {
@@ -3045,7 +3059,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             std::string s(reinterpret_cast<const char*>(st->buf.data() + st->pos),
                           static_cast<size_t>(len));
             st->pos += static_cast<size_t>(len);
-            int32_t strHandle = MintNewString(s);
+            int32_t strHandle = MintNewString(std::move(s));
             std::memcpy(pResult, &strHandle, sizeof(strHandle));
             break;
         }
@@ -3321,7 +3335,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             st->fs->read(&s[0], len);
             if (st->fs->gcount() < len)
                 throw std::runtime_error("NLang VM: ReadString bytes past end of stream");
-            int32_t strHandle = MintNewString(s);
+            int32_t strHandle = MintNewString(std::move(s));
             std::memcpy(pResult, &strHandle, sizeof(strHandle));
             break;
         }
@@ -3804,7 +3818,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_List_toString) {
         int32_t handle = ReadListHandle(callParamBase, locals, "toString");
         std::string s = FormatList(handle, 0);
-        int32_t strHandle = MintNewString(s);
+        int32_t strHandle = MintNewString(std::move(s));
         std::memcpy(pResult, &strHandle, sizeof(strHandle));
         return;
     }
@@ -3813,7 +3827,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_Dict_toString) {
         int32_t handle = ReadDictHandle(callParamBase, locals, "toString");
         std::string s = FormatDict(handle, 0);
-        int32_t strHandle = MintNewString(s);
+        int32_t strHandle = MintNewString(std::move(s));
         std::memcpy(pResult, &strHandle, sizeof(strHandle));
         return;
     }

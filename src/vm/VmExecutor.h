@@ -348,8 +348,13 @@ private:
     std::string FormatDebugStringIdx(int32_t idx) const;
 
     //String object store (definitions in VmExecutorStrings.cpp).
-    int32_t MintNewString(const std::string& content);       //runtime mint (interns <=40B in Task 4)
-    int32_t MintConstantString(const std::string& content);  //immortal flat
+    //By value: rvalue products (to_string temporaries, concat/readFile
+    //buffers moved at their call sites) arrive with zero copies; lvalue
+    //callers pay one copy at the call boundary and the body then moves
+    //into the slot — never worse than the old const& form.
+    int32_t MintNewString(std::string content);              //runtime mint, interns <=kShortStringMaxBytes
+    int32_t MintConstantString(const std::string& content);  //immortal flat (intern path + immortal bit)
+    bool IsInternedString(int32_t handle) const;             //live + in the short-string table
     int32_t AllocConsString(int32_t left, int32_t right);    //O(1) zero-copy node
     int32_t AllocStringObj();                                //raw slot, sets m_gcPending
     bool IsLiveStringHandle(int32_t handle) const;

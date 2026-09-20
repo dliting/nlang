@@ -180,9 +180,70 @@ void test_uninitialized_string_reads_empty()
     PASS();
 }
 
+//Intern reuse: many content-aware mints of the same short string share one
+//live object. The array keeps every mint rooted simultaneously, so the
+//live population is the load-bearing discriminator: without interning it
+//grows by one per iteration (60 live mints, far past the bound), with
+//interning it stays at the constant+residue level. substring mints go
+//through MintNewString directly (a `+` product would be a cons node,
+//which never interns by design).
+void test_intern_reuse_short_strings()
+{
+    TEST(intern_reuse_short_strings);
+    CompiledModule mod;
+    CHECK(loadSource("intern_reuse",
+        "int main() {\n"
+        "    string base = \"hello world\";\n"
+        "    string[] kept = new string[60];\n"
+        "    int i = 0;\n"
+        "    while (i < 60) {\n"
+        "        kept[i] = base.substring(0, 5);   //same content, minted\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    if (kept[0] != \"hello\") return 1;\n"
+        "    if (kept[59] != kept[0]) return 2;\n"
+        "    return 0;\n"
+        "}\n", mod), "build failed");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0, "interned equivalents must be equal");
+    CHECK(exec.LiveStringObjectCount() < mod.stringConstants.size() + 10,
+        "same-content short mints must share one live object");
+    PASS();
+}
+
+//Sweep purification: a dropped interned string dies with its table entry;
+//re-minting the content afterwards mints a fresh object (count rose
+//again), and no stale-handle resurrect occurs. With the table entry left
+//stale (purification missing) the freed slot is typically reused by an
+//unrelated string under stress, and the liveness-only revalidation would
+//then hand back the WRONG content — this shape catches exactly that.
+void test_intern_sweep_purifies_table()
+{
+    TEST(intern_sweep_purifies_table);
+    CompiledModule mod;
+    CHECK(loadSource("intern_sweep",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 300) {\n"
+        "        string t = \"tag-\" + i;   //short runtime mints\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    string after = \"tag-\" + 7;  //fresh mint, table was purified\n"
+        "    if (after != \"tag-7\") return 1;\n"
+        "    return 0;\n"
+        "}\n", mod), "build failed");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0, "re-minted content must read correct");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
+    test_intern_reuse_short_strings();
+    test_intern_sweep_purifies_table();
     test_bounded_concat_live_count();
     test_constants_immortal_under_stress();
     test_cons_chain_flatten_and_reclaim();

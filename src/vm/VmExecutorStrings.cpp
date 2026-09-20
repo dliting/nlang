@@ -38,18 +38,44 @@ bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
                != kStrFormDead;
 }
 
-//Content-aware mint: a Flat object holding content (interning arrives in
-//Task 4).
-int32_t VmExecutor::MintNewString(const std::string& content) {
+//Content-aware mint (the only interning site class): short strings consult
+//the weak table and reuse the live handle on a hit — strings are
+//immutable, so sharing is aliasing-safe. Cons allocation and in-place
+//flattening never come through here, which is what keeps the uniqueness
+//invariant (at most one live interned object per content) intact: a
+//second mint of live content always hits the table, and a hit on a dead
+//entry falls through and re-registers.
+int32_t VmExecutor::MintNewString(std::string content) {
+    if (content.size() <= kShortStringMaxBytes) {
+        auto it = m_shortStrTable.find(content);
+        if (it != m_shortStrTable.end() && IsLiveStringHandle(it->second))
+            return it->second;
+    }
     int32_t handle = AllocStringObj();
-    m_stringObjs[static_cast<size_t>(handle)].str = content;
+    StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
+    if (content.size() <= kShortStringMaxBytes) {
+        so.interned = true;
+        m_shortStrTable[content] = handle;   //map keys its own copy
+    }
+    so.str = std::move(content);
     return handle;
 }
 
+//Constants take the same intern path — a short constant shares its object
+//with runtime mints of the same content — and additionally never die
+//(their table entries are therefore never purified either).
 int32_t VmExecutor::MintConstantString(const std::string& content) {
     int32_t handle = MintNewString(content);
     m_stringObjs[static_cast<size_t>(handle)].immortal = true;
     return handle;
+}
+
+//Equality fast-path predicate (OP_Eq_str/OP_Ne_str): only a LIVE handle
+//with the interned bit qualifies — handle identity is then equivalent to
+//content equality by the uniqueness invariant plus immutability.
+bool VmExecutor::IsInternedString(int32_t handle) const {
+    return IsLiveStringHandle(handle)
+        && m_stringObjs[static_cast<size_t>(handle)].interned;
 }
 
 //O(1) zero-copy concatenation: content-blind, so never interned (intern
@@ -150,6 +176,11 @@ void VmExecutor::SweepStrings() {
         StrObj& so = m_stringObjs[i];
         if (static_cast<uint8_t>(so.form) == kStrFormDead) continue;
         if (so.immortal || m_strMarkBits[i]) continue;
+        //Weak-intern purification: drop the dying object's table entry so
+        //a later mint of the same content allocates fresh instead of
+        //resurrecting a dead (or slot-reused) handle.
+        if (so.interned)
+            m_shortStrTable.erase(so.str);
         so = StrObj{};   //release the buffer
         so.form = static_cast<StrObj::Form>(kStrFormDead);
         m_strFreeList.push_back(static_cast<int32_t>(i));

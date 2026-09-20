@@ -114,7 +114,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
                 + std::to_string(s.size()) + " bytes.");
         std::string out = s.substr(static_cast<size_t>(start),
             static_cast<size_t>(end - start));
-        int32_t handle = MintNewString(out);
+        int32_t handle = MintNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -189,7 +189,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         while (b < e && isWs(s[b])) ++b;
         while (e > b && isWs(s[e - 1])) --e;
         std::string out = s.substr(b, e - b);
-        int32_t handle = MintNewString(out);
+        int32_t handle = MintNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -230,7 +230,8 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         dst.reserve(parts.size());
         for (auto& part : parts)
         {
-            dst.push_back(AllocBoxedValue(RTK_String, MintNewString(part)));
+            dst.push_back(AllocBoxedValue(RTK_String,
+                MintNewString(std::move(part))));
         }
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         return true;
@@ -261,7 +262,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             out += newStr;
             pos = hit + oldStr.size();
         }
-        int32_t handle = MintNewString(out);
+        int32_t handle = MintNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }

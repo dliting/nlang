@@ -195,7 +195,7 @@ bool VmExecutor::ExecuteIntrinsicFs(uint16_t intrinsicId,
         //std::filesystem append semantics, same as Python os.path.join;
         //an empty b leaves a trailing separator.
         std::string joined = (fsys::path(a) / b).generic_string();
-        int32_t handle = MintNewString(joined);
+        int32_t handle = MintNewString(std::move(joined));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }

@@ -76,7 +76,7 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
             line.clear();
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
-        int32_t handle = MintNewString(line);
+        int32_t handle = MintNewString(std::move(line));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -107,7 +107,7 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
         if (in.bad() || in.gcount() != static_cast<std::streamsize>(size))
             RaiseNlangException(m_ioExcClassIdx,
                 "io.readFile: read error on \"" + path + "\".");
-        int32_t handle = MintNewString(content);
+        int32_t handle = MintNewString(std::move(content));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }

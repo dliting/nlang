@@ -1,0 +1,16 @@
+//e2e str_intern_eq: equality semantics unchanged by interning — interned
+//(constant or reused runtime mint) vs cons vs plain content all agree.
+int main() {
+    string a = "hel";
+    string b = a + "lo";        //cons, not interned
+    string c = "hello";         //constant, interned
+    string d = a + "lo";        //another cons
+    if (!(b == c)) return 1;
+    if (!(b == d)) return 2;
+    if (!(c == "hel" + "lo")) return 3;
+    if (!("hel" + "lo" == "hel" + "lo")) return 4;
+    string e = a + "lo";
+    if (e.length() != 5) return 5;
+    if (e != "hello") return 6;
+    return 0;
+}
