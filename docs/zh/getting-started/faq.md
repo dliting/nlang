@@ -4,7 +4,7 @@
 
 `ncc build hello.n` 不带 `-o` 时，模块文件写在**当前工作目录**，
 不是源文件旁边——在别的目录里找不到产物时先想到这一点。各形态的
-缺省规则与优先级见[命令行工具](command-line-tools.md)。
+缺省规则与优先级见[ncc](../cli-tools/ncc.md)。
 
 nide 侧由输出位置优先级决定（详见
 [三种运行方式](running.md#配置-nide)）：

@@ -37,7 +37,7 @@
     nvm hello_project.nmod
 
 完整参考（全部标志、默认输出位置、ndb 调试器与 ndisasm）见
-[命令行工具](command-line-tools.md)。
+[命令行工具](../cli-tools/overview.md)一章。
 
 ### 3. 逐例浏览
 

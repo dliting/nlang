@@ -6,7 +6,7 @@
 **current working directory**, not next to the source file — think of
 this first when the build output is nowhere to be found. The default
 rules and precedence for every form are on the
-[Command-line Tools](command-line-tools.md) page.
+[ncc](../cli-tools/ncc.md) page.
 
 On the nide side the location follows the output precedence (see
 [Three Ways to Run](running.md#configuring-nide)):

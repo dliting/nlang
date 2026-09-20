@@ -22,9 +22,14 @@ nav:
       - "速览: 函数与模块": getting-started/function-features.md
       - 三种运行方式: getting-started/running.md
       - 在 nide 中调试: getting-started/debugging.md
-      - 命令行工具: getting-started/command-line-tools.md
       - 常见问题: getting-started/faq.md
       - 下一步阅读: getting-started/further-reading.md
+  - 命令行工具:
+      - 概览: cli-tools/overview.md
+      - ncc: cli-tools/ncc.md
+      - nvm: cli-tools/nvm.md
+      - ndb: cli-tools/ndb.md
+      - ndisasm: cli-tools/ndisasm.md
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md

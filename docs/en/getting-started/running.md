@@ -49,8 +49,8 @@ with `-o`:
     nvm hello_project.nmod
 
 The complete reference (all flags, default output locations, the ndb
-debugger, and ndisasm) is on the
-[Command-line Tools](command-line-tools.md) page.
+debugger, and ndisasm) is in the
+[Command-line Tools](../cli-tools/overview.md) chapter.
 
 ### 3. Browse by example
 
