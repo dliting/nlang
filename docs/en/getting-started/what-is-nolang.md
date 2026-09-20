@@ -23,11 +23,12 @@ the VM then executes. The language itself:
   interpolation, `out` parameters, default parameters, and the
   `math`/`io`/`fs` standard libraries.
 
-The four tools shipped with the package:
+The five tools shipped with the package:
 
 | Tool | Role |
 |---|---|
 | ncc | command-line compiler: compiles `.n`/`.nproj` into `.nmod`, and can execute right after compiling |
 | nvm | VM runner: executes `.nmod` |
+| ndb | command-line debugger: breakpoints, stepping, and the call stack (it also drives the graphical debugging in nide) |
 | ndisasm | bytecode disassembler: inspects the instructions inside a `.nmod` |
 | nide | IDE: edit, build, and run, with this help site embedded |

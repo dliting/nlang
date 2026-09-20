@@ -4,10 +4,18 @@
 
 `ncc build hello.n` without `-o` writes the module file to the
 **current working directory**, not next to the source file — think of
-this first when the build output is nowhere to be found. To pin the
-output location, pass `-o path/name.nmod` explicitly. nide is
-unaffected: a standalone `.n` file's build output lands in
-`%TEMP%\nlang-nide\`, and a project's lands in the project directory.
+this first when the build output is nowhere to be found. The default
+rules and precedence for every form are on the
+[Command-line Tools](command-line-tools.md) page.
+
+On the nide side the location follows the output precedence (see
+[Three Ways to Run](running.md#configuring-nide)):
+
+- Projects: the `.nproj`'s `outputDir` > nide's global build output
+  directory > the project directory;
+- Standalone `.n` files: the global build output directory > the
+  default location (a `nlang-nide` subdirectory of the user's temp
+  directory).
 
 ### Exit code not what you expected?
 
