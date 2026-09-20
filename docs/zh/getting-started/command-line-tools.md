@@ -144,7 +144,7 @@ Program exited with code 0.
 `ndb --machine <module.nmod>` 在 stdin/stdout 上暴露同一会话的
 tab 分隔行协议，供嵌入前端使用——nide 的图形调试器就构建在它之上。
 协议细节见[在 nide 中调试](debugging.md)与
-[调试器架构](../../vm-architecture/debugging.md)。
+[调试器架构](../vm-architecture/debugging.md)。
 
 ## ndisasm —— 反汇编
 

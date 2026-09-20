@@ -157,7 +157,7 @@ ndb itself with 0.
 tab-separated line protocol on stdin/stdout for embedding front ends —
 the nide graphical debugger is built on it. Protocol details in
 [Debugging in nide](debugging.md) and
-[Debugger Architecture](../../vm-architecture/debugging.md).
+[Debugger Architecture](../vm-architecture/debugging.md).
 
 ## ndisasm — Disassembler
 
