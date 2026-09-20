@@ -46,7 +46,7 @@ Object has three virtual methods (`Equals(Object)→int`, `GetHashCode()→int`,
 | INTR_Object_Equals    | Identity: same heap idx → 1, else 0 (null==null→1) |
 | INTR_Object_GetHashCode | Identity: heap idx of `this` (null→0)         |
 | INTR_Object_toString  | `"ClassName@hex(heapIdx)"` (null→NPE)          |
-| INTR_String_Equals    | Value: pool-content equality                   |
+| INTR_String_Equals    | Value: content equality                        |
 | INTR_String_GetHashCode | Value: `std::hash<std::string>` over content  |
 
 The existing `OP_CallMethod` name-walk finds the most-derived implementation
@@ -72,13 +72,37 @@ boxed into a 2-slot heap entry:
 
 ```text
 slot[0] = type tag (RTK_Int32 / RTK_Float / RTK_String)
-slot[1] = value bits (int32 / float bits / string pool idx)
+slot[1] = value bits (int32 / float bits / string object handle)
 ```
 
-`m_slotKinds[idx] = RTK_Boxed` (6). GC MarkPhase skips RTK_Boxed slots
-entirely — they hold no outgoing references, so traversal would be wasted
-work and would misinterpret the type tag in slot[0] as a classIdx. SweepPhase
-frees them like any other unreachable slot.
+`m_slotKinds[idx] = RTK_Boxed` (6). GC MarkPhase dispatches on the boxed
+record's type tag: a string-tagged payload (slot[1]) is a handle into the
+string object store and marks that string object; other tags carry raw
+value bits with no outgoing references to trace. slot[0] is always read
+as the type tag, never misinterpreted as a classIdx. SweepPhase frees
+them like any other unreachable slot.
+
+### The String Object Store
+
+Strings are GC-managed immutable objects at run time, held in a separate
+store `m_stringObjs`. The first five record kinds (class/struct/boxed/
+func/array) share `m_structHeap`; strings are the sixth storage class,
+with their own mark bit vector, free list, and collection threshold
+(collection semantics on the garbage collection design page).
+
+- **Handle semantics**: an `RTK_String` slot holds a 1-based handle
+  (0 = null, reads as the empty string — the same sentinel convention
+  as heap index 0).
+- **Flat / Cons dual form**: an object is either Flat (`str` holds the
+  content) or Cons (`left`/`right` hold two child handles).
+  Concatenation (`OP_Concat_str`) allocates a Cons node, O(1) with zero
+  copying; the first read flattens it in place into a Flat object —
+  every existing handle then sees the flattened content.
+- **immortal and interned bits**: `immortal` marks constant-materialized
+  objects (never collected); `interned` marks objects registered in the
+  short-string table (up to 40 bytes shared by content — a weak map
+  from content to live handle). `==` between two interned strings
+  reduces to a handle comparison.
 
 ### Built-in Generic `List<T>` (Phase 8e-3)
 
@@ -138,10 +162,11 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 All elements are heap indices uniformly — primitive T values are boxed
 at the call site (`OP_Box typeKind` before `OP_CallMethod`), class-T
 and array-T values pass through unchanged. The GC does dispatch on each
-element's runtime slot kind when tracing: reference-kind elements
-(class/struct/array/func) are marked and pushed to the worklist, so
-their children — class fields or, for array elements, the array's own
-elements by elemKind — are traced too.
+element's runtime slot kind when tracing: reference-kind and boxed
+elements (class/struct/boxed/array/func) are marked and pushed to the
+worklist, so their children — class fields, boxed-string payloads, or,
+for array elements, the array's own elements by elemKind — are traced
+too.
 
 **Intrinsics (9 new IDs).** List methods are dispatched through
 `OP_CallMethod` like any class method, but the function backing each
@@ -163,8 +188,9 @@ name is a no-op stub that triggers `ExecuteIntrinsic`:
 when it encounters an instance whose slot[0] (`classIdx`) equals the
 cached `m_listClassIdx`, it additionally reads `__handle` (slot[1]) and
 marks every entry in `m_listStore[__handle-1].elements` as a heap
-reference, pushing reference-kind entries (class/struct/array/func)
-onto the worklist so their children are traced — an array element
+reference, pushing reference-kind and boxed entries
+(class/struct/boxed/array/func) onto the worklist so their children are
+traced — an array element
 pushed here reaches the worklist's `RTK_Array` arm, which traces the
 array's own elements by elemKind (this is how `List<Point[]>` keeps
 the `Point` records alive). Out-of-bounds and free indices are skipped.
@@ -240,7 +266,8 @@ helper used by Set/Get/ContainsKey/Remove:
    - `RTK_Boxed`: branch on inner type tag (`m_structHeap[k][0]`):
      - `RTK_Int32` / `RTK_Float`: compare value bits at
        `m_structHeap[k][kBoxedValueSlot]` (IEEE 754 — `NaN != NaN`).
-     - `RTK_String`: compare `m_stringPool[bits]` content (value eq).
+     - `RTK_String`: compare the string-object content behind the
+       handles (value eq).
 
 This pattern generalizes the Phase 8e-3 fix-up C2 fix (List IndexOf/
 Contains value-bit comparison) to multi-tag keys.

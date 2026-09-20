@@ -6,6 +6,23 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] - Unreleased
+
+### 变更
+- 运行期字符串成为可被垃圾回收的不可变对象：长时运行的程序（持续
+  构建提示词的循环等）不再无界增长内存，`s = s + x` 追加为 O(1)
+  （透明拼接节点，首次读取时展平）而非 O(n) 整串拷贝。
+
+### 性能
+- 运行期创建的不超过 40 字节的短串按内容驻留重用；驻留串之间的
+  `==` 比较退化为句柄比较。
+
+### 修复
+- `List.indexOf`/`contains` 现按内容比较字符串元素；与已存元素内容
+  相同的拼接结果或驻留串现在能够匹配。
+- `Exception.backtrace.get(i)` 不再抛出 "unbox on null/invalid
+  reference"；帧条目可正常读取。
+
 ## [0.7.0] - 2026-09-19
 
 ### 新增

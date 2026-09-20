@@ -6,6 +6,24 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - Unreleased
+
+### Changed
+- Runtime strings are garbage-collected immutable objects: long-running
+  programs (prompt-building loops and similar) no longer grow memory
+  without bound, and `s = s + x` appends are O(1) instead of O(n) copies
+  (transparent concatenation nodes, flattened on first read).
+
+### Performance
+- Short strings (up to 40 bytes) created at runtime are interned and
+  reused; equality between interned strings is a handle comparison.
+
+### Fixed
+- `List.indexOf`/`contains` now compare string elements by content;
+  concatenated or interned equivalents of a stored element now match.
+- `Exception.backtrace.get(i)` no longer raises
+  "unbox on null/invalid reference"; frame entries read normally.
+
 ## [0.7.0] - 2026-09-19
 
 ### Added

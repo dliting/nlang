@@ -54,28 +54,39 @@ risk of stack overflow.
 
 ```text
 CheckGCSafepoint():
-  if m_gcPending && heap.size() > threshold:
+  if m_gcPending && (heap.size() > threshold || strings.size() > strThreshold):
     m_gcPending = false
     CollectGarbage()
 
 CollectGarbage():
   MarkPhase()
   SweepPhase()
+  SweepStrings()
 
 MarkPhase():
-  clear all mark bits
+  clear all mark bits (heap and string stores)
   for each CallFrame:
     for each LocalDescriptor with typeKind in {RTK_Class, RTK_Struct, RTK_Array, RTK_Func}:
       read heap index from frame.locals + ld.offset
       if valid and not marked: set mark bit, push to worklist
+    for each LocalDescriptor with typeKind == RTK_String:
+      read string handle from frame.locals + ld.offset
+      MarkString(handle)          //marks the object and its cons subtree
     if pResult has reference return type:
       read heap index from pResult
       if valid and not marked: set mark bit, push to worklist
+    if pResult return type is RTK_String:
+      MarkString(handle)          //conservative over-mark, kept as defense
   while worklist not empty:
     pop entry from worklist
-    if class: for each field, push unmarked reference children
-    if struct: for each field, push unmarked reference children
-    if array: push unmarked element records whose elemKind is a reference kind
+    if class: for each field, push unmarked reference children;
+      string-typed fields (RTK_String) mark their string handle instead
+    if struct: for each field, push unmarked reference children;
+      string-typed fields mark their string handle instead
+    if array: push unmarked element records whose elemKind is a reference kind;
+      string elements (elemKind == RTK_String) mark their string handle
+    if boxed: a string-tagged payload (slot[1]) marks its string handle;
+      other boxed tags carry raw bits (no children)
 
 SweepPhase():
   clear free list
@@ -84,7 +95,37 @@ SweepPhase():
       if class: FreeOwnedStructs (free value-owned struct fields)
       if struct: FreeNestedStructs (free nested struct fields)
       clear slot, mark as free, add to free list
+
+SweepStrings():
+  clear string free list
+  for each string object (slot 0 is the null sentinel):
+    if dead: continue
+    if immortal (constant-materialized) or marked: count survivor, continue
+    if interned: erase its entry from the short-string table
+    reset slot to the dead-form sentinel, add to string free list
+  strThreshold = max(strThreshold, 2 * survivorCount)
 ```
+
+**Independent sweep for the string object store.** String objects live
+in a separate store (see the heap architecture page) with its own mark
+bit vector, free list, and collection threshold, but they reuse the
+same `CollectGarbage`: one mark phase fills both bit vectors, and the
+string sweep runs right after the heap sweep. Constant-materialized
+objects carry the immortal bit and are never collected; a collected
+interned string has its table entry purified in the same step, so the
+at-most-one-live-interned-object-per-content invariant survives
+collection.
+
+**Threshold backoff for the string arm.** The string store's backing
+vector never shrinks (dead slots recycle in place), so the size trigger
+is level-triggered — past the first crossing every safepoint collects,
+and each collection marks the entire live concatenation chain, degrading
+total append cost to O(n^2) (measured: 5x10^4-node chain 6.6s, 10^5-node
+chain 26.7s). Backing the threshold off to 2x the surviving population
+after each sweep (`strThreshold = max(strThreshold, 2 * survivorCount)`)
+makes
+triggers advance geometrically with the live set: appends amortize to
+O(1), with memory bounded at 2x the live set.
 
 ### Array Field and Element Tracing (array redesign B)
 
@@ -122,9 +163,11 @@ emplace_back a new slot.
 
 ```text
 OP_New / OP_AllocStruct → set m_gcPending = true
+String allocation (mint / concatenation node) → set m_gcPending = true
                             ↓
 Function entry (ExecuteFunction) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()
                             ↓
-CheckGCSafepoint → if pending && heap > threshold → CollectGarbage()
+CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
+                   → CollectGarbage()
 ```

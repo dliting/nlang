@@ -45,7 +45,7 @@ Object 有三个虚方法（`Equals(Object)→int`、`GetHashCode()→int`、
 | INTR_Object_Equals    | 恒等比较：同一堆索引 → 1，否则 0（null==null→1） |
 | INTR_Object_GetHashCode | 恒等：`this` 的堆索引（null→0）               |
 | INTR_Object_toString  | `"ClassName@hex(heapIdx)"`（null→NPE）         |
-| INTR_String_Equals    | 值比较：池内容相等                             |
+| INTR_String_Equals    | 值比较：内容相等                               |
 | INTR_String_GetHashCode | 值：对内容做 `std::hash<std::string>`        |
 
 既有的 `OP_CallMethod` 按名查找会先命中最派生的实现——Object 方法
@@ -69,12 +69,32 @@ Object 有三个虚方法（`Equals(Object)→int`、`GetHashCode()→int`、
 
 ```text
 slot[0] = 类型标签（RTK_Int32 / RTK_Float / RTK_String）
-slot[1] = 值位（int32 / float 位模式 / string 池索引）
+slot[1] = 值位（int32 / float 位模式 / string 对象句柄）
 ```
 
-`m_slotKinds[idx] = RTK_Boxed`（6）。GC MarkPhase 完全跳过 RTK_Boxed
-槽位——它们不持有任何出边引用，遍历纯属浪费，还会把 slot[0] 里的
-类型标签误读成 classIdx。SweepPhase 与其他不可达槽位一样释放它们。
+`m_slotKinds[idx] = RTK_Boxed`（6）。GC MarkPhase 对装箱记录按类型
+标签分派：字符串标签的 payload（slot[1]）是字符串对象仓的句柄，按
+句柄标记字符串对象；其余标签的值位是原始位模式，没有出边可追。
+slot[0] 始终按类型标签读取，不会被误读成 classIdx。SweepPhase 与
+其他不可达槽位一样释放它们。
+
+### 字符串对象仓
+
+字符串在运行期是 GC 管理的不可变对象，存放在独立的对象仓
+`m_stringObjs` 中。前五类堆记录（class/struct/boxed/func/array）
+共享 `m_structHeap`，字符串是第六类存储，拥有自己的标记位组、空闲
+表与回收阈值（回收语义见垃圾回收设计一章）。
+
+- **句柄语义**：`RTK_String` 槽位持有 1-based 句柄（0 = null，读作
+  空串——与堆索引 0 的哨兵约定同形）。
+- **Flat / Cons 双形态**：对象要么是 Flat（`str` 持有内容），要么是
+  Cons（`left`/`right` 持有两个子女句柄）。拼接（`OP_Concat_str`）
+  分配 Cons 节点，O(1) 零拷贝；首次读取时就地展平为 Flat——所有
+  既有句柄看到的都是展平后的内容。
+- **immortal 与 interned 位**：`immortal` 位标记随模块执行物化的
+  常量对象（永不回收）；`interned` 位标记进入短串驻留表（≤40 字节
+  按内容共享，内容到存活句柄的弱映射）的对象——两个驻留串的 `==`
+  退化为句柄比较。
 
 ### 内建泛型 `List<T>`（Phase 8e-3）
 
@@ -129,9 +149,10 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 
 所有元素统一都是堆索引——基本类型 T 的值在调用点装箱（`OP_CallMethod`
 之前先 `OP_Box typeKind`），class-T 与数组 T 的值原样通过。GC 在追踪
-时确实会按每个元素的运行期槽位 kind 分派：引用 kind 的元素
-（class/struct/array/func）被标记并压入工作列表，其子节点——class 字段
-或（对数组元素而言）按 elemKind 的数组自身元素——也随之被追踪。
+时确实会按每个元素的运行期槽位 kind 分派：引用 kind 或装箱记录的
+元素（class/struct/boxed/array/func）被标记并压入工作列表，其子
+节点——class 字段、装箱串的 payload，或（对数组元素而言）按
+elemKind 的数组自身元素——也随之被追踪。
 
 **内建函数（新增 9 个 ID）。** List 方法与普通类方法一样经
 `OP_CallMethod` 分派，但每个名字背后的函数都是一个触发
@@ -152,8 +173,9 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 **GC 集成。** MarkPhase 正常遍历 class 实例的子节点；遇到 slot[0]
 （`classIdx`）等于缓存的 `m_listClassIdx` 的实例时，额外读取
 `__handle`（slot[1]），并把 `m_listStore[__handle-1].elements` 的每
-个条目按堆引用标记，把引用 kind 的条目（class/struct/array/func）压
-入工作列表使其子节点也被追踪——从这里压入的数组元素会进入工作列表的
+个条目按堆引用标记，把引用 kind 或装箱记录的条目
+（class/struct/boxed/array/func）压入工作列表使其子节点也被追踪——
+从这里压入的数组元素会进入工作列表的
 `RTK_Array` 分支，按 elemKind 追踪数组自身的元素（`List<Point[]>`
 就是这样让 `Point` 记录存活的）。越界与空闲索引直接跳过。
 
@@ -223,7 +245,7 @@ ContainsKey/Remove 共用的核心辅助函数：
      - `RTK_Int32` / `RTK_Float`：比较
        `m_structHeap[k][kBoxedValueSlot]` 处的值位（IEEE 754——
        `NaN != NaN`）。
-     - `RTK_String`：比较 `m_stringPool[bits]` 的内容（值相等）。
+     - `RTK_String`：比较句柄对应的字符串对象内容（值相等）。
 
 这一模式把 Phase 8e-3 的补救修复 C2（List IndexOf/Contains 的值位比
 较）推广到多标签键。

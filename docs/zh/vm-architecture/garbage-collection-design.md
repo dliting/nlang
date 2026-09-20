@@ -49,28 +49,39 @@ MarkStruct 需要 structIdx 才能查询字段布局、追踪引用。可选方�
 
 ```text
 CheckGCSafepoint():
-  if m_gcPending && heap.size() > threshold:
+  if m_gcPending && (heap.size() > threshold || strings.size() > strThreshold):
     m_gcPending = false
     CollectGarbage()
 
 CollectGarbage():
   MarkPhase()
   SweepPhase()
+  SweepStrings()
 
 MarkPhase():
-  clear all mark bits
+  clear all mark bits (heap and string stores)
   for each CallFrame:
     for each LocalDescriptor with typeKind in {RTK_Class, RTK_Struct, RTK_Array, RTK_Func}:
       read heap index from frame.locals + ld.offset
       if valid and not marked: set mark bit, push to worklist
+    for each LocalDescriptor with typeKind == RTK_String:
+      read string handle from frame.locals + ld.offset
+      MarkString(handle)          //marks the object and its cons subtree
     if pResult has reference return type:
       read heap index from pResult
       if valid and not marked: set mark bit, push to worklist
+    if pResult return type is RTK_String:
+      MarkString(handle)          //conservative over-mark, kept as defense
   while worklist not empty:
     pop entry from worklist
-    if class: for each field, push unmarked reference children
-    if struct: for each field, push unmarked reference children
-    if array: push unmarked element records whose elemKind is a reference kind
+    if class: for each field, push unmarked reference children;
+      string-typed fields (RTK_String) mark their string handle instead
+    if struct: for each field, push unmarked reference children;
+      string-typed fields mark their string handle instead
+    if array: push unmarked element records whose elemKind is a reference kind;
+      string elements (elemKind == RTK_String) mark their string handle
+    if boxed: a string-tagged payload (slot[1]) marks its string handle;
+      other boxed tags carry raw bits (no children)
 
 SweepPhase():
   clear free list
@@ -79,7 +90,32 @@ SweepPhase():
       if class: FreeOwnedStructs (free value-owned struct fields)
       if struct: FreeNestedStructs (free nested struct fields)
       clear slot, mark as free, add to free list
+
+SweepStrings():
+  clear string free list
+  for each string object (slot 0 is the null sentinel):
+    if dead: continue
+    if immortal (constant-materialized) or marked: count survivor, continue
+    if interned: erase its entry from the short-string table
+    reset slot to the dead-form sentinel, add to string free list
+  strThreshold = max(strThreshold, 2 * survivorCount)
 ```
+
+**字符串对象仓的独立清扫。** 字符串对象存放在独立的仓中（见堆架构
+一章），拥有自己的标记位组、空闲表与回收阈值，但复用同一次
+`CollectGarbage`：一个标记阶段同时填充两份位向量，堆清扫之后字符串
+仓紧接着清扫。随模块执行物化的常量对象带 immortal 位，永不回收；
+被回收的驻留短串在同一步里净化驻留表表项，保证「相同内容至多有一
+个存活驻留对象」的不变量在收集中不被打破。
+
+**字符串臂的阈值退避。** 字符串仓的底层数组从不缩容（死槽原地复
+用），因此尺寸触发是电平触发的——首次越限后每个安全点都会触发回
+收，而每次回收都要标记整条存活的拼接链，追加总量退化为 O(n²)
+（实测 5×10^4 节点链 6.6s、10^5 节点链 26.7s）。每次清扫后把阈值
+退避到存活数的 2 倍
+（`strThreshold = max(strThreshold, 2 * survivorCount)`），
+触发点随存活集合几何级推进：摊还后追加 O(1)，内存上界为存活集合
+的 2 倍。
 
 ### 数组字段与元素追踪（数组重设计 B）
 
@@ -111,9 +147,11 @@ m_slotKinds/m_slotStructIdx）；否则 emplace_back 一个新槽位。
 
 ```text
 OP_New / OP_AllocStruct → set m_gcPending = true
+String allocation (mint / concatenation node) → set m_gcPending = true
                             ↓
 Function entry (ExecuteFunction) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()
                             ↓
-CheckGCSafepoint → if pending && heap > threshold → CollectGarbage()
+CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
+                   → CollectGarbage()
 ```
