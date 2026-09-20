@@ -112,4 +112,42 @@ std::string VmExecutor::StrValCopy(int32_t handle) const {
     return flat;
 }
 
+//GC mark face for one string handle. Task 2 shape: Flat objects have no
+//children, so this is a single-bit set; cons children get traced here
+//from Task 3 on. Handle validation is local (root faces pass raw handles;
+//0 = null and out-of-range are simply not marked).
+void VmExecutor::MarkString(int32_t handle) {
+    if (!IsLiveStringHandle(handle) || m_strMarkBits[static_cast<size_t>(handle)])
+        return;
+    m_strMarkBits[static_cast<size_t>(handle)] = true;
+    //Cons children traced here from Task 3 on.
+}
+
+//Independent of the struct-heap sweep but inside the same CollectGarbage
+//(mark completed for both stores first). Immortal objects (constants)
+//never die; dead slots get the form sentinel and join the free list.
+void VmExecutor::SweepStrings() {
+    m_strFreeList.clear();
+    for (size_t i = 1; i < m_stringObjs.size(); ++i) {
+        StrObj& so = m_stringObjs[i];
+        if (static_cast<uint8_t>(so.form) == kStrFormDead) continue;
+        if (so.immortal || m_strMarkBits[i]) continue;
+        so = StrObj{};   //release the buffer
+        so.form = static_cast<StrObj::Form>(kStrFormDead);
+        m_strFreeList.push_back(static_cast<int32_t>(i));
+    }
+    //Pin the no-stale-bits invariant at both ends: MarkPhase's head assign
+    //already guarantees a clean vector, and AllocStringObj's freelist
+    //branch never sets mark bits — clearing here makes the invariant hold
+    //after every collection, not only before every mark.
+    m_strMarkBits.assign(m_stringObjs.size(), false);
+}
+
+size_t VmExecutor::LiveStringObjectCount() const {
+    size_t liveCount = 0;
+    for (const StrObj& so : m_stringObjs)
+        if (static_cast<uint8_t>(so.form) != kStrFormDead) ++liveCount;
+    return liveCount;
+}
+
 } // namespace nlang

@@ -1,0 +1,11 @@
+//e2e
+int main() {
+    int i = 0;
+    while (i < 200) {
+        string t = "garbage-" + i;
+        i = i + 1;
+    }
+    if ("constant-anchor" != "constant-" + "anchor") return 1;
+    if ("constant-anchor".length() != 15) return 2;
+    return 0;
+}

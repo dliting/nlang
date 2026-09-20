@@ -20,6 +20,7 @@ import os
 import sys
 import subprocess
 import shutil
+import shlex
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_NCC = os.path.join(
@@ -399,9 +400,18 @@ def main():
             if os.path.isfile(stdin_path):
                 with open(stdin_path, 'rb') as sf:
                     stdin_bytes = sf.read()
+            #String-GC Task 2: <name>.flags (if present) supplies extra nvm
+            #CLI flags (e.g. --gc-stress=8) — same discovery shape as .stdin.
+            #Appended AFTER the module path: nvm resolves argv[1] as the
+            #module and scans the rest for flags.
+            flags_path = os.path.join(sources_dir, f"{name}.flags")
+            extra_flags = []
+            if os.path.isfile(flags_path):
+                with open(flags_path, encoding='utf-8') as ff:
+                    extra_flags = shlex.split(ff.read().strip())
             try:
                 result = subprocess.run(
-                    _runner_argv(name, ndb, nvm) + [nmod_file],
+                    _runner_argv(name, ndb, nvm) + [nmod_file] + extra_flags,
                     capture_output=True, timeout=TIMEOUT_SEC,
                     cwd=run_cwd, input=stdin_bytes)
                 actual = result.returncode

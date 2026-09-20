@@ -1,0 +1,13 @@
+//e2e
+int main() {
+    string s = "";
+    int i = 0;
+    while (i < 2000) {
+        s = s + "ab";
+        i = i + 1;
+    }
+    if (s.length() != 4000) return 1;
+    if (s.substring(0, 2) != "ab") return 2;
+    if (s.substring(3998, 4000) != "ab") return 3;
+    return 0;
+}

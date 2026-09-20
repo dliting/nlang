@@ -1,0 +1,16 @@
+//e2e
+int makeNoise(int n) {
+    string t = "noise-" + n;
+    if (t.length() > 0) return n;
+    return -1;
+}
+int main() {
+    string keep = "stable-value";
+    int i = 0;
+    while (i < 200) {
+        i = makeNoise(i) + 1;
+    }
+    if (keep != "stable-value") return 1;
+    if (keep.length() != 12) return 2;
+    return 0;
+}

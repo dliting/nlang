@@ -1,0 +1,24 @@
+//e2e
+class Holder {
+    public string tag;
+    public int n;
+    public int Holder(string t) { tag = t; n = 0; return 0; }
+}
+struct Pt {
+    int x;
+    string name;
+}
+int main() {
+    Holder h = new Holder("kept-tag");
+    int i = 0;
+    while (i < 200) {
+        Holder tmp = new Holder("garbage-" + i);
+        i = i + 1;
+    }
+    if (h.tag != "kept-tag") return 1;
+    Pt p;
+    p.x = 3;
+    p.name = "pt-name";
+    if (p.name != "pt-name") return 2;
+    return 0;
+}

@@ -7,6 +7,7 @@
 #include <crtdbg.h>
 #endif
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -14,7 +15,7 @@ using namespace nlang;
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: nvm <module.nmod>\n"
+        std::cerr << "Usage: nvm <module.nmod> [--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -39,6 +40,19 @@ int main(int argc, char* argv[]) {
 
     CompiledModule module;
     VmExecutor executor;
+    //GC stress knob (testing): cap both GC thresholds so collection runs
+    //at tiny population sizes — any untraced string handle goes stale
+    //within a few allocations instead of surviving on the default
+    //threshold.
+    size_t gcStress = 0;
+    for (int i = 2; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a.rfind("--gc-stress=", 0) == 0)
+            gcStress = static_cast<size_t>(
+                std::strtoul(a.c_str() + 12, nullptr, 10));
+    }
+    if (gcStress)
+        executor.SetGcStressThresholds(gcStress);
     //Phase 9f: host-provided natives (e2e test surface).
     RegisterTestNatives(executor);
     int result = 1;

@@ -49,6 +49,15 @@ public:
     //(default) = the executor keeps its stdout/stdin behavior.
     void SetHostIo(IHostIo* io) { m_pHostIo = io; }
 
+    //Testing knobs (white-box GC pressure): clamp both thresholds so any
+    //untraced handle turns stale almost immediately, and observe the live
+    //string-object population for bounded-memory assertions.
+    void SetGcStressThresholds(size_t records) {
+        m_gcThreshold = records;
+        m_strGcThreshold = records;
+    }
+    size_t LiveStringObjectCount() const;   //live slots, immortal included
+
     //IVmDebugView — definitions in VmExecutorDebug.cpp.
     size_t FrameCount() const override;
     DebugFrameInfo FrameInfo(size_t depth) const override;

@@ -1,0 +1,22 @@
+//e2e
+int main() {
+    List<string> l = new List<string>();
+    l.add("first");
+    l.add("second-" + 2);
+    Dict<string, string> d = new Dict<string, string>();
+    d.set("k", "v-important");
+    int i = 0;
+    while (i < 200) {
+        string t = "garbage-" + i;
+        i = i + 1;
+    }
+    if (l.get(0) != "first") return 1;
+    if (l.get(1) != "second-2") return 2;
+    if (l.indexOf("first") != 0) return 3;
+    if (d.get("k") != "v-important") return 4;
+    //Boxed strings survive stress GC and the Object protocol methods
+    //stay content-correct afterwards.
+    if (!l.get(0).equals("first")) return 5;
+    if (l.get(0).getHashCode() != "first".getHashCode()) return 6;
+    return 0;
+}

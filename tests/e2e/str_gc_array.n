@@ -1,0 +1,17 @@
+//e2e
+int main() {
+    string[] a = new string[3];
+    a[0] = "alpha";
+    a[1] = "beta-" + 1;
+    a[2] = "gamma";
+    int i = 0;
+    while (i < 200) {
+        string t = "garbage-" + i;
+        i = i + 1;
+    }
+    if (a[0] != "alpha") return 1;
+    if (a[1] != "beta-1") return 2;
+    if (a[2] != "gamma") return 3;
+    if (a.length != 3) return 4;
+    return 0;
+}

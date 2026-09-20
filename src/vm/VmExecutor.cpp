@@ -1592,13 +1592,19 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
             m_structHeap[static_cast<size_t>(newHeapIdx)][i] = innerNewIdx;
         }
     }
+    //Task 2 gap fix: a pure deep-copy loop allocates records without ever
+    //raising the pending flag — GC would never trigger on this path.
+    m_gcPending = true;
     return newHeapIdx;
 }
 
 //GC implementation.
 
 void VmExecutor::CheckGCSafepoint() {
-    if (m_gcPending && m_structHeap.size() > m_gcThreshold) {
+    //String objectization: pure-string workloads allocate zero heap
+    //records, so the string store has its own threshold arm.
+    if (m_gcPending && (m_structHeap.size() > m_gcThreshold
+            || m_stringObjs.size() > m_strGcThreshold)) {
         m_gcPending = false;
         CollectGarbage();
     }
@@ -1607,19 +1613,32 @@ void VmExecutor::CheckGCSafepoint() {
 void VmExecutor::CollectGarbage() {
     MarkPhase();
     SweepPhase();
+    //String sweep runs after the heap sweep, with marking completed for
+    //both stores (one mark phase fills both bit vectors).
+    SweepStrings();
 }
 
 void VmExecutor::MarkPhase() {
     m_markBits.assign(m_structHeap.size(), false);
+    m_strMarkBits.assign(m_stringObjs.size(), false);
     //Identify root references from all call frames and push to worklist.
     std::vector<int32_t> worklist;
     for (auto& frame : m_callStack) {
         for (auto& ld : frame.func->locals) {
             if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
-                && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func)
+                && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func
+                && ld.typeKind != RTK_String)
                 continue;
             int32_t val;
             std::memcpy(&val, frame.locals + ld.offset, sizeof(val));
+            //String locals carry a string-store handle, not a heap index —
+            //route before the heap-index guard below (a valid handle may
+            //lie beyond the struct heap's size). MarkString does its own
+            //validation (0 = null, out-of-range skipped).
+            if (ld.typeKind == RTK_String) {
+                MarkString(val);
+                continue;
+            }
             if (val <= 0 || static_cast<size_t>(val) >= m_slotKinds.size())
                 continue;
             if (!m_markBits[val]) {
@@ -1629,10 +1648,13 @@ void VmExecutor::MarkPhase() {
         }
         if (frame.pResult) {
             uint8_t retKind = frame.func->returnTypeKind;
-            if (retKind == RTK_Class || retKind == RTK_Struct
+            int32_t val;
+            std::memcpy(&val, frame.pResult, sizeof(val));
+            //String return slot: same handle-not-heap-index split as locals.
+            if (retKind == RTK_String) {
+                MarkString(val);
+            } else if (retKind == RTK_Class || retKind == RTK_Struct
                 || retKind == RTK_Array || retKind == RTK_Func) {
-                int32_t val;
-                std::memcpy(&val, frame.pResult, sizeof(val));
                 if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
                     && !m_markBits[val]) {
                     m_markBits[val] = true;
@@ -1656,11 +1678,24 @@ void VmExecutor::MarkPhase() {
                 m_markBits[static_cast<size_t>(thisIdx)] = true;
                 worklist.push_back(thisIdx);
             }
+        } else if (m_slotKinds[idx] == RTK_Boxed) {
+            //String objectization: a boxed string's payload (slot[1]) is a
+            //string handle. Other boxed tags carry raw bits (no children).
+            if (m_structHeap[idx][0] == RTK_String)
+                MarkString(m_structHeap[idx][1]);
         } else if (m_slotKinds[idx] == RTK_Class) {
             int32_t classIdx = m_structHeap[idx][0];
             auto& cc = m_currModule->classes[classIdx];
             for (uint16_t i = 0; i < cc.fieldCount; ++i) {
                 int32_t refIdx = m_structHeap[idx][i + 1];
+                //String fields carry a string-store handle, not a heap
+                //index — route before the heap-index guard (a valid handle
+                //may lie beyond the struct heap's size). No runtime slot-
+                //kind double condition: the string store has no slotKinds.
+                if (cc.fieldTypeKinds[i] == RTK_String) {
+                    MarkString(refIdx);
+                    continue;
+                }
                 if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
                     continue;
                 //Array redesign B: field kinds come from the declared type,
@@ -1701,9 +1736,12 @@ void VmExecutor::MarkPhase() {
                                     //slot[1] receiver must be traced);
                                     //array records too (their elements
                                     //are traced by the RTK_Array arm —
-                                    //raw-handle elements, hole-1).
+                                    //raw-handle elements, hole-1);
+                                    //boxed records now (a boxed string's
+                                    //payload is a string handle).
                                     if (k == RTK_Class || k == RTK_Struct
-                                        || k == RTK_Func || k == RTK_Array)
+                                        || k == RTK_Func || k == RTK_Array
+                                        || k == RTK_Boxed)
                                         worklist.push_back(elem);
                                 }
                             }
@@ -1731,9 +1769,12 @@ void VmExecutor::MarkPhase() {
                                         //slot[1] receiver must be traced);
                                         //array records too (their elements
                                         //are traced by the RTK_Array arm —
-                                        //raw-handle elements, hole-1).
+                                        //raw-handle elements, hole-1);
+                                        //boxed records now (a boxed string's
+                                        //payload is a string handle).
                                         if (k == RTK_Class || k == RTK_Struct
-                                            || k == RTK_Func || k == RTK_Array)
+                                            || k == RTK_Func || k == RTK_Array
+                                            || k == RTK_Boxed)
                                             worklist.push_back(elem);
                                     }
                                 }
@@ -1747,6 +1788,12 @@ void VmExecutor::MarkPhase() {
             auto& cs = m_currModule->structs[structIdx];
             for (uint16_t i = 0; i < cs.fieldCount; ++i) {
                 int32_t refIdx = m_structHeap[idx][i];
+                //String fields carry a string-store handle, not a heap
+                //index — same pre-guard routing as the class field arm.
+                if (cs.fieldTypeKinds[i] == RTK_String) {
+                    MarkString(refIdx);
+                    continue;
+                }
                 if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
                     continue;
                 //Explicit RTK_Array route (declared kind now authoritative) —
@@ -1768,6 +1815,12 @@ void VmExecutor::MarkPhase() {
             int32_t length = m_structHeap[idx][2];
             for (int32_t i = 0; i < length; ++i) {
                 int32_t elemRef = m_structHeap[idx][3 + i];
+                //String elements are raw string handles (hole-1 uses 0 =
+                //null) — same pre-guard routing as the field arms.
+                if (at.elemKind == RTK_String) {
+                    MarkString(elemRef);
+                    continue;
+                }
                 if (elemRef <= 0 || static_cast<size_t>(elemRef) >= m_slotKinds.size())
                     continue;
                 if (at.elemKind == RTK_Class && m_slotKinds[elemRef] == RTK_Class

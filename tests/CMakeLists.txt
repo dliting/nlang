@@ -90,6 +90,26 @@ target_link_libraries(test_debugger
 
 add_test(NAME debugger_tests COMMAND test_debugger)
 
+# String object store + GC unit tests: in-process ModuleBuilder compile
+# of real .n sources + VmExecutor runs with white-box GC observers
+# (SetGcStressThresholds / LiveStringObjectCount).
+add_executable(test_strings
+    test_vm/test_strings.cpp
+)
+target_include_directories(test_strings
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_strings
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+add_test(NAME string_gc_tests COMMAND test_strings)
+set_tests_properties(string_gc_tests PROPERTIES TIMEOUT 180)
+
 # ScriptScanner location tests (compiler-mode column tracking).
 add_executable(test_scanner
     test_compiler/test_scanner.cpp

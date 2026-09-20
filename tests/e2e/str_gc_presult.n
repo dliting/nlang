@@ -1,0 +1,19 @@
+//e2e
+string build(int n) {
+    return "part-" + n + "-end";
+}
+string churn(int n) {
+    string a = "a" + n;
+    string b = "b" + n;
+    return a + b;
+}
+int main() {
+    string s = build(7);
+    int i = 0;
+    while (i < 200) {
+        churn(i);
+        i = i + 1;
+    }
+    if (s != "part-7-end") return 1;
+    return 0;
+}

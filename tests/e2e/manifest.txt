@@ -1043,3 +1043,12 @@ dict_identical_content_keys 30 2
 # --- String object store (Task 1): backtrace boxing + content indexOf ---
 str_backtrace_get 0
 str_list_indexof_concat 0
+
+# --- String GC collection (Task 2): trace faces under --gc-stress ---
+str_gc_local 0
+str_gc_presult 0
+str_gc_field 0
+str_gc_array 0
+str_gc_list 0
+str_gc_const 0
+str_concat_stress 0
