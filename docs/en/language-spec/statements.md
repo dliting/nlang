@@ -21,7 +21,7 @@ return expr;
 **Condition typing:** `if`/`while`/`do-while`/`for`/`assert` conditions
 must be `int` (comparisons produce `int`). String, float, class, struct,
 and array conditions are compile errors — the VM's `OP_JumpIfNot` reads
-a single int32, and non-int values (string pool handles, heap indices)
+a single int32, and non-int values (string object handles, heap indices)
 have no meaningful truthiness. Use an explicit comparison instead:
 `if (s != "")`, `if (obj != null)`.
 

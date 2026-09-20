@@ -8,7 +8,7 @@
 | OP_ConstInt32   | int32                       | Push constant to pResult       |
 | OP_ConstFloat   | float                       | Push constant to pResult       |
 | OP_ConstZero    | —                           | Push 0 to pResult              |
-| OP_ConstString  | uint16 poolIdx              | Push string pool index         |
+| OP_ConstString  | uint16 constIdx             | Push string constant handle    |
 | OP_VarLocal     | uint16 offset               | Load local to pResult          |
 | OP_Assign       | uint16 dst                  | Store pResult to local         |
 | OP_Return       | —                           | Return from function           |
@@ -75,7 +75,7 @@ to a short-circuit jump sequence (`OP_JumpIfNot` plus double
 |---------------------|--------------------------------------|---------------------------------|
 | OP_MakeFunc         | funcIdx (uint16)                     | Static handle {funcIdx, 0, 0}   |
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | Reads receiver from pResult → {funcIdx, this, static} |
-| OP_MakeVFunc        | nameIdx (uint16, string pool)        | Reads receiver from pResult → {nameIdx, this, virtual} |
+| OP_MakeVFunc        | nameIdx (uint16, string constant table) | Reads receiver from pResult → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | Invoke through a handle         |
 | OP_CallDelegateOut  | calleeLocal, callParamBase, outMask (uint32) | + out writeback         |
 | OP_Eq_func          | lhs, rhs                             | Handle content equality (null-guarded) |
@@ -123,13 +123,13 @@ OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 | OP_Enum_to_str   | int32 enum value → string (Phase 8e-9b, name lookup) |
 
 The string coercion opcodes follow the same pResult convention as the int/
-float casts: read source from `pResult`, push the formatted string to
-`m_stringPool`, write the new string index (int32) back to `pResult`. The
+float casts: read source from `pResult`, mint the formatted string as a
+string object, write the new handle (int32) back to `pResult`. The
 emit pattern is always `OP_<type>_to_str` followed by `OP_Assign dst`.
 
 `OP_Enum_to_str` takes a uint16 `enumDefIdx` immediate operand. It reads the
 int32 enum value from `pResult`, looks up `m_compiledModule.enumNames[enumDefIdx][value]`,
-pushes the name string to `m_stringPool`, and writes the index back. Throws
+mints the name as a string object, and writes the handle back. Throws
 if the value is out of range.
 
 Emit sites:

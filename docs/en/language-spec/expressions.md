@@ -40,17 +40,18 @@ relational ordering (`<`, `>`, `<=`, `>=`) uses C `strcmp`-style byte-by-byte
 comparison (e.g. `"Z" < "a"` is true because `'Z'` (90) < `'a'` (97)). Because
 strings are UTF-8 and UTF-8 byte order equals code point order, ordering is
 also correct for non-ASCII text: `"é" > "z"` is true. (Before Phase 11 Step 3b
-the emitted code compared string pool indexes — literal order in the source
-could flip the result.)
+the emitted code compared string constant table indexes — literal order in
+the source could flip the result.)
 
 **Comparison operands are typed (Phase 11 Step 3b)**:
 
 - Mixed string/non-string is a **compile error** (`"a" < 5`, `5 == "a"`).
   The one exception is the null literal: `s == null` / `c == null` compare
   against the null sentinel — identity for class/reference operands; for a
-  string operand the null side reads as the pool's index-0 entry (a known
-  hole: a string whose content sits at pool index 0 is bit-identical to
-  null; the pool has no reserved sentinel slot).
+  string operand the null side reads as the empty string (handle 0 is the
+  reserved null sentinel; a real empty string has its own object, distinct
+  from null by bits). `"" == null` therefore compares equal, and any
+  non-empty string compares unequal.
 - int/float pairs get the same symmetric promotion as arithmetic
   (Phase 8e-8): `-2 < -1.5` promotes to float and is true; `1 == 1.0` is
   true. (Before Step 3b these compared raw bit patterns and could return
@@ -120,8 +121,8 @@ string s6 = "x" + (-7);    // "x-7" — negative formatted with sign
 **Implementation**:
 - `int → string`: `OP_Int32_to_str` (decimal, via `std::to_string`)
 - `float → string`: `OP_Float_to_str` (`%g` format — `2.5` not `2.500000`)
-- Both push the formatted string into the runtime `m_stringPool` and write
-  the new index back to `pResult`. Followed by `OP_Assign` to move into the
+- Both mint the formatted string as a runtime string object and write
+  the new handle back to `pResult`. Followed by `OP_Assign` to move into the
   destination slot.
 - `string → int/float` remains rejected (`TCK_None` in CastInfo.cpp) — use
   the standard library's `s.toInt()` / `s.toFloat()` instead (see Standard

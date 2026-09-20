@@ -16,5 +16,3 @@
 6. **`List<struct>` value semantics**: adding the same struct variable
    twice shares the underlying heap slot (boxing is reference semantics).
    Use separate struct instances for distinct elements.
-7. **String pool grows unbounded**: Concatenated strings are added to the pool
-   but never collected.

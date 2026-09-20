@@ -130,7 +130,7 @@ additional roots.
 **Key equality** is kind-aware:
 - Primitive keys (boxed `int`, `float`): compare value bits (IEEE 754 —
   `NaN != NaN`, documented behavior).
-- `string` keys: compare string-pool content (value equality).
+- `string` keys: compare string content (value equality).
 - `class` / `struct` keys: compare heap idx (identity), matching Java's
   `IdentityHashMap` and C#'s default `object.Equals`. A user `Equals`
   override is **not** consulted — override-based dictionary semantics

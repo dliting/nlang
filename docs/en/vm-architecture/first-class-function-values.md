@@ -6,7 +6,7 @@ A function value (delegate) is a **3-slot heap record** with
 
 | slot | static-bound handle (`kFuncFormStatic`) | virtual-dispatch handle (`kFuncFormVirtual`) |
 |------|------------------------------------------|----------------------------------------------|
-| [0]  | `functions[]` index                      | string-pool index (method name)              |
+| [0]  | `functions[]` index                      | string constant table index (method name)    |
 | [1]  | receiver heap index (0 for free functions) | receiver heap index                        |
 | [2]  | form (0 / 1)                             | form (0 / 1)                                 |
 

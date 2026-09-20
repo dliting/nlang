@@ -15,7 +15,7 @@ cross-module imports have no id problems.
 - namespace free functions read arguments from `callParamBase` slot 0
   upward, **no `this` pointer** (unlike every other intrinsic family, where
   `this` occupies slot 0);
-- string methods use the `string.equals` ABI: receiver pool idx at
+- string methods use the `string.equals` ABI: receiver string handle at
   `callParamBase[0]`, args from slot 1.
 
 **VM dispatch chain**: `ExecuteIntrinsic` (VmExecutor.cpp) delegates to one

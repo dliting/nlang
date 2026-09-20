@@ -8,7 +8,7 @@
 | OP_ConstInt32   | int32                       | 把常量压入 pResult             |
 | OP_ConstFloat   | float                       | 把常量压入 pResult             |
 | OP_ConstZero    | —                           | 把 0 压入 pResult              |
-| OP_ConstString  | uint16 poolIdx              | 压入 string 池索引             |
+| OP_ConstString  | uint16 constIdx             | 压入字符串常量句柄             |
 | OP_VarLocal     | uint16 offset               | 把局部变量读入 pResult         |
 | OP_Assign       | uint16 dst                  | 把 pResult 存入局部变量        |
 | OP_Return       | —                           | 从函数返回                     |
@@ -75,7 +75,7 @@
 |---------------------|--------------------------------------|---------------------------------|
 | OP_MakeFunc         | funcIdx (uint16)                     | 静态句柄 {funcIdx, 0, 0}        |
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | 从 pResult 读取接收者 → {funcIdx, this, static} |
-| OP_MakeVFunc        | nameIdx (uint16, string 池)          | 从 pResult 读取接收者 → {nameIdx, this, virtual} |
+| OP_MakeVFunc        | nameIdx (uint16, 字符串常量表)       | 从 pResult 读取接收者 → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | 经句柄调用                      |
 | OP_CallDelegateOut  | calleeLocal, callParamBase, outMask (uint32) | 另有 out 写回           |
 | OP_Eq_func          | lhs, rhs                             | 句柄内容相等（带 null 守卫）    |
@@ -121,13 +121,13 @@ SnAsExpr，其代码生成按解析出的转换 kind 发射 OP_Unbox/OP_CheckCas
 | OP_Enum_to_str   | int32 枚举值 → string（Phase 8e-9b，按名查找） |
 
 字符串强转指令沿用与 int/float 转换相同的 pResult 约定：从 `pResult`
-读取源值，把格式化后的字符串压入 `m_stringPool`，再把新字符串索引
+读取源值，把格式化后的字符串铸造为字符串对象，再把新句柄
 （int32）写回 `pResult`。发射模式固定为 `OP_<type>_to_str` 后接
 `OP_Assign dst`。
 
 `OP_Enum_to_str` 带一个 uint16 `enumDefIdx` 立即操作数。它从
 `pResult` 读取 int32 枚举值，查 `m_compiledModule.enumNames[enumDefIdx][value]`，
-把名字字符串压入 `m_stringPool`，再写回索引。值越界时抛错。
+把名字铸造为字符串对象，再写回句柄。值越界时抛错。
 
 发射位点：
 - `VmBackend.cpp` 的 `EmitExpression(SnCastExpr&)` 按 `(srcKind,

@@ -21,7 +21,7 @@ return expr;
 **条件类型**：`if`/`while`/`do-while`/`for`/`assert` 的条件必须是
 `int`（比较产生 `int`）。string、float、class、struct、array 条件
 都是编译错误——VM 的 `OP_JumpIfNot` 读的是单个 int32，非 int 值
-（string 池句柄、堆索引）没有有意义的真值。请用显式比较代替：
+（字符串对象句柄、堆索引）没有有意义的真值。请用显式比较代替：
 `if (s != "")`、`if (obj != null)`。
 
 ### foreach 语句（Phase 8e-5）

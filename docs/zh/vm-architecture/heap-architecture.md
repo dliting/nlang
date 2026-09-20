@@ -82,19 +82,19 @@ slot[0] 始终按类型标签读取，不会被误读成 classIdx。SweepPhase �
 
 字符串在运行期是 GC 管理的不可变对象，存放在独立的对象仓
 `m_stringObjs` 中。前五类堆记录（class/struct/boxed/func/array）
-共享 `m_structHeap`，字符串是第六类存储，拥有自己的标记位组、空闲
-表与回收阈值（回收语义见垃圾回收设计一章）。
+共享 `m_structHeap`，字符串是第六类存储，拥有自己的标记位向量、空闲
+表与回收阈值（回收语义见垃圾回收设计页）。
 
 - **句柄语义**：`RTK_String` 槽位持有 1-based 句柄（0 = null，读作
   空串——与堆索引 0 的哨兵约定同形）。
 - **Flat / Cons 双形态**：对象要么是 Flat（`str` 持有内容），要么是
-  Cons（`left`/`right` 持有两个子女句柄）。拼接（`OP_Concat_str`）
+  Cons（`left`/`right` 持有两个子节点）。拼接（`OP_Concat_str`）
   分配 Cons 节点，O(1) 零拷贝；首次读取时就地展平为 Flat——所有
   既有句柄看到的都是展平后的内容。
 - **immortal 与 interned 位**：`immortal` 位标记随模块执行物化的
   常量对象（永不回收）；`interned` 位标记进入短串驻留表（≤40 字节
   按内容共享，内容到存活句柄的弱映射）的对象——两个驻留串的 `==`
-  退化为句柄比较。
+  等价于句柄比较。
 
 ### 内建泛型 `List<T>`（Phase 8e-3）
 

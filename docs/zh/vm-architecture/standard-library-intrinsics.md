@@ -14,7 +14,7 @@
 - 命名空间自由函数从 `callParamBase` 槽 0 起读取实参，**没有
   `this` 指针**（不同于其他所有内建函数家族——它们的 `this` 占据
   槽 0）；
-- 字符串方法沿用 `string.equals` 的 ABI：接收者池索引在
+- 字符串方法沿用 `string.equals` 的 ABI：接收者字符串句柄在
   `callParamBase[0]`，实参从槽 1 起。
 
 **VM 分派链**：`ExecuteIntrinsic`（VmExecutor.cpp）委托给每个家族

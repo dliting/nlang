@@ -123,8 +123,7 @@ and each collection marks the entire live concatenation chain, degrading
 total append cost to O(n^2) (measured: 5x10^4-node chain 6.6s, 10^5-node
 chain 26.7s). Backing the threshold off to 2x the surviving population
 after each sweep (`strThreshold = max(strThreshold, 2 * survivorCount)`)
-makes
-triggers advance geometrically with the live set: appends amortize to
+makes triggers advance geometrically with the live set: appends amortize to
 O(1), with memory bounded at 2x the live set.
 
 ### Array Field and Element Tracing (array redesign B)
