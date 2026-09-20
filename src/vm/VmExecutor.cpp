@@ -925,10 +925,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             std::memcpy(&hA, locals + dst, sizeof(hA));
             std::memcpy(&hB, locals + src, sizeof(hB));
             if (hA == hB) {
-                //Self-concat (s = s + s) would give the node the same
-                //child on both sides — a DAG, and the flatten walk is a
-                //tree walk (it would never terminate). Materialize the
-                //operand instead: rare shape, correctness first.
+                //Self-concat (s = s + s) would link the same handle on
+                //both sides. The walk still terminates (cons edges only
+                //ever point at older nodes, so no true cycle can form),
+                //but the shared subtree is revisited once per occurrence
+                //— and repeated self-doubling compounds that into 2^n
+                //visits. Materialize the operand instead: rare shape,
+                //correctness first.
                 std::string doubled = StrVal(hA);   //no mint between reads
                 doubled += StrVal(hA);
                 int32_t handle = MintNewString(std::move(doubled));

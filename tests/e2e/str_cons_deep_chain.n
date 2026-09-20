@@ -1,20 +1,21 @@
 //e2e str_cons_deep_chain: O(1) cons appends, iterative flatten of a
-//left-leaning chain, GC-traced cons children. 50000 iterations (not the
-//plan's 10^6): the per-safepoint level-triggered GC marks the live chain
-//on every iteration, so total marking is quadratic — 10^6 measured
-//infeasible (~minutes); 50000 runs in seconds and its chain depth still
-//kills any recursive flattener (1 MB stack).
+//left-leaning chain, GC-traced cons children. 10^6 appends complete in
+//a fraction of a second because the sweep-end threshold backoff (spec
+//D2.2) lets GC triggers advance geometrically with the live chain —
+//without it, the level-triggered size trigger marked the whole chain on
+//every safepoint and the same shape measured 26.7s at a mere 10^5. The
+//10^6 depth also kills any recursive flattener (1 MB stack).
 int main() {
     string s = "";
     int i = 0;
-    while (i < 50000) {
+    while (i < 1000000) {
         s = s + "ab";
         i = i + 1;
     }
-    if (s.length() != 100000) return 1;
+    if (s.length() != 2000000) return 1;
     if (s.substring(0, 2) != "ab") return 2;
-    if (s.substring(99998, 100000) != "ab") return 3;
-    if (s != "ab" + s.substring(2, 100000)) return 4;
+    if (s.substring(1999998, 2000000) != "ab") return 3;
+    if (s != "ab" + s.substring(2, 2000000)) return 4;
     string t = "";
     i = 0;
     while (i < 1000) {
@@ -22,7 +23,7 @@ int main() {
         i = i + 1;
     }
     if (t.substring(1998, 2000) != "xy") return 5;
-    if ((s + t).length() != 102000) return 6;
+    if ((s + t).length() != 2002000) return 6;
     if (!(s < t)) return 7;   //bytewise relational over cons operands
     string self = "ab";
     self = self + self;       //self-concat: same handle on both sides

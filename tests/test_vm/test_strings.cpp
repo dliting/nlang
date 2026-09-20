@@ -12,6 +12,7 @@
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -73,7 +74,11 @@ static bool loadSource(const std::string& tag, const std::string& source,
 }
 
 //The dropped accumulator must not survive: with the trace faces complete,
-//the 10k-iteration history reclaims down to a small residue.
+//the 10k-iteration history reclaims down to a small residue. Post-backoff
+//(D2.2) the trigger rides at 2x peak-live, so reclamation is only
+//observable once allocations cross that backed-off threshold — the churn
+//loop is sized to force the crossing (the half-space bound: memory stays
+//at 2x peak-live until then, which the spec accepts).
 void test_bounded_concat_live_count()
 {
     TEST(bounded_concat_live_count);
@@ -89,7 +94,7 @@ void test_bounded_concat_live_count()
         "    if (s.length() != 20000) return 1;\n"
         "    s = \"\";\n"
         "    i = 0;\n"
-        "    while (i < 100) {\n"
+        "    while (i < 5000) {\n"
         "        string t = \"x\" + i;\n"
         "        i = i + 1;\n"
         "    }\n"
@@ -239,9 +244,43 @@ void test_intern_sweep_purifies_table()
     PASS();
 }
 
+//O(n^2) regression pin at DEFAULT thresholds: appending a deep chain used
+//to mark the whole live chain on every safepoint once the store crossed
+//the fixed trigger (the store never shrinks, so the size trigger is
+//level-triggered). The sweep-end threshold backoff (2x surviving
+//population) makes triggers advance geometrically with live data — this
+//shape ran minutes-level before the backoff and must stay in the
+//sub-second range now; the bound is measured seconds x 10 headroom.
+void test_deep_chain_append_bounded_time()
+{
+    TEST(deep_chain_append_bounded_time);
+    CompiledModule mod;
+    CHECK(loadSource("deep_chain_time",
+        "int main() {\n"
+        "    string s = \"\";\n"
+        "    int i = 0;\n"
+        "    while (i < 100000) {\n"
+        "        s = s + \"ab\";\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    if (s.length() != 200000) return 1;\n"
+        "    if (s.substring(199998, 200000) != \"ab\") return 2;\n"
+        "    return 0;\n"
+        "}\n", mod), "build failed");
+    VmExecutor exec;
+    const auto start = std::chrono::steady_clock::now();
+    CHECK(exec.Execute(mod) == 0, "chain must read back correct");
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    CHECK(elapsed < std::chrono::seconds(2),
+        "10^5 default-threshold chain appends must stay well under 2s "
+        "(quadratic marking measures in the tens of seconds)");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
+    test_deep_chain_append_bounded_time();
     test_intern_reuse_short_strings();
     test_intern_sweep_purifies_table();
     test_bounded_concat_live_count();

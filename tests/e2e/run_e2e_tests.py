@@ -408,7 +408,10 @@ def main():
             extra_flags = []
             if os.path.isfile(flags_path):
                 with open(flags_path, encoding='utf-8') as ff:
-                    extra_flags = shlex.split(ff.read().strip())
+                    #comments=True: '#' starts a comment, so a .flags file
+                    #can carry a half-word rationale next to its flags.
+                    extra_flags = shlex.split(ff.read().strip(),
+                                              comments=True)
             try:
                 result = subprocess.run(
                     _runner_argv(name, ndb, nvm) + [nmod_file] + extra_flags,

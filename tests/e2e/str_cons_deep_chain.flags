@@ -1,1 +1,2 @@
+#64 is cosmetic: once the store is permanently over threshold, GC cadence is identical at 8 or 64 (the clamp is the backoff start).
 --gc-stress=64

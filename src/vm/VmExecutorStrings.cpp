@@ -9,6 +9,7 @@ in place on first read, StrValCopy serves frozen views, and MarkString
 traces cons children so a dropped chain is reclaimed whole.
 ---*/
 #include "VmExecutor.h"
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -80,9 +81,15 @@ bool VmExecutor::IsInternedString(int32_t handle) const {
 
 //O(1) zero-copy concatenation: content-blind, so never interned (intern
 //sites are content-aware mints only). Null sides stay 0 and contribute
-//nothing at flatten time. Callers must not pass the same handle on both
-//sides — that would build a DAG and the flatten walk is a tree walk
-//(OP_Concat_str guards this by materializing the operand first).
+//nothing at flatten time.
+//Precondition callers must uphold (OP_Concat_str guards it): left != right.
+//A shared child is not a cycle — edges only point at older nodes, and a
+//live parent keeps its children alive, so no true cycle can form — but
+//the shared subtree is revisited once per occurrence, and repeated
+//self-doubling compounds that into 2^n visits. The defense is
+//asymmetric: MarkString is immune (mark bits skip revisits), FlattenInto
+//is not, so the guard lives at the semantic layer where the aliasing is
+//created.
 int32_t VmExecutor::AllocConsString(int32_t left, int32_t right) {
     int32_t handle = AllocStringObj();
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
@@ -136,10 +143,18 @@ const std::string& VmExecutor::StrVal(int32_t handle) {
 
 //Frozen-view accessor: flattens into a local buffer without touching the
 //node (debugger contract: const formatters MUST NOT touch the NLang heap).
+//Flat fast path first: most strings are Flat, and the shared walk would
+//allocate a work vector per call for them (ffc54fe restored — this
+//accessor is execution-path too, via the ReadStrArg family and
+//DictKeysEqual, not debug-only).
 std::string VmExecutor::StrValCopy(int32_t handle) const {
+    if (!IsLiveStringHandle(handle))
+        return std::string();
+    const StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
+    if (so.form != StrObj::Form::Cons)
+        return so.str;
     std::string flat;
-    if (IsLiveStringHandle(handle))
-        FlattenInto(flat, handle);
+    FlattenInto(flat, handle);
     return flat;
 }
 
@@ -190,6 +205,21 @@ void VmExecutor::SweepStrings() {
     //branch never sets mark bits — clearing here makes the invariant hold
     //after every collection, not only before every mark.
     m_strMarkBits.assign(m_stringObjs.size(), false);
+
+    //D2.2: the store vector never shrinks (dead slots recycle in place),
+    //so the size trigger is level-triggered — past the first crossing
+    //every safepoint collects, and marking a growing live cons chain per
+    //GC costs O(chain) each time (measured O(n^2) total: 5e4 chain =
+    //6.6s, 1e5 = 26.7s). Back the threshold off to 2x the surviving
+    //population so triggers advance geometrically with live data —
+    //amortized O(1) appends, memory bounded at 2x live. The clamp from
+    //SetGcStressThresholds is a backoff START, not a cap: max() only
+    //raises it, and bounded-population assertions still hold because
+    //boundedness comes from the sweep itself, not the trigger rate.
+    size_t liveCount = 0;
+    for (const StrObj& so : m_stringObjs)
+        if (static_cast<uint8_t>(so.form) != kStrFormDead) ++liveCount;
+    m_strGcThreshold = std::max(m_strGcThreshold, 2 * liveCount);
 }
 
 size_t VmExecutor::LiveStringObjectCount() const {
