@@ -9,16 +9,18 @@ struct Pt {
     string name;
 }
 int main() {
-    Holder h = new Holder("kept-tag");
+    Holder h = new Holder("kept-" + 7);   //minted anchor — a constant tag would never be swept
+    //Struct declared before the loop so its field's lifetime spans the
+    //stress safepoints (a post-loop anchor crosses zero collections).
+    Pt p;
+    p.x = 3;
+    p.name = "pt-" + 3;
     int i = 0;
     while (i < 200) {
         Holder tmp = new Holder("garbage-" + i);
         i = i + 1;
     }
-    if (h.tag != "kept-tag") return 1;
-    Pt p;
-    p.x = 3;
-    p.name = "pt-name";
-    if (p.name != "pt-name") return 2;
+    if (h.tag != "kept-7") return 1;
+    if (p.name != "pt-3") return 2;
     return 0;
 }
