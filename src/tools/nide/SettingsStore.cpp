@@ -1,4 +1,4 @@
-/*--- SettingsStore.cpp - persisted nide settings ---*/
+﻿/*--- SettingsStore.cpp - persisted nide settings ---*/
 #include "SettingsStore.h"
 
 #include <QDir>
@@ -10,17 +10,21 @@ namespace nlang {
 namespace {
 const char* const LANGUAGE_KEY = "ide/language";
 const char* const BUILD_OUTPUT_DIR_KEY = "ide/buildOutputDir";
+const char* const TOOLBAR_ICON_SIZE_KEY = "ide/toolbarIconSize";
 } // namespace
 
 void SettingsStore::load(QSettings& settings) {
     m_language = settings.value(LANGUAGE_KEY, LANGUAGE_SYSTEM).toString();
     m_buildOutputDir =
         settings.value(BUILD_OUTPUT_DIR_KEY).toString();
+    m_toolbarIconSize =
+        settings.value(TOOLBAR_ICON_SIZE_KEY, TOOLBAR_ICON_SMALL).toString();
 }
 
 void SettingsStore::save(QSettings& settings) const {
     settings.setValue(LANGUAGE_KEY, m_language);
     settings.setValue(BUILD_OUTPUT_DIR_KEY, m_buildOutputDir);
+    settings.setValue(TOOLBAR_ICON_SIZE_KEY, m_toolbarIconSize);
 }
 
 SettingsStore SettingsStore::persisted() {

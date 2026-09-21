@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <!--MainWindow.ui: the build-all action family is omitted (no stubs);
 solution lifecycle actions are present (NLang has a persistent .nsln);
 the two output docks are direct tabOutput pages (not reparented
@@ -470,16 +470,25 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    <addaction name="actRemoveFile"/>
    <addaction name="separator"/>
    <addaction name="actBuild"/>
+   <addaction name="actClearBuild"/>
    <addaction name="separator"/>
    <addaction name="actStartRunning"/>
    <addaction name="actStopRunning"/>
    <addaction name="separator"/>
    <addaction name="actStartDebug"/>
    <addaction name="actStopDebug"/>
+   <addaction name="actStepInto"/>
+   <addaction name="actStepOver"/>
+   <addaction name="actStepOut"/>
+   <addaction name="actToggleBreakpoint"/>
   </widget>
   <widget class="MainStatusBar" name="statusBar"/>
   <action name="actNewSolution">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/new_solution.png</normaloff>:/nide/Resources/new_solution.png</iconset>
+   </property>
+<property name="text">
     <string>解决方案...</string>
    </property>
    <property name="toolTip">
@@ -487,7 +496,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
   </action>
   <action name="actOpenSolution">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/open_solution.png</normaloff>:/nide/Resources/open_solution.png</iconset>
+   </property>
+<property name="text">
     <string>解决方案...</string>
    </property>
    <property name="toolTip">
@@ -495,7 +508,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
   </action>
   <action name="actSaveSolution">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/save_solution.png</normaloff>:/nide/Resources/save_solution.png</iconset>
+   </property>
+<property name="text">
     <string>保存解决方案</string>
    </property>
    <property name="toolTip">
@@ -705,7 +722,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
   </action>
   <action name="actClearBuild">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/clear_build.png</normaloff>:/nide/Resources/clear_build.png</iconset>
+   </property>
+<property name="text">
     <string>清除输出</string>
    </property>
    <property name="toolTip">
@@ -742,7 +763,7 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
   <action name="actStartDebug">
    <property name="icon">
     <iconset resource="../nide.qrc">
-     <normaloff>:/nide/Resources/control-run.png</normaloff>:/nide/Resources/control-run.png</iconset>
+     <normaloff>:/nide/Resources/debug.png</normaloff>:/nide/Resources/debug.png</iconset>
    </property>
    <property name="text">
     <string>启动调试</string>
@@ -757,7 +778,7 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
   <action name="actStopDebug">
    <property name="icon">
     <iconset resource="../nide.qrc">
-     <normaloff>:/nide/Resources/control-stop.png</normaloff>:/nide/Resources/control-stop.png</iconset>
+     <normaloff>:/nide/Resources/stop_debug.png</normaloff>:/nide/Resources/stop_debug.png</iconset>
    </property>
    <property name="text">
     <string>停止调试</string>
@@ -770,7 +791,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
   </action>
   <action name="actStepInto">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/step_into.png</normaloff>:/nide/Resources/step_into.png</iconset>
+   </property>
+<property name="text">
     <string>单步进入</string>
    </property>
    <property name="toolTip">
@@ -781,7 +806,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
   </action>
   <action name="actStepOver">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/step_over.png</normaloff>:/nide/Resources/step_over.png</iconset>
+   </property>
+<property name="text">
     <string>单步跳过</string>
    </property>
    <property name="toolTip">
@@ -792,7 +821,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
   </action>
   <action name="actStepOut">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/step_out.png</normaloff>:/nide/Resources/step_out.png</iconset>
+   </property>
+<property name="text">
     <string>单步跳出</string>
    </property>
    <property name="toolTip">
@@ -803,7 +836,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
   </action>
   <action name="actToggleBreakpoint">
-   <property name="text">
+   <property name="icon">
+    <iconset resource="../nide.qrc">
+     <normaloff>:/nide/Resources/breakpoint.png</normaloff>:/nide/Resources/breakpoint.png</iconset>
+   </property>
+<property name="text">
     <string>切换断点</string>
    </property>
    <property name="toolTip">

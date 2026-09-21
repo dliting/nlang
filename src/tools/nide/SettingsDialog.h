@@ -1,4 +1,4 @@
-/*--- SettingsDialog.h - Tools > Options form (language, build output) ---*/
+﻿/*--- SettingsDialog.h - Tools > Options form (language, build output) ---*/
 #ifndef NLANG_TOOLS_NIDE_SETTINGS_DIALOG_H
 #define NLANG_TOOLS_NIDE_SETTINGS_DIALOG_H
 
@@ -26,10 +26,12 @@ public:
     ~SettingsDialog() override;
 
     //Seed the form (call before exec()).
-    void init(const QString& language, const QString& buildOutputDir);
+    void init(const QString& language, const QString& buildOutputDir,
+              const QString& toolbarIconSize);
     //Current values for the caller to persist on accept.
     QString language() const;
     QString buildOutputDir() const;  // trimmed; "" = disabled
+    QString toolbarIconSize() const;  // TOOLBAR_ICON_SMALL | TOOLBAR_ICON_LARGE
 
 private slots:
     void onBrowseDirectory();

@@ -1,4 +1,4 @@
-<!DOCTYPE RCC><RCC version="2.0">
+﻿<!DOCTYPE RCC><RCC version="2.0">
 <!--The 17 icons actually referenced: 14 action iconsets in
 MainWindow.ui plus the 3 solution-tree decorations in
 SolutionTreeModel.cpp.-->
@@ -20,5 +20,16 @@ SolutionTreeModel.cpp.-->
     <file>Resources/save_file.png</file>
     <file>Resources/save_project.png</file>
     <file>Resources/solution.png</file>
+    <file>Resources/new_solution.png</file>
+    <file>Resources/open_solution.png</file>
+    <file>Resources/save_solution.png</file>
+    <file>Resources/debug.png</file>
+    <file>Resources/stop_debug.png</file>
+    <file>Resources/step_into.png</file>
+    <file>Resources/step_over.png</file>
+    <file>Resources/step_out.png</file>
+    <file>Resources/breakpoint.png</file>
+    <file>Resources/clear_build.png</file>
+    <file>Resources/app_icon.png</file>
 </qresource>
 </RCC>

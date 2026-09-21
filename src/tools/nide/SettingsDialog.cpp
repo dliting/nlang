@@ -1,4 +1,4 @@
-/*--- SettingsDialog.cpp - Tools > Options form ---*/
+﻿/*--- SettingsDialog.cpp - Tools > Options form ---*/
 #include "SettingsDialog.h"
 #include "ui_SettingsDialog.h"
 
@@ -22,6 +22,8 @@ SettingsDialog::SettingsDialog(QWidget* parent)
                                LANGUAGE_ZH);
     m_ui->cmbLanguage->addItem(QStringLiteral("English"),
                                LANGUAGE_EN);
+    m_ui->cmbIconSize->addItem(tr("Small (32x32)"), TOOLBAR_ICON_SMALL);
+    m_ui->cmbIconSize->addItem(tr("Large (48x48)"), TOOLBAR_ICON_LARGE);
     connect(m_ui->btnBrowse, &QPushButton::clicked, this,
             &SettingsDialog::onBrowseDirectory);
 }
@@ -29,7 +31,8 @@ SettingsDialog::SettingsDialog(QWidget* parent)
 SettingsDialog::~SettingsDialog() = default;
 
 void SettingsDialog::init(const QString& language,
-                          const QString& buildOutputDir) {
+                          const QString& buildOutputDir,
+                          const QString& toolbarIconSize) {
     const int index = m_ui->cmbLanguage->findData(language);
     m_ui->cmbLanguage->setCurrentIndex(index < 0 ? 0 : index);
     m_ui->edtBuildOutputDir->setText(buildOutputDir);
@@ -38,6 +41,8 @@ void SettingsDialog::init(const QString& language,
     //default instead of a blank field.
     m_ui->edtBuildOutputDir->setPlaceholderText(
         SettingsStore::defaultStandaloneBuildDir());
+    const int iconIdx = m_ui->cmbIconSize->findData(toolbarIconSize);
+    m_ui->cmbIconSize->setCurrentIndex(iconIdx < 0 ? 0 : iconIdx);
 }
 
 QString SettingsDialog::language() const {
@@ -47,6 +52,11 @@ QString SettingsDialog::language() const {
 
 QString SettingsDialog::buildOutputDir() const {
     return m_ui->edtBuildOutputDir->text().trimmed();
+}
+
+QString SettingsDialog::toolbarIconSize() const {
+    const QVariant data = m_ui->cmbIconSize->currentData();
+    return data.isValid() ? data.toString() : TOOLBAR_ICON_SMALL;
 }
 
 void SettingsDialog::onBrowseDirectory() {

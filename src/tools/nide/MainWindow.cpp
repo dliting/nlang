@@ -1,4 +1,4 @@
-/*--- MainWindow.cpp - main window of the NLang IDE ---*/
+﻿/*--- MainWindow.cpp - main window of the NLang IDE ---*/
 #include "MainWindow.h"
 #include "BreakpointStore.h"
 #include "CodeEditor.h"
@@ -145,6 +145,12 @@ MainWindow::MainWindow(QWidget* parent)
     //full-path tooltip to disambiguate same-name entries (spec §6).
     m_ui->menuRecent->setToolTipsVisible(true);
     updateMenuState();
+    applyToolbarIconSize(SettingsStore::persisted().toolbarIconSize());
+}
+
+void MainWindow::applyToolbarIconSize(const QString& size) {
+    const int px = (size == TOOLBAR_ICON_LARGE) ? 48 : 32;
+    m_ui->mainToolBar->setIconSize(QSize(px, px));
 }
 
 MainWindow::~MainWindow() {
@@ -1397,13 +1403,16 @@ void MainWindow::locateSource(const QString& filePath, int line,
 void MainWindow::on_actToolsOptions_triggered() {
     const SettingsStore stored = SettingsStore::persisted();
     SettingsDialog dialog(this);
-    dialog.init(stored.language(), stored.buildOutputDir());
+    dialog.init(stored.language(), stored.buildOutputDir(),
+                stored.toolbarIconSize());
     if (dialog.exec() != QDialog::Accepted)
         return;
     SettingsStore updated = stored;
     updated.setLanguage(dialog.language());
     updated.setBuildOutputDir(dialog.buildOutputDir());
+    updated.setToolbarIconSize(dialog.toolbarIconSize());
     updated.persist();
+    applyToolbarIconSize(updated.toolbarIconSize());
     //The catalogs install once at startup, so a language change needs
     //a restart (no per-widget retranslate pass exists); the build
     //output directory applies from the next build on.
@@ -1438,13 +1447,19 @@ void MainWindow::on_actHelpAbout_triggered() {
     //the whole text as rich text, so line breaks must be <br> -- a raw
     //\n collapses to a space. The message box label opens external
     //links by default and renders anchors as blue underlined text.
-    QMessageBox::about(
-        this, tr("About NLang IDE"),
+    QMessageBox box;
+    box.setWindowTitle(tr("About NLang IDE"));
+    //Large app icon in the upper-left (the static about() uses the small
+    //window icon); 96px reads well in the dialog.
+    box.setIconPixmap(QIcon(QStringLiteral(":/nide/Resources/app_icon.png"))
+                          .pixmap(96, 96));
+    box.setText(
         tr("NLang IDE %1<br>The integrated development environment for "
            "the NLang scripting language.<br><br>"
            "<a href=\"https://github.com/dliting/nlang\">"
            "https://github.com/dliting/nlang</a>")
             .arg(QLatin1String(NLANG_VERSION)));
+    box.exec();
 }
 
 namespace {

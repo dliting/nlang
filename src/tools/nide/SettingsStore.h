@@ -1,4 +1,4 @@
-/*--- SettingsStore.h - persisted nide settings (language, build output) ---*/
+﻿/*--- SettingsStore.h - persisted nide settings (language, build output) ---*/
 #ifndef NLANG_TOOLS_NIDE_SETTINGS_STORE_H
 #define NLANG_TOOLS_NIDE_SETTINGS_STORE_H
 
@@ -13,6 +13,8 @@ namespace nlang {
 inline const QString LANGUAGE_SYSTEM = QStringLiteral("system");
 inline const QString LANGUAGE_ZH = QStringLiteral("zh");
 inline const QString LANGUAGE_EN = QStringLiteral("en");
+inline const QString TOOLBAR_ICON_SMALL = QStringLiteral("small");
+inline const QString TOOLBAR_ICON_LARGE = QStringLiteral("large");
 
 //The Tools > Options values. No UI: SettingsDialog edits the form,
 //this persists (QSettings org/app from main.cpp). The value surface is
@@ -35,6 +37,9 @@ public:
     //and projects fall back to the project directory.
     QString buildOutputDir() const { return m_buildOutputDir; }
     void setBuildOutputDir(const QString& dir) { m_buildOutputDir = dir; }
+    //"small" (default, 32px) | "large" (48px) toolbar icons.
+    QString toolbarIconSize() const { return m_toolbarIconSize; }
+    void setToolbarIconSize(const QString& v) { m_toolbarIconSize = v; }
 
     //Locale handed to installTranslations.
     QLocale languageLocale() const
@@ -63,6 +68,7 @@ public:
 private:
     QString m_language = LANGUAGE_SYSTEM;
     QString m_buildOutputDir;
+    QString m_toolbarIconSize = TOOLBAR_ICON_SMALL;
 };
 
 } // namespace nlang

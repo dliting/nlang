@@ -1,4 +1,4 @@
-/*--- MainWindow.h - main window of the NLang IDE ---*/
+﻿/*--- MainWindow.h - main window of the NLang IDE ---*/
 #ifndef NLANG_TOOLS_NIDE_MAIN_WINDOW_H
 #define NLANG_TOOLS_NIDE_MAIN_WINDOW_H
 
@@ -363,6 +363,8 @@ private:
     QString outputFilePath(const ProjectNode& project) const;
     //ncc.exe/nvm.exe/ndb.exe live next to nide.exe.
     QString toolPath(const QString& toolName) const;
+    //Apply persisted toolbar icon size (32 or 48).
+    void applyToolbarIconSize(const QString& size);
 
     //Open filePath at line/column (1-based), opening an editor if needed.
     void locateSource(const QString& filePath, int line, int column);
