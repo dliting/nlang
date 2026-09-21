@@ -3,8 +3,11 @@
 This page lists the limitations currently visible to user programs,
 with workable alternatives where they exist.
 
-1. **Exit code range**: Process exit codes are 8-bit (0-255) on Windows.
-   Test values must not exceed 255.
+1. **Exit code range**: The process exit code passes through as the full
+   32-bit value; however, POSIX shells keep only the low 8 bits in `$?`
+   (an exit code of 300 is observed as 44 under bash). Keep test
+   expectations ≤ 255 for cross-observer consistency (see
+   [Exit Code Conventions](../language-spec/exit-code-convention.md)).
 2. **No super() call**: Ancestor constructors are not automatically invoked.
 3. **No struct methods**: Structs are data-only. Use classes for behavior.
 4. **No user-defined generics**: `class Foo<T> { ... }` is not supported.
