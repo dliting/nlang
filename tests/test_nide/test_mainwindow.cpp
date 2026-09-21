@@ -40,6 +40,7 @@
 #include <QTextEdit>
 #include <QTextLayout>
 #include <QTimer>
+#include <QToolBar>
 #include <QTreeView>
 #include <QTranslator>
 #include <QTreeWidget>
@@ -2710,6 +2711,22 @@ private slots:
 
     //--- help (docs site in the embedded viewer) ---
 
+    void testToolbarIconSizeAppliedFromPersistedSettings() {
+        //The ctor applies the persisted icon size to the toolbar; the
+        //Options accept path reuses the same applyToolbarIconSize, so
+        //the construction case pins the shared glue.
+        QSettings settings;
+        settings.setValue("ide/toolbarIconSize", "large");
+        MainWindow window;
+        QToolBar* bar = window.findChild<QToolBar*>("mainToolBar");
+        QVERIFY(bar != nullptr);
+        QCOMPARE(bar->iconSize(), QSize(48, 48));
+        settings.remove("ide");
+        MainWindow unset;
+        QCOMPARE(unset.findChild<QToolBar*>("mainToolBar")->iconSize(),
+                 QSize(32, 32));
+    }
+
     void testLocateHelpPageFindsDevTreeSite() {
         // nlang_docs generates <build>/docs/site/{zh,en}; the test exe
         // sits at <build>/tests/Release -- the ancestor walk finds the
@@ -2726,9 +2743,13 @@ private slots:
                      .endsWith("/zh/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
                      .endsWith("/zh/vm-architecture/overview.html"));
+        QVERIFY(MainWindow::locateHelpPage("cli-tools/overview")
+                     .endsWith("/zh/cli-tools/overview.html"));
         settings.setValue("ide/language", "en");
         QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
                      .endsWith("/en/language-spec/overview.html"));
+        QVERIFY(MainWindow::locateHelpPage("cli-tools/overview")
+                     .endsWith("/en/cli-tools/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
                      .endsWith("/en/getting-started/what-is-nolang.html"));
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
@@ -2761,6 +2782,12 @@ private slots:
             MainWindow::locateHelpPage("getting-started/what-is-nolang");
         QVERIFY(gettingStarted.endsWith("/getting-started/what-is-nolang.html"));
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(gettingStarted));
+        //The Command-line Tools entry mirrors the chapter entries.
+        QVERIFY(act(window, "actHelpCliTools") != nullptr);
+        act(window, "actHelpCliTools")->trigger();
+        QCOMPARE(window.findChildren<HelpBrowser*>().size(), 1);
+        QTRY_COMPARE(view->url(), QUrl::fromLocalFile(
+                         MainWindow::locateHelpPage("cli-tools/overview")));
     }
 
     void testHelpSearchFindsResults() {

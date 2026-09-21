@@ -21,6 +21,7 @@ private slots:
         store.load(settings);
         QCOMPARE(store.language(), QString("system"));
         QVERIFY(store.buildOutputDir().isEmpty());
+        QCOMPARE(store.toolbarIconSize(), QString("small"));
     }
 
     void testRoundTrip() {
@@ -29,6 +30,7 @@ private slots:
         store.load(settings);
         store.setLanguage("zh");
         store.setBuildOutputDir("D:/dev/out");
+        store.setToolbarIconSize("large");
         store.save(settings);
 
         SettingsStore reloaded;
@@ -36,6 +38,7 @@ private slots:
         reloaded.load(reloadedSettings);
         QCOMPARE(reloaded.language(), QString("zh"));
         QCOMPARE(reloaded.buildOutputDir(), QString("D:/dev/out"));
+        QCOMPARE(reloaded.toolbarIconSize(), QString("large"));
     }
 
     void testLocaleForLanguage() {

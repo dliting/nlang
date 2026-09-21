@@ -601,6 +601,11 @@
         <source>Browse...</source>
         <translation>浏览...</translation>
     </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="51"/>
+        <source>Toolbar icon size:</source>
+        <translation>工具栏图标尺寸：</translation>
+    </message>
 </context>
 <context>
     <name>nlang::HelpBrowser</name>
@@ -990,6 +995,16 @@
         <location filename="../SettingsDialog.cpp" line="49"/>
         <source>Select Build Output Directory</source>
         <translation>选择构建输出目录</translation>
+    </message>
+    <message>
+        <location filename="../SettingsDialog.cpp" line="25"/>
+        <source>Small (32x32)</source>
+        <translation>小（32x32）</translation>
+    </message>
+    <message>
+        <location filename="../SettingsDialog.cpp" line="26"/>
+        <source>Large (48x48)</source>
+        <translation>大（48x48）</translation>
     </message>
 </context>
 <context>
