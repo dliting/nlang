@@ -5415,6 +5415,30 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         uint16_t indexSlot = claimBase + VALUE_SIZE;
         uint16_t valueSlot = claimBase + 2 * VALUE_SIZE;
         EmitExpression(*sub.Value(), emitter, valueSlot);
+        //Object[] element stores box primitive values: the element's
+        //declared kind is a class (only Object accepts primitives), and
+        //the boxed record is the representation `as`-unboxing and GC
+        //tracing expect — same representation List/Dict element stores
+        //use. `string[]`/`int[]` elements keep their raw representation
+        //(declared kind is not a class, so the guard below is false).
+        //Identifier-base stores only: elemType detection above covers
+        //NK_IdentifierExpr bases (member bases like c.a[0] keep the
+        //pre-existing raw store, same detection gap as the struct
+        //deep-copy below). Null literals stay raw — boxing a null
+        //(Int32-typed by construction) would allocate a boxed 0 and
+        //destroy the null identity (same hazard FixupExprType guards
+        //against for field stores).
+        if (elemType && RuntimeTypeKind(elemType) == RTK_Class) {
+            auto valBox = BoxingTagFor(sub.Value()->EvalDataType());
+            if (valBox.isPrimitive
+                    && !sub.Value()->ContainFlags(NF_NullLiteral)) {
+                EmitPResultRefresh(emitter, valueSlot);
+                emitter.Emit(OpCode::OP_Box);
+                emitter.EmitByte(valBox.tag);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(valueSlot);
+            }
+        }
         EmitExpression(*sub.Index(), emitter, indexSlot);
         //Array reference last, null-checked (mirrors container path).
         EmitExpression(*sub.Array(), emitter, claimBase);

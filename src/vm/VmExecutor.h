@@ -138,6 +138,14 @@ private:
     std::string FormatArray(int32_t heapIdx, int depth);
     std::string FormatList(int32_t handle, int depth);
     std::string FormatDict(int32_t handle, int depth);
+    //Class index a virtual method call on this receiver dispatches on.
+    //A boxed record's header slot holds the wrapped type tag, not a
+    //class index — boxed receivers resolve against Object, the static
+    //type every boxed value carries (their only reachable methods are
+    //the Object protocol). Returns -1 when Object is absent (callers
+    //report an invalid class index).
+    int32_t ReceiverClassIndex(int32_t heapIdx) const;
+
     //Invoke virtual toString on a class instance by heap idx, returning
     //the result string. Mirrors OP_CallMethod's vtable walk; used by
     //collection formatters for class-typed elements.

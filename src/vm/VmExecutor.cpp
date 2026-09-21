@@ -1136,8 +1136,10 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             if (thisHeapIdx <= 0 || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
                 RaiseNlangException(m_nullPtrExcClassIdx,
                                     "NLang VM: null reference in CallMethod");
-            //Read classIdx from object slot[0].
-            int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
+            //Read classIdx from the receiver's header. Boxed receivers
+            //dispatch on Object — their header slot holds a type tag
+            //(see ReceiverClassIndex).
+            int32_t classIdx = ReceiverClassIndex(thisHeapIdx);
             if (classIdx < 0 || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
                 throw std::runtime_error("NLang VM: invalid class index in object header");
             //Walk class hierarchy to find the method by name (helper
@@ -1735,7 +1737,14 @@ void VmExecutor::MarkPhase() {
                 //Pre-fix v1.9 modules also misfile array fields as
                 //RTK_Int32 here; the v1.10 loader floor (same release)
                 //refuses them, closing the GC under-trace window.
-                if ((cc.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
+                //Object-declared fields (declared kind RTK_Class) also
+                //hold boxed primitive records (runtime kind RTK_Boxed) —
+                //push those too; the worklist's boxed arm marks a wrapped
+                //string payload. Without this arm the sweep frees the
+                //box while the field still points at it.
+                if ((cc.fieldTypeKinds[i] == RTK_Class
+                        && (m_slotKinds[refIdx] == RTK_Class
+                            || m_slotKinds[refIdx] == RTK_Boxed))
                     || (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
                     || (cc.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
                     || (cc.fieldTypeKinds[i] == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
@@ -1801,7 +1810,11 @@ void VmExecutor::MarkPhase() {
                 //Explicit RTK_Array route (declared kind now authoritative) —
                 //see the RTK_Class branch above for why the old runtime-kind
                 //fallback is gone, including the v1.10 module-floor coupling.
-                if ((cs.fieldTypeKinds[i] == RTK_Class && m_slotKinds[refIdx] == RTK_Class)
+                //Same Object-field boxed-record acceptance as the class
+                //field arm above (an Object field inside a struct).
+                if ((cs.fieldTypeKinds[i] == RTK_Class
+                        && (m_slotKinds[refIdx] == RTK_Class
+                            || m_slotKinds[refIdx] == RTK_Boxed))
                     || (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
                     || (cs.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
                     || (cs.fieldTypeKinds[i] == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
@@ -1825,7 +1838,12 @@ void VmExecutor::MarkPhase() {
                 }
                 if (elemRef <= 0 || static_cast<size_t>(elemRef) >= m_slotKinds.size())
                     continue;
-                if (at.elemKind == RTK_Class && m_slotKinds[elemRef] == RTK_Class
+                //Object[] elements carry boxed primitive records (elemKind
+                //RTK_Class, runtime kind RTK_Boxed) — same acceptance as
+                //the field arms.
+                if (at.elemKind == RTK_Class
+                        && (m_slotKinds[elemRef] == RTK_Class
+                            || m_slotKinds[elemRef] == RTK_Boxed)
                     && !m_markBits[elemRef]) {
                     m_markBits[elemRef] = true;
                     worklist.push_back(elemRef);
@@ -2002,14 +2020,14 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
         else if (ftk == RTK_Array)
         {
             throw std::runtime_error(
-                "NLang VM: WriteStruct does not support array fields (Phase 8e)");
+                "NLang VM: WriteStruct does not support array fields");
         }
         else if (ftk == RTK_Func)
         {
             //Phase 13: handles reference module functions/objects and
             //are not serializable bytes.
             throw std::runtime_error(
-                "NLang VM: WriteStruct does not support Func fields (Phase 13)");
+                "NLang VM: WriteStruct does not support Func fields");
         }
     }
 }
@@ -2082,14 +2100,14 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             //write side, so no writer can produce this record — reaching
             //it means a corrupted or hand-crafted stream.
             throw std::runtime_error(
-                "NLang VM: ReadStruct does not support array fields (Phase 8e)");
+                "NLang VM: ReadStruct does not support array fields");
         }
         else if (ftk == RTK_Func)
         {
             //Phase 13: no writer can emit a Func field (the write side
             //throws), so reaching this arm means a corrupted stream.
             throw std::runtime_error(
-                "NLang VM: ReadStruct does not support Func fields (Phase 13)");
+                "NLang VM: ReadStruct does not support Func fields");
         }
     }
 }
@@ -2179,14 +2197,14 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         else if (ftk == RTK_Array)
         {
             throw std::runtime_error(
-                "NLang VM: WriteStruct does not support array fields (Phase 8e)");
+                "NLang VM: WriteStruct does not support array fields");
         }
         else if (ftk == RTK_Func)
         {
             //Phase 13: handles reference module functions/objects and
             //are not serializable bytes.
             throw std::runtime_error(
-                "NLang VM: WriteStruct does not support Func fields (Phase 13)");
+                "NLang VM: WriteStruct does not support Func fields");
         }
     }
 }
@@ -2307,14 +2325,14 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
             //write side, so no writer can produce this record — reaching
             //it means a corrupted or hand-crafted stream.
             throw std::runtime_error(
-                "NLang VM: ReadStruct does not support array fields (Phase 8e)");
+                "NLang VM: ReadStruct does not support array fields");
         }
         else if (ftk == RTK_Func)
         {
             //Phase 13: no writer can emit a Func field (the write side
             //throws), so reaching this arm means a corrupted stream.
             throw std::runtime_error(
-                "NLang VM: ReadStruct does not support Func fields (Phase 13)");
+                "NLang VM: ReadStruct does not support Func fields");
         }
     }
 
@@ -2627,7 +2645,10 @@ void VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,
                 "NLang VM: invalid string index in virtual delegate handle");
         const std::string& methodName
             = m_currModule->stringConstants[static_cast<size_t>(nameIdx)];
-        int32_t classIdx = m_structHeap[static_cast<size_t>(thisIdx)][0];
+        //ReceiverClassIndex: a boxed receiver's header slot holds a
+        //type tag, not a class index — same dispatch hazard as
+        //OP_CallMethod and InvokeVirtualToString.
+        int32_t classIdx = ReceiverClassIndex(thisIdx);
         if (classIdx < 0
             || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
             throw std::runtime_error(
@@ -2856,6 +2877,17 @@ std::string VmExecutor::FormatDict(int32_t handle, int depth) {
     return result;
 }
 
+int32_t VmExecutor::ReceiverClassIndex(int32_t heapIdx) const {
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Boxed) {
+        const auto& classes = m_currModule->classes;
+        for (size_t i = 0; i < classes.size(); ++i)
+            if (classes[i].name == "Object")
+                return static_cast<int32_t>(i);
+        return -1;
+    }
+    return m_structHeap[static_cast<size_t>(heapIdx)][0];
+}
+
 std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
     //Mirror OP_CallMethod's vtable walk: search class hierarchy for
     //a method named "toString". If found, call it; if the resolved
@@ -2866,7 +2898,7 @@ std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
     if (thisHeapIdx <= 0
         || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
         return "<null>";
-    int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
+    int32_t classIdx = ReceiverClassIndex(thisHeapIdx);
     if (classIdx < 0
         || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
         return "<unknown>";
@@ -3515,6 +3547,31 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                                 "NLang VM: NullPointerException");
         if (static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
             throw std::runtime_error("NLang VM: toString on invalid heap idx");
+        //Boxed receiver: the payload IS the value — format it like the
+        //matching primitive-to-string conversion (a boxed string's
+        //toString shares the payload handle: string objects are
+        //immutable, and handle 0 reads as "" everywhere).
+        if (m_slotKinds[static_cast<size_t>(thisHeapIdx)] == RTK_Boxed) {
+            int32_t tag = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
+            int32_t val = m_structHeap[static_cast<size_t>(thisHeapIdx)][1];
+            int32_t handle;
+            if (tag == RTK_Int32) {
+                handle = MintNewString(std::to_string(val));
+            } else if (tag == RTK_Float) {
+                float fv;
+                std::memcpy(&fv, &val, sizeof(fv));
+                char fbuf[32];
+                std::snprintf(fbuf, sizeof(fbuf), "%g", fv);
+                handle = MintNewString(fbuf);
+            } else if (tag == RTK_String) {
+                handle = val > 0 ? val : MintNewString(std::string());
+            } else {
+                throw std::runtime_error(
+                    "NLang VM: toString on unsupported boxed type tag");
+            }
+            std::memcpy(pResult, &handle, sizeof(handle));
+            return;
+        }
         int32_t classIdx = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
         if (classIdx < 0
             || static_cast<size_t>(classIdx) >= m_currModule->classes.size())

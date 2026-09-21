@@ -1,0 +1,15 @@
+//boxed_struct_field_gc.n — same shape as boxed_field_gc.n for the
+//struct field arm of the mark phase: an Object field declared inside a
+//struct holds a boxed record whose declared/runtime kind pair must be
+//traced.
+struct S { Object o; }
+int main() {
+    S s;
+    s.o = 1234567;
+    for (int i = 0; i < 2000; i = i + 1) {
+        int[] t = new int[4];
+    }
+    int x = s.o as int;
+    if (x == 1234567) { return 0; }
+    return 1;
+}

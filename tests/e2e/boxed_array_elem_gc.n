@@ -1,0 +1,14 @@
+//boxed_array_elem_gc.n — Object[] element stores box primitive values
+//(the element's declared kind is a class, so the raw int would be
+//misread as a heap index), and the boxed elements must survive garbage
+//collection through the array arm of the mark phase.
+int main() {
+    Object[] arr = new Object[2];
+    arr[0] = 1234567;
+    for (int i = 0; i < 2000; i = i + 1) {
+        int[] t = new int[4];
+    }
+    int x = arr[0] as int;
+    if (x == 1234567) { return 0; }
+    return 1;
+}

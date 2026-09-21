@@ -402,8 +402,8 @@ def main():
                     stdin_bytes = sf.read()
             #String-GC Task 2: <name>.flags (if present) supplies extra nvm
             #CLI flags (e.g. --gc-stress=8) — same discovery shape as .stdin.
-            #Appended AFTER the module path: nvm resolves argv[1] as the
-            #module and scans the rest for flags.
+            #Appended AFTER the module path (nvm parses --gc-stress from any
+            #argument position; appending merely matches the historical form).
             flags_path = os.path.join(sources_dir, f"{name}.flags")
             extra_flags = []
             if os.path.isfile(flags_path):

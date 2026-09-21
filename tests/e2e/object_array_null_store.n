@@ -1,0 +1,15 @@
+// Null identity in Object[] storage: storing the null literal must
+// keep the raw null handle (not box a 0), so a later null comparison
+// is true and a protocol call null-checks instead of unboxing garbage.
+int main() {
+    Object[] arr = new Object[2];
+    arr[0] = null;
+    if (arr[0] != null)
+        return 1;
+    try {
+        arr[0].toString();
+    } catch (Exception e) {
+        return 7;
+    }
+    return 2;
+}

@@ -1,0 +1,25 @@
+//boxed_tostring.n — toString on a boxed primitive yields the payload
+//text (int digits, %g float, string content), not a class-identity
+//"Name@hex" placeholder built from the type tag misread as a class
+//index.
+import io;
+class C { public Object o; }
+int main() {
+    Object a = 5;
+    C c = new C();
+    c.o = 7;
+    Object b = 2.5;
+    Object s = "xy";
+    Object zero = 0;
+    io.print(a.toString());
+    io.print(c.o.toString());
+    io.print(b.toString());
+    io.print(s.toString());
+    io.print(zero.toString());
+    if (a.toString() == "5" && c.o.toString() == "7"
+        && b.toString() == "2.5" && s.toString() == "xy"
+        && zero.toString() == "0") {
+        return 0;
+    }
+    return 1;
+}

@@ -44,9 +44,11 @@ int main(int argc, char* argv[]) {
     //GC stress knob (testing): cap both GC thresholds so collection runs
     //at tiny population sizes — any untraced string handle goes stale
     //within a few allocations instead of surviving on the default
-    //threshold.
+    //threshold. The flag parses from any position; the first non-flag
+    //argument is the module.
     size_t gcStress = 0;
-    for (int i = 2; i < argc; ++i) {
+    int moduleArg = -1;
+    for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a.rfind("--gc-stress=", 0) == 0) {
             //A silently-off knob can green a GC mutation matrix for the
@@ -63,7 +65,14 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             gcStress = static_cast<size_t>(parsed);
+        } else if (moduleArg < 0) {
+            moduleArg = i;
         }
+    }
+    if (moduleArg < 0) {
+        std::cerr << "Usage: nvm <module.nmod> [--gc-stress=N]\n"
+                  << "       nvm --version\n";
+        return 1;
     }
     if (gcStress)
         executor.SetGcStressThresholds(gcStress);
@@ -71,7 +80,7 @@ int main(int argc, char* argv[]) {
     RegisterTestNatives(executor);
     int result = 1;
     try {
-        module = ModuleLoader::Load(argv[1]);
+        module = ModuleLoader::Load(argv[moduleArg]);
         result = executor.Execute(module);
     } catch (const std::exception& e) {
         std::cerr << "Runtime error: " << e.what() << "\n";

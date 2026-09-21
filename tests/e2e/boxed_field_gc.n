@@ -1,0 +1,16 @@
+//boxed_field_gc.n — a boxed record held in an Object class field must
+//survive garbage collection: the field's declared kind is RTK_Class
+//(Object) while the stored record is RTK_Boxed, and the mark phase's
+//declared-plus-runtime double condition used to skip exactly that
+//combination, letting the sweep free the box under the field's feet.
+class C { public Object o; }
+int main() {
+    C c = new C();
+    c.o = 1234567;
+    for (int i = 0; i < 2000; i = i + 1) {
+        int[] t = new int[4];
+    }
+    int x = c.o as int;
+    if (x == 1234567) { return 0; }
+    return 1;
+}

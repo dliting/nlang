@@ -551,6 +551,13 @@ if(Python3_FOUND)
             $<TARGET_FILE:ndb> ndb ${NLANG_VERSION})
     set_tests_properties(version_ncc version_nvm version_ndisasm version_ndb
         PROPERTIES TIMEOUT 60)
+    # nvm flag-position guard: --gc-stress=N must parse from any
+    # argument position, with the module exit code unchanged.
+    add_test(NAME nvm_gc_stress_position
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
+            $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
+    set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
 endif()
 
 # End-to-end test: compile-only (exits 0)
