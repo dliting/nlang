@@ -1,5 +1,9 @@
 # ndisasm —— 反汇编
 
+ndisasm 把 `.nmod` 反汇编为可读的字节码转储，回答「编译器实际生成
+了什么」。用它核对 ndb `x` 命令中的指令地址、检查优化结果、排查
+序列化或模块加载问题。
+
 ```text
 ndisasm <module.nmod>
 ndisasm -func <name> <module.nmod>
@@ -26,5 +30,4 @@ function main (frameSize=28, params=0, returnType=i32, file=examples/hello.n)
 （每行 `[起止 pc) handler=... class=... catchLocal=...`）。
 
 全量转储会列出全部内建类方法（均 `(no bytecode)`，一个 hello 也有
-五十七个），所以日常看单个函数用 `-func` 过滤。典型用途：对照 ndb
-的 `x` 命令核对指令地址、检查优化结果、排查序列化问题。
+五十七个），所以日常看单个函数用 `-func` 过滤。

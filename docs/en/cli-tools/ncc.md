@@ -1,5 +1,11 @@
 # ncc — Compile and Execute
 
+ncc compiles source into a `.nmod` bytecode module and can run it
+immediately. It is the everyday entry point: `ncc <file>` for a quick
+look at a single source's result, the `build` form to produce a module
+for nvm or ndb, and `-p` for multi-source projects. Build scripts and
+automation pipelines use it too.
+
 ## Invocation forms
 
 | Form | Command | Behavior |

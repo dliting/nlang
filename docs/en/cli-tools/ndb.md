@@ -1,5 +1,13 @@
 # ndb — Debugger
 
+ndb is NLang's interactive debugger: it loads a module, stops at the
+entry point, and follows commands for breakpoints, stepping, locals,
+and the call stack. Reach for it when a program misbehaves; debugging
+cross-file projects (breakpoints by `file:line` or function name) is
+the primary use case. The same session is also exposed to embedding
+front ends as a line protocol (`--machine`) — nide's graphical
+debugger is built on it.
+
 ```text
 ndb <module.nmod>
 ```

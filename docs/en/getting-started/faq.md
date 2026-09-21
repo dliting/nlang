@@ -42,8 +42,8 @@ See also: [Language Specification / Standard Library](../language-spec/standard-
 ### Where are the docs and search?
 
 The nide Help menu entries NLang Getting Started, Language
-Specification, and VM Architecture all open in the IDE's embedded help
-window (its content is the documentation site under the installation's
-`docs\site\`), with the navigation tree on the left. The search box is
-in the window's top-left corner (next to the site title) and supports
-full-text search.
+Specification, VM Architecture, and Command-line Tools all open in
+the IDE's embedded help window (its content is the documentation site
+under the installation's `docs\site\`), with the navigation tree on
+the left. The search box is in the window's top-left corner (next to
+the site title) and supports full-text search.

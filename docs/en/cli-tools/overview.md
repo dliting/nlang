@@ -1,5 +1,10 @@
 # Overview
 
+The command-line tools cover the whole pipeline — compile, run, debug,
+and disassemble — and fit scripted builds, automated testing, and
+headless environments; for a graphical workflow see nide
+([Three Ways to Run](../getting-started/running.md)).
+
 Five tools ship in the installation's `bin\` directory, four of them
 command-line tools. If PATH is not set up, prefix commands with
 `bin\` (e.g. `bin\ncc build ...`).

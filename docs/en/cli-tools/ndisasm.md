@@ -1,5 +1,11 @@
 # ndisasm — Disassembler
 
+ndisasm turns a `.nmod` back into a readable bytecode dump — the
+answer to "what did the compiler actually generate?". Use it to
+cross-check instruction addresses against ndb's `x` output, review
+optimization results, and diagnose serialization or module-loading
+problems.
+
 ```text
 ndisasm <module.nmod>
 ndisasm -func <name> <module.nmod>
@@ -31,6 +37,4 @@ class=... catchLocal=...` line per block).
 
 A full dump lists every built-in class method (all `(no bytecode)` —
 fifty-seven even for a hello), so day-to-day inspection of one
-function uses the `-func` filter. Typical uses: cross-checking ndb's
-`x` command against instruction addresses, reviewing optimization
-results, and diagnosing serialization problems.
+function uses the `-func` filter.
