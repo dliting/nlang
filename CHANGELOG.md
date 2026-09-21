@@ -11,7 +11,11 @@ All notable changes to NLang are documented here. The format follows
 ### Added
 - Manual: "Command-line Tools" reference chapter (ncc/nvm/ndb/ndisasm)
   in both documentation trees, including the full ndb command table with
-  long aliases and both ncc default-output rules.
+  long aliases and both ncc default-output rules. Each tool page opens
+  by stating what the tool is for and when to reach for it.
+- nide: the Help menu gained a "Command-line Tools" entry, symmetric
+  with the Getting Started / Language Specification / VM Architecture
+  chapter entries.
 - Manual: nide Tools → Options documentation (language setting and
   global build output directory with its precedence rules).
 
@@ -31,6 +35,19 @@ All notable changes to NLang are documented here. The format follows
   reused; equality between interned strings is a handle comparison.
 
 ### Fixed
+- Runtime diagnostics no longer mention internal phase names: the
+  `WriteStruct`/`ReadStruct` "does not support array/Func fields"
+  errors read the same without the development-phase suffix.
+- `Object`-declared storage holding a boxed primitive now works end to
+  end: `Object o = 5; o.toString()` returns `"5"` instead of garbage
+  like `Object@1` (virtual dispatch no longer misreads the boxed type
+  tag as a class index), and the garbage collector traces boxed
+  records held in class/struct `Object` fields and `Object[]` elements
+  (previously swept while still reachable, leaving dangling handles).
+- Assigning a primitive into an `Object[]` element now boxes it, so a
+  later `as int` read returns the value instead of crashing.
+- `nvm --gc-stress=N` is accepted both before and after the module
+  path (previously only after it).
 - `List.indexOf`/`contains` now compare string elements by content;
   concatenated or interned equivalents of a stored element now match.
 - `Exception.backtrace.get(i)` no longer raises

@@ -11,7 +11,9 @@
 ### 新增
 - 手册：双树新增「命令行工具」参考章节（ncc/nvm/ndb/ndisasm 各一页
   + 章概览），含 ndb 完整命令表（含长别名）与 ncc 两种缺省输出位置
-  规则。
+  规则；各工具页开头说明该工具的作用与适用场景。
+- nide：帮助菜单新增「命令行工具」入口，与「NLang 入门」「语言
+  规格」「VM 架构」三个章节入口对称。
 - 手册：nide「工具 → 选项」文档（语言设置与全局构建输出目录及其
   优先级规则）。
 
@@ -28,6 +30,18 @@
   `==` 比较等价于句柄比较。
 
 ### 修复
+- 运行时诊断不再携带内部阶段名：`WriteStruct`/`ReadStruct` 的
+  「does not support array/Func fields」错误去掉开发阶段后缀，语义
+  不变。
+- 以 `Object` 声明的存储持有装箱基本类型时全链路正确：
+  `Object o = 5; o.toString()` 返回 `"5"` 而非 `Object@1` 之类的
+  乱码（虚分派不再把装箱类型标签误读为类索引）；垃圾回收器现在
+  追踪 class/struct 的 `Object` 字段与 `Object[]` 元素中的装箱记录
+  （此前仍在可达时即被清扫，留下悬垂句柄）。
+- 向 `Object[]` 元素赋予基本类型现在会装箱，后续 `as int` 读取返回
+  原值而非崩溃。
+- `nvm --gc-stress=N` 在模块路径之前或之后均可识别（此前仅限
+  之后）。
 - `List.indexOf`/`contains` 现按内容比较字符串元素；与已存元素内容
   相同的拼接结果或驻留串现在能够匹配。
 - `Exception.backtrace.get(i)` 不再抛出 "unbox on null/invalid
