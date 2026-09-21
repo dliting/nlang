@@ -49,7 +49,7 @@ but share the same mark-sweep cycle:
 **Design decisions** (for the source-level correspondence, see the
 comments in `VmExecutor.h`):
 - Safepoint-triggered, not allocation-point-triggered (avoids tracing
-  the two evaluation scratch slots in the mark phase)
+  temp slots in the mark phase)
 - Precise scan via the local-variable descriptor, not a conservative
   byte scan (decouples GC from stack frame physical layout)
 - A struct-type index table parallel to the heap slots identifies
