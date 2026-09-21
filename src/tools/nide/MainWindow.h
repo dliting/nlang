@@ -162,6 +162,7 @@ private slots:
     void on_actHelpGettingStarted_triggered();
     void on_actHelpLanguageSpec_triggered();
     void on_actHelpVmArch_triggered();
+    void on_actHelpCliTools_triggered();
 
     //--- widgets ---
     void on_tabCodes_tabCloseRequested(int index);

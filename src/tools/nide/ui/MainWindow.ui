@@ -431,6 +431,7 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
     <addaction name="actHelpGettingStarted"/>
     <addaction name="actHelpLanguageSpec"/>
     <addaction name="actHelpVmArch"/>
+    <addaction name="actHelpCliTools"/>
     <addaction name="separator"/>
     <addaction name="actHelpAbout"/>
    </widget>
@@ -923,6 +924,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
   <action name="actHelpVmArch">
    <property name="text">
     <string>VM 架构(&amp;V)...</string>
+   </property>
+  </action>
+  <action name="actHelpCliTools">
+   <property name="text">
+    <string>命令行工具(&amp;C)...</string>
    </property>
   </action>
  </widget>

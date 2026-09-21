@@ -1508,6 +1508,10 @@ void MainWindow::on_actHelpVmArch_triggered() {
     openHelpDocument(QStringLiteral("vm-architecture/overview"));
 }
 
+void MainWindow::on_actHelpCliTools_triggered() {
+    openHelpDocument(QStringLiteral("cli-tools/overview"));
+}
+
 void MainWindow::openHelpDocument(const QString& documentPagePath) {
     const QString page = locateHelpPage(documentPagePath);
     if (page.isEmpty()) {

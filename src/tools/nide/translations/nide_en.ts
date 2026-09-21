@@ -441,6 +441,11 @@
         <source>VM 架构(&amp;V)...</source>
         <translation>&amp;VM Architecture...</translation>
     </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="891"/>
+        <source>命令行工具(&amp;C)...</source>
+        <translation>&amp;Command-line Tools...</translation>
+    </message>
 </context>
 <context>
     <name>NewFileDialog</name>
