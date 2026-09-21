@@ -1,5 +1,8 @@
 # 编译管线
 
+编译器前端产出 AST 后，`VmBackend` 把它翻译为 `CompiledModule`：先
+注册 struct、class 与函数，再为所有函数生成字节码。本页按顺序列出
+各阶段，并解释其中一趟（`ResolveStructClassRefs`）为何必须单独执行。
 
 ```text
 AST → VmBackend → CompiledModule (.nmod)

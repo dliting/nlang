@@ -1,5 +1,12 @@
-# First-Class Function Values (Phase 13)
+# First-Class Function Values
 
+<a id="first-class-function-values"></a>
+
+Function values let a function be treated as data: assigned to a
+variable, passed as an argument, and invoked later through a handle
+(the language calls them delegates). This page describes their runtime
+representation and calling convention — how one 3-slot heap record
+supports both static binding and virtual dispatch.
 
 A function value (delegate) is a **3-slot heap record** with
 `m_slotKinds[idx] == RTK_Func`:
@@ -49,7 +56,7 @@ overwrites the slot with the handle index.
 
 MarkPhase gates the trace sites on kind — most on the runtime kind,
 the two root scans on the static local/return kinds; `RTK_Func` records
-are traced at **eight** sites (Phase 13 added the arms across the board):
+are traced at **eight** sites:
 
 1. root-set scan (locals/params with `LocalDescriptor.typeKind == RTK_Func`)
 2. frame `pResult` scan (in-progress return values)

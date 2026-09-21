@@ -1,9 +1,12 @@
-# 一等函数值（Phase 13）
+# 一等函数值
 
-<a id="first-class-function-values-phase-13"></a>
+<a id="first-class-function-values"></a>
 
-函数值（function value，即委托 delegate）是一个 **3 槽堆记录**，满足
-`m_slotKinds[idx] == RTK_Func`：
+函数值让函数像数据一样被赋给变量、作为实参传递，并在稍后经句柄调用
+（语言层面称为委托，delegate）。本页说明它的运行期表示与调用约定：
+一个 3 槽堆记录如何同时支撑静态绑定与虚分派两种形式。
+
+这个记录满足 `m_slotKinds[idx] == RTK_Func`：
 
 | 槽位 | 静态绑定句柄（`kFuncFormStatic`） | 虚分派句柄（`kFuncFormVirtual`） |
 |------|------------------------------------------|----------------------------------------------|
@@ -45,8 +48,7 @@ OP_MakeBoundFunc / OP_MakeVFunc 在写入句柄*之前*从 `pResult` 读取接
 ### GC 追踪位点
 
 MarkPhase 按 kind 为追踪位点设门——多数看运行期 kind，两个根扫描看
-静态局部/返回 kind；`RTK_Func` 记录在 **8 个** 位点被追踪（Phase 13
-把分支补齐到了所有位点）：
+静态局部/返回 kind；`RTK_Func` 记录在 **8 个** 位点被追踪：
 
 1. 根集扫描（`LocalDescriptor.typeKind == RTK_Func` 的局部/参数）
 2. 栈帧 `pResult` 扫描（进行中的返回值）

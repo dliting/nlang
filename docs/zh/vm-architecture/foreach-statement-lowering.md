@@ -1,9 +1,10 @@
-# foreach 语句降级（Phase 8e-5）
+# foreach 语句降级
 
-
-`foreach (Type var in iterable) { body }` 编译为**基于索引的展开**
-——不引入新指令。12 步降级沿用 `for` 循环的模式（VmBackend.cpp 第
-1991 行），外加一个把元素 `i` 装入用户变量槽位的循环体前奏。
+`foreach` 让开发者不手动管理下标就能遍历数组与集合。VM 层面它没有
+专用指令：编译器把 `foreach (Type var in iterable) { body }` 编译为
+**基于索引的展开**——不引入新指令。12 步降级沿用 `for` 循环的模式
+（`VmBackend.cpp` 的 `NK_ForStmt` 路径），外加一个把元素 `i` 装入用
+户变量槽位的循环体前奏。
 
 ### 隐藏局部变量（为嵌套而唯一化）
 

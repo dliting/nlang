@@ -1,5 +1,9 @@
-# 标准库内建函数（Phase 11）
+# 标准库内建函数
 
+标准库函数（`math.sin(x)`、`io.print(s)`、`fs.join(a,b)`）与内建字
+符串方法由 VM 直接以 C++ 实现，称为内建函数（intrinsic）：它们没有
+NLang 函数体，也不占模块的函数表。本页说明这类调用如何编译、id 如
+何分配，以及新增指令时要触及的位置。
 
 命名空间限定的调用（`math.sin(x)`、`io.print(s)`、`fs.join(a,b)`）
 与内建字符串方法编译为 `OP_CallIntrinsic`——零 `CompiledFunction`
@@ -33,13 +37,13 @@ StdLib.h 的表静态绑定（每个条目的 id 都落在自己块内，条目�
 | 40-43, 61-63 | INTR_Object_/String_/List_/Dict_ | 协议方法 + toString |
 | 44-52 | INTR_List_* | List\<T\> 方法 |
 | 53-60 | INTR_Dict_* | Dict\<K,V\> 方法 |
-| 64-69 | INTR_*Exception_Ctor | 异常构造函数，含 IOException（Step 2） |
+| 64-69 | INTR_*Exception_Ctor | 异常构造函数，含 IOException |
 | 70-94 | INTR_Math_* | math，25 个函数 |
-| 95-106 | INTR_String_* | 字符串方法，新增 12 个（Equals/GetHashCode 仍在 42/43） |
+| 95-106 | INTR_String_* | 字符串方法，12 个（Equals/GetHashCode 在 42/43） |
 | 110-114 | INTR_Io_* | io，5 个函数 |
 | 120-127 | INTR_FileSystem_* | fs，8 个函数 |
 
-**新指令**（Step 3b）：`OP_Less_str` / `OP_LessEqual_str` /
+**关系比较指令**：`OP_Less_str` / `OP_LessEqual_str` /
 `OP_Greater_str` / `OP_GreaterEqual_str`——按字节的关系比较（UTF-8
 字节序 == 码点序），与 `OP_Eq_str` 呼应。变体分派以左操作数的
 `EvalDataType` 为键，与所有二元指令一致。
@@ -47,6 +51,6 @@ StdLib.h 的表静态绑定（每个条目的 id 都落在自己块内，条目�
 **位置数组守卫**：`s_OpCodeNames`（OpCodeTable.cpp）是位置数组——
 缺一行不是编译错误，而是运行期的越界读。
 `static_assert(std::size(s_OpCodeNames) == +OpCode::OP_Count)`
-在编译期锁定尺寸。新增一条指令仍然是 6 处手工触点：枚举、名字表、
+在编译期锁定尺寸。新增一条指令共 6 处手工触点：枚举、名字表、
 `InstructionStride`（默认 `assert(false)`——Release 下漏写会破坏跨
 模块重映射）、代码生成、执行器、ndisasm。

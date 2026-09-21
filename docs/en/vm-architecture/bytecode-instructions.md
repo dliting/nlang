@@ -1,5 +1,10 @@
 # Bytecode Instructions
 
+This page is the reference table for the NLang instruction set: the
+compiler (`VmBackend`) translates the AST into these opcodes, and the
+executor (`VmExecutor`) interprets them one at a time. Most opcodes read
+and write the result register `pResult` and local variable slots. The
+`OP_*` names are real source identifiers you can use as search anchors.
 
 ### Core
 
@@ -69,7 +74,7 @@ to a short-circuit jump sequence (`OP_JumpIfNot` plus double
 | OP_CallMethod       | methodNameIdx, callParamBase| Virtual dispatch by name |
 | OP_CallIntrinsic    | intrinsicId, callParamBase  | Invoke intrinsic by ID   |
 
-### Function Values (Phase 13)
+### Function Values
 
 | Opcode              | Operands                             | Description                     |
 |---------------------|--------------------------------------|---------------------------------|
@@ -82,7 +87,7 @@ to a short-circuit jump sequence (`OP_JumpIfNot` plus double
 | OP_Ne_func          | lhs, rhs                             | Handle content inequality       |
 | OP_Func_to_str      | accumulator form                     | "func N" / "method N"; null → "<null>" |
 
-See [First-Class Function Values](first-class-function-values.md#first-class-function-values-phase-13)
+See [First-Class Function Values](first-class-function-values.md#first-class-function-values)
 for the handle layout and dispatch semantics.
 
 ### String
@@ -92,13 +97,13 @@ for the handle layout and dispatch semantics.
 | OP_Concat_str | dst, src  | Concatenate strings      |
 | OP_Eq_str   | lhs, rhs    | String equality          |
 | OP_Ne_str   | lhs, rhs    | String inequality        |
-| OP_Less_str | lhs, rhs    | Bytewise relational (Phase 11 Step 3b; UTF-8 byte order == code point order) |
+| OP_Less_str | lhs, rhs    | Bytewise relational (UTF-8 byte order == code point order) |
 | OP_LessEqual_str | lhs, rhs | Bytewise `<=`            |
 | OP_Greater_str | lhs, rhs | Bytewise `>`             |
 | OP_GreaterEqual_str | lhs, rhs | Bytewise `>=`       |
-| OP_StrLen   | dst, src    | String length (byte count, Phase 11 decision #7) |
+| OP_StrLen   | dst, src    | String length (byte count) |
 
-### Boxing / Unbox / Downcast (Phase 8e-1 + 8e-1.5)
+### Boxing / Unbox / Downcast
 
 | Opcode       | Operands             | Description                                  |
 |--------------|------------------------|----------------------------------------------|
@@ -109,7 +114,7 @@ for the handle layout and dispatch semantics.
 OP_Box/OP_Unbox use the `pResult` register convention — read input from
 pResult, write output back to pResult. The implicit-cast emit path
 (FixupExprType) wraps primitives in SnCastExpr with TCK_Box; the explicit
-`expr as T` operator (Phase 8e-1.5) creates SnAsExpr whose codegen emits
+`expr as T` operator creates SnAsExpr whose codegen emits
 OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 
 ### Type Cast
@@ -118,9 +123,9 @@ OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 |------------------|--------------------------|
 | OP_CastIntToFloat | int32 → float           |
 | OP_CastFloatToInt | float → int32           |
-| OP_Int32_to_str  | int32 → string (Phase 8e-9a, decimal via `std::to_string`) |
-| OP_Float_to_str  | float → string (Phase 8e-9a, `%g` format) |
-| OP_Enum_to_str   | int32 enum value → string (Phase 8e-9b, name lookup) |
+| OP_Int32_to_str  | int32 → string (decimal via `std::to_string`) |
+| OP_Float_to_str  | float → string (`%g` format) |
+| OP_Enum_to_str   | int32 enum value → string (name lookup) |
 
 The string coercion opcodes follow the same pResult convention as the int/
 float casts: read source from `pResult`, mint the formatted string as a
@@ -141,7 +146,7 @@ Emit sites:
 - `VmBackend.cpp` `EmitExpression(SnCastExpr&)` for binary `+` coercion
   (enum/int/float→string when the other operand is string).
 
-### Switch (Phase 12)
+### Switch
 
 | Opcode     | Operands       | Description                    |
 |------------|----------------|--------------------------------|
@@ -161,16 +166,16 @@ from the discriminant's **family** (not its static type):
 
 Multi-value clauses (`case 1, 2:`) emit one comparison per label: every
 label's test jumps to the clause body on hit and to the next label's
-test on miss; a single-label clause degenerates to today's two-jump
+test on miss; a single-label clause degenerates to a two-jump
 shape. Because a clause carries 2+N jumps of four distinct target
 kinds (clause exit / next label / body / implicit exit), the jump
-back-patcher (the clause-exit fixup) walks a variable-length record list —
-the historical `i * 2` fixed-stride assumption is gone. Each case body
+back-patcher (the clause-exit fixup) walks a variable-length record list
+rather than locating records at a fixed stride. Each case body
 ends with an implicit jump out of the switch (Java/C# no-fall-through);
 an explicit `break` additionally pops handlers, as it may leave catch
 regions lexically.
 
-### Enum Method Calling Convention (Phase 12)
+### Enum Method Calling Convention
 
 Enum methods reuse the class-method call path with one convention:
 **`this` is the enum's int32 value, not a heap reference**.
@@ -182,7 +187,7 @@ Enum methods reuse the class-method call path with one convention:
   `RTK_Int32` (class methods use `RTK_Class`). This matters: the GC
   root scan walks locals by typeKind — an enum `this` typed as a class
   would be traced as a heap index and corrupt the heap.
-- Representation decision (D3): enums stay nominal-int32 at runtime —
+- Representation decision: enums stay nominal-int32 at runtime —
   `==`, `switch`, argument passing, and `.nmod` serialization are all
   untouched. Java-style heap-singleton enums would need a module-level
   instance-init subsystem (init function execution order + GC roots)

@@ -1,5 +1,11 @@
-# Init List Lowering (Phase 8e-6)
+# Init List Lowering
 
+Collection initializers let developers populate an array or container
+with a single literal expression, such as `[1,2,3]` or `new Type{...}`.
+These literals have no runtime form of their own: the compiler lowers
+them into ordinary allocation and store instructions. This page
+describes the lowering path, how the target type is inferred, and how
+the container branches handle boxing.
 
 Collection initializers (`[1,2,3]`, `new Type{...}`) lower through a
 single `NK_InitListExpr` handler in `VmBackend::EmitExpression`. The
@@ -37,7 +43,7 @@ own type.
 ### Per-method boxing plan reuse
 
 The `List<T>` and `Dict<K,V>` branches reuse the per-method boxing
-infrastructure from Phase 8e-3/8e-4: `BoxingTagFor(typeArg)` returns
+infrastructure of container calls: `BoxingTagFor(typeArg)` returns
 `{tag, isPrimitive}`, and `OP_Box` is emitted before `add`/`set` only
 when the element type is primitive **and not an array type** — an
 array-typed type argument (`List<int[]>`, `Dict` value `V[]`) flows as
@@ -55,7 +61,7 @@ clobber the parent's value slot.
 
 ### Reuse of existing opcodes
 
-No new opcodes were added for Phase 8e-6. Allotment, element stores,
-method calls, and field stores all reuse Phase 3/4/8e-3/8e-4 primitives.
+Init-list lowering adds no new opcodes. Allocation, element stores,
+method calls, and field stores all reuse the existing primitives.
 The init-list handler is pure orchestration: allocate once, then
 populate via the existing stores.

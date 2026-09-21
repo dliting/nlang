@@ -1,5 +1,9 @@
 # 字节码指令
 
+本页是 NLang 字节码指令集的参考表：编译器（`VmBackend`）把 AST 翻译
+成这些指令，执行器（`VmExecutor`）逐条解释。多数指令围绕结果寄存器
+`pResult` 与局部变量槽位读写。`OP_*` 名称是源码中的真实标识符，可作
+为检索起点。
 
 ### 核心
 
@@ -69,7 +73,7 @@
 | OP_CallMethod       | methodNameIdx, callParamBase| 按名虚分派               |
 | OP_CallIntrinsic    | intrinsicId, callParamBase  | 按 ID 调用内建函数       |
 
-### 函数值（Phase 13）
+### 函数值
 
 | 操作码              | 操作数                               | 说明                            |
 |---------------------|--------------------------------------|---------------------------------|
@@ -82,7 +86,7 @@
 | OP_Ne_func          | lhs, rhs                             | 句柄内容不等                    |
 | OP_Func_to_str      | 累加器形式                           | "func N" / "method N"；null → "<null>" |
 
-句柄布局与分派语义见[一等函数值](first-class-function-values.md#first-class-function-values-phase-13)。
+句柄布局与分派语义见[一等函数值](first-class-function-values.md#first-class-function-values)。
 
 ### 字符串
 
@@ -91,13 +95,13 @@
 | OP_Concat_str | dst, src  | 拼接字符串               |
 | OP_Eq_str   | lhs, rhs    | 字符串相等               |
 | OP_Ne_str   | lhs, rhs    | 字符串不等               |
-| OP_Less_str | lhs, rhs    | 按字节关系比较（Phase 11 Step 3b；UTF-8 字节顺序 == 码点序） |
+| OP_Less_str | lhs, rhs    | 按字节关系比较（UTF-8 字节顺序 == 码点序） |
 | OP_LessEqual_str | lhs, rhs | 按字节 `<=`              |
 | OP_Greater_str | lhs, rhs | 按字节 `>`               |
 | OP_GreaterEqual_str | lhs, rhs | 按字节 `>=`          |
-| OP_StrLen   | dst, src    | 字符串长度（字节数，Phase 11 决策 #7） |
+| OP_StrLen   | dst, src    | 字符串长度（字节数） |
 
-### 装箱 / 拆箱 / 向下转型（Phase 8e-1 + 8e-1.5）
+### 装箱 / 拆箱 / 向下转型
 
 | 操作码       | 操作数               | 说明                                          |
 |--------------|------------------------|----------------------------------------------|
@@ -107,7 +111,7 @@
 
 OP_Box/OP_Unbox 使用 `pResult` 寄存器约定——从 pResult 读入，输出写
 回 pResult。隐式转换的发射路径（FixupExprType）把基本类型值包进带 TCK_Box
-的 SnCastExpr；显式的 `expr as T` 运算符（Phase 8e-1.5）创建
+的 SnCastExpr；显式的 `expr as T` 运算符创建
 SnAsExpr，其代码生成按解析出的转换 kind 发射 OP_Unbox/OP_CheckCast。
 
 ### 类型转换
@@ -116,9 +120,9 @@ SnAsExpr，其代码生成按解析出的转换 kind 发射 OP_Unbox/OP_CheckCas
 |------------------|--------------------------|
 | OP_CastIntToFloat | int32 → float           |
 | OP_CastFloatToInt | float → int32           |
-| OP_Int32_to_str  | int32 → string（Phase 8e-9a，经 `std::to_string` 十进制格式化） |
-| OP_Float_to_str  | float → string（Phase 8e-9a，`%g` 格式） |
-| OP_Enum_to_str   | int32 枚举值 → string（Phase 8e-9b，按名查找） |
+| OP_Int32_to_str  | int32 → string（经 `std::to_string` 十进制格式化） |
+| OP_Float_to_str  | float → string（`%g` 格式） |
+| OP_Enum_to_str   | int32 枚举值 → string（按名查找） |
 
 字符串强转指令沿用与 int/float 转换相同的 pResult 约定：从 `pResult`
 读取源值，把格式化后的字符串铸造为字符串对象，再把新句柄
@@ -139,7 +143,7 @@ SnAsExpr，其代码生成按解析出的转换 kind 发射 OP_Unbox/OP_CheckCas
 - `VmBackend.cpp` 的 `EmitExpression(SnCastExpr&)` 处理二元 `+` 的
   强转（另一操作数为 string 时，enum/int/float→string）。
 
-### switch（Phase 12）
+### switch
 
 | 操作码     | 操作数         | 说明                           |
 |------------|----------------|--------------------------------|
@@ -155,15 +159,15 @@ switch 编译为逐标签比较与条件跳转组成的链——没有跳转表�
 - string 家族 → `OP_Eq_str`（按字节内容比较，常量表顺序无关）
 
 多值子句（`case 1, 2:`）为每个标签发射一次比较：每个标签的测试命中
-时跳到子句体，未命中跳到下一个标签的测试；单标签子句退化为现在的双
+时跳到子句体，未命中跳到下一个标签的测试；单标签子句退化为双
 跳转形状。一个子句携带 2+N 个跳转、四种目标类别（子句出口 / 下一标
 签 / 子句体 / 隐式出口），因此跳转回填器（clause-exit fixup，子句出
-口修复）遍历的是变长记录列表——历史上 `i * 2` 的定步长假设已不复存
-在。每个 case 体都以一条跳出 switch 的隐式跳转收尾（Java/C# 式禁止
+口修复）遍历的是变长记录列表，而非按定步长定位记录。每个 case 体都
+以一条跳出 switch 的隐式跳转收尾（Java/C# 式禁止
 穿透）；显式 `break` 还会弹出 handler，因为它可能从词法上离开 catch
 区域。
 
-### 枚举方法调用约定（Phase 12）
+### 枚举方法调用约定
 
 枚举方法复用类方法调用路径，只有一条约定：**`this` 是枚举的 int32
 值，不是堆引用**。
@@ -173,7 +177,7 @@ switch 编译为逐标签比较与条件跳转组成的链——没有跳转表�
 - 被调帧的 `this` 局部变量以 typeKind `RTK_Int32` 分配（类方法用
   `RTK_Class`）。这一点很关键：GC 根扫描按 typeKind 遍历局部变量——
   枚举的 `this` 若按 class 建档，就会被当作堆索引追踪并破坏堆。
-- 表示决策（D3）：枚举在运行期保持 nominal int32——`==`、
+- 表示决策：枚举在运行期保持 nominal int32——`==`、
   `switch`、实参传递与 `.nmod` 序列化全部不受影响。Java 式的堆单例
   枚举需要模块级实例初始化子系统（init 函数执行顺序 + GC 根），
   被有意推迟。

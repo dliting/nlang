@@ -1,5 +1,11 @@
-# Standard Library Intrinsics (Phase 11)
+# Standard Library Intrinsics
 
+Standard-library functions (`math.sin(x)`, `io.print(s)`,
+`fs.join(a,b)`) and the built-in string methods are implemented directly
+in C++ by the VM, and are called intrinsics: they have no NLang function
+body and take up no entries in the module's function table. This page
+describes how such calls compile, how the ids are allocated, and which
+places a new opcode touches.
 
 Namespace-qualified calls (`math.sin(x)`, `io.print(s)`, `fs.join(a,b)`) and
 the built-in string methods compile to `OP_CallIntrinsic` — zero
@@ -35,13 +41,13 @@ error, not a runtime "unknown intrinsic" hole):
 | 40-43, 61-63 | INTR_Object_/String_/List_/Dict_ | protocol methods + toString |
 | 44-52 | INTR_List_* | List\<T\> methods |
 | 53-60 | INTR_Dict_* | Dict\<K,V\> methods |
-| 64-69 | INTR_*Exception_Ctor | exception ctors, incl. IOException (Step 2) |
+| 64-69 | INTR_*Exception_Ctor | exception ctors, incl. IOException |
 | 70-94 | INTR_Math_* | math, 25 functions |
-| 95-106 | INTR_String_* | string methods, 12 new (Equals/GetHashCode stay at 42/43) |
+| 95-106 | INTR_String_* | string methods, 12 of them (Equals/GetHashCode live at 42/43) |
 | 110-114 | INTR_Io_* | io, 5 functions |
 | 120-127 | INTR_FileSystem_* | fs, 8 functions |
 
-**New opcodes** (Step 3b): `OP_Less_str` / `OP_LessEqual_str` /
+**Relational string opcodes**: `OP_Less_str` / `OP_LessEqual_str` /
 `OP_Greater_str` / `OP_GreaterEqual_str` — bytewise relational comparison
 (UTF-8 byte order == code point order), mirroring `OP_Eq_str`. The variant
 dispatch keys on the LEFT operand's `EvalDataType`, same as every binary
@@ -50,6 +56,6 @@ opcode.
 **Positional-array guard**: `s_OpCodeNames` (OpCodeTable.cpp) is a positional
 array — a missing row is not a compile error but an out-of-bounds read at
 runtime. `static_assert(std::size(s_OpCodeNames) == +OpCode::OP_Count)`
-binds the size. A new opcode is still 6 manual touch points: enum, names,
+binds the size. A new opcode is 6 manual touch points: enum, names,
 `InstructionStride` (default `assert(false)` — a miss corrupts cross-module
 remap in Release), codegen, executor, ndisasm.

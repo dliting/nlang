@@ -1,5 +1,12 @@
 # Garbage Collection Design
 
+NLang's heap is managed automatically by the garbage collector (GC):
+developers create objects without freeing them by hand. This page
+records the four core design decisions — safepoint triggering, precise
+scanning, the parallel array, iterative marking — plus the full
+mark-sweep algorithm and the tracing rules for array fields. Understanding
+these decisions tells you when the VM collects and which slots count as
+live.
 
 ### Design Decisions
 
@@ -126,7 +133,7 @@ after each sweep (`strThreshold = max(strThreshold, 2 * survivorCount)`)
 makes triggers advance geometrically with the live set: appends amortize to
 O(1), with memory bounded at 2x the live set.
 
-### Array Field and Element Tracing (array redesign B)
+### Array Field and Element Tracing
 
 - **Array-typed fields are declared, not inferred**: array struct/class
   fields store `RTK_Array` as their `fieldTypeKinds` entry in the
@@ -135,14 +142,14 @@ O(1), with memory bounded at 2x the live set.
   double condition — `fieldTypeKinds[i] == RTK_Array` paired with the
   slot actually holding an array record — alongside the existing
   RTK_Class/RTK_Struct/RTK_Func arms.
-- **The old runtime-kind fallback is gone**: MarkPhase no longer traces
+- **Field tracing keys on the declared kind**: MarkPhase does not trace
   a field slot just because its runtime kind looks like an array. This
   is safe because jagged declarations (`T[][]`), the one source form
   that could smuggle an array record into a non-array-typed field slot,
   are rejected at resolve time by the compiler.
 - **Defensive RTK_Array element arm**: the array branch traces elements
   whose declared `elemKind` is `RTK_Array` (same double condition as
-  the field arms). Unreachable from compilable source today (jagged
+  the field arms). The arm is unreachable from compilable source (jagged
   declarations are rejected) — it is the correctness base for future
   or externally produced `.nmod` paths. Array-typed *container*
   elements (`List<int[]>`, `Dict` keys/values) are traced by the

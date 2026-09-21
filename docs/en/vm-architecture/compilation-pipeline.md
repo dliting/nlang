@@ -1,5 +1,10 @@
 # Compilation Pipeline
 
+Once the compiler front end has produced the AST, `VmBackend` translates
+it into a `CompiledModule`: struct, class, and function registration
+come first, then bytecode generation for every function. This page lists
+the stages in order and explains why one of them
+(`ResolveStructClassRefs`) has to run as its own pass.
 
 ```text
 AST → VmBackend → CompiledModule (.nmod)

@@ -1,5 +1,12 @@
 # Heap Architecture
 
+Class, struct, boxed-primitive, function-value, and array records share
+one heap array (`m_structHeap`); string objects live in a separate store
+(`m_stringObjs`). Both are reclaimed by the garbage collector. This page
+describes the heap's physical layout — slot structure, parallel arrays,
+the string object store — and how the built-in generic containers
+`List<T>`/`Dict<K,V>` are stored; it is the prerequisite for the
+garbage-collection design page.
 
 ### Single Heap Design
 
@@ -32,7 +39,7 @@ layout when tracing references. The alternative (adding a type header to
 struct objects) would require shifting all LoadField/StoreField offsets by +1,
 a larger and more error-prone change.
 
-### Implicit `Object` Base Class (Phase 8e-1)
+### Implicit `Object` Base Class
 
 Every user class that does not explicitly inherit from another class has
 `superClassIdx` set to the synthesized Object class's index by a post-pass
@@ -54,18 +61,16 @@ first — there is no separate dispatch machinery for Object methods. When
 the runtime reaches Object's intrinsic stub (no AST override exists), it
 short-circuits to `ExecuteIntrinsic`.
 
-**Two intrinsic dispatch paths (P3.2 fix)**: most intrinsics are reached
+**Two intrinsic dispatch paths**: most intrinsics are reached
 via `OP_CallMethod` / `OP_CallMethodDirect`, which inspect the
 `callee.intrinsicId` field stamped on the `CompiledFunction` by VmBackend
 and short-circuit to `ExecuteIntrinsic`. Strings, however, are primitives
 (no class), so `string.getHashCode()` and `string.equals()` cannot go
 through that path — VmBackend emits `OP_CallIntrinsic` directly for
 them, which the executor dispatches via the same `ExecuteIntrinsic`
-function. (Before commit 862d7a7, the `OP_CallIntrinsic` case threw
-"intrinsic calls not yet implemented"; two e2e tests passed only because
-the throw's exit code happened to equal the expected value.)
+function.
 
-### Boxed Primitives (Phase 8e-1)
+### Boxed Primitives
 
 A primitive value (int/float/string) assigned to an Object-typed target is
 boxed into a 2-slot heap entry:
@@ -104,7 +109,7 @@ with their own mark bit vector, free list, and collection threshold
   from content to live handle). `==` between two interned strings
   reduces to a handle comparison.
 
-### Built-in Generic `List<T>` (Phase 8e-3)
+### Built-in Generic `List<T>`
 
 `List<T>` is a built-in generic class implementing **erasure semantics**
 (Java model): the type parameter `T` exists only at compile time. At
@@ -118,8 +123,8 @@ SnClassDecl instances keyed by the full instantiation signature:
 struct GenericInstKey {
     std::string baseName;            // "List" / "Dict" / "Func"
     std::vector<SnField*> typeArgs;  // resolved type-argument fields
-    std::vector<uint8> outFlags;     // Phase 13: out-marked params (Func)
-    std::vector<uint8> arrayFlags;   // C-period: array-typed type args
+    std::vector<uint8> outFlags;     // out-marked params (Func)
+    std::vector<uint8> arrayFlags;   // array-typed type args
 };
 ```
 
@@ -168,7 +173,7 @@ worklist, so their children — class fields, boxed-string payloads, or,
 for array elements, the array's own elements by elemKind — are traced
 too.
 
-**Intrinsics (9 new IDs).** List methods are dispatched through
+**Intrinsics (9 IDs).** List methods are dispatched through
 `OP_CallMethod` like any class method, but the function backing each
 name is a no-op stub that triggers `ExecuteIntrinsic`:
 
@@ -219,7 +224,7 @@ OP_VarLocal allocSlot
 OP_Assign resultOffset                        // copy to caller's expected slot
 ```
 
-### Built-in Generic `Dict<K,V>` (Phase 8e-4)
+### Built-in Generic `Dict<K,V>`
 
 `Dict<K,V>` mirrors `List<T>`'s architecture: **erasure semantics**,
 single backing CompiledClass ("Dict") across all instantiations, one
@@ -241,10 +246,10 @@ int16_t                 m_dictClassIdx;    // cached at module load
 
 Both K and V are heap indices uniformly — primitive K/V values are
 boxed at the call site (`OP_Box typeKind` before `OP_CallMethod`).
-Lookup is **linear scan** O(n); the open-addressing hashtable
-optimization is a future phase.
+Lookup is **linear scan** O(n); an open-addressing hashtable is a
+possible future optimization.
 
-**Intrinsics (7 new IDs 53-59).**
+**Intrinsics (IDs 53-59, 7 total).**
 
 | Intrinsic ID           | Behavior                                                  |
 |------------------------|-----------------------------------------------------------|
@@ -269,8 +274,8 @@ helper used by Set/Get/ContainsKey/Remove:
      - `RTK_String`: compare the string-object content behind the
        handles (value eq).
 
-This pattern generalizes the Phase 8e-3 fix-up C2 fix (List IndexOf/
-Contains value-bit comparison) to multi-tag keys.
+This pattern generalizes the value-bit comparison of List IndexOf/
+Contains to multi-tag keys.
 
 **Codegen: per-method boxing plan.** Replaces the List-specific
 codegen block. When the call target's class is a generic instantiation

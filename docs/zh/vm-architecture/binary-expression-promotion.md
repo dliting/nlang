@@ -1,5 +1,9 @@
-# 二元表达式提升（Phase 8e-8）
+# 二元表达式提升
 
+VM 的算术指令按具体类型编码（`OP_Add_i32`、`OP_Add_f32` 等变体），
+而语言允许混写 `int` 与 `float`。二元表达式提升就是补齐这一差距的
+机制：编译期把两个操作数统一到较宽的类型，再发射对应类型的指令。
+本页说明提升规则在 resolver 与代码生成两处的实现。
 
 算术二元表达式（`+ - * / %`）采用**对称数值提升**：两个操作数先提
 升到较宽的类型再执行指令。提升规则：`int OP int → int`；
@@ -23,10 +27,10 @@
 变体（`string == string` 用 `OP_Eq_str`，即使 `bin.EvalDataType()`
 对比较而言恒为 NK_Int32）。
 
-**FixupExprType 修复**：`FixupExprType` 现在会给新建的 `SnCastExpr`
-设置 `EvalDataType`（Phase 8e-8）。此前只有显式的 `expr as T` 路径
-会设置它；经 FixupExprType 创建的隐式转换（赋值 / 实参 / 二元提升）
-不设 EvalDataType，下游消费者看到的便是 null 类型。
+**FixupExprType 与 EvalDataType**：经 `FixupExprType` 新建的
+`SnCastExpr` 一律设置 `EvalDataType`，显式的 `expr as T` 路径也是如
+此。隐式转换（赋值 / 实参 / 二元提升）的包装节点因此都带有确定的类
+型，下游消费者不会读到 null 类型。
 
-没有新指令。复用前几阶段的 `OP_CastIntToFloat` / `OP_CastFloatToInt`
+没有新指令。复用既有的 `OP_CastIntToFloat` / `OP_CastFloatToInt`
 / `OP_Add_f32` 等。

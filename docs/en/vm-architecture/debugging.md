@@ -40,8 +40,7 @@ breakpoint on the anchor line — or stepping — stops on **every**
 iteration, not only at loop entry (gdb semantics): the condition entry
 for `while`/`for` — evaluated once per iteration, including the final
 evaluation that ends the loop — and the tail condition for `do-while`.
-Previously the anchor fired once at loop entry, leaving an empty-bodied
-loop without a per-iteration checkpoint. The anchor is the statement
+The anchor is the statement
 line the grammar records for the loop header, so `b <file>:<loop line>`
 behaves the way line-oriented debuggers have always behaved; a `for`
 header also carries its init and increment statements on that line, and
@@ -112,7 +111,7 @@ Inside a callback:
 
 Reference-typed values are discriminated like the GC marker does:
 declared kind prunes primitives; array-typed fields carry the
-declaration-side `RTK_Array` in `.nmod` (array redesign B), so the
+declaration-side `RTK_Array` in `.nmod`, so the
 declared kind is the reliable array detector and the runtime slot kind
 corroborates it. Only Class/Struct/Func declared kinds fall through to
 the runtime slot kind; Int32/Float/String/Array render directly from
@@ -127,15 +126,15 @@ recorded paths, `b LINE` resolves in the selected frame's file,
 copies `sourceFile` and `locals`, so imported functions are
 breakpoint-addressable and their frames inspectable.
 
-## Known limits (v1)
+## Known limits
 
 No conditional breakpoints or watchpoints; empty-bodied `b func` never
 hits; function names render bare (no `Class.method` qualification); the
 exception object is not exposed as a pseudo-variable at the throw stop;
 no attach to running processes; native calls step through transparently;
 throw stops anchor at the statement's pc approximation; pc values are
-16-bit bytecode offsets (inherited from the executor's existing
-`uint16_t opPc`, Phase 9d precedent — a function with >64 KiB of
+16-bit bytecode offsets (the executor's existing `uint16_t opPc` — a
+function with >64 KiB of
 bytecode would wrap; a pre-existing VM bound, not a debugger limit); a
 shared `.nmod` may carry stale source paths (ndb falls back to the
 `.nmod`'s directory, then degrades `l` to numbers-only). The IDE

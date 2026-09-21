@@ -1,5 +1,11 @@
-# Binary Expression Promotion (Phase 8e-8)
+# Binary Expression Promotion
 
+The VM's arithmetic opcodes are encoded per type (`OP_Add_i32`,
+`OP_Add_f32`, ...), while the language lets you mix `int` and `float`
+freely. Binary expression promotion is the mechanism that bridges the
+gap: at compile time both operands are unified to the wider type, then
+an opcode of that type is emitted. This page describes how the rules
+are implemented in the resolver and in codegen.
 
 Arithmetic binary expressions (`+ - * / %`) use **symmetric numeric
 promotion**: both operands are promoted to the wider type before the
@@ -24,11 +30,11 @@ the original operand whose type selects the i32/f32/str variant
 (`OP_Eq_str` for `string == string` even though `bin.EvalDataType()`
 is always NK_Int32 for comparisons).
 
-**FixupExprType fix**: `FixupExprType` now sets `EvalDataType` on the
-newly-created `SnCastExpr` (Phase 8e-8). Previously only the explicit
-`expr as T` path set this; implicit casts created via FixupExprType
-(assignment / param / binary promotion) left EvalDataType unset, which
-made downstream consumers see null type.
+**FixupExprType and EvalDataType**: a `SnCastExpr` created by
+`FixupExprType` always gets `EvalDataType` set, and so does the explicit
+`expr as T` path. Wrapper nodes for implicit casts (assignment / param /
+binary promotion) therefore all carry a definite type, and downstream
+consumers never see a null type.
 
-No new opcodes. Reuses `OP_CastIntToFloat` / `OP_CastFloatToInt` /
-`OP_Add_f32` etc. from earlier phases.
+No new opcodes. Reuses the existing `OP_CastIntToFloat` /
+`OP_CastFloatToInt` / `OP_Add_f32` etc.

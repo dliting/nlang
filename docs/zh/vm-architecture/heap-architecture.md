@@ -1,5 +1,10 @@
 # 堆架构
 
+class、struct、装箱基本类型、函数值与数组记录共享同一个堆数组
+（`m_structHeap`），字符串对象存放在独立的对象仓（`m_stringObjs`），
+两者都由垃圾回收器统一回收。本页说明堆的物理布局——槽位结构、并行
+数组、字符串对象仓——以及内建泛型容器 `List<T>`/`Dict<K,V>` 的存储
+方式，是理解垃圾回收设计页的前提。
 
 ### 单一堆设计
 
@@ -31,7 +36,7 @@ MarkStruct 在追踪引用时无从得知该查询哪个 CompiledStruct 的字�
 替代方案（给 struct 对象加类型头）要求把所有 LoadField/StoreField 的
 偏移整体 +1，改动面更大也更容易出错。
 
-### 隐式 `Object` 基类（Phase 8e-1）
+### 隐式 `Object` 基类
 
 凡未显式继承其他类的用户类，都会由 `RegisterClasses` 的一个后置趟把
 `superClassIdx` 设为合成 Object 类的索引。Object 是唯一
@@ -52,17 +57,15 @@ Object 有三个虚方法（`Equals(Object)→int`、`GetHashCode()→int`、
 没有单独的分派机制。当运行期走到 Object 的内建函数桩（不存在 AST
 覆写）时，直接短路进入 `ExecuteIntrinsic`。
 
-**两条内建函数分派路径（P3.2 修复）**：大多数内建函数经由
+**两条内建函数分派路径**：大多数内建函数经由
 `OP_CallMethod` / `OP_CallMethodDirect` 到达，二者检查 VmBackend 盖在
 `CompiledFunction` 上的 `callee.intrinsicId` 字段并短路进入
 `ExecuteIntrinsic`。但 string 是基本类型（没有类），
 `string.getHashCode()` 与 `string.equals()` 走不了这条路——VmBackend
 为它们直接发射 `OP_CallIntrinsic`，执行器同样经 `ExecuteIntrinsic`
-函数分派。（在 commit 862d7a7 之前，`OP_CallIntrinsic` 分支会抛
-"intrinsic calls not yet implemented"；两个 e2e 测试之所以通过，只是
-因为该抛错退出码恰好等于期望值。）
+函数分派。
 
-### 装箱基本类型（Phase 8e-1）
+### 装箱基本类型
 
 基本类型值（int/float/string）赋给 Object 类型的目标时，会装箱（box）成
 一个 2 槽堆条目：
@@ -96,7 +99,7 @@ slot[0] 始终按类型标签读取，不会被误读成 classIdx。SweepPhase �
   按内容共享，内容到存活句柄的弱映射）的对象——两个驻留串的 `==`
   等价于句柄比较。
 
-### 内建泛型 `List<T>`（Phase 8e-3）
+### 内建泛型 `List<T>`
 
 `List<T>` 是内建泛型类，采用**擦除语义**（Java 模型）：类型参数 `T`
 只存在于编译期。运行期所有 `List<X>` 实例化共享同一个后备
@@ -109,8 +112,8 @@ CompiledClass（"List"），其上只有一个 int 类型的隐藏字段 `__hand
 struct GenericInstKey {
     std::string baseName;            // "List" / "Dict" / "Func"
     std::vector<SnField*> typeArgs;  // resolved type-argument fields
-    std::vector<uint8> outFlags;     // Phase 13: out-marked params (Func)
-    std::vector<uint8> arrayFlags;   // C-period: array-typed type args
+    std::vector<uint8> outFlags;     // out-marked params (Func)
+    std::vector<uint8> arrayFlags;   // array-typed type args
 };
 ```
 
@@ -154,7 +157,7 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 节点——class 字段、装箱串的 payload，或（对数组元素而言）按
 elemKind 的数组自身元素——也随之被追踪。
 
-**内建函数（新增 9 个 ID）。** List 方法与普通类方法一样经
+**内建函数 ID（9 个）。** List 方法与普通类方法一样经
 `OP_CallMethod` 分派，但每个名字背后的函数都是一个触发
 `ExecuteIntrinsic` 的空桩：
 
@@ -199,7 +202,7 @@ OP_VarLocal allocSlot
 OP_Assign resultOffset                        // copy to caller's expected slot
 ```
 
-### 内建泛型 `Dict<K,V>`（Phase 8e-4）
+### 内建泛型 `Dict<K,V>`
 
 `Dict<K,V>` 沿用 `List<T>` 的架构：**擦除语义**、所有实例化共享单一
 后备 CompiledClass（"Dict"）、一个 int 类型的隐藏字段 `__handle`。
@@ -220,9 +223,9 @@ int16_t                 m_dictClassIdx;    // cached at module load
 
 K 与 V 同样统一都是堆索引——基本类型 K/V 的值在调用点装箱（
 `OP_CallMethod` 之前先 `OP_Box typeKind`）。查找是**线性扫描** O(n)；
-开放寻址哈希表优化留待后续阶段。
+开放寻址哈希表是可能的后续优化方向。
 
-**内建函数（新增 7 个 ID 53-59）。**
+**内建函数 ID（53-59，共 7 个）。**
 
 | 内建函数 ID           | 行为                                                      |
 |------------------------|-----------------------------------------------------------|
@@ -247,8 +250,8 @@ ContainsKey/Remove 共用的核心辅助函数：
        `NaN != NaN`）。
      - `RTK_String`：比较句柄对应的字符串对象内容（值相等）。
 
-这一模式把 Phase 8e-3 的补救修复 C2（List IndexOf/Contains 的值位比
-较）推广到多标签键。
+这一模式把 List `IndexOf`/`Contains` 的值位比
+较推广到多标签键。
 
 **代码生成：逐方法装箱计划。** 取代 List 专属的代码生成块。当调用
 目标的类是泛型实例化（`SnClassDecl::IsGenericInstantiation()`）时，
@@ -267,7 +270,7 @@ uint8_t returnTag    = 0;
   1 + returnsBoxed（V）；`containsKey`/`remove` → K 在槽 1。
 
 共享辅助函数 `BoxingTagFor(SnField*)` 返回
-`BoxingTagResult {tag, isPrimitive}`，从此 `RTK_Int32 == 0` 不再与
+`BoxingTagResult {tag, isPrimitive}`，因而 `RTK_Int32 == 0` 不再与
 「无装箱」冲突——`isPrimitive` 布尔值才是权威信号。参数循环对
 `argPlans` 中的每个槽位在 `OP_CallMethod` 之前发射 `OP_Box <tag>`；
 调用之后若 `returnsBoxed` 则发射 `OP_Unbox <tag>`。
