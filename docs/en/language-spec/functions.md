@@ -200,11 +200,11 @@ Each function's local frame is sized dynamically based on its body:
   needs 4 slots: 2 for `foo`'s args + 2 for the inner `helper` calls).
 
 The evaluation scratch area is a disjoint, stack-disciplined staging area.
-Each call's argument emission claims a slice with stack discipline on entry
-and releases it on exit. Bindings emit to the claimed slice; a
-bulk-copy loop then moves them into the call-argument staging area just
+Each call's argument generation claims a slice with stack discipline on
+entry and releases it on exit. Bindings are written to the claimed slice;
+a bulk-copy loop then moves them into the call-argument staging area just
 before the call. This means inner calls' bindings never overwrite outer
-calls' already-emitted bindings.
+calls' already-written bindings.
 
 A sanity ceiling of 64 formals prevents unreasonably
 large frames; exceeding it is a declaration-time error.

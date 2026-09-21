@@ -19,6 +19,8 @@
 
 想了解执行引擎：[VM 架构/概览](../vm-architecture/overview.md)，
 再按需读编译管线、栈帧布局、字节码指令等章节。
+四个命令行工具（ncc/nvm/ndb/ndisasm）的用法见
+[命令行工具](../cli-tools/overview.md)一章。
 在 IDE 里调试程序见 [在 nide 中调试](debugging.md)。
 
 想看能跑的完整程序：`examples/README.md` 按主题列出全部示例与预期退出码，

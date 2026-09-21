@@ -20,8 +20,8 @@
 
 ### 调用参数区
 
-`callParamBase` 起的 N 个槽位。N 是本函数体内所见被调方形参数的
-最大值（最小 1），由 `ComputeCallSlotStats` 在编译期算出。方法调用
+`callParamBase` 起的 N 个槽位。N 是本函数体内所见被调函数形参个数
+的最大值（最小 1），由 `ComputeCallSlotStats` 在编译期算出。方法调用
 时槽 0 是 `this`。实参在调用发生前从左到右依次求值并写入该区域。
 
 ### 求值暂存区

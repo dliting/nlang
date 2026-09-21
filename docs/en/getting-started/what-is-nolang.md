@@ -27,7 +27,7 @@ The five tools shipped with the package:
 
 | Tool | Role |
 |---|---|
-| ncc | command-line compiler: compiles `.n`/`.nproj` into `.nmod`, and can execute right after compiling |
+| ncc | command-line compiler: compiles `.n` source files and `.nproj` project files into `.nmod`, and can execute right after compiling |
 | nvm | VM runner: executes `.nmod` |
 | ndb | command-line debugger: breakpoints, stepping, and the call stack (it also drives the graphical debugging in nide) |
 | ndisasm | bytecode disassembler: inspects the instructions inside a `.nmod` |

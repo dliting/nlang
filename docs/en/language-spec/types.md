@@ -19,7 +19,7 @@ Float literals require a decimal point and may use exponents (`1.0e30`,
 in the module string constant table. `string.length()` returns the **byte count**, not
 the Unicode code-point count — `"héllo".length()` is 6 (5 code points but `é`
 is 2 bytes in UTF-8). Proper UTF-8 code-point iteration is deferred to a
-future phase.
+future release.
 
 ### Composite Types
 
