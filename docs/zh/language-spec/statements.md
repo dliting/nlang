@@ -296,7 +296,8 @@ class Kid : Base {
 - 对没有构造函数的父类调用无参 `super()` 是合法的无操作；此时传
   实参是编译错误。
 
-**调试异常：** nide 中按 F5 启动调试会话，可在抛出点暂停（见
+**调试异常：** nide 中按 F5 启动调试会话，勾选「抛异常时中断」开关
+后可在抛出点暂停（见
 [在 nide 中调试](../getting-started/debugging.md)）；命令行下 `ndb`
 的 `catch on` 同样在抛出点中断（见[命令行 ndb](../cli-tools/ndb.md)）。
 

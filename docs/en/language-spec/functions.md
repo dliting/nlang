@@ -189,7 +189,7 @@ invokes the native directly with the caller's staged argument cells:
 Each function's local frame is sized dynamically based on its body:
 
 ```text
-[this?][params][returnSlot][temp1-4][call-argument staging area(N)][evaluation scratch area(peak depth)][user locals...]
+[this?][params][return slot][temps 1-4][call-argument staging area(N)][evaluation scratch area(peak depth)][user locals...]
 ```
 
 - **N** = max callee formal count (plus slot 0 for `this` on methods) observed

@@ -312,8 +312,8 @@ class Kid : Base {
 - `super()` with no arguments against a parent with no constructor is a
   legal no-op; passing arguments in that case is a compile error.
 
-**Debugging exceptions:** press F5 in nide to start a debug session and
-pause at the throw point (see
+**Debugging exceptions:** press F5 in nide to start a debug session;
+turn on the Break on exceptions toggle to pause at the throw point (see
 [Debugging in nide](../getting-started/debugging.md)); on the command
 line, `ndb`'s `catch on` breaks at the throw point as well (see
 [command-line ndb](../cli-tools/ndb.md)).
