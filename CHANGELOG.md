@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.8.0] - Unreleased
+## [0.7.1] - Unreleased
 
 ### Added
 - Manual: "Command-line Tools" reference chapter (ncc/nvm/ndb/ndisasm)
@@ -20,6 +20,11 @@ All notable changes to NLang are documented here. The format follows
   programs (prompt-building loops and similar) no longer grow memory
   without bound, and `s = s + x` appends are O(1) instead of O(n) copies
   (transparent concatenation nodes, flattened on first read).
+- Manual: newcomer-readability pass across both documentation trees —
+  internal development annotations were removed, unexplained
+  implementation identifiers were replaced with named concepts, and
+  tool usage is now cross-linked from the language specification and
+  README.
 
 ### Performance
 - Short strings (up to 40 bytes) created at runtime are interned and
@@ -33,6 +38,9 @@ All notable changes to NLang are documented here. The format follows
 - Manual: FAQ ".nmod output location" answer now reflects the 0.7.0
   global build output directory; the shipped-tools table now lists all
   five tools.
+- Manual: the stack-frame layout page was rewritten to match the actual
+  frame layout, and the exit-code limitation now states precisely that
+  only a POSIX shell's `$?` truncates to the low 8 bits.
 
 ## [0.7.0] - 2026-09-19
 
