@@ -1,8 +1,9 @@
 # 在 nide 中调试
 
 nide 内置调试器：设断点、单步执行、查看调用栈与局部变量都可以在 IDE
-里完成。调试会话由 `ndb --machine` 在后台驱动，语义与命令行 ndb 一致，
-引擎侧的分层见 [VM 架构/调试支持](../vm-architecture/debugging.md)。
+里完成。调试会话由 `ndb --machine` 在后台驱动，语义与
+[命令行 ndb](../cli-tools/ndb.md) 一致，引擎侧的分层见
+[VM 架构/调试支持](../vm-architecture/debugging.md)。
 
 用下面的程序走一遍调试流程：
 

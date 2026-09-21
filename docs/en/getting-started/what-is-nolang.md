@@ -32,3 +32,8 @@ The five tools shipped with the package:
 | ndb | command-line debugger: breakpoints, stepping, and the call stack (it also drives the graphical debugging in nide) |
 | ndisasm | bytecode disassembler: inspects the instructions inside a `.nmod` |
 | nide | IDE: edit, build, and run, with this help site embedded |
+
+For the complete usage of the five tools, see the
+[Command-line Tools](../cli-tools/overview.md) chapter; for nide's
+graphical interface, see [Three Ways to Run](running.md) and
+[Debugging in nide](debugging.md).

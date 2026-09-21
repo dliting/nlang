@@ -25,3 +25,7 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，也�
 | ndisasm | 字节码反汇编器：查看 `.nmod` 里的指令 |
 | nide | IDE：编辑、构建、运行，内嵌本帮助站 |
 
+五个工具的完整用法见[命令行工具](../cli-tools/overview.md)一章；
+nide 的图形界面用法见[三种运行方式](running.md)与
+[在 nide 中调试](debugging.md)。
+

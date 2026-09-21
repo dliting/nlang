@@ -193,7 +193,7 @@ loader enforces a compatibility floor: after a floor bump, older
 matching `ncc`. The format history (what each version added or changed)
 is in `CHANGELOG.md`.
 
-## Standard Library (Phase 11)
+## Standard Library
 
 `math`, `io` and `fs` are built-in namespaces — reserved names that need
 an explicit `import` before their qualified calls. Strings carry built-in
