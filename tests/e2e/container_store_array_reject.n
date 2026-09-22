@@ -1,0 +1,10 @@
+//Storing an array value into a container whose element is not
+//array-typed (List<int>) must be rejected: the store flows as the
+//degraded element kind and the handle would be untraceable.
+int main() {
+    int[] ia = new int[3];
+    List<int> li = new List<int>();
+    li.add(1);
+    li[0] = ia;
+    return 0;
+}

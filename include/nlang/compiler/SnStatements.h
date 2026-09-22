@@ -326,6 +326,7 @@ public:
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
+	friend class StatementResolveAccessor;
 	SnExpression *m_pArray;
 	SnExpression *m_pIndex;
 	SnExpression *m_pValue;

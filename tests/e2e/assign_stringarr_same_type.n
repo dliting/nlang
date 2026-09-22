@@ -1,0 +1,11 @@
+//0.7.2 keep-green: same-type string[] flow stays legal (string tokens
+//compare TCK_Same — the exemption must not reject it).
+int main() {
+	string[] sa = ["a", "b"];
+	string[] sb = sa;
+	if (sb.length != 2)
+		return 1;
+	if (sb[0] != "a")
+		return 2;
+	return 7;
+}

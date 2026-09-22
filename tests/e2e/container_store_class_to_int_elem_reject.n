@@ -1,0 +1,13 @@
+//I-C (round-4): a class value stored into a List<int> element is a
+//compile error — without the element-type cast check the class handle
+//flowed raw into the int element slot.
+class C {
+    public int v;
+}
+int main() {
+    List<int> li = new List<int>();
+    li.add(0);
+    C c = new C();
+    li[0] = c;
+    return 0;
+}

@@ -1,0 +1,10 @@
+//Positive guard: an array value assigned to a string target coerces
+//via runtime toString dispatch (the same machinery "${arr}" uses) —
+//the array masquerade guards must keep this legal.
+int main() {
+    int[] arr = [1, 2];
+    string s = arr;
+    if (s == "[1, 2]")
+        return 7;
+    return 1;
+}

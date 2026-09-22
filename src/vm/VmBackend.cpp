@@ -3069,27 +3069,20 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
             }
             //Phase 9b-pre: array → string emits OP_Array_to_str (Array is a
             //VM primitive, not a class, so OP_CallMethod doesn't apply).
-            //Array types don't set EvalDataType to an array-kind node; the
-            //type info lives on the variable's SnField (IsArrayType flag).
-            //Detection: walk the source expression's Field() chain.
-            if (dstKind == NK_String) {
-                auto srcExprKind = cast.Source()->Kind();
-                if (srcExprKind == NK_MemberExpr
-                    || srcExprKind == NK_IdentifierExpr)
-                {
-                    auto& srcFieldExpr = static_cast<SnFieldExpr&>(
-                        *cast.Source());
-                    auto* srcField = srcFieldExpr.Field();
-                    if (srcField && srcField->IsArrayType()) {
-                        //A member-source emit ends in OP_LoadField, which
-                        //writes the slot but leaves the accumulator stale.
-                        EmitPResultRefresh(emitter, resultOffset);
-                        emitter.Emit(OpCode::OP_Array_to_str);
-                        emitter.Emit(OpCode::OP_Assign);
-                        emitter.EmitUint16(resultOffset);
-                        return;
-                    }
-                }
+            //Array-ness keys on the source expression's array-valued
+            //property (the resolver's single channel) — identifier and
+            //member sources, invoke results, new-array expressions and
+            //container element reads alike. The old Kind/Field() test
+            //missed every non-lvalue shape, which then fell through to
+            //the Int32→String arm and printed the raw handle index.
+            if (dstKind == NK_String && cast.Source()->IsArrayValued()) {
+                //A member-source emit ends in OP_LoadField, which
+                //writes the slot but leaves the accumulator stale.
+                EmitPResultRefresh(emitter, resultOffset);
+                emitter.Emit(OpCode::OP_Array_to_str);
+                emitter.Emit(OpCode::OP_Assign);
+                emitter.EmitUint16(resultOffset);
+                return;
             }
             if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
             if (dstKind == NK_EnumDecl) dstKind = NK_Int32;
@@ -3136,6 +3129,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         }
         if (kind == TCK_Box) {
             //Symmetric to NK_CastExpr's TCK_Box path: emit OP_Box typeTag.
+            //The null literal is exempt — boxing it would allocate a
+            //boxed 0 and destroy the null identity downstream
+            //(`oa[0] = null as Object` then compares unequal to null).
+            //Access(SnAsExpr) propagates NF_NullLiteral onto the as-expr
+            //for exactly this test. Same exemption as FixupExprType's
+            //null-literal skip and the element-store boxing guards.
+            if (asExpr.ContainFlags(NF_NullLiteral))
+                return;
             auto* sourceType = asExpr.Operand()->EvalDataType();
             uint8_t typeTag = RTK_Int32;
             if (sourceType) {
@@ -4169,6 +4170,19 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                 auto& entry = initList.Entries()[i];
                 if (!entry.pValue) continue;
                 EmitExpression(*entry.pValue, emitter, valueSlot);
+                //Struct entries deep-copy before the store, mirroring
+                //the subscript-store path: a bare store would alias
+                //the source struct value (later mutation of the source
+                //would change the stored element).
+                if (RuntimeTypeKind(pElemField) == RTK_Struct) {
+                    int structIdx =
+                        m_compiledModule.FindStruct(pElemField->Name());
+                    emitter.Emit(OpCode::OP_CopyStruct);
+                    emitter.EmitUint16(valueSlot);
+                    emitter.EmitUint16(valueSlot);
+                    emitter.EmitUint16(structIdx >= 0
+                        ? static_cast<uint16_t>(structIdx) : 0);
+                }
                 //Index constant to callParamBase (avoids tempSlot/valueSlot).
                 emitter.Emit(OpCode::OP_ConstInt32);
                 emitter.EmitInt32(i);
@@ -5396,14 +5410,16 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         }
         //Detect element type from the array's resolved field.
         //The element type is needed for struct deep-copy on write.
+        //Identifier and Member bases both expose the field through the
+        //Array-valued base (identifier, member, subscript, call — the
+        //resolver's element-type gate stamps the property on every
+        //shape): EvalDataType IS the element type. Mirrors the
+        //resolver's test in Access(SnSubscriptAssignStmt) so struct
+        //deep-copy fires for every base shape, not just identifier
+        //and member bases.
         SnField* elemType = nullptr;
-        if (sub.Array()->Kind() == NK_IdentifierExpr) {
-            auto* arrField = static_cast<SnIdentifierExpr&>(
-                *sub.Array()).Field();
-            if (arrField && arrField->IsArrayType()
-                && arrField->EvalDataType())
-                elemType = arrField->EvalDataType();
-        }
+        if (sub.Array()->IsArrayValued())
+            elemType = sub.Array()->EvalDataType();
         //Phase 10 audit round-2: runs entirely inside an EvalAreaClaim(3)
         //[array, index, value] — the old tempSlot/tempSlot2/callParamBase
         //staging let any nested expression in the index (subscript-get,
@@ -5414,31 +5430,13 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         uint16_t claimBase = claim.base();
         uint16_t indexSlot = claimBase + VALUE_SIZE;
         uint16_t valueSlot = claimBase + 2 * VALUE_SIZE;
+        //Object[] element stores arrive pre-boxed: the resolver's
+        //element-type gate (Access(SnSubscriptAssignStmt)) wraps
+        //primitive values in a TCK_Box cast, so this emit includes the
+        //OP_Box — the same representation field/local stores and the
+        //container path use. Null literals skip the wrap at the
+        //resolver and keep their raw identity.
         EmitExpression(*sub.Value(), emitter, valueSlot);
-        //Object[] element stores box primitive values: the element's
-        //declared kind is a class (only Object accepts primitives), and
-        //the boxed record is the representation `as`-unboxing and GC
-        //tracing expect — same representation List/Dict element stores
-        //use. `string[]`/`int[]` elements keep their raw representation
-        //(declared kind is not a class, so the guard below is false).
-        //Identifier-base stores only: elemType detection above covers
-        //NK_IdentifierExpr bases (member bases like c.a[0] keep the
-        //pre-existing raw store, same detection gap as the struct
-        //deep-copy below). Null literals stay raw — boxing a null
-        //(Int32-typed by construction) would allocate a boxed 0 and
-        //destroy the null identity (same hazard FixupExprType guards
-        //against for field stores).
-        if (elemType && RuntimeTypeKind(elemType) == RTK_Class) {
-            auto valBox = BoxingTagFor(sub.Value()->EvalDataType());
-            if (valBox.isPrimitive
-                    && !sub.Value()->ContainFlags(NF_NullLiteral)) {
-                EmitPResultRefresh(emitter, valueSlot);
-                emitter.Emit(OpCode::OP_Box);
-                emitter.EmitByte(valBox.tag);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(valueSlot);
-            }
-        }
         EmitExpression(*sub.Index(), emitter, indexSlot);
         //Array reference last, null-checked (mirrors container path).
         EmitExpression(*sub.Array(), emitter, claimBase);

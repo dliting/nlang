@@ -698,7 +698,8 @@ bool IsPlainLvalueShape(const SnExpression& expr) {
 //twin): List element = flags[0]; Dict VALUE slot = flags[1] (stamp
 //context reads the value flow — NOT the flags[0] key slot used by
 //foreach key iteration; sharing the two would stamp both wrong).
-static bool ElemIsArrayValued(const SnExpression& base)
+//Shared with StatementResolver's container subscript-store gate.
+bool ElemIsArrayValued(const SnExpression& base)
 {
 	const SnField* f = base.EvalDataType();
 	if (!f || f->Kind() != NK_ClassDecl)
@@ -2483,6 +2484,21 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 		return;
 	}
 
+	//Array masquerade guard, `as` flavor: the operand's degraded element
+	//type would drive every cast below — TCK_Same passes the raw handle
+	//through as an int, and TCK_Box boxes the handle bits as a primitive
+	//(garbage either way, invisible to the collector). `as` has no
+	//array-typed target spelling and string targets are assignment-only
+	//coercions, so no legal form exists for an array-valued operand.
+	if (sn.Operand()->IsArrayValued())
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Invalid cast \"%s as %s\": the cast operand is an array.",
+			sn.Operand()->ToString().c_str(),
+			sn.TargetType()->ToString().c_str());
+		return;
+	}
+
 	TypeCastInfo castInfo(pSrcType, pTgtType);
 	auto kind = castInfo.Kind();
 
@@ -2525,6 +2541,12 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 	//like SnInt32 are SnBuiltinDataType whose EvalDataType() is SnType,
 	//and downstream cast checks would fail with TCK_None.
 	sn.EvalDataType(pTgtType);
+	//`null as T` is still the null literal semantically: propagate the
+	//flag so downstream gates (the null-identity skip in FixupExprType,
+	//the boxing guard family) see through the cast wrapper. ContainFlags
+	//is a flat bit test — wrapper nodes do not inherit child flags.
+	if (sn.Operand()->ContainFlags(NF_NullLiteral))
+		sn.AddFlags(NF_NullLiteral);
 }
 
 void ExprResolveAccessor::Access(SnBinaryExpr &sn)
@@ -3037,6 +3059,40 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 			}
 		}
 	}
+
+	//Array-form element-type gate: every entry is an element store, so
+	//it takes the same conversion checks as `arr[i] = v`. The wrap
+	//makes the codegen's OP_StoreElement emit the box/coercion, and
+	//array-valued or mismatched entries are named rejects — the raw
+	//store put handles under the element kind (untraceable) or skipped
+	//boxing entirely. Container forms (List/Dict) already box through
+	//their own per-method plans and are not array-form.
+	if (bIsArray && pElemType)
+	{
+		const auto &entries = sn.Entries();
+		for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
+		{
+			auto *pValue = entries[nIdx].pValue;
+			if (!pValue || !pValue->IsResolved()
+				|| !pValue->EvalDataType())
+				continue;
+			if (pValue->IsArrayValued())
+			{
+				m_Env.Log(CLL_Error, pValue->Location(),
+					"Invalid assignment \"%s\": the stored value is "
+					"an array.",
+					pValue->ToString().c_str());
+				return;
+			}
+			TypeCastInfo castInfo(pValue->EvalDataType(), pElemType);
+			auto iExpr = sn.Children().find(pValue);
+			if (iExpr == sn.Children().end())
+				continue;
+			if (FixupExprType(iExpr, castInfo))
+				sn.SetEntryValue(nIdx,
+					&static_cast<SnCastExpr &>(*iExpr));
+		}
+	}
 }
 
 void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
@@ -3525,7 +3581,7 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 		std::vector<FormalBinding> tryBind;
 		if (!TryBindInvoke(invoke, *pCandidate, tryBind))
 			return;
-		int n = ComputeBindingDistance(tryBind);
+		int n = ComputeBindingDistance(tryBind, pCandidate);
 		if (n < 0)
 			return;
 		if (nBestDistance < 0 || n < nBestDistance)
@@ -3920,8 +3976,17 @@ bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 //entries. B_Default contributes 0. Returns -1 if any bound entry has
 //incompatible types.
 int ExprResolveAccessor::ComputeBindingDistance(
-	const std::vector<FormalBinding> &bindings) const
+	const std::vector<FormalBinding> &bindings,
+	const SnFunction *pCallee) const
 {
+	//Imported stubs synthesize their formal types from the return kind
+	//(param kinds are not serialized in .nmod), so IsArrayType() /
+	//EvalDataType() on a stub formal are placeholder lies — the
+	//array-ness match below would reject every array argument to an
+	//imported callee with an array or scalar placeholder. Same stance as
+	//BindFuncRefToExpected: call-site checks against imported signatures
+	//are not trustworthy and are not performed.
+	const bool bImportedCallee = pCallee && pCallee->ContainFlags(NF_Imported);
 	int nDistance = 0;
 	for (auto &b : bindings)
 	{
@@ -3962,6 +4027,24 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)
 			return -1;
+		//Array masquerade guard, argument flavor: array-ness must match
+		//on the parameter boundary, both directions. CalcTypeDistance
+		//cannot see it (an array's EvalDataType is the degraded element
+		//type): `Take(int_arr)` against `int x` is an exact match that
+		//passes the raw handle, and a non-array value into an array-
+		//typed formal is the symmetric hole. The null literal is exempt
+		//on the value side — `TakeArr(null)` is legal exactly like
+		//`int[] a = null` (the null sentinel is not an array value).
+		//Builtin container methods bypass binding distance entirely
+		//(verified empirically: List<int>.add("x") still compiles), so
+		//the flags-aware container element flow is unaffected. Imported
+		//stubs are exempt (see bImportedCallee above) — the placeholder
+		//formal's array-ness carries no information about the real
+		//signature.
+		if (!bImportedCallee
+			&& b.pCallerExpr->IsArrayValued() != b.pFormal->IsArrayType()
+			&& !b.pCallerExpr->ContainFlags(NF_NullLiteral))
+			return -1;
 		int n = CalcTypeDistance(*pSrc, *pTgt);
 		if (n < 0)
 			return -1;
@@ -4000,6 +4083,22 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 		TypeCastInfo castInfo(pSrc, pTgt);
 		if (castInfo.Kind() == TCK_Same)
 			continue;
+
+		//Array-to-array bindings need matching ELEMENT types, not just
+		//matching array-ness (the binding-distance gate): both sides
+		//flow as degraded tokens, so a cross-element pair — a
+		//`string[]` formal fed an `int[]` — would ride the string
+		//coercion in the fixup below, the same hole the assignment
+		//guard closes. Anything non-Same between two array-typed sides
+		//is that hole; reject by name.
+		if (b.pCallerExpr->IsArrayValued() && b.pFormal->IsArrayType())
+		{
+			m_Env.Log(CLL_Error, b.pCallerExpr->Location(),
+				"Invalid argument \"%s\": an array value only "
+				"converts to the same array type.",
+				b.pCallerExpr->ToString().c_str());
+			return;
+		}
 
 		//Locate the caller expr's NodeIterator inside invoke.Children().
 		//For positional bindings this finds the caller expr directly.
@@ -4161,6 +4260,44 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
 			"Incompatible type \"%s\".", srcExpr.ToString().c_str());
+		return false;
+	}
+
+	//Array masquerade guard: an array-valued source reaching a non-Same
+	//cast flows as its degraded element type (an array's EvalDataType is
+	//the element type), so the wrap would box or reinterpret the raw
+	//handle. Two legitimate flows never reach the reject: same-type
+	//array flow returned TCK_Same above, and string targets coerce via
+	//runtime toString dispatch (array-aware — `"${arr}"` yields
+	//"[1, 2]"), not a bit reinterpretation. Containers store elements
+	//through their own flags-aware paths (the codegen per-method boxing
+	//plan) and never reach this wrap.
+	if (srcExpr.IsArrayValued()
+		&& !(castInfo.Target()
+			&& castInfo.Target()->Kind() == NK_String))
+	{
+		m_Env.Log(CLL_Error, srcExpr.Location(),
+			"Invalid conversion \"%s\": an array value only converts "
+			"to the same array type.",
+			srcExpr.ToString().c_str());
+		return false;
+	}
+
+	//The int→class/interface bridge (TCK_Auto) exists for the null
+	//literal only: any other int/enum value would end up as a garbage
+	//handle in the slot. ContainFlags is a flat bit test, so a null
+	//literal wrapped in `as` propagates the flag explicitly in
+	//Access(SnAsExpr).
+	if (castInfo.Kind() == TCK_Auto
+		&& castInfo.Target()
+		&& (castInfo.Target()->Kind() == NK_ClassDecl
+			|| castInfo.Target()->Kind() == NK_InterfaceDecl)
+		&& !srcExpr.ContainFlags(NF_NullLiteral))
+	{
+		m_Env.Log(CLL_Error, srcExpr.Location(),
+			"Incompatible value \"%s\": only the null literal converts "
+			"from int to a class or interface type.",
+			srcExpr.ToString().c_str());
 		return false;
 	}
 

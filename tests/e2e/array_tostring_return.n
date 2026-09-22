@@ -1,0 +1,13 @@
+//0.7.2: an array value returned from a string-typed function goes through
+//the runtime toString coercion — same dispatch "${arr}" uses.
+string mk() {
+	int[] a = [1, 2];
+	return a;
+}
+
+int main() {
+	string s = mk();
+	if (s != "[1, 2]")
+		return 1;
+	return 7;
+}

@@ -1,0 +1,7 @@
+//0.7.2 pin: cross-element array-to-array keeps its named rejection at
+//the assignment gate.
+int main() {
+	int[] ia = [1, 2];
+	float[] f = ia;
+	return 0;
+}

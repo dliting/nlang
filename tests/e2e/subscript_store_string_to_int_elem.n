@@ -1,0 +1,7 @@
+//A string handle must not be stored raw into an int array element;
+//there is no conversion, so this is a compile error.
+int main() {
+    int[] a = new int[2];
+    a[0] = "x";
+    return 0;
+}

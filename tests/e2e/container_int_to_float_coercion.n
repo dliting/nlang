@@ -1,0 +1,11 @@
+//I-C (round-4): storing an int into a List<float> element coerces via
+//the element-type cast wrap instead of storing the raw int bits (which
+//read back as a denormal float, 1.4013e-45).
+int main() {
+    List<float> lf = new List<float>();
+    lf.add(0.0);
+    lf[0] = 1;
+    if (lf.get(0) != 1.0)
+        return 1;
+    return 7;
+}

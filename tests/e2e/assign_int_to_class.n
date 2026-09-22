@@ -1,0 +1,9 @@
+//Assigning a non-null int to a class-typed variable must be rejected:
+//the int-to-class conversion is null-literal-only.
+class Foo {
+    public int x;
+}
+int main() {
+    Foo f = 5;
+    return 0;
+}

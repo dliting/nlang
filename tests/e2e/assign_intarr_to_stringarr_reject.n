@@ -1,0 +1,7 @@
+//0.7.2: an array value only converts to its own array type — string[]
+//is not a string target (that would stringify the whole array into a slot).
+int main() {
+	int[] ia = [1, 2];
+	string[] b = ia;
+	return 0;
+}

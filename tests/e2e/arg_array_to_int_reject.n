@@ -1,0 +1,10 @@
+//Passing an array value to a non-array parameter must be rejected at
+//the binding site: the degraded element type (int) makes it an exact
+//match, so the raw handle would land in the int parameter slot.
+void Take(int x) {
+}
+int main() {
+    int[] ia = new int[3];
+    Take(ia);
+    return 0;
+}

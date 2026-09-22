@@ -1,0 +1,8 @@
+//0.7.2: `ia as int` passes the raw handle through as an int (TCK_Same on
+//the degraded element type) — rejected like every other masquerade.
+int main() {
+	int[] ia = new int[2];
+	ia[0] = 3;
+	int x = ia as int;
+	return x;
+}

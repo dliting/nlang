@@ -1,0 +1,14 @@
+// cross_mod_array_arg — regression test for the round-7 fix: an ARRAY
+// argument to an imported function must bind. `.nmod` does not serialize
+// parameter kinds, so the consumer-side stub synthesizes `int sum(int[] a)`
+// formals as plain `int` placeholders (CompiledModuleNodeBuilder). The
+// binding-distance array-ness guard keyed on that placeholder used to
+// reject every array argument to an imported callee (0.7.1 compiled and
+// ran this correctly). Guards against both the regression and silent
+// wrong-kind binding: the sum must come back exact.
+int sum(int[] a) {
+    int s = 0;
+    for (int i = 0; i < a.length; i = i + 1)
+        s = s + a[i];
+    return s;
+}

@@ -1,0 +1,14 @@
+//I-C keep-green (round-4): the null literal stays legal in a
+//class-typed container element store and keeps null identity — the new
+//element-type gate must reject non-null ints only.
+class C {
+    public int v;
+}
+int main() {
+    List<C> l = new List<C>();
+    l.add(null);
+    l[0] = null;
+    if (l.get(0) != null)
+        return 1;
+    return 7;
+}

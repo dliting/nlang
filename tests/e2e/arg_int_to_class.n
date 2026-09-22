@@ -1,0 +1,12 @@
+//The argument-passing flow goes through the same implicit-conversion
+//choke point, so passing a non-null int where a class parameter is
+//expected must be rejected too.
+class Foo {
+    public int x;
+}
+int Take(Foo f) {
+    return 0;
+}
+int main() {
+    return Take(5);
+}

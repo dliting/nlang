@@ -1,0 +1,13 @@
+//M-B keep-green (round-4): the positive counterpart of
+//subscript_callbase_store_reject — storing through a call-result array
+//base (`mk()[0] = v`) compiles and executes through the same
+//element-type gate as the identifier base.
+int[] mk() {
+    int[] a = new int[1];
+    a[0] = 3;
+    return a;
+}
+int main() {
+    mk()[0] = 9;
+    return 7;
+}

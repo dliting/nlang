@@ -1,0 +1,6 @@
+import lib;
+
+int main() {
+    int[] ia = [1, 2, 3];
+    return lib.sum(ia);
+}

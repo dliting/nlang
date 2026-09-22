@@ -108,6 +108,10 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
+//C-period single read channel: whether a container-typed expression's
+//ELEMENT flow is array-typed (List<int[]>, Dict<K, V[]>). Shared with
+//StatementResolver's container subscript-store gate.
+bool ElemIsArrayValued(const SnExpression& base);
 
 
 /*
@@ -381,10 +385,13 @@ private:
 	/*
 	Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
 	entries. B_Default contributes 0. Returns -1 if any bound entry has
-	incompatible types.
+	incompatible types. pCallee is the candidate being scored; imported
+	stubs (NF_Imported) are exempt from the array-ness match because their
+	formal types are synthesized placeholders, not the real signature.
 	*/
 	int ComputeBindingDistance(
-		const std::vector<FormalBinding> &bindings) const;
+		const std::vector<FormalBinding> &bindings,
+		const SnFunction *pCallee) const;
 
 	/*
 	Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side

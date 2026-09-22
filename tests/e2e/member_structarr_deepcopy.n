@@ -1,0 +1,22 @@
+//Member-base struct-array element stores materialize a value copy,
+//mirroring identifier bases: writing the element must not mutate the
+//source struct.
+struct Point {
+    int x;
+}
+class C {
+    public Point[] a;
+}
+int main() {
+    Point p;
+    p.x = 1;
+    C c = new C();
+    c.a = new Point[2];
+    c.a[0] = p;
+    c.a[0].x = 99;
+    if (p.x != 1)
+        return 1;
+    if (c.a[0].x != 99)
+        return 2;
+    return 7;
+}

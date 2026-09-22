@@ -1,0 +1,13 @@
+//Passing an array value to an Object-typed parameter must be
+//rejected: the argument flows as its degraded element type and the
+//raw handle would land in the parameter slot.
+class Foo {
+    public int x;
+}
+void Take(Object o) {
+}
+int main() {
+    int[] ia = new int[3];
+    Take(ia);
+    return 0;
+}

@@ -1,0 +1,9 @@
+//Storing an int into a string[] element goes through the standard
+//primitive-to-string coercion, so the element reads back as "5".
+int main() {
+    string[] a = new string[2];
+    a[0] = 5;
+    if (a[0] != "5")
+        return 1;
+    return 7;
+}

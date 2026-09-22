@@ -1,0 +1,11 @@
+//An out argument whose array-ness differs from the formal must be
+//rejected: the callee's writeback would clobber the array local's
+//slot with a raw int (or vice versa).
+void Fill(out int x) {
+    x = 5;
+}
+int main() {
+    int[] ia = new int[3];
+    Fill(out ia);
+    return 0;
+}

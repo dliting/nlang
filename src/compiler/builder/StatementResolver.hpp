@@ -419,6 +419,36 @@ public:
 			return;
 		auto pSourceType = pResultExpr->EvalDataType();
 		auto pTargetType = pOuterFunc->EvalDataType();
+		//Array masquerade guard, return flavor: an array-valued result
+		//flows as its degraded element type, so even a TCK_Same return
+		//coercion would pass the raw handle through as the element
+		//kind. Legal return targets mirror the assignment guard: the
+		//SAME array type — array-ness flag on the return type expr
+		//plus element tokens comparing TCK_Same — or a true string
+		//return type, non-array (runtime toString coercion). The
+		//string test reads the RESOLVED function field: the return
+		//type expression's Kind() is the name-expr node kind for
+		//source-level `string`, never NK_String, so an exemption
+		//keyed there never fires.
+		if (pResultExpr->IsArrayValued())
+		{
+			const bool bArrayReturn = pReturnType->IsArrayType();
+			const bool bSameArrayFlow = bArrayReturn && pTargetType
+				&& GetCastInfo(pSourceType, pTargetType).Kind() == TCK_Same;
+			if (!bSameArrayFlow
+				&& !(pTargetType && pTargetType->Kind() == NK_String
+					&& !bArrayReturn))
+			{
+				m_Env.Log(CLL_Error, pResultExpr->Location(),
+					bArrayReturn
+						? "Invalid conversion \"%s\": an array value "
+						  "only converts to the same array type."
+						: "Invalid return \"%s\": the returned value "
+						  "is an array.",
+					pResultExpr->ToString().c_str());
+				return;
+			}
+		}
 		auto castInfo = GetCastInfo(pSourceType, pTargetType);
 		auto iExpr = sn.Children().find(sn.m_pResult);
 		if (m_ExprResolver.FixupExprType(iExpr, castInfo))
@@ -594,15 +624,18 @@ public:
 		}
 
 		SnField* pTargetType = nullptr;
+		SnField* pTargetDecl = nullptr;
 		if (sn.Left()->Kind() == NK_IdentifierExpr)
 		{
 			auto* pLeftField = static_cast<SnIdentifierExpr&>(*sn.Left()).Field();
 			if (!pLeftField)
 				return;
+			pTargetDecl = pLeftField;
 			pTargetType = pLeftField->EvalDataType();
 		}
 		else if (sn.Left()->Kind() == NK_MemberExpr)
 		{
+			pTargetDecl = static_cast<SnFieldExpr&>(*sn.Left()).Field();
 			pTargetType = sn.Left()->EvalDataType();
 		}
 		//Phase 13: an assignment-position function reference binds
@@ -635,6 +668,43 @@ public:
 					sn.Right()->ToString().c_str());
 			}
 			return;
+		}
+		//Array masquerade guard: an array-valued RHS flows as its
+		//degraded element type (an array's EvalDataType is the element
+		//type), so the cast table sees element↔target and EVERY cast
+		//kind — Same, widening, boxing — would store the raw handle
+		//under the target kind. Legal targets for an array value are
+		//exactly two: the SAME array type — the element tokens must
+		//compare TCK_Same, IsArrayType() alone is not enough
+		//(`string[] b = ia` would otherwise ride the string coercion
+		//and store a stringified handle in an array slot) — and a
+		//true string target, non-array (runtime toString coercion,
+		//the same machinery `"${arr}"` uses). The check keys on the
+		//array-valued property, not the cast kind. Local-decl
+		//initializers decompose into SnAssignStmt, so declarations
+		//are covered by the same guard.
+		if (sn.Right()->IsArrayValued())
+		{
+			const bool bArrayTarget
+				= pTargetDecl && pTargetDecl->IsArrayType();
+			const bool bSameArrayFlow = bArrayTarget
+				&& GetCastInfo(pSourceType, pTargetType).Kind() == TCK_Same;
+			if (!bSameArrayFlow
+				&& !(pTargetType && pTargetType->Kind() == NK_String
+					&& !bArrayTarget))
+			{
+				m_Env.Log(CLL_Error, sn.Right()->Location(),
+					bArrayTarget
+						? "Invalid conversion \"%s\": an array value "
+						  "only converts to the same array type."
+						: "Invalid assignment \"%s\": the stored value "
+						  "is an array.",
+					sn.Right()->ToString().c_str());
+				//Mark resolved so the paragraph walk's revisit of the
+				//decomposed local-decl statement doesn't log twice.
+				sn.AddFlags(NF_Resolved);
+				return;
+			}
 		}
 		auto castInfo = GetCastInfo(pSourceType, pTargetType);
 		auto iExpr = sn.Children().find(sn.m_pRight);
@@ -1526,6 +1596,112 @@ public:
 			else if (!BindMemberFuncRefToExpected(m_Env,
 				static_cast<SnMemberExpr&>(*sn.Value()), pElemType))
 				return;
+		}
+		//Element-type gate for array-valued bases: coerce the stored
+		//value to the element type exactly like a plain assignment (box
+		//primitives into Object elements, coerce int→string, reject
+		//mismatches). Keying on the base's array-valued property (not
+		//its Kind) covers every base shape — identifier, member,
+		//subscript (chained `li[0][1] = v`) and call (`mk()[0] = v`) —
+		//because an array value's EvalDataType IS its element type.
+		//Container (List/Dict) bases are not array-valued and keep the
+		//container store path.
+		if (sn.Value() && sn.Value()->IsResolved() && sn.Array()
+			&& sn.Array()->IsArrayValued())
+		{
+			auto* pElemType = sn.Array()->EvalDataType();
+			if (pElemType && sn.Value()->EvalDataType())
+			{
+				//An array-valued RHS would store the raw handle under its
+				//element kind (an array's EvalDataType is the element
+				//type), which the cast table cannot see and the GC cannot
+				//trace. Jagged arrays are already rejected, so reject by
+				//name here.
+				if (sn.Value()->IsArrayValued())
+				{
+					m_Env.Log(CLL_Error, sn.Value()->Location(),
+						"Invalid assignment \"%s\": the stored value is an array.",
+						sn.Value()->ToString().c_str());
+					return;
+				}
+				auto castInfo = GetCastInfo(
+					sn.Value()->EvalDataType(), pElemType);
+				auto iExpr = sn.Children().find(sn.m_pValue);
+				if (m_ExprResolver.FixupExprType(iExpr, castInfo))
+					sn.m_pValue = &static_cast<SnCastExpr &>(*iExpr);
+			}
+		}
+		//Container subscript stores (List/Dict subscript sugar): the
+		//base is not array-valued, so the gate above does not apply.
+		//Two checks, mirroring the array arm above:
+		//1. Array-ness must MATCH on both sides: an array value into a
+		//non-array element stores the raw handle under the degraded
+		//element kind, and a non-array value into an array-typed
+		//element (List<int[]>) puts a raw primitive in a GC-traced
+		//array slot. ElemIsArrayValued reads the element flags from
+		//the generic instantiation (the single read channel) — the
+		//same both-directions policy the foreach loop-var gate uses.
+		//2. Element-type cast check on the value: without it a scalar
+		//into a class element (l[0] = 5 on List<C>) stored garbage and
+		//int into List<float> stored raw bits (read back as a
+		//denormal). FixupExprType's built-in gates give the right
+		//verdict per direction: TCK_None rejects mismatches, the
+		//null-only int→class bridge rejects non-null ints, TCK_Auto
+		//wraps the int→float coercion (codegen's container-store
+		//lowering emits the wrapped value into the claim slot before
+		//its per-element boxing, so the wrap is transparent there).
+		//The element field is the VALUE type argument (List → args[0],
+		//Dict → args[1]) — the same slot convention ElemIsArrayValued
+		//and the codegen boxing plan use.
+		else if (sn.Value() && sn.Value()->IsResolved() && sn.Array()
+			&& sn.Array()->IsResolved())
+		{
+			if (ElemIsArrayValued(*sn.Array()) != sn.Value()->IsArrayValued())
+			{
+				m_Env.Log(CLL_Error, sn.Value()->Location(),
+					ElemIsArrayValued(*sn.Array())
+						? "Invalid assignment \"%s\": the element type is "
+						  "an array; the stored value is not."
+						: "Invalid assignment \"%s\": the stored value is "
+						  "an array.",
+					sn.Value()->ToString().c_str());
+				return;
+			}
+			SnField* pElemType = nullptr;
+			auto* pBaseType = sn.Array()->EvalDataType();
+			if (pBaseType && pBaseType->Kind() == NK_ClassDecl)
+			{
+				auto* pGen = static_cast<SnClassDecl*>(pBaseType);
+				auto typeArgs = GetGenericTypeArgs(pGen);
+				if (pGen->BaseName() == "Dict" && typeArgs.size() > 1)
+					pElemType = typeArgs[1];
+				else if (pGen->BaseName() == "List" && !typeArgs.empty())
+					pElemType = typeArgs[0];
+			}
+			if (pElemType && sn.Value()->EvalDataType())
+			{
+				//Both-array stores need matching ELEMENT types, not just
+				//matching array-ness: value and element flow as degraded
+				//tokens, and a non-Same pair (an int[] into a
+				//Dict<string, string[]> slot) would ride the string
+				//coercion — the cross-element hole the assignment guard
+				//closes.
+				if (ElemIsArrayValued(*sn.Array())
+					&& GetCastInfo(sn.Value()->EvalDataType(), pElemType)
+						.Kind() != TCK_Same)
+				{
+					m_Env.Log(CLL_Error, sn.Value()->Location(),
+						"Invalid conversion \"%s\": an array value only "
+						"converts to the same array type.",
+						sn.Value()->ToString().c_str());
+					return;
+				}
+				auto castInfo = GetCastInfo(
+					sn.Value()->EvalDataType(), pElemType);
+				auto iExpr = sn.Children().find(sn.m_pValue);
+				if (m_ExprResolver.FixupExprType(iExpr, castInfo))
+					sn.m_pValue = &static_cast<SnCastExpr &>(*iExpr);
+			}
 		}
 		//Void-support: reject a resolved void call as the stored value —
 		//codegen would store a stale pResult.

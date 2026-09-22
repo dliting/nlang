@@ -1,0 +1,11 @@
+//I-B (round-4): `null as Object` must keep its null identity through
+//Object[] element storage — the as-cast TCK_Box emission arm skips the
+//box for the null literal, so the stored handle is the raw null
+//sentinel and a later null comparison is true.
+int main() {
+    Object[] oa = new Object[1];
+    oa[0] = null as Object;
+    if (oa[0] == null)
+        return 7;
+    return 1;
+}

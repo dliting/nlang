@@ -1,0 +1,10 @@
+//0.7.2: member-field store follows the same cross-element rule.
+class Holder {
+	public string[] buf;
+}
+int main() {
+	Holder h = new Holder();
+	int[] ia = [1, 2];
+	h.buf = ia;
+	return 0;
+}

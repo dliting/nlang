@@ -1,0 +1,13 @@
+//Regression: storing the null literal into a class-typed array element
+//stays legal and keeps null identity (the element gate must reject
+//non-null ints only).
+class Foo {
+    public int x;
+}
+int main() {
+    Foo[] a = new Foo[2];
+    a[0] = null;
+    if (a[0] != null)
+        return 1;
+    return 7;
+}

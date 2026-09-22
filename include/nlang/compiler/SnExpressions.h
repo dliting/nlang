@@ -843,6 +843,15 @@ public:
 	bool TargetIsArray() const { return m_bTargetIsArray; }
 	void TargetIsArray(bool b) { m_bTargetIsArray = b; }
 
+	//Resolver write-back for the array-form element-type gate: after a
+	//FixupExprType wrap replaces an entry's child expression, the
+	//typed-slot mirror must point at the new SnCastExpr (Children() is
+	//already updated by the fixup itself).
+	void SetEntryValue(size_t nIdx, SnExpression *pValue)
+	{
+		m_entries[nIdx].pValue = pValue;
+	}
+
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;

@@ -1,0 +1,10 @@
+//Storing a non-array value into a container whose element IS
+//array-typed (List<int[]>) must be rejected: the slot is GC-traced as
+//an array handle, so a raw primitive later reads as a bogus handle.
+int main() {
+    int[] a = new int[2];
+    List<int[]> li = new List<int[]>();
+    li.add(a);
+    li[0] = 5;
+    return 0;
+}

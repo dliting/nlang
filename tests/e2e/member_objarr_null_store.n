@@ -1,0 +1,19 @@
+//Storing the null literal into a member-base Object[] element keeps
+//the raw null handle: the element compares equal to null and a
+//protocol call null-checks instead of unboxing garbage.
+class C {
+    public Object[] a;
+}
+int main() {
+    C c = new C();
+    c.a = new Object[2];
+    c.a[0] = null;
+    if (c.a[0] != null)
+        return 1;
+    try {
+        c.a[0].toString();
+    } catch (Exception e) {
+        return 7;
+    }
+    return 2;
+}

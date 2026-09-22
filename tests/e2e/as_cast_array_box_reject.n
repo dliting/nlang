@@ -1,0 +1,8 @@
+//0.7.2: casting an array value with `as` has no legal form — the box arm
+//would box the raw handle bits as a primitive.
+int main() {
+	int[] ia = new int[2];
+	ia[0] = 5;
+	Object o = ia as Object;
+	return 0;
+}

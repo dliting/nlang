@@ -1,0 +1,8 @@
+//0.7.2: a Dict value slot typed string[] rejects an int[] — matching
+//array-ness alone is not enough, elements must match.
+int main() {
+	Dict<string, string[]> d = new Dict<string, string[]>();
+	int[] ia = [1, 2];
+	d["k"] = ia;
+	return 0;
+}

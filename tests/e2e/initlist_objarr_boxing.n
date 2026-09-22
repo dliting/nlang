@@ -1,0 +1,9 @@
+//Positive guard: init-list entries into Object[] elements box, so a
+//later `as int` read returns the value (previously raw ints sat in
+//class-kind traced slots and the unbox threw).
+int main() {
+    Object[] oa = [1, 2];
+    if ((oa[0] as int) == 1 && (oa[1] as int) == 2)
+        return 7;
+    return 1;
+}

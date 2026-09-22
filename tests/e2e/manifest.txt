@@ -1061,3 +1061,58 @@ str_concat_stress 0
 str_cons_deep_chain 0
 dbg_str_cons 0 concat
 str_intern_eq 0
+
+# --- 0.7.2: subscript-store element gate + int->class null-literal-only ---
+subscript_store_int_to_class_elem compile_error only the null literal
+subscript_store_struct_to_object_elem compile_error Incompatible type
+subscript_store_array_to_object_elem compile_error the stored value is an array
+subscript_store_string_to_int_elem compile_error Incompatible type
+assign_int_to_class compile_error only the null literal
+assign_int_to_interface compile_error only the null literal
+assign_enum_to_class compile_error only the null literal
+arg_int_to_class compile_error not compatible with the declaration
+member_objarr_boxing 7
+member_objarr_null_store 7
+member_structarr_deepcopy 7
+strelem_int_coercion 7
+null_as_int_identity 7
+classarr_null_store_ok 7
+subscript_callbase_store_reject compile_error Incompatible type
+subscript_chain_store_reject compile_error Incompatible type
+assign_array_to_object_reject compile_error the stored value is an array
+assign_array_to_int_reject compile_error the stored value is an array
+return_array_masquerade_reject compile_error the returned value is an array
+container_store_array_reject compile_error the stored value is an array
+arg_array_to_object_reject compile_error not compatible with the declaration
+container_arrayelem_subscript_store 7
+array_tostring_assign 7
+array_tostring_invoke 7
+array_tostring_newarray 7
+array_tostring_listelem 7
+compound_str_array_append 7
+container_prim_to_arrayelem_store_reject compile_error element type is an array
+arg_array_to_int_reject compile_error not compatible with the declaration
+arg_int_to_arrayparam_reject compile_error not compatible with the declaration
+out_array_mismatch_reject compile_error not compatible with the declaration
+initlist_objarr_boxing 7
+initlist_arrayval_elem_reject compile_error the stored value is an array
+initlist_structarr_deepcopy 7
+arg_null_to_arrayparam 7
+null_as_object_identity 7
+container_store_int_to_class_elem_reject compile_error only the null literal
+container_int_to_float_coercion 7
+container_store_class_to_int_elem_reject compile_error Incompatible type
+container_null_to_class_elem 7
+subscript_callbase_store_pos 7
+array_tostring_return 7
+as_cast_array_box_reject compile_error the cast operand is an array
+as_cast_array_same_reject compile_error the cast operand is an array
+subscript_store_array_to_stringelem_reject compile_error the stored value is an array
+assign_intarr_to_stringarr_reject compile_error an array value only converts to the same array type
+return_intarr_to_stringarr_reject compile_error an array value only converts to the same array type
+arg_intarr_to_stringarrparam_reject compile_error an array value only converts to the same array type
+member_stringarr_store_reject compile_error an array value only converts to the same array type
+container_store_intarr_to_stringarr_elem_reject compile_error an array value only converts to the same array type
+assign_intarr_to_floatarr_reject compile_error an array value only converts to the same array type
+assign_stringarr_same_type 7
+cross_mod_array_arg 6

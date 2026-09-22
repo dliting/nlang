@@ -3,16 +3,40 @@
 
 - **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
   built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
-- **Array values inside generic containers**: array-ness of
-  `List<T[]>` / `Dict<K,T[]>` elements is visible to the compiler —
-  method-receiver and `switch`-discriminant uses of a pulled-out
-  element (`li[0].rank()`, `switch (li.get(0))`) are rejected at
-  compile time by name, `foreach` can iterate them into an array-typed
+- **Array values in scalar contexts**: an array value has exactly two
+  legal targets — its own array type, and `string` targets in
+  assignment, return, and string-concatenation positions (runtime
+  toString coercion, `"[1, 2]"`). String targets are whole-value
+  positions — string locals and fields, returns, concatenation —
+  while element slots — array subscripts (`string[] sa; sa[0] =
+  arr`) and container subscript stores (`ls[0] = arr`) — reject
+  array values like any scalar slot. An array target is accepted
+  when its element type compares Same in the implicit conversion
+  table: `string[] b = ia` is rejected like any cross-element
+  masquerade, a subclass-element array upcasts to a base-element
+  array (`Base[] ba = da`, covariant aliasing — see the unchecked
+  covariant-store limitation below), and `enum[]` ↔ `int[]`
+  interoperate by shared representation. Every
+  other value position is a compile-time rejection: assigning or
+  returning it to a scalar, class, interface, or `Object` target,
+  casting it with `as` (`ia as int`), or passing it to a non-array
+  parameter (including `string` parameters) fails with a named error
+  instead of storing a raw handle. Elements pulled out of
+  `List<T[]>` / `Dict<K,T[]>` follow the same rule; their array-ness
+  is visible to the compiler — method-receiver and
+  `switch`-discriminant uses (`li[0].rank()`, `switch (li.get(0))`)
+  are rejected by name, `foreach` can iterate them into an array-typed
   loop variable, and `Dict` keyed on array types uses handle identity.
-  In other value positions the array value still degrades to
-  its element type (e.g. assigning a pulled-out
-  `int[]` element to an `int` local passes silently) —
-  "array value in a primitive context" handling is not yet unified.
+- **Covariant array stores are unchecked**: storing through an upcast
+  alias (`Base[] ba = da;` followed by `ba[0] = new Base()`) passes
+  both the compiler and the runtime — the `Derived[]` slot silently
+  holds a `Base` object (there is no ArrayStoreException equivalent).
+  Store through the original-typed alias.
+- **String subscripting compiles, then fails at runtime**: `s[0]` in
+  a read or a store position compiles, but the program aborts with
+  "null array access" — strings are immutable objects without
+  element indexing. Use `string.substring` / `string.indexOf`; a
+  compile-time rejection is planned.
 - **Jagged arrays (`T[][]`)**: multi-dimensional array declarations are
   rejected at compile time ("jagged arrays (T[][]) are not supported") —
   at locals, fields, parameters, return types, `for`/`foreach` loop

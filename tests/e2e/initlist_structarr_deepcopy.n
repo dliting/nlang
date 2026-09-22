@@ -1,0 +1,17 @@
+//Positive guard: init-list struct entries deep-copy into the element
+//slot, mirroring subscript stores — mutating the source afterwards
+//must not change the stored element.
+struct Point {
+    int x;
+    int y;
+}
+int main() {
+    Point a;
+    a.x = 1;
+    a.y = 2;
+    Point[] ps = [a];
+    a.x = 99;
+    if (ps[0].x == 1 && ps[0].y == 2)
+        return 7;
+    return 1;
+}

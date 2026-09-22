@@ -1,0 +1,15 @@
+//`null as int` stays null through the cast wrapper: the null-literal
+//flag propagates, so storing it into an Object[] element skips boxing
+//and the element keeps its null identity.
+int main() {
+    Object[] arr = new Object[2];
+    arr[0] = null as int;
+    if (arr[0] != null)
+        return 1;
+    try {
+        arr[0].toString();
+    } catch (Exception e) {
+        return 7;
+    }
+    return 2;
+}

@@ -1,0 +1,13 @@
+//I-C (round-4): container subscript stores run the same element-type
+//cast check as array element stores — a non-null int stored into a
+//class-typed List element is a compile error (only the null literal
+//converts from int to a class type).
+class C {
+    public int v;
+}
+int main() {
+    List<C> l = new List<C>();
+    l.add(null);
+    l[0] = 5;
+    return 0;
+}

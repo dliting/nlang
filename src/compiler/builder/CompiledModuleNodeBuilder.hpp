@@ -296,14 +296,28 @@ private:
 		//Option B: if cf.defaultValues[i] carries a constant-foldable default,
 		//attach the reconstructed SnLiteralExpr to the stub formal so the
 		//resolver can apply it at consumer call sites.
+		//The param placeholder keys on the return kind but must NOT inherit
+		//its array-ness: RTK_Array on the return would stamp every stub
+		//formal as array-typed, and the binding-distance array-ness guard
+		//then rejects every scalar argument to an array-returning imported
+		//function. Param kinds are not serialized at all (see the class
+		//comment: stub formal types are placeholders, call-site checks for
+		//imported callees are not trustworthy), so for an array-returning
+		//callee every formal degrades to the int placeholder. Known
+		//residual, deferred to a .nmod format bump: for string/float
+		//returns the placeholder mislabels scalar formals of a different
+		//kind, letting a cross-module call with wrong scalar argument
+		//kinds compile silently.
 		//Use raw PtrList<SnFormalParam>* — SnFunction takes UniquePtrList by
 		//value, whose inner_collection* constructor assumes ownership and
 		//deletes the source list.
 		auto *pParams = new PtrList<SnFormalParam>();
+		const uint16_t paramKind = (cf.returnTypeKind == RTK_Array)
+			? RTK_Int32 : cf.returnTypeKind;
 		for (uint16_t i = 0; i < cf.paramCount; ++i)
 		{
 			auto paramName = new std::string("p" + std::to_string(i));
-			SnFieldExpr *pParamType = SynthTypeExpr(cf.returnTypeKind, loc);
+			SnFieldExpr *pParamType = SynthTypeExpr(paramKind, loc);
 			SnExpression *pDefault = nullptr;
 			if (i < cf.defaultValues.size())
 				pDefault = SynthDefaultExpr(cf.defaultValues[i], cm,

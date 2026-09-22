@@ -2,11 +2,13 @@
 //"new Elem[...]". The element type slot is held outside the children
 //list; the alias pre-pass reaches it through the explicit NewArrayExpr
 //branch. Verified working before the fix; this test pins it.
+//(0.7.2: the original body stored a raw array handle into an element
+//slot — dynamic jagged emulation the element-type gate now rejects, so
+//the alias coverage keeps a scalar store.)
 using Elem = int;
 
 int main() {
     Elem[] outer = new Elem[2];
-    outer[1] = new int[1];
-    outer[1][0] = 7;
-    return outer[1][0];
+    outer[1] = 7;
+    return outer[1];
 }

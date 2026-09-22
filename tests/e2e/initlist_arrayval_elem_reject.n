@@ -1,0 +1,7 @@
+//An init-list entry that is itself an array value must be rejected:
+//the raw handle would sit in a traced element slot.
+int main() {
+    int[] ia = new int[3];
+    Object[] oa = [ia];
+    return 0;
+}

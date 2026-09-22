@@ -6,6 +6,53 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.2] - Unreleased
+
+### 修复
+- 数组元素存储现在与普通赋值走同一套隐式转换检查，且覆盖全部
+  基座形态——标识符、成员（`c.arr[i] = v`）、链式
+  （`li[0][1] = v`）与调用（`mk()[0] = v`）：基本类型装箱进
+  `Object[]` 元素、`int` → `string` 元素自动强制转换、struct 值
+  深拷贝进 `struct[]` 元素，类型不匹配的存储（struct 存入
+  `Object[]` 元素、字符串存入 `int[]` 元素、数组句柄存入任意
+  元素）由编译错误取代原先的静默句柄存储（垃圾回收器无法追踪
+  此类句柄）。数组形态初始化列表（`int[] a = [1, 2]`）同样执行
+  逐元素检查：元素装箱或强制转换与元素存储一致、struct 元素深
+  拷贝、数组值元素为编译错误。容器下标存储（`li[i] = v`）执行与
+  数组元素存储相同的元素类型检查（`int` → `float` 元素自动强制
+  转换、class 值存入 `List<int>` 为编译错误），并双向拒绝数组性
+  与容器元素不一致的存储——数组值存入 `List<int>`，或标量存入
+  `List<int[]>`。
+- 数组值赋值或返回到自身数组类型之外现在是编译错误
+  （"the stored value is an array" / "the returned value is an
+  array"）：数组以退化的元素类型流转，`int x = arr`、
+  `Object o = arr` 或从 `int` 函数 `return arr` 此前可编译并把
+  裸句柄当作 int 传出。两类目标保持合法：同型数组类型，与
+  string 目标（覆盖含调用结果在内的全部来源形态；运行期
+  toString 强制转换——`string s = mk()` 得到 `"[1, 2]"`，与
+  `"${arr}"` 同一机制；string 目标是整值位置——局部变量、字段、
+  返回——元素槽（数组与容器的下标存储）与任何标量槽一样拒绝
+  数组值）。「同型数组」在元素层面检查——以隐式转换表判定为
+  Same 的元素对为准：`string[] b = ia` 是
+  编译错误（"an array value only converts to the same array
+  type"）而非 toString 强制转换，而子类元素数组仍可上转型为
+  基类元素数组（`Base[] ba = da`，协变别名）——跨元素拒绝同样
+  覆盖赋值、返回、实参、成员字段与容器元素存储。显式 `as` 形式
+  同样覆盖：
+  `ia as int` / `ia as Object` 是编译错误，不再把裸句柄直接传出
+  或装箱。向非数组形参传数组、或向数组形参传数组性或元素类型
+  不符的值（含 `out` 实参）同样被调用兼容性检查拒绝。
+- 向 class/interface 类型目标赋予非 null 的 int 或 enum 值现在是
+  编译错误（"only the null literal converts from int to a class or
+  interface type"）；此前可编译并存储垃圾句柄。变量初始化、赋值
+  与元素存储全部隐式流均已覆盖。
+- `null as T` 经强制转换后保持 null 身份：存入 `Object[]` 元素
+  （`oa[0] = null as Object`）时存储裸 null 句柄而非装箱的 0，
+  随后的 null 比较与协议调用行为与普通 null 字面量一致。
+  一个角落行为从静默出错变为报错：不可
+  为 null 的实参（`io.print(null as int)`）现在编译期拒绝，此前
+  打印 `0`。
+
 ## [0.7.1] - Unreleased
 
 ### 新增

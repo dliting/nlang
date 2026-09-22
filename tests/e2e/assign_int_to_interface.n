@@ -1,0 +1,9 @@
+//Assigning a non-null int to an interface-typed variable must be
+//rejected: the int-to-interface conversion is null-literal-only.
+interface IThing {
+    public int Do();
+}
+int main() {
+    IThing t = 5;
+    return 0;
+}

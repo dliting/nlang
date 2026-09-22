@@ -1,0 +1,17 @@
+//Member-base Object[] element stores box primitives at the resolver
+//level (same element-type gate as identifier bases): reading back with
+//`as int` unwraps the payload, and toString dispatches on the box.
+class C {
+    public Object[] a;
+}
+int main() {
+    C c = new C();
+    c.a = new Object[2];
+    c.a[0] = 5;
+    if (c.a[0] as int != 5)
+        return 1;
+    c.a[1] = "s";
+    if (c.a[1].toString() != "s")
+        return 2;
+    return 7;
+}

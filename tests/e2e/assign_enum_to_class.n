@@ -1,0 +1,10 @@
+//An enum value is int-backed, so assigning it to a class-typed
+//variable hits the same null-literal-only rule and must be rejected.
+enum Color { Red, Green, Blue }
+class Foo {
+    public int x;
+}
+int main() {
+    Foo f = Color.Blue;
+    return 0;
+}

@@ -1,0 +1,12 @@
+//Positive guard: `s += arr` appends the array's toString rendering —
+//the compound-assign coercion takes the same array-aware path.
+int main() {
+    int[] arr = new int[2];
+    arr[0] = 1;
+    arr[1] = 2;
+    string s = "x";
+    s += arr;
+    if (s == "x[1, 2]")
+        return 7;
+    return 1;
+}

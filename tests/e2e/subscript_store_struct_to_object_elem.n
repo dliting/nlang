@@ -1,0 +1,13 @@
+//A struct value has no implicit conversion to Object, so storing it
+//into an Object[] element must be a compile error (it would store the
+//raw struct handle where the GC expects a boxed record).
+struct Point {
+    int x;
+}
+int main() {
+    Object[] a = new Object[2];
+    Point p;
+    p.x = 1;
+    a[0] = p;
+    return 0;
+}

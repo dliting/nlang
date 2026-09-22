@@ -1,0 +1,10 @@
+//Storing an int into a class-typed array element must be rejected:
+//the int-to-class cast exists only for the null literal.
+class Foo {
+    public int x;
+}
+int main() {
+    Foo[] a = new Foo[2];
+    a[0] = 5;
+    return 0;
+}

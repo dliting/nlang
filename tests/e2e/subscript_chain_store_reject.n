@@ -1,0 +1,14 @@
+//A chained element store (li[0][i] = v) resolves through a subscript
+//base: the inner li[0] read is array-valued, so the store must take
+//the element-type gate like any other array base.
+class C {
+    public int x;
+}
+int main() {
+    int[] a = new int[2];
+    List<int[]> li = new List<int[]>();
+    li.add(a);
+    C c = new C{};
+    li[0][0] = c;
+    return 0;
+}

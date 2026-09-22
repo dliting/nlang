@@ -1,0 +1,17 @@
+//Positive guard: a container whose element IS array-typed
+//(List<int[]>) accepts an array value through subscript-store sugar
+//— the ElemIsArrayValued passthrough must keep this legal.
+int main() {
+    int[] a2 = new int[2];
+    a2[0] = 4;
+    a2[1] = 5;
+    int[] a3 = new int[2];
+    a3[0] = 6;
+    a3[1] = 7;
+    List<int[]> li = new List<int[]>();
+    li.add(a2);
+    li[0] = a3;
+    if (li.get(0)[1] != 7)
+        return 1;
+    return 7;
+}

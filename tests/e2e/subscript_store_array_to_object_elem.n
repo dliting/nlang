@@ -1,0 +1,9 @@
+//An array handle stored into an Object[] element would be boxed as its
+//element kind (an int) and become GC-invisible garbage; reject it by
+//name instead.
+int main() {
+    Object[] a = new Object[2];
+    int[] ia = new int[2];
+    a[0] = ia;
+    return 0;
+}

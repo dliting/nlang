@@ -6,6 +6,66 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.2] - Unreleased
+
+### Fixed
+- Storing into an array element now goes through the same implicit
+  conversion checks as plain assignment, for every base shape —
+  identifier, member (`c.arr[i] = v`), chained (`li[0][1] = v`) and
+  call (`mk()[0] = v`): primitives box into `Object[]` elements,
+  `int` → `string` elements coerce, struct values deep-copy into
+  `struct[]` elements, and mismatched stores (a struct into an
+  `Object[]` element, a string into an `int[]` element, an array
+  handle into any element) are compile errors instead of silently
+  storing a handle the garbage collector cannot trace. Array-form
+  init lists (`int[] a = [1, 2]`) run the same per-element checks:
+  entries box or coerce like element stores, struct entries
+  deep-copy, and an array-valued entry is a compile error. Container
+  subscript stores (`li[i] = v`) run the same element-type checks as
+  array element stores (`int` → `float` elements coerce, a class
+  value into `List<int>` is a compile error) and reject stores whose
+  array-ness disagrees with the container's element in either
+  direction — an array value into `List<int>`, or a scalar into
+  `List<int[]>`.
+- An array value assigned or returned outside its own array type is
+  now a compile error ("the stored value is an array" /
+  "the returned value is an array"): an array flows as its degraded
+  element type, so `int x = arr`, `Object o = arr` or `return arr`
+  from an `int` function previously compiled and passed the raw
+  handle through as an int. Two targets stay legal: the same array
+  type, and string targets for every source shape including call
+  results (`string s = mk()` yields `"[1, 2]"`, the same runtime
+  toString dispatch `"${arr}"` uses; string targets are whole-value
+  positions — locals, fields, returns — while element slots (array
+  and container subscript stores) reject array values like any
+  scalar slot). "The same array type" is checked at the element
+  level — an element pair the implicit conversion table rates as
+  Same: `string[] b = ia` is a compile error ("an array value only
+  converts to the same array type"), not a toString coercion, while
+  a subclass-element array still upcasts to a base-element array
+  (`Base[] ba = da`, covariant aliasing). The cross-element
+  rejection covers assignments, returns, arguments,
+  member fields and container element stores alike. The explicit
+  `as` form is covered too: `ia as int` / `ia as Object` are compile
+  errors instead of passing or boxing the raw handle. Passing an
+  array to a non-array parameter — or a value whose array-ness or
+  element type disagrees with an array parameter, including `out`
+  arguments — is likewise rejected by the invoke compatibility
+  check.
+- Assigning a non-null `int` or enum value to a class- or
+  interface-typed target is now a compile error ("only the null
+  literal converts from int to a class or interface type");
+  previously it compiled and stored a garbage handle. Variable
+  initialization, assignment and element stores are all covered.
+- `null as T` keeps its null identity through the cast: storing it
+  into an `Object[]` element (`oa[0] = null as Object`) stores the
+  raw null handle instead of a boxed 0, so later null comparisons and
+  protocol calls behave as with a plain null literal. One corner
+  changed from silent garbage
+  to an error: an argument that must not be null
+  (`io.print(null as int)`) is now rejected at compile time instead
+  of printing `0`.
+
 ## [0.7.1] - Unreleased
 
 ### Added

@@ -1,0 +1,8 @@
+//Positive guard: a new-array expression coerces to string through the
+//same runtime dispatch (zero-initialized elements render as 0).
+int main() {
+    string s = new int[2];
+    if (s == "[0, 0]")
+        return 7;
+    return 1;
+}

@@ -1,0 +1,10 @@
+//I-A (round-4): the null literal must be accepted where an array-typed
+//parameter is expected — `int[] a = null` is legal, so the argument
+//flavor must not be stricter than the assignment flavor. The
+//binding-distance array-ness guard exempts the null literal.
+int TakeArr(int[] a) {
+    return 7;
+}
+int main() {
+    return TakeArr(null);
+}

@@ -1,0 +1,10 @@
+//0.7.2: returning an int[] from a string[] function is a cross-element
+//masquerade, not a toString coercion.
+string[] mk() {
+	int[] a = [1, 2];
+	return a;
+}
+int main() {
+	string[] r = mk();
+	return 0;
+}

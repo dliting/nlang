@@ -1,0 +1,9 @@
+//0.7.2: array-ness matching is not enough on the parameter boundary —
+//the element types must match too.
+int lenOf(string[] a) {
+	return a.length;
+}
+int main() {
+	int[] ia = [1, 2];
+	return lenOf(ia);
+}

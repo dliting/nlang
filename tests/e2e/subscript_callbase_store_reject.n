@@ -1,0 +1,14 @@
+//An element store on a call base (mk()[i] = v) must go through the
+//same element-type gate as identifier bases: a call base is
+//array-valued and its EvalDataType is the element type.
+struct Point {
+    int x;
+    int y;
+}
+Point[] mkArr() {
+    return new Point[2];
+}
+int main() {
+    mkArr()[0] = 5;
+    return 0;
+}

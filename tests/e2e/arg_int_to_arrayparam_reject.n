@@ -1,0 +1,9 @@
+//The symmetric argument hole: a non-array value passed to an
+//array-typed parameter would be stored as a raw primitive under a
+//GC-traced array slot kind.
+void Take(int[] a) {
+}
+int main() {
+    Take(5);
+    return 0;
+}
