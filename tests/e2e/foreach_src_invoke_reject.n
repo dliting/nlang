@@ -1,6 +1,6 @@
-//foreach over an array VALUE from a call: `mk()` returning int[] is an
-//array value, not an array-typed lvalue — rejected at resolve time;
-//assign to a local first.
+//foreach over an array VALUE from a call: `mk()` returning int[].
+//0.7.3 B D10: accepted; the call evaluates ONCE into the hidden iter
+//slot (single-evaluation pin: foreach_src_single_eval).
 int[] mk() {
 	int[] a = [10, 20, 30];
 	return a;

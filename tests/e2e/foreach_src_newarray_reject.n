@@ -1,6 +1,6 @@
 //foreach over a freshly constructed array: `new int[3]` is an array
-//VALUE (NewArrayExpr), not an array-typed lvalue — same masquerade
-//family, rejected at resolve time; assign to a local first.
+//VALUE (NewArrayExpr). 0.7.3 B D10: accepted; the construction runs
+//once into the hidden iter slot (elements zero → total 0).
 int main() {
 	int total = 0;
 	foreach (int x in new int[3]) {

@@ -1,6 +1,7 @@
 //foreach over an array VALUE via container subscript sugar: `l[0]` on a
-//List<int[]> degrades to the element type like get() does — rejected at
-//resolve time; assign to a local first.
+//List<int[]> resolves to the array token like get() does. 0.7.3 B D10:
+//accepted and routed through the array path (was rejected at resolve
+//time).
 int main() {
 	List<int[]> l = new List<int[]>();
 	int[] a = new int[2];

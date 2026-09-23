@@ -989,15 +989,16 @@ multi_decl_composite 20
 for_multi_decl 18
 local_decl_unbraced_reject compile_error use braces
 multi_decl_fwd_reject compile_error Cannot resolve the field: b
-foreach_src_get_reject compile_error the foreach source is an array value
-foreach_src_sub_reject compile_error the foreach source is an array value
-foreach_src_invoke_reject compile_error the foreach source is an array value
-foreach_src_dict_reject compile_error the foreach source is an array value
-foreach_src_newarray_reject compile_error the foreach source is an array value
+foreach_src_get_reject 30
+foreach_src_sub_reject 30
+foreach_src_invoke_reject 60
+foreach_src_dict_reject 30
+foreach_src_newarray_reject 0
 foreach_src_member_array 145
 foreach_src_this_member 5
-foreach_src_member_invoke_reject compile_error the foreach source is an array value
-foreach_src_dict_sub_reject compile_error the foreach source is an array value
+foreach_src_member_invoke_reject 60
+foreach_src_single_eval 1
+foreach_src_dict_sub_reject 30
 foreach_noncontainer_reject compile_error the foreach source must be an array, List, or Dict
 foreach_string_reject compile_error the foreach source must be an array, List, or Dict
 

@@ -1,6 +1,6 @@
-//foreach over an array VALUE read out of a Dict value slot: `d.get("k")`
-//on a Dict<string, int[]> — rejected at resolve time; assign to a local
-//first.
+//foreach over an array VALUE read out of a Dict value slot:
+//`d.get("k")` on a Dict<string, int[]>. 0.7.3 B D10: accepted and
+//routed through the array path (was rejected at resolve time).
 int main() {
 	Dict<string, int[]> d = new Dict<string, int[]>();
 	int[] v = [10, 20];

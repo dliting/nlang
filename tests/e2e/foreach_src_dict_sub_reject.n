@@ -1,7 +1,7 @@
 //foreach over an array VALUE via Dict subscript sugar: `d["k"]` on a
-//Dict<string, int[]> — the value slot's element type argument is an
-//array, so the subscript degrades like get() does. Rejected at resolve
-//time; assign to a local first.
+//Dict<string, int[]> — the value slot's type argument is the array
+//token, so the subscript resolves to it like get() does. 0.7.3 B D10:
+//accepted (was rejected at resolve time).
 int main() {
 	Dict<string, int[]> d = new Dict<string, int[]>();
 	int[] v = [10, 20];

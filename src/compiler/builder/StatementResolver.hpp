@@ -801,35 +801,20 @@ public:
 		//1. Resolve iterable (EvalDataType gets populated for codegen to use).
 		sn.Iterable()->Accept(*m_pVisitor);
 
-		//An array-VALUED source (get()/subscript/call result from a
-		//List<T[]>/Dict<K,V[]> or a T[]-returning callee) is rejected as
-		//a policy, not a detection limit: IsArrayValued is resolve-time
-		//information (derived from the interned array token in
-		//EvalDataType since 0.7.3 B), but the codegen 3-way dispatch
-		//routes by the degraded EvalDataType, which carries no
-		//container identity.
-		//Plain array lvalues (local/member) stay on the array path —
-		//reject only the value forms; assign to a typed local first,
-		//same gate family as the P2 array-receiver/stdlib-argument
-		//rejections (the array-valued property at a consumption site).
-		//An unresolved iterable already reported its own error — skip to
-		//avoid cascades.
-		if (sn.Iterable()->IsResolved()
-			&& sn.Iterable()->IsArrayValued()
-			&& !IsPlainLvalueShape(*sn.Iterable()))
-		{
-			m_Env.Log(CLL_Error, sn.Iterable()->Location(),
-				"the foreach source is an array value; assign it to a "
-				"local first");
-			return;
-		}
+		//0.7.3 B D10: array-valued sources (get()/subscript/call/new
+		//results) are ACCEPTED — the source carries the interned array
+		//token in EvalDataType, and codegen's dispatch routes value
+		//forms through the same token (the masquerade-era rejection
+		//existed only because the degraded EvalDataType carried no
+		//array identity). The iterable still evaluates once into the
+		//hidden iter slot; the source expression is not re-evaluated
+		//per iteration.
 
 		//Array redesign B (spec §5.5 #3): a resolved source that is
 		//neither an array nor a List/Dict used to compile and die at
 		//runtime (null reference in CallMethod) — reject by name here.
-		//Shape-agnostic: array-value shapes already returned in the
-		//array-value gate above; container values (incl.
-		//invoke form) pass isContainer below.
+		//Array sources (lvalue and value forms alike) pass via isArray;
+		//container values (incl. invoke form) pass isContainer below.
 		if (sn.Iterable()->IsResolved())
 		{
 			auto* pSrcType = sn.Iterable()->EvalDataType();
@@ -873,23 +858,19 @@ public:
 			auto* pSrcType = sn.Iterable()->EvalDataType();
 			SnField *pElemField = nullptr;
 			bool elemIsArray = false;
-			//0.7.3 B token path: an array-valued source carries the
-			//interned token — peel to the element. Transitional arm:
-			//the container branch's type-arg stays degraded until Task
-			//11 interns it, so both sides compare as elements; Task 11
-			//finalizes the gate to EvalDataType() on both sides and
-			//deletes the peels.
+			//0.7.3 B token path: EVERY array source (lvalue or value
+			//form) carries the interned token in EvalDataType — peel to
+			//the element. Transitional arm: the container branch's
+			//type-arg stays degraded until Task 11 interns it, so both
+			//sides compare as elements; Task 11 finalizes the gate to
+			//EvalDataType() on both sides and deletes the peels. (The
+			//pre-flip "plain array lvalue masquerades as its element"
+			//arm died with the side channel — IsArrayValued now MEANS
+			//the token kind, so this branch covers it.)
 			if (pSrcType && pSrcType->Kind() == NK_ArrayTypeToken)
 			{
 				pElemField = static_cast<SnArrayTypeToken*>(
 					pSrcType)->ElemTypeOf();
-			}
-			else if (sn.Iterable()->IsArrayValued() && pSrcType)
-			{
-				//Plain array source: EvalDataType masquerades as the
-				//element type, and an array's element is never itself an
-				//array (jagged is rejected above).
-				pElemField = pSrcType;
 			}
 			else if (pSrcType && pSrcType->Kind() == NK_ClassDecl)
 			{

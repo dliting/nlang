@@ -1,8 +1,8 @@
 //foreach over an array VALUE read out of a container: `l.get(0)` on a
-//List<int[]> returns an array value, which masquerades as its element
-//type in EvalDataType — the codegen 3-way dispatch would mis-route it
-//and the loop dies at runtime ("method not found: length"). Rejected at
-//resolve time; assign to a local first.
+//List<int[]> returns an array value. 0.7.3 B D10: value sources carry
+//the interned array token and route through the array path directly
+//(pre-0.7.3 this was rejected at resolve time — assign to a local
+//first).
 int main() {
 	List<int[]> l = new List<int[]>();
 	int[] a = new int[2];

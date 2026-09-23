@@ -5695,9 +5695,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             //the same lvalue family as the identifier shape. Read the
             //inner identifier's field: the member's own EvalDataType is
             //the degraded ELEMENT type (EvalDataType dispatch-order trap),
-            //which would mis-route this into the List path. Array-valued
-            //sources (get()/subscript/call results) are rejected at
-            //resolve time and never reach this dispatch.
+            //which would mis-route this into the List path.
             auto* pInner = static_cast<SnMemberExpr*>(pIter)->Inner();
             if (pInner && pInner->Kind() == NK_IdentifierExpr) {
                 auto* pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
@@ -5711,6 +5709,21 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                             pElemType)->ElemTypeOf();
                 }
             }
+        }
+        //0.7.3 B D10 value-form arm: every array-valued source — get()
+        //and subscript reads out of List<T[]>/Dict<K,V[]>, array-returning
+        //calls, bound method calls, new-array expressions — carries the
+        //interned array token in EvalDataType. The declaration-side arms
+        //above only recognize identifier/member lvalue shapes; this arm
+        //routes the value forms (accepted since D10; the masquerade-era
+        //resolve-time rejection existed because the degraded
+        //EvalDataType carried no array identity for this dispatch).
+        if (!isArray && pIter->EvalDataType()
+            && pIter->EvalDataType()->Kind() == NK_ArrayTypeToken)
+        {
+            isArray = true;
+            pElemType = static_cast<SnArrayTypeToken*>(
+                pIter->EvalDataType())->ElemTypeOf();
         }
         if (!isArray) {
             auto* pIterType = pIter->EvalDataType();

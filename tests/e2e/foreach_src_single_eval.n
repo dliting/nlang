@@ -1,0 +1,22 @@
+//0.7.3 B D10 single-evaluation pin: the invoke-form source runs its
+//side effect exactly once no matter how many iterations follow — the
+//iterable is emitted into the hidden iter slot once, never re-evaluated
+//per loop. rc=1 = side effect ran once AND the total is intact.
+class Counter {
+	public int calls;
+	public int[] mk() {
+		calls = calls + 1;
+		int[] a = [10, 20, 30];
+		return a;
+	}
+}
+
+int main() {
+	Counter c = new Counter();
+	int total = 0;
+	foreach (int x in c.mk()) {
+		total = total + x;
+	}
+	if (c.calls == 1 && total == 60) { return 1; }
+	return 0;
+}

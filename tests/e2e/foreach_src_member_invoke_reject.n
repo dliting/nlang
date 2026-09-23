@@ -1,8 +1,7 @@
 //foreach over an array VALUE from a bound method call: `b.mk()` where
-//mk returns int[] — the member arm of the masquerade family (the member
-//field is the SnFunction; the array-ness lives on the inner invoke's
-//callee return type). Rejected at resolve time; assign to a local
-//first.
+//mk returns int[] — the member arm of the value family (the member
+//field is the SnFunction; the array-ness lives on the invoke's return
+//token). 0.7.3 B D10: accepted.
 class Box {
 	public int[] mk() {
 		int[] a = [10, 20, 30];
