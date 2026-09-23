@@ -1173,21 +1173,6 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	for (auto it = children.begin(); it != children.end(); ++it, ++paramIdx)
 	{
 		auto& arg = static_cast<SnExpression&>(*it);
-		//Array-valued args must be rejected BEFORE the kind match:
-		//EvalDataType of an array-valued expression returns the ELEMENT
-		//kind (EvalDataType dispatch-order trap), so `int[]` would
-		//masquerade as int and the intrinsic would reinterpret the array
-		//handle — garbage values today, an out-of-bounds pool read once
-		//io.print widens the accepted kinds (Step 2). Covers identifier,
-		//member, new-array and array-returning-call shapes.
-		if (arg.IsArrayValued())
-		{
-			m_Env.Log(CLL_Error, arg.Location(),
-				"Argument %d of \"%s.%s\" is an array; \"%s\" expected.",
-				(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
-				StdLibKindName(pEntry->paramKinds[paramIdx]));
-			continue;
-		}
 		auto* pArgType = arg.EvalDataType();
 		if (!pArgType)
 		{
@@ -1672,24 +1657,17 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			RemoveFlags(ERF_SearchInParentOnly);
 			ResolveExpressionList(invoke.Params());
 			//Per-arg policy: exact kind match vs paramKinds, no widening
-			//(substring offsets are int; a float offset is a compile error).
-			//Same guards as the namespace-call path: arrays masquerade as
-			//their element kind, void calls have no value.
+			//(substring offsets are int; a float offset is a compile
+			//error). Array-valued args carry the interned array token
+			//whose Kind matches no scalar paramKind — the kind match
+			//below rejects them with the generic diagnostic. Same shape
+			//as the namespace-call path: a void call has no value.
 			auto& children = invoke.Children();
 			size_t paramIdx = 0;
 			for (auto it = children.begin(); it != children.end();
 				++it, ++paramIdx)
 			{
 				auto& arg = static_cast<SnExpression&>(*it);
-				if (arg.IsArrayValued())
-				{
-					m_Env.Log(CLL_Error, arg.Location(),
-						"Argument %d of string.%s is an array; \"%s\" "
-						"expected.",
-						(int)paramIdx + 1, pMethod->name,
-						StdLibKindName(pMethod->paramKinds[paramIdx]));
-					continue;
-				}
 				auto* pArgType = arg.EvalDataType();
 				if (!pArgType)
 				{
@@ -3966,26 +3944,10 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)
 			return -1;
-		//Array masquerade guard, argument flavor: array-ness must match
-		//on the parameter boundary, both directions. 0.7.3 B note: with
-		//interned tokens this guard is REDUNDANT both ways — a token
-		//source against a scalar formal (and the symmetric hole) already
-		//verdicts -1 in CalcTypeDistance's kind matching, where the old
-		//degraded-element masquerade produced an exact match. Retained
-		//until the guard-family removal task. The null literal exemption
-		//is still load-bearing: `TakeArr(null)` is legal exactly like
-		//`int[] a = null` (the null sentinel is not an array value) and
-		//feeds the token bridge below.
-		//Builtin container methods bypass binding distance entirely
-		//(verified empirically: List<int>.add("x") still compiles), so
-		//the flags-aware container element flow is unaffected. Imported
-		//stubs are exempt (see bImportedCallee above) — the placeholder
-		//formal's array-ness carries no information about the real
-		//signature.
-		if (!bImportedCallee
-			&& b.pCallerExpr->IsArrayValued() != b.pFormal->IsArrayType()
-			&& !b.pCallerExpr->ContainFlags(NF_NullLiteral))
-			return -1;
+		//0.7.3 B: array-ness is adjudicated by CalcTypeDistance's kind
+		//matching alone — an interned token against a scalar formal (and
+		//the symmetric hole) verdicts -1 there. Two exemptions follow:
+		//null against an array formal, and imported placeholder formals.
 		//0.7.3 B: the null literal is Int32-typed, so against an
 		//array-token formal CalcTypeDistance reads -1. Null binds to
 		//any array type at distance 0 — the same bridge the assignment
@@ -4051,22 +4013,19 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 		TypeCastInfo castInfo(pSrc, pTgt);
 		if (castInfo.Kind() == TCK_Same)
 			continue;
-
-		//Array-to-array bindings need matching ELEMENT types, not just
-		//matching array-ness (the binding-distance gate): both sides
-		//flow as interned tokens, so a cross-element pair — a
-		//`string[]` formal fed an `int[]` — would ride the string
-		//coercion in the fixup below, the same hole the assignment
-		//guard closes. Anything non-Same between two array-typed sides
-		//is that hole; reject by name.
-		if (b.pCallerExpr->IsArrayValued() && b.pFormal->IsArrayType())
-		{
-			m_Env.Log(CLL_Error, b.pCallerExpr->Location(),
-				"Invalid argument \"%s\": an array value only "
-				"converts to the same array type.",
-				b.pCallerExpr->ToString().c_str());
-			return;
-		}
+		//0.7.3 B transitory clause (a): array-valued arguments skip the
+		//fixup. Imported stub formals are placeholder kinds synthesized
+		//from the return kind (param kinds are not serialized until
+		//.nmod v1.12), so an array-token source against the placeholder
+		//verdicts TCK_None here while the distance layer (which already
+		//skipped the binding) let the candidate through — reject and the
+		//widen call dies, wrap and the array handle is garbled. Codegen
+		//passes the raw handle through untyped. Same-module array
+		//bindings never reach this arm: distance 0 means the same interned
+		//token, which took the TCK_Same exit above. Deleted when true
+		//param types land (Task: .nmod v1.12 type descriptors).
+		if (b.pCallerExpr->IsArrayValued())
+			continue;
 
 		//Locate the caller expr's NodeIterator inside invoke.Children().
 		//For positional bindings this finds the caller expr directly.

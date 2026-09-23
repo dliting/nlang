@@ -1,0 +1,15 @@
+// cross_mod_array_widen_arg — pins the imported-widen window semantics
+// (0.7.3 B transitory clause (a)). `.nmod` does not serialize parameter
+// kinds, so the consumer-side stub synthesizes BOTH formals of
+// `int sum2(int[] a, float b)` as plain `int` placeholders. The call
+// fixup then runs per-binding: the array argument is skipped (passed
+// through as the raw handle), the float argument is wrapped to the int
+// placeholder — the caller writes int bits for 2.5, the callee re-reads
+// the slot as its real float local (a denormal ~0), so `b > 2` is false
+// and the exit code is 1. When true param types land (.nmod v1.12 type
+// descriptors), the call becomes an exact match, b keeps 2.5, and the
+// expected exit code flips to 3.
+int sum2(int[] a, float b) {
+    if (a != null && b > 2) return 3;
+    return 1;
+}

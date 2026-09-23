@@ -772,7 +772,7 @@ compile_error_outarg_builtin compile_error
 stdlib_sqrt_canary 0
 stdlib_reserved_names compile_error
 stdlib_array_arg compile_error
-delegate_result_arg_reject compile_error is an array
+delegate_result_arg_reject compile_error has type "Int32[]"
 cross_mod_stdlib_array_arg compile_error
 cross_mod_array_return 0
 cross_mod_array_member 0
@@ -972,7 +972,7 @@ array_elem_recv_sub_reject compile_error methods cannot be called on an array
 array_elem_recv_method_reject compile_error methods cannot be called on an array
 array_elem_switch_get_reject compile_error switch discriminant must be int, float, string, or enum
 array_elem_switch_sub_reject compile_error switch discriminant must be int, float, string, or enum
-array_elem_arg_reject compile_error is an array
+array_elem_arg_reject compile_error has type "Float[]"
 func_ret_array_switch_reject compile_error switch discriminant must be int, float, string, or enum
 array_elem_positive 2
 func_ret_array_positive 0
@@ -981,7 +981,7 @@ array_elem_param_reject compile_error methods cannot be called on an array
 array_elem_field_reject compile_error methods cannot be called on an array
 array_elem_dict_value_reject compile_error methods cannot be called on an array
 array_elem_dict_value_switch_reject compile_error switch discriminant must be int, float, string, or enum
-array_elem_pow_sub_reject compile_error is an array
+array_elem_pow_sub_reject compile_error has type "Float[]"
 array_elem_switch_method_reject compile_error switch discriminant must be int, float, string, or enum
 multi_decl_order 10
 multi_decl_mixed 40
@@ -1122,3 +1122,4 @@ container_store_intarr_to_stringarr_elem_reject compile_error an array value onl
 assign_intarr_to_floatarr_reject compile_error an array value only converts to the same array type
 assign_stringarr_same_type 7
 cross_mod_array_arg 6
+cross_mod_array_widen_arg 1

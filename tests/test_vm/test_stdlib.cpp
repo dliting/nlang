@@ -163,13 +163,12 @@ void test_stdlib_type_error()
 void test_stdlib_array_arg_rejected()
 {
     TEST(stdlib_array_arg_rejected);
-    //Regression guard (Step 0 review MAJOR): EvalDataType of an array
-    //valued expression returns the ELEMENT kind, so without the
-    //array-valued property guard `int[]` masqueraded as int and the
-    //intrinsic reinterpreted the array handle as a float — silently
-    //wrong code.
-    //One case per masquerade shape: lvalue, new-array, array-returning
-    //call (the e2e canary keeps the lvalue representative).
+    //Regression guard (Step 0 review MAJOR): an array-valued argument
+    //carries the interned array type token (0.7.3 B) whose Kind matches
+    //no scalar paramKind, so the kind match below rejects it — the
+    //diagnostic names the array type ("Int32[]").
+    //One case per shape: lvalue, new-array, array-returning call (the
+    //e2e canary keeps the lvalue representative).
     BuildOutcome lvalue = buildSource("array_arg_lvalue",
         "int main() {\n"
         "    int[] arr = new int[3];\n"
@@ -177,7 +176,7 @@ void test_stdlib_array_arg_rejected()
         "    return 0;\n"
         "}\n");
     CHECK(!lvalue.ok, "math.sqrt(int[] local) must not compile");
-    CHECK(lvalue.diagnostics.find("array") != std::string::npos,
+    CHECK(lvalue.diagnostics.find("Int32[]") != std::string::npos,
         "diagnostic should name the array problem");
 
     BuildOutcome newArray = buildSource("array_arg_new",
@@ -186,7 +185,7 @@ void test_stdlib_array_arg_rejected()
         "    return 0;\n"
         "}\n");
     CHECK(!newArray.ok, "math.sqrt(new int[3]) must not compile");
-    CHECK(newArray.diagnostics.find("array") != std::string::npos,
+    CHECK(newArray.diagnostics.find("Int32[]") != std::string::npos,
         "diagnostic should name the array problem");
 
     BuildOutcome callRet = buildSource("array_arg_call",
@@ -196,7 +195,7 @@ void test_stdlib_array_arg_rejected()
         "    return 0;\n"
         "}\n");
     CHECK(!callRet.ok, "math.sqrt(array-returning call) must not compile");
-    CHECK(callRet.diagnostics.find("array") != std::string::npos,
+    CHECK(callRet.diagnostics.find("Int32[]") != std::string::npos,
         "diagnostic should name the array problem");
     PASS();
 }
@@ -286,8 +285,9 @@ void test_io_print_rejects_nonprintable()
 {
     TEST(io_print_rejects_nonprintable);
     //class values must call .toString() explicitly; null would print "0";
-    //arrays masquerade as their element kind via EvalDataType and are
-    //rejected by the array-valued property check before the coercion branch.
+    //array values carry the interned token whose Kind matches no printable
+    //kind, so the coercion branch rejects them with the type-naming
+    //diagnostic ("Int32[]").
     BuildOutcome cls = buildSource("io_print_cls",
         "class P { int x; }\n"
         "int main() { P p = new P{1}; io.print(p); return 0; }\n");
@@ -302,7 +302,7 @@ void test_io_print_rejects_nonprintable()
     BuildOutcome arr = buildSource("io_print_arr",
         "int main() { int[] a = new int[2]; io.print(a); return 0; }\n");
     CHECK(!arr.ok, "io.print(int[]) must not compile");
-    CHECK(arr.diagnostics.find("array") != std::string::npos,
+    CHECK(arr.diagnostics.find("Int32[]") != std::string::npos,
         "diagnostic should name the array problem");
     PASS();
 }
@@ -435,8 +435,9 @@ void test_string_method_type_error()
 void test_string_array_arg_rejected()
 {
     TEST(string_array_arg_rejected);
-    //string[] masquerades as string via EvalDataType (element kind) —
-    //the array-valued property check must reject it before the kind check.
+    //string[] carries the interned array token whose Kind matches no
+    //scalar paramKind — the kind check rejects it with the type-naming
+    //diagnostic ("String[]").
     BuildOutcome outcome = buildSource("str_arg_arr",
         "int main() {\n"
         "    string[] a = new string[2];\n"
@@ -444,7 +445,7 @@ void test_string_array_arg_rejected()
         "    return 0;\n"
         "}\n");
     CHECK(!outcome.ok, "\"x\".indexOf(string[]) must not compile");
-    CHECK(outcome.diagnostics.find("array") != std::string::npos,
+    CHECK(outcome.diagnostics.find("String[]") != std::string::npos,
         "diagnostic should name the array problem");
     PASS();
 }
