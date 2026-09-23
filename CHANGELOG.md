@@ -6,6 +6,17 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] - Unreleased
+
+### Changed
+- Array-valued expressions now carry an interned array type token in
+  their static type channel: array types are first-class resolved
+  entities (one interned token per element type per compilation),
+  declarations and value sites share the same token, and the
+  array-valued property is derived from it instead of a side channel.
+  Same-type array flow compares tokens by identity, and cross-element
+  array conversions (`string[] b = ia`) keep their named diagnostic.
+
 ## [0.7.2] - Unreleased
 
 ### Fixed

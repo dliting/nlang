@@ -5421,7 +5421,7 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         if (sub.Array()->IsArrayValued())
         {
             elemType = sub.Array()->EvalDataType();
-            //0.7.3 B token path (inert until Task 3 flips the writers):
+            //0.7.3 B token path:
             //an array-valued base carries the interned token; struct
             //deep-copy detection keys on the ELEMENT.
             if (elemType && elemType->Kind() == NK_ArrayTypeToken)
@@ -5681,9 +5681,9 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             if (pField && pField->IsArrayType()) {
                 isArray = true;
                 pElemType = pField->EvalDataType();
-                //0.7.3 B token path (inert until Task 3 flips the
-                //writers): an array-typed local carries the interned
-                //token; the loop-var slot kind keys on the ELEMENT.
+                //0.7.3 B token path: an array-typed local carries
+                //the interned token; the loop-var slot kind keys on
+                //the ELEMENT.
                 if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
                     pElemType = static_cast<SnArrayTypeToken*>(
                         pElemType)->ElemTypeOf();
@@ -5702,8 +5702,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 if (pField && pField->IsArrayType()) {
                     isArray = true;
                     pElemType = pField->EvalDataType();
-                    //0.7.3 B token path (inert until Task 3): same peel
-                    //as the identifier shape above.
+                    //0.7.3 B token path: same peel as the identifier
+                    //shape above.
                     if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
                         pElemType = static_cast<SnArrayTypeToken*>(
                             pElemType)->ElemTypeOf();

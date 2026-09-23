@@ -713,110 +713,32 @@ bool ElemIsArrayValued(const SnExpression& base)
 	return flags.size() == 1 && flags[0] != 0;   // List<T> element
 }
 
-//C-period: delegate-invoke result (`f(args)` where f : Func<R, P...>).
-//The variable's declared type is the synthetic Func class; the RESULT
-//array-ness is its return slot flags[0] (params occupy the later
-//slots, so the size==1 List convention must not be reused here).
-static bool DelegateReturnIsArray(const SnInvokeExpr& invoke)
-{
-	auto* pVar = invoke.Field();
-	if (!pVar || pVar->Kind() == NK_Function)
-		return false;
-	auto* pFuncClass = pVar->EvalDataType();
-	if (!pFuncClass || pFuncClass->Kind() != NK_ClassDecl)
-		return false;
-	auto* pGen = static_cast<const SnClassDecl*>(pFuncClass);
-	if (!pGen->IsFuncType())
-		return false;
-	const auto& flags = pGen->GenericArrayFlags();
-	return !flags.empty() && flags[0] != 0;
-}
-
-//Array redesign B: stamp the array-valued property on a VALUE
-//expression from its declared/bound type. Called at the binding
-//success sites of the five expression shapes — resolution is
-//inner-first, so every base expression is stamped before an outer
-//consumer queries it. Unresolved nodes have no bindings and stamp
-//false, which is inert. A binding tail WITHOUT the call leaves that
-//shape silently false — reopening the shape-inference bug family — so
-//every new NF_Resolved success site must add one.
-static void StampArrayValued(SnExpression& expr) {
-	switch (expr.Kind()) {
-	case NK_IdentifierExpr:
-		//lvalue shape: the bound field's own type flag.
-	{
-		auto* pField = static_cast<SnIdentifierExpr&>(expr).Field();
-		expr.SetArrayValued(pField && pField->IsArrayType());
+//0.7.3 B: the stamp became a TOKEN BINDER. The array-valued property
+//is now derived (IsArrayValued reads the interned SnArrayTypeToken in
+//EvalDataType). Every shape except a fresh allocation carries the
+//token from ResolveFieldExprAs already: identifiers and plain members
+//bind the declaration's token, user-method invokes bind the return
+//type's token, and container element flows (List<T[]>.get, li[0],
+//Func<R[],...> invokes) read the instantiation's type-args slots —
+//which carry tokens natively because generic type arguments resolve
+//through the same Access(SnArrayTypeExpr&) intern channel. Minting
+//over any of those would wrap a token in a token (the double-wrap bug
+//the gc-arm tests catch). Still called at every NF_Resolved success
+//site — a new value shape that is array-valued without passing a
+//declaration channel needs an arm here, or it silently loses its
+//array-ness.
+void ExprResolveAccessor::BindArrayTypeToken(SnExpression& expr) {
+	if (!expr.IsResolved())
 		return;
-	}
-	case NK_MemberExpr: {
-		auto& member = static_cast<SnMemberExpr&>(expr);
-		auto* pInner = member.Inner();
-		if (pInner && pInner->Kind() == NK_InvokeExpr) {
-			//call-through-member (`l.get(0)`, `obj.mk()`): result type
-			//is stamped on the member for container/stdlib calls; user
-			//methods carry it on the inner invoke (already stamped —
-			//inner-first resolution replaces the old recursion).
-			auto& innerInvoke = static_cast<SnInvokeExpr&>(*pInner);
-			expr.SetArrayValued(
-				(member.Field() && member.Field()->IsArrayType())
-				|| (member.EvalDataType()
-					&& member.EvalDataType()->IsArrayType())
-				|| (innerInvoke.CalleeName() == "get"
-					&& member.Outer()
-					&& ElemIsArrayValued(*member.Outer()))
-				|| innerInvoke.IsArrayValued());
-			return;
-		}
-		//plain field lvalue (`obj.arr`): the inner identifier's bound
-		//field carries the flag.
-		if (pInner && pInner->Kind() == NK_IdentifierExpr) {
-			auto* pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
-			expr.SetArrayValued(pField && pField->IsArrayType());
-			return;
-		}
-		expr.SetArrayValued(false);
+	if (expr.Kind() != NK_NewArrayExpr)
 		return;
-	}
-	case NK_NewArrayExpr:
-		expr.SetArrayValued(true);  //`new T[n]` is always an array value
-		return;
-	case NK_InvokeExpr: {
-		//Call returning T[]: the invoke resolves AS the callee
-		//(ResolveFieldExprAs), so the array-ness flag lives on the
-		//callee's return TYPE EXPR — NOT on Field()->IsArrayType(),
-		//which is the local-var level and would read the element
-		//type's flag (wrong-simplification trap).
-		auto& invoke = static_cast<SnInvokeExpr&>(expr);
-		auto* pCallee = invoke.Callee();
-		auto* pReturnType = pCallee ? pCallee->ReturnType() : nullptr;
-		//A delegate invoke has no SnFunction callee — Field() carries
-		//the Func-typed variable (BindDelegateInvoke); its RETURN slot
-		//is type argument 0. The stamped EvalDataType is the degraded
-		//element field, so the Func class's flag mirror is the source.
-		expr.SetArrayValued(
-			(pReturnType && pReturnType->IsArrayType())
-			|| DelegateReturnIsArray(invoke)
-			|| (expr.EvalDataType()
-				&& expr.EvalDataType()->IsArrayType()));
-		return;
-	}
-	case NK_SubscriptExpr: {
-		//`l[0]` container sugar over List<T[]>/Dict<K,V[]>: the stamped
-		//element field is degraded, so the declaration flag on the base
-		//is authoritative; the EvalDataType term is a defensive backstop
-		//only (a jagged `int[][]` base double-degrades and is not
-		//caught here — declaration-form gates reject the common forms).
-		auto& sub = static_cast<SnSubscriptExpr&>(expr);
-		expr.SetArrayValued(
-			(sub.Array() && ElemIsArrayValued(*sub.Array()))
-			|| (expr.EvalDataType()
-				&& expr.EvalDataType()->IsArrayType()));
-		return;
-	}
-	default:
-		return;
-	}
+	//`new T[n]`: the resolve tail stored the element field in
+	//EvalDataType — mint the token over it. A type alias may already
+	//have spliced an array type in (its Field() IS a token); never
+	//wrap a token in another token.
+	auto* pElem = expr.EvalDataType();
+	if (pElem && pElem->Kind() != NK_ArrayTypeToken)
+		expr.EvalDataType(m_Env.InternArrayTypeToken(pElem));
 }
 
 //Depth of the array-type chain (int[] = 1, int[][] = 2, …). Depth >= 2
@@ -843,8 +765,15 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 	if (!pElemType->IsResolved())
 		return;
 
-	//Propagate the element type's field to the array type expression.
-	ResolveFieldExprAs(arrTypeExpr, pElemType->Field());
+	//0.7.3 B: intern the array type token and bind the expression to
+	//it — Field() and EvalDataType() become the token together
+	//(ResolveFieldExprAs writes both channels). Declaration sites and
+	//value sites then share one interned token per element type, and
+	//the element masquerade is gone. This is the single intern site:
+	//field/param/return types arrive through ResolveDataTypes, and
+	//local/for/foreach type expressions through ExprResolver::Resolve.
+	ResolveFieldExprAs(arrTypeExpr,
+		m_Env.InternArrayTypeToken(pElemType->Field()));
 }
 
 //Phase 8e-3: resolve a built-in generic type expression like `List<int>`.
@@ -1011,7 +940,7 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	}
 
 	ResolveFieldExprAs(idExpr, pField);
-	StampArrayValued(idExpr);
+	BindArrayTypeToken(idExpr);
 }
 
 void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
@@ -1361,7 +1290,7 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 		snMember.m_pField = pResultField;
 	}
 	snMember.AddFlags(NF_Resolved);
-	StampArrayValued(snMember);
+	BindArrayTypeToken(snMember);
 }
 
 //Module import visibility (spec §6.2 rule 5): the module-table fallback
@@ -1425,7 +1354,7 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 				parentPrefix.c_str());
 		}
 		snMember.AddFlags(NF_Resolved);
-		StampArrayValued(snMember);
+		BindArrayTypeToken(snMember);
 		return true;
 	}
 
@@ -1438,13 +1367,13 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 	if (!ResolveExpressionList(invoke.Params()))
 	{
 		snMember.AddFlags(NF_Resolved);
-		StampArrayValued(snMember);
+		BindArrayTypeToken(snMember);
 		return true;
 	}
 	if (!ValidateInvokeSyntax(invoke))
 	{
 		snMember.AddFlags(NF_Resolved);
-		StampArrayValued(snMember);
+		BindArrayTypeToken(snMember);
 		return true;
 	}
 
@@ -1470,21 +1399,21 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		}
 		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported);
 		snMember.AddFlags(NF_Resolved);
-		StampArrayValued(snMember);
+		BindArrayTypeToken(snMember);
 		return true;
 	}
 
 	if (OutArgOnDispatchedCalleeRejected(invoke, *pCallee, bindings))
 	{
 		snMember.AddFlags(NF_Resolved);
-		StampArrayValued(snMember);
+		BindArrayTypeToken(snMember);
 		return true;
 	}
 
 	if (!ResolveInvokeWithFunc(invoke, *pCallee, res, bindings))
 	{
 		snMember.AddFlags(NF_Resolved);
-		StampArrayValued(snMember);
+		BindArrayTypeToken(snMember);
 		return true;
 	}
 
@@ -1495,7 +1424,7 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 	if (invoke.EvalDataType())
 		snMember.EvalDataType(invoke.EvalDataType());
 	snMember.AddFlags(NF_Resolved);
-	StampArrayValued(snMember);
+	BindArrayTypeToken(snMember);
 	return true;
 }
 
@@ -1554,7 +1483,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 					"the top of this file.",
 					outerId.Name().c_str(), outerId.Name().c_str());
 				snMember.AddFlags(NF_Resolved);
-				StampArrayValued(snMember);
+				BindArrayTypeToken(snMember);
 				return;
 			}
 			TryResolveStdLibCall(snMember, outerId,
@@ -1647,7 +1576,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1658,7 +1587,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1699,7 +1628,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1818,7 +1747,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				snMember.m_pField = pResultField;
 			}
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1830,7 +1759,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			//Mark the invoke as folded so codegen skips it. Use NF_Resolved flag
 			//on the inner expression (already set above) and leave callee as-is;
 			//VmBackend detects string receiver + toString name and emits nothing.
@@ -1851,7 +1780,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -1998,7 +1927,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 						snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
 				}
 				snMember.AddFlags(NF_Resolved);
-				StampArrayValued(snMember);
+				BindArrayTypeToken(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -2057,7 +1986,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -2076,7 +2005,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			pInnerExpr->AddFlags(NF_Resolved);
 			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -2150,7 +2079,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				pInnerExpr->AddFlags(NF_Resolved);
 				snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
 				snMember.AddFlags(NF_Resolved);
-				StampArrayValued(snMember);
+				BindArrayTypeToken(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -2354,7 +2283,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			if (pResultField)
 				snMember.m_pField = pResultField;
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 			m_pContext = pSavedContext;
 			return;
 		}
@@ -2399,7 +2328,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 				snMember.EvalDataType(pResultField);
 				snMember.m_pField = pResultField;
 				snMember.AddFlags(NF_Resolved);
-				StampArrayValued(snMember);
+				BindArrayTypeToken(snMember);
 				m_pContext = pSavedContext;
 				return;
 			}
@@ -2442,13 +2371,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			if (pInnerExpr->EvalDataType())
 				snMember.EvalDataType(pInnerExpr->EvalDataType());
 			snMember.AddFlags(NF_Resolved);
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 		}
 		else
 		{
 			ResolveFieldExprAs(snMember, pInnerExpr->Field());
 			//Plain member-field path: the shared helper above sets NF_Resolved internally.
-			StampArrayValued(snMember);
+			BindArrayTypeToken(snMember);
 		}
 	}
 
@@ -2916,12 +2845,13 @@ void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
 	if (!sn.Size()->IsResolved())
 		return;
 
-	//EvalDataType: store the element type for later array type registration.
-	//We do NOT set Field() here since arrays are not a single field; the
-	//backend registers a CompiledArrayType entry from this element type.
+	//EvalDataType briefly stores the element type, then BindArrayTypeToken
+	//overwrites it with the interned array token (the array-valued
+	//property). Codegen's array registration reads the AST element type
+	//expression, not this slot.
 	sn.EvalDataType(pElemField);
 	sn.AddFlags(NF_Resolved);
-	StampArrayValued(sn);
+	BindArrayTypeToken(sn);
 }
 
 //Phase 8e-6: Collection initializer resolver.
@@ -2957,7 +2887,7 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 		//EvalDataType() returns the element type — preserve both signals.
 		bIsArray = pInferred->IsArrayType();
 		pTargetField = pInferred->EvalDataType();
-		//0.7.3 B token path (inert until Task 3 flips the writers): an
+		//0.7.3 B token path: an
 		//array-typed LHS carries the interned token; the init-list's
 		//per-entry element gate consumes the ELEMENT (the node itself
 		//keeps the element contract — codegen's RegisterArrayType reads
@@ -3130,12 +3060,13 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//subscript keeps the container type and every consumer (assignment,
 	//member chains, nested subscripts) mis-types it.
 	//
-	//Array-ness is the IsArrayValued() property on the expression —
-	//EvalDataType of `List<int>[] a` returns the element type, which IS
-	//a generic instantiation, so the Kind() check below would mistake
-	//the array for a container (EvalDataType-dispatch-order trap, 5th
-	//instance). Array bases keep the plain element-type propagation
-	//below.
+	//0.7.3 B: an array-valued base carries the interned token in
+	//EvalDataType (NK_ArrayTypeToken, never a ClassDecl), so the Kind()
+	//check below no longer mistakes `List<int>[] a` for a container —
+	//the IsPlainLvalueShape guard is kept as a belt-and-suspenders
+	//defense of the old masquerade era (Task 4 removes the dead
+	//writers). Array bases keep the plain element-type propagation
+	//below, peeling the token.
 	if (!(arrayExpr.IsArrayValued() && IsPlainLvalueShape(arrayExpr))
 		&& arrayType && arrayType->Kind() == NK_ClassDecl)
 	{
@@ -3153,14 +3084,14 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 			{
 				sn.EvalDataType(elem);
 				sn.AddFlags(NF_Resolved);
-				StampArrayValued(sn);
+				BindArrayTypeToken(sn);
 				return;
 			}
 		}
 	}
 	if (arrayType)
 	{
-		//0.7.3 B token path (inert until Task 3 flips the writers): an
+		//0.7.3 B token path: an
 		//array-valued base carries the interned array token — the
 		//subscript's own type is its ELEMENT.
 		if (arrayType->Kind() == NK_ArrayTypeToken)
@@ -3169,7 +3100,7 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 		sn.EvalDataType(arrayType);
 	}
 	sn.AddFlags(NF_Resolved);
-	StampArrayValued(sn);
+	BindArrayTypeToken(sn);
 }
 
 void ExprResolveAccessor::Access(SnThisExpr &sn)
@@ -3670,7 +3601,7 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	//A void return resolves to a null EvalDataType here — the established
 	//void-invoke convention.
 	ResolveFieldExprAs(invoke, &func);
-	StampArrayValued(invoke);
+	BindArrayTypeToken(invoke);
 	return true;
 }
 
@@ -3867,7 +3798,7 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	if (typeArgs[0]->Kind() != NK_Void)
 		invoke.EvalDataType(typeArgs[0]);
 	invoke.AddFlags(NF_Resolved);
-	StampArrayValued(invoke);
+	BindArrayTypeToken(invoke);
 }
 
 //Phase 9c: try to bind an invoke's actual arguments to a candidate
@@ -4046,13 +3977,15 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		if (!pSrc || !pTgt)
 			return -1;
 		//Array masquerade guard, argument flavor: array-ness must match
-		//on the parameter boundary, both directions. CalcTypeDistance
-		//cannot see it (an array's EvalDataType is the degraded element
-		//type): `Take(int_arr)` against `int x` is an exact match that
-		//passes the raw handle, and a non-array value into an array-
-		//typed formal is the symmetric hole. The null literal is exempt
-		//on the value side — `TakeArr(null)` is legal exactly like
-		//`int[] a = null` (the null sentinel is not an array value).
+		//on the parameter boundary, both directions. 0.7.3 B note: with
+		//interned tokens this guard is REDUNDANT both ways — a token
+		//source against a scalar formal (and the symmetric hole) already
+		//verdicts -1 in CalcTypeDistance's kind matching, where the old
+		//degraded-element masquerade produced an exact match. Retained
+		//until the guard-family removal task. The null literal exemption
+		//is still load-bearing: `TakeArr(null)` is legal exactly like
+		//`int[] a = null` (the null sentinel is not an array value) and
+		//feeds the token bridge below.
 		//Builtin container methods bypass binding distance entirely
 		//(verified empirically: List<int>.add("x") still compiles), so
 		//the flags-aware container element flow is unaffected. Imported
@@ -4063,9 +3996,36 @@ int ExprResolveAccessor::ComputeBindingDistance(
 			&& b.pCallerExpr->IsArrayValued() != b.pFormal->IsArrayType()
 			&& !b.pCallerExpr->ContainFlags(NF_NullLiteral))
 			return -1;
+		//0.7.3 B: the null literal is Int32-typed, so against an
+		//array-token formal CalcTypeDistance reads -1. Null binds to
+		//any array type at distance 0 — the same bridge the assignment
+		//flavor grants (`int[] a = null`; the null sentinel is not an
+		//array value).
+		if (b.pCallerExpr->ContainFlags(NF_NullLiteral)
+			&& pTgt->Kind() == NK_ArrayTypeToken)
+			continue;
+		//0.7.3 B: imported stubs synthesize placeholder formals from
+		//the return kind (param kinds are not serialized), so an array
+		//token source against the placeholder reads -1 — skip the
+		//distance contribution, mirroring the array-ness exemption
+		//above (call-site checks against imported signatures are not
+		//trustworthy and are not performed).
+		if (bImportedCallee && pSrc->Kind() == NK_ArrayTypeToken)
+			continue;
 		int n = CalcTypeDistance(*pSrc, *pTgt);
 		if (n < 0)
+		{
+			//0.7.3 B: a cross-element array conversion (an int[] source
+			//against a string[] formal) verdicts -1 here — give it the
+			//named array diagnostic; the caller's generic "not
+			//compatible" alone hides the array reason.
+			if (b.pCallerExpr->IsArrayValued())
+				m_Env.Log(CLL_Error, b.pCallerExpr->Location(),
+					"Invalid conversion \"%s\": an array value only "
+					"converts to the same array type.",
+					b.pCallerExpr->ToString().c_str());
 			return -1;
+		}
 		//Phase 9e: out bindings require the exact same type — the callee
 		//writes its slot straight back into the caller's variable; any
 		//implicit cast (int→float etc.) would be discarded by writeback.
@@ -4104,7 +4064,7 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 
 		//Array-to-array bindings need matching ELEMENT types, not just
 		//matching array-ness (the binding-distance gate): both sides
-		//flow as degraded tokens, so a cross-element pair — a
+		//flow as interned tokens, so a cross-element pair — a
 		//`string[]` formal fed an `int[]` — would ride the string
 		//coercion in the fixup below, the same hole the assignment
 		//guard closes. Anything non-Same between two array-typed sides
@@ -4274,22 +4234,18 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	assert(static_cast<SyntaxNode &>(*iSrcExpr).IsExpression());
 	auto &srcExpr = static_cast<SnExpression &>(*iSrcExpr);
 
-	if (castInfo.Kind() != TCK_Auto && castInfo.Kind() != TCK_Box)
-	{
-		m_Env.Log(CLL_Error, srcExpr.Location(),
-			"Incompatible type \"%s\".", srcExpr.ToString().c_str());
-		return false;
-	}
-
-	//Array masquerade guard: an array-valued source reaching a non-Same
-	//cast flows as its degraded element type (an array's EvalDataType is
-	//the element type), so the wrap would box or reinterpret the raw
-	//handle. Two legitimate flows never reach the reject: same-type
-	//array flow returned TCK_Same above, and string targets coerce via
-	//runtime toString dispatch (array-aware — `"${arr}"` yields
-	//"[1, 2]"), not a bit reinterpretation. Containers store elements
-	//through their own flags-aware paths (the codegen per-method boxing
-	//plan) and never reach this wrap.
+	//Array masquerade guard: an array-valued source (it carries the
+	//interned array token) reaching any non-Same verdict — None, Auto
+	//or Box — must not be wrapped or bit-reinterpreted. Two legitimate
+	//flows never reach the reject: same-type array flow returned
+	//TCK_Same above, and string targets coerce via runtime toString
+	//dispatch (array-aware — `"${arr}"` yields "[1, 2]"), not a bit
+	//reinterpretation. Containers store elements through their own
+	//flags-aware paths (the codegen per-method boxing plan) and never
+	//reach this wrap. 0.7.3 B hoisted ABOVE the generic reject: a
+	//cross-element array conversion (int[] into a string[] formal)
+	//verdicts TCK_None and must keep the named array diagnostic, not
+	//the generic "Incompatible type".
 	if (srcExpr.IsArrayValued()
 		&& !(castInfo.Target()
 			&& castInfo.Target()->Kind() == NK_String))
@@ -4298,6 +4254,13 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 			"Invalid conversion \"%s\": an array value only converts "
 			"to the same array type.",
 			srcExpr.ToString().c_str());
+		return false;
+	}
+
+	if (castInfo.Kind() != TCK_Auto && castInfo.Kind() != TCK_Box)
+	{
+		m_Env.Log(CLL_Error, srcExpr.Location(),
+			"Incompatible type \"%s\".", srcExpr.ToString().c_str());
 		return false;
 	}
 

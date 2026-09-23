@@ -198,6 +198,14 @@ private:
 
 	bool ResolveExpressionList(SnExpressionList &exprs);
 
+	//0.7.3 B: token binder at the binding tails. The array-valued
+	//property is derived from the interned SnArrayTypeToken carried in
+	//EvalDataType; declaration-channel shapes already carry the token,
+	//the arms mint it for fresh allocations and container element
+	//shapes. An accessor member (not a free function) because writing
+	//EvalDataType needs the SnExpression friendship.
+	void BindArrayTypeToken(SnExpression &expr);
+
 	//Phase 11: resolve a namespace-qualified stdlib call (math.sqrt(x),
 	//io.print(s)) against the built-in table in StdLib.h. Called from the
 	//top of Access(SnMemberExpr&) — namespace names are reserved and never

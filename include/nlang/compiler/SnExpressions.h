@@ -55,14 +55,16 @@ public:
 		return m_pEvalDataType;
 	}
 
-	//Array-valued type property (array redesign B): written by the
-	//resolver at binding tails from the DECLARED/bound type — never
-	//inferred from the expression shape downstream. Dispatch sites ask
-	//this before Kind()/EvalDataType(): EvalDataType of an array value
-	//returns the ELEMENT type (dispatch-order trap).
+	//Array-valued type property (array redesign B): DERIVED — the
+	//expression is array-valued exactly when its type token is the
+	//interned array token (SnArrayTypeToken). Dispatch sites still ask
+	//this before Kind(): array values now carry the token itself in
+	//EvalDataType, so the element masquerade is gone. SetArrayValued/
+	//m_bArrayValued are dead writers pending the Task 4 removal.
 	bool IsArrayValued() const
 	{
-		return m_bArrayValued;
+		auto* pType = EvalDataType();
+		return pType && pType->Kind() == NK_ArrayTypeToken;
 	}
 
 	void SetArrayValued(bool bArrayValued)

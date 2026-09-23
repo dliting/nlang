@@ -1,0 +1,7 @@
+//0.7.3 B: two array-param overloads both bind null at distance 0 →
+//ambiguous call rejection (today the degraded element distance picks
+//int[] arbitrarily — probe-verified).
+int pick(int[] a) { return 1; }
+int pick(float[] a) { return 2; }
+
+int main() { return pick(null); }

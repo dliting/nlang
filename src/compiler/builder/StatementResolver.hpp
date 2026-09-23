@@ -927,12 +927,12 @@ public:
 			auto* pSrcType = sn.Iterable()->EvalDataType();
 			SnField *pElemField = nullptr;
 			bool elemIsArray = false;
-			//0.7.3 B token path (inert until Task 3 flips the writers):
-			//an array-valued source carries the interned token — peel to
-			//the element. Transitional arm: pVarField below still takes
-			//the degraded Field() channel, so the value side peels to
-			//match; Task 11 finalizes the gate to EvalDataType() on both
-			//sides and deletes this peel.
+			//0.7.3 B token path: an array-valued source carries the
+			//interned token — peel to the element. Transitional arm:
+			//the container branch's type-arg stays degraded until Task
+			//11 interns it, so both sides compare as elements; Task 11
+			//finalizes the gate to EvalDataType() on both sides and
+			//deletes the peels.
 			if (pSrcType && pSrcType->Kind() == NK_ArrayTypeToken)
 			{
 				pElemField = static_cast<SnArrayTypeToken*>(
@@ -955,11 +955,27 @@ public:
 					&& !pGen->GenericTypeArgs().empty())
 				{
 					pElemField = pGen->GenericTypeArgs()[0];
+					//0.7.3 B: the container's type-arg slot carries the
+					//interned token for array elements (generic type
+					//arguments resolve through the same intern channel)
+					//— peel to the element for the comparison below.
+					if (pElemField
+						&& pElemField->Kind() == NK_ArrayTypeToken)
+						pElemField = static_cast<SnArrayTypeToken*>(
+							pElemField)->ElemTypeOf();
 					elemIsArray = pGen->GenericArrayFlags()[0] != 0;
 				}
 			}
+			//0.7.3 B: the declared var type binds the token too
+			//(ResolveFieldExprAs writes Field() as well), so peel a
+			//COMPARISON copy to the element — the loop-var registration
+			//below keeps the token (its EvalDataType must carry it).
+			SnField *pVarElem = pVarField;
+			if (pVarElem && pVarElem->Kind() == NK_ArrayTypeToken)
+				pVarElem = static_cast<SnArrayTypeToken*>(
+					pVarElem)->ElemTypeOf();
 			if (pElemField
-				&& (pElemField != pVarField
+				&& (pElemField != pVarElem
 					|| elemIsArray != sn.VarType()->IsArrayType()))
 				m_Env.Log(CLL_Error, sn.VarType()->Location(),
 					"the foreach variable type does not match the "
@@ -1584,9 +1600,9 @@ public:
 				if (pArrField && pArrField->IsArrayType())
 				{
 					pElemType = pArrField->EvalDataType();
-					//0.7.3 B token path (inert until Task 3 flips the
-					//writers): an array-typed field carries the interned
-					//token; the func-ref binds against the ELEMENT type.
+					//0.7.3 B token path: an array-typed field carries
+					//the interned token; the func-ref binds against the
+					//ELEMENT type.
 					if (pElemType
 						&& pElemType->Kind() == NK_ArrayTypeToken)
 						pElemType = static_cast<SnArrayTypeToken*>(
@@ -1630,7 +1646,7 @@ public:
 			&& sn.Array()->IsArrayValued())
 		{
 			auto* pElemType = sn.Array()->EvalDataType();
-			//0.7.3 B token path (inert until Task 3 flips the writers):
+			//0.7.3 B token path:
 			//an array-valued base carries the interned token; the
 			//element gate consumes the ELEMENT.
 			if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
@@ -1703,18 +1719,36 @@ public:
 					pElemType = typeArgs[1];
 				else if (pGen->BaseName() == "List" && !typeArgs.empty())
 					pElemType = typeArgs[0];
+				//0.7.3 B: the container's type-arg slot carries the
+				//interned token for array elements (generic type
+				//arguments resolve through the same intern channel) —
+				//peel to the element; the cast below consumes elements.
+				if (pElemType
+					&& pElemType->Kind() == NK_ArrayTypeToken)
+					pElemType = static_cast<SnArrayTypeToken*>(
+						pElemType)->ElemTypeOf();
 			}
 			if (pElemType && sn.Value()->EvalDataType())
 			{
+				//0.7.3 B token path: an array-valued RHS carries the
+				//interned token — peel a comparison copy to the
+				//element (guarded by the element-is-array check:
+				//direction ① (array value × non-array element) must
+				//keep the token so GetCastInfo rejects it — a silent
+				//handle reinterpret otherwise).
+				SnField* pValType = sn.Value()->EvalDataType();
+				if (ElemIsArrayValued(*sn.Array())
+					&& pValType && pValType->Kind() == NK_ArrayTypeToken)
+					pValType = static_cast<SnArrayTypeToken*>(
+						pValType)->ElemTypeOf();
 				//Both-array stores need matching ELEMENT types, not just
-				//matching array-ness: value and element flow as degraded
-				//tokens, and a non-Same pair (an int[] into a
+				//matching array-ness: value and element flow as interned
+				//tokens, and a non-Same element pair (an int[] into a
 				//Dict<string, string[]> slot) would ride the string
 				//coercion — the cross-element hole the assignment guard
 				//closes.
 				if (ElemIsArrayValued(*sn.Array())
-					&& GetCastInfo(sn.Value()->EvalDataType(), pElemType)
-						.Kind() != TCK_Same)
+					&& GetCastInfo(pValType, pElemType).Kind() != TCK_Same)
 				{
 					m_Env.Log(CLL_Error, sn.Value()->Location(),
 						"Invalid conversion \"%s\": an array value only "
@@ -1722,8 +1756,7 @@ public:
 						sn.Value()->ToString().c_str());
 					return;
 				}
-				auto castInfo = GetCastInfo(
-					sn.Value()->EvalDataType(), pElemType);
+				auto castInfo = GetCastInfo(pValType, pElemType);
 				auto iExpr = sn.Children().find(sn.m_pValue);
 				if (m_ExprResolver.FixupExprType(iExpr, castInfo))
 					sn.m_pValue = &static_cast<SnCastExpr &>(*iExpr);
