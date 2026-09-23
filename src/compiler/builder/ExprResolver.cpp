@@ -3049,6 +3049,17 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//Look up arr.length-style access is handled by MemberExpr.
 	//For now, the result type of subscript is the element type.
 	auto* arrayType = arrayExpr.EvalDataType();
+	//0.7.3 B D3: a string base has no subscript semantics (NLang has
+	//no char type — the substring methods are the char-access surface).
+	//Before this arm the subscript silently resolved to the string
+	//itself and codegen read the index as an array handle, failing
+	//only at runtime ("null array access").
+	if (arrayType && arrayType->Kind() == NK_String)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"string does not support subscript access.");
+		return;
+	}
 	//List<T>/Dict<K,V> subscript (li[i] / d[k]): sugar over get().
 	//The base resolves to a synthetic generic-instantiation class; the
 	//element type is T (List) or V (Dict). Without this peel the

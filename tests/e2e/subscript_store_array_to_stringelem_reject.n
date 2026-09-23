@@ -1,9 +1,0 @@
-//0.7.2 boundary pin: string targets accept array values only as whole-value
-//storage (locals, fields) and returns — element slots reject them.
-int main() {
-	string[] sa = new string[2];
-	int[] ia = new int[2];
-	ia[0] = 1;
-	sa[0] = ia;
-	return 0;
-}

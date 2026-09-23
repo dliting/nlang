@@ -1,0 +1,8 @@
+//0.7.3 B D3: write-path twin — storing into a string index rejects at
+//compile time (it used to compile and fail only at runtime with
+//"null array access").
+int main() {
+    string s = "abc";
+    s[0] = "x";
+    return 0;
+}

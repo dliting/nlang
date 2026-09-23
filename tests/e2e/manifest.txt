@@ -1067,7 +1067,7 @@ str_intern_eq 0
 # --- 0.7.2: subscript-store element gate + int->class null-literal-only ---
 subscript_store_int_to_class_elem compile_error only the null literal
 subscript_store_struct_to_object_elem compile_error Incompatible type
-subscript_store_array_to_object_elem compile_error the stored value is an array
+subscript_store_array_to_object_elem compile_error Incompatible type
 subscript_store_string_to_int_elem compile_error Incompatible type
 assign_int_to_class compile_error only the null literal
 assign_int_to_interface compile_error only the null literal
@@ -1084,7 +1084,7 @@ subscript_chain_store_reject compile_error Incompatible type
 assign_array_to_object_reject compile_error Incompatible type
 assign_array_to_int_reject compile_error Incompatible type
 return_array_masquerade_reject compile_error Incompatible type
-container_store_array_reject compile_error the stored value is an array
+container_store_array_reject compile_error Incompatible type
 arg_array_to_object_reject compile_error not compatible with the declaration
 container_arrayelem_subscript_store 7
 array_tostring_assign 7
@@ -1113,7 +1113,10 @@ subscript_callbase_store_pos 7
 array_tostring_return 7
 as_cast_array_box_reject compile_error the cast operand is an array
 as_cast_array_same_reject compile_error the cast operand is an array
-subscript_store_array_to_stringelem_reject compile_error the stored value is an array
+stringelem_array_coercion 5
+string_subscript_read_reject compile_error string does not support subscript access
+string_subscript_write_reject compile_error string does not support subscript access
+container_stringelem_subscript_coercion 6
 assign_intarr_to_stringarr_reject compile_error an array value only converts to the same array type
 return_intarr_to_stringarr_reject compile_error an array value only converts to the same array type
 arg_intarr_to_stringarrparam_reject compile_error an array value only converts to the same array type

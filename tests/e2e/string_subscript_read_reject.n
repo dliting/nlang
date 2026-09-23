@@ -1,0 +1,9 @@
+//0.7.3 B D3: a string base has no subscript semantics — the read path
+//rejects at compile time (it used to resolve to the string itself and
+//fail at runtime with "null array access"). Char access goes through
+//the substring methods.
+int main() {
+    string s = "abc";
+    string t = s[0];
+    return 0;
+}

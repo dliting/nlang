@@ -1531,6 +1531,19 @@ public:
 			m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
 		if (sn.Value() && !sn.Value()->IsResolved())
 			m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
+		//0.7.3 B D3: write-path twin of the read arm in ExprResolver —
+		//a string base has no subscript store semantics. Before this
+		//arm the store fell through the container path with a null
+		//element type (strings are not generic instantiations) and
+		//failed only at runtime ("null array access").
+		if (sn.Array() && sn.Array()->IsResolved()
+			&& sn.Array()->EvalDataType()
+			&& sn.Array()->EvalDataType()->Kind() == NK_String)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"string does not support subscript access.");
+			return;
+		}
 		//Phase 13: a function reference stored into an array element
 		//binds against the element type (an array-typed field's
 		//EvalDataType IS the element type). Step 2 adds the receiver-bound
@@ -1600,18 +1613,12 @@ public:
 					pElemType)->ElemTypeOf();
 			if (pElemType && sn.Value()->EvalDataType())
 			{
-				//An array-valued RHS would store the raw handle under its
-				//element kind (an array's EvalDataType is the element
-				//type), which the cast table cannot see and the GC cannot
-				//trace. Jagged arrays are already rejected, so reject by
-				//name here.
-				if (sn.Value()->IsArrayValued())
-				{
-					m_Env.Log(CLL_Error, sn.Value()->Location(),
-						"Invalid assignment \"%s\": the stored value is an array.",
-						sn.Value()->ToString().c_str());
-					return;
-				}
+				//0.7.3 B: the array-valued RHS carries its interned
+				//token now, so the cast table sees it — string elements
+				//coerce via the token→string Auto, every other element
+				//kind is TCK_None ("Incompatible type"). The named
+				//whole-value reject moved into GetCastInfo with the
+				//representation flip.
 				auto castInfo = GetCastInfo(
 					sn.Value()->EvalDataType(), pElemType);
 				auto iExpr = sn.Children().find(sn.m_pValue);
@@ -1622,13 +1629,14 @@ public:
 		//Container subscript stores (List/Dict subscript sugar): the
 		//base is not array-valued, so the gate above does not apply.
 		//Two checks, mirroring the array arm above:
-		//1. Array-ness must MATCH on both sides: an array value into a
-		//non-array element stores the raw handle under the degraded
-		//element kind, and a non-array value into an array-typed
-		//element (List<int[]>) puts a raw primitive in a GC-traced
-		//array slot. ElemIsArrayValued reads the element flags from
-		//the generic instantiation (the single read channel) — the
-		//same both-directions policy the foreach loop-var gate uses.
+		//1. One-directional array-ness gate: only "array-typed element,
+		//non-array value" (List<int[]>; l[0] = 5) stays a named reject —
+		//a raw primitive in a GC-traced array slot has no cast-table
+		//verdict until element type-args retire the flags channel
+		//(Task 11; the null bridge then covers l[0] = null). The
+		//reverse direction (array value, non-array element) flows to
+		//the cast table below: string elements coerce via the token→
+		//string Auto, every other element kind rejects.
 		//2. Element-type cast check on the value: without it a scalar
 		//into a class element (l[0] = 5 on List<C>) stored garbage and
 		//int into List<float> stored raw bits (read back as a
@@ -1644,14 +1652,12 @@ public:
 		else if (sn.Value() && sn.Value()->IsResolved() && sn.Array()
 			&& sn.Array()->IsResolved())
 		{
-			if (ElemIsArrayValued(*sn.Array()) != sn.Value()->IsArrayValued())
+			if (ElemIsArrayValued(*sn.Array())
+				&& !sn.Value()->IsArrayValued())
 			{
 				m_Env.Log(CLL_Error, sn.Value()->Location(),
-					ElemIsArrayValued(*sn.Array())
-						? "Invalid assignment \"%s\": the element type is "
-						  "an array; the stored value is not."
-						: "Invalid assignment \"%s\": the stored value is "
-						  "an array.",
+					"Invalid assignment \"%s\": the element type is "
+					"an array; the stored value is not.",
 					sn.Value()->ToString().c_str());
 				return;
 			}
@@ -1680,8 +1686,10 @@ public:
 				//interned token — peel a comparison copy to the
 				//element (guarded by the element-is-array check:
 				//direction ① (array value × non-array element) must
-				//keep the token so GetCastInfo rejects it — a silent
-				//handle reinterpret otherwise).
+				//keep the token so GetCastInfo adjudicates it — Auto
+				//coerces string elements, None rejects the rest; an
+				//unconditional peel would silently reinterpret the
+				//handle).
 				SnField* pValType = sn.Value()->EvalDataType();
 				if (ElemIsArrayValued(*sn.Array())
 					&& pValType && pValType->Kind() == NK_ArrayTypeToken)

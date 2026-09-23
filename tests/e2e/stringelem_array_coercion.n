@@ -1,0 +1,14 @@
+//0.7.3 B D9: an array stored into a string[] element slot coerces via
+//the token→string Auto at the cast choke point — the same coercion as
+//the whole-value assignment path. Before 0.7.3 this shape was rejected
+//by name ("the stored value is an array").
+int main() {
+    string[] sa = new string[2];
+    int[] ia = new int[2];
+    ia[0] = 1;
+    ia[1] = 2;
+    sa[0] = ia;
+    int r = 0;
+    if (sa[0] == "[1, 2]") { r = 5; }
+    return r;
+}
