@@ -1,6 +1,7 @@
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
+#include "SnArrayTypeToken.h"
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
@@ -2956,6 +2957,15 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 		//EvalDataType() returns the element type — preserve both signals.
 		bIsArray = pInferred->IsArrayType();
 		pTargetField = pInferred->EvalDataType();
+		//0.7.3 B token path (inert until Task 3 flips the writers): an
+		//array-typed LHS carries the interned token; the init-list's
+		//per-entry element gate consumes the ELEMENT (the node itself
+		//keeps the element contract — codegen's RegisterArrayType reads
+		//it directly).
+		if (pTargetField
+			&& pTargetField->Kind() == NK_ArrayTypeToken)
+			pTargetField = static_cast<SnArrayTypeToken*>(
+				pTargetField)->ElemTypeOf();
 	}
 
 	if (!pTargetField)
@@ -3149,7 +3159,15 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 		}
 	}
 	if (arrayType)
+	{
+		//0.7.3 B token path (inert until Task 3 flips the writers): an
+		//array-valued base carries the interned array token — the
+		//subscript's own type is its ELEMENT.
+		if (arrayType->Kind() == NK_ArrayTypeToken)
+			arrayType = static_cast<SnArrayTypeToken*>(
+				arrayType)->ElemTypeOf();
 		sn.EvalDataType(arrayType);
+	}
 	sn.AddFlags(NF_Resolved);
 	StampArrayValued(sn);
 }

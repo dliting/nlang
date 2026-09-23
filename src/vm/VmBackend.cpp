@@ -1,5 +1,6 @@
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
@@ -5410,16 +5411,23 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         }
         //Detect element type from the array's resolved field.
         //The element type is needed for struct deep-copy on write.
-        //Identifier and Member bases both expose the field through the
-        //Array-valued base (identifier, member, subscript, call — the
-        //resolver's element-type gate stamps the property on every
-        //shape): EvalDataType IS the element type. Mirrors the
+        //The array-valued property covers every base shape (identifier,
+        //member, subscript, call — the resolver's element-type gate
+        //stamps the property on every shape). Mirrors the
         //resolver's test in Access(SnSubscriptAssignStmt) so struct
         //deep-copy fires for every base shape, not just identifier
         //and member bases.
         SnField* elemType = nullptr;
         if (sub.Array()->IsArrayValued())
+        {
             elemType = sub.Array()->EvalDataType();
+            //0.7.3 B token path (inert until Task 3 flips the writers):
+            //an array-valued base carries the interned token; struct
+            //deep-copy detection keys on the ELEMENT.
+            if (elemType && elemType->Kind() == NK_ArrayTypeToken)
+                elemType = static_cast<SnArrayTypeToken*>(
+                    elemType)->ElemTypeOf();
+        }
         //Phase 10 audit round-2: runs entirely inside an EvalAreaClaim(3)
         //[array, index, value] — the old tempSlot/tempSlot2/callParamBase
         //staging let any nested expression in the index (subscript-get,
@@ -5673,6 +5681,12 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             if (pField && pField->IsArrayType()) {
                 isArray = true;
                 pElemType = pField->EvalDataType();
+                //0.7.3 B token path (inert until Task 3 flips the
+                //writers): an array-typed local carries the interned
+                //token; the loop-var slot kind keys on the ELEMENT.
+                if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
+                    pElemType = static_cast<SnArrayTypeToken*>(
+                        pElemType)->ElemTypeOf();
             }
         } else if (pIter->Kind() == NK_MemberExpr) {
             //Member lvalue (`b.a` / `this.a`) with an array-typed field —
@@ -5688,6 +5702,11 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 if (pField && pField->IsArrayType()) {
                     isArray = true;
                     pElemType = pField->EvalDataType();
+                    //0.7.3 B token path (inert until Task 3): same peel
+                    //as the identifier shape above.
+                    if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
+                        pElemType = static_cast<SnArrayTypeToken*>(
+                            pElemType)->ElemTypeOf();
                 }
             }
         }

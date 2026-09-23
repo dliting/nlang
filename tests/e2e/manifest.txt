@@ -920,6 +920,7 @@ func_tostring_member 0
 func_tostring_cast 0
 func_ref_void_return 41
 func_ref_list_store 0
+func_array_subscript_store 25
 func_sig_mismatch compile_error
 func_no_expected_type compile_error requires an expected function type
 func_ordering_reject compile_error

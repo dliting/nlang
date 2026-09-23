@@ -1,6 +1,7 @@
 #pragma once
 #include "BuildEnvironment.h"
 #include "SyntaxNodeVisitor.h"
+#include "SnArrayTypeToken.h"
 #include "CastInfo.h"
 #include "ExprResolver.h"
 #include "SnStatements.h"
@@ -926,7 +927,18 @@ public:
 			auto* pSrcType = sn.Iterable()->EvalDataType();
 			SnField *pElemField = nullptr;
 			bool elemIsArray = false;
-			if (sn.Iterable()->IsArrayValued() && pSrcType)
+			//0.7.3 B token path (inert until Task 3 flips the writers):
+			//an array-valued source carries the interned token — peel to
+			//the element. Transitional arm: pVarField below still takes
+			//the degraded Field() channel, so the value side peels to
+			//match; Task 11 finalizes the gate to EvalDataType() on both
+			//sides and deletes this peel.
+			if (pSrcType && pSrcType->Kind() == NK_ArrayTypeToken)
+			{
+				pElemField = static_cast<SnArrayTypeToken*>(
+					pSrcType)->ElemTypeOf();
+			}
+			else if (sn.Iterable()->IsArrayValued() && pSrcType)
 			{
 				//Plain array source: EvalDataType masquerades as the
 				//element type, and an array's element is never itself an
@@ -1570,7 +1582,16 @@ public:
 				auto* pArrField = static_cast<SnIdentifierExpr&>(
 					*sn.Array()).Field();
 				if (pArrField && pArrField->IsArrayType())
+				{
 					pElemType = pArrField->EvalDataType();
+					//0.7.3 B token path (inert until Task 3 flips the
+					//writers): an array-typed field carries the interned
+					//token; the func-ref binds against the ELEMENT type.
+					if (pElemType
+						&& pElemType->Kind() == NK_ArrayTypeToken)
+						pElemType = static_cast<SnArrayTypeToken*>(
+							pElemType)->ElemTypeOf();
+				}
 				//Phase 13 (review round-1 F7): `d[key] = value` binds against
 				//the Dict's VALUE type argument (typeArgs[1]), not the key.
 				else if (pArrField && pArrField->EvalDataType()
@@ -1602,14 +1623,19 @@ public:
 		//primitives into Object elements, coerce int→string, reject
 		//mismatches). Keying on the base's array-valued property (not
 		//its Kind) covers every base shape — identifier, member,
-		//subscript (chained `li[0][1] = v`) and call (`mk()[0] = v`) —
-		//because an array value's EvalDataType IS its element type.
+		//subscript (chained `li[0][1] = v`) and call (`mk()[0] = v`).
 		//Container (List/Dict) bases are not array-valued and keep the
 		//container store path.
 		if (sn.Value() && sn.Value()->IsResolved() && sn.Array()
 			&& sn.Array()->IsArrayValued())
 		{
 			auto* pElemType = sn.Array()->EvalDataType();
+			//0.7.3 B token path (inert until Task 3 flips the writers):
+			//an array-valued base carries the interned token; the
+			//element gate consumes the ELEMENT.
+			if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
+				pElemType = static_cast<SnArrayTypeToken*>(
+					pElemType)->ElemTypeOf();
 			if (pElemType && sn.Value()->EvalDataType())
 			{
 				//An array-valued RHS would store the raw handle under its
