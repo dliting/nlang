@@ -60,6 +60,35 @@ void TypeCastInfo::CalcCastKind()
 	}
 	auto srcKind = m_pSource->Kind();
 	auto tgtKind = m_pTarget->Kind();
+	//0.7.3 B: interned array tokens never enter the enum remap or the
+	//dense cast table — pointer identity rules, same as the struct
+	//branch below.
+	if (srcKind == NK_ArrayTypeToken || tgtKind == NK_ArrayTypeToken)
+	{
+		if (srcKind == NK_ArrayTypeToken && tgtKind == NK_ArrayTypeToken)
+		{
+			//Same interned token → Same; different element → None.
+			m_Kind = (m_pSource == m_pTarget) ? TCK_Same : TCK_None;
+			return;
+		}
+		//Array → string = Auto (all-position toString coercion,
+		//mirroring the class → string branch below).
+		if (srcKind == NK_ArrayTypeToken && tgtKind == NK_String)
+		{
+			m_Kind = TCK_Auto;
+			return;
+		}
+		//Null bridge: int source (the null literal's type) × array
+		//target = Auto no-op; FixupExprType's null-only gate rejects
+		//the non-null int. Mirrors the int → ClassDecl bridge below.
+		if (srcKind == NK_Int32 && tgtKind == NK_ArrayTypeToken)
+		{
+			m_Kind = TCK_Auto;
+			return;
+		}
+		m_Kind = TCK_None;
+		return;
+	}
 	//Enum types are int32 at runtime — treat them as NK_Int32 for casting.
 	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
 	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;

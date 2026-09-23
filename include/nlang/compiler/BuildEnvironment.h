@@ -10,6 +10,7 @@
 #include "ICodeBackend.h"
 #include <nlang/runtime/Module.h>
 #include <list>
+#include <map>
 #include <memory>
 
 //Forward declarations.
@@ -68,6 +69,7 @@ class TranslationUnit;
 //Internal builder type (src/compiler/builder/ModuleRegistry.h); opaque
 //in this public header.
 class ModuleRegistry;
+class SnArrayTypeToken;
 
 //The context during building a nlang module.
 class NLANG_COMPILER_API BuildEnvironment : public Flagable<ModuleBuildFlagBits>
@@ -118,6 +120,13 @@ public:
 		m_upBackend.reset(p);
 	}
 
+	//0.7.3 B: TU-level array token interning. Single construction
+	//entry — element field → array token; the first use mints, later
+	//uses share, so token pointer equality is type equality
+	//(hash-consing). Lifetime = this environment (one translation
+	//unit); tokens are never freed early.
+	SnArrayTypeToken* InternArrayTypeToken(SnField *pElemType);
+
 	void Log(CompileLogLevel, const char* szFormat, ...);
 
 	void Log(CompileLogLevel, const ISourceLocation*,
@@ -139,6 +148,9 @@ private:
 #endif
 	std::unique_ptr<ICodeBackend> m_upBackend;
 	std::unique_ptr<ModuleRegistry> m_upRegistry;
+	//0.7.3 B: interned array tokens, keyed by element field. Owns the
+	//tokens for this environment's lifetime.
+	std::map<SnField*, std::unique_ptr<SnArrayTypeToken>> m_InternedArrayTokens;
 };
 
 }

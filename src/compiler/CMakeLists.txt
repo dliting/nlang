@@ -42,6 +42,7 @@ add_library(nlang_compiler
     ModuleBuilder.cpp
     Logger.cpp
     CastInfo.cpp
+    SnArrayTypeToken.cpp
     SnTypes.cpp
     SnData.cpp
     SnExpressions.cpp

@@ -8,6 +8,7 @@ node types in an nlang AST.
 #include "SnStatements.h"
 #include "SnExpressions.h"
 #include "SnMisc.h"
+#include "SnArrayTypeToken.h"
 #include "SyntaxTree.h"
 #include "TranslationUnit.h"
 #include "SyntaxNodeVisitor.h"

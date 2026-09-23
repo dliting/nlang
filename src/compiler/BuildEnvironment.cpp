@@ -4,8 +4,11 @@
 -----------------------------------------------------------------------------*/
 
 #include "BuildEnvironment.h"
+#include "SnArrayTypeToken.h"
+#include "ScriptLocation.h"
 #include "SnExtraTypes.h"
 #include "builder/ModuleRegistry.h"
+#include <cassert>
 #include <cstdarg>
 
 #ifdef NLANG_ENABLE_LLVM
@@ -38,6 +41,23 @@ BuildEnvironment::~BuildEnvironment()
 ModuleRegistry& BuildEnvironment::Registry()
 {
 	return *m_upRegistry;
+}
+
+SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType)
+{
+	assert(pElemType);
+	auto iFound = m_InternedArrayTokens.find(pElemType);
+	if (iFound != m_InternedArrayTokens.end())
+		return iFound->second.get();
+	//First use mints the token, later lookups share it — the pointer
+	//stays a stable type identity. Direct new (not make_unique): the
+	//token constructor is private and friendship does not extend into
+	//make_unique's instantiation.
+	std::unique_ptr<SnArrayTypeToken> upToken(
+		new SnArrayTypeToken(pElemType, ScriptLocation()));
+	auto *pToken = upToken.get();
+	m_InternedArrayTokens.emplace(pElemType, std::move(upToken));
+	return pToken;
 }
 
 void BuildEnvironment::Log(CompileLogLevel level, const char* szFormat, ...)

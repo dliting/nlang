@@ -61,6 +61,28 @@ target_link_libraries(test_array_flags
 
 add_test(NAME array_flags_tests COMMAND test_array_flags)
 
+# 0.7.3 B: interned array type token unit tests (console suite). Drives
+# BuildEnvironment::InternArrayTypeToken hash-consing identity and the
+# GetCastInfo array matrix directly — the token has no tree writers yet.
+add_executable(test_array_token
+    test_compiler/test_array_token.cpp
+)
+
+target_include_directories(test_array_token
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_array_token
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME array_token_tests COMMAND test_array_token)
+
 # ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,

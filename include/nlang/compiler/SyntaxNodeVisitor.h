@@ -6,6 +6,10 @@
 #include "SnTypes.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
+//The macro-generated Visit(SnArrayTypeToken&) declarations and the
+//visitor template bodies need the token's complete type (accessor
+//overload resolution walks its base chain).
+#include "SnArrayTypeToken.h"
 
 namespace nlang
 {
