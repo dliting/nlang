@@ -2414,12 +2414,12 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 		return;
 	}
 
-	//Array masquerade guard, `as` flavor: the operand's degraded element
-	//type would drive every cast below — TCK_Same passes the raw handle
-	//through as an int, and TCK_Box boxes the handle bits as a primitive
-	//(garbage either way, invisible to the collector). `as` has no
-	//array-typed target spelling and string targets are assignment-only
-	//coercions, so no legal form exists for an array-valued operand.
+	//Array guard, `as` flavor (0.7.2 rule, kept verbatim): `as` has no
+	//array-typed target spelling (the target is a name expression), and
+	//string targets are assignment-only coercions — so no legal form
+	//exists for an array-valued operand. Post-0.7.3 B the cast table
+	//would reject every spelling anyway (token×scalar = None); the
+	//named branch keeps the diagnostic specific.
 	if (sn.Operand()->IsArrayValued())
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
@@ -3001,11 +3001,11 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 	}
 
 	//Array-form element-type gate: every entry is an element store, so
-	//it takes the same conversion checks as `arr[i] = v`. The wrap
-	//makes the codegen's OP_StoreElement emit the box/coercion, and
-	//array-valued or mismatched entries are named rejects — the raw
-	//store put handles under the element kind (untraceable) or skipped
-	//boxing entirely. Container forms (List/Dict) already box through
+	//it takes the same conversion checks as `arr[i] = v` — the cast
+	//table adjudicates (0.7.3 B): a mismatched entry is rejected by
+	//FixupExprType (named array diagnostic for cross-element array
+	//values), and the wrap makes the codegen's OP_StoreElement emit the
+	//box/coercion. Container forms (List/Dict) already box through
 	//their own per-method plans and are not array-form.
 	if (bIsArray && pElemType)
 	{
@@ -3016,14 +3016,6 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 			if (!pValue || !pValue->IsResolved()
 				|| !pValue->EvalDataType())
 				continue;
-			if (pValue->IsArrayValued())
-			{
-				m_Env.Log(CLL_Error, pValue->Location(),
-					"Invalid assignment \"%s\": the stored value is "
-					"an array.",
-					pValue->ToString().c_str());
-				return;
-			}
 			TypeCastInfo castInfo(pValue->EvalDataType(), pElemType);
 			auto iExpr = sn.Children().find(pValue);
 			if (iExpr == sn.Children().end())
@@ -4232,21 +4224,18 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	assert(static_cast<SyntaxNode &>(*iSrcExpr).IsExpression());
 	auto &srcExpr = static_cast<SnExpression &>(*iSrcExpr);
 
-	//Array masquerade guard: an array-valued source (it carries the
-	//interned array token) reaching any non-Same verdict — None, Auto
-	//or Box — must not be wrapped or bit-reinterpreted. Two legitimate
-	//flows never reach the reject: same-type array flow returned
-	//TCK_Same above, and string targets coerce via runtime toString
-	//dispatch (array-aware — `"${arr}"` yields "[1, 2]"), not a bit
-	//reinterpretation. Containers store elements through their own
-	//flags-aware paths (the codegen per-method boxing plan) and never
-	//reach this wrap. 0.7.3 B hoisted ABOVE the generic reject: a
-	//cross-element array conversion (int[] into a string[] formal)
-	//verdicts TCK_None and must keep the named array diagnostic, not
-	//the generic "Incompatible type".
-	if (srcExpr.IsArrayValued()
-		&& !(castInfo.Target()
-			&& castInfo.Target()->Kind() == NK_String))
+	//0.7.3 B: a TCK_None verdict between two array tokens (different
+	//element types) keeps the NAMED array diagnostic — the branch must
+	//sit before the generic reject below, or covariant/enum-array
+	//conversions surface as the generic "Incompatible type". Same-type
+	//array flow returned TCK_Same above; an array source against a
+	//scalar target verdicts None without a token target and takes the
+	//generic message; array→string coerces via TCK_Auto (runtime
+	//toString dispatch, array-aware — `"${arr}"` yields "[1, 2]").
+	if (castInfo.Kind() == TCK_None
+		&& srcExpr.IsArrayValued()
+		&& castInfo.Target()
+		&& castInfo.Target()->Kind() == NK_ArrayTypeToken)
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
 			"Invalid conversion \"%s\": an array value only converts "
@@ -4262,20 +4251,22 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 		return false;
 	}
 
-	//The int→class/interface bridge (TCK_Auto) exists for the null
+	//The int→class/interface/array bridge (TCK_Auto) exists for the null
 	//literal only: any other int/enum value would end up as a garbage
-	//handle in the slot. ContainFlags is a flat bit test, so a null
-	//literal wrapped in `as` propagates the flag explicitly in
+	//handle in the slot (an array target doubly so — a raw int would
+	//reintroduce the masquerade). ContainFlags is a flat bit test, so a
+	//null literal wrapped in `as` propagates the flag explicitly in
 	//Access(SnAsExpr).
 	if (castInfo.Kind() == TCK_Auto
 		&& castInfo.Target()
 		&& (castInfo.Target()->Kind() == NK_ClassDecl
-			|| castInfo.Target()->Kind() == NK_InterfaceDecl)
+			|| castInfo.Target()->Kind() == NK_InterfaceDecl
+			|| castInfo.Target()->Kind() == NK_ArrayTypeToken)
 		&& !srcExpr.ContainFlags(NF_NullLiteral))
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
 			"Incompatible value \"%s\": only the null literal converts "
-			"from int to a class or interface type.",
+			"from int to a class, interface or array type.",
 			srcExpr.ToString().c_str());
 		return false;
 	}

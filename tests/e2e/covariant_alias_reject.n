@@ -1,0 +1,10 @@
+//0.7.3 B D2 pin: array covariance stays rejected — an array value only
+//converts to the SAME array type (interned-token identity compares by
+//element type; Derived[] and Base[] mint different tokens).
+class Base { public int b; }
+class Derived : Base { public int d; }
+int main() {
+    Derived[] da = new Derived[2];
+    Base[] ba = da;
+    return 0;
+}

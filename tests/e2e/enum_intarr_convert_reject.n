@@ -1,0 +1,11 @@
+//0.7.3 B D2 pin: enum[] and int[] are distinct array types — neither
+//direction converts (enum members are Int32-valued, but the array
+//tokens differ by element type).
+enum Color { Red, Green, Blue }
+int main() {
+    Color[] ca = new Color[2];
+    int[] ia = new int[2];
+    Color[] c2 = ia;
+    int[] i2 = ca;
+    return 0;
+}

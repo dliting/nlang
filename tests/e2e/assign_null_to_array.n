@@ -1,0 +1,9 @@
+//0.7.3 B null regression (assign form): the null literal into an array
+//slot rides the CalcCastKind Int32→array Auto bridge; FixupExprType's
+//null-only gate rejects non-null ints. Expect exit 5 (arr stays null).
+int main() {
+    int[] a = null;
+    int r = 0;
+    if (a != null) { r = 1; } else { r = 5; }
+    return r;
+}

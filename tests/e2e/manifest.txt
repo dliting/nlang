@@ -1081,9 +1081,9 @@ null_as_int_identity 7
 classarr_null_store_ok 7
 subscript_callbase_store_reject compile_error Incompatible type
 subscript_chain_store_reject compile_error Incompatible type
-assign_array_to_object_reject compile_error the stored value is an array
-assign_array_to_int_reject compile_error the stored value is an array
-return_array_masquerade_reject compile_error the returned value is an array
+assign_array_to_object_reject compile_error Incompatible type
+assign_array_to_int_reject compile_error Incompatible type
+return_array_masquerade_reject compile_error Incompatible type
 container_store_array_reject compile_error the stored value is an array
 arg_array_to_object_reject compile_error not compatible with the declaration
 container_arrayelem_subscript_store 7
@@ -1097,7 +1097,11 @@ arg_array_to_int_reject compile_error not compatible with the declaration
 arg_int_to_arrayparam_reject compile_error not compatible with the declaration
 out_array_mismatch_reject compile_error not compatible with the declaration
 initlist_objarr_boxing 7
-initlist_arrayval_elem_reject compile_error the stored value is an array
+initlist_arrayval_elem_reject compile_error Incompatible type
+assign_null_to_array 5
+return_null_to_array 7
+covariant_alias_reject compile_error only converts to the same array type
+enum_intarr_convert_reject compile_error only converts to the same array type
 initlist_structarr_deepcopy 7
 arg_null_to_arrayparam 7
 null_as_object_identity 7

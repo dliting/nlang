@@ -420,36 +420,11 @@ public:
 			return;
 		auto pSourceType = pResultExpr->EvalDataType();
 		auto pTargetType = pOuterFunc->EvalDataType();
-		//Array masquerade guard, return flavor: an array-valued result
-		//flows as its degraded element type, so even a TCK_Same return
-		//coercion would pass the raw handle through as the element
-		//kind. Legal return targets mirror the assignment guard: the
-		//SAME array type — array-ness flag on the return type expr
-		//plus element tokens comparing TCK_Same — or a true string
-		//return type, non-array (runtime toString coercion). The
-		//string test reads the RESOLVED function field: the return
-		//type expression's Kind() is the name-expr node kind for
-		//source-level `string`, never NK_String, so an exemption
-		//keyed there never fires.
-		if (pResultExpr->IsArrayValued())
-		{
-			const bool bArrayReturn = pReturnType->IsArrayType();
-			const bool bSameArrayFlow = bArrayReturn && pTargetType
-				&& GetCastInfo(pSourceType, pTargetType).Kind() == TCK_Same;
-			if (!bSameArrayFlow
-				&& !(pTargetType && pTargetType->Kind() == NK_String
-					&& !bArrayReturn))
-			{
-				m_Env.Log(CLL_Error, pResultExpr->Location(),
-					bArrayReturn
-						? "Invalid conversion \"%s\": an array value "
-						  "only converts to the same array type."
-						: "Invalid return \"%s\": the returned value "
-						  "is an array.",
-					pResultExpr->ToString().c_str());
-				return;
-			}
-		}
+		//0.7.3 B: array results and array return types both carry the
+		//interned token, so the cast choke point adjudicates — same
+		//token = Same (pass-through), different tokens = the named
+		//array reject in FixupExprType, scalar targets = the generic
+		//reject, string targets = Auto toString coercion.
 		auto castInfo = GetCastInfo(pSourceType, pTargetType);
 		auto iExpr = sn.Children().find(sn.m_pResult);
 		if (m_ExprResolver.FixupExprType(iExpr, castInfo))
@@ -625,18 +600,15 @@ public:
 		}
 
 		SnField* pTargetType = nullptr;
-		SnField* pTargetDecl = nullptr;
 		if (sn.Left()->Kind() == NK_IdentifierExpr)
 		{
 			auto* pLeftField = static_cast<SnIdentifierExpr&>(*sn.Left()).Field();
 			if (!pLeftField)
 				return;
-			pTargetDecl = pLeftField;
 			pTargetType = pLeftField->EvalDataType();
 		}
 		else if (sn.Left()->Kind() == NK_MemberExpr)
 		{
-			pTargetDecl = static_cast<SnFieldExpr&>(*sn.Left()).Field();
 			pTargetType = sn.Left()->EvalDataType();
 		}
 		//Phase 13: an assignment-position function reference binds
@@ -670,43 +642,16 @@ public:
 			}
 			return;
 		}
-		//Array masquerade guard: an array-valued RHS flows as its
-		//degraded element type (an array's EvalDataType is the element
-		//type), so the cast table sees element↔target and EVERY cast
-		//kind — Same, widening, boxing — would store the raw handle
-		//under the target kind. Legal targets for an array value are
-		//exactly two: the SAME array type — the element tokens must
-		//compare TCK_Same, IsArrayType() alone is not enough
-		//(`string[] b = ia` would otherwise ride the string coercion
-		//and store a stringified handle in an array slot) — and a
-		//true string target, non-array (runtime toString coercion,
-		//the same machinery `"${arr}"` uses). The check keys on the
-		//array-valued property, not the cast kind. Local-decl
-		//initializers decompose into SnAssignStmt, so declarations
-		//are covered by the same guard.
-		if (sn.Right()->IsArrayValued())
-		{
-			const bool bArrayTarget
-				= pTargetDecl && pTargetDecl->IsArrayType();
-			const bool bSameArrayFlow = bArrayTarget
-				&& GetCastInfo(pSourceType, pTargetType).Kind() == TCK_Same;
-			if (!bSameArrayFlow
-				&& !(pTargetType && pTargetType->Kind() == NK_String
-					&& !bArrayTarget))
-			{
-				m_Env.Log(CLL_Error, sn.Right()->Location(),
-					bArrayTarget
-						? "Invalid conversion \"%s\": an array value "
-						  "only converts to the same array type."
-						: "Invalid assignment \"%s\": the stored value "
-						  "is an array.",
-					sn.Right()->ToString().c_str());
-				//Mark resolved so the paragraph walk's revisit of the
-				//decomposed local-decl statement doesn't log twice.
-				sn.AddFlags(NF_Resolved);
-				return;
-			}
-		}
+		//0.7.3 B: an array-valued RHS and an array target both carry
+		//the interned token, so the cast choke point adjudicates —
+		//same token = Same, different tokens = the named array reject
+		//in FixupExprType, scalar targets = the generic reject, string
+		//targets = Auto toString coercion. Local-decl initializers
+		//decompose into SnAssignStmt, so declarations flow through the
+		//same choke point. FixupExprType's false return leaves the
+		//statement un-wrapped; NF_Resolved is set below so the
+		//paragraph walk's revisit of the decomposed local-decl
+		//statement doesn't log twice.
 		auto castInfo = GetCastInfo(pSourceType, pTargetType);
 		auto iExpr = sn.Children().find(sn.m_pRight);
 		if (m_ExprResolver.FixupExprType(iExpr, castInfo))
@@ -1746,8 +1691,8 @@ public:
 				//matching array-ness: value and element flow as interned
 				//tokens, and a non-Same element pair (an int[] into a
 				//Dict<string, string[]> slot) would ride the string
-				//coercion — the cross-element hole the assignment guard
-				//closes.
+				//coercion — the same cross-element hole the cast choke
+				//point's named array reject covers for assignments.
 				if (ElemIsArrayValued(*sn.Array())
 					&& GetCastInfo(pValType, pElemType).Kind() != TCK_Same)
 				{
