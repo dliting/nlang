@@ -1123,3 +1123,16 @@ assign_intarr_to_floatarr_reject compile_error an array value only converts to t
 assign_stringarr_same_type 7
 cross_mod_array_arg 6
 cross_mod_array_widen_arg 1
+binary_array_numeric_reject compile_error Incompatible type
+binary_str_array_concat 0 x[1, 2]
+arg_array_to_string_param 5
+io_print_array 0 [1, 2]
+array_eq_identity 4
+array_eq_null 6
+array_relational_reject compile_error identity comparison only
+array_eq_scalar_reject compile_error identity comparison only
+condition_array_reject compile_error condition must be int
+delegate_arg_upcast 2
+delegate_arg_array_exact 9
+delegate_arg_array_reject compile_error incompatible
+delegate_arg_widen_reject compile_error incompatible

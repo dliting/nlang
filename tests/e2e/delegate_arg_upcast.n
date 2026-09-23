@@ -1,0 +1,18 @@
+//0.7.3 B review fix pin: a subclass argument against a base-class Func
+//formal stays accepted — the non-zero reference-upcast distance passes
+//the handle through unchanged (the one sound non-zero family; only
+//conversion-requiring distances were rejected).
+class Base {
+    public virtual int kind() { return 1; }
+}
+
+class Derived : Base {
+    public int kind() { return 2; }
+}
+
+int classify(Base b) { return b.kind(); }
+
+int main() {
+    Func<int, Base> d = classify;
+    return d(new Derived());
+}

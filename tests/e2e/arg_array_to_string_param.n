@@ -1,0 +1,11 @@
+//0.7.3 B D5: an array argument binds to a string formal — CalcTypeDistance
+//grants the candidacy (finite, like scalar-to-string widening) and the
+//fixup wraps the Auto toString coercion.
+int take(string s) {
+    if (s == "[7, 8]") { return 5; }
+    return 9;
+}
+int main() {
+    int[] a = [7, 8];
+    return take(a);
+}

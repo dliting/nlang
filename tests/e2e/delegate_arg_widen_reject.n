@@ -1,0 +1,11 @@
+//0.7.3 B review fix: an int argument against a float Func formal is
+//rejected — the delegate path has no fixup pass, so the widening that
+//the overload path wraps into a cast would here pass the raw int bits
+//(pre-existing silent-garbage family, surfaced by the same audit).
+float half(float x) { return x / 2; }
+
+int main() {
+    Func<float, float> d = half;
+    float r = d(7);
+    return 1;
+}

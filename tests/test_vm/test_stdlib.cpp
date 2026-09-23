@@ -256,19 +256,22 @@ void test_stdlib_table_full_dispatch()
 void test_io_print_accepts_primitives()
 {
     TEST(io_print_accepts_primitives);
-    //coerceToString: literals and typed variables of all three accepted
-    //kinds compile and run (stdout noise "a7 0.5" lands in the test log).
+    //coerceToString: literals and typed variables of all accepted kinds
+    //compile and run (stdout noise "a7 0.5 [0, 0]" lands in the test log).
+    //0.7.3 B: array values print through OP_Array_to_str.
     const int rc = runSource("io_print_ok",
         "int main() {\n"
         "    string s = \"a\";\n"
         "    int n = 7;\n"
         "    float f = 0.5;\n"
+        "    int[] a = new int[2];\n"
         "    io.print(s);\n"
         "    io.print(n);\n"
         "    io.print(f);\n"
+        "    io.print(a);\n"
         "    return 0;\n"
         "}\n");
-    CHECK(rc == 0, "io.print should accept string/int/float");
+    CHECK(rc == 0, "io.print should accept string/int/float/array");
     PASS();
 }
 
@@ -284,10 +287,10 @@ void test_io_print_void_not_assignable()
 void test_io_print_rejects_nonprintable()
 {
     TEST(io_print_rejects_nonprintable);
-    //class values must call .toString() explicitly; null would print "0";
-    //array values carry the interned token whose Kind matches no printable
-    //kind, so the coercion branch rejects them with the type-naming
-    //diagnostic ("Int32[]").
+    //class values must call .toString() explicitly; null would print "0".
+    //Array values ARE printable (0.7.3 B: the coercion branch accepts the
+    //interned token; codegen converts via OP_Array_to_str) — the accept
+    //case lives in test_io_print_accepts_primitives.
     BuildOutcome cls = buildSource("io_print_cls",
         "class P { int x; }\n"
         "int main() { P p = new P{1}; io.print(p); return 0; }\n");
@@ -298,12 +301,6 @@ void test_io_print_rejects_nonprintable()
     BuildOutcome nil = buildSource("io_print_null",
         "int main() { io.print(null); return 0; }\n");
     CHECK(!nil.ok, "io.print(null) must not compile");
-
-    BuildOutcome arr = buildSource("io_print_arr",
-        "int main() { int[] a = new int[2]; io.print(a); return 0; }\n");
-    CHECK(!arr.ok, "io.print(int[]) must not compile");
-    CHECK(arr.diagnostics.find("Int32[]") != std::string::npos,
-        "diagnostic should name the array problem");
     PASS();
 }
 

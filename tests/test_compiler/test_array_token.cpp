@@ -3,11 +3,11 @@ test_array_token.cpp - interned array type token unit tests (0.7.3 B).
 
 In-process coverage of the SnArrayTypeToken infrastructure: hash-consing
 identity through BuildEnvironment::InternArrayTypeToken, the derived
-IsArrayType hook, display form, and the full GetCastInfo array matrix
+IsArrayType hook, display form, the full GetCastInfo array matrix
 (same-token Same / cross-element None / array->string Auto / int null
-bridge Auto). Console-style suite (same shape as test_array_flags); the
-token has no tree writers yet, so the tests drive the interner and
-CastInfo directly.
+bridge Auto), and the argument-binding accept/reject matrix through real
+in-process compiles. Console-style suite (same shape as
+test_array_flags).
 
 In-process host: Runtime::StaticInit() must run before any Build(),
 otherwise Build() segfaults unrecoverably.
@@ -212,6 +212,55 @@ static void test_cast_matrix()
     PASS();
 }
 
+//The argument-binding accept/reject matrix (0.7.3 B / spec §7): real
+//in-process compiles of one-line call sites, asserting the verdicts the
+//distance/cast layers give array-token arguments.
+static void test_param_binding_matrix()
+{
+    TEST(param_binding_matrix);
+    struct Shape
+    {
+        const char* name;
+        const char* formal;   //whole callee declaration
+        const char* call;
+        bool accept;
+    };
+    const Shape shapes[] = {
+        {"same-elem array formal",
+         "int f(int[] a) { return 1; }",
+         "int[] a = new int[2]; return f(a);", true},
+        {"cross-element array formal",
+         "int f(float[] a) { return 1; }",
+         "int[] a = new int[2]; return f(a);", false},
+        {"string formal (D5 coercion)",
+         "int f(string s) { return 1; }",
+         "int[] a = new int[2]; return f(a);", true},
+        {"int formal",
+         "int f(int i) { return 1; }",
+         "int[] a = new int[2]; return f(a);", false},
+        {"float formal",
+         "int f(float g) { return 1; }",
+         "int[] a = new int[2]; return f(a);", false},
+        {"null into array formal (bridge)",
+         "int f(int[] a) { return 1; }",
+         "return f(null);", true},
+        {"non-null int into array formal",
+         "int f(int[] a) { return 1; }",
+         "return f(1);", false},
+    };
+    for (const auto& sh : shapes)
+    {
+        std::string src = std::string(sh.formal)
+            + "\nint main() {\n    " + sh.call + "\n}\n";
+        auto out = compileOne(src.c_str());
+        if (sh.accept)
+            CHECK(out.ok, std::string("must accept: ") + sh.name);
+        else
+            CHECK(!out.ok, std::string("must reject: ") + sh.name);
+    }
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -222,6 +271,7 @@ int main()
     }
     test_intern_identity();
     test_cast_matrix();
+    test_param_binding_matrix();
     std::cerr << "\narray_token: " << g_pass << " passed, "
         << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

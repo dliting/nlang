@@ -1408,6 +1408,8 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
                 conv = OpCode::OP_Int32_to_str;
             else if (pArgType && pArgType->Kind() == NK_Float)
                 conv = OpCode::OP_Float_to_str;
+            else if (pArgType && pArgType->Kind() == NK_ArrayTypeToken)
+                conv = OpCode::OP_Array_to_str;
             else if (pArgType && pArgType->Kind() == NK_ClassDecl
                 && static_cast<SnClassDecl*>(pArgType)->IsFuncType())
                 conv = OpCode::OP_Func_to_str;

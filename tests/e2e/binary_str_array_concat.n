@@ -1,0 +1,8 @@
+//0.7.3 B D5: string + array concatenates through the toString coercion
+//(cast table Auto + codegen's OP_Array_to_str on the concat path).
+import io;
+int main() {
+    int[] a = [1, 2];
+    io.print("x" + a);
+    return 0;
+}

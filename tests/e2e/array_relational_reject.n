@@ -1,0 +1,9 @@
+//0.7.3 B D8: relational operators on arrays are rejected — identity
+//comparison is the only ordering-free meaning, and `<`/`<=`/`>`/`>=`
+//would silently compare raw heap handles.
+int main() {
+    int[] a = new int[2];
+    int[] b = new int[2];
+    if (a < b) { return 1; }
+    return 0;
+}

@@ -1,0 +1,12 @@
+//0.7.3 B review fix: an array argument to a delegate call is rejected —
+//the delegate path has no fixup pass, so the D5 array→string distance
+//would pass the raw array handle and the callee reads it as garbage.
+//The DIRECT call (printer(a)) coerces fine — pinned by
+//arg_array_to_string_param.
+int printer(string s) { return 3; }
+
+int main() {
+    Func<int, string> d = printer;
+    int[] a = new int[2];
+    return d(a);
+}

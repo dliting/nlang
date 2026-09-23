@@ -1,0 +1,7 @@
+//0.7.3 B pin: an array value in arithmetic with a numeric operand is
+//rejected — the promotion wrapper sees TCK_None against the promoted
+//scalar target (there is no element-wise or decay semantics).
+int main() {
+    int[] a = new int[2];
+    return a + 1;
+}

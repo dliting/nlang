@@ -1,0 +1,8 @@
+//0.7.3 B: io.print accepts array values — the coercion branch passes the
+//token kind and codegen converts in the claim slot via OP_Array_to_str.
+import io;
+int main() {
+    int[] a = [1, 2];
+    io.print(a);
+    return 0;
+}

@@ -1188,10 +1188,11 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 		}
 		const NodeKind argKind = pArgType->Kind();
 		const uint8_t want = pEntry->paramKinds[paramIdx];
-		//io.print (coerceToString): every param accepts string|int|float —
-		//codegen branches on the arg's own static kind and converts at the
-		//call site. No widening wrap here; class/struct/enum must call
-		//.toString() explicitly.
+		//io.print (coerceToString): every param accepts string|int|float|
+		//array — codegen branches on the arg's own static kind and
+		//converts at the call site (OP_Array_to_str for tokens). No
+		//widening wrap here; class/struct/enum must call .toString()
+		//explicitly.
 		if (pEntry->coerceToString)
 		{
 			//null literal is Int32-typed (KT_Null); accepting it would
@@ -1204,6 +1205,7 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 			}
 			else if (argKind != NK_String && argKind != NK_Int32
 				&& argKind != NK_Float
+				&& argKind != NK_ArrayTypeToken
 				//Phase 13: function handles print through the direct
 				//conversion path ("func <name>") like the other three
 				//toString routes.
@@ -2536,6 +2538,29 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 				}
 			}
 
+			//0.7.3 B D8: array values support identity comparison only
+			//(==/!=), and only against another array or null. Without
+			//this gate relational mixes (`a < b`) and scalar mixes
+			//(`a == 5`) compile and silently compare the raw heap
+			//handle against the operand. Mirrors the function-handle
+			//gate above; null keeps the sentinel comparison path.
+			bool lArr = lk == NK_ArrayTypeToken;
+			bool rArr = rk == NK_ArrayTypeToken;
+			if (lArr || rArr)
+			{
+				bool bEq = op == SnBinaryExpr::OP_Equal
+					|| op == SnBinaryExpr::OP_NotEqual;
+				if (!bEq || !((lArr && rArr) || (lArr && rNull)
+					|| (rArr && lNull)))
+				{
+					m_Env.Log(CLL_Error, sn.Location(),
+						"array values support identity comparison only "
+						"(==/!=), and only against another array or "
+						"null.");
+					return;
+				}
+			}
+
 			//Symmetric int/float promotion (Phase 8e-8 mechanism) extended
 			//to comparisons. Prerequisite the arithmetic branch does not
 			//have: BOTH operands numeric and neither a null literal —
@@ -3742,8 +3767,24 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 		}
 		else if (!bIsOut)
 		{
+			//0.7.3 B review fix: distance alone is a wrong admission test
+			//here — unlike the overload path, a delegate call has NO fixup
+			//pass, so any accepted distance that implies a conversion
+			//(int→float, array→string through the D5 arm) passes raw bits
+			//and the callee reads garbage. Distance 0 covers identical
+			//types, interned tokens and the enum/int32 masquerade; the
+			//only sound non-zero distances are reference upcasts
+			//(subclass→base, class→interface), where the handle passes
+			//through unchanged.
 			auto *pArgType = pValue->EvalDataType();
-			if (!pArgType || CalcTypeDistance(*pArgType, *pFormal) < 0)
+			const bool bRefUpcast = pArgType
+				&& (pArgType->Kind() == NK_ClassDecl
+					|| pArgType->Kind() == NK_InterfaceDecl)
+				&& (pFormal->Kind() == NK_ClassDecl
+					|| pFormal->Kind() == NK_InterfaceDecl);
+			const int nDist = pArgType
+				? CalcTypeDistance(*pArgType, *pFormal) : -1;
+			if (!pArgType || !(nDist == 0 || (bRefUpcast && nDist > 0)))
 			{
 				m_Env.Log(CLL_Error, arg.Location(),
 					"argument %zu of the delegate call is incompatible "
@@ -4013,18 +4054,21 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 		TypeCastInfo castInfo(pSrc, pTgt);
 		if (castInfo.Kind() == TCK_Same)
 			continue;
-		//0.7.3 B transitory clause (a): array-valued arguments skip the
-		//fixup. Imported stub formals are placeholder kinds synthesized
-		//from the return kind (param kinds are not serialized until
-		//.nmod v1.12), so an array-token source against the placeholder
-		//verdicts TCK_None here while the distance layer (which already
-		//skipped the binding) let the candidate through — reject and the
-		//widen call dies, wrap and the array handle is garbled. Codegen
-		//passes the raw handle through untyped. Same-module array
-		//bindings never reach this arm: distance 0 means the same interned
-		//token, which took the TCK_Same exit above. Deleted when true
-		//param types land (Task: .nmod v1.12 type descriptors).
-		if (b.pCallerExpr->IsArrayValued())
+		//0.7.3 B transitory clause (a): an array-token source against a
+		//TCK_None verdict skips the fixup. Imported stub formals are
+		//placeholder kinds synthesized from the return kind (param kinds
+		//are not serialized until .nmod v1.12), so an array argument
+		//against the placeholder verdicts None here while the distance
+		//layer (which already skipped the binding) let the candidate
+		//through — reject and the widen call dies, wrap and the array
+		//handle is garbled. Codegen passes the raw handle through
+		//untyped. A Same verdict took the exit above; an Auto verdict
+		//(array → string formal, D5) is a REAL coercion and wraps below.
+		//Same-module None bindings never reach this arm: distance kills
+		//them as candidates. Deleted when true param types land
+		//(.nmod v1.12 type descriptors).
+		if (b.pCallerExpr->IsArrayValued()
+			&& castInfo.Kind() == TCK_None)
 			continue;
 
 		//Locate the caller expr's NodeIterator inside invoke.Children().
@@ -4150,6 +4194,14 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 		return -1;
 	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
 		return -1;
+	//0.7.3 B D5: an array argument coerces to a string formal through the
+	//cast table's TCK_Auto (runtime toString). Grant candidacy a finite
+	//distance — the same magnitude as the cheapest scalar-to-string
+	//widening. Everything else array-token-shaped stays -1: same-token
+	//pairs already returned 0 at the pointer check above, cross-token
+	//and token-vs-scalar pairs have no conversion.
+	if (srcKind == NK_ArrayTypeToken && tgtKind == NK_String)
+		return 1;
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
 		return std::abs(srcKind - tgtKind);
 	return -1;

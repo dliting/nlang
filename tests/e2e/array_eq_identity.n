@@ -1,0 +1,10 @@
+//0.7.3 B D8 pin: ==/!= on two arrays is identity comparison — an alias
+//compares true, distinct arrays compare false (handle identity, not
+//content).
+int main() {
+    int[] a = new int[2];
+    int[] b = a;
+    int[] c = new int[2];
+    if (a == b && a != c) { return 4; }
+    return 1;
+}

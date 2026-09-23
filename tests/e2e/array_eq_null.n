@@ -1,0 +1,9 @@
+//0.7.3 B D8 pin: an array against null on either operand side is the
+//sentinel comparison (the null literal is Int32-typed; the array side
+//keeps its handle).
+int main() {
+    int[] a = new int[2];
+    int[] n = null;
+    if (a != null && n == null && null == n && null != a) { return 6; }
+    return 1;
+}

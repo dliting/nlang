@@ -1,0 +1,8 @@
+//0.7.3 B pin: an array value in a condition position is rejected by the
+//existing int-condition gate — the token's Kind matches nothing the
+//int32-reading branch handles (no new arm needed, this pins it).
+int main() {
+    int[] a = new int[2];
+    if (a) { return 1; }
+    return 0;
+}
