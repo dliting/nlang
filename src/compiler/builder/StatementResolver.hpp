@@ -859,9 +859,10 @@ public:
 		//An array-VALUED source (get()/subscript/call result from a
 		//List<T[]>/Dict<K,V[]> or a T[]-returning callee) is rejected as
 		//a policy, not a detection limit: IsArrayValued is resolve-time
-		//information (stamped from the GenericArrayFlags mirror since
-		//the C-period), but the codegen 3-way dispatch routes by the
-		//degraded EvalDataType, which carries no container identity.
+		//information (derived from the interned array token in
+		//EvalDataType since 0.7.3 B), but the codegen 3-way dispatch
+		//routes by the degraded EvalDataType, which carries no
+		//container identity.
 		//Plain array lvalues (local/member) stay on the array path —
 		//reject only the value forms; assign to a typed local first,
 		//same gate family as the P2 array-receiver/stdlib-argument

@@ -3062,13 +3062,11 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//
 	//0.7.3 B: an array-valued base carries the interned token in
 	//EvalDataType (NK_ArrayTypeToken, never a ClassDecl), so the Kind()
-	//check below no longer mistakes `List<int>[] a` for a container —
-	//the IsPlainLvalueShape guard is kept as a belt-and-suspenders
-	//defense of the old masquerade era (Task 4 removes the dead
-	//writers). Array bases keep the plain element-type propagation
-	//below, peeling the token.
-	if (!(arrayExpr.IsArrayValued() && IsPlainLvalueShape(arrayExpr))
-		&& arrayType && arrayType->Kind() == NK_ClassDecl)
+	//check alone distinguishes `List<int>[] a` from `List<int> li` —
+	//the masquerade-era IsPlainLvalueShape guard here was removed with
+	//the side channel. Array bases keep the plain element-type
+	//propagation below, peeling the token.
+	if (arrayType && arrayType->Kind() == NK_ClassDecl)
 	{
 		auto* pClass = static_cast<SnClassDecl*>(arrayType);
 		if (pClass->IsGenericInstantiation())

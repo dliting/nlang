@@ -59,17 +59,11 @@ public:
 	//expression is array-valued exactly when its type token is the
 	//interned array token (SnArrayTypeToken). Dispatch sites still ask
 	//this before Kind(): array values now carry the token itself in
-	//EvalDataType, so the element masquerade is gone. SetArrayValued/
-	//m_bArrayValued are dead writers pending the Task 4 removal.
+	//EvalDataType, so the element masquerade is gone. No side channel.
 	bool IsArrayValued() const
 	{
 		auto* pType = EvalDataType();
 		return pType && pType->Kind() == NK_ArrayTypeToken;
-	}
-
-	void SetArrayValued(bool bArrayValued)
-	{
-		m_bArrayValued = bArrayValued;
 	}
 
 	//llvm::Type *MetaType() const
@@ -104,7 +98,6 @@ protected:
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
 	SnField *m_pEvalDataType;
-	bool m_bArrayValued = false;
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Value *m_pMetaValue;
 #endif
