@@ -1,0 +1,8 @@
+// cross_mod_out_param — v1.12 param descriptors carry the out flag, so
+// an imported `void fill(out int v)` gets an out-marked stub formal.
+// Pre-v1.12 the placeholder formal carried no NF_Out and every cross-
+// module out-argument call was rejected at compile time; with the flag
+// the call binds and the callee's writeback lands in the caller's slot.
+void fill(out int v) {
+    v = 5;
+}

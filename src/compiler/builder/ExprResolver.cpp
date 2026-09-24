@@ -365,8 +365,9 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 			idExpr.Name().c_str());
 		return false;
 	}
-	//Imported stubs synthesize their parameter types from the return kind
-	//(real signatures are not serialized) — matching them would be wrong.
+	//Imported stubs carry v1.12 type descriptors for their formals, but
+	//Func signatures are outside the descriptor grammar — an imported
+	//callee cannot be matched against an expected Func type yet.
 	if (pFunc->ContainFlags(NF_Imported))
 	{
 		env.Log(CLL_Error, idExpr.Location(),
@@ -2166,6 +2167,16 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 					&& typeArgs.size() > static_cast<size_t>(elemSlot)
 					&& typeArgs[elemSlot])
 				{
+					//The value-position wrap is DEFERRED past the Params()
+					//walk: Params() aliases invoke.Children() (typed-slot
+					//dual storage), and FixupExprType's RemoveChildFrom
+					//ERASES (frees) the arg's list cell — wrapping inside
+					//the range-for leaves its saved iterator dangling
+					//(heap-use-after-free on ++; manifests intermittently
+					//as SEGV, an endless loop, or a lucky pass, depending
+					//on the freed cell's contents). The binds above are
+					//safe in-loop: they never touch the child list.
+					SnExpression* pWrapValue = nullptr;
 					size_t argIdx = 0;
 					for (auto &arg : invoke.Params())
 					{
@@ -2190,19 +2201,23 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 							else if (isStoreValue && pValue->IsResolved()
 								&& pValue->EvalDataType())
 							{
-								//The element type-arg is the interned
-								//token for array elements, so the cast
-								//table sees full type identity: Same/Box/
-								//Auto wrap transparently under codegen's
-								//per-method boxing plan, None rejects.
-								auto castInfo = GetCastInfo(
-									pValue->EvalDataType(),
-									typeArgs[elemSlot]);
-								auto iArg = invoke.Children().find(pValue);
-								FixupExprType(iArg, castInfo);
+								pWrapValue = pValue;
 							}
 						}
 						++argIdx;
+					}
+					if (pWrapValue)
+					{
+						//The element type-arg is the interned
+						//token for array elements, so the cast
+						//table sees full type identity: Same/Box/
+						//Auto wrap transparently under codegen's
+						//per-method boxing plan, None rejects.
+						auto castInfo = GetCastInfo(
+							pWrapValue->EvalDataType(),
+							typeArgs[elemSlot]);
+						auto iArg = invoke.Children().find(pWrapValue);
+						FixupExprType(iArg, castInfo);
 					}
 				}
 			}
@@ -3530,7 +3545,7 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 		std::vector<FormalBinding> tryBind;
 		if (!TryBindInvoke(invoke, *pCandidate, tryBind))
 			return;
-		int n = ComputeBindingDistance(tryBind, pCandidate);
+		int n = ComputeBindingDistance(tryBind);
 		if (n < 0)
 			return;
 		if (nBestDistance < 0 || n < nBestDistance)
@@ -3941,17 +3956,8 @@ bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 //entries. B_Default contributes 0. Returns -1 if any bound entry has
 //incompatible types.
 int ExprResolveAccessor::ComputeBindingDistance(
-	const std::vector<FormalBinding> &bindings,
-	const SnFunction *pCallee) const
+	const std::vector<FormalBinding> &bindings) const
 {
-	//Imported stubs synthesize their formal types from the return kind
-	//(param kinds are not serialized in .nmod), so IsArrayType() /
-	//EvalDataType() on a stub formal are placeholder lies — the
-	//array-ness match below would reject every array argument to an
-	//imported callee with an array or scalar placeholder. Same stance as
-	//BindFuncRefToExpected: call-site checks against imported signatures
-	//are not trustworthy and are not performed.
-	const bool bImportedCallee = pCallee && pCallee->ContainFlags(NF_Imported);
 	int nDistance = 0;
 	for (auto &b : bindings)
 	{
@@ -3994,8 +4000,8 @@ int ExprResolveAccessor::ComputeBindingDistance(
 			return -1;
 		//0.7.3 B: array-ness is adjudicated by CalcTypeDistance's kind
 		//matching alone — an interned token against a scalar formal (and
-		//the symmetric hole) verdicts -1 there. Two exemptions follow:
-		//null against an array formal, and imported placeholder formals.
+		//the symmetric hole) verdicts -1 there. One exemption follows:
+		//null against an array formal.
 		//0.7.3 B: the null literal is Int32-typed, so against an
 		//array-token formal CalcTypeDistance reads -1. Null binds to
 		//any array type at distance 0 — the same bridge the assignment
@@ -4003,14 +4009,6 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		//array value).
 		if (b.pCallerExpr->ContainFlags(NF_NullLiteral)
 			&& pTgt->Kind() == NK_ArrayTypeToken)
-			continue;
-		//0.7.3 B: imported stubs synthesize placeholder formals from
-		//the return kind (param kinds are not serialized), so an array
-		//token source against the placeholder reads -1 — skip the
-		//distance contribution, mirroring the array-ness exemption
-		//above (call-site checks against imported signatures are not
-		//trustworthy and are not performed).
-		if (bImportedCallee && pSrc->Kind() == NK_ArrayTypeToken)
 			continue;
 		int n = CalcTypeDistance(*pSrc, *pTgt);
 		if (n < 0)
@@ -4060,22 +4058,6 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 			continue;
 		TypeCastInfo castInfo(pSrc, pTgt);
 		if (castInfo.Kind() == TCK_Same)
-			continue;
-		//0.7.3 B transitory clause (a): an array-token source against a
-		//TCK_None verdict skips the fixup. Imported stub formals are
-		//placeholder kinds synthesized from the return kind (param kinds
-		//are not serialized until .nmod v1.12), so an array argument
-		//against the placeholder verdicts None here while the distance
-		//layer (which already skipped the binding) let the candidate
-		//through — reject and the widen call dies, wrap and the array
-		//handle is garbled. Codegen passes the raw handle through
-		//untyped. A Same verdict took the exit above; an Auto verdict
-		//(array → string formal, D5) is a REAL coercion and wraps below.
-		//Same-module None bindings never reach this arm: distance kills
-		//them as candidates. Deleted when true param types land
-		//(.nmod v1.12 type descriptors).
-		if (b.pCallerExpr->IsArrayValued()
-			&& castInfo.Kind() == TCK_None)
 			continue;
 
 		//Locate the caller expr's NodeIterator inside invoke.Children().

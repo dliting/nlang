@@ -1,0 +1,7 @@
+import lib;
+
+int main() {
+    int r = 0;
+    lib.fill(out r);
+    return r;
+}

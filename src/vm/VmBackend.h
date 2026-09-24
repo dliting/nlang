@@ -228,6 +228,10 @@ private:
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
     std::unordered_map<SnEnumDecl*, size_t> m_enumIndexMap;  //Phase 8e-9b: AST enum decl → enumDefIdx (parallel to m_compiledModule.enumNames)
     std::vector<std::vector<std::string>> m_structFieldTypeNames;
+    //v1.12: per-struct resolved field types (parallel to
+    //m_structFieldTypeNames) — captured at registration, descriptors
+    //built in ResolveStructClassRefs once all struct/class tables exist.
+    std::vector<std::vector<SnField*>> m_structFieldTypes;
     int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
     int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)
     int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)

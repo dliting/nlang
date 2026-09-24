@@ -12,6 +12,7 @@ add_library(nlang_vm
     Disassembler.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp
+    TypeDesc.cpp
 )
 
 target_include_directories(nlang_vm

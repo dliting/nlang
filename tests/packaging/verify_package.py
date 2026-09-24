@@ -43,6 +43,12 @@ from nlang_docs.public_text import find_violations  # noqa: E402
 # examples/hello.n: public int main() { return 42; }
 SMOKE_EXIT_CODE = 42
 TIMEOUT_SEC = 60
+# .nmod format floor asserted in the smoke: magic "NLANGMOD" + u16 major
+# + u16 minor (CompiledModule.h is the single source; keep in sync when
+# NMOD_FORMAT_MINOR bumps).
+NMOD_MAGIC = b'NLANGMOD'
+NMOD_MAJOR = 1
+NMOD_MINOR = 12
 
 BIN_FILES = [
     'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe', 'ndb.exe',
@@ -218,6 +224,14 @@ def main():
             fail(f'ncc build failed: {r.stderr.decode("utf-8", "replace")[:500]}')
         if not os.path.isfile(nmod):
             fail('ncc reported success but .nmod was not written')
+        with open(nmod, 'rb') as fh:
+            header = fh.read(12)
+        if (header[:8] != NMOD_MAGIC
+                or int.from_bytes(header[8:10], 'little') != NMOD_MAJOR
+                or int.from_bytes(header[10:12], 'little') != NMOD_MINOR):
+            fail(f'.nmod header mismatch: got {header[:12].hex()}, '
+                 f'expected magic {NMOD_MAGIC!r} + version '
+                 f'{NMOD_MAJOR}.{NMOD_MINOR}')
 
         r = subprocess.run([nvm, nmod], capture_output=True,
                            timeout=TIMEOUT_SEC, cwd=smoke_cwd)

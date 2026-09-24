@@ -389,13 +389,10 @@ private:
 	/*
 	Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
 	entries. B_Default contributes 0. Returns -1 if any bound entry has
-	incompatible types. pCallee is the candidate being scored; imported
-	stubs (NF_Imported) are exempt from the array-ness match because their
-	formal types are synthesized placeholders, not the real signature.
+	incompatible types.
 	*/
 	int ComputeBindingDistance(
-		const std::vector<FormalBinding> &bindings,
-		const SnFunction *pCallee) const;
+		const std::vector<FormalBinding> &bindings) const;
 
 	/*
 	Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side

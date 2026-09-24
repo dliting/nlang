@@ -243,10 +243,10 @@ void test_loader_rejects_v1_9()
     CHECK(bytes.size() >= 12, "module file should have a full header");
     //Guard the patch anchor: if a future header change moves minorVer,
     //the patch below would silently hit another field — fail loudly on
-    //layout drift instead (fresh build must carry the current minor 11).
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0B
+    //layout drift instead (fresh build must carry the current minor 12).
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0C
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 11");
+        "fresh module should be stamped minorVer 12");
     bytes[10] = 0x09;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v19.nmod";
@@ -262,7 +262,7 @@ void test_loader_rejects_v1_9()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.9 module (floor is 11)");
+    CHECK(threw, "loader must reject a v1.9 module (floor is 12)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -290,9 +290,9 @@ void test_loader_rejects_v1_10()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0B
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0C
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 11");
+        "fresh module should be stamped minorVer 12");
     bytes[10] = 0x0A;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v110.nmod";
@@ -308,7 +308,55 @@ void test_loader_rejects_v1_10()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.10 module (floor is 11)");
+    CHECK(threw, "loader must reject a v1.10 module (floor is 12)");
+    CHECK(what.find("outdated") != std::string::npos,
+        "rejection should hit the floor path, got: " + what);
+    PASS();
+}
+
+void test_loader_rejects_v1_11()
+{
+    TEST(loader_rejects_v1_11);
+    //Distinct build tag: ModuleManager::Create keys the process-global
+    //loaded map by module name, so reusing the other floor tests' tags
+    //would fail the build with "already exists".
+    BuildOutcome b = buildSource("oldver11",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "oldver11.nmod";
+
+    //Patch the minorVer field (header offset 10, little-endian u16:
+    //magic[8] + major(u16) + minor(u16)) down to 11. v1.12 is a LAYOUT
+    //floor, unlike the semantic 9/10 ones: every function record now
+    //ends in a u16 paramDescCount (+ per-formal / return / field type
+    //descriptor bytes), so a v1.11 record would make the loader parse
+    //the next record's bytes as a descriptor count — garbage at best,
+    //never a module it promised to load. No migration path by design.
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0C
+        && static_cast<uint8_t>(bytes[11]) == 0x00,
+        "fresh module should be stamped minorVer 12");
+    bytes[10] = 0x0B;
+    bytes[11] = 0x00;
+    const auto oldPath = scratchDir() / "oldver_v111.nmod";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must reject a v1.11 module (floor is 12)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -2167,6 +2215,7 @@ int main()
     test_v19_loader_rejects_v1_8();
     test_loader_rejects_v1_9();
     test_loader_rejects_v1_10();
+    test_loader_rejects_v1_11();
     test_v19_import_gc_roots();
 
     //Task 6 GC stress pins (real allocation + real collection).

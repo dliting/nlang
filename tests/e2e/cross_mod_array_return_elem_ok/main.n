@@ -1,0 +1,7 @@
+import lib;
+
+int main() {
+    float[] a = lib.mk(2);
+    if (a[1] == 2.5) return 7;
+    return 1;
+}

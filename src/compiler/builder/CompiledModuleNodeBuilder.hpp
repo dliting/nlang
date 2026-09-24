@@ -54,9 +54,12 @@ private:
 //Stubs are intentionally minimal: they carry enough structural information
 //(name, param count, member names) for VmBackend to skip codegen on them
 //(via NF_Imported + missing Body) and for the resolver to recognize the
-//symbol as an imported declaration. Type information on stub formals is a
-//primitive placeholder — call-site type checking for imported callees is
-//skipped (see cross-module-import-infrastructure.md Layer 4 R5-4 + R7-1).
+//symbol as an imported declaration. Formal and return types come from the
+//v1.12 type descriptors: this builder synthesizes plain syntactic type
+//expressions (the same shapes the parser emits for hand-written source),
+//so the consumer's normal ResolveDataTypes pass binds and interns them
+//through the standard channels — cross-module call-site type checking is
+//real, not skipped.
 //
 //After BuildFromCompiledModule, the caller can query ImportedFunctions() to
 //register each (stub, srcFuncIdx) tuple into VmBackend's side-table
@@ -198,33 +201,64 @@ public:
 	}
 
 private:
-	//Synthesize a primitive placeholder type expression matching the given
-	//RTK_* runtime type kind. Array kinds keep their array-ness: the stub's
-	//return type must report IsArrayType() == true because type-check sites
-	//that trust it exist for imported callees (stdlib argument guard; the
-	//R5-4/R7-1 "call-site checks are skipped" rationale died with it). The
-	//element kind is not recoverable from the serialized kind byte, so a
-	//placeholder element type is fine — only IsArrayType() is consulted.
-	//Other non-primitive kinds (Struct/Class/Boxed) still fall back to int32.
-	SnFieldExpr *SynthTypeExpr(uint16_t returnTypeKind, const ISourceLocation &loc)
+	//v1.12: synthesize a SYNTACTIC type expression from a serialized type
+	//descriptor — the same shape the parser would build for hand-written
+	//source, so the consumer's normal ResolveDataTypes pass binds and
+	//interns it through the standard channels (named types resolve against
+	//the root, where this builder placed the imported struct/class stubs;
+	//the List/Dict base names go through the built-in generic
+	//instantiation path; builtin scalar kinds arrive pre-bound via the
+	//NodeKind ctor). NonSerialized (interface/Func types, defensive
+	//misses) degrades to the int32 placeholder.
+	SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
+		const CompiledModule &cm, const ISourceLocation &loc)
 	{
-		NodeKind builtinKind = NK_Int32;
-		switch (returnTypeKind)
+		switch (td.kind)
 		{
-			case RTK_Float:  builtinKind = NK_Float;  break;
-			case RTK_String: builtinKind = NK_String; break;
-			case RTK_Array:
-				return new SnArrayTypeExpr(
-					new SnIdentifierExpr(NK_Int32, loc), loc);
-			case RTK_Int32:
+			case RTK_Float:
+				return new SnIdentifierExpr(NK_Float, loc);
+			case RTK_String:
+				return new SnIdentifierExpr(NK_String, loc);
 			case RTK_Struct:
+				if (td.typeIdx < cm.structs.size())
+					return new SnIdentifierExpr(
+						new std::string(cm.structs[td.typeIdx].name), loc);
+				break;  //out-of-range index — int32 placeholder below
 			case RTK_Class:
-			case RTK_Boxed:
+				if (td.typeIdx < cm.classes.size())
+					return new SnIdentifierExpr(
+						new std::string(cm.classes[td.typeIdx].name), loc);
+				break;
+			case RTK_Array:
+				if (!td.elems.empty())
+					return new SnArrayTypeExpr(
+						SynthTypeExprFromDesc(td.elems[0], cm, loc), loc);
+				break;
+			case RTK_List:
+				if (!td.elems.empty())
+				{
+					auto *pArgs = new std::vector<SnFieldExpr*>();
+					pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
+					return new SnGenericTypeExpr(
+						new SnIdentifierExpr(new std::string("List"), loc),
+						pArgs, loc);
+				}
+				break;
+			case RTK_Dict:
+				if (td.elems.size() >= 2)
+				{
+					auto *pArgs = new std::vector<SnFieldExpr*>();
+					pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
+					pArgs->push_back(SynthTypeExprFromDesc(td.elems[1], cm, loc));
+					return new SnGenericTypeExpr(
+						new SnIdentifierExpr(new std::string("Dict"), loc),
+						pArgs, loc);
+				}
+				break;
 			default:
-				builtinKind = NK_Int32;
 				break;
 		}
-		return new SnIdentifierExpr(builtinKind, loc);
+		return new SnIdentifierExpr(NK_Int32, loc);
 	}
 
 	//Option B Step 4: reconstruct an SnLiteralExpr for a formal default from
@@ -286,43 +320,47 @@ private:
 		const CompiledModule &cm, const ISourceLocation &loc)
 	{
 		//Return type. RTK_Void → no return type (SnFunction::HasReturn() == false).
+		//v1.12: the serialized descriptor supplies the true type; the
+		//NonSerialized sentinel (Func/interface returns) degrades to the
+		//int32 placeholder.
 		SnFieldExpr *pRetType = nullptr;
 		if (cf.returnTypeKind != RTK_Void)
-			pRetType = SynthTypeExpr(cf.returnTypeKind, loc);
+			pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc);
 
-		//Synthesize paramCount placeholder SnFormalParam nodes with names
-		//"p0", "p1", ... (R7-1: stub param names are placeholders; named-arg
-		//binding is rejected for imported callees anyway).
+		//Synthesize paramCount SnFormalParam nodes with names "p0", "p1",
+		//... (stub param names are placeholders; named-arg binding is
+		//rejected for imported callees anyway). v1.12: each formal's true
+		//type and out flag come from the serialized descriptors (free
+		//functions carry exactly paramCount of them — methods never reach
+		//stub construction, the methodOrCtorIndices filter owns those).
 		//Option B: if cf.defaultValues[i] carries a constant-foldable default,
 		//attach the reconstructed SnLiteralExpr to the stub formal so the
 		//resolver can apply it at consumer call sites.
-		//The param placeholder keys on the return kind but must NOT inherit
-		//its array-ness: RTK_Array on the return would stamp every stub
-		//formal as array-typed, and the binding-distance array-ness guard
-		//then rejects every scalar argument to an array-returning imported
-		//function. Param kinds are not serialized at all (see the class
-		//comment: stub formal types are placeholders, call-site checks for
-		//imported callees are not trustworthy), so for an array-returning
-		//callee every formal degrades to the int placeholder. Known
-		//residual, deferred to a .nmod format bump: for string/float
-		//returns the placeholder mislabels scalar formals of a different
-		//kind, letting a cross-module call with wrong scalar argument
-		//kinds compile silently.
 		//Use raw PtrList<SnFormalParam>* — SnFunction takes UniquePtrList by
 		//value, whose inner_collection* constructor assumes ownership and
 		//deletes the source list.
 		auto *pParams = new PtrList<SnFormalParam>();
-		const uint16_t paramKind = (cf.returnTypeKind == RTK_Array)
-			? RTK_Int32 : cf.returnTypeKind;
 		for (uint16_t i = 0; i < cf.paramCount; ++i)
 		{
 			auto paramName = new std::string("p" + std::to_string(i));
-			SnFieldExpr *pParamType = SynthTypeExpr(paramKind, loc);
+			NodeBits paramFlags = NF_NONE;
+			SnFieldExpr *pParamType;
+			if (i < cf.paramTypeDescs.size())
+			{
+				const ParamTypeDesc &ptd = cf.paramTypeDescs[i];
+				if (ptd.flags & PTDF_Out)
+					paramFlags |= NF_Out;
+				pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc);
+			}
+			else
+			{
+				pParamType = new SnIdentifierExpr(NK_Int32, loc);
+			}
 			SnExpression *pDefault = nullptr;
 			if (i < cf.defaultValues.size())
 				pDefault = SynthDefaultExpr(cf.defaultValues[i], cm,
 					cf.name, i, loc);
-			auto *pParam = new SnFormalParam(NF_NONE, pParamType, paramName,
+			auto *pParam = new SnFormalParam(paramFlags, pParamType, paramName,
 				pDefault, loc);
 			pParams->push_back(pParam);
 		}

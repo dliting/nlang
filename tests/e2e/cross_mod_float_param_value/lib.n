@@ -1,0 +1,11 @@
+// cross_mod_float_param_value — v1.12 true scalar param kinds across
+// modules. Pre-v1.12 the stub formal degraded to the RETURN kind (int),
+// so `lib.fp(21)` passed 21's int bits into a float local (a denormal
+// ~0) and the program exited 0 instead of 42. With the descriptor the
+// argument widens int->float at the call site and the callee reads 21.0.
+int fp(float x) {
+    // float expression assigned to an int return slot truncates (the
+    // manual's implicit narrowing rule) — 21.0 * 2 truncates to 42.
+    int r = x * 2;
+    return r;
+}

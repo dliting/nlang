@@ -2,8 +2,28 @@
 #include <fstream>
 #include <stdexcept>
 #include <cstring>
+#include <vector>
 
 namespace nlang {
+
+//v1.12: read one length-prefixed type descriptor (u16 len + wire bytes).
+//len==0 means "no descriptor" — the caller keeps the NonSerialized
+//default. Throws on a bad length or a malformed wire form.
+static TypeDesc ReadTypeDesc(std::istream& fs)
+{
+    uint16_t len = 0;
+    fs.read(reinterpret_cast<char*>(&len), sizeof(len));
+    if (!fs.good() || len > kMaxTypeDescBytes)
+        throw std::runtime_error("Invalid module: bad type descriptor length");
+    if (len == 0)
+        return TypeDesc{};
+    std::vector<uint8_t> bytes(len);
+    fs.read(reinterpret_cast<char*>(bytes.data()), len);
+    if (!fs.good())
+        throw std::runtime_error(
+            "Invalid module: truncated type descriptor");
+    return ParseTypeDescBytes(bytes.data(), bytes.size());
+}
 
 CompiledModule ModuleLoader::Load(const std::string& filePath) {
     std::ifstream fs(filePath, std::ios::binary);
@@ -37,15 +57,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
     const uint16_t kCurrentMinorVer = NMOD_FORMAT_MINOR;
-    //v1.11 (C-period generic array args): SEMANTIC floor, not a layout
-    //bump — no new serialized fields, but array-typed elements of generic
-    //containers (List<T[]> / Dict keys and values) now flow as raw array
-    //handles with no boxing, and foreach loop variables over them hold
-    //RTK_Array slots the GC traces. A v1.10 module from an older ncc
-    //boxes those elements into primitive slots the GC never traces, so
-    //refuse v1.10 and older outright (floor/ceiling double-reject
+    //v1.12 (type descriptors): LAYOUT bump — per-formal and return type
+    //descriptors after the source-file block, per-field descriptors in
+    //every struct/class record. A v1.11 module has none of those bytes
+    //and its stub reconstruction relied on return-kind placeholders;
+    //loading it would misparse every record after the first function.
+    //Refuse v1.11 and older outright (floor/ceiling double-reject
     //unchanged).
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 11)
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 12)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
@@ -193,6 +212,27 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
             func.sourceFile.resize(sfileLen);
             fs.read(func.sourceFile.data(), sfileLen);
         }
+
+        //v1.12: true formal / return type descriptors. The floor is
+        //already 12, so the gate only documents the record position for
+        //readers diffing versions (floor subsumption).
+        if (minorVer >= 12) {
+            uint16_t paramDescCount = 0;
+            fs.read(reinterpret_cast<char*>(&paramDescCount),
+                    sizeof(paramDescCount));
+            if (!fs.good() || paramDescCount > kMaxParamDescCount)
+                throw std::runtime_error(
+                    "Invalid module: bad param descriptor count");
+            func.paramTypeDescs.resize(paramDescCount);
+            for (uint16_t j = 0; j < paramDescCount; ++j) {
+                auto& ptd = func.paramTypeDescs[j];
+                fs.read(reinterpret_cast<char*>(&ptd.flags),
+                        sizeof(ptd.flags));
+                ptd.type = ReadTypeDesc(fs);
+            }
+            if (func.returnTypeKind != RTK_Void)
+                func.returnTypeDesc = ReadTypeDesc(fs);
+        }
     }
 
     // Struct descriptors
@@ -241,6 +281,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         for (uint16_t j = 0; j < st.fieldCount; ++j) {
             fs.read(reinterpret_cast<char*>(&st.fieldClassIndices[j]),
                     sizeof(st.fieldClassIndices[j]));
+        }
+
+        //v1.12: per-field type descriptors (floor subsumption — see the
+        //function-record site).
+        if (minorVer >= 12) {
+            st.fieldTypeDescs.resize(st.fieldCount);
+            for (uint16_t j = 0; j < st.fieldCount; ++j)
+                st.fieldTypeDescs[j] = ReadTypeDesc(fs);
         }
     }
 
@@ -294,6 +342,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                     sizeof(cc.fieldClassIndices[j]));
         }
 
+        //v1.12: per-field type descriptors (floor subsumption — see the
+        //function-record site).
+        if (minorVer >= 12) {
+            cc.fieldTypeDescs.resize(cc.fieldCount);
+            for (uint16_t j = 0; j < cc.fieldCount; ++j)
+                cc.fieldTypeDescs[j] = ReadTypeDesc(fs);
+        }
+
         cc.fieldAccess.resize(cc.fieldCount);
         for (uint16_t j = 0; j < cc.fieldCount; ++j) {
             fs.read(reinterpret_cast<char*>(&cc.fieldAccess[j]),
@@ -312,6 +368,27 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         //Constructor index
         fs.read(reinterpret_cast<char*>(&cc.constructorIdx),
                 sizeof(cc.constructorIdx));
+    }
+
+    //v1.12: descriptors reference struct/class indices of THIS module —
+    //the function records were parsed before the tables, so bounds are
+    //only checkable now. Any violation is a corrupt or hostile module.
+    if (minorVer >= 12) {
+        for (const auto& func : mod.functions) {
+            for (const auto& ptd : func.paramTypeDescs)
+                ValidateTypeDescIndices(ptd.type, mod.structs.size(),
+                    mod.classes.size());
+            ValidateTypeDescIndices(func.returnTypeDesc, mod.structs.size(),
+                mod.classes.size());
+        }
+        for (const auto& st : mod.structs)
+            for (const auto& td : st.fieldTypeDescs)
+                ValidateTypeDescIndices(td, mod.structs.size(),
+                    mod.classes.size());
+        for (const auto& cc : mod.classes)
+            for (const auto& td : cc.fieldTypeDescs)
+                ValidateTypeDescIndices(td, mod.structs.size(),
+                    mod.classes.size());
     }
 
     //Array type descriptors

@@ -1,0 +1,11 @@
+// cross_mod_array_return_elem_ok — v1.12 type descriptors must carry the
+// ELEMENT kind of an imported array return (float[]), not just the bare
+// RTK_Array placeholder. Pre-v1.12 the consumer-side stub return degraded
+// to int[] and `float[] a = lib.mk(2)` was rejected as a cross-element
+// conversion; with the true descriptor it binds as the same array type.
+float[] mk(int n) {
+    float[] a = new float[n];
+    a[0] = 1.5;
+    if (n > 1) a[1] = 2.5;
+    return a;
+}

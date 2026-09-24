@@ -13,6 +13,22 @@ CompiledModule.h.
 
 namespace nlang {
 
+//v1.12: one length-prefixed type descriptor (u16 len + wire bytes).
+//len==0 means "no descriptor" — the reader keeps the NonSerialized
+//default. Shared by the param / return / per-field sites below.
+static void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
+{
+    std::vector<uint8_t> bytes;
+    AppendTypeDescBytes(bytes, td);
+    //The depth cap bounds a descriptor well under 64 KiB (worst case a
+    //full binary Dict tree at depth 8: 511 nodes × 3 bytes), so the u16
+    //length prefix cannot truncate.
+    uint16_t len = static_cast<uint16_t>(bytes.size());
+    fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
+    if (len > 0)
+        fs.write(reinterpret_cast<const char*>(bytes.data()), len);
+}
+
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
     if (!fs.good()) return false;
 
@@ -134,6 +150,24 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
         uint32_t sfileLen = static_cast<uint32_t>(func.sourceFile.size());
         fs.write(reinterpret_cast<const char*>(&sfileLen), sizeof(sfileLen));
         fs.write(func.sourceFile.c_str(), sfileLen);
+
+        //v1.12: true formal type descriptors, count first (methods carry
+        //paramCount-1: the implicit this slot has no descriptor, mirroring
+        //defaultValues). Each entry is u8 flags | len-prefixed descriptor.
+        uint16_t paramDescCount = static_cast<uint16_t>(
+            func.paramTypeDescs.size());
+        fs.write(reinterpret_cast<const char*>(&paramDescCount),
+                 sizeof(paramDescCount));
+        for (const auto& ptd : func.paramTypeDescs) {
+            fs.write(reinterpret_cast<const char*>(&ptd.flags),
+                     sizeof(ptd.flags));
+            WriteLenPrefixedTypeDesc(fs, ptd.type);
+        }
+
+        //v1.12: return type descriptor — only when the function returns a
+        //value (RTK_Void keeps ctor/void records shaped as before).
+        if (func.returnTypeKind != RTK_Void)
+            WriteLenPrefixedTypeDesc(fs, func.returnTypeDesc);
     }
 
     // Struct descriptors
@@ -171,6 +205,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
         for (size_t i = 0; i < st.fieldCount; ++i) {
             fs.write(reinterpret_cast<const char*>(&st.fieldClassIndices[i]),
                      sizeof(st.fieldClassIndices[i]));
+        }
+
+        //v1.12: per-field type descriptors (len==0 = not expressible).
+        for (size_t i = 0; i < st.fieldCount; ++i) {
+            WriteLenPrefixedTypeDesc(fs,
+                (i < st.fieldTypeDescs.size()) ? st.fieldTypeDescs[i]
+                                               : TypeDesc{});
         }
     }
 
@@ -211,6 +252,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
         for (size_t i = 0; i < cc.fieldCount; ++i) {
             fs.write(reinterpret_cast<const char*>(&cc.fieldClassIndices[i]),
                      sizeof(cc.fieldClassIndices[i]));
+        }
+
+        //v1.12: per-field type descriptors (len==0 = not expressible).
+        for (size_t i = 0; i < cc.fieldCount; ++i) {
+            WriteLenPrefixedTypeDesc(fs,
+                (i < cc.fieldTypeDescs.size()) ? cc.fieldTypeDescs[i]
+                                               : TypeDesc{});
         }
 
         //Field access

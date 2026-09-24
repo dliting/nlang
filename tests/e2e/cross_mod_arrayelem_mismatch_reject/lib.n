@@ -1,0 +1,11 @@
+// cross_mod_arrayelem_mismatch_reject — the mirror arm of
+// cross_mod_array_return_elem_ok: with true element kinds on imported
+// returns, `int[] bad = lib.mk(2)` (float[] return) must be REJECTED as a
+// cross-element array conversion. Pre-v1.12 the int[] placeholder let
+// this compile and run on garbage.
+float[] mk(int n) {
+    float[] a = new float[n];
+    a[0] = 1.5;
+    if (n > 1) a[1] = 2.5;
+    return a;
+}

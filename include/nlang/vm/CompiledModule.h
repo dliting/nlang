@@ -1,4 +1,5 @@
 #pragma once
+#include "TypeDesc.h"
 #include <cstdint>
 #include <ostream>
 #include <string>
@@ -32,7 +33,14 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //foreach loop variables over them occupy RTK_Array local slots the GC
 //traces. A v1.10 module from an older ncc boxes those elements into
 //primitive slots the GC never traces; the loader refuses it.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 11;
+//v1.12 (type descriptors): true formal / return / field types — recursive
+//TypeDesc payloads (see TypeDesc.h) after the source-file block (per
+//formal, count-prefixed; return, gated on returnTypeKind != RTK_Void)
+//and per struct/class field. Consumers rebuild imported stubs with real
+//signatures instead of return-kind placeholders, so call-site type
+//checking for imported callees is now performed; the loader refuses
+//v1.11 and older outright.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 12;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -44,6 +52,8 @@ static constexpr uint8_t RTK_Class  = 4;
 static constexpr uint8_t RTK_Array  = 5;
 static constexpr uint8_t RTK_Boxed  = 6;  //Phase 8e-1: boxed primitive (slot[0]=tag, slot[1]=value)
 static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=target, slot[1]=this, slot[2]=form; 0=static, 1=virtual)
+//Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
+//TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
 static constexpr uint8_t RTK_Unfoldable = 0xFC;  //Option B: had default but not constant-foldable
 static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
@@ -63,6 +73,12 @@ struct CompiledStruct {
     std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
     std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
+    //v1.12: per-field recursive type descriptors (empty entries = not
+    //expressible). Survive the import merge (indices remapped). Wire
+    //fidelity only — stubs keep their members empty, so nothing reads
+    //these back for reconstruction; they exist so a consumer re-saving
+    //the module emits correct descriptors.
+    std::vector<TypeDesc> fieldTypeDescs;
 };
 
 struct CompiledArrayType {
@@ -319,6 +335,14 @@ struct CompiledFunction {
     //as recorded by the TU (empty for intrinsics/unknown). Survives the
     //import merge so breakpoints can address imported functions.
     std::string sourceFile;
+    //v1.12: true formal types (one per AST formal — methods exclude the
+    //implicit this slot, mirroring defaultValues' sizing) and the return
+    //type. Empty / NonSerialized entries are "not expressible in the
+    //descriptor grammar"; stub reconstruction degrades to the int32
+    //placeholder for those. Intrinsics/builtins carry none (their records
+    //are minted without the AST capture pass and never become stubs).
+    std::vector<ParamTypeDesc> paramTypeDescs;
+    TypeDesc returnTypeDesc;
 };
 
 struct CompiledModule;
@@ -332,6 +356,11 @@ struct CompiledClass {
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
     std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
     std::vector<uint8_t>  fieldAccess;           // FA_* per field
+    //v1.12: per-field recursive type descriptors (empty entries = not
+    //expressible). Survive the import merge (indices remapped). Wire
+    //fidelity only — like the struct sibling, no stub-side reader. Built-in
+    //classes carry none (no AST capture; no consumer).
+    std::vector<TypeDesc> fieldTypeDescs;
     std::vector<uint16_t> methodIndices;         // method function indices (by declaration order)
     uint16_t constructorIdx = 0xFFFF;           // constructor function index
 };

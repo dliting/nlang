@@ -400,6 +400,7 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
         cs.name = sn.Name();
         cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
         std::vector<std::string> typeNames;
+        std::vector<SnField*> fieldTypes;
         for (auto& field : sn.Members()) {
             cs.fieldNames.push_back(field.Name());
             auto* fieldType = field.EvalDataType();
@@ -415,9 +416,11 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
                 typeNames.push_back(fieldType->Name());
             else
                 typeNames.push_back("");
+            fieldTypes.push_back(fieldType);
         }
         m_compiledModule.structs.push_back(std::move(cs));
         m_structFieldTypeNames.push_back(std::move(typeNames));
+        m_structFieldTypes.push_back(std::move(fieldTypes));
     };
     for (auto& member : root.Members()) {
         if (member.Kind() == NK_StructDecl) {
@@ -563,6 +566,30 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                 }
             }
         }
+        //v1.12: field type descriptors piggyback on this resolution loop
+        //(all classes are registered, so BuildTypeDesc's name lookups
+        //succeed). Inherited fields resolve through pDecl's ancestor
+        //chain; the synthesized Exception-family fields (message /
+        //backtrace) have no AST node and degrade from the recorded kind
+        //byte + class index. Phase-A-merged imported classes never reach
+        //here (absent from declMap) and keep their copied descriptors.
+        for (size_t i = 0; i < cc.fieldNames.size(); ++i) {
+            auto* pField = pDecl->FindField(cc.fieldNames[i]);
+            if (pField && pField->Kind() == NK_ClassField) {
+                cc.fieldTypeDescs.push_back(
+                    BuildTypeDesc(pField->EvalDataType(), m_compiledModule));
+                continue;
+            }
+            TypeDesc td;
+            if (cc.fieldTypeKinds[i] == RTK_String)
+                td.kind = RTK_String;
+            else if (cc.fieldTypeKinds[i] == RTK_Class
+                && cc.fieldClassIndices[i] != 0xFFFF) {
+                td.kind = RTK_Class;
+                td.typeIdx = cc.fieldClassIndices[i];
+            }
+            cc.fieldTypeDescs.push_back(td);  //default = NonSerialized
+        }
     }
 
     //Phase 8e-1: implicit Object inheritance. Every user class with no explicit
@@ -589,6 +616,15 @@ void VmBackend::ResolveStructClassRefs() {
                     cs.fieldClassIndices[i] = static_cast<uint16_t>(idx);
             }
         }
+        //v1.12: field type descriptors — built here because both the
+        //struct and class tables are complete (BuildTypeDesc resolves
+        //names through them). Phase-A-merged imported structs have an
+        //empty parallel list, so they keep the copied+remapped
+        //descriptors untouched.
+        auto& fieldTypes = m_structFieldTypes[si];
+        for (size_t i = 0; i < fieldTypes.size(); ++i)
+            cs.fieldTypeDescs.push_back(
+                BuildTypeDesc(fieldTypes[i], m_compiledModule));
     }
 }
 
@@ -1063,8 +1099,11 @@ void VmBackend::MergeImportedClassesStructsArrays() {
             m_compiledModule.structs.push_back(im.structs[i]);
             //Push empty typeNames to keep m_structFieldTypeNames parallel
             //with m_compiledModule.structs. ResolveStructClassRefs' inner
-            //loop iterates typeNames[i].size() so empty → no-op.
+            //loop iterates typeNames[i].size() so empty → no-op. The
+            //v1.12 m_structFieldTypes parallel list follows the same
+            //discipline (merged structs keep their copied descriptors).
             m_structFieldTypeNames.push_back({});
+            m_structFieldTypes.push_back({});
             pm.structWasPushed.insert(i);
         }
 
@@ -1097,6 +1136,11 @@ void VmBackend::MergeImportedClassesStructsArrays() {
                 if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
             for (auto& idx : cc.fieldClassIndices)
                 if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
+            //v1.12: field descriptors reference the producer's tables —
+            //remap for the pushed copy (chained re-export re-serializes
+            //them with our numbering).
+            for (auto& td : cc.fieldTypeDescs)
+                RemapTypeDesc(td, pm.structMap, pm.classMap);
         }
 
         for (uint32_t i = 0; i < im.structs.size(); ++i) {
@@ -1107,6 +1151,9 @@ void VmBackend::MergeImportedClassesStructsArrays() {
                 if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
             for (auto& idx : cs.fieldClassIndices)
                 if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
+            //v1.12: same descriptor remap as the class loop above.
+            for (auto& td : cs.fieldTypeDescs)
+                RemapTypeDesc(td, pm.structMap, pm.classMap);
         }
 
         for (uint32_t i = 0; i < im.arrayTypes.size(); ++i) {
@@ -1156,6 +1203,15 @@ void VmBackend::MergeImportedFinalize() {
             //swept; the debugger also needs them for `info locals`.
             placeholder.locals = im.functions[i].locals;
             placeholder.sourceFile = im.functions[i].sourceFile;
+            //v1.12: type descriptors must survive the merge for chained
+            //re-export (a consumer saving its own .nmod re-serializes
+            //these placeholders) — remap their table indices into ours.
+            placeholder.paramTypeDescs = im.functions[i].paramTypeDescs;
+            placeholder.returnTypeDesc = im.functions[i].returnTypeDesc;
+            for (auto& ptd : placeholder.paramTypeDescs)
+                RemapTypeDesc(ptd.type, pm.structMap, pm.classMap);
+            RemapTypeDesc(placeholder.returnTypeDesc, pm.structMap,
+                pm.classMap);
             //bytecode filled in stage B.2
             m_compiledModule.functions.push_back(std::move(placeholder));
         }
@@ -2298,6 +2354,23 @@ uint16_t VmBackend::SerializedReturnKind(SnFunction& func)
 
 void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
+
+    //v1.12 type descriptors: capture the true formal/return types for
+    //cross-module stub reconstruction. Runs before the native branch so
+    //body-less native declarations serialize their signature too. Methods
+    //contribute one descriptor per AST formal — the implicit this slot
+    //has none, mirroring defaultValues' sizing (stub consumers never see
+    //method records; the count field keeps the wire self-describing).
+    for (auto& param : func.Params()) {
+        ParamTypeDesc ptd;
+        if (param.ContainFlags(NF_Out))
+            ptd.flags |= PTDF_Out;
+        ptd.type = BuildTypeDesc(param.EvalDataType(), m_compiledModule);
+        compiledFunc.paramTypeDescs.push_back(std::move(ptd));
+    }
+    if (func.HasReturn() && func.ReturnType())
+        compiledFunc.returnTypeDesc = BuildTypeDesc(
+            func.ReturnType()->Field(), m_compiledModule);
 
     //Phase 9f: native function declaration (`native int f(...);`). No
     //bytecode — the VM dispatches by name through the host-registered
