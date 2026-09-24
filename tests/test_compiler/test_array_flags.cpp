@@ -1,12 +1,14 @@
 /*---
-test_array_flags.cpp - generic instance key array-flag unit tests.
+test_array_flags.cpp - generic instance array-type-arg unit tests.
 
-In-process ModuleBuilder coverage of the C-period key split: generic
-instantiations that differ only in the array-ness of a type argument
-(List<int> vs List<int[]>) must mint distinct synthetic SnClassDecl
-instances, and the mirror GenericArrayFlags() must carry the per-arg
-array flag. Console-style suite (same shape as test_stdlib); the
-e2e suite pins the end-to-end compile/run behavior.
+In-process ModuleBuilder coverage of the instantiation key split:
+generic instantiations that differ only in the array-ness of a type
+argument (List<int> vs List<int[]>) must mint distinct synthetic
+SnClassDecl instances. Since 0.7.3 B the split is carried by the type
+argument itself — an array-typed argument IS the interned
+SnArrayTypeToken (pointer identity), so GenericTypeArgs()[0] exposes
+the array-ness directly. Console-style suite (same shape as
+test_stdlib); the e2e suite pins the end-to-end compile/run behavior.
 ---*/
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -214,9 +216,10 @@ static void test_gc_dict_arm_traces_array()
     PASS();
 }
 
-//C-period hole 1: instantiations differing only in the array-ness of a
-//type argument must NOT share the cached synthetic class (the erased
-//key collapsed them), and the mirror must expose the flag.
+//Instantiations differing only in the array-ness of a type argument
+//must NOT share the cached synthetic class: the interned token in the
+//type-arg slot keeps the keys distinct (0.7.3 B; the pre-token erased
+//key collapsed them).
 static void test_generic_array_flags_split_keys()
 {
     TEST(generic_array_flags_split_keys);
@@ -256,24 +259,27 @@ static void test_generic_array_flags_split_keys()
     }
     CHECK(pPlain && pArrayOf, "both variants instantiated");
     CHECK(pPlain != pArrayOf, "plain and array-of must not share a class");
-    CHECK(pArrayOf->GenericArrayFlags().size() == 1
-        && pArrayOf->GenericArrayFlags()[0] == 1,
-        "mirror carries the array flag");
-    CHECK(pPlain->GenericArrayFlags().size() == 1
-        && pPlain->GenericArrayFlags()[0] == 0,
-        "plain instantiation flag is 0");
-    //Display name should render the array-ness (diagnostic readability).
-    CHECK(pArrayOf->Name().find("[]") != std::string::npos,
-        "display name renders array-ness, got: " + pArrayOf->Name());
+    //The type-arg slot carries the identity: the interned token for the
+    //array variant, the plain primitive field for the scalar variant.
+    CHECK(pArrayOf->GenericTypeArgs().size() == 1
+        && pArrayOf->GenericTypeArgs()[0]->Kind() == NK_ArrayTypeToken,
+        "array variant's type arg is the interned token");
+    CHECK(pPlain->GenericTypeArgs().size() == 1
+        && pPlain->GenericTypeArgs()[0]->Kind() == NK_Int32,
+        "plain variant's type arg is the int field");
+    //Display name renders the token ("Int32[]") — diagnostic readability.
+    CHECK(pArrayOf->Name().find("Int32[]") != std::string::npos,
+        "display name renders the array token, got: " + pArrayOf->Name());
     PASS();
 }
 
-//Dict.keys() re-cast (C-period consumption 6): the inferred List<K>
-//must inherit the Dict's key-array flag, or the split key turns the
-//today-working explicit `List<int[]> ks = d.keys()` into a reject.
-static void test_dict_keys_recast_carries_array_flag()
+//Dict.keys() re-cast: the inferred List<K> must carry the SAME interned
+//token as the Dict's key slot — the per-TU intern table guarantees one
+//token per element type, so a distinct instance would mean the re-cast
+//minted a fresh type identity and the instantiation keys would diverge.
+static void test_dict_keys_recast_carries_token()
 {
-    TEST(dict_keys_recast_carries_array_flag);
+    TEST(dict_keys_recast_carries_token);
     auto out = compileOne(
         "int main() {\n"
         "    Dict<int[],int> d = new Dict<int[],int>();\n"
@@ -303,9 +309,22 @@ static void test_dict_keys_recast_carries_array_flag()
         };
     findKeys(root);
     CHECK(pKeys, "keys() call resolved to a synthetic List class");
-    CHECK(pKeys->GenericArrayFlags().size() == 1
-        && pKeys->GenericArrayFlags()[0] == 1,
-        "re-cast List carries the key array flag");
+    //The Dict instantiation shares one cache entry between decl and new;
+    //either Dict expr yields the same synthetic class.
+    SnClassDecl* pDict = nullptr;
+    for (auto* pExpr : exprs) {
+        if (!pExpr->TypeArgs().empty()
+            && pExpr->TypeArgs()[0]
+            && pExpr->TypeArgs()[0]->Kind() == NK_ArrayTypeExpr)
+            pDict = instantiationOf(*pExpr);
+    }
+    CHECK(pDict, "Dict<int[],int> instantiation found");
+    CHECK(pKeys->GenericTypeArgs().size() == 1
+        && pKeys->GenericTypeArgs()[0]->Kind() == NK_ArrayTypeToken,
+        "re-cast List's key slot carries the interned token");
+    CHECK(pKeys->GenericTypeArgs()[0] == pDict->GenericTypeArgs()[0],
+        "re-cast List shares the Dict's interned key token (pointer "
+        "identity)");
     PASS();
 }
 
@@ -313,7 +332,7 @@ int main()
 {
     Runtime::StaticInit();
     test_generic_array_flags_split_keys();
-    test_dict_keys_recast_carries_array_flag();
+    test_dict_keys_recast_carries_token();
     test_gc_list_arm_traces_array();
     test_gc_dict_arm_traces_array();
     std::cerr << "\narray_flags: " << g_pass << " passed, "

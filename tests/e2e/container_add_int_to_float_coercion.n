@@ -1,0 +1,11 @@
+//0.7.3 B (T11): the method-value gate also fixes the .add twin of
+//container_int_to_float_coercion — an int argument into a List<float>
+//element slot is wrapped int→float (previously the raw int bits were
+//stored and read back as a denormal, 1.4013e-45).
+int main() {
+    List<float> lf = new List<float>();
+    lf.add(1);
+    if (lf.get(0) != 1.0)
+        return 1;
+    return 7;
+}

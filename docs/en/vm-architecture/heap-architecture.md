@@ -147,11 +147,11 @@ substitution:
 A `m_bIsGenericInst = true` flag on the SnClassDecl marks synthetic
 instances so codegen knows to emit `OP_Box` for primitive-T method
 parameters and `OP_Unbox` for primitive-T Get() returns — **except when
-the type argument is an array type** (`List<int[]>`): the erased T is a
-primitive kind, but elements flow as raw array handles with no boxing;
-the per-argument array-ness travels on the instantiation
-(`GenericArrayFlags()`), so every boxing region and the resolver gates
-read it from there.
+the type argument is an array type** (`List<int[]>`): an array-typed
+argument is carried as the interned array-type token in the
+instantiation's type-arg slot, whose runtime kind is `RTK_Array` (not a
+primitive), so the boxing regions naturally treat its elements as raw
+array handles with no boxing.
 
 **Runtime storage.** List elements live in a side table:
 

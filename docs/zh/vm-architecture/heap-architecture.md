@@ -134,10 +134,10 @@ struct GenericInstKey {
 
 SnClassDecl 上的 `m_bIsGenericInst = true` 标志标记合成实例，代码生
 成据此为基本类型 T 的方法参数发射 `OP_Box`、为基本类型 T 的 Get() 返回值发射
-`OP_Unbox`——**类型实参是数组类型时除外**（`List<int[]>`）：擦除后的
-T 是基本类型 kind，但元素以裸数组句柄流动、不做装箱；逐参数的数组性随
-实例化本身传递（`GenericArrayFlags()`），所有装箱区域与 resolver 门
-都从这里读取。
+`OP_Unbox`——**类型实参是数组类型时除外**（`List<int[]>`）：数组类型的
+实参以驻留的数组类型令牌保存在实例化的类型实参槽中，其运行期 kind 是
+`RTK_Array`（非基本类型），装箱区域自然将这类元素按裸数组句柄处理、
+不做装箱。
 
 **运行期存储。** List 元素存放在侧表中：
 

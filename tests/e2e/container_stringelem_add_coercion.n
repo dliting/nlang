@@ -1,0 +1,14 @@
+//0.7.3 B (T11): the method-value gate also carries the D9 coercion —
+//an array into a List<string> element slot coerces via the cast table's
+//token→string Auto (same verdict as the subscript path, pinned by
+//container_stringelem_subscript_coercion).
+int main() {
+    List<string> ls = new List<string>();
+    int[] ia = new int[2];
+    ia[0] = 1;
+    ia[1] = 2;
+    ls.add(ia);
+    int r = 0;
+    if (ls.get(0) == "[1, 2]") { r = 6; }
+    return r;
+}

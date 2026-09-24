@@ -38,10 +38,10 @@ target_link_libraries(test_stdlib
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
-# C-period: generic instance key array-flag unit tests (console suite).
+# Generic instance array-type-arg unit tests (console suite).
 # In-process ModuleBuilder compile of real .n sources, asserting the
 # key split (List<int> vs List<int[]> mint distinct classes) and the
-# GenericArrayFlags() mirror through TreeRootView.
+# interned SnArrayTypeToken carried in the type-arg slots.
 add_executable(test_array_flags
     test_compiler/test_array_flags.cpp
 )

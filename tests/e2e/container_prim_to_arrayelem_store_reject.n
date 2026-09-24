@@ -1,6 +1,7 @@
-//Storing a non-array value into a container whose element IS
+//Storing a non-null scalar into a container whose element IS
 //array-typed (List<int[]>) must be rejected: the slot is GC-traced as
 //an array handle, so a raw primitive later reads as a bogus handle.
+//Only the null literal converts from int to an array type.
 int main() {
     int[] a = new int[2];
     List<int[]> li = new List<int[]>();

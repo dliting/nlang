@@ -1,0 +1,10 @@
+//0.7.3 B (T11): the container-method value argument now goes through
+//the cast table — an array into a List<int> element slot is TCK_None
+//and must be rejected at compile time (previously it compiled and
+//stored a raw array handle into a primitive-traced slot).
+int main() {
+    int[] ia = new int[2];
+    List<int> l = new List<int>();
+    l.add(ia);
+    return 0;
+}

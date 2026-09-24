@@ -1,6 +1,7 @@
 //Positive guard: a container whose element IS array-typed
 //(List<int[]>) accepts an array value through subscript-store sugar
-//— the ElemIsArrayValued passthrough must keep this legal.
+//— same interned token on both sides of the cast table means
+//pass-through.
 int main() {
     int[] a2 = new int[2];
     a2[0] = 4;

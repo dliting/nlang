@@ -1093,7 +1093,7 @@ array_tostring_invoke 7
 array_tostring_newarray 7
 array_tostring_listelem 7
 compound_str_array_append 7
-container_prim_to_arrayelem_store_reject compile_error element type is an array
+container_prim_to_arrayelem_store_reject compile_error only the null literal converts
 arg_array_to_int_reject compile_error not compatible with the declaration
 arg_int_to_arrayparam_reject compile_error not compatible with the declaration
 out_array_mismatch_reject compile_error not compatible with the declaration
@@ -1118,6 +1118,9 @@ stringelem_array_coercion 5
 string_subscript_read_reject compile_error string does not support subscript access
 string_subscript_write_reject compile_error string does not support subscript access
 container_stringelem_subscript_coercion 6
+container_stringelem_add_coercion 6
+container_method_arg_array_reject compile_error Incompatible type
+container_add_int_to_float_coercion 7
 assign_intarr_to_stringarr_reject compile_error an array value only converts to the same array type
 return_intarr_to_stringarr_reject compile_error an array value only converts to the same array type
 arg_intarr_to_stringarrparam_reject compile_error an array value only converts to the same array type

@@ -1,5 +1,6 @@
 //A type alias to an array type used as a generic type argument — the
-//array-ness must survive the alias indirection into GenericArrayFlags.
+//array-ness must survive the alias indirection into the interned
+//array-type token carried by the instantiation's type-arg slot.
 import io;
 using Ints = int[];
 int main() {

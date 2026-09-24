@@ -108,10 +108,6 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
-//C-period single read channel: whether a container-typed expression's
-//ELEMENT flow is array-typed (List<int[]>, Dict<K, V[]>). Shared with
-//StatementResolver's container subscript-store gate.
-bool ElemIsArrayValued(const SnExpression& base);
 
 
 /*
