@@ -403,12 +403,11 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
         for (auto& field : sn.Members()) {
             cs.fieldNames.push_back(field.Name());
             auto* fieldType = field.EvalDataType();
-            //Array redesign B: the kind must come from the DECLARED type
-            //(SnField::IsArrayType). EvalDataType of an array field returns
-            //the ELEMENT type, which mis-filed `int[]` as RTK_Int32 and let
-            //writeStruct serialize the array handle as 4 opaque bytes.
-            uint16_t ftk = field.IsArrayType()
-                ? RTK_Array : RuntimeTypeKind(fieldType);
+            //0.7.3 B: array fields bind EvalDataType to their interned
+            //array token, so RuntimeTypeKind alone files them as
+            //RTK_Array. (Pre-token, EvalDataType degraded to the element
+            //type and mis-filed `int[]` as RTK_Int32 in writeStruct.)
+            uint16_t ftk = RuntimeTypeKind(fieldType);
             cs.fieldTypeKinds.push_back(ftk);
             cs.fieldStructIndices.push_back(0xFFFF);
             cs.fieldClassIndices.push_back(0xFFFF);
@@ -495,10 +494,11 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                 if (member.Kind() == NK_ClassField) {
                     auto& cf = static_cast<SnClassField&>(member);
                     cc.fieldNames.push_back(cf.Name());
-                    //Declared-type kind, mirroring RegisterStructs.
-                    uint16_t ftk = cf.IsArrayType()
-                        ? RTK_Array : RuntimeTypeKind(cf.EvalDataType());
-                    cc.fieldTypeKinds.push_back(ftk);
+                    //0.7.3 B: array fields carry their interned token in
+                    //EvalDataType — RuntimeTypeKind files both arrays and
+                    //scalars (mirrors RegisterStructs).
+                    cc.fieldTypeKinds.push_back(
+                        RuntimeTypeKind(cf.EvalDataType()));
                     cc.fieldStructIndices.push_back(0xFFFF);
                     cc.fieldClassIndices.push_back(0xFFFF);
                     cc.fieldAccess.push_back(static_cast<uint8_t>(cf.Access()));
@@ -510,10 +510,11 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
             if (member.Kind() == NK_ClassField) {
                 auto& cf = static_cast<SnClassField&>(member);
                 cc.fieldNames.push_back(cf.Name());
-                //Declared-type kind, mirroring RegisterStructs.
-                uint16_t ftk = cf.IsArrayType()
-                    ? RTK_Array : RuntimeTypeKind(cf.EvalDataType());
-                cc.fieldTypeKinds.push_back(ftk);
+                //0.7.3 B: array fields carry their interned token in
+                //EvalDataType — RuntimeTypeKind files both arrays and
+                //scalars (mirrors RegisterStructs).
+                cc.fieldTypeKinds.push_back(
+                    RuntimeTypeKind(cf.EvalDataType()));
                 cc.fieldStructIndices.push_back(0xFFFF);
                 cc.fieldClassIndices.push_back(0xFFFF);
                 cc.fieldAccess.push_back(static_cast<uint8_t>(cf.Access()));
@@ -613,25 +614,19 @@ uint16_t VmBackend::RegisterArrayType(SnField* pElemType) {
     return static_cast<uint16_t>(m_compiledModule.arrayTypes.size() - 1);
 }
 
-//Recursively walk the AST collecting array type usages.
-//Array types appear in: LocalDeclStmt.Type() when IsArrayType(), NewArrayExpr,
-//struct/class fields, function params, return types. For Phase 4 simplicity,
-//we scan LocalDeclStmt, struct fields, class fields, formal params, and
-//NewArrayExpr. The latter is registered lazily at codegen time.
+//Collect the array types used by declarations: struct/class fields,
+//formal params, and local declarations. Array-returning functions and
+//array-valued expressions register lazily at codegen time.
+//0.7.3 B: a resolved array type expression binds Field() to its interned
+//array token (alias uses included — the alias pre-pass splices the target
+//type in before resolve), so the element type is one ElemTypeOf() away
+//and the syntactic shape walk is gone.
 void VmBackend::RegisterArrayTypes(SnNamespace& root) {
     auto processType = [&](SnFieldExpr* pTypeExpr) {
-        if (pTypeExpr && pTypeExpr->IsArrayType()) {
-            //Walk through nested SnArrayTypeExpr nodes to find the element type.
-            auto* pCur = pTypeExpr;
-            while (pCur->Kind() == NK_ArrayTypeExpr) {
-                pCur = static_cast<SnArrayTypeExpr*>(pCur)->ElementType();
-            }
-            //pCur is now the base type (SnNameExpr for primitives/classes).
-            if (auto* pNameExpr = dynamic_cast<SnNameExpr*>(pCur)) {
-                if (pNameExpr->Field())
-                    RegisterArrayType(pNameExpr->Field());
-            }
-        }
+        auto* pField = pTypeExpr ? pTypeExpr->Field() : nullptr;
+        if (pField && pField->Kind() == NK_ArrayTypeToken)
+            RegisterArrayType(static_cast<SnArrayTypeToken*>(
+                pField)->ElemTypeOf());
     };
     std::function<void(SnField&)> walkField = [&](SnField& f) {
         if (f.Kind() == NK_StructField) {
@@ -655,9 +650,7 @@ void VmBackend::RegisterArrayTypes(SnNamespace& root) {
             for (auto& child : static_cast<SnParagraph&>(s).Statements())
                 walkStmt(child);
         } else if (s.Kind() == NK_LocalDeclStmt) {
-            auto& decl = static_cast<SnLocalDeclStmt&>(s);
-            if (decl.Type() && decl.Type()->IsArrayType())
-                processType(decl.Type());
+            processType(static_cast<SnLocalDeclStmt&>(s).Type());
         } else if (s.Kind() == NK_IfStmt) {
             auto& ifStmt = static_cast<SnIfStmt&>(s);
             if (ifStmt.ThenStmt()) walkStmt(*ifStmt.ThenStmt());
@@ -1222,8 +1215,10 @@ void VmBackend::MergeImportedFinalize() {
 
 
 //Enum types are int32 at runtime. Struct types use RTK_Struct.
-//Array types are detected via SnField::IsArrayType() (overridden by
-//SnArrayTypeExpr to return true), not via the resolved element type.
+//Array-ness is read through the IsArrayType() polymorphic hook: both a
+//syntactic SnArrayTypeExpr and an interned SnArrayTypeToken (0.7.3 B —
+//what resolved declarations and array-valued expressions bind to)
+//return true, so one check covers type shapes and value tokens alike.
 uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     if (!pType) return RTK_Int32;
     if (pType->IsArrayType()) return RTK_Array;
@@ -2290,17 +2285,14 @@ static CallSlotStats ComputeCallSlotStats(SnFunction& sn) {
 }
 
 //Return-type kind for .nmod serialization (caller checks HasReturn()).
-//Array-ness lives on the return TYPE EXPRESSION (ReturnType()->IsArrayType()),
-//not on Field(): for `int[]` Field() resolves to the ELEMENT field, so the
-//kind would degrade to RTK_Int32 and imported array-returning stubs would
-//masquerade as int at type-check sites (Step 0 review round 3; same
-//node-level trap the resolver's array-valued gates guard against).
+//0.7.3 B: an array return type binds Field() to its interned array
+//token, so RuntimeTypeKind alone yields RTK_Array. The pre-token
+//IsArrayType() short-circuit existed because Field() degraded `int[]`
+//to its element and imported array-returning stubs masqueraded as int
+//at type-check sites. Null (unresolved) keeps the legacy 0 sentinel.
 uint16_t VmBackend::SerializedReturnKind(SnFunction& func)
 {
-    SnFieldExpr* pRetExpr = func.ReturnType();
-    if (pRetExpr->IsArrayType())
-        return RTK_Array;
-    SnField* pRetField = pRetExpr->Field();
+    SnField* pRetField = func.ReturnType()->Field();
     return pRetField ? static_cast<uint16_t>(RuntimeTypeKind(pRetField)) : 0;
 }
 
@@ -2490,14 +2482,13 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     }
 
     //Struct deep-copy: if the formal is a struct type, copy the heap
-    //subtree so the callee gets its own. Array-typed formals pass by
-    //reference regardless of element kind (Phase 9d-3 IsArrayType
-    //dispatch invariant): EvalDataType() degrades `Point[]` to its
-    //element type, which would otherwise route the array through the
-    //struct copy and mislabel the record (C-period hole 3 exposure).
+    //subtree so the callee gets its own. Array-typed formals carry their
+    //interned array token in EvalDataType (0.7.3 B), which
+    //RuntimeTypeKind files as RTK_Array — so arrays pass by reference
+    //regardless of element kind, with no separate IsArrayType guard
+    //(Phase 9d-3 dispatch invariant, now derived from the token).
     auto* pFormalType = b.pFormal->EvalDataType();
-    if (pFormalType && !b.pFormal->IsArrayType()
-        && RuntimeTypeKind(pFormalType) == RTK_Struct) {
+    if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct) {
         int structIdx = m_compiledModule.FindStruct(pFormalType->Name());
         emitter.Emit(OpCode::OP_CopyStruct);
         emitter.EmitUint16(m_currFunc->tempSlot);
@@ -4142,8 +4133,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
 
         //---- Array form: target is T[] ----
         //For `int[] arr = [..]`, the resolver set TargetIsArray=true and
-        //stored the element type field in EvalDataType (since NLang has no
-        //standalone array-type object — array-ness is a flag on variables).
+        //stored the ELEMENT type field in EvalDataType — the init-list is
+        //deliberately not tokenized (0.7.3 B): RegisterArrayType below
+        //consumes it as the element directly, and a token here would
+        //register "array of array".
         if (initList.TargetIsArray()) {
             SnField* pElemField = pTarget;
             uint16_t arrayTypeIdx = RegisterArrayType(pElemField);
@@ -4880,22 +4873,13 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //the local variable slot here.
     if (kind == NK_LocalDeclStmt) {
         auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
-        //Detect array type via IsArrayType() on the type expression.
-        bool isArrayType = decl.Type()->IsArrayType();
-        uint8_t typeKind;
-        SnField* evalType = nullptr;
-        if (isArrayType) {
-            typeKind = RTK_Array;
-            //Walk through SnArrayTypeExpr to find the element type.
-            auto* pCur = decl.Type();
-            while (pCur->Kind() == NK_ArrayTypeExpr)
-                pCur = static_cast<SnArrayTypeExpr*>(pCur)->ElementType();
-            if (auto* pNameExpr = dynamic_cast<SnNameExpr*>(pCur))
-                evalType = pNameExpr->Field();
-        } else {
-            evalType = decl.Type()->Field();
-            typeKind = RuntimeTypeKind(evalType);
-        }
+        //0.7.3 B: an array type expression binds Field() to its interned
+        //array token (alias uses included — the alias pre-pass splices the
+        //target type in before resolve), so one Field() read plus
+        //RuntimeTypeKind files every local, arrays included. The separate
+        //IsArrayType shape branch and element walk are gone.
+        SnField* evalType = decl.Type()->Field();
+        uint8_t typeKind = RuntimeTypeKind(evalType);
         for (auto& local : decl.Decls()) {
             uint16_t offset = AllocLocal(local.name, VALUE_SIZE, typeKind, false);
             //For struct types, emit OP_AllocStruct to allocate on heap.
@@ -4925,13 +4909,13 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 if (target.kind == BareIdTarget::Local) {
                     uint16_t offset = target.localOffset;
                     auto* varType = field->EvalDataType();
-                    //Array locals (`Point[] arr = ...`): EvalDataType returns
-                    //the ELEMENT type, so the struct check below would
-                    //deep-copy the whole array block as if it were one
-                    //struct (corrupting heap kind metadata and GC tracing).
-                    //Array assignment is a reference (heap idx) copy.
-                    if (varType && RuntimeTypeKind(varType) == RTK_Struct
-                        && !field->IsArrayType()) {
+                    //Array locals (`Point[] arr = ...`) carry their interned
+                    //array token in EvalDataType (0.7.3 B), which
+                    //RuntimeTypeKind files as RTK_Array — so the struct
+                    //deep-copy branch no longer needs a separate
+                    //IsArrayType guard, and array assignment stays a
+                    //reference (heap idx) copy.
+                    if (varType && RuntimeTypeKind(varType) == RTK_Struct) {
                         //Struct assignment: evaluate right to temp, then deep-copy.
                         EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
                         int structIdx = m_compiledModule.FindStruct(varType->Name());
@@ -5113,18 +5097,18 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
                 if (fieldOffInt < 0) return;
                 uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
                 SnField* fieldType = nullptr;
-                bool fieldIsArray = false;
                 for (auto& sf : structDecl->Members()) {
                     if (sf.Name() == fieldName) {
                         fieldType = sf.EvalDataType();
-                        fieldIsArray = sf.IsArrayType();
                         break;
                     }
                 }
-                //Array-typed struct fields store a heap idx (reference
-                //semantics) — same IsArrayType guard as local assignment.
-                if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct
-                    && !fieldIsArray) {
+                //Struct-to-struct field assignment: deep-copy first. An
+                //array-typed field carries its interned array token in
+                //EvalDataType (0.7.3 B), which RuntimeTypeKind files as
+                //RTK_Array — array stores stay reference (heap idx)
+                //copies, with no separate IsArrayType guard.
+                if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct) {
                     //Struct-to-struct field assignment: deep-copy first.
                     //Phase 10 audit round-4: stage rhs/copy/outer in an
                     //EvalAreaClaim(3) — same parking discipline as the

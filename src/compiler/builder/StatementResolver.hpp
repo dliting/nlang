@@ -943,16 +943,14 @@ public:
 	{
 		assert(m_pVisitor);
 		sn.Cond()->Accept(*m_pVisitor);
-		//D1 family gate. Arrays masquerade as their element type
-		//(EvalDataType trap), so the array check comes FIRST. An
-		//unresolved cond already reported its own error — skip the
-		//family check to avoid cascades. The null literal is Int32-typed
-		//(nlang.y KT_Null) and would slip through the family check as
-		//Int — reject it on the cond side too, mirroring the label side.
+		//D1 family gate. An unresolved cond already reported its own
+		//error — skip the family check to avoid cascades. The null
+		//literal is Int32-typed (nlang.y KT_Null) and would slip through
+		//the family check as Int — reject it on the cond side too,
+		//mirroring the label side. Array values need no dedicated arm:
+		//an array-valued cond carries its interned array token, whose
+		//kind falls into the None family below (0.7.3 B).
 		if (sn.Cond()->ContainFlags(NF_NullLiteral))
-			m_Env.Log(CLL_Error, sn.Cond()->Location(),
-				"switch discriminant must be int, float, string, or enum");
-		else if (sn.Cond()->IsArrayValued())
 			m_Env.Log(CLL_Error, sn.Cond()->Location(),
 				"switch discriminant must be int, float, string, or enum");
 		else if (sn.Cond()->IsResolved())
