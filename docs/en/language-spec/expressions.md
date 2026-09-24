@@ -248,6 +248,12 @@ The following runtime-checked conversions are supported:
 
 Type-incompatible casts (`5 as string`, `o as int` when `o` holds a
 class ref) are compile errors — `as` only permits same/box/unbox/downcast.
+Array operands are rejected outright (`ia as int`, `ia as Object` —
+"the cast operand is an array"): an array value converts only through
+assignment (to its own array type, plus the whole-value string
+coercion), never through `as` (see
+[Known Limitations](known-limitations.md) for the full array-value
+conversion rule).
 
 ### Collection Initializers
 

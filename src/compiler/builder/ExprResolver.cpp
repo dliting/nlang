@@ -708,8 +708,9 @@ void ExprResolveAccessor::BindArrayTypeToken(SnExpression& expr) {
 
 //Depth of the array-type chain (int[] = 1, int[][] = 2, …). Depth >= 2
 //is a jagged declaration form: the VM has no multi-dimensional layout
-//and EvalDataType masquerade degrades it twice silently, so it is
-//rejected at the declaration site (array redesign B, spec §5.5).
+//(pre-token, the element masquerade additionally degraded such
+//declarations twice silently), so it is rejected at the declaration
+//site (array redesign B, spec §5.5).
 int ArrayTypeDepth(const SnFieldExpr* pType)
 {
 	int depth = 0;
@@ -1130,9 +1131,9 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	ResolveExpressionList(invoke.Params());
 
 	//Per-param type policy: exact RTK kind match, or int->float widening
-	//(wrapped in a cast expr in place — FixupParamTypes recipe over
-	//invoke.Children()). Everything else is a compile error naming the
-	//function, so the user sees which call is wrong.
+	//(wrapped in a cast expr in place — the FixupParamTypesWithBindings
+	//recipe over invoke.Children()). Everything else is a compile
+	//error naming the function, so the user sees which call is wrong.
 	auto& children = invoke.Children();
 	size_t paramIdx = 0;
 	for (auto it = children.begin(); it != children.end(); ++it, ++paramIdx)
@@ -1480,18 +1481,21 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			m_pContext = pOuterField->Parent();
 	}
 
-	//Phase 12 review MAJOR-1: array-valued receivers masquerade as their
-	//ELEMENT type in EvalDataType (trap-12 family, instance #7). Without
-	//this gate the element type's method table binds — string[] receivers
-	//enter the string-builtin block, enum/class receivers bind user
-	//methods — and codegen passes the array's heap index as the receiver
-	//(silent wrong value; verified: enum[].rank() returned heapIdx+10).
+	//Array-valued receivers expose no methods — the gate gives the
+	//named, actionable rejection ("index an element first") instead of
+	//the generic resolution failure a token-typed receiver produces.
+	//(Pre-token this was worse: the element masquerade bound the
+	//ELEMENT type's method table — string[] receivers entered the
+	//string-builtin block, enum/class receivers bound user methods —
+	//and codegen passed the array's heap index as the receiver; verified
+	//enum[].rank() returned heapIdx+10. Phase 12 review MAJOR-1, trap-12
+	//family instance #7.)
 	//toString is exempt ONLY for lvalue receivers (identifier / member
 	//field): the non-class toString dispatch below detects exactly those
 	//shapes via the IsArrayType() field check. Call-result array values
 	//(l.get(0), obj.mk(), l[0], delegate calls) route nowhere in that
-	//dispatch — exempting them would bind the ELEMENT type's toString
-	//and pass the array heap index as the element value (P2).
+	//dispatch — their string conversion is the cast table's array→string
+	//coercion in expression positions, not a method call.
 	{
 		auto* pInnerForGate = snMember.Inner();
 		if (pInnerForGate && pInnerForGate->Kind() == NK_InvokeExpr
@@ -1975,11 +1979,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 			&& invoke.Params().begin() == invoke.Params().end())
 		{
 			bool isNonClassToString = false;
-			//Phase 9b-pre: array receiver — Array is a VM primitive, not a
-			//class. MUST be checked BEFORE the int/float path because
-			//EvalDataType for `int[] arr` returns the element type (NK_Int32);
-			//array-ness is stored separately on the SnField via IsArrayType().
-			//Detection matches ExprResolver's array.length path.
+			//Array receiver — Array is a VM primitive, not a class, so
+			//this is the only arm that catches it: the receiver's type
+			//context is the interned array token (never a scalar), so
+			//the enum and int/float arms below cannot fire. Detection
+			//keys on the FIELD's declared array-ness for identifier/
+			//member shapes (the same lvalue family as the receiver
+			//gate above) — the authoritative declaration signal.
 			{
 				auto outerKind = snMember.Outer()->Kind();
 				if (outerKind == NK_IdentifierExpr
@@ -2874,9 +2880,10 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 	}
 	else if (auto *pInferred = sn.InferredTarget())
 	{
-		//Bare form: parent populated the LHS variable.
-		//For array variables (int[] arr), IsArrayType()==true but
-		//EvalDataType() returns the element type — preserve both signals.
+		//Bare form: parent populated the LHS variable. bIsArray keeps the
+		//declaration-side signal (IsArrayType()); the type slot carries
+		//the interned token for array variables, peeled to the element
+		//below.
 		bIsArray = pInferred->IsArrayType();
 		pTargetField = pInferred->EvalDataType();
 		//0.7.3 B token path: an
@@ -4114,29 +4121,6 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 	}
 }
 
-int ExprResolveAccessor::CalcDistanceOfParams(
-	const SnExpressionList &concretParams,
-	const SnFunction::ParamList &formalParams) const
-{
-	int nDistance = 0;
-	auto iFormal = formalParams.begin();
-	auto iFormalEnd = formalParams.end();
-	for (auto &concret : concretParams)
-	{
-		if (!concret.EvalDataType() || !iFormal->EvalDataType())
-			return -1;
-		if (iFormal == iFormalEnd)
-			return -1;
-		nDistance +=
-			CalcTypeDistance(*concret.EvalDataType(), *iFormal->EvalDataType());
-		++iFormal;
-	}
-	//Too few arguments — formal params remaining
-	if (iFormal != iFormalEnd)
-		return -1;
-	return nDistance;
-}
-
 int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	const SnField &target) const
 {
@@ -4205,25 +4189,6 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
 		return std::abs(srcKind - tgtKind);
 	return -1;
-}
-
-void ExprResolveAccessor::FixupParamTypes(SnInvokeExpr &invoke,
-	SnFunction::ParamList &formalParams)
-{
-	auto &concreteParams = invoke.Children();
-	auto iConcreteEnd = concreteParams.end();
-	auto iFormalEnd = formalParams.end();
-	auto iFormal = formalParams.begin();
-	for (auto iConcrete = concreteParams.begin();
-		iConcrete != iConcreteEnd; ++iConcrete)
-	{
-		assert(iFormal != iFormalEnd);
-		assert(static_cast<SyntaxNode &>(*iConcrete).IsExpression());
-		auto &cParam = static_cast<SnExpression &>(*iConcrete);
-		auto &fParam = *iFormal;
-		TypeCastInfo castInfo(cParam.EvalDataType(), fParam.EvalDataType());
-		FixupExprType(iConcrete, castInfo);
-	}
 }
 
 bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,

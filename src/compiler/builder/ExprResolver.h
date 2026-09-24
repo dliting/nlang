@@ -407,16 +407,6 @@ private:
 		std::vector<FormalBinding> &bindings);
 
 	/*
-	Calculate the type "distance" from concrete parameters to formal
-	parameters.
-	\return If the distance between any of the concrete parameters and its
-	corresponding formal one is negative, return -1; else return the sum of
-	all distances of parameters.
-	*/
-	int CalcDistanceOfParams(const SnExpressionList &concretParams,
-		const SnFunction::ParamList &formalParams) const;
-
-	/*
 	Calculate the type "distance" from source type to target type.
 	\return
 	1) If the source type can be implicitly covert to target type:
@@ -434,9 +424,6 @@ private:
 	*/
 	int CalcTypeDistance(const SnField &source,
 		const SnField &target) const;
-
-	void FixupParamTypes(SnInvokeExpr &invoke,
-		SnFunction::ParamList &formalParams);
 
 	/*
 	Create a cast expression and replace the exist expression by cast

@@ -5650,10 +5650,12 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
             }
         } else if (pIter->Kind() == NK_MemberExpr) {
             //Member lvalue (`b.a` / `this.a`) with an array-typed field —
-            //the same lvalue family as the identifier shape. Read the
-            //inner identifier's field: the member's own EvalDataType is
-            //the degraded ELEMENT type (EvalDataType dispatch-order trap),
-            //which would mis-route this into the List path.
+            //the same lvalue family as the identifier shape, keyed on the
+            //FIELD's declared array-ness (the authoritative declaration
+            //signal). Pre-token the member's own EvalDataType degraded to
+            //the element type (the dispatch-order trap) and mis-routed
+            //this into the List path; post-flip it carries the token and
+            //the value-form arm below routes the same shapes as backstop.
             auto* pInner = static_cast<SnMemberExpr*>(pIter)->Inner();
             if (pInner && pInner->Kind() == NK_IdentifierExpr) {
                 auto* pField = static_cast<SnIdentifierExpr*>(pInner)->Field();

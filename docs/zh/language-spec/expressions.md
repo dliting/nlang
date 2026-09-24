@@ -233,6 +233,10 @@ expr as TypeName
 
 类型不兼容的转换（`5 as string`；`o` 持有 class 引用时的
 `o as int`）是编译错误——`as` 只允许 same/box/unbox/downcast。
+数组操作数被整体拒绝（`ia as int`、`ia as Object`——"the cast
+operand is an array"）：数组值只经赋值转换（到它自身的数组类型，
+以及整值 string 强制转换），从不经 `as`（完整的数组值转换规则见
+[已知限制](known-limitations.md)）。
 
 ### 集合初始化器
 
