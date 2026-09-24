@@ -68,6 +68,10 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 - 边缘语义具名化：jagged `T[][]` 六声明位点 resolve 期拒绝、foreach 非容器源拒绝（string 源含）、`.length` 任意数组值接收者可解析（`li.get(0).length`/`lib.mk(3).length`）
 - `.nmod` v1.10 语义地板（字段 kind 语义变更烤在格式里，旧模块须重编译）；852 e2e / ctest 27+41
 
+### 数组类型一等令牌（0.7.3 表示层根治）✅（2026-09-25）
+- 数组类型成为一等驻留令牌（`SnArrayTypeToken` + TU 级驻留表，指针同一即类型同一）：声明侧与值侧共用同一令牌，`IsArrayValued` 由令牌派生；侧信道（`m_bArrayValued`/`GenericArrayFlags` 家族）整族退役，0.7.2 位点级守卫族整删，数组转换裁决统一收敛 GetCastInfo
+- 语义收口：协变别名（`Base[] ba = da`）与 `enum[]`↔`int[]` 互通编译期拒；string 强制转换全位置统一（string 形参 / `io.print` / 元素槽）；string 下标编译期拒；foreach 数组值源翻正（源单次求值）；数值二元 / 关系比较 / 条件位 / null 重载平手 / 容器方法值实参全部具名拒绝
+- `.nmod` v1.12 布局地板：递归类型描述符（真形参 / 返回 / 字段类型，嵌套数组与 List/Dict，深度帽 8）——跨模块 stub 真签名重建，跨模块调用点类型检查与同模块一致；973 e2e / ctest 46
 
 ---
 
@@ -86,6 +90,7 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 - 基于class的字符串实现（非动态容量，但是属性和方法重用class的机制）
 - foreach 支持string遍历（阶段 8e 延后项）
 - Unicode字符串支持（阶段 8e 延后项）
+- 按下标访问字符：需考虑字符集，参考主流语言（string 下标现为编译期拒绝）
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
 - Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
 - 安装包组件化（tools-only / IDE-only）与捆绑 VC++ 运行库（/MT 或 vc_redist）
@@ -95,11 +100,11 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 
 ## 当前状态
 
-- **870 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，含 12 个 dbg_*/dbgm_* 调试器 e2e 与 C 期泛型数组类型实参 18 条）；ctest 28 项（build 树）/ 41 项（build-ide 树）
+- **973 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，manifest 953 项 + 20 个示例）；ctest 46 项（build-ide 树）
 - 工具链：ncc / nvm / ndisasm / ndb（调试器）/ nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 v1.11（v1.8 Func 句柄 + per-function sourceFile 调试器寻址；v1.10 语义地板：数组 struct/class 字段 kind 存 RTK_Array；v1.11 语义地板：泛型容器数组型实参流裸 GC 追踪句柄——旧模块须重编译）
-- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器（类型实参允许 `T[]`）+ 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名
-- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；EvalDataType 降级通用洞（数组值进基元上下文与其镜像方向——`int[] r = 5` / 基元收 `get(0)` 数组元素今日零诊断，独立线处理）；跨 .nmod import 签名面容器泛型不可达（单 RTK 字节 stub，结构化序列化独立线）；成员访问接收者 `.toString()` 链 ncc 段错误（MemberExpr 接收者 + toString 派发路径，独立真 bug）；B.1 导入合并不拷贝 defaultValues（executor 零消费——纯编译期数据，调用点内联；但消费方再导出 .nmod 的链路默认参数会丢）
+- 模块格式 v1.12（v1.8 Func 句柄 + per-function sourceFile 调试器寻址；v1.10/v1.11 语义地板；v1.12 递归类型描述符——真形参/返回/字段类型跨模块往返，布局地板，旧模块须重编译）
+- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器（类型实参允许 `T[]`）+ 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名 + 一等数组类型令牌
+- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；B.1 导入合并不拷贝 defaultValues（executor 零消费——纯编译期数据，调用点内联；但消费方再导出 .nmod 的链路默认参数会丢）
 
 ## 实施优先级
 

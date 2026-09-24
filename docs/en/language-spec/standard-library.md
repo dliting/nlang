@@ -110,8 +110,8 @@ method list. **Byte semantics** (Go/Lua model): length, substring
 and indexOf are byte offsets; UTF-8 byte order equals code point order (so
 relational comparison is well-defined); case conversion is ASCII-only.
 String subscripting (`s[i]`) is **not supported** — there is no byte-access
-operator on strings (a subscript currently compiles but aborts at runtime;
-see Known Limitations).
+operator on strings (a subscript is a compile-time rejection: "string
+does not support subscript access"; see Known Limitations).
 
 | Method | Signature | Notes |
 |---------|-----------|-------|

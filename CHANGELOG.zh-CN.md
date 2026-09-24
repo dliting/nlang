@@ -14,6 +14,41 @@
   令牌），声明处与值侧共享同一令牌，数组值属性由令牌派生而
   非侧信道标记。同型数组流转按令牌指针同一比较，跨元素数组
   转换（`string[] b = ia`）保持具名诊断。
+- 数组值现在只转换到自身的数组类型——以元素恒等为准，而非表示
+  等价：协变上转型 `Base[] ba = da` 与 `enum[]` ↔ `int[]` 的表示
+  互通（双向）都是编译错误（"an array value only converts to the
+  same array type"）。这从构造上关闭了无检查协变存储洞——此前
+  `ba[0] = new Base()` 编译期与运行期都通过，把 `Base` 对象静默
+  存进 `Derived[]` 槽位。
+- string 下标（读或存储位置的 `s[i]`）现在是编译期拒绝
+  （"string does not support subscript access"）；此前能编译，
+  运行期以 "null array access" 中止。
+- 数组值的 string 强制转换在全部 string 目标上统一：string 形参
+  （`f` 接收 `string` 时的 `f(arr)`）与 `io.print(arr)` 现在得到
+  `"[1, 2]"`，与赋值、返回、拼接位置一致；string 元素槽同样强制
+  转换（`string[] sa; sa[0] = ia`、`List<string>` 下标存储与
+  `.add`）——0.7.2 的「仅整值位置」边界废止。
+- `foreach` 直接接受数组值源：此前被拒的七种形态——容器 `get` 结果
+  （`List<int[]>` 上的 `li.get(0)`）、容器下标、调用结果、成员调用
+  链、`new int[3]` 分配、`Dict` 源与 dict 下标——不再需要先绑定到
+  带类型的局部变量；源只求值一次（绑定到隐藏的迭代局部）。
+- 数组比较与条件不再经退化元素类型静默通过：数组间或对 `null` 的
+  `==`/`!=` 是恒等比较，而跨类型比较（`arr == 5`）、关系算子
+  （`arr < arr2`）、数值二元操作数（`arr + 1`）与条件位置
+  （`if (arr)`、`while (arr)`）都是编译错误。`null` 实参面对多个
+  数组形参重载候选时不再任意挑选——同等合法的候选是
+  "ambiguous call" 错误。
+- 容器方法值实参经 cast 表检查类型：`List<int>.add(arr)` 是编译
+  错误（"Incompatible type"）而非存入裸句柄，`List<string>.add(arr)`
+  强制转换为字符串形式，`List<int[]>` 上的 `l[0] = 5` 拒绝非 null
+  的 int（"only the null literal converts from int to a class,
+  interface or array type"）。
+- `.nmod` 格式地板 v1.11 → v1.12：递归类型描述符记录真实的形参、
+  返回与字段类型（嵌套数组、`List`/`Dict` 实例化、struct/class
+  索引；深度帽 8）。被导入函数桩以真签名重建而非返回 kind 占位，
+  跨模块调用点类型检查与同模块一致——`lib.mk()` 返回 `float[]`
+  赋给 `int[]` 局部被拒绝、float 实参加宽与同模块调用完全一致、
+  `out` 实参可往返。旧模块被拒绝为过时，必须重新编译。
 
 ## [0.7.2] - Unreleased
 

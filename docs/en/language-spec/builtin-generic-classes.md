@@ -75,12 +75,12 @@ itself is not implemented). Limitation: a comparison against a variable
 shadowing the type name (`List < 3`, only blanks/comments between name
 and `<`) is misread as a generic open.
 
-**Cross-module limitation**: container generic signatures do not cross
-`.nmod` import boundaries — imported function signatures serialize each
-type as a single kind byte, so a `List<int[]>` parameter or return in
-an imported function degrades to a plain class reference and the
-array-ness is not reachable. Plain `T[]` signatures do cross (serialized
-as an array kind); container instantiations do not.
+**Cross-module**: container generic signatures cross `.nmod` import
+boundaries — since the v1.12 type descriptors, imported functions carry
+their true formal and return types recursively (`List<int[]>`, `Dict`
+instantiations, nested arrays), so call-site type checking matches
+same-module calls. Function (`Func`) signatures remain outside the
+descriptor grammar (see Known Limitations).
 
 ### `Dict<K,V>`
 

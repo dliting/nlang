@@ -41,14 +41,12 @@ Supported iterables:
 | `Dict<K,V>` | **keys** (Python style) | inline `dict.keys()` then `List<K>.get(i)` |
 
 **Source constraint**: the source expression must be an array, `List`, or
-`Dict` — an lvalue or a container-valued call result both work. Any other
+`Dict` — any shape works: an lvalue, a container- or array-valued call
+result (`li.get(0)` on a `List<int[]>`), member access, `new int[n]`,
+a dict subscript. The source is evaluated exactly once (bound to a
+hidden iteration local), so side-effecting sources run once. Any other
 source (an `int` local, a `string`, a non-container call result) is a
 compile error: "the foreach source must be an array, List, or Dict".
-An **array-valued** call result (`li.get(0)` where `li : List<int[]>`)
-is rejected separately — "the foreach source is an array value; assign
-it to a local first" — because the value masquerades as its element
-type; iterate the container itself, or bind the result to a typed
-local first.
 
 **Loop variable typing**: the declared type must match the element type
 **exactly** — same underlying field and same arrayness. The variable may

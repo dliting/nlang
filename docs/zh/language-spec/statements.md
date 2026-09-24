@@ -39,13 +39,12 @@ foreach (Type var in iterable) { body }
 | `List<T>` | 按插入顺序的元素 | `List<T>.get(i)` |
 | `Dict<K,V>` | **键**（Python 风格） | 内联 `dict.keys()` 后接 `List<K>.get(i)` |
 
-**源约束**：源表达式必须是数组、`List` 或 `Dict`——左值或返回容器
-的调用结果都可以。其他任何源（`int` 局部变量、`string`、非容器调用
-结果）都是编译错误："the foreach source must be an array, List, or
-Dict"。**数组值**的调用结果（`li.get(0)`，其中 `li : List<int[]>`）
-被单独拒绝——"the foreach source is an array value; assign it to a
-local first"——因为该值伪装成自己的元素类型；请迭代容器本身，或先把
-结果绑定到带类型的局部变量。
+**源约束**：源表达式必须是数组、`List` 或 `Dict`——任意形态都可以：
+左值、返回容器或数组的调用结果（`List<int[]>` 上的 `li.get(0)`）、
+成员访问、`new int[n]`、dict 下标。源只求值一次（绑定到隐藏的迭代
+局部），带副作用的源只执行一次。其他任何源（`int` 局部变量、
+`string`、非容器调用结果）都是编译错误："the foreach source must
+be an array, List, or Dict"。
 
 **循环变量类型**：声明类型必须与元素类型**完全**一致——底层字段与
 数组性都要相同。变量可以是数组类型：`grid : List<int[]>` 时

@@ -4,39 +4,32 @@
 - **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
   built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
 - **Array values in scalar contexts**: an array value has exactly two
-  legal targets — its own array type, and `string` targets in
-  assignment, return, and string-concatenation positions (runtime
-  toString coercion, `"[1, 2]"`). String targets are whole-value
-  positions — string locals and fields, returns, concatenation —
-  while element slots — array subscripts (`string[] sa; sa[0] =
-  arr`) and container subscript stores (`ls[0] = arr`) — reject
-  array values like any scalar slot. An array target is accepted
-  when its element type compares Same in the implicit conversion
-  table: `string[] b = ia` is rejected like any cross-element
-  masquerade, a subclass-element array upcasts to a base-element
-  array (`Base[] ba = da`, covariant aliasing — see the unchecked
-  covariant-store limitation below), and `enum[]` ↔ `int[]`
-  interoperate by shared representation. Every
-  other value position is a compile-time rejection: assigning or
-  returning it to a scalar, class, interface, or `Object` target,
-  casting it with `as` (`ia as int`), or passing it to a non-array
-  parameter (including `string` parameters) fails with a named error
-  instead of storing a raw handle. Elements pulled out of
+  legal destinations — its own array type (interned token identity:
+  declarations and value sites share one token per element type) and
+  `string` targets in **every** position, whole-value and element slot
+  alike: string locals and fields, returns, concatenation, string
+  parameters (`f(arr)`), `io.print(arr)`, array subscripts
+  (`string[] sa; sa[0] = arr`) and container stores (`List<string>`
+  subscript and `.add`) — all via runtime toString coercion
+  (`"[1, 2]"`). `null` always converts to an array target. Comparison
+  positions are identity-only: `==` / `!=` against another array or
+  `null`. Every other use is a compile-time rejection with a named
+  error — scalar, class, interface, or `Object` targets, `as` casts
+  (`ia as int`), non-array parameters, numeric binary operands
+  (`arr + 1`), relational or cross-type comparisons (`arr < arr2`,
+  `arr == 5`), condition positions (`if (arr)`), `switch`
+  discriminants, and method receivers. Cross-element and
+  shared-representation array conversions are rejected alike:
+  `string[] b = ia`, the covariant upcast `Base[] ba = da`, and
+  `enum[]` ↔ `int[]` interconversion all fail with "an array value
+  only converts to the same array type". Elements pulled out of
   `List<T[]>` / `Dict<K,T[]>` follow the same rule; their array-ness
   is visible to the compiler — method-receiver and
   `switch`-discriminant uses (`li[0].rank()`, `switch (li.get(0))`)
   are rejected by name, `foreach` can iterate them into an array-typed
-  loop variable, and `Dict` keyed on array types uses handle identity.
-- **Covariant array stores are unchecked**: storing through an upcast
-  alias (`Base[] ba = da;` followed by `ba[0] = new Base()`) passes
-  both the compiler and the runtime — the `Derived[]` slot silently
-  holds a `Base` object (there is no ArrayStoreException equivalent).
-  Store through the original-typed alias.
-- **String subscripting compiles, then fails at runtime**: `s[0]` in
-  a read or a store position compiles, but the program aborts with
-  "null array access" — strings are immutable objects without
-  element indexing. Use `string.substring` / `string.indexOf`; a
-  compile-time rejection is planned.
+  loop variable (array-valued sources may be used directly and are
+  evaluated once), and `Dict` keyed on array types uses handle
+  identity.
 - **Jagged arrays (`T[][]`)**: multi-dimensional array declarations are
   rejected at compile time ("jagged arrays (T[][]) are not supported") —
   at locals, fields, parameters, return types, `for`/`foreach` loop
@@ -115,6 +108,7 @@
   Documented inconsistency with `==` (content equality).
 - **Cross-module function values are rejected, not transported**:
   referencing an imported function, or passing a function reference to
-  an imported function, is a compile error (`.nmod` does not serialize
-  parameter signatures). Lifting this requires a signature table in the
-  module format.
+  an imported function, is a compile error (function signatures stay
+  outside the `.nmod` type-descriptor grammar, which carries data types
+  only). Lifting this requires extending the grammar to `Func`
+  signatures.

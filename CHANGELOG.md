@@ -16,6 +16,54 @@ All notable changes to NLang are documented here. The format follows
   array-valued property is derived from it instead of a side channel.
   Same-type array flow compares tokens by identity, and cross-element
   array conversions (`string[] b = ia`) keep their named diagnostic.
+- An array value now converts only to its own array type — element
+  identity, not representation equivalence: the covariant upcast
+  `Base[] ba = da` and the `enum[]` ↔ `int[]` shared-representation
+  interop (both directions) are compile errors ("an array value only
+  converts to the same array type"). This closes the unchecked
+  covariant store hole at construction — `ba[0] = new Base()`
+  previously passed both the compiler and the runtime and silently
+  stored a `Base` object into a `Derived[]` slot.
+- String subscripting (`s[i]`, read or store position) is now a
+  compile-time rejection ("string does not support subscript access");
+  it previously compiled and aborted at runtime with "null array
+  access".
+- String coercion of array values is uniform across all string targets:
+  string parameters (`f(arr)` where `f` takes a `string`) and
+  `io.print(arr)` now yield `"[1, 2]"` like assignment, return and
+  concatenation positions, and string element slots coerce the same way
+  (`string[] sa; sa[0] = ia`, `List<string>` subscript stores and
+  `.add`) — the 0.7.2 whole-value-positions-only boundary is dropped.
+- `foreach` accepts array-valued sources directly: all seven formerly
+  rejected shapes — container `get` results (`li.get(0)` on a
+  `List<int[]>`), container subscripts, call results, member-invoke
+  chains, `new int[3]` allocations, `Dict` sources and dict subscripts —
+  no longer need a typed local first; the source is evaluated exactly
+  once (it is bound to a hidden iteration local).
+- Array comparisons and conditions no longer pass silently through the
+  degraded element type: `==`/`!=` between arrays, or against `null`,
+  are identity comparisons, while cross-type comparisons (`arr == 5`),
+  relational operators (`arr < arr2`), numeric binary operands
+  (`arr + 1`) and condition positions (`if (arr)`, `while (arr)`) are
+  compile errors. Overload resolution no longer picks arbitrarily
+  between array-parameter candidates on a `null` argument —
+  equally-legal candidates are an "ambiguous call" error.
+- Container method value arguments are type-checked through the cast
+  table: `List<int>.add(arr)` is a compile error ("Incompatible type")
+  instead of storing a raw handle, `List<string>.add(arr)` coerces to
+  the string form, and `l[0] = 5` on a `List<int[]>` rejects the
+  non-null int ("only the null literal converts from int to a class,
+  interface or array type").
+- `.nmod` format floor raised to v1.11 → v1.12: recursive type
+  descriptors record the true formal, return and field types (nested
+  arrays, `List`/`Dict` instantiations, struct/class indices; depth
+  capped at 8). Imported function stubs are rebuilt with real
+  signatures instead of return-kind placeholders, so cross-module
+  call-site type checking matches same-module calls — `lib.mk()`
+  returning `float[]` into an `int[]` local is rejected, a float
+  argument widens exactly as in same-module calls, and `out` arguments
+  round-trip. Older modules are rejected as outdated and must be
+  recompiled.
 
 ## [0.7.2] - Unreleased
 
