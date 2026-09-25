@@ -63,7 +63,7 @@ private:
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
-    //VmBackend.cpp). Consumed by every emission path.
+    //VmBackendEmitCall.cpp). Consumed by every emission path.
     static void EmitPResultRefresh(BytecodeEmitter& emitter, uint16_t slot);
 
     //Shared shape predicates, consumed by both the emission members and
