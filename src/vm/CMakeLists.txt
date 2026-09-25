@@ -10,19 +10,23 @@ add_library(nlang_vm
     IntrinsicsFs.cpp
     backend/VmBackend.cpp
     backend/Register.cpp
+    backend/RegisterClass.cpp
     backend/Import.cpp
     backend/Types.cpp
     backend/EmitCall.cpp
     backend/WalkersExpr.cpp
     backend/WalkersStmt.cpp
+    backend/WalkersMaxArgs.cpp
     backend/EmitExprCore.cpp
     backend/EmitExprCast.cpp
     backend/EmitExprBinary.cpp
     backend/EmitExprNew.cpp
+    backend/EmitExprInitList.cpp
     backend/EmitExprMember.cpp
     backend/EmitExprMemberCall.cpp
     backend/EmitExprMemberString.cpp
     backend/EmitStmtDecl.cpp
+    backend/EmitStmtAssign.cpp
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp
     backend/EmitStmtForeach.cpp
