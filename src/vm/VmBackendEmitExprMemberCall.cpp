@@ -1,6 +1,6 @@
 /*---
-    VmBackendEmitExprMemberCall.cpp — 成员表达式方法调用发射核心：stdlib/枚举/类/接口方法调用、委托调用、内建泛型装箱计划与分派。
-    从 VmBackendEmitExprMember.cpp 拆出；字符串族拆至 VmBackendEmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
+    VmBackendEmitExprMemberCall.cpp — 成员表达式方法调用发射：stdlib/枚举/类/接口方法调用、内建泛型装箱计划与方法分派。
+    从 VmBackendEmitExprMember.cpp 拆出；字符串/toString 族拆至 VmBackendEmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
@@ -16,8 +16,6 @@
 #include <unordered_set>
 
 namespace nlang {
-
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Must be
 //dispatched before anything that needs member.Field() — the
