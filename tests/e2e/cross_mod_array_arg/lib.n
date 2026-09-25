@@ -1,10 +1,10 @@
 // cross_mod_array_arg — regression test for the round-7 fix: an ARRAY
 // argument to an imported function must bind (0.7.2's placeholder-based
 // guard rejected every array argument to an imported callee). Since the
-// v1.12 type descriptors the `int[] a` formal round-trips as a real
-// array type — the consumer-side stub rebuilds the true signature, and
-// the element reads in this sum come back exact. Guards against both
-// the old rejection and silent wrong-kind binding.
+// v1.12 type descriptors, the `int[] a` formal round-trips as a real
+// array type — the consumer-side stub rebuilds the true signature, so
+// the elements in this sum read back exact. Guards against both the
+// old rejection and silent wrong-kind binding.
 int sum(int[] a) {
     int s = 0;
     for (int i = 0; i < a.length; i = i + 1)

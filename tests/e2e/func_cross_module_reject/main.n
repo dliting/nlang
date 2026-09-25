@@ -1,5 +1,6 @@
-//Phase 13 Step 2: cross-module negative — the imported stub for dbl
-//cannot carry a Func signature; referencing it must be rejected.
+//Phase 13 Step 2: cross-module negative — the bare reference to dbl is
+//rejected by the module-visibility rule (imported members must be
+//qualified), before any Func-signature check runs.
 import lib;
 
 int main() {
