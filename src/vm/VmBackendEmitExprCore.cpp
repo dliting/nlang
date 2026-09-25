@@ -35,7 +35,7 @@ void VmBackend::Access(SnArrayTypeExpr& expr) {
             "(compile-time-only node) at "
             + (expr.Location() ? expr.Location()->ToString()
                                : std::string("?")));
-    }
+}
 
 //Round-13: type-reference expressions (ArrayTypeExpr, GenericTypeExpr)
 //are compile-time-only — they carry type information but never produce
@@ -50,7 +50,7 @@ void VmBackend::Access(SnGenericTypeExpr& expr) {
             "(compile-time-only node) at "
             + (expr.Location() ? expr.Location()->ToString()
                                : std::string("?")));
-    }
+}
 
 void VmBackend::Access(SnLiteralExpr& expr) {
     NodeKind kind = expr.Kind();
@@ -93,7 +93,7 @@ void VmBackend::Access(SnLiteralExpr& expr) {
                 + std::to_string(static_cast<int>(typeKind)));
         }
         return;
-    }
+}
 
 void VmBackend::Access(SnIdentifierExpr& expr) {
     NodeKind kind = expr.Kind();
@@ -177,7 +177,7 @@ void VmBackend::Access(SnIdentifierExpr& expr) {
                 + idExpr.Name());
         }
         return;
-    }
+}
 
 void VmBackend::Access(SnInvokeExpr& expr) {
     NodeKind kind = expr.Kind();
@@ -293,7 +293,7 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         }
         emitter.Emit(OpCode::OP_ParaEnd);
         return;
-    }
+}
 
     //Phase 9e: out arguments are consumed by the binding path in
     //EmitCallArgs (the wrapper never emits itself). Reaching this point
@@ -303,7 +303,7 @@ void VmBackend::Access(SnInvokeExpr& expr) {
 void VmBackend::Access(SnOutArgExpr& expr) {
         throw std::runtime_error(
             "NLang backend: out argument in unsupported call form");
-    }
+}
 
 void VmBackend::Access(SnNameExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -313,7 +313,7 @@ void VmBackend::Access(SnNameExpr& expr) {
             EmitExpression(*nameExpr.Expr(), emitter, resultOffset);
         }
         return;
-    }
+}
 
     // New expression - object instantiation
 void VmBackend::Access(SnThisExpr& expr) {
@@ -329,7 +329,7 @@ void VmBackend::Access(SnThisExpr& expr) {
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
         return;
-    }
+}
 
     // New array expression: new T[size]
 void VmBackend::Access(SnExpression& expr) {

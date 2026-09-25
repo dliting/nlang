@@ -143,7 +143,7 @@ void VmBackend::Access(SnSubscriptAssignStmt& stmt) {
         emitter.EmitUint16(indexSlot);
         emitter.EmitUint16(valueSlot);
         return;
-    }
+}
 
     //If/else statement.
 

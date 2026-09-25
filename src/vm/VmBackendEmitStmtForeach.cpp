@@ -280,7 +280,7 @@ void VmBackend::Access(SnForeachStmt& stmt) {
 
         m_loopStack.pop_back();
         return;
-    }
+}
 
     //Break statement.
     //Break exits the innermost enclosing switch or loop.

@@ -199,7 +199,7 @@ void VmBackend::Access(SnSwitchStmt& stmt) {
 
         m_loopStack.pop_back();
         return;
-    }
+}
 
     //Phase 9d: try { body } catch (Type var) { handler } ...
     //Phase 9d-2: optional finally clause (full Java semantics).
@@ -358,7 +358,7 @@ void VmBackend::Access(SnTryStmt& stmt) {
         emitter.PatchUint16(finallyEndJumpPatch, postTry);
         m_finallyStack.pop_back();
         return;
-    }
+}
 
 void VmBackend::Access(SnThrowStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -377,7 +377,7 @@ void VmBackend::Access(SnThrowStmt& stmt) {
             emitter.EmitUint16(exprSlot);
         }
         return;
-    }
+}
 
     //Phase 9d-2: super(args); — forward to the direct parent constructor.
     //Mirrors NK_NewExpr's ctor-call pattern: evalArea claim [0]=this,
@@ -428,7 +428,7 @@ void VmBackend::Access(SnSuperCallStmt& stmt) {
         emitter.EmitUint16(m_currFunc->callParamBase);
         emitter.Emit(OpCode::OP_ParaEnd);
         return;
-    }
+}
 
 //Round-13: symmetric to EmitExpression's unhandled-kind throw. Codegen
 //only runs when the front-end saw no errors, so an unhandled statement

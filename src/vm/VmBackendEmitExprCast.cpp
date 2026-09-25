@@ -169,7 +169,7 @@ void VmBackend::Access(SnCastExpr& expr) {
             }
         }
         return;
-    }
+}
 
     //Phase 8e-1.5: `expr as T` runtime-checked cast.
     //Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
@@ -269,7 +269,7 @@ void VmBackend::Access(SnAsExpr& expr) {
             + std::to_string(static_cast<int>(kind)) + " at "
             + (expr.Location() ? expr.Location()->ToString()
                                : std::string("?")));
-    }
+}
 
     // Member expression - struct field access or delegate to inner
 void VmBackend::Access(SnSubscriptExpr& expr) {
@@ -371,7 +371,7 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
         //discarded copy — and caused a redundant double copy for
         //`Point p = arr[i]`.
         return;
-    }
+}
 
     // Binary/unary operator expression
 

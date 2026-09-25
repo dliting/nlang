@@ -45,7 +45,7 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
             //Class and array types start as null (0) — no allocation needed.
         }
         return;
-    }
+}
 
     //Assignment statement.
 void VmBackend::Access(SnAssignStmt& stmt) {
@@ -302,7 +302,7 @@ void VmBackend::Access(SnAssignStmt& stmt) {
             }
         }
         return;
-    }
+}
 
     //Compound assignment: x += y, this.f -= 1, arr[i] *= 2
     //Phase 9a: left-value is evaluated only once (read-modify-write).
@@ -344,7 +344,7 @@ void VmBackend::Access(SnAssertStmt& stmt) {
         emitter.PatchUint16(jumpToFail, static_cast<uint16_t>(failStart));
         emitter.PatchUint16(jumpToEnd, static_cast<uint16_t>(endPos));
         return;
-    }
+}
 
 void VmBackend::Access(SnCompoundAssignStmt& stmt) {
     NodeKind kind = stmt.Kind();
@@ -471,7 +471,7 @@ void VmBackend::Access(SnCompoundAssignStmt& stmt) {
         //slots and complicates the grammar. Users can write
         //`arr[i] = arr[i] + 1` instead.
         return;
-    }
+}
 
     //Subscript assignment: arr[index] = value
 

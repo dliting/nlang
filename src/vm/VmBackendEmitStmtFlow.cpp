@@ -26,7 +26,7 @@ void VmBackend::EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter)
             emitter.Emit(OpCode::OP_DebugInfo);
             emitter.EmitUint16(line);
         }
-    }
+}
 }
 
 void VmBackend::Access(SnReturnStmt& stmt) {
@@ -48,7 +48,7 @@ void VmBackend::Access(SnReturnStmt& stmt) {
         }
         emitter.Emit(OpCode::OP_Return);
         return;
-    }
+}
 
 void VmBackend::Access(SnInvokeStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -59,7 +59,7 @@ void VmBackend::Access(SnInvokeStmt& stmt) {
         EvalAreaClaim resultClaim(*this, 1);
         EmitExpression(*invoke.Expr(), emitter, resultClaim.base());
         return;
-    }
+}
 
 void VmBackend::Access(SnParagraph& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -67,7 +67,7 @@ void VmBackend::Access(SnParagraph& stmt) {
         for (auto& child : para.Statements())
             EmitStatement(child, emitter);
         return;
-    }
+}
 
     //Local variable declaration.
     //After the decomposition pattern, initializers are handled by
@@ -107,7 +107,7 @@ void VmBackend::Access(SnIfStmt& stmt) {
         emitter.PatchUint16(jumpToElse, static_cast<uint16_t>(elseStart));
         emitter.PatchUint16(jumpToEnd, static_cast<uint16_t>(endPos));
         return;
-    }
+}
 
     //While loop statement.
 void VmBackend::Access(SnWhileStmt& stmt) {
@@ -155,7 +155,7 @@ void VmBackend::Access(SnWhileStmt& stmt) {
 
         m_loopStack.pop_back();
         return;
-    }
+}
 
     //Do-while loop statement.
 void VmBackend::Access(SnDoStmt& stmt) {
@@ -204,7 +204,7 @@ void VmBackend::Access(SnDoStmt& stmt) {
 
         m_loopStack.pop_back();
         return;
-    }
+}
 
     //For loop statement.
 void VmBackend::Access(SnForStmt& stmt) {
@@ -267,7 +267,7 @@ void VmBackend::Access(SnForStmt& stmt) {
 
         m_loopStack.pop_back();
         return;
-    }
+}
 
     //Foreach loop statement (Phase 8e-5).
     //Index-based expansion reusing Length()/Get() (List), arr.length + arr[i] (Array).
@@ -300,7 +300,7 @@ void VmBackend::Access(SnBreakStmt& stmt) {
         emitter.EmitUint16(0);  //placeholder
         m_loopStack.back().breakJumps.push_back(jumpPos);
         return;
-    }
+}
 
     //Continue statement.
     //Continue targets the innermost enclosing *loop*, not switch.
@@ -332,7 +332,7 @@ void VmBackend::Access(SnContinueStmt& stmt) {
         emitter.EmitUint16(0);  //placeholder
         it->continueJumps.push_back(jumpPos);
         return;
-    }
+}
 
     //Switch statement.
 void VmBackend::Access(SnStatement& stmt) {

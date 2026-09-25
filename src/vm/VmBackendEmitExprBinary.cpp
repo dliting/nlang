@@ -223,7 +223,7 @@ void VmBackend::Access(SnBinaryExpr& expr) {
                 "NLang backend: unsupported binary operator");
         }
         return;
-    }
+}
 
 //Round-12: this used to silently emit ConstZero, converting any
 //unhandled expression kind into wrong-but-compiling code. Codegen only

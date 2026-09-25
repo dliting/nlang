@@ -881,7 +881,7 @@ void VmBackend::Access(SnMemberExpr& expr) {
             EmitExpression(*static_cast<SnExpression*>(inner), emitter, resultOffset);
         }
         return;
-    }
+}
 
     // Name expression - delegate
 

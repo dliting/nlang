@@ -109,7 +109,7 @@ void VmBackend::Access(SnNewExpr& expr) {
         emitter.EmitUint16(allocSlot);
         emitter.EmitUint16(static_cast<uint16_t>(classIdx));
         return;
-    }
+}
 
     // This expression - reads the implicit first parameter
 void VmBackend::Access(SnNewArrayExpr& expr) {
@@ -133,7 +133,7 @@ void VmBackend::Access(SnNewArrayExpr& expr) {
         emitter.EmitUint16(arrayTypeIdx);
         emitter.EmitUint16(sizeSlot);
         return;
-    }
+}
 
     //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
     //Dispatches on resolved EvalDataType:
@@ -481,7 +481,7 @@ void VmBackend::Access(SnInitListExpr& expr) {
         //Unknown target kind — no codegen path yet.
         assert(false && "NK_InitListExpr: unsupported target kind");
         return;
-    }
+}
 
     // Subscript expression: arr[index]
 
