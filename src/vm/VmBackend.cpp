@@ -442,12 +442,40 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
 void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
 
-    //v1.12 type descriptors: capture the true formal/return types for
-    //cross-module stub reconstruction. Runs before the native branch so
-    //body-less native declarations serialize their signature too. Methods
-    //contribute one descriptor per AST formal — the implicit this slot
-    //has none, mirroring defaultValues' sizing (stub consumers never see
-    //method records; the count field keeps the wire self-describing).
+    CollectSignatureTypeDescs(func, compiledFunc);
+
+    if (func.ContainFlags(NF_Native)) {
+        FillNativeFunctionRecord(func, compiledFunc);
+        return;
+    }
+
+    FuncContext ctx;
+    ctx.func = &compiledFunc;
+    ctx.nextOffset = 0;
+    m_currFunc = &ctx;
+
+    AllocParamsAndDefaults(func, ctx, compiledFunc);
+    CallSlotStats stats = ReserveReturnAndCallSlots(func, ctx, compiledFunc);
+
+    BytecodeEmitter emitter;
+    EmitBodyAndImplicitReturn(func, ctx, emitter);
+
+    compiledFunc.bytecode = emitter.TakeBytes();
+    compiledFunc.localsSize = ctx.nextOffset;
+
+    CheckEvalAreaWalkerDrift(func, ctx, stats);
+
+    m_currFunc = nullptr;
+}
+
+//v1.12 type descriptors: capture the true formal/return types for
+//cross-module stub reconstruction. Runs before the native branch so
+//body-less native declarations serialize their signature too. Methods
+//contribute one descriptor per AST formal — the implicit this slot
+//has none, mirroring defaultValues' sizing (stub consumers never see
+//method records; the count field keeps the wire self-describing).
+void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
+                                          CompiledFunction& compiledFunc) {
     for (auto& param : func.Params()) {
         ParamTypeDesc ptd;
         if (param.ContainFlags(NF_Out))
@@ -458,44 +486,44 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     if (func.HasReturn() && func.ReturnType())
         compiledFunc.returnTypeDesc = BuildTypeDesc(
             func.ReturnType()->Field(), m_compiledModule);
+}
 
-    //Phase 9f: native function declaration (`native int f(...);`). No
-    //bytecode — the VM dispatches by name through the host-registered
-    //native table (VmExecutor::RegisterNative). The record carries only
-    //the signature: the native reads args directly from the caller's
-    //callParamBase cells and writes the return into pResult.
-    if (func.ContainFlags(NF_Native)) {
-        compiledFunc.isNative = true;
-        bool isMethod = func.Parent()
-            && (func.Parent()->Kind() == NK_ClassDecl
-                || func.Parent()->Kind() == NK_EnumDecl);
-        compiledFunc.paramCount = static_cast<uint16_t>(
-            func.Params().size() + (isMethod ? 1 : 0));
-        compiledFunc.localsSize = compiledFunc.paramCount * VALUE_SIZE;
-        if (func.HasReturn() && func.ReturnType()) {
-            compiledFunc.returnTypeKind = SerializedReturnKind(func);
-        } else {
-            compiledFunc.returnTypeKind = RTK_Void;
-        }
-        //Defaults are signature metadata and must be serialized here too:
-        //a cross-module consumer's stub (CreateFunctionStub) rebuilds
-        //them from defaultValues — same reasoning as Option B. Without
-        //this, `native int f(int a, int b = 22)` works in-module (AST
-        //path) but loses the default after import.
-        for (auto& param : func.Params()) {
-            auto dv = ExtractDefaultValue(param.Value());
-            if (param.Value() && !dv.hasDefault())
-                dv.tag = RTK_Unfoldable;
-            compiledFunc.defaultValues.push_back(dv);
-        }
-        return;
+//Phase 9f: native function declaration (`native int f(...);`). No
+//bytecode — the VM dispatches by name through the host-registered
+//native table (VmExecutor::RegisterNative). The record carries only
+//the signature: the native reads args directly from the caller's
+//callParamBase cells and writes the return into pResult.
+void VmBackend::FillNativeFunctionRecord(SnFunction& func,
+                                         CompiledFunction& compiledFunc) {
+    compiledFunc.isNative = true;
+    bool isMethod = func.Parent()
+        && (func.Parent()->Kind() == NK_ClassDecl
+            || func.Parent()->Kind() == NK_EnumDecl);
+    compiledFunc.paramCount = static_cast<uint16_t>(
+        func.Params().size() + (isMethod ? 1 : 0));
+    compiledFunc.localsSize = compiledFunc.paramCount * VALUE_SIZE;
+    if (func.HasReturn() && func.ReturnType()) {
+        compiledFunc.returnTypeKind = SerializedReturnKind(func);
+    } else {
+        compiledFunc.returnTypeKind = RTK_Void;
     }
+    //Defaults are signature metadata and must be serialized here too:
+    //a cross-module consumer's stub (CreateFunctionStub) rebuilds
+    //them from defaultValues — same reasoning as Option B. Without
+    //this, `native int f(int a, int b = 22)` works in-module (AST
+    //path) but loses the default after import.
+    for (auto& param : func.Params()) {
+        auto dv = ExtractDefaultValue(param.Value());
+        if (param.Value() && !dv.hasDefault())
+            dv.tag = RTK_Unfoldable;
+        compiledFunc.defaultValues.push_back(dv);
+    }
+}
 
-    FuncContext ctx;
-    ctx.func = &compiledFunc;
-    ctx.nextOffset = 0;
-    m_currFunc = &ctx;
-
+//Allocate slot 0 (`this` for class/enum methods) and one slot per formal,
+//then collect the constant-foldable default values for serialization.
+void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
+                                       CompiledFunction& compiledFunc) {
     // If this is a class or enum method, allocate slot 0 for 'this'.
     bool isMethod = func.Parent()
         && (func.Parent()->Kind() == NK_ClassDecl
@@ -531,7 +559,14 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
             dv.tag = RTK_Unfoldable;
         compiledFunc.defaultValues.push_back(dv);
     }
+}
 
+//Reserve the frame tail: return-value slot, the 4-slot temp pool, and the
+//call parameter area + evalArea. Returns the walker's call-slot stats so
+//the finalize-time drift check can compare against the reservation.
+VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
+    SnFunction& func, FuncContext& ctx,
+    CompiledFunction& compiledFunc) {
     // Return type
     if (func.HasReturn() && func.ReturnType()) {
         compiledFunc.returnTypeKind = SerializedReturnKind(func);
@@ -572,9 +607,12 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     ctx.nextOffset    += ctx.callParamSlots * VALUE_SIZE;
     ctx.evalAreaBase   = ctx.nextOffset;
     ctx.nextOffset    += stats.peakDepth * VALUE_SIZE;
+    return stats;
+}
 
+void VmBackend::EmitBodyAndImplicitReturn(SnFunction& func, FuncContext& ctx,
+                                          BytecodeEmitter& emitter) {
     // Generate bytecode for body
-    BytecodeEmitter emitter;
     if (func.Body()) {
         for (auto& stmt : func.Body()->Statements()) {
             EmitStatement(stmt, emitter);
@@ -588,19 +626,19 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
         emitter.EmitUint16(ctx.returnSlot);
     }
     emitter.Emit(OpCode::OP_Return);
+}
 
-    compiledFunc.bytecode = emitter.TakeBytes();
-    compiledFunc.localsSize = ctx.nextOffset;
-
-    //Walker-drift tripwire: the frame reserved stats.peakDepth slots for
-    //the evalArea, and every claim during emission must have fit inside.
-    //observedPeakCursor > reserved means the walker under-predicted some
-    //codegen claim — the emitted bytecode would stack-walk past the frame
-    //at runtime. Fail the build here instead (Phase 10 audit round-8
-    //closing move: drift is a compiler error, never a silent OOB).
-    //Scope note: this guards the evalArea only. callParamBase (sized from
-    //the MaxArgsWalker, no observed counterpart) can still under-count
-    //silently — keep MaxArgsWalker symmetric with every call-emitting path.
+//Walker-drift tripwire: the frame reserved stats.peakDepth slots for
+//the evalArea, and every claim during emission must have fit inside.
+//observedPeakCursor > reserved means the walker under-predicted some
+//codegen claim — the emitted bytecode would stack-walk past the frame
+//at runtime. Fail the build here instead (Phase 10 audit round-8
+//closing move: drift is a compiler error, never a silent OOB).
+//Scope note: this guards the evalArea only. callParamBase (sized from
+//the MaxArgsWalker, no observed counterpart) can still under-count
+//silently — keep MaxArgsWalker symmetric with every call-emitting path.
+void VmBackend::CheckEvalAreaWalkerDrift(SnFunction& func, FuncContext& ctx,
+                                         const CallSlotStats& stats) {
     if (ctx.observedPeakCursor > stats.peakDepth * VALUE_SIZE) {
         throw std::runtime_error(
             "VmBackend: evalArea walker drift in function '"
@@ -609,8 +647,6 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
             + " slots but frame reserved "
             + std::to_string(stats.peakDepth));
     }
-
-    m_currFunc = nullptr;
 }
 
 //Emit code leaving the expression's value in frame slot `resultOffset`.

@@ -46,64 +46,77 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
 //returns RTK_Void — caller-side (Step 5 declaration check) rejects this
 //for IsImported functions. In-module callers don't consult this vector
 //at all, so a RTK_Void entry is harmless for them.
+//Direct-literal arm of ExtractDefaultValue. Fills dv from a null / int /
+//float / string literal; an unknown literal type leaves dv at its
+//RTK_Void default (not foldable).
+void VmBackend::ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv) {
+    //Null literal: stamped with NF_NullLiteral by KT_Null rule.
+    if (lit->ContainFlags(NF_NullLiteral)) {
+        dv.tag = RTK_Null;
+        return;
+    }
+    //Type-driven literal dispatch. SnLiteralExpr's Variant Type()
+    //points at the RnDataType — match pointer identity against the
+    //global singletons (RnInt32/RnFloat/RnString).
+    auto* litType = lit->Value().Type();
+    if (litType == RnInt32::Instance()) {
+        dv.tag = RTK_Int32;
+        dv.intValue = static_cast<uint32_t>(
+            lit->Value().Data().m_Int);
+        return;
+    }
+    if (litType == RnFloat::Instance()) {
+        dv.tag = RTK_Float;
+        dv.floatValue = lit->Value().Data().m_Float;
+        return;
+    }
+    if (litType == RnString::Instance()) {
+        dv.tag = RTK_String;
+        //Intern into producer's pool. Consumer remaps during load.
+        auto* sPtr = lit->Value().Data().m_String;
+        dv.stringIdx = AddStringConstant(sPtr ? *sPtr : std::string());
+        return;
+    }
+}
+
+//Unary-negation arm of ExtractDefaultValue: fold OP_Neg over an int or
+//float literal into dv. Any other shape leaves dv at its RTK_Void
+//default (other binary exprs are not supported in MVP).
+void VmBackend::ExtractNegatedLiteralDefault(SnBinaryExpr* bin,
+                                             DefaultValueDesc& dv) {
+    if (bin->Op() == SnBinaryExpr::OP_Neg
+        && bin->Left() && bin->Left()->Kind() == NK_LiteralExpr) {
+        auto* lit = static_cast<SnLiteralExpr*>(bin->Left());
+        if (lit->Value().Type() == RnInt32::Instance()) {
+            dv.tag = RTK_Int32;
+            int32_t neg = -lit->Value().Data().m_Int;
+            dv.intValue = static_cast<uint32_t>(neg);
+            return;
+        }
+        if (lit->Value().Type() == RnFloat::Instance()) {
+            dv.tag = RTK_Float;
+            dv.floatValue = -lit->Value().Data().m_Float;
+            return;
+        }
+    }
+}
+
 DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr) {
     DefaultValueDesc dv;  // tag defaults to RTK_Void
     if (!pExpr) return dv;  // no default expression
 
     //Direct literal.
     if (pExpr->Kind() == NK_LiteralExpr) {
-        auto* lit = static_cast<SnLiteralExpr*>(pExpr);
-        //Null literal: stamped with NF_NullLiteral by KT_Null rule.
-        if (lit->ContainFlags(NF_NullLiteral)) {
-            dv.tag = RTK_Null;
-            return dv;
-        }
-        //Type-driven literal dispatch. SnLiteralExpr's Variant Type()
-        //points at the RnDataType — match pointer identity against the
-        //global singletons (RnInt32/RnFloat/RnString).
-        auto* litType = lit->Value().Type();
-        if (litType == RnInt32::Instance()) {
-            dv.tag = RTK_Int32;
-            dv.intValue = static_cast<uint32_t>(
-                lit->Value().Data().m_Int);
-            return dv;
-        }
-        if (litType == RnFloat::Instance()) {
-            dv.tag = RTK_Float;
-            dv.floatValue = lit->Value().Data().m_Float;
-            return dv;
-        }
-        if (litType == RnString::Instance()) {
-            dv.tag = RTK_String;
-            //Intern into producer's pool. Consumer remaps during load.
-            auto* sPtr = lit->Value().Data().m_String;
-            dv.stringIdx = AddStringConstant(sPtr ? *sPtr : std::string());
-            return dv;
-        }
-        return dv;  //unknown literal type — not foldable
+        ExtractLiteralDefault(static_cast<SnLiteralExpr*>(pExpr), dv);
+        return dv;
     }
 
     //Unary negation of numeric literal: `-5` / `-3.14` parse as OP_Neg
     //over a literal. Fold both int and float so negative floats work
     //cross-module too (not just negative ints).
     if (pExpr->Kind() == NK_BinaryExpr) {
-        auto* bin = static_cast<SnBinaryExpr*>(pExpr);
-        if (bin->Op() == SnBinaryExpr::OP_Neg
-            && bin->Left() && bin->Left()->Kind() == NK_LiteralExpr) {
-            auto* lit = static_cast<SnLiteralExpr*>(bin->Left());
-            if (lit->Value().Type() == RnInt32::Instance()) {
-                dv.tag = RTK_Int32;
-                int32_t neg = -lit->Value().Data().m_Int;
-                dv.intValue = static_cast<uint32_t>(neg);
-                return dv;
-            }
-            if (lit->Value().Type() == RnFloat::Instance()) {
-                dv.tag = RTK_Float;
-                dv.floatValue = -lit->Value().Data().m_Float;
-                return dv;
-            }
-        }
-        return dv;  //other binary exprs not supported in MVP
+        ExtractNegatedLiteralDefault(static_cast<SnBinaryExpr*>(pExpr), dv);
+        return dv;
     }
 
     return dv;  //non-literal, non-foldable

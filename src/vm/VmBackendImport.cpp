@@ -9,13 +9,8 @@
 
 namespace nlang {
 
-//Phase 9c cross-module: returns the total byte size of an instruction
-//(opcode + all operands). Used by RemapBytecode to walk a bytecode buffer.
-//All operands are uint16 (2 bytes) except OP_Box/OP_Unbox (1-byte tag),
-//OP_ConstInt32/OP_ConstFloat/OP_Jump (4 / 4 / 2-byte immediate), and
-//OP_JumpIfNot (2 + 2 = 4). The 11 remap-relevant opcodes are tagged in
-//the second switch below.
-static size_t InstructionStride(OpCode op) {
+//Stride of the no-operand opcode family; 0 when op is not in it.
+static size_t NoOperandStride(OpCode op) {
     switch (op) {
         case OpCode::OP_Return:
         case OpCode::OP_Stop:
@@ -30,15 +25,14 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_Rethrow:
         case OpCode::OP_PopHandler:
             return 1;  // no operands
-        case OpCode::OP_Box:
-        case OpCode::OP_Unbox:
-            return 1 + 1;  // uint8 tag
-        case OpCode::OP_Jump:
-        case OpCode::OP_Case:
-            return 1 + 2;  // int16 / uint16
-        case OpCode::OP_ConstInt32:
-        case OpCode::OP_ConstFloat:
-            return 1 + 4;
+        default:
+            return 0;
+    }
+}
+
+//Stride of the one-uint16-operand opcode family; 0 when op is not in it.
+static size_t SingleU16OperandStride(OpCode op) {
+    switch (op) {
         case OpCode::OP_ConstString:
         case OpCode::OP_AssertFail:
         case OpCode::OP_VarLocal:
@@ -56,6 +50,14 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_MakeBoundFunc:
         case OpCode::OP_MakeVFunc:
             return 1 + 2;  // one uint16 operand
+        default:
+            return 0;
+    }
+}
+
+//Stride of the two-uint16-operand opcode family; 0 when op is not in it.
+static size_t DoubleU16OperandStride(OpCode op) {
+    switch (op) {
         case OpCode::OP_JumpIfNot:
         case OpCode::OP_Add_i32:
         case OpCode::OP_Sub_i32:
@@ -96,6 +98,34 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_New:
         case OpCode::OP_ArrayLength:
             return 1 + 2 + 2;  // two uint16 operands
+        default:
+            return 0;
+    }
+}
+
+//Phase 9c cross-module: returns the total byte size of an instruction
+//(opcode + all operands). Used by RemapBytecode to walk a bytecode buffer.
+//All operands are uint16 (2 bytes) except OP_Box/OP_Unbox (1-byte tag),
+//OP_ConstInt32/OP_ConstFloat/OP_Jump (4 / 4 / 2-byte immediate), and
+//OP_JumpIfNot (2 + 2 = 4). The 11 remap-relevant opcodes are tagged in
+//the second switch below.
+static size_t InstructionStride(OpCode op) {
+    if (size_t stride = NoOperandStride(op))
+        return stride;
+    if (size_t stride = SingleU16OperandStride(op))
+        return stride;
+    if (size_t stride = DoubleU16OperandStride(op))
+        return stride;
+    switch (op) {
+        case OpCode::OP_Box:
+        case OpCode::OP_Unbox:
+            return 1 + 1;  // uint8 tag
+        case OpCode::OP_Jump:
+        case OpCode::OP_Case:
+            return 1 + 2;  // int16 / uint16
+        case OpCode::OP_ConstInt32:
+        case OpCode::OP_ConstFloat:
+            return 1 + 4;
         case OpCode::OP_CallFuncOut:
         case OpCode::OP_CallMethodDirectOut:
         case OpCode::OP_CallDelegateOut:
@@ -117,29 +147,33 @@ static size_t InstructionStride(OpCode op) {
     }
 }
 
+//Patch the uint16 operand at byte offset `off` through remap table `m`.
+//Indices absent from the table are left as-is (best effort).
+static void PatchU16Operand(std::vector<uint8_t>& bc, size_t off,
+    const std::unordered_map<uint32_t, uint32_t>& m) {
+    uint16_t oldv = static_cast<uint16_t>(bc[off])
+                  | (static_cast<uint16_t>(bc[off + 1]) << 8);
+    auto it = m.find(oldv);
+    if (it == m.end())
+        return;  // not in the remap table — leave as-is (best effort)
+    uint16_t newv = static_cast<uint16_t>(it->second);
+    bc[off]     = static_cast<uint8_t>(newv & 0xFF);
+    bc[off + 1] = static_cast<uint8_t>((newv >> 8) & 0xFF);
+}
+
 //Phase 9c cross-module: walk bytecode and patch the 11 cross-module-indexed
 //operand kinds (see cross-module-import-infrastructure.md Layer 4 table).
 //Other operands (local offsets, jump targets, intrinsic IDs, type tags,
 //debug line numbers) are module-local and do not need remapping.
 void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm) {
     size_t pos = 0;
-    auto patchU16 = [&bc](size_t off, const std::unordered_map<uint32_t, uint32_t>& m) {
-        uint16_t oldv = static_cast<uint16_t>(bc[off])
-                      | (static_cast<uint16_t>(bc[off + 1]) << 8);
-        auto it = m.find(oldv);
-        if (it == m.end())
-            return;  // not in the remap table — leave as-is (best effort)
-        uint16_t newv = static_cast<uint16_t>(it->second);
-        bc[off]     = static_cast<uint8_t>(newv & 0xFF);
-        bc[off + 1] = static_cast<uint8_t>((newv >> 8) & 0xFF);
-    };
     while (pos < bc.size()) {
         OpCode op = static_cast<OpCode>(bc[pos]);
         switch (op) {
             case OpCode::OP_ConstString:
             case OpCode::OP_AssertFail:
             case OpCode::OP_CallMethod:
-                patchU16(pos + 1, pm.stringMap);
+                PatchU16Operand(bc, pos + 1, pm.stringMap);
                 break;
             case OpCode::OP_CallFunc:
             case OpCode::OP_CallMethodDirect:
@@ -147,27 +181,27 @@ void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm
             case OpCode::OP_CallMethodDirectOut:
             case OpCode::OP_MakeFunc:
             case OpCode::OP_MakeBoundFunc:
-                patchU16(pos + 1, pm.functionMap);
+                PatchU16Operand(bc, pos + 1, pm.functionMap);
                 break;
             case OpCode::OP_MakeVFunc:
-                patchU16(pos + 1, pm.stringMap);
+                PatchU16Operand(bc, pos + 1, pm.stringMap);
                 break;
             case OpCode::OP_New:
             case OpCode::OP_CheckCast:
-                patchU16(pos + 1, pm.classMap);
+                PatchU16Operand(bc, pos + 1, pm.classMap);
                 break;
             case OpCode::OP_AllocStruct:
-                patchU16(pos + 1, pm.structMap);
+                PatchU16Operand(bc, pos + 1, pm.structMap);
                 break;
             case OpCode::OP_CopyStruct:
                 // dst, src, structIdx — third operand
-                patchU16(pos + 5, pm.structMap);
+                PatchU16Operand(bc, pos + 5, pm.structMap);
                 break;
             case OpCode::OP_AllocArray:
-                patchU16(pos + 1, pm.arrayTypeMap);
+                PatchU16Operand(bc, pos + 1, pm.arrayTypeMap);
                 break;
             case OpCode::OP_Enum_to_str:
-                patchU16(pos + 1, pm.enumMap);
+                PatchU16Operand(bc, pos + 1, pm.enumMap);
                 break;
             default:
                 break;
@@ -186,9 +220,13 @@ void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm
 void VmBackend::MergeImportedClassesStructsArrays() {
     m_importRemaps.clear();
     m_importRemaps.reserve(m_importedModules.size());
+    MergeImportedTypeTables();
+    RemapImportedTypeMetadata();
+}
 
-    //Stage A.1: per-module build stringMap + classMap/structMap/arrayTypeMap
-    //by pushing (deduped) entries into m_compiledModule.
+//Stage A.1: per-module build stringMap + classMap/structMap/arrayTypeMap
+//by pushing (deduped) entries into m_compiledModule.
+void VmBackend::MergeImportedTypeTables() {
     for (auto& im : m_importedModules) {
         PerModuleRemap pm;
 
@@ -234,54 +272,68 @@ void VmBackend::MergeImportedClassesStructsArrays() {
 
         m_importRemaps.push_back(std::move(pm));
     }
+}
 
-    //Stage A.2: partial metadata remap on pushed entries only (R8-1).
+//Stage A.2: partial metadata remap on pushed entries only (R8-1).
+void VmBackend::RemapImportedTypeMetadata() {
     for (size_t m = 0; m < m_importedModules.size(); ++m) {
         auto& im = m_importedModules[m];
         auto& pm = m_importRemaps[m];
+        RemapImportedClassMetadata(im, pm);
+        RemapImportedStructMetadata(im, pm);
+        RemapImportedArrayTypeMetadata(im, pm);
+    }
+}
 
-        for (uint32_t i = 0; i < im.classes.size(); ++i) {
-            if (pm.classWasPushed.find(i) == pm.classWasPushed.end()) continue;
-            uint32_t targetIdx = pm.classMap[i];
-            auto& cc = m_compiledModule.classes[targetIdx];
-            if (cc.superClassIdx >= 0) {
-                auto it = pm.classMap.find(static_cast<uint32_t>(cc.superClassIdx));
-                if (it != pm.classMap.end())
-                    cc.superClassIdx = static_cast<int16_t>(it->second);
-            }
-            for (auto& idx : cc.fieldStructIndices)
-                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
-            for (auto& idx : cc.fieldClassIndices)
-                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
-            //v1.12: field descriptors reference the producer's tables —
-            //remap for the pushed copy (chained re-export re-serializes
-            //them with our numbering).
-            for (auto& td : cc.fieldTypeDescs)
-                RemapTypeDesc(td, pm.structMap, pm.classMap);
+void VmBackend::RemapImportedClassMetadata(CompiledModule& im,
+                                           PerModuleRemap& pm) {
+    for (uint32_t i = 0; i < im.classes.size(); ++i) {
+        if (pm.classWasPushed.find(i) == pm.classWasPushed.end()) continue;
+        uint32_t targetIdx = pm.classMap[i];
+        auto& cc = m_compiledModule.classes[targetIdx];
+        if (cc.superClassIdx >= 0) {
+            auto it = pm.classMap.find(static_cast<uint32_t>(cc.superClassIdx));
+            if (it != pm.classMap.end())
+                cc.superClassIdx = static_cast<int16_t>(it->second);
         }
+        for (auto& idx : cc.fieldStructIndices)
+            if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
+        for (auto& idx : cc.fieldClassIndices)
+            if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
+        //v1.12: field descriptors reference the producer's tables —
+        //remap for the pushed copy (chained re-export re-serializes
+        //them with our numbering).
+        for (auto& td : cc.fieldTypeDescs)
+            RemapTypeDesc(td, pm.structMap, pm.classMap);
+    }
+}
 
-        for (uint32_t i = 0; i < im.structs.size(); ++i) {
-            if (pm.structWasPushed.find(i) == pm.structWasPushed.end()) continue;
-            uint32_t targetIdx = pm.structMap[i];
-            auto& cs = m_compiledModule.structs[targetIdx];
-            for (auto& idx : cs.fieldStructIndices)
-                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
-            for (auto& idx : cs.fieldClassIndices)
-                if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
-            //v1.12: same descriptor remap as the class loop above.
-            for (auto& td : cs.fieldTypeDescs)
-                RemapTypeDesc(td, pm.structMap, pm.classMap);
-        }
+void VmBackend::RemapImportedStructMetadata(CompiledModule& im,
+                                            PerModuleRemap& pm) {
+    for (uint32_t i = 0; i < im.structs.size(); ++i) {
+        if (pm.structWasPushed.find(i) == pm.structWasPushed.end()) continue;
+        uint32_t targetIdx = pm.structMap[i];
+        auto& cs = m_compiledModule.structs[targetIdx];
+        for (auto& idx : cs.fieldStructIndices)
+            if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.structMap.at(idx));
+        for (auto& idx : cs.fieldClassIndices)
+            if (idx != 0xFFFF) idx = static_cast<uint16_t>(pm.classMap.at(idx));
+        //v1.12: same descriptor remap as the class loop above.
+        for (auto& td : cs.fieldTypeDescs)
+            RemapTypeDesc(td, pm.structMap, pm.classMap);
+    }
+}
 
-        for (uint32_t i = 0; i < im.arrayTypes.size(); ++i) {
-            uint32_t targetIdx = pm.arrayTypeMap[i];
-            auto& at = m_compiledModule.arrayTypes[targetIdx];
-            if (at.elemTypeIdx == 0xFFFF) continue;
-            if (at.elemKind == RTK_Struct)
-                at.elemTypeIdx = static_cast<uint16_t>(pm.structMap.at(at.elemTypeIdx));
-            else if (at.elemKind == RTK_Class)
-                at.elemTypeIdx = static_cast<uint16_t>(pm.classMap.at(at.elemTypeIdx));
-        }
+void VmBackend::RemapImportedArrayTypeMetadata(CompiledModule& im,
+                                               PerModuleRemap& pm) {
+    for (uint32_t i = 0; i < im.arrayTypes.size(); ++i) {
+        uint32_t targetIdx = pm.arrayTypeMap[i];
+        auto& at = m_compiledModule.arrayTypes[targetIdx];
+        if (at.elemTypeIdx == 0xFFFF) continue;
+        if (at.elemKind == RTK_Struct)
+            at.elemTypeIdx = static_cast<uint16_t>(pm.structMap.at(at.elemTypeIdx));
+        else if (at.elemKind == RTK_Class)
+            at.elemTypeIdx = static_cast<uint16_t>(pm.classMap.at(at.elemTypeIdx));
     }
 }
 
@@ -290,7 +342,14 @@ void VmBackend::MergeImportedClassesStructsArrays() {
 //complete class metadata (methodIndices + constructorIdx), and fill
 //m_funcIndexMap[stub] via m_importedFuncSourceIdx side-table.
 void VmBackend::MergeImportedFinalize() {
-    //Stage B.1: build enumMap + functionMap by pushing placeholders.
+    PushImportedEnumAndFunctionPlaceholders();
+    CopyImportedFunctionBytecode();
+    RemapImportedMethodIndices();
+    BindImportedFunctionStubs();
+}
+
+//Stage B.1: build enumMap + functionMap by pushing placeholders.
+void VmBackend::PushImportedEnumAndFunctionPlaceholders() {
     for (size_t m = 0; m < m_importedModules.size(); ++m) {
         auto& im = m_importedModules[m];
         auto& pm = m_importRemaps[m];
@@ -300,41 +359,49 @@ void VmBackend::MergeImportedFinalize() {
             m_compiledModule.enumNames.push_back(im.enumNames[i]);
         }
 
-        for (uint32_t i = 0; i < im.functions.size(); ++i) {
-            pm.functionMap[i] = m_compiledModule.functions.size();
-            CompiledFunction placeholder;
-            placeholder.name = im.functions[i].name;
-            placeholder.paramCount = im.functions[i].paramCount;
-            placeholder.localsSize = im.functions[i].localsSize;
-            placeholder.returnTypeKind = im.functions[i].returnTypeKind;
-            placeholder.intrinsicId = im.functions[i].intrinsicId;
-            //Phase 9f: native flag must survive the merge — the producer
-            //wrote no bytecode for a native declaration, so a dropped flag
-            //would leave the consumer calling empty bytecode (silent stale
-            //pResult instead of a native table lookup).
-            placeholder.isNative = im.functions[i].isNative;
-            //v1.9 (debugger): locals + source file must survive the
-            //merge. locals absence was a pre-existing GC root-set hole:
-            //MarkPhase walks func->locals of every frame, so imported
-            //frames had an empty root set and live objects could be
-            //swept; the debugger also needs them for `info locals`.
-            placeholder.locals = im.functions[i].locals;
-            placeholder.sourceFile = im.functions[i].sourceFile;
-            //v1.12: type descriptors must survive the merge for chained
-            //re-export (a consumer saving its own .nmod re-serializes
-            //these placeholders) — remap their table indices into ours.
-            placeholder.paramTypeDescs = im.functions[i].paramTypeDescs;
-            placeholder.returnTypeDesc = im.functions[i].returnTypeDesc;
-            for (auto& ptd : placeholder.paramTypeDescs)
-                RemapTypeDesc(ptd.type, pm.structMap, pm.classMap);
-            RemapTypeDesc(placeholder.returnTypeDesc, pm.structMap,
-                pm.classMap);
-            //bytecode filled in stage B.2
-            m_compiledModule.functions.push_back(std::move(placeholder));
-        }
+        for (uint32_t i = 0; i < im.functions.size(); ++i)
+            PushImportedFunctionPlaceholder(im, pm, i);
     }
+}
 
-    //Stage B.2: copy + remap bytecode into each placeholder.
+//Push one imported function record as a placeholder, remapping its v1.12
+//type descriptors into our table numbering. Bytecode is filled in stage B.2.
+void VmBackend::PushImportedFunctionPlaceholder(CompiledModule& im,
+                                                PerModuleRemap& pm,
+                                                uint32_t i) {
+    pm.functionMap[i] = m_compiledModule.functions.size();
+    CompiledFunction placeholder;
+    placeholder.name = im.functions[i].name;
+    placeholder.paramCount = im.functions[i].paramCount;
+    placeholder.localsSize = im.functions[i].localsSize;
+    placeholder.returnTypeKind = im.functions[i].returnTypeKind;
+    placeholder.intrinsicId = im.functions[i].intrinsicId;
+    //Phase 9f: native flag must survive the merge — the producer
+    //wrote no bytecode for a native declaration, so a dropped flag
+    //would leave the consumer calling empty bytecode (silent stale
+    //pResult instead of a native table lookup).
+    placeholder.isNative = im.functions[i].isNative;
+    //v1.9 (debugger): locals + source file must survive the
+    //merge. locals absence was a pre-existing GC root-set hole:
+    //MarkPhase walks func->locals of every frame, so imported
+    //frames had an empty root set and live objects could be
+    //swept; the debugger also needs them for `info locals`.
+    placeholder.locals = im.functions[i].locals;
+    placeholder.sourceFile = im.functions[i].sourceFile;
+    //v1.12: type descriptors must survive the merge for chained
+    //re-export (a consumer saving its own .nmod re-serializes
+    //these placeholders) — remap their table indices into ours.
+    placeholder.paramTypeDescs = im.functions[i].paramTypeDescs;
+    placeholder.returnTypeDesc = im.functions[i].returnTypeDesc;
+    for (auto& ptd : placeholder.paramTypeDescs)
+        RemapTypeDesc(ptd.type, pm.structMap, pm.classMap);
+    RemapTypeDesc(placeholder.returnTypeDesc, pm.structMap,
+        pm.classMap);
+    m_compiledModule.functions.push_back(std::move(placeholder));
+}
+
+//Stage B.2: copy + remap bytecode into each placeholder.
+void VmBackend::CopyImportedFunctionBytecode() {
     for (size_t m = 0; m < m_importedModules.size(); ++m) {
         auto& im = m_importedModules[m];
         auto& pm = m_importRemaps[m];
@@ -357,8 +424,10 @@ void VmBackend::MergeImportedFinalize() {
             m_compiledModule.functions[targetIdx].tryBlocks = std::move(tbs);
         }
     }
+}
 
-    //Stage B.3: complete class metadata remap (methodIndices + constructorIdx).
+//Stage B.3: complete class metadata remap (methodIndices + constructorIdx).
+void VmBackend::RemapImportedMethodIndices() {
     for (size_t m = 0; m < m_importedModules.size(); ++m) {
         auto& im = m_importedModules[m];
         auto& pm = m_importRemaps[m];
@@ -372,8 +441,10 @@ void VmBackend::MergeImportedFinalize() {
                 cc.constructorIdx = static_cast<uint16_t>(pm.functionMap.at(cc.constructorIdx));
         }
     }
+}
 
-    //Stage B.4: fill m_funcIndexMap[stub] for user-codegen lookup (R3-C).
+//Stage B.4: fill m_funcIndexMap[stub] for user-codegen lookup (R3-C).
+void VmBackend::BindImportedFunctionStubs() {
     for (auto& kv : m_importedFuncSourceIdx) {
         SnFunction* stub = kv.first;
         uint32_t srcModIdx = kv.second.first;

@@ -22,6 +22,10 @@ class SnFunction;
 class SnEnumDecl;
 class SnInvokeExpr;
 class SnClassDecl;
+class SnStructDecl;
+class SnFieldExpr;
+class SnLiteralExpr;
+class SnBinaryExpr;
 
 //Phase 9c: forward-declared so EmitBinding/EmitCallArgs can take
 //references without including SnExpressions.h (heavy header dep). Full
@@ -142,6 +146,29 @@ private:
     struct CallSlotStats { uint16_t maxArgs; uint16_t peakDepth; };
     static CallSlotStats ComputeCallSlotStats(SnFunction& sn);
 
+    //GenerateFunction decomposition (2026-09-25): each phase stamps one
+    //slice of the CompiledFunction record / frame layout, in call order.
+    //FuncContext is defined below in the private section (forward-declared
+    //here so these declarations can refer to it, same as PerModuleRemap).
+    struct FuncContext;
+    //v1.12: stamp paramTypeDescs + returnTypeDesc from the AST signature.
+    void CollectSignatureTypeDescs(SnFunction& func, CompiledFunction& compiledFunc);
+    //Phase 9f: fill the signature-only record for a `native` declaration.
+    void FillNativeFunctionRecord(SnFunction& func, CompiledFunction& compiledFunc);
+    //Allocate the `this` + formal slots, then collect foldable defaults.
+    void AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
+                                CompiledFunction& compiledFunc);
+    //Reserve return slot, temp pool, callParamBase and evalArea; returns
+    //the call-slot stats consumed by the finalize-time drift check.
+    CallSlotStats ReserveReturnAndCallSlots(SnFunction& func, FuncContext& ctx,
+                                            CompiledFunction& compiledFunc);
+    //Emit the body statements, then the implicit fallback return.
+    void EmitBodyAndImplicitReturn(SnFunction& func, FuncContext& ctx,
+                                   BytecodeEmitter& emitter);
+    //Finalize-time tripwire: evalArea claims must fit the reserved peakDepth.
+    void CheckEvalAreaWalkerDrift(SnFunction& func, FuncContext& ctx,
+                                  const CallSlotStats& stats);
+
     //Recursive frame-depth walkers behind ComputeCallSlotStats.
     //visited guards recursion through callee default expressions.
     //isMethodContext=true when the InvokeExpr is the Inner() of a
@@ -235,9 +262,28 @@ private:
     //Future evolution: each phase can become an Accessor for multi-backend support.
     void RegisterBuiltinClasses();
     void RegisterStructs(SnNamespace& root);
+    //RegisterStructs phase: build one CompiledStruct (+ parallel field lists).
+    void RegisterStructDecl(SnStructDecl& sn);
     void RegisterClasses(SnNamespace& root);
+    //RegisterClasses phases: one class record; its post-registration
+    //resolution pass; the Phase 8e-1 implicit-Object parent fixup.
+    void RegisterClassDecl(SnClassDecl& sn,
+        std::unordered_map<std::string, SnClassDecl*>& declMap);
+    void CollectInheritedClassFields(SnClassDecl& sn, CompiledClass& cc);
+    void AppendBuiltinExceptionFields(CompiledClass& cc);
+    void CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc);
+    void ResolveClassMetadata(std::unordered_map<std::string, SnClassDecl*>& declMap);
+    void ResolveClassFieldRefs(SnClassDecl* pDecl, CompiledClass& cc);
+    void BuildClassFieldTypeDescs(SnClassDecl* pDecl, CompiledClass& cc);
+    void ApplyImplicitObjectInheritance();
     void ResolveStructClassRefs();
     void RegisterArrayTypes(SnNamespace& root);
+    //RegisterArrayTypes walkers: type expressions, declaration fields and
+    //formal params, statements, and namespace/class child nodes.
+    void RegisterArrayTypeExpr(SnFieldExpr* pTypeExpr);
+    void WalkArrayTypeField(SnField& f);
+    void WalkArrayTypeStmt(SnStatement& s);
+    void WalkArrayTypeNode(SyntaxNode& n);
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
@@ -265,6 +311,22 @@ private:
     struct PerModuleRemap;
     void RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm);
 
+    //Phase A stages: per-module dedup/push of the type tables, then the
+    //partial metadata remap on the pushed copies (per kind, in order).
+    void MergeImportedTypeTables();
+    void RemapImportedTypeMetadata();
+    void RemapImportedClassMetadata(CompiledModule& im, PerModuleRemap& pm);
+    void RemapImportedStructMetadata(CompiledModule& im, PerModuleRemap& pm);
+    void RemapImportedArrayTypeMetadata(CompiledModule& im, PerModuleRemap& pm);
+    //Phase B stages (run in this order): placeholder push, bytecode copy,
+    //method-index remap, stub table fill.
+    void PushImportedEnumAndFunctionPlaceholders();
+    void PushImportedFunctionPlaceholder(CompiledModule& im, PerModuleRemap& pm,
+                                         uint32_t i);
+    void CopyImportedFunctionBytecode();
+    void RemapImportedMethodIndices();
+    void BindImportedFunctionStubs();
+
     //Register an array type from its element type field.
     //Returns the arrayTypeIdx in m_compiledModule.arrayTypes.
     uint16_t RegisterArrayType(SnField* pElemType);
@@ -278,6 +340,9 @@ private:
     //a DefaultValueDesc for serialization. Returns tag=RTK_Void when the
     //expression isn't foldable (caller-side check rejects for IsImported).
     DefaultValueDesc ExtractDefaultValue(SnExpression* pExpr);
+    //ExtractDefaultValue arms: direct literal, and OP_Neg over a literal.
+    void ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv);
+    void ExtractNegatedLiteralDefault(SnBinaryExpr* bin, DefaultValueDesc& dv);
     //Phase 8e-4: RTK_* tag for boxing a primitive-T argument, plus an
     //isPrimitive flag (needed because RTK_Int32 == 0 — same collision as
     //the Phase 8e-3 C1 fix). Shared by List<T> and Dict<K,V> codegen.
