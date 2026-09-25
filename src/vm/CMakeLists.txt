@@ -15,6 +15,16 @@ add_library(nlang_vm
     VmBackendEmitCall.cpp
     VmBackendWalkersExpr.cpp
     VmBackendWalkersStmt.cpp
+    VmBackendEmitExprCore.cpp
+    VmBackendEmitExprCast.cpp
+    VmBackendEmitExprBinary.cpp
+    VmBackendEmitExprNew.cpp
+    VmBackendEmitExprMember.cpp
+    VmBackendEmitStmtDecl.cpp
+    VmBackendEmitStmtStore.cpp
+    VmBackendEmitStmtFlow.cpp
+    VmBackendEmitStmtForeach.cpp
+    VmBackendEmitStmtSwitchTry.cpp
     Disassembler.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp

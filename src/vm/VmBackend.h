@@ -122,6 +122,15 @@ private:
     static bool IsContainerSubscript(SnExpression& baseExpr);
     static bool IsDelegateInvoke(const SnInvokeExpr& invoke);
 
+    //Flattened member-field offset helpers (definitions live in
+    //VmBackendEmitExprMember.cpp), shared by the member-read, assign-store,
+    //and new-expression emitters across emission TUs.
+    static int FindFieldOffset(SnStructDecl& structDecl,
+                               const std::string& fieldName);
+    static int FindClassFieldOffset(SnClassDecl& classDecl,
+                                    const std::string& fieldName);
+    static SnClassDecl* OwningClassOfMemberField(SnField* pField);
+
     //Phase 9c follow-up: compute per-function call slot statistics for
     //dynamic frame sizing. Returns {maxArgs, peakDepth} where:
     //  maxArgs   = max callee formal count (+1 for method `this`) across all
