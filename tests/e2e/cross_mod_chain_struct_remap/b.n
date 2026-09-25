@@ -1,0 +1,13 @@
+// Middle module: imports c and re-exports its functions. Its own
+// struct Q shifts the merged struct table, so the imported param and
+// return descriptors must have their struct indices remapped into b's
+// table before b.nmod is saved again (chained re-export). The struct
+// value itself never needs field access here — it is constructed in c
+// and passed straight back to c.
+import c;
+
+struct Q { int w; }
+
+int callSum() {
+    return c.sumS(c.mkS(30, 12));
+}

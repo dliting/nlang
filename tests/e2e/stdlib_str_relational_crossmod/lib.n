@@ -1,9 +1,9 @@
 //Relational string compares compiled in a separate module — the merged
 //import walk (RemapBytecode) must know the new _str opcodes' strides
 //(the InstructionStride default asserts on unknown opcodes). The string
-//literals stay inside this module: cross-module param kinds are not
-//serialized (plan trap 11b), so string ARGS crossing the boundary are
-//rejected by today's placeholder typing.
+//literals stay inside this module from the original trap era; string
+//params cross the boundary fine since the v1.12 type descriptors, the
+//local comparison shape is simply what the test pins.
 int cmp_lt() {
 	string a = "zebra";
 	string b = "apple";

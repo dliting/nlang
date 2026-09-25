@@ -1,0 +1,16 @@
+// List<int>-typed formals and returns serialized through .nmod v1.12
+// recursive type descriptors (RTK_List with an int element): the
+// consumer-side stub rebuilds a real List<int> signature, so the
+// container value crosses the boundary in both directions — passed in
+// as an argument and received back from mkList.
+int sumList(List<int> l) {
+    int s = 0;
+    for (int i = 0; i < l.length(); i = i + 1)
+        s = s + l.get(i);
+    return s;
+}
+
+List<int> mkList(int base) {
+    List<int> l = new List<int>{base, base + 1, base + 2};
+    return l;
+}

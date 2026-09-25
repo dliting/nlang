@@ -1,0 +1,8 @@
+import lib;
+
+int main() {
+    List<int> mine = [1, 2, 3];
+    if (lib.sumList(mine) != 6) return 1;
+    if (lib.sumList(lib.mkList(10)) != 33) return 2;
+    return 42;
+}

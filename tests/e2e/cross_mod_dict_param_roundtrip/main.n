@@ -1,0 +1,7 @@
+import lib;
+
+int main() {
+    Dict<string, int> d = new Dict<string, int>{"a": 2, "b": 5};
+    if (lib.sumDict(d) != 205) return 1;
+    return 42;
+}

@@ -1138,6 +1138,9 @@ cross_mod_array_return_elem_ok 7
 cross_mod_arrayelem_mismatch_reject compile_error an array value only converts to the same array type
 cross_mod_float_param_value 42
 cross_mod_out_param 5
+cross_mod_chain_struct_remap 42
+cross_mod_list_param_roundtrip 42
+cross_mod_dict_param_roundtrip 42
 binary_array_numeric_reject compile_error Incompatible type
 binary_str_array_concat 0 x[1, 2]
 arg_array_to_string_param 5

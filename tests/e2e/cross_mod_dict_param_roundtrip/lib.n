@@ -1,0 +1,8 @@
+// Dict<string, int>-typed formal serialized through .nmod v1.12
+// recursive type descriptors (RTK_Dict with both type arguments): the
+// consumer-side stub rebuilds the real instantiation, so the dict
+// constructed in the consumer binds as an argument to the imported
+// formal and its entries read back exactly.
+int sumDict(Dict<string, int> d) {
+    return d.get("a") * 100 + d.get("b");
+}

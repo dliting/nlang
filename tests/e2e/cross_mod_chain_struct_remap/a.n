@@ -1,0 +1,8 @@
+// Top of the chain: imports b only. The re-exported descriptors are
+// remapped a second time (b's table -> a's merged table) across two
+// import hops. Expected exit 42 = 30 + 12.
+import b;
+
+int main() {
+    return b.callSum();
+}
