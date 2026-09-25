@@ -22,7 +22,10 @@ namespace nlang {
 
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
-VmBackend::VmBackend() = default;
+VmBackend::VmBackend()
+    : m_EmitVisitor(*this, NVK_CustomTraverse)
+{
+}
 VmBackend::~VmBackend() = default;
 
 void VmBackend::OnModuleCreate(Module& module) {
@@ -730,16 +733,19 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
 //    observedPeakCursor check turns any drift into a build error.
 void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                                 uint16_t resultOffset) {
-    NodeKind kind = expr.Kind();
+    m_pCurrEmitter = &emitter;
+    m_resultOffset = resultOffset;
+    expr.Accept(m_EmitVisitor);
+}
 
-    //Round-13: type-reference expressions (ArrayTypeExpr, GenericTypeExpr)
-    //are compile-time-only — they carry type information but never produce
-    //runtime values. Reaching EmitExpression means a caller passed one as a
-    //value-producing expression (round-13 root cause: SnNewExpr::Args() is
-    //a view over ALL children and includes the AddChild'ed class name).
-    //This is an internal invariant break — surface it instead of emitting
-    //garbage or silently skipping (which masks resolver/AST bugs).
-    if (kind == NK_ArrayTypeExpr || kind == NK_GenericTypeExpr) {
+//Round-13: type-reference expressions (ArrayTypeExpr, GenericTypeExpr)
+//are compile-time-only — they carry type information but never produce
+//runtime values. Reaching EmitExpression means a caller passed one as a
+//value-producing expression (round-13 root cause: SnNewExpr::Args() is
+//a view over ALL children and includes the AddChild'ed class name).
+//This is an internal invariant break — surface it instead of emitting
+//garbage or silently skipping (which masks resolver/AST bugs).
+void VmBackend::Access(SnArrayTypeExpr& expr) {
         throw std::runtime_error(
             "NLang backend: type-reference expression reached codegen "
             "(compile-time-only node) at "
@@ -747,7 +753,25 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                                : std::string("?")));
     }
 
-    if (kind == NK_LiteralExpr) {
+//Round-13: type-reference expressions (ArrayTypeExpr, GenericTypeExpr)
+//are compile-time-only — they carry type information but never produce
+//runtime values. Reaching EmitExpression means a caller passed one as a
+//value-producing expression (round-13 root cause: SnNewExpr::Args() is
+//a view over ALL children and includes the AddChild'ed class name).
+//This is an internal invariant break — surface it instead of emitting
+//garbage or silently skipping (which masks resolver/AST bugs).
+void VmBackend::Access(SnGenericTypeExpr& expr) {
+        throw std::runtime_error(
+            "NLang backend: type-reference expression reached codegen "
+            "(compile-time-only node) at "
+            + (expr.Location() ? expr.Location()->ToString()
+                               : std::string("?")));
+    }
+
+void VmBackend::Access(SnLiteralExpr& expr) {
+    NodeKind kind = expr.Kind();
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& lit = static_cast<SnLiteralExpr&>(expr);
         auto* evalType = lit.EvalDataType();
 
@@ -787,7 +811,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
-    if (kind == NK_IdentifierExpr) {
+void VmBackend::Access(SnIdentifierExpr& expr) {
+    NodeKind kind = expr.Kind();
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& idExpr = static_cast<SnIdentifierExpr&>(expr);
         //Phase 9c: binding override — when evaluating a default-param
         //expression, an identifier referring to an earlier formal must
@@ -868,7 +895,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
-    if (kind == NK_InvokeExpr) {
+void VmBackend::Access(SnInvokeExpr& expr) {
+    NodeKind kind = expr.Kind();
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& invoke = static_cast<SnInvokeExpr&>(expr);
         auto* callee = invoke.Callee();
 
@@ -986,12 +1016,14 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     //means the wrapper flowed into a non-binding emit site (ctor call,
     //super(...), or a legacy path) — all rejected by the resolver, so
     //this is an internal error, not a fallback.
-    if (kind == NK_OutArgExpr) {
+void VmBackend::Access(SnOutArgExpr& expr) {
         throw std::runtime_error(
             "NLang backend: out argument in unsupported call form");
     }
 
-    if (kind == NK_CastExpr) {
+void VmBackend::Access(SnCastExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& cast = static_cast<SnCastExpr&>(expr);
         EmitExpression(*cast.Source(), emitter, resultOffset);
 
@@ -1144,7 +1176,12 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     //Phase 8e-1.5: `expr as T` runtime-checked cast.
     //Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
     //(Object→primitive), TCK_Downcast (ancestor→subclass).
-    if (kind == NK_AsExpr) {
+void VmBackend::Access(SnAsExpr& expr) {
+    //No `NodeKind kind` snapshot: this body's only `kind` is its own
+    //TypeCastKind local below (the pre-refactor branch shadowed the chain
+    //variable with it).
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& asExpr = static_cast<SnAsExpr&>(expr);
         //Evaluate operand to resultOffset. After this, pResult holds the
         //value (heap idx for ref types) per EmitExpression convention.
@@ -1237,7 +1274,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     }
 
     // Member expression - struct field access or delegate to inner
-    if (kind == NK_MemberExpr) {
+void VmBackend::Access(SnMemberExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& member = static_cast<SnMemberExpr&>(expr);
         //Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Must be
         //dispatched before anything that needs member.Field() — the
@@ -2011,7 +2050,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     }
 
     // Name expression - delegate
-    if (kind == NK_NameExpr) {
+void VmBackend::Access(SnNameExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& nameExpr = static_cast<SnNameExpr&>(expr);
         if (nameExpr.Expr()) {
             EmitExpression(*nameExpr.Expr(), emitter, resultOffset);
@@ -2020,7 +2061,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     }
 
     // New expression - object instantiation
-    if (kind == NK_NewExpr) {
+void VmBackend::Access(SnNewExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& newExpr = static_cast<SnNewExpr&>(expr);
         auto* pClassDecl = newExpr.ClassDecl();
         if (!pClassDecl) {
@@ -2111,7 +2154,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     }
 
     // This expression - reads the implicit first parameter
-    if (kind == NK_ThisExpr) {
+void VmBackend::Access(SnThisExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         //Inside a method-call default-param expression, `this` resolves
         //to the caller-side callParamBase slot holding the receiver.
         //Otherwise (inside a method body), `this` is local 0.
@@ -2125,7 +2170,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     }
 
     // New array expression: new T[size]
-    if (kind == NK_NewArrayExpr) {
+void VmBackend::Access(SnNewArrayExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& newArr = static_cast<SnNewArrayExpr&>(expr);
         //Register the array type (idempotent)
         uint16_t arrayTypeIdx = RegisterArrayType(
@@ -2151,7 +2198,10 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     //  - Array (target->IsArrayType()): OP_AllocArray + per-element OP_StoreElement
     //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "add" with boxing
     //  - Dict/Struct/Class: handled in Phase D (falls through to assert for now).
-    if (kind == NK_InitListExpr) {
+void VmBackend::Access(SnInitListExpr& expr) {
+    NodeKind kind = expr.Kind();
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& initList = static_cast<SnInitListExpr&>(expr);
         SnField* pTarget = initList.EvalDataType();
         if (!pTarget) {
@@ -2492,7 +2542,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     }
 
     // Subscript expression: arr[index]
-    if (kind == NK_SubscriptExpr) {
+void VmBackend::Access(SnSubscriptExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
         //List<T>/Dict<K,V> subscript sugar: li[i] == li.get(i),
         //d[k] == d.get(k). Dispatch on the base's resolved type being a
@@ -2592,7 +2644,9 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
     }
 
     // Binary/unary operator expression
-    if (kind == NK_BinaryExpr) {
+void VmBackend::Access(SnBinaryExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
         auto& bin = static_cast<SnBinaryExpr&>(expr);
         auto op = bin.Op();
 
@@ -2798,10 +2852,12 @@ void VmBackend::EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
         return;
     }
 
-    //Round-12: this used to silently emit ConstZero, converting any
-    //unhandled expression kind into wrong-but-compiling code. Codegen only
-    //runs when the front-end saw no errors, so reaching here is an internal
-    //invariant break — surface it instead of emitting garbage.
+//Round-12: this used to silently emit ConstZero, converting any
+//unhandled expression kind into wrong-but-compiling code. Codegen only
+//runs when the front-end saw no errors, so reaching here is an internal
+//invariant break — surface it instead of emitting garbage.
+void VmBackend::Access(SnExpression& expr) {
+    NodeKind kind = expr.Kind();
     throw std::runtime_error(
         "NLang backend: unhandled expression kind in codegen: "
         + std::to_string(static_cast<int>(kind)) + " at "
@@ -2827,6 +2883,7 @@ void VmBackend::EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter)
 }
 
 void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
+    m_pCurrEmitter = &emitter;
     NodeKind kind = stmt.Kind();
 
     //Emit a line marker at every statement so the VM can produce source
@@ -2849,7 +2906,11 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         EmitStatementAnchor(stmt, emitter);
     }
 
-    if (kind == NK_ReturnStmt) {
+    stmt.Accept(m_EmitVisitor);
+}
+
+void VmBackend::Access(SnReturnStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& ret = static_cast<SnReturnStmt&>(stmt);
         if (ret.Result()) {
             //Phase 9d-2: evaluate the return expression BEFORE running
@@ -2869,7 +2930,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         return;
     }
 
-    if (kind == NK_InvokeStmt) {
+void VmBackend::Access(SnInvokeStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& invoke = static_cast<SnInvokeStmt&>(stmt);
         //Result staging: EvalAreaClaim, never tempSlot (round-9 — uniform
         //statement-staging rule; the result is discarded, but intermediates
@@ -2879,7 +2941,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         return;
     }
 
-    if (kind == NK_Paragraph) {
+void VmBackend::Access(SnParagraph& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& para = static_cast<SnParagraph&>(stmt);
         for (auto& child : para.Statements())
             EmitStatement(child, emitter);
@@ -2890,7 +2953,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //After the decomposition pattern, initializers are handled by
     //AssignStmts inserted after this declaration. We only allocate
     //the local variable slot here.
-    if (kind == NK_LocalDeclStmt) {
+void VmBackend::Access(SnLocalDeclStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
         //0.7.3 B: an array type expression binds Field() to its interned
         //array token (alias uses included — the alias pre-pass splices the
@@ -2918,7 +2982,9 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Assignment statement.
-    if (kind == NK_AssignStmt) {
+void VmBackend::Access(SnAssignStmt& stmt) {
+    NodeKind kind = stmt.Kind();
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& assign = static_cast<SnAssignStmt&>(stmt);
         if (assign.Left()->Kind() == NK_IdentifierExpr) {
             auto& idExpr = static_cast<SnIdentifierExpr&>(*assign.Left());
@@ -3177,7 +3243,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //Assert statement: assert(cond); - exit(1) on failure.
     //Codegen pattern: evaluate condition, OP_JumpIfNot to fail block,
     //fail block emits OP_AssertFail which throws (caught by main → exit 1).
-    if (kind == NK_AssertStmt) {
+void VmBackend::Access(SnAssertStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& as = static_cast<SnAssertStmt&>(stmt);
         //Condition staging: EvalAreaClaim, never tempSlot (round-9 — a
         //binary cond parks its LEFT operand in the staging slot across
@@ -3213,7 +3280,9 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         return;
     }
 
-    if (kind == NK_CompoundAssignStmt) {
+void VmBackend::Access(SnCompoundAssignStmt& stmt) {
+    NodeKind kind = stmt.Kind();
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
         auto op = ca.Op();
 
@@ -3339,7 +3408,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Subscript assignment: arr[index] = value
-    if (kind == NK_SubscriptAssignStmt) {
+void VmBackend::Access(SnSubscriptAssignStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& sub = static_cast<SnSubscriptAssignStmt&>(stmt);
         //List<T>/Dict<K,V> subscript store: li[i] = v == li.set(i, v),
         //d[k] = v == d.set(k, v) — sugar over the set() intrinsic call.
@@ -3465,7 +3535,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //If/else statement.
-    if (kind == NK_IfStmt) {
+void VmBackend::Access(SnIfStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& ifStmt = static_cast<SnIfStmt&>(stmt);
         //Condition staging: EvalAreaClaim, never tempSlot (round-9 —
         //binary cond LEFT operand vs. EmitBinding struct deep-copy scratch;
@@ -3501,7 +3572,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //While loop statement.
-    if (kind == NK_WhileStmt) {
+void VmBackend::Access(SnWhileStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& whileStmt = static_cast<SnWhileStmt&>(stmt);
         size_t loopStart = emitter.CurrentOffset();
         //Back-edge landing: the re-jump and `continue` both target
@@ -3548,7 +3620,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Do-while loop statement.
-    if (kind == NK_DoStmt) {
+void VmBackend::Access(SnDoStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& doStmt = static_cast<SnDoStmt&>(stmt);
 
         PushLoopContext();
@@ -3596,7 +3669,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //For loop statement.
-    if (kind == NK_ForStmt) {
+void VmBackend::Access(SnForStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& forStmt = static_cast<SnForStmt&>(stmt);
 
         //1. Compile init part (before loop context)
@@ -3660,7 +3734,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //Foreach loop statement (Phase 8e-5).
     //Index-based expansion reusing Length()/Get() (List), arr.length + arr[i] (Array).
     //No new opcode. Dict path is Phase D.
-    if (kind == NK_ForeachStmt) {
+void VmBackend::Access(SnForeachStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& fe = static_cast<SnForeachStmt&>(stmt);
 
         //--- Detect iterable kind -----------------------------------------
@@ -3924,7 +3999,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
     //Break statement.
     //Break exits the innermost enclosing switch or loop.
-    if (kind == NK_BreakStmt) {
+void VmBackend::Access(SnBreakStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         if (m_loopStack.empty()) {
             //This should be caught by an earlier validation pass.
             assert(!"break statement not in loop or switch");
@@ -3955,7 +4031,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
 
     //Continue statement.
     //Continue targets the innermost enclosing *loop*, not switch.
-    if (kind == NK_ContinueStmt) {
+void VmBackend::Access(SnContinueStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         //Walk the stack to find the nearest actual loop (not switch).
         //continue skips switch contexts.
         auto it = m_loopStack.rbegin();
@@ -3985,7 +4062,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     }
 
     //Switch statement.
-    if (kind == NK_SwitchStmt) {
+void VmBackend::Access(SnSwitchStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& switchStmt = static_cast<SnSwitchStmt&>(stmt);
 
         //1. Allocate a dedicated slot for the switch value.
@@ -4211,7 +4289,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //
     //tryBlocks entries are pushed in declaration order; the runtime scans
     //linearly and the first range+type match wins.
-    if (kind == NK_TryStmt) {
+void VmBackend::Access(SnTryStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& ts = static_cast<SnTryStmt&>(stmt);
         SnStatement* pFinally = ts.FinallyBody();
 
@@ -4324,7 +4403,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         return;
     }
 
-    if (kind == NK_ThrowStmt) {
+void VmBackend::Access(SnThrowStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& th = static_cast<SnThrowStmt&>(stmt);
         if (th.IsRethrow()) {
             emitter.Emit(OpCode::OP_Rethrow);
@@ -4348,7 +4428,8 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
     //parent's ctor (works for both user ctors and built-in Exception
     //family stubs via the intrinsic shortcut). No parent ctor (0xFFFF) is
     //a legal no-op — the resolver guarantees no args in that case.
-    if (kind == NK_SuperCallStmt) {
+void VmBackend::Access(SnSuperCallStmt& stmt) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& sc = static_cast<SnSuperCallStmt&>(stmt);
         if (!m_pCurrClass || !m_pCurrClass->SuperClass())
             return;  //resolver already reported; emit nothing
@@ -4392,15 +4473,27 @@ void VmBackend::EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter) {
         return;
     }
 
-    //Round-13: symmetric to EmitExpression's unhandled-kind throw. Codegen
-    //only runs when the front-end saw no errors, so an unhandled statement
-    //kind reaching here is an internal invariant break — silently skipping
-    //it would emit wrong-but-compiling code (statement simply vanishes).
+//Round-13: symmetric to EmitExpression's unhandled-kind throw. Codegen
+//only runs when the front-end saw no errors, so an unhandled statement
+//kind reaching here is an internal invariant break — silently skipping
+//it would emit wrong-but-compiling code (statement simply vanishes).
+void VmBackend::Access(SnStatement& stmt) {
+    NodeKind kind = stmt.Kind();
     throw std::runtime_error(
         "NLang backend: unhandled statement kind in codegen: "
         + std::to_string(static_cast<int>(kind)) + " at "
         + (stmt.Location() ? stmt.Location()->ToString()
                            : std::string("?")));
+}
+
+//Non-emissible node kinds (declarations, formal params, case clauses,
+//array-type tokens...) never reach codegen — emission visits only
+//value- and statement-position nodes. Reaching this universal fallback
+//is an internal invariant break.
+void VmBackend::Access(SyntaxNode& sn) {
+    throw std::runtime_error(
+        "NLang backend: non-emissible node reached codegen: "
+        + std::to_string(static_cast<int>(sn.Kind())));
 }
 
 uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,

@@ -3,6 +3,9 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/StdLib.h"
 #include "BytecodeEmitter.h"
+//Macro-generated per-node-kind Visit methods; VmBackend doubles as the
+//accessor (Access overloads below) for emission dispatch.
+#include <nlang/compiler/SyntaxNodeVisitor.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
@@ -57,6 +60,53 @@ public:
     }
 
     const CompiledModule& Result() const { return m_compiledModule; }
+
+    //--- Emission visitor (2026-09-25 maintainability refactor) ---
+    //EmitExpression/EmitStatement are thin entries: they store the emitter
+    //and result slot into m_pCurrEmitter/m_resultOffset, then dispatch
+    //here through m_EmitVisitor. One overload per node kind; each method
+    //snapshots the context members into locals at entry (nested emission
+    //rewrites them). Unlisted kinds hit the base-class fallbacks
+    //Access(SnExpression&)/Access(SnStatement&) with the same
+    //unhandled-kind throw as the pre-refactor chain tails.
+    void Access(SnArrayTypeExpr&);   //round-13: type reference reaching codegen = invariant break
+    void Access(SnGenericTypeExpr&); //same
+    void Access(SnLiteralExpr&);
+    void Access(SnIdentifierExpr&);
+    void Access(SnInvokeExpr&);
+    void Access(SnOutArgExpr&);      //out argument in value position (pre-existing throw)
+    void Access(SnCastExpr&);
+    void Access(SnAsExpr&);
+    void Access(SnMemberExpr&);
+    void Access(SnNameExpr&);
+    void Access(SnNewExpr&);
+    void Access(SnThisExpr&);
+    void Access(SnNewArrayExpr&);
+    void Access(SnInitListExpr&);
+    void Access(SnSubscriptExpr&);
+    void Access(SnBinaryExpr&);
+    void Access(SnExpression&);      //fallback: unhandled expression kind
+    void Access(SnReturnStmt&);
+    void Access(SnInvokeStmt&);
+    void Access(SnParagraph&);
+    void Access(SnLocalDeclStmt&);
+    void Access(SnAssignStmt&);
+    void Access(SnAssertStmt&);
+    void Access(SnCompoundAssignStmt&);
+    void Access(SnSubscriptAssignStmt&);
+    void Access(SnIfStmt&);
+    void Access(SnWhileStmt&);
+    void Access(SnDoStmt&);
+    void Access(SnForStmt&);
+    void Access(SnForeachStmt&);
+    void Access(SnBreakStmt&);
+    void Access(SnContinueStmt&);
+    void Access(SnSwitchStmt&);
+    void Access(SnTryStmt&);
+    void Access(SnThrowStmt&);
+    void Access(SnSuperCallStmt&);
+    void Access(SnStatement&);       //fallback: unhandled statement kind
+    void Access(SyntaxNode&);        //fallback: non-emissible node (internal error)
 
 private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
@@ -255,6 +305,13 @@ private:
         auto ovr = LookupThisOverride();
         return ovr.first ? ovr.second : 0;
     }
+
+    //Emission dispatch state (see the Access block above): the visitor is
+    //bound to *this at construction; thin entries store the per-call
+    //context here right before Accept.
+    SyntaxNodeVisitor<VmBackend> m_EmitVisitor;
+    BytecodeEmitter* m_pCurrEmitter = nullptr;
+    uint16_t m_resultOffset = 0;
 
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
