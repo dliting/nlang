@@ -9,6 +9,8 @@ add_library(nlang_vm
     IntrinsicsString.cpp
     IntrinsicsFs.cpp
     VmBackend.cpp
+    VmBackendRegister.cpp
+    VmBackendTypes.cpp
     Disassembler.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp
