@@ -23,6 +23,7 @@ class SnFunction;
 class SnEnumDecl;
 class SnInvokeExpr;
 class SnClassDecl;
+class SnSubscriptAssignStmt;
 class SnStructDecl;
 class SnFieldExpr;
 class SnLiteralExpr;
@@ -30,6 +31,9 @@ class SnBinaryExpr;
 class SnCastExpr;
 class SnAsExpr;
 class SnSubscriptExpr;
+class SnMemberExpr;
+class SnAssignStmt;
+class SnCompoundAssignStmt;
 
 //Phase 9c: forward-declared so EmitBinding/EmitCallArgs can take
 //references without including SnExpressions.h (heavy header dep). Full
@@ -430,6 +434,17 @@ private:
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);
     void EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter);
 
+    //--- Statement emission helpers, one family per statement TU
+    //(VmBackendEmitStmt*.cpp). Same hazard contract as the expression
+    //helpers: they take the emitter snapshot as a parameter and never
+    //read m_pCurrEmitter/m_resultOffset (overwritten by nested emission).
+    //Subscript store (VmBackendEmitStmtStore.cpp): container set()
+    //sugar vs plain array element store.
+    void EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
+                                   BytecodeEmitter& emitter);
+    void EmitArrayElementStore(SnSubscriptAssignStmt& sub,
+                               BytecodeEmitter& emitter);
+
     //Phase 9c: per-argument boxing plan for built-in generic class methods
     //(List<T>, Dict<K,V>). Maps callParamBase slot index to {type tag, needs
     //box}. Empty for user methods (no boxing — values pass as heap idxs).
@@ -652,6 +667,12 @@ private:
     //the Phase 8e-3 C1 fix). Shared by List<T> and Dict<K,V> codegen.
     struct BoxingTagResult { uint8_t tag; bool isPrimitive; };
     static BoxingTagResult BoxingTagFor(SnField* pT);
+    //Emit one operand into its claim slot, boxing it in place when
+    //the plan says primitive (the OP_Box sequence needs a pResult
+    //refresh first). Shared by the container subscript get/set sugar.
+    void EmitBoxedOperand(SnExpression& operand, uint16_t slot,
+                          const BoxingTagResult& box,
+                          BytecodeEmitter& emitter);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
     uint16_t FindLocal(const std::string& name) const;
