@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitExprCast.cpp — 转型与下标表达式发射：cast、as、下标读取。
+    EmitExprCast.cpp — 转型与下标表达式发射：cast、as、下标读取。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

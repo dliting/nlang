@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitStmtForeach.cpp — foreach 语句发射（数组/List/Dict 三路索引式展开）。
+    EmitStmtForeach.cpp — foreach 语句发射（数组/List/Dict 三路索引式展开）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

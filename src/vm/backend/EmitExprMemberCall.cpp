@@ -1,6 +1,6 @@
 /*---
-    VmBackendEmitExprMemberCall.cpp — 成员表达式方法调用发射：stdlib/枚举/类/接口方法调用、内建泛型装箱计划与方法分派。
-    从 VmBackendEmitExprMember.cpp 拆出；字符串/toString 族拆至 VmBackendEmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
+    EmitExprMemberCall.cpp — 成员表达式方法调用发射：stdlib/枚举/类/接口方法调用、内建泛型装箱计划与方法分派。
+    从 EmitExprMember.cpp 拆出；字符串/toString 族拆至 EmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>

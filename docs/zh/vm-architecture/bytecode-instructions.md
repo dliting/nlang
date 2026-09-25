@@ -134,13 +134,13 @@ SnAsExpr，其代码生成按解析出的转换 kind 发射 OP_Unbox/OP_CheckCas
 把名字铸造为字符串对象，再写回句柄。值越界时抛错。
 
 发射位点：
-- `VmBackend.cpp` 的 `EmitExpression(SnCastExpr&)` 按 `(srcKind,
+- `EmitExprCast.cpp` 的 `Access(SnCastExpr&)` 按 `(srcKind,
   dstKind)` 分派 int/float→string（隐式强转）。
-- `VmBackend.cpp` 的 `EmitExpression(SnMemberExpr&)` 按
+- `EmitExprMember.cpp` 的 `Access(SnMemberExpr&)` 按
   `outer->EvalDataType()` 为 `.toString()` 调用分派（enum→
   OP_Enum_to_str，int→OP_Int32_to_str，float→OP_Float_to_str，
   string→恒等空操作）。
-- `VmBackend.cpp` 的 `EmitExpression(SnCastExpr&)` 处理二元 `+` 的
+- `EmitExprCast.cpp` 的 `Access(SnCastExpr&)` 处理二元 `+` 的
   强转（另一操作数为 string 时，enum/int/float→string）。
 
 ### switch

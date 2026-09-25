@@ -1,6 +1,6 @@
 /*---
-    VmBackendEmitExprMember.cpp — 成员表达式发射（读取侧）：Access 分派器、字段读取与内建属性；含成员发射专用 static 辅助族。
-    从 VmBackend.cpp 抽取；方法调用族拆至 VmBackendEmitExprMemberCall.cpp，字符串族拆至 VmBackendEmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
+    EmitExprMember.cpp — 成员表达式发射（读取侧）：Access 分派器、字段读取与内建属性；含成员发射专用 static 辅助族。
+    从 VmBackend.cpp 抽取；方法调用族拆至 EmitExprMemberCall.cpp，字符串族拆至 EmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>

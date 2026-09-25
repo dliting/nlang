@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitExprNew.cpp — 构造表达式发射：new/new array/初始化列表。
+    EmitExprNew.cpp — 构造表达式发射：new/new array/初始化列表。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

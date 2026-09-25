@@ -1,5 +1,5 @@
 /*---
-    VmBackendWalkersExpr.cpp — 帧尺寸 walker 表达式域：
+    WalkersExpr.cpp — 帧尺寸 walker 表达式域：
     容器下标/委托调用共享谓词 + 表达式求值峰值深度。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化：
     walker 与共享谓词提升为 VmBackend 静态成员，见 VmBackend.h）。

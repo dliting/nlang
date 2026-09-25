@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitExprBinary.cpp — 二元运算表达式发射（含字符串拼接与比较的分派）。
+    EmitExprBinary.cpp — 二元运算表达式发射（含字符串拼接与比较的分派）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

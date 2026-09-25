@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitCall.cpp — 调用发射辅助族：pResult 刷新、复合赋值运算、
+    EmitCall.cpp — 调用发射辅助族：pResult 刷新、复合赋值运算、
     标准库调用、绑定发射、out 参数溢写、调用实参发射。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/

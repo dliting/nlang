@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitExprCore.cpp — 核心表达式发射：字面量/标识符/调用/out 拒绝/名字/this 与类型引用拒绝、表达式兜底、字符串常量登记。
+    EmitExprCore.cpp — 核心表达式发射：字面量/标识符/调用/out 拒绝/名字/this 与类型引用拒绝、表达式兜底、字符串常量登记。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

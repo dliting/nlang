@@ -138,12 +138,12 @@ mints the name as a string object, and writes the handle back. Throws
 if the value is out of range.
 
 Emit sites:
-- `VmBackend.cpp` `EmitExpression(SnCastExpr&)` dispatches on
+- `EmitExprCast.cpp` `Access(SnCastExpr&)` dispatches on
   `(srcKind, dstKind)` for int/float→string (implicit coercion).
-- `VmBackend.cpp` `EmitExpression(SnMemberExpr&)` dispatches on
+- `EmitExprMember.cpp` `Access(SnMemberExpr&)` dispatches on
   `outer->EvalDataType()` for `.toString()` calls (enum→OP_Enum_to_str,
   int→OP_Int32_to_str, float→OP_Float_to_str, string→identity no-op).
-- `VmBackend.cpp` `EmitExpression(SnCastExpr&)` for binary `+` coercion
+- `EmitExprCast.cpp` `Access(SnCastExpr&)` for binary `+` coercion
   (enum/int/float→string when the other operand is string).
 
 ### Switch

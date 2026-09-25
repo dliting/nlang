@@ -128,17 +128,17 @@ private:
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
-    //VmBackendEmitCall.cpp). Consumed by every emission path.
+    //EmitCall.cpp). Consumed by every emission path.
     static void EmitPResultRefresh(BytecodeEmitter& emitter, uint16_t slot);
 
     //Shared shape predicates, consumed by both the emission members and
-    //the frame-size walkers (VmBackendWalkers*.cpp) so the dispatch
+    //the frame-size walkers (Walkers*.cpp) so the dispatch
     //decision cannot drift between codegen and walkers.
     static bool IsContainerSubscript(SnExpression& baseExpr);
     static bool IsDelegateInvoke(const SnInvokeExpr& invoke);
 
     //Flattened member-field offset helpers (definitions live in
-    //VmBackendEmitExprMember.cpp), shared by the member-read, assign-store,
+    //EmitExprMember.cpp), shared by the member-read, assign-store,
     //and new-expression emitters across emission TUs.
     static int FindFieldOffset(SnStructDecl& structDecl,
                                const std::string& fieldName);
@@ -153,10 +153,10 @@ private:
     static SnClassDecl* OwningClassOfMemberField(SnField* pField);
 
     //--- Member-expression emission helpers (definitions in
-    //VmBackendEmitExprMember*.cpp, split by responsibility: reads and
-    //properties in VmBackendEmitExprMember.cpp, the method-call family
-    //in VmBackendEmitExprMemberCall.cpp, the string-method/toString
-    //family in VmBackendEmitExprMemberString.cpp). Like every Access
+    //EmitExprMember*.cpp, split by responsibility: reads and
+    //properties in EmitExprMember.cpp, the method-call family
+    //in EmitExprMemberCall.cpp, the string-method/toString
+    //family in EmitExprMemberString.cpp). Like every Access
     //helper they
     //take the emission context (emitter + resultOffset) as parameters:
     //m_pCurrEmitter/m_resultOffset are overwritten by nested emission
@@ -435,10 +435,10 @@ private:
     void EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter);
 
     //--- Statement emission helpers, one family per statement TU
-    //(VmBackendEmitStmt*.cpp). Same hazard contract as the expression
+    //(EmitStmt*.cpp). Same hazard contract as the expression
     //helpers: they take the emitter snapshot as a parameter and never
     //read m_pCurrEmitter/m_resultOffset (overwritten by nested emission).
-    //Subscript store (VmBackendEmitStmtStore.cpp): container set()
+    //Subscript store (EmitStmtStore.cpp): container set()
     //sugar vs plain array element store.
     void EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
                                    BytecodeEmitter& emitter);

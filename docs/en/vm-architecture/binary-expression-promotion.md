@@ -22,7 +22,7 @@ only — other ops on string are compile errors).
    differs from T_result. After wrap, `sn.Children()[0]/[1]` hold the
    (possibly cast) operands; `sn.Left()/Right()` are stale but unused.
 
-**Codegen** (`VmBackend.cpp` binary path): iterates `sn.Children()`
+**Codegen** (`EmitExprBinary.cpp` binary path): iterates `sn.Children()`
 rather than `Left()/Right()`, and dispatches the opcode on
 `leftChild.EvalDataType()`. For arithmetic, leftChild is the SnCastExpr
 whose EvalDataType is T_result; for comparison (no wrap), leftChild is

@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitStmtSwitchTry.cpp — 多路分发与异常发射：switch、try/catch/finally、throw、super()。
+    EmitStmtSwitchTry.cpp — 多路分发与异常发射：switch、try/catch/finally、throw、super()。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

@@ -1,5 +1,5 @@
 /*---
-    VmBackendImport.cpp — 跨模块导入合并与字节码重映射
+    Import.cpp — 跨模块导入合并与字节码重映射
     （InstructionStride / RemapBytecode / Phase A 合并 / Phase B 终化）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/

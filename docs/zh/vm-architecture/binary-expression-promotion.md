@@ -20,7 +20,7 @@ VM 的算术指令按具体类型编码（`OP_Add_i32`、`OP_Add_f32` 等变体�
    `SnCastExpr`。包装后，`sn.Children()[0]/[1]` 持有（可能已转换的）
    操作数；`sn.Left()/Right()` 已过期但不再被使用。
 
-**代码生成**（`VmBackend.cpp` 二元路径）：遍历的是 `sn.Children()`
+**代码生成**（`EmitExprBinary.cpp` 二元路径）：遍历的是 `sn.Children()`
 而非 `Left()/Right()`，并按 `leftChild.EvalDataType()` 分派指令。
 算术运算中 leftChild 是 EvalDataType 为 T_result 的 SnCastExpr；比
 较运算（不包装）中 leftChild 是原始操作数，其类型选择 i32/f32/str

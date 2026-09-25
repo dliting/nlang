@@ -1,5 +1,5 @@
 /*---
-    VmBackendRegister.cpp — 类型与函数注册族（structs/classes/arrays/enums/functions）。
+    Register.cpp — 类型与函数注册族（structs/classes/arrays/enums/functions）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

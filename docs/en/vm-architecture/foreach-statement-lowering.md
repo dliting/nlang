@@ -4,7 +4,7 @@
 indices by hand. At the VM level it has no dedicated opcode: the compiler
 lowers `foreach (Type var in iterable) { body }` to **index-based
 expansion** — no new opcode is introduced. The 12-step lowering mirrors
-the `for` loop pattern (the `NK_ForStmt` path in VmBackend.cpp) with a
+the `for` loop pattern (the `NK_ForStmt` path in EmitStmtFlow.cpp) with a
 body-prelude that loads element `i` into the user variable slot.
 
 ### Hidden locals (uniquified for nesting)

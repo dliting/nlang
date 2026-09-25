@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitStmtDecl.cpp — 声明与赋值语句发射：局部声明、赋值、断言、复合赋值。
+    EmitStmtDecl.cpp — 声明与赋值语句发射：局部声明、赋值、断言、复合赋值。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

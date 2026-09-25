@@ -1,5 +1,5 @@
 /*---
-    VmBackendWalkersStmt.cpp — 帧尺寸 walker 语句域：
+    WalkersStmt.cpp — 帧尺寸 walker 语句域：
     语句求值峰值深度 + 调用槽统计入口（MaxArgsWalker）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化：
     walker 与共享谓词提升为 VmBackend 静态成员，见 VmBackend.h）。

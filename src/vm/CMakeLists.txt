@@ -8,25 +8,25 @@ add_library(nlang_vm
     IntrinsicsIo.cpp
     IntrinsicsString.cpp
     IntrinsicsFs.cpp
-    VmBackend.cpp
-    VmBackendRegister.cpp
-    VmBackendImport.cpp
-    VmBackendTypes.cpp
-    VmBackendEmitCall.cpp
-    VmBackendWalkersExpr.cpp
-    VmBackendWalkersStmt.cpp
-    VmBackendEmitExprCore.cpp
-    VmBackendEmitExprCast.cpp
-    VmBackendEmitExprBinary.cpp
-    VmBackendEmitExprNew.cpp
-    VmBackendEmitExprMember.cpp
-    VmBackendEmitExprMemberCall.cpp
-    VmBackendEmitExprMemberString.cpp
-    VmBackendEmitStmtDecl.cpp
-    VmBackendEmitStmtStore.cpp
-    VmBackendEmitStmtFlow.cpp
-    VmBackendEmitStmtForeach.cpp
-    VmBackendEmitStmtSwitchTry.cpp
+    backend/VmBackend.cpp
+    backend/Register.cpp
+    backend/Import.cpp
+    backend/Types.cpp
+    backend/EmitCall.cpp
+    backend/WalkersExpr.cpp
+    backend/WalkersStmt.cpp
+    backend/EmitExprCore.cpp
+    backend/EmitExprCast.cpp
+    backend/EmitExprBinary.cpp
+    backend/EmitExprNew.cpp
+    backend/EmitExprMember.cpp
+    backend/EmitExprMemberCall.cpp
+    backend/EmitExprMemberString.cpp
+    backend/EmitStmtDecl.cpp
+    backend/EmitStmtStore.cpp
+    backend/EmitStmtFlow.cpp
+    backend/EmitStmtForeach.cpp
+    backend/EmitStmtSwitchTry.cpp
     Disassembler.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp

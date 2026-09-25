@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitStmtFlow.cpp — 简单语句与循环发射：行锚点、return/调用/段落、if/while/do/for、break/continue、语句兜底。
+    EmitStmtFlow.cpp — 简单语句与循环发射：行锚点、return/调用/段落、if/while/do/for、break/continue、语句兜底。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"

@@ -1,5 +1,5 @@
 /*---
-    VmBackendEmitStmtStore.cpp — 下标存储语句发射（数组元素与容器 set 语法糖两路）。
+    EmitStmtStore.cpp — 下标存储语句发射（数组元素与容器 set 语法糖两路）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
