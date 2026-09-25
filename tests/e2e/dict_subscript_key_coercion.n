@@ -1,0 +1,10 @@
+//The subscript sugar d[k] = v coerces its key like the method form:
+//an int key in a string-keyed dict converts to "5", and lookups by
+//the converted key succeed.
+int main() {
+    Dict<string, int> d;
+    d = new Dict<string, int>();
+    d[5] = 2;
+    if (d.containsKey("5")) { return d.get("5"); }
+    return 99;
+}

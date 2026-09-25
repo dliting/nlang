@@ -1,0 +1,10 @@
+//A string-keyed dict admits an int key through the all-position string
+//coercion: the key converts like every other string target, so the
+//entry lands under "5" and lookups by the converted key succeed.
+int main() {
+    Dict<string, int> d;
+    d = new Dict<string, int>();
+    d.set(5, 2);
+    if (d.containsKey("5")) { return d.get("5"); }
+    return 99;
+}

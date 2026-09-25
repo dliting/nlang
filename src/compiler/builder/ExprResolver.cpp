@@ -2187,6 +2187,13 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 					//on the freed cell's contents). The binds above are
 					//safe in-loop: they never touch the child list.
 					SnExpression* pWrapValue = nullptr;
+					//Dict.set also admits its KEY argument (arg 0 against
+					//K) through the same cast table: the key is stored
+					//when absent, and an ungated mismatched key corrupted
+					//the key-slot invariant (DictKeysEqual compares by the
+					//declared kind). Read positions (get/containsKey/
+					//remove) stay ungated per the read/write split.
+					SnExpression* pWrapKey = nullptr;
 					size_t argIdx = 0;
 					for (auto &arg : invoke.Params())
 					{
@@ -2214,7 +2221,24 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 								pWrapValue = pValue;
 							}
 						}
+						else if (baseName == "Dict" && name == "set"
+							&& argIdx == 0 && typeArgs[0]
+							&& pValue->IsResolved()
+							&& pValue->EvalDataType())
+						{
+							pWrapKey = pValue;
+						}
 						++argIdx;
+					}
+					if (pWrapKey)
+					{
+						//Same deferred-wrap discipline as the value:
+						//wrapping inside the range-for would leave its
+						//saved iterator dangling.
+						auto keyCast = GetCastInfo(
+							pWrapKey->EvalDataType(), typeArgs[0]);
+						auto iKey = invoke.Children().find(pWrapKey);
+						FixupExprType(iKey, keyCast);
 					}
 					if (pWrapValue)
 					{

@@ -1,0 +1,10 @@
+//The subscript sugar d[k] = v lowers to set(k, v), so the key goes
+//through the same compile-time type check as the method form: a string
+//key in an int-keyed dict is rejected instead of being stored raw
+//(which corrupted the key slot and crashed later lookups).
+int main() {
+    Dict<int, int> d;
+    d = new Dict<int, int>();
+    d["a"] = 2;
+    return 0;
+}

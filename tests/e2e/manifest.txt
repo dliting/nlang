@@ -1141,6 +1141,11 @@ cross_mod_out_param 5
 cross_mod_chain_struct_remap 42
 cross_mod_list_param_roundtrip 42
 cross_mod_dict_param_roundtrip 42
+# --- 0.7.3: Dict key-argument type gate (method + subscript forms) ---
+dict_set_key_type_reject compile_error Incompatible type
+dict_set_key_coercion 2
+dict_subscript_key_type_reject compile_error Incompatible type
+dict_subscript_key_coercion 2
 binary_array_numeric_reject compile_error Incompatible type
 binary_str_array_concat 0 x[1, 2]
 arg_array_to_string_param 5

@@ -1598,15 +1598,34 @@ public:
 			&& sn.Array()->IsResolved())
 		{
 			SnField* pElemType = nullptr;
+			SnField* pKeyType = nullptr;
 			auto* pBaseType = sn.Array()->EvalDataType();
 			if (pBaseType && pBaseType->Kind() == NK_ClassDecl)
 			{
 				auto* pGen = static_cast<SnClassDecl*>(pBaseType);
 				auto typeArgs = GetGenericTypeArgs(pGen);
 				if (pGen->BaseName() == "Dict" && typeArgs.size() > 1)
+				{
 					pElemType = typeArgs[1];
+					pKeyType = typeArgs[0];
+				}
 				else if (pGen->BaseName() == "List" && !typeArgs.empty())
 					pElemType = typeArgs[0];
+			}
+			//Dict subscript sugar `d[k] = v` lowers to set(k, v): the
+			//KEY admits through the cast table against typeArgs[0] like
+			//the method form — an ungated mismatched key corrupted the
+			//key slot (DictKeysEqual compares by the declared kind) and
+			//crashed later lookups. List indexes stay unchecked (a
+			//plain int position, runtime-bounds-checked).
+			if (pKeyType && sn.Index() && sn.Index()->IsResolved()
+				&& sn.Index()->EvalDataType())
+			{
+				auto keyCast = GetCastInfo(
+					sn.Index()->EvalDataType(), pKeyType);
+				auto iKey = sn.Children().find(sn.m_pIndex);
+				if (m_ExprResolver.FixupExprType(iKey, keyCast))
+					sn.m_pIndex = &static_cast<SnCastExpr &>(*iKey);
 			}
 			if (pElemType && sn.Value()->EvalDataType())
 			{

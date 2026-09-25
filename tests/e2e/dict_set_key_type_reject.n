@@ -1,0 +1,10 @@
+//Dict.set's key argument goes through the same compile-time type check
+//as the value argument: a string key in an int-keyed dict has no
+//conversion path and must be rejected instead of being stored raw
+//(which corrupted the key slot and crashed later lookups).
+int main() {
+    Dict<int, int> d;
+    d = new Dict<int, int>();
+    d.set("a", 2);
+    return 0;
+}
