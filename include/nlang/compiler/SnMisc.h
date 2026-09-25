@@ -232,7 +232,10 @@ public:
 	~SnClassField() override;
 
 	SnFieldExpr *Type() const { return m_pType; }
-	FieldAccessType Access() const { return m_access; }
+	//Access control lives in the Node base's m_AccessType bitfield —
+	//read it via AccessType(). SnClassField once redeclared a private
+	//m_access that no constructor initialized, so serialized fieldAccess
+	//bytes carried heap garbage (caught by the .nmod determinism guard).
 
 	SnField *EvalDataType() const override;
 	bool IsArrayType() const override;
@@ -243,7 +246,6 @@ public:
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
-	FieldAccessType m_access;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 

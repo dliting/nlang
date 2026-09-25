@@ -504,7 +504,7 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                         RuntimeTypeKind(cf.EvalDataType()));
                     cc.fieldStructIndices.push_back(0xFFFF);
                     cc.fieldClassIndices.push_back(0xFFFF);
-                    cc.fieldAccess.push_back(static_cast<uint8_t>(cf.Access()));
+                    cc.fieldAccess.push_back(static_cast<uint8_t>(cf.AccessType()));
                 }
             }
         }
@@ -520,7 +520,7 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
                     RuntimeTypeKind(cf.EvalDataType()));
                 cc.fieldStructIndices.push_back(0xFFFF);
                 cc.fieldClassIndices.push_back(0xFFFF);
-                cc.fieldAccess.push_back(static_cast<uint8_t>(cf.Access()));
+                cc.fieldAccess.push_back(static_cast<uint8_t>(cf.AccessType()));
             }
         }
         cc.fieldCount = static_cast<uint16_t>(cc.fieldNames.size());

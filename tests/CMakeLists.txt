@@ -580,6 +580,14 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
     set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
+    # .nmod byte-reproducibility guard: the same compiler and source must
+    # yield identical module bytes on every run (regression net for the
+    # uninitialized class-field access serialization bug).
+    add_test(NAME nmod_determinism
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_nmod_determinism.py
+            $<TARGET_FILE:ncc>)
+    set_tests_properties(nmod_determinism PROPERTIES TIMEOUT 180)
 endif()
 
 # End-to-end test: compile-only (exits 0)

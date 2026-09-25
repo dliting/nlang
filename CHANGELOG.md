@@ -6,6 +6,19 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.4] - Unreleased
+
+### Fixed
+- Compiled module output is byte-reproducible again: the class table's
+  per-field access byte was serialized from an uninitialized member of
+  the compiler's class-field node (the node declared a member shadowing
+  the base-class access value, and no constructor ever wrote it), so
+  the same compiler could emit different module bytes for the same
+  source across runs — with values outside the legal access range. The
+  backend now reads the actual access value, and a new regression test
+  (`nmod_determinism`) asserts byte-identical output across repeated
+  compiles.
+
 ## [0.7.3] - 2026-09-25
 
 ### Added
