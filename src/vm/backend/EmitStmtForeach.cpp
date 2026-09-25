@@ -19,270 +19,291 @@ namespace nlang {
 
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
+//Foreach iterable classification: exactly one of isArray/isList/isDict
+//fires, with elemType = the field the loop-var slot kind keys on
+//(arrays: the ELEMENT, token peeled; List/Dict: the first type
+//argument).
+struct ForeachIterableKind {
+    bool isArray = false;
+    bool isList = false;
+    bool isDict = false;
+    SnField* elemType = nullptr;
+};
+
+//Declaration-side arm: identifier or member lvalue (`a` / `b.a` /
+//`this.a`) whose FIELD is declared array-typed — the authoritative
+//declaration signal. Pre-token the member's own EvalDataType degraded
+//to the element type (the dispatch-order trap) and mis-routed this
+//into the List path; post-flip it carries the token and the value-form
+//arm below routes the same shapes as backstop.
+static bool DetectDeclaredArraySource(SnExpression* pIter,
+                                      SnField*& elemType) {
+    SnField* pField = nullptr;
+    if (pIter->Kind() == NK_IdentifierExpr) {
+        pField = static_cast<SnIdentifierExpr*>(pIter)->Field();
+    } else if (pIter->Kind() == NK_MemberExpr) {
+        auto* pInner = static_cast<SnMemberExpr*>(pIter)->Inner();
+        if (pInner && pInner->Kind() == NK_IdentifierExpr)
+            pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
+    }
+    if (!(pField && pField->IsArrayType()))
+        return false;
+    elemType = pField->EvalDataType();
+    //0.7.3 B token path: an array-typed local carries the interned
+    //token; the loop-var slot kind keys on the ELEMENT.
+    if (elemType && elemType->Kind() == NK_ArrayTypeToken)
+        elemType = static_cast<SnArrayTypeToken*>(
+            elemType)->ElemTypeOf();
+    return true;
+}
+
+static ForeachIterableKind ClassifyForeachIterable(
+        SnExpression* pIter) {
+    ForeachIterableKind k;
+    if (DetectDeclaredArraySource(pIter, k.elemType)) {
+        k.isArray = true;
+        return k;
+    }
+    auto* pIterType = pIter->EvalDataType();
+    //0.7.3 B D10 value-form arm: every array-valued source — get()
+    //and subscript reads out of List<T[]>/Dict<K,V[]>, array-returning
+    //calls, bound method calls, new-array expressions — carries the
+    //interned array token in EvalDataType. The declaration-side arm
+    //above only recognizes identifier/member lvalue shapes; this arm
+    //routes the value forms (accepted since D10; the masquerade-era
+    //resolve-time rejection existed because the degraded
+    //EvalDataType carried no array identity for this dispatch).
+    if (pIterType && pIterType->Kind() == NK_ArrayTypeToken) {
+        k.isArray = true;
+        k.elemType = static_cast<SnArrayTypeToken*>(
+            pIterType)->ElemTypeOf();
+        return k;
+    }
+    if (pIterType && pIterType->Kind() == NK_ClassDecl) {
+        auto* pClass = static_cast<SnClassDecl*>(pIterType);
+        if (pClass->IsGenericInstantiation()) {
+            const auto& baseName = pClass->BaseName();
+            const auto& typeArgs = pClass->GenericTypeArgs();
+            if (baseName == "List") {
+                k.isList = true;
+                k.elemType = typeArgs.empty() ? nullptr : typeArgs[0];
+            } else if (baseName == "Dict") {
+                k.isDict = true;
+                k.elemType = typeArgs.empty() ? nullptr : typeArgs[0];
+            }
+        }
+    }
+    return k;
+}
+
 void VmBackend::Access(SnForeachStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& fe = static_cast<SnForeachStmt&>(stmt);
-
-        //--- Detect iterable kind -----------------------------------------
-        SnExpression* pIter = fe.Iterable();
-        bool isArray = false;
-        bool isList  = false;
-        bool isDict  = false;
-        SnField* pElemType = nullptr;
-
-        if (pIter->Kind() == NK_IdentifierExpr) {
-            auto* pField = static_cast<SnIdentifierExpr*>(pIter)->Field();
-            if (pField && pField->IsArrayType()) {
-                isArray = true;
-                pElemType = pField->EvalDataType();
-                //0.7.3 B token path: an array-typed local carries
-                //the interned token; the loop-var slot kind keys on
-                //the ELEMENT.
-                if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
-                    pElemType = static_cast<SnArrayTypeToken*>(
-                        pElemType)->ElemTypeOf();
-            }
-        } else if (pIter->Kind() == NK_MemberExpr) {
-            //Member lvalue (`b.a` / `this.a`) with an array-typed field —
-            //the same lvalue family as the identifier shape, keyed on the
-            //FIELD's declared array-ness (the authoritative declaration
-            //signal). Pre-token the member's own EvalDataType degraded to
-            //the element type (the dispatch-order trap) and mis-routed
-            //this into the List path; post-flip it carries the token and
-            //the value-form arm below routes the same shapes as backstop.
-            auto* pInner = static_cast<SnMemberExpr*>(pIter)->Inner();
-            if (pInner && pInner->Kind() == NK_IdentifierExpr) {
-                auto* pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
-                if (pField && pField->IsArrayType()) {
-                    isArray = true;
-                    pElemType = pField->EvalDataType();
-                    //0.7.3 B token path: same peel as the identifier
-                    //shape above.
-                    if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
-                        pElemType = static_cast<SnArrayTypeToken*>(
-                            pElemType)->ElemTypeOf();
-                }
-            }
-        }
-        //0.7.3 B D10 value-form arm: every array-valued source — get()
-        //and subscript reads out of List<T[]>/Dict<K,V[]>, array-returning
-        //calls, bound method calls, new-array expressions — carries the
-        //interned array token in EvalDataType. The declaration-side arms
-        //above only recognize identifier/member lvalue shapes; this arm
-        //routes the value forms (accepted since D10; the masquerade-era
-        //resolve-time rejection existed because the degraded
-        //EvalDataType carried no array identity for this dispatch).
-        if (!isArray && pIter->EvalDataType()
-            && pIter->EvalDataType()->Kind() == NK_ArrayTypeToken)
-        {
-            isArray = true;
-            pElemType = static_cast<SnArrayTypeToken*>(
-                pIter->EvalDataType())->ElemTypeOf();
-        }
-        if (!isArray) {
-            auto* pIterType = pIter->EvalDataType();
-            if (pIterType && pIterType->Kind() == NK_ClassDecl) {
-                auto* pClass = static_cast<SnClassDecl*>(pIterType);
-                if (pClass->IsGenericInstantiation()) {
-                    const auto& baseName = pClass->BaseName();
-                    const auto& typeArgs = pClass->GenericTypeArgs();
-                    if (baseName == "List") {
-                        isList = true;
-                        pElemType = typeArgs.empty() ? nullptr : typeArgs[0];
-                    } else if (baseName == "Dict") {
-                        isDict = true;
-                        pElemType = typeArgs.empty() ? nullptr : typeArgs[0];
-                    }
-                }
-            }
-        }
-        //Phase C: Array + List. Phase D: Dict (inline Keys() call materializes
-        //a List<K> into iterSlot, then the rest mirrors the List path).
-        assert((isArray || isList || isDict)
+        ForeachIterableKind iter = ClassifyForeachIterable(fe.Iterable());
+        //Phase C: Array + List. Phase D: Dict (the Keys() prelude
+        //materializes a List<K> into iterSlot, then the rest mirrors
+        //the List path).
+        assert((iter.isArray || iter.isList || iter.isDict)
             && "foreach iterable must be Array, List<T>, or Dict<K,V>");
-
         //0.7.3 B: an array-typed element (List<int[]> / Dict<K[],V> key
         //iteration) IS the interned token, and RuntimeTypeKind maps the
         //token to RTK_Array through the IsArrayType() override — so one
         //channel tags the loop-var slot, and the GC traces the handle.
-        uint8_t elemKind = RuntimeTypeKind(pElemType);
-
-        //--- 1. Allocate hidden locals BEFORE LoopContext push -------------
-        //AllocLocal dedupes by name, so uniquify hidden locals via per-function
-        //counter (nested foreach would otherwise collide on __foreach_iter etc.).
-        uint16_t counter = m_currFunc->foreachCounter++;
-        uint16_t userVarSlot = AllocLocal(fe.VarName(),
-            VALUE_SIZE, elemKind, false);
-        //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
-        uint8_t iterKind = isArray
-            ? static_cast<uint8_t>(RTK_Array)
-            : static_cast<uint8_t>(RTK_Class);
-        uint16_t iterSlot = AllocLocal(
-            "__foreach_iter_" + std::to_string(counter),
-            VALUE_SIZE, iterKind, false);
-        uint16_t iSlot = AllocLocal(
-            "__foreach_i_" + std::to_string(counter),
-            VALUE_SIZE, RTK_Int32, false);
-        uint16_t nSlot = AllocLocal(
-            "__foreach_n_" + std::to_string(counter),
-            VALUE_SIZE, RTK_Int32, false);
-
-        //--- 2. Evaluate iterable into iterSlot ---------------------------
-        EmitExpression(*pIter, emitter, iterSlot);
-
-        //--- 2b. Dict: inline dict.Keys() → materialize List<K> into iterSlot
-        //For Dict foreach, iterSlot now holds a dict heap idx; we replace it
-        //with a fresh List<K> heap idx from the Keys() intrinsic. From here on,
-        //the lowering is identical to List<T> iteration (element type = K).
-        if (isDict) {
-            emitter.Emit(OpCode::OP_NullCheck);
-            emitter.EmitUint16(iterSlot);
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(iterSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            uint16_t keysIdx = AddStringConstant("keys");
-            emitter.Emit(OpCode::OP_CallMethod);
-            emitter.EmitUint16(keysIdx);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(iterSlot);
-            emitter.Emit(OpCode::OP_ParaEnd);
-        }
-
-        //--- 3. Compute length into nSlot ---------------------------------
-        if (isArray) {
-            //OP_ArrayLength <dst=arr> <src=arr> — operates on the heap idx in
-            //the slot. Mirror the pattern at line 1259 (NullCheck first).
-            emitter.Emit(OpCode::OP_NullCheck);
-            emitter.EmitUint16(iterSlot);
-            emitter.Emit(OpCode::OP_ArrayLength);
-            emitter.EmitUint16(nSlot);
-            emitter.EmitUint16(iterSlot);
-        } else {
-            //List<T>.Length() (or Dict-after-Keys: List<K>.Length()).
-            //Call shape mirrors line 1155-1200.
-            emitter.Emit(OpCode::OP_NullCheck);
-            emitter.EmitUint16(iterSlot);
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(iterSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            uint16_t nameIdx = AddStringConstant("length");
-            emitter.Emit(OpCode::OP_CallMethod);
-            emitter.EmitUint16(nameIdx);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(nSlot);
-            emitter.Emit(OpCode::OP_ParaEnd);
-        }
-
-        //--- 4. i = 0 -----------------------------------------------------
+        uint8_t elemKind = RuntimeTypeKind(iter.elemType);
+        ForeachSlots slots = AllocForeachLocals(fe, elemKind,
+            iter.isArray);
+        //Evaluate the iterable into iterSlot.
+        EmitExpression(*fe.Iterable(), emitter, slots.iterSlot);
+        if (iter.isDict)
+            EmitForeachDictKeysPrelude(slots.iterSlot, emitter);
+        EmitForeachLength(iter.isArray, slots.iterSlot, slots.nSlot,
+            emitter);
+        //i = 0
         emitter.Emit(OpCode::OP_ConstInt32);
         emitter.EmitInt32(0);
         emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(iSlot);
-
-        //--- 5. Loop start ------------------------------------------------
-        size_t loopStart = emitter.CurrentOffset();
-
-        //--- 6. Enter loop context (reuse LoopContext for break/continue) -
-        PushLoopContext();
-
-        //--- 7. Condition: i < n → jumpToEnd if not -----------------------
-        //tempSlot = i; tempSlot2 = n; OP_Less_i32 writes 1/0 into tempSlot.
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(iSlot);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(nSlot);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->tempSlot2);
-        emitter.Emit(OpCode::OP_Less_i32);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        emitter.EmitUint16(m_currFunc->tempSlot2);
-        emitter.Emit(OpCode::OP_JumpIfNot);
-        size_t jumpToEnd = emitter.CurrentOffset();
-        emitter.EmitUint16(0);  //placeholder, patched at step 12
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        m_loopStack.back().breakJumps.push_back(jumpToEnd);
-
-        //--- 8. Body-prelude: load element i into userVarSlot -------------
-        if (isArray) {
-            //OP_LoadElement <dst> <arr> <index>
-            emitter.Emit(OpCode::OP_LoadElement);
-            emitter.EmitUint16(userVarSlot);
-            emitter.EmitUint16(iterSlot);
-            emitter.EmitUint16(iSlot);
-            //Struct element types need deep-copy on read (value semantics),
-            //parallel to subscript codegen at line 1478-1485.
-            if (elemKind == RTK_Struct && pElemType) {
-                int structIdx = m_compiledModule.FindStruct(
-                    pElemType->Name());
-                emitter.Emit(OpCode::OP_CopyStruct);
-                emitter.EmitUint16(userVarSlot);
-                emitter.EmitUint16(userVarSlot);
-                emitter.EmitUint16(structIdx >= 0
-                    ? static_cast<uint16_t>(structIdx) : 0);
-            }
-        } else {
-            //List<T>.Get(i). Per-method boxing plan: unbox primitive T.
-            //callParamBase[1] = i; callParamBase[0] = this; OP_CallMethod.
-            uint16_t paramOffset = m_currFunc->callParamBase + 1 * VALUE_SIZE;
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(iSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(paramOffset);
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(iterSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            uint16_t nameIdx = AddStringConstant("get");
-            emitter.Emit(OpCode::OP_CallMethod);
-            emitter.EmitUint16(nameIdx);
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            auto t = BoxingTagFor(pElemType);
-            if (t.isPrimitive) {
-                emitter.Emit(OpCode::OP_Unbox);
-                emitter.EmitByte(t.tag);
-            }
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(userVarSlot);
-            emitter.Emit(OpCode::OP_ParaEnd);
-        }
-
-        //--- 9. Body ------------------------------------------------------
+        emitter.EmitUint16(slots.iSlot);
+        size_t loopStart = EmitForeachLoopHead(slots.iSlot, slots.nSlot,
+            emitter);
+        EmitForeachLoadElement(iter.isArray, iter.elemType, elemKind,
+            slots, emitter);
         EmitStatement(*fe.Body(), emitter);
-
-        //--- 10. Continue target: i = i + 1 -------------------------------
-        size_t continueTarget = emitter.CurrentOffset();
-        emitter.Emit(OpCode::OP_ConstInt32);
-        emitter.EmitInt32(1);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->tempSlot2);
-        //OP_Add_i32 <dst> <src>: locals[dst] += locals[src].
-        emitter.Emit(OpCode::OP_Add_i32);
-        emitter.EmitUint16(iSlot);
-        emitter.EmitUint16(m_currFunc->tempSlot2);
-
-        //--- 11. Jump back to loop start ----------------------------------
-        emitter.Emit(OpCode::OP_Jump);
-        emitter.EmitUint16(static_cast<uint16_t>(loopStart));
-
-        //--- 12. Patch break/continue; pop LoopContext --------------------
-        size_t loopEnd = emitter.CurrentOffset();
-        auto& ctx = m_loopStack.back();
-        for (size_t pos : ctx.breakJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
-        for (size_t pos : ctx.continueJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
-
-        m_loopStack.pop_back();
+        EmitForeachLoopTail(loopStart, slots.iSlot, emitter);
         return;
 }
 
-    //Break statement.
-    //Break exits the innermost enclosing switch or loop.
+//Allocate hidden locals BEFORE the LoopContext push. AllocLocal dedupes
+//by name, so uniquify hidden locals via per-function counter (nested
+//foreach would otherwise collide on __foreach_iter etc.).
+VmBackend::ForeachSlots VmBackend::AllocForeachLocals(SnForeachStmt& fe,
+        uint8_t elemKind, bool isArray) {
+    ForeachSlots slots;
+    uint16_t counter = m_currFunc->foreachCounter++;
+    slots.userVarSlot = AllocLocal(fe.VarName(), VALUE_SIZE, elemKind,
+        false);
+    //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
+    uint8_t iterKind = isArray
+        ? static_cast<uint8_t>(RTK_Array)
+        : static_cast<uint8_t>(RTK_Class);
+    slots.iterSlot = AllocLocal(
+        "__foreach_iter_" + std::to_string(counter),
+        VALUE_SIZE, iterKind, false);
+    slots.iSlot = AllocLocal(
+        "__foreach_i_" + std::to_string(counter),
+        VALUE_SIZE, RTK_Int32, false);
+    slots.nSlot = AllocLocal(
+        "__foreach_n_" + std::to_string(counter),
+        VALUE_SIZE, RTK_Int32, false);
+    return slots;
+}
+
+//Dict: inline dict.Keys() — replace iterSlot's dict heap idx with a
+//fresh List<K> heap idx from the Keys() intrinsic. From here on, the
+//lowering is identical to List<T> iteration (element type = K).
+void VmBackend::EmitForeachDictKeysPrelude(uint16_t iterSlot,
+        BytecodeEmitter& emitter) {
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(iterSlot);
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(iterSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    uint16_t keysIdx = AddStringConstant("keys");
+    emitter.Emit(OpCode::OP_CallMethod);
+    emitter.EmitUint16(keysIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(iterSlot);
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//Compute the iteration count into nSlot. Array: OP_ArrayLength
+//<dst=arr> <src=arr> on the heap idx (NullCheck first). List (and
+//Dict-after-Keys: List<K>): length() via the method-call shape.
+void VmBackend::EmitForeachLength(bool isArray, uint16_t iterSlot,
+        uint16_t nSlot, BytecodeEmitter& emitter) {
+    if (isArray) {
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(iterSlot);
+        emitter.Emit(OpCode::OP_ArrayLength);
+        emitter.EmitUint16(nSlot);
+        emitter.EmitUint16(iterSlot);
+        return;
+    }
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(iterSlot);
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(iterSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    uint16_t nameIdx = AddStringConstant("length");
+    emitter.Emit(OpCode::OP_CallMethod);
+    emitter.EmitUint16(nameIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(nSlot);
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//Loop head: mark the loop start, enter the LoopContext (break/continue
+//reuse the loop machinery), then the condition i < n → jumpToEnd if
+//not. tempSlot = i; tempSlot2 = n; OP_Less_i32 writes 1/0 into
+//tempSlot. The miss-jump placeholder doubles as this loop's break
+//target. Returns the loop-start offset for the back-jump.
+size_t VmBackend::EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
+        BytecodeEmitter& emitter) {
+    size_t loopStart = emitter.CurrentOffset();
+    PushLoopContext();
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(iSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(m_currFunc->tempSlot);
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(nSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(m_currFunc->tempSlot2);
+    emitter.Emit(OpCode::OP_Less_i32);
+    emitter.EmitUint16(m_currFunc->tempSlot);
+    emitter.EmitUint16(m_currFunc->tempSlot2);
+    emitter.Emit(OpCode::OP_JumpIfNot);
+    size_t jumpToEnd = emitter.CurrentOffset();
+    emitter.EmitUint16(0);  //placeholder, patched by the loop tail
+    emitter.EmitUint16(m_currFunc->tempSlot);
+    m_loopStack.back().breakJumps.push_back(jumpToEnd);
+    return loopStart;
+}
+
+//Body-prelude: load element i into the user variable slot. Array:
+//OP_LoadElement, plus struct deep-copy on read (value semantics).
+//List (and Dict-after-Keys): get(i) — callParamBase[1] = i,
+//callParamBase[0] = this, OP_CallMethod, then unbox primitive T.
+void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
+        uint8_t elemKind, const ForeachSlots& slots,
+        BytecodeEmitter& emitter) {
+    if (isArray) {
+        //OP_LoadElement <dst> <arr> <index>
+        emitter.Emit(OpCode::OP_LoadElement);
+        emitter.EmitUint16(slots.userVarSlot);
+        emitter.EmitUint16(slots.iterSlot);
+        emitter.EmitUint16(slots.iSlot);
+        //Struct element types need deep-copy on read (value semantics).
+        if (elemKind == RTK_Struct && pElemType) {
+            int structIdx = m_compiledModule.FindStruct(
+                pElemType->Name());
+            emitter.Emit(OpCode::OP_CopyStruct);
+            emitter.EmitUint16(slots.userVarSlot);
+            emitter.EmitUint16(slots.userVarSlot);
+            emitter.EmitUint16(structIdx >= 0
+                ? static_cast<uint16_t>(structIdx) : 0);
+        }
+        return;
+    }
+    uint16_t paramOffset = m_currFunc->callParamBase + 1 * VALUE_SIZE;
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(slots.iSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(paramOffset);
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(slots.iterSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    uint16_t nameIdx = AddStringConstant("get");
+    emitter.Emit(OpCode::OP_CallMethod);
+    emitter.EmitUint16(nameIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    auto t = BoxingTagFor(pElemType);
+    if (t.isPrimitive) {
+        emitter.Emit(OpCode::OP_Unbox);
+        emitter.EmitByte(t.tag);
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(slots.userVarSlot);
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//Loop tail: continue target (i = i + 1), back-jump to the loop start,
+//then patch this loop's break/continue jumps and pop the LoopContext.
+void VmBackend::EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
+        BytecodeEmitter& emitter) {
+    size_t continueTarget = emitter.CurrentOffset();
+    emitter.Emit(OpCode::OP_ConstInt32);
+    emitter.EmitInt32(1);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(m_currFunc->tempSlot2);
+    //OP_Add_i32 <dst> <src>: locals[dst] += locals[src].
+    emitter.Emit(OpCode::OP_Add_i32);
+    emitter.EmitUint16(iSlot);
+    emitter.EmitUint16(m_currFunc->tempSlot2);
+    //Jump back to loop start
+    emitter.Emit(OpCode::OP_Jump);
+    emitter.EmitUint16(static_cast<uint16_t>(loopStart));
+    size_t loopEnd = emitter.CurrentOffset();
+    auto& ctx = m_loopStack.back();
+    for (size_t pos : ctx.breakJumps)
+        emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
+    for (size_t pos : ctx.continueJumps)
+        emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
+    m_loopStack.pop_back();
+}
 
 } //namespace nlang

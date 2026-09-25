@@ -445,6 +445,130 @@ private:
     void EmitArrayElementStore(SnSubscriptAssignStmt& sub,
                                BytecodeEmitter& emitter);
 
+    //Assign store (EmitStmtDecl.cpp): bare-identifier and member
+    //targets, one helper per destination shape. BareIdentifier
+    //dispatches Local vs ThisField; MemberField tries the
+    //subscripted-element store first, then the plain class/struct
+    //field stores. ResolveMemberFieldOffset is the shared offset
+    //lookup (throws when the field is missing) for the class/struct
+    //element/member targets.
+    uint16_t ResolveMemberFieldOffset(SyntaxNode* elemType,
+                                      const std::string& fieldName);
+    void EmitAssignBareIdentifier(SnAssignStmt& assign, SnField* field,
+                                  BytecodeEmitter& emitter);
+    void EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
+                           SnField* varType, BytecodeEmitter& emitter);
+    void EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
+                               BytecodeEmitter& emitter);
+    void EmitAssignMemberField(SnAssignStmt& assign,
+                               SnMemberExpr& memberExpr,
+                               BytecodeEmitter& emitter);
+    bool EmitAssignSubscriptElementStore(SnAssignStmt& assign,
+                                         SnMemberExpr& memberExpr,
+                                         BytecodeEmitter& emitter);
+    void EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
+        SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
+        BytecodeEmitter& emitter);
+    void EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
+        SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
+        BytecodeEmitter& emitter);
+    void EmitAssignClassField(SnAssignStmt& assign,
+        SnMemberExpr& memberExpr, SnClassDecl* classDecl,
+        BytecodeEmitter& emitter);
+    void EmitAssignStructField(SnAssignStmt& assign,
+        SnMemberExpr& memberExpr, SnStructDecl* structDecl,
+        BytecodeEmitter& emitter);
+    void EmitAssignStructFieldDeepCopy(SnAssignStmt& assign,
+        SnMemberExpr& memberExpr, uint16_t fieldOff, SnField* fieldType,
+        BytecodeEmitter& emitter);
+    void EmitAssignStructFieldPlain(SnAssignStmt& assign,
+        SnMemberExpr& memberExpr, uint16_t fieldOff,
+        BytecodeEmitter& emitter);
+
+    //Compound assign (EmitStmtDecl.cpp): read-modify-write on the bare
+    //local / implicit this-field / member field targets. op is the
+    //underlying binary operator; int avoids requiring SnBinaryExpr's
+    //full definition here (same as EmitCompoundOp).
+    void EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
+        SnField* field, int op, BytecodeEmitter& emitter);
+    void EmitCompoundAssignThisField(SnCompoundAssignStmt& ca,
+        SnField* field, int fieldOff, int op, BytecodeEmitter& emitter);
+    void EmitCompoundAssignMemberField(SnCompoundAssignStmt& ca,
+        SnMemberExpr& memberExpr, int op, BytecodeEmitter& emitter);
+
+    //Foreach (EmitStmtForeach.cpp): the user loop variable plus the
+    //three uniquified hidden locals of the index-based expansion
+    //(iterable ref, counter, cached length). Slot kinds feed GC root
+    //tracing — see EmitStmtForeach.cpp / the foreach-lowering doc.
+    struct ForeachSlots {
+        uint16_t userVarSlot = 0;
+        uint16_t iterSlot = 0;
+        uint16_t iSlot = 0;
+        uint16_t nSlot = 0;
+    };
+    ForeachSlots AllocForeachLocals(SnForeachStmt& fe, uint8_t elemKind,
+                                    bool isArray);
+    //Dict arm: inline keys() prelude replacing iterSlot with List<K>.
+    void EmitForeachDictKeysPrelude(uint16_t iterSlot,
+                                    BytecodeEmitter& emitter);
+    //Iteration count into nSlot (OP_ArrayLength vs List.length()).
+    void EmitForeachLength(bool isArray, uint16_t iterSlot,
+                           uint16_t nSlot, BytecodeEmitter& emitter);
+    //Loop start + LoopContext push + i<n condition; returns loopStart
+    //for the back-jump. Registers the miss-jump as this loop's break
+    //target.
+    size_t EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
+                               BytecodeEmitter& emitter);
+    //Body-prelude: element i into the user slot (LoadElement +
+    //struct deep copy vs get() + unbox).
+    void EmitForeachLoadElement(bool isArray, SnField* pElemType,
+                                uint8_t elemKind,
+                                const ForeachSlots& slots,
+                                BytecodeEmitter& emitter);
+    //Loop tail: i+=1 continue target, back-jump, break/continue
+    //patching, LoopContext pop.
+    void EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
+                             BytecodeEmitter& emitter);
+
+    //Switch (EmitStmtSwitchTry.cpp): per-clause emission and the
+    //clause-exit fixup. EmitSwitchCaseClause appends to clauseExits the
+    //jumps the fixup must patch (OP_Case placeholder + last label's
+    //miss) and reports the implicit no-fallthrough exit via
+    //bodyExitJump. EmitSwitchOneLabelCompare returns the label's
+    //miss-jump offset (caller picks next-label vs clause-exit target).
+    void EmitSwitchCaseClause(SnCaseClause& clause, uint16_t switchSlot,
+                              OpCode compareOp,
+                              std::vector<size_t>& clauseExits,
+                              size_t& bodyExitJump,
+                              BytecodeEmitter& emitter);
+    void EmitSwitchLabelCompares(SnCaseClause& clause,
+                                 uint16_t switchSlot, OpCode compareOp,
+                                 std::vector<size_t>& clauseExits,
+                                 BytecodeEmitter& emitter);
+    size_t EmitSwitchOneLabelCompare(SnExpression& label,
+                                     uint16_t switchSlot,
+                                     OpCode compareOp,
+                                     BytecodeEmitter& emitter);
+    void EmitSwitchClauseExits(
+        const std::vector<size_t>& caseStartOffsets,
+        const std::vector<std::vector<size_t>>& exitJumps,
+        bool hasDefault, size_t locCaseEnd, size_t locEnd,
+        BytecodeEmitter& emitter);
+
+    //Try/catch/finally (EmitStmtSwitchTry.cpp). EmitTryCatchClauses
+    //registers each handler's tryBlocks entry, emits its body and the
+    //completion jump; the returned patch offsets target postTry (or
+    //finallyNormal when a finally clause exists). EmitTryFinallyTail
+    //lays out the handler + normal finally copies and pops
+    //m_finallyStack.
+    uint16_t FindCatchExceptionClassIdx(SnCatchClause& pCatch);
+    std::vector<size_t> EmitTryCatchClauses(SnTryStmt& ts,
+        uint16_t tryStart, uint16_t tryEnd, BytecodeEmitter& emitter);
+    void EmitTryFinallyTail(SnStatement* pFinally, uint16_t tryStart,
+        size_t tryEndJumpPatch,
+        const std::vector<size_t>& catchEndJumpPatches,
+        BytecodeEmitter& emitter);
+
     //Phase 9c: per-argument boxing plan for built-in generic class methods
     //(List<T>, Dict<K,V>). Maps callParamBase slot index to {type tag, needs
     //box}. Empty for user methods (no boxing — values pass as heap idxs).
