@@ -27,6 +27,9 @@ class SnStructDecl;
 class SnFieldExpr;
 class SnLiteralExpr;
 class SnBinaryExpr;
+class SnCastExpr;
+class SnAsExpr;
+class SnSubscriptExpr;
 
 //Phase 9c: forward-declared so EmitBinding/EmitCallArgs can take
 //references without including SnExpressions.h (heavy header dep). Full
@@ -515,6 +518,97 @@ private:
                         uint8_t typeKind, bool isParam);
     uint16_t FindLocal(const std::string& name) const;
     uint16_t AddStringConstant(const std::string& s);
+
+    //--- Access(SnXExpr) decomposition (2026-09-25 maintainability
+    //refactor): one helper per emission sub-path. Each receives the
+    //emission context (emitter + resultOffset) explicitly — helpers must
+    //never read m_pCurrEmitter/m_resultOffset, which nested emission
+    //overwrites mid-flight.
+
+    //SnIdentifierExpr arms: default-param binding-override read, enum
+    //member constant, function handle, local/implicit-this field tail.
+    void EmitIdentifierOverrideRead(BytecodeEmitter& emitter,
+                                    uint16_t resultOffset,
+                                    uint16_t overrideSlot);
+    void EmitIdentifierEnumMemberRead(BytecodeEmitter& emitter,
+                                      uint16_t resultOffset, SnField* field);
+    void EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
+                                      uint16_t resultOffset, SnField* field);
+    void EmitIdentifierFieldRead(BytecodeEmitter& emitter,
+                                 uint16_t resultOffset, SnField* field);
+
+    //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
+    //the free-function OP_CallFunc/OP_CallFuncOut tail.
+    void EmitDelegateInvoke(const SnInvokeExpr& invoke,
+                            BytecodeEmitter& emitter, uint16_t resultOffset,
+                            const std::vector<OutSpill>& outSpills);
+    void EmitDelegateDispatch(BytecodeEmitter& emitter, uint16_t calleeSlot,
+                              uint16_t resultOffset,
+                              const std::vector<OutSpill>& outSpills);
+    void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
+                              uint16_t resultOffset,
+                              const std::vector<OutSpill>& outSpills);
+
+    //SnCastExpr arms: boxing, the to-string special cases (enum detection,
+    //func/class/array), and the numeric/primitive-string conversions.
+    void EmitCastBoxOp(SnCastExpr& cast, BytecodeEmitter& emitter,
+                       uint16_t resultOffset);
+    bool EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
+                            NodeKind dstKind, SnField* sourceType,
+                            BytecodeEmitter& emitter, uint16_t resultOffset);
+    bool EmitCastEnumToString(SnCastExpr& cast, NodeKind srcKind,
+        SnField* sourceType, BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitCastFuncToString(BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitCastClassToString(BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitCastArrayToString(BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
+
+    //SnAsExpr arms: box / unbox / downcast, and the `f as string` render.
+    void EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                     uint16_t resultOffset);
+    void EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                       uint16_t resultOffset);
+    void EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                          uint16_t resultOffset);
+    bool EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                            uint16_t resultOffset);
+
+    //SnSubscriptExpr arms: List/Dict get() sugar — classification, then
+    //the claimed receive/index/call emission.
+    void EmitContainerSubscriptGet(SnSubscriptExpr& sub,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
+    void EmitContainerGetCall(SnSubscriptExpr& sub, BoxingTagResult keyBox,
+                              BoxingTagResult valBox,
+                              BytecodeEmitter& emitter, uint16_t resultOffset);
+
+    //SnBinaryExpr arms: unary, short-circuit And/Or, and the binary tail
+    //(operand staging + opcode dispatch into the arithmetic/relational/
+    //equality family emitters).
+    void EmitUnaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
+                     uint16_t resultOffset);
+    void EmitShortCircuitOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
+                            uint16_t resultOffset);
+    void EmitShortCircuitAnd(SnExpression& leftChild, SnExpression& rightChild,
+                             BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitShortCircuitOr(SnExpression& leftChild, SnExpression& rightChild,
+                            BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
+                      uint16_t resultOffset);
+    void EmitBinaryOpCode(SnBinaryExpr& bin, bool isFloat, bool isString,
+                          bool isFunc, BytecodeEmitter& emitter,
+                          uint16_t resultOffset, uint16_t rightSlot);
+    void EmitBinaryArithmeticOp(SnBinaryExpr& bin, bool isFloat, bool isString,
+                                BytecodeEmitter& emitter, uint16_t resultOffset,
+                                uint16_t rightSlot);
+    void EmitBinaryRelationalOp(SnBinaryExpr& bin, bool isFloat, bool isString,
+                                BytecodeEmitter& emitter, uint16_t resultOffset,
+                                uint16_t rightSlot);
+    void EmitBinaryEqualityOp(SnBinaryExpr& bin, bool isFloat, bool isString,
+                              bool isFunc, BytecodeEmitter& emitter,
+                              uint16_t resultOffset, uint16_t rightSlot);
 
     //Codegen-side mirror of the resolver's identifier binding order for a
     //bare identifier that resolved to an SnField:

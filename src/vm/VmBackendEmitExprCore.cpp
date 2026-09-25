@@ -95,6 +95,76 @@ void VmBackend::Access(SnLiteralExpr& expr) {
         return;
 }
 
+//Identifier arm: default-param binding override — read the formal's
+//caller-side callParamBase slot directly (see LookupOverride).
+void VmBackend::EmitIdentifierOverrideRead(BytecodeEmitter& emitter,
+                                           uint16_t resultOffset,
+                                           uint16_t overrideSlot) {
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(overrideSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//Identifier arm: enum member constant — emit the resolved integer value.
+void VmBackend::EmitIdentifierEnumMemberRead(BytecodeEmitter& emitter,
+                                             uint16_t resultOffset,
+                                             SnField* field) {
+    auto* pEnumMember = static_cast<SnEnumMember*>(field);
+    emitter.Emit(OpCode::OP_ConstInt32);
+    emitter.EmitInt32(pEnumMember->Value());
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//Identifier arm: bound function reference in value position — emit a
+//static-bound handle (the pending-ref sweep rejects unbound references).
+void VmBackend::EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
+                                             uint16_t resultOffset,
+                                             SnField* field) {
+    auto it = m_funcIndexMap.find(
+        static_cast<SnFunction*>(field));
+    if (it == m_funcIndexMap.end())
+        throw std::runtime_error(
+            "NLang backend: function reference without an index: "
+            + field->Name());
+    emitter.Emit(OpCode::OP_MakeFunc);
+    emitter.EmitUint16(static_cast<uint16_t>(it->second));
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//Identifier arm: resolved-field tail — local frame read or the implicit
+//this.<field> member read; no codegen binding is an internal error.
+void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
+                                        uint16_t resultOffset,
+                                        SnField* field) {
+    auto target = ResolveBareIdentifier(field);
+    if (target.kind == BareIdTarget::Local) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(target.localOffset);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    } else if (target.kind == BareIdTarget::ThisField) {
+        //Implicit this.<field> (bare member read inside a method).
+        //Same opcode shape as the MemberExpr class-field read.
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(ImplicitThisSlot());
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(resultOffset);
+        emitter.Emit(OpCode::OP_LoadField);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+    } else {
+        throw std::runtime_error(
+            "NLang backend: identifier has no codegen binding: "
+            + field->Name());
+    }
+}
+
 void VmBackend::Access(SnIdentifierExpr& expr) {
     NodeKind kind = expr.Kind();
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -107,64 +177,21 @@ void VmBackend::Access(SnIdentifierExpr& expr) {
         //through to normal local/global resolution.
         auto override = LookupOverride(idExpr.Name());
         if (override.first) {
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(override.second);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            EmitIdentifierOverrideRead(emitter, resultOffset,
+                override.second);
             return;
         }
         auto* field = idExpr.Field();
         if (field && field->Kind() == NK_EnumMember) {
-            //Enum member constant — emit the resolved integer value.
-            auto* pEnumMember = static_cast<SnEnumMember*>(field);
-            emitter.Emit(OpCode::OP_ConstInt32);
-            emitter.EmitInt32(pEnumMember->Value());
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            EmitIdentifierEnumMemberRead(emitter, resultOffset, field);
             return;
         }
         if (field && field->Kind() == NK_Function) {
-            //Phase 13: a bound function reference in value position —
-            //emit a static-bound handle. Bare-name invokes never reach
-            //here (the invoke arm dispatches on Callee() first); the
-            //pending-ref sweep rejects unbound references at resolve.
-            auto it = m_funcIndexMap.find(
-                static_cast<SnFunction*>(field));
-            if (it == m_funcIndexMap.end())
-                throw std::runtime_error(
-                    "NLang backend: function reference without an index: "
-                    + field->Name());
-            emitter.Emit(OpCode::OP_MakeFunc);
-            emitter.EmitUint16(static_cast<uint16_t>(it->second));
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            EmitIdentifierFuncHandleRead(emitter, resultOffset, field);
             return;
         }
         if (field) {
-            auto target = ResolveBareIdentifier(field);
-            if (target.kind == BareIdTarget::Local) {
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(target.localOffset);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            } else if (target.kind == BareIdTarget::ThisField) {
-                //Implicit this.<field> (bare member read inside a method).
-                //Same opcode shape as the MemberExpr class-field read.
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(ImplicitThisSlot());
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-                emitter.Emit(OpCode::OP_NullCheck);
-                emitter.EmitUint16(resultOffset);
-                emitter.Emit(OpCode::OP_LoadField);
-                emitter.EmitUint16(resultOffset);
-                emitter.EmitUint16(resultOffset);
-                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
-            } else {
-                throw std::runtime_error(
-                    "NLang backend: identifier has no codegen binding: "
-                    + field->Name());
-            }
+            EmitIdentifierFieldRead(emitter, resultOffset, field);
         } else {
             //Round-11: an unresolved identifier reaching codegen means the
             //resolver marked something resolved without binding it (the
@@ -177,6 +204,97 @@ void VmBackend::Access(SnIdentifierExpr& expr) {
                 + idExpr.Name());
         }
         return;
+}
+
+//Delegate invoke arm: materialize the bound callee handle into a scratch
+//evalArea slot (the field form must not disturb callParamBase), then
+//dispatch through EmitDelegateDispatch.
+void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset,
+                                   const std::vector<OutSpill>& outSpills) {
+    auto target = ResolveBareIdentifier(invoke.Field());
+    EvalAreaClaim calleeClaim(*this, 1);
+    uint16_t calleeSlot = calleeClaim.base();
+    if (target.kind == BareIdTarget::Local) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(target.localOffset);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(calleeSlot);
+    } else if (target.kind == BareIdTarget::ThisField) {
+        //Implicit this.<field> — same load shape as the
+        //identifier arm's ThisField branch.
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(ImplicitThisSlot());
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(calleeSlot);
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(calleeSlot);
+        emitter.Emit(OpCode::OP_LoadField);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+    } else {
+        throw std::runtime_error(
+            "NLang backend: delegate callee has no codegen "
+            "binding: " + invoke.CalleeName());
+    }
+    EmitDelegateDispatch(emitter, calleeSlot, resultOffset, outSpills);
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//Phase 13 Step 2: out-carrying delegate calls dispatch with
+//OP_CallDelegateOut; the executor reverses the bound-handle
+//this-shift when copying the marked user-parameter slots back
+//to callParamBase. Result first — the spills below clobber
+//pResult (same ordering discipline as OP_CallFuncOut).
+void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
+                                     uint16_t calleeSlot,
+                                     uint16_t resultOffset,
+                                     const std::vector<OutSpill>& outSpills) {
+    if (!outSpills.empty()) {
+        emitter.Emit(OpCode::OP_CallDelegateOut);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(m_currFunc->callParamBase);
+        emitter.EmitInt32(static_cast<int32_t>(
+            BuildOutMask(outSpills)));
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+        EmitOutSpills(outSpills, emitter);
+    } else {
+        emitter.Emit(OpCode::OP_CallDelegate);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(m_currFunc->callParamBase);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    }
+}
+
+//Free-function call: OP_CallFunc, or OP_CallFuncOut + spills when the
+//call carries out arguments.
+void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
+                                     uint16_t resultOffset,
+                                     const std::vector<OutSpill>& outSpills) {
+    if (!outSpills.empty()) {
+        emitter.Emit(OpCode::OP_CallFuncOut);
+        emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+        emitter.EmitUint16(m_currFunc->callParamBase);
+        emitter.EmitInt32(static_cast<int32_t>(
+            BuildOutMask(outSpills)));
+        //Result first: the spills below clobber pResult via
+        //OP_VarLocal, so the call's return value must be stored
+        //before any writeback.
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+        EmitOutSpills(outSpills, emitter);
+    } else {
+        emitter.Emit(OpCode::OP_CallFunc);
+        emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+        emitter.EmitUint16(m_currFunc->callParamBase);
+        // Result is in pResult, store to resultOffset
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    }
 }
 
 void VmBackend::Access(SnInvokeExpr& expr) {
@@ -202,54 +320,7 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         //above; materialize the handle into a scratch evalArea slot (the
         //field form must not disturb callParamBase) and dispatch.
         if (IsDelegateInvoke(invoke)) {
-            auto target = ResolveBareIdentifier(invoke.Field());
-            EvalAreaClaim calleeClaim(*this, 1);
-            uint16_t calleeSlot = calleeClaim.base();
-            if (target.kind == BareIdTarget::Local) {
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(target.localOffset);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(calleeSlot);
-            } else if (target.kind == BareIdTarget::ThisField) {
-                //Implicit this.<field> — same load shape as the
-                //identifier arm's ThisField branch.
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(ImplicitThisSlot());
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(calleeSlot);
-                emitter.Emit(OpCode::OP_NullCheck);
-                emitter.EmitUint16(calleeSlot);
-                emitter.Emit(OpCode::OP_LoadField);
-                emitter.EmitUint16(calleeSlot);
-                emitter.EmitUint16(calleeSlot);
-                emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
-            } else {
-                throw std::runtime_error(
-                    "NLang backend: delegate callee has no codegen "
-                    "binding: " + invoke.CalleeName());
-            }
-            //Phase 13 Step 2: out-carrying delegate calls dispatch with
-            //OP_CallDelegateOut; the executor reverses the bound-handle
-            //this-shift when copying the marked user-parameter slots back
-            //to callParamBase. Result first — the spills below clobber
-            //pResult (same ordering discipline as OP_CallFuncOut).
-            if (!outSpills.empty()) {
-                emitter.Emit(OpCode::OP_CallDelegateOut);
-                emitter.EmitUint16(calleeSlot);
-                emitter.EmitUint16(m_currFunc->callParamBase);
-                emitter.EmitInt32(static_cast<int32_t>(
-                    BuildOutMask(outSpills)));
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-                EmitOutSpills(outSpills, emitter);
-            } else {
-                emitter.Emit(OpCode::OP_CallDelegate);
-                emitter.EmitUint16(calleeSlot);
-                emitter.EmitUint16(m_currFunc->callParamBase);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            }
-            emitter.Emit(OpCode::OP_ParaEnd);
+            EmitDelegateInvoke(invoke, emitter, resultOffset, outSpills);
             return;
         }
 
@@ -271,26 +342,7 @@ void VmBackend::Access(SnInvokeExpr& expr) {
                 "NLang backend: invoke reached codegen unresolved: "
                 + invoke.CalleeName());
         }
-        if (!outSpills.empty()) {
-            emitter.Emit(OpCode::OP_CallFuncOut);
-            emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            emitter.EmitInt32(static_cast<int32_t>(
-                BuildOutMask(outSpills)));
-            //Result first: the spills below clobber pResult via
-            //OP_VarLocal, so the call's return value must be stored
-            //before any writeback.
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-            EmitOutSpills(outSpills, emitter);
-        } else {
-            emitter.Emit(OpCode::OP_CallFunc);
-            emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-            emitter.EmitUint16(m_currFunc->callParamBase);
-            // Result is in pResult, store to resultOffset
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-        }
+        EmitFreeFunctionCall(funcIndex, emitter, resultOffset, outSpills);
         emitter.Emit(OpCode::OP_ParaEnd);
         return;
 }

@@ -19,6 +19,182 @@ namespace nlang {
 
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
+//Cast arm: primitive → Object implicit boxing — OP_Box with the source's
+//type tag so the VM knows what to wrap.
+void VmBackend::EmitCastBoxOp(SnCastExpr& cast, BytecodeEmitter& emitter,
+                              uint16_t resultOffset) {
+    auto* sourceType = cast.Source()->EvalDataType();
+    uint8_t typeTag = RTK_Int32;
+    if (sourceType) {
+        NodeKind srcKind = sourceType->Kind();
+        if (srcKind == NK_Float) typeTag = RTK_Float;
+        else if (srcKind == NK_String) typeTag = RTK_String;
+        else typeTag = RTK_Int32;
+    }
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_Box);
+    emitter.EmitByte(typeTag);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//Cast arm: enum → string emits OP_Enum_to_str (preserves enum identity
+//for name lookup). Returns true when it fired.
+bool VmBackend::EmitCastEnumToString(SnCastExpr& cast, NodeKind srcKind,
+    SnField* sourceType, BytecodeEmitter& emitter, uint16_t resultOffset) {
+    //Two detection paths:
+    // (a) srcKind == NK_EnumDecl — explicit enum-typed variable cast
+    //     (e.g. `(Color) c` where c is some int).
+    // (b) Source expression's Field() is SnEnumMember — enum literal
+    //     access like Color.Red wrapped by binary strengthening.
+    //     EvalDataType is NK_Int32 here (SnEnumMember::EvalDataType
+    //     returns NK_Int32), so srcKind is NK_Int32 — we must walk
+    //     the Field() chain to discover the enum decl.
+    SnEnumDecl* pEnumDecl = nullptr;
+    if (srcKind == NK_EnumDecl) {
+        pEnumDecl = static_cast<SnEnumDecl*>(sourceType);
+    } else {
+        //Try Field() chain on source expression.
+        auto srcExprKind = cast.Source()->Kind();
+        if (srcExprKind == NK_MemberExpr
+            || srcExprKind == NK_IdentifierExpr)
+        {
+            auto& srcFieldExpr = static_cast<SnFieldExpr&>(
+                *cast.Source());
+            auto* srcField = srcFieldExpr.Field();
+            if (srcField
+                && srcField->Kind() == NK_EnumMember)
+            {
+                pEnumDecl = static_cast<SnEnumDecl*>(
+                    srcField->Parent());
+            }
+        }
+    }
+    if (pEnumDecl) {
+        auto it = m_enumIndexMap.find(pEnumDecl);
+        if (it != m_enumIndexMap.end()) {
+            emitter.Emit(OpCode::OP_Enum_to_str);
+            emitter.EmitUint16(static_cast<uint16_t>(it->second));
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            return true;
+        }
+    }
+    return false;
+}
+
+//Cast arm: Func → string renders the handle via OP_Func_to_str.
+void VmBackend::EmitCastFuncToString(BytecodeEmitter& emitter,
+                                     uint16_t resultOffset) {
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_Func_to_str);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//Cast arm: class → string emits a virtual toString() call — copy
+//resultOffset → callParamBase[0], OP_CallMethod by name, copy back.
+void VmBackend::EmitCastClassToString(BytecodeEmitter& emitter,
+                                      uint16_t resultOffset) {
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(resultOffset);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    uint16_t nameIdx = AddStringConstant("toString");
+    emitter.Emit(OpCode::OP_CallMethod);
+    emitter.EmitUint16(nameIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//Cast arm: array → string emits OP_Array_to_str (Array is a VM primitive,
+//not a class, so OP_CallMethod doesn't apply).
+void VmBackend::EmitCastArrayToString(BytecodeEmitter& emitter,
+                                      uint16_t resultOffset) {
+    //A member-source emit ends in OP_LoadField, which
+    //writes the slot but leaves the accumulator stale.
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_Array_to_str);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//Cast arm: to-string special cases (enum/func/class/array), each
+//reporting whether it emitted so the caller returns before the enum→int
+//collapse in EmitCastNumericOrStringOp.
+bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
+                                   NodeKind dstKind, SnField* sourceType,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset) {
+    //Enum → string MUST be checked before collapsing enum to int below,
+    //otherwise OP_Int32_to_str would fire and produce a numeric string
+    //instead of the value name.
+    if (dstKind == NK_String) {
+        if (EmitCastEnumToString(cast, srcKind, sourceType, emitter,
+                                 resultOffset))
+            return true;
+    }
+    //Phase 13: Func → string renders the handle ("func <name>")
+    //via OP_Func_to_str. MUST precede the class→string branch —
+    //a handle's slot[0] is a function index, and the virtual
+    //toString dispatch would read it as a class index.
+    if (srcKind == NK_ClassDecl && dstKind == NK_String
+        && static_cast<SnClassDecl*>(
+            cast.Source()->EvalDataType())->IsFuncType()) {
+        EmitCastFuncToString(emitter, resultOffset);
+        return true;
+    }
+    //Phase 8e-9b: class → string emits a virtual toString() call.
+    if (srcKind == NK_ClassDecl && dstKind == NK_String) {
+        EmitCastClassToString(emitter, resultOffset);
+        return true;
+    }
+    //Phase 9b-pre: array → string emits OP_Array_to_str (Array is a
+    //VM primitive, not a class, so OP_CallMethod doesn't apply).
+    //Array-ness keys on the source expression's array-valued
+    //property (the resolver's single channel) — identifier and
+    //member sources, invoke results, new-array expressions and
+    //container element reads alike. The old Kind/Field() test
+    //missed every non-lvalue shape, which then fell through to
+    //the Int32→String arm and printed the raw handle index.
+    if (dstKind == NK_String && cast.Source()->IsArrayValued()) {
+        EmitCastArrayToString(emitter, resultOffset);
+        return true;
+    }
+    return false;
+}
+
+//Cast arm: numeric and primitive→string conversions after the enum
+//kinds have collapsed to int (Phase 8e-9a: int/float → string coercion).
+void VmBackend::EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
+                                          BytecodeEmitter& emitter,
+                                          uint16_t resultOffset) {
+    if (srcKind == NK_Int32 && dstKind == NK_Float) {
+        EmitPResultRefresh(emitter, resultOffset);
+        emitter.Emit(OpCode::OP_CastIntToFloat);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    } else if (srcKind == NK_Float && dstKind == NK_Int32) {
+        EmitPResultRefresh(emitter, resultOffset);
+        emitter.Emit(OpCode::OP_CastFloatToInt);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    } else if (srcKind == NK_Int32 && dstKind == NK_String) {
+        //Phase 8e-9a: int → string coercion for `int + string` etc.
+        EmitPResultRefresh(emitter, resultOffset);
+        emitter.Emit(OpCode::OP_Int32_to_str);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    } else if (srcKind == NK_Float && dstKind == NK_String) {
+        //Phase 8e-9a: float → string coercion.
+        EmitPResultRefresh(emitter, resultOffset);
+        emitter.Emit(OpCode::OP_Float_to_str);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    }
+}
+
 void VmBackend::Access(SnCastExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
@@ -30,19 +206,7 @@ void VmBackend::Access(SnCastExpr& expr) {
         //and target was Object. Emit OP_Box with the source's type tag
         //(RTK_Int32/RTK_Float/RTK_String) so the VM knows what to wrap.
         if (cast.CastKind() == TCK_Box) {
-            auto* sourceType = cast.Source()->EvalDataType();
-            uint8_t typeTag = RTK_Int32;
-            if (sourceType) {
-                NodeKind srcKind = sourceType->Kind();
-                if (srcKind == NK_Float) typeTag = RTK_Float;
-                else if (srcKind == NK_String) typeTag = RTK_String;
-                else typeTag = RTK_Int32;
-            }
-            EmitPResultRefresh(emitter, resultOffset);
-            emitter.Emit(OpCode::OP_Box);
-            emitter.EmitByte(typeTag);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            EmitCastBoxOp(cast, emitter, resultOffset);
             return;
         }
 
@@ -51,124 +215,91 @@ void VmBackend::Access(SnCastExpr& expr) {
         if (sourceType && targetType) {
             NodeKind srcKind = sourceType->Kind();
             NodeKind dstKind = targetType->Kind();
-            //Phase 8e-9b: enum → string emits OP_Enum_to_str (preserves enum
-            //identity for name lookup). Must check BEFORE collapsing enum to
-            //int below, otherwise OP_Int32_to_str would fire and produce a
-            //numeric string instead of the value name.
-            //
-            //Two detection paths:
-            // (a) srcKind == NK_EnumDecl — explicit enum-typed variable cast
-            //     (e.g. `(Color) c` where c is some int).
-            // (b) Source expression's Field() is SnEnumMember — enum literal
-            //     access like Color.Red wrapped by binary strengthening.
-            //     EvalDataType is NK_Int32 here (SnEnumMember::EvalDataType
-            //     returns NK_Int32), so srcKind is NK_Int32 — we must walk
-            //     the Field() chain to discover the enum decl.
-            if (dstKind == NK_String) {
-                SnEnumDecl* pEnumDecl = nullptr;
-                if (srcKind == NK_EnumDecl) {
-                    pEnumDecl = static_cast<SnEnumDecl*>(sourceType);
-                } else {
-                    //Try Field() chain on source expression.
-                    auto srcExprKind = cast.Source()->Kind();
-                    if (srcExprKind == NK_MemberExpr
-                        || srcExprKind == NK_IdentifierExpr)
-                    {
-                        auto& srcFieldExpr = static_cast<SnFieldExpr&>(
-                            *cast.Source());
-                        auto* srcField = srcFieldExpr.Field();
-                        if (srcField
-                            && srcField->Kind() == NK_EnumMember)
-                        {
-                            pEnumDecl = static_cast<SnEnumDecl*>(
-                                srcField->Parent());
-                        }
-                    }
-                }
-                if (pEnumDecl) {
-                    auto it = m_enumIndexMap.find(pEnumDecl);
-                    if (it != m_enumIndexMap.end()) {
-                        emitter.Emit(OpCode::OP_Enum_to_str);
-                        emitter.EmitUint16(static_cast<uint16_t>(it->second));
-                        emitter.Emit(OpCode::OP_Assign);
-                        emitter.EmitUint16(resultOffset);
-                        return;
-                    }
-                }
-            }
-            //Phase 13: Func → string renders the handle ("func <name>")
-            //via OP_Func_to_str. MUST precede the class→string branch —
-            //a handle's slot[0] is a function index, and the virtual
-            //toString dispatch would read it as a class index.
-            if (srcKind == NK_ClassDecl && dstKind == NK_String
-                && static_cast<SnClassDecl*>(
-                    cast.Source()->EvalDataType())->IsFuncType()) {
-                EmitPResultRefresh(emitter, resultOffset);
-                emitter.Emit(OpCode::OP_Func_to_str);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-                return;
-            }
-            //Phase 8e-9b: class → string emits a virtual toString() call.
-            //Setup: copy resultOffset → callParamBase[0], OP_CallMethod by
-            //name "toString", result lands in pResult, copy → resultOffset.
-            if (srcKind == NK_ClassDecl && dstKind == NK_String) {
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(resultOffset);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(m_currFunc->callParamBase);
-                uint16_t nameIdx = AddStringConstant("toString");
-                emitter.Emit(OpCode::OP_CallMethod);
-                emitter.EmitUint16(nameIdx);
-                emitter.EmitUint16(m_currFunc->callParamBase);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-                return;
-            }
-            //Phase 9b-pre: array → string emits OP_Array_to_str (Array is a
-            //VM primitive, not a class, so OP_CallMethod doesn't apply).
-            //Array-ness keys on the source expression's array-valued
-            //property (the resolver's single channel) — identifier and
-            //member sources, invoke results, new-array expressions and
-            //container element reads alike. The old Kind/Field() test
-            //missed every non-lvalue shape, which then fell through to
-            //the Int32→String arm and printed the raw handle index.
-            if (dstKind == NK_String && cast.Source()->IsArrayValued()) {
-                //A member-source emit ends in OP_LoadField, which
-                //writes the slot but leaves the accumulator stale.
-                EmitPResultRefresh(emitter, resultOffset);
-                emitter.Emit(OpCode::OP_Array_to_str);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
+            if (EmitCastToStringOp(cast, srcKind, dstKind, sourceType,
+                                   emitter, resultOffset)) {
                 return;
             }
             if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
             if (dstKind == NK_EnumDecl) dstKind = NK_Int32;
-            if (srcKind == NK_Int32 && dstKind == NK_Float) {
-                EmitPResultRefresh(emitter, resultOffset);
-                emitter.Emit(OpCode::OP_CastIntToFloat);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            } else if (srcKind == NK_Float && dstKind == NK_Int32) {
-                EmitPResultRefresh(emitter, resultOffset);
-                emitter.Emit(OpCode::OP_CastFloatToInt);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            } else if (srcKind == NK_Int32 && dstKind == NK_String) {
-                //Phase 8e-9a: int → string coercion for `int + string` etc.
-                EmitPResultRefresh(emitter, resultOffset);
-                emitter.Emit(OpCode::OP_Int32_to_str);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            } else if (srcKind == NK_Float && dstKind == NK_String) {
-                //Phase 8e-9a: float → string coercion.
-                EmitPResultRefresh(emitter, resultOffset);
-                emitter.Emit(OpCode::OP_Float_to_str);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            }
+            EmitCastNumericOrStringOp(srcKind, dstKind, emitter, resultOffset);
         }
         return;
+}
+
+//As arm: TCK_Box — primitive → Object boxing, symmetric to NK_CastExpr's
+//TCK_Box path. The null literal is exempt — boxing it would allocate a
+//boxed 0 and destroy the null identity downstream
+//(`oa[0] = null as Object` then compares unequal to null).
+//Access(SnAsExpr) propagates NF_NullLiteral onto the as-expr
+//for exactly this test. Same exemption as FixupExprType's
+//null-literal skip and the element-store boxing guards.
+void VmBackend::EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                            uint16_t resultOffset) {
+    if (asExpr.ContainFlags(NF_NullLiteral))
+        return;
+    auto* sourceType = asExpr.Operand()->EvalDataType();
+    uint8_t typeTag = RTK_Int32;
+    if (sourceType) {
+        NodeKind srcKind = sourceType->Kind();
+        if (srcKind == NK_Float) typeTag = RTK_Float;
+        else if (srcKind == NK_String) typeTag = RTK_String;
+        else typeTag = RTK_Int32;
+    }
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_Box);
+    emitter.EmitByte(typeTag);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//As arm: TCK_Unbox — target type is primitive, derive RTK_* from target.
+void VmBackend::EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                              uint16_t resultOffset) {
+    auto* targetType = asExpr.ResolvedTarget();
+    uint8_t typeTag = RTK_Int32;
+    if (targetType) {
+        NodeKind tgtKind = targetType->Kind();
+        if (tgtKind == NK_Float) typeTag = RTK_Float;
+        else if (tgtKind == NK_String) typeTag = RTK_String;
+        else typeTag = RTK_Int32;
+    }
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_Unbox);
+    emitter.EmitByte(typeTag);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//As arm: TCK_Downcast — target is a subclass, emit OP_CheckCast classIdx.
+void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                                 uint16_t resultOffset) {
+    auto* targetType = asExpr.ResolvedTarget();
+    uint16_t classIdx = 0;
+    if (targetType) {
+        int idx = m_compiledModule.FindClass(targetType->Name());
+        classIdx = (idx >= 0)
+            ? static_cast<uint16_t>(idx) : 0;
+    }
+    emitter.Emit(OpCode::OP_CheckCast);
+    emitter.EmitUint16(classIdx);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+//As arm: `f as string` — the one resolver-approved TCK_Auto form.
+//Returns true when OP_Func_to_str was emitted.
+bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                                   uint16_t resultOffset) {
+    auto* srcType = asExpr.Operand()->EvalDataType();
+    if (srcType && srcType->Kind() == NK_ClassDecl
+        && static_cast<SnClassDecl*>(srcType)->IsFuncType()) {
+        EmitPResultRefresh(emitter, resultOffset);
+        emitter.Emit(OpCode::OP_Func_to_str);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+        return true;
+    }
+    return false;
 }
 
     //Phase 8e-1.5: `expr as T` runtime-checked cast.
@@ -191,74 +322,22 @@ void VmBackend::Access(SnAsExpr& expr) {
             return;
         }
         if (kind == TCK_Box) {
-            //Symmetric to NK_CastExpr's TCK_Box path: emit OP_Box typeTag.
-            //The null literal is exempt — boxing it would allocate a
-            //boxed 0 and destroy the null identity downstream
-            //(`oa[0] = null as Object` then compares unequal to null).
-            //Access(SnAsExpr) propagates NF_NullLiteral onto the as-expr
-            //for exactly this test. Same exemption as FixupExprType's
-            //null-literal skip and the element-store boxing guards.
-            if (asExpr.ContainFlags(NF_NullLiteral))
-                return;
-            auto* sourceType = asExpr.Operand()->EvalDataType();
-            uint8_t typeTag = RTK_Int32;
-            if (sourceType) {
-                NodeKind srcKind = sourceType->Kind();
-                if (srcKind == NK_Float) typeTag = RTK_Float;
-                else if (srcKind == NK_String) typeTag = RTK_String;
-                else typeTag = RTK_Int32;
-            }
-            EmitPResultRefresh(emitter, resultOffset);
-            emitter.Emit(OpCode::OP_Box);
-            emitter.EmitByte(typeTag);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            EmitAsBoxOp(asExpr, emitter, resultOffset);
             return;
         }
         if (kind == TCK_Unbox) {
-            //Target type is primitive — derive RTK_* from target.
-            auto* targetType = asExpr.ResolvedTarget();
-            uint8_t typeTag = RTK_Int32;
-            if (targetType) {
-                NodeKind tgtKind = targetType->Kind();
-                if (tgtKind == NK_Float) typeTag = RTK_Float;
-                else if (tgtKind == NK_String) typeTag = RTK_String;
-                else typeTag = RTK_Int32;
-            }
-            EmitPResultRefresh(emitter, resultOffset);
-            emitter.Emit(OpCode::OP_Unbox);
-            emitter.EmitByte(typeTag);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            EmitAsUnboxOp(asExpr, emitter, resultOffset);
             return;
         }
         if (kind == TCK_Downcast) {
-            //Target is a subclass — emit OP_CheckCast classIdx.
-            auto* targetType = asExpr.ResolvedTarget();
-            uint16_t classIdx = 0;
-            if (targetType) {
-                int idx = m_compiledModule.FindClass(targetType->Name());
-                classIdx = (idx >= 0)
-                    ? static_cast<uint16_t>(idx) : 0;
-            }
-            emitter.Emit(OpCode::OP_CheckCast);
-            emitter.EmitUint16(classIdx);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
+            EmitAsDowncastOp(asExpr, emitter, resultOffset);
             return;
         }
         //Phase 13: `f as string` is the one resolver-approved TCK_Auto
         //`as` form — function handles render as "func <name>".
         if (kind == TCK_Auto) {
-            auto* srcType = asExpr.Operand()->EvalDataType();
-            if (srcType && srcType->Kind() == NK_ClassDecl
-                && static_cast<SnClassDecl*>(srcType)->IsFuncType()) {
-                EmitPResultRefresh(emitter, resultOffset);
-                emitter.Emit(OpCode::OP_Func_to_str);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
+            if (EmitAsFuncToString(asExpr, emitter, resultOffset))
                 return;
-            }
         }
         //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None) are rejected by
         //ExprResolver.Access(SnAsExpr&) before codegen — reaching here is
@@ -271,6 +350,81 @@ void VmBackend::Access(SnAsExpr& expr) {
                                : std::string("?")));
 }
 
+//Subscript arm: List<T>/Dict<K,V> get() sugar — classify the generic
+//instantiation (element/key/value boxing tags), then emit the call.
+void VmBackend::EmitContainerSubscriptGet(SnSubscriptExpr& sub,
+                                          BytecodeEmitter& emitter,
+                                          uint16_t resultOffset) {
+    auto* pGenClass = static_cast<SnClassDecl*>(
+        sub.Array()->EvalDataType());
+    const auto& baseName = pGenClass->BaseName();
+    const auto& typeArgs = pGenClass->GenericTypeArgs();
+    bool isList = (baseName == "List" && !typeArgs.empty());
+    bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
+    //Array-typed slots are interned tokens — raw
+    //handles, no box/unbox (BoxingTagFor default).
+    //Dict keys box when primitive; List's index is int.
+    auto keyBox = isDict
+        ? BoxingTagFor(typeArgs[0])
+        : BoxingTagResult{0, false};
+    SnField* pElem = isList ? typeArgs[0]
+        : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
+    auto valBox = BoxingTagFor(pElem);
+    EmitContainerGetCall(sub, keyBox, valBox, emitter, resultOffset);
+}
+
+//Subscript arm: the get() call itself — emits through EvalAreaClaim so
+//nested calls (e.g. foo(li[j])) cannot clobber an outer call's
+//callParamBase slice. Unboxes the get() return for primitive T/V,
+//mirroring the foreach element load and the member-call boxing plans.
+void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
+                                     BoxingTagResult keyBox,
+                                     BoxingTagResult valBox,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t resultOffset) {
+    EvalAreaClaim claim(*this, 2);
+    uint16_t claimBase = claim.base();
+    //Receiver → claim[0] directly (round-4: NOT via
+    //resultOffset — a self-referential read `i = li[i]`
+    //would overwrite the index's source slot with the
+    //List handle before the index is emitted). Same
+    //shape as the array path below; resultOffset is
+    //written only by the final get() store.
+    EmitExpression(*sub.Array(), emitter, claimBase);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(claimBase);
+    //arg0 = index (box primitive Dict keys).
+    uint16_t keyOffset = claimBase + VALUE_SIZE;
+    EmitExpression(*sub.Index(), emitter, keyOffset);
+    if (keyBox.isPrimitive) {
+        EmitPResultRefresh(emitter, keyOffset);
+        emitter.Emit(OpCode::OP_Box);
+        emitter.EmitByte(keyBox.tag);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(keyOffset);
+    }
+    //Bulk-copy claim → callParamBase (raw 4-byte moves
+    //preserve tagged representations).
+    for (uint16_t i = 0; i < 2; ++i) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(
+            m_currFunc->callParamBase + i * VALUE_SIZE);
+    }
+    uint16_t nameIdx = AddStringConstant("get");
+    emitter.Emit(OpCode::OP_CallMethod);
+    emitter.EmitUint16(nameIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    if (valBox.isPrimitive) {
+        emitter.Emit(OpCode::OP_Unbox);
+        emitter.EmitByte(valBox.tag);
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
     // Member expression - struct field access or delegate to inner
 void VmBackend::Access(SnSubscriptExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -279,70 +433,9 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
         //List<T>/Dict<K,V> subscript sugar: li[i] == li.get(i),
         //d[k] == d.get(k). Dispatch on the base's resolved type being a
         //generic instantiation (arrays take the OP_LoadElement path below).
-        //Emits through EvalAreaClaim so nested calls (e.g. foo(li[j]))
-        //cannot clobber an outer call's callParamBase slice. Unboxes the
-        //get() return for primitive T/V, mirroring the foreach element
-        //load and the member-call boxing plans.
         if (IsContainerSubscript(*sub.Array())) {
-            auto* pGenClass = static_cast<SnClassDecl*>(
-                sub.Array()->EvalDataType());
-            const auto& baseName = pGenClass->BaseName();
-            const auto& typeArgs = pGenClass->GenericTypeArgs();
-            bool isList = (baseName == "List" && !typeArgs.empty());
-            bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
-            {
-                        //Array-typed slots are interned tokens — raw
-                        //handles, no box/unbox (BoxingTagFor default).
-                        //Dict keys box when primitive; List's index is int.
-                        auto keyBox = isDict
-                            ? BoxingTagFor(typeArgs[0])
-                            : BoxingTagResult{0, false};
-                        SnField* pElem = isList ? typeArgs[0]
-                            : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
-                        auto valBox = BoxingTagFor(pElem);
-                        EvalAreaClaim claim(*this, 2);
-                        uint16_t claimBase = claim.base();
-                        //Receiver → claim[0] directly (round-4: NOT via
-                        //resultOffset — a self-referential read `i = li[i]`
-                        //would overwrite the index's source slot with the
-                        //List handle before the index is emitted). Same
-                        //shape as the array path below; resultOffset is
-                        //written only by the final get() store.
-                        EmitExpression(*sub.Array(), emitter, claimBase);
-                        emitter.Emit(OpCode::OP_NullCheck);
-                        emitter.EmitUint16(claimBase);
-                        //arg0 = index (box primitive Dict keys).
-                        uint16_t keyOffset = claimBase + VALUE_SIZE;
-                        EmitExpression(*sub.Index(), emitter, keyOffset);
-                        if (keyBox.isPrimitive) {
-                            EmitPResultRefresh(emitter, keyOffset);
-                            emitter.Emit(OpCode::OP_Box);
-                            emitter.EmitByte(keyBox.tag);
-                            emitter.Emit(OpCode::OP_Assign);
-                            emitter.EmitUint16(keyOffset);
-                        }
-                        //Bulk-copy claim → callParamBase (raw 4-byte moves
-                        //preserve tagged representations).
-                        for (uint16_t i = 0; i < 2; ++i) {
-                            emitter.Emit(OpCode::OP_VarLocal);
-                            emitter.EmitUint16(claimBase + i * VALUE_SIZE);
-                            emitter.Emit(OpCode::OP_Assign);
-                            emitter.EmitUint16(
-                                m_currFunc->callParamBase + i * VALUE_SIZE);
-                        }
-                        uint16_t nameIdx = AddStringConstant("get");
-                        emitter.Emit(OpCode::OP_CallMethod);
-                        emitter.EmitUint16(nameIdx);
-                        emitter.EmitUint16(m_currFunc->callParamBase);
-                        if (valBox.isPrimitive) {
-                            emitter.Emit(OpCode::OP_Unbox);
-                            emitter.EmitByte(valBox.tag);
-                        }
-                        emitter.Emit(OpCode::OP_Assign);
-                        emitter.EmitUint16(resultOffset);
-                        emitter.Emit(OpCode::OP_ParaEnd);
-                        return;
-                    }
+            EmitContainerSubscriptGet(sub, emitter, resultOffset);
+            return;
         }
         //Phase 10 audit round-3: park receiver AND index in an exclusive
         //EvalAreaClaim(2), mirroring the container get() shape. The old
