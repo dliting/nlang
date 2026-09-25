@@ -6,9 +6,29 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.3] - Unreleased
+## [0.7.3] - 2026-09-25
+
+### Added
+- Manual: "Command-line Tools" reference chapter (ncc/nvm/ndb/ndisasm)
+  in both documentation trees, including the full ndb command table with
+  long aliases and both ncc default-output rules. Each tool page opens
+  by stating what the tool is for and when to reach for it.
+- nide: the Help menu gained a "Command-line Tools" entry, symmetric
+  with the Getting Started / Language Specification / VM Architecture
+  chapter entries.
+- Manual: nide Tools → Options documentation (language setting and
+  global build output directory with its precedence rules).
 
 ### Changed
+- Runtime strings are garbage-collected immutable objects: long-running
+  programs (prompt-building loops and similar) no longer grow memory
+  without bound, and `s = s + x` appends are O(1) instead of O(n) copies
+  (transparent concatenation nodes, flattened on first read).
+- Manual: newcomer-readability pass across both documentation trees —
+  internal development annotations were removed, unexplained
+  implementation identifiers were replaced with named concepts, and
+  tool usage is now cross-linked from the language specification and
+  README.
 - Array-valued expressions now carry an interned array type token in
   their static type channel: array types are first-class resolved
   entities (one interned token per element type per compilation),
@@ -54,6 +74,15 @@ All notable changes to NLang are documented here. The format follows
   the string form, and `l[0] = 5` on a `List<int[]>` rejects the
   non-null int ("only the null literal converts from int to a class,
   interface or array type").
+- `Dict.set`'s key argument is type-checked through the same cast
+  table as its value argument, in both spellings — the method form
+  `d.set(k, v)` and the subscript sugar `d[k] = v`: a string key in
+  `Dict<int, int>` is a compile error ("Incompatible type") instead
+  of being stored raw — which corrupted the key slot and crashed
+  later lookups — while a coercible key (an int into
+  `Dict<string, int>`) converts implicitly like every other string
+  target. Read positions (`get`, `containsKey`, `remove`) stay
+  unchecked, as before.
 - `.nmod` format floor raised to v1.11 → v1.12: recursive type
   descriptors record the true formal, return and field types (nested
   arrays, `List`/`Dict` instantiations, struct/class indices; depth
@@ -65,7 +94,9 @@ All notable changes to NLang are documented here. The format follows
   round-trip. Older modules are rejected as outdated and must be
   recompiled.
 
-## [0.7.2] - Unreleased
+### Performance
+- Short strings (up to 40 bytes) created at runtime are interned and
+  reused; equality between interned strings is a handle comparison.
 
 ### Fixed
 - Storing into an array element now goes through the same implicit
@@ -75,45 +106,35 @@ All notable changes to NLang are documented here. The format follows
   `int` → `string` elements coerce, struct values deep-copy into
   `struct[]` elements, and mismatched stores (a struct into an
   `Object[]` element, a string into an `int[]` element, an array
-  handle into any element) are compile errors instead of silently
-  storing a handle the garbage collector cannot trace. Array-form
-  init lists (`int[] a = [1, 2]`) run the same per-element checks:
-  entries box or coerce like element stores, struct entries
-  deep-copy, and an array-valued entry is a compile error. Container
-  subscript stores (`li[i] = v`) run the same element-type checks as
-  array element stores (`int` → `float` elements coerce, a class
-  value into `List<int>` is a compile error) and reject stores whose
-  array-ness disagrees with the container's element in either
-  direction — an array value into `List<int>`, or a scalar into
-  `List<int[]>`.
-- An array value assigned or returned outside its own array type is
-  now a compile error ("the stored value is an array" /
-  "the returned value is an array"): an array flows as its degraded
-  element type, so `int x = arr`, `Object o = arr` or `return arr`
-  from an `int` function previously compiled and passed the raw
-  handle through as an int. Two targets stay legal: the same array
-  type, and string targets for every source shape including call
-  results (`string s = mk()` yields `"[1, 2]"`, the same runtime
-  toString dispatch `"${arr}"` uses; string targets are whole-value
-  positions — locals, fields, returns — while element slots (array
-  and container subscript stores) reject array values like any
-  scalar slot). "The same array type" is checked at the element
-  level — an element pair the implicit conversion table rates as
-  Same: `string[] b = ia` is a compile error ("an array value only
-  converts to the same array type"), not a toString coercion, while
-  a subclass-element array still upcasts to a base-element array
-  (`Base[] ba = da`, covariant aliasing). The cross-element
-  rejection covers assignments, returns, arguments,
-  member fields and container element stores alike. The explicit
-  `as` form is covered too: `ia as int` / `ia as Object` are compile
-  errors instead of passing or boxing the raw handle. Passing an
-  array to a non-array parameter — or a value whose array-ness or
-  element type disagrees with an array parameter, including `out`
+  handle into a non-string element) are compile errors instead of
+  silently storing a handle the garbage collector cannot trace.
+  Array-form init lists (`int[] a = [1, 2]`) run the same
+  per-element checks: entries box or coerce like element stores,
+  struct entries deep-copy, and an array-valued entry into a
+  non-string element is a compile error. Container subscript stores
+  (`li[i] = v`) run the same element-type checks as array element
+  stores (`int` → `float` elements coerce, a class value into
+  `List<int>` is a compile error) and reject stores whose array-ness
+  disagrees with a non-string container element — an array value
+  into `List<int>`, or a scalar into `List<int[]>`. String element
+  slots are the exception on the array side: they coerce an array
+  value to its string form (see the uniform string coercion under
+  Changed) instead of rejecting it.
+- An array value no longer leaks through scalar positions as its
+  degraded element type: `int x = arr`, `Object o = arr`,
+  `return arr` from an `int` function, and `ia as int` /
+  `ia as Object` are compile errors ("the stored value is an
+  array" / "the returned value is an array") instead of compiling
+  and passing the raw handle through as an int. Passing an array to
+  a non-array parameter — or a value whose array-ness or element
+  type disagrees with an array parameter, including `out`
   arguments — is likewise rejected by the invoke compatibility
-  check.
+  check. The two legal targets — the same array type, and string
+  coercion at every string position — are described under
+  Changed above.
 - Assigning a non-null `int` or enum value to a class- or
   interface-typed target is now a compile error ("only the null
-  literal converts from int to a class or interface type");
+  literal converts from int to a class, interface or array type");
   previously it compiled and stored a garbage handle. Variable
   initialization, assignment and element stores are all covered.
 - `null as T` keeps its null identity through the cast: storing it
@@ -124,36 +145,6 @@ All notable changes to NLang are documented here. The format follows
   to an error: an argument that must not be null
   (`io.print(null as int)`) is now rejected at compile time instead
   of printing `0`.
-
-## [0.7.1] - Unreleased
-
-### Added
-- Manual: "Command-line Tools" reference chapter (ncc/nvm/ndb/ndisasm)
-  in both documentation trees, including the full ndb command table with
-  long aliases and both ncc default-output rules. Each tool page opens
-  by stating what the tool is for and when to reach for it.
-- nide: the Help menu gained a "Command-line Tools" entry, symmetric
-  with the Getting Started / Language Specification / VM Architecture
-  chapter entries.
-- Manual: nide Tools → Options documentation (language setting and
-  global build output directory with its precedence rules).
-
-### Changed
-- Runtime strings are garbage-collected immutable objects: long-running
-  programs (prompt-building loops and similar) no longer grow memory
-  without bound, and `s = s + x` appends are O(1) instead of O(n) copies
-  (transparent concatenation nodes, flattened on first read).
-- Manual: newcomer-readability pass across both documentation trees —
-  internal development annotations were removed, unexplained
-  implementation identifiers were replaced with named concepts, and
-  tool usage is now cross-linked from the language specification and
-  README.
-
-### Performance
-- Short strings (up to 40 bytes) created at runtime are interned and
-  reused; equality between interned strings is a handle comparison.
-
-### Fixed
 - Runtime diagnostics no longer mention internal phase names: the
   `WriteStruct`/`ReadStruct` "does not support array/Func fields"
   errors read the same without the development-phase suffix.
