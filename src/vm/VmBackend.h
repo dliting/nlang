@@ -178,6 +178,111 @@ private:
         bool isMethodContext = false);
     static uint16_t StmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
+    //ExprPeakDepth arms — one expression shape family each; the node-kind
+    //dispatch stays in ExprPeakDepth.
+    //NK_InvokeExpr: call claim + arg/default-expression depth.
+    static uint16_t InvokeExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited, bool isMethodContext);
+    //NK_BinaryExpr (also unary: Right()==nullptr).
+    static uint16_t BinaryExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_SubscriptExpr: 2-slot claim over the deeper operand.
+    static uint16_t SubscriptExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_MemberExpr: receiver + method-call inner (string-method trailing
+    //arg reservation included).
+    static uint16_t MemberExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_NewExpr: {this, args...} claim + arg depth.
+    static uint16_t NewExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_NewArrayExpr: 1-slot size-expression claim.
+    static uint16_t NewArrayExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_InitListExpr: per-entry claim (Dict 3 / List 2 / other 1).
+    static uint16_t InitListExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //StmtPeakDepth arms — one statement shape each.
+    //NK_Paragraph: max over child statements.
+    static uint16_t ParagraphPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_ReturnStmt: result-expression depth.
+    static uint16_t ReturnStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_AssignStmt: lvalue + RHS depth + member/identifier claim.
+    static uint16_t AssignStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_IfStmt: condition claim + then/else branches.
+    static uint16_t IfStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_WhileStmt: condition claim + body.
+    static uint16_t WhileStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_DoStmt: condition claim + body.
+    static uint16_t DoStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_ForStmt: init/InitExtras/cond/fini/body.
+    static uint16_t ForStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_SwitchStmt: condition + case labels + case/default bodies.
+    static uint16_t SwitchStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_ForeachStmt: iterable + body.
+    static uint16_t ForeachStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_AssertStmt: condition claim.
+    static uint16_t AssertStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_TryStmt: try/catch/finally bodies.
+    static uint16_t TryStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_SuperCallStmt: {this, args...} claim + arg depth.
+    static uint16_t SuperCallStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_ThrowStmt: thrown-expression claim + depth.
+    static uint16_t ThrowStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_CompoundAssignStmt: uniform 3-slot claim + receiver/RHS depth.
+    static uint16_t CompoundAssignStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //NK_SubscriptAssignStmt: 3-slot claim + array/index/value depth.
+    static uint16_t SubscriptAssignStmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
+    //MaxArgs walker behind ComputeCallSlotStats (callParamBase sizing):
+    //statement/expression recursion collecting the largest call claim
+    //into maxArgs; isMethodContext as in ExprPeakDepth.
+    static void MaxArgsWalkStmt(SnStatement& stmt, uint16_t& maxArgs);
+    static void MaxArgsWalkExpr(SnExpression& expr, uint16_t& maxArgs,
+        bool isMethodContext = false);
+    //MaxArgsWalkStmt arms.
+    //NK_AssignStmt: Left() lvalue + RHS (subscript receivers).
+    static void MaxArgsAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_ForStmt: init/InitExtras/cond/fini/body.
+    static void MaxArgsForStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_SwitchStmt: condition + labels + case/default bodies.
+    static void MaxArgsSwitchStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_ForeachStmt: expansion prelude reserves 2 slots + iterable/body.
+    static void MaxArgsForeachStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_TryStmt: try/catch/finally bodies.
+    static void MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_SuperCallStmt: 1 + argc claim + args.
+    static void MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_CompoundAssignStmt: Left() receiver + RHS.
+    static void MaxArgsCompoundAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_SubscriptAssignStmt: container set() reserves 3 slots + children.
+    static void MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //MaxArgsWalkExpr arms.
+    //NK_InvokeExpr: the call's own claim, then nested calls in its args.
+    static void MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
+        bool isMethodContext);
+    //NK_SubscriptExpr: container get() reserves 2 slots.
+    static void MaxArgsSubscriptExpr(SnExpression& expr, uint16_t& maxArgs);
+    //NK_MemberExpr: method-context flag for a method-call inner.
+    static void MaxArgsMemberExpr(SnExpression& expr, uint16_t& maxArgs);
+    //NK_NewExpr: ctor claim = 1 (this) + argCount.
+    static void MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs);
+    //NK_InitListExpr: implicit Dict set(3) / List add(2) claims.
+    static void MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs);
     void EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         uint16_t resultOffset);
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);

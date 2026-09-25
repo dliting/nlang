@@ -69,73 +69,13 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited,
     bool isMethodContext) {
     NodeKind kind = expr.Kind();
-    if (kind == NK_InvokeExpr) {
-        auto& invoke = static_cast<SnInvokeExpr&>(expr);
-        auto* callee = invoke.Callee();
-        size_t formalCount = callee ? callee->Params().size() : 0;
-        if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
-        //Method call (slotBase=1) when caller signals method context,
-        //OR when callee is resolved to a method (Parent is class/struct/
-        //interface). The method-context flag is authoritative for
-        //built-in method calls where callee is null.
-        bool isMethod = isMethodContext || (callee && callee->Parent()
-            && (callee->Parent()->Kind() == NK_ClassDecl
-                || callee->Parent()->Kind() == NK_StructDecl
-                || callee->Parent()->Kind() == NK_InterfaceDecl));
-        size_t slotBase = isMethod ? 1 : 0;
-        size_t claimSize = formalCount + slotBase;
-        //Phase 13: a delegate invoke materializes its callee handle into
-        //one scratch slot. The claims are sequential (args first, then
-        //callee), so this is over-reservation — the safe direction.
-        if (!callee && VmBackend::IsDelegateInvoke(invoke))
-            claimSize += 1;
-
-        //Peak depth of argument sub-expressions.
-        uint16_t argDepth = 0;
-        for (auto& param : invoke.Params()) {
-            uint16_t d = ExprPeakDepth(param, visited);
-            if (d > argDepth) argDepth = d;
-        }
-
-        //Peak depth of callee's default expressions (evaluated in caller frame).
-        uint16_t defaultDepth = 0;
-        if (callee && visited.find(callee) == visited.end()) {
-            auto visitedPlus = visited;
-            visitedPlus.insert(callee);
-            for (auto& formal : callee->Params()) {
-                if (formal.Value()) {
-                    uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
-                    if (d > defaultDepth) defaultDepth = d;
-                }
-            }
-        }
-
-        return static_cast<uint16_t>(claimSize) +
-            (argDepth > defaultDepth ? argDepth : defaultDepth);
-    }
+    if (kind == NK_InvokeExpr)
+        return InvokeExprPeakDepth(expr, visited, isMethodContext);
     //Non-invoke expressions: recurse into children.
     //UnaryExpr: NLang uses NK_BinaryExpr for both binary and unary.
     //Unary ops (OP_Neg, OP_LogicalNot) have Right()==nullptr.
-    if (kind == NK_BinaryExpr) {
-        auto& bin = static_cast<SnBinaryExpr&>(expr);
-        uint16_t l = ExprPeakDepth(*bin.Left(), visited);
-        if (bin.Right()) {
-            uint16_t r = ExprPeakDepth(*bin.Right(), visited);
-            //Short-circuit lowering: logical nodes claim no eval-area
-            //slot — both operands emit into resultOffset sequentially.
-            //Keep symmetric with EmitExpression's logical special-case.
-            auto bop = bin.Op();
-            if (bop == SnBinaryExpr::OP_LogicalAnd
-                || bop == SnBinaryExpr::OP_LogicalOr)
-                return l > r ? l : r;
-            //Right operand parks in a per-level EvalAreaClaim(1) (round-4 —
-            //the old PickTempSlot chain wrapped tempSlot4 → tempSlot at
-            //depth 5); operand sub-expressions claim above it.
-            uint16_t m = l > r ? l : r;
-            return 1 + m;
-        }
-        return l;  //unary: operand → resultOffset, no claim
-    }
+    if (kind == NK_BinaryExpr)
+        return BinaryExprPeakDepth(expr, visited);
     //CastExpr
     if (kind == NK_CastExpr) {
         auto& cast = static_cast<SnCastExpr&>(expr);
@@ -158,117 +98,209 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
         return ExprPeakDepth(*out.Inner(), visited);
     }
     //SubscriptExpr
-    if (kind == NK_SubscriptExpr) {
-        auto& sub = static_cast<SnSubscriptExpr&>(expr);
-        uint16_t a = ExprPeakDepth(*sub.Array(), visited);
-        uint16_t i = ExprPeakDepth(*sub.Index(), visited);
-        //Both shapes claim 2 evalArea slots (receiver + index): container
-        //lowers to a get() call, array reads park receiver/index in the
-        //claim directly (Phase 10 audit round-3 — was a 4-deep PickTempSlot
-        //chain that wrapped and clobbered at nesting depth 5).
-        uint16_t claim = 2;
-        uint16_t m = (a > i ? a : i);
-        return claim + m;
-    }
+    if (kind == NK_SubscriptExpr)
+        return SubscriptExprPeakDepth(expr, visited);
     //MemberExpr (field access: outer.inner)
-    if (kind == NK_MemberExpr) {
-        auto& member = static_cast<SnMemberExpr&>(expr);
-        uint16_t d = ExprPeakDepth(*member.Outer(), visited, false);
-        //If Inner is an InvokeExpr, this is a method call shape — pass
-        //isMethodContext=true so the walker reserves slot 0 for `this`.
-        //Phase 13 Step 2 exception: a delegate member invoke (obj.cb(x))
-        //stages USER args only (no this at slot 0) — its callee scratch
-        //is reserved inside the invoke walker via IsDelegateInvoke.
-        uint16_t id;
-        if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr) {
-            auto& inv = static_cast<SnInvokeExpr&>(*member.Inner());
-            id = ExprPeakDepth(*member.Inner(), visited,
-                !VmBackend::IsDelegateInvoke(inv));
-        } else {
-            id = ExprPeakDepth(*member.Inner(), visited, false);
-        }
-        //Phase 11 Step 3 symmetry: a built-in string method stages
-        //synthetic trailing args (substring's end via OP_StrLen) on top
-        //of the actual ones — reserve those slots here from the SAME
-        //table field codegen consumes, or a 1-arg substring call would
-        //clobber a slot above the walker-shaped frame. Overreserving for
-        //a user method that happens to share the name is safe (finalize
-        //only asserts observed <= walker).
-        if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr) {
-            auto& inv = static_cast<SnInvokeExpr&>(*member.Inner());
-            const StringMethodEntry* pm = FindStringMethod(inv.CalleeName());
-            if (pm && pm->trailingDefault == STD_ReceiverLength) {
-                size_t actual = 0;
-                for (auto& p : inv.Params()) ++actual;
-                if (actual < pm->maxArgs)
-                    id = static_cast<uint16_t>(
-                        id + (pm->maxArgs - actual));
-            }
-        }
-        return d > id ? d : id;
-    }
-    //NewExpr
-    //claimSize = 1 (this) + argCount, mirroring the codegen path which
-    //claims an evalArea slice for {this, args...} then bulk-copies to
-    //callParamBase before OP_CallMethodDirect. Conservative: claims even
-    //when no ctor exists (alloc-only NewExpr doesn't need the slice, but
-    //over-reserving by 1 slot is safe and rare).
-    if (kind == NK_NewExpr) {
-        auto& newExpr = static_cast<SnNewExpr&>(expr);
-        size_t argCount = 0;
-        for (auto& arg : newExpr.Args()) {
-            if (&arg == newExpr.ClassName()) continue;
-            ++argCount;
-        }
-        uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
-        uint16_t d = 0;
-        for (auto& arg : newExpr.Args()) {
-            //Skip the class-name child (Args() view includes it — see the
-            //NewExpr codegen handler); mirror codegen exactly.
-            if (&arg == newExpr.ClassName()) continue;
-            uint16_t ad = ExprPeakDepth(arg, visited, false);
-            if (ad > d) d = ad;
-        }
-        return claimSize + d;
-    }
-    //NewArrayExpr
-    //claimSize = 1: the size expression stages in an evalArea claim
-    //(Phase 10 audit round-8 — was PickTempSlot temp staging, clobbered
-    //by the EmitBinding struct deep-copy scratch).
-    if (kind == NK_NewArrayExpr) {
-        auto& na = static_cast<SnNewArrayExpr&>(expr);
-        return 1 + ExprPeakDepth(*na.Size(), visited);
-    }
-    //InitListExpr
-    //Phase 9c follow-up + Phase 10 audit round-8: mirror the codegen's
-    //claim pattern.
-    //  - Dict form: per-entry EvalAreaClaim(3) [this, key, value]
-    //  - List form: per-entry EvalAreaClaim(2) [this, value] (Phase 10
-    //    audit C2 — was callParamBase staging, clobbered by nested calls)
-    //  - Array/Struct/Class forms: EvalAreaClaim(1) stages each entry
-    //    value (Phase 10 audit round-8 — was PickTempSlot temp staging,
-    //    clobbered by struct-argument deep-copy scratch in EmitBinding)
-    if (kind == NK_InitListExpr) {
-        auto& init = static_cast<SnInitListExpr&>(expr);
-        SnField* pTarget = init.EvalDataType();
-        uint16_t claimSize = 1;
-        if (pTarget && pTarget->Kind() == NK_ClassDecl) {
-            auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
-            const std::string& baseName = pClassDecl->BaseName();
-            if (baseName == "Dict") claimSize = 3;
-            else if (baseName == "List") claimSize = 2;
-        }
-        uint16_t maxChild = 0;
-        for (auto& entry : init.Entries()) {
-            if (entry.pValue) {
-                uint16_t cd = ExprPeakDepth(*entry.pValue, visited);
-                if (cd > maxChild) maxChild = cd;
-            }
-        }
-        return claimSize + maxChild;
-    }
+    if (kind == NK_MemberExpr)
+        return MemberExprPeakDepth(expr, visited);
+    if (kind == NK_NewExpr)
+        return NewExprPeakDepth(expr, visited);
+    if (kind == NK_NewArrayExpr)
+        return NewArrayExprPeakDepth(expr, visited);
+    if (kind == NK_InitListExpr)
+        return InitListExprPeakDepth(expr, visited);
     //Leaf expressions (LiteralExpr, IdentifierExpr, ThisExpr, etc.)
     return 0;
+}
+
+//NK_InvokeExpr arm of ExprPeakDepth.
+uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited, bool isMethodContext) {
+    auto& invoke = static_cast<SnInvokeExpr&>(expr);
+    auto* callee = invoke.Callee();
+    size_t formalCount = callee ? callee->Params().size() : 0;
+    if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
+    //Method call (slotBase=1) when caller signals method context,
+    //OR when callee is resolved to a method (Parent is class/struct/
+    //interface). The method-context flag is authoritative for
+    //built-in method calls where callee is null.
+    bool isMethod = isMethodContext || (callee && callee->Parent()
+        && (callee->Parent()->Kind() == NK_ClassDecl
+            || callee->Parent()->Kind() == NK_StructDecl
+            || callee->Parent()->Kind() == NK_InterfaceDecl));
+    size_t slotBase = isMethod ? 1 : 0;
+    size_t claimSize = formalCount + slotBase;
+    //Phase 13: a delegate invoke materializes its callee handle into
+    //one scratch slot. The claims are sequential (args first, then
+    //callee), so this is over-reservation — the safe direction.
+    if (!callee && VmBackend::IsDelegateInvoke(invoke))
+        claimSize += 1;
+
+    //Peak depth of argument sub-expressions.
+    uint16_t argDepth = 0;
+    for (auto& param : invoke.Params()) {
+        uint16_t d = ExprPeakDepth(param, visited);
+        if (d > argDepth) argDepth = d;
+    }
+
+    //Peak depth of callee's default expressions (evaluated in caller frame).
+    uint16_t defaultDepth = 0;
+    if (callee && visited.find(callee) == visited.end()) {
+        auto visitedPlus = visited;
+        visitedPlus.insert(callee);
+        for (auto& formal : callee->Params()) {
+            if (formal.Value()) {
+                uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
+                if (d > defaultDepth) defaultDepth = d;
+            }
+        }
+    }
+
+    return static_cast<uint16_t>(claimSize) +
+        (argDepth > defaultDepth ? argDepth : defaultDepth);
+}
+
+//NK_BinaryExpr arm of ExprPeakDepth.
+uint16_t VmBackend::BinaryExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited) {
+    auto& bin = static_cast<SnBinaryExpr&>(expr);
+    uint16_t l = ExprPeakDepth(*bin.Left(), visited);
+    if (bin.Right()) {
+        uint16_t r = ExprPeakDepth(*bin.Right(), visited);
+        //Short-circuit lowering: logical nodes claim no eval-area
+        //slot — both operands emit into resultOffset sequentially.
+        //Keep symmetric with EmitExpression's logical special-case.
+        auto bop = bin.Op();
+        if (bop == SnBinaryExpr::OP_LogicalAnd
+            || bop == SnBinaryExpr::OP_LogicalOr)
+            return l > r ? l : r;
+        //Right operand parks in a per-level EvalAreaClaim(1) (round-4 —
+        //the old PickTempSlot chain wrapped tempSlot4 → tempSlot at
+        //depth 5); operand sub-expressions claim above it.
+        uint16_t m = l > r ? l : r;
+        return 1 + m;
+    }
+    return l;  //unary: operand → resultOffset, no claim
+}
+
+//NK_SubscriptExpr arm of ExprPeakDepth.
+uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited) {
+    auto& sub = static_cast<SnSubscriptExpr&>(expr);
+    uint16_t a = ExprPeakDepth(*sub.Array(), visited);
+    uint16_t i = ExprPeakDepth(*sub.Index(), visited);
+    //Both shapes claim 2 evalArea slots (receiver + index): container
+    //lowers to a get() call, array reads park receiver/index in the
+    //claim directly (Phase 10 audit round-3 — was a 4-deep PickTempSlot
+    //chain that wrapped and clobbered at nesting depth 5).
+    uint16_t claim = 2;
+    uint16_t m = (a > i ? a : i);
+    return claim + m;
+}
+
+//NK_MemberExpr arm of ExprPeakDepth (field access: outer.inner).
+uint16_t VmBackend::MemberExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited) {
+    auto& member = static_cast<SnMemberExpr&>(expr);
+    uint16_t d = ExprPeakDepth(*member.Outer(), visited, false);
+    //If Inner is an InvokeExpr, this is a method call shape — pass
+    //isMethodContext=true so the walker reserves slot 0 for `this`.
+    //Phase 13 Step 2 exception: a delegate member invoke (obj.cb(x))
+    //stages USER args only (no this at slot 0) — its callee scratch
+    //is reserved inside the invoke walker via IsDelegateInvoke.
+    uint16_t id;
+    if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr) {
+        auto& inv = static_cast<SnInvokeExpr&>(*member.Inner());
+        id = ExprPeakDepth(*member.Inner(), visited,
+            !VmBackend::IsDelegateInvoke(inv));
+    } else {
+        id = ExprPeakDepth(*member.Inner(), visited, false);
+    }
+    //Phase 11 Step 3 symmetry: a built-in string method stages
+    //synthetic trailing args (substring's end via OP_StrLen) on top
+    //of the actual ones — reserve those slots here from the SAME
+    //table field codegen consumes, or a 1-arg substring call would
+    //clobber a slot above the walker-shaped frame. Overreserving for
+    //a user method that happens to share the name is safe (finalize
+    //only asserts observed <= walker).
+    if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr) {
+        auto& inv = static_cast<SnInvokeExpr&>(*member.Inner());
+        const StringMethodEntry* pm = FindStringMethod(inv.CalleeName());
+        if (pm && pm->trailingDefault == STD_ReceiverLength) {
+            size_t actual = 0;
+            for (auto& p : inv.Params()) ++actual;
+            if (actual < pm->maxArgs)
+                id = static_cast<uint16_t>(
+                    id + (pm->maxArgs - actual));
+        }
+    }
+    return d > id ? d : id;
+}
+
+//NK_NewExpr arm of ExprPeakDepth.
+//claimSize = 1 (this) + argCount, mirroring the codegen path which
+//claims an evalArea slice for {this, args...} then bulk-copies to
+//callParamBase before OP_CallMethodDirect. Conservative: claims even
+//when no ctor exists (alloc-only NewExpr doesn't need the slice, but
+//over-reserving by 1 slot is safe and rare).
+uint16_t VmBackend::NewExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited) {
+    auto& newExpr = static_cast<SnNewExpr&>(expr);
+    size_t argCount = 0;
+    for (auto& arg : newExpr.Args()) {
+        if (&arg == newExpr.ClassName()) continue;
+        ++argCount;
+    }
+    uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
+    uint16_t d = 0;
+    for (auto& arg : newExpr.Args()) {
+        //Skip the class-name child (Args() view includes it — see the
+        //NewExpr codegen handler); mirror codegen exactly.
+        if (&arg == newExpr.ClassName()) continue;
+        uint16_t ad = ExprPeakDepth(arg, visited, false);
+        if (ad > d) d = ad;
+    }
+    return claimSize + d;
+}
+
+//NK_NewArrayExpr arm of ExprPeakDepth.
+//claimSize = 1: the size expression stages in an evalArea claim
+//(Phase 10 audit round-8 — was PickTempSlot temp staging, clobbered
+//by the EmitBinding struct deep-copy scratch).
+uint16_t VmBackend::NewArrayExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited) {
+    auto& na = static_cast<SnNewArrayExpr&>(expr);
+    return 1 + ExprPeakDepth(*na.Size(), visited);
+}
+
+//NK_InitListExpr arm of ExprPeakDepth.
+//Phase 9c follow-up + Phase 10 audit round-8: mirror the codegen's
+//claim pattern.
+//  - Dict form: per-entry EvalAreaClaim(3) [this, key, value]
+//  - List form: per-entry EvalAreaClaim(2) [this, value] (Phase 10
+//    audit C2 — was callParamBase staging, clobbered by nested calls)
+//  - Array/Struct/Class forms: EvalAreaClaim(1) stages each entry
+//    value (Phase 10 audit round-8 — was PickTempSlot temp staging,
+//    clobbered by struct-argument deep-copy scratch in EmitBinding)
+uint16_t VmBackend::InitListExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited) {
+    auto& init = static_cast<SnInitListExpr&>(expr);
+    SnField* pTarget = init.EvalDataType();
+    uint16_t claimSize = 1;
+    if (pTarget && pTarget->Kind() == NK_ClassDecl) {
+        auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
+        const std::string& baseName = pClassDecl->BaseName();
+        if (baseName == "Dict") claimSize = 3;
+        else if (baseName == "List") claimSize = 2;
+    }
+    uint16_t maxChild = 0;
+    for (auto& entry : init.Entries()) {
+        if (entry.pValue) {
+            uint16_t cd = ExprPeakDepth(*entry.pValue, visited);
+            if (cd > maxChild) maxChild = cd;
+        }
+    }
+    return claimSize + maxChild;
 }
 
 } //namespace nlang
