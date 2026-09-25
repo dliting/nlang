@@ -140,7 +140,142 @@ private:
                                const std::string& fieldName);
     static int FindClassFieldOffset(SnClassDecl& classDecl,
                                     const std::string& fieldName);
+    //FindClassFieldOffset arm: one ancestor in the root→parent walk —
+    //returns the field offset when the field lives there, else -1; `off`
+    //always advances past that ancestor's data fields.
+    static int ClassAncestorFieldOffset(SnClassDecl& ancestor,
+                                        const std::string& fieldName,
+                                        uint16_t& off);
     static SnClassDecl* OwningClassOfMemberField(SnField* pField);
+
+    //--- Member-expression emission helpers (definitions in
+    //VmBackendEmitExprMember*.cpp, split by responsibility: reads and
+    //properties in VmBackendEmitExprMember.cpp, the method-call family
+    //in VmBackendEmitExprMemberCall.cpp, the string-method/toString
+    //family in VmBackendEmitExprMemberString.cpp). Like every Access
+    //helper they
+    //take the emission context (emitter + resultOffset) as parameters:
+    //m_pCurrEmitter/m_resultOffset are overwritten by nested emission
+    //and must never be read inside a helper.
+    //Forward-declared here; defined below with the Phase 9c/9e call
+    //machinery (the helpers only pass them by reference).
+    struct ArgBoxPlan;
+    struct OutSpill;
+
+    //Access(SnMemberExpr&) dispatch phases, in evaluation order; each
+    //bool phase returns true when it emitted the expression.
+    bool EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
+                                  BytecodeEmitter& emitter,
+                                  uint16_t resultOffset);
+    bool EmitMemberBuiltinDispatch(SnMemberExpr& member,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
+    bool EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
+                                         SnField* outerType,
+                                         BytecodeEmitter& emitter,
+                                         uint16_t resultOffset);
+    bool EmitMemberSubscriptElementRead(SnMemberExpr& member,
+                                        SnFieldExpr* inner,
+                                        BytecodeEmitter& emitter,
+                                        uint16_t resultOffset);
+    void EmitMemberStringMethodTail(SnMemberExpr& member, SnFieldExpr* inner,
+                                    SnField* outerType,
+                                    BytecodeEmitter& emitter,
+                                    uint16_t resultOffset);
+    //Field read tails: offset lookup + OP_LoadField into resultOffset,
+    //shared by the direct and arr[i].field read paths.
+    void EmitStructFieldLoad(SnStructDecl& structDecl,
+                             const std::string& fieldName,
+                             BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitClassFieldLoad(SnClassDecl& classDecl,
+                            const std::string& fieldName,
+                            BytecodeEmitter& emitter, uint16_t resultOffset);
+    //Array .length builtin property.
+    bool EmitMemberArrayLengthProperty(SnMemberExpr& member,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset);
+    //Namespace-qualified stdlib call (math.sqrt(x)).
+    bool EmitMemberStdlibCall(SnMemberExpr& member, BytecodeEmitter& emitter,
+                              uint16_t resultOffset);
+    //Bound method reference in value position (c.foo) — Func handle.
+    void EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset);
+    //User-defined enum method call.
+    bool EmitMemberEnumMethodCall(SnMemberExpr& member,
+                                  BytecodeEmitter& emitter,
+                                  uint16_t resultOffset);
+    //Non-class receiver toString() dispatch (array/string/enum/int/float).
+    bool EmitMemberToStringNonClass(SnMemberExpr& member,
+                                    BytecodeEmitter& emitter,
+                                    uint16_t resultOffset);
+    bool EmitMemberArrayToString(SnMemberExpr& member,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset);
+    bool EmitMemberEnumToString(SnMemberExpr& member, SnField* outerType,
+                                BytecodeEmitter& emitter,
+                                uint16_t resultOffset);
+    bool EmitMemberEnumLiteralToString(SnMemberExpr& member,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset);
+    bool EmitMemberNumericToString(SnMemberExpr& member, NodeKind outerKind,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
+    //Interface method call — always virtual by name.
+    void EmitMemberInterfaceCall(SnMemberExpr& member,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset);
+    //Class method call family: func-handle toString / delegate / generic.
+    void EmitMemberClassMethodCall(SnInvokeExpr& invoke,
+                                   SnClassDecl& classDecl,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
+    void EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
+                                  SnClassDecl& classDecl,
+                                  BytecodeEmitter& emitter,
+                                  uint16_t resultOffset);
+    void EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
+                                     SnClassDecl& classDecl,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t resultOffset);
+    //Phase 8e-4 boxing plans for built-in generic method calls.
+    void PlanGenericMethodBoxing(SnClassDecl& classDecl,
+                                 const std::string& methodName,
+                                 std::map<uint16_t, ArgBoxPlan>& argPlans,
+                                 bool& returnsBoxed, uint8_t& returnTag);
+    void PlanListMethodBoxing(const std::vector<SnField*>& typeArgs,
+                              const std::string& methodName,
+                              std::map<uint16_t, ArgBoxPlan>& argPlans,
+                              bool& returnsBoxed, uint8_t& returnTag);
+    void PlanDictMethodBoxing(const std::vector<SnField*>& typeArgs,
+                              const std::string& methodName,
+                              std::map<uint16_t, ArgBoxPlan>& argPlans,
+                              bool& returnsBoxed, uint8_t& returnTag);
+    //Class method dispatch tail: virtual / direct / builtin + unbox,
+    //assign, out spills, ParaEnd.
+    void EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
+                                  SnFunction* callee, bool returnsBoxed,
+                                  uint8_t returnTag,
+                                  const std::vector<OutSpill>& outSpills,
+                                  BytecodeEmitter& emitter,
+                                  uint16_t resultOffset);
+    void EmitMemberDirectMethodCall(SnFunction* callee,
+                                    const std::vector<OutSpill>& outSpills,
+                                    BytecodeEmitter& emitter);
+    void EmitMemberBuiltinMethodCall(const SnInvokeExpr& invoke,
+                                     const std::vector<OutSpill>& outSpills,
+                                     BytecodeEmitter& emitter);
+    //String receiver builtin methods (intrinsic-dispatched).
+    void EmitMemberStringHashCode(SnMemberExpr& member,
+                                  BytecodeEmitter& emitter,
+                                  uint16_t resultOffset);
+    void EmitMemberStringEquals(SnInvokeExpr& invoke, SnMemberExpr& member,
+                                BytecodeEmitter& emitter,
+                                uint16_t resultOffset);
+    bool EmitMemberTableStringMethod(SnInvokeExpr& invoke,
+                                     SnMemberExpr& member,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t resultOffset);
 
     //Phase 9c follow-up: compute per-function call slot statistics for
     //dynamic frame sizing. Returns {maxArgs, peakDepth} where:

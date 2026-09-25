@@ -20,6 +20,8 @@ add_library(nlang_vm
     VmBackendEmitExprBinary.cpp
     VmBackendEmitExprNew.cpp
     VmBackendEmitExprMember.cpp
+    VmBackendEmitExprMemberCall.cpp
+    VmBackendEmitExprMemberString.cpp
     VmBackendEmitStmtDecl.cpp
     VmBackendEmitStmtStore.cpp
     VmBackendEmitStmtFlow.cpp
