@@ -40,6 +40,19 @@ static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
 //Phase 10 audit H2: IsBuiltinClassName moved to builder/BuiltinNames.h
 //(shared with the Phase 13 alias clash check in DuplicateFieldChecker).
 
+//On-demand minted decls (built-in classes, generic instantiations) take
+//the caller's location when one exists. That location is polymorphic —
+//a parser-minted ScriptLocation for source nodes, the imported-module
+//location for v1.12 stub nodes — so it must flow through the
+//ISourceLocation interface (SyntaxNode clones whatever it receives).
+//Punning it to ScriptLocation reads past the end of the smaller
+//imported-location object.
+static const ISourceLocation& DeclLocation(const ISourceLocation* pLoc,
+	ScriptLocation& fallback)
+{
+	return pLoc ? *pLoc : fallback;
+}
+
 //Precondition: name passes IsBuiltinClassName. Returns nullptr for any
 //other name (defensive — callers skip resolution and the identifier
 //surfaces as a normal unresolved-name error).
@@ -53,10 +66,9 @@ static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 	if (IsBuiltinExceptionClassName(name) && !s_pExceptionClass) {
 		auto* pName = new std::string("Exception");
 		auto* pMembers = new PtrList<SnField>();
-		ScriptLocation loc;
-		if (pLoc)
-			loc = *static_cast<const ScriptLocation*>(pLoc);
-		s_pExceptionClass = new SnClassDecl(pName, nullptr, pMembers, loc);
+		ScriptLocation fallback;
+		s_pExceptionClass = new SnClassDecl(pName, nullptr, pMembers,
+			DeclLocation(pLoc, fallback));
 		s_pExceptionClass->SetBuiltinClass();
 	}
 	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
@@ -73,10 +85,9 @@ static SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 	{
 		auto* pName = new std::string(name);
 		auto* pMembers = new PtrList<SnField>();
-		ScriptLocation loc;
-		if (pLoc)
-			loc = *static_cast<const ScriptLocation*>(pLoc);
-		rpRef = new SnClassDecl(pName, nullptr, pMembers, loc);
+		ScriptLocation fallback;
+		rpRef = new SnClassDecl(pName, nullptr, pMembers,
+			DeclLocation(pLoc, fallback));
 		rpRef->SetBuiltinClass();
 		//Phase 9d: subclasses point at Exception singleton for chain walk.
 		if (name != "Exception" && IsBuiltinExceptionClassName(name))
@@ -281,10 +292,9 @@ static SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 
 	auto* pName = new std::string(instName);
 	auto* pMembers = new PtrList<SnField>();
-	ScriptLocation loc;
-	if (pLoc)
-		loc = *static_cast<const ScriptLocation*>(pLoc);
-	auto* pClass = new SnClassDecl(pName, nullptr, pMembers, loc);
+	ScriptLocation fallback;
+	auto* pClass = new SnClassDecl(pName, nullptr, pMembers,
+		DeclLocation(pLoc, fallback));
 	pClass->SetBuiltinClass();
 	pClass->SetGenericInstantiation();
 	pClass->SetGenericTypeArgs(typeArgs);
