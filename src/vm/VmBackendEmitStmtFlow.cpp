@@ -209,7 +209,7 @@ void VmBackend::Access(SnDoStmt& stmt) {
     //For loop statement.
 void VmBackend::Access(SnForStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
-        auto& forStmt = static_cast<SnForStmt&>(stmt);
+    auto& forStmt = static_cast<SnForStmt&>(stmt);
 
         //1. Compile init part (before loop context)
         if (forStmt.Init())
@@ -227,18 +227,8 @@ void VmBackend::Access(SnForStmt& stmt) {
         //3. Enter loop context
         PushLoopContext();
 
-        //4. Condition check (claim staging — see WhileStmt above, round-9;
-        //scope ends at the JumpIfNot operand so the body re-claims)
-        size_t jumpToEnd;
-        {
-            EvalAreaClaim condClaim(*this, 1);
-            uint16_t condSlot = condClaim.base();
-            EmitExpression(*forStmt.Cond(), emitter, condSlot);
-            emitter.Emit(OpCode::OP_JumpIfNot);
-            jumpToEnd = emitter.CurrentOffset();
-            emitter.EmitUint16(0);  //placeholder
-            emitter.EmitUint16(condSlot);
-        }
+        //4. Condition check
+        size_t jumpToEnd = EmitForCondition(forStmt, emitter);
         m_loopStack.back().breakJumps.push_back(jumpToEnd);
 
         //5. Loop body
@@ -259,14 +249,39 @@ void VmBackend::Access(SnForStmt& stmt) {
         size_t loopEnd = emitter.CurrentOffset();
 
         //10. Fixup jumps
-        auto& ctx = m_loopStack.back();
-        for (size_t pos : ctx.breakJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
-        for (size_t pos : ctx.continueJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
+        EmitLoopExitFixups(loopEnd, continueTarget, emitter);
 
         m_loopStack.pop_back();
         return;
+}
+
+//For-loop condition check: claim-staged evaluation and the JumpIfNot
+//placeholder (claim staging — see WhileStmt above, round-9; the claim's
+//scope ends at the JumpIfNot operand so the body re-claims). Returns the
+//placeholder offset to patch with the loop-end address.
+size_t VmBackend::EmitForCondition(SnForStmt& forStmt, BytecodeEmitter& emitter) {
+    size_t jumpToEnd;
+    {
+        EvalAreaClaim condClaim(*this, 1);
+        uint16_t condSlot = condClaim.base();
+        EmitExpression(*forStmt.Cond(), emitter, condSlot);
+        emitter.Emit(OpCode::OP_JumpIfNot);
+        jumpToEnd = emitter.CurrentOffset();
+        emitter.EmitUint16(0);  //placeholder
+        emitter.EmitUint16(condSlot);
+    }
+    return jumpToEnd;
+}
+
+//Patch the innermost loop context's break/continue placeholders
+//(break → breakTarget, continue → continueTarget).
+void VmBackend::EmitLoopExitFixups(size_t breakTarget, size_t continueTarget,
+                                   BytecodeEmitter& emitter) {
+    auto& ctx = m_loopStack.back();
+    for (size_t pos : ctx.breakJumps)
+        emitter.PatchUint16(pos, static_cast<uint16_t>(breakTarget));
+    for (size_t pos : ctx.continueJumps)
+        emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
 }
 
     //Foreach loop statement (Phase 8e-5).

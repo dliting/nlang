@@ -35,6 +35,9 @@ class SnSubscriptExpr;
 //references without including SnExpressions.h (heavy header dep). Full
 //type defined in SnExpressions.h.
 struct FormalBinding;
+//Phase 8e-6 init-list entry; the init-list emitters below hand entries
+//to their per-entry helpers. Defined in SnExpressions.h.
+struct InitEntry;
 
 class VmBackend : public ICodeBackend {
 public:
@@ -609,6 +612,59 @@ private:
     void EmitBinaryEqualityOp(SnBinaryExpr& bin, bool isFloat, bool isString,
                               bool isFunc, BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
+
+    //SnNewExpr arms: Round-12 class-resolution guards, positional ctor-arg
+    //count, and the ctor-invocation emission ({this, args} claim → OP_New
+    //→ OP_CallMethodDirect).
+    int ResolveNewExprClassIdx(SnNewExpr& newExpr);
+    static int CountNewExprCtorArgs(SnNewExpr& newExpr);
+    void EmitCtorInvocation(SnNewExpr& newExpr, BytecodeEmitter& emitter,
+                            uint16_t classIdx, uint16_t ctorIdx,
+                            uint16_t resultOffset);
+
+    //SnInitListExpr arms: one per target shape (array / List<T> /
+    //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the
+    //OP_New + optional no-arg-ctor sequence shared by the class-shaped
+    //arms; the per-entry helpers stage values in evalArea claims.
+    void EmitInitListArray(SnInitListExpr& initList, SnField* pElemField,
+                           BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitInitListArrayEntry(const InitEntry& entry, int32_t entryIndex,
+                                SnField* pElemField, BytecodeEmitter& emitter,
+                                uint16_t resultOffset, uint16_t valueSlot);
+    void EmitNewObjectAndNoArgCtor(uint16_t classIdx, BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
+    void EmitInitListListForm(SnInitListExpr& initList, SnClassDecl& classDecl,
+                              BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitInitListEntryAdd(const InitEntry& entry, BoxingTagResult tBox,
+                              uint16_t addNameIdx, uint16_t resultOffset,
+                              BytecodeEmitter& emitter);
+    void EmitInitListDictForm(SnInitListExpr& initList, SnClassDecl& classDecl,
+                              BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitInitListEntrySet(const InitEntry& entry, BoxingTagResult kBox,
+                              BoxingTagResult vBox, uint16_t setNameIdx,
+                              uint16_t resultOffset, BytecodeEmitter& emitter);
+    void EmitInitListClassForm(SnInitListExpr& initList, SnClassDecl& classDecl,
+                               BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitInitListStructForm(SnInitListExpr& initList,
+                                SnStructDecl& structDecl,
+                                BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitInitListStructEntries(SnInitListExpr& initList,
+                                   SnStructDecl& structDecl,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
+    //Per-entry call tail shared by the List "add" and Dict "set" emitters:
+    //this (resultOffset) into claim slot 0, bulk-copy the claim to
+    //callParamBase, then OP_CallMethod methodName.
+    void EmitInitListMethodCallTail(uint16_t claimBase, uint16_t slotCount,
+                                    uint16_t methodNameIdx,
+                                    uint16_t resultOffset,
+                                    BytecodeEmitter& emitter);
+
+    //SnForStmt arms: claim-staged condition + JumpIfNot placeholder
+    //(returns the patch offset), and the shared break/continue patch.
+    size_t EmitForCondition(SnForStmt& forStmt, BytecodeEmitter& emitter);
+    void EmitLoopExitFixups(size_t breakTarget, size_t continueTarget,
+                            BytecodeEmitter& emitter);
 
     //Codegen-side mirror of the resolver's identifier binding order for a
     //bare identifier that resolved to an SnField:
