@@ -12,6 +12,8 @@ add_library(nlang_vm
     VmBackendRegister.cpp
     VmBackendImport.cpp
     VmBackendTypes.cpp
+    VmBackendWalkersExpr.cpp
+    VmBackendWalkersStmt.cpp
     Disassembler.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp

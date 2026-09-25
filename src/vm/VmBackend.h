@@ -60,6 +60,38 @@ public:
 
 private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
+
+    //pResult reload before any accumulator-reading opcode (the cast_f2i
+    //quirk and the "s" + (a+b) dedup bug — see the definition comment in
+    //VmBackend.cpp). Consumed by every emission path.
+    static void EmitPResultRefresh(BytecodeEmitter& emitter, uint16_t slot);
+
+    //Shared shape predicates, consumed by both the emission members and
+    //the frame-size walkers (VmBackendWalkers*.cpp) so the dispatch
+    //decision cannot drift between codegen and walkers.
+    static bool IsContainerSubscript(SnExpression& baseExpr);
+    static bool IsDelegateInvoke(const SnInvokeExpr& invoke);
+
+    //Phase 9c follow-up: compute per-function call slot statistics for
+    //dynamic frame sizing. Returns {maxArgs, peakDepth} where:
+    //  maxArgs   = max callee formal count (+1 for method `this`) across all
+    //              InvokeExpr in the function body. Determines callParamBase size.
+    //  peakDepth = max simultaneous evalArea slot need across all call sites.
+    //              Determines evalArea size. Computed as the maximum over all
+    //              InvokeExpr of: claimSize + max(peakDepth of arg sub-exprs,
+    //              peakDepth of callee default expressions).
+    struct CallSlotStats { uint16_t maxArgs; uint16_t peakDepth; };
+    static CallSlotStats ComputeCallSlotStats(SnFunction& sn);
+
+    //Recursive frame-depth walkers behind ComputeCallSlotStats.
+    //visited guards recursion through callee default expressions.
+    //isMethodContext=true when the InvokeExpr is the Inner() of a
+    //MemberExpr (method-call shape reserving slot 0 for `this`).
+    static uint16_t ExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited,
+        bool isMethodContext = false);
+    static uint16_t StmtPeakDepth(SnStatement& stmt,
+        const std::unordered_set<SnFunction*>& visited);
     void EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         uint16_t resultOffset);
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);
