@@ -77,40 +77,14 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
             claimBase + paramIdx * VALUE_SIZE);
-        //io.print coercion: int/float args convert to string in their
-        //claim slot right after being emitted. pResult discipline — the
-        //to_str opcodes have no operands and rewrite the accumulator in
-        //place, so the sequence must be load-slot -> convert -> store-slot
-        //(the cast_f2i / string-pool-dedup bug family otherwise).
+        //io.print coercion (see EmitStdLibArgToString).
         if (entry.coerceToString) {
-            auto* pArgType = param.EvalDataType();
-            OpCode conv = OpCode::OP_Count;  //string args pass through
-            if (pArgType && pArgType->Kind() == NK_Int32)
-                conv = OpCode::OP_Int32_to_str;
-            else if (pArgType && pArgType->Kind() == NK_Float)
-                conv = OpCode::OP_Float_to_str;
-            else if (pArgType && pArgType->Kind() == NK_ArrayTypeToken)
-                conv = OpCode::OP_Array_to_str;
-            else if (pArgType && pArgType->Kind() == NK_ClassDecl
-                && static_cast<SnClassDecl*>(pArgType)->IsFuncType())
-                conv = OpCode::OP_Func_to_str;
-            if (conv != OpCode::OP_Count) {
-                const uint16_t slot = claimBase + paramIdx * VALUE_SIZE;
-                emitter.Emit(OpCode::OP_VarLocal);
-                emitter.EmitUint16(slot);
-                emitter.Emit(conv);
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(slot);
-            }
+            EmitStdLibArgToString(param, emitter,
+                claimBase + paramIdx * VALUE_SIZE);
         }
         ++paramIdx;
     }
-    for (uint16_t i = 0; i < argCount; ++i) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
-    }
+    CopyClaimToCallParams(claimBase, argCount, emitter);
     emitter.Emit(OpCode::OP_CallIntrinsic);
     emitter.EmitUint16(entry.intrinsicId);
     emitter.EmitUint16(m_currFunc->callParamBase);
@@ -121,6 +95,49 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
         emitter.EmitUint16(resultOffset);
     }
     emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//io.print coercion for one already-emitted stdlib argument: int/float
+//args convert to string in their claim slot right after being emitted.
+//pResult discipline — the to_str opcodes have no operands and rewrite the
+//accumulator in place, so the sequence must be load-slot -> convert ->
+//store-slot (the cast_f2i / string-pool-dedup bug family otherwise).
+//String args pass through (conv stays OP_Count).
+void VmBackend::EmitStdLibArgToString(SnExpression& param,
+        BytecodeEmitter& emitter, uint16_t slot) {
+    auto* pArgType = param.EvalDataType();
+    OpCode conv = OpCode::OP_Count;  //string args pass through
+    if (pArgType && pArgType->Kind() == NK_Int32)
+        conv = OpCode::OP_Int32_to_str;
+    else if (pArgType && pArgType->Kind() == NK_Float)
+        conv = OpCode::OP_Float_to_str;
+    else if (pArgType && pArgType->Kind() == NK_ArrayTypeToken)
+        conv = OpCode::OP_Array_to_str;
+    else if (pArgType && pArgType->Kind() == NK_ClassDecl
+        && static_cast<SnClassDecl*>(pArgType)->IsFuncType())
+        conv = OpCode::OP_Func_to_str;
+    if (conv != OpCode::OP_Count) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(slot);
+        emitter.Emit(conv);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(slot);
+    }
+}
+
+//Bulk-copy evalArea claim → callParamBase just before the call.
+//OP_VarLocal reads from claimBase+i*4, OP_Assign writes to
+//callParamBase+i*4. This preserves any tagged Value representation
+//(boxed heap idx, string handle, etc.) since both opcodes copy
+//4 raw bytes. Shared by EmitStdLibCall and EmitCallArgs.
+void VmBackend::CopyClaimToCallParams(uint16_t claimBase, uint16_t slotCount,
+                                      BytecodeEmitter& emitter) {
+    for (uint16_t i = 0; i < slotCount; ++i) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+    }
 }
 
 void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
@@ -196,6 +213,160 @@ uint32_t VmBackend::BuildOutMask(const std::vector<OutSpill>& spills)
     return mask;
 }
 
+//Optional per-arg boxing application (built-in generic class methods):
+//box the staged argument in place when a plan marks its slot.
+void VmBackend::ApplyArgBoxPlan(uint16_t slotIdx, uint16_t claimBase,
+        BytecodeEmitter& emitter,
+        const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
+    if (!pArgPlans) return;
+    auto it = pArgPlans->find(slotIdx);
+    if (it == pArgPlans->end() || !it->second.needsBox) return;
+    uint16_t paramOffset = claimBase + slotIdx * VALUE_SIZE;
+    EmitPResultRefresh(emitter, paramOffset);
+    emitter.Emit(OpCode::OP_Box);
+    emitter.EmitByte(it->second.tag);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(paramOffset);
+}
+
+//For method calls (slotBase=1), copy the receiver to claim[0] BEFORE
+//emitting bindings. Default-param expressions referencing `this` need
+//it available via OverrideScope/ThisOverrideStack.
+void VmBackend::StageReceiverInClaim(size_t slotBase, uint16_t thisSlot,
+                                     uint16_t claimBase,
+                                     BytecodeEmitter& emitter) {
+    if (slotBase == 1 && thisSlot != UINT16_MAX) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(thisSlot);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(claimBase);
+    }
+}
+
+//Unresolved-invoke arm of EmitCallArgs (pCallee == null): legacy
+//positional emit, plus out-argument spill recording.
+void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
+        BytecodeEmitter& emitter, size_t slotBase, uint16_t claimBase,
+        std::vector<OutSpill>* pOutSpills,
+        const std::function<void(uint16_t)>& applyBox) {
+    //Unresolved invoke — fall back to legacy positional emit.
+    //Phase 13 Step 2: out arguments in this path are delegate calls
+    //binding to a Func signature (the resolver already checked the
+    //out markers). The callee fills the slot and the executor's
+    //outMask write-back refreshes it — emit nothing here, just
+    //record the spill so the post-call write-back reaches the
+    //caller's local (mirrors the binding-path OutSpill fill).
+    uint16_t paramIdx = static_cast<uint16_t>(slotBase);
+    for (auto& param : invoke.Params()) {
+        if (param.Kind() == NK_OutArgExpr && pOutSpills) {
+            auto& outArg = static_cast<SnOutArgExpr&>(param);
+            if (!outArg.Inner()
+                || outArg.Inner()->Kind() != NK_IdentifierExpr)
+                throw std::runtime_error(
+                    "NLang backend: out argument is not a local variable");
+            auto target = ResolveBareIdentifier(
+                static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
+            if (target.kind != BareIdTarget::Local)
+                throw std::runtime_error(
+                    "NLang backend: out argument is not a local variable");
+            pOutSpills->push_back({paramIdx, target.localOffset});
+        } else {
+            uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+            EmitExpression(param, emitter, paramOffset);
+            applyBox(paramIdx);
+        }
+        ++paramIdx;
+    }
+}
+
+//Legacy positional arm of EmitCallArgs (no resolver bindings available).
+void VmBackend::EmitLegacyPositionalArgs(const SnInvokeExpr& invoke,
+        BytecodeEmitter& emitter, size_t slotBase, uint16_t claimBase,
+        const std::function<void(uint16_t)>& applyBox) {
+    //Legacy path: caller didn't go through Phase 9c resolver.
+    uint16_t paramIdx = static_cast<uint16_t>(slotBase);
+    for (auto& param : invoke.Params()) {
+        uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+        EmitExpression(param, emitter, paramOffset);
+        applyBox(paramIdx);
+        ++paramIdx;
+    }
+}
+
+//Resolved-binding arm of EmitCallArgs (Phase 9c): sanity ceiling, the
+//default-emission recursion guard, then per-binding emission.
+//Returns true when the kMaxFuncParams ceiling tripwire fired and the
+//call was not emitted — the caller must abort emission as well.
+bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
+        SnFunction* pCallee, BytecodeEmitter& emitter, size_t slotBase,
+        uint16_t claimBase, uint16_t thisSlot,
+        std::vector<OutSpill>* pOutSpills,
+        const std::function<void(uint16_t)>& applyBox) {
+    const auto& bindings = invoke.Bindings();
+    if (bindings.size() + slotBase > kMaxFuncParams) {
+        assert(false && "function parameters exceed kMaxFuncParams sanity ceiling");
+        return true;
+    }
+
+    //Recursion guard (round-9, finding 3): a default expression may
+    //contain a call that itself needs this callee's defaults — the
+    //expansion recurses forever and overflows the compile stack
+    //(0xC00000FD). Track functions whose defaults are mid-emission;
+    //re-entry is a source error. Plain body recursion never lands here
+    //(all arguments supplied → no default emission → no guard entry),
+    //and sibling calls using the same defaults are sequential, not
+    //nested, so both stay legal.
+    bool emitsDefaults = false;
+    for (const auto& b : bindings) {
+        if (b.kind == FormalBinding::B_Default) { emitsDefaults = true; break; }
+    }
+    if (emitsDefaults && !m_defaultEmitting.insert(pCallee).second) {
+        throw std::runtime_error(
+            "recursive default parameter in call to '" + pCallee->Name()
+            + "': the default expression requires the same default again");
+    }
+    //RAII: erases on every exit, normal or unwinding — a throw from a
+    //deeper emission runs this destructor while propagating, so the set
+    //never leaks an entry even on a failed build.
+    struct DefaultEmitGuard {
+        VmBackend* pB; SnFunction* pF; bool armed;
+        ~DefaultEmitGuard() { if (armed) pB->m_defaultEmitting.erase(pF); }
+    } defGuard{this, pCallee, emitsDefaults};
+
+    for (size_t i = 0; i < bindings.size(); ++i) {
+        EmitOneFormalBinding(bindings.data(), i, slotBase, emitter,
+                             thisSlot, claimBase, pOutSpills, applyBox);
+    }
+    return false;
+}
+
+//One iteration of the resolved-binding loop: emit the binding, apply the
+//optional boxing plan, and record out-argument spill targets (Phase 9e).
+void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
+        size_t bindingIdx, size_t slotBase, BytecodeEmitter& emitter,
+        uint16_t thisSlot, uint16_t claimBase,
+        std::vector<OutSpill>* pOutSpills,
+        const std::function<void(uint16_t)>& applyBox) {
+    uint16_t slotIdx = static_cast<uint16_t>(bindingIdx + slotBase);
+    EmitBinding(pBindings, bindingIdx, slotIdx, slotBase, emitter,
+                thisSlot, claimBase);
+    applyBox(slotIdx);
+    //Phase 9e: out binding — record the caller local for the
+    //post-call spill. The resolver guarantees pCallerExpr is a
+    //plain identifier bound to a caller-frame slot (local var or
+    //formal param), so the spill target is a plain frame offset.
+    if (pBindings[bindingIdx].bIsOut) {
+        auto& idExpr = static_cast<SnIdentifierExpr&>(
+            *pBindings[bindingIdx].pCallerExpr);
+        auto target = ResolveBareIdentifier(idExpr.Field());
+        if (target.kind != BareIdTarget::Local)
+            throw std::runtime_error(
+                "NLang backend: out argument is not a local variable");
+        if (pOutSpills)
+            pOutSpills->push_back({slotIdx, target.localOffset});
+    }
+}
+
 void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                               BytecodeEmitter& emitter, size_t slotBase,
                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
@@ -220,130 +391,25 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
 
     //Optional per-arg boxing application (built-in generic class methods).
     auto applyBox = [&](uint16_t slotIdx) {
-        if (!pArgPlans) return;
-        auto it = pArgPlans->find(slotIdx);
-        if (it == pArgPlans->end() || !it->second.needsBox) return;
-        uint16_t paramOffset = claimBase + slotIdx * VALUE_SIZE;
-        EmitPResultRefresh(emitter, paramOffset);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(it->second.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(paramOffset);
+        ApplyArgBoxPlan(slotIdx, claimBase, emitter, pArgPlans);
     };
 
-    //For method calls (slotBase=1), copy the receiver to claim[0] BEFORE
-    //emitting bindings. Default-param expressions referencing `this` need
-    //it available via OverrideScope/ThisOverrideStack.
-    if (slotBase == 1 && thisSlot != UINT16_MAX) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(thisSlot);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(claimBase);
-    }
+    StageReceiverInClaim(slotBase, thisSlot, claimBase, emitter);
 
     //Emit each binding into the claimed evalArea slice.
     if (!pCallee) {
-        //Unresolved invoke — fall back to legacy positional emit.
-        //Phase 13 Step 2: out arguments in this path are delegate calls
-        //binding to a Func signature (the resolver already checked the
-        //out markers). The callee fills the slot and the executor's
-        //outMask write-back refreshes it — emit nothing here, just
-        //record the spill so the post-call write-back reaches the
-        //caller's local (mirrors the binding-path OutSpill fill).
-        uint16_t paramIdx = static_cast<uint16_t>(slotBase);
-        for (auto& param : invoke.Params()) {
-            if (param.Kind() == NK_OutArgExpr && pOutSpills) {
-                auto& outArg = static_cast<SnOutArgExpr&>(param);
-                if (!outArg.Inner()
-                    || outArg.Inner()->Kind() != NK_IdentifierExpr)
-                    throw std::runtime_error(
-                        "NLang backend: out argument is not a local variable");
-                auto target = ResolveBareIdentifier(
-                    static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
-                if (target.kind != BareIdTarget::Local)
-                    throw std::runtime_error(
-                        "NLang backend: out argument is not a local variable");
-                pOutSpills->push_back({paramIdx, target.localOffset});
-            } else {
-                uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
-                EmitExpression(param, emitter, paramOffset);
-                applyBox(paramIdx);
-            }
-            ++paramIdx;
-        }
+        EmitUnresolvedInvokeArgs(invoke, emitter, slotBase, claimBase,
+                                 pOutSpills, applyBox);
     } else if (bindings.empty()) {
-        //Legacy path: caller didn't go through Phase 9c resolver.
-        uint16_t paramIdx = static_cast<uint16_t>(slotBase);
-        for (auto& param : invoke.Params()) {
-            uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
-            EmitExpression(param, emitter, paramOffset);
-            applyBox(paramIdx);
-            ++paramIdx;
-        }
-    } else {
-        if (bindings.size() + slotBase > kMaxFuncParams) {
-            assert(false && "function parameters exceed kMaxFuncParams sanity ceiling");
-            return;
-        }
-
-        //Recursion guard (round-9, finding 3): a default expression may
-        //contain a call that itself needs this callee's defaults — the
-        //expansion recurses forever and overflows the compile stack
-        //(0xC00000FD). Track functions whose defaults are mid-emission;
-        //re-entry is a source error. Plain body recursion never lands here
-        //(all arguments supplied → no default emission → no guard entry),
-        //and sibling calls using the same defaults are sequential, not
-        //nested, so both stay legal.
-        bool emitsDefaults = false;
-        for (const auto& b : bindings) {
-            if (b.kind == FormalBinding::B_Default) { emitsDefaults = true; break; }
-        }
-        if (emitsDefaults && !m_defaultEmitting.insert(pCallee).second) {
-            throw std::runtime_error(
-                "recursive default parameter in call to '" + pCallee->Name()
-                + "': the default expression requires the same default again");
-        }
-        //RAII: erases on every exit, normal or unwinding — a throw from a
-        //deeper emission runs this destructor while propagating, so the set
-        //never leaks an entry even on a failed build.
-        struct DefaultEmitGuard {
-            VmBackend* pB; SnFunction* pF; bool armed;
-            ~DefaultEmitGuard() { if (armed) pB->m_defaultEmitting.erase(pF); }
-        } defGuard{this, pCallee, emitsDefaults};
-
-        for (size_t i = 0; i < bindings.size(); ++i) {
-            uint16_t slotIdx = static_cast<uint16_t>(i + slotBase);
-            EmitBinding(bindings.data(), i, slotIdx, slotBase, emitter,
-                        thisSlot, claimBase);
-            applyBox(slotIdx);
-            //Phase 9e: out binding — record the caller local for the
-            //post-call spill. The resolver guarantees pCallerExpr is a
-            //plain identifier bound to a caller-frame slot (local var or
-            //formal param), so the spill target is a plain frame offset.
-            if (bindings[i].bIsOut) {
-                auto& idExpr = static_cast<SnIdentifierExpr&>(
-                    *bindings[i].pCallerExpr);
-                auto target = ResolveBareIdentifier(idExpr.Field());
-                if (target.kind != BareIdTarget::Local)
-                    throw std::runtime_error(
-                        "NLang backend: out argument is not a local variable");
-                if (pOutSpills)
-                    pOutSpills->push_back({slotIdx, target.localOffset});
-            }
-        }
+        EmitLegacyPositionalArgs(invoke, emitter, slotBase, claimBase,
+                                 applyBox);
+    } else if (EmitFormalBindingArgs(invoke, pCallee, emitter, slotBase,
+                                     claimBase, thisSlot, pOutSpills,
+                                     applyBox)) {
+        return;
     }
 
-    //Bulk-copy evalArea claim → callParamBase just before the call.
-    //OP_VarLocal reads from claimBase+i*4, OP_Assign writes to
-    //callParamBase+i*4. This preserves any tagged Value representation
-    //(boxed heap idx, string handle, etc.) since both opcodes copy
-    //4 raw bytes.
-    for (uint16_t i = 0; i < n; ++i) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
-    }
+    CopyClaimToCallParams(claimBase, n, emitter);
     //EvalAreaClaim destructor releases the claim automatically.
 }
 

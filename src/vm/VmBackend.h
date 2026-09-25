@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <utility>
+#include <functional>
 
 namespace nlang {
 
@@ -347,6 +348,58 @@ private:
                      uint16_t thisSlot,
                      uint16_t claimBase);
 
+    //EmitCallArgs decomposition (2026-09-25): one arm/phase per helper.
+    //applyBox flows through as std::function so the per-arg boxing
+    //decision stays defined once in EmitCallArgs.
+
+    //Optional per-arg boxing application (built-in generic class methods):
+    //box the staged argument in place when a plan marks its slot.
+    void ApplyArgBoxPlan(uint16_t slotIdx, uint16_t claimBase,
+                         BytecodeEmitter& emitter,
+                         const std::map<uint16_t, ArgBoxPlan>* pArgPlans);
+
+    //Stage the receiver into claim slot 0 before method-call bindings.
+    void StageReceiverInClaim(size_t slotBase, uint16_t thisSlot,
+                              uint16_t claimBase, BytecodeEmitter& emitter);
+
+    //Bulk-copy an evalArea claim slice to callParamBase just before a
+    //call. Shared by EmitCallArgs and EmitStdLibCall.
+    void CopyClaimToCallParams(uint16_t claimBase, uint16_t slotCount,
+                               BytecodeEmitter& emitter);
+
+    //EmitCallArgs arm: unresolved invoke (pCallee == null) — positional
+    //emit plus Phase 13 Step 2 out-argument spill recording.
+    void EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
+                                  BytecodeEmitter& emitter, size_t slotBase,
+                                  uint16_t claimBase,
+                                  std::vector<OutSpill>* pOutSpills,
+                                  const std::function<void(uint16_t)>& applyBox);
+
+    //EmitCallArgs arm: legacy positional emit (no resolver bindings).
+    void EmitLegacyPositionalArgs(const SnInvokeExpr& invoke,
+                                  BytecodeEmitter& emitter, size_t slotBase,
+                                  uint16_t claimBase,
+                                  const std::function<void(uint16_t)>& applyBox);
+
+    //EmitCallArgs arm: resolver bindings (Phase 9c) — param ceiling,
+    //default-emission recursion guard, per-binding emission. Returns
+    //true when the kMaxFuncParams ceiling fired (caller aborts emission).
+    bool EmitFormalBindingArgs(const SnInvokeExpr& invoke,
+                               SnFunction* pCallee, BytecodeEmitter& emitter,
+                               size_t slotBase, uint16_t claimBase,
+                               uint16_t thisSlot,
+                               std::vector<OutSpill>* pOutSpills,
+                               const std::function<void(uint16_t)>& applyBox);
+
+    //One iteration of the resolved-binding loop: emit + optional boxing
+    //+ out-spill target record.
+    void EmitOneFormalBinding(const FormalBinding* pBindings,
+                              size_t bindingIdx, size_t slotBase,
+                              BytecodeEmitter& emitter, uint16_t thisSlot,
+                              uint16_t claimBase,
+                              std::vector<OutSpill>* pOutSpills,
+                              const std::function<void(uint16_t)>& applyBox);
+
     //Phase 9a: emit a compound-assign arithmetic op (locals[dst] op= locals[src]).
     //op is the underlying binary operator (Add/Sub/Mul/Div/Mod).
     //lhsType determines int/float variant selection.
@@ -361,6 +414,11 @@ private:
     //namespace intrinsic ABI has no this (see StdLib.h).
     void EmitStdLibCall(const StdLibEntry& entry, SnInvokeExpr& invoke,
                         BytecodeEmitter& emitter, uint16_t resultOffset);
+
+    //Stdlib arm: io.print coercion for one already-emitted argument —
+    //int/float/array/func-typed args convert to string in their claim slot.
+    void EmitStdLibArgToString(SnExpression& param, BytecodeEmitter& emitter,
+                               uint16_t slot);
 
     //Compilation phases (called by GenerateStatements in order).
     //Each phase corresponds to a distinct compilation pass over the AST.
