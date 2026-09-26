@@ -45,7 +45,7 @@ Every user class that does not explicitly inherit from another class has
 `superClassIdx` set to the synthesized Object class's index by a post-pass
 in `RegisterClasses`. Object is the only class with `superClassIdx == -1`.
 
-Object has three virtual methods (`Equals(Object)→int`, `GetHashCode()→int`,
+Object has three virtual methods (`equals(Object)→int`, `getHashCode()→int`,
 `toString()→string`), all dispatched via intrinsics:
 
 | Intrinsic ID           | Behavior                                       |

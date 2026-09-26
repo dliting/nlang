@@ -132,7 +132,7 @@ additional roots.
   `NaN != NaN`, documented behavior).
 - `string` keys: compare string content (value equality).
 - `class` / `struct` keys: compare heap idx (identity), matching Java's
-  `IdentityHashMap` and C#'s default `object.Equals`. A user `Equals`
+  `IdentityHashMap` and C#'s default `object.Equals`. A user `equals`
   override is **not** consulted — override-based key-equality semantics
   are not supported.
 - Array keys (`Dict<int[], V>`): compare handle identity — two separate

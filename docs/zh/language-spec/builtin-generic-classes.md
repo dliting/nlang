@@ -119,8 +119,8 @@ class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表；基本
   `NaN != NaN`，已记录在案的行为）。
 - `string` 键：比较字符串内容（值相等）。
 - `class` / `struct` 键：比较堆索引（恒等），与 Java 的
-  `IdentityHashMap`、C# 默认的 `object.Equals` 一致。用户的 `Equals`
-  覆写**不参与比较**——基于覆写 `Equals` 的键相等语义不受支持。
+  `IdentityHashMap`、C# 默认的 `object.Equals` 一致。用户的 `equals`
+  覆写**不参与比较**——基于覆写 `equals` 的键相等语义不受支持。
 - 数组键（`Dict<int[], V>`）：按句柄恒等比较——两个内容相同但独立
   的 `int[2]` 数组是不同的键。
 

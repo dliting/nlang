@@ -42,7 +42,7 @@ MarkStruct 在追踪引用时无从得知该查询哪个 CompiledStruct 的字�
 `superClassIdx` 设为合成 Object 类的索引。Object 是唯一
 `superClassIdx == -1` 的类。
 
-Object 有三个虚方法（`Equals(Object)→int`、`GetHashCode()→int`、
+Object 有三个虚方法（`equals(Object)→int`、`getHashCode()→int`、
 `toString()→string`），全部经由内建函数（intrinsic）分派：
 
 | 内建函数 ID            | 行为                                           |

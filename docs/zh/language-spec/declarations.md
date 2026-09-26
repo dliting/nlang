@@ -213,7 +213,7 @@ VM 从对象的实际类型出发沿类层次上溯，**最派生实现优先**�
 `override` 关键字（不同于 C++ 的 `override` 或 Java 的 `@Override`），
 按名与签名匹配由编译器判定。
 
-`Object` 的两个虚方法（`Equals`/`GetHashCode`）同样以子类声明同名方法
+`Object` 的两个虚方法（`equals`/`getHashCode`）同样以子类声明同名方法
 的方式覆写（示例见本页「隐式 Object 基类」节）。接口的虚分派同机制
 （见本页「interface 声明」的 `TotalArea` 示例）；速览见
 [类与继承](../getting-started/classes-and-inheritance.md)。
@@ -259,11 +259,11 @@ int TotalArea(IShape s) {
 Object 提供两个带默认恒等语义的虚方法：
 
 ```nlang
-int Equals(Object other);    // 恒等：同一堆引用 → 1，否则 0
-int GetHashCode();           // 恒等：`this` 的堆索引（null 为 0）
+int equals(Object other);    // 恒等：同一堆引用 → 1，否则 0
+int getHashCode();           // 恒等：`this` 的堆索引（null 为 0）
 ```
 
-`Equals` 与 `GetHashCode` 经按名分派实现虚方法——子类只需声明同名
+`equals` 与 `getHashCode` 经按名分派实现虚方法——子类只需声明同名
 方法即可覆写（不需要 `override` 关键字；运行期沿类层次上溯，最先
 命中最派生的实现）：
 
@@ -271,7 +271,7 @@ int GetHashCode();           // 恒等：`this` 的堆索引（null 为 0）
 class Point {
     public int x;
     public int y;
-    int GetHashCode() {              // 覆写 Object.GetHashCode
+    int getHashCode() {              // 覆写 Object.getHashCode
         return this.x * 31 + this.y;
     }
 }
@@ -279,11 +279,11 @@ class Point {
 
 **string 的值语义**：string 虽是基本类型，但 `string.getHashCode()`
 与 `string.equals(string)` 调用被内建化为*值*语义（哈希用
-`std::hash`，Equals 用内容比较）。这使 string 无需包装类即可用作
+`std::hash`，equals 用内容比较）。这使 string 无需包装类即可用作
 Dict 键。
 
-**`==` 运算符不受 `Equals` 影响**：Object.Equals 是可选实现（opt-in）
-的方法。class 引用上的 `==` 运算符直接比较堆索引。`Equals` 单独存在
+**`==` 运算符不受 `equals` 影响**：Object.equals 是可选实现（opt-in）
+的方法。class 引用上的 `==` 运算符直接比较堆索引。`equals` 单独存在
 的原因，是允许用户类以值相等覆写它，而不破坏更大代码库中恒等相等
 测试。
 

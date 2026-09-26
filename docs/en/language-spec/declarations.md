@@ -231,7 +231,7 @@ as a parent virtual method overrides it — there is no `override` keyword
 (unlike C++'s `override` or Java's `@Override`); name-and-signature
 matching is decided by the compiler.
 
-`Object`'s two virtual methods (`Equals`/`GetHashCode`) are overridden
+`Object`'s two virtual methods (`equals`/`getHashCode`) are overridden
 the same way — a subclass declares the method with the same name
 (example in the "Implicit Object Base Class" section on this page).
 Interface virtual dispatch uses the same mechanism (see the `TotalArea`
@@ -282,11 +282,11 @@ source-level `class Object { ... }` declaration, and users do not write
 Object provides two virtual methods with default identity semantics:
 
 ```nlang
-int Equals(Object other);    // identity: same heap reference → 1, else 0
-int GetHashCode();           // identity: heap index of `this` (or 0 for null)
+int equals(Object other);    // identity: same heap reference → 1, else 0
+int getHashCode();           // identity: heap index of `this` (or 0 for null)
 ```
 
-`Equals` and `GetHashCode` are virtual via name-based dispatch — subclasses
+`equals` and `getHashCode` are virtual via name-based dispatch — subclasses
 override them simply by declaring a method with the same name (no `override`
 keyword needed; the runtime walks the class hierarchy and finds the
 most-derived implementation first):
@@ -295,7 +295,7 @@ most-derived implementation first):
 class Point {
     public int x;
     public int y;
-    int GetHashCode() {              // overrides Object.GetHashCode
+    int getHashCode() {              // overrides Object.getHashCode
         return this.x * 31 + this.y;
     }
 }
@@ -303,14 +303,14 @@ class Point {
 
 **String value semantics**: Although string is a primitive type, calls to
 `string.getHashCode()` and `string.equals(string)` are intrinsified to use
-*value* semantics (`std::hash` for hash, content comparison for Equals). This
+*value* semantics (`std::hash` for hash, content comparison for `equals`). This
 makes strings usable as Dict keys without needing a wrapper
 class.
 
-**`==` operator is unaffected by `Equals`**: Object.Equals is an opt-in
+**`==` operator is unaffected by `equals`**: Object.equals is an opt-in
 method. The `==` operator on class references compares heap indices
 directly. The reason
-`Equals` exists as a separate method is to allow user classes to override
+`equals` exists as a separate method is to allow user classes to override
 with value equality without breaking identity-equality tests in the wider
 codebase.
 
