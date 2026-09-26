@@ -8,10 +8,6 @@
     "reason": "syntax-node class declarations; macro-generated Visit surface makes splitting artificial (later round)"
   },
   {
-    "path": "src/compiler/ModuleBuilder.cpp",
-    "reason": "build-pipeline orchestration (build/imports/cycle checks); later round"
-  },
-  {
     "path": "src/compiler/builder/ExprResolver.h",
     "reason": "resolver class pair plus the shared helper-declaration surface of the resolver TU family; C++ has no partial class, splitting would fragment the pair"
   },

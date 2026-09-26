@@ -40,6 +40,8 @@ add_library(nlang_compiler
     ScriptLocation.cpp
     BuildEnvironment.cpp
     ModuleBuilder.cpp
+    ModuleBuilderImports.cpp
+    ModuleBuilderChecks.cpp
     Logger.cpp
     CastInfo.cpp
     SnArrayTypeToken.cpp
