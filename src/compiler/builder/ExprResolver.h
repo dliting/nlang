@@ -109,6 +109,10 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 //StatementResolver's Dict subscript-store bind site.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 
+//String built-in method table entry (defined in vm/StdLib.h); the member
+//phase declarations below hand around pointers into it.
+struct StringMethodEntry;
+
 
 /*
 The syntax node accessor for expression resolving.
@@ -233,6 +237,86 @@ private:
 	void MaybeLogModuleHint(const std::string &name);
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
+
+	/*
+	Member-expression resolution phases (the Access(SnMemberExpr&)
+	decomposition): the accessor is a thin orchestrator running these in
+	order; each Try* phase returns true when it consumed the expression
+	(resolved or diagnosed — the builtin by-name families log their own
+	errors), false to fall through to the next phase. pSavedContext
+	threads the caller's scope: every consuming path restores m_pContext
+	from it before returning.
+	*/
+	bool TryResolveMemberHead(SnMemberExpr &snMember,
+		SnExpression *pOuterExpr);
+	bool TryResolveNamespaceStdLibCall(SnMemberExpr &snMember,
+		SnExpression *pOuterExpr);
+	void SwitchContextToReceiver(SnMemberExpr &snMember);
+	bool RejectArrayReceiverMethodCall(SnMemberExpr &snMember,
+		SnExpression *pOuterExpr, SyntaxNode *pSavedContext);
+	bool TryResolveStringBuiltinMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	bool ResolveStringEqualsMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+		SyntaxNode *pSavedContext);
+	bool TryResolveTableStringMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+		const std::string &name, SyntaxNode *pSavedContext);
+	bool CheckTableStringMethodCall(SnInvokeExpr &invoke,
+		const StringMethodEntry *pMethod);
+	void CheckTableStringArgKinds(SnInvokeExpr &invoke,
+		const StringMethodEntry *pMethod);
+	void BindTableStringMethodResult(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+		const StringMethodEntry *pMethod);
+	bool TryResolveArrayLengthProperty(SnMemberExpr &snMember,
+		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
+		SyntaxNode *pSavedContext);
+	SnField *ResolveStreamSpecialTypeArg(SnInvokeExpr &invoke,
+		NodeKind wantKind, const char *pMethodDisp,
+		SyntaxNode *pSavedContext);
+	void ResolveStreamMethodTail(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+		const std::string &name, NodeKind retKind,
+		SyntaxNode *pSavedContext);
+	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	bool TryResolveUserClassEqualsOrGetHashCode(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+		const std::string &name, SyntaxNode *pSavedContext);
+	bool IsNonClassToStringReceiver(SnMemberExpr &snMember);
+	bool TryResolveNonClassToString(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	bool TryResolveGenericContainerMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	bool CheckContainerMethodArity(SnInvokeExpr &invoke,
+		const std::string &baseName, const std::string &name);
+	bool BindContainerMethodArgs(SnInvokeExpr &invoke, SnClassDecl *pGenClass,
+		const std::string &baseName, const std::string &name);
+	bool BindContainerArgPositions(SnInvokeExpr &invoke,
+		const std::vector<SnField*> &typeArgs,
+		const std::string &baseName, const std::string &name,
+		int elemSlot, size_t valArg, bool isStoreValue,
+		SnExpression *&rpWrapValue, SnExpression *&rpWrapKey);
+	void WrapContainerStoreArgs(SnInvokeExpr &invoke,
+		const std::vector<SnField*> &typeArgs, int elemSlot,
+		SnExpression *pWrapKey, SnExpression *pWrapValue);
+	SnField *ComputeContainerMethodResult(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, const std::vector<SnField*> &typeArgs,
+		const std::string &baseName, const std::string &name);
+	bool TryResolveExceptionField(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	void ResolveInvokeArgsInCallerScope(SnFieldExpr *pInnerExpr,
+		SyntaxNode *pSavedContext);
+	void FinishResolvedMember(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr);
+	//Round-12/14 shared rejection for the builtin by-name method families:
+	//named arguments cannot bind by-name dispatch, out arguments can never
+	//write back through pResult-only intrinsics. Logs only — the calling
+	//phase owns the m_pContext restore; returns true when rejected.
+	bool RejectNamedOrOutArguments(SnInvokeExpr &invoke);
 
 	/*
 	Walk the scope chain from parent upward, returning the first field

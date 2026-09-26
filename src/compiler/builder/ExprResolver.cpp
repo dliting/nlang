@@ -1417,64 +1417,1025 @@ void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
 		"requires an import and qualification)", name.c_str());
 }
 
-void ExprResolveAccessor::Access(SnMemberExpr &snMember)
+//Builtin string methods: s.length(), s.GetHashCode(), s.Equals(other).
+bool ExprResolveAccessor::TryResolveStringBuiltinMethod(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
+	SyntaxNode *pSavedContext)
 {
-	assert(!snMember.IsResolved());
-
-	auto pOuterExpr = snMember.Outer();
-	assert(pOuterExpr);
-
-	//Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Intercept
-	//before the outer identifier resolves — namespace names are reserved
-	//and never resolve as fields, so the normal path below would only log
-	//"Cannot resolve the field" without naming the actual mistake.
-	if (pOuterExpr->Kind() == NK_IdentifierExpr)
+	if (!(m_pContext && m_pContext->Kind() == NK_String
+		&& pInnerExpr->Kind() == NK_InvokeExpr))
+		return false;
+	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+	const auto& name = invoke.CalleeName();
+	//Phase 8e-1: string.length()/getHashCode() — value semantics,
+	//intrinsified in VmBackend; both are zero-argument int returns
+	//(identical resolution, one arm).
+	if ((name == "length" || name == "getHashCode")
+		&& invoke.Params().begin() == invoke.Params().end())
 	{
-		auto& outerId = static_cast<SnIdentifierExpr&>(*pOuterExpr);
-		auto* pInnerExpr = snMember.Inner();
-		if (IsStdLibNamespaceName(outerId.Name())
-			&& pInnerExpr && pInnerExpr->Kind() == NK_InvokeExpr)
+		pInnerExpr->AddFlags(NF_Resolved);
+		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+		snMember.AddFlags(NF_Resolved);
+		BindArrayTypeToken(snMember);
+		m_pContext = pSavedContext;
+		return true;
+	}
+	if (name == "equals")
+		return ResolveStringEqualsMethod(snMember, pInnerExpr, invoke,
+			pSavedContext);
+	if (const StringMethodEntry* pMethod = FindStringMethod(name))
+		return TryResolveTableStringMethod(snMember, pInnerExpr, invoke,
+			name, pSavedContext);
+	//Phase 8e-9b: string.toString() — identity. Resolver folds the call
+	//to a no-op (callee=null, EvalDataType=String). Codegen emits nothing
+	//and the inner string idx flows through unchanged.
+	if (name == "toString" && invoke.Params().begin() == invoke.Params().end())
+	{
+		pInnerExpr->AddFlags(NF_Resolved);
+		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+		snMember.AddFlags(NF_Resolved);
+		BindArrayTypeToken(snMember);
+		//Mark the invoke as folded so codegen skips it. Use NF_Resolved flag
+		//on the inner expression (already set above) and leave callee as-is;
+		//VmBackend detects string receiver + toString name and emits nothing.
+		m_pContext = pSavedContext;
+		return true;
+	}
+	//Not consumed: m_pContext stays on the receiver context — the next
+	//phases' guards read it (an early restore here would misdispatch them).
+	return false;
+}
+
+//string.Equals(other) — value semantics, args resolve in the caller's scope.
+bool ExprResolveAccessor::ResolveStringEqualsMethod(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke, SyntaxNode *pSavedContext)
+{
+	if (RejectNamedOrOutArguments(invoke))
+	{
+		m_pContext = pSavedContext;
+		return true;
+	}
+	if (ArgCountOf(invoke) != 1)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"string.equals requires exactly 1 argument.");
+		m_pContext = pSavedContext;
+		return true;
+	}
+	//Round-11: args must resolve in the CALLER's scope — same recipe
+	//as the user-class equals path below. Without this the argument
+	//stayed unresolved and codegen's silent fallbacks (ConstZero /
+	//skipped call) made t.equals(t) compare against stale memory.
+	m_pContext = pSavedContext;
+	RemoveFlags(ERF_SearchInParentOnly);
+	ResolveExpressionList(invoke.Params());
+	pInnerExpr->AddFlags(NF_Resolved);
+	snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
+}
+
+//Table-driven string method call shape check: shared by-name rejection plus
+//the arity window. Logs on invalid; returns true when the call is valid.
+bool ExprResolveAccessor::CheckTableStringMethodCall(SnInvokeExpr &invoke,
+	const StringMethodEntry *pMethod)
+{
+	if (RejectNamedOrOutArguments(invoke))
+		return false;
+	const size_t argCount = ArgCountOf(invoke);
+	if (argCount < pMethod->minArgs || argCount > pMethod->maxArgs)
+	{
+		if (pMethod->minArgs == pMethod->maxArgs)
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"string.%s expects %d argument(s).",
+				pMethod->name, (int)pMethod->minArgs);
+		else
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"string.%s expects %d to %d argument(s).",
+				pMethod->name, (int)pMethod->minArgs,
+				(int)pMethod->maxArgs);
+		return false;
+	}
+	return true;
+}
+
+//Per-arg policy: exact kind match vs paramKinds, no widening
+//(substring offsets are int; a float offset is a compile
+//error). Array-valued args carry the interned array token
+//whose Kind matches no scalar paramKind — the kind match
+//below rejects them with the generic diagnostic. Same shape
+//as the namespace-call path: a void call has no value.
+void ExprResolveAccessor::CheckTableStringArgKinds(SnInvokeExpr &invoke,
+	const StringMethodEntry *pMethod)
+{
+	auto& children = invoke.Children();
+	size_t paramIdx = 0;
+	for (auto it = children.begin(); it != children.end();
+		++it, ++paramIdx)
+	{
+		auto& arg = static_cast<SnExpression&>(*it);
+		auto* pArgType = arg.EvalDataType();
+		if (!pArgType)
 		{
-			//D6: built-in namespaces are gated like any module — the
-			//gate fires before the table lookup so an unimported call
-			//names the missing import, not an unknown function.
-			auto &reg = m_Env.Registry();
-			const uint32_t curModule = reg.OwnerOfContext(*m_pContext);
-			if (!reg.IsBuiltinImported(curModule, outerId.Name()))
-			{
-				m_Env.Log(CLL_Error, snMember.Location(),
-					"Namespace '%s' is not imported. Add 'import %s;' at "
-					"the top of this file.",
-					outerId.Name().c_str(), outerId.Name().c_str());
-				snMember.AddFlags(NF_Resolved);
-				BindArrayTypeToken(snMember);
-				return;
-			}
-			TryResolveStdLibCall(snMember, outerId,
-				static_cast<SnInvokeExpr&>(*pInnerExpr));
-			return;
+			if (arg.IsResolved())
+				m_Env.Log(CLL_Error, arg.Location(),
+					"Argument %d of string.%s has no value: a void "
+					"function result cannot be used as an argument.",
+					(int)paramIdx + 1, pMethod->name);
+			continue;
+		}
+		const uint8_t want = pMethod->paramKinds[paramIdx];
+		const bool ok =
+			(pArgType->Kind() == NK_Int32 && want == RTK_Int32)
+			|| (pArgType->Kind() == NK_String && want == RTK_String);
+		if (!ok)
+		{
+			m_Env.Log(CLL_Error, arg.Location(),
+				"Argument %d of string.%s has type \"%s\"; \"%s\" "
+				"expected.",
+				(int)paramIdx + 1, pMethod->name,
+				pArgType->ToString().c_str(), StdLibKindName(want));
+			continue;
 		}
 	}
+}
 
-	//Module import visibility (spec §6.2 rule 5): module-table fallback
-	//for dotted call chains. Runs BEFORE the outer resolves — a module
-	//diagnostic must not double with a spurious "Cannot resolve the field",
-	//and a declined chain leaves normal resolution untouched.
-	if (TryResolveModuleQualified(snMember))
-		return;
-
-	pOuterExpr->Accept(*m_pVisitor);
-	if (!pOuterExpr->IsResolved())
+//Resolve tail of a table-driven string method: resolved flag, return type,
+//and the m_pField bind that lets chained access survive IsDataExpr().
+void ExprResolveAccessor::BindTableStringMethodResult(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+	const StringMethodEntry *pMethod)
+{
+	pInnerExpr->AddFlags(NF_Resolved);
+	SnField* pResultField = nullptr;
+	switch ((StdLibReturnType)pMethod->returnType)
 	{
-		//spec §6.2 last line: the outer chain died as a whole (its head
-		//resolved as nothing, or a shadowing class failed mid-chain) —
-		//note a module path sharing the dotted name, if one exists.
-		MaybeLogModuleHint(JoinDots(OuterIdentifierChain(snMember)));
+	case SLRT_Int32:
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
+		break;
+	case SLRT_Float:
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
+		break;
+	case SLRT_String:
+		pResultField = SnBuiltinDataType::InstanceOf(NK_String);
+		break;
+	case SLRT_ListString:
+	{
+		std::vector<SnField*> listArgs{
+			SnBuiltinDataType::InstanceOf(NK_String) };
+		pResultField = GetGenericClassDecl("List", listArgs, {},
+			invoke.Location());
+		break;
+	}
+	case SLRT_Void:
+		break;
+	}
+	if (pResultField)
+	{
+		snMember.EvalDataType(pResultField);
+		//m_pField directly (not via ResolveFieldExprAs) so chained
+		//access (s.substring(1).toUpper()) survives IsDataExpr() —
+		//same rationale as the stdlib path.
+		snMember.m_pField = pResultField;
+	}
+}
+
+//Phase 11 Step 3: table-driven built-in string methods (12 new;
+//equals/getHashCode above keep their 8e-1 ids). The method surface
+//is frozen as the future string class's methods (user decision #6).
+bool ExprResolveAccessor::TryResolveTableStringMethod(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke, const std::string &name,
+	SyntaxNode *pSavedContext)
+{
+	const StringMethodEntry* pMethod = FindStringMethod(name);
+	if (!pMethod)
+		return false;
+	if (!CheckTableStringMethodCall(invoke, pMethod))
+	{
+		m_pContext = pSavedContext;
+		return true;
+	}
+	//Args resolve in the caller's scope (equals recipe: restore the
+	//context and drop the parent-only search first).
+	m_pContext = pSavedContext;
+	RemoveFlags(ERF_SearchInParentOnly);
+	ResolveExpressionList(invoke.Params());
+	CheckTableStringArgKinds(invoke, pMethod);
+	BindTableStringMethodResult(snMember, pInnerExpr, invoke, pMethod);
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
+}
+
+//Builtin array.length property. Array redesign B: the receiver
+//check widens from identifier-shape to the array-valued property
+//(any bound shape — identifier, member like li.get(0), or call
+//result like mk()/lib.mk(3)).
+bool ExprResolveAccessor::TryResolveArrayLengthProperty(
+	SnMemberExpr &snMember, SnExpression *pOuterExpr,
+	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
+{
+	if (pOuterExpr->IsArrayValued()
+		&& pInnerExpr->Kind() == NK_IdentifierExpr
+		&& static_cast<SnIdentifierExpr*>(pInnerExpr)->Name()
+			== "length")
+	{
+		pInnerExpr->AddFlags(NF_Resolved);
+		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+		snMember.AddFlags(NF_Resolved);
+		BindArrayTypeToken(snMember);
+		m_pContext = pSavedContext;
+		return true;
+	}
+	return false;
+}
+
+//Name ladder for the plain stream methods (everything except
+//readStruct/readObject, whose type-name argument needs special
+//resolution). retKind defaults to NK_Int32 at the call site;
+//void-returning names leave it untouched (EvalDataType stays unset).
+static bool ClassifyStreamMethod(const std::string &name, NodeKind &retKind)
+{
+	if (name == "readInt" || name == "length" || name == "position")
+		return true;  // retKind = NK_Int32
+	if (name == "readFloat")
+		{ retKind = NK_Float; return true; }
+	if (name == "readString")
+		{ retKind = NK_String; return true; }
+	if (name == "writeInt" || name == "writeFloat"
+		|| name == "writeString" || name == "reset" || name == "close"
+		|| name == "writeStruct" || name == "writeObject")
+		return true;  // void return — no EvalDataType
+	return false;
+}
+
+//ReadStruct("TypeName")/ReadObject("TypeName") type-name argument: the
+//argument MUST be a string literal so the type resolves at compile time
+//(variables rejected — no generics in NLang). The lookup walks the CALLER's
+//namespace chain, NOT m_pContext — that is the synthesized builtin stream
+//class, whose Parent() is null, so the walk would never reach the user's
+//translation-unit scope where structs/classes are declared.
+//Returns nullptr after logging (context restored); readObject's declared
+//type may be a base class of the stream's actual type — polymorphic
+//deserialization is enforced in VmExecutor via IsSubclassOf (Phase 8d).
+SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
+	SnInvokeExpr &invoke, NodeKind wantKind, const char *pMethodDisp,
+	SyntaxNode *pSavedContext)
+{
+	auto& params = invoke.Params();
+	auto it = params.begin();
+	if (it == params.end() || (*it).Kind() != NK_LiteralExpr
+		|| !(*it).EvalDataType()
+		|| (*it).EvalDataType()->Kind() != NK_String)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"%s requires a string literal argument.", pMethodDisp);
+		m_pContext = pSavedContext;
+		return nullptr;
+	}
+	auto& lit = static_cast<SnLiteralExpr&>(*it);
+	const std::string* pTypeName = lit.Value().Data().m_String;
+	const std::string typeName = pTypeName ? *pTypeName : std::string();
+	SnField* found = nullptr;
+	auto* ctx = pSavedContext;
+	while (ctx && !found)
+	{
+		found = ctx->FindField(typeName);
+		ctx = ctx->Parent();
+	}
+	if (!found || found->Kind() != wantKind)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"%s type not found: %s.", pMethodDisp, typeName.c_str());
+		m_pContext = pSavedContext;
+		return nullptr;
+	}
+	return found;
+}
+
+//Builtin stream methods: ByteStream/FileStream member calls.
+//These are resolved by name since the synthesized SnClassDecl has
+//no real method members. The return type is determined by method name.
+bool ExprResolveAccessor::TryResolveStreamBuiltinMethod(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
+	SyntaxNode *pSavedContext)
+{
+	if (!(m_pContext && m_pContext->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
+		&& pInnerExpr->Kind() == NK_InvokeExpr))
+		return false;
+	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+	const auto& name = invoke.CalleeName();
+	bool isStreamMethod = false;
+	NodeKind retKind = NK_Int32;  //default, overridden below
+	isStreamMethod = ClassifyStreamMethod(name, retKind);
+	if (name == "readStruct")
+	{
+		//Returns a struct value of the named type.
+		isStreamMethod = true;
+		SnField* pFound = ResolveStreamSpecialTypeArg(invoke,
+			NK_StructDecl, "ReadStruct", pSavedContext);
+		if (!pFound)
+			return true;
+		snMember.EvalDataType(pFound);
+	}
+	else if (name == "readObject")
+	{
+		//Returns a class object of the named type.
+		isStreamMethod = true;
+		SnField* pFound = ResolveStreamSpecialTypeArg(invoke,
+			NK_ClassDecl, "ReadObject", pSavedContext);
+		if (!pFound)
+			return true;
+		snMember.EvalDataType(pFound);
+	}
+	if (!isStreamMethod)
+		return false;
+	ResolveStreamMethodTail(snMember, pInnerExpr, invoke, name,
+		retKind, pSavedContext);
+	return true;
+}
+
+//Stream method resolve tail: shared by-name rejection, caller-scope arg
+//resolution, and the per-name return kind (void-returning writers leave
+//EvalDataType unset; readStruct/readObject already set theirs above).
+void ExprResolveAccessor::ResolveStreamMethodTail(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke, const std::string &name,
+	NodeKind retKind, SyntaxNode *pSavedContext)
+{
+	//Round-12/14: by-name dispatch cannot bind named args; out args
+	//cannot write back.
+	if (RejectNamedOrOutArguments(invoke))
+	{
+		m_pContext = pSavedContext;
 		return;
 	}
+	//Resolve the args so each param's Field()/EvalDataType() is
+	//populated (e.g. struct-typed IdentifierExpr needs Field() set
+	//so VmBackend can emit the correct load opcode). Without this,
+	//the early return below skips arg resolution entirely and the
+	//backend falls through to const_zero for unresolved idents.
+	//
+	//Args are evaluated in the CALLER's scope, not the synthesized
+	//builtin-class scope (which is empty). Restore m_pContext AND
+	//clear ERF_SearchInParentOnly (set above for the member lookup)
+	//so a normal scope walk finds the caller's locals.
+	m_pContext = pSavedContext;
+	RemoveFlags(ERF_SearchInParentOnly);
+	ResolveExpressionList(invoke.Params());
+	pInnerExpr->AddFlags(NF_Resolved);
+	//For void-returning methods, leave EvalDataType unset.
+	if (name != "writeInt" && name != "writeFloat"
+		&& name != "writeString" && name != "reset" && name != "close"
+		&& name != "writeStruct" && name != "writeObject")
+	{
+		//ReadStruct/ReadObject already set EvalDataType above; others use retKind.
+		if (name != "readStruct" && name != "readObject")
+			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
+	}
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+}
 
-	auto pSavedContext = m_pContext;
+//Equals/getHashCode arm shared by user classes: validation then the
+//caller-scope resolve tail (int result).
+bool ExprResolveAccessor::TryResolveUserClassEqualsOrGetHashCode(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+	const std::string &name, SyntaxNode *pSavedContext)
+{
+	//Round-12/14: same validation as the string branch — by-name
+	//dispatch cannot bind named args, and the intrinsics read
+	//exactly {this[, other]}.
+	if (RejectNamedOrOutArguments(invoke))
+	{
+		m_pContext = pSavedContext;
+		return true;
+	}
+	if ((name == "equals" && ArgCountOf(invoke) != 1)
+		|| (name == "getHashCode" && ArgCountOf(invoke) != 0))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Built-in method '%s' called with the wrong number of arguments.",
+			name.c_str());
+		m_pContext = pSavedContext;
+		return true;
+	}
+	m_pContext = pSavedContext;
+	RemoveFlags(ERF_SearchInParentOnly);
+	ResolveExpressionList(invoke.Params());
+	pInnerExpr->AddFlags(NF_Resolved);
+	snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
+}
 
+//Phase 8e-1: implicit Object protocol methods on user classes.
+//Every user class inherits Equals(Object)→int and GetHashCode()→int from
+//the synthesized Object base class. The methods have no AST representation
+//(they're intrinsic stubs in VmBackend), so the normal InvokeExpr resolution
+//path fails. Treat them as builtin virtuals here, parallel to stream methods.
+//Args must be resolved in the CALLER's scope, not the empty Object scope —
+//hence the early return before the inner Accept below.
+bool ExprResolveAccessor::TryResolveObjectProtocolMethod(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
+	SyntaxNode *pSavedContext)
+{
+	if (!(m_pContext && m_pContext->Kind() == NK_ClassDecl
+		&& pInnerExpr->Kind() == NK_InvokeExpr))
+		return false;
+	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+	const auto& name = invoke.CalleeName();
+	auto* pClassDecl = static_cast<SnClassDecl*>(m_pContext);
+	bool isUserClass = !pClassDecl->IsBuiltinClass();
+	bool isObjectClass = pClassDecl->IsBuiltinClass()
+		&& pClassDecl->Name() == "Object";
+	if ((name == "equals" || name == "getHashCode") && isUserClass)
+		return TryResolveUserClassEqualsOrGetHashCode(snMember, pInnerExpr,
+			invoke, name, pSavedContext);
+	//Phase 8e-9b: string toString() — user class inherits Object.toString().
+	//User-defined override is resolved via the normal class-method path
+	//(CalleeName resolves to a real SnFunction); this branch only catches
+	//the no-override case to fall through to Object intrinsic dispatch.
+	if (name == "toString"
+		&& invoke.Params().begin() == invoke.Params().end()
+		&& (isUserClass || isObjectClass))
+	{
+		m_pContext = pSavedContext;
+		RemoveFlags(ERF_SearchInParentOnly);
+		ResolveExpressionList(invoke.Params());
+		pInnerExpr->AddFlags(NF_Resolved);
+		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+		snMember.AddFlags(NF_Resolved);
+		BindArrayTypeToken(snMember);
+		m_pContext = pSavedContext;
+		return true;
+	}
+	//Not consumed: keep the receiver context for the next phases' guards.
+	return false;
+}
+
+//Phase 8e-9b: non-class toString receiver detection — enum, int, float,
+//array. Detection: m_pContext (the receiver's type context) is NK_EnumDecl,
+//NK_Int32, or NK_Float. For enum literal access (Color.Green.toString()),
+//m_pContext is NK_Int32 (SnEnumMember::EvalDataType returns NK_Int32), so
+//we also check the outer's Field() chain for NK_EnumMember.
+bool ExprResolveAccessor::IsNonClassToStringReceiver(SnMemberExpr &snMember)
+{
+	bool isNonClassToString = false;
+	//Array receiver — Array is a VM primitive, not a class, so
+	//this is the only arm that catches it: the receiver's type
+	//context is the interned array token (never a scalar), so
+	//the enum and int/float arms below cannot fire. Detection
+	//keys on the FIELD's declared array-ness for identifier/
+	//member shapes (the same lvalue family as the receiver
+	//gate above) — the authoritative declaration signal.
+	{
+		auto outerKind = snMember.Outer()->Kind();
+		if (outerKind == NK_IdentifierExpr
+			|| outerKind == NK_MemberExpr)
+		{
+			auto& outerFieldExpr = static_cast<SnFieldExpr&>(
+				*snMember.Outer());
+			auto* outerField = outerFieldExpr.Field();
+			if (outerField && outerField->IsArrayType())
+				isNonClassToString = true;
+		}
+	}
+	//Enum via m_pContext (typed enum variable: Color c; c.toString())
+	if (!isNonClassToString && m_pContext
+		&& m_pContext->Kind() == NK_EnumDecl)
+		isNonClassToString = true;
+	//Enum via outer Field() chain (Color.Green.toString())
+	if (!isNonClassToString)
+	{
+		auto outerKind = snMember.Outer()->Kind();
+		if (outerKind == NK_MemberExpr || outerKind == NK_IdentifierExpr)
+		{
+			auto& outerFieldExpr = static_cast<SnFieldExpr&>(
+				*snMember.Outer());
+			auto* outerField = outerFieldExpr.Field();
+			if (outerField && outerField->Kind() == NK_EnumMember)
+				isNonClassToString = true;
+		}
+	}
+	//Int/float via m_pContext (int x; x.toString(), 42.toString())
+	if (!isNonClassToString && m_pContext
+		&& (m_pContext->Kind() == NK_Int32
+			|| m_pContext->Kind() == NK_Float))
+	{
+		isNonClassToString = true;
+	}
+	return isNonClassToString;
+}
+
+//Phase 8e-9b: non-class receiver toString() — enum, int, float, array.
+//These types have no method table; the resolver accepts the call by setting
+//EvalDataType=String + NF_Resolved. Codegen dispatches based on the
+//outer expression's EvalDataType (enum→OP_Enum_to_str, int→OP_Int32_to_str,
+//float→OP_Float_to_str). No m_pField hack needed — the type information
+//flows through the existing outer->EvalDataType() channel, same as struct/
+//class/interface field access in codegen.
+bool ExprResolveAccessor::TryResolveNonClassToString(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
+{
+	if (pInnerExpr->Kind() != NK_InvokeExpr)
+		return false;
+	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+	if (!(invoke.CalleeName() == "toString"
+		&& invoke.Params().begin() == invoke.Params().end()))
+		return false;
+	if (!IsNonClassToStringReceiver(snMember))
+		return false;
+	m_pContext = pSavedContext;
+	RemoveFlags(ERF_SearchInParentOnly);
+	ResolveExpressionList(invoke.Params());
+	pInnerExpr->AddFlags(NF_Resolved);
+	snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
+}
+
+//Phase 8e-3 / 8e-4: built-in generic List<T> / Dict<K,V> method name sets.
+static bool IsGenericContainerMethod(const std::string &baseName,
+	const std::string &name)
+{
+	if (baseName == "List") {
+		return (name == "add" || name == "get" || name == "set"
+			|| name == "length" || name == "removeAt" || name == "indexOf"
+			|| name == "contains" || name == "clear"
+				|| name == "toString");
+	} else if (baseName == "Dict") {
+		return (name == "set" || name == "get"
+			|| name == "containsKey" || name == "remove"
+			|| name == "clear" || name == "count"
+			|| name == "keys" || name == "toString");
+	} else if (baseName == "Func") {
+		//Phase 13: function handles expose toString only.
+		return (name == "toString");
+	}
+	return false;
+}
+
+//Round-13: validate the argument count against the VM intrinsic
+//stubs (VmBackend's addMethod tables). A mismatch previously
+//slipped to codegen — extra args were silently ignored, missing
+//args read uninitialized callParam slots. Logs on mismatch;
+//returns true when the count is valid.
+bool ExprResolveAccessor::CheckContainerMethodArity(SnInvokeExpr &invoke,
+	const std::string &baseName, const std::string &name)
+{
+	static const std::map<std::string, size_t> kListMethodArities = {
+		{"add", 1}, {"get", 1}, {"set", 2}, {"length", 0},
+		{"removeAt", 1}, {"indexOf", 1}, {"contains", 1},
+		{"clear", 0}, {"toString", 0},
+	};
+	static const std::map<std::string, size_t> kDictMethodArities = {
+		{"set", 2}, {"get", 1}, {"containsKey", 1}, {"remove", 1},
+		{"clear", 0}, {"count", 0}, {"keys", 0}, {"toString", 0},
+	};
+	static const std::map<std::string, size_t> kFuncMethodArities = {
+		{"toString", 0},
+	};
+	const auto& arities = (baseName == "List")
+		? kListMethodArities
+		: (baseName == "Dict") ? kDictMethodArities
+			: kFuncMethodArities;
+	auto arityIt = arities.find(name);
+	if (arityIt != arities.end() && ArgCountOf(invoke) != arityIt->second)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Built-in method '%s' called with the wrong number of arguments.",
+			name.c_str());
+		return false;
+	}
+	return true;
+}
+
+//Phase 13 (D11 site 6, review round-1 F3): value positions by (base,
+//method) — List add/indexOf/contains arg 0 → T; List set arg 1 → T
+//(arg 0 is the int index); Dict get/containsKey/remove arg 0 → K;
+//Dict set arg 1 → V (arg 0 is the key). Also flags the STORE value
+//positions (List add/set value, Dict set value) which admit through
+//the cast table — the same choke point as subscript stores (0.7.3 B
+//T11): without this gate a mismatched value compiled and stored raw
+//bits (an int into List<float> read back as a denormal, an array
+//handle into List<int> into a primitive-traced slot). Read positions
+//(get/indexOf/contains/containsKey/remove) probe by equality and
+//stay ungated.
+static int ContainerElemSlotFor(const std::string &baseName,
+	const std::string &name, size_t &valArg)
+{
+	int elemSlot = -1;
+	valArg = 0;
+	if (baseName == "List"
+		&& (name == "add" || name == "indexOf"
+			|| name == "contains"))
+		elemSlot = 0;
+	else if (baseName == "List" && name == "set")
+	{
+		elemSlot = 0;
+		valArg = 1;
+	}
+	else if (baseName == "Dict"
+		&& (name == "get" || name == "containsKey"
+			|| name == "remove"))
+		elemSlot = 0;
+	else if (baseName == "Dict" && name == "set")
+	{
+		elemSlot = 1;
+		valArg = 1;
+	}
+	return elemSlot;
+}
+
+//Phase 13 (D11 site 6, review round-1 F3): built-in container
+//methods dispatch by name — no overload set is ever scored, so a
+//pending function reference in an argument never meets a formal
+//and was rejected. Bind it here against the container's type
+//argument at the value position.
+bool ExprResolveAccessor::BindContainerMethodArgs(SnInvokeExpr &invoke,
+	SnClassDecl *pGenClass, const std::string &baseName,
+	const std::string &name)
+{
+	auto typeArgs = GetGenericTypeArgs(pGenClass);
+	size_t valArg = 0;
+	const int elemSlot = ContainerElemSlotFor(baseName, name, valArg);
+	const bool isStoreValue = (baseName == "List"
+			&& (name == "add" || name == "set"))
+		|| (baseName == "Dict" && name == "set");
+	if (elemSlot >= 0
+		&& typeArgs.size() > static_cast<size_t>(elemSlot)
+		&& typeArgs[elemSlot])
+	{
+		SnExpression* pWrapValue = nullptr;
+		SnExpression* pWrapKey = nullptr;
+		if (!BindContainerArgPositions(invoke, typeArgs, baseName, name,
+			elemSlot, valArg, isStoreValue, pWrapValue, pWrapKey))
+			return false;
+		WrapContainerStoreArgs(invoke, typeArgs, elemSlot, pWrapKey,
+			pWrapValue);
+	}
+	return true;
+}
+
+//One pass over the arguments: bind pending function references at the
+//value position (in-loop — binds never touch the child list) and collect
+//the store-value / Dict-key wrap candidates.
+//Deferred-wrap discipline: the wraps are applied AFTER the loop, not here —
+//FixupExprType frees the arg's list cell (Params() aliases Children()),
+//and wrapping inside the range-for leaves its saved iterator dangling
+//(heap-use-after-free on ++; manifests intermittently as SEGV, an endless
+//loop, or a lucky pass). Dict.set also gates its KEY argument (arg 0
+//against K): the key is stored when absent, and an ungated mismatched key
+//corrupted the key-slot invariant (DictKeysEqual compares by the declared
+//kind); read positions stay ungated per the read/write split.
+bool ExprResolveAccessor::BindContainerArgPositions(SnInvokeExpr &invoke,
+	const std::vector<SnField*> &typeArgs, const std::string &baseName,
+	const std::string &name, int elemSlot, size_t valArg,
+	bool isStoreValue, SnExpression *&rpWrapValue,
+	SnExpression *&rpWrapKey)
+{
+	size_t argIdx = 0;
+	for (auto &arg : invoke.Params())
+	{
+		SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
+			? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
+		if (argIdx == valArg)
+		{
+			if (IsUnboundFuncRef(*pValue))
+			{
+				if (!BindFuncRefToExpected(m_Env,
+					*static_cast<SnIdentifierExpr*>(pValue),
+					typeArgs[elemSlot]))
+					return false;
+			}
+			else if (IsUnboundMemberFuncRef(*pValue))
+			{
+				if (!BindMemberFuncRefToExpected(m_Env,
+					*static_cast<SnMemberExpr*>(pValue),
+					typeArgs[elemSlot]))
+					return false;
+			}
+			else if (isStoreValue && pValue->IsResolved()
+				&& pValue->EvalDataType())
+			{
+				rpWrapValue = pValue;
+			}
+		}
+		else if (baseName == "Dict" && name == "set"
+			&& argIdx == 0 && typeArgs[0]
+			&& pValue->IsResolved()
+			&& pValue->EvalDataType())
+		{
+			rpWrapKey = pValue;
+		}
+		++argIdx;
+	}
+	return true;
+}
+
+//Deferred wraps (see BindContainerArgPositions): the element type-arg is
+//the interned token for array elements, so the cast table sees full type
+//identity — Same/Box/Auto wrap transparently under codegen's per-method
+//boxing plan, None rejects.
+void ExprResolveAccessor::WrapContainerStoreArgs(SnInvokeExpr &invoke,
+	const std::vector<SnField*> &typeArgs, int elemSlot,
+	SnExpression *pWrapKey, SnExpression *pWrapValue)
+{
+	if (pWrapKey)
+	{
+		auto keyCast = GetCastInfo(
+			pWrapKey->EvalDataType(), typeArgs[0]);
+		auto iKey = invoke.Children().find(pWrapKey);
+		FixupExprType(iKey, keyCast);
+	}
+	if (pWrapValue)
+	{
+		auto castInfo = GetCastInfo(
+			pWrapValue->EvalDataType(),
+			typeArgs[elemSlot]);
+		auto iArg = invoke.Children().find(pWrapValue);
+		FixupExprType(iArg, castInfo);
+	}
+}
+
+//Return-type computation for the builtin container methods:
+// - List Add/Set/RemoveAt/Clear, Dict Set/Clear: void (no EvalDataType)
+// - List Length/IndexOf/Contains, Dict ContainsKey/Remove/Count: int
+// - List Get: T (typeArgs[0]); Dict Get: V (typeArgs[1])
+//All elements at runtime are heap idxs (boxed primitives or class refs);
+//VmBackend emits OP_Box/OP_Unbox around primitive-typed call sites.
+SnField *ExprResolveAccessor::ComputeContainerMethodResult(
+	SnMemberExpr &snMember, SnInvokeExpr &invoke,
+	const std::vector<SnField*> &typeArgs, const std::string &baseName,
+	const std::string &name)
+{
+	SnField* pResultField = nullptr;
+	if (baseName == "List" && name == "get") {
+		//Return type = T (typeArgs[0]).
+		if (!typeArgs.empty() && typeArgs[0]) {
+			snMember.EvalDataType(typeArgs[0]);
+			pResultField = typeArgs[0];
+		}
+	} else if (baseName == "Dict" && name == "get") {
+		//Return type = V (typeArgs[1]).
+		if (typeArgs.size() > 1 && typeArgs[1]) {
+			snMember.EvalDataType(typeArgs[1]);
+			pResultField = typeArgs[1];
+		}
+	} else if (
+		(baseName == "List"
+			&& (name == "length" || name == "indexOf" || name == "contains"))
+		|| (baseName == "Dict"
+			&& (name == "containsKey" || name == "remove" || name == "count"))
+	) {
+		auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
+		snMember.EvalDataType(pInt);
+		pResultField = pInt;
+	} else if (baseName == "Dict" && name == "keys") {
+		//Phase 8e-5: Dict.Keys() returns List<K> (K = typeArgs[0]),
+		//synthesized so foreach lowering and codegen's boxing plan see
+		//the right element type. 0.7.3 B: an array-typed K flows as the
+		//interned token — pointer identity keeps List<int[]> distinct.
+		if (!typeArgs.empty() && typeArgs[0]) {
+			std::vector<SnField*> listArgs{ typeArgs[0] };
+			auto* pListClass = GetGenericClassDecl("List", listArgs,
+				{}, invoke.Location());
+			if (pListClass) {
+				//SnClassDecl IS-A SnField, so it can serve as EvalDataType.
+				snMember.EvalDataType(pListClass);
+				pResultField = pListClass;
+			}
+		}
+	} else if (name == "toString") {
+		//Phase 9b-pre: List/Dict toString() returns string.
+		auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
+		snMember.EvalDataType(pStr);
+		pResultField = pStr;
+	}
+	return pResultField;
+}
+
+//Phase 8e-3 / 8e-4: built-in generic List<T> / Dict<K,V> methods.
+//Synthetic generic SnClassDecl carries no real method members; dispatch
+//by name here.
+bool ExprResolveAccessor::TryResolveGenericContainerMethod(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
+	SyntaxNode *pSavedContext)
+{
+	if (!(m_pContext && m_pContext->Kind() == NK_ClassDecl
+		&& IsGenericClassDecl(static_cast<SnClassDecl*>(m_pContext))
+		&& pInnerExpr->Kind() == NK_InvokeExpr))
+		return false;
+	auto* pGenClass = static_cast<SnClassDecl*>(m_pContext);
+	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+	const auto& name = invoke.CalleeName();
+	const auto& baseName = pGenClass->BaseName();
+	if (!IsGenericContainerMethod(baseName, name))
+		return false;
+	//Round-12/14: by-name dispatch cannot bind name = value args; out
+	//args cannot write back.
+	if (RejectNamedOrOutArguments(invoke))
+	{
+		m_pContext = pSavedContext;
+		return true;
+	}
+	if (!CheckContainerMethodArity(invoke, baseName, name))
+	{
+		m_pContext = pSavedContext;
+		return true;
+	}
+	m_pContext = pSavedContext;
+	RemoveFlags(ERF_SearchInParentOnly);
+	ResolveExpressionList(invoke.Params());
+	pInnerExpr->AddFlags(NF_Resolved);
+	auto typeArgs = GetGenericTypeArgs(pGenClass);
+	if (!BindContainerMethodArgs(invoke, pGenClass, baseName, name))
+		return true;  //bind failed — logged; context already restored
+	SnField* pResultField = ComputeContainerMethodResult(snMember, invoke,
+		typeArgs, baseName, name);
+	// Set m_pField directly (not via ResolveFieldExprAs
+	// which would overwrite EvalDataType with SnType).
+	// Needed so IsDataExpr() doesn't crash when chained
+	// (e.g. lst.Get(0).length()).
+	if (pResultField)
+		snMember.m_pField = pResultField;
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
+}
+
+//Phase 9d: built-in Exception class field access (e.message, e.backtrace).
+//The synthetic SnClassDecl has no real member fields, so resolve by name.
+//Field offsets are hard-coded in VmBackend::FindClassFieldOffset:
+//  message  → slot[1] (offset 4)
+//  backtrace → slot[2] (offset 8)
+//This also handles user subclasses of Exception — walk SuperClass()
+//chain to detect Exception ancestry.
+bool ExprResolveAccessor::TryResolveExceptionField(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
+{
+	if (!(m_pContext && m_pContext->Kind() == NK_ClassDecl
+		&& pInnerExpr->Kind() == NK_IdentifierExpr))
+		return false;
+	auto* pClass = static_cast<SnClassDecl*>(m_pContext);
+	//Walk SuperClass chain looking for a built-in Exception class.
+	bool isExceptionSubclass = false;
+	for (SnClassDecl* pWalk = pClass; pWalk; ) {
+		if (pWalk->IsBuiltinClass()
+			&& IsBuiltinExceptionClassName(pWalk->Name())) {
+			isExceptionSubclass = true;
+			break;
+		}
+		pWalk = pWalk->SuperClass();
+	}
+	if (!isExceptionSubclass)
+		return false;
+	auto& innerId = static_cast<SnIdentifierExpr&>(*pInnerExpr);
+	const auto& fieldName = innerId.Name();
+	SnField* pResultField = nullptr;
+	if (fieldName == "message") {
+		pResultField = SnBuiltinDataType::InstanceOf(NK_String);
+	} else if (fieldName == "backtrace") {
+		//backtrace is List<string> — synthesize the generic instantiation.
+		auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
+		std::vector<SnField*> listArgs{ pStr };
+		pResultField = GetGenericClassDecl("List", listArgs, {},
+			pInnerExpr->Location());
+	}
+	if (!pResultField)
+		return false;
+	innerId.AddFlags(NF_Resolved);
+	snMember.EvalDataType(pResultField);
+	snMember.m_pField = pResultField;
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
+}
+
+//Phase 9e (pre-existing gap exposed by out params): a method invoke's
+//ARGUMENTS must resolve in the caller's scope. m_pContext is the
+//receiver's class here (set for the callee lookup) and
+//ERF_SearchInParentOnly hides the calling function's locals — so
+//`c.f(v)` failed with "Cannot resolve the field: v". Existing tests
+//never hit this because they only pass literals. Resolve the args in
+//the caller scope first (mirroring the stream/generic early-return
+//paths above), then re-enter the class scope so Access(SnInvokeExpr)
+//finds the callee; its ResolveExpressionList skips resolved params.
+void ExprResolveAccessor::ResolveInvokeArgsInCallerScope(
+	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
+{
+	if (pInnerExpr->Kind() == NK_InvokeExpr)
+	{
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+		auto* pClassCtx = m_pContext;
+		m_pContext = pSavedContext;
+		RemoveFlags(ERF_SearchInParentOnly);
+		ResolveExpressionList(invoke.Params());
+		m_pContext = pClassCtx;
+		AddFlags(ERF_SearchInParentOnly);
+	}
+}
+
+//Tail of the normal (non-builtin) path: the inner expression resolved.
+//Delegate invokes keep the invoke's own return type (ResolveFieldExprAs
+//would re-type the member as the delegate VALUE's declared type).
+void ExprResolveAccessor::FinishResolvedMember(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr)
+{
+	//Phase 13 Step 2: a delegate member invoke (obj.cb(x)) resolved
+	//the invoke against the FIELD's Func signature — the member's type
+	//is the invoke's own return type. ResolveFieldExprAs would instead
+	//re-type the member as the delegate VALUE's declared type
+	//(Func<...>), masking the call result at every consumer.
+	if (pInnerExpr->Kind() == NK_InvokeExpr
+		&& pInnerExpr->Field()
+		&& pInnerExpr->Field()->Kind() != NK_Function)
+	{
+		snMember.m_pField = pInnerExpr->Field();
+		if (pInnerExpr->EvalDataType())
+			snMember.EvalDataType(pInnerExpr->EvalDataType());
+		snMember.AddFlags(NF_Resolved);
+		BindArrayTypeToken(snMember);
+	}
+	else
+	{
+		ResolveFieldExprAs(snMember, pInnerExpr->Field());
+		//Plain member-field path: the shared helper above sets NF_Resolved internally.
+		BindArrayTypeToken(snMember);
+	}
+}
+
+//Round-12/14 shared rejection for the builtin by-name method families:
+//by-name dispatch cannot bind named arguments, and intrinsics return
+//through pResult only — out arguments can never write back.
+bool ExprResolveAccessor::RejectNamedOrOutArguments(SnInvokeExpr &invoke)
+{
+	if (HasNamedArgument(invoke))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Named arguments are not supported by built-in methods.");
+		return true;
+	}
+	if (HasOutArgument(invoke))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"out arguments are not supported by built-in methods.");
+		return true;
+	}
+	return false;
+}
+
+//Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Intercept
+//before the outer identifier resolves — namespace names are reserved
+//and never resolve as fields, so the normal path below would only log
+//"Cannot resolve the field" without naming the actual mistake.
+bool ExprResolveAccessor::TryResolveNamespaceStdLibCall(
+	SnMemberExpr &snMember, SnExpression *pOuterExpr)
+{
+	if (pOuterExpr->Kind() != NK_IdentifierExpr)
+		return false;
+	auto& outerId = static_cast<SnIdentifierExpr&>(*pOuterExpr);
+	auto* pInnerExpr = snMember.Inner();
+	if (!(IsStdLibNamespaceName(outerId.Name())
+		&& pInnerExpr && pInnerExpr->Kind() == NK_InvokeExpr))
+		return false;
+	//D6: built-in namespaces are gated like any module — the
+	//gate fires before the table lookup so an unimported call
+	//names the missing import, not an unknown function.
+	auto &reg = m_Env.Registry();
+	const uint32_t curModule = reg.OwnerOfContext(*m_pContext);
+	if (!reg.IsBuiltinImported(curModule, outerId.Name()))
+	{
+		m_Env.Log(CLL_Error, snMember.Location(),
+			"Namespace '%s' is not imported. Add 'import %s;' at "
+			"the top of this file.",
+			outerId.Name().c_str(), outerId.Name().c_str());
+		snMember.AddFlags(NF_Resolved);
+		BindArrayTypeToken(snMember);
+		return true;
+	}
+	TryResolveStdLibCall(snMember, outerId,
+		static_cast<SnInvokeExpr&>(*pInnerExpr));
+	return true;
+}
+
+//Receiver-scope switch: a data-typed outer resolves in its type context;
+//a type outer (namespace/class name) resolves in the type's scope, with
+//the enum-member re-anchor for `Color.Blue.rank()` receivers (the member
+//masquerades as Int32, which would land the context on the int builtin).
+void ExprResolveAccessor::SwitchContextToReceiver(SnMemberExpr &snMember)
+{
 	if (snMember.Outer()->IsDataExpr())
 		m_pContext = snMember.Outer()->EvalDataType();
 	else
@@ -1491,919 +2452,118 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		if (pOuterField && pOuterField->Kind() == NK_EnumMember)
 			m_pContext = pOuterField->Parent();
 	}
+}
 
-	//Array-valued receivers expose no methods — the gate gives the
-	//named, actionable rejection ("index an element first") instead of
-	//the generic resolution failure a token-typed receiver produces.
-	//(Pre-token this was worse: the element masquerade bound the
-	//ELEMENT type's method table — string[] receivers entered the
-	//string-builtin block, enum/class receivers bound user methods —
-	//and codegen passed the array's heap index as the receiver; verified
-	//enum[].rank() returned heapIdx+10. Phase 12 review MAJOR-1, trap-12
-	//family instance #7.)
-	//toString is exempt ONLY for lvalue receivers (identifier / member
-	//field): the non-class toString dispatch below detects exactly those
-	//shapes via the IsArrayType() field check. Call-result array values
-	//(l.get(0), obj.mk(), l[0], delegate calls) route nowhere in that
-	//dispatch — their string conversion is the cast table's array→string
-	//coercion in expression positions, not a method call.
+//Array-valued receivers expose no methods — the gate gives the
+//named, actionable rejection ("index an element first") instead of
+//the generic resolution failure a token-typed receiver produces.
+//(Pre-token this was worse: the element masquerade bound the
+//ELEMENT type's method table — string[] receivers entered the
+//string-builtin block, enum/class receivers bound user methods —
+//and codegen passed the array's heap index as the receiver; verified
+//enum[].rank() returned heapIdx+10. Phase 12 review MAJOR-1, trap-12
+//family instance #7.)
+//toString is exempt ONLY for lvalue receivers (identifier / member
+//field): the non-class toString dispatch below detects exactly those
+//shapes via the IsArrayType() field check. Call-result array values
+//(l.get(0), obj.mk(), l[0], delegate calls) route nowhere in that
+//dispatch — their string conversion is the cast table's array→string
+//coercion in expression positions, not a method call.
+bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
+	SnMemberExpr &snMember, SnExpression *pOuterExpr,
+	SyntaxNode *pSavedContext)
+{
+	auto* pInnerForGate = snMember.Inner();
+	if (pInnerForGate && pInnerForGate->Kind() == NK_InvokeExpr
+		&& pOuterExpr->IsArrayValued())
 	{
-		auto* pInnerForGate = snMember.Inner();
-		if (pInnerForGate && pInnerForGate->Kind() == NK_InvokeExpr
-			&& pOuterExpr->IsArrayValued())
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerForGate);
+		if (invoke.CalleeName() != "toString"
+			|| !(pOuterExpr->IsArrayValued()
+				&& IsPlainLvalueShape(*pOuterExpr)))
 		{
-			auto& invoke = static_cast<SnInvokeExpr&>(*pInnerForGate);
-			if (invoke.CalleeName() != "toString"
-				|| !(pOuterExpr->IsArrayValued()
-					&& IsPlainLvalueShape(*pOuterExpr)))
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"methods cannot be called on an array; index an element "
-					"first (e.g. a[i].%s(...)).",
-					invoke.CalleeName().c_str());
-				m_pContext = pSavedContext;
-				return;
-			}
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"methods cannot be called on an array; index an element "
+				"first (e.g. a[i].%s(...)).",
+				invoke.CalleeName().c_str());
+			m_pContext = pSavedContext;
+			return true;
 		}
 	}
+	return false;
+}
+
+//Chain-head resolution: the stdlib namespace interception, the module-table
+//fallback, and the outer expression's own resolution. Returns true when
+//the member is consumed (resolved or diagnosed).
+bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
+	SnExpression *pOuterExpr)
+{
+	if (TryResolveNamespaceStdLibCall(snMember, pOuterExpr))
+		return true;
+	//Module import visibility (spec §6.2 rule 5): module-table fallback
+	//for dotted call chains. Runs BEFORE the outer resolves — a module
+	//diagnostic must not double with a spurious "Cannot resolve the field",
+	//and a declined chain leaves normal resolution untouched.
+	if (TryResolveModuleQualified(snMember))
+		return true;
+	pOuterExpr->Accept(*m_pVisitor);
+	if (!pOuterExpr->IsResolved())
+	{
+		//spec §6.2 last line: the outer chain died as a whole (its head
+		//resolved as nothing, or a shadowing class failed mid-chain) —
+		//note a module path sharing the dotted name, if one exists.
+		MaybeLogModuleHint(JoinDots(OuterIdentifierChain(snMember)));
+		return true;
+	}
+	return false;
+}
+
+void ExprResolveAccessor::Access(SnMemberExpr &snMember)
+{
+	assert(!snMember.IsResolved());
+
+	auto pOuterExpr = snMember.Outer();
+	assert(pOuterExpr);
+
+	if (TryResolveMemberHead(snMember, pOuterExpr))
+		return;
+
+	auto pSavedContext = m_pContext;
+	SwitchContextToReceiver(snMember);
+
+	if (RejectArrayReceiverMethodCall(snMember, pOuterExpr, pSavedContext))
+		return;
 
 	SCOPED_FLAG_RESETER(*this);
 	AddFlags(ERF_SearchInParentOnly);
 	auto pInnerExpr = snMember.Inner();
 	assert(pInnerExpr);
 
-	//Builtin string methods: s.length(), s.GetHashCode(), s.Equals(other).
-	if (m_pContext && m_pContext->Kind() == NK_String
-		&& pInnerExpr->Kind() == NK_InvokeExpr)
-	{
-		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-		const auto& name = invoke.CalleeName();
-		if (name == "length" && invoke.Params().begin() == invoke.Params().end())
-		{
-			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			m_pContext = pSavedContext;
-			return;
-		}
-		//Phase 8e-1: string.GetHashCode() and string.Equals(string) — value semantics.
-		//Both intrinsified in VmBackend; resolver just needs to accept them.
-		if (name == "getHashCode" && invoke.Params().begin() == invoke.Params().end())
-		{
-			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			m_pContext = pSavedContext;
-			return;
-		}
-		if (name == "equals")
-		{
-			//Round-12: by-name dispatch cannot bind named arguments, and the
-			//intrinsic reads exactly {this, other} — reject both shapes.
-			if (HasNamedArgument(invoke))
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"Named arguments are not supported by built-in methods.");
-				m_pContext = pSavedContext;
-				return;
-			}
-			//Round-14: intrinsics return through pResult only — an out
-			//argument could never write back.
-			if (HasOutArgument(invoke))
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"out arguments are not supported by built-in methods.");
-				m_pContext = pSavedContext;
-				return;
-			}
-			if (ArgCountOf(invoke) != 1)
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"string.equals requires exactly 1 argument.");
-				m_pContext = pSavedContext;
-				return;
-			}
-			//Round-11: args must resolve in the CALLER's scope — same recipe
-			//as the user-class equals path below. Without this the argument
-			//stayed unresolved and codegen's silent fallbacks (ConstZero /
-			//skipped call) made t.equals(t) compare against stale memory.
-			m_pContext = pSavedContext;
-			RemoveFlags(ERF_SearchInParentOnly);
-			ResolveExpressionList(invoke.Params());
-			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			m_pContext = pSavedContext;
-			return;
-		}
-		//Phase 11 Step 3: table-driven built-in string methods (12 new;
-		//equals/getHashCode above keep their 8e-1 ids). The method surface
-		//is frozen as the future string class's methods (user decision #6).
-		if (const StringMethodEntry* pMethod = FindStringMethod(name))
-		{
-			if (HasNamedArgument(invoke))
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"Named arguments are not supported by built-in methods.");
-				m_pContext = pSavedContext;
-				return;
-			}
-			if (HasOutArgument(invoke))
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"out arguments are not supported by built-in methods.");
-				m_pContext = pSavedContext;
-				return;
-			}
-			const size_t argCount = ArgCountOf(invoke);
-			if (argCount < pMethod->minArgs || argCount > pMethod->maxArgs)
-			{
-				if (pMethod->minArgs == pMethod->maxArgs)
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"string.%s expects %d argument(s).",
-						pMethod->name, (int)pMethod->minArgs);
-				else
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"string.%s expects %d to %d argument(s).",
-						pMethod->name, (int)pMethod->minArgs,
-						(int)pMethod->maxArgs);
-				m_pContext = pSavedContext;
-				return;
-			}
-			//Args resolve in the caller's scope (equals recipe: restore the
-			//context and drop the parent-only search first).
-			m_pContext = pSavedContext;
-			RemoveFlags(ERF_SearchInParentOnly);
-			ResolveExpressionList(invoke.Params());
-			//Per-arg policy: exact kind match vs paramKinds, no widening
-			//(substring offsets are int; a float offset is a compile
-			//error). Array-valued args carry the interned array token
-			//whose Kind matches no scalar paramKind — the kind match
-			//below rejects them with the generic diagnostic. Same shape
-			//as the namespace-call path: a void call has no value.
-			auto& children = invoke.Children();
-			size_t paramIdx = 0;
-			for (auto it = children.begin(); it != children.end();
-				++it, ++paramIdx)
-			{
-				auto& arg = static_cast<SnExpression&>(*it);
-				auto* pArgType = arg.EvalDataType();
-				if (!pArgType)
-				{
-					if (arg.IsResolved())
-						m_Env.Log(CLL_Error, arg.Location(),
-							"Argument %d of string.%s has no value: a void "
-							"function result cannot be used as an argument.",
-							(int)paramIdx + 1, pMethod->name);
-					continue;
-				}
-				const uint8_t want = pMethod->paramKinds[paramIdx];
-				const bool ok =
-					(pArgType->Kind() == NK_Int32 && want == RTK_Int32)
-					|| (pArgType->Kind() == NK_String && want == RTK_String);
-				if (!ok)
-				{
-					m_Env.Log(CLL_Error, arg.Location(),
-						"Argument %d of string.%s has type \"%s\"; \"%s\" "
-						"expected.",
-						(int)paramIdx + 1, pMethod->name,
-						pArgType->ToString().c_str(), StdLibKindName(want));
-					continue;
-				}
-			}
-			pInnerExpr->AddFlags(NF_Resolved);
-			SnField* pResultField = nullptr;
-			switch ((StdLibReturnType)pMethod->returnType)
-			{
-			case SLRT_Int32:
-				pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
-				break;
-			case SLRT_Float:
-				pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
-				break;
-			case SLRT_String:
-				pResultField = SnBuiltinDataType::InstanceOf(NK_String);
-				break;
-			case SLRT_ListString:
-			{
-				std::vector<SnField*> listArgs{
-					SnBuiltinDataType::InstanceOf(NK_String) };
-				pResultField = GetGenericClassDecl("List", listArgs, {},
-					invoke.Location());
-				break;
-			}
-			case SLRT_Void:
-				break;
-			}
-			if (pResultField)
-			{
-				snMember.EvalDataType(pResultField);
-				//m_pField directly (not via ResolveFieldExprAs) so chained
-				//access (s.substring(1).toUpper()) survives IsDataExpr() —
-				//same rationale as the stdlib path.
-				snMember.m_pField = pResultField;
-			}
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			m_pContext = pSavedContext;
-			return;
-		}
-		//Phase 8e-9b: string.toString() — identity. Resolver folds the call
-		//to a no-op (callee=null, EvalDataType=String). Codegen emits nothing
-		//and the inner string idx flows through unchanged.
-		if (name == "toString" && invoke.Params().begin() == invoke.Params().end())
-		{
-			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			//Mark the invoke as folded so codegen skips it. Use NF_Resolved flag
-			//on the inner expression (already set above) and leave callee as-is;
-			//VmBackend detects string receiver + toString name and emits nothing.
-			m_pContext = pSavedContext;
-			return;
-		}
-	}
+	//Builtin by-name method families, in the historical dispatch order
+	//(each phase logs its own rejections).
+	if (TryResolveStringBuiltinMethod(snMember, pInnerExpr, pSavedContext))
+		return;
+	if (TryResolveArrayLengthProperty(snMember, pOuterExpr, pInnerExpr,
+		pSavedContext))
+		return;
+	if (TryResolveStreamBuiltinMethod(snMember, pInnerExpr, pSavedContext))
+		return;
+	if (TryResolveObjectProtocolMethod(snMember, pInnerExpr, pSavedContext))
+		return;
+	if (TryResolveNonClassToString(snMember, pInnerExpr, pSavedContext))
+		return;
+	if (TryResolveGenericContainerMethod(snMember, pInnerExpr,
+		pSavedContext))
+		return;
+	if (TryResolveExceptionField(snMember, pInnerExpr, pSavedContext))
+		return;
 
-		//Builtin array.length property. Array redesign B: the receiver
-		//check widens from identifier-shape to the array-valued property
-		//(any bound shape — identifier, member like li.get(0), or call
-		//result like mk()/lib.mk(3)).
-		if (pOuterExpr->IsArrayValued()
-			&& pInnerExpr->Kind() == NK_IdentifierExpr
-			&& static_cast<SnIdentifierExpr*>(pInnerExpr)->Name()
-				== "length")
-		{
-			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			m_pContext = pSavedContext;
-			return;
-		}
-
-		//Builtin stream methods: ByteStream/FileStream member calls.
-		//These are resolved by name since the synthesized SnClassDecl has
-		//no real method members. The return type is determined by method name.
-		if (m_pContext && m_pContext->Kind() == NK_ClassDecl
-			&& static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
-			&& pInnerExpr->Kind() == NK_InvokeExpr)
-		{
-			auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-			const auto& name = invoke.CalleeName();
-			bool isStreamMethod = false;
-			NodeKind retKind = NK_Int32;  //default, overridden below
-			if (name == "readInt" || name == "length" || name == "position")
-				isStreamMethod = true;  // retKind = NK_Int32
-			else if (name == "readFloat")
-				{ isStreamMethod = true; retKind = NK_Float; }
-			else if (name == "readString")
-				{ isStreamMethod = true; retKind = NK_String; }
-			else if (name == "writeInt" || name == "writeFloat"
-				|| name == "writeString" || name == "reset" || name == "close"
-				|| name == "writeStruct" || name == "writeObject")
-				isStreamMethod = true;  // void return — no EvalDataType
-			else if (name == "readStruct")
-			{
-				//ReadStruct("TypeName") returns a struct value of the named type.
-				//The type-name argument MUST be a string literal so we can resolve
-				//it at compile time. (Variables rejected — no generics in NLang.)
-				isStreamMethod = true;
-				auto& params = invoke.Params();
-				auto it = params.begin();
-				if (it == params.end() || (*it).Kind() != NK_LiteralExpr
-					|| !(*it).EvalDataType()
-					|| (*it).EvalDataType()->Kind() != NK_String)
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"ReadStruct requires a string literal argument.");
-					m_pContext = pSavedContext;
-					return;
-				}
-				auto& lit = static_cast<SnLiteralExpr&>(*it);
-				const std::string* pTypeName = lit.Value().Data().m_String;
-				const std::string typeName = pTypeName ? *pTypeName : std::string();
-				//Look up typeName as a struct in the caller's namespace chain.
-				//NOT m_pContext — that is the synthesized builtin stream class,
-				//whose Parent() is null, so the walk would never reach the
-				//user's translation-unit scope where structs are declared.
-				SnField* found = nullptr;
-				auto* ctx = pSavedContext;
-				while (ctx && !found)
-				{
-					found = ctx->FindField(typeName);
-					ctx = ctx->Parent();
-				}
-				if (!found || found->Kind() != NK_StructDecl)
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"ReadStruct type not found: %s.", typeName.c_str());
-					m_pContext = pSavedContext;
-					return;
-				}
-				snMember.EvalDataType(found);
-			}
-			else if (name == "readObject")
-			{
-				//ReadObject("TypeName") returns a class object of the named type.
-				//Mirrors ReadStruct but resolves typeName as a class (NK_ClassDecl).
-				//The declared type may be a base class of the stream's actual type;
-				//polymorphic deserialization is enforced in VmExecutor via
-				//IsSubclassOf (Phase 8d).
-				isStreamMethod = true;
-				auto& params = invoke.Params();
-				auto it = params.begin();
-				if (it == params.end() || (*it).Kind() != NK_LiteralExpr
-					|| !(*it).EvalDataType()
-					|| (*it).EvalDataType()->Kind() != NK_String)
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"ReadObject requires a string literal argument.");
-					m_pContext = pSavedContext;
-					return;
-				}
-				auto& lit = static_cast<SnLiteralExpr&>(*it);
-				const std::string* pTypeName = lit.Value().Data().m_String;
-				const std::string typeName = pTypeName ? *pTypeName : std::string();
-				//Look up typeName as a class in the caller's namespace chain.
-				SnField* found = nullptr;
-				auto* ctx = pSavedContext;
-				while (ctx && !found)
-				{
-					found = ctx->FindField(typeName);
-					ctx = ctx->Parent();
-				}
-				if (!found || found->Kind() != NK_ClassDecl)
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"ReadObject type not found: %s.", typeName.c_str());
-					m_pContext = pSavedContext;
-					return;
-				}
-				snMember.EvalDataType(found);
-			}
-			if (isStreamMethod)
-			{
-				//Round-12: by-name dispatch cannot bind name = value args.
-				if (HasNamedArgument(invoke))
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"Named arguments are not supported by built-in methods.");
-					m_pContext = pSavedContext;
-					return;
-				}
-				//Round-14: out args cannot write back through by-name dispatch.
-				if (HasOutArgument(invoke))
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"out arguments are not supported by built-in methods.");
-					m_pContext = pSavedContext;
-					return;
-				}
-				//Resolve the args so each param's Field()/EvalDataType() is
-				//populated (e.g. struct-typed IdentifierExpr needs Field() set
-				//so VmBackend can emit the correct load opcode). Without this,
-				//the early return below skips arg resolution entirely and the
-				//backend falls through to const_zero for unresolved idents.
-				//
-				//Args are evaluated in the CALLER's scope, not the synthesized
-				//builtin-class scope (which is empty). Restore m_pContext AND
-				//clear ERF_SearchInParentOnly (set above for the member lookup)
-				//so a normal scope walk finds the caller's locals.
-				m_pContext = pSavedContext;
-				RemoveFlags(ERF_SearchInParentOnly);
-				ResolveExpressionList(invoke.Params());
-				pInnerExpr->AddFlags(NF_Resolved);
-				//For void-returning methods, leave EvalDataType unset.
-				if (name != "writeInt" && name != "writeFloat"
-					&& name != "writeString" && name != "reset" && name != "close"
-					&& name != "writeStruct" && name != "writeObject")
-				{
-					//ReadStruct/ReadObject already set EvalDataType above; others use retKind.
-					if (name != "readStruct" && name != "readObject")
-						snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
-				}
-				snMember.AddFlags(NF_Resolved);
-				BindArrayTypeToken(snMember);
-				m_pContext = pSavedContext;
-				return;
-			}
-		}
-
-	//Phase 8e-1: implicit Object protocol methods on user classes.
-	//Every user class inherits Equals(Object)→int and GetHashCode()→int from
-	//the synthesized Object base class. The methods have no AST representation
-	//(they're intrinsic stubs in VmBackend), so the normal InvokeExpr resolution
-	//path fails. Treat them as builtin virtuals here, parallel to stream methods.
-	//Args must be resolved in the CALLER's scope, not the empty Object scope —
-	//hence the early return before pInnerExpr->Accept below.
-	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
-		&& pInnerExpr->Kind() == NK_InvokeExpr)
-	{
-		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-		const auto& name = invoke.CalleeName();
-		auto* pClassDecl = static_cast<SnClassDecl*>(m_pContext);
-		bool isUserClass = !pClassDecl->IsBuiltinClass();
-		bool isObjectClass = pClassDecl->IsBuiltinClass()
-			&& pClassDecl->Name() == "Object";
-		if (name == "equals" || name == "getHashCode")
-		{
-			if (isUserClass)
-			{
-				//Round-12: same validation as the string branch — by-name
-				//dispatch cannot bind named args, and the intrinsics read
-				//exactly {this[, other]}.
-				if (HasNamedArgument(invoke))
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"Named arguments are not supported by built-in methods.");
-					m_pContext = pSavedContext;
-					return;
-				}
-				//Round-14: out args cannot write back through by-name dispatch.
-				if (HasOutArgument(invoke))
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"out arguments are not supported by built-in methods.");
-					m_pContext = pSavedContext;
-					return;
-				}
-				if ((name == "equals" && ArgCountOf(invoke) != 1)
-					|| (name == "getHashCode" && ArgCountOf(invoke) != 0))
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"Built-in method '%s' called with the wrong number of arguments.",
-						name.c_str());
-					m_pContext = pSavedContext;
-					return;
-				}
-				m_pContext = pSavedContext;
-				RemoveFlags(ERF_SearchInParentOnly);
-				ResolveExpressionList(invoke.Params());
-			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-				m_pContext = pSavedContext;
-				return;
-			}
-		}
-		//Phase 8e-9b: string toString() — user class inherits Object.toString().
-		//User-defined override is resolved via the normal class-method path
-		//(CalleeName resolves to a real SnFunction); this branch only catches
-		//the no-override case to fall through to Object intrinsic dispatch.
-		if (name == "toString"
-			&& invoke.Params().begin() == invoke.Params().end()
-			&& (isUserClass || isObjectClass))
-		{
-			m_pContext = pSavedContext;
-			RemoveFlags(ERF_SearchInParentOnly);
-			ResolveExpressionList(invoke.Params());
-			pInnerExpr->AddFlags(NF_Resolved);
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			m_pContext = pSavedContext;
-			return;
-		}
-	}
-
-	//Phase 8e-9b: non-class receiver toString() — enum, int, float.
-	//These types have no method table; the resolver accepts the call by setting
-	//EvalDataType=String + NF_Resolved. Codegen dispatches based on the
-	//outer expression's EvalDataType (enum→OP_Enum_to_str, int→OP_Int32_to_str,
-	//float→OP_Float_to_str). No m_pField hack needed — the type information
-	//flows through the existing outer->EvalDataType() channel, same as struct/
-	//class/interface field access in codegen.
-	//
-	//Detection: m_pContext (the receiver's type context) is NK_EnumDecl,
-	//NK_Int32, or NK_Float. For enum literal access (Color.Green.toString()),
-	//m_pContext is NK_Int32 (SnEnumMember::EvalDataType returns NK_Int32), so
-	//we also check the outer's Field() chain for NK_EnumMember.
-	if (pInnerExpr->Kind() == NK_InvokeExpr)
-	{
-		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-		if (invoke.CalleeName() == "toString"
-			&& invoke.Params().begin() == invoke.Params().end())
-		{
-			bool isNonClassToString = false;
-			//Array receiver — Array is a VM primitive, not a class, so
-			//this is the only arm that catches it: the receiver's type
-			//context is the interned array token (never a scalar), so
-			//the enum and int/float arms below cannot fire. Detection
-			//keys on the FIELD's declared array-ness for identifier/
-			//member shapes (the same lvalue family as the receiver
-			//gate above) — the authoritative declaration signal.
-			{
-				auto outerKind = snMember.Outer()->Kind();
-				if (outerKind == NK_IdentifierExpr
-					|| outerKind == NK_MemberExpr)
-				{
-					auto& outerFieldExpr = static_cast<SnFieldExpr&>(
-						*snMember.Outer());
-					auto* outerField = outerFieldExpr.Field();
-					if (outerField && outerField->IsArrayType())
-						isNonClassToString = true;
-				}
-			}
-			//Enum via m_pContext (typed enum variable: Color c; c.toString())
-			if (!isNonClassToString && m_pContext
-				&& m_pContext->Kind() == NK_EnumDecl)
-				isNonClassToString = true;
-			//Enum via outer Field() chain (Color.Green.toString())
-			if (!isNonClassToString)
-			{
-				auto outerKind = snMember.Outer()->Kind();
-				if (outerKind == NK_MemberExpr || outerKind == NK_IdentifierExpr)
-				{
-					auto& outerFieldExpr = static_cast<SnFieldExpr&>(
-						*snMember.Outer());
-					auto* outerField = outerFieldExpr.Field();
-					if (outerField && outerField->Kind() == NK_EnumMember)
-						isNonClassToString = true;
-				}
-			}
-			//Int/float via m_pContext (int x; x.toString(), 42.toString())
-			if (!isNonClassToString && m_pContext
-				&& (m_pContext->Kind() == NK_Int32
-					|| m_pContext->Kind() == NK_Float))
-			{
-				isNonClassToString = true;
-			}
-			if (isNonClassToString)
-			{
-				m_pContext = pSavedContext;
-				RemoveFlags(ERF_SearchInParentOnly);
-				ResolveExpressionList(invoke.Params());
-				pInnerExpr->AddFlags(NF_Resolved);
-				snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
-				snMember.AddFlags(NF_Resolved);
-				BindArrayTypeToken(snMember);
-				m_pContext = pSavedContext;
-				return;
-			}
-		}
-	}
-
-	//Phase 8e-3 / 8e-4: built-in generic List<T> / Dict<K,V> methods.
-	//Synthetic generic SnClassDecl carries no real method members; dispatch
-	//by name here. Return types:
-	// - List Add/Set/RemoveAt/Clear, Dict Set/Clear: void (no EvalDataType)
-	// - List Length/IndexOf/Contains, Dict ContainsKey/Remove/Count: int
-	// - List Get: T (typeArgs[0]); Dict Get: V (typeArgs[1])
-	//All elements at runtime are heap idxs (boxed primitives or class refs);
-	//VmBackend emits OP_Box/OP_Unbox around primitive-typed call sites.
-	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
-		&& IsGenericClassDecl(static_cast<SnClassDecl*>(m_pContext))
-		&& pInnerExpr->Kind() == NK_InvokeExpr)
-	{
-		auto* pGenClass = static_cast<SnClassDecl*>(m_pContext);
-		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-		const auto& name = invoke.CalleeName();
-		const auto& baseName = pGenClass->BaseName();
-		bool isGenericMethod = false;
-		if (baseName == "List") {
-			isGenericMethod = (name == "add" || name == "get" || name == "set"
-				|| name == "length" || name == "removeAt" || name == "indexOf"
-				|| name == "contains" || name == "clear"
-					|| name == "toString");
-		} else if (baseName == "Dict") {
-			isGenericMethod = (name == "set" || name == "get"
-				|| name == "containsKey" || name == "remove"
-				|| name == "clear" || name == "count"
-				|| name == "keys" || name == "toString");
-		} else if (baseName == "Func") {
-			//Phase 13: function handles expose toString only.
-			isGenericMethod = (name == "toString");
-		}
-		if (isGenericMethod)
-		{
-			//Round-12: by-name dispatch cannot bind name = value args.
-			if (HasNamedArgument(invoke))
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"Named arguments are not supported by built-in methods.");
-				m_pContext = pSavedContext;
-				return;
-			}
-			//Round-14: out args cannot write back through by-name dispatch.
-			if (HasOutArgument(invoke))
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"out arguments are not supported by built-in methods.");
-				m_pContext = pSavedContext;
-				return;
-			}
-			//Round-13: validate the argument count against the VM intrinsic
-			//stubs (VmBackend's addMethod tables). A mismatch previously
-			//slipped to codegen — extra args were silently ignored, missing
-			//args read uninitialized callParam slots. Must match the
-			//isGenericMethod name sets above.
-			static const std::map<std::string, size_t> kListMethodArities = {
-				{"add", 1}, {"get", 1}, {"set", 2}, {"length", 0},
-				{"removeAt", 1}, {"indexOf", 1}, {"contains", 1},
-				{"clear", 0}, {"toString", 0},
-			};
-			static const std::map<std::string, size_t> kDictMethodArities = {
-				{"set", 2}, {"get", 1}, {"containsKey", 1}, {"remove", 1},
-				{"clear", 0}, {"count", 0}, {"keys", 0}, {"toString", 0},
-			};
-			static const std::map<std::string, size_t> kFuncMethodArities = {
-				{"toString", 0},
-			};
-			const auto& arities = (baseName == "List")
-				? kListMethodArities
-				: (baseName == "Dict") ? kDictMethodArities
-					: kFuncMethodArities;
-			auto arityIt = arities.find(name);
-			if (arityIt != arities.end() && ArgCountOf(invoke) != arityIt->second)
-			{
-				m_Env.Log(CLL_Error, invoke.Location(),
-					"Built-in method '%s' called with the wrong number of arguments.",
-					name.c_str());
-				m_pContext = pSavedContext;
-				return;
-			}
-			m_pContext = pSavedContext;
-			RemoveFlags(ERF_SearchInParentOnly);
-			ResolveExpressionList(invoke.Params());
-			pInnerExpr->AddFlags(NF_Resolved);
-			SnField* pResultField = nullptr;
-			auto typeArgs = GetGenericTypeArgs(pGenClass);
-			//Phase 13 (D11 site 6, review round-1 F3): built-in container
-			//methods dispatch by name — no overload set is ever scored, so a
-			//pending function reference in an argument never meets a formal
-			//and was rejected. Bind it here against the container's type
-			//argument at the value position. Value positions by (base,
-			//method): List add/indexOf/contains arg 0 → T; List set arg 1 → T
-			//(arg 0 is the int index); Dict get/containsKey/remove arg 0 → K;
-			//Dict set arg 1 → V (arg 0 is the key).
-			{
-				int elemSlot = -1;
-				size_t valArg = 0;
-				if (baseName == "List"
-					&& (name == "add" || name == "indexOf"
-						|| name == "contains"))
-					elemSlot = 0;
-				else if (baseName == "List" && name == "set")
-				{
-					elemSlot = 0;
-					valArg = 1;
-				}
-				else if (baseName == "Dict"
-					&& (name == "get" || name == "containsKey"
-						|| name == "remove"))
-					elemSlot = 0;
-				else if (baseName == "Dict" && name == "set")
-				{
-					elemSlot = 1;
-					valArg = 1;
-				}
-				//0.7.3 B (T11): STORE value positions (List add/set value,
-				//Dict set value) admit through the cast table — the same
-				//choke point as subscript stores. Without this gate a
-				//mismatched value compiled and stored raw bits (an int into
-				//List<float> read back as a denormal, an array handle into
-				//List<int> into a primitive-traced slot). Read positions
-				//(get/indexOf/contains/containsKey/remove) probe by equality
-				//and stay ungated.
-				bool isStoreValue = (baseName == "List"
-						&& (name == "add" || name == "set"))
-					|| (baseName == "Dict" && name == "set");
-				if (elemSlot >= 0
-					&& typeArgs.size() > static_cast<size_t>(elemSlot)
-					&& typeArgs[elemSlot])
-				{
-					//The value-position wrap is DEFERRED past the Params()
-					//walk: Params() aliases invoke.Children() (typed-slot
-					//dual storage), and FixupExprType's RemoveChildFrom
-					//ERASES (frees) the arg's list cell — wrapping inside
-					//the range-for leaves its saved iterator dangling
-					//(heap-use-after-free on ++; manifests intermittently
-					//as SEGV, an endless loop, or a lucky pass, depending
-					//on the freed cell's contents). The binds above are
-					//safe in-loop: they never touch the child list.
-					SnExpression* pWrapValue = nullptr;
-					//Dict.set also admits its KEY argument (arg 0 against
-					//K) through the same cast table: the key is stored
-					//when absent, and an ungated mismatched key corrupted
-					//the key-slot invariant (DictKeysEqual compares by the
-					//declared kind). Read positions (get/containsKey/
-					//remove) stay ungated per the read/write split.
-					SnExpression* pWrapKey = nullptr;
-					size_t argIdx = 0;
-					for (auto &arg : invoke.Params())
-					{
-						SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
-							? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
-						if (argIdx == valArg)
-						{
-							if (IsUnboundFuncRef(*pValue))
-							{
-								if (!BindFuncRefToExpected(m_Env,
-									*static_cast<SnIdentifierExpr*>(pValue),
-									typeArgs[elemSlot]))
-									return;
-							}
-							else if (IsUnboundMemberFuncRef(*pValue))
-							{
-								if (!BindMemberFuncRefToExpected(m_Env,
-									*static_cast<SnMemberExpr*>(pValue),
-									typeArgs[elemSlot]))
-									return;
-							}
-							else if (isStoreValue && pValue->IsResolved()
-								&& pValue->EvalDataType())
-							{
-								pWrapValue = pValue;
-							}
-						}
-						else if (baseName == "Dict" && name == "set"
-							&& argIdx == 0 && typeArgs[0]
-							&& pValue->IsResolved()
-							&& pValue->EvalDataType())
-						{
-							pWrapKey = pValue;
-						}
-						++argIdx;
-					}
-					if (pWrapKey)
-					{
-						//Same deferred-wrap discipline as the value:
-						//wrapping inside the range-for would leave its
-						//saved iterator dangling.
-						auto keyCast = GetCastInfo(
-							pWrapKey->EvalDataType(), typeArgs[0]);
-						auto iKey = invoke.Children().find(pWrapKey);
-						FixupExprType(iKey, keyCast);
-					}
-					if (pWrapValue)
-					{
-						//The element type-arg is the interned
-						//token for array elements, so the cast
-						//table sees full type identity: Same/Box/
-						//Auto wrap transparently under codegen's
-						//per-method boxing plan, None rejects.
-						auto castInfo = GetCastInfo(
-							pWrapValue->EvalDataType(),
-							typeArgs[elemSlot]);
-						auto iArg = invoke.Children().find(pWrapValue);
-						FixupExprType(iArg, castInfo);
-					}
-				}
-			}
-
-			if (baseName == "List" && name == "get") {
-				//Return type = T (typeArgs[0]).
-				if (!typeArgs.empty() && typeArgs[0]) {
-					snMember.EvalDataType(typeArgs[0]);
-					pResultField = typeArgs[0];
-				}
-			} else if (baseName == "Dict" && name == "get") {
-				//Return type = V (typeArgs[1]).
-				if (typeArgs.size() > 1 && typeArgs[1]) {
-					snMember.EvalDataType(typeArgs[1]);
-					pResultField = typeArgs[1];
-				}
-			} else if (
-				(baseName == "List"
-					&& (name == "length" || name == "indexOf" || name == "contains"))
-				|| (baseName == "Dict"
-					&& (name == "containsKey" || name == "remove" || name == "count"))
-			) {
-				auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
-				snMember.EvalDataType(pInt);
-				pResultField = pInt;
-			} else if (baseName == "Dict" && name == "keys") {
-				//Phase 8e-5: Dict.Keys() returns List<K> where K = typeArgs[0].
-				//Synthesize a List<K> generic instantiation so foreach lowering
-				//and codegen's per-method boxing plan see the right element
-				//type. 0.7.3 B: an array-typed K flows as the interned token,
-				//so the re-cast keeps `List<int[]> ks = d.keys()` distinct
-				//from List<int> by pointer identity — no flag carry needed.
-				if (!typeArgs.empty() && typeArgs[0]) {
-					std::vector<SnField*> listArgs{ typeArgs[0] };
-					auto* pListClass = GetGenericClassDecl("List", listArgs,
-						{}, pInnerExpr->Location());
-					if (pListClass) {
-						//SnClassDecl IS-A SnField, so it can serve as EvalDataType.
-						snMember.EvalDataType(pListClass);
-						pResultField = pListClass;
-					}
-				}
-			} else if (name == "toString") {
-				//Phase 9b-pre: List/Dict toString() returns string.
-				auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
-				snMember.EvalDataType(pStr);
-				pResultField = pStr;
-			}
-			// Set m_pField directly (not via ResolveFieldExprAs
-			// which would overwrite EvalDataType with SnType).
-			// Needed so IsDataExpr() doesn't crash when chained
-			// (e.g. lst.Get(0).length()).
-			if (pResultField)
-				snMember.m_pField = pResultField;
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-			m_pContext = pSavedContext;
-			return;
-		}
-	}
-
-	//Phase 9d: built-in Exception class field access (e.message, e.backtrace).
-	//The synthetic SnClassDecl has no real member fields, so resolve by name.
-	//Field offsets are hard-coded in VmBackend::FindClassFieldOffset:
-	//  message  → slot[1] (offset 4)
-	//  backtrace → slot[2] (offset 8)
-	//This also handles user subclasses of Exception — walk SuperClass()
-	//chain to detect Exception ancestry.
-	if (m_pContext && m_pContext->Kind() == NK_ClassDecl
-		&& pInnerExpr->Kind() == NK_IdentifierExpr)
-	{
-		auto* pClass = static_cast<SnClassDecl*>(m_pContext);
-		//Walk SuperClass chain looking for a built-in Exception class.
-		bool isExceptionSubclass = false;
-		for (SnClassDecl* pWalk = pClass; pWalk; ) {
-			if (pWalk->IsBuiltinClass()
-				&& IsBuiltinExceptionClassName(pWalk->Name())) {
-				isExceptionSubclass = true;
-				break;
-			}
-			pWalk = pWalk->SuperClass();
-		}
-		if (isExceptionSubclass) {
-			auto& innerId = static_cast<SnIdentifierExpr&>(*pInnerExpr);
-			const auto& fieldName = innerId.Name();
-			SnField* pResultField = nullptr;
-			if (fieldName == "message") {
-				pResultField = SnBuiltinDataType::InstanceOf(NK_String);
-			} else if (fieldName == "backtrace") {
-				//backtrace is List<string> — synthesize the generic instantiation.
-				auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
-				std::vector<SnField*> listArgs{ pStr };
-				pResultField = GetGenericClassDecl("List", listArgs, {},
-					pInnerExpr->Location());
-			}
-			if (pResultField) {
-				innerId.AddFlags(NF_Resolved);
-				snMember.EvalDataType(pResultField);
-				snMember.m_pField = pResultField;
-				snMember.AddFlags(NF_Resolved);
-				BindArrayTypeToken(snMember);
-				m_pContext = pSavedContext;
-				return;
-			}
-		}
-	}
-
-	//Phase 9e (pre-existing gap exposed by out params): a method invoke's
-	//ARGUMENTS must resolve in the caller's scope. m_pContext is the
-	//receiver's class here (set for the callee lookup) and
-	//ERF_SearchInParentOnly hides the calling function's locals — so
-	//`c.f(v)` failed with "Cannot resolve the field: v". Existing tests
-	//never hit this because they only pass literals. Resolve the args in
-	//the caller scope first (mirroring the stream/generic early-return
-	//paths above), then re-enter the class scope so Access(SnInvokeExpr)
-	//finds the callee; its ResolveExpressionList skips resolved params.
-	if (pInnerExpr->Kind() == NK_InvokeExpr)
-	{
-		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-		auto* pClassCtx = m_pContext;
-		m_pContext = pSavedContext;
-		RemoveFlags(ERF_SearchInParentOnly);
-		ResolveExpressionList(invoke.Params());
-		m_pContext = pClassCtx;
-		AddFlags(ERF_SearchInParentOnly);
-	}
+	ResolveInvokeArgsInCallerScope(pInnerExpr, pSavedContext);
 
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())
-	{
-		//Phase 13 Step 2: a delegate member invoke (obj.cb(x)) resolved
-		//the invoke against the FIELD's Func signature — the member's type
-		//is the invoke's own return type. ResolveFieldExprAs would instead
-		//re-type the member as the delegate VALUE's declared type
-		//(Func<...>), masking the call result at every consumer.
-		if (pInnerExpr->Kind() == NK_InvokeExpr
-			&& pInnerExpr->Field()
-			&& pInnerExpr->Field()->Kind() != NK_Function)
-		{
-			snMember.m_pField = pInnerExpr->Field();
-			if (pInnerExpr->EvalDataType())
-				snMember.EvalDataType(pInnerExpr->EvalDataType());
-			snMember.AddFlags(NF_Resolved);
-			BindArrayTypeToken(snMember);
-		}
-		else
-		{
-			ResolveFieldExprAs(snMember, pInnerExpr->Field());
-			//Plain member-field path: the shared helper above sets NF_Resolved internally.
-			BindArrayTypeToken(snMember);
-		}
-	}
+		FinishResolvedMember(snMember, pInnerExpr);
 
 	m_pContext = pSavedContext;
 }
