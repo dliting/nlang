@@ -24,10 +24,11 @@ cross-module imports have no id problems.
 - string methods use the `string.equals` ABI: receiver string handle at
   `callParamBase[0]`, args from slot 1.
 
-**VM dispatch chain**: `ExecuteIntrinsic` (VmExecutor.cpp) delegates to one
-member function per family TU; each returns `false` when the id is not its
-own and the chain falls through — math → io → string → fs → unknown-id
-throw. Each family is independently extensible in its own TU.
+**VM dispatch chain**: `ExecuteIntrinsic` (VmExecutorIntrinsics.cpp)
+delegates to one member function per family TU; each returns `false` when
+the id is not its own and the chain falls through — ByteStream →
+FileStream → inline Object-protocol arms → math → io → string → fs →
+unknown-id throw. Each family is independently extensible in its own TU.
 
 **Intrinsic id allocation** (CompiledModule.h). Blocks are contiguous and
 statically bound to the StdLib.h tables on both sides (every entry's id lies

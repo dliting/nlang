@@ -11,8 +11,8 @@ VM 的算术指令按具体类型编码（`OP_Add_i32`、`OP_Add_f32` 等变体�
 `string + string → string`（仅拼接——string 上的其他运算是编译错
 误）。
 
-**resolver**（`ExprResolver.cpp` 的 `Access(SnBinaryExpr&)` else 分
-支）：
+**resolver**（`ExprResolverBinary.cpp` 的
+`Access(SnBinaryExpr&)`）：
 1. 按上述规则计算 T_result（string 仅在 OP_Add 时短路为 NK_String；
    算术运算只要有 float 操作数就偏向 NK_Float；否则 NK_Int32）。
 2. 设置 `sn.EvalDataType(T_result)`。

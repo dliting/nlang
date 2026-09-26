@@ -13,7 +13,7 @@ op. Promotion rules: `int OP int → int`; `int OP float` / `float OP int
 → float`; `float OP float → float`; `string + string → string` (concat
 only — other ops on string are compile errors).
 
-**Resolver** (`ExprResolver.cpp` `Access(SnBinaryExpr&)` else branch):
+**Resolver** (`ExprResolverBinary.cpp` `Access(SnBinaryExpr&)`):
 1. Compute T_result per the rules above (string short-circuits to
    NK_String only for OP_Add; arithmetic prefers NK_Float if either
    operand is float; otherwise NK_Int32).

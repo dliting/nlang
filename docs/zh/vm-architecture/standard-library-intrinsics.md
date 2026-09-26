@@ -21,10 +21,10 @@ NLang 函数体，也不占模块的函数表。本页说明这类调用如何�
 - 字符串方法沿用 `string.equals` 的 ABI：接收者字符串句柄在
   `callParamBase[0]`，实参从槽 1 起。
 
-**VM 分派链**：`ExecuteIntrinsic`（VmExecutor.cpp）委托给每个家族
-TU 的一个成员函数；id 不归其管时返回 `false`，链条继续穿透——math
-→ io → string → fs → 未知 id 抛错。每个家族在自己的 TU 里独立扩
-展。
+**VM 分派链**：`ExecuteIntrinsic`（VmExecutorIntrinsics.cpp）委托给
+每个家族 TU 的一个成员函数；id 不归其管时返回 `false`，链条继续穿
+透——ByteStream → FileStream → 内联的 Object 协议臂 → math → io
+→ string → fs → 未知 id 抛错。每个家族在自己的 TU 里独立扩展。
 
 **内建函数 id 分配**（CompiledModule.h）。各块连续，且两侧都与
 StdLib.h 的表静态绑定（每个条目的 id 都落在自己块内，条目数 == 块
