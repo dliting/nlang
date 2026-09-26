@@ -239,6 +239,14 @@ private:
     //collection formatters for class-typed elements.
     std::string InvokeVirtualToString(int32_t thisHeapIdx);
 
+    //Execution half of InvokeVirtualToString for a resolved override:
+    //synthetic 4-byte this-only frame, intrinsic dispatch via
+    //ExecuteIntrinsic, native records refused (no marshalling), plain
+    //methods through ExecuteFunction. Returns the interned result
+    //string (StrVal flattens a cons chain on first read).
+    std::string CallToStringOverride(const CompiledFunction& callee,
+        int32_t thisHeapIdx, int32_t classIdx);
+
     //Phase 8d — polymorphism check for class-typed deserialization.
     //Walks superClassIdx chain. Returns true if actualIdx is declaredIdx
     //or a subclass thereof.
@@ -348,6 +356,25 @@ private:
     //user-parameter slot back to the caller (reversing the shift for
     //bound handles).
     void ExecuteDelegateCall(const std::vector<int32_t>& handle,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
+        uint32_t outMask);
+
+    //Delegate-target resolution half of ExecuteDelegateCall: virtual
+    //handles resolve by name on the receiver's runtime class (override
+    //chain), static handles are a range-checked functions[] index.
+    int ResolveDelegateTarget(const std::vector<int32_t>& handle);
+
+    //Free-function delegate ABI (identical to OP_CallFunc, natives
+    //included); the out write-back copies slots unshifted.
+    void CallDelegateFree(const CompiledFunction& callee,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
+        uint32_t outMask);
+
+    //Bound-method delegate ABI: the captured receiver rides at callee
+    //slot 0, caller args shift right by one; the out write-back reads
+    //frame slot i+1 and stages back to callParamBase+i, reversing the
+    //shift.
+    void CallDelegateBound(const CompiledFunction& callee, int32_t thisIdx,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
         uint32_t outMask);
 

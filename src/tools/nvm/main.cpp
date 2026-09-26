@@ -2,6 +2,9 @@
 #include "VmExecutor.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
+#ifdef _WIN32
+#include <windows.h>  //SetErrorMode/ExitProcess (was transitive via CrashReporter.h)
+#endif
 #include <nlang_version.h>  // generated from the repo VERSION file
 #ifdef _WIN32
 #include <crtdbg.h>

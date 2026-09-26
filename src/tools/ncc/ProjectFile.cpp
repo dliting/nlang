@@ -26,6 +26,51 @@ static std::string SourceKey(const fs::path& abs) {
     return key;
 }
 
+//Header half of Load: reset `out` and read the <Project> attributes
+//(name defaults to the file stem, outputDir may be empty).
+static void ParseProjectHeader(const tinyxml2::XMLElement* root,
+    const fs::path& proj, ProjectFile& out) {
+    out = ProjectFile();
+    out.projectDir = fs::absolute(proj).parent_path().string();
+    out.name = root->Attribute("name") ? root->Attribute("name") : "";
+    if (out.name.empty()) {
+        //Default to the file stem ("hello.nproj" -> "hello").
+        out.name = proj.stem().string();
+    }
+    out.outputDir = root->Attribute("outputDir")
+        ? root->Attribute("outputDir") : "";
+}
+
+//<Sources> half of Load: every <File path=...> resolved absolute and
+//deduplicated (SourceKey). False after filling errorMessage on the
+//first bad entry (missing path / duplicate / no files at all).
+static bool CollectSourceFiles(const tinyxml2::XMLElement* sources,
+    const std::string& projectPath, ProjectFile& out,
+    std::string& errorMessage) {
+    std::set<std::string> seen;  //duplicate entries are a user mistake
+    for (const tinyxml2::XMLElement* file = sources->FirstChildElement("File");
+         file; file = file->NextSiblingElement("File")) {
+        const char* path = file->Attribute("path");
+        if (!path || !*path) {
+            errorMessage = "<File> entry without a path attribute in "
+                + projectPath;
+            return false;
+        }
+        fs::path abs = fs::absolute(fs::path(out.projectDir) / path)
+            .lexically_normal();
+        if (!seen.insert(SourceKey(abs)).second) {
+            errorMessage = "duplicate source entry: " + abs.string();
+            return false;
+        }
+        out.sources.push_back(abs.string());
+    }
+    if (out.sources.empty()) {
+        errorMessage = "project has no source files: " + projectPath;
+        return false;
+    }
+    return true;
+}
+
 bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
                        std::string& errorMessage) {
     fs::path proj(projectPath);
@@ -48,15 +93,7 @@ bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
         return false;
     }
 
-    out = ProjectFile();
-    out.projectDir = fs::absolute(proj).parent_path().string();
-    out.name = root->Attribute("name") ? root->Attribute("name") : "";
-    if (out.name.empty()) {
-        //Default to the file stem ("hello.nproj" -> "hello").
-        out.name = proj.stem().string();
-    }
-    out.outputDir = root->Attribute("outputDir")
-        ? root->Attribute("outputDir") : "";
+    ParseProjectHeader(root, proj, out);
 
     const tinyxml2::XMLElement* sources = root->FirstChildElement("Sources");
     if (!sources) {
@@ -71,29 +108,7 @@ bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
         return false;
     }
 
-    std::set<std::string> seen;  //duplicate entries are a user mistake
-    for (const tinyxml2::XMLElement* file = sources->FirstChildElement("File");
-         file; file = file->NextSiblingElement("File")) {
-        const char* path = file->Attribute("path");
-        if (!path || !*path) {
-            errorMessage = "<File> entry without a path attribute in "
-                + projectPath;
-            return false;
-        }
-        fs::path abs = fs::absolute(fs::path(out.projectDir) / path)
-            .lexically_normal();
-        if (!seen.insert(SourceKey(abs)).second) {
-            errorMessage = "duplicate source entry: " + abs.string();
-            return false;
-        }
-        out.sources.push_back(abs.string());
-    }
-    if (out.sources.empty()) {
-        errorMessage = "project has no source files: " + projectPath;
-        return false;
-    }
-
-    return true;
+    return CollectSourceFiles(sources, projectPath, out, errorMessage);
 }
 
 } //namespace nlang

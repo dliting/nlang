@@ -55,6 +55,54 @@ std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
     return "method <invalid>";
 }
 
+void VmExecutor::OpFunc_to_str(uint8_t* pResult) {
+    //Accumulator-shaped like OP_Array_to_str: the handle comes in
+    //via pResult, the interned string index goes back out through
+    //pResult. Direct conversion paths bypass the member-dispatch
+    //NPE site, so guard the null sentinel here.
+    int32_t heapIdx;
+    std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
+    std::string s;
+    if (heapIdx <= 0) {
+        s = "<null>";
+    } else if (static_cast<size_t>(heapIdx) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Func) {
+        throw std::runtime_error(
+            "NLang VM: func_to_str on stale or non-function value");
+    } else {
+        s = FormatFuncHandle(heapIdx);
+    }
+    int32_t handle = MintNewString(std::move(s));
+    std::memcpy(pResult, &handle, sizeof(handle));
+}
+
+void VmExecutor::OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op) {
+    bool bNeg = (op == OpCode::OP_Ne_func);
+    uint16_t lhs = reader.ReadUint16();
+    uint16_t rhs = reader.ReadUint16();
+    int32_t idxA, idxB;
+    std::memcpy(&idxA, locals + lhs, sizeof(idxA));
+    std::memcpy(&idxB, locals + rhs, sizeof(idxB));
+    //Heap index 0 is the null sentinel - reading its slots is UB,
+    //so null participates as plain index comparison.
+    bool bEqual;
+    if (idxA <= 0 || idxB <= 0) {
+        bEqual = (idxA == idxB);
+    } else if (static_cast<size_t>(idxA) >= m_structHeap.size()
+        || static_cast<size_t>(idxB) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(idxA)] != RTK_Func
+        || m_slotKinds[static_cast<size_t>(idxB)] != RTK_Func) {
+        throw std::runtime_error(
+            "NLang VM: function equality on a stale non-function value");
+    } else {
+        const auto& a = m_structHeap[static_cast<size_t>(idxA)];
+        const auto& b = m_structHeap[static_cast<size_t>(idxB)];
+        bEqual = (a[0] == b[0] && a[1] == b[1] && a[2] == b[2]);
+    }
+    int32_t r = ((bEqual != bNeg) ? 1 : 0);
+    std::memcpy(locals + lhs, &r, sizeof(r));
+}
+
 std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(
@@ -191,41 +239,8 @@ std::string VmExecutor::FormatDict(int32_t handle, int depth) {
     return result;
 }
 
-std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
-    //Mirror OP_CallMethod's vtable walk: search class hierarchy for
-    //a method named "toString". If found, call it; if the resolved
-    //function is an intrinsic (Object.toString default or user override
-    //on List/Dict), dispatch via ExecuteIntrinsic. If not found, fall
-    //back to "<ClassName>" placeholder (shouldn't happen — every class
-    //inherits Object.toString).
-    if (thisHeapIdx <= 0
-        || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
-        return "<null>";
-    int32_t classIdx = ReceiverClassIndex(thisHeapIdx);
-    if (classIdx < 0
-        || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
-        return "<unknown>";
-    int funcIndex = -1;
-    int searchClassIdx = classIdx;
-    while (searchClassIdx >= 0
-        && searchClassIdx < static_cast<int>(m_currModule->classes.size())) {
-        const auto& cc =
-            m_currModule->classes[static_cast<size_t>(searchClassIdx)];
-        for (uint16_t idx : cc.methodIndices) {
-            if (idx < m_currModule->functions.size()
-                && m_currModule->functions[idx].name == "toString") {
-                funcIndex = static_cast<int>(idx);
-                break;
-            }
-        }
-        if (funcIndex >= 0) break;
-        searchClassIdx = cc.superClassIdx;
-    }
-    if (funcIndex < 0)
-        return std::string("<") +
-            m_currModule->classes[static_cast<size_t>(classIdx)].name + ">";
-    const CompiledFunction& callee =
-        m_currModule->functions[static_cast<size_t>(funcIndex)];
+std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
+    int32_t thisHeapIdx, int32_t classIdx) {
     //Synthetic 4-byte locals frame: just thisHeapIdx at offset 0.
     alignas(int32_t) uint8_t paramFrame[4] = {0};
     std::memcpy(paramFrame, &thisHeapIdx, sizeof(thisHeapIdx));
@@ -254,6 +269,31 @@ std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
     //read; the all-StrValCopy era re-copied the whole unflattened chain
     //on every toString call.
     return StrVal(strIdx);
+}
+
+std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
+    //Mirror OP_CallMethod's vtable walk: search class hierarchy for
+    //a method named "toString". If found, call it; if the resolved
+    //function is an intrinsic (Object.toString default or user override
+    //on List/Dict), dispatch via ExecuteIntrinsic. If not found, fall
+    //back to "<ClassName>" placeholder (shouldn't happen — every class
+    //inherits Object.toString).
+    if (thisHeapIdx <= 0
+        || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
+        return "<null>";
+    int32_t classIdx = ReceiverClassIndex(thisHeapIdx);
+    if (classIdx < 0
+        || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
+        return "<unknown>";
+    //Same hierarchy walk as OP_CallMethod (FindMethodByName shares it);
+    //the "toString" lookup below replaced a local copy of the loop.
+    int funcIndex = FindMethodByName(classIdx, "toString");
+    if (funcIndex < 0)
+        return std::string("<") +
+            m_currModule->classes[static_cast<size_t>(classIdx)].name + ">";
+    return CallToStringOverride(
+        m_currModule->functions[static_cast<size_t>(funcIndex)],
+        thisHeapIdx, classIdx);
 }
 
 } // namespace nlang

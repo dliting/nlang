@@ -43,6 +43,49 @@ bool ContainsValue(const std::vector<std::string>& list,
 	return std::find(list.begin(), list.end(), value) != list.end();
 }
 
+//Module path = the source path made relative to the project root and
+//dotted ("utils/helper.n" -> "utils.helper"). Outside the root (or no
+//root at all) the path degenerates to the file stem.
+std::string DeriveModulePath(const std::filesystem::path &filePath,
+	const std::string &projectDir)
+{
+	std::string modulePath;
+	if (!projectDir.empty())
+	{
+		std::error_code fsError;
+		const std::filesystem::path projectRoot =
+			std::filesystem::path(projectDir).lexically_normal();
+		const std::filesystem::path relativePath = std::filesystem::relative(
+			filePath, projectRoot, fsError);
+		if (!fsError && !relativePath.empty() && !EscapesBaseDir(relativePath))
+			modulePath = DotifyModulePath(relativePath);
+	}
+	if (modulePath.empty())
+		modulePath = filePath.stem().string();
+	return modulePath;
+}
+
+//Reserved-name gate (spec §5.2): every dotted segment must avoid the
+//built-in namespace names — a project directory named "io" would
+//otherwise make its modules unreachable through `import io.*;`
+//forever. Returns the first colliding segment, or an empty string.
+std::string FindReservedSegment(const std::string &modulePath)
+{
+	size_t searchFrom = 0;
+	for (;;)
+	{
+		const size_t dotPos = modulePath.find('.', searchFrom);
+		const std::string segment = modulePath.substr(searchFrom,
+			dotPos == std::string::npos ? std::string::npos
+				: dotPos - searchFrom);
+		if (IsStdLibNamespaceName(segment))
+			return segment;
+		if (dotPos == std::string::npos)
+			return std::string();
+		searchFrom = dotPos + 1;
+	}
+}
+
 } //namespace
 
 std::string ModuleNotFoundText(const std::string& moduleName)
@@ -60,7 +103,6 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 	//AddExternalModule; a drift here would silently mis-own symbols.
 	assert(moduleIndex == m_modules.size());
 
-	std::error_code fsError;
 	const std::filesystem::path filePath =
 		std::filesystem::path(tu.FilePath()).lexically_normal();
 
@@ -78,42 +120,13 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 		return false;
 	}
 
-	//Module path = the source path made relative to the project root
-	//and dotted ("utils/helper.n" -> "utils.helper"). Outside the root
-	//(or no root at all) the path degenerates to the file stem.
-	std::string modulePath;
-	if (!projectDir.empty())
+	const std::string modulePath = DeriveModulePath(filePath, projectDir);
+	const std::string reservedSegment = FindReservedSegment(modulePath);
+	if (!reservedSegment.empty())
 	{
-		const std::filesystem::path projectRoot =
-			std::filesystem::path(projectDir).lexically_normal();
-		const std::filesystem::path relativePath = std::filesystem::relative(
-			filePath, projectRoot, fsError);
-		if (!fsError && !relativePath.empty() && !EscapesBaseDir(relativePath))
-			modulePath = DotifyModulePath(relativePath);
-	}
-	if (modulePath.empty())
-		modulePath = filePath.stem().string();
-
-	//Reserved-name gate (spec §5.2): every dotted segment must avoid the
-	//built-in namespace names — a project directory named "io" would
-	//otherwise make its modules unreachable through `import io.*;`
-	//forever.
-	size_t searchFrom = 0;
-	for (;;)
-	{
-		const size_t dotPos = modulePath.find('.', searchFrom);
-		const std::string segment = modulePath.substr(searchFrom,
-			dotPos == std::string::npos ? std::string::npos
-				: dotPos - searchFrom);
-		if (IsStdLibNamespaceName(segment))
-		{
-			outErrors.push_back("Module path segment '" + segment +
-				"' collides with a built-in namespace.");
-			return false;
-		}
-		if (dotPos == std::string::npos)
-			break;
-		searchFrom = dotPos + 1;
+		outErrors.push_back("Module path segment '" + reservedSegment +
+			"' collides with a built-in namespace.");
+		return false;
 	}
 
 	ModuleEntry entry;
@@ -174,6 +187,90 @@ bool ModuleRegistry::IsProjectModule(const std::string& dottedPath) const
 	return false;
 }
 
+//Wildcard arm of ApplyImportSpec (D11 union semantics). Evaluated
+//BEFORE IsProjectModule in the caller so a root-level namesake
+//("utils.n" beside "utils/helper.n") cannot silently degrade the
+//wildcard to exact-only and strand the subtree outside the gate.
+void ModuleRegistry::ApplyWildcardImport(const std::string& name,
+	ImportGate& gate, std::vector<std::string>& outErrors) const
+{
+	//Recursive prefix over PROJECT module paths (D5): external names
+	//are single-segment, so a wildcard never reaches one (§3.3). The
+	//importing TU's own path counts toward the match surface.
+	const std::string prefix = name + '.';
+	const bool exactExists = IsProjectModule(name);
+	bool prefixMatched = false;
+	for (const ModuleEntry& entry : m_modules)
+	{
+		if (!entry.isExternal && entry.path.rfind(prefix, 0) == 0)
+		{
+			prefixMatched = true;
+			break;
+		}
+	}
+	//D10: an empty union (no exact module and no prefix match) is
+	//almost certainly a typo, not a silent no-op.
+	if (!exactExists && !prefixMatched)
+	{
+		outErrors.push_back("No project modules matched import '"
+			+ name + ".*'. Check the project Sources list.");
+		return;
+	}
+	if (exactExists && !ContainsValue(gate.exact, name))
+		gate.exact.push_back(name);
+	if (prefixMatched && !ContainsValue(gate.wildcards, prefix))
+		gate.wildcards.push_back(prefix);
+}
+
+//BuildGate's per-spec arm: §5.1 priority (builtin → project module →
+//external .nmod), delegating the wildcard union to ApplyWildcardImport.
+void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
+	ImportGate& gate, std::vector<std::string>& externalOut,
+	std::vector<std::string>& outErrors) const
+{
+	const std::string name = spec.DottedName();
+	//D10: a wildcard on a builtin name is rejected BEFORE the
+	//builtin branch — builtins are namespaces, not module trees,
+	//and a silently eaten '*' would teach the wrong model.
+	if (spec.wildcard && IsStdLibNamespaceName(name))
+	{
+		outErrors.push_back("Wildcard import cannot target builtin "
+			"namespace '" + name + "'. Use 'import " + name + ";'.");
+		return;
+	}
+	if (IsStdLibNamespaceName(name))
+	{
+		if (!ContainsValue(gate.builtins, name))
+			gate.builtins.push_back(name);
+		return;
+	}
+	if (spec.wildcard)
+	{
+		ApplyWildcardImport(name, gate, outErrors);
+		return;
+	}
+	if (IsProjectModule(name))
+	{
+		if (!ContainsValue(gate.exact, name))
+			gate.exact.push_back(name);
+		return;
+	}
+	//External .nmod names are single-segment: record the candidate
+	//for the loader and open the gate optimistically — if the
+	//.nmod fails to load, the build aborts right after.
+	if (name.find('.') == std::string::npos)
+	{
+		if (!ContainsValue(gate.exact, name))
+			gate.exact.push_back(name);
+		if (!ContainsValue(externalOut, name))
+			externalOut.push_back(name);
+		return;
+	}
+	//A dotted path that is no project module can never resolve
+	//(external names are single-segment, §5.3 single-file rule).
+	outErrors.push_back(ModuleNotFoundText(name));
+}
+
 bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	const std::vector<ImportSpec>& specs,
 	std::vector<std::string>& externalOut,
@@ -196,82 +293,7 @@ bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	}
 
 	for (const ImportSpec& spec : specs)
-	{
-		const std::string name = spec.DottedName();
-		//D10: a wildcard on a builtin name is rejected BEFORE the
-		//builtin branch — builtins are namespaces, not module trees,
-		//and a silently eaten '*' would teach the wrong model.
-		if (spec.wildcard && IsStdLibNamespaceName(name))
-		{
-			outErrors.push_back("Wildcard import cannot target builtin "
-				"namespace '" + name + "'. Use 'import " + name + ";'.");
-			continue;
-		}
-		//§5.1 priority: builtin → project module → external .nmod.
-		if (IsStdLibNamespaceName(name))
-		{
-			if (!ContainsValue(gate.builtins, name))
-				gate.builtins.push_back(name);
-			continue;
-		}
-		//D11: a wildcard is a UNION — the exact module "X" (when X is a
-		//project module) plus every "X."-prefixed project module.
-		//Evaluated BEFORE IsProjectModule so a root-level namesake
-		//("utils.n" beside "utils/helper.n") cannot silently degrade the
-		//wildcard to exact-only and strand the subtree outside the gate.
-		if (spec.wildcard)
-		{
-			//Recursive prefix over PROJECT module paths (D5): external
-			//names are single-segment, so a wildcard never reaches one
-			//(§3.3). The importing TU's own path counts toward the
-			//match surface.
-			const std::string prefix = name + '.';
-			const bool exactExists = IsProjectModule(name);
-			bool prefixMatched = false;
-			for (const ModuleEntry& entry : m_modules)
-			{
-				if (!entry.isExternal
-					&& entry.path.rfind(prefix, 0) == 0)
-				{
-					prefixMatched = true;
-					break;
-				}
-			}
-			//D10: an empty union (no exact module and no prefix match)
-			//is almost certainly a typo, not a silent no-op.
-			if (!exactExists && !prefixMatched)
-			{
-				outErrors.push_back("No project modules matched import '"
-					+ name + ".*'. Check the project Sources list.");
-				continue;
-			}
-			if (exactExists && !ContainsValue(gate.exact, name))
-				gate.exact.push_back(name);
-			if (prefixMatched && !ContainsValue(gate.wildcards, prefix))
-				gate.wildcards.push_back(prefix);
-			continue;
-		}
-		if (IsProjectModule(name))
-		{
-			if (!ContainsValue(gate.exact, name))
-				gate.exact.push_back(name);
-			continue;
-		}
-		//External .nmod names are single-segment: record the candidate
-		//for the loader and open the gate optimistically — if the
-		//.nmod fails to load, the build aborts right after.
-		if (name.find('.') == std::string::npos)
-		{
-			if (!ContainsValue(gate.exact, name))
-				gate.exact.push_back(name);
-			if (!ContainsValue(externalOut, name))
-				externalOut.push_back(name);
-			continue;
-		}
-		//A dotted path that is no project module can never resolve
-		//(external names are single-segment, §5.3 single-file rule).
-		outErrors.push_back(ModuleNotFoundText(name));
-	}
+		ApplyImportSpec(spec, gate, externalOut, outErrors);
 
 	if (!outErrors.empty())
 		return false;

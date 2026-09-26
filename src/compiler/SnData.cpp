@@ -177,59 +177,51 @@ bool SnFunction::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
+//Lockstep parameter-signature comparison for ConflictedWith: false as
+//soon as a position differs (different signatures = legal overloads),
+//true when every position matches. Types compare via EvalDataType —
+//the canonical resolved type node, not the per-declaration
+//SnFieldExpr. Unresolved on either side: can't determine type
+//equality, so the position counts as matching and the length walk
+//decides (matters only if called before ResolveDataTypes, e.g. from
+//MergeFrom, which intentionally lets same-count functions through for
+//DuplicateFieldChecker to catch).
+static bool ParamListsConflict(const SnFunction &funcA,
+	const SnFunction &funcB)
+{
+	auto iA		= funcA.Params().begin();
+	auto iAEnd	= funcA.Params().end();
+	auto iB		= funcB.Params().begin();
+	auto iBEnd	= funcB.Params().end();
+	while (true)
+	{
+		auto *pParamA = (iA == iAEnd ? nullptr : &(*iA));
+		auto *pParamB = (iB == iBEnd ? nullptr : &(*iB));
+
+		//Length mismatch (either side) — distinct signatures.
+		if (!pParamA || !pParamB)
+			return pParamA == pParamB;
+
+		auto *pTypeA = pParamA->EvalDataType();
+		auto *pTypeB = pParamB->EvalDataType();
+		if (pTypeA && pTypeB && pTypeA != pTypeB)
+			return false;
+
+		++iA;
+		++iB;
+	}
+}
+
 bool SnFunction::ConflictedWith(const SnField &other) const
 {
 	const bool bSameName = other.Name() == Name();
 	if (other.Kind() != NK_Function)
 		return bSameName;
 
-	auto &otherFunc		= static_cast<const SnFunction &>(other);
 	//Two functions conflict only if they have the exact same parameter
 	//types (including count). Overloads with different signatures are
 	//allowed to coexist; ambiguity is detected at the call site.
-	//
-	//We compare EvalDataType() (resolved type pointer) rather than
-	//Type() (unresolved SnFieldExpr pointer) because at the time
-	//DuplicateFieldChecker runs, types have been resolved and
-	//EvalDataType() points to the canonical type node. Two params
-	//both declared as "int" share the same EvalDataType() even though
-	//their Type() SnFieldExpr instances are distinct AST nodes.
-	auto iOther			= otherFunc.Params().begin();
-	auto iOtherEnd		= otherFunc.Params().end();
-	auto iThis			= Params().begin();
-	auto iThisEnd		= Params().end();
-	while (true)
-	{
-		auto *pThisParam = (iThis == iThisEnd ? nullptr : &(*iThis));
-		auto *pOtherParam = (iOther == iOtherEnd ? nullptr : &(*iOther));
-
-		if (pThisParam && !pOtherParam)
-			return false;
-
-		if (!pThisParam && pOtherParam)
-			return false;
-
-		if (!pThisParam && !pOtherParam)
-			return true;
-
-		//Compare resolved types. If either is unresolved (shouldn't
-		//happen after ResolveDataTypes), fall back to param count only.
-		auto *pThisType = pThisParam->EvalDataType();
-		auto *pOtherType = pOtherParam->EvalDataType();
-		if (pThisType && pOtherType) {
-			if (pThisType != pOtherType)
-				return false;
-		}
-		//If unresolved, we can't determine type equality — assume
-		//same-name params with same count might conflict. This only
-		//matters if ConflictedWith is called before ResolveDataTypes
-		//(e.g. from MergeFrom), where we intentionally allow same-count
-		//functions through and let DuplicateFieldChecker catch them later.
-
-		++iThis;
-		++iOther;
-	}
-	return true;
+	return ParamListsConflict(*this, static_cast<const SnFunction &>(other));
 }
 
 SnField *SnFunction::FindField(const std::string& sName) const

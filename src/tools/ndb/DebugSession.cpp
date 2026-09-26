@@ -96,11 +96,33 @@ void DebugSession::WaitUntilResume() {
     }
 }
 
+bool DebugSession::RunResumeCommand(const std::string& head) {
+    if (head == "c" || head == "continue") {
+        m_pController->Continue();
+        return true;
+    }
+    if (head == "s" || head == "step") {
+        m_pController->StepInto();
+        return true;
+    }
+    if (head == "n" || head == "next") {
+        m_pController->StepOver();
+        return true;
+    }
+    if (head == "f" || head == "finish") {
+        m_pController->StepOut();
+        return true;
+    }
+    return false;
+}
+
 bool DebugSession::RunCommand(const std::string& cmd) {
     size_t sp = cmd.find_first_of(" \t");
     std::string head = cmd.substr(0, sp);
     std::string arg = Trim(cmd.substr(head.size()));
 
+    if (RunResumeCommand(head))
+        return true;
     if (head == "b" || head == "break") {
         if (arg.empty())
             m_out << "Usage: b <file.n:LINE | LINE | funcName>\n";
@@ -115,18 +137,6 @@ bool DebugSession::RunCommand(const std::string& cmd) {
             m_out << "Usage: i b | i locals\n";
     } else if (head == "d" || head == "delete") {
         DoDelete(arg);
-    } else if (head == "c" || head == "continue") {
-        m_pController->Continue();
-        return true;
-    } else if (head == "s" || head == "step") {
-        m_pController->StepInto();
-        return true;
-    } else if (head == "n" || head == "next") {
-        m_pController->StepOver();
-        return true;
-    } else if (head == "f" || head == "finish") {
-        m_pController->StepOut();
-        return true;
     } else if (head == "bt" || head == "backtrace") {
         DoBacktrace();
     } else if (head == "frame") {
@@ -174,15 +184,8 @@ void DebugSession::ReportBreakpoint(int id) {
 
 // --- commands ---
 
-void DebugSession::DoBreak(const std::string& arg) {
-    //Three address forms: <file.n:LINE>, bare LINE (selected frame's
-    //file, exact match), or function name (every same-named function
-    //— methods and free functions share the bare-name pool).
-    std::string fileSpec;
-    int lineNo = 0;
-    bool byLine = false;
-    bool exactFile = false;
-
+bool DebugSession::ParseBreakTarget(const std::string& arg,
+    std::string& fileSpec, int& lineNo, bool& byLine, bool& exactFile) {
     //rfind: Windows drive colon is in the FILE part, LINE is the tail.
     size_t colon = arg.rfind(':');
     if (colon != std::string::npos
@@ -199,9 +202,22 @@ void DebugSession::DoBreak(const std::string& arg) {
         if (fileSpec.empty()) {
             m_out << "Current frame has no source file; "
                      "use b <file.n:LINE>.\n";
-            return;
+            return false;
         }
     }
+    return true;
+}
+
+void DebugSession::DoBreak(const std::string& arg) {
+    //Three address forms: <file.n:LINE>, bare LINE (selected frame's
+    //file, exact match), or function name (every same-named function
+    //— methods and free functions share the bare-name pool).
+    std::string fileSpec;
+    int lineNo = 0;
+    bool byLine = false;
+    bool exactFile = false;
+    if (!ParseBreakTarget(arg, fileSpec, lineNo, byLine, exactFile))
+        return;
 
     if (byLine) {
         //One id per line: every anchor of the line lives under it.

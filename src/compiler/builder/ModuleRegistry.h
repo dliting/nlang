@@ -161,6 +161,19 @@ private:
 	//matched by their single-segment .nmod name only.
 	bool IsProjectModule(const std::string& dottedPath) const;
 
+	//BuildGate's per-spec arm: resolves one ImportSpec into gate
+	//entries (builtin / project / wildcard union / external candidate)
+	//or an outErrors entry. See BuildGate for the priority contract.
+	void ApplyImportSpec(const ImportSpec& spec, ImportGate& gate,
+		std::vector<std::string>& externalOut,
+		std::vector<std::string>& outErrors) const;
+
+	//Wildcard arm of ApplyImportSpec (D11 union semantics): the exact
+	//module "X" plus every "X."-prefixed project module. An empty union
+	//is reported as an error (D10) instead of a silent no-op.
+	void ApplyWildcardImport(const std::string& name, ImportGate& gate,
+		std::vector<std::string>& outErrors) const;
+
 	struct ModuleEntry
 	{
 		std::string path;      //"utils.helper" / "lib"

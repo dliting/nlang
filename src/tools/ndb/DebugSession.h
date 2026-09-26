@@ -44,6 +44,16 @@ public:
 private:
     //Command dispatch; returns true for resume commands (c/s/n/f).
     bool RunCommand(const std::string& cmd);
+    //Resume-command arm of RunCommand (c/continue, s/step, n/next,
+    //f/finish): runs the controller call and returns true; false for
+    //every other head.
+    bool RunResumeCommand(const std::string& head);
+    //Address-form arm of DoBreak: "<file.n:LINE>", bare "LINE" (the
+    //selected frame's file, exact match) or a function name (byLine
+    //left false). Returns false after reporting when a bare LINE has
+    //no file to resolve against.
+    bool ParseBreakTarget(const std::string& arg, std::string& fileSpec,
+        int& lineNo, bool& byLine, bool& exactFile);
     void ReportStop(const std::string& prefix);
     void ReportBreakpoint(int id);
     void DoBreak(const std::string& arg);
