@@ -58,31 +58,6 @@
     "reason": "signature-overload conflict check; later round"
   },
   {
-    "path": "src/compiler/builder/ExprResolverBinary.cpp",
-    "function": "ExprResolveAccessor::Access",
-    "reason": "verbatim-moved binary-expression resolution; decomposition scheduled for a later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverCast.cpp",
-    "function": "ExprResolveAccessor::CalcTypeDistance",
-    "reason": "type-distance table; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverCast.cpp",
-    "function": "ExprResolveAccessor::ComputeBindingDistance",
-    "reason": "binding-distance scoring over argument/binding pairs; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverCast.cpp",
-    "function": "ExprResolveAccessor::FixupExprType",
-    "reason": "expression-type fixup with context repair; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverCast.cpp",
-    "function": "ExprResolveAccessor::FixupParamTypesWithBindings",
-    "reason": "inferred-parameter type fixup; later round"
-  },
-  {
     "path": "src/compiler/builder/ExprResolverDelegate.cpp",
     "function": "ExprResolveAccessor::BindDelegateInvoke",
     "reason": "delegate-invoke binding; later round"

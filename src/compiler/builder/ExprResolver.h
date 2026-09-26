@@ -552,6 +552,40 @@ private:
 	*/
 	bool FixupExprType(NodeIterator &iSrcExpr, TypeCastInfo &castInfo);
 
+	/*
+	2026-09-27 decomposition of the cast/binding resolution family
+	(ExprResolverCast.cpp) — the reject/skip gates of FixupExprType, the
+	named-arg arm of FixupParamTypesWithBindings and the named array
+	diagnostic arm of ComputeBindingDistance.
+	*/
+	bool RejectIncompatibleCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
+	bool RejectArrayTokenCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
+	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
+	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
+		TypeCastInfo &castInfo);
+	void LogArrayBindingReject(const FormalBinding &b) const;
+
+	/*
+	2026-09-27 decomposition of Access(SnBinaryExpr&)
+	(ExprResolverBinary.cpp) — the compare-gate family, the logical
+	int-operand check and the arithmetic branch. The Reject-prefixed
+	helpers return true when they logged a rejection; the Check- and
+	Resolve-prefixed helpers return true when resolution may continue.
+	*/
+	bool CheckCompareOperands(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	bool RejectStringNonStringMix(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
+		bool lNull, bool rNull);
+	bool RejectFuncHandleMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		SnField *L, SnField *R, bool lNull, bool rNull);
+	bool RejectArrayIdentityMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		NodeKind lk, NodeKind rk, bool lNull, bool rNull);
+	void PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
+		bool lNull, bool rNull);
+	bool CheckLogicalIntOperands(SnBinaryExpr &sn);
+	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
+		SnBinaryExpr::Operator op);
+
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;
 	SnField *m_pAccessor;

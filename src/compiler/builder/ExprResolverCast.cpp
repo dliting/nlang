@@ -20,6 +20,30 @@
 namespace nlang
 {
 
+//Phase 13: distance contribution of a pending function-reference binding
+//(bare identifier or receiver-bound member form): 0 when the formal is a
+//Func type whose signature matches the referenced function exactly, -1
+//otherwise. The exact-match-only rule also closes the legacy hole where
+//the bare name's RETURN type let it bind approximately to non-Func
+//formals.
+static int FuncRefBindingDistance(const FormalBinding &b)
+{
+	SnFunction *pRef = nullptr;
+	if (IsUnboundFuncRef(*b.pCallerExpr))
+		pRef = static_cast<SnFunction*>(
+			static_cast<SnIdentifierExpr*>(b.pCallerExpr)->Field());
+	else if (IsUnboundMemberFuncRef(*b.pCallerExpr))
+		pRef = static_cast<SnFunction*>(
+			static_cast<SnIdentifierExpr*>(
+				static_cast<SnMemberExpr*>(
+					b.pCallerExpr)->Inner())->Field());
+	auto *pTgt = b.pFormal->EvalDataType();
+	if (!IsFuncTypeDecl(pTgt) || !pRef
+		|| !FuncRefMatchesDecl(*pRef, static_cast<SnClassDecl*>(pTgt)))
+		return -1;
+	return 0;
+}
+
 //Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
 //entries. B_Default contributes 0. Returns -1 if any bound entry has
 //incompatible types.
@@ -32,33 +56,10 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		if (b.kind == FormalBinding::B_Default)
 			continue;
 		assert(b.pCallerExpr && b.pFormal);
-		//Phase 13: a pending function reference binds only to a Func
-		//formal whose signature matches exactly (distance 0). This also
-		//closes the legacy hole where the bare name's RETURN type let it
-		//bind approximately to non-Func formals. Step 2 adds the
-		//receiver-bound member form (same exact-match-only rule).
-		if (IsUnboundFuncRef(*b.pCallerExpr))
+		if (IsUnboundFuncRef(*b.pCallerExpr)
+			|| IsUnboundMemberFuncRef(*b.pCallerExpr))
 		{
-			auto *pTgt = b.pFormal->EvalDataType();
-			auto *pRefFunc = static_cast<SnIdentifierExpr*>(
-				b.pCallerExpr)->Field();
-			if (!IsFuncTypeDecl(pTgt) || !pRefFunc
-				|| !FuncRefMatchesDecl(
-					*static_cast<SnFunction*>(pRefFunc),
-					static_cast<SnClassDecl*>(pTgt)))
-				return -1;
-			continue;
-		}
-		if (IsUnboundMemberFuncRef(*b.pCallerExpr))
-		{
-			auto *pTgt = b.pFormal->EvalDataType();
-			auto *pMethod = static_cast<SnIdentifierExpr*>(
-				static_cast<SnMemberExpr*>(
-					b.pCallerExpr)->Inner())->Field();
-			if (!IsFuncTypeDecl(pTgt) || !pMethod
-				|| !FuncRefMatchesDecl(
-					*static_cast<SnFunction*>(pMethod),
-					static_cast<SnClassDecl*>(pTgt)))
+			if (FuncRefBindingDistance(b) < 0)
 				return -1;
 			continue;
 		}
@@ -81,15 +82,7 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		int n = CalcTypeDistance(*pSrc, *pTgt);
 		if (n < 0)
 		{
-			//0.7.3 B: a cross-element array conversion (an int[] source
-			//against a string[] formal) verdicts -1 here — give it the
-			//named array diagnostic; the caller's generic "not
-			//compatible" alone hides the array reason.
-			if (b.pCallerExpr->IsArrayValued())
-				m_Env.Log(CLL_Error, b.pCallerExpr->Location(),
-					"Invalid conversion \"%s\": an array value only "
-					"converts to the same array type.",
-					b.pCallerExpr->ToString().c_str());
+			LogArrayBindingReject(b);
 			return -1;
 		}
 		//Phase 9e: out bindings require the exact same type — the callee
@@ -100,6 +93,19 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		nDistance += n;
 	}
 	return nDistance;
+}
+
+//0.7.3 B: a cross-element array conversion (an int[] source against a
+//string[] formal) verdicts -1 in CalcTypeDistance — give it the named
+//array diagnostic; the caller's generic "not compatible" alone hides the
+//array reason.
+void ExprResolveAccessor::LogArrayBindingReject(const FormalBinding &b) const
+{
+	if (b.pCallerExpr->IsArrayValued())
+		m_Env.Log(CLL_Error, b.pCallerExpr->Location(),
+			"Invalid conversion \"%s\": an array value only converts "
+			"to the same array type.",
+			b.pCallerExpr->ToString().c_str());
 }
 
 //Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side
@@ -129,36 +135,13 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 			continue;
 
 		//Locate the caller expr's NodeIterator inside invoke.Children().
-		//For positional bindings this finds the caller expr directly.
-		//For named bindings, the wrapper SnNamedArgExpr is in Children();
-		//its inner expr is replaced below by walking the wrapper's list.
+		//For positional bindings this finds the caller expr directly;
+		//for named bindings the wrapper SnNamedArgExpr holds it (helper).
 		auto iFound = children.find(b.pCallerExpr);
 		if (iFound == children.end())
 		{
-			//Named-arg path: pCallerExpr is inside a SnNamedArgExpr wrapper.
-			//Find the wrapper, then fix up its inner expression.
-			bool bReplaced = false;
-			for (auto it = children.begin(); it != children.end(); ++it)
-			{
-				if ((*it).Kind() == NK_NamedArgExpr)
-				{
-					auto &named = static_cast<SnNamedArgExpr&>(*it);
-					if (named.Inner() == b.pCallerExpr)
-					{
-						auto &innerChildren =
-							const_cast<SnNamedArgExpr&>(named).Children();
-						auto iInner = innerChildren.find(b.pCallerExpr);
-						if (iInner == innerChildren.end())
-							continue;
-						FixupExprType(iInner, castInfo);
-						b.pCallerExpr =
-							static_cast<SnExpression*>(&*iInner);
-						bReplaced = true;
-						break;
-					}
-				}
-			}
-			if (!bReplaced)
+			//Named-arg path: no wrapper holds it → skip the binding.
+			if (!TryFixupNamedArgBinding(invoke, b, castInfo))
 				continue;
 		}
 		else
@@ -169,6 +152,69 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 			b.pCallerExpr = static_cast<SnExpression*>(&*iFound);
 		}
 	}
+}
+
+//Named-arg arm of FixupParamTypesWithBindings: pCallerExpr sits inside a
+//SnNamedArgExpr wrapper rather than directly in Children(). Find the
+//wrapper, fix up its inner expression and repoint the binding's caller
+//pointer. False = no wrapper holds this expr (binding skipped by caller).
+bool ExprResolveAccessor::TryFixupNamedArgBinding(SnInvokeExpr &invoke,
+	FormalBinding &b, TypeCastInfo &castInfo)
+{
+	auto &children = invoke.Children();
+	for (auto it = children.begin(); it != children.end(); ++it)
+	{
+		if ((*it).Kind() != NK_NamedArgExpr)
+			continue;
+		auto &named = static_cast<SnNamedArgExpr&>(*it);
+		if (named.Inner() != b.pCallerExpr)
+			continue;
+		auto &innerChildren = const_cast<SnNamedArgExpr&>(named).Children();
+		auto iInner = innerChildren.find(b.pCallerExpr);
+		if (iInner == innerChildren.end())
+			continue;
+		FixupExprType(iInner, castInfo);
+		b.pCallerExpr = static_cast<SnExpression*>(&*iInner);
+		return true;
+	}
+	return false;
+}
+
+//Class-to-class distance: walk the source's superclass chain; the depth
+//where the target appears is the distance (direct superclass = 1).
+static int ClassInheritanceDistance(const SnClassDecl &source,
+	const SnClassDecl &target)
+{
+	auto *pParent = source.SuperClass();
+	int depth = 1;
+	while (pParent)
+	{
+		if (pParent == &target)
+			return depth;
+		pParent = pParent->SuperClass();
+		++depth;
+	}
+	return -1;
+}
+
+//Class to interface: walk source class's inheritance chain and check
+//each ancestor's implements list. Distance is 1 + inheritance depth
+//(encourage upcast to direct implementor over a deeper ancestor's
+//implementation, but still accept any depth).
+static int ClassInterfaceDistance(const SnClassDecl &source,
+	const SnInterfaceDecl &target)
+{
+	auto *pCur = &source;
+	int depth = 0;
+	while (pCur)
+	{
+		for (auto *pIface : pCur->ImplementsList())
+			if (pIface == &target)
+				return depth + 1;
+		pCur = pCur->SuperClass();
+		++depth;
+	}
+	return -1;
 }
 
 int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
@@ -185,40 +231,13 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	if (srcKind == NK_StructDecl || tgtKind == NK_StructDecl)
 		return -1;
 	if (srcKind == NK_ClassDecl && tgtKind == NK_ClassDecl)
-	{
-		if (&source == &target)
-			return 0;
-		auto *pSrc = static_cast<const SnClassDecl*>(&source);
-		auto *pParent = pSrc->SuperClass();
-		int depth = 1;
-		while (pParent)
-		{
-			if (pParent == &target)
-				return depth;
-			pParent = pParent->SuperClass();
-			++depth;
-		}
-		return -1;
-	}
-	//Class to interface: walk source class's inheritance chain and check
-	//each ancestor's implements list. Distance is 1 + inheritance depth
-	//(encourage upcast to direct implementor over a deeper ancestor's
-	//implementation, but still accept any depth).
+		return ClassInheritanceDistance(
+			static_cast<const SnClassDecl&>(source),
+			static_cast<const SnClassDecl&>(target));
 	if (srcKind == NK_ClassDecl && tgtKind == NK_InterfaceDecl)
-	{
-		auto *pSrc = static_cast<const SnClassDecl*>(&source);
-		auto *pCur = pSrc;
-		int depth = 0;
-		while (pCur)
-		{
-			for (auto *pIface : pCur->ImplementsList())
-				if (pIface == &target)
-					return depth + 1;
-			pCur = pCur->SuperClass();
-			++depth;
-		}
-		return -1;
-	}
+		return ClassInterfaceDistance(
+			static_cast<const SnClassDecl&>(source),
+			static_cast<const SnInterfaceDecl&>(target));
 	//Interface to interface: identity only (no inheritance between interfaces).
 	if (srcKind == NK_InterfaceDecl && tgtKind == NK_InterfaceDecl)
 		return (&source == &target) ? 0 : -1;
@@ -241,23 +260,17 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	return -1;
 }
 
-bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
+//0.7.3 B: a TCK_None verdict between two array tokens (different
+//element types) keeps the NAMED array diagnostic — the gate must sit
+//before the generic reject in RejectIncompatibleCast, or
+//covariant/enum-array conversions surface as the generic "Incompatible
+//type". Same-type array flow returned TCK_Same earlier; an array source
+//against a scalar target verdicts None without a token target and takes
+//the generic message; array→string coerces via TCK_Auto (runtime
+//toString dispatch, array-aware — `"${arr}"` yields "[1, 2]").
+bool ExprResolveAccessor::RejectArrayTokenCast(SnExpression &srcExpr,
 	TypeCastInfo &castInfo)
 {
-	if (castInfo.Kind() == TCK_Same)
-		return false;
-
-	assert(static_cast<SyntaxNode &>(*iSrcExpr).IsExpression());
-	auto &srcExpr = static_cast<SnExpression &>(*iSrcExpr);
-
-	//0.7.3 B: a TCK_None verdict between two array tokens (different
-	//element types) keeps the NAMED array diagnostic — the branch must
-	//sit before the generic reject below, or covariant/enum-array
-	//conversions surface as the generic "Incompatible type". Same-type
-	//array flow returned TCK_Same above; an array source against a
-	//scalar target verdicts None without a token target and takes the
-	//generic message; array→string coerces via TCK_Auto (runtime
-	//toString dispatch, array-aware — `"${arr}"` yields "[1, 2]").
 	if (castInfo.Kind() == TCK_None
 		&& srcExpr.IsArrayValued()
 		&& castInfo.Target()
@@ -267,14 +280,24 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 			"Invalid conversion \"%s\": an array value only converts "
 			"to the same array type.",
 			srcExpr.ToString().c_str());
-		return false;
+		return true;
 	}
+	return false;
+}
+
+//The three incompatibility gates of FixupExprType, in their required
+//order. True = a diagnostic was logged and the caller must stop.
+bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
+	TypeCastInfo &castInfo)
+{
+	if (RejectArrayTokenCast(srcExpr, castInfo))
+		return true;
 
 	if (castInfo.Kind() != TCK_Auto && castInfo.Kind() != TCK_Box)
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
 			"Incompatible type \"%s\".", srcExpr.ToString().c_str());
-		return false;
+		return true;
 	}
 
 	//The int→class/interface/array bridge (TCK_Auto) exists for the null
@@ -294,21 +317,40 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 			"Incompatible value \"%s\": only the null literal converts "
 			"from int to a class, interface or array type.",
 			srcExpr.ToString().c_str());
-		return false;
+		return true;
 	}
+	return false;
+}
 
-	//Null literal (KT_Null is Int32-typed) must reach the slot as the raw
-	//sentinel 0. Wrapping it destroys the null identity downstream:
-	//Int32→String emits OP_Int32_to_str ("0"), TCK_Box to Object allocates
-	//a boxed 0. Class/interface targets already treat TCK_Auto as a
-	//runtime no-op, so skipping the wrap uniformly is safe there too.
-	//Null operands in binary arithmetic/concat are rejected outright by
-	//the guard in Access(SnBinaryExpr) (Phase 11 Step 3b) — the skip here
-	//cannot leak a raw null into an arithmetic wrap anymore.
-	if (srcExpr.ContainFlags(NF_NullLiteral)
+//Null literal (KT_Null is Int32-typed) must reach the slot as the raw
+//sentinel 0. Wrapping it destroys the null identity downstream:
+//Int32→String emits OP_Int32_to_str ("0"), TCK_Box to Object allocates
+//a boxed 0. Class/interface targets already treat TCK_Auto as a
+//runtime no-op, so skipping the wrap uniformly is safe there too.
+//Null operands in binary arithmetic/concat are rejected outright by
+//the guard in Access(SnBinaryExpr) (Phase 11 Step 3b) — the skip here
+//cannot leak a raw null into an arithmetic wrap anymore.
+bool ExprResolveAccessor::SkipNullIdentityWrap(SnExpression &srcExpr,
+	TypeCastInfo &castInfo)
+{
+	return srcExpr.ContainFlags(NF_NullLiteral)
 		&& (castInfo.Kind() == TCK_Box
 			|| (castInfo.Target()
-				&& castInfo.Target()->Kind() == NK_String)))
+				&& castInfo.Target()->Kind() == NK_String));
+}
+
+bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
+	TypeCastInfo &castInfo)
+{
+	if (castInfo.Kind() == TCK_Same)
+		return false;
+
+	assert(static_cast<SyntaxNode &>(*iSrcExpr).IsExpression());
+	auto &srcExpr = static_cast<SnExpression &>(*iSrcExpr);
+
+	if (RejectIncompatibleCast(srcExpr, castInfo))
+		return false;
+	if (SkipNullIdentityWrap(srcExpr, castInfo))
 		return false;
 
 	auto pSrcParent = srcExpr.Parent();
