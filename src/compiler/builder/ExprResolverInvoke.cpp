@@ -138,13 +138,6 @@ bool ExprResolveAccessor::ValidateInvokeSyntax(const SnInvokeExpr &invoke)
 	return true;
 }
 
-//Module import visibility (F20): the first same-name function on the bare
-//pool's surface that isVisible rejects — the target the "not visible here"
-//hint names. The scan mirrors the filtered pool exactly: the GLOBAL ROOT
-//and every NAMESPACE scope, recursively; class/interface/enum members are
-//not bare-pool material, so their scopes are not scanned. With several
-//external modules declaring the same name, which one the hint names is
-
 FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings,
 	bool &rbNameMatchedImported, bool &rbVisibilityHintLogged)
