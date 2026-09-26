@@ -7,11 +7,9 @@ namespace nlang {
 
 VmExecutor::~VmExecutor() = default;
 
-int VmExecutor::Execute(const CompiledModule& module) {
-    //Reset per-run state up front: if the executor is reused (e.g. a
-    //future REPL), an early throw below must not expose stale frames
-    //or backtrace from a previous Execute() call.
-    m_currModule = &module;
+//2026-09-26 maintainability split: Execute's per-run phases. Bodies are
+//verbatim extracts; Execute keeps the original operation order.
+void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_recurseDepth = 0;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
@@ -45,15 +43,13 @@ int VmExecutor::Execute(const CompiledModule& module) {
     cacheExcClass("IndexOutOfBoundsException", &m_oobExcClassIdx);
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
     cacheExcClass("IOException",              &m_ioExcClassIdx);
+}
 
-    int mainIdx = module.FindFunction("main");
-    if (mainIdx < 0)
-        throw std::runtime_error("NLang VM: no 'main' function found");
-
-    //String objectization: eagerly materialize every module string constant
-    //as an immortal Flat object (JVM constant-pool semantics — constants
-    //live as long as the execution). Value consumers resolve constant
-    //indexes through m_constStrCache and never see raw indexes.
+//String objectization: eagerly materialize every module string constant
+//as an immortal Flat object (JVM constant-pool semantics — constants
+//live as long as the execution). Value consumers resolve constant
+//indexes through m_constStrCache and never see raw indexes.
+void VmExecutor::InitStringStore(const CompiledModule& module) {
     m_stringObjs.clear();
     m_strMarkBits.clear();
     m_strFreeList.clear();
@@ -66,12 +62,13 @@ int VmExecutor::Execute(const CompiledModule& module) {
     for (const std::string& s : module.stringConstants)
         m_constStrCache.push_back(MintConstantString(s));
     m_emptyStrHandle = MintConstantString("");
+}
 
-    //Initialize struct heap with sentinel at index 0.
+//Initialize struct heap with sentinel at index 0, plus GC state.
+void VmExecutor::InitStructHeap() {
     m_structHeap.clear();
     m_structHeap.emplace_back();  //empty slot at index 0
 
-    //Initialize GC state.
     m_slotKinds.clear();
     m_slotKinds.push_back(0);    //sentinel
     m_slotStructIdx.clear();
@@ -79,6 +76,21 @@ int VmExecutor::Execute(const CompiledModule& module) {
     m_freeList.clear();
     m_gcPending = false;
     m_callStack.clear();
+}
+
+int VmExecutor::Execute(const CompiledModule& module) {
+    //Reset per-run state up front: if the executor is reused (e.g. a
+    //future REPL), an early throw below must not expose stale frames
+    //or backtrace from a previous Execute() call.
+    m_currModule = &module;
+    ResetPerRunState(module);
+
+    int mainIdx = module.FindFunction("main");
+    if (mainIdx < 0)
+        throw std::runtime_error("NLang VM: no 'main' function found");
+
+    InitStringStore(module);
+    InitStructHeap();
 
     const CompiledFunction& mainFunc = module.functions[mainIdx];
     std::vector<uint8_t> locals(mainFunc.localsSize, 0);

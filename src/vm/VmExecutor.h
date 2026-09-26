@@ -89,6 +89,12 @@ public:
     std::string StrValCopy(int32_t handle) const;   //frozen view
 
 private:
+    //2026-09-26 maintainability split: Execute's per-run phases, in
+    //invocation order (definitions in VmExecutor.cpp).
+    void ResetPerRunState(const CompiledModule& module);
+    void InitStringStore(const CompiledModule& module);
+    void InitStructHeap();
+
     void ExecuteFunction(const CompiledFunction& func,
         uint8_t* pResult, uint8_t* locals);
 
