@@ -8,15 +8,17 @@
 namespace nlang
 {
 
-StatementResolveAccessor::SwitchFamily StatementResolveAccessor::SwitchFamilyOfKind(NodeKind kind)
+//Kind→family mapper for the switch label model — file-static: this TU's
+//duplicate-detection and family-gating arms are its only consumers.
+static StatementResolveAccessor::SwitchFamily SwitchFamilyOfKind(NodeKind kind)
 {
 	switch (kind)
 	{
 	case NK_Int32:
-	case NK_EnumDecl:	return SwitchFamily::Int;
-	case NK_Float:	return SwitchFamily::Float;
-	case NK_String:	return SwitchFamily::String;
-	default:	return SwitchFamily::None;
+	case NK_EnumDecl:	return StatementResolveAccessor::SwitchFamily::Int;
+	case NK_Float:	return StatementResolveAccessor::SwitchFamily::Float;
+	case NK_String:	return StatementResolveAccessor::SwitchFamily::String;
+	default:	return StatementResolveAccessor::SwitchFamily::None;
 	}
 }
 

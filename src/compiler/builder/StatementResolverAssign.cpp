@@ -76,7 +76,7 @@ void StatementResolveAccessor::Access(SnAssignStmt &sn)
 
 	//Init lists set their own EvalDataType and don't go through the
 	//cast-info path — skip cast fixup for them.
-	if (TryFinishInitListAssign(sn))
+	if (FinishInitListAssign(sn))
 		return;
 
 	SnField* pTargetType = nullptr;
@@ -153,7 +153,7 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 		m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
 	if (sn.Value() && !sn.Value()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
-	if (TryRejectStringBase(sn))
+	if (RejectStringBase(sn))
 		return;
 	if (sn.Value() && (IsUnboundFuncRef(*sn.Value())
 		|| IsUnboundMemberFuncRef(*sn.Value())))
@@ -202,7 +202,9 @@ bool StatementResolveAccessor::TryBindStatementFuncRef(SnExpression &expr,
 }
 
 //Assignment target type: an identifier LHS reads its bound field; a
-//member/subscript LHS has already resolved its type onto the node.
+//member Lvalue has already resolved its type onto the node. (Both
+//callers — plain and compound assign — only ever receive identifier or
+//member LHS shapes; subscript stores parse as SnSubscriptAssignStmt.)
 //False = the target has no type yet (an unresolved identifier), and the
 //caller must stop before deriving a source type.
 bool StatementResolveAccessor::TryGetAssignTargetType(SnExpression &left,
@@ -215,7 +217,7 @@ bool StatementResolveAccessor::TryGetAssignTargetType(SnExpression &left,
 			return false;
 		pTargetType = pLeftField->EvalDataType();
 	}
-	else if (left.Kind() == NK_MemberExpr || left.Kind() == NK_SubscriptExpr)
+	else if (left.Kind() == NK_MemberExpr)
 		pTargetType = left.EvalDataType();
 	return true;
 }
@@ -253,7 +255,7 @@ void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 
 //Init lists set their own EvalDataType and don't go through the
 //cast-info path — flag them resolved and skip cast fixup entirely.
-bool StatementResolveAccessor::TryFinishInitListAssign(SnAssignStmt &sn)
+bool StatementResolveAccessor::FinishInitListAssign(SnAssignStmt &sn)
 {
 	if (sn.Right()->Kind() != NK_InitListExpr)
 		return false;
@@ -324,7 +326,7 @@ bool StatementResolveAccessor::TryBindSubscriptStoreFuncRef(
 //through the container path with a null element type (strings are not
 //generic instantiations) and failed only at runtime ("null array
 //access").
-bool StatementResolveAccessor::TryRejectStringBase(SnSubscriptAssignStmt &sn)
+bool StatementResolveAccessor::RejectStringBase(SnSubscriptAssignStmt &sn)
 {
 	if (sn.Array() && sn.Array()->IsResolved()
 		&& sn.Array()->EvalDataType()

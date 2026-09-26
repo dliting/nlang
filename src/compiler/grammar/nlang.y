@@ -715,7 +715,7 @@ AssignStmt: IdentifierExpr '=' Expression ';' {
 				} ;
 
 /*
-Compound assignment statement (e.g. x += 1, arr[i] *= 2).
+Compound assignment statement (e.g. x += 1).
 Phase 9a: left-value is evaluated only once.
 */
 CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {

@@ -22,9 +22,8 @@ public:
 	//NK_Int32 (SnEnumMember::EvalDataType), and enum-typed variables carry
 	//NK_EnumDecl — both map to Int, making enum and int labels one family.
 	//Nested here because SwitchLabelKey keys on it; the kind→family mapper
-	//is defined in StatementResolverSwitchTry.cpp.
+	//is a file-static helper in StatementResolverSwitchTry.cpp (sole consumer).
 	enum class SwitchFamily { None, Int, Float, String };
-	static SwitchFamily SwitchFamilyOfKind(NodeKind kind);
 
 	//--- Phase 12 Step 1: switch family gating (D1/D2/D8) ---------------
 	//D8 duplicate detection: only FOLDABLE labels (literals and enum
@@ -72,10 +71,10 @@ private:
 		SnField *pTargetType, SnField* &pSourceType);
 	void RejectConstStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
-	bool TryFinishInitListAssign(SnAssignStmt &sn);
+	bool FinishInitListAssign(SnAssignStmt &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
-	bool TryRejectStringBase(SnSubscriptAssignStmt &sn);
+	bool RejectStringBase(SnSubscriptAssignStmt &sn);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);
 	void ApplyContainerStoreCasts(SnSubscriptAssignStmt &sn);
 	void CheckForeachSource(SnForeachStmt &sn);
