@@ -356,6 +356,4 @@ bool VmBackend::EmitMemberArrayLengthProperty(SnMemberExpr& member,
     return true;
 }
 
-    // Name expression - delegate
-
 } //namespace nlang

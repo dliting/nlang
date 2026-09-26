@@ -466,6 +466,4 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
         return;
 }
 
-    // Binary/unary operator expression
-
 } //namespace nlang
