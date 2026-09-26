@@ -12,7 +12,7 @@ theme:
 nav:
   - Home: index.md
   - Getting Started:
-      - What is NLang: getting-started/what-is-nolang.md
+      - What is NLang: getting-started/what-is-nlang.md
       - Installation and Layout: getting-started/install-layout.md
       - Your First Program in Five Minutes: getting-started/first-program.md
       - "Crash Course: Types and Variables": getting-started/types-and-variables.md

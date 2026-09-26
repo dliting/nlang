@@ -2737,8 +2737,8 @@ private slots:
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         QSettings settings;
         settings.setValue("ide/language", "zh");
-        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
-                     .endsWith("/zh/getting-started/what-is-nolang.html"));
+        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nlang")
+                     .endsWith("/zh/getting-started/what-is-nlang.html"));
         QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
                      .endsWith("/zh/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
@@ -2750,8 +2750,8 @@ private slots:
                      .endsWith("/en/language-spec/overview.html"));
         QVERIFY(MainWindow::locateHelpPage("cli-tools/overview")
                      .endsWith("/en/cli-tools/overview.html"));
-        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nolang")
-                     .endsWith("/en/getting-started/what-is-nolang.html"));
+        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nlang")
+                     .endsWith("/en/getting-started/what-is-nlang.html"));
         QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
         settings.remove("ide");
     }
@@ -2779,8 +2779,8 @@ private slots:
         act(window, "actHelpGettingStarted")->trigger();
         QCOMPARE(window.findChildren<HelpBrowser*>().size(), 1);
         const QString gettingStarted =
-            MainWindow::locateHelpPage("getting-started/what-is-nolang");
-        QVERIFY(gettingStarted.endsWith("/getting-started/what-is-nolang.html"));
+            MainWindow::locateHelpPage("getting-started/what-is-nlang");
+        QVERIFY(gettingStarted.endsWith("/getting-started/what-is-nlang.html"));
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(gettingStarted));
         //The Command-line Tools entry mirrors the chapter entries.
         QVERIFY(act(window, "actHelpCliTools") != nullptr);

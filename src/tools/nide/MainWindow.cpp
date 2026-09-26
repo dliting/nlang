@@ -1497,7 +1497,7 @@ QString MainWindow::locateHelpPage(const QString& documentPagePath) {
 }
 
 void MainWindow::on_actHelpGettingStarted_triggered() {
-    openHelpDocument(QStringLiteral("getting-started/what-is-nolang"));
+    openHelpDocument(QStringLiteral("getting-started/what-is-nlang"));
 }
 
 void MainWindow::on_actHelpLanguageSpec_triggered() {

@@ -76,7 +76,7 @@ ROOT_FILES = ['LICENSE', 'README.md', 'README.zh-CN.md',
 DOC_FILES = [
     'docs/site/index.html',  # bilingual landing page
     'docs/site/zh/index.html',
-    'docs/site/zh/getting-started/what-is-nolang.html',
+    'docs/site/zh/getting-started/what-is-nlang.html',
     'docs/site/zh/search/search_index.json',
     # The file:// search enabler: material's bundle script-tags this
     # .js (written by the build's offline-search inlining step) when it
