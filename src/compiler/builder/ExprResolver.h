@@ -109,6 +109,23 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 //StatementResolver's Dict subscript-store bind site.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 
+//Helpers shared across the ExprResolver*.cpp TUs (2026-09-25 split).
+//Definitions live in ExprResolver.cpp (generic machinery) and
+//ExprResolverMemberFields.cpp (scope predicates); builder-internal.
+bool HasNamedArgument(SnInvokeExpr& invoke);
+size_t ArgCountOf(SnInvokeExpr& invoke);
+bool HasOutArgument(SnInvokeExpr& invoke);
+std::string JoinDots(const std::vector<std::string>& segs);
+std::vector<std::string> OuterIdentifierChain(
+	const SnMemberExpr& snMember);
+const char* StdLibKindName(uint8_t rtk);
+bool IsGenericClassDecl(SnClassDecl* pClass);
+SnClassDecl* GetGenericClassDecl(const std::string& baseName,
+	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
+	const ISourceLocation* pLoc);
+bool IsFuncTypeDecl(SnField *pType);
+bool IsBarePoolScope(const SyntaxNode &scope);
+
 //String built-in method table entry (defined in vm/StdLib.h); the member
 //phase declarations below hand around pointers into it.
 struct StringMethodEntry;

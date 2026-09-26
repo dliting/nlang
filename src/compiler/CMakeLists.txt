@@ -51,6 +51,12 @@ add_library(nlang_compiler
     SnMisc.cpp
     Utils.cpp
     builder/ExprResolver.cpp
+    builder/ExprResolverStdLib.cpp
+    builder/ExprResolverMember.cpp
+    builder/ExprResolverMemberBuiltins.cpp
+    builder/ExprResolverMemberProtocol.cpp
+    builder/ExprResolverMemberContainer.cpp
+    builder/ExprResolverMemberFields.cpp
     builder/ModuleRegistry.cpp
 )
 
