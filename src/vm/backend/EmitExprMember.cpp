@@ -19,14 +19,6 @@ namespace nlang {
 
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
-//Phase 9d: the built-in Exception class names whose runtime layout carries
-//the message/backtrace fields outside Members().
-static bool IsBuiltinExceptionName(const std::string& cn) {
-    return cn == "Exception" || cn == "NullPointerException"
-        || cn == "DivByZeroException" || cn == "IndexOutOfBoundsException"
-        || cn == "AssertionException" || cn == "IOException";
-}
-
 int VmBackend::FindFieldOffset(SnStructDecl& structDecl, const std::string& fieldName) {
     uint16_t off = 0;
     for (auto& sf : structDecl.Members()) {

@@ -43,6 +43,17 @@ struct FormalBinding;
 //to their per-entry helpers. Defined in SnExpressions.h.
 struct InitEntry;
 
+//Phase 9d: the built-in Exception family — synthetic declarations carry
+//no AST fields but a fixed two-field (message/backtrace) runtime layout.
+//Shared by field-offset lookup (EmitExprMember.cpp) and the registration
+//side layout injection (RegisterClass.cpp).
+inline bool IsBuiltinExceptionName(const std::string& name) {
+    return name == "Exception" || name == "NullPointerException"
+        || name == "DivByZeroException"
+        || name == "IndexOutOfBoundsException"
+        || name == "AssertionException" || name == "IOException";
+}
+
 class VmBackend : public ICodeBackend {
 public:
     VmBackend();

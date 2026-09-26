@@ -13,14 +13,6 @@
 #include <nlang/runtime/NodeConsts.h>
 
 namespace nlang {
-//Names of the built-in Exception family whose synthetic declarations
-//carry no AST fields but a fixed two-field runtime layout.
-static bool IsBuiltinExceptionName(const std::string& name) {
-    return name == "Exception" || name == "NullPointerException"
-        || name == "DivByZeroException"
-        || name == "IndexOutOfBoundsException"
-        || name == "AssertionException" || name == "IOException";
-}
 
 //Append the synthesized Exception-family layout: message (RTK_String)
 //and backtrace (heap ref into List).
