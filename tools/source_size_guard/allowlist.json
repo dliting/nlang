@@ -78,26 +78,6 @@
     "reason": "member-function reference binding; later round"
   },
   {
-    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
-    "function": "ExprResolveAccessor::Access",
-    "reason": "invoke-expression resolution entry; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
-    "function": "ExprResolveAccessor::FindFuncByInvoke",
-    "reason": "candidate collection by invoke shape; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
-    "function": "ExprResolveAccessor::LogInvokeFailure",
-    "reason": "failure diagnostics across candidate set; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
-    "function": "ExprResolveAccessor::MatchInvokeAgainst",
-    "reason": "argument-list matching against one candidate; later round"
-  },
-  {
     "path": "src/compiler/builder/ExprResolverNew.cpp",
     "function": "ExprResolveAccessor::Access",
     "reason": "new/new-array/init-list resolution (overload family); later round"

@@ -20,6 +20,55 @@
 namespace nlang
 {
 
+//Phase 13: delegate call — the callee name resolves to a Func-typed
+//value (local / param / class field) rather than a function. Name
+//lookup order puts the Func value first (Python-style shadowing of a
+//same-named function); every path inside consumes the invoke.
+bool ExprResolveAccessor::TryBindDelegateCall(SnInvokeExpr &snInvoke)
+{
+	if (auto *pDelegateField = FindDelegateTarget(snInvoke))
+	{
+		BindDelegateInvoke(snInvoke, pDelegateField);
+		return true;
+	}
+	return false;
+}
+
+//Phase 12 (D9): a bare (receiver-less) invoke that binds to a METHOD
+//is a frame-shift bug — codegen's bare-invoke path emits OP_CallFunc
+//with slotBase 0 while the callee's frame expects `this` at slot 0,
+//so the first argument is read as the receiver (enum methods return
+//silent garbage; class methods fail with a field-access error — the
+//class side pre-dates Phase 12). The grammar only produces method
+//calls as the Inner of a MemberExpr (`c.f()`, `this.f()`); an invoke
+//in any other position (statement, nested argument, outer of a member
+//access) that binds to a method is bare. Free functions (parent
+//namespace) are unaffected. True = rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectBareMethodCall(SnInvokeExpr &snInvoke,
+	SnFunction *pCallee)
+{
+	if (!pCallee)
+		return false;
+	auto *pInvokeParent = snInvoke.Parent();
+	bool bIsMethodCallShape = pInvokeParent
+		&& pInvokeParent->Kind() == NK_MemberExpr
+		&& static_cast<SnMemberExpr*>(pInvokeParent)->Inner() == &snInvoke;
+	if (bIsMethodCallShape)
+		return false;
+	auto *pCalleeParent = pCallee->Parent();
+	if (pCalleeParent && (pCalleeParent->Kind() == NK_ClassDecl
+		|| pCalleeParent->Kind() == NK_InterfaceDecl
+		|| pCalleeParent->Kind() == NK_EnumDecl))
+	{
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"method \"%s\" must be called through a receiver "
+			"(e.g. this.%s(...)).",
+			pCallee->Name().c_str(), pCallee->Name().c_str());
+		return true;
+	}
+	return false;
+}
+
 void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 {
 	assert(!snInvoke.IsResolved());
@@ -33,15 +82,8 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	if (!ValidateInvokeSyntax(snInvoke))
 		return;
 
-	//Phase 13: delegate call — the callee name resolves to a Func-typed
-	//value (local / param / class field) rather than a function. Name
-	//lookup order puts the Func value first (Python-style shadowing of a
-	//same-named function); every path inside consumes the invoke.
-	if (auto *pDelegateField = FindDelegateTarget(snInvoke))
-	{
-		BindDelegateInvoke(snInvoke, pDelegateField);
+	if (TryBindDelegateCall(snInvoke))
 		return;
-	}
 
 	SnFunction *pCallee;
 	std::vector<FormalBinding> bindings;
@@ -56,34 +98,8 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		&& OutArgOnDispatchedCalleeRejected(snInvoke, *pCallee, bindings))
 		return;
 
-	//Phase 12 (D9): a bare (receiver-less) invoke that binds to a METHOD
-	//is a frame-shift bug — codegen's bare-invoke path emits OP_CallFunc
-	//with slotBase 0 while the callee's frame expects `this` at slot 0,
-	//so the first argument is read as the receiver (enum methods return
-	//silent garbage; class methods fail with a field-access error — the
-	//class side pre-dates Phase 12). The grammar only produces method
-	//calls as the Inner of a MemberExpr (`c.f()`, `this.f()`); an invoke
-	//in any other position (statement, nested argument, outer of a member
-	//access) that binds to a method is bare. Free functions (parent
-	//namespace) are unaffected.
-	auto *pInvokeParent = snInvoke.Parent();
-	bool bIsMethodCallShape = pInvokeParent
-		&& pInvokeParent->Kind() == NK_MemberExpr
-		&& static_cast<SnMemberExpr*>(pInvokeParent)->Inner() == &snInvoke;
-	if (pCallee && !bIsMethodCallShape)
-	{
-		auto *pCalleeParent = pCallee->Parent();
-		if (pCalleeParent && (pCalleeParent->Kind() == NK_ClassDecl
-			|| pCalleeParent->Kind() == NK_InterfaceDecl
-			|| pCalleeParent->Kind() == NK_EnumDecl))
-		{
-			m_Env.Log(CLL_Error, snInvoke.Location(),
-				"method \"%s\" must be called through a receiver "
-				"(e.g. this.%s(...)).",
-				pCallee->Name().c_str(), pCallee->Name().c_str());
-			return;
-		}
-	}
+	if (RejectBareMethodCall(snInvoke, pCallee))
+		return;
 
 	if (res == FFR_ExactMatch || res == FFR_ApproximateMatch)
 	{
@@ -138,6 +154,122 @@ bool ExprResolveAccessor::ValidateInvokeSyntax(const SnInvokeExpr &invoke)
 	return true;
 }
 
+//Search a single scope's NameDict for matching functions. Bare-pool
+//scopes (root / namespaces) additionally drop foreign owned functions
+//(D1/D7) — skipped entirely, so they never set bImportedMatch either.
+void ExprResolveAccessor::SearchFuncScope(SnFunctionParentField &parent,
+	bool bBarePool, const std::string &sFuncName, uint32_t curModule,
+	std::vector<SnFunction*> &candidates, bool &rbImportedMatch)
+{
+	auto range = parent.Members().NameDict().equal_range(sFuncName);
+	for (auto iField = range.first; iField != range.second; ++iField)
+	{
+		SnField *pField = iField->second;
+		if (pField->Kind() != NK_Function)
+			continue;
+
+		auto pFunc = static_cast<SnFunction *>(pField);
+		if (!pFunc->AllowAccess(*m_pAccessor))
+			continue;
+		if (bBarePool && !IsBareVisible(*pFunc, curModule))
+			continue;
+
+		if (pFunc->ContainFlags(NF_Imported))
+			rbImportedMatch = true;
+		candidates.push_back(pFunc);
+	}
+}
+
+//Phase 12: enum method scan. SnEnumDecl is not a SnFunctionParentField —
+//its members and methods are separate kind-filtered child lists — so
+//SearchFuncScope cannot be reused. Enums have no inheritance chain and
+//no bare-pool filtering (methods are owned by the enum itself).
+void ExprResolveAccessor::SearchEnumScope(SnEnumDecl &enumDecl,
+	const std::string &sFuncName, std::vector<SnFunction*> &candidates,
+	bool &rbImportedMatch)
+{
+	auto range = enumDecl.Methods().NameDict().equal_range(sFuncName);
+	for (auto iField = range.first; iField != range.second; ++iField)
+	{
+		auto *pFunc = static_cast<SnFunction *>(iField->second);
+		if (!pFunc->AllowAccess(*m_pAccessor))
+			continue;
+		if (pFunc->ContainFlags(NF_Imported))
+			rbImportedMatch = true;
+		candidates.push_back(pFunc);
+	}
+}
+
+//For class contexts, also search the inheritance chain when the method
+//is not found in the current class's Members(). A superclass is a class
+//scope, never a bare-pool scope.
+void ExprResolveAccessor::SearchSuperclassChain(SnClassDecl &classDecl,
+	const std::string &sFuncName, uint32_t curModule,
+	std::vector<SnFunction*> &candidates, bool &rbImportedMatch)
+{
+	auto *pSuper = classDecl.SuperClass();
+	while (pSuper && candidates.empty())
+	{
+		SearchFuncScope(*pSuper, false, sFuncName, curModule,
+			candidates, rbImportedMatch);
+		pSuper = pSuper->SuperClass();
+	}
+}
+
+//Phase 9c candidate collection for the bare invoke path: walk the scope
+//chain from the resolution context, searching every function-parent and
+//enum scope for accessible same-name functions. A member-call context
+//(ERF_SearchInParentOnly) stops at its own scope — method-call syntax
+//does not fall through to namespace scope. Returns false when the pool
+//came up empty, with the F20 visibility hint already adjudicated
+//(rbVisibilityHintLogged set when it fired).
+bool ExprResolveAccessor::CollectInvokeCandidates(SnInvokeExpr &invoke,
+	bool bSearchInAncestor, std::vector<SnFunction*> &candidates,
+	bool &rbImportedMatch, bool &rbVisibilityHintLogged)
+{
+	auto &sFuncName = invoke.CalleeName();
+	//D1/D7: the bare pool only spans the current TU's directory; the
+	//candidate filter below is fed with the context owner computed once.
+	const uint32_t curModule = m_Env.Registry().OwnerOfContext(*m_pContext);
+
+	SyntaxNode *pParent = m_pContext;
+	while (pParent)
+	{
+		if (CanBeFuncParentEx(pParent->Kind()))
+		{
+			auto pParentType = static_cast<SnFunctionParentField*>(pParent);
+			//Root and namespaces are the bare pool (IsBarePoolScope); class
+			//and interface scopes keep full visibility (D1/D7).
+			SearchFuncScope(*pParentType, IsBarePoolScope(*pParent),
+				sFuncName, curModule, candidates, rbImportedMatch);
+			if (pParent->Kind() == NK_ClassDecl && candidates.empty())
+				SearchSuperclassChain(
+					*static_cast<SnClassDecl*>(pParent), sFuncName,
+					curModule, candidates, rbImportedMatch);
+			if (!bSearchInAncestor)
+				break;
+		}
+		else if (pParent->Kind() == NK_EnumDecl)
+		{
+			SearchEnumScope(static_cast<SnEnumDecl&>(*pParent), sFuncName,
+				candidates, rbImportedMatch);
+			if (!bSearchInAncestor)
+				break;
+		}
+		pParent = pParent->Parent();
+	}
+
+	//F20: nothing on the (narrowed) bare pool carries the name. When the
+	//name does exist elsewhere on the pool's surface, the visibility hint
+	//is the real diagnosis — rbVisibilityHintLogged tells the caller to
+	//skip its generic text (M4). The verdict stays FuncNameNotFound: the
+	//name IS unknown to this pool, no type mismatch happened.
+	if (candidates.empty()
+		&& MaybeLogVisibilityHint(sFuncName, invoke.Location(), curModule))
+		rbVisibilityHintLogged = true;
+	return !candidates.empty();
+}
+
 FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings,
 	bool &rbNameMatchedImported, bool &rbVisibilityHintLogged)
@@ -153,105 +285,14 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	rbVisibilityHintLogged = false;
 	const bool bSearchInAncestor = !ContainFlags(ERF_SearchInParentOnly);
 	bool bImportedMatch = false;
-	auto &sFuncName = invoke.CalleeName();
-
-	//D1/D7: the bare pool only spans the current TU's directory; the
-	//candidate filter below is fed with the context owner computed once.
-	const uint32_t curModule = m_Env.Registry().OwnerOfContext(*m_pContext);
 
 	//Collect the same-name accessible candidates along the scope chain;
 	//the bind/distance core itself is shared with the module-qualified
 	//call path via MatchInvokeAgainst below.
 	std::vector<SnFunction*> candidates;
-
-	//Search a single scope's NameDict for matching functions. Bare-pool
-	//scopes (root / namespaces) additionally drop foreign owned functions
-	//(D1/D7) — skipped entirely, so they never set bImportedMatch either.
-	auto searchScope = [&](SnFunctionParentField& parent, bool bBarePool) {
-		auto range = parent.Members().NameDict().equal_range(sFuncName);
-		for (auto iField = range.first; iField != range.second; ++iField) {
-			SnField *pField = iField->second;
-			if (pField->Kind() != NK_Function)
-				continue;
-
-			auto pFunc = static_cast<SnFunction *>(pField);
-			if (!pFunc->AllowAccess(*m_pAccessor))
-				continue;
-			if (bBarePool && !IsBareVisible(*pFunc, curModule))
-				continue;
-
-			if (pFunc->ContainFlags(NF_Imported))
-				bImportedMatch = true;
-			candidates.push_back(pFunc);
-		}
-	};
-
-	SyntaxNode *pParent = m_pContext;
-	while (pParent)
-	{
-		if (CanBeFuncParentEx(pParent->Kind()))
-		{
-			auto pParentType = static_cast<SnFunctionParentField*>(pParent);
-			//Root and namespaces are the bare pool (IsBarePoolScope); class
-			//and interface scopes keep full visibility (D1/D7).
-			searchScope(*pParentType, IsBarePoolScope(*pParent));
-
-			//For class contexts, also search the inheritance chain
-			//when the method is not found in the current class's Members().
-			//A superclass is a class scope, never a bare-pool scope.
-			if (pParent->Kind() == NK_ClassDecl && candidates.empty())
-			{
-				auto *pSuper = static_cast<SnClassDecl*>(pParent)->SuperClass();
-				while (pSuper && candidates.empty())
-				{
-					searchScope(*pSuper, false);
-					pSuper = pSuper->SuperClass();
-				}
-			}
-			if (!bSearchInAncestor)
-				break;
-		}
-		else if (pParent->Kind() == NK_EnumDecl)
-		{
-			/*
-			Phase 12: enum methods. SnEnumDecl is not a
-			SnFunctionParentField — its members and methods are separate
-			kind-filtered child lists — so searchScope cannot be reused.
-			Enums have no inheritance chain. Like the class branch above,
-			a member-call context (ERF_SearchInParentOnly) stops here:
-			method-call syntax does not fall through to namespace scope.
-			*/
-			auto &rEnumDecl = static_cast<SnEnumDecl&>(*pParent);
-			auto range = rEnumDecl.Methods().NameDict().equal_range(sFuncName);
-			for (auto iField = range.first; iField != range.second; ++iField)
-			{
-				auto *pFunc = static_cast<SnFunction *>(iField->second);
-				if (!pFunc->AllowAccess(*m_pAccessor))
-					continue;
-				if (pFunc->ContainFlags(NF_Imported))
-					bImportedMatch = true;
-				candidates.push_back(pFunc);
-			}
-			if (!bSearchInAncestor)
-				break;
-		}
-		pParent = pParent->Parent();
-	}
-
-	//F20: nothing on the (narrowed) bare pool carries the name. When the
-	//name does exist elsewhere on the pool's surface, the visibility hint
-	//is the real diagnosis — rbVisibilityHintLogged tells the caller to
-	//skip its generic text (M4). The verdict stays FuncNameNotFound: the
-	//name IS unknown to this pool, no type mismatch happened.
-	if (candidates.empty())
-	{
-		if (MaybeLogVisibilityHint(sFuncName, invoke.Location(), curModule))
-		{
-			rbVisibilityHintLogged = true;
-			return FFR_FuncNameNotFound;
-		}
+	if (!CollectInvokeCandidates(invoke, bSearchInAncestor, candidates,
+			bImportedMatch, rbVisibilityHintLogged))
 		return FFR_FuncNameNotFound;
-	}
 
 	//One matching core for both call paths; the ambiguity log lives there.
 	//rbNameMatchedImported stays reserved for the no-viable-bind verdict
@@ -322,10 +363,7 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 		return FFR_Incompatible;
 	if (rbAmbiguous)
 	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"ambiguous call to function \"%s\": multiple overloads match "
-			"with equal distance.",
-			invoke.CalleeName().c_str());
+		LogAmbiguousCall(invoke);
 		return FFR_Incompatible;
 	}
 	pFunc = pBest;
@@ -404,79 +442,7 @@ bool ExprResolveAccessor::OutArgOnDispatchedCalleeRejected(
 	return false;
 }
 
-//The failure branch of Access(SnInvokeExpr) — not-found, imported-stub
-//and generic incompatibility diagnostics. Shared with the module-qualified
-//call path so both surfaces report identically (spec §7 / M4).
-void ExprResolveAccessor::LogInvokeFailure(SnInvokeExpr &invoke,
-	FindFuncResult res, SnFunction *pCallee, bool bNameMatchedImported)
-{
-	assert((res == FFR_Incompatible || res == FFR_FuncNameNotFound)
-		&& "failure logging takes failure results only");
-
-	if (res == FFR_Incompatible)
-	{
-		//Phase 13 (Step 2, cross-module): an imported stub synthesizes its
-		//parameter types from the return kind, so a Func argument can
-		//never match — name the real reason before any generic message.
-		//pCallee is null by contract on this path; the flag comes from the
-		//name-matched candidate scan.
-		if (bNameMatchedImported)
-		{
-			for (auto &arg : invoke.Params())
-			{
-				SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
-					? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
-				if (IsUnboundFuncRef(*pValue)
-					|| IsUnboundMemberFuncRef(*pValue)
-					|| IsFuncTypeDecl(pValue->EvalDataType()))
-				{
-					m_Env.Log(CLL_Error, invoke.Location(),
-						"cannot pass a function reference to the imported "
-						"function \"%s\": parameter signatures are not "
-						"serialized.", invoke.CalleeName().c_str());
-					return;
-				}
-			}
-		}
-		//Phase 13: a still-pending function reference among the arguments
-		//had no matching Func-typed formal — sweep it with the named
-		//diagnostic (the generic incompatibility text would not say why).
-		for (auto &arg : invoke.Params())
-		{
-			SnExpression *pValue = (arg.Kind() == NK_NamedArgExpr)
-				? static_cast<SnNamedArgExpr&>(arg).Inner() : &arg;
-			if (IsUnboundFuncRef(*pValue))
-			{
-				m_Env.Log(CLL_Error, pValue->Location(),
-					"function reference \"%s\" requires an expected "
-					"function type.",
-					pValue->ToString().c_str());
-				return;
-			}
-			if (IsUnboundMemberFuncRef(*pValue))
-			{
-				m_Env.Log(CLL_Error, pValue->Location(),
-					"bound method reference \"%s\" requires an expected "
-					"function type.",
-					pValue->ToString().c_str());
-				return;
-			}
-		}
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"The function invoke \"%s\" is not compatible with the "
-			"declaration.", invoke.ToString().c_str());
-		if (pCallee) {
-			m_Env.Log(CLL_More, pCallee->Location(),
-				"See also the declaration of \"%s\".",
-				pCallee->ToString().c_str());
-		}
-		return;
-	}
-
-	assert(res == FFR_FuncNameNotFound);
-	m_Env.Log(CLL_Error, invoke.Location(),
-		"The function \"%s\" does not exist or is not accessible.",
-		invoke.CalleeName().c_str());
-}
+//The failure diagnostics of the invoke paths live in
+//ExprResolverInvokeDiag.cpp (LogInvokeFailure and its MaybeLog* sweeps).
 
 } //namespace nlang

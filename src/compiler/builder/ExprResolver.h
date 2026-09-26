@@ -138,6 +138,11 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl);
 //phase declarations below hand around pointers into it.
 struct StringMethodEntry;
 
+//Scope kinds of the invoke candidate scan (defined in SnMisc.h); forward
+//declarations suffice for the reference parameters below.
+class SnFunctionParentField;
+class SnEnumDecl;
+
 
 /*
 The syntax node accessor for expression resolving.
@@ -392,6 +397,34 @@ private:
 	*/
 	bool MaybeLogVisibilityHint(const std::string &name,
 		const ISourceLocation *pLoc, uint32_t curModule);
+
+	/*
+	2026-09-27 decomposition of the invoke-resolution family
+	(ExprResolverInvoke.cpp) — the candidate-collection primitives of
+	FindFuncByInvoke, the two named-rejection gates of
+	Access(SnInvokeExpr), the ambiguity diagnostic of MatchInvokeAgainst
+	and the two named-reason sweeps of LogInvokeFailure. MaybeLog*
+	return true when their diagnostic fired (the caller then skips the
+	generic text); Reject* return true when they logged a rejection.
+	*/
+	void SearchFuncScope(SnFunctionParentField &parent, bool bBarePool,
+		const std::string &sFuncName, uint32_t curModule,
+		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
+	void SearchSuperclassChain(SnClassDecl &classDecl,
+		const std::string &sFuncName, uint32_t curModule,
+		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
+	void SearchEnumScope(SnEnumDecl &enumDecl,
+		const std::string &sFuncName,
+		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
+	bool CollectInvokeCandidates(SnInvokeExpr &invoke, bool bSearchInAncestor,
+		std::vector<SnFunction*> &candidates, bool &rbImportedMatch,
+		bool &rbVisibilityHintLogged);
+	bool TryBindDelegateCall(SnInvokeExpr &snInvoke);
+	bool RejectBareMethodCall(SnInvokeExpr &snInvoke, SnFunction *pCallee);
+	void LogAmbiguousCall(SnInvokeExpr &invoke);
+	bool MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
+		bool bNameMatchedImported);
+	bool MaybeLogPendingFuncRef(SnInvokeExpr &invoke);
 
 	/*
 	Find the best function declaration matched witch an invoke expression.
