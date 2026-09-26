@@ -89,6 +89,37 @@ Node n = new Node(42);
 
 Allocates on the heap, calls constructor if present.
 
+### Arrays
+
+```nlang
+int[] a = new int[3];    // fixed-length heap array, elements zero-initialized
+int[] b = [1, 2, 3];     // bare initializer (see "Collection Initializers" below)
+int[] c = new int[0];    // empty array
+```
+
+**Length**: `a.length` is a **field** (not a method) — contrast
+`string.length()`, which is a method (returns the byte count).
+
+**Subscript read/write**: `arr[i]` reads and writes an element; the
+index is an expression (may be nested):
+
+```nlang
+int[] a = new int[3];
+a[0] = 9;
+a[1] = a[0] + 1;
+int x = a[a.length - 1];
+```
+
+**Out of bounds**: an out-of-range index throws `IndexOutOfBoundsException`
+on both reads and writes (a runtime error, catchable by `try/catch`; if
+uncaught the program terminates with exit code 1 — see the built-in
+exception table in [Statements](statements.md) "Exception Handling").
+
+Rules for where an array value may go in scalar contexts: see
+[Known Limitations](known-limitations.md), "Array values in scalar
+contexts"; iterate an array's elements with `foreach` (see
+[Statements](statements.md)).
+
 ### Type Casts
 
 ```nlang

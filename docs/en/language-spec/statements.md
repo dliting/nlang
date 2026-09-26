@@ -25,6 +25,108 @@ a single int32, and non-int values (string object handles, heap indices)
 have no meaningful truthiness. Use an explicit comparison instead:
 `if (s != "")`, `if (obj != null)`.
 
+### If Statement
+
+```nlang
+if (cond) { body }
+if (cond) { body } else { body }
+```
+
+The first body runs when the condition is non-zero; otherwise the
+`else` body runs (if present). The condition must be `int` (see
+"Condition typing" above). Another `if` may follow `else` to form
+chained tests — the `else` body is simply another `if` statement; there
+is no standalone `else if` keyword (the one-word `elseif` form is a
+syntax error).
+
+The body is a compound statement: variables declared inside it are
+visible only within that body (block scope).
+
+```nlang
+int n = 7;
+if (n > 10) {
+    n = 1;
+} else if (n > 5) {
+    n = 2;
+} else {
+    n = 3;
+}
+// n == 2
+```
+
+### For Loop
+
+```nlang
+for (init; cond; fini) { body }
+```
+
+The condition clause must be `int` (see "Condition typing" above).
+
+Three-clause semantics:
+
+- **The init clause runs once** (before the first condition evaluation);
+- **The condition clause is evaluated before each iteration**
+  (including the first); the body runs only when it is non-zero;
+- **The step clause runs after every body execution** (including the
+  final iteration before the loop ends naturally).
+
+`break` exits the loop immediately (**skipping the step clause**);
+`continue` jumps to the next iteration (**the step clause runs first**,
+then the condition is re-evaluated). Variables declared in the init
+clause are **function-scoped** — like `foreach` loop variables, neither
+is confined by block scope (see "Foreach Statement" below); other
+declarations inside the body are visible only within it (block scope).
+
+```nlang
+int sum = 0;
+for (int i = 1; i <= 10; i = i + 1) {
+    sum = sum + i;
+}
+// sum == 55; `i` is still in scope after the loop (function-scoped)
+```
+
+```nlang
+int count = 0;
+for (int j = 0; j < 20; j = j + 1) {
+    if (j == 5) { break; }        // exits the loop (step clause skipped)
+    if (j % 2 == 1) { continue; } // step clause runs, then next iteration
+    count = count + 1;
+}
+// count == 3 (iterations j = 0, 2, 4 counted; j = 5 hits break)
+```
+
+### While and Do-While
+
+```nlang
+while (cond) { body }
+do { body } while (cond);
+```
+
+The difference between the two forms: `while` **tests first, then
+executes** — if the condition is 0 from the start, the body may never
+run; `do-while` **executes the body first, then tests** — the body runs
+at least once even when the condition is always 0. The condition must
+be `int` (see "Condition typing" above); `break` exits the loop,
+`continue` jumps to the next iteration (back to the condition test);
+variables declared inside the body are visible only within it (block
+scope).
+
+```nlang
+int n = 0;
+do {
+    n = n + 1;
+} while (0);
+// n == 1 — the body ran once (do-while runs at least once)
+```
+
+```nlang
+int steps = 0;
+while (steps < 3) {
+    steps = steps + 1;
+}
+// steps == 3
+```
+
 ### Foreach Statement
 
 ```nlang
@@ -60,7 +162,8 @@ also work as `for` initializers (`for (int[] x = arr; ...)`) — the
 initializer takes effect and the body can reference the variable.
 
 `break` and `continue` work identically to `for`. The loop variable is
-**function-scoped** (NLang has no block scope, consistent with `for`):
+**function-scoped** (loop variables have no block scope, consistent
+with `for`):
 
 ```nlang
 List<int> nums = new List<int>();
@@ -130,6 +233,16 @@ assert(condition);
 Evaluates `condition`. If false, throws an `AssertionException` which can be
 caught by a `try/catch` block. If uncaught, terminates the program
 with exit code 1. Single-argument form only (no message override yet).
+
+```nlang
+int x = 5;
+assert(x > 3);            // passes — nothing happens
+try {
+    assert(x > 10);        // throws AssertionException
+} catch (AssertionException e) {
+    // caught
+}
+```
 
 ### Exception Handling
 

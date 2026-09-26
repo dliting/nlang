@@ -11,7 +11,7 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
 | Types (class / struct / enum / interface) | PascalCase | `MyClass`, `List<T>`, `Color` |
 | Methods — action / command (side effects or multi-arg) | camelCase, bare verb | `add(x)`, `clear()`, `readInt()`, `run()` |
 | Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` (reserved for future property feature) |
-| Methods — predicate (returns bool) | camelCase, bare word | `equals(o)`, `contains(x)` |
+| Methods — predicate (returns `int` truth value, convention 1/0) | camelCase, bare word | `equals(o)`, `contains(x)` |
 | Free functions | camelCase | `print(s)`, `assert(c)` |
 | Variables / parameters / locals | camelCase | `firstName`, `itemCount` |
 | Entry-point function `main` | lowercase (sole exception) | `int main()` |

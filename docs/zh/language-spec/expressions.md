@@ -83,6 +83,33 @@ Node n = new Node(42);
 
 在堆上分配，存在构造函数则调用之。
 
+### 数组
+
+```nlang
+int[] a = new int[3];    // 堆上定长数组，元素零初始化
+int[] b = [1, 2, 3];     // 裸初始化器（见下文「集合初始化器」）
+int[] c = new int[0];    // 空数组
+```
+
+**长度**：`a.length` 是**字段**（不是方法）——与 `string.length()`（方法，
+返回字节数）对比。
+
+**下标读写**：`arr[i]` 读写元素，下标是表达式（可嵌套）：
+
+```nlang
+int[] a = new int[3];
+a[0] = 9;
+a[1] = a[0] + 1;
+int x = a[a.length - 1];
+```
+
+**越界**：索引越界时读或写都抛 `IndexOutOfBoundsException`（运行期错误，
+可被 `try/catch` 捕获；未捕获时程序以退出码 1 终止——见[语句](statements.md)
+「异常处理」内建异常表）。
+
+数组值在标量上下文中的去向规则见[已知限制](known-limitations.md)
+「标量上下文中的数组值」；迭代数组元素用 `foreach`（见[语句](statements.md)）。
+
 ### 类型强制转换
 
 ```nlang

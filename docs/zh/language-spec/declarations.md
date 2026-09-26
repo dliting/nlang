@@ -190,6 +190,34 @@ class 支持：
 （`int add(int x, int y = v)`）都适用。同名局部变量或参数会遮蔽
 字段，与 Java/C# 语义一致。
 
+### 虚方法与覆写
+
+```nlang
+class Animal {
+    public virtual int Sound() {
+        return 0;
+    }
+}
+class Dog : Animal {
+    public int Sound() {
+        return 1;
+    }
+}
+```
+
+`virtual` 关键字把方法标记为**虚方法**：经引用调用该方法时，运行期
+VM 从对象的实际类型出发沿类层次上溯，**最派生实现优先**（动态分派）。
+对象布局首格的类型 ID 即供虚分派使用（见上文「class 声明」）。
+
+**覆写**：子类声明与父类虚方法**同名同签名**的方法即构成覆写——没有
+`override` 关键字（不同于 C++ 的 `override` 或 Java 的 `@Override`），
+按名与签名匹配由编译器判定。
+
+`Object` 的两个虚方法（`Equals`/`GetHashCode`）同样以子类声明同名方法
+的方式覆写（示例见本页「隐式 Object 基类」节）。接口的虚分派同机制
+（见本页「interface 声明」的 `TotalArea` 示例）；速览见
+[类与继承](../getting-started/classes-and-inheritance.md)。
+
 ### interface 声明
 
 ```nlang

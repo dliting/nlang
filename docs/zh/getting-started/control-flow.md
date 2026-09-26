@@ -34,7 +34,8 @@ int main() {
 ```
 
 输出 `200`，退出码 25。`switch` 支持多值标签与 `int`/`float`/`string`/enum
-四种判别式家族，case 体不穿透——无需 `break` 收尾（Java/C# 语义）；`foreach` 可遍历数组、`List<T>` 与 `Dict` 的键。
+四种判别式家族，case 体不穿透——无需 `break` 收尾（Java/C# 语义）；`foreach` 可遍历数组、`List<T>` 与 `Dict` 的键。`if`/`for`/`while`/`do-while`
+的具体语义（各子句求值时机、循环头声明变量的作用域、块作用域）在语句页详解。
 
 详见 → [语言规格/语句](../language-spec/statements.md)。
 

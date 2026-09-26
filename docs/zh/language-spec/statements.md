@@ -24,6 +24,97 @@ return expr;
 （字符串对象句柄、堆索引）没有有意义的真值。请用显式比较代替：
 `if (s != "")`、`if (obj != null)`。
 
+### if 语句
+
+```nlang
+if (cond) { body }
+if (cond) { body } else { body }
+```
+
+条件非 0 时执行第一个体，否则执行 `else` 体（若存在）。条件必须是
+`int`（见上文「条件类型」）。`else` 之后可以再写 `if` 形成链式判断——
+`else` 分支的体就是另一个 `if` 语句；语言没有独立的 `else if` 关键字
+（`elseif` 写法是语法错误）。
+
+体是复合语句：体内声明的变量仅在该体内可见（块作用域）。
+
+```nlang
+int n = 7;
+if (n > 10) {
+    n = 1;
+} else if (n > 5) {
+    n = 2;
+} else {
+    n = 3;
+}
+// n == 2
+```
+
+### for 循环
+
+```nlang
+for (init; cond; fini) { body }
+```
+
+条件段必须是 `int`（见上文「条件类型」）。
+
+三段语义：
+
+- **初始化段执行一次**（首次条件求值之前）；
+- **条件段每轮循环前求值**（含第一轮），非 0 才进入体；
+- **步进段在每轮体执行之后求值**（循环自然结束前的最后一轮同样执行）。
+
+`break` 立即退出循环（**跳过步进段**）；`continue` 跳到下一轮（**先
+执行步进段**再求值条件）。初始化段声明的变量是**函数作用域**的——与
+`foreach` 循环变量一致，二者都不受块作用域限制（见下文「foreach 语句」）；
+体内其他声明仅体内可见（块作用域）。
+
+```nlang
+int sum = 0;
+for (int i = 1; i <= 10; i = i + 1) {
+    sum = sum + i;
+}
+// sum == 55；`i` 在循环后仍在作用域内（函数作用域）
+```
+
+```nlang
+int count = 0;
+for (int j = 0; j < 20; j = j + 1) {
+    if (j == 5) { break; }        // 立即退出循环（跳过步进段）
+    if (j % 2 == 1) { continue; } // 先执行步进段，再进入下一轮
+    count = count + 1;
+}
+// count == 3（j = 0、2、4 三轮计入；j = 5 触发 break）
+```
+
+### while 与 do-while
+
+```nlang
+while (cond) { body }
+do { body } while (cond);
+```
+
+两种形态的差异：`while` **先判断后执行**——条件一开始为 0 时体可能从不
+执行；`do-while` **先执行体后判断**——即使条件恒为 0，体也至少执行一次。
+条件必须是 `int`（见上文「条件类型」）；`break` 立即退出循环，`continue`
+跳到下一轮（回到条件求值）；体内声明的变量仅体内可见（块作用域）。
+
+```nlang
+int n = 0;
+do {
+    n = n + 1;
+} while (0);
+// n == 1 —— 体执行了一次（do-while 至少执行一次）
+```
+
+```nlang
+int steps = 0;
+while (steps < 3) {
+    steps = steps + 1;
+}
+// steps == 3
+```
+
 ### foreach 语句
 
 ```nlang
@@ -56,7 +147,7 @@ be an array, List, or Dict"。
 初始化器生效，循环体可以引用该变量。
 
 `break` 与 `continue` 与 `for` 中完全一致。循环变量是**函数作用域**
-的（NLang 没有块作用域，与 `for` 一致）：
+的（循环变量无块作用域，与 `for` 一致）：
 
 ```nlang
 List<int> nums = new List<int>();
@@ -123,6 +214,16 @@ assert(condition);
 求值 `condition`。为假时抛出 `AssertionException`，可被 `try/catch`
 块捕获。未捕获则以退出码 1 终止程序。仅单实参形式
 （尚无消息重载）。
+
+```nlang
+int x = 5;
+assert(x > 3);            // 通过 —— 什么都不发生
+try {
+    assert(x > 10);        // 抛出 AssertionException
+} catch (AssertionException e) {
+    // 已捕获
+}
+```
 
 ### 异常处理
 

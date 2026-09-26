@@ -37,7 +37,9 @@ Output `200`, exit code 25. `switch` supports multi-value labels and
 four discriminant families (`int`/`float`/`string`/enum); case bodies
 do not fall through, so no `break` is needed to close one off
 (Java/C# semantics); `foreach` iterates arrays, `List<T>`, and the keys
-of a `Dict`.
+of a `Dict`. The precise semantics of `if`/`for`/`while`/`do-while`
+(clause evaluation order, loop-header variable scope, block scope)
+are detailed on the Statements page.
 
 See also: [Language Specification / Statements](../language-spec/statements.md).
 

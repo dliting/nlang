@@ -205,6 +205,39 @@ default-parameter expressions (`int add(int x, int y = v)`). A local
 variable or parameter with the same name shadows the field, matching
 Java/C# semantics.
 
+### Virtual Methods and Overrides
+
+```nlang
+class Animal {
+    public virtual int Sound() {
+        return 0;
+    }
+}
+class Dog : Animal {
+    public int Sound() {
+        return 1;
+    }
+}
+```
+
+The `virtual` keyword marks a method as **virtual**: when the method is
+called through a reference, the runtime walks the class hierarchy up
+from the object's actual type, and the **most-derived implementation
+wins** (dynamic dispatch). The type ID in the object's first layout slot
+is what virtual dispatch uses (see "Class Declaration" above).
+
+**Override**: a subclass method that has the **same name and signature**
+as a parent virtual method overrides it — there is no `override` keyword
+(unlike C++'s `override` or Java's `@Override`); name-and-signature
+matching is decided by the compiler.
+
+`Object`'s two virtual methods (`Equals`/`GetHashCode`) are overridden
+the same way — a subclass declares the method with the same name
+(example in the "Implicit Object Base Class" section on this page).
+Interface virtual dispatch uses the same mechanism (see the `TotalArea`
+example in the "Interface Declaration" section on this page); quick
+tour: [Classes and Inheritance](../getting-started/classes-and-inheritance.md).
+
 ### Interface Declaration
 
 ```nlang
