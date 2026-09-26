@@ -98,7 +98,7 @@ StatementResolver::StatementResolver(BuildEnvironment &env) :	m_Accessor(env)
 //`case Color.Red`) would otherwise read stale 0s — e.g. false
 //"duplicate case label" errors. Value assignment is pure literal work,
 //so pre-pass + in-order Access is idempotent.
-void StatementResolveAccessor::PreAssignEnumMemberValues(Node& node,
+void StatementResolver::PreAssignEnumMemberValues(Node& node,
 	StatementResolveAccessor& accessor)
 {
 	if (node.Kind() == NK_EnumDecl)
@@ -107,7 +107,7 @@ void StatementResolveAccessor::PreAssignEnumMemberValues(Node& node,
 		PreAssignEnumMemberValues(child, accessor);
 }
 
-void StatementResolveAccessor::Resolve(SnNamespace &root)
+void StatementResolver::Resolve(SnNamespace &root)
 {
 	SyntaxNodeVisitor<StatementResolveAccessor>
 		visitor(m_Accessor, NVK_CustomTraverse);
