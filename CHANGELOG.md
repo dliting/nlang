@@ -8,6 +8,23 @@ All notable changes to NLang are documented here. The format follows
 
 ## [0.7.4] - Unreleased
 
+### Added
+- Source-size regression guard (`tools/source_size_guard`): hand-written
+  source files stay <= 500 lines and function definitions <= 50 lines,
+  with any exception registered alongside its reason; enforced as the
+  ctest case `source_size_guard`. CONTRIBUTING documents the guidelines.
+
+### Changed
+- Internal: the three oversized core sources were split into
+  per-concern files with zero behavior change — verified by a
+  byte-identical bytecode golden set across all 1042 fixtures plus
+  line-level purity proofs for every move. The backend emitter went
+  from a single 6533-line `VmBackend.cpp` to 24 files under
+  `src/vm/backend/`, the expression resolver from a 4521-line
+  `ExprResolver.cpp` to 15 files, and the bytecode interpreter from a
+  3894-line `VmExecutor.cpp` to 15 files with the largest function now
+  a 30-line orchestrator.
+
 ### Fixed
 - Compiled module output is byte-reproducible again: the class table's
   per-field access byte was serialized from an uninitialized member of
