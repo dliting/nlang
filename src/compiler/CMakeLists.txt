@@ -46,7 +46,9 @@ add_library(nlang_compiler
     SnTypes.cpp
     SnData.cpp
     SnExpressions.cpp
+    SnExpressionsValues.cpp
     SnStatements.cpp
+    SnStatementsFlow.cpp
     SnExtraTypes.cpp
     SnMisc.cpp
     Utils.cpp
