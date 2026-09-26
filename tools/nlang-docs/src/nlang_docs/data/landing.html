@@ -2,8 +2,10 @@
 <!-- Root landing page for the bilingual docs site (copied by the
      CMake docs target to site/index.html). Both entry links are
      always visible; the inline script additionally jumps once to the
-     reader's language -- it runs before first paint and is fully
-     local, so it works over file:// in the nide help viewer too.
+     reader's language before first paint. It is fully local, so it
+     works over file:// in a browser. This page is only the browser
+     entry point; the nide help menu opens specific doc pages directly
+     and never loads this landing page.
      A "?stay" query bypasses the jump for language picking.
      Jump policy: any-zh wins. A reader listing Chinese anywhere in
      the preference list gets the zh tree, which holds the original-
