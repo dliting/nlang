@@ -12,10 +12,6 @@
     "reason": "build-pipeline orchestration (build/imports/cycle checks); later round"
   },
   {
-    "path": "src/compiler/SnMisc.cpp",
-    "reason": "syntax-node constructors and accessors; later round"
-  },
-  {
     "path": "src/compiler/builder/ExprResolver.h",
     "reason": "resolver class pair plus the shared helper-declaration surface of the resolver TU family; C++ has no partial class, splitting would fragment the pair"
   },

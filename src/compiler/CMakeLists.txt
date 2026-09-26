@@ -51,6 +51,7 @@ add_library(nlang_compiler
     SnStatementsFlow.cpp
     SnExtraTypes.cpp
     SnMisc.cpp
+    SnTypeDecls.cpp
     Utils.cpp
     builder/ExprResolver.cpp
     builder/ExprResolverStdLib.cpp
