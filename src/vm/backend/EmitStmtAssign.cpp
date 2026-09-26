@@ -341,11 +341,11 @@ void VmBackend::EmitAssignStructFieldPlain(SnAssignStmt& assign,
     emitter.EmitUint16(valueSlot);
 }
 
-    //Compound assignment: x += y, this.f -= 1, obj.f *= 2.
-    //Phase 9a: left-value is evaluated only once (read-modify-write).
-    //Subscript compound assign (arr[i] += 1) is intentionally not
-    //supported — left-value single-eval requires 4 scratch slots and
-    //complicates the grammar. Users write `arr[i] = arr[i] + 1`.
+//Compound assignment: x += y, this.f -= 1, obj.f *= 2.
+//Phase 9a: left-value is evaluated only once (read-modify-write).
+//Subscript compound assign (arr[i] += 1) is intentionally not
+//supported — left-value single-eval requires 4 scratch slots and
+//complicates the grammar. Users write `arr[i] = arr[i] + 1`.
 void VmBackend::Access(SnCompoundAssignStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);

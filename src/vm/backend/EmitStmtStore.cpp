@@ -84,8 +84,9 @@ void VmBackend::EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
 }
 
 //Emit one container-method operand into its claim slot, boxing it in
-//place when the boxing plan says primitive. Shared by the container
-//subscript get/set sugar paths.
+//place when the boxing plan says primitive. Used by the container
+//subscript SET sugar path; the get path keeps its own inline boxing
+//(EmitExprCast.cpp).
 void VmBackend::EmitBoxedOperand(SnExpression& operand, uint16_t slot,
                                  const BoxingTagResult& box,
                                  BytecodeEmitter& emitter) {

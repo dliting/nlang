@@ -793,7 +793,8 @@ private:
     static BoxingTagResult BoxingTagFor(SnField* pT);
     //Emit one operand into its claim slot, boxing it in place when
     //the plan says primitive (the OP_Box sequence needs a pResult
-    //refresh first). Shared by the container subscript get/set sugar.
+    //refresh first). Used by the container subscript SET sugar path;
+    //the get path keeps its own inline boxing (EmitExprCast.cpp).
     void EmitBoxedOperand(SnExpression& operand, uint16_t slot,
                           const BoxingTagResult& box,
                           BytecodeEmitter& emitter);
