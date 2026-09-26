@@ -70,13 +70,7 @@ bool ModuleBuilder::Build()
 {
 	if (!CreateModule())
 		return false;
-
-	//Phase 9c cross-module: built-in types must be available BEFORE parser
-	//runs (parser resolves "int" / "float" / "string" to SnBuiltinDataType
-	//singletons constructed by BuildFromRuntime). Clear first to drop any
-	//stale state from a prior Build() on the same SyntaxTree singleton.
-	TheAST().Clear();
-	TheAST().BuildFromRuntime(*m_upEnv);
+	InitSyntaxTree();
 
 	//Parse sources first so TranslationUnit.m_Imports is populated; the
 	//list of imports to load comes from source, not from CLI.
@@ -84,28 +78,8 @@ bool ModuleBuilder::Build()
 	if (m_upEnv->HasError())
 		return false;
 
-	//Register every TU's module path (owner tagging happens in
-	//MergeTransUnits; import gates in LoadImports — both later).
-	//Reset first: a second Build() on the same builder must not append
-	//to the previous run's entries (whose owner tags point into its
-	//destroyed AST).
-	ModuleRegistry& reg = m_upEnv->Registry();
-	reg.Reset();
-	//The detached import stubs are owned HERE (the registry only holds
-	//raw pointers), so they are dropped beside the registry reset.
-	m_upDetachedImportStubs.clear();
-	std::vector<std::string> regErrors;
-	uint32_t moduleIndex = 0;
-	for (auto pTransUnit : *m_upTransUnits)
-	{
-		if (!reg.RegisterUnit(moduleIndex++, *pTransUnit,
-				m_upEnv->Params().m_sProjectDir, regErrors))
-		{
-			for (const auto& error : regErrors)
-				m_upEnv->Log(CLL_Error, "%s", error.c_str());
-			return false;
-		}
-	}
+	if (!RegisterUnits())
+		return false;
 
 	//Phase 13: type alias pre-pass — must run before the units are merged
 	//(alias scope is the translation unit; the merge clears unit roots).
@@ -140,6 +114,43 @@ bool ModuleBuilder::Build()
 	return SaveModule();
 }
 
+//Phase 9c cross-module: built-in types must be available BEFORE parser
+//runs (parser resolves "int" / "float" / "string" to SnBuiltinDataType
+//singletons constructed by BuildFromRuntime). Clear first to drop any
+//stale state from a prior Build() on the same SyntaxTree singleton.
+void ModuleBuilder::InitSyntaxTree()
+{
+	TheAST().Clear();
+	TheAST().BuildFromRuntime(*m_upEnv);
+}
+
+//Register every TU's module path (owner tagging happens in
+//MergeTransUnits; import gates in LoadImports — both later).
+//Reset first: a second Build() on the same builder must not append
+//to the previous run's entries (whose owner tags point into its
+//destroyed AST).
+bool ModuleBuilder::RegisterUnits()
+{
+	ModuleRegistry& reg = m_upEnv->Registry();
+	reg.Reset();
+	//The detached import stubs are owned HERE (the registry only holds
+	//raw pointers), so they are dropped beside the registry reset.
+	m_upDetachedImportStubs.clear();
+	std::vector<std::string> regErrors;
+	uint32_t moduleIndex = 0;
+	for (auto pTransUnit : *m_upTransUnits)
+	{
+		if (!reg.RegisterUnit(moduleIndex++, *pTransUnit,
+				m_upEnv->Params().m_sProjectDir, regErrors))
+		{
+			for (const auto& error : regErrors)
+				m_upEnv->Log(CLL_Error, "%s", error.c_str());
+			return false;
+		}
+	}
+	return true;
+}
+
 bool ModuleBuilder::CreateModule()
 {
 	const std::string &sModuleName = m_upEnv->Params().m_sOutputModule;
@@ -166,107 +177,133 @@ bool ModuleBuilder::LoadImports()
 		m_upEnv->Log(CLL_Info, "Loading the import modules ...");
 	}
 
-	//Per-TU gates (D1: imports are file-scoped — one file's import must
-	//not leak visibility to other files). Builtin / project names land
-	//in the gate; single-segment non-project names are external .nmod
-	//candidates collected below. PtrList is a std::list (no operator[]),
-	//so the module index travels with a local counter.
-	ModuleRegistry &reg = m_upEnv->Registry();
 	std::vector<std::string> externalNames;
+	if (!BuildImportGates(externalNames))
+		return false;
+
+	//Load the external .nmod candidates once each (LOADING is global;
+	//VISIBILITY stays per-TU via the gates built above).
+	for (const auto &name : externalNames)
+	{
+		if (!LoadExternalModule(name))
+			return false;
+	}
+
+	return true;
+}
+
+//Per-TU gates (D1: imports are file-scoped — one file's import must
+//not leak visibility to other files). Builtin / project names land
+//in the gate; single-segment non-project names are external .nmod
+//candidates collected below. PtrList is a std::list (no operator[]),
+//so the module index travels with a local counter.
+bool ModuleBuilder::BuildImportGates(
+	std::vector<std::string> &rExternalNames)
+{
+	ModuleRegistry &reg = m_upEnv->Registry();
 	std::vector<std::string> gateErrors;
 	uint32_t gateModuleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		if (!reg.BuildGate(gateModuleIndex++, pTransUnit->Imports(),
-				externalNames, gateErrors))
+				rExternalNames, gateErrors))
 		{
 			for (const auto &error : gateErrors)
 				m_upEnv->Log(CLL_Error, "%s", error.c_str());
 			return false;
 		}
 	}
+	return true;
+}
 
-	//Load the external .nmod candidates once each (LOADING is global;
-	//VISIBILITY stays per-TU via the gates built above).
-	for (const auto &name : externalNames)
+//Load one external .nmod candidate end to end: locate, parse, mint
+//stubs, register owners, keep detached stubs alive, then take ownership
+//of the compiled module.
+bool ModuleBuilder::LoadExternalModule(const std::string &name)
+{
+	std::string path = FindModuleFile(name);
+	if (path.empty())
 	{
-		std::string path = FindModuleFile(name);
-		if (path.empty())
-		{
-			const std::string notFound = ModuleNotFoundText(name);
-			m_upEnv->Log(CLL_Error, "%s", notFound.c_str());
-			return false;
-		}
-
-		CompiledModule cm;
-		try
-		{
-			cm = ModuleLoader::Load(path);
-		}
-		catch (const std::exception &e)
-		{
-			m_upEnv->Log(CLL_Error, "Failed to load module '%s': %s",
-				name.c_str(), e.what());
-			return false;
-		}
-
-		//srcModIdx = current length of m_loadedImports (before push), which
-		//matches the index this module will occupy after the push below.
-		uint32_t srcModIdx = static_cast<uint32_t>(m_loadedImports.size());
-
-		CompiledModuleNodeBuilder builder(TheAST(), srcModIdx, name);
-		try
-		{
-			builder.BuildFromCompiledModule(cm);
-		}
-		catch (const std::exception &e)
-		{
-			m_upEnv->Log(CLL_Error, "%s", e.what());
-			return false;
-		}
-
-		//Register stub→source-index entries into VmBackend side-table.
-		//Defer if backend isn't ready yet — but in current flow, CreateModule
-		//runs before LoadImports and sets up the backend, so it's available.
-		if (auto *backend = m_upEnv->Backend())
-		{
-			if (auto *vmBackend = dynamic_cast<VmBackend*>(backend))
-			{
-				for (const auto &entry : builder.ImportedFunctions())
-					vmBackend->RegisterImportedFunctionStub(entry.stub,
-						srcModIdx, entry.srcFuncIdx);
-			}
-		}
-
-		//Import visibility (C1): the module joins the registry as an
-		//EXTERNAL entry owning every free-function stub it contributed,
-		//tagged at the same point the stubs join the root — before
-		//MergeTransUnits tags the TU members. Class methods are not free
-		//functions (they stay inside their class stub), so this table is
-		//the whole qualified-call surface for v1.
-		uint32_t extIdx = reg.AddExternalModule(name);
-		std::vector<SnFunction*> stubs;
-		stubs.reserve(builder.ImportedFunctions().size());
-		for (const auto &entry : builder.ImportedFunctions())
-		{
-			stubs.push_back(entry.stub);
-			reg.TagOwner(*entry.stub, extIdx);
-		}
-		reg.SetExternalStubs(extIdx, std::move(stubs));
-
-		//Detached stubs (names already in root) joined the tables above
-		//but not the root — keep them alive for the duration of the build.
-		for (auto &upStub : builder.TakeDetachedStubs())
-			m_upDetachedImportStubs.push_back(std::move(upStub));
-
-		if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
-			m_upEnv->Log(CLL_Info, "Loaded module '%s' from %s",
-				name.c_str(), path.c_str());
-
-		m_loadedImports.push_back(std::move(cm));
+		const std::string notFound = ModuleNotFoundText(name);
+		m_upEnv->Log(CLL_Error, "%s", notFound.c_str());
+		return false;
 	}
 
+	CompiledModule cm;
+	try
+	{
+		cm = ModuleLoader::Load(path);
+	}
+	catch (const std::exception &e)
+	{
+		m_upEnv->Log(CLL_Error, "Failed to load module '%s': %s",
+			name.c_str(), e.what());
+		return false;
+	}
+
+	//srcModIdx = current length of m_loadedImports (before push), which
+	//matches the index this module will occupy after the push below.
+	uint32_t srcModIdx = static_cast<uint32_t>(m_loadedImports.size());
+
+	CompiledModuleNodeBuilder builder(TheAST(), srcModIdx, name);
+	try
+	{
+		builder.BuildFromCompiledModule(cm);
+	}
+	catch (const std::exception &e)
+	{
+		m_upEnv->Log(CLL_Error, "%s", e.what());
+		return false;
+	}
+
+	RegisterExternalStubs(builder, srcModIdx, name);
+
+	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
+		m_upEnv->Log(CLL_Info, "Loaded module '%s' from %s",
+			name.c_str(), path.c_str());
+
+	m_loadedImports.push_back(std::move(cm));
 	return true;
+}
+
+void ModuleBuilder::RegisterExternalStubs(
+	CompiledModuleNodeBuilder &builder, uint32_t srcModIdx,
+	const std::string &name)
+{
+	//Register stub→source-index entries into VmBackend side-table.
+	//Defer if backend isn't ready yet — but in current flow, CreateModule
+	//runs before LoadImports and sets up the backend, so it's available.
+	if (auto *backend = m_upEnv->Backend())
+	{
+		if (auto *vmBackend = dynamic_cast<VmBackend*>(backend))
+		{
+			for (const auto &entry : builder.ImportedFunctions())
+				vmBackend->RegisterImportedFunctionStub(entry.stub,
+					srcModIdx, entry.srcFuncIdx);
+		}
+	}
+
+	//Import visibility (C1): the module joins the registry as an
+	//EXTERNAL entry owning every free-function stub it contributed,
+	//tagged at the same point the stubs join the root — before
+	//MergeTransUnits tags the TU members. Class methods are not free
+	//functions (they stay inside their class stub), so this table is
+	//the whole qualified-call surface for v1.
+	ModuleRegistry &reg = m_upEnv->Registry();
+	uint32_t extIdx = reg.AddExternalModule(name);
+	std::vector<SnFunction*> stubs;
+	stubs.reserve(builder.ImportedFunctions().size());
+	for (const auto &entry : builder.ImportedFunctions())
+	{
+		stubs.push_back(entry.stub);
+		reg.TagOwner(*entry.stub, extIdx);
+	}
+	reg.SetExternalStubs(extIdx, std::move(stubs));
+
+	//Detached stubs (names already in root) joined the tables above
+	//but not the root — keep them alive for the duration of the build.
+	for (auto &upStub : builder.TakeDetachedStubs())
+		m_upDetachedImportStubs.push_back(std::move(upStub));
 }
 
 std::string ModuleBuilder::FindModuleFile(const std::string &name) const
@@ -470,24 +507,66 @@ void ModuleBuilder::SweepPendingFuncRefs()
 	sweep(TreeRoot());
 }
 
+//Collect the struct declarations of the root namespace and of its
+//function-parent members (two-level scan, matching the historical
+//collect lambda).
+static void CollectStructs(SnNamespace &ns,
+	std::vector<SnStructDecl*> &structs)
+{
+	for (auto &member : ns.Members()) {
+		if (member.Kind() == NK_StructDecl)
+			structs.push_back(static_cast<SnStructDecl*>(&member));
+		else if (CanBeFuncParent(member.Kind())) {
+			for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
+				if (child.Kind() == NK_StructDecl)
+					structs.push_back(static_cast<SnStructDecl*>(&child));
+			}
+		}
+	}
+}
+
+//Collect all class declarations directly under the root or nested in
+//function-parent members. Shared by the circular-inheritance and the
+//interface-implementation checks.
+static void CollectClasses(SnNamespace &root,
+	std::vector<SnClassDecl*> &classes)
+{
+	for (auto &member : root.Members()) {
+		if (member.Kind() == NK_ClassDecl)
+			classes.push_back(static_cast<SnClassDecl*>(&member));
+		else if (CanBeFuncParentEx(member.Kind())) {
+			for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
+				if (child.Kind() == NK_ClassDecl)
+					classes.push_back(static_cast<SnClassDecl*>(&child));
+			}
+		}
+	}
+}
+
+//Shared cycle reporter of the two circular-reference checks below:
+//renders the tail of a DFS path starting at the repeated node
+//("A -> B -> A").
+template <typename T>
+static std::string FormatCycleText(const std::vector<T*> &path, T *pRepeat)
+{
+	std::string cycle;
+	bool found = false;
+	for (auto *p : path) {
+		if (p == pRepeat) found = true;
+		if (found) {
+			if (!cycle.empty()) cycle += " -> ";
+			cycle += p->Name();
+		}
+	}
+	return cycle;
+}
+
 void ModuleBuilder::CheckStructCircularRefs()
 {
 	SnNamespace &root = TreeRoot();
 	//Collect all SnStructDecl nodes.
 	std::vector<SnStructDecl*> structs;
-	std::function<void(SnNamespace&)> collect = [&](SnNamespace &ns) {
-		for (auto &member : ns.Members()) {
-			if (member.Kind() == NK_StructDecl)
-				structs.push_back(static_cast<SnStructDecl*>(&member));
-			else if (CanBeFuncParent(member.Kind())) {
-				for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
-					if (child.Kind() == NK_StructDecl)
-						structs.push_back(static_cast<SnStructDecl*>(&child));
-				}
-			}
-		}
-	};
-	collect(root);
+	CollectStructs(root, structs);
 
 	//Build dependency sets: for each struct, which other structs do its
 	//fields reference?
@@ -509,17 +588,8 @@ void ModuleBuilder::CheckStructCircularRefs()
 		if (inStack.count(node)) {
 			//Found a cycle. Report it.
 			path.push_back(node);
-			std::string cycle;
-			bool found = false;
-			for (auto *s : path) {
-				if (s == node) found = true;
-				if (found) {
-					if (!cycle.empty()) cycle += " -> ";
-					cycle += s->Name();
-				}
-			}
 			m_upEnv->Log(CLL_Error, "Circular struct reference: %s.",
-				cycle.c_str());
+				FormatCycleText(path, node).c_str());
 			return true;
 		}
 		if (visited.count(node))
@@ -550,16 +620,7 @@ void ModuleBuilder::CheckClassCircularInheritance()
 	SnNamespace &root = TreeRoot();
 	//Collect all SnClassDecl nodes (including nested in function parents).
 	std::vector<SnClassDecl*> classes;
-	for (auto &member : root.Members()) {
-		if (member.Kind() == NK_ClassDecl)
-			classes.push_back(static_cast<SnClassDecl*>(&member));
-		else if (CanBeFuncParentEx(member.Kind())) {
-			for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
-				if (child.Kind() == NK_ClassDecl)
-					classes.push_back(static_cast<SnClassDecl*>(&child));
-			}
-		}
-	}
+	CollectClasses(root, classes);
 
 	//DFS cycle detection on the inheritance chain.
 	std::unordered_set<SnClassDecl*> visited;
@@ -568,17 +629,8 @@ void ModuleBuilder::CheckClassCircularInheritance()
 		[&](SnClassDecl *node, std::vector<SnClassDecl*> &path) -> bool {
 		if (inStack.count(node)) {
 			path.push_back(node);
-			std::string cycle;
-			bool found = false;
-			for (auto *c : path) {
-				if (c == node) found = true;
-				if (found) {
-					if (!cycle.empty()) cycle += " -> ";
-					cycle += c->Name();
-				}
-			}
 			m_upEnv->Log(CLL_Error, "Circular class inheritance: %s.",
-				cycle.c_str());
+				FormatCycleText(path, node).c_str());
 			return true;
 		}
 		if (visited.count(node))
@@ -626,16 +678,7 @@ void ModuleBuilder::CheckInterfaceImplementation()
 	SnNamespace &root = TreeRoot();
 	//Collect all SnClassDecl nodes (including nested in function parents).
 	std::vector<SnClassDecl*> classes;
-	for (auto &member : root.Members()) {
-		if (member.Kind() == NK_ClassDecl)
-			classes.push_back(static_cast<SnClassDecl*>(&member));
-		else if (CanBeFuncParentEx(member.Kind())) {
-			for (auto &child : static_cast<SnFunctionParentField&>(member).Members()) {
-				if (child.Kind() == NK_ClassDecl)
-					classes.push_back(static_cast<SnClassDecl*>(&child));
-			}
-		}
-	}
+	CollectClasses(root, classes);
 	//For each class, verify every declared interface is fully implemented.
 	for (auto *pClass : classes)
 	{

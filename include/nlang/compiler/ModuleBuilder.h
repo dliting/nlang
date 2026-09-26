@@ -17,6 +17,9 @@ namespace nlang
 //Internal builder type (src/compiler/builder/ModuleRegistry.h); opaque
 //in this public header.
 class ModuleRegistry;
+//Internal stub-minting type (src/compiler/builder/
+// CompiledModuleNodeBuilder.hpp); reference use below only.
+class CompiledModuleNodeBuilder;
 
 //A tool for compiling some nlang source files to a binary module.
 class NLANG_COMPILER_API ModuleBuilder
@@ -50,8 +53,28 @@ private:
 
 	//Create a empty module as the current module to be built.
 	bool CreateModule();
+	//Reset the shared syntax tree and install the built-in type
+	//singletons. Must run before parsing (the parser resolves built-in
+	//type names against them).
+	void InitSyntaxTree();
+	//Register every TU's module path in the registry. False after
+	//logging the registration errors.
+	bool RegisterUnits();
 	//Load imported symbols to a rebuilt AST.
 	bool LoadImports();
+	//Build the per-TU import gates (D1: imports are file-scoped) and
+	//collect the single-segment external .nmod candidates into
+	//rExternalNames. False after logging the gate errors.
+	bool BuildImportGates(std::vector<std::string> &rExternalNames);
+	//Load one external .nmod candidate: parse it, mint the stub nodes,
+	//register their owners and keep the detached stubs alive. False
+	//after logging the failure.
+	bool LoadExternalModule(const std::string &name);
+	//Register a loaded module's stub functions in the VmBackend
+	//side-table and the registry's external entry; detached stubs
+	//(name clashes) stay owned by the builder.
+	void RegisterExternalStubs(CompiledModuleNodeBuilder &builder,
+		uint32_t srcModIdx, const std::string &name);
 	//Find .nmod file for a module name in m_ImportDirs. Returns empty if not found.
 	std::string FindModuleFile(const std::string& name) const;
 	//Generated executable codes.
