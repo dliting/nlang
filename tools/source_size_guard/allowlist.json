@@ -58,21 +58,6 @@
     "reason": "signature-overload conflict check; later round"
   },
   {
-    "path": "src/compiler/builder/ExprResolverStdLib.cpp",
-    "function": "ExprResolveAccessor::TryResolveModuleQualified",
-    "reason": "cross-module qualified-name probing; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverStdLib.cpp",
-    "function": "ExprResolveAccessor::TryResolveStdLibCall",
-    "reason": "stdlib namespace/method interception; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverTypes.cpp",
-    "function": "ExprResolveAccessor::Access",
-    "reason": "type-node resolution (overload family); later round"
-  },
-  {
     "path": "src/compiler/builder/ModuleRegistry.cpp",
     "function": "ModuleRegistry::BuildGate",
     "reason": "import-visibility gate planning; later round"

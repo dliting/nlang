@@ -20,64 +20,67 @@
 namespace nlang
 {
 
-//Phase 11: namespace-qualified stdlib call (math.sqrt(x), io.print(s)).
-//Resolves against the built-in table in StdLib.h. Every branch consumes
-//the expression — resolved or diagnosed — because namespace names are
-//reserved and never resolve as fields (no fallback path exists).
-void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
-	SnIdentifierExpr &outerId, SnInvokeExpr &invoke)
+//A resolved stdlib arg with no type is a void call (the assignment
+//statement guards the same shape): passing it would silently stage a
+//stale pResult in the claim slot. True = the diagnostic fired.
+static bool MaybeLogVoidStdLibArg(BuildEnvironment &env,
+	SnExpression &arg, size_t paramIdx, const std::string &ns,
+	const std::string &fnName)
 {
-	const std::string ns(outerId.Name());
-	const auto& fnName = invoke.CalleeName();
+	if (!arg.IsResolved())
+		return false;
+	env.Log(CLL_Error, arg.Location(),
+		"Argument %d of \"%s.%s\" has no value: a void function "
+		"result cannot be used as an argument.",
+		(int)paramIdx + 1, ns.c_str(), fnName.c_str());
+	return true;
+}
 
-	//Table-driven by-name dispatch: named/out arguments can never bind
-	//(same guards as the built-in string methods in Access(SnMemberExpr&)).
-	if (HasNamedArgument(invoke))
+//io.print (coerceToString) branch of the per-param gate: every param
+//accepts string|int|float|array — codegen branches on the arg's own
+//static kind and converts at the call site (OP_Array_to_str for
+//tokens). No widening wrap here; class/struct/enum must call
+//.toString() explicitly. Diagnostics only; the caller continues with
+//the next argument either way.
+static void RejectCoercedStringArg(BuildEnvironment &env,
+	SnExpression &arg, SnField *pArgType, size_t paramIdx,
+	const std::string &ns, const std::string &fnName)
+{
+	//null literal is Int32-typed (KT_Null); accepting it would
+	//print "0". Reject it explicitly.
+	if (arg.ContainFlags(NF_NullLiteral))
 	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"Named arguments are not supported by standard library functions.");
+		env.Log(CLL_Error, arg.Location(),
+			"Argument %d of \"%s.%s\" cannot be null.",
+			(int)paramIdx + 1, ns.c_str(), fnName.c_str());
 		return;
 	}
-	if (HasOutArgument(invoke))
+	//Phase 13: function handles print through the direct conversion
+	//path ("func <name>") like the other three toString routes.
+	const NodeKind argKind = pArgType->Kind();
+	if (argKind != NK_String && argKind != NK_Int32
+		&& argKind != NK_Float
+		&& argKind != NK_ArrayTypeToken
+		&& !IsFuncTypeDecl(pArgType))
 	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"out arguments are not supported by standard library functions.");
-		return;
+		env.Log(CLL_Error, arg.Location(),
+			"Argument %d of \"%s.%s\" has type \"%s\"; string, int "
+			"or float expected (class and enum values: call "
+			".toString() first).",
+			(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
+			pArgType->ToString().c_str());
 	}
+}
 
-	const StdLibEntry* pEntry = FindStdLibFunction(ns, fnName);
-	if (!pEntry)
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"Unknown standard library function \"%s.%s\".",
-			ns.c_str(), fnName.c_str());
-		return;
-	}
-
-	const size_t argCount = ArgCountOf(invoke);
-	if (argCount < pEntry->minArgs || argCount > pEntry->maxArgs)
-	{
-		if (pEntry->minArgs == pEntry->maxArgs)
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"\"%s.%s\" expects %d argument(s).",
-				ns.c_str(), fnName.c_str(), (int)pEntry->minArgs);
-		else
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"\"%s.%s\" expects %d to %d argument(s).",
-				ns.c_str(), fnName.c_str(),
-				(int)pEntry->minArgs, (int)pEntry->maxArgs);
-		return;
-	}
-
-	//Args resolve in the caller's scope. The intercept runs before
-	//Access(SnMemberExpr&) sets ERF_SearchInParentOnly / swaps m_pContext,
-	//so no context restore is needed (unlike the string-methods branch).
-	ResolveExpressionList(invoke.Params());
-
-	//Per-param type policy: exact RTK kind match, or int->float widening
-	//(wrapped in a cast expr in place — the FixupParamTypesWithBindings
-	//recipe over invoke.Children()). Everything else is a compile
-	//error naming the function, so the user sees which call is wrong.
+//Per-param type policy of TryResolveStdLibCall: exact RTK kind match,
+//or int->float widening (wrapped in a cast expr in place — the
+//FixupParamTypesWithBindings recipe over invoke.Children()). Everything
+//else is a compile error naming the function, so the user sees which
+//call is wrong.
+void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
+	const std::string &ns, const std::string &fnName,
+	const StdLibEntry *pEntry)
+{
 	auto& children = invoke.Children();
 	size_t paramIdx = 0;
 	for (auto it = children.begin(); it != children.end(); ++it, ++paramIdx)
@@ -86,48 +89,15 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 		auto* pArgType = arg.EvalDataType();
 		if (!pArgType)
 		{
-			//A resolved arg with no type is a void call (the assignment
-			//statement guards the same shape): passing it would silently
-			//stage a stale pResult in the claim slot.
-			if (arg.IsResolved())
-				m_Env.Log(CLL_Error, arg.Location(),
-					"Argument %d of \"%s.%s\" has no value: a void function "
-					"result cannot be used as an argument.",
-					(int)paramIdx + 1, ns.c_str(), fnName.c_str());
+			MaybeLogVoidStdLibArg(m_Env, arg, paramIdx, ns, fnName);
 			continue;  //unresolved arg was diagnosed above
 		}
 		const NodeKind argKind = pArgType->Kind();
 		const uint8_t want = pEntry->paramKinds[paramIdx];
-		//io.print (coerceToString): every param accepts string|int|float|
-		//array — codegen branches on the arg's own static kind and
-		//converts at the call site (OP_Array_to_str for tokens). No
-		//widening wrap here; class/struct/enum must call .toString()
-		//explicitly.
 		if (pEntry->coerceToString)
 		{
-			//null literal is Int32-typed (KT_Null); accepting it would
-			//print "0". Reject it explicitly.
-			if (arg.ContainFlags(NF_NullLiteral))
-			{
-				m_Env.Log(CLL_Error, arg.Location(),
-					"Argument %d of \"%s.%s\" cannot be null.",
-					(int)paramIdx + 1, ns.c_str(), fnName.c_str());
-			}
-			else if (argKind != NK_String && argKind != NK_Int32
-				&& argKind != NK_Float
-				&& argKind != NK_ArrayTypeToken
-				//Phase 13: function handles print through the direct
-				//conversion path ("func <name>") like the other three
-				//toString routes.
-				&& !IsFuncTypeDecl(pArgType))
-			{
-				m_Env.Log(CLL_Error, arg.Location(),
-					"Argument %d of \"%s.%s\" has type \"%s\"; string, int "
-					"or float expected (class and enum values: call "
-					".toString() first).",
-					(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
-					pArgType->ToString().c_str());
-			}
+			RejectCoercedStringArg(m_Env, arg, pArgType, paramIdx, ns,
+				fnName);
 			continue;
 		}
 		bool ok = (argKind == NK_Int32 && want == RTK_Int32)
@@ -150,10 +120,16 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 			FixupExprType(it, castInfo);
 		}
 	}
+}
 
-	//Wrap up. invoke.Callee() deliberately stays null — same as the built-in
-	//string methods — so the walker reserves argCount+1 slots; the
-	//namespace-shaped emission only uses argCount (over-reserve is safe).
+//Result binding of TryResolveStdLibCall: the return-type switch and
+//the member/channel writes. invoke.Callee() deliberately stays null —
+//same as the built-in string methods — so the walker reserves
+//argCount+1 slots; the namespace-shaped emission only uses argCount
+//(over-reserve is safe).
+void ExprResolveAccessor::BindStdLibCallResult(SnMemberExpr &snMember,
+	SnInvokeExpr &invoke, const StdLibEntry *pEntry)
+{
 	invoke.AddFlags(NF_Resolved);
 	SnField* pResultField = nullptr;
 	switch ((StdLibReturnType)pEntry->returnType)
@@ -190,17 +166,96 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	BindArrayTypeToken(snMember);
 }
 
-//Module import visibility (spec §6.2 rule 5): the module-table fallback
-//for dotted call chains. Runs BEFORE the outer identifier resolves, so a
-//module-path diagnostic never doubles with a spurious "Cannot resolve the
-//field". Declines (returns false) whenever the chain belongs to something
-//else — the normal path then keeps the expression; every matching branch
-//consumes the member (resolved or diagnosed).
-bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
+//Lookup gate of TryResolveStdLibCall: table-driven by-name dispatch
+//rejects named and out arguments outright (same guards as the built-in
+//string methods in Access(SnMemberExpr&)), then the table lookup and
+//the arity range check run. Null = a diagnostic is logged and the call
+//is consumed.
+const StdLibEntry *ExprResolveAccessor::FindStdLibEntry(
+	SnInvokeExpr &invoke, const std::string &ns, const std::string &fnName)
 {
-	//Shape gate: the chain must be plain identifiers with the invoke at
-	//the tip. Qualified VALUE access (utils.helper as a value) is out of
-	//the v1 surface and falls through to normal resolution.
+	if (HasNamedArgument(invoke))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Named arguments are not supported by standard library functions.");
+		return nullptr;
+	}
+	if (HasOutArgument(invoke))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"out arguments are not supported by standard library functions.");
+		return nullptr;
+	}
+	const StdLibEntry* pEntry = FindStdLibFunction(ns, fnName);
+	if (!pEntry)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Unknown standard library function \"%s.%s\".",
+			ns.c_str(), fnName.c_str());
+		return nullptr;
+	}
+	const size_t argCount = ArgCountOf(invoke);
+	if (argCount >= pEntry->minArgs && argCount <= pEntry->maxArgs)
+		return pEntry;
+	if (pEntry->minArgs == pEntry->maxArgs)
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"\"%s.%s\" expects %d argument(s).",
+			ns.c_str(), fnName.c_str(), (int)pEntry->minArgs);
+	else
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"\"%s.%s\" expects %d to %d argument(s).",
+			ns.c_str(), fnName.c_str(),
+			(int)pEntry->minArgs, (int)pEntry->maxArgs);
+	return nullptr;
+}
+
+//Phase 11: namespace-qualified stdlib call (math.sqrt(x), io.print(s)).
+//Resolves against the built-in table in StdLib.h. Every branch consumes
+//the expression — resolved or diagnosed — because namespace names are
+//reserved and never resolve as fields (no fallback path exists).
+void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
+	SnIdentifierExpr &outerId, SnInvokeExpr &invoke)
+{
+	const std::string ns(outerId.Name());
+	const auto& fnName = invoke.CalleeName();
+
+	const StdLibEntry *pEntry = FindStdLibEntry(invoke, ns, fnName);
+	if (!pEntry)
+		return;
+
+	//Args resolve in the caller's scope. The intercept runs before
+	//Access(SnMemberExpr&) sets ERF_SearchInParentOnly / swaps m_pContext,
+	//so no context restore is needed (unlike the string-methods branch).
+	ResolveExpressionList(invoke.Params());
+
+	CheckStdLibParamTypes(invoke, ns, fnName, pEntry);
+	BindStdLibCallResult(snMember, invoke, pEntry);
+}
+
+//Mark the member resolved and bind the array token — the shared
+//close-out of every module-qualified path (diagnosed failures and the
+//success tail alike), so no later phase re-reports the chain.
+void ExprResolveAccessor::FinishModuleQualifiedMember(
+	SnMemberExpr &snMember)
+{
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+}
+
+//Decline tests of the module-qualified fallback: the chain shape (plain
+//identifiers with the invoke at the tip; qualified VALUE access is out
+//of the v1 surface), the m12 priority test (a local / field / type with
+//the LEFTMOST name wins — the module table is only a fallback for names
+//that resolve as nothing else; function candidates are excluded by the
+//probe, so a cross-directory function name never shadows a module
+//path's first segment, and a same-named class wins, spec §6.2 last
+//line) and the module-table lookup itself. True = the chain addresses
+//a known module (rpInvoke/rModulePath out); false = decline, the normal
+//path keeps the expression.
+bool ExprResolveAccessor::TryResolveModuleCallTarget(
+	SnMemberExpr &snMember, SnInvokeExpr *&rpInvoke,
+	std::string &rModulePath)
+{
 	if (!snMember.Outer() || !snMember.Inner()
 		|| snMember.Inner()->Kind() != NK_InvokeExpr)
 		return false;
@@ -209,71 +264,84 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		OuterIdentifierChain(snMember);
 	if (pathSegs.empty())
 		return false;
-	const std::string modulePath = JoinDots(pathSegs);
-	auto &invoke = static_cast<SnInvokeExpr &>(*snMember.Inner());
+	rModulePath = JoinDots(pathSegs);
+	rpInvoke = &static_cast<SnInvokeExpr &>(*snMember.Inner());
 
-	//Priority test (m12): a local / field / type with the LEFTMOST name
-	//wins — the module table is only a fallback for names that resolve as
-	//nothing else. Function candidates are excluded by the probe, so a
-	//cross-directory function name never shadows a module path's first
-	//segment; a same-named class wins (spec §6.2 last line).
 	if (ProbeNonFunctionField(pathSegs.front())
 		|| IsBuiltinClassName(pathSegs.front()))
 		return false;
 
-	auto &reg = m_Env.Registry();
-	if (!reg.IsKnownModule(modulePath))
-		return false;
-	if (!reg.IsModuleImported(reg.OwnerOfContext(*m_pContext), modulePath))
-	{
-		//Spec §7 row 1. Consume the chain here: normal resolution would
-		//only add "Cannot resolve the field" for the leftmost identifier.
-		if (modulePath.find('.') == std::string::npos)
-		{
-			//Single-segment path. Only the EXTERNAL .nmod case is why no
-			//wildcard is suggested — a wildcard never matches an external
-			//single-segment name (§3.3). A project ROOT module would
-			//additionally be reachable via `import <name>.*;` (D11 union);
-			//the exact form always suffices, so the message stays minimal.
-			m_Env.Log(CLL_Error, snMember.Location(),
-				"Module '%s' is not imported. Add 'import %s;' at the top "
-				"of this file.", modulePath.c_str(), modulePath.c_str());
-		}
-		else
-		{
-			const size_t lastDot = modulePath.find_last_of('.');
-			const std::string parentPrefix =
-				modulePath.substr(0, lastDot);
-			m_Env.Log(CLL_Error, snMember.Location(),
-				"Module '%s' is not imported. Add 'import %s;' (or "
-				"'import %s.*;') at the top of this file.",
-				modulePath.c_str(), modulePath.c_str(),
-				parentPrefix.c_str());
-		}
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		return true;
-	}
+	return m_Env.Registry().IsKnownModule(rModulePath);
+}
 
-	//Argument handling mirrors Access(SnInvokeExpr), in the same order —
-	//params resolve first, then the caller-side syntax check (the caller
-	//context is still active here; the receiver scope switch happens
-	//later). The remaining order difference to the bare path — failure
-	//logging before the out-argument guard — is unobservable: a logged
-	//failure means no viable callee, while the guard only runs on one.
+//Spec §7 row 1: the module is known but not imported into the current
+//TU — name the fix and consume the chain here (normal resolution would
+//only add "Cannot resolve the field" for the leftmost identifier).
+//True = rejected and consumed; false = imported, processing continues.
+bool ExprResolveAccessor::RejectUnimportedModuleCall(
+	SnMemberExpr &snMember, const std::string &modulePath)
+{
+	auto &reg = m_Env.Registry();
+	if (reg.IsModuleImported(reg.OwnerOfContext(*m_pContext), modulePath))
+		return false;
+	if (modulePath.find('.') == std::string::npos)
+	{
+		//Single-segment path. Only the EXTERNAL .nmod case is why no
+		//wildcard is suggested — a wildcard never matches an external
+		//single-segment name (§3.3). A project ROOT module would
+		//additionally be reachable via `import <name>.*;` (D11 union);
+		//the exact form always suffices, so the message stays minimal.
+		m_Env.Log(CLL_Error, snMember.Location(),
+			"Module '%s' is not imported. Add 'import %s;' at the top "
+			"of this file.", modulePath.c_str(), modulePath.c_str());
+	}
+	else
+	{
+		const size_t lastDot = modulePath.find_last_of('.');
+		const std::string parentPrefix =
+			modulePath.substr(0, lastDot);
+		m_Env.Log(CLL_Error, snMember.Location(),
+			"Module '%s' is not imported. Add 'import %s;' (or "
+			"'import %s.*;') at the top of this file.",
+			modulePath.c_str(), modulePath.c_str(),
+			parentPrefix.c_str());
+	}
+	FinishModuleQualifiedMember(snMember);
+	return true;
+}
+
+//Argument handling mirrors Access(SnInvokeExpr), in the same order —
+//params resolve first, then the caller-side syntax check (the caller
+//context is still active here; the receiver scope switch happens
+//later). False = a failure was diagnosed and the member consumed;
+//true = both steps passed.
+bool ExprResolveAccessor::TryResolveModuleQualifiedArgs(
+	SnMemberExpr &snMember, SnInvokeExpr &invoke)
+{
 	if (!ResolveExpressionList(invoke.Params()))
 	{
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		return true;
+		FinishModuleQualifiedMember(snMember);
+		return false;
 	}
 	if (!ValidateInvokeSyntax(invoke))
 	{
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		return true;
+		FinishModuleQualifiedMember(snMember);
+		return false;
 	}
+	return true;
+}
 
+//Candidate matching and binding of the module-qualified call, shared
+//close-out discipline of the bare path. True = fully resolved (the
+//member carries callee and result type; the caller only finishes the
+//resolved flags); false = a failure was diagnosed and the member
+//consumed (match failure, out-argument reject, or a function-reference
+//argument that failed to bind).
+bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
+	SnMemberExpr &snMember, SnInvokeExpr &invoke,
+	const std::string &modulePath)
+{
+	auto &reg = m_Env.Registry();
 	std::vector<SnFunction*> candidates =
 		reg.ModuleFunctions(modulePath, invoke.CalleeName());
 	SnFunction *pCallee = nullptr;
@@ -295,33 +363,52 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 					bNameMatchedImported = true;
 		}
 		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported);
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		return true;
+		FinishModuleQualifiedMember(snMember);
+		return false;
 	}
-
 	if (OutArgOnDispatchedCalleeRejected(invoke, *pCallee, bindings))
 	{
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		return true;
+		FinishModuleQualifiedMember(snMember);
+		return false;
 	}
-
 	if (!ResolveInvokeWithFunc(invoke, *pCallee, res, bindings))
 	{
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		return true;
+		FinishModuleQualifiedMember(snMember);
+		return false;
 	}
-
 	//Codegen contract (VmBackend's MemberExpr handler): the resolved inner
 	//invoke is emitted as the bare call; the member carries its result
 	//type and the callee for chained access.
 	snMember.m_pField = pCallee;
 	if (invoke.EvalDataType())
 		snMember.EvalDataType(invoke.EvalDataType());
-	snMember.AddFlags(NF_Resolved);
-	BindArrayTypeToken(snMember);
+	return true;
+}
+
+//Module import visibility (spec §6.2 rule 5): the module-table fallback
+//for dotted call chains. Runs BEFORE the outer identifier resolves, so a
+//module-path diagnostic never doubles with a spurious "Cannot resolve the
+//field". Declines (returns false) whenever the chain belongs to something
+//else — the normal path then keeps the expression; every matching branch
+//consumes the member (resolved or diagnosed).
+bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
+{
+	SnInvokeExpr *pInvoke = nullptr;
+	std::string modulePath;
+	if (!TryResolveModuleCallTarget(snMember, pInvoke, modulePath))
+		return false;
+	auto &invoke = *pInvoke;
+
+	if (RejectUnimportedModuleCall(snMember, modulePath))
+		return true;
+
+	if (!TryResolveModuleQualifiedArgs(snMember, invoke))
+		return true;
+
+	if (!ResolveModuleQualifiedCallee(snMember, invoke, modulePath))
+		return true;
+
+	FinishModuleQualifiedMember(snMember);
 	return true;
 }
 

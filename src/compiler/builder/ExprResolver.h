@@ -113,6 +113,9 @@ std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 //Definition in ExprResolverTypes.cpp.
 const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
 
+//Reference-only use below; definition in ScriptLocation.h.
+class ScriptLocation;
+
 //Helpers shared across the ExprResolver*.cpp TUs (2026-09-25/26 splits).
 //Definitions live across those TUs; builder-internal.
 bool HasNamedArgument(SnInvokeExpr& invoke);
@@ -126,6 +129,14 @@ bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
 	const ISourceLocation* pLoc);
+//Location pass-through for on-demand minted decls (built-in classes,
+//generic instantiations): the caller's location when one exists, the
+//fallback otherwise. Polymorphic locations must flow through
+//ISourceLocation — punning to ScriptLocation reads past the end of the
+//smaller imported-module location object. Definition in
+//ExprResolverBuiltinClasses.cpp.
+const ISourceLocation& DeclLocation(const ISourceLocation* pLoc,
+	ScriptLocation& fallback);
 bool IsFuncTypeDecl(SnField *pType);
 bool IsBarePoolScope(const SyntaxNode &scope);
 //2026-09-26 second split: builtin-class minting and the Func signature
@@ -137,6 +148,10 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl);
 //String built-in method table entry (defined in vm/StdLib.h); the member
 //phase declarations below hand around pointers into it.
 struct StringMethodEntry;
+
+//Standard library function table entry (defined in vm/StdLib.h); the
+//stdlib-call decomposition below hands around pointers into it.
+struct StdLibEntry;
 
 //Scope kinds of the invoke candidate scan (defined in SnMisc.h); forward
 //declarations suffice for the reference parameters below.
@@ -651,6 +666,42 @@ private:
 	bool RejectStringSubscriptBase(SnSubscriptExpr &sn, SnField *pBaseType);
 	bool TryResolveContainerSubscript(SnSubscriptExpr &sn,
 		SnField *pBaseType);
+
+	/*
+	2026-09-27 decomposition of the type-node resolution family
+	(ExprResolverTypes.cpp) — the type-argument collection of
+	Access(SnGenericTypeExpr&) and the builtin-name fallback of
+	Access(SnIdentifierExpr&).
+	*/
+	bool TryResolveGenericTypeArgs(SnGenericTypeExpr &genType,
+		const std::string &baseName, std::vector<SnField*> &typeArgs,
+		std::vector<uint8> &outFlags);
+	bool TryResolveBuiltinNameFallback(SnIdentifierExpr &idExpr,
+		uint32_t curModule);
+
+	/*
+	2026-09-27 decomposition of the stdlib / module-qualified resolution
+	(ExprResolverStdLib.cpp) — the per-parameter type gate of
+	TryResolveStdLibCall and its result binding, plus the phase chain of
+	TryResolveModuleQualified (decline tests, the unimported reject,
+	argument handling, callee matching and the shared finish).
+	*/
+	void CheckStdLibParamTypes(SnInvokeExpr &invoke,
+		const std::string &ns, const std::string &fnName,
+		const StdLibEntry *pEntry);
+	const StdLibEntry *FindStdLibEntry(SnInvokeExpr &invoke,
+		const std::string &ns, const std::string &fnName);
+	void BindStdLibCallResult(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		const StdLibEntry *pEntry);
+	bool TryResolveModuleCallTarget(SnMemberExpr &snMember,
+		SnInvokeExpr *&rpInvoke, std::string &rModulePath);
+	bool RejectUnimportedModuleCall(SnMemberExpr &snMember,
+		const std::string &modulePath);
+	bool TryResolveModuleQualifiedArgs(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke);
+	bool ResolveModuleQualifiedCallee(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, const std::string &modulePath);
+	void FinishModuleQualifiedMember(SnMemberExpr &snMember);
 
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;

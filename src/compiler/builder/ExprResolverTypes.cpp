@@ -20,87 +20,6 @@
 namespace nlang
 {
 
-//Canonical SnClassDecl instances for built-in classes. These must be
-//singletons so that CalcTypeDistance's pointer identity check works
-//across all resolution sites (type names, new expressions, member calls).
-static SnClassDecl* s_pByteStreamClass = nullptr;
-static SnClassDecl* s_pFileStreamClass = nullptr;
-static SnClassDecl* s_pObjectClass = nullptr;  //Phase 8e-1: implicit Object base class
-//Phase 9d: built-in Exception hierarchy. Each subclass declares Exception
-//as its super so IsExceptionSubclass's chain walk succeeds. These are
-//type-system stand-ins — actual ctor/fields live in the CompiledClass
-//emitted by VmBackend::RegisterBuiltinClasses.
-static SnClassDecl* s_pExceptionClass = nullptr;
-static SnClassDecl* s_pNullPtrExcClass = nullptr;
-static SnClassDecl* s_pDivZeroExcClass = nullptr;
-static SnClassDecl* s_pOobExcClass = nullptr;
-static SnClassDecl* s_pAssertExcClass = nullptr;
-static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
-
-//Phase 9d: returns true for any name in the built-in Exception hierarchy.
-//Phase 13: the name predicates moved to builder/BuiltinNames.h (shared with
-//the alias clash check); local statics are no longer needed.
-
-//Phase 10 audit H2: IsBuiltinClassName moved to builder/BuiltinNames.h
-//(shared with the Phase 13 alias clash check in DuplicateFieldChecker).
-
-//On-demand minted decls (built-in classes, generic instantiations) take
-//the caller's location when one exists. That location is polymorphic —
-//a parser-minted ScriptLocation for source nodes, the imported-module
-//location for v1.12 stub nodes — so it must flow through the
-//ISourceLocation interface (SyntaxNode clones whatever it receives).
-//Punning it to ScriptLocation reads past the end of the smaller
-//imported-location object.
-static const ISourceLocation& DeclLocation(const ISourceLocation* pLoc,
-	ScriptLocation& fallback)
-{
-	return pLoc ? *pLoc : fallback;
-}
-
-//Precondition: name passes IsBuiltinClassName. Returns nullptr for any
-//other name (defensive — callers skip resolution and the identifier
-//surfaces as a normal unresolved-name error).
-SnClassDecl* GetBuiltinClassDecl(const std::string& name,
-	const ISourceLocation* pLoc)
-{
-	if (!IsBuiltinClassName(name))
-		return nullptr;
-	//Phase 9d: force-create Exception singleton first so subclass chain
-	//walk has a target even if the subclass is requested first.
-	if (IsBuiltinExceptionClassName(name) && !s_pExceptionClass) {
-		auto* pName = new std::string("Exception");
-		auto* pMembers = new PtrList<SnField>();
-		ScriptLocation fallback;
-		s_pExceptionClass = new SnClassDecl(pName, nullptr, pMembers,
-			DeclLocation(pLoc, fallback));
-		s_pExceptionClass->SetBuiltinClass();
-	}
-	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
-		: (name == "FileStream") ? s_pFileStreamClass
-		: (name == "Object") ? s_pObjectClass
-		: (name == "Exception") ? s_pExceptionClass
-		: (name == "NullPointerException") ? s_pNullPtrExcClass
-		: (name == "DivByZeroException") ? s_pDivZeroExcClass
-		: (name == "IndexOutOfBoundsException") ? s_pOobExcClass
-		: (name == "AssertionException") ? s_pAssertExcClass
-		: (name == "IOException") ? s_pIoExcClass
-		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above
-	if (!rpRef)
-	{
-		auto* pName = new std::string(name);
-		auto* pMembers = new PtrList<SnField>();
-		ScriptLocation fallback;
-		rpRef = new SnClassDecl(pName, nullptr, pMembers,
-			DeclLocation(pLoc, fallback));
-		rpRef->SetBuiltinClass();
-		//Phase 9d: subclasses point at Exception singleton for chain walk.
-		if (name != "Exception" && IsBuiltinExceptionClassName(name))
-			rpRef->SuperClass(s_pExceptionClass);
-		rpRef->SetBuiltinClass();
-	}
-	return rpRef;
-}
-
 //Phase 8e-3: Built-in generic class instantiation cache.
 //Key: (base class name, resolved type-arg SnField* pointers).
 //Value: synthetic SnClassDecl representing this instantiation. The same
@@ -283,6 +202,82 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 //Access(SnNameExpr&) which tries to resolve "List" as a regular name
 //and fails. Built-in generic names exist only in Type position with
 //type arguments; bare "List" is not a valid type.
+//Per-argument reject gate of the generic type-argument loop below:
+//void and out are Func-only features (void only in the first / return
+//slot, out only on parameter slots), and a jagged argument has no VM
+//layout (the same gate as declaration sites, spec §5.5). True =
+//rejected with the named diagnostic.
+static bool RejectInvalidTypeArg(BuildEnvironment &env, SnFieldExpr *pTA,
+	const std::string &baseName, bool bFirstArg)
+{
+	//Phase 13: void and out are Func-only type-argument features.
+	//void may only occupy Func's first (return) type slot; out may
+	//only mark Func parameter slots (any position after the first).
+	bool isVoidArg = pTA->Field()->Kind() == NK_Void;
+	bool isOutArg = pTA->ContainFlags(NF_Out);
+	if (isVoidArg && !(baseName == "Func" && bFirstArg))
+	{
+		env.Log(CLL_Error, pTA->Location(),
+			"void is only allowed as the return slot of Func<...>.");
+		return true;
+	}
+	if (isOutArg && !(baseName == "Func" && !bFirstArg))
+	{
+		env.Log(CLL_Error, pTA->Location(),
+			"out is only allowed on Func<...> parameters.");
+		return true;
+	}
+	//Array redesign B: a jagged type argument has no VM layout — the
+	//same gate as declaration sites (spec §5.5), enforced here because
+	//generic type-arg position is a distinct declaration form.
+	if (ArrayTypeDepth(pTA) >= 2)
+	{
+		env.Log(CLL_Error, pTA->Location(),
+			"jagged arrays (T[][]) are not supported.");
+		return true;
+	}
+	return false;
+}
+
+//Type-argument collection of Access(SnGenericTypeExpr&): resolves each
+//argument in the caller's scope and gathers the canonical fields plus
+//the parallel out flags. False = a diagnostic is logged (unresolvable
+//argument, argument without a field, or the reject gate above).
+bool ExprResolveAccessor::TryResolveGenericTypeArgs(
+	SnGenericTypeExpr &genType, const std::string &baseName,
+	std::vector<SnField*> &typeArgs, std::vector<uint8> &outFlags)
+{
+	for (auto *pTA : genType.TypeArgs())
+	{
+		if (!pTA) continue;
+		pTA->Accept(*m_pVisitor);
+		if (!pTA->IsResolved())
+		{
+			m_Env.Log(CLL_Error, pTA->Location(),
+				"Cannot resolve type argument %s.",
+				pTA->ToString().c_str());
+			return false;
+		}
+		auto *pField = pTA->Field();
+		if (!pField)
+		{
+			m_Env.Log(CLL_Error, pTA->Location(),
+				"Type argument %s has no resolved field.",
+				pTA->ToString().c_str());
+			return false;
+		}
+		if (RejectInvalidTypeArg(m_Env, pTA, baseName, typeArgs.empty()))
+			return false;
+		//0.7.3 B: the resolved field above IS the type identity — an
+		//array-typed argument carries the interned SnArrayTypeToken
+		//(same intern channel as declarations), so the key, the display
+		//name and every consumer read array-ness off the token itself.
+		typeArgs.push_back(pField);
+		outFlags.push_back(pTA->ContainFlags(NF_Out) ? 1 : 0);
+	}
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 {
 	if (genType.IsResolved())
@@ -298,61 +293,10 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 		return;
 	}
 
-	//Resolve each type argument (e.g., int, Point).
 	std::vector<SnField*> typeArgs;
 	std::vector<uint8> outFlags;
-	for (auto *pTA : genType.TypeArgs())
-	{
-		if (!pTA) continue;
-		pTA->Accept(*m_pVisitor);
-		if (!pTA->IsResolved())
-		{
-			m_Env.Log(CLL_Error, pTA->Location(),
-				"Cannot resolve type argument %s.",
-				pTA->ToString().c_str());
-			return;
-		}
-		auto *pField = pTA->Field();
-		if (!pField)
-		{
-			m_Env.Log(CLL_Error, pTA->Location(),
-				"Type argument %s has no resolved field.",
-				pTA->ToString().c_str());
-			return;
-		}
-		//Phase 13: void and out are Func-only type-argument features.
-		//void may only occupy Func's first (return) type slot; out may
-		//only mark Func parameter slots (any position after the first).
-		bool isVoidArg = pField->Kind() == NK_Void;
-		bool isOutArg = pTA->ContainFlags(NF_Out);
-		if (isVoidArg && !(baseName == "Func" && typeArgs.empty()))
-		{
-			m_Env.Log(CLL_Error, pTA->Location(),
-				"void is only allowed as the return slot of Func<...>.");
-			return;
-		}
-		if (isOutArg && !(baseName == "Func" && !typeArgs.empty()))
-		{
-			m_Env.Log(CLL_Error, pTA->Location(),
-				"out is only allowed on Func<...> parameters.");
-			return;
-		}
-		//Array redesign B: a jagged type argument has no VM layout — the
-		//same gate as declaration sites (spec §5.5), enforced here because
-		//generic type-arg position is a distinct declaration form.
-		if (ArrayTypeDepth(pTA) >= 2)
-		{
-			m_Env.Log(CLL_Error, pTA->Location(),
-				"jagged arrays (T[][]) are not supported.");
-			return;
-		}
-		//0.7.3 B: the resolved field above IS the type identity — an
-		//array-typed argument carries the interned SnArrayTypeToken
-		//(same intern channel as declarations), so the key, the display
-		//name and every consumer read array-ness off the token itself.
-		typeArgs.push_back(pField);
-		outFlags.push_back(isOutArg ? 1 : 0);
-	}
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+		return;
 
 	//Phase 13 Step 2: Dict keyed by a Func type — DictKeysEqual is
 	//identity for Func records (no interning), so two references to the
@@ -378,6 +322,35 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	ResolveFieldExprAs(genType, pSynClass);
+}
+
+//The not-found fallback of Access(SnIdentifierExpr&): a built-in class
+//name (ByteStream, FileStream, Object, the Exception family) resolves
+//to its singleton decl; anything else gets the generic not-resolved
+//error plus the module visibility / module-path hints. True = resolved
+//as a built-in; false = the diagnostics are logged.
+bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
+	SnIdentifierExpr &idExpr, uint32_t curModule)
+{
+	//Builtin class names: ByteStream, FileStream, Object (Phase 8e-1).
+	//Phase 9d: Exception hierarchy.
+	//Synthesize a singleton SnClassDecl when the name is not found.
+	const auto& name = idExpr.Name();
+	if (IsBuiltinClassName(name))
+	{
+		ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
+		return true;
+	}
+
+	m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
+		idExpr.Name().c_str());
+	//Module import visibility (F20): the name may only exist as a
+	//function outside this TU's bare pool — name the owning module.
+	MaybeLogVisibilityHint(idExpr.Name(), idExpr.Location(), curModule);
+	//spec §6.2 last line: a module path sharing the name turns a bare
+	//mystery into a named fix (import + qualification).
+	MaybeLogModuleHint(idExpr.Name());
+	return false;
 }
 
 void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
@@ -414,24 +387,7 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 
 	if (!pField)
 	{
-		//Builtin class names: ByteStream, FileStream, Object (Phase 8e-1).
-		//Phase 9d: Exception hierarchy.
-		//Synthesize a singleton SnClassDecl when the name is not found.
-		const auto& name = idExpr.Name();
-		if (IsBuiltinClassName(name))
-		{
-			ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
-			return;
-		}
-
-		m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
-			idExpr.Name().c_str());
-		//Module import visibility (F20): the name may only exist as a
-		//function outside this TU's bare pool — name the owning module.
-		MaybeLogVisibilityHint(idExpr.Name(), idExpr.Location(), curModule);
-		//spec §6.2 last line: a module path sharing the name turns a bare
-		//mystery into a named fix (import + qualification).
-		MaybeLogModuleHint(idExpr.Name());
+		TryResolveBuiltinNameFallback(idExpr, curModule);
 		return;
 	}
 
