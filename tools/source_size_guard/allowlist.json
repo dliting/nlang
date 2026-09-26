@@ -20,10 +20,6 @@
     "reason": "Qt project-tree model and XML persistence; later round"
   },
   {
-    "path": "src/vm/Disassembler.cpp",
-    "reason": "instruction-printer table plus stride walker; later round"
-  },
-  {
     "path": "src/vm/VmBackend.h",
     "reason": "single-class VmBackend declaration; C++ has no partial class, splitting would fragment the class"
   },
@@ -190,5 +186,10 @@
     "path": "src/vm/VmExecutorSer.h",
     "function": "VmExecutor::SerializeStructFields",
     "reason": "recursive serialization template; lambda type parameters force single-header instantiation"
+  },
+  {
+    "path": "src/vm/DisassemblerWalk.cpp",
+    "function": "InstructionStride",
+    "reason": "table-driven opcode stride switch (one case label per opcode, data table in switch form)"
   }
 ]

@@ -46,6 +46,7 @@ add_library(nlang_vm
     backend/EmitStmtForeach.cpp
     backend/EmitStmtSwitchTry.cpp
     Disassembler.cpp
+    DisassemblerWalk.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp
     TypeDesc.cpp

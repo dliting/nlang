@@ -1,7 +1,10 @@
 // --- shared disassembler (ndisasm CLI + ndb `x`) ---
-// Extracted verbatim from ndisasm's DisassembleFunction; the only
-// change is the sink (ostringstream per instruction instead of
-// std::cout). Golden byte-for-byte comparison guards the move.
+// Instruction-line formatting. The per-opcode switch is split into
+// operand-domain functions (flow/constants/arithmetic/strings/calls/
+// objects/func-values), each under the 50-line function limit; Emit*
+// helpers read one operand shape and format it with a printf-style fmt.
+// Output is byte-identical to the original single-switch version
+// (guarded byte-for-byte by temp/dis_compare.py over the corpus).
 
 #include "Disassembler.h"
 #include "BytecodeReader.h"
@@ -13,110 +16,250 @@
 
 namespace nlang {
 
-std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
-    const CompiledModule& module) {
-    std::vector<DisasmLine> lines;
-    BytecodeReader reader(func.bytecode.data(), func.bytecode.size());
+//--- operand-shape printers ---
+//Each Emit* helper reads the operands of one shape from the reader and
+//writes "head + formatted operands + newline" (head = "0042: name").
 
-    while (!reader.Eof()) {
-        size_t offset = reader.CurrentOffset();
+static void EmitPlain(std::ostringstream &out, const std::string &head) {
+    out << head << "\n";
+}
 
-        //Pad offset to 4 hex digits
-        char offsetBuf[16];
-        snprintf(offsetBuf, sizeof(offsetBuf), "%04zx", offset);
+static void EmitU16(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const char *fmt) {
+    char buf[96];
+    snprintf(buf, sizeof(buf), fmt, r.ReadUint16());
+    out << head << buf << "\n";
+}
 
-        std::ostringstream out;
-        OpCode op = reader.ReadOp();
-        const char* name = OpCodeName(op);
+static void EmitU16x2(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const char *fmt) {
+    //Read operands into named locals BEFORE the format call: argument
+    //evaluation order is unspecified, so in-argument reads would emit
+    //the operands in reverse on right-to-left evaluators (MSVC).
+    uint16_t a = r.ReadUint16();
+    uint16_t b = r.ReadUint16();
+    char buf[96];
+    snprintf(buf, sizeof(buf), fmt, a, b);
+    out << head << buf << "\n";
+}
 
-        switch (op) {
-        //No operands
+static void EmitU16x3(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const char *fmt) {
+    uint16_t a = r.ReadUint16();
+    uint16_t b = r.ReadUint16();
+    uint16_t c = r.ReadUint16();
+    char buf[96];
+    snprintf(buf, sizeof(buf), fmt, a, b, c);
+    out << head << buf << "\n";
+}
+
+static void EmitI32(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), " %d", r.ReadInt32());
+    out << head << buf << "\n";
+}
+
+static void EmitF32(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), " %g", r.ReadFloat());
+    out << head << buf << "\n";
+}
+
+static void EmitU8Tag(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), " typeTag=%d", r.ReadByte());
+    out << head << buf << "\n";
+}
+
+//Sign-extended int16 jump target printed as 4 hex digits ("->0042").
+static void EmitJumpTarget(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head) {
+    int16_t target = r.ReadInt16();
+    char buf[48];
+    snprintf(buf, sizeof(buf), " ->%04x",
+             static_cast<unsigned>(static_cast<int16_t>(target)));
+    out << head << buf << "\n";
+}
+
+//int16 sign-extended hex target + uint16 local (conditional jump).
+static void EmitJumpCond(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head) {
+    int16_t target = r.ReadInt16();
+    uint16_t localOff = r.ReadUint16();
+    char buf[48];
+    snprintf(buf, sizeof(buf), " ->%04x %u",
+             static_cast<unsigned>(static_cast<int16_t>(target)), localOff);
+    out << head << buf << "\n";
+}
+
+//uint16 jump-to-next printed as 4 hex digits (switch case chains).
+static void EmitCaseNext(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head) {
+    uint16_t next = r.ReadUint16();
+    char buf[48];
+    snprintf(buf, sizeof(buf), " ->%04x", static_cast<unsigned>(next));
+    out << head << buf << "\n";
+}
+
+//--- module-table printers ---
+//Lines that append a looked-up name from the module tables when the
+//index is in range (out-of-range prints bare, matching the original).
+
+static void EmitConstString(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t idx = r.ReadUint16();
+    out << head << " [" << idx << "]";
+    if (idx < module.stringConstants.size())
+        out << " \"" << module.stringConstants[idx] << "\"";
+    out << "\n";
+}
+
+//Direct function-index call: "[i] name base=b" (CallFunc/Direct).
+static void EmitCallDirect(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t funcIdx = r.ReadUint16();
+    uint16_t base = r.ReadUint16();
+    out << head << " [" << funcIdx << "]";
+    if (funcIdx < module.functions.size())
+        out << " " << module.functions[funcIdx].name;
+    out << " base=" << base << "\n";
+}
+
+//...with the Phase 9e uint32 out-mask tail (CallFuncOut/DirectOut).
+static void EmitCallDirectOut(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t funcIdx = r.ReadUint16();
+    uint16_t base = r.ReadUint16();
+    uint32_t outMask = r.ReadUint32();
+    out << head << " [" << funcIdx << "]";
+    if (funcIdx < module.functions.size())
+        out << " " << module.functions[funcIdx].name;
+    out << " base=" << base
+        << " outMask=0x" << std::hex << outMask
+        << std::dec << "\n";
+}
+
+//By-name method call: method=<string-pool idx> "name" base=b.
+static void EmitCallByName(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t methodIdx = r.ReadUint16();
+    uint16_t base = r.ReadUint16();
+    out << head << " method=" << methodIdx;
+    if (methodIdx < module.stringConstants.size())
+        out << " \"" << module.stringConstants[methodIdx] << "\"";
+    out << " base=" << base << "\n";
+}
+
+static void EmitNew(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t dst = r.ReadUint16();
+    uint16_t classIdx = r.ReadUint16();
+    out << head << " " << dst << " class=" << classIdx;
+    if (classIdx < module.classes.size())
+        out << " " << module.classes[classIdx].name;
+    out << "\n";
+}
+
+static void EmitEnumToStr(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t enumDefIdx = r.ReadUint16();
+    out << head << " enumDefIdx=" << enumDefIdx;
+    if (enumDefIdx < module.enumNames.size())
+        out << " (values=" << module.enumNames[enumDefIdx].size() << ")";
+    out << "\n";
+}
+
+//funcIdx line with "(name)" suffix (MakeFunc/MakeBoundFunc share it).
+static void EmitMakeFuncIdx(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t funcIdx = r.ReadUint16();
+    out << head << " funcIdx=" << funcIdx;
+    if (funcIdx < module.functions.size())
+        out << " (" << module.functions[funcIdx].name << ")";
+    out << "\n";
+}
+
+static void EmitMakeVFunc(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t nameIdx = r.ReadUint16();
+    out << head << " nameIdx=" << nameIdx;
+    if (nameIdx < module.stringConstants.size())
+        out << " (" << module.stringConstants[nameIdx] << ")";
+    out << "\n";
+}
+
+//--- operand-domain dispatch ---
+//Each Disasm*Ops function owns one opcode domain: returns true (and
+//writes the line) when it handled op, false to let the next domain try.
+
+static bool DisasmFlowOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head) {
+    switch (op) {
         case OpCode::OP_Return:
         case OpCode::OP_Stop:
+        case OpCode::OP_ParaEnd:
+        case OpCode::OP_Rethrow:
+        case OpCode::OP_PopHandler:
+            EmitPlain(out, head);
+            return true;
+        case OpCode::OP_Jump:
+            EmitJumpTarget(r, out, head);
+            return true;
+        case OpCode::OP_JumpIfNot:
+            EmitJumpCond(r, out, head);
+            return true;
+        case OpCode::OP_Switch:
+            EmitU16(r, out, head, " %u");
+            return true;
+        case OpCode::OP_Case:
+            EmitCaseNext(r, out, head);
+            return true;
+        case OpCode::OP_AssertFail:
+        case OpCode::OP_DebugInfo:
+            EmitU16(r, out, head, " %u");
+            return true;
+        case OpCode::OP_Throw:
+            EmitU16(r, out, head, " src=%u");
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool DisasmConstOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head,
+    const CompiledModule &module) {
+    switch (op) {
         case OpCode::OP_ConstZero:
         case OpCode::OP_CastIntToFloat:
         case OpCode::OP_CastFloatToInt:
-        case OpCode::OP_Int32_to_str:
-        case OpCode::OP_Float_to_str:
-        case OpCode::OP_ParaEnd:
-            out << offsetBuf << ": " << name << "\n";
-            break;
+            EmitPlain(out, head);
+            return true;
+        case OpCode::OP_ConstInt32:
+            EmitI32(r, out, head);
+            return true;
+        case OpCode::OP_ConstFloat:
+            EmitF32(r, out, head);
+            return true;
+        case OpCode::OP_ConstString:
+            EmitConstString(r, out, head, module);
+            return true;
+        case OpCode::OP_VarLocal:
+        case OpCode::OP_Assign:
+            EmitU16(r, out, head, " %u");
+            return true;
+        default:
+            return false;
+    }
+}
 
-        //uint16 msg string index
-        case OpCode::OP_AssertFail: {
-            uint16_t idx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << idx << "\n";
-            break;
-        }
-
-        //int16 target (jump)
-        case OpCode::OP_Jump: {
-            int16_t target = reader.ReadInt16();
-            char targetBuf[16];
-            snprintf(targetBuf, sizeof(targetBuf), "%04x",
-                     static_cast<unsigned>(static_cast<int16_t>(target)));
-            out << offsetBuf << ": " << name
-                << " ->" << targetBuf << "\n";
-            break;
-        }
-
-        //int16 target + uint16 local (conditional jump)
-        case OpCode::OP_JumpIfNot: {
-            int16_t target = reader.ReadInt16();
-            uint16_t localOff = reader.ReadUint16();
-            char targetBuf[16];
-            snprintf(targetBuf, sizeof(targetBuf), "%04x",
-                     static_cast<unsigned>(static_cast<int16_t>(target)));
-            out << offsetBuf << ": " << name
-                << " ->" << targetBuf << " " << localOff << "\n";
-            break;
-        }
-
-        //int32 value
-        case OpCode::OP_ConstInt32: {
-            int32_t v = reader.ReadInt32();
-            out << offsetBuf << ": " << name
-                << " " << v << "\n";
-            break;
-        }
-
-        //float value
-        case OpCode::OP_ConstFloat: {
-            float v = reader.ReadFloat();
-            out << offsetBuf << ": " << name
-                << " " << v << "\n";
-            break;
-        }
-
-        //uint16 pool_index (string constant)
-        case OpCode::OP_ConstString: {
-            uint16_t idx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " [" << idx << "]";
-            if (idx < module.stringConstants.size())
-                out << " \"" << module.stringConstants[idx] << "\"";
-            out << "\n";
-            break;
-        }
-
-        //uint16 offset (variable access)
-        case OpCode::OP_VarLocal: {
-            uint16_t off = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << off << "\n";
-            break;
-        }
-
-        //uint16 dst_offset (assign)
-        case OpCode::OP_Assign: {
-            uint16_t dst = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << dst << "\n";
-            break;
-        }
-
-        //uint16 dst, uint16 src (binary arithmetic)
+static bool DisasmArithOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head) {
+    switch (op) {
+        //dst, src (binary arithmetic)
         case OpCode::OP_Add_i32:
         case OpCode::OP_Sub_i32:
         case OpCode::OP_Mul_i32:
@@ -125,25 +268,8 @@ std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
         case OpCode::OP_Add_f32:
         case OpCode::OP_Sub_f32:
         case OpCode::OP_Mul_f32:
-        case OpCode::OP_Div_f32: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t src = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << dst << " " << src << "\n";
-            break;
-        }
-
-        //uint16 dst (unary)
-        case OpCode::OP_Neg_i32:
-        case OpCode::OP_Neg_f32:
-        case OpCode::OP_LogicalNot: {
-            uint16_t dst = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << dst << "\n";
-            break;
-        }
-
-        //uint16 lhs, uint16 rhs (comparison)
+        case OpCode::OP_Div_f32:
+        //lhs, rhs (comparison)
         case OpCode::OP_Less_i32:
         case OpCode::OP_LessEqual_i32:
         case OpCode::OP_Greater_i32:
@@ -155,69 +281,25 @@ std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
         case OpCode::OP_Greater_f32:
         case OpCode::OP_GreaterEqual_f32:
         case OpCode::OP_Equal_f32:
-        case OpCode::OP_NotEqual_f32: {
-            uint16_t lhs = reader.ReadUint16();
-            uint16_t rhs = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << lhs << " " << rhs << "\n";
-            break;
-        }
+        case OpCode::OP_NotEqual_f32:
+            EmitU16x2(r, out, head, " %u %u");
+            return true;
+        //dst (unary)
+        case OpCode::OP_Neg_i32:
+        case OpCode::OP_Neg_f32:
+        case OpCode::OP_LogicalNot:
+            EmitU16(r, out, head, " %u");
+            return true;
+        default:
+            return false;
+    }
+}
 
-        //uint16 func_index, uint16 call_param_base
-        case OpCode::OP_CallFunc: {
-            uint16_t funcIdx = reader.ReadUint16();
-            uint16_t base = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " [" << funcIdx << "]";
-            if (funcIdx < module.functions.size())
-                out << " " << module.functions[funcIdx].name;
-            out << " base=" << base << "\n";
-            break;
-        }
-
-        //uint16 func_index, uint16 call_param_base, uint32 out_mask (Phase 9e)
-        case OpCode::OP_CallFuncOut:
-        case OpCode::OP_CallMethodDirectOut: {
-            uint16_t funcIdx = reader.ReadUint16();
-            uint16_t base = reader.ReadUint16();
-            uint32_t outMask = reader.ReadUint32();
-            out << offsetBuf << ": " << name
-                << " [" << funcIdx << "]";
-            if (funcIdx < module.functions.size())
-                out << " " << module.functions[funcIdx].name;
-            out << " base=" << base
-                << " outMask=0x" << std::hex << outMask
-                << std::dec << "\n";
-            break;
-        }
-
-        //uint16 info
-        case OpCode::OP_DebugInfo: {
-            uint16_t info = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << info << "\n";
-            break;
-        }
-
-        //uint16 switch_local_offset
-        case OpCode::OP_Switch: {
-            uint16_t off = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << off << "\n";
-            break;
-        }
-
-        //uint16 jump_to_next
-        case OpCode::OP_Case: {
-            uint16_t next = reader.ReadUint16();
-            char nextBuf[16];
-            snprintf(nextBuf, sizeof(nextBuf), "%04x", static_cast<unsigned>(next));
-            out << offsetBuf << ": " << name
-                << " ->" << nextBuf << "\n";
-            break;
-        }
-
-        //String operations: uint16 lhs/or dst, uint16 rhs/or src
+static bool DisasmStringOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head,
+    const CompiledModule &module) {
+    switch (op) {
+        //lhs/or dst, rhs/or src
         case OpCode::OP_Concat_str:
         case OpCode::OP_Eq_str:
         case OpCode::OP_Ne_str:
@@ -225,251 +307,151 @@ std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
         case OpCode::OP_LessEqual_str:
         case OpCode::OP_Greater_str:
         case OpCode::OP_GreaterEqual_str:
-        case OpCode::OP_StrLen: {
-            uint16_t a = reader.ReadUint16();
-            uint16_t b = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << a << " " << b << "\n";
-            break;
-        }
+        case OpCode::OP_StrLen:
+            EmitU16x2(r, out, head, " %u %u");
+            return true;
+        case OpCode::OP_Int32_to_str:
+        case OpCode::OP_Float_to_str:
+        case OpCode::OP_Array_to_str:
+            EmitPlain(out, head);
+            return true;
+        case OpCode::OP_Enum_to_str:
+            EmitEnumToStr(r, out, head, module);
+            return true;
+        default:
+            return false;
+    }
+}
 
-        //Struct operations
-        case OpCode::OP_AllocStruct: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t structIdx = reader.ReadUint16();
-            uint16_t fieldCount = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << dst << " struct=" << structIdx
-                << " fields=" << fieldCount << "\n";
-            break;
-        }
-
-        case OpCode::OP_LoadField: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t obj = reader.ReadUint16();
-            uint16_t fieldOff = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << dst << " obj=" << obj
-                << " off=" << fieldOff << "\n";
-            break;
-        }
-
-        case OpCode::OP_StoreField: {
-            uint16_t obj = reader.ReadUint16();
-            uint16_t fieldOff = reader.ReadUint16();
-            uint16_t src = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " obj=" << obj << " off=" << fieldOff
-                << " " << src << "\n";
-            break;
-        }
-
-        case OpCode::OP_CopyStruct: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t src = reader.ReadUint16();
-            uint16_t structIdx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << dst << " " << src
-                << " struct=" << structIdx << "\n";
-            break;
-        }
-
-        //Class/object operations
-        case OpCode::OP_New: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t classIdx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << dst << " class=" << classIdx;
-            if (classIdx < module.classes.size())
-                out << " " << module.classes[classIdx].name;
-            out << "\n";
-            break;
-        }
-
-        case OpCode::OP_CallMethod: {
-            uint16_t methodIdx = reader.ReadUint16();
-            uint16_t base = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " method=" << methodIdx;
-            if (methodIdx < module.stringConstants.size())
-                out << " \"" << module.stringConstants[methodIdx] << "\"";
-            out << " base=" << base << "\n";
-            break;
-        }
-
-        case OpCode::OP_CallMethodDirect: {
-            uint16_t funcIdx = reader.ReadUint16();
-            uint16_t base = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " [" << funcIdx << "]";
-            if (funcIdx < module.functions.size())
-                out << " " << module.functions[funcIdx].name;
-            out << " base=" << base << "\n";
-            break;
-        }
-
-        case OpCode::OP_CallIntrinsic: {
-            uint16_t id = reader.ReadUint16();
-            uint16_t base = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " id=" << id << " base=" << base << "\n";
-            break;
-        }
-
-        case OpCode::OP_Enum_to_str: {
-            uint16_t enumDefIdx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " enumDefIdx=" << enumDefIdx;
-            if (enumDefIdx < module.enumNames.size())
-                out << " (values=" << module.enumNames[enumDefIdx].size() << ")";
-            out << "\n";
-            break;
-        }
-
-        case OpCode::OP_Array_to_str: {
-            out << offsetBuf << ": " << name << "\n";
-            break;
-        }
-
-        case OpCode::OP_NullCheck: {
-            uint16_t obj = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " " << obj << "\n";
-            break;
-        }
-
-        case OpCode::OP_AllocArray: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t arrayTypeIdx = reader.ReadUint16();
-            uint16_t sizeSlot = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " dst=" << dst << " type=" << arrayTypeIdx
-                << " sizeSlot=" << sizeSlot << "\n";
-            break;
-        }
-
-        case OpCode::OP_LoadElement: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t arr = reader.ReadUint16();
-            uint16_t index = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " dst=" << dst << " arr=" << arr
-                << " idx=" << index << "\n";
-            break;
-        }
-
-        case OpCode::OP_StoreElement: {
-            uint16_t arr = reader.ReadUint16();
-            uint16_t index = reader.ReadUint16();
-            uint16_t src = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " arr=" << arr << " idx=" << index
-                << " src=" << src << "\n";
-            break;
-        }
-
-        case OpCode::OP_ArrayLength: {
-            uint16_t dst = reader.ReadUint16();
-            uint16_t arr = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " dst=" << dst << " arr=" << arr << "\n";
-            break;
-        }
-
-        case OpCode::OP_Box: {
-            uint8_t typeTag = reader.ReadByte();
-            out << offsetBuf << ": " << name
-                << " typeTag=" << static_cast<int>(typeTag) << "\n";
-            break;
-        }
-
-        case OpCode::OP_Unbox: {
-            uint8_t typeTag = reader.ReadByte();
-            out << offsetBuf << ": " << name
-                << " typeTag=" << static_cast<int>(typeTag) << "\n";
-            break;
-        }
-
-        case OpCode::OP_CheckCast: {
-            uint16_t classIdx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " classIdx=" << classIdx << "\n";
-            break;
-        }
-
-        //Phase 9d: exception-handling opcodes.
-        case OpCode::OP_Throw: {
-            uint16_t src = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " src=" << src << "\n";
-            break;
-        }
-        case OpCode::OP_Rethrow:
-        case OpCode::OP_PopHandler:
-            out << offsetBuf << ": " << name << "\n";
-            break;
-
-        //Phase 13: first-class function value opcodes.
-        case OpCode::OP_MakeFunc: {
-            uint16_t funcIdx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " funcIdx=" << funcIdx;
-            if (funcIdx < module.functions.size())
-                out << " (" << module.functions[funcIdx].name << ")";
-            out << "\n";
-            break;
-        }
-        case OpCode::OP_CallDelegate: {
-            uint16_t callee = reader.ReadUint16();
-            uint16_t base = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " callee=" << callee << " base=" << base << "\n";
-            break;
-        }
-        case OpCode::OP_Eq_func:
-        case OpCode::OP_Ne_func: {
-            uint16_t lhs = reader.ReadUint16();
-            uint16_t rhs = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " lhs=" << lhs << " rhs=" << rhs << "\n";
-            break;
-        }
-        case OpCode::OP_Func_to_str:
-            out << offsetBuf << ": " << name << "\n";
-            break;
-        case OpCode::OP_MakeBoundFunc: {
-            uint16_t funcIdx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " funcIdx=" << funcIdx;
-            if (funcIdx < module.functions.size())
-                out << " (" << module.functions[funcIdx].name << ")";
-            out << "\n";
-            break;
-        }
-        case OpCode::OP_MakeVFunc: {
-            uint16_t nameIdx = reader.ReadUint16();
-            out << offsetBuf << ": " << name
-                << " nameIdx=" << nameIdx;
-            if (nameIdx < module.stringConstants.size())
-                out << " (" << module.stringConstants[nameIdx] << ")";
-            out << "\n";
-            break;
-        }
+static bool DisasmCallOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head,
+    const CompiledModule &module) {
+    switch (op) {
+        case OpCode::OP_CallFunc:
+        case OpCode::OP_CallMethodDirect:
+            EmitCallDirect(r, out, head, module);
+            return true;
+        case OpCode::OP_CallFuncOut:
+        case OpCode::OP_CallMethodDirectOut:
+            EmitCallDirectOut(r, out, head, module);
+            return true;
+        case OpCode::OP_CallMethod:
+            EmitCallByName(r, out, head, module);
+            return true;
+        case OpCode::OP_CallIntrinsic:
+            EmitU16x2(r, out, head, " id=%u base=%u");
+            return true;
+        case OpCode::OP_CallDelegate:
+            EmitU16x2(r, out, head, " callee=%u base=%u");
+            return true;
         case OpCode::OP_CallDelegateOut: {
-            uint16_t callee = reader.ReadUint16();
-            uint16_t base = reader.ReadUint16();
-            uint32_t outMask = reader.ReadUint32();
-            out << offsetBuf << ": " << name
-                << " callee=" << callee << " base=" << base
+            uint16_t callee = r.ReadUint16();
+            uint16_t base = r.ReadUint16();
+            uint32_t outMask = r.ReadUint32();
+            out << head << " callee=" << callee << " base=" << base
                 << " outMask=0x" << std::hex << outMask << std::dec
                 << "\n";
-            break;
+            return true;
         }
-
         default:
+            return false;
+    }
+}
+
+static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head,
+    const CompiledModule &module) {
+    switch (op) {
+        case OpCode::OP_AllocStruct:
+            EmitU16x3(r, out, head, " %u struct=%u fields=%u");
+            return true;
+        case OpCode::OP_LoadField:
+            EmitU16x3(r, out, head, " %u obj=%u off=%u");
+            return true;
+        case OpCode::OP_StoreField:
+            EmitU16x3(r, out, head, " obj=%u off=%u %u");
+            return true;
+        case OpCode::OP_CopyStruct:
+            EmitU16x3(r, out, head, " %u %u struct=%u");
+            return true;
+        case OpCode::OP_New:
+            EmitNew(r, out, head, module);
+            return true;
+        case OpCode::OP_NullCheck:
+            EmitU16(r, out, head, " %u");
+            return true;
+        case OpCode::OP_CheckCast:
+            EmitU16(r, out, head, " classIdx=%u");
+            return true;
+        case OpCode::OP_AllocArray:
+            EmitU16x3(r, out, head, " dst=%u type=%u sizeSlot=%u");
+            return true;
+        case OpCode::OP_LoadElement:
+            EmitU16x3(r, out, head, " dst=%u arr=%u idx=%u");
+            return true;
+        case OpCode::OP_StoreElement:
+            EmitU16x3(r, out, head, " arr=%u idx=%u src=%u");
+            return true;
+        case OpCode::OP_ArrayLength:
+            EmitU16x2(r, out, head, " dst=%u arr=%u");
+            return true;
+        case OpCode::OP_Box:
+        case OpCode::OP_Unbox:
+            EmitU8Tag(r, out, head);
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool DisasmFuncValueOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head,
+    const CompiledModule &module) {
+    switch (op) {
+        case OpCode::OP_MakeFunc:
+        case OpCode::OP_MakeBoundFunc:
+            EmitMakeFuncIdx(r, out, head, module);
+            return true;
+        case OpCode::OP_MakeVFunc:
+            EmitMakeVFunc(r, out, head, module);
+            return true;
+        case OpCode::OP_Eq_func:
+        case OpCode::OP_Ne_func:
+            EmitU16x2(r, out, head, " lhs=%u rhs=%u");
+            return true;
+        case OpCode::OP_Func_to_str:
+            EmitPlain(out, head);
+            return true;
+        default:
+            return false;
+    }
+}
+
+std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
+    const CompiledModule& module) {
+    std::vector<DisasmLine> lines;
+    BytecodeReader reader(func.bytecode.data(), func.bytecode.size());
+
+    while (!reader.Eof()) {
+        size_t offset = reader.CurrentOffset();
+        //Pad offset to 4 hex digits
+        char offsetBuf[16];
+        snprintf(offsetBuf, sizeof(offsetBuf), "%04zx", offset);
+
+        OpCode op = reader.ReadOp();
+        const char* name = OpCodeName(op);
+        std::string head = std::string(offsetBuf) + ": " + name;
+
+        std::ostringstream out;
+        if (!DisasmFlowOps(op, reader, out, head) &&
+            !DisasmConstOps(op, reader, out, head, module) &&
+            !DisasmArithOps(op, reader, out, head) &&
+            !DisasmStringOps(op, reader, out, head, module) &&
+            !DisasmCallOps(op, reader, out, head, module) &&
+            !DisasmObjectOps(op, reader, out, head, module) &&
+            !DisasmFuncValueOps(op, reader, out, head, module)) {
             out << offsetBuf << ": unknown_op("
                 << static_cast<int>(op) << ")\n";
-            break;
         }
 
         std::string text = out.str();
@@ -493,130 +475,6 @@ std::string DisassembleTryBlocks(const CompiledFunction& func) {
         }
     }
     return out.str();
-}
-
-//Read-side twin of VmBackend.cpp's compiler-side emission walk (used by
-//RemapBytecode); two tables on purpose — they differ by failure policy
-//(the compiler side asserts on a bug in code it just emitted; here the
-//unknown-opcode arm throws so a debugger walking garbage bytecode
-//reports it instead of dying). Equivalence is pinned by
-//test_instruction_stride_exact_landing.
-size_t InstructionStride(OpCode op) {
-    switch (op) {
-        case OpCode::OP_Return:
-        case OpCode::OP_Stop:
-        case OpCode::OP_ConstZero:
-        case OpCode::OP_CastIntToFloat:
-        case OpCode::OP_CastFloatToInt:
-        case OpCode::OP_Int32_to_str:
-        case OpCode::OP_Float_to_str:
-        case OpCode::OP_Array_to_str:
-        case OpCode::OP_Func_to_str:
-        case OpCode::OP_ParaEnd:
-        case OpCode::OP_Rethrow:
-        case OpCode::OP_PopHandler:
-            return 1;  // no operands
-        case OpCode::OP_Box:
-        case OpCode::OP_Unbox:
-            return 1 + 1;  // uint8 tag
-        case OpCode::OP_Jump:
-        case OpCode::OP_Case:
-            return 1 + 2;  // int16 / uint16
-        case OpCode::OP_ConstInt32:
-        case OpCode::OP_ConstFloat:
-            return 1 + 4;
-        case OpCode::OP_ConstString:
-        case OpCode::OP_AssertFail:
-        case OpCode::OP_VarLocal:
-        case OpCode::OP_Assign:
-        case OpCode::OP_Enum_to_str:
-        case OpCode::OP_Neg_i32:
-        case OpCode::OP_Neg_f32:
-        case OpCode::OP_LogicalNot:
-        case OpCode::OP_Switch:
-        case OpCode::OP_DebugInfo:
-        case OpCode::OP_NullCheck:
-        case OpCode::OP_CheckCast:
-        case OpCode::OP_Throw:
-        case OpCode::OP_MakeFunc:
-        case OpCode::OP_MakeBoundFunc:
-        case OpCode::OP_MakeVFunc:
-            return 1 + 2;  // one uint16 operand
-        case OpCode::OP_JumpIfNot:
-        case OpCode::OP_Add_i32:
-        case OpCode::OP_Sub_i32:
-        case OpCode::OP_Mul_i32:
-        case OpCode::OP_Div_i32:
-        case OpCode::OP_Mod_i32:
-        case OpCode::OP_Add_f32:
-        case OpCode::OP_Sub_f32:
-        case OpCode::OP_Mul_f32:
-        case OpCode::OP_Div_f32:
-        case OpCode::OP_Less_i32:
-        case OpCode::OP_LessEqual_i32:
-        case OpCode::OP_Greater_i32:
-        case OpCode::OP_GreaterEqual_i32:
-        case OpCode::OP_Equal_i32:
-        case OpCode::OP_NotEqual_i32:
-        case OpCode::OP_Less_f32:
-        case OpCode::OP_LessEqual_f32:
-        case OpCode::OP_Greater_f32:
-        case OpCode::OP_GreaterEqual_f32:
-        case OpCode::OP_Equal_f32:
-        case OpCode::OP_NotEqual_f32:
-        case OpCode::OP_Concat_str:
-        case OpCode::OP_Eq_str:
-        case OpCode::OP_Ne_str:
-        case OpCode::OP_Less_str:
-        case OpCode::OP_LessEqual_str:
-        case OpCode::OP_Greater_str:
-        case OpCode::OP_GreaterEqual_str:
-        case OpCode::OP_StrLen:
-        case OpCode::OP_CallFunc:
-        case OpCode::OP_CallMethod:
-        case OpCode::OP_CallMethodDirect:
-        case OpCode::OP_CallIntrinsic:
-        case OpCode::OP_CallDelegate:
-        case OpCode::OP_Eq_func:
-        case OpCode::OP_Ne_func:
-        case OpCode::OP_New:
-        case OpCode::OP_ArrayLength:
-            return 1 + 2 + 2;  // two uint16 operands
-        case OpCode::OP_CallFuncOut:
-        case OpCode::OP_CallMethodDirectOut:
-        case OpCode::OP_CallDelegateOut:
-            return 1 + 2 + 2 + 4;  // uint16 + uint16 + uint32 outMask (Phase 9e / 13)
-        case OpCode::OP_AllocStruct:
-        case OpCode::OP_LoadField:
-        case OpCode::OP_StoreField:
-        case OpCode::OP_CopyStruct:
-        case OpCode::OP_AllocArray:
-        case OpCode::OP_LoadElement:
-        case OpCode::OP_StoreElement:
-            return 1 + 2 + 2 + 2;  // three uint16 operands
-        default:
-            throw std::runtime_error("unknown opcode in disassembler");
-    }
-}
-
-std::vector<LinePcEntry> BuildLinePcMap(const CompiledFunction& func) {
-    std::vector<LinePcEntry> map;
-    size_t pc = 0;
-    const auto& bc = func.bytecode;
-    while (pc < bc.size()) {
-        OpCode op = static_cast<OpCode>(bc[pc]);
-        if (op == OpCode::OP_DebugInfo && pc + 2 < bc.size()) {
-            uint16_t line = static_cast<uint16_t>(
-                bc[pc + 1] | (bc[pc + 2] << 8));
-            //Every statement anchor is an entry (gdb-style one line,
-            //multiple locations) — no same-line dedup: a collapsed copy
-            //would drop real execution paths (finally normal path,
-            //if/else arms) from breakpoint addressing.
-            map.push_back({line, static_cast<uint16_t>(pc)});
-        }
-        pc += InstructionStride(op);
-    }
-    return map;
 }
 
 } // namespace nlang
