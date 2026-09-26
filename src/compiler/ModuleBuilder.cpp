@@ -13,7 +13,7 @@
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/DuplicateFieldChecker.hpp"
 #include "builder/AliasExpander.hpp"
-#include "builder/StatementResolver.hpp"
+#include "builder/StatementResolver.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/compiler/SnMisc.h>

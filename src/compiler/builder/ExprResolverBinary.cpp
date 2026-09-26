@@ -149,7 +149,7 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 		//Short-circuit hardening (2026-08-31): logical operands feed
 		//OP_JumpIfNot, which reads one int32 — the same policy as
 		//statement conditions (CheckIntCondition in
-		//StatementResolver.hpp; widen both together). Without this
+		//StatementResolverFlow.cpp; widen both together). Without this
 		//gate a float/string operand is read as raw bits, giving
 		//garbage truthiness.
 		if (!isCompare)
