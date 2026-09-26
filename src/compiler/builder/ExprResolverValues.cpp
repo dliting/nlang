@@ -220,6 +220,59 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 	return false;
 }
 
+//0.7.3 B D3: a string base has no subscript semantics (NLang has
+//no char type — the substring methods are the char-access surface).
+//Before this arm the subscript silently resolved to the string
+//itself and codegen read the index as an array handle, failing
+//only at runtime ("null array access"). True = rejected.
+bool ExprResolveAccessor::RejectStringSubscriptBase(SnSubscriptExpr &sn,
+	SnField *pBaseType)
+{
+	if (pBaseType && pBaseType->Kind() == NK_String)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"string does not support subscript access.");
+		return true;
+	}
+	return false;
+}
+
+//List<T>/Dict<K,V> subscript (li[i] / d[k]): sugar over get().
+//The base resolves to a synthetic generic-instantiation class; the
+//element type is T (List) or V (Dict). Without this peel the
+//subscript keeps the container type and every consumer (assignment,
+//member chains, nested subscripts) mis-types it.
+//
+//0.7.3 B: an array-valued base carries the interned token in
+//EvalDataType (NK_ArrayTypeToken, never a ClassDecl), so the Kind()
+//check alone distinguishes `List<int>[] a` from `List<int> li` —
+//the masquerade-era IsPlainLvalueShape guard here was removed with
+//the side channel. Array bases keep the plain element-type
+//propagation in the caller, peeling the token.
+//True = consumed (resolved as the container's element type).
+bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
+	SnField *pBaseType)
+{
+	if (!pBaseType || pBaseType->Kind() != NK_ClassDecl)
+		return false;
+	auto* pClass = static_cast<SnClassDecl*>(pBaseType);
+	if (!pClass->IsGenericInstantiation())
+		return false;
+	const auto& baseName = pClass->BaseName();
+	const auto& typeArgs = pClass->GenericTypeArgs();
+	SnField* elem = nullptr;
+	if (baseName == "List" && !typeArgs.empty())
+		elem = typeArgs[0];
+	else if (baseName == "Dict" && typeArgs.size() > 1)
+		elem = typeArgs[1];
+	if (!elem)
+		return false;
+	sn.EvalDataType(elem);
+	sn.AddFlags(NF_Resolved);
+	BindArrayTypeToken(sn);
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 {
 	assert(!sn.IsResolved());
@@ -239,50 +292,10 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//Look up arr.length-style access is handled by MemberExpr.
 	//For now, the result type of subscript is the element type.
 	auto* arrayType = arrayExpr.EvalDataType();
-	//0.7.3 B D3: a string base has no subscript semantics (NLang has
-	//no char type — the substring methods are the char-access surface).
-	//Before this arm the subscript silently resolved to the string
-	//itself and codegen read the index as an array handle, failing
-	//only at runtime ("null array access").
-	if (arrayType && arrayType->Kind() == NK_String)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"string does not support subscript access.");
+	if (RejectStringSubscriptBase(sn, arrayType))
 		return;
-	}
-	//List<T>/Dict<K,V> subscript (li[i] / d[k]): sugar over get().
-	//The base resolves to a synthetic generic-instantiation class; the
-	//element type is T (List) or V (Dict). Without this peel the
-	//subscript keeps the container type and every consumer (assignment,
-	//member chains, nested subscripts) mis-types it.
-	//
-	//0.7.3 B: an array-valued base carries the interned token in
-	//EvalDataType (NK_ArrayTypeToken, never a ClassDecl), so the Kind()
-	//check alone distinguishes `List<int>[] a` from `List<int> li` —
-	//the masquerade-era IsPlainLvalueShape guard here was removed with
-	//the side channel. Array bases keep the plain element-type
-	//propagation below, peeling the token.
-	if (arrayType && arrayType->Kind() == NK_ClassDecl)
-	{
-		auto* pClass = static_cast<SnClassDecl*>(arrayType);
-		if (pClass->IsGenericInstantiation())
-		{
-			const auto& baseName = pClass->BaseName();
-			const auto& typeArgs = pClass->GenericTypeArgs();
-			SnField* elem = nullptr;
-			if (baseName == "List" && !typeArgs.empty())
-				elem = typeArgs[0];
-			else if (baseName == "Dict" && typeArgs.size() > 1)
-				elem = typeArgs[1];
-			if (elem)
-			{
-				sn.EvalDataType(elem);
-				sn.AddFlags(NF_Resolved);
-				BindArrayTypeToken(sn);
-				return;
-			}
-		}
-	}
+	if (TryResolveContainerSubscript(sn, arrayType))
+		return;
 	if (arrayType)
 	{
 		//0.7.3 B token path: an

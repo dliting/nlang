@@ -619,6 +619,27 @@ private:
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
 		SnBinaryExpr::Operator op);
 
+	/*
+	2026-09-27 decomposition of the allocation/value resolution family
+	(ExprResolverNew.cpp / ExprResolverValues.cpp) — the ctor-arity check
+	of Access(SnNewExpr&), the four phases of Access(SnInitListExpr&)
+	and the string-base reject / container sugar of
+	Access(SnSubscriptExpr&).
+	*/
+	size_t CountPositionalCtorArgs(SnNewExpr &sn);
+	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
+	bool FindCtorArity(SnClassDecl *pClassDecl, size_t &ctorArity);
+	void CheckNewExprCtorArity(SnNewExpr &sn, SnClassDecl *pClassDecl);
+	bool ResolveInitListTarget(SnInitListExpr &sn,
+		SnField* &pTargetField, bool &bIsArray);
+	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
+	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
+	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);
+	void ApplyInitListElemCasts(SnInitListExpr &sn, SnField *pElemType);
+	bool RejectStringSubscriptBase(SnSubscriptExpr &sn, SnField *pBaseType);
+	bool TryResolveContainerSubscript(SnSubscriptExpr &sn,
+		SnField *pBaseType);
+
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;
 	SnField *m_pAccessor;

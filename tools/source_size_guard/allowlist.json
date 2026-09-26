@@ -78,11 +78,6 @@
     "reason": "member-function reference binding; later round"
   },
   {
-    "path": "src/compiler/builder/ExprResolverNew.cpp",
-    "function": "ExprResolveAccessor::Access",
-    "reason": "new/new-array/init-list resolution (overload family); later round"
-  },
-  {
     "path": "src/compiler/builder/ExprResolverStdLib.cpp",
     "function": "ExprResolveAccessor::TryResolveModuleQualified",
     "reason": "cross-module qualified-name probing; later round"
@@ -96,11 +91,6 @@
     "path": "src/compiler/builder/ExprResolverTypes.cpp",
     "function": "ExprResolveAccessor::Access",
     "reason": "type-node resolution (overload family); later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverValues.cpp",
-    "function": "ExprResolveAccessor::Access",
-    "reason": "value-node resolution (overload family); later round"
   },
   {
     "path": "src/compiler/builder/ModuleRegistry.cpp",
