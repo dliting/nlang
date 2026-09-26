@@ -11,6 +11,7 @@ add_library(nlang_vm
     backend/VmBackend.cpp
     backend/Register.cpp
     backend/RegisterClass.cpp
+    backend/BuiltinClasses.cpp
     backend/Import.cpp
     backend/Types.cpp
     backend/EmitCall.cpp
