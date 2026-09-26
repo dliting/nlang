@@ -24,6 +24,10 @@ return expr;
 （字符串对象句柄、堆索引）没有有意义的真值。请用显式比较代替：
 `if (s != "")`、`if (obj != null)`。
 
+**裸体限制**：控制流语句的裸体（无花括号）不能是变量声明——
+`if (c) int x = 1;` 会报 `a local declaration cannot be the unbraced
+body of a control-flow statement`，请改用花括号体。
+
 ### if 语句
 
 ```nlang

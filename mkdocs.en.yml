@@ -45,6 +45,7 @@ nav:
       - Memory Management: language-spec/memory-management.md
       - Exit Code Convention: language-spec/exit-code-convention.md
       - Known Limitations: language-spec/known-limitations.md
+      - Common Error Messages: language-spec/common-errors.md
   - VM Architecture:
       - Overview: vm-architecture/overview.md
       - Compilation Pipeline: vm-architecture/compilation-pipeline.md

@@ -45,6 +45,7 @@ nav:
       - 内存管理: language-spec/memory-management.md
       - 退出码约定: language-spec/exit-code-convention.md
       - 已知限制: language-spec/known-limitations.md
+      - 常见错误消息: language-spec/common-errors.md
   - VM 架构:
       - 概览: vm-architecture/overview.md
       - 编译管线: vm-architecture/compilation-pipeline.md

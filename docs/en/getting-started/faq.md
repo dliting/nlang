@@ -77,7 +77,8 @@ cross-directory **shared namespace** (two files declaring the same
 there is neither a bare-name form nor a qualified form. The visibility
 rules for each reference form are on the [Language Specification /
 Declarations](../language-spec/declarations.md) "Import Declaration"
-section.
+section. See [Common Error Messages](../language-spec/common-errors.md)
+for the full error text.
 
 ### Assigning an array value to another type gives `Incompatible type`?
 
@@ -86,7 +87,8 @@ and every `string` target (`toString`, etc.); every other scalar
 context is a named compile-time rejection (`Incompatible type "a"`).
 The full rule is on [Language Specification / Known
 Limitations](../language-spec/known-limitations.md), the "Array values
-in scalar contexts" item.
+in scalar contexts" item. See [Common Error
+Messages](../language-spec/common-errors.md) for the full error text.
 
 ### `.nmod` version outdated, telling you to recompile?
 
@@ -110,7 +112,8 @@ named argument to an imported function (use positional arguments only).
 See [Language Specification / Known Limitations](../language-spec/known-limitations.md),
 the "Cross-module function values are rejected, not transported"
 "Default parameters on imported functions" and "Named arguments on
-imported functions" items.
+imported functions" items. See [Common Error
+Messages](../language-spec/common-errors.md) for the full error text.
 
 ### Condition / `&&` / `||` / `!` says "must be int"? More than 64 parameters?
 
@@ -124,7 +127,8 @@ error (`function "f" has 65 parameters; limit is 64.`). The condition
 typing is on [Language Specification / Statements](../language-spec/statements.md)
 ("Condition typing"); the parameter ceiling is on [Language
 Specification / Known Limitations](../language-spec/known-limitations.md)
-("Parameter count ceiling" item).
+("Parameter count ceiling" item). See [Common Error
+Messages](../language-spec/common-errors.md) for the full error text.
 
 ### Member chain `s.length().toString()` crashes ncc?
 

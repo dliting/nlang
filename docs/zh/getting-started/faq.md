@@ -62,6 +62,7 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 `namespace NS`）的成员目前从另一目录不可达，既没有裸名形式也没有
 限定形式。各引用形式的可见性规则见
 [语言规格/声明](../language-spec/declarations.md) 的「import 声明」。
+完整错误消息见 → [常见错误消息](../language-spec/common-errors.md)。
 
 ### 数组值赋给其他类型报 `Incompatible type`？
 
@@ -69,7 +70,8 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 （`toString` 等），其余标量上下文一律在编译期具名拒绝
 （`Incompatible type "a"`）。完整规则见
 [语言规格/已知限制](../language-spec/known-limitations.md) 的
-「标量上下文中的数组值」条。
+「标量上下文中的数组值」条。完整错误消息见 →
+[常见错误消息](../language-spec/common-errors.md)。
 
 ### `.nmod` 版本过时，提示重新编译？
 
@@ -87,7 +89,8 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 实参（请只用位置实参）。详见
 [语言规格/已知限制](../language-spec/known-limitations.md) 的「跨模块
 函数值被拒绝而非搬运」「被导入函数的默认参数」「被导入函数的具名
-实参」条。
+实参」条。完整错误消息见 →
+[常见错误消息](../language-spec/common-errors.md)。
 
 ### 条件 / `&&` / `||` / `!` 报「必须 int」？参数超 64？
 
@@ -99,7 +102,8 @@ struct、array 都是编译期具名拒绝（`if condition must be int, got
 （`function "f" has 65 parameters; limit is 64.`）。条件类型的机制
 见 [语言规格/语句](../language-spec/statements.md) 的「条件类型」，
 参数数上限见 [语言规格/已知限制](../language-spec/known-limitations.md)
-的「参数数上限」条。
+的「参数数上限」条。完整错误消息见 →
+[常见错误消息](../language-spec/common-errors.md)。
 
 ### 成员链 `s.length().toString()` 让 ncc 崩溃？
 

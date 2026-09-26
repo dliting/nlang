@@ -121,8 +121,6 @@ int q = divide(17, 5, out r);  // q=3, r=2
 - No `out` on virtual/interface dispatch calls (the concrete callee is
   unknown at compile time).
 - No `out` on constructor (`new`) or `super()` calls.
-- No `out` on cross-module imported functions (the `.nmod` stub does not
-  carry out markers).
 - At most 32 out parameters per call.
 - `out` is a reserved keyword.
 

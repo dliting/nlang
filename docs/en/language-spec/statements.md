@@ -25,6 +25,11 @@ a single int32, and non-int values (string object handles, heap indices)
 have no meaningful truthiness. Use an explicit comparison instead:
 `if (s != "")`, `if (obj != null)`.
 
+**Unbraced body:** a control-flow statement's unbraced (bare) body
+cannot be a variable declaration — `if (c) int x = 1;` reports `a local
+declaration cannot be the unbraced body of a control-flow statement`.
+Use a braced body instead.
+
 ### If Statement
 
 ```nlang
