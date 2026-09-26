@@ -29,6 +29,71 @@ SnField *ExprResolveAccessor::FindDelegateTarget(SnInvokeExpr &invoke)
 	return IsFuncTypeDecl(pField->EvalDataType()) ? pField : nullptr;
 }
 
+//0.7.3 B review fix: distance alone is a wrong admission test here —
+//unlike the overload path, a delegate call has NO fixup pass, so any
+//accepted distance that implies a conversion (int→float, array→string
+//through the D5 arm) passes raw bits and the callee reads garbage.
+//Distance 0 covers identical types, interned tokens and the enum/int32
+//masquerade; the only sound non-zero distances are reference upcasts
+//(subclass→base, class→interface), where the handle passes through
+//unchanged.
+bool ExprResolveAccessor::AdmitsDelegateArgType(SnField *pArgType,
+	SnField *pFormal) const
+{
+	if (!pArgType)
+		return false;
+	const bool bRefUpcast = (pArgType->Kind() == NK_ClassDecl
+		|| pArgType->Kind() == NK_InterfaceDecl)
+		&& (pFormal->Kind() == NK_ClassDecl
+			|| pFormal->Kind() == NK_InterfaceDecl);
+	const int nDist = CalcTypeDistance(*pArgType, *pFormal);
+	return nDist == 0 || (bRefUpcast && nDist > 0);
+}
+
+//Per-argument gate of BindDelegateInvoke: out-marker agreement with the
+//Func slot, pending function-reference rebinding against the slot type,
+//and the conversion-free admission for value arguments. False = the
+//argument failed (its diagnostic is logged); the caller accumulates the
+//verdict and keeps scanning, so every bad argument is reported.
+bool ExprResolveAccessor::CheckDelegateArgument(SnExpression &arg,
+	SnField *pFormal, bool bWantOut, size_t i)
+{
+	bool bIsOut = arg.Kind() == NK_OutArgExpr;
+	SnExpression *pValue = bIsOut
+		? static_cast<SnOutArgExpr&>(arg).Inner() : &arg;
+	bool bOK = true;
+	if (bIsOut != bWantOut)
+	{
+		m_Env.Log(CLL_Error, arg.Location(),
+			"argument %zu of the delegate call %s the out marker.",
+			i + 1, bWantOut ? "requires" : "does not accept");
+		bOK = false;
+	}
+	//Pending bare function references bind against the Func's own
+	//parameter slot type; Step 2 adds the receiver-bound member form.
+	if (IsUnboundFuncRef(*pValue))
+	{
+		if (!BindFuncRefToExpected(m_Env,
+			static_cast<SnIdentifierExpr&>(*pValue), pFormal))
+			bOK = false;
+	}
+	else if (IsUnboundMemberFuncRef(*pValue))
+	{
+		if (!BindMemberFuncRefToExpected(m_Env,
+			static_cast<SnMemberExpr&>(*pValue), pFormal))
+			bOK = false;
+	}
+	else if (!bIsOut && !AdmitsDelegateArgType(pValue->EvalDataType(),
+		pFormal))
+	{
+		m_Env.Log(CLL_Error, arg.Location(),
+			"argument %zu of the delegate call is incompatible "
+			"with \"%s\".", i + 1, pFormal->Name().c_str());
+		bOK = false;
+	}
+	return bOK;
+}
+
 void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	SnField *pDelegateField)
 {
@@ -56,59 +121,9 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	size_t i = 0;
 	for (auto &arg : invoke.Params())
 	{
-		SnField *pFormal = typeArgs[i + 1];
-		bool bWantOut = outFlags[i + 1] != 0;
-		bool bIsOut = arg.Kind() == NK_OutArgExpr;
-		SnExpression *pValue = bIsOut
-			? static_cast<SnOutArgExpr&>(arg).Inner() : &arg;
-		if (bIsOut != bWantOut)
-		{
-			m_Env.Log(CLL_Error, arg.Location(),
-				"argument %zu of the delegate call %s the out marker.",
-				i + 1, bWantOut ? "requires" : "does not accept");
+		if (!CheckDelegateArgument(arg, typeArgs[i + 1],
+			outFlags[i + 1] != 0, i))
 			bOK = false;
-		}
-		//Pending bare function references bind against the Func's own
-		//parameter slot type; Step 2 adds the receiver-bound member form.
-		if (IsUnboundFuncRef(*pValue))
-		{
-			if (!BindFuncRefToExpected(m_Env,
-				static_cast<SnIdentifierExpr&>(*pValue), pFormal))
-				bOK = false;
-		}
-		else if (IsUnboundMemberFuncRef(*pValue))
-		{
-			if (!BindMemberFuncRefToExpected(m_Env,
-				static_cast<SnMemberExpr&>(*pValue), pFormal))
-				bOK = false;
-		}
-		else if (!bIsOut)
-		{
-			//0.7.3 B review fix: distance alone is a wrong admission test
-			//here — unlike the overload path, a delegate call has NO fixup
-			//pass, so any accepted distance that implies a conversion
-			//(int→float, array→string through the D5 arm) passes raw bits
-			//and the callee reads garbage. Distance 0 covers identical
-			//types, interned tokens and the enum/int32 masquerade; the
-			//only sound non-zero distances are reference upcasts
-			//(subclass→base, class→interface), where the handle passes
-			//through unchanged.
-			auto *pArgType = pValue->EvalDataType();
-			const bool bRefUpcast = pArgType
-				&& (pArgType->Kind() == NK_ClassDecl
-					|| pArgType->Kind() == NK_InterfaceDecl)
-				&& (pFormal->Kind() == NK_ClassDecl
-					|| pFormal->Kind() == NK_InterfaceDecl);
-			const int nDist = pArgType
-				? CalcTypeDistance(*pArgType, *pFormal) : -1;
-			if (!pArgType || !(nDist == 0 || (bRefUpcast && nDist > 0)))
-			{
-				m_Env.Log(CLL_Error, arg.Location(),
-					"argument %zu of the delegate call is incompatible "
-					"with \"%s\".", i + 1, pFormal->Name().c_str());
-				bOK = false;
-			}
-		}
 		++i;
 	}
 	if (!bOK)
@@ -134,6 +149,115 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 //unbound or a caller-side error occurs (positional after named, etc.).
 //Does NOT log — caller reports a generic "not compatible" error when
 //no candidate matches.
+//Pass-1+2 unwrap of one actual: named (`name = expr`), out (`out ident`)
+//or positional. False = this candidate is unbindable — an unresolved out
+//inner (Access(SnOutArgExpr) already logged why) or a positional actual
+//after a named one. rbSeenNamed threads the positional-after-named rule
+//across actuals.
+static bool UnwrapInvokeActual(SnExpression &actual, SnExpression *&rpExpr,
+	std::string &rsName, bool &rbIsNamed, bool &rbIsOut, bool &rbSeenNamed)
+{
+	if (actual.Kind() == NK_NamedArgExpr)
+	{
+		auto &named = static_cast<const SnNamedArgExpr&>(actual);
+		rsName = named.Name();
+		rpExpr = named.Inner();
+		rbIsNamed = true;
+		rbSeenNamed = true;
+	}
+	else if (actual.Kind() == NK_OutArgExpr)
+	{
+		//Phase 9e: out argument. Unwrap to the inner identifier; the
+		//binding must land on an NF_Out formal (checked below). Named
+		//+out (`foo(b = out y)`) has no grammar form.
+		auto &outArg = static_cast<const SnOutArgExpr&>(actual);
+		rpExpr = outArg.Inner();
+		if (!rpExpr->IsResolved())
+			return false;
+		rbIsOut = true;
+	}
+	else
+	{
+		rpExpr = &actual;
+		if (rbSeenNamed)
+		{
+			//"positional after named" is a caller-side error — reject
+			//this candidate (caller will get a generic incompatible
+			//error from FindFuncByInvoke). Phase 9c Step 4 will report
+			//a specific message once grammar accepts named args.
+			return false;
+		}
+	}
+	return true;
+}
+
+//Positional routing of one actual: consumes the next formal slot in
+//declaration order (riNextFormal advances) and enforces the Phase 9e
+//out-marker agreement — an out formal requires `out ident` at the call
+//site, and `out` is invalid for a normal formal; both directions reject
+//the candidate (generic incompatibility from FindFuncByInvoke).
+static bool BindPositionalActual(SnExpression *pExpr, bool bIsOut,
+	const SnFunction::ParamList &formals,
+	std::vector<FormalBinding> &outBindings, size_t &riNextFormal)
+{
+	if (riNextFormal >= formals.size())
+		return false;  //too many positional args
+	size_t idx = riNextFormal++;
+	if (outBindings[idx].pCallerExpr != nullptr)
+		return false;  //should never happen (positional goes in order)
+	if (outBindings[idx].pFormal->ContainFlags(NF_Out) != bIsOut)
+		return false;
+	outBindings[idx].kind = FormalBinding::B_Positional;
+	outBindings[idx].pCallerExpr = pExpr;
+	outBindings[idx].bIsOut = bIsOut;
+	return true;
+}
+
+//Named routing of one actual: binds the formal with the matching name.
+//A missing name or a duplicate binding (positional+named or named+named)
+//rejects the candidate.
+static bool BindNamedActual(SnExpression *pExpr, const std::string &sName,
+	const SnFunction::ParamList &formals,
+	std::vector<FormalBinding> &outBindings)
+{
+	size_t idx = formals.size();
+	size_t i = 0;
+	for (auto &f : formals)
+	{
+		if (f.Name() == sName)
+		{
+			idx = i;
+			break;
+		}
+		++i;
+	}
+	if (idx == formals.size())
+		return false;  //no formal with this name
+	if (outBindings[idx].pCallerExpr != nullptr)
+		return false;  //duplicate binding (positional+named or named+named)
+	outBindings[idx].kind = FormalBinding::B_Named;
+	outBindings[idx].pCallerExpr = pExpr;
+	return true;
+}
+
+//Pass 3: every formal must be either caller-bound or carry a default
+//expression; unbound ones are marked B_Default here. False = a required
+//formal is left unsatisfied.
+static bool SatisfyUnboundFormals(std::vector<FormalBinding> &outBindings)
+{
+	for (auto &b : outBindings)
+	{
+		if (b.pCallerExpr == nullptr)
+		{
+			//Unbound — must have default expression.
+			if (!b.pFormal->Value())
+				return false;  //required formal left unsatisfied
+			b.kind = FormalBinding::B_Default;
+		}
+	}
+	return true;
+}
+
 bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 	const SnFunction &callee, std::vector<FormalBinding> &outBindings)
 {
@@ -160,91 +284,21 @@ bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 		std::string sName;
 		bool bIsNamed = false;
 		bool bIsOut = false;
-		if (actual.Kind() == NK_NamedArgExpr)
-		{
-			auto &named = static_cast<const SnNamedArgExpr&>(actual);
-			sName = named.Name();
-			pExpr = named.Inner();
-			bIsNamed = true;
-			bSeenNamed = true;
-		}
-		else if (actual.Kind() == NK_OutArgExpr)
-		{
-			//Phase 9e: out argument. Unwrap to the inner identifier; the
-			//binding must land on an NF_Out formal (checked below). Named
-			//+out (`foo(b = out y)`) has no grammar form.
-			auto &outArg = static_cast<const SnOutArgExpr&>(actual);
-			pExpr = outArg.Inner();
-			if (!pExpr->IsResolved())
-				return false;  //Access(SnOutArgExpr) already logged why
-			bIsOut = true;
-		}
-		else
-		{
-			pExpr = &const_cast<SnExpression&>(actual);
-			if (bSeenNamed)
-			{
-				//"positional after named" is a caller-side error — reject
-				//this candidate (caller will get a generic incompatible
-				//error from FindFuncByInvoke). Phase 9c Step 4 will report
-				//a specific message once grammar accepts named args.
-				return false;
-			}
-		}
-
+		if (!UnwrapInvokeActual(actual, pExpr, sName, bIsNamed, bIsOut,
+				bSeenNamed))
+			return false;
 		if (!bIsNamed)
 		{
-			if (iNextFormal >= formals.size())
-				return false;  //too many positional args
-			size_t idx = iNextFormal++;
-			if (outBindings[idx].pCallerExpr != nullptr)
-				return false;  //should never happen (positional goes in order)
-			//Phase 9e: the `out` marker must agree with the formal — an
-			//out formal requires `out ident` at the call site, and `out`
-			//is invalid for a normal formal. Both directions reject this
-			//candidate (generic incompatibility from FindFuncByInvoke).
-			if (outBindings[idx].pFormal->ContainFlags(NF_Out) != bIsOut)
+			if (!BindPositionalActual(pExpr, bIsOut, formals,
+					outBindings, iNextFormal))
 				return false;
-			outBindings[idx].kind = FormalBinding::B_Positional;
-			outBindings[idx].pCallerExpr = pExpr;
-			outBindings[idx].bIsOut = bIsOut;
 		}
-		else
-		{
-			//Find formal by name.
-			size_t idx = formals.size();
-			size_t i = 0;
-			for (auto &f : formals)
-			{
-				if (f.Name() == sName)
-				{
-					idx = i;
-					break;
-				}
-				++i;
-			}
-			if (idx == formals.size())
-				return false;  //no formal with this name
-			if (outBindings[idx].pCallerExpr != nullptr)
-				return false;  //duplicate binding (positional+named or named+named)
-			outBindings[idx].kind = FormalBinding::B_Named;
-			outBindings[idx].pCallerExpr = pExpr;
-		}
+		else if (!BindNamedActual(pExpr, sName, formals, outBindings))
+			return false;
 	}
 
 	//Pass 3: every formal must be either caller-bound or have a default.
-	for (auto &b : outBindings)
-	{
-		if (b.pCallerExpr == nullptr)
-		{
-			//Unbound — must have default expression.
-			if (!b.pFormal->Value())
-				return false;  //required formal left unsatisfied
-			b.kind = FormalBinding::B_Default;
-		}
-	}
-
-	return true;
+	return SatisfyUnboundFormals(outBindings);
 }
 
 } //namespace nlang

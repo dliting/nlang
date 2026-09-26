@@ -58,26 +58,6 @@
     "reason": "signature-overload conflict check; later round"
   },
   {
-    "path": "src/compiler/builder/ExprResolverDelegate.cpp",
-    "function": "ExprResolveAccessor::BindDelegateInvoke",
-    "reason": "delegate-invoke binding; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverDelegate.cpp",
-    "function": "ExprResolveAccessor::TryBindInvoke",
-    "reason": "delegate-invoke attempt chain; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverFuncRef.cpp",
-    "function": "BindFuncRefToExpected",
-    "reason": "free-function reference binding; later round"
-  },
-  {
-    "path": "src/compiler/builder/ExprResolverFuncRef.cpp",
-    "function": "BindMemberFuncRefToExpected",
-    "reason": "member-function reference binding; later round"
-  },
-  {
     "path": "src/compiler/builder/ExprResolverStdLib.cpp",
     "function": "ExprResolveAccessor::TryResolveModuleQualified",
     "reason": "cross-module qualified-name probing; later round"

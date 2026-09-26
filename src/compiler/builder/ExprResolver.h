@@ -515,6 +515,18 @@ private:
 	void BindDelegateInvoke(SnInvokeExpr &invoke, SnField *pDelegateField);
 
 	/*
+	2026-09-27 decomposition of the delegate-binding family
+	(ExprResolverDelegate.cpp): the per-argument gate of BindDelegateInvoke
+	(out-marker agreement, pending function-reference rebinding, and the
+	conversion-free admission below) and that admission itself — a
+	delegate call has no fixup pass, so only distance 0 and reference
+	upcasts pass raw bits soundly.
+	*/
+	bool CheckDelegateArgument(SnExpression &arg, SnField *pFormal,
+		bool bWantOut, size_t i);
+	bool AdmitsDelegateArgType(SnField *pArgType, SnField *pFormal) const;
+
+	/*
 	Phase 9c: validate caller-side argument syntax — independent of any
 	candidate. Reports specific errors for:
 	  - positional argument following a named argument

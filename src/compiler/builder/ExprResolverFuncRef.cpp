@@ -57,17 +57,19 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 	return true;
 }
 
-bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
-	SnField *pExpected)
+//Rejection gates of BindFuncRefToExpected: the expected type must be a
+//Func instantiation, the callee a free function (not a method), a local
+//declaration (imported stubs serialize no parameter signatures) and one
+//without default parameters. True = rejected with the named diagnostic.
+static bool RejectFuncRefTarget(BuildEnvironment &env,
+	SnIdentifierExpr &idExpr, SnFunction *pFunc, SnField *pExpected)
 {
-	auto *pFunc = static_cast<SnFunction*>(idExpr.Field());
-	assert(pFunc && pFunc->Kind() == NK_Function);
 	if (!IsFuncTypeDecl(pExpected))
 	{
 		env.Log(CLL_Error, idExpr.Location(),
 			"function reference \"%s\" requires an expected function type.",
 			idExpr.Name().c_str());
-		return false;
+		return true;
 	}
 	//Methods are not free-function references (receiver-bound references
 	//arrive in Step 2); enum methods additionally carry an int receiver,
@@ -80,7 +82,7 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 		env.Log(CLL_Error, idExpr.Location(),
 			"cannot reference the method \"%s\" without a receiver.",
 			idExpr.Name().c_str());
-		return false;
+		return true;
 	}
 	//Imported stubs carry v1.12 type descriptors for their formals, but
 	//Func signatures are outside the descriptor grammar — an imported
@@ -91,7 +93,7 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 			"cannot reference the imported function \"%s\": parameter "
 			"signatures are not serialized.",
 			idExpr.Name().c_str());
-		return false;
+		return true;
 	}
 	//Default parameters are filled only on the direct-call path.
 	for (auto &param : pFunc->Params())
@@ -101,9 +103,19 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 			env.Log(CLL_Error, idExpr.Location(),
 				"functions with default parameters cannot be referenced: "
 				"\"%s\".", idExpr.Name().c_str());
-			return false;
+			return true;
 		}
 	}
+	return false;
+}
+
+bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
+	SnField *pExpected)
+{
+	auto *pFunc = static_cast<SnFunction*>(idExpr.Field());
+	assert(pFunc && pFunc->Kind() == NK_Function);
+	if (RejectFuncRefTarget(env, idExpr, pFunc, pExpected))
+		return false;
 	auto *pFuncDecl = static_cast<SnClassDecl*>(pExpected);
 	if (!FuncRefMatchesDecl(*pFunc, pFuncDecl))
 	{
@@ -188,42 +200,48 @@ static bool HasNativeMethodOverride(SnFunction &method)
 	return false;
 }
 
-bool BindMemberFuncRefToExpected(BuildEnvironment &env,
-	SnMemberExpr &snMember, SnField *pExpected)
+//Form gates of BindMemberFuncRefToExpected: the expected type must be a
+//Func instantiation, and an enum receiver is rejected outright — enum
+//values are ints, and slot[1] of a handle (a heap index) cannot carry
+//the receiver. True = rejected with the named diagnostic.
+static bool RejectMemberFuncRefForm(BuildEnvironment &env,
+	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnField *pExpected,
+	SnFunction *pMethod)
 {
-	auto &inner = static_cast<SnIdentifierExpr&>(*snMember.Inner());
-	auto *pMethod = static_cast<SnFunction*>(inner.Field());
-	assert(pMethod && pMethod->Kind() == NK_Function);
-	auto *pOwner = pMethod->Parent();
-	//Handle form mirrors the direct-call codegen decision exactly:
-	//virtual methods and interface declarations dispatch by name at
-	//runtime (StatementResolver's implicit virtual propagation means an
-	//override of a parent virtual method carries NF_Virtual too).
-	bool bDispatchesByName = pMethod->ContainFlags(NF_Virtual)
-		|| (pOwner && pOwner->Kind() == NK_InterfaceDecl);
 	if (!IsFuncTypeDecl(pExpected))
 	{
 		env.Log(CLL_Error, snMember.Location(),
 			"bound method reference \"%s\" requires an expected function "
 			"type.", inner.Name().c_str());
-		return false;
+		return true;
 	}
-	//Enum receivers are int values — slot[1] of a handle (a heap index)
-	//cannot carry the receiver.
+	auto *pOwner = pMethod->Parent();
 	if (pOwner && pOwner->Kind() == NK_EnumDecl)
 	{
 		env.Log(CLL_Error, snMember.Location(),
 			"cannot reference the enum method \"%s\": enum receivers are "
 			"int values, not heap objects.", inner.Name().c_str());
-		return false;
+		return true;
 	}
+	return false;
+}
+
+//Signature gates of BindMemberFuncRefToExpected: native methods (and,
+//for by-name bindings, any native override in the dispatch domain) have
+//no callee frame for the receiver, by-name dispatch cannot bake an out
+//mask, and default parameters are filled only on the direct-call path.
+//True = rejected with the named diagnostic.
+static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
+	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnFunction *pMethod,
+	SnField *pExpected, bool bDispatchesByName)
+{
 	if (pMethod->ContainFlags(NF_Native)
 		|| (bDispatchesByName && HasNativeMethodOverride(*pMethod)))
 	{
 		env.Log(CLL_Error, snMember.Location(),
 			"cannot reference the native method \"%s\": native calls have "
 			"no callee frame for the receiver.", inner.Name().c_str());
-		return false;
+		return true;
 	}
 	//The out mask is compiled from the Func type, but a by-name handle
 	//resolves the target at runtime — an overriding method's layout may
@@ -239,7 +257,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 				env.Log(CLL_Error, snMember.Location(),
 					"out parameters are not supported on virtual method "
 					"references: dispatch resolves the target at runtime.");
-				return false;
+				return true;
 			}
 		}
 	}
@@ -252,9 +270,30 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 			env.Log(CLL_Error, snMember.Location(),
 				"methods with default parameters cannot be referenced: "
 				"\"%s\".", inner.Name().c_str());
-			return false;
+			return true;
 		}
 	}
+	return false;
+}
+
+bool BindMemberFuncRefToExpected(BuildEnvironment &env,
+	SnMemberExpr &snMember, SnField *pExpected)
+{
+	auto &inner = static_cast<SnIdentifierExpr&>(*snMember.Inner());
+	auto *pMethod = static_cast<SnFunction*>(inner.Field());
+	assert(pMethod && pMethod->Kind() == NK_Function);
+	auto *pOwner = pMethod->Parent();
+	//Handle form mirrors the direct-call codegen decision exactly:
+	//virtual methods and interface declarations dispatch by name at
+	//runtime (StatementResolver's implicit virtual propagation means an
+	//override of a parent virtual method carries NF_Virtual too).
+	bool bDispatchesByName = pMethod->ContainFlags(NF_Virtual)
+		|| (pOwner && pOwner->Kind() == NK_InterfaceDecl);
+	if (RejectMemberFuncRefForm(env, snMember, inner, pExpected, pMethod))
+		return false;
+	if (RejectMemberFuncRefSignature(env, snMember, inner, pMethod,
+			pExpected, bDispatchesByName))
+		return false;
 	auto *pFuncDecl = static_cast<SnClassDecl*>(pExpected);
 	if (!FuncRefMatchesDecl(*pMethod, pFuncDecl))
 	{
