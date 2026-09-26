@@ -36,6 +36,9 @@ enum FuncHandleForm : int32_t {
 
 class VmExecutor : public IVmDebugView {
 public:
+//Forward declaration: member signatures below take CallFrame by
+//reference; the full definition sits with the data members.
+    struct CallFrame;
     VmExecutor() = default;
     ~VmExecutor();
 
@@ -252,6 +255,19 @@ private:
     //     Why: avoids stack overflow on deep object chains (e.g. linked lists).
     void CollectGarbage();
     void MarkPhase();
+    //2026-09-26 maintainability split: MarkPhase's root scans and per-kind
+    //trace arms, extracted as named helpers (definitions in VmExecutorGC.cpp).
+    //PushMarked is the mark+enqueue step every arm shares.
+    void PushMarked(int32_t idx, std::vector<int32_t>& worklist);
+    void MarkFrameLocals(const CallFrame& frame, std::vector<int32_t>& worklist);
+    void MarkFrameResult(const CallFrame& frame, std::vector<int32_t>& worklist);
+    void MarkFuncReceiver(int32_t idx, std::vector<int32_t>& worklist);
+    void MarkBoxedPayload(int32_t idx);
+    void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
+    void MarkListElements(int32_t idx, std::vector<int32_t>& worklist);
+    void MarkDictEntries(int32_t idx, std::vector<int32_t>& worklist);
+    void MarkStructFields(int32_t idx, std::vector<int32_t>& worklist);
+    void MarkArrayElements(int32_t idx, std::vector<int32_t>& worklist);
     void SweepPhase();
     void FreeOwnedStructs(int32_t heapIdx);
     void FreeNestedStructs(int32_t heapIdx, uint16_t structIdx);
