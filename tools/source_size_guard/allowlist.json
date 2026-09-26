@@ -28,34 +28,6 @@
     "reason": "resolver class pair plus the accessor declaration surface; later round"
   },
   {
-    "path": "src/compiler/builder/StatementResolver.h",
-    "reason": "split from StatementResolver.hpp; decomposition follows in the next commit"
-  },
-  {
-    "path": "src/compiler/builder/StatementResolver.cpp",
-    "reason": "split from StatementResolver.hpp; decomposition follows in the next commit"
-  },
-  {
-    "path": "src/compiler/builder/StatementResolverDecls.cpp",
-    "reason": "split from StatementResolver.hpp; decomposition follows in the next commit"
-  },
-  {
-    "path": "src/compiler/builder/StatementResolverTypes.cpp",
-    "reason": "split from StatementResolver.hpp; decomposition follows in the next commit"
-  },
-  {
-    "path": "src/compiler/builder/StatementResolverAssign.cpp",
-    "reason": "split from StatementResolver.hpp; decomposition follows in the next commit"
-  },
-  {
-    "path": "src/compiler/builder/StatementResolverFlow.cpp",
-    "reason": "split from StatementResolver.hpp; decomposition follows in the next commit"
-  },
-  {
-    "path": "src/compiler/builder/StatementResolverSwitchTry.cpp",
-    "reason": "split from StatementResolver.hpp; decomposition follows in the next commit"
-  },
-  {
     "path": "src/tools/nide/MainWindow.cpp",
     "reason": "Qt main-window wiring; later round"
   },

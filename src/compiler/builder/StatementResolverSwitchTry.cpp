@@ -20,39 +20,36 @@ StatementResolveAccessor::SwitchFamily StatementResolveAccessor::SwitchFamilyOfK
 	}
 }
 
-bool StatementResolveAccessor::ExtractSwitchLabelKey(SnExpression& label,
+//Enum member reference (`Color.Red`): the resolved Field() chain
+//carries the member node.
+bool StatementResolveAccessor::ExtractEnumMemberLabel(SnExpression& label,
 	SwitchLabelKey& key)
 {
-	if (!label.IsResolved())
-		return false;
-	//Enum member reference (`Color.Red`): the resolved Field() chain
-	//carries the member node.
-	if (label.Kind() == NK_MemberExpr || label.Kind() == NK_IdentifierExpr)
+	auto* pField = static_cast<SnFieldExpr&>(label).Field();
+	if (pField && pField->Kind() == NK_EnumMember)
 	{
-		auto* pField = static_cast<SnFieldExpr&>(label).Field();
-		if (pField && pField->Kind() == NK_EnumMember)
-		{
-			auto& member = static_cast<SnEnumMember&>(*pField);
-			//Defense in depth. In the normal flow the value pre-pass
-			//(Resolve -> PreAssignEnumMemberValues) has already
-			//assigned values for every enum by the time any switch
-			//resolves, so this gate never fires. It guards against a
-			//future reordering (e.g. the pre-pass removed or the data
-			//pass's early NF_Resolved trusted again) reintroducing
-			//stale-0 member keys as false duplicates.
-			auto* pDecl = member.Parent();
-			if (!pDecl || pDecl->Kind() != NK_EnumDecl
-				|| !pDecl->ContainFlags(NF_Resolved))
-				return false;
-			key.family = SwitchFamily::Int;
-			key.intValue = member.Value();
-			return true;
-		}
-		return false;
+		auto& member = static_cast<SnEnumMember&>(*pField);
+		//Defense in depth. In the normal flow the value pre-pass
+		//(Resolve -> PreAssignEnumMemberValues) has already
+		//assigned values for every enum by the time any switch
+		//resolves, so this gate never fires. It guards against a
+		//future reordering (e.g. the pre-pass removed or the data
+		//pass's early NF_Resolved trusted again) reintroducing
+		//stale-0 member keys as false duplicates.
+		auto* pDecl = member.Parent();
+		if (!pDecl || pDecl->Kind() != NK_EnumDecl
+			|| !pDecl->ContainFlags(NF_Resolved))
+			return false;
+		key.family = SwitchFamily::Int;
+		key.intValue = member.Value();
+		return true;
 	}
-	if (label.Kind() != NK_LiteralExpr)
-		return false;
-	auto& lit = static_cast<SnLiteralExpr&>(label);
+	return false;
+}
+
+bool StatementResolveAccessor::ExtractLiteralLabel(SnLiteralExpr& lit,
+	SwitchLabelKey& key)
+{
 	auto* pType = lit.EvalDataType();
 	if (!pType)
 		return false;
@@ -76,6 +73,18 @@ bool StatementResolveAccessor::ExtractSwitchLabelKey(SnExpression& label,
 	default:
 		return false;
 	}
+}
+
+bool StatementResolveAccessor::ExtractSwitchLabelKey(SnExpression& label,
+	SwitchLabelKey& key)
+{
+	if (!label.IsResolved())
+		return false;
+	if (label.Kind() == NK_MemberExpr || label.Kind() == NK_IdentifierExpr)
+		return ExtractEnumMemberLabel(label, key);
+	if (label.Kind() != NK_LiteralExpr)
+		return false;
+	return ExtractLiteralLabel(static_cast<SnLiteralExpr&>(label), key);
 }
 
 //Report one error per redundant occurrence of a foldable value.
@@ -228,15 +237,7 @@ void StatementResolveAccessor::Access(SnCatchClause &sn)
 	}
 
 	//2. Find enclosing paragraph for catch var registration.
-	auto pParent = sn.Parent();
-	SnParagraph *pParagraph = nullptr;
-	while (pParent) {
-		if (pParent->Kind() == NK_Paragraph) {
-			pParagraph = static_cast<SnParagraph *>(pParent);
-			break;
-		}
-		pParent = pParent->Parent();
-	}
+	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
 	//3. Register catch var (typed by catch type; assignable in body).
 	if (pParagraph && sn.CatchType()->IsResolved()
 		&& sn.CatchType()->Field()) {
@@ -289,6 +290,48 @@ void StatementResolveAccessor::Access(SnThrowStmt &sn)
 	sn.AddFlags(NF_Resolved);
 }
 
+//3. Resolve args; named arguments are rejected.
+void StatementResolveAccessor::ResolveSuperCallArgs(SnSuperCallStmt &sn)
+{
+	for (auto* pArg : sn.Args()) {
+		if (pArg->Kind() == NK_NamedArgExpr) {
+			m_Env.Log(CLL_Error, pArg->Location(),
+				"named arguments are not supported in super(...)");
+			continue;
+		}
+		if (pArg->Kind() == NK_OutArgExpr) {
+			//Phase 9e: super(...) forwards args positionally without
+			//FormalBindings — an out argument could never write back.
+			m_Env.Log(CLL_Error, pArg->Location(),
+				"out arguments are not supported in super(...)");
+			continue;
+		}
+		pArg->Accept(*m_pVisitor);
+	}
+}
+
+//4. Arity of the parent constructor; false when the parent has none.
+//Built-in Exception family ctor is (this, message) → 1 user arg.
+//Other built-ins are not subclassable; ExprResolver already rejects
+//those SuperNames.
+bool StatementResolveAccessor::FindParentCtorShape(SnClassDecl *pParent,
+	size_t &parentArity)
+{
+	if (pParent->IsBuiltinClass()) {
+		parentArity = 1;
+		return true;
+	}
+	for (auto& field : pParent->Members()) {
+		if (field.Kind() == NK_Function
+			&& field.Name() == pParent->Name()) {
+			parentArity = static_cast<SnFunction&>(field)
+				.Params().size();
+			return true;
+		}
+	}
+	return false;
+}
+
 //Phase 9d-2: super(args); — forwards ctor args to the direct parent
 //class constructor. Valid only inside a user constructor (a method of
 //a class whose name equals the function name). Args are positional
@@ -317,43 +360,9 @@ void StatementResolveAccessor::Access(SnSuperCallStmt &sn)
 			m_pCurrClass->Name().c_str());
 		return;
 	}
-	//3. Resolve args; named arguments are rejected.
-	for (auto* pArg : sn.Args()) {
-		if (pArg->Kind() == NK_NamedArgExpr) {
-			m_Env.Log(CLL_Error, pArg->Location(),
-				"named arguments are not supported in super(...)");
-			continue;
-		}
-		if (pArg->Kind() == NK_OutArgExpr) {
-			//Phase 9e: super(...) forwards args positionally without
-			//FormalBindings — an out argument could never write back.
-			m_Env.Log(CLL_Error, pArg->Location(),
-				"out arguments are not supported in super(...)");
-			continue;
-		}
-		pArg->Accept(*m_pVisitor);
-	}
-	//4. Arity check against the parent constructor.
+	ResolveSuperCallArgs(sn);
 	size_t parentArity = 0;
-	bool parentHasCtor = false;
-	if (pParent->IsBuiltinClass()) {
-		//Built-in Exception family ctor: (this, message) → 1 user arg.
-		//Other built-ins are not subclassable; ExprResolver already
-		//rejects those SuperNames.
-		parentHasCtor = true;
-		parentArity = 1;
-	} else {
-		for (auto& field : pParent->Members()) {
-			if (field.Kind() == NK_Function
-				&& field.Name() == pParent->Name()) {
-				parentHasCtor = true;
-				parentArity = static_cast<SnFunction&>(field)
-					.Params().size();
-				break;
-			}
-		}
-	}
-	if (!parentHasCtor) {
+	if (!FindParentCtorShape(pParent, parentArity)) {
 		if (!sn.Args().empty()) {
 			m_Env.Log(CLL_Error, sn.Location(),
 				"parent class \"%s\" has no constructor; super(...) "

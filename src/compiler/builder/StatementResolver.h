@@ -6,6 +6,7 @@
 #include "ExprResolver.h"
 #include "SnStatements.h"
 #include "SnData.h"
+#include <vector>
 
 namespace nlang
 {
@@ -43,9 +44,50 @@ public:
 	void Visitor(ISyntaxNodeVisitor *pVisitor);
 
 private:
+	//Named decomposition phases shared across the per-concern TUs.
+	SnParagraph *FindEnclosingParagraph(SyntaxNode *pNode);
 	void CheckLocalNameReserved(const std::string &name,
 		const ISourceLocation *pLoc);
 	void CheckIntCondition(SnExpression &cond, const char *what);
+	void CheckFunctionNativeFormals(SnFunction &sn,
+		std::vector<SnFormalParam*> &formals);
+	void ResolveFunctionFormals(SnFunction &sn,
+		std::vector<SnFormalParam*> &formals);
+	void CheckDefaultForwardRefs(std::vector<SnFormalParam*> &formals,
+		size_t i);
+	void CheckDefaultTypeCompat(SnFormalParam *param);
+	void RejectIllegalEnumMethod(SnFunction &method);
+	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
+	SnAssignStmt *BuildLocalInitAssign(SnLocalDeclStmt &sn,
+		SnLocalDeclStmt::LocalDecl &decl);
+	void RegisterLocalDeclarators(SnLocalDeclStmt &sn,
+		SnParagraph &paragraph, SnField *pTypeField, bool bIsArray);
+	void ResolveClassBases(SnClassDecl &sn);
+	void PropagateVirtualOverrides(SnClassDecl &sn);
+	bool TryBindStatementFuncRef(SnExpression &expr,
+		SnField *pExpectedType);
+	bool TryGetAssignTargetType(SnExpression &left,
+		SnField* &pTargetType);
+	bool TryGetAssignSourceType(SnExpression &right,
+		SnField *pTargetType, SnField* &pSourceType);
+	void RejectConstStoreTarget(SnExpression &left,
+		const ISourceLocation *pLoc);
+	bool TryFinishInitListAssign(SnAssignStmt &sn);
+	void PropagateInitListTarget(SnAssignStmt &sn);
+	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
+	bool TryRejectStringBase(SnSubscriptAssignStmt &sn);
+	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);
+	void ApplyContainerStoreCasts(SnSubscriptAssignStmt &sn);
+	void CheckForeachSource(SnForeachStmt &sn);
+	void MatchForeachElemType(SnForeachStmt &sn, SnField *pVarField);
+	void ResolveForInitDecl(SnForStmt &sn);
+	SnAssignStmt *BuildForInitAssign(SnLocalDeclStmt &decl,
+		SnLocalDeclStmt::LocalDecl &d, SnParagraph *pParagraph);
+	static bool ExtractEnumMemberLabel(SnExpression& label,
+		SwitchLabelKey& key);
+	static bool ExtractLiteralLabel(SnLiteralExpr& lit, SwitchLabelKey& key);
+	void ResolveSuperCallArgs(SnSuperCallStmt &sn);
+	bool FindParentCtorShape(SnClassDecl *pParent, size_t &parentArity);
 
 public:
 

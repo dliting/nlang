@@ -21,11 +21,11 @@ void StatementResolveAccessor::Access(SnStructField &sn)
 {
 }
 
-void StatementResolveAccessor::Access(SnClassDecl &sn)
+//Resolve super class reference using ExprResolver (not the
+//StatementResolver visitor, which lacks Access(SnNameExpr&)), then
+//resolve "implements I1, I2" names into SnInterfaceDecl* pointers.
+void StatementResolveAccessor::ResolveClassBases(SnClassDecl &sn)
 {
-	assert(m_pVisitor);
-	//Resolve super class reference using ExprResolver (not the
-	//StatementResolver visitor, which lacks Access(SnNameExpr&)).
 	if (sn.SuperName())
 	{
 		m_ExprResolver.Resolve(*sn.SuperName(), sn, sn, ERF_None);
@@ -39,7 +39,6 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 					"\"%s\" is not a class type.", sn.SuperName()->ToString().c_str());
 		}
 	}
-	//Resolve "implements I1, I2" names into SnInterfaceDecl* pointers.
 	for (auto *pName : sn.ImplementsNames())
 	{
 		m_ExprResolver.Resolve(*pName, sn, sn, ERF_None);
@@ -54,37 +53,47 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 					pName->ToString().c_str());
 		}
 	}
-	//A method that overrides a parent virtual method
-	//is also virtual (implicit virtual propagation).
-	//Check both name and parameter count to avoid false matches.
+}
+
+//A method that overrides a parent virtual method
+//is also virtual (implicit virtual propagation).
+//Check both name and parameter count to avoid false matches.
+void StatementResolveAccessor::PropagateVirtualOverrides(SnClassDecl &sn)
+{
 	auto *pSuper = sn.SuperClass();
-	if (pSuper)
+	if (!pSuper)
+		return;
+	for (auto &field : sn.Members())
 	{
-		for (auto &field : sn.Members())
+		if (field.Kind() != NK_Function)
+			continue;
+		if (field.ContainFlags(NF_Virtual))
+			continue;
+		auto &childFunc = static_cast<SnFunction&>(field);
+		auto *pAncestor = pSuper;
+		while (pAncestor)
 		{
-			if (field.Kind() != NK_Function)
-				continue;
-			if (field.ContainFlags(NF_Virtual))
-				continue;
-			auto &childFunc = static_cast<SnFunction&>(field);
-			auto *pAncestor = pSuper;
-			while (pAncestor)
+			auto *pParentMethod = pAncestor->FindField(field.Name());
+			if (pParentMethod && pParentMethod->Kind() == NK_Function
+				&& pParentMethod->ContainFlags(NF_Virtual))
 			{
-				auto *pParentMethod = pAncestor->FindField(field.Name());
-				if (pParentMethod && pParentMethod->Kind() == NK_Function
-					&& pParentMethod->ContainFlags(NF_Virtual))
+				auto &parentFunc = static_cast<SnFunction&>(*pParentMethod);
+				if (childFunc.Params().size() == parentFunc.Params().size())
 				{
-					auto &parentFunc = static_cast<SnFunction&>(*pParentMethod);
-					if (childFunc.Params().size() == parentFunc.Params().size())
-					{
-						field.AddFlags(NF_Virtual);
-						break;
-					}
+					field.AddFlags(NF_Virtual);
+					break;
 				}
-				pAncestor = pAncestor->SuperClass();
 			}
+			pAncestor = pAncestor->SuperClass();
 		}
 	}
+}
+
+void StatementResolveAccessor::Access(SnClassDecl &sn)
+{
+	assert(m_pVisitor);
+	ResolveClassBases(sn);
+	PropagateVirtualOverrides(sn);
 	for (auto &field : sn.Members())
 	{
 		if (field.Kind() == NK_ClassField)
