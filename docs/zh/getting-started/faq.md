@@ -38,3 +38,91 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 文档站），左侧是导航目录。搜索框在窗口左上角（站点标题旁），支持
 全文检索。
 
+### `v + 1` 不加空格报 `syntax error`？
+
+词法层把二元 `+` 后紧跟的数字吃成带符号字面量——`v+1` 被读成标识符
+`v` 后接字面量 `+1`，两个表达式连排不构成合法语句，于是报
+`syntax error`（`Invalid statement.`）。规避：加号两侧留空格
+（`v + 1`）。
+
+详见 → [语言规格/表达式](../language-spec/expressions.md)。
+
+### 调试时 `io.readLine` 报错 / 停止后 `finally` 不执行 / 断点错位？
+
+调试会话没有标准输入——`io.readLine` 会抛 `IOException`（可以用
+`try/catch` 捕获），不会静默挂起；停止调试是硬终止，进程直接结束
+（`finally` 不执行）；会话内不跟踪行号漂移，一次会话对应一份行号
+快照，会话中编辑或重新构建不受支持，须重新打开调试会话。详见
+[在 nide 中调试](debugging.md) 的「v1 已知限制」一节。
+
+### 跨模块引用报 `Module '...' is not imported`？
+
+`import` 只开放**限定名**——`import lib;` 之后只能写 `lib.f()`，
+裸名 `f()` 不解析；跨目录**共享命名空间**（两个文件声明同一个
+`namespace NS`）的成员目前从另一目录不可达，既没有裸名形式也没有
+限定形式。各引用形式的可见性规则见
+[语言规格/声明](../language-spec/declarations.md) 的「import 声明」。
+
+### 数组值赋给其他类型报 `Incompatible type`？
+
+数组值只有两类合法去向——自身数组类型与全部 `string` 目标
+（`toString` 等），其余标量上下文一律在编译期具名拒绝
+（`Incompatible type "a"`）。完整规则见
+[语言规格/已知限制](../language-spec/known-limitations.md) 的
+「标量上下文中的数组值」条。
+
+### `.nmod` 版本过时，提示重新编译？
+
+`.nmod` 格式地板只升不降：旧 ncc 产出的模块会被加载器拒为过时
+（`Module version ... is outdated; recompile with current ncc`），
+须用当前工具链重新编译。各版本地板与语义变更见
+[VM 架构/模块序列化](../vm-architecture/module-serialization.md)
+的「版本历史」，每次抬升的缘由在 CHANGELOG 对应版本节。
+
+### 跨模块函数值 / 复杂默认参数 / 具名实参被拒？
+
+`.nmod` 的类型描述符只承载数据类型，不携带 `Func` 签名与形参名，
+因此以下跨模块形态被消费侧编译期拒绝：引用被导入函数作为函数值、
+给被导入函数传函数引用、非常量折叠的默认参数、以及被导入函数的具名
+实参（请只用位置实参）。详见
+[语言规格/已知限制](../language-spec/known-limitations.md) 的「跨模块
+函数值被拒绝而非搬运」「被导入函数的默认参数」「被导入函数的具名
+实参」条。
+
+### 条件 / `&&` / `||` / `!` 报「必须 int」？参数超 64？
+
+`if` / `while` / `do-while` / `for` / `assert` 的条件与 `&&` / `||` /
+`!` 的操作数都必须是 `int`（比较产生 `int`）；string、float、class、
+struct、array 都是编译期具名拒绝（`if condition must be int, got
+"String"`、`operator '&&' requires int operands, got "String"`）。另
+外函数参数数有合理性上限 64，超出触发编译期错误
+（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制
+见 [语言规格/语句](../language-spec/statements.md) 的「条件类型」，
+参数数上限见 [语言规格/已知限制](../language-spec/known-limitations.md)
+的「参数数上限」条。
+
+### 成员链 `s.length().toString()` 让 ncc 崩溃？
+
+这是**已知的编译器缺陷**（当前 ncc 仍复现 `ncc: internal crash
+(code 0xC0000005)`）——对 `string` 等成员链做 `s.length().toString()`
+这类链式成员调用（在方法调用结果上再链一个成员访问）会在编译期段错误，
+而非给出具名诊断。规避：用中间局部变量承接
+（`int n = s.length(); string t = n.toString();`）。
+
+### 帮助窗口提示「文档未找到」？
+
+帮助窗口按当前语言树在 `docs\site\` 邻接目录定位对应的 `.html`；
+找不到时提示「The document '...' was not found next to the IDE
+installation.」。多因文档站未随包部署到 `docs\site\`，或安装目录
+版本与所打开的文档页不一致。
+
+### 帮助窗口如何前进 / 后退？
+
+内嵌帮助窗口顶栏有 Back / Forward 导航按钮，可在已访问的文档页之间
+前进后退；帮助窗口关闭后每次重新打开都会重建（不保留上次的浏览
+位置）。
+
+更多已知限制 →
+[语言规格/已知限制](../language-spec/known-limitations.md)、
+[VM 架构/已知限制](../vm-architecture/known-limitations.md)。
+

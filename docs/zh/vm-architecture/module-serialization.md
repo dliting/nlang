@@ -10,7 +10,7 @@ minor 版本号实施语义下限。想直接查看某个 `.nmod` 的内容，�
 ```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
-uint16 minorVer = 11
+uint16 minorVer = 12
 string moduleName
 string[] stringConstants
 function[] functions
@@ -18,7 +18,16 @@ struct[] structs
 class[] classes
 ```
 
-**版本历史**：v1.11（泛型数组类型实参）——一次语义下限抬升，不是布
+**版本历史**：v1.12（递归类型描述符）——布局变更：每个函数记录
+新增形参类型描述符序列，每个 struct/class 字段新增字段类型描述符
+（递归类型描述符：嵌套数组、`List`/`Dict` 实例化、struct/class
+索引，深度帽 8），记录真实的形参、返回与字段类型。被导入函数桩
+以真签名重建（不再以返回 kind 占位），跨模块调用点类型检查因此
+与同模块一致；`lib.mk()` 返回 `float[]` 赋给 `int[]` 局部被拒绝、
+float 实参加宽与同模块调用完全一致、`out` 实参可往返。旧 ncc
+产出的 v1.11 模块缺描述符，因此加载器直接拒绝 minor < 12——旧
+模块必须重新编译。
+v1.11（泛型数组类型实参）——一次语义下限抬升，不是布
 局变更：没有新增序列化字段，但泛型容器的数组类型元素
 （`List<T[]>`、`Dict` 的键/值）现在以裸数组句柄流动、不做装箱，
 `foreach` 循环变量在其上占用 GC 会追踪的 `RTK_Array` 局部槽位。旧

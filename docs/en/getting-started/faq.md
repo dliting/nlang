@@ -47,3 +47,112 @@ the IDE's embedded help window (its content is the documentation site
 under the installation's `docs\site\`), with the navigation tree on
 the left. The search box is in the window's top-left corner (next to
 the site title) and supports full-text search.
+
+### `v + 1` with no spaces gives a `syntax error`?
+
+The lexer eats the digits immediately after a binary `+` as a signed
+literal — `v+1` is read as the identifier `v` followed by the literal
+`+1`, and two expressions in a row is not a valid statement, so you
+get `syntax error` (`Invalid statement.`). Work around it by putting
+spaces around the operator (`v + 1`).
+
+See also: [Language Specification / Expressions](../language-spec/expressions.md).
+
+### Debugging: `io.readLine` fails / `finally` doesn't run on stop / breakpoints drift?
+
+A debug session has no standard input — `io.readLine` throws an
+`IOException` (catch it with `try/catch`; it does not hang silently).
+Stopping a debug session is a hard stop: the process terminates
+directly and `finally` does not run. Line-number drift is not tracked
+inside a session — one session is one line-number snapshot, so editing
+or rebuilding mid-session is not supported; reopen the debug session.
+See the "Known v1 limitations" section of [Debugging in nide](debugging.md).
+
+### Cross-module reference gives `Module '...' is not imported`?
+
+`import` only opens **qualified names** — after `import lib;` you must
+write `lib.f()`; the bare name `f()` does not resolve. Members of a
+cross-directory **shared namespace** (two files declaring the same
+`namespace NS`) are currently unreachable from the other directory —
+there is neither a bare-name form nor a qualified form. The visibility
+rules for each reference form are on the [Language Specification /
+Declarations](../language-spec/declarations.md) "Import Declaration"
+section.
+
+### Assigning an array value to another type gives `Incompatible type`?
+
+An array value has only two legal destinations — its own array type
+and every `string` target (`toString`, etc.); every other scalar
+context is a named compile-time rejection (`Incompatible type "a"`).
+The full rule is on [Language Specification / Known
+Limitations](../language-spec/known-limitations.md), the "Array values
+in scalar contexts" item.
+
+### `.nmod` version outdated, telling you to recompile?
+
+The `.nmod` format floor only ever rises: a module produced by an
+older ncc is refused as outdated
+(`Module version ... is outdated; recompile with current ncc`) and
+must be recompiled with the current toolchain. Each floor bump and its
+semantic change are on [VM Architecture / Module
+Serialization](../vm-architecture/module-serialization.md), the
+"Version history" section; the rationale for each bump is in the
+corresponding CHANGELOG release section.
+
+### Cross-module function values / complex defaults / named arguments rejected?
+
+The `.nmod` type descriptors carry only data types — not `Func`
+signatures or parameter names — so these cross-module shapes are
+rejected at the consumer's compile time: referencing an imported
+function as a function value, passing a function reference to an
+imported function, a non-constant-foldable default parameter, and a
+named argument to an imported function (use positional arguments only).
+See [Language Specification / Known Limitations](../language-spec/known-limitations.md),
+the "Cross-module function values are rejected, not transported"
+"Default parameters on imported functions" and "Named arguments on
+imported functions" items.
+
+### Condition / `&&` / `||` / `!` says "must be int"? More than 64 parameters?
+
+The condition of `if` / `while` / `do-while` / `for` / `assert` and the
+operands of `&&` / `||` / `!` must all be `int` (comparisons produce
+`int`); string, float, class, struct, and array are named compile-time
+rejections (`if condition must be int, got "String"`, `operator '&&'
+requires int operands, got "String"`). Separately, the parameter count
+of a function has a sanity ceiling of 64; exceeding it is a compile
+error (`function "f" has 65 parameters; limit is 64.`). The condition
+typing is on [Language Specification / Statements](../language-spec/statements.md)
+("Condition typing"); the parameter ceiling is on [Language
+Specification / Known Limitations](../language-spec/known-limitations.md)
+("Parameter count ceiling" item).
+
+### Member chain `s.length().toString()` crashes ncc?
+
+This is a **known compiler defect** (the current ncc still reproduces
+`ncc: internal crash (code 0xC0000005)`) — a chained member call such
+as `s.length().toString()` on a `string` chain (a member access on a
+method-call result) crashes the compiler at compile time instead of
+giving a named diagnostic. Work around it with an intermediate local
+(`int n = s.length(); string t = n.toString();`).
+
+### The help window says "document not found"?
+
+The help window locates the matching `.html` in the `docs\site\`
+adjacent directory for the current language tree; when it cannot find
+one it reports "The document '...' was not found next to the IDE
+installation." This usually means the documentation site was not
+deployed to `docs\site\` with the package, or the installation
+directory's version does not match the documentation page being opened.
+
+### How do I go back / forward in the help window?
+
+The embedded help window's top bar has Back / Forward navigation
+buttons to move between the documentation pages you have visited; the
+help window is rebuilt each time it is reopened (it does not remember
+the last browsing position).
+
+More known limitations →
+[Language Specification / Known
+Limitations](../language-spec/known-limitations.md),
+[VM Architecture / Known
+Limitations](../vm-architecture/known-limitations.md).

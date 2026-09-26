@@ -12,7 +12,7 @@ Compiled modules are saved as `.nmod` files with this layout:
 ```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
-uint16 minorVer = 11
+uint16 minorVer = 12
 string moduleName
 string[] stringConstants
 function[] functions
@@ -20,7 +20,20 @@ struct[] structs
 class[] classes
 ```
 
-**Version history**: v1.11 (generic array type arguments) — a semantic
+**Version history**: v1.12 (recursive type descriptors) — a layout
+change: each function record gains a formal-parameter type descriptor
+sequence, and each struct/class field gains a field type descriptor
+(recursive type descriptors: nested arrays, `List`/`Dict`
+instantiations, struct/class indices, depth cap 8), recording the real
+formal, return, and field types. Imported function stubs are rebuilt
+with their real signatures (not return-kind placeholders), so
+cross-module call-site type checking is consistent with same-module
+calls; a `lib.mk()` returning `float[]` assigned to an `int[]` local is
+rejected, float-argument widening matches same-module calls exactly,
+and `out` arguments round-trip. A v1.11 module from an older ncc lacks
+the descriptors, so the loader refuses minor < 12 outright — older
+modules must be recompiled.
+v1.11 (generic array type arguments) — a semantic
 floor, not a layout change: no new serialized fields, but array-typed
 elements of generic containers (`List<T[]>`, `Dict` keys/values) now
 flow as raw array handles with no boxing, and `foreach` loop variables
