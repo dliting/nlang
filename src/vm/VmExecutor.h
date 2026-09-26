@@ -89,6 +89,85 @@ private:
     void ExecuteFunction(const CompiledFunction& func,
         uint8_t* pResult, uint8_t* locals);
 
+    //Opcode case-body helpers (2026-09-26 maintainability split):
+    //the dispatch switch in VmExecutorOps.cpp routes every opcode
+    //to a one-per-case method; definitions live in the domain TUs
+    //(VmExecutorOpsArith/Control/Strings/Calls/Objects.cpp).
+    void OpAssertFail(BytecodeReader& reader);
+    void OpConstInt32(BytecodeReader& reader, uint8_t* pResult);
+    void OpConstFloat(BytecodeReader& reader, uint8_t* pResult);
+    void OpConstString(BytecodeReader& reader, uint8_t* pResult);
+    void OpVarLocal(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpAssign(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpJump(BytecodeReader& reader);
+    void OpJumpIfNot(BytecodeReader& reader, uint8_t* locals);
+    void OpSwitch(BytecodeReader& reader);
+    void OpCase(BytecodeReader& reader);
+    void OpDebugInfo(BytecodeReader& reader, uint16_t opPc);
+    void OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult);
+    void OpArray_to_str(uint8_t* pResult);
+    void OpConcat_str(BytecodeReader& reader, uint8_t* locals);
+    void OpEq_str(BytecodeReader& reader, uint8_t* locals);
+    void OpNe_str(BytecodeReader& reader, uint8_t* locals);
+    void OpStrLen(BytecodeReader& reader, uint8_t* locals);
+    void OpCastIntToFloat(uint8_t* pResult);
+    void OpCastFloatToInt(uint8_t* pResult);
+    void OpInt32_to_str(uint8_t* pResult);
+    void OpFloat_to_str(uint8_t* pResult);
+    void OpAdd_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpSub_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpMul_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpDiv_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpMod_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpNeg_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpAdd_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpSub_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpMul_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpDiv_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpNeg_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpLess_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpLessEqual_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpGreater_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpGreaterEqual_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpEqual_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpNotEqual_i32(BytecodeReader& reader, uint8_t* locals);
+    void OpLess_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpLessEqual_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpGreater_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpGreaterEqual_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpEqual_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpNotEqual_f32(BytecodeReader& reader, uint8_t* locals);
+    void OpLogicalNot(BytecodeReader& reader, uint8_t* locals);
+    void OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);
+    void OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult);
+    void OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult);
+    void OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
+    void OpFunc_to_str(uint8_t* pResult);
+    void OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadField(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreField(BytecodeReader& reader, uint8_t* locals);
+    void OpNew(BytecodeReader& reader, uint8_t* locals);
+    void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
+    void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
+    void OpAllocArray(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadElement(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreElement(BytecodeReader& reader, uint8_t* locals);
+    void OpArrayLength(BytecodeReader& reader, uint8_t* locals);
+    void OpBox(BytecodeReader& reader, uint8_t* pResult);
+    void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
+    void OpCheckCast(BytecodeReader& reader, uint8_t* pResult);
+    void OpThrow(BytecodeReader& reader, uint8_t* locals);
+    void OpRethrow();
+    void OpPopHandler();
+
     //Deep-copy a struct from srcHeapIdx to a new heap slot.
     //Returns the new heap index.
     int32_t DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx);

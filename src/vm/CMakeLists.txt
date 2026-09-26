@@ -3,6 +3,16 @@ add_library(nlang_vm
     VmExecutor.cpp
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
+    VmExecutorOps.cpp
+    VmExecutorOpsArith.cpp
+    VmExecutorOpsControl.cpp
+    VmExecutorOpsCalls.cpp
+    VmExecutorOpsStrings.cpp
+    VmExecutorOpsObjects.cpp
+    VmExecutorGC.cpp
+    VmExecutorContainers.cpp
+    VmExecutorFormat.cpp
+    VmExecutorIntrinsics.cpp
     DebugSessionController.cpp
     IntrinsicsMath.cpp
     IntrinsicsIo.cpp
