@@ -588,6 +588,13 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nmod_determinism.py
             $<TARGET_FILE:ncc>)
     set_tests_properties(nmod_determinism PROPERTIES TIMEOUT 180)
+    # Source-size guard: hand-written sources stay <=500 lines per file
+    # and <=50 lines per function; registered exceptions live in
+    # tools/source_size_guard/allowlist.json, each with a reason.
+    add_test(NAME source_size_guard
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/../tools/source_size_guard/check_source_size.py)
+    set_tests_properties(source_size_guard PROPERTIES TIMEOUT 60)
 endif()
 
 # End-to-end test: compile-only (exits 0)

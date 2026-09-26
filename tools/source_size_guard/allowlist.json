@@ -1,0 +1,304 @@
+[
+  {
+    "path": "include/nlang/compiler/SnExpressions.h",
+    "reason": "syntax-node class declarations; macro-generated Visit surface makes splitting artificial (later round)"
+  },
+  {
+    "path": "include/nlang/compiler/SnStatements.h",
+    "reason": "syntax-node class declarations; macro-generated Visit surface makes splitting artificial (later round)"
+  },
+  {
+    "path": "src/compiler/ModuleBuilder.cpp",
+    "reason": "build-pipeline orchestration (build/imports/cycle checks); later round"
+  },
+  {
+    "path": "src/compiler/SnExpressions.cpp",
+    "reason": "syntax-node constructors and accessors; later round"
+  },
+  {
+    "path": "src/compiler/SnMisc.cpp",
+    "reason": "syntax-node constructors and accessors; later round"
+  },
+  {
+    "path": "src/compiler/SnStatements.cpp",
+    "reason": "syntax-node constructors and accessors; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolver.h",
+    "reason": "resolver class pair plus the accessor declaration surface; later round"
+  },
+  {
+    "path": "src/compiler/builder/StatementResolver.hpp",
+    "reason": "statement-resolution machinery (largest pre-existing unit); later round"
+  },
+  {
+    "path": "src/tools/nide/MainWindow.cpp",
+    "reason": "Qt main-window wiring; later round"
+  },
+  {
+    "path": "src/tools/nide/ProjectModel.cpp",
+    "reason": "Qt project-tree model and XML persistence; later round"
+  },
+  {
+    "path": "src/vm/Disassembler.cpp",
+    "reason": "instruction-printer table plus stride walker; later round"
+  },
+  {
+    "path": "src/vm/VmBackend.h",
+    "reason": "single-class VmBackend declaration; C++ has no partial class, splitting would fragment the class"
+  },
+  {
+    "path": "src/vm/VmExecutor.h",
+    "reason": "single-class VmExecutor declaration; C++ has no partial class, splitting would fragment the class"
+  },
+  {
+    "path": "src/compiler/CastInfo.cpp",
+    "function": "TypeCastInfo::CalcCastKind",
+    "reason": "cast-decision table over source/target kind pairs"
+  },
+  {
+    "path": "src/compiler/SnData.cpp",
+    "function": "SnFunction::ConflictedWith",
+    "reason": "signature-overload conflict check; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverBinary.cpp",
+    "function": "ExprResolveAccessor::Access",
+    "reason": "verbatim-moved binary-expression resolution; decomposition scheduled for a later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverCast.cpp",
+    "function": "ExprResolveAccessor::CalcTypeDistance",
+    "reason": "type-distance table; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverCast.cpp",
+    "function": "ExprResolveAccessor::ComputeBindingDistance",
+    "reason": "binding-distance scoring over argument/binding pairs; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverCast.cpp",
+    "function": "ExprResolveAccessor::FixupExprType",
+    "reason": "expression-type fixup with context repair; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverCast.cpp",
+    "function": "ExprResolveAccessor::FixupParamTypesWithBindings",
+    "reason": "inferred-parameter type fixup; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverDelegate.cpp",
+    "function": "ExprResolveAccessor::BindDelegateInvoke",
+    "reason": "delegate-invoke binding; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverDelegate.cpp",
+    "function": "ExprResolveAccessor::TryBindInvoke",
+    "reason": "delegate-invoke attempt chain; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverFuncRef.cpp",
+    "function": "BindFuncRefToExpected",
+    "reason": "free-function reference binding; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverFuncRef.cpp",
+    "function": "BindMemberFuncRefToExpected",
+    "reason": "member-function reference binding; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
+    "function": "ExprResolveAccessor::Access",
+    "reason": "invoke-expression resolution entry; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
+    "function": "ExprResolveAccessor::FindFuncByInvoke",
+    "reason": "candidate collection by invoke shape; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
+    "function": "ExprResolveAccessor::LogInvokeFailure",
+    "reason": "failure diagnostics across candidate set; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverInvoke.cpp",
+    "function": "ExprResolveAccessor::MatchInvokeAgainst",
+    "reason": "argument-list matching against one candidate; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverNew.cpp",
+    "function": "ExprResolveAccessor::Access",
+    "reason": "new/new-array/init-list resolution (overload family); later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverStdLib.cpp",
+    "function": "ExprResolveAccessor::TryResolveModuleQualified",
+    "reason": "cross-module qualified-name probing; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverStdLib.cpp",
+    "function": "ExprResolveAccessor::TryResolveStdLibCall",
+    "reason": "stdlib namespace/method interception; later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverTypes.cpp",
+    "function": "ExprResolveAccessor::Access",
+    "reason": "type-node resolution (overload family); later round"
+  },
+  {
+    "path": "src/compiler/builder/ExprResolverValues.cpp",
+    "function": "ExprResolveAccessor::Access",
+    "reason": "value-node resolution (overload family); later round"
+  },
+  {
+    "path": "src/compiler/builder/ModuleRegistry.cpp",
+    "function": "ModuleRegistry::BuildGate",
+    "reason": "import-visibility gate planning; later round"
+  },
+  {
+    "path": "src/compiler/builder/ModuleRegistry.cpp",
+    "function": "ModuleRegistry::RegisterUnit",
+    "reason": "per-unit registration and symbol-merge bookkeeping; later round"
+  },
+  {
+    "path": "src/tools/ncc/ProjectFile.cpp",
+    "function": "ProjectFile::Load",
+    "reason": "project-file parsing; later round"
+  },
+  {
+    "path": "src/tools/ncc/main.cpp",
+    "function": "main",
+    "reason": "CLI entry point: sequential flag and phase handling"
+  },
+  {
+    "path": "src/tools/ndb/DebugSession.cpp",
+    "function": "DebugSession::DoBreak",
+    "reason": "breakpoint-address form parsing; later round"
+  },
+  {
+    "path": "src/tools/ndb/DebugSession.cpp",
+    "function": "DebugSession::RunCommand",
+    "reason": "debugger command dispatch loop; later round"
+  },
+  {
+    "path": "src/tools/ndb/main.cpp",
+    "function": "main",
+    "reason": "CLI entry point: front-end selection and session start"
+  },
+  {
+    "path": "src/tools/ndisasm/main.cpp",
+    "function": "main",
+    "reason": "CLI entry point: sequential dump sections"
+  },
+  {
+    "path": "src/tools/nide/CodeEditor.cpp",
+    "function": "CodeEditor::paintLineArea",
+    "reason": "Qt paint pass; later round"
+  },
+  {
+    "path": "src/tools/nide/DebugClient.cpp",
+    "function": "DebugClient::handleEvent",
+    "reason": "debugger event fan-in; later round"
+  },
+  {
+    "path": "src/tools/nide/ProjectPropDialog.cpp",
+    "function": "ProjectPropDialog::createProject",
+    "reason": "Qt dialog project creation; later round"
+  },
+  {
+    "path": "src/tools/nvm/main.cpp",
+    "function": "main",
+    "reason": "CLI entry point: sequential flag and run handling"
+  },
+  {
+    "path": "src/vm/CrashReporter.h",
+    "function": "InstallCrashReporter",
+    "reason": "header-inline Windows crash-handler install; later round"
+  },
+  {
+    "path": "src/vm/IntrinsicsByteStream.cpp",
+    "function": "VmExecutor::ExecuteIntrinsicByteStream",
+    "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/IntrinsicsFileStream.cpp",
+    "function": "VmExecutor::ExecuteIntrinsicFileStream",
+    "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/IntrinsicsFs.cpp",
+    "function": "VmExecutor::ExecuteIntrinsicFs",
+    "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/IntrinsicsIo.cpp",
+    "function": "VmExecutor::ExecuteIntrinsicIo",
+    "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/IntrinsicsMath.cpp",
+    "function": "VmExecutor::ExecuteIntrinsicMath",
+    "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/IntrinsicsString.cpp",
+    "function": "VmExecutor::ExecuteIntrinsicString",
+    "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/ModuleLoader.cpp",
+    "function": "ModuleLoader::Load",
+    "reason": "section-tag dispatch reader; one short arm per tag"
+  },
+  {
+    "path": "src/vm/ModuleSaver.cpp",
+    "function": "WriteCompiledModule",
+    "reason": "sequential field-group writer in on-disk-format order"
+  },
+  {
+    "path": "src/vm/TypeDesc.cpp",
+    "function": "BuildTypeDesc",
+    "reason": "recursive type-descriptor builder over declaration forms"
+  },
+  {
+    "path": "src/vm/VmExecutorFormat.cpp",
+    "function": "VmExecutor::InvokeVirtualToString",
+    "reason": "vtable-walk toString invocation; later round"
+  },
+  {
+    "path": "src/vm/VmExecutorIntrinsics.cpp",
+    "function": "VmExecutor::ExecuteIntrinsic",
+    "reason": "family delegation chain plus the remaining domain switches"
+  },
+  {
+    "path": "src/vm/VmExecutorOps.cpp",
+    "function": "VmExecutor::ExecuteFunction",
+    "reason": "flat dispatch skeleton: the opcode switch routes every case to a 1-3 line Op helper call"
+  },
+  {
+    "path": "src/vm/VmExecutorOpsCalls.cpp",
+    "function": "VmExecutor::ExecuteDelegateCall",
+    "reason": "delegate-call engine (resolve, frame build, out-slot writeback); later round"
+  },
+  {
+    "path": "src/vm/VmExecutorSer.h",
+    "function": "VmExecutor::DeserializeClassFields",
+    "reason": "recursive serialization template; lambda type parameters force single-header instantiation"
+  },
+  {
+    "path": "src/vm/VmExecutorSer.h",
+    "function": "VmExecutor::DeserializeStructFields",
+    "reason": "recursive serialization template; lambda type parameters force single-header instantiation"
+  },
+  {
+    "path": "src/vm/VmExecutorSer.h",
+    "function": "VmExecutor::SerializeClassFields",
+    "reason": "recursive serialization template; lambda type parameters force single-header instantiation"
+  },
+  {
+    "path": "src/vm/VmExecutorSer.h",
+    "function": "VmExecutor::SerializeStructFields",
+    "reason": "recursive serialization template; lambda type parameters force single-header instantiation"
+  }
+]

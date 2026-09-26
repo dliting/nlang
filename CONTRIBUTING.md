@@ -89,6 +89,16 @@ About dialog, the documentation-site footer and the CPack package names.
 - X-macro generated `case` labels align with the `default:` in the enclosing
   switch.
 
+### Source size guidelines
+
+Keep hand-written source files at or under 500 lines and functions at or
+under 50 lines, with narrow registered exceptions: flat dispatch
+skeletons whose cases are all a few lines, X-macro-generated bodies, and
+generated code. `tools/source_size_guard/check_source_size.py` (ctest
+`source_size_guard`) enforces both limits; `allowlist.json` next to it
+registers every exception with a reason. Prefer shrinking the code over
+growing the allowlist — remove an entry when its file is split.
+
 Architecture notes that will save you a debugging afternoon — the visitor
 macros, the result-pointer VM model, the local-declaration lowering — are in
 `docs/` (start with `docs/en/vm-architecture/`).
