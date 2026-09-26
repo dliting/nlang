@@ -14,7 +14,7 @@
 
 ### Configuring nide
 
-Tools → Options opens the settings dialog with two groups:
+Tools → Options opens the settings dialog with three settings:
 
 - **Language**: follow the system language / 中文 / English. A change
   **takes effect after restarting nide** (a restart notice pops up
@@ -30,6 +30,41 @@ Tools → Options opens the settings dialog with two groups:
   precedence: for projects the `.nproj`'s `outputDir` > this
   directory > the project directory; standalone `.n` files use this
   directory directly.
+- **Toolbar icon size**: small (32×32) / large (48×48). A change
+  takes effect immediately — no restart needed.
+
+### Recent
+
+File → Recent remembers the recently opened solutions (.nsln),
+projects (.nproj), and files across sessions — at most 10, in
+most-recently-used order. Entries are logged when you
+open them, create a file, or save a file under a new name.
+A rename updates the entry in place. An entry whose file
+no longer exists is hidden from the menu but kept in the record
+until a newer entry evicts it; entries sharing a file name get an
+automatic directory suffix to disambiguate. "Clear Recent List"
+empties the whole list at once.
+
+### Project Properties
+
+Project → Project Properties opens the project dialog with five
+fields:
+
+- **Name**: the project name, which becomes the `.nproj` file
+  name. Must be non-empty and contain no path separators (`/` or
+  `\`). Filled in when creating a project; a saved project cannot
+  be renamed.
+- **Namespace**: the module namespace. A reserved IDE-facing
+  field that the current ncc does not read.
+- **Location**: the project root directory (the `.nproj` file's
+  directory). Filled in when creating a project; a saved project
+  cannot be moved.
+- **Output directory**: where the final `.nmod` goes; empty means
+  the project directory itself. Consumed by ncc; the precedence
+  is the same as the global build output directory in "Configuring
+  nide".
+- **Intermediate directory**: a reserved field the current
+  toolchain does not consume yet — currently unused.
 
 ### 2. The command line
 
