@@ -1087,11 +1087,6 @@ void ExprResolveAccessor::Access(SnOutArgExpr &sn)
 	sn.AddFlags(NF_Resolved);
 }
 
-
-
-
-
-
 void ExprResolveAccessor::Access(SnCastExpr &sn)
 {
 }
@@ -1914,7 +1909,6 @@ void ExprResolveAccessor::Access(SnClassField &sn)
 {
 	//Class field type resolution is handled by StatementResolver.
 }
-
 
 bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
 {
