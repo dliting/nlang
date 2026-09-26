@@ -136,55 +136,14 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 		return;
 	}
 
-	//Array guard, `as` flavor (0.7.2 rule, kept verbatim): `as` has no
-	//array-typed target spelling (the target is a name expression), and
-	//string targets are assignment-only coercions — so no legal form
-	//exists for an array-valued operand. Post-0.7.3 B the cast table
-	//would reject every spelling anyway (token×scalar = None); the
-	//named branch keeps the diagnostic specific.
-	if (sn.Operand()->IsArrayValued())
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"Invalid cast \"%s as %s\": the cast operand is an array.",
-			sn.Operand()->ToString().c_str(),
-			sn.TargetType()->ToString().c_str());
+	if (RejectAsArrayOperand(sn))
 		return;
-	}
 
 	TypeCastInfo castInfo(pSrcType, pTgtType);
 	auto kind = castInfo.Kind();
 
-	//Phase 13: `f as string` renders the handle ("func <name>"). Class→
-	//string is normally an assignment-only coercion (TCK_Auto is rejected
-	//for `as`); function handles get an explicit branch so all four
-	//conversion paths agree (codegen emits OP_Func_to_str).
-	if (pSrcType->Kind() == NK_ClassDecl && pTgtType->Kind() == NK_String
-		&& static_cast<SnClassDecl*>(pSrcType)->IsFuncType())
-	{
-		sn.SetResolved(pTgtType, TCK_Auto);
-		sn.EvalDataType(pTgtType);
+	if (ResolveAsCastKind(sn, pSrcType, pTgtType, kind))
 		return;
-	}
-
-	if (kind == TCK_None)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"Invalid cast: `%s as %s` is not allowed.",
-			pSrcType->ToString().c_str(),
-			pTgtType->ToString().c_str());
-		return;
-	}
-
-	//TCK_Auto (e.g. int→float) is not allowed via `as` — use primitive cast syntax.
-	//TCK_Dynamic similarly. Only TCK_Same/Box/Unbox/Downcast are valid.
-	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox && kind != TCK_Downcast)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"`as` cannot perform implicit conversion `%s` → `%s`.",
-			pSrcType->ToString().c_str(),
-			pTgtType->ToString().c_str());
-		return;
-	}
 
 	sn.SetResolved(pTgtType, kind);
 	//EvalDataType must be the target type itself (SnInt32 for `as int`,
@@ -199,6 +158,66 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 	//is a flat bit test — wrapper nodes do not inherit child flags.
 	if (sn.Operand()->ContainFlags(NF_NullLiteral))
 		sn.AddFlags(NF_NullLiteral);
+}
+
+//2026-09-26 decomposition of Access(SnAsExpr&): the 0.7.2 array-operand
+//guard as its own named phase. Returns true after logging the rejection.
+bool ExprResolveAccessor::RejectAsArrayOperand(SnAsExpr &sn)
+{
+	//`as` has no array-typed target spelling (the target is a name
+	//expression), and string targets are assignment-only coercions — so
+	//no legal form exists for an array-valued operand. Post-0.7.3 B the
+	//cast table would reject every spelling anyway (token×scalar =
+	//None); the named branch keeps the diagnostic specific.
+	if (!sn.Operand()->IsArrayValued())
+		return false;
+	m_Env.Log(CLL_Error, sn.Location(),
+		"Invalid cast \"%s as %s\": the cast operand is an array.",
+		sn.Operand()->ToString().c_str(),
+		sn.TargetType()->ToString().c_str());
+	return true;
+}
+
+//2026-09-26 decomposition of Access(SnAsExpr&): the cast-kind
+//adjudication middle. Returns true when the expression is consumed —
+//resolved as the func→string rendering, or rejected with a named
+//diagnostic (TCK_None / implicit-conversion kinds); false means the
+//kind is Same/Box/Unbox/Downcast and the caller finishes the binding.
+bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
+	SnField *pTgtType, TypeCastKind kind)
+{
+	//Phase 13: `f as string` renders the handle ("func <name>"). Class→
+	//string is normally an assignment-only coercion (TCK_Auto is rejected
+	//for `as`); function handles get an explicit branch so all four
+	//conversion paths agree (codegen emits OP_Func_to_str).
+	if (pSrcType->Kind() == NK_ClassDecl && pTgtType->Kind() == NK_String
+		&& static_cast<SnClassDecl*>(pSrcType)->IsFuncType())
+	{
+		sn.SetResolved(pTgtType, TCK_Auto);
+		sn.EvalDataType(pTgtType);
+		return true;
+	}
+
+	if (kind == TCK_None)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Invalid cast: `%s as %s` is not allowed.",
+			pSrcType->ToString().c_str(),
+			pTgtType->ToString().c_str());
+		return true;
+	}
+
+	//TCK_Auto (e.g. int→float) is not allowed via `as` — use primitive cast syntax.
+	//TCK_Dynamic similarly. Only TCK_Same/Box/Unbox/Downcast are valid.
+	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox && kind != TCK_Downcast)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"`as` cannot perform implicit conversion `%s` → `%s`.",
+			pSrcType->ToString().c_str(),
+			pTgtType->ToString().c_str());
+		return true;
+	}
+	return false;
 }
 
 void ExprResolveAccessor::Access(SnSubscriptExpr &sn)

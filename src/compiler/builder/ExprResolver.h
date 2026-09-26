@@ -231,6 +231,15 @@ private:
 	//EvalDataType needs the SnExpression friendship.
 	void BindArrayTypeToken(SnExpression &expr);
 
+	//2026-09-26 decomposition of Access(SnAsExpr&): the array-operand
+	//guard and the cast-kind adjudication (func→string arm + the two
+	//reject families). Each returns true when the expression is
+	//consumed (rejected with a named diagnostic, or resolved as the
+	//func→string rendering); false falls through to the binding tail.
+	bool RejectAsArrayOperand(SnAsExpr &sn);
+	bool ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
+		SnField *pTgtType, TypeCastKind kind);
+
 	//Phase 11: resolve a namespace-qualified stdlib call (math.sqrt(x),
 	//io.print(s)) against the built-in table in StdLib.h. Called from the
 	//top of Access(SnMemberExpr&) — namespace names are reserved and never
