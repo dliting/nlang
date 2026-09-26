@@ -45,7 +45,7 @@ bool IsPlainLvalueShape(const SnExpression& expr);
 //ResolveDataTypes; local declarations and the for-var/foreach-var
 //handlers in StatementResolver — the latter resolve via the visitor where
 //an SnArrayTypeExpr never resolves, so their gates are shape-based).
-//Definition lives in ExprResolver.cpp.
+//Definition lives in ExprResolverTypes.cpp.
 int ArrayTypeDepth(const SnFieldExpr* pType);
 
 /*
@@ -108,10 +108,13 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
+//Phase 13: out-flag side table of a Func instantiation (parallel to
+//GetGenericTypeArgs; map access semantics, default-empty on miss).
+//Definition in ExprResolverTypes.cpp.
+const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
 
-//Helpers shared across the ExprResolver*.cpp TUs (2026-09-25 split).
-//Definitions live in ExprResolver.cpp (generic machinery) and
-//ExprResolverMemberFields.cpp (scope predicates); builder-internal.
+//Helpers shared across the ExprResolver*.cpp TUs (2026-09-25/26 splits).
+//Definitions live across those TUs; builder-internal.
 bool HasNamedArgument(SnInvokeExpr& invoke);
 size_t ArgCountOf(SnInvokeExpr& invoke);
 bool HasOutArgument(SnInvokeExpr& invoke);
@@ -125,6 +128,11 @@ SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	const ISourceLocation* pLoc);
 bool IsFuncTypeDecl(SnField *pType);
 bool IsBarePoolScope(const SyntaxNode &scope);
+//2026-09-26 second split: builtin-class minting and the Func signature
+//match are consumed from the Values/New and Cast TUs respectively.
+SnClassDecl* GetBuiltinClassDecl(const std::string& name,
+	const ISourceLocation* pLoc);
+bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl);
 
 //String built-in method table entry (defined in vm/StdLib.h); the member
 //phase declarations below hand around pointers into it.
