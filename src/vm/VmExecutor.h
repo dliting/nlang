@@ -301,6 +301,15 @@ private:
     bool ExecuteIntrinsicString(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
+    //2026-09-26 maintainability split: the ByteStream and FileStream
+    //families moved out of ExecuteIntrinsic into their own domain TUs
+    //(IntrinsicsByteStream.cpp / IntrinsicsFileStream.cpp). Same family
+    //contract: return false when the id is not ours.
+    bool ExecuteIntrinsicByteStream(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    bool ExecuteIntrinsicFileStream(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+
     //Phase 11 Step 3: allocate one boxed-value heap slot (layout per
     //OP_Box: slot[0]=tag, slot[1]=value bits). Shared by OP_Box and the
     //string split / fs.listFiles intrinsics.

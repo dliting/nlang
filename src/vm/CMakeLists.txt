@@ -18,6 +18,8 @@ add_library(nlang_vm
     IntrinsicsMath.cpp
     IntrinsicsIo.cpp
     IntrinsicsString.cpp
+    IntrinsicsByteStream.cpp
+    IntrinsicsFileStream.cpp
     IntrinsicsFs.cpp
     backend/VmBackend.cpp
     backend/Register.cpp
