@@ -32,7 +32,14 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
             return RTK_Func;
         return RTK_Class;
     }
-    return static_cast<uint8_t>(k);
+    //Builtin data types: NK_* and RTK_* are independent numberings since
+    //the basic-types expansion (NK_String=12 vs RTK_String=2 — the old
+    //layout held a coincidental identity for int/float/string). Scalars
+    //map through the registry; string is the one non-scalar builtin.
+    //Anything else keeps the null-type defensive default.
+    if (k == NK_String) return RTK_String;
+    const uint8_t rtk = RtkOfKind(k);
+    return rtk != 0xFF ? rtk : RTK_Int32;
 }
 
 //Option B Step 3: extract a constant-foldable default expression into a

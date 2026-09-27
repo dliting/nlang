@@ -24,11 +24,23 @@ const size_t	NODE_KIND_LIMIT = 1 << NODE_KIND_BITS;
 
 const size_t	NODE_FLAG_LIMIT = 1 << NODE_FLAG_BITS;
 
-//Primitive data type nodes.
+//Primitive data type nodes. Order fixes the NK_* values: string stays
+//last (it is a heap reference type, unlike the 12 scalars above it).
+//NK values are internal only (serialization uses the RTK_* codes).
 #define PRIMITIVE_TYPE_NODE_DECL(MACRO_IMPL)								\
 	MACRO_IMPL(Int32)		/* 32-bit signed int */							\
 	MACRO_IMPL(Float)		/* 32-bit IEEE float */							\
-	MACRO_IMPL(String)		/* UTF-8 string */								
+	MACRO_IMPL(Byte)		/* 8-bit signed int */							\
+	MACRO_IMPL(UByte)		/* 8-bit unsigned int */						\
+	MACRO_IMPL(Short)		/* 16-bit signed int */							\
+	MACRO_IMPL(UShort)		/* 16-bit unsigned int */						\
+	MACRO_IMPL(UInt32)		/* 32-bit unsigned int; language keyword uint */\
+	MACRO_IMPL(Long)		/* 64-bit signed int */							\
+	MACRO_IMPL(ULong)		/* 64-bit unsigned int */						\
+	MACRO_IMPL(Double)		/* 64-bit IEEE float */							\
+	MACRO_IMPL(Bool)		/* true/false */								\
+	MACRO_IMPL(Char)		/* Unicode scalar value */						\
+	MACRO_IMPL(String)		/* UTF-8 string */
 
 //Extend data type nodes.
 #define EXTEND_TYPE_NODE_DECL(MACRO_IMPL)									\

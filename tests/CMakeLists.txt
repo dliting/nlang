@@ -83,6 +83,28 @@ target_link_libraries(test_array_token
 
 add_test(NAME array_token_tests COMMAND test_array_token)
 
+# 0.7.5 basic types: scalar primitive registry unit tests (console
+# suite). Pins the registry as the single source of truth — row order,
+# slot widths, RTK allocation (0/1 + 10..19), kind/rtk round-trips, Rn
+# singleton wiring, derived predicates and the post-expansion NK layout.
+add_executable(test_primitivetypes
+    test_compiler/test_primitivetypes.cpp
+)
+
+target_include_directories(test_primitivetypes
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_primitivetypes
+    PRIVATE
+        nlang_runtime
+        nlang_compiler
+        nlang_vm
+)
+
+add_test(NAME primitivetypes_tests COMMAND test_primitivetypes)
+
 # ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,

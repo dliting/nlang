@@ -1,5 +1,6 @@
 #pragma once
 #include "TypeDesc.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdint>
 #include <ostream>
 #include <string>
@@ -40,12 +41,18 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //signatures instead of return-kind placeholders, so call-site type
 //checking for imported callees is now performed; the loader refuses
 //v1.11 and older outright.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 12;
+//v1.13 (basic types): ten new scalar RTK kinds (RTK_Byte..RTK_Char,
+//10..19; 8/9 stay the TypeDesc descriptor-only kinds), generalized
+//numeric opcodes with kind immediates, bool conditions, 8-byte scalar
+//slots (long/ulong/double) and the unified 3-slot boxed record. Older
+//modules are refused outright.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 13;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
-static constexpr uint8_t RTK_Int32  = 0;
-static constexpr uint8_t RTK_Float  = 1;
+//The scalar codes (RTK_Int32/RTK_Float = 0/1 plus RTK_Byte..RTK_Char
+//= 10..19) live in nlang/runtime/PrimitiveTypes.h — the single source
+//shared by compiler and VM.
 static constexpr uint8_t RTK_String = 2;
 static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;

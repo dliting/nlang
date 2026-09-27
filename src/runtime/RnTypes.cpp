@@ -10,6 +10,7 @@
 #include <cassert>
 #include <sstream>
 #include <cstdio>
+#include <type_traits>
 
 namespace nlang
 {
@@ -137,6 +138,53 @@ void RnString::DestroyValue(void *pValue) const
 	delete *ppStr;
 	*ppStr = nullptr;
 }
+
+//Per-category ValueToString + Accept for the ten registry-generated
+//scalar types (the two pre-existing hand-written RnInt32/RnFloat
+//versions above stay untouched). Format strings pair strictly with
+//argument types: %g takes the double promotion, %llu takes unsigned
+//long long, %lld takes long long — narrow integers promote with the
+//value unchanged. Each branch keeps its own buffer (unused-variable
+//warnings stay branch-local under if constexpr).
+#define IMPL_SCALAR_RN_TYPE(CLASS, KW, WIDTH, CARRIER, CAT, RANK)            \
+void Rn##CLASS::Accept(IRuntimeNodeVisitor &v)                               \
+{                                                                            \
+	v.Visit(*this);                                                          \
+}                                                                            \
+std::string Rn##CLASS::ValueToString(const void *pValue) const               \
+{                                                                            \
+	assert(pValue);                                                          \
+	if constexpr (CAT == PC_Bool)                                             \
+		return *static_cast<const int32*>(pValue) ? "true" : "false";         \
+	else if constexpr (CAT == PC_Char)                                        \
+		return Utf8EncodeCodePoint(*static_cast<const uint32*>(pValue));      \
+	else if constexpr (CAT == PC_Float)                                       \
+	{                                                                        \
+		char buf[32];                                                        \
+		std::snprintf(buf, sizeof(buf), WIDTH == 8 ? "%.17g" : "%g",         \
+			static_cast<double>(                                             \
+				*static_cast<const CARRIER*>(pValue)));                      \
+		return buf;                                                          \
+	}                                                                        \
+	else if constexpr (std::is_same<CARRIER, uint64>::value)                  \
+	{                                                                        \
+		char buf[32];                                                        \
+		std::snprintf(buf, sizeof(buf), "%llu",                              \
+			static_cast<unsigned long long>(                                 \
+				*static_cast<const CARRIER*>(pValue)));                      \
+		return buf;                                                          \
+	}                                                                        \
+	else                                                                     \
+	{                                                                        \
+		char buf[32];                                                        \
+		std::snprintf(buf, sizeof(buf), "%lld",                              \
+			static_cast<long long>(                                          \
+				*static_cast<const CARRIER*>(pValue)));                      \
+		return buf;                                                          \
+	}                                                                        \
+}
+SCALAR_PRIMITIVE_NEW_DECL(IMPL_SCALAR_RN_TYPE)
+#undef IMPL_SCALAR_RN_TYPE
 
 void RnType::Accept(IRuntimeNodeVisitor &v)
 {

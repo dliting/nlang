@@ -235,17 +235,22 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 		}
 		default:
 		{
-			//Scalar builtin leaves: the Int32/Float/String NK_* values fit
-			//the low RTK bytes (the same cast RuntimeTypeKind relies on).
-			//The RTK_Boxed/RTK_Func bytes collide with NK kinds that are
-			//never type nodes (FormalParam/Namespace), so no node can
-			//legitimately produce them — degrade anything else instead of
-			//emitting a byte the parser rejects.
-			uint8_t k = static_cast<uint8_t>(pType->Kind());
-			if (k == RTK_Int32 || k == RTK_Float || k == RTK_String)
-				td.kind = k;
-			else
-				td.kind = RTK_NonSerialized;
+			//Builtin leaves: NK_* and RTK_* are independent numberings
+			//since the basic-types expansion (the old layout held a
+			//coincidental identity for int/float/string) — map through the
+			//registry, never a cast. String is the one non-scalar builtin.
+			//Only the v1.12 descriptor-grammar scalars are emitted today;
+			//the new scalar kinds (RTK_Byte..RTK_Char) join alongside the
+			//ParseOne whitelist when their wire grammar lands — degrade
+			//anything the current parser would reject.
+			if (pType->Kind() == NK_String)
+			{
+				td.kind = RTK_String;
+				return td;
+			}
+			const uint8_t rtk = RtkOfKind(pType->Kind());
+			td.kind = (rtk == RTK_Int32 || rtk == RTK_Float)
+				? rtk : RTK_NonSerialized;
 			return td;
 		}
 	}

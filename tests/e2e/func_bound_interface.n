@@ -5,13 +5,16 @@ interface Op {
     public int run(int x);
 }
 
-class Double implements Op {
+//"Doubler" because the PascalCase built-in type aliases (Int32, String,
+//Double, Bool, ...) occupy the global namespace — a user class cannot
+//reuse one (same rule as `class Int32` before this series).
+class Doubler implements Op {
     public int run(int x) { return x * 2; }
 }
 
 int apply(Func<int, int> f, int v) { return f(v); }
 
 int main() {
-    Op o = new Double();
+    Op o = new Doubler();
     return apply(o.run, 21);
 }

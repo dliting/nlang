@@ -62,9 +62,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //every struct/class record. A v1.11 module has none of those bytes
     //and its stub reconstruction relied on return-kind placeholders;
     //loading it would misparse every record after the first function.
-    //Refuse v1.11 and older outright (floor/ceiling double-reject
+    //v1.13 (basic types): RTK semantic bump — ten new scalar kinds
+    //(10..19) flow through every kind byte (locals, fields, TypeDesc),
+    //and later tasks of the same series add kind-immediate opcodes;
+    //a v1.12 module would execute those bytes with the old opcode
+    //meanings.
+    //Refuse v1.12 and older outright (floor/ceiling double-reject
     //unchanged).
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 12)
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 13)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
