@@ -71,6 +71,63 @@ static bool CollectSourceFiles(const tinyxml2::XMLElement* sources,
     return true;
 }
 
+//<ImportPaths> half of Load: each <Dir path=...> resolved absolute against
+//the project dir. A missing/empty path is an error. The block is optional;
+//de-duplication across the full path is left to BuildLibrarySearchPath.
+static bool CollectImportDirs(const tinyxml2::XMLElement* importPaths,
+    const std::string& projectPath, ProjectFile& out,
+    std::string& errorMessage) {
+    for (const tinyxml2::XMLElement* dir =
+             importPaths->FirstChildElement("Dir");
+         dir; dir = dir->NextSiblingElement("Dir")) {
+        const char* path = dir->Attribute("path");
+        if (!path || !*path) {
+            errorMessage = "<Dir> entry without a path attribute in "
+                + projectPath;
+            return false;
+        }
+        fs::path abs = fs::absolute(fs::path(out.projectDir) / path)
+            .lexically_normal();
+        out.importPaths.push_back(abs.string());
+    }
+    return true;
+}
+
+//Validate the single <Sources> block and collect its files.
+static bool CollectSourcesBlock(const tinyxml2::XMLElement* root,
+                                const std::string& projectPath,
+                                ProjectFile& out, std::string& error) {
+    const tinyxml2::XMLElement* sources =
+        root->FirstChildElement("Sources");
+    if (!sources) {
+        error = "project file has no <Sources> element: " + projectPath;
+        return false;
+    }
+    //A second block would silently drop files, so reject it.
+    if (sources->NextSiblingElement("Sources")) {
+        error = "project file has more than one <Sources> element: "
+            + projectPath;
+        return false;
+    }
+    return CollectSourceFiles(sources, projectPath, out, error);
+}
+
+//Validate the optional single <ImportPaths> block and collect its dirs.
+static bool CollectImportPathsBlock(const tinyxml2::XMLElement* root,
+                                    const std::string& projectPath,
+                                    ProjectFile& out, std::string& error) {
+    const tinyxml2::XMLElement* importPaths =
+        root->FirstChildElement("ImportPaths");
+    if (!importPaths)
+        return true;   // optional
+    if (importPaths->NextSiblingElement("ImportPaths")) {
+        error = "project file has more than one <ImportPaths> element: "
+            + projectPath;
+        return false;
+    }
+    return CollectImportDirs(importPaths, projectPath, out, error);
+}
+
 bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
                        std::string& errorMessage) {
     fs::path proj(projectPath);
@@ -94,21 +151,11 @@ bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
     }
 
     ParseProjectHeader(root, proj, out);
-
-    const tinyxml2::XMLElement* sources = root->FirstChildElement("Sources");
-    if (!sources) {
-        errorMessage = "project file has no <Sources> element: " + projectPath;
+    if (!CollectSourcesBlock(root, projectPath, out, errorMessage))
         return false;
-    }
-    //A second <Sources> block is a schema violation: its files would be
-    //silently dropped, so reject rather than ignore.
-    if (sources->NextSiblingElement("Sources")) {
-        errorMessage = "project file has more than one <Sources> element: "
-            + projectPath;
+    if (!CollectImportPathsBlock(root, projectPath, out, errorMessage))
         return false;
-    }
-
-    return CollectSourceFiles(sources, projectPath, out, errorMessage);
+    return true;
 }
 
 } //namespace nlang

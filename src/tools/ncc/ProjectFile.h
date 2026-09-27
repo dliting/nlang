@@ -22,6 +22,10 @@ struct ProjectFile {
     std::string projectDir;  //absolute directory of the .nproj file
     std::string outputDir;   //relative output dir ("" -> project dir)
     std::vector<std::string> sources;  //absolute .n paths, project-file order
+    //Optional <ImportPaths>: directories searched for library .n sources
+    //and native DLLs; absolute, project-file order (de-duplicated later by
+    //the search-path builder).
+    std::vector<std::string> importPaths;
 
     //Parses and validates. Returns false with a user-facing errorMessage
     //(missing file, XML error, wrong root, empty Sources, missing path attr).

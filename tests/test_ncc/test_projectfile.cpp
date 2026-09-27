@@ -190,6 +190,54 @@ int main() {
         CHECK(!err.empty());
     }
 
+    // 13. <ImportPaths> entries resolve against the project dir, in order.
+    {
+        WriteFixture(tmp, "main.n", "");
+        auto proj = WriteFixture(tmp, "imports.nproj",
+            "<?xml version=\"1.0\"?>\n"
+            "<Project name=\"Imp\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <ImportPaths>\n"
+            "    <Dir path=\"libs/acme\"/>\n"
+            "    <Dir path=\"vendor/x\"/>\n"
+            "  </ImportPaths>\n"
+            "</Project>\n");
+        nlang::ProjectFile pf;
+        std::string err;
+        CHECK(nlang::ProjectFile::Load(proj.string(), pf, err));
+        CHECK(pf.importPaths.size() == 2);
+        CHECK(pf.importPaths[0] ==
+            (tmp / "libs/acme").lexically_normal().string());
+        CHECK(pf.importPaths[1] ==
+            (tmp / "vendor/x").lexically_normal().string());
+    }
+
+    // 14. <Dir/> without a path attribute -> error naming the entry.
+    {
+        auto proj = WriteFixture(tmp, "imp_nopath.nproj",
+            "<?xml version=\"1.0\"?>\n<Project name=\"X\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <ImportPaths><Dir/></ImportPaths>\n</Project>\n");
+        nlang::ProjectFile pf;
+        std::string err;
+        CHECK(!nlang::ProjectFile::Load(proj.string(), pf, err));
+        CHECK(!err.empty());
+    }
+
+    // 15. A second <ImportPaths> block is a schema violation (its dirs would
+    //     be silently dropped), like the second <Sources> rule.
+    {
+        auto proj = WriteFixture(tmp, "imp_two.nproj",
+            "<?xml version=\"1.0\"?>\n<Project name=\"X\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <ImportPaths><Dir path=\"a\"/></ImportPaths>\n"
+            "  <ImportPaths><Dir path=\"b\"/></ImportPaths>\n</Project>\n");
+        nlang::ProjectFile pf;
+        std::string err;
+        CHECK(!nlang::ProjectFile::Load(proj.string(), pf, err));
+        CHECK(!err.empty());
+    }
+
     std::printf("\n=== Results: %s (%d failure%s) ===\n",
         g_failures == 0 ? "all passed" : "FAILURES",
         g_failures, g_failures == 1 ? "" : "s");

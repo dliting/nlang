@@ -1,7 +1,9 @@
 #include "ModuleLoader.h"
 #include "VmExecutor.h"
+#include "NativeLibraryLoader.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
+#include "nlang/common/LibrarySearchPath.h"
 #ifdef _WIN32
 #include <windows.h>  //SetErrorMode/ExitProcess (was transitive via CrashReporter.h)
 #endif
@@ -12,14 +14,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
+#include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
 
 using namespace nlang;
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: nvm <module.nmod> [--gc-stress=N]\n"
+        std::cerr << "Usage: nvm <module.nmod> [-I <dir>...] [--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -50,6 +56,7 @@ int main(int argc, char* argv[]) {
     //threshold. The flag parses from any position; the first non-flag
     //argument is the module.
     size_t gcStress = 0;
+    std::vector<std::string> importDirs;
     int moduleArg = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -68,12 +75,21 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             gcStress = static_cast<size_t>(parsed);
+        } else if (a == "-I") {
+            //Library search dir (native DLLs); a missing value is a mistake.
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "nvm: option -I requires a value\n");
+                return 1;
+            }
+            importDirs.push_back(argv[++i]);
+        } else if (a.size() > 2 && a.compare(0, 2, "-I") == 0) {
+            importDirs.push_back(a.substr(2));
         } else if (moduleArg < 0) {
             moduleArg = i;
         }
     }
     if (moduleArg < 0) {
-        std::cerr << "Usage: nvm <module.nmod> [--gc-stress=N]\n"
+        std::cerr << "Usage: nvm <module.nmod> [-I <dir>...] [--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -84,6 +100,19 @@ int main(int argc, char* argv[]) {
     int result = 1;
     try {
         module = ModuleLoader::Load(argv[moduleArg]);
+        //Unified library search: CLI -I > module dir > NLANG_PATH >
+        //exe dir/cwd (native DLLs may ship beside the module or in -I dirs).
+        fs::path modPath(argv[moduleArg]);
+        SearchPathInput search;
+        search.explicitDirs = importDirs;
+        search.baseDirs.push_back(modPath.parent_path().string());
+        if (const char* env = std::getenv("NLANG_PATH"))
+            search.pathEnv = env;
+        search.systemDirs = {
+            NativeLibraryLoader::ExecutableDir(), "."
+        };
+        for (const auto& d : BuildLibrarySearchPath(search))
+            executor.AddNativeSearchDir(d);
         result = executor.Execute(module);
     } catch (const std::exception& e) {
         std::cerr << "Runtime error: " << e.what() << "\n";

@@ -6,6 +6,7 @@
 #include <nlang/langservice/SymbolIndex.h>
 #include "VmBackend.h"
 #include "VmExecutor.h"
+#include "NativeLibraryLoader.h"
 #include "ModuleLoader.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
@@ -18,10 +19,12 @@
 #include <crtdbg.h>
 #endif
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
+#include "nlang/common/LibrarySearchPath.h"
 
 namespace fs = std::filesystem;
 
@@ -36,6 +39,34 @@ static void PrintUsage() {
               << "  ncc run <module.nmod>       Execute only\n"
               << "  -I <dir>                    Add directory to .nmod import search path\n"
               << "  ncc --version               Print the compiler version\n";
+}
+
+//Assemble the unified, ordered library search path for a compile/build
+//invocation: CLI -I > project <ImportPaths> > local source/project dir >
+//NLANG_PATH > stdlib/exe/cwd. The same dirs drive .n source discovery and
+//native DLL loading. Pure (the resolver does no existence checks).
+static std::vector<std::string> ResolveCompileImportDirs(
+    const std::vector<std::string>& cliDirs,
+    const ProjectFile& project,
+    const std::string& sourceFile,
+    const std::string& stdlibDir,
+    const fs::path& exePath) {
+    SearchPathInput search;
+    search.explicitDirs = cliDirs;
+    if (!project.projectDir.empty()) {
+        search.configuredDirs = project.importPaths;
+        search.baseDirs.push_back(project.projectDir);
+    } else {
+        const fs::path parent = fs::path(sourceFile).parent_path();
+        if (!parent.empty())
+            search.baseDirs.push_back(parent.string());
+    }
+    if (const char* env = std::getenv("NLANG_PATH"))
+        search.pathEnv = env;
+    search.systemDirs = {
+        stdlibDir, exePath.parent_path().string(), "."
+    };
+    return BuildLibrarySearchPath(search);
 }
 
 int main(int argc, char* argv[]) {
@@ -69,11 +100,30 @@ int main(int argc, char* argv[]) {
 
     std::string command = argv[1];
 
-    // ncc run <module.nmod>
+    // ncc run <module.nmod> [-I <dir>...]
     if (command == "run") {
         if (argc < 3) {
             std::cerr << "Error: 'run' requires a module file path.\n";
             return 1;
+        }
+        //Optional -I dirs (a native package may live off-module); any other
+        //extra argument is a command-line mistake.
+        std::vector<std::string> runDirs;
+        for (int i = 3; i < argc; ++i) {
+            const std::string a = argv[i];
+            if (a == "-I") {
+                if (i + 1 >= argc) {
+                    std::cerr << "Error: option -I requires a value.\n";
+                    return 1;
+                }
+                runDirs.push_back(argv[++i]);
+            } else if (a.size() > 2 && a.compare(0, 2, "-I") == 0) {
+                runDirs.push_back(a.substr(2));
+            } else {
+                std::cerr << "Error: unexpected extra argument '" << a
+                          << "'.\n";
+                return 1;
+            }
         }
         CompiledModule mod;
         VmExecutor executor;
@@ -81,9 +131,19 @@ int main(int argc, char* argv[]) {
         RegisterTestNatives(executor);
         try {
             mod = ModuleLoader::Load(argv[2]);
-            //A native DLL may ship beside the module file.
+            //Unified native search: CLI -I > module dir > NLANG_PATH >
+            //exe dir/cwd (a DLL may ship beside the module or in -I dirs).
             fs::path modPath(argv[2]);
-            executor.AddNativeSearchDir(modPath.parent_path().string());
+            SearchPathInput search;
+            search.explicitDirs = runDirs;
+            search.baseDirs.push_back(modPath.parent_path().string());
+            if (const char* env = std::getenv("NLANG_PATH"))
+                search.pathEnv = env;
+            search.systemDirs = {
+                NativeLibraryLoader::ExecutableDir(), "."
+            };
+            for (const auto& d : BuildLibrarySearchPath(search))
+                executor.AddNativeSearchDir(d);
             int result = executor.Execute(mod);
 #ifdef _WIN32
             ExitProcess(static_cast<UINT>(result));
@@ -226,10 +286,6 @@ int main(int argc, char* argv[]) {
         params.m_SourceFiles.push_back(sourceFile);
     }
     params.m_sOutputModule = moduleName;
-    //Phase 9c cross-module: import search path. "." is already in m_ImportDirs
-    //(BuildParams default); append user -I dirs after.
-    for (const auto& dir : importDirs)
-        params.m_ImportDirs.push_back(dir);
 
     //Locate the standard library declarations (stdlib/*.n) relative to this
     //executable; they are the authority for stdlib function signatures.
@@ -242,6 +298,12 @@ int main(int argc, char* argv[]) {
 #endif
     params.m_sStdLibDir =
         langservice::FindStdLibDir(exePath.parent_path().string());
+
+    //Unified library search path (CLI -I > project <ImportPaths> > local dir
+    //> NLANG_PATH > stdlib/exe/cwd); drives both .n discovery and DLL loading.
+    const auto resolvedDirs = ResolveCompileImportDirs(importDirs, project,
+        sourceFile, params.m_sStdLibDir, exePath);
+    params.m_ImportDirs.assign(resolvedDirs.begin(), resolvedDirs.end());
 
     //Derive the save path parts from the whole outputFile via fs::path
     //(find_last_of/substr drops the separator of a root-only path like

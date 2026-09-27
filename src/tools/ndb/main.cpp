@@ -1,10 +1,12 @@
 #include "ModuleLoader.h"
 #include "VmExecutor.h"
+#include "NativeLibraryLoader.h"
 #include "DebugSession.h"
 #include "DebugSessionController.h"
 #include "MachineFrontEnd.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
+#include "nlang/common/LibrarySearchPath.h"
 #ifdef _WIN32
 #include <windows.h>  //SetErrorMode/ExitProcess (was transitive via CrashReporter.h)
 #endif
@@ -13,17 +15,41 @@
 #include <crtdbg.h>
 #endif
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
 
 using namespace nlang;
+
+//Apply the unified library search path to an executor: CLI -I > module dir
+//> NLANG_PATH > exe dir/cwd (native DLLs may ship beside the module).
+static void ApplyLibrarySearch(VmExecutor& executor,
+                               const std::string& modulePath,
+                               const std::vector<std::string>& cliDirs) {
+    fs::path modPath(modulePath);
+    SearchPathInput search;
+    search.explicitDirs = cliDirs;
+    search.baseDirs.push_back(modPath.parent_path().string());
+    if (const char* env = std::getenv("NLANG_PATH"))
+        search.pathEnv = env;
+    search.systemDirs = {
+        NativeLibraryLoader::ExecutableDir(), "."
+    };
+    for (const auto& d : BuildLibrarySearchPath(search))
+        executor.AddNativeSearchDir(d);
+}
 
 //Machine mode run: wire the protocol front end + controller, take
 //pre-run commands until `run`, then execute once. The process exit code
 //is the program's code; a failed module load or an uncaught NLang
 //exception reports as an error event and yields 1 (stderr stays
 //untouched — the CrashReporter's diagnostic channel).
-static int RunMachine(const char* modulePath) {
+static int RunMachine(const char* modulePath,
+                      const std::vector<std::string>& cliDirs) {
     CompiledModule module;
     VmExecutor executor;
     //Phase 9f: host-provided natives (e2e test surface) — CLI parity.
@@ -31,6 +57,7 @@ static int RunMachine(const char* modulePath) {
     MachineFrontEnd front(module, std::cin, std::cout);
     try {
         module = ModuleLoader::Load(modulePath);
+        ApplyLibrarySearch(executor, modulePath, cliDirs);
         DebugSessionController controller(module, front);
         front.SetController(&controller);
         executor.SetDebugHooks(&controller);
@@ -56,10 +83,33 @@ static int RunMachine(const char* modulePath) {
     }
 }
 
+//Parse the command line: skip an optional leading "--machine", locate the
+//module (first non-flag) and collect "-I <dir>" / "-I<dir>" library dirs.
+//False on a trailing -I with no value or no module.
+static bool ParseDebugArgs(int argc, char* argv[], bool machine,
+                           std::vector<std::string>& dirs,
+                           int& moduleIndex) {
+    moduleIndex = -1;
+    const int first = machine ? 2 : 1;
+    for (int i = first; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "-I") {
+            if (i + 1 >= argc)
+                return false;
+            dirs.push_back(argv[++i]);
+        } else if (a.size() > 2 && a.compare(0, 2, "-I") == 0) {
+            dirs.push_back(a.substr(2));
+        } else if (moduleIndex < 0) {
+            moduleIndex = i;
+        }
+    }
+    return moduleIndex >= 0;
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: ndb <module.nmod>\n"
-                  << "       ndb --machine <module.nmod>\n"
+        std::cerr << "Usage: ndb <module.nmod> [-I <dir>...]\n"
+                  << "       ndb --machine <module.nmod> [-I <dir>...]\n"
                   << "       ndb --version\n";
         return 1;
     }
@@ -75,8 +125,12 @@ int main(int argc, char* argv[]) {
     //Machine mode: stdin/stdout are the IDE protocol channel — banners
     //and prompts are suppressed, program output travels as events.
     const bool machine = std::string(argv[1]) == "--machine";
-    if (machine && argc < 3) {
-        std::cerr << "Usage: ndb --machine <module.nmod>\n";
+    std::vector<std::string> cliDirs;
+    int moduleIndex = -1;
+    if (!ParseDebugArgs(argc, argv, machine, cliDirs, moduleIndex)) {
+        std::cerr << (machine
+            ? "Usage: ndb --machine <module.nmod> [-I <dir>...]\n"
+            : "Usage: ndb <module.nmod> [-I <dir>...]\n");
         return 1;
     }
 
@@ -91,7 +145,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     if (machine) {
-        const int code = RunMachine(argv[2]);
+        const int code = RunMachine(argv[moduleIndex], cliDirs);
 #ifdef _WIN32
         ExitProcess(static_cast<UINT>(code));
 #else
@@ -105,12 +159,13 @@ int main(int argc, char* argv[]) {
     RegisterTestNatives(executor);
     int result = 1;
     try {
-        module = ModuleLoader::Load(argv[1]);
+        module = ModuleLoader::Load(argv[moduleIndex]);
+        ApplyLibrarySearch(executor, argv[moduleIndex], cliDirs);
         //Debug session: the controller owns breakpoints/step state; the
         //CLI session is its terminal adapter. Initial stop at the first
         //statement (gdb `start` behavior); the interactive loop runs
         //inside the frozen window (controller's WaitUntilResume).
-        DebugSession session(module, argv[1], std::cin, std::cout);
+        DebugSession session(module, argv[moduleIndex], std::cin, std::cout);
         DebugSessionController controller(module, session);
         session.SetController(&controller);
         executor.SetDebugHooks(&controller);
