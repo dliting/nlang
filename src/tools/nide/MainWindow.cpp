@@ -10,6 +10,7 @@
 #include "FileEditor.h"
 #include "ProjectModel.h"
 #include "RecentStore.h"
+#include "SearchPathArgs.h"
 #include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 
@@ -23,6 +24,7 @@
 #include <QMenu>
 #include <QProcess>
 #include <QSettings>
+#include <QSet>
 #include <QSplitter>
 #include <QTabBar>
 
@@ -53,14 +55,10 @@ MainWindow::MainWindow(QWidget* parent)
     //QMenu hides item tooltips by default; the recent list relies on the
     //full-path tooltip to disambiguate same-name entries (spec §6).
     m_ui->menuRecent->setToolTipsVisible(true);
-    //Index the stdlib declaration files for signature help / completion /
-    //F12. A missing stdlib is non-fatal: code assistance stays dormant.
-    {
-        const std::string stdlibDir = langservice::FindStdLibDir(
-            QCoreApplication::applicationDirPath().toStdString());
-        if (!stdlibDir.empty())
-            m_symbolIndex.LoadLibraryDir(stdlibDir);
-    }
+    //Index stdlib + every configured library dir (global + projects) for
+    //signature help / completion / F12. A missing stdlib is non-fatal:
+    //code assistance stays dormant. Re-run after the search paths change.
+    reindexConfiguredLibraries();
     updateMenuState();
     applyToolbarIconSize(SettingsStore::persisted().toolbarIconSize());
 }
@@ -354,6 +352,45 @@ void MainWindow::updateDebugMenuState(bool canBuild) {
     m_ui->actToggleBreakpoint->setEnabled(currentEditor() != nullptr);
     m_ui->chkBreakOnThrow->setEnabled(
         !debugLive || m_debugClient->state() != DebugClient::State::Running);
+}
+
+//--- library symbol indexing ---
+
+void MainWindow::reindexConfiguredLibraries() {
+    m_symbolIndex.Clear();
+    indexStdLib();
+    indexConfiguredDirs();
+}
+
+void MainWindow::indexStdLib() {
+    const std::string stdlibDir = langservice::FindStdLibDir(
+        QCoreApplication::applicationDirPath().toStdString());
+    if (!stdlibDir.empty())
+        m_symbolIndex.LoadLibraryDir(stdlibDir);
+}
+
+void MainWindow::indexConfiguredDirs() {
+    QSet<QString> seen;
+    //De-dupe by the same key the resolver uses, then index one dir once.
+    auto indexOne = [&](const QString& dir) {
+        const QString trimmed = dir.trimmed();
+        const QString key = dedupKey(trimmed);
+        if (trimmed.isEmpty() || seen.contains(key))
+            return;
+        seen.insert(key);
+        m_symbolIndex.LoadLibraryDir(trimmed.toStdString());
+    };
+    //Global dirs first (relative entries anchor at the user's home).
+    for (const QString& dir :
+            SettingsStore::persisted().librarySearchPaths())
+        indexOne(resolvedPath(dir, globalPathBase()));
+    SolutionNode* solution = m_solutionTree->solutionNode();
+    if (solution == nullptr)
+        return;
+    //Then each open project's dirs (stored absolute).
+    for (const auto& project : solution->projects())
+        for (int i = 0; i < project->importPathCount(); ++i)
+            indexOne(project->importPathAt(i));
 }
 
 } // namespace nlang

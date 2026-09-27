@@ -2,12 +2,14 @@
 #include "ProjectPropDialog.h"
 #include "ProjectModel.h"
 
+#include "PathListEditor.h"
 #include "ui_ProjectPropDialog.h"
 
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
+#include <QVBoxLayout>
 
 namespace nlang {
 namespace {
@@ -21,6 +23,13 @@ ProjectPropDialog::ProjectPropDialog(QWidget* parent)
     , m_ui(new Ui::ProjectPropDialog)
 {
     m_ui->setupUi(this);
+
+    //Project-level library search paths (the reusable editor), sitting in
+    //the .ui placeholder.
+    m_pathEditor = new PathListEditor(tr("Library search paths"), this);
+    auto* holder = new QVBoxLayout(m_ui->wgtProjectImportPaths);
+    holder->setContentsMargins(0, 0, 0, 0);
+    holder->addWidget(m_pathEditor);
 }
 
 ProjectPropDialog::~ProjectPropDialog() = default;
@@ -38,37 +47,44 @@ ProjectNode* ProjectPropDialog::createProject(SolutionNode& solution) {
     }
 }
 
+QString ProjectPropDialog::validateProjectInput(
+        const QString& name, const QString& projectDirText) const {
+    //Empty fields are normally blocked by the disabled OK button, but a
+    //programmatic accept skips it; emptiness is judged on raw text since
+    //normalization would turn an empty field into the CWD.
+    if (name.isEmpty() || projectDirText.isEmpty())
+        return tr("Name and location must not be empty.");
+    //Path separators in the name would escape the chosen directory.
+    if (name.contains('/') || name.contains('\\'))
+        return tr("The project name must not contain path separators.");
+    return QString();
+}
+
+void ProjectPropDialog::applyProjectFields(ProjectNode* project) {
+    project->setNamespace(m_ui->edtNamespace->text());
+    project->setOutputDir(m_ui->edtOutputDir->text());
+    project->setIntermediateDir(m_ui->edtIntermediateDir->text());
+    project->setImportPaths(m_pathEditor->paths());
+}
+
 ProjectNode* ProjectPropDialog::tryCreateProject(SolutionNode& solution) {
     const QString name = m_ui->edtProjectName->text();
     const QString projectDirText = m_ui->edtProjectDir->text();
-
-    //Validate before touching the solution. Path separators in the
-    //name would escape the chosen directory; empty fields are
-    //normally blocked by the disabled OK button but a programmatic
-    //accept skips it. Emptiness is judged on the raw text: the
-    //normalization below would turn an empty field into the CWD.
-    QString problem;
-    if (name.isEmpty() || projectDirText.isEmpty())
-        problem = tr("Name and location must not be empty.");
-    else if (name.contains('/') || name.contains('\\'))
-        problem = tr("The project name must not contain path separators.");
+    const QString problem = validateProjectInput(name, projectDirText);
     if (!problem.isEmpty()) {
         QMessageBox::warning(this, tr("Error"), problem);
         return nullptr;
     }
 
-    //Normalize before use: the exists-check below and addProject()
-    //must agree on where a relative directory resolves (addProject
-    //anchors relative paths at the solution dir when known, not
-    //the CWD this check would use).
+    //Normalize before use: the exists-check and addProject() must agree on
+    //where a relative directory resolves (addProject anchors at the solution
+    //dir when known, not the CWD this check would use).
     const QString projectDir = QDir(projectDirText).absolutePath();
-
     const QString projectFilePath =
         QDir(projectDir).filePath(name + kProjectFileExt);
 
-    //Never overwrite an existing project file; the solution's
-    //addProject() rejects a path it already owns. Both keep the
-    //dialog open so the user can adjust or cancel.
+    //Never overwrite an existing project file; addProject() also rejects a
+    //path it already owns. Both keep the dialog open so the user can adjust.
     if (QFileInfo::exists(projectFilePath)) {
         QMessageBox::warning(this, tr("Error"),
             tr("A project file already exists at '%1'.")
@@ -83,9 +99,7 @@ ProjectNode* ProjectPropDialog::tryCreateProject(SolutionNode& solution) {
         return nullptr;
     }
 
-    project->setNamespace(m_ui->edtNamespace->text());
-    project->setOutputDir(m_ui->edtOutputDir->text());
-    project->setIntermediateDir(m_ui->edtIntermediateDir->text());
+    applyProjectFields(project);
     return project;
 }
 
@@ -97,6 +111,7 @@ bool ProjectPropDialog::editProject(ProjectNode& project) {
     project.setNamespace(m_ui->edtNamespace->text());
     project.setOutputDir(m_ui->edtOutputDir->text());
     project.setIntermediateDir(m_ui->edtIntermediateDir->text());
+    project.setImportPaths(m_pathEditor->paths());
     return true;
 }
 
@@ -141,6 +156,7 @@ void ProjectPropDialog::initForCreate() {
     //Empty = the project directory itself (the .nproj default).
     m_ui->edtOutputDir->setText("");
     m_ui->edtIntermediateDir->setText("");
+    m_pathEditor->setPaths({});
 }
 
 void ProjectPropDialog::initForEdit(const ProjectNode& project) {
@@ -150,6 +166,12 @@ void ProjectPropDialog::initForEdit(const ProjectNode& project) {
     m_ui->edtProjectDir->setText(project.projectDir());
     m_ui->edtOutputDir->setText(project.outputDir());
     m_ui->edtIntermediateDir->setText(project.intermediateDir());
+
+    QStringList importPaths;
+    for (int i = 0; i < project.importPathCount(); ++i)
+        importPaths.append(project.importPathAt(i));
+    m_pathEditor->setPaths(importPaths);
+
     //A saved project cannot be renamed or relocated from here -- the
     //solution reference and the file location belong together.
     m_ui->edtProjectName->setReadOnly(true);

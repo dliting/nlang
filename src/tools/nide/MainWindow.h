@@ -312,6 +312,10 @@ private:
     //--- build / run ---
     //Synchronous ncc build; false on failure (the log browser shows why).
     bool buildProject(ProjectNode& project);
+    bool saveProjectForBuild(ProjectNode& project);
+    bool prepareBuildOutput(ProjectNode* project, const QString& output);
+    bool runNccBuild(const QStringList& args, const QString& workDir,
+                     QString* log);
     void runProject(ProjectNode& project);
     //Standalone .n target: the selected standalone tree row, or -- when the
     //tree points at no project/standalone row -- the active editor tab if
@@ -334,6 +338,9 @@ private:
     //fresh ndb session with every stored breakpoint preset. False keeps
     //the window idle (the compile log shows why).
     bool startDebugSession();
+    QString prepareDebugTarget();
+    QStringList debugSearchPaths() const;
+    void sendDebugPrelude();
     //Create this session's DebugClient and wire its signals to the
     //onDebug* slots (one client per session: Ended is terminal there).
     void createDebugClient();
@@ -378,6 +385,13 @@ private:
     QString toolPath(const QString& toolName) const;
     //Apply persisted toolbar icon size (32 or 48).
     void applyToolbarIconSize(const QString& size);
+
+    //Rebuild the symbol index from the stdlib plus every configured
+    //library dir (global settings + each open project); called at startup
+    //and after the search paths change in Options/Project Properties.
+    void reindexConfiguredLibraries();
+    void indexStdLib();
+    void indexConfiguredDirs();
 
     //Open filePath at line/column (1-based), opening an editor if needed.
     void locateSource(const QString& filePath, int line, int column);

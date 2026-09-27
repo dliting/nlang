@@ -2,11 +2,13 @@
 #include "SettingsDialog.h"
 #include "ui_SettingsDialog.h"
 
+#include "PathListEditor.h"
 #include "SettingsStore.h"  // LANGUAGE_* item values
 
 #include <QComboBox>
 #include <QFileDialog>
 #include <QPushButton>
+#include <QVBoxLayout>
 
 namespace nlang {
 
@@ -26,13 +28,20 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     m_ui->cmbIconSize->addItem(tr("Large (48x48)"), TOOLBAR_ICON_LARGE);
     connect(m_ui->btnBrowse, &QPushButton::clicked, this,
             &SettingsDialog::onBrowseDirectory);
+
+    //The reusable path editor sits in the .ui placeholder widget.
+    m_pathEditor = new PathListEditor(tr("Library search paths"), this);
+    auto* holder = new QVBoxLayout(m_ui->wgtLibraryPaths);
+    holder->setContentsMargins(0, 0, 0, 0);
+    holder->addWidget(m_pathEditor);
 }
 
 SettingsDialog::~SettingsDialog() = default;
 
 void SettingsDialog::init(const QString& language,
                           const QString& buildOutputDir,
-                          const QString& toolbarIconSize) {
+                          const QString& toolbarIconSize,
+                          const QStringList& libraryPaths) {
     const int index = m_ui->cmbLanguage->findData(language);
     m_ui->cmbLanguage->setCurrentIndex(index < 0 ? 0 : index);
     m_ui->edtBuildOutputDir->setText(buildOutputDir);
@@ -43,6 +52,8 @@ void SettingsDialog::init(const QString& language,
         SettingsStore::defaultStandaloneBuildDir());
     const int iconIdx = m_ui->cmbIconSize->findData(toolbarIconSize);
     m_ui->cmbIconSize->setCurrentIndex(iconIdx < 0 ? 0 : iconIdx);
+
+    m_pathEditor->setPaths(libraryPaths);
 }
 
 QString SettingsDialog::language() const {
@@ -57,6 +68,10 @@ QString SettingsDialog::buildOutputDir() const {
 QString SettingsDialog::toolbarIconSize() const {
     const QVariant data = m_ui->cmbIconSize->currentData();
     return data.isValid() ? data.toString() : TOOLBAR_ICON_SMALL;
+}
+
+QStringList SettingsDialog::librarySearchPaths() const {
+    return m_pathEditor->paths();
 }
 
 void SettingsDialog::onBrowseDirectory() {

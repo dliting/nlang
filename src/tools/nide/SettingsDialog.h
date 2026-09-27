@@ -3,6 +3,7 @@
 #define NLANG_TOOLS_NIDE_SETTINGS_DIALOG_H
 
 #include <QDialog>
+#include <QStringList>
 #include <memory>
 
 namespace Ui {
@@ -10,6 +11,8 @@ class SettingsDialog;
 }
 
 namespace nlang {
+
+class PathListEditor;
 
 //Pure form: MainWindow seeds it with the persisted values and persists
 //the getters' results itself (SettingsStore stays out of the dialog's
@@ -27,17 +30,20 @@ public:
 
     //Seed the form (call before exec()).
     void init(const QString& language, const QString& buildOutputDir,
-              const QString& toolbarIconSize);
+              const QString& toolbarIconSize,
+              const QStringList& libraryPaths = QStringList());
     //Current values for the caller to persist on accept.
     QString language() const;
     QString buildOutputDir() const;  // trimmed; "" = disabled
     QString toolbarIconSize() const;  // TOOLBAR_ICON_SMALL | TOOLBAR_ICON_LARGE
+    QStringList librarySearchPaths() const;  // editor contents, in order
 
 private slots:
     void onBrowseDirectory();
 
 private:
     std::unique_ptr<Ui::SettingsDialog> m_ui;
+    PathListEditor* m_pathEditor = nullptr;
 };
 
 } // namespace nlang

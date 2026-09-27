@@ -99,6 +99,19 @@ public:
     // Resolves a relative path against the project directory.
     QString absolutePathOf(const QString& relativePath) const;
 
+    //--- Library search (import) paths ---
+    // Add a directory searched for library .n sources and native DLLs.
+    // Relative paths resolve against the project dir; a normalized
+    // duplicate is rejected (returns false).
+    bool addImportPath(const QString& path);
+    void removeImportPath(int index);
+    // Move the entry at index by delta (-1 up, +1 down); false at bounds.
+    bool moveImportPath(int index, int delta);
+    int importPathCount() const;
+    QString importPathAt(int index) const;
+    //Replace the whole list (used by the Properties dialog); marks dirty.
+    void setImportPaths(const QStringList& paths);
+
     //--- XML persistence ---
     // Save the project to the given file path (atomically). Source paths
     // are written relative to the file's directory, and the project
@@ -132,6 +145,7 @@ private:
     bool m_dirty = false;
 
     std::vector<std::unique_ptr<FileNode>> m_files;
+    std::vector<QString> m_importPaths;  // absolute library search dirs
 };
 
 //--- SolutionNode: the root of the solution tree.

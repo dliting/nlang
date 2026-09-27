@@ -53,13 +53,18 @@ void DebugClient::setWorkingDirectory(const QString& dir)
     m_upProcess->setWorkingDirectory(dir);
 }
 
-bool DebugClient::launch(const QString& modulePath)
+bool DebugClient::launch(const QString& modulePath,
+                         const QStringList& searchPaths)
 {
     if (m_state != State::Idle)
         return false;
     m_state = State::Launching;
-    m_upProcess->start(m_upProcess->program(),
-        {QStringLiteral("--machine"), modulePath});
+    QStringList args{QStringLiteral("--machine"), modulePath};
+    for (const QString& dir : searchPaths) {  // -I <dir> interleaved
+        args.append(QStringLiteral("-I"));
+        args.append(dir);
+    }
+    m_upProcess->start(m_upProcess->program(), args);
     return true;
 }
 

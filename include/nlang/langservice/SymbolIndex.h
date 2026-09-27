@@ -54,6 +54,10 @@ struct SymbolInfo {
 
 class SymbolIndex {
 public:
+    // Drop every indexed symbol and loaded-file marker so the index can be
+    // rebuilt from scratch (after the configured library dirs change).
+    void Clear();
+
     // Index every *.n file directly under dir (non-recursive).
     void LoadLibraryDir(const std::string& dir);
 

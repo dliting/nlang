@@ -6,6 +6,8 @@
 #include "CompileLogBrowser.h"
 #include "FileEditor.h"
 #include "ProjectModel.h"
+#include "SearchPathArgs.h"
+#include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 
 #include "ui_MainWindow.h"
@@ -34,51 +36,66 @@ void MainWindow::on_actBuild_triggered() {
         buildStandaloneFile(standalone);
 }
 
-bool MainWindow::buildProject(ProjectNode& project) {
-    //Save the editors of this project's files so ncc sees the edits.
+bool MainWindow::saveProjectForBuild(ProjectNode& project) {
+    //Save the dirty editors of this project's files so ncc sees the edits.
     for (const auto& file : project.files()) {
         FileEditor* editor = m_editors.find(file->absolutePath());
-        if (editor != nullptr && editor->dirty() &&
-            !saveEditor(editor))
+        if (editor != nullptr && editor->dirty() && !saveEditor(editor))
             return false;
     }
-    if (project.isDirty() && !saveProject(project))
-        return false;
+    return !project.isDirty() || saveProject(project);
+}
 
-    m_ui->txtCompileOut->setProject(&project);
+bool MainWindow::prepareBuildOutput(ProjectNode* project,
+                                    const QString& output) {
+    m_ui->txtCompileOut->setProject(project);
     m_ui->txtCompileOut->clear();
     showOutputPage(m_ui->tabCompileOut);
+    if (QDir().mkpath(QFileInfo(output).absolutePath()))
+        return true;
+    QMessageBox::warning(this, tr("Error"),
+        tr("Cannot create the output directory '%1'.")
+            .arg(QFileInfo(output).absolutePath()));
+    return false;
+}
 
-    const QString output = outputFilePath(project);
-    if (!QDir().mkpath(QFileInfo(output).absolutePath())) {
-        QMessageBox::warning(
-            this, tr("Error"),
-            tr("Cannot create the output directory '%1'.")
-                .arg(QFileInfo(output).absolutePath()));
-        return false;
-    }
-
-    //Synchronous build: ncc writes diagnostics in the
-    //shape CompileLogBrowser parses -- on stderr, so merge the channels
-    //before reading (plain readAll() would only see stdout).
+bool MainWindow::runNccBuild(const QStringList& args,
+                             const QString& workDir, QString* log) {
+    //Synchronous build: ncc writes diagnostics on stderr, so merge the
+    //channels before reading (plain readAll() would only see stdout).
     QProcess ncc(this);
     ncc.setProcessChannelMode(QProcess::MergedChannels);
-    ncc.setWorkingDirectory(project.projectDir());
-    ncc.start(toolPath("ncc"),
-              {"build", "-p", projectFilePath(&project), "-o", output});
-    QString log;
-    bool succeeded = false;
+    ncc.setWorkingDirectory(workDir);
+    ncc.start(toolPath("ncc"), args);
     if (!ncc.waitForStarted(-1)) {
-        log = tr("Failed to start '%1'.").arg(toolPath("ncc"));
-    } else {
-        ncc.waitForFinished(-1);
-        log = QString::fromLocal8Bit(ncc.readAll());
-        //Read the exit state only after a real run: start() resets
-        //exitCode/exitStatus, so the failed-start path would fake
-        //success if it shared this expression.
-        succeeded = ncc.exitStatus() == QProcess::NormalExit
-            && ncc.exitCode() == 0;
+        *log = tr("Failed to start '%1'.").arg(toolPath("ncc"));
+        return false;
     }
+    ncc.waitForFinished(-1);
+    *log = QString::fromLocal8Bit(ncc.readAll());
+    //Read the exit state only after a real run: start() resets it, so the
+    //failed-start path would fake success sharing this expression.
+    return ncc.exitStatus() == QProcess::NormalExit
+        && ncc.exitCode() == 0;
+}
+
+bool MainWindow::buildProject(ProjectNode& project) {
+    if (!saveProjectForBuild(project))
+        return false;
+    const QString output = outputFilePath(project);
+    if (!prepareBuildOutput(&project, output))
+        return false;
+    //Project paths: ncc also reads them from the .nproj (-p), but passing
+    //them here is harmless (de-duplicated); global paths exist only in the
+    //IDE settings and must be supplied as -I.
+    QStringList args = {"build", "-p", projectFilePath(&project),
+                        "-o", output};
+    args += buildImportArgs(projectImportPathList(project),
+                            project.projectDir(),
+                            SettingsStore::persisted().librarySearchPaths());
+    QString log;
+    const bool succeeded = runNccBuild(
+        args, project.projectDir(), &log);
     m_ui->txtCompileOut->append(log);
     m_ui->statusBar->showMessage(
         succeeded ? tr("Build succeeded") : tr("Build failed"));
@@ -98,7 +115,11 @@ void MainWindow::runProject(ProjectNode& project) {
     m_ui->txtExecuteOut->clear();
     showOutputPage(m_ui->tabExecuteOut);
     m_executed.setWorkingDirectory(project.projectDir());
-    m_executed.start(toolPath("nvm"), {output});
+    QStringList runArgs{output};
+    runArgs += buildImportArgs(projectImportPathList(project),
+                               project.projectDir(),
+                               SettingsStore::persisted().librarySearchPaths());
+    m_executed.start(toolPath("nvm"), runArgs);
     if (!m_executed.waitForStarted(-1)) {
         m_ui->txtExecuteOut->append(
             tr("Failed to start '%1'.").arg(toolPath("nvm")));
@@ -142,28 +163,15 @@ bool MainWindow::buildStandaloneFile(const QString& filePath) {
     if (editor != nullptr && editor->dirty() && !saveEditor(editor))
         return false;
 
-    //No ProjectNode to resolve relative paths in diagnostics.
-    m_ui->txtCompileOut->setProject(nullptr);
-    m_ui->txtCompileOut->clear();
-    showOutputPage(m_ui->tabCompileOut);
-
     const QString output = standaloneNmodPath(filePath);
-    QProcess ncc(this);
-    ncc.setProcessChannelMode(QProcess::MergedChannels);
-    ncc.setWorkingDirectory(QFileInfo(filePath).absolutePath());
-    ncc.start(toolPath("ncc"), {"build", filePath, "-o", output});
+    if (!prepareBuildOutput(nullptr, output))
+        return false;
+    QStringList args = {"build", filePath, "-o", output};
+    args += buildImportArgs({}, QString(),
+        SettingsStore::persisted().librarySearchPaths());
     QString log;
-    bool succeeded = false;
-    if (!ncc.waitForStarted(-1)) {
-        log = tr("Failed to start '%1'.").arg(toolPath("ncc"));
-    } else {
-        ncc.waitForFinished(-1);
-        log = QString::fromLocal8Bit(ncc.readAll());
-        //Read the exit state only after a real run (same trap as
-        //buildProject: a failed start would fake success here).
-        succeeded = ncc.exitStatus() == QProcess::NormalExit
-            && ncc.exitCode() == 0;
-    }
+    const bool succeeded = runNccBuild(
+        args, QFileInfo(filePath).absolutePath(), &log);
     m_ui->txtCompileOut->append(log);
     m_ui->statusBar->showMessage(
         succeeded ? tr("Build succeeded") : tr("Build failed"));
@@ -192,7 +200,10 @@ void MainWindow::runStandaloneFile(const QString& filePath) {
     //the temp area (never the install dir); no example needs the
     //source dir as CWD (the e2e suite proves that).
     m_executed.setWorkingDirectory(QFileInfo(output).absolutePath());
-    m_executed.start(toolPath("nvm"), {output});
+    QStringList runArgs{output};
+    runArgs += buildImportArgs({}, QString(),
+        SettingsStore::persisted().librarySearchPaths());
+    m_executed.start(toolPath("nvm"), runArgs);
     if (!m_executed.waitForStarted(-1)) {
         m_ui->txtExecuteOut->append(
             tr("Failed to start '%1'.").arg(toolPath("nvm")));

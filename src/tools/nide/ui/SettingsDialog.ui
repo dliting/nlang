@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>420</width>
-    <height>180</height>
+    <height>380</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -56,6 +56,9 @@
     <widget class="QComboBox" name="cmbIconSize"/>
    </item>
    <item row="3" column="0" colspan="2">
+    <widget class="QWidget" name="wgtLibraryPaths"/>
+   </item>
+   <item row="4" column="0" colspan="2">
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

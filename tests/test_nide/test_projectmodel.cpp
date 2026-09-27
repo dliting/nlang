@@ -211,6 +211,95 @@ private slots:
         QCOMPARE(abs, projDir.absoluteFilePath("sub/utils.n"));
     }
 
+    // --- ProjectNode import (library search) paths ---
+
+    void testProjectNodeImportPaths() {
+        ProjectNode proj("Hello", m_tmpDir.path());
+        QCOMPARE(proj.importPathCount(), 0);
+
+        QVERIFY(proj.addImportPath("libs/acme"));
+        QVERIFY(proj.addImportPath("vendor/x"));
+        QCOMPARE(proj.importPathCount(), 2);
+        // Relative paths resolve against the project dir, in order.
+        QDir d(m_tmpDir.path());
+        QCOMPARE(proj.importPathAt(0), d.absoluteFilePath("libs/acme"));
+        QCOMPARE(proj.importPathAt(1), d.absoluteFilePath("vendor/x"));
+        // A normalized duplicate is rejected.
+        QVERIFY(!proj.addImportPath("./libs/acme"));
+        QCOMPARE(proj.importPathCount(), 2);
+        QVERIFY(proj.isDirty());
+
+        // Reorder: move the second entry up.
+        proj.clearDirty();
+        QVERIFY(proj.moveImportPath(1, -1));
+        QCOMPARE(proj.importPathAt(0), d.absoluteFilePath("vendor/x"));
+        QCOMPARE(proj.importPathAt(1), d.absoluteFilePath("libs/acme"));
+        QVERIFY(proj.isDirty());
+
+        // Remove.
+        proj.removeImportPath(0);
+        QCOMPARE(proj.importPathCount(), 1);
+        QCOMPARE(proj.importPathAt(0), d.absoluteFilePath("libs/acme"));
+    }
+
+    void testProjectNodeImportPathsRoundTrip() {
+        QString projPath = m_tmpDir.path() + "/imports.nproj";
+        {
+            ProjectNode proj("App", m_tmpDir.path());
+            proj.addFile("main.n");
+            proj.addImportPath("libs/acme");
+            proj.addImportPath("vendor/x");
+            QString error;
+            QVERIFY(proj.save(projPath, &error));
+        }
+        {
+            ProjectNode proj("", m_tmpDir.path());
+            QString error;
+            QVERIFY(proj.load(projPath, &error));
+            QCOMPARE(proj.importPathCount(), 2);
+            QDir d(m_tmpDir.path());
+            QCOMPARE(proj.importPathAt(0), d.absoluteFilePath("libs/acme"));
+            QCOMPARE(proj.importPathAt(1), d.absoluteFilePath("vendor/x"));
+        }
+    }
+
+    void testProjectNodeImportPathsXmlFormat() {
+        QString projPath = m_tmpDir.path() + "/fmt_imports.nproj";
+        ProjectNode proj("Hello", m_tmpDir.path());
+        proj.addFile("main.n");
+        proj.addImportPath("libs/acme");
+        QString error;
+        QVERIFY(proj.save(projPath, &error));
+        QFile f(projPath);
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString content = QTextStream(&f).readAll();
+        QVERIFY(content.contains("<ImportPaths>"));
+        QVERIFY(content.contains("<Dir path=\"libs/acme\"/>"));
+    }
+
+    void testProjectNodeLoadImportDirWithoutPath() {
+        QString projPath = writeFixture("impdir_noattr.nproj",
+            "<?xml version=\"1.0\"?>\n<Project name=\"X\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <ImportPaths><Dir/></ImportPaths>\n</Project>\n");
+        ProjectNode proj("", m_tmpDir.path());
+        QString error;
+        QVERIFY(!proj.load(projPath, &error));
+        QVERIFY2(error.contains("without a path"), qPrintable(error));
+    }
+
+    void testProjectNodeLoadMultipleImportPathsRejected() {
+        QString projPath = writeFixture("multiimports.nproj",
+            "<?xml version=\"1.0\"?>\n<Project name=\"M\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <ImportPaths><Dir path=\"a\"/></ImportPaths>\n"
+            "  <ImportPaths><Dir path=\"b\"/></ImportPaths>\n</Project>\n");
+        ProjectNode proj("", m_tmpDir.path());
+        QString error;
+        QVERIFY(!proj.load(projPath, &error));
+        QVERIFY2(error.contains("more than one"), qPrintable(error));
+    }
+
     void testProjectNodeSaveAndLoad() {
         // Write a project, save it, then load it back and compare.
         QString projPath = m_tmpDir.path() + "/testproj.nproj";

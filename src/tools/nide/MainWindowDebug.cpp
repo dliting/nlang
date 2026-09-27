@@ -5,6 +5,8 @@
 #include "CodeEditor.h"
 #include "DebugClient.h"
 #include "FileEditor.h"
+#include "SearchPathArgs.h"
+#include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 
 #include "ui_MainWindow.h"
@@ -35,45 +37,61 @@ void MainWindow::on_actStartDebug_triggered() {
     startDebugSession();
 }
 
-bool MainWindow::startDebugSession() {
-    QString modulePath;
+QString MainWindow::prepareDebugTarget() {
     if (ProjectNode* project = currentProject()) {
         if (!buildProject(*project))
-            return false;
-        modulePath = outputFilePath(*project);
+            return QString();
         m_debugBaseDir = project->projectDir();
-    } else {
-        const QString standalone = currentStandaloneTarget();
-        if (standalone.isEmpty())
-            return false;   // the action was disabled without a target
-        if (!buildStandaloneFile(standalone))
-            return false;
-        modulePath = standaloneNmodPath(standalone);
-        m_debugBaseDir = QFileInfo(standalone).absolutePath();
+        return outputFilePath(*project);
     }
-    if (!QFileInfo::exists(modulePath))
-        return false;
+    const QString standalone = currentStandaloneTarget();
+    if (standalone.isEmpty())
+        return QString();   // the action was disabled without a target
+    if (!buildStandaloneFile(standalone))
+        return QString();
+    m_debugBaseDir = QFileInfo(standalone).absolutePath();
+    return standaloneNmodPath(standalone);
+}
 
-    createDebugClient();
+QStringList MainWindow::debugSearchPaths() const {
+    //Project paths first, then global (standalone sessions get global only).
+    const QStringList globalPaths =
+        SettingsStore::persisted().librarySearchPaths();
+    if (ProjectNode* project = currentProject())
+        return buildSearchDirs(projectImportPathList(*project),
+                               project->projectDir(), globalPaths);
+    return buildSearchDirs({}, QString(), globalPaths);
+}
 
-    clearDebugViews();
-    m_ui->txtExecuteOut->clear();
-    showOutputPage(m_ui->tabDebug);
-    //Same CWD policy as Run: an example writing files stays inside its
-    //module's directory.
-    m_debugClient->setWorkingDirectory(QFileInfo(modulePath).absolutePath());
-    if (!m_debugClient->launch(modulePath)) {
-        endDebugSession();
-        return false;
-    }
+void MainWindow::sendDebugPrelude() {
     //Prelude: every stored breakpoint, then the throw toggle. `run` is
-    //deferred by the client until hello AND every bp receipt arrived,
-    //so issuing all three back to back has no handshake race.
+    //deferred by the client until hello AND every bp receipt arrived, so
+    //issuing all three back to back has no handshake race.
     for (const QString& file : m_breakpoints.files())
         for (int line : m_breakpoints.linesOf(file))
             m_debugClient->addBreakpoint(file, line);
     m_debugClient->setBreakOnThrow(m_ui->chkBreakOnThrow->isChecked());
     m_debugClient->run();
+}
+
+bool MainWindow::startDebugSession() {
+    const QString modulePath = prepareDebugTarget();
+    if (modulePath.isEmpty() || !QFileInfo::exists(modulePath))
+        return false;
+
+    createDebugClient();
+    clearDebugViews();
+    m_ui->txtExecuteOut->clear();
+    showOutputPage(m_ui->tabDebug);
+    //Same CWD policy as Run: an example writing files stays inside its
+    //module's directory.
+    m_debugClient->setWorkingDirectory(
+        QFileInfo(modulePath).absolutePath());
+    if (!m_debugClient->launch(modulePath, debugSearchPaths())) {
+        endDebugSession();
+        return false;
+    }
+    sendDebugPrelude();
     setDebugStatus(tr("Debug started"));
     updateMenuState();
     return true;

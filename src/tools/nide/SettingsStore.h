@@ -4,6 +4,7 @@
 
 #include <QLocale>
 #include <QString>
+#include <QStringList>
 
 class QSettings;
 
@@ -40,6 +41,11 @@ public:
     //"small" (default, 32px) | "large" (48px) toolbar icons.
     QString toolbarIconSize() const { return m_toolbarIconSize; }
     void setToolbarIconSize(const QString& v) { m_toolbarIconSize = v; }
+    //Global library search dirs (Tools > Options): passed as -I to the
+    //tools and indexed for code assistance. Project paths take precedence.
+    QStringList librarySearchPaths() const { return m_librarySearchPaths; }
+    void setLibrarySearchPaths(const QStringList& dirs)
+        { m_librarySearchPaths = dirs; }
 
     //Locale handed to installTranslations.
     QLocale languageLocale() const
@@ -69,6 +75,7 @@ private:
     QString m_language = LANGUAGE_SYSTEM;
     QString m_buildOutputDir;
     QString m_toolbarIconSize = TOOLBAR_ICON_SMALL;
+    QStringList m_librarySearchPaths;
 };
 
 } // namespace nlang

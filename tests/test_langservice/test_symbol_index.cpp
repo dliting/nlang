@@ -200,6 +200,19 @@ static void TestTypeKinds() {
     CHECK(writeFile != nullptr && writeFile->returnKind == TypeKind::Void);
 }
 
+static void TestClear() {
+    SymbolIndex index;
+    index.LoadLibraryDir(STDLIB_DIR);
+    CHECK(index.size() == 38);
+    index.Clear();
+    CHECK(index.size() == 0);
+    CHECK(index.Resolve("io", "print") == nullptr);
+    CHECK(index.Namespaces().empty());
+    //Loaded-file markers were dropped too: the same dir re-indexes fully.
+    index.LoadLibraryDir(STDLIB_DIR);
+    CHECK(index.size() == 38);
+}
+
 int main() {
     TestLoadsRealStdLib();
     TestResolvePrint();
@@ -209,6 +222,7 @@ int main() {
     TestAllmanNamespaceBraces();
     TestFindStdLibDir();
     TestTypeKinds();
+    TestClear();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

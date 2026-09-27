@@ -28,15 +28,18 @@ void MainWindow::on_actToolsOptions_triggered() {
     const SettingsStore stored = SettingsStore::persisted();
     SettingsDialog dialog(this);
     dialog.init(stored.language(), stored.buildOutputDir(),
-                stored.toolbarIconSize());
+                stored.toolbarIconSize(), stored.librarySearchPaths());
     if (dialog.exec() != QDialog::Accepted)
         return;
     SettingsStore updated = stored;
     updated.setLanguage(dialog.language());
     updated.setBuildOutputDir(dialog.buildOutputDir());
     updated.setToolbarIconSize(dialog.toolbarIconSize());
+    updated.setLibrarySearchPaths(dialog.librarySearchPaths());
     updated.persist();
     applyToolbarIconSize(updated.toolbarIconSize());
+    //Library dirs changed: rebuild the code-assistance index immediately.
+    reindexConfiguredLibraries();
     //The catalogs install once at startup, so a language change needs
     //a restart (no per-widget retranslate pass exists); the build
     //output directory applies from the next build on.

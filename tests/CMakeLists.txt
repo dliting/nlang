@@ -62,6 +62,16 @@ target_compile_definitions(test_native_loader
 add_dependencies(test_native_loader nlang_sample nlang_badabi nlang_noentry)
 add_test(NAME native_loader_tests COMMAND test_native_loader)
 
+# LibrarySearchPath (header-only, pure STL) unit tests: layered ordering,
+# environment splitting, normalization and de-duplication. No library link.
+add_executable(test_library_search_path
+    test_vm/test_library_search_path.cpp
+)
+target_include_directories(test_library_search_path
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
+add_test(NAME library_search_path_tests COMMAND test_library_search_path)
+
 # NativeHost callback integration tests: real compile+run exercising every
 # host callback through in-process registered natives.
 add_executable(test_native_host
@@ -138,6 +148,57 @@ add_test(NAME ncc_thirdparty_run
 set_tests_properties(ncc_thirdparty_run PROPERTIES
     PASS_REGULAR_EXPRESSION "hello, world"
     TIMEOUT 180)
+
+# --- Default / environment search-path coverage (no -I) ---
+# Base layer: the example, its mylib.n and the DLL all sit in the package
+# (the source's own dir), so no -I is needed.
+add_test(NAME ncc_thirdparty_default_run
+    COMMAND ncc
+        ${mylib_pkg_dir}/use_mylib.n
+        -o ${CMAKE_BINARY_DIR}/e2e_out/default_run.nmod)
+set_tests_properties(ncc_thirdparty_default_run PROPERTIES
+    PASS_REGULAR_EXPRESSION "hello, world"
+    TIMEOUT 180)
+
+# Environment layer: a source copy with NO package beside it; the package is
+# reached only through NLANG_PATH (single dir — ';' is CMake's list separator;
+# multi-path splitting is covered by the unit tests).
+set(env_src_dir ${CMAKE_BINARY_DIR}/e2e_out/env_src)
+add_custom_target(nlang_mylib_env_src ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${env_src_dir}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${PROJECT_SOURCE_DIR}/tests/fixtures/native/mylib/use_mylib.n
+        ${env_src_dir}
+    VERBATIM)
+add_test(NAME ncc_thirdparty_env_run
+    COMMAND ncc
+        ${env_src_dir}/use_mylib.n
+        -o ${CMAKE_BINARY_DIR}/e2e_out/env_run.nmod)
+set_tests_properties(ncc_thirdparty_env_run PROPERTIES
+    PASS_REGULAR_EXPRESSION "hello, world"
+    ENVIRONMENT "NLANG_PATH=${mylib_pkg_dir}"
+    DEPENDS nlang_mylib_env_src
+    TIMEOUT 180)
+
+# nvm native search: -I (DLL off-module) and the default module-dir search.
+# A Python harness builds the module first (ctest regexes cannot sequence
+# steps or copy the DLL beside the module).
+if(Python3_FOUND)
+    add_test(NAME nvm_native_paths
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_native.py
+            $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
+            ${mylib_pkg_dir} ${CMAKE_BINARY_DIR}/e2e_out)
+    set_tests_properties(nvm_native_paths PROPERTIES TIMEOUT 180)
+
+    # ndb --machine: the third-party DLL reached via -I, driven by `run`.
+    add_test(NAME ndb_native_machine
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_ndb_native.py
+            $<TARGET_FILE:ncc> $<TARGET_FILE:ndb>
+            ${mylib_pkg_dir} ${CMAKE_BINARY_DIR}/e2e_out)
+    set_tests_properties(ndb_native_machine PROPERTIES TIMEOUT 180)
+endif()
 
 # Phase 11 stdlib unit tests: in-process compile+run of real .n sources
 # via ModuleBuilder (temp .nmod round-trip) + VmExecutor.
@@ -515,6 +576,24 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(settingsstore_tests test_settingsstore)
 
+    # SearchPathArgs unit tests: pure functions turning project + global
+    # library paths into -I arguments, no widgets.
+    add_executable(test_searchpathargs
+        test_nide/test_searchpathargs.cpp
+    )
+    target_link_libraries(test_searchpathargs
+        PRIVATE
+            nide_projectmodel
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_searchpathargs POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_searchpathargs>)
+    endif()
+    nlang_add_qtest(searchpathargs_tests test_searchpathargs)
+
     # Debug-protocol codec unit tests: the Qt-side mirror of the engine
     # codec (MachineFrontEnd.h documents the wire format; nide_debug
     # deliberately reimplements it, and the identical vectors in
@@ -706,6 +785,33 @@ if(NLANG_BUILD_IDE)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
         TIMEOUT 180)
+
+    # Library search-path end-to-end tests: a global library dir is indexed
+    # and offered in completion and built via -I; a project <ImportPaths>
+    # feeds the same path. Real ncc/nvm/ndb (no mocks).
+    add_executable(test_searchpath_integration
+        test_nide/test_searchpath_integration.cpp
+    )
+    target_link_libraries(test_searchpath_integration
+        PRIVATE
+            nide_mainwindow
+            Qt5::Test
+    )
+    add_dependencies(test_searchpath_integration ncc nvm ndb)
+    if(WIN32)
+        add_custom_command(TARGET test_searchpath_integration POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_searchpath_integration>)
+        add_custom_command(TARGET test_searchpath_integration POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
+                $<TARGET_FILE_DIR:test_searchpath_integration>)
+    endif()
+    nlang_add_qtest(searchpath_integration_tests test_searchpath_integration)
+    set_tests_properties(searchpath_integration_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
 endif()
 
 # Version single-source guard: each tool's --version must echo the

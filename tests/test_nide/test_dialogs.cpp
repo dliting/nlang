@@ -1,5 +1,6 @@
 /*--- test_dialogs.cpp - nide dialog unit tests ---*/
 #include "NewFileDialog.h"
+#include "PathListEditor.h"
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
 #include "SettingsDialog.h"
@@ -11,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -334,6 +336,27 @@ private slots:
         QVERIFY(!browseEnabled);
     }
 
+    //Project Properties edits the import paths and applies them on accept.
+    void testEditAppliesImportPaths() {
+        QTemporaryDir dir;
+        ProjectNode project("App", dir.path());
+        project.addFile("main.n");
+        project.addImportPath("D:/old/lib");
+        project.clearDirty();
+
+        ProjectPropDialog dialog;
+        inExec([&] {
+            dialog.findChild<PathListEditor*>()->addPath("D:/new/lib");
+            dialog.accept();
+        });
+
+        QVERIFY(dialog.editProject(project));
+        QCOMPARE(project.importPathCount(), 2);
+        QCOMPARE(project.importPathAt(0), QString("D:/old/lib"));
+        QCOMPARE(project.importPathAt(1), QString("D:/new/lib"));
+        QVERIFY(project.isDirty());
+    }
+
     //--- SettingsDialog ---
 
     void testSettingsDialogSeedsAndEchoes() {
@@ -387,6 +410,37 @@ private slots:
         //A set directory seeds the real text; the placeholder is gone.
         dialog.init("system", "D:/out", TOOLBAR_ICON_LARGE);
         QCOMPARE(edit->text(), QString("D:/out"));
+    }
+
+    void testSettingsDialogLibraryPathsSeedAndEcho() {
+        SettingsDialog dialog;
+        dialog.init("system", "", TOOLBAR_ICON_SMALL,
+                    {"D:/libs/acme", "D:/vendor/x"});
+        PathListEditor* editor = dialog.findChild<PathListEditor*>();
+        QVERIFY(editor != nullptr);
+        QCOMPARE(editor->paths(),
+                 QStringList({"D:/libs/acme", "D:/vendor/x"}));
+        QCOMPARE(dialog.librarySearchPaths(), editor->paths());
+    }
+
+    void testSettingsDialogLibraryPathAddDedupRemoveReorder() {
+        SettingsDialog dialog;
+        dialog.init("system", "", TOOLBAR_ICON_SMALL, {});
+        PathListEditor* editor = dialog.findChild<PathListEditor*>();
+        QVERIFY(editor != nullptr);
+        editor->addPath("D:/a");
+        editor->addPath("D:/b");
+        editor->addPath("./D:/a");   // normalized duplicate ignored
+        QCOMPARE(editor->paths(), QStringList({"D:/a", "D:/b"}));
+
+        QListWidget* list = dialog.findChild<QListWidget*>();
+        QVERIFY(list != nullptr);
+        list->setCurrentRow(1);
+        editor->onUp();              // b moves up over a
+        QCOMPARE(editor->paths(), QStringList({"D:/b", "D:/a"}));
+        list->setCurrentRow(0);
+        editor->onRemove();
+        QCOMPARE(editor->paths(), QStringList({"D:/a"}));
     }
 };
 

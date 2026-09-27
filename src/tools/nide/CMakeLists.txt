@@ -128,6 +128,7 @@ target_include_directories(nide_debug
 # search there.
 add_library(nide_dialogs
     NewFileDialog.cpp
+    PathListEditor.cpp
     ProjectPropDialog.cpp
     SettingsDialog.cpp
     ui/NewFileDialog.ui

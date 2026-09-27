@@ -22,6 +22,7 @@ private slots:
         QCOMPARE(store.language(), QString("system"));
         QVERIFY(store.buildOutputDir().isEmpty());
         QCOMPARE(store.toolbarIconSize(), QString("small"));
+        QVERIFY(store.librarySearchPaths().isEmpty());
     }
 
     void testRoundTrip() {
@@ -31,6 +32,7 @@ private slots:
         store.setLanguage("zh");
         store.setBuildOutputDir("D:/dev/out");
         store.setToolbarIconSize("large");
+        store.setLibrarySearchPaths({"D:/libs/acme", "D:/vendor/x"});
         store.save(settings);
 
         SettingsStore reloaded;
@@ -39,6 +41,8 @@ private slots:
         QCOMPARE(reloaded.language(), QString("zh"));
         QCOMPARE(reloaded.buildOutputDir(), QString("D:/dev/out"));
         QCOMPARE(reloaded.toolbarIconSize(), QString("large"));
+        QCOMPARE(reloaded.librarySearchPaths(),
+                 QStringList({"D:/libs/acme", "D:/vendor/x"}));
     }
 
     void testLocaleForLanguage() {

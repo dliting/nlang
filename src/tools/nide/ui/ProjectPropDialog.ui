@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>639</width>
-    <height>230</height>
+    <height>400</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -215,11 +215,21 @@
     <string>浏览...</string>
    </property>
   </widget>
+  <widget class="QWidget" name="wgtProjectImportPaths">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>170</y>
+     <width>600</width>
+     <height>160</height>
+    </rect>
+   </property>
+  </widget>
   <widget class="Line" name="line">
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>174</y>
+     <y>336</y>
      <width>600</width>
      <height>10</height>
     </rect>
@@ -232,7 +242,7 @@
    <property name="geometry">
     <rect>
      <x>426</x>
-     <y>192</y>
+     <y>354</y>
      <width>93</width>
      <height>28</height>
     </rect>
@@ -251,7 +261,7 @@
    <property name="geometry">
     <rect>
      <x>526</x>
-     <y>192</y>
+     <y>354</y>
      <width>93</width>
      <height>28</height>
     </rect>

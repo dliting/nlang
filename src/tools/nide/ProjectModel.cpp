@@ -116,6 +116,60 @@ QString ProjectNode::absolutePathOf(const QString& relativePath) const {
     return dir.absoluteFilePath(relativePath);
 }
 
+//--- Library search (import) paths ---
+
+bool ProjectNode::addImportPath(const QString& path) {
+    const QString abs = resolvedPath(path, m_projectDir);
+    const QString key = dedupKey(abs);
+    for (const QString& existing : m_importPaths)
+        if (dedupKey(existing) == key)
+            return false;
+    m_importPaths.push_back(abs);
+    markDirty();
+    return true;
+}
+
+void ProjectNode::removeImportPath(int index) {
+    if (index < 0 || index >= static_cast<int>(m_importPaths.size()))
+        return;
+    m_importPaths.erase(
+        m_importPaths.begin() + static_cast<ptrdiff_t>(index));
+    markDirty();
+}
+
+bool ProjectNode::moveImportPath(int index, int delta) {
+    const int target = index + delta;
+    if (index < 0 || index >= static_cast<int>(m_importPaths.size())
+            || target < 0 || target >= static_cast<int>(m_importPaths.size()))
+        return false;
+    std::swap(m_importPaths[static_cast<size_t>(index)],
+              m_importPaths[static_cast<size_t>(target)]);
+    markDirty();
+    return true;
+}
+
+int ProjectNode::importPathCount() const {
+    return static_cast<int>(m_importPaths.size());
+}
+
+QString ProjectNode::importPathAt(int index) const {
+    Q_ASSERT(index >= 0 && index < static_cast<int>(m_importPaths.size()));
+    return m_importPaths[static_cast<size_t>(index)];
+}
+
+void ProjectNode::setImportPaths(const QStringList& paths) {
+    std::vector<QString> next;
+    for (const QString& p : paths) {
+        const QString d = p.trimmed();
+        if (!d.isEmpty())
+            next.push_back(d);
+    }
+    if (next != m_importPaths) {
+        m_importPaths = std::move(next);
+        markDirty();
+    }
+}
+
 //--- SolutionNode ---
 
 SolutionNode::SolutionNode(const QString& name)

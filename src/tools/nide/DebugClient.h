@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QString>
+#include <QStringList>
 #include <memory>
 
 namespace nlang {
@@ -42,8 +43,11 @@ public:
 
     State state() const { return m_state; }
 
-    //Start `ndb --machine <modulePath>`. Only valid from Idle.
-    bool launch(const QString& modulePath);
+    //Start `ndb --machine <modulePath> [-I <dir>]...`. Only valid from
+    //Idle. searchPaths (project + global library dirs) become -I args so a
+    //native package still loads inside the debug session.
+    bool launch(const QString& modulePath,
+                const QStringList& searchPaths = QStringList());
     //Child working directory; read at start() time, so set it before
     //launch() (MainWindow mirrors the Run page's CWD policy with it).
     void setWorkingDirectory(const QString& dir);

@@ -253,8 +253,11 @@ void MainWindow::on_actProjectProp_triggered() {
     if (project == nullptr)
         return;
     ProjectPropDialog dialog(this);
-    if (dialog.editProject(*project))
+    if (dialog.editProject(*project)) {
         m_solutionTree->refresh();
+        //Project import dirs may have changed: re-index code assistance.
+        reindexConfiguredLibraries();
+    }
 }
 
 //--- widget slots ---

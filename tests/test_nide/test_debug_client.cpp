@@ -67,6 +67,7 @@ private slots:
     void failedToLaunchWhenNdbIsMissing();
     void breakOnThrowStopsAtTheThrowSite();
     void deleteBreakpointRemovesTheHit();
+    void launchPassesLibraryDirsAsIArgs();
 
 private:
     //Void-on-purpose: QVERIFY/QFAIL expand to `return;`, so helpers
@@ -396,6 +397,23 @@ void TestDebugClient::failedToLaunchWhenNdbIsMissing() {
     QTRY_COMPARE_WITH_TIMEOUT(
         client.state(), DebugClient::State::Ended, kToolTimeoutMs);
     QCOMPARE(failedToLaunch.count(), 1);
+}
+
+//Library dirs passed to launch reach ndb as interleaved "-I <dir>" args,
+//and the module argument is still present after them.
+void TestDebugClient::launchPassesLibraryDirsAsIArgs() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    const QString libDir = m_dir.filePath(QStringLiteral("libs"));
+    QVERIFY(client.launch(m_progNmod, {libDir}));
+
+    QProcess* child = client.findChild<QProcess*>();
+    QVERIFY(child != nullptr);
+    const QStringList args = child->arguments();
+    const int iPos = args.indexOf(QStringLiteral("-I"));
+    QVERIFY(iPos >= 0);
+    QCOMPARE(args.value(iPos + 1), libDir);
+    QVERIFY(args.contains(m_progNmod));
+    client.stop();
 }
 
 QTEST_GUILESS_MAIN(TestDebugClient)

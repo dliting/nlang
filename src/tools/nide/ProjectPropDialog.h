@@ -7,6 +7,7 @@
 
 namespace nlang {
 
+class PathListEditor;
 class ProjectNode;
 class SolutionNode;
 
@@ -66,8 +67,14 @@ private:
     //modal warnings and returns nullptr (the caller re-execs); on
     //success the project is added to the solution and returned.
     ProjectNode* tryCreateProject(SolutionNode& solution);
+    //Validate name/location; return the problem text ("" if OK).
+    QString validateProjectInput(const QString& name,
+                                 const QString& projectDirText) const;
+    //Write the optional fields onto a freshly added project.
+    void applyProjectFields(ProjectNode* project);
 
     std::unique_ptr<Ui::ProjectPropDialog> m_ui;
+    PathListEditor* m_pathEditor = nullptr;
 };
 
 } // namespace nlang

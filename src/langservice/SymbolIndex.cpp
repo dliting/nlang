@@ -143,6 +143,11 @@ std::string NameOfTypeKind(TypeKind kind) {
     }
 }
 
+void SymbolIndex::Clear() {
+    m_symbols.clear();
+    m_loadedFiles.clear();
+}
+
 void SymbolIndex::LoadFile(const std::string& path) {
     std::ifstream in(path);
     if (!in)
