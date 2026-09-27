@@ -15,11 +15,12 @@ nav:
       - What is NLang: getting-started/what-is-nlang.md
       - Installation and Layout: getting-started/install-layout.md
       - Your First Program in Five Minutes: getting-started/first-program.md
-      - "Crash Course: Types and Variables": getting-started/types-and-variables.md
-      - "Crash Course: Containers": getting-started/containers.md
-      - "Crash Course: Control Flow": getting-started/control-flow.md
-      - "Crash Course: Classes and Inheritance": getting-started/classes-and-inheritance.md
-      - "Crash Course: Functions and Modules": getting-started/function-features.md
+      - Crash Course:
+          - Types and Variables: getting-started/types-and-variables.md
+          - Containers: getting-started/containers.md
+          - Control Flow: getting-started/control-flow.md
+          - Classes and Inheritance: getting-started/classes-and-inheritance.md
+          - Functions and Modules: getting-started/function-features.md
       - Three Ways to Run: getting-started/running.md
       - Debugging in nide: getting-started/debugging.md
       - FAQ: getting-started/faq.md
@@ -33,33 +34,40 @@ nav:
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
-      - Types: language-spec/types.md
-      - Type Semantics: language-spec/type-semantics.md
-      - Declarations: language-spec/declarations.md
-      - Built-in Generic Classes: language-spec/builtin-generic-classes.md
-      - Expressions: language-spec/expressions.md
-      - Statements: language-spec/statements.md
-      - Functions: language-spec/functions.md
-      - Function Types & Delegates: language-spec/function-types-and-delegates.md
+      - Types:
+          - Types: language-spec/types.md
+          - Type Semantics: language-spec/type-semantics.md
+          - Declarations: language-spec/declarations.md
+          - Built-in Generic Classes: language-spec/builtin-generic-classes.md
+      - Expressions & Statements:
+          - Expressions: language-spec/expressions.md
+          - Statements: language-spec/statements.md
+      - Functions:
+          - Functions: language-spec/functions.md
+          - Function Types & Delegates: language-spec/function-types-and-delegates.md
       - Standard Library: language-spec/standard-library.md
-      - Memory Management: language-spec/memory-management.md
-      - Exit Code Convention: language-spec/exit-code-convention.md
-      - Known Limitations: language-spec/known-limitations.md
-      - Common Error Messages: language-spec/common-errors.md
+      - Runtime:
+          - Memory Management: language-spec/memory-management.md
+          - Exit Code Convention: language-spec/exit-code-convention.md
+      - Reference:
+          - Known Limitations: language-spec/known-limitations.md
+          - Common Error Messages: language-spec/common-errors.md
   - VM Architecture:
       - Overview: vm-architecture/overview.md
-      - Compilation Pipeline: vm-architecture/compilation-pipeline.md
-      - Stack Frame Layout: vm-architecture/stack-frame-layout.md
-      - Heap Architecture: vm-architecture/heap-architecture.md
-      - Bytecode Instructions: vm-architecture/bytecode-instructions.md
-      - Garbage Collection Design: vm-architecture/garbage-collection-design.md
+      - Core:
+          - Compilation Pipeline: vm-architecture/compilation-pipeline.md
+          - Stack Frame Layout: vm-architecture/stack-frame-layout.md
+          - Heap Architecture: vm-architecture/heap-architecture.md
+          - Bytecode Instructions: vm-architecture/bytecode-instructions.md
+          - Garbage Collection Design: vm-architecture/garbage-collection-design.md
       - Debugging Support: vm-architecture/debugging.md
       - Module Serialization: vm-architecture/module-serialization.md
-      - foreach Lowering: vm-architecture/foreach-statement-lowering.md
-      - Init List Lowering: vm-architecture/init-list-lowering.md
-      - Binary Expression Promotion: vm-architecture/binary-expression-promotion.md
-      - Standard Library Intrinsics: vm-architecture/standard-library-intrinsics.md
-      - First-Class Function Values: vm-architecture/first-class-function-values.md
+      - Code Generation:
+          - foreach Lowering: vm-architecture/foreach-statement-lowering.md
+          - Init List Lowering: vm-architecture/init-list-lowering.md
+          - Binary Expression Promotion: vm-architecture/binary-expression-promotion.md
+          - Standard Library Intrinsics: vm-architecture/standard-library-intrinsics.md
+          - First-Class Function Values: vm-architecture/first-class-function-values.md
       - Known Limitations: vm-architecture/known-limitations.md
 #The per-tree header link to the other tree's home page (rendered by
 #theme_override main.html; its guard keeps absent keys inert).
