@@ -25,6 +25,10 @@ All notable changes to NLang are documented here. The format follows
   toolbar icon size and the project-properties dialog; the language
   overview page was renamed to match the project name
   (what-is-nlang).
+- Manual: the language-spec reference was decomposed into per-construct
+  pages — each type, statement, expression, and function feature now has
+  its own focused page, and the overview pages retain shared semantics and
+  link out to the per-construct pages.
 
 ### Changed
 - Internal: the oversized core sources were split into per-concern
