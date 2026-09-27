@@ -21,6 +21,8 @@
 #include <QMessageBox>
 #include <QSignalBlocker>
 #include <QTabBar>
+#include <QTextBlock>
+#include <QTextCursor>
 
 namespace nlang {
 
@@ -107,6 +109,9 @@ void MainWindow::addEditorTab(FileEditor* editor) {
     //Gutter clicks join the F9 path; the stored table paints the fresh
     //editor's dots.
     if (CodeEditor* code = qobject_cast<CodeEditor*>(widget)) {
+        code->setSymbolIndex(&m_symbolIndex);
+        connect(code, &CodeEditor::goToDefinitionRequested, this,
+                &MainWindow::openLibraryDefinition);
         connect(code, &CodeEditor::breakpointToggled, this,
                 &MainWindow::onBreakpointGutterClicked);
         refreshBreakpointMarkers();
@@ -127,6 +132,22 @@ void MainWindow::editExistingFile(const QString& filePath) {
         m_ui->tabCodes->setCurrentWidget(widget);
 }
 
+void MainWindow::openLibraryDefinition(const QString& filePath, int line) {
+    editExistingFile(filePath);
+    FileEditor* editor = m_editors.find(filePath);
+    if (editor == nullptr)
+        return;
+    CodeEditor* code = qobject_cast<CodeEditor*>(editor->widget());
+    if (code == nullptr)
+        return;
+    QTextBlock block = code->document()->findBlockByNumber(line - 1);
+    if (block.isValid()) {
+        QTextCursor cursor(block);
+        code->setTextCursor(cursor);
+        code->ensureCursorVisible();
+        code->setFocus();
+    }
+}
 bool MainWindow::editNewFile(const QString& filePath) {
     FileEditor* editor = m_editors.openNew(filePath);
     if (editor == nullptr) {

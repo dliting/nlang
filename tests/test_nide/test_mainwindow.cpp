@@ -25,6 +25,7 @@
 #include <QImage>
 #include <QInputDialog>
 #include <QLabel>
+#include <QListWidget>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
@@ -570,6 +571,79 @@ private slots:
         QCOMPARE(model->rowCount(projectIndex), 1);
         //Loading selects nothing: project-scoped actions stay off.
         QVERIFY(!act(window, "actBuild")->isEnabled());
+    }
+
+    //--- library code assistance (signature help / completion / F12) ---
+
+    void testF12OpensStdLibDefinition() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("app.n");
+        writeFile(srcPath,
+            "import io;\n"
+            "public int main() {\n"
+            "    io.print(\"hi\");\n"
+            "    return 0;\n"
+            "}\n");
+
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        // Put the cursor inside "print" on the io.print line.
+        QTextBlock block = src->document()->findBlockByNumber(2);
+        QVERIFY(block.isValid());
+        const int nameCol = block.text().indexOf("print");
+        QVERIFY(nameCol >= 0);
+        QTextCursor atName(block);
+        atName.setPosition(block.position() + nameCol + 2);
+        src->setTextCursor(atName);
+
+        const int tabsBefore = tabCodes(window)->count();
+        QTest::keyClick(src, Qt::Key_F12);
+
+        // F12 opened one more tab showing the stdlib declaration.
+        QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
+        CodeEditor* lib = currentCode(window);
+        QVERIFY(lib != nullptr && lib != src);
+        QVERIFY(lib->toPlainText().contains("namespace io"));
+        // The cursor landed on the print declaration line.
+        QVERIFY(lib->textCursor().block().text().contains("print"));
+    }
+
+    void testCompletionAfterNamespaceDot() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("snippet.n");
+        writeFile(srcPath, "public int main() {\n    return 0;\n}\n");
+
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+        src->setPlainText("io");
+        QTextCursor cursor = src->textCursor();
+        cursor.movePosition(QTextCursor::End);
+        src->setTextCursor(cursor);
+
+        QTest::keyClick(src, Qt::Key_Period);
+
+        const QList<QListWidget*> popups =
+            src->findChildren<QListWidget*>();
+        QVERIFY2(!popups.isEmpty(), "completion popup must open after io.");
+        // io has 5 functions.
+        QCOMPARE(popups.constFirst()->count(), 5);
+
+        // Picking an entry inserts the function name.
+        QListWidgetItem* first = popups.constFirst()->item(0);
+        popups.constFirst()->setCurrentItem(first);
+        QTest::keyClick(popups.constFirst(), Qt::Key_Enter);
+        QVERIFY(src->toPlainText().startsWith("io."));
+        QVERIFY(src->toPlainText().contains(
+            first->text()));
     }
 
     //--- projects ---

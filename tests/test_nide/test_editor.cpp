@@ -3,6 +3,7 @@ unit tests ---*/
 #include "../../../src/tools/nide/BreakpointStore.h"
 #include "../../../src/tools/nide/CodeEditor.h"
 #include "../../../src/tools/nide/FileEditor.h"
+#include "nlang/langservice/SymbolIndex.h"
 
 #include <QDir>
 #include <QFile>
@@ -445,6 +446,60 @@ private slots:
         CodeEditor editor;
         QCOMPARE(editor.tabStopDistance(),
                  4.0 * editor.fontMetrics().horizontalAdvance(' '));
+    }
+
+    // --- qualified name extraction (hover / F12 target) ---
+
+    void testQualifiedNameAt() {
+        // "io.print(": columns 0:i 1:o 2:. 3-7:print 8:(
+        const QString line = QStringLiteral("io.print(");
+        for (int col = 3; col <= 8; ++col)
+            QCOMPARE(CodeEditor::qualifiedNameAt(line, col),
+                     QStringLiteral("io.print"));
+        // Cursor on the namespace, the dot, or before it: no call target.
+        for (int col = 0; col <= 2; ++col)
+            QCOMPARE(CodeEditor::qualifiedNameAt(line, col), QString());
+
+        QCOMPARE(CodeEditor::qualifiedNameAt("math.atan2", 6),
+                 QStringLiteral("math.atan2"));
+        // Embedded in an assignment / call.
+        QCOMPARE(CodeEditor::qualifiedNameAt("int x = io.print(1)", 12),
+                 QStringLiteral("io.print"));
+        // No qualifier.
+        QCOMPARE(CodeEditor::qualifiedNameAt("print", 3), QString());
+        // Member chain a.b.c is not a two-segment library call.
+        QCOMPARE(CodeEditor::qualifiedNameAt("a.b.c", 5), QString());
+        // Whitespace / punctuation column away from an identifier.
+        QCOMPARE(CodeEditor::qualifiedNameAt("io. print", 3), QString());
+    }
+
+    // --- hover text formatting ---
+
+    void testFormatSymbol() {
+        langservice::SymbolInfo symbol;
+        symbol.native = true;
+        symbol.ns = "io";
+        symbol.name = "print";
+        symbol.returnType = "void";
+        symbol.params.push_back({"any", "s"});
+        symbol.doc.push_back("Print a value.");
+
+        const QString text = CodeEditor::formatSymbol(symbol);
+        QVERIFY(text.contains(QStringLiteral("[native]")));
+        QVERIFY(text.contains(QStringLiteral("void io.print(any s)")));
+        QVERIFY(text.contains(QStringLiteral("Print a value.")));
+
+        // A nlang-implemented symbol must not carry [native].
+        langservice::SymbolInfo plain;
+        plain.native = false;
+        plain.ns = "mylib";
+        plain.name = "add";
+        plain.returnType = "int";
+        plain.params.push_back({"int", "a"});
+        plain.params.push_back({"int", "b"});
+        const QString text2 = CodeEditor::formatSymbol(plain);
+        QVERIFY(!text2.contains(QStringLiteral("[native]")));
+        QVERIFY(text2.contains(QStringLiteral("int mylib.add(int a, int b)")));
     }
 
     // --- BreakpointStore: rename + cross-restart load ---

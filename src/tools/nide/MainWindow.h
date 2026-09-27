@@ -1,4 +1,4 @@
-﻿/*--- MainWindow.h - main window of the NLang IDE ---*/
+/*--- MainWindow.h - main window of the NLang IDE ---*/
 #ifndef NLANG_TOOLS_NIDE_MAIN_WINDOW_H
 #define NLANG_TOOLS_NIDE_MAIN_WINDOW_H
 
@@ -8,6 +8,7 @@
 
 #include "BreakpointStore.h"  // BreakpointStore is a value member
 #include "FileEditor.h"  // EditorManager is a value member
+#include "nlang/langservice/SymbolIndex.h"  // library symbol index
 #include "RecentStore.h"  // RecentStore is a value member
 
 #include <QStringList>
@@ -226,6 +227,8 @@ private:
     void addEditorTab(FileEditor* editor);
     //Open (or focus) an existing file in an editor tab.
     void editExistingFile(const QString& filePath);
+    //F12: open a library source file (stdlib / third-party) at a line.
+    void openLibraryDefinition(const QString& filePath, int line);
     //Create a new file on disk and edit it; false when creation fails
     //(the failure is shown to the user here).
     bool editNewFile(const QString& filePath);
@@ -399,6 +402,7 @@ private:
     std::unique_ptr<Ui::MainWindow> m_ui;
     SolutionTreeModel* m_solutionTree;
     EditorManager m_editors;
+    langservice::SymbolIndex m_symbolIndex;  // indexed library symbols
     RecentStore m_recent;
     BreakpointStore m_breakpoints;
     QString m_solutionFilePath;  // empty = unsaved new solution

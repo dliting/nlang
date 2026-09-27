@@ -53,6 +53,14 @@ MainWindow::MainWindow(QWidget* parent)
     //QMenu hides item tooltips by default; the recent list relies on the
     //full-path tooltip to disambiguate same-name entries (spec §6).
     m_ui->menuRecent->setToolTipsVisible(true);
+    //Index the stdlib declaration files for signature help / completion /
+    //F12. A missing stdlib is non-fatal: code assistance stays dormant.
+    {
+        const std::string stdlibDir = langservice::FindStdLibDir(
+            QCoreApplication::applicationDirPath().toStdString());
+        if (!stdlibDir.empty())
+            m_symbolIndex.LoadLibraryDir(stdlibDir);
+    }
     updateMenuState();
     applyToolbarIconSize(SettingsStore::persisted().toolbarIconSize());
 }

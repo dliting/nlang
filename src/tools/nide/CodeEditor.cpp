@@ -3,12 +3,19 @@
 
 #include "SyntaxHighlighter.h"
 
+#include "nlang/langservice/SymbolIndex.h"
+
+#include <QCoreApplication>
+#include <QHelpEvent>
+#include <QKeyEvent>
+#include <QListWidget>
 #include <QFileInfo>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QSaveFile>
 #include <QTextBlock>
 #include <QTextStream>
+#include <QToolTip>
 
 namespace nlang {
 
@@ -223,6 +230,222 @@ void CodeEditor::highlightCurrentLine() {
     }
 
     setExtraSelections(selections);
+}
+
+
+//--- Library-backed code assistance (signature help / completion / F12) ---
+
+void CodeEditor::setSymbolIndex(const langservice::SymbolIndex* index) {
+    m_symbolIndex = index;
+}
+
+QString CodeEditor::qualifiedNameAt(const QString& lineText, int column) {
+    // Identifier characters nlang uses (ASCII word chars; nlang is ASCII
+    // for keywords and library names).
+    auto isIdent = [](QChar ch) {
+        return ch.isLetterOrNumber() || ch == '_';
+    };
+
+    // The right identifier (the call name) either contains the column or
+    // sits immediately to its left.
+    int end = column;
+    while (end < lineText.length() && isIdent(lineText.at(end)))
+        ++end;
+    int nameStart = end;
+    while (nameStart > 0 && isIdent(lineText.at(nameStart - 1)))
+        --nameStart;
+
+    // When the column is in whitespace or punctuation and not adjacent to
+    // an identifier, there is no name under the cursor.
+    if (nameStart == end)
+        return QString();
+    // Column must touch this identifier (inside it, or right after it).
+    if (column < nameStart || column > end)
+        return QString();
+
+    // Look left for '.' then another identifier.
+    int p = nameStart;
+    if (p <= 0 || lineText.at(p - 1) != QLatin1Char('.'))
+        return QString();
+    int nsEnd = p - 1;
+    int nsStart = nsEnd;
+    while (nsStart > 0 && isIdent(lineText.at(nsStart - 1)))
+        --nsStart;
+    if (nsStart == nsEnd)
+        return QString();
+    // Exclude member chains like a.b.c: the namespace token must not be
+    // preceded by another '.' (library calls are exactly ns.name).
+    if (nsStart > 0 && lineText.at(nsStart - 1) == QLatin1Char('.'))
+        return QString();
+
+    return lineText.mid(nsStart, nsEnd - nsStart) + QLatin1Char('.')
+         + lineText.mid(nameStart, end - nameStart);
+}
+
+QString CodeEditor::formatSymbol(const langservice::SymbolInfo& symbol) {
+    QString text;
+    if (symbol.native)
+        text += QObject::tr("[native]") + QLatin1Char('\n');
+    QString params;
+    for (size_t i = 0; i < symbol.params.size(); ++i) {
+        if (i)
+            params += QStringLiteral(", ");
+        params += QString::fromStdString(symbol.params[i].type)
+                + QLatin1Char(' ')
+                + QString::fromStdString(symbol.params[i].name);
+    }
+    text += QString::fromStdString(symbol.returnType) + QLatin1Char(' ')
+          + QString::fromStdString(symbol.ns) + QLatin1Char('.')
+          + QString::fromStdString(symbol.name)
+          + QLatin1Char('(') + params + QStringLiteral(")");
+    if (!symbol.doc.empty()) {
+        text += QLatin1Char('\n');
+        for (const std::string& line : symbol.doc)
+            text += QLatin1Char('\n') + QString::fromStdString(line);
+    }
+    return text;
+}
+
+bool CodeEditor::event(QEvent* event) {
+    if (event->type() == QEvent::ToolTip)
+        return handleToolTip(static_cast<QHelpEvent*>(event));
+    return QPlainTextEdit::event(event);
+}
+
+bool CodeEditor::handleToolTip(QHelpEvent* helpEvent) {
+    if (!m_symbolIndex) {
+        QToolTip::hideText();
+        return false;
+    }
+    const QTextCursor cursor = cursorForPosition(helpEvent->pos());
+    const QString qualified =
+        qualifiedNameAt(cursor.block().text(), cursor.positionInBlock());
+    if (qualified.contains(QLatin1Char('.'))) {
+        const QStringList parts = qualified.split(QLatin1Char('.'));
+        const langservice::SymbolInfo* symbol =
+            m_symbolIndex->Resolve(parts[0].toStdString(),
+                                   parts[1].toStdString());
+        if (symbol) {
+            QToolTip::showText(helpEvent->globalPos(),
+                               formatSymbol(*symbol), this);
+            return true;
+        }
+    }
+    QToolTip::hideText();
+    return false;
+}
+
+void CodeEditor::keyPressEvent(QKeyEvent* event) {
+    if (m_completionPopup && m_completionPopup->isVisible()) {
+        switch (event->key()) {
+        case Qt::Key_Escape:
+            closeCompletion();
+            return;
+        case Qt::Key_Down:
+        case Qt::Key_Up:
+        case Qt::Key_Enter:
+        case Qt::Key_Return:
+        case Qt::Key_Tab:
+            QCoreApplication::sendEvent(m_completionPopup, event);
+            return;
+        default:
+            closeCompletion();
+            break;
+        }
+    }
+
+    if (event->key() == Qt::Key_F12 && m_symbolIndex) {
+        const QTextBlock block = textCursor().block();
+        const QString qualified =
+            qualifiedNameAt(block.text(), textCursor().positionInBlock());
+        if (qualified.contains(QLatin1Char('.'))) {
+            const QStringList parts = qualified.split(QLatin1Char('.'));
+            const langservice::SymbolInfo* symbol =
+                m_symbolIndex->Resolve(parts[0].toStdString(),
+                                       parts[1].toStdString());
+            if (symbol) {
+                emit goToDefinitionRequested(
+                    QString::fromStdString(symbol->filePath), symbol->line);
+                return;
+            }
+        }
+    }
+
+    QPlainTextEdit::keyPressEvent(event);
+
+    if (event->key() == Qt::Key_Period)
+        triggerNamespaceCompletion();
+}
+
+void CodeEditor::triggerNamespaceCompletion() {
+    if (!m_symbolIndex)
+        return;
+    const QTextBlock block = textCursor().block();
+    const QString text = block.text();
+    const int col = textCursor().positionInBlock();
+
+    // The token immediately left of the just-typed '.' must be a known
+    // namespace.
+    int end = col - 1;  // position of '.'
+    int start = end;
+    while (start > 0) {
+        const QChar ch = text.at(start - 1);
+        if (!ch.isLetterOrNumber() && ch != '_')
+            break;
+        --start;
+    }
+    if (start == end)
+        return;
+    const QString ns = text.mid(start, end - start);
+    const auto candidates =
+        m_symbolIndex->CompleteNamespace(ns.toStdString());
+    if (candidates.empty())
+        return;
+
+    closeCompletion();
+    m_completionPopup = new QListWidget(this);
+    m_completionPopup->setWindowFlags(Qt::ToolTip | Qt::WindowStaysOnTopHint);
+    m_completionPopup->setFocusPolicy(Qt::NoFocus);
+    for (const langservice::SymbolInfo* symbol : candidates) {
+        auto* item = new QListWidgetItem(
+            QString::fromStdString(symbol->name), m_completionPopup);
+        // Stash the full qualified name for insertion.
+        item->setData(Qt::UserRole,
+                      QString::fromStdString(symbol->ns) + QLatin1Char('.')
+                      + QString::fromStdString(symbol->name));
+    }
+    connect(m_completionPopup, &QListWidget::itemClicked,
+            this, &CodeEditor::applyCompletion);
+    connect(m_completionPopup, &QListWidget::itemActivated,
+            this, &CodeEditor::applyCompletion);
+
+    // Position the popup at the cursor, on the text viewport.
+    const QRect cr = cursorRect();
+    QPoint pos = cr.bottomLeft();
+    pos = viewport()->mapToGlobal(pos);
+    m_completionPopup->move(pos.x(), pos.y() + 2);
+    m_completionPopup->resize(260,
+        std::min(180, 18 * static_cast<int>(candidates.size()) + 6));
+    m_completionPopup->setCurrentRow(0);
+    m_completionPopup->show();
+}
+
+void CodeEditor::applyCompletion(QListWidgetItem* item) {
+    if (!item)
+        return;
+    // Insert just the function name (the 'ns.' prefix is already typed).
+    insertPlainText(QString::fromStdString(
+        item->data(Qt::UserRole).toString().section(
+            QLatin1Char('.'), 1).toStdString()));
+    closeCompletion();
+}
+
+void CodeEditor::closeCompletion() {
+    if (m_completionPopup) {
+        m_completionPopup->hide();
+        m_completionPopup->deleteLater();
+        m_completionPopup = nullptr;
+    }
 }
 
 //--- CodeFileEditor ---

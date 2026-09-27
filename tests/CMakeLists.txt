@@ -594,6 +594,20 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_stdlib_generation.py)
     set_tests_properties(stdlib_generation PROPERTIES TIMEOUT 60)
+    # langservice: index real stdlib/*.n, resolve / complete / locate.
+    add_executable(test_langservice
+        test_langservice/test_symbol_index.cpp
+    )
+    target_link_libraries(test_langservice
+        PRIVATE
+            nlang_langservice
+    )
+    target_compile_definitions(test_langservice
+        PRIVATE
+            STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+    )
+    add_test(NAME langservice_tests COMMAND test_langservice)
+    set_tests_properties(langservice_tests PROPERTIES TIMEOUT 60)
     # Source-size guard: hand-written sources stay <=500 lines per file
     # and <=50 lines per function; registered exceptions live in
     # tools/source_size_guard/allowlist.json, each with a reason.

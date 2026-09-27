@@ -41,6 +41,7 @@ target_link_libraries(nide_editor
     PUBLIC
         Qt5::Widgets
         nlang_compiler  # nlang_runtime comes transitively (PUBLIC on it)
+        nlang_langservice
 )
 
 target_include_directories(nide_editor

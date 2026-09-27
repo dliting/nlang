@@ -4,12 +4,19 @@
 
 #include "FileEditor.h"
 
+#include <QHelpEvent>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QSet>
 
 namespace nlang {
 
 class CodeEditor;
+
+namespace langservice {
+class SymbolIndex;
+struct SymbolInfo;
+}
 
 //--- LineArea: the line-number gutter, painted by its CodeEditor.
 class LineArea : public QWidget {
@@ -64,8 +71,22 @@ public:
     //breakpoint column toggles that line's breakpoint.
     void handleGutterPress(const QPoint& pos);
 
+    //--- Library-backed code assistance (signature help / completion /
+    //    go-to-definition). The index is owned by the MainWindow and may
+    //    be null (assistance then stays dormant).
+    void setSymbolIndex(const langservice::SymbolIndex* index);
+
+    //Pure text helpers, exposed for unit testing:
+    // Extract the qualified name ("ns.name") under a 0-based column of a
+    // single line, or "" when the cursor is not on ns.name.
+    static QString qualifiedNameAt(const QString& lineText, int column);
+    // Build the hover text for a library symbol.
+    static QString formatSymbol(const langservice::SymbolInfo& symbol);
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
+    bool event(QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private slots:
     void updateLineArea(const QRect& rect, int dy);
@@ -79,15 +100,28 @@ private:
     //line).
     void paintBlockGutter(QPainter& painter, int blockNumber, int top);
 
+    //Signature help tooltip at the cursor under the mouse.
+    bool handleToolTip(QHelpEvent* helpEvent);
+    //Open a completion popup right after a typed '.' when the token to
+    //the left is a known namespace.
+    void triggerNamespaceCompletion();
+    void applyCompletion(QListWidgetItem* item);
+    void closeCompletion();
+
     LineArea* m_lineArea;
     QSet<int> m_breakpointLines;
     QSet<int> m_boundBreakpointLines;
     int m_stoppedLine = 0;
 
+    const langservice::SymbolIndex* m_symbolIndex = nullptr;
+    QListWidget* m_completionPopup = nullptr;
+
 signals:
     //A gutter click toggled the breakpoint of this 1-based line; the
     //owner resolves the file (the editor itself stays path-free).
     void breakpointToggled(int line);
+    //F12 on a library symbol: the owner opens filePath at line.
+    void goToDefinitionRequested(const QString& filePath, int line);
 };
 
 //--- CodeFileEditor: a source file bound to a CodeEditor.
