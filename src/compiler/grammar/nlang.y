@@ -231,7 +231,8 @@ static SnExpression* BuildStringExpr(
 
 %printer { fprintf (yyoutput, "%d", $$); } <v_Byte> <v_Short> <v_Int>
 %printer { fprintf (yyoutput, "%g", $$); } <v_Float>
-%printer { fprintf (yyoutput, "%u", $$); } <v_UByte> <v_UShort> <v_UInt> <v_NodeFlags> <v_AccessType>
+%printer { fprintf (yyoutput, "%u", $$); } <v_UByte> <v_UShort> <v_UInt> <v_AccessType>
+%printer { fprintf (yyoutput, "%llu", (unsigned long long)$$); } <v_NodeFlags>
 %printer { fprintf (yyoutput, "\"%s\"", $$->c_str()); } <v_pStr>
 %printer { fprintf (yyoutput, "&%p", (void*)$$); } <*>
 

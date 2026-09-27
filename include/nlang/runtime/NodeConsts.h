@@ -11,10 +11,12 @@ namespace nlang
 {
 
 //Node bits combination from high to low.
-//32 bits = flags bits + access type bits + kind bits; 
-typedef uint32 NodeBits;
+//64 bits = flags bits + access type bits + kind bits;
+//kind takes 8 bits (256 kinds) so the primitive family can grow
+//(0.7.5 basic types and future fp16/bf16-style additions).
+typedef uint64 NodeBits;
 
-#define NODE_KIND_BITS		6
+#define NODE_KIND_BITS		8
 #define FIELD_ACCESS_BITS	2
 #define NODE_FLAG_BITS		24
 
