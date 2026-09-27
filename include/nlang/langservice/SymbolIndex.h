@@ -17,15 +17,33 @@
 namespace nlang {
 namespace langservice {
 
+// Structured type of a parameter or return value. The string spelling is
+// kept for display, but consumers (compiler / codegen) switch on TypeKind
+// so they never parse type text.
+enum class TypeKind : uint8_t {
+    Unknown,
+    Void,         // no return value
+    Any,          // io.print accepts string/int/float
+    Int,
+    Float,
+    String,
+    ListString,
+};
+
+TypeKind TypeKindFromName(const std::string& name);
+std::string NameOfTypeKind(TypeKind kind);
+
 struct ParamInfo {
-    std::string type;
+    std::string type;      // display spelling, e.g. "List<string>"
     std::string name;
+    TypeKind kind = TypeKind::Unknown;
 };
 
 struct SymbolInfo {
     std::string ns;
     std::string name;
     std::string returnType;
+    TypeKind returnKind = TypeKind::Unknown;
     std::vector<ParamInfo> params;
     std::vector<std::string> doc;
     std::string filePath;

@@ -151,9 +151,9 @@ endif()
 
 # Subdirectories
 add_subdirectory(src/runtime)
+add_subdirectory(src/langservice)
 add_subdirectory(src/compiler)
 add_subdirectory(src/vm)
-add_subdirectory(src/langservice)
 add_subdirectory(src/3rdparty/tinyxml2)
 add_subdirectory(src/tools/ncc)
 add_subdirectory(src/tools/nvm)

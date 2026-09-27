@@ -12,6 +12,7 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include <nlang/vm/StdLib.h>
+#include <nlang/langservice/SymbolIndex.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -79,7 +80,7 @@ static void RejectCoercedStringArg(BuildEnvironment &env,
 //call is wrong.
 void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
 	const std::string &ns, const std::string &fnName,
-	const StdLibEntry *pEntry)
+	const langservice::SymbolInfo *pSig)
 {
 	auto& children = invoke.Children();
 	size_t paramIdx = 0;
@@ -93,23 +94,28 @@ void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
 			continue;  //unresolved arg was diagnosed above
 		}
 		const NodeKind argKind = pArgType->Kind();
-		const uint8_t want = pEntry->paramKinds[paramIdx];
-		if (pEntry->coerceToString)
+		const langservice::TypeKind want =
+			paramIdx < pSig->params.size()
+				? pSig->params[paramIdx].kind
+				: langservice::TypeKind::Unknown;
+		if (want == langservice::TypeKind::Any)
 		{
 			RejectCoercedStringArg(m_Env, arg, pArgType, paramIdx, ns,
 				fnName);
 			continue;
 		}
-		bool ok = (argKind == NK_Int32 && want == RTK_Int32)
-			|| (argKind == NK_Float && want == RTK_Float)
-			|| (argKind == NK_String && want == RTK_String);
-		const bool widen = (argKind == NK_Int32 && want == RTK_Float);
+		bool ok = (argKind == NK_Int32 && want == langservice::TypeKind::Int)
+			|| (argKind == NK_Float && want == langservice::TypeKind::Float)
+			|| (argKind == NK_String && want == langservice::TypeKind::String);
+		const bool widen = (argKind == NK_Int32
+			&& want == langservice::TypeKind::Float);
 		if (!ok && !widen)
 		{
 			m_Env.Log(CLL_Error, arg.Location(),
 				"Argument %d of \"%s.%s\" has type \"%s\"; \"%s\" expected.",
 				(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
-				pArgType->ToString().c_str(), StdLibKindName(want));
+				pArgType->ToString().c_str(),
+				langservice::NameOfTypeKind(want).c_str());
 			continue;
 		}
 		if (widen)
@@ -128,23 +134,23 @@ void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
 //argCount+1 slots; the namespace-shaped emission only uses argCount
 //(over-reserve is safe).
 void ExprResolveAccessor::BindStdLibCallResult(SnMemberExpr &snMember,
-	SnInvokeExpr &invoke, const StdLibEntry *pEntry)
+	SnInvokeExpr &invoke, const langservice::SymbolInfo *pSig)
 {
 	invoke.AddFlags(NF_Resolved);
 	SnField* pResultField = nullptr;
-	switch ((StdLibReturnType)pEntry->returnType)
+	switch (pSig->returnKind)
 	{
-	case SLRT_Float:
+	case langservice::TypeKind::Float:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
 		break;
-	case SLRT_Int32:
+	case langservice::TypeKind::Int:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
 		break;
-	case SLRT_String:
+	case langservice::TypeKind::String:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_String);
 		break;
-	case SLRT_ListString:
-		//fs.listFiles / s.split (Step 3+): List<string> generic instance.
+	case langservice::TypeKind::ListString:
+		//fs.listFiles: List<string> generic instance.
 	{
 		std::vector<SnField*> listArgs{
 			SnBuiltinDataType::InstanceOf(NK_String) };
@@ -152,8 +158,8 @@ void ExprResolveAccessor::BindStdLibCallResult(SnMemberExpr &snMember,
 			invoke.Location());
 		break;
 	}
-	case SLRT_Void:
-		break;  //void: no result type; void assignment rejected downstream
+	default:
+		break;  //Void/Unknown: no result type; void assignment rejected downstream
 	}
 	if (pResultField)
 	{
@@ -171,7 +177,7 @@ void ExprResolveAccessor::BindStdLibCallResult(SnMemberExpr &snMember,
 //string methods in Access(SnMemberExpr&)), then the table lookup and
 //the arity range check run. Null = a diagnostic is logged and the call
 //is consumed.
-const StdLibEntry *ExprResolveAccessor::FindStdLibEntry(
+const langservice::SymbolInfo *ExprResolveAccessor::FindStdLibEntry(
 	SnInvokeExpr &invoke, const std::string &ns, const std::string &fnName)
 {
 	if (HasNamedArgument(invoke))
@@ -186,26 +192,31 @@ const StdLibEntry *ExprResolveAccessor::FindStdLibEntry(
 			"out arguments are not supported by standard library functions.");
 		return nullptr;
 	}
-	const StdLibEntry* pEntry = FindStdLibFunction(ns, fnName);
-	if (!pEntry)
+	const langservice::SymbolInfo* pSig =
+		m_Env.LibraryIndex().Resolve(ns, fnName);
+	if (!pSig)
 	{
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"Unknown standard library function \"%s.%s\".",
 			ns.c_str(), fnName.c_str());
 		return nullptr;
 	}
+	//A native declaration must have a VM implementation; a missing one
+	//is a build/installation problem, not a user source error.
+	if (pSig->native && !FindStdLibFunction(ns, fnName))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Standard library function \"%s.%s\" is declared native but "
+			"has no runtime implementation.", ns.c_str(), fnName.c_str());
+		return nullptr;
+	}
 	const size_t argCount = ArgCountOf(invoke);
-	if (argCount >= pEntry->minArgs && argCount <= pEntry->maxArgs)
-		return pEntry;
-	if (pEntry->minArgs == pEntry->maxArgs)
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"\"%s.%s\" expects %d argument(s).",
-			ns.c_str(), fnName.c_str(), (int)pEntry->minArgs);
-	else
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"\"%s.%s\" expects %d to %d argument(s).",
-			ns.c_str(), fnName.c_str(),
-			(int)pEntry->minArgs, (int)pEntry->maxArgs);
+	const size_t expected = pSig->params.size();
+	if (argCount == expected)
+		return pSig;
+	m_Env.Log(CLL_Error, invoke.Location(),
+		"\"%s.%s\" expects %d argument(s).",
+		ns.c_str(), fnName.c_str(), (int)expected);
 	return nullptr;
 }
 
@@ -219,8 +230,8 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	const std::string ns(outerId.Name());
 	const auto& fnName = invoke.CalleeName();
 
-	const StdLibEntry *pEntry = FindStdLibEntry(invoke, ns, fnName);
-	if (!pEntry)
+	const langservice::SymbolInfo *pSig = FindStdLibEntry(invoke, ns, fnName);
+	if (!pSig)
 		return;
 
 	//Args resolve in the caller's scope. The intercept runs before
@@ -228,8 +239,8 @@ void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
 	//so no context restore is needed (unlike the string-methods branch).
 	ResolveExpressionList(invoke.Params());
 
-	CheckStdLibParamTypes(invoke, ns, fnName, pEntry);
-	BindStdLibCallResult(snMember, invoke, pEntry);
+	CheckStdLibParamTypes(invoke, ns, fnName, pSig);
+	BindStdLibCallResult(snMember, invoke, pSig);
 }
 
 //Mark the member resolved and bind the array token — the shared

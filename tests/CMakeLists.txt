@@ -34,6 +34,11 @@ target_link_libraries(test_stdlib
         nlang_vm
         nlang_compiler
         nlang_runtime
+        nlang_langservice
+)
+target_compile_definitions(test_stdlib
+    PRIVATE
+        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
 )
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
@@ -83,6 +88,26 @@ target_link_libraries(test_array_token
 
 add_test(NAME array_token_tests COMMAND test_array_token)
 
+# BuildEnvironment library-index unit tests: a stdlib dir loads the
+# declaration index; an empty dir leaves it empty.
+add_executable(test_library_index
+    test_compiler/test_library_index.cpp
+)
+target_include_directories(test_library_index
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_library_index
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
+target_compile_definitions(test_library_index
+    PRIVATE
+        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+)
+add_test(NAME library_index_tests COMMAND test_library_index)
+
 # ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,
@@ -108,6 +133,10 @@ target_link_libraries(test_debugger
         nlang_vm
         nlang_compiler
         nlang_runtime
+)
+target_compile_definitions(test_debugger
+    PRIVATE
+        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
 )
 
 add_test(NAME debugger_tests COMMAND test_debugger)
@@ -240,6 +269,10 @@ if(NLANG_BUILD_IDE)
             nlang_runtime
             nlang_vm
             Qt5::Test
+    )
+    target_compile_definitions(test_module_import
+        PRIVATE
+            STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
     )
     if(WIN32)
         add_custom_command(TARGET test_module_import POST_BUILD

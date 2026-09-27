@@ -153,6 +153,10 @@ struct StringMethodEntry;
 //stdlib-call decomposition below hands around pointers into it.
 struct StdLibEntry;
 
+//Library declaration symbol (nlang_langservice); the stdlib-call
+//resolution reads signatures (param/return types, arity) from it.
+namespace langservice { struct SymbolInfo; }
+
 //Scope kinds of the invoke candidate scan (defined in SnMisc.h); forward
 //declarations suffice for the reference parameters below.
 class SnFunctionParentField;
@@ -688,11 +692,11 @@ private:
 	*/
 	void CheckStdLibParamTypes(SnInvokeExpr &invoke,
 		const std::string &ns, const std::string &fnName,
-		const StdLibEntry *pEntry);
-	const StdLibEntry *FindStdLibEntry(SnInvokeExpr &invoke,
+		const langservice::SymbolInfo *pSig);
+	const langservice::SymbolInfo *FindStdLibEntry(SnInvokeExpr &invoke,
 		const std::string &ns, const std::string &fnName);
 	void BindStdLibCallResult(SnMemberExpr &snMember, SnInvokeExpr &invoke,
-		const StdLibEntry *pEntry);
+		const langservice::SymbolInfo *pSig);
 	bool TryResolveModuleCallTarget(SnMemberExpr &snMember,
 		SnInvokeExpr *&rpInvoke, std::string &rModulePath);
 	bool RejectUnimportedModuleCall(SnMemberExpr &snMember,

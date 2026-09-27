@@ -9,6 +9,8 @@
 #include <QPlainTextEdit>
 #include <QSet>
 
+#include <vector>
+
 namespace nlang {
 
 class CodeEditor;
@@ -105,6 +107,11 @@ private:
     //Open a completion popup right after a typed '.' when the token to
     //the left is a known namespace.
     void triggerNamespaceCompletion();
+    //Namespace token immediately left of the just-typed '.', or "".
+    QString namespaceTokenBeforeDot();
+    //Build, fill and position the completion popup for candidates.
+    void showCompletionPopup(
+        const std::vector<const langservice::SymbolInfo*>& candidates);
     void applyCompletion(QListWidgetItem* item);
     void closeCompletion();
 

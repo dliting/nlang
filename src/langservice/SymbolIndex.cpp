@@ -50,15 +50,59 @@ std::vector<ParamInfo> ParseParams(const std::string& text) {
         // Parameter name is the final whitespace-delimited token.
         size_t sp = t.find_last_of(" \t");
         if (sp == std::string::npos) {
-            params.push_back({t, ""});
+            ParamInfo p{t, "", TypeKindFromName(t)};
+            params.push_back(std::move(p));
         } else {
-            params.push_back({Trim(t.substr(0, sp)), Trim(t.substr(sp + 1))});
+            std::string type = Trim(t.substr(0, sp));
+            ParamInfo p{type, Trim(t.substr(sp + 1)), TypeKindFromName(type)};
+            params.push_back(std::move(p));
         }
     }
     return params;
 }
 
+// Build a SymbolInfo from a declaration regex match.
+SymbolInfo BuildSymbol(const std::smatch& m,
+                       const std::string& currentNs,
+                       const std::vector<std::string>& pendingDoc,
+                       const std::string& path, int lineNo) {
+    SymbolInfo sym;
+    sym.ns = currentNs;
+    sym.native = m[1].matched;
+    sym.returnType = Trim(m[2].str());
+    sym.returnKind = TypeKindFromName(sym.returnType);
+    sym.name = m[3].str();
+    sym.params = ParseParams(m[4].str());
+    sym.doc = pendingDoc;
+    sym.filePath = path;
+    sym.line = lineNo;
+    return sym;
+}
+
 } // namespace
+
+TypeKind TypeKindFromName(const std::string& name) {
+    std::string n = Trim(name);
+    if (n == "void") return TypeKind::Void;
+    if (n == "int") return TypeKind::Int;
+    if (n == "float") return TypeKind::Float;
+    if (n == "string") return TypeKind::String;
+    if (n == "List<string>") return TypeKind::ListString;
+    if (n == "any") return TypeKind::Any;
+    return TypeKind::Unknown;
+}
+
+std::string NameOfTypeKind(TypeKind kind) {
+    switch (kind) {
+    case TypeKind::Void: return "void";
+    case TypeKind::Int: return "int";
+    case TypeKind::Float: return "float";
+    case TypeKind::String: return "string";
+    case TypeKind::ListString: return "List<string>";
+    case TypeKind::Any: return "any";
+    default: return "unknown";
+    }
+}
 
 void SymbolIndex::LoadFile(const std::string& path) {
     std::ifstream in(path);
@@ -97,16 +141,8 @@ void SymbolIndex::LoadFile(const std::string& path) {
             continue;
         }
         if (!currentNs.empty() && std::regex_match(line, m, kDecl)) {
-            SymbolInfo sym;
-            sym.ns = currentNs;
-            sym.native = m[1].matched;
-            sym.returnType = Trim(m[2].str());
-            sym.name = m[3].str();
-            sym.params = ParseParams(m[4].str());
-            sym.doc = pendingDoc;
-            sym.filePath = path;
-            sym.line = lineNo;
-            m_symbols.push_back(std::move(sym));
+            m_symbols.push_back(
+                BuildSymbol(m, currentNs, pendingDoc, path, lineNo));
             pendingDoc.clear();
         } else if (!trimmed.empty()) {
             // A non-decl line (a body statement, a blank already skipped)

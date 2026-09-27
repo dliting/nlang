@@ -1,12 +1,15 @@
 /*---
-StdLib.h — the single built-in table of the NLang standard library.
+StdLib.h — the runtime implementation table of the NLang standard library.
 
-Defines which namespace-qualified functions (math.sqrt, io.print, ...)
-exist, their parameter kinds, arity, return type and intrinsic id.
-Shared by ExprResolver (call interception) and VmBackend (call emission).
-Header-only constexpr data: both consumers live in libraries with a
-one-way link (nlang_vm PRIVATE-links nlang_compiler), so a .cpp home on
-either side would force a circular link.
+Maps each namespace-qualified function (math.sqrt, io.print, ...) to its
+intrinsic id. The SIGNATURES (parameter kinds, arity, return type) are no
+longer in this table: they live in the stdlib/*.n declarations and reach
+the compiler and codegen through langservice::SymbolIndex. This table is
+the last hardcoded piece of the standard library and will be replaced by
+the native dynamic-loading mechanism (nlang_*.dll) in a later phase.
+Header-only constexpr data: consumers live in libraries with a one-way
+link (nlang_vm PRIVATE-links nlang_compiler), so a .cpp home on either
+side would force a circular link.
 ---*/
 #pragma once
 #include "CompiledModule.h"  //RTK_* kind constants
@@ -37,18 +40,12 @@ struct StdLibEntry
 {
 	const char* ns;      //"math" / "io" / "fs"
 	const char* name;    //"sqrt" ...
-	//Expected RTK_* of each parameter, in order. The parameter type
-	//policy: exact kind match, or int->float widening (wrapped in a
-	//cast expression by the resolver). Anything else is a compile error.
-	uint8_t paramKinds[3];
-	uint8_t minArgs;
-	uint8_t maxArgs;
-	uint8_t returnType;  //StdLibReturnType
+	//Runtime implementation id. The signature (parameter names/kinds,
+	//arity, return type) lives in the stdlib/*.n declarations and reaches
+	//the compiler and codegen through langservice::SymbolIndex; this table
+	//is only the ns,name -> intrinsicId implementation map, the last
+	//hardcoded piece before native dynamic loading replaces it.
 	uint16_t intrinsicId;
-	//Step 2 (io.print): accept string|int|float for every param and let
-	//codegen convert int/float to string at the call site. Zero/false for
-	//all other entries — they keep the strict paramKinds policy above.
-	bool coerceToString;
 };
 
 //Whether name is one of the reserved stdlib namespaces ("math"/"io"/"fs").
@@ -59,73 +56,58 @@ inline bool IsStdLibNamespaceName(const std::string& name)
 	return name == "math" || name == "io" || name == "fs";
 }
 
-//The table itself (see the file-header note for why it is constexpr here).
+//The table itself: ns,name -> intrinsicId (see the file-header note for
+//why it is constexpr here). Signatures are NOT in this table anymore —
+//they come from stdlib/*.n via langservice::SymbolIndex.
 inline constexpr StdLibEntry kStdLibTable[] =
 {
-	//math — 25 functions. Types are exact; the only automatic promotion
-	//is int->float widening (resolver wraps the argument in a cast).
-	{"math", "sqrt",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Sqrt, false},
-	{"math", "sin",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Sin, false},
-	{"math", "cos",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Cos, false},
-	{"math", "tan",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Tan, false},
-	{"math", "asin",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Asin, false},
-	{"math", "acos",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Acos, false},
-	{"math", "atan",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Atan, false},
+	//math — 25 functions.
+	{"math", "sqrt",    INTR_Math_Sqrt},
+	{"math", "sin",     INTR_Math_Sin},
+	{"math", "cos",     INTR_Math_Cos},
+	{"math", "tan",     INTR_Math_Tan},
+	{"math", "asin",    INTR_Math_Asin},
+	{"math", "acos",    INTR_Math_Acos},
+	{"math", "atan",    INTR_Math_Atan},
 	//atan2 takes (y, x) in that order — same as C/C++ atan2.
-	{"math", "atan2",  {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Atan2, false},
-	{"math", "pow",    {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Pow, false},
-	{"math", "exp",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Exp, false},
-	{"math", "log",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Log, false}, //ln
-	{"math", "absi",   {RTK_Int32}, 1, 1, SLRT_Int32, INTR_Math_Absi, false},
-	{"math", "absf",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Absf, false},
-	{"math", "mini",   {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Mini, false},
-	{"math", "maxi",   {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Maxi, false},
-	{"math", "minf",   {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Minf, false},
-	{"math", "maxf",   {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Maxf, false},
-	{"math", "clampi", {RTK_Int32, RTK_Int32, RTK_Int32}, 3, 3, SLRT_Int32, INTR_Math_Clampi, false},
-	{"math", "clampf", {RTK_Float, RTK_Float, RTK_Float}, 3, 3, SLRT_Float, INTR_Math_Clampf, false},
-	{"math", "floor",  {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Floor, false},
-	{"math", "ceil",   {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Ceil, false},
-	{"math", "round",  {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Round, false},
-	{"math", "random", {}, 0, 0, SLRT_Float, INTR_Math_Random, false},
-	{"math", "srand",  {RTK_Int32}, 1, 1, SLRT_Void, INTR_Math_Srand, false},
-	{"math", "randomi", {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Randomi, false},
-	//io — content IO (console + text files). print is the one coercing
-	//entry; the file trio is strictly (string, string) and readLine/readFile
-	//failures raise IOException at run time.
-	{"io", "print",      {RTK_String}, 1, 1, SLRT_Void,   INTR_Io_Print,      true},
-	{"io", "readLine",   {},           0, 0, SLRT_String, INTR_Io_ReadLine,   false},
-	{"io", "readFile",   {RTK_String}, 1, 1, SLRT_String, INTR_Io_ReadFile,   false},
-	{"io", "writeFile",  {RTK_String, RTK_String}, 2, 2, SLRT_Void, INTR_Io_WriteFile,  false},
-	{"io", "appendFile", {RTK_String, RTK_String}, 2, 2, SLRT_Void, INTR_Io_AppendFile, false},
+	{"math", "atan2",   INTR_Math_Atan2},
+	{"math", "pow",     INTR_Math_Pow},
+	{"math", "exp",     INTR_Math_Exp},
+	{"math", "log",     INTR_Math_Log}, //ln
+	{"math", "absi",    INTR_Math_Absi},
+	{"math", "absf",    INTR_Math_Absf},
+	{"math", "mini",    INTR_Math_Mini},
+	{"math", "maxi",    INTR_Math_Maxi},
+	{"math", "minf",    INTR_Math_Minf},
+	{"math", "maxf",    INTR_Math_Maxf},
+	{"math", "clampi",  INTR_Math_Clampi},
+	{"math", "clampf",  INTR_Math_Clampf},
+	{"math", "floor",   INTR_Math_Floor},
+	{"math", "ceil",    INTR_Math_Ceil},
+	{"math", "round",   INTR_Math_Round},
+	{"math", "random",  INTR_Math_Random},
+	{"math", "srand",   INTR_Math_Srand},
+	{"math", "randomi", INTR_Math_Randomi},
+	//io — content IO (console + text files). print is the one variadic-ish
+	//'any' entry; readLine/readFile failures raise IOException at run time.
+	{"io", "print",      INTR_Io_Print},
+	{"io", "readLine",   INTR_Io_ReadLine},
+	{"io", "readFile",   INTR_Io_ReadFile},
+	{"io", "writeFile",  INTR_Io_WriteFile},
+	{"io", "appendFile", INTR_Io_AppendFile},
 	//fs — namespace/directory/metadata (never content). Mutations and
 	//queries that cannot answer raise IOException at run time
 	//(std::filesystem with error_code — no exceptions cross the ABI);
 	//the three type predicates never raise: an un-statable path answers 0.
-	{"fs", "exists",    {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_Exists,    false},
-	{"fs", "isFile",    {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_IsFile,    false},
-	{"fs", "isDirectory", {RTK_String}, 1, 1, SLRT_Int32,     INTR_FileSystem_IsDir,     false},
-	{"fs", "size",      {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_Size,      false},
-	{"fs", "listFiles", {RTK_String}, 1, 1, SLRT_ListString,  INTR_FileSystem_ListFiles, false},
-	{"fs", "makeDirs",  {RTK_String}, 1, 1, SLRT_Void,        INTR_FileSystem_MakeDirs,  false},
-	{"fs", "remove",    {RTK_String}, 1, 1, SLRT_Void,        INTR_FileSystem_Remove,    false},
-	{"fs", "join",      {RTK_String, RTK_String}, 2, 2, SLRT_String, INTR_FileSystem_Join, false},
+	{"fs", "exists",      INTR_FileSystem_Exists},
+	{"fs", "isFile",      INTR_FileSystem_IsFile},
+	{"fs", "isDirectory", INTR_FileSystem_IsDir},
+	{"fs", "size",        INTR_FileSystem_Size},
+	{"fs", "listFiles",   INTR_FileSystem_ListFiles},
+	{"fs", "makeDirs",    INTR_FileSystem_MakeDirs},
+	{"fs", "remove",      INTR_FileSystem_Remove},
+	{"fs", "join",        INTR_FileSystem_Join},
 };
-
-//Compile-time well-formedness: arity bounds must fit paramKinds[3] and
-//not cross. Catches a bad Step 1+ table entry at compile time instead of
-//as an out-of-bounds read in the resolver.
-constexpr bool StdLibTableWellFormed()
-{
-	for (const auto& entry : kStdLibTable)
-	{
-		if (entry.minArgs > entry.maxArgs || entry.maxArgs > 3)
-			return false;
-	}
-	return true;
-}
-static_assert(StdLibTableWellFormed(),
-	"kStdLibTable entry has arity that does not fit paramKinds[3]");
 
 //Table <-> id-block binding: every math entry carries an id inside the
 //contiguous math block (CompiledModule.h), and the block has exactly one

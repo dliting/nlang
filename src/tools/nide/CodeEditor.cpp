@@ -377,31 +377,24 @@ void CodeEditor::keyPressEvent(QKeyEvent* event) {
         triggerNamespaceCompletion();
 }
 
-void CodeEditor::triggerNamespaceCompletion() {
-    if (!m_symbolIndex)
-        return;
+QString CodeEditor::namespaceTokenBeforeDot() {
     const QTextBlock block = textCursor().block();
     const QString text = block.text();
-    const int col = textCursor().positionInBlock();
-
-    // The token immediately left of the just-typed '.' must be a known
-    // namespace.
-    int end = col - 1;  // position of '.'
-    int start = end;
+    const int dot = textCursor().positionInBlock() - 1;  // '.' position
+    int start = dot;
     while (start > 0) {
         const QChar ch = text.at(start - 1);
         if (!ch.isLetterOrNumber() && ch != '_')
             break;
         --start;
     }
-    if (start == end)
-        return;
-    const QString ns = text.mid(start, end - start);
-    const auto candidates =
-        m_symbolIndex->CompleteNamespace(ns.toStdString());
-    if (candidates.empty())
-        return;
+    if (start == dot)
+        return QString();
+    return text.mid(start, dot - start);
+}
 
+void CodeEditor::showCompletionPopup(
+    const std::vector<const langservice::SymbolInfo*>& candidates) {
     closeCompletion();
     m_completionPopup = new QListWidget(this);
     m_completionPopup->setWindowFlags(Qt::ToolTip | Qt::WindowStaysOnTopHint);
@@ -409,7 +402,7 @@ void CodeEditor::triggerNamespaceCompletion() {
     for (const langservice::SymbolInfo* symbol : candidates) {
         auto* item = new QListWidgetItem(
             QString::fromStdString(symbol->name), m_completionPopup);
-        // Stash the full qualified name for insertion.
+        //Stash the full qualified name for insertion.
         item->setData(Qt::UserRole,
                       QString::fromStdString(symbol->ns) + QLatin1Char('.')
                       + QString::fromStdString(symbol->name));
@@ -419,15 +412,26 @@ void CodeEditor::triggerNamespaceCompletion() {
     connect(m_completionPopup, &QListWidget::itemActivated,
             this, &CodeEditor::applyCompletion);
 
-    // Position the popup at the cursor, on the text viewport.
-    const QRect cr = cursorRect();
-    QPoint pos = cr.bottomLeft();
-    pos = viewport()->mapToGlobal(pos);
+    //Position the popup at the cursor, on the text viewport.
+    QPoint pos = viewport()->mapToGlobal(cursorRect().bottomLeft());
     m_completionPopup->move(pos.x(), pos.y() + 2);
     m_completionPopup->resize(260,
         std::min(180, 18 * static_cast<int>(candidates.size()) + 6));
     m_completionPopup->setCurrentRow(0);
     m_completionPopup->show();
+}
+
+void CodeEditor::triggerNamespaceCompletion() {
+    if (!m_symbolIndex)
+        return;
+    const QString ns = namespaceTokenBeforeDot();
+    if (ns.isEmpty())
+        return;
+    //The token left of the just-typed '.' must be a known namespace.
+    const auto candidates =
+        m_symbolIndex->CompleteNamespace(ns.toStdString());
+    if (!candidates.empty())
+        showCompletionPopup(candidates);
 }
 
 void CodeEditor::applyCompletion(QListWidgetItem* item) {
@@ -446,78 +450,6 @@ void CodeEditor::closeCompletion() {
         m_completionPopup->deleteLater();
         m_completionPopup = nullptr;
     }
-}
-
-//--- CodeFileEditor ---
-
-CodeFileEditor::CodeFileEditor(EditorManager& owner, const QString& absoluteFilePath)
-    : FileEditor(owner, absoluteFilePath)
-    , m_editor(nullptr)
-{
-    //Named through the derived class: onTextChange is protected in
-    //FileEditor and cannot be named as a base member pointer here.
-    connect(&m_editor, &QPlainTextEdit::textChanged, this, &CodeFileEditor::onTextChange);
-    //Cursor moves relay to positionInfoChanged for the status bar.
-    connect(&m_editor, &QPlainTextEdit::cursorPositionChanged,
-            this, &FileEditor::positionInfoChanged);
-}
-
-QWidget* CodeFileEditor::widget() {
-    return &m_editor;
-}
-
-QString CodeFileEditor::positionInfo() {
-    return QString("line: %1\tcharacter: %2")
-        .arg(m_editor.textCursor().blockNumber() + 1)
-        .arg(m_editor.textCursor().positionInBlock() + 1);
-}
-
-bool CodeFileEditor::doOpen() {
-    QFile file(filePath());
-    if (!file.open(QIODevice::ReadOnly)) {
-        setError(QString("cannot open file for reading: %1 (%2)")
-                     .arg(filePath(), file.errorString()));
-        return false;
-    }
-
-    //NLang sources are UTF-8; the stream default follows the locale
-    //(GBK on a Chinese Windows) and would corrupt non-ASCII bytes.
-    QTextStream in(&file);
-    in.setCodec("UTF-8");
-    m_editor.setPlainText(in.readAll());
-    return true;
-}
-
-bool CodeFileEditor::doSave() {
-    //QSaveFile: atomic write -- a failed save never truncates the file.
-    QSaveFile file(filePath());
-    if (!file.open(QIODevice::WriteOnly)) {
-        setError(QString("cannot open file for writing: %1 (%2)")
-                     .arg(filePath(), file.errorString()));
-        return false;
-    }
-
-    QTextStream out(&file);
-    out.setCodec("UTF-8");
-    out << m_editor.toPlainText();
-    out.flush();
-    if (!file.commit()) {
-        setError(QString("write failed: %1 (%2)").arg(filePath(), file.errorString()));
-        return false;
-    }
-    return true;
-}
-
-bool CodeFileEditor::doCreate() {
-    QFile file(filePath());
-    if (!file.open(QIODevice::WriteOnly)) {
-        setError(QString("cannot create file: %1 (%2)")
-                     .arg(filePath(), file.errorString()));
-        return false;
-    }
-    file.close();
-    m_editor.setPlainText(QString());
-    return true;
 }
 
 } // namespace nlang

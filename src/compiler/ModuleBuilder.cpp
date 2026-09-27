@@ -169,7 +169,13 @@ bool ModuleBuilder::GenerateCodes()
 	//Phase 9c cross-module: transfer imported CompiledModules to backend
 	//before GenerateStatements runs. The backend owns them from here.
 	if (auto *vmBackend = dynamic_cast<VmBackend*>(backend))
+	{
 		vmBackend->SetImportedModules(std::move(m_loadedImports));
+		//Inject the library declaration index so codegen reads stdlib
+		//signatures (param/return types) from the .n declarations rather
+		//than from the runtime table.
+		vmBackend->SetLibraryIndex(&m_upEnv->LibraryIndex());
+	}
 	backend->GenerateTypes(TreeRoot());
 	backend->GenerateData(TreeRoot());
 	backend->GenerateStatements(TreeRoot());

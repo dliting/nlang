@@ -32,6 +32,10 @@
 #include <string_view>
 #include <vector>
 
+#ifndef STDLIB_DIR
+#define STDLIB_DIR ""
+#endif
+
 using namespace nlang;
 
 static int g_pass = 0, g_fail = 0;
@@ -85,6 +89,8 @@ static BuildOutcome buildSource(const std::string& tag,
     params.m_sOutputModule = tag;
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
+    //Signatures resolve from stdlib/*.n (STDLIB_DIR is a compile def).
+    params.m_sStdLibDir = STDLIB_DIR;
 
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);
@@ -119,6 +125,7 @@ static BuildOutcome buildConsumer(const std::string& tag,
     params.m_sOutputModule = tag;
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
     params.m_ImportDirs.push_back(dir.string());
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);

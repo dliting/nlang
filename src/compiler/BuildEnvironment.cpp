@@ -8,6 +8,7 @@
 #include "ScriptLocation.h"
 #include "SnExtraTypes.h"
 #include "builder/ModuleRegistry.h"
+#include <nlang/langservice/SymbolIndex.h>
 #include <cassert>
 #include <cstdarg>
 
@@ -22,12 +23,15 @@ namespace nlang
 BuildEnvironment::BuildEnvironment(const BuildParams& params,
 	CompileLogger& logger):
 	m_Params(params), m_Logger(logger), m_pCurrModule(nullptr),
-	m_upRegistry(std::make_unique<ModuleRegistry>())
+	m_upRegistry(std::make_unique<ModuleRegistry>()),
+	m_upLibraryIndex(std::make_unique<langservice::SymbolIndex>())
 #ifdef NLANG_ENABLE_LLVM
 	, m_pCurrMetaModule(nullptr)
 #endif
 {
 	ClearFlags();
+	if (!m_Params.m_sStdLibDir.empty())
+		m_upLibraryIndex->LoadLibraryDir(m_Params.m_sStdLibDir);
 }
 
 BuildEnvironment::~BuildEnvironment()
@@ -41,6 +45,11 @@ BuildEnvironment::~BuildEnvironment()
 ModuleRegistry& BuildEnvironment::Registry()
 {
 	return *m_upRegistry;
+}
+
+langservice::SymbolIndex& BuildEnvironment::LibraryIndex()
+{
+	return *m_upLibraryIndex;
 }
 
 SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType)

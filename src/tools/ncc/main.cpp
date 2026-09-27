@@ -3,6 +3,7 @@
 #include <nlang/compiler/Logger.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/Runtime.h>
+#include <nlang/langservice/SymbolIndex.h>
 #include "VmBackend.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
@@ -226,6 +227,18 @@ int main(int argc, char* argv[]) {
     //(BuildParams default); append user -I dirs after.
     for (const auto& dir : importDirs)
         params.m_ImportDirs.push_back(dir);
+
+    //Locate the standard library declarations (stdlib/*.n) relative to this
+    //executable; they are the authority for stdlib function signatures.
+#ifdef _WIN32
+    char exeBuf[MAX_PATH] = {};
+    GetModuleFileNameA(nullptr, exeBuf, MAX_PATH);
+    fs::path exePath(exeBuf);
+#else
+    fs::path exePath = fs::read_symlink("/proc/self/exe");
+#endif
+    params.m_sStdLibDir =
+        langservice::FindStdLibDir(exePath.parent_path().string());
 
     //Derive the save path parts from the whole outputFile via fs::path
     //(find_last_of/substr drops the separator of a root-only path like

@@ -11,6 +11,7 @@
 #include <nlang/compiler/SnExtraTypes.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/NodeConsts.h>
+#include <nlang/langservice/SymbolIndex.h>
 #include <cassert>
 #include <map>
 #include <unordered_set>
@@ -36,11 +37,18 @@ bool VmBackend::EmitMemberStdlibCall(SnMemberExpr& member,
             auto& invoke = static_cast<SnInvokeExpr&>(*inner);
             const StdLibEntry* pEntry = FindStdLibFunction(
                 outerId.Name(), invoke.CalleeName());
-            //Resolver guarantees a hit here (unknown functions are
-            //compile errors); fall through defensively if not.
-            if (pEntry)
+            //Signatures come from the library index (the .n declarations);
+            //the resolver guarantees both a signature and an implementation
+            //here, but fall through defensively if either is missing.
+            const langservice::SymbolInfo* pSig =
+                m_pLibraryIndex
+                    ? m_pLibraryIndex->Resolve(outerId.Name(),
+                                               invoke.CalleeName())
+                    : nullptr;
+            if (pEntry && pSig)
             {
-                EmitStdLibCall(*pEntry, invoke, emitter, resultOffset);
+                EmitStdLibCall(*pSig, *pEntry, invoke, emitter,
+                               resultOffset);
                 return true;
             }
         }

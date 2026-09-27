@@ -6,6 +6,7 @@
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
+#include <nlang/langservice/SymbolIndex.h>
 
 namespace nlang {
 
@@ -66,7 +67,8 @@ void VmBackend::EmitCompoundOp(int opInt,
 //the namespace intrinsic ABI has no this (see StdLib.h). The MemberExpr
 //walker reserves 1+argCount for this shape; claiming only argCount
 //over-reserves by one slot, which is the safe direction.
-void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
+void VmBackend::EmitStdLibCall(const langservice::SymbolInfo& sig,
+        const StdLibEntry& entry,
         SnInvokeExpr& invoke, BytecodeEmitter& emitter,
         uint16_t resultOffset) {
     uint16_t argCount = 0;
@@ -77,8 +79,13 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
             claimBase + paramIdx * VALUE_SIZE);
-        //io.print coercion (see EmitStdLibArgToString).
-        if (entry.coerceToString) {
+        //io.print: an 'any' parameter is converted to string at the call
+        //site (see EmitStdLibArgToString).
+        const langservice::TypeKind wantKind =
+            paramIdx < sig.params.size()
+                ? sig.params[paramIdx].kind
+                : langservice::TypeKind::Unknown;
+        if (wantKind == langservice::TypeKind::Any) {
             EmitStdLibArgToString(param, emitter,
                 claimBase + paramIdx * VALUE_SIZE);
         }
@@ -88,9 +95,9 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     emitter.Emit(OpCode::OP_CallIntrinsic);
     emitter.EmitUint16(entry.intrinsicId);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    //Void entries (io.print) have nothing to assign — the InvokeStmt
-    //handler already staged a throwaway claim slot as resultOffset.
-    if (static_cast<StdLibReturnType>(entry.returnType) != SLRT_Void) {
+    //A void call has nothing to assign — the InvokeStmt handler already
+    //staged a throwaway claim slot as resultOffset.
+    if (sig.returnKind != langservice::TypeKind::Void) {
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
     }

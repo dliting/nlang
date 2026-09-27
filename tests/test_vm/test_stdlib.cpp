@@ -12,6 +12,7 @@
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/StdLib.h"
+#include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
 #include <filesystem>
@@ -21,6 +22,10 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
+
+#ifndef STDLIB_DIR
+#define STDLIB_DIR ""
 #endif
 
 using namespace nlang;
@@ -74,6 +79,9 @@ static BuildOutcome buildSource(const std::string& tag,
     params.m_sOutputModule = tag;
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
+    //Signatures resolve from stdlib/*.n (the runtime table no longer
+    //carries them); STDLIB_DIR is a compile definition from CMake.
+    params.m_sStdLibDir = STDLIB_DIR;
 
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);
@@ -216,40 +224,60 @@ void test_stdlib_unknown_namespace_still_errors()
 void test_stdlib_table_full_dispatch()
 {
     TEST(stdlib_table_full_dispatch);
-    //Step 1 table<->id<->TU binding guard: compile AND run one real
-    //program per math table entry. A table row pointing at an id the
-    //VM does not dispatch compiles fine but throws "unknown intrinsic"
-    //at run time — the static_asserts in StdLib.h bind the id block,
-    //this walk proves every row actually executes.
+    //Signature<->implementation binding guard: walk every native function
+    //declared in stdlib/math.n (via the langservice index) and compile AND
+    //run one real program per function. A declaration whose intrinsicId is
+    //missing from the runtime table is rejected by the resolver ("declared
+    //native but has no runtime implementation"); a table row pointing at an
+    //id the VM does not dispatch compiles but throws "unknown intrinsic" at
+    //run time. This walk proves every math declaration actually executes
+    //end to end.
+    langservice::SymbolIndex index;
+    index.LoadLibraryDir(STDLIB_DIR);
+
     int checked = 0;
-    for (const auto& entry : kStdLibTable)
+    for (const langservice::SymbolInfo* sig :
+         index.CompleteNamespace("math"))
     {
-        if (std::string(entry.ns) != "math")
+        if (!sig->native)
             continue;
-        //Argument literals per declared kind.
+        //Argument literals per declared parameter kind.
         std::string args;
-        for (int i = 0; i < entry.maxArgs; ++i)
-            args += (i ? ", " : "")
-                + std::string(entry.paramKinds[i] == RTK_Int32
-                    ? "1" : "1.5");
-        std::string call = std::string(entry.ns) + "."
-            + entry.name + "(" + args + ")";
+        for (size_t i = 0; i < sig->params.size(); ++i)
+        {
+            const char* lit = "1.5";
+            if (sig->params[i].kind == langservice::TypeKind::Int)
+                lit = "1";
+            else if (sig->params[i].kind == langservice::TypeKind::String)
+                lit = "\"x\"";
+            args += std::string(i ? ", " : "") + lit;
+        }
+        std::string call = "math." + sig->name + "(" + args + ")";
         std::string src;
-        if (entry.returnType == SLRT_Void)
+        switch (sig->returnKind)
+        {
+        case langservice::TypeKind::Void:
             src = "int main() { " + call + "; return 0; }\n";
-        else if (entry.returnType == SLRT_Float)
+            break;
+        case langservice::TypeKind::Float:
             src = "int main() { float r = " + call + "; return 0; }\n";
-        else
+            break;
+        case langservice::TypeKind::String:
+            src = "int main() { string r = " + call + "; return 0; }\n";
+            break;
+        default:
             src = "int main() { int r = " + call + "; return 0; }\n";
+            break;
+        }
         //Unique output tag per entry: the builder's module registry
         //rejects a second module with the same name in one process.
-        const int rc = runSource(std::string("tbl_") + entry.name, src);
-        CHECK(rc == 0, (std::string("dispatch failed for ") + call
+        const int rc = runSource("tbl_" + sig->name, src);
+        CHECK(rc == 0, ("dispatch failed for " + call
             + " (rc=" + std::to_string(rc) + ")").c_str());
         ++checked;
     }
-    CHECK(checked == kMathIntrinsicCount,
-        "every math table entry must be exercised by this walk");
+    CHECK(checked == static_cast<int>(kMathIntrinsicCount),
+        "every math native declaration must be exercised by this walk");
     PASS();
 }
 

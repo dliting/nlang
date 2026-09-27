@@ -63,5 +63,5 @@ target_include_directories(nlang_vm
 
 target_link_libraries(nlang_vm
     PUBLIC nlang_runtime
-    PRIVATE nlang_compiler
+    PRIVATE nlang_compiler nlang_langservice
 )

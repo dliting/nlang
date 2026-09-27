@@ -42,6 +42,9 @@ struct FormalBinding;
 //Phase 8e-6 init-list entry; the init-list emitters below hand entries
 //to their per-entry helpers. Defined in SnExpressions.h.
 struct InitEntry;
+//Library declaration index (nlang_langservice); codegen reads stdlib
+//signatures from it. Pointer only, never owned.
+namespace langservice { class SymbolIndex; struct SymbolInfo; }
 
 //Phase 9d: the built-in Exception family — synthetic declarations carry
 //no AST fields but a fixed two-field (message/backtrace) runtime layout.
@@ -72,6 +75,14 @@ public:
     void SetImportedModules(std::vector<CompiledModule> mods)
     {
         m_importedModules = std::move(mods);
+    }
+
+    //Inject the library declaration index (stdlib/*.n signatures) before
+    //GenerateStatements. Codegen reads param/return types from it; the
+    //pointer is borrowed, not owned.
+    void SetLibraryIndex(const langservice::SymbolIndex* pIndex)
+    {
+        m_pLibraryIndex = pIndex;
     }
 
     //Phase 9c cross-module: register an imported function stub to its
@@ -703,7 +714,8 @@ private:
     //Mirrors the string.equals emission minus the receiver: args stage in
     //an evalArea claim, then bulk-copy to callParamBase from slot 0 — the
     //namespace intrinsic ABI has no this (see StdLib.h).
-    void EmitStdLibCall(const StdLibEntry& entry, SnInvokeExpr& invoke,
+    void EmitStdLibCall(const langservice::SymbolInfo& sig,
+                        const StdLibEntry& entry, SnInvokeExpr& invoke,
                         BytecodeEmitter& emitter, uint16_t resultOffset);
 
     //Stdlib arm: io.print coercion for one already-emitted argument —
@@ -1015,6 +1027,9 @@ private:
     //MergeImportedClassesStructsArrays (Phase A) + MergeImportedFinalize
     //(Phase B) during GenerateStatements.
     std::vector<CompiledModule> m_importedModules;
+    //Borrowed library declaration index (SetLibraryIndex); null until
+    //ModuleBuilder injects it. Codegen reads stdlib signatures from it.
+    const langservice::SymbolIndex* m_pLibraryIndex = nullptr;
     //Side-table: imported function stub → (srcModIdx, srcFuncIdx). Filled
     //by ModuleBuilder via RegisterImportedFunctionStub(); read by
     //MergeImportedFinalize to fill m_funcIndexMap[stub] for user codegen.

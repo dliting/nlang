@@ -135,6 +135,48 @@ static void TestFindStdLibDir() {
     fs::remove_all(none);
 }
 
+static void TestTypeKinds() {
+    CHECK(TypeKindFromName("int") == TypeKind::Int);
+    CHECK(TypeKindFromName("float") == TypeKind::Float);
+    CHECK(TypeKindFromName("string") == TypeKind::String);
+    CHECK(TypeKindFromName("List<string>") == TypeKind::ListString);
+    CHECK(TypeKindFromName("any") == TypeKind::Any);
+    CHECK(TypeKindFromName("void") == TypeKind::Void);
+    CHECK(TypeKindFromName("widget") == TypeKind::Unknown);
+    CHECK(NameOfTypeKind(TypeKind::Int) == "int");
+    CHECK(NameOfTypeKind(TypeKind::ListString) == "List<string>");
+    CHECK(NameOfTypeKind(TypeKind::Void) == "void");
+
+    SymbolIndex index;
+    index.LoadLibraryDir(STDLIB_DIR);
+
+    const SymbolInfo* print = index.Resolve("io", "print");
+    CHECK(print != nullptr);
+    if (print) {
+        CHECK(print->returnKind == TypeKind::Void);
+        CHECK(print->params.size() == 1
+              && print->params[0].kind == TypeKind::Any);
+    }
+
+    const SymbolInfo* sqrt = index.Resolve("math", "sqrt");
+    CHECK(sqrt != nullptr);
+    if (sqrt) {
+        CHECK(sqrt->returnKind == TypeKind::Float);
+        CHECK(sqrt->params.size() == 1
+              && sqrt->params[0].kind == TypeKind::Float);
+    }
+
+    const SymbolInfo* absi = index.Resolve("math", "absi");
+    CHECK(absi != nullptr && absi->params[0].kind == TypeKind::Int);
+
+    const SymbolInfo* listFiles = index.Resolve("fs", "listFiles");
+    CHECK(listFiles != nullptr
+          && listFiles->returnKind == TypeKind::ListString);
+
+    const SymbolInfo* writeFile = index.Resolve("io", "writeFile");
+    CHECK(writeFile != nullptr && writeFile->returnKind == TypeKind::Void);
+}
+
 int main() {
     TestLoadsRealStdLib();
     TestResolvePrint();
@@ -142,6 +184,7 @@ int main() {
     TestCompletion();
     TestNlangFunctionIsNotNative();
     TestFindStdLibDir();
+    TestTypeKinds();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

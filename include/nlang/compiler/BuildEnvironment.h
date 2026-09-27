@@ -50,6 +50,11 @@ struct BuildParams
 	//files are computed relative to this (utils/helper.n →
 	//"utils.helper"); empty in single-file mode (stem only).
 	std::string m_sProjectDir;
+	//Directory holding the standard library declaration files
+	//(stdlib/io.n, ...). Located by the host tool (ncc/nide via
+	//langservice::FindStdLibDir) and passed in; empty means no
+	//library index is loaded.
+	std::string m_sStdLibDir;
 };
 
 //Enumerate flags of module building.
@@ -70,6 +75,9 @@ class TranslationUnit;
 //in this public header.
 class ModuleRegistry;
 class SnArrayTypeToken;
+//Library declaration index (nlang_langservice); opaque here so this
+//public header does not depend on the langservice headers.
+namespace langservice { class SymbolIndex; }
 
 //The context during building a nlang module.
 class NLANG_COMPILER_API BuildEnvironment : public Flagable<ModuleBuildFlagBits>
@@ -87,6 +95,10 @@ public:
 
 	//Compile-time module registry (internal type, opaque here).
 	ModuleRegistry& Registry();
+
+	//Index of library declaration files (stdlib/*.n); the authority
+	//for function signatures during type checking and codegen.
+	langservice::SymbolIndex& LibraryIndex();
 
 	//Get the current module been compiled.
 	Module* CurrModule() const
@@ -148,6 +160,7 @@ private:
 #endif
 	std::unique_ptr<ICodeBackend> m_upBackend;
 	std::unique_ptr<ModuleRegistry> m_upRegistry;
+	std::unique_ptr<langservice::SymbolIndex> m_upLibraryIndex;
 	//0.7.3 B: interned array tokens, keyed by element field. Owns the
 	//tokens for this environment's lifetime.
 	std::map<SnField*, std::unique_ptr<SnArrayTypeToken>> m_InternedArrayTokens;

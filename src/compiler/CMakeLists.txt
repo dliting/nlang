@@ -100,6 +100,7 @@ target_include_directories(nlang_compiler
 
 target_link_libraries(nlang_compiler
     PUBLIC nlang_runtime
+    PRIVATE nlang_langservice
 )
 
 target_compile_definitions(nlang_compiler

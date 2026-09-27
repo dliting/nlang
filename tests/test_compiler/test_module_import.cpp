@@ -30,6 +30,10 @@ on every merged TU member (top-level and nested-namespace members).
 #include <string>
 #include <vector>
 
+#ifndef STDLIB_DIR
+#define STDLIB_DIR ""
+#endif
+
 using namespace nlang;
 
 namespace {
@@ -97,6 +101,8 @@ CompileOutcome compile(const std::string& tag,
     params.m_sOutputModule = tag;
     params.m_sOutputDir = outDir.string();
     params.m_sTempDir = outDir.string();
+    //Signatures resolve from stdlib/*.n (STDLIB_DIR is a compile def).
+    params.m_sStdLibDir = STDLIB_DIR;
     MemLogger logger;
     ModuleBuilder builder(params, logger);
     CompileOutcome outcome;
@@ -276,6 +282,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         libParams.m_sOutputModule = libNames[i];
         libParams.m_sOutputDir = out.string();
         libParams.m_sTempDir = out.string();
+        libParams.m_sStdLibDir = STDLIB_DIR;
         MemLogger libLogger;
         ModuleBuilder libBuilder(libParams, libLogger);
         bool libOk = false;
@@ -309,6 +316,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         "gate_test_" + std::to_string(++gateRunCount);
     res.params->m_sOutputDir = out.string();
     res.params->m_sTempDir = out.string();
+    res.params->m_sStdLibDir = STDLIB_DIR;
     res.logger = std::make_unique<MemLogger>();
     res.builder = std::make_unique<ModuleBuilder>(*res.params, *res.logger);
     try { res.ok = res.builder->Build(); }
