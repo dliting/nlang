@@ -9,7 +9,7 @@ front ends as a line protocol (`--machine`) — nide's graphical
 debugger is built on it.
 
 ```text
-ndb <module.nmod>
+ndb <module.nmod> [-I <dir>...]
 ```
 
 After loading the module it **stops at the first statement of the
@@ -70,8 +70,13 @@ ndb itself with 0.
 
 ## Protocol for embedding front ends
 
-`ndb --machine <module.nmod>` exposes the same session over a
+`ndb --machine <module.nmod> [-I <dir>...]` exposes the same session over a
 tab-separated line protocol on stdin/stdout for embedding front ends —
 the nide graphical debugger is built on it. Protocol details in
 [Debugging in nide](../getting-started/debugging.md) and
 [Debugger Architecture](../vm-architecture/debugging.md).
+
+Both the interactive and `--machine` forms accept `-I <dir>` (repeatable)
+to locate native dynamic libraries; the search dirs are assembled in the
+same order as nvm (`-I` → module directory → `NLANG_PATH` → executable
+directory / current directory).

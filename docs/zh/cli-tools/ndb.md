@@ -7,7 +7,7 @@ ndb 是 NLang 的交互式调试器：加载模块后停在入口，按命令设
 调试器就构建在其上。
 
 ```text
-ndb <module.nmod>
+ndb <module.nmod> [-I <dir>...]
 ```
 
 加载模块后**停在入口首条语句**（等价 gdb 的 `start`），给出提示符
@@ -65,7 +65,11 @@ Program exited with code 0.
 
 ## 嵌入前端协议
 
-`ndb --machine <module.nmod>` 在 stdin/stdout 上暴露同一会话的
+`ndb --machine <module.nmod> [-I <dir>...]` 在 stdin/stdout 上暴露同一会话的
 tab 分隔行协议，供嵌入前端使用——nide 的图形调试器就构建在它之上。
 协议细节见[在 nide 中调试](../getting-started/debugging.md)与
 [调试器架构](../vm-architecture/debugging.md)。
+
+交互式与 `--machine` 两种形态都接受 `-I <dir>`（可多次指定），用于定位
+native 动态库；搜索目录的拼接顺序与 nvm 相同（`-I` → 模块目录 →
+`NLANG_PATH` → 可执行文件目录 / 当前目录）。

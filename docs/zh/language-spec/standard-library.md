@@ -8,9 +8,14 @@ catch 变量是编译错误。调用只写限定名（`math.sin(x)`）；裸名�
 作用域内（未来的 `using` 式关键字可能放开此限制）。命名空间名用作
 值（`int x = math;`）无法解析——命名空间不是值。
 
-绑定由编译器内建：限定调用在编译期被对照内建表
-识别为标准库函数并做类型检查，生成的代码
-发射 `OP_CallIntrinsic`——没有函数记录，没有宿主注册。
+标准库的**签名**（参数类型、参数个数、返回类型）写在随工具链分发
+的 `stdlib/*.n` 声明中，经语言服务的符号索引提供给编译器与编辑器
+（代码补全、悬停、转到定义）。当前运行实现仍内建在 VM 中：限定
+调用在编译期对照 `kStdLibTable`（命名空间名 + 函数名 → 内建编号）
+识别并做类型检查，生成的代码发射 `OP_CallIntrinsic`——没有函数
+运行期记录、没有宿主注册。这张表是标准库最后一块硬编码，将被
+native 动态加载机制取代，届时标准库与第三方库完全同构；查找 `.n`
+与加载 native 库的目录规则见下方「库与搜索路径」。
 
 **参数类型**：与声明的 kind 精确匹配；唯一自动施加的转换是 int→float
 加宽（`math.sqrt(4)` 可编译）。float→int 永不隐式（
@@ -116,6 +121,53 @@ access"；见「已知限制」）。
 | replace | (string old, string new) → string | 全部不重叠出现；old 必须非空 |
 | toInt / toFloat | () → int / float | 严格整串解析；格式非法 → Exception |
 
+### 库与搜索路径
+
+NLang 的库由 **`.n` 源文件**承载：标准库的 `math.n`/`io.n`/`fs.n`
+随工具链分发，第三方库就是某个目录中的一组 `.n`（可选搭配 native
+动态库）。文件内用 `native` 关键字声明在 NLang 之外实现的函数
+（`native void print(any s);`）——这类声明只有签名与文档注释、没有
+函数体；没有 `native` 标记的普通函数则是可阅读、可修改的 NLang
+实现。一个库可以同时包含两者（混合库，与 Python/Java/C# 相同）。
+
+**搜索路径**决定编译器到哪里查找被导入的 `.n`，以及运行期到哪里
+加载 native 动态库——标准库与第三方、编译期发现与运行期加载使用
+**同一组目录**。目录按下列顺序拼接，前者优先；重复目录只保留第一
+次出现（路径经规范化，Windows 上还会折叠大小写）：
+
+1. 命令行 `-I <dir>`（最高优先级，可多次指定）；
+2. 项目文件 `.nproj` 中的 `<ImportPaths>`；
+3. 项目 / 源文件 / 模块所在目录（局部）；
+4. 环境变量 `NLANG_PATH`（Windows 以 `;`、POSIX 以 `:` 分隔）；
+5. 系统缺省：标准库目录、可执行文件目录、当前目录（最低）。
+
+命令行用法：
+
+```text
+ncc build app.n -o app.nmod -I C:\libs\mylib
+nvm app.nmod -I C:\libs\mylib
+ndb --machine app.nmod -I C:\libs\mylib
+```
+
+项目在 `.nproj` 中用 `<ImportPaths>` 持久化搜索目录（路径相对项目
+文件存储）：
+
+```xml
+<Project name="app">
+  <Sources><File path="src/main.n"/></Sources>
+  <ImportPaths><Dir path="../libs"/></ImportPaths>
+</Project>
+```
+
+**在 nide 中配置**：全局搜索路径在「工具 → 选项 → 库搜索路径」，
+项目级路径在「项目 → 属性 → 库搜索路径」；两处都支持添加、移除、
+上移、下移与浏览目录，项目路径优先于全局路径。更改后会自动重建
+符号索引，代码补全与「转到定义」随之刷新。
+
+**查看与跳转源码**：在编辑器中对库符号使用「转到定义」（F12）即可
+打开对应 `.n`——`native` 声明显示签名与文档，普通函数显示可编辑的
+实现；修改后重新构建即生效。
+
 ### 异常映射
 
 - **IOException**：`io.readFile`/`writeFile`/`appendFile` 与所有会
@@ -129,6 +181,9 @@ access"；见「已知限制」）。
 
 ### 未来方向
 
+- 淘汰 `kStdLibTable`：标准库运行实现迁移到 native 动态库，与第三方
+  库完全同构（签名已在 `stdlib/*.n`）
+- 第三方库的混合（native + NLang）实现与改动后自动重编译
 - `using` 式关键字，开放非限定名
 - string 类化（方法面已在上方冻结）
 - Stream 家族，把字节流/文件流统一到 io 下

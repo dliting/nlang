@@ -9,10 +9,17 @@ qualified name only (`math.sin(x)`); bare names are not in scope (a future
 `using`-style keyword may lift this). A namespace name used as a value
 (`int x = math;`) fails to resolve — namespaces are not values.
 
-Binding is compiler-intrinsic: qualified calls are recognized at compile
-time against the built-in table as standard-library functions and
-type-checked; the generated code emits `OP_CallIntrinsic` — no function
-records, no host registration.
+The **signatures** (parameter kinds, arity, return type) live in the
+`stdlib/*.n` declarations shipped with the toolchain and reach the compiler
+and editor (completion, hover, go-to-definition) through the language
+service's symbol index. The runtime implementation is currently built into
+the VM: qualified calls are recognized at compile time against
+`kStdLibTable` (namespace + function name → intrinsic id) and type-checked;
+the generated code emits `OP_CallIntrinsic` — no runtime function records,
+no host registration. This table is the last hardcoded piece of the standard
+library and will be replaced by the native dynamic-loading mechanism,
+making the standard library identical in shape to third-party libraries;
+see "Libraries and search paths" below for the directory rules.
 
 **Parameter types**: exact match against the declared kind; the only automatic
 conversion is int→float widening (`math.sqrt(4)` compiles). float→int is never
@@ -124,6 +131,60 @@ does not support subscript access"; see Known Limitations).
 | replace | (string old, string new) → string | all non-overlapping occurrences; old must be non-empty |
 | toInt / toFloat | () → int / float | strict whole-string parse; malformed → Exception |
 
+### Libraries and search paths
+
+NLang libraries are carried by **`.n` source files**: the standard
+`math.n`/`io.n`/`fs.n` ship with the toolchain, and a third-party library is
+just a directory of `.n` files (optionally alongside native dynamic
+libraries). A function implemented outside NLang is declared with the
+`native` keyword (`native void print(any s);`) — such a declaration carries
+only the signature and documentation, with no body; an ordinary function
+without `native` is a readable, editable NLang implementation. A library may
+contain both (a hybrid library, as in Python/Java/C#).
+
+The **search path** determines where the compiler looks for imported `.n`
+files and where native dynamic libraries are loaded at run time — the
+standard library and third-party libraries, compile-time discovery and
+run-time loading all use the **same set of directories**. Directories are
+assembled in the following order, earlier ones winning; duplicates keep only
+the first occurrence (paths are normalized, and case-folded on Windows):
+
+1. command-line `-I <dir>` (highest priority; repeatable);
+2. `<ImportPaths>` in the `.nproj` project file;
+3. the project / source / module directory (local);
+4. the `NLANG_PATH` environment variable (`;` on Windows, `:` on POSIX);
+5. system defaults: the standard-library directory, the executable directory,
+   the current directory (lowest).
+
+Command-line usage:
+
+```text
+ncc build app.n -o app.nmod -I C:\libs\mylib
+nvm app.nmod -I C:\libs\mylib
+ndb --machine app.nmod -I C:\libs\mylib
+```
+
+A project persists its search dirs in `.nproj` under `<ImportPaths>` (paths
+are stored relative to the project file):
+
+```xml
+<Project name="app">
+  <Sources><File path="src/main.n"/></Sources>
+  <ImportPaths><Dir path="../libs"/></ImportPaths>
+</Project>
+```
+
+**Configuring in nide**: global search paths live under Tools → Options →
+Library search paths, and project-level paths under Project → Properties →
+Library search paths; both support add, remove, move up/down and browse,
+with project paths taking precedence over global ones. A change rebuilds the
+symbol index, refreshing completion and go-to-definition.
+
+**Viewing and jumping to source**: use Go to Definition (F12) on a library
+symbol to open its `.n` — a `native` declaration shows the signature and
+documentation, an ordinary function shows an editable implementation;
+rebuild after editing to pick up the change.
+
 ### Exception mapping
 
 - **IOException**: `io.readFile`/`writeFile`/`appendFile` and every raising
@@ -138,6 +199,11 @@ does not support subscript access"; see Known Limitations).
 
 ### Future directions
 
+- retire `kStdLibTable`: move the standard-library runtime to native dynamic
+  libraries, fully matching third-party libraries (signatures already in
+  `stdlib/*.n`)
+- hybrid (native + NLang) third-party libraries with automatic recompilation
+  after edits
 - `using`-style keyword to open up unqualified names
 - string class-ification (method surface frozen above)
 - Stream family unifying byte streams / file streams under io

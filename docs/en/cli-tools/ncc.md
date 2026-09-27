@@ -13,7 +13,7 @@ automation pipelines use it too.
 | Compile and execute | `ncc <source.n> [-o out.nmod] [-I <dir>...]` | Compiles, then runs immediately |
 | Compile only | `ncc build <source.n> [-o out.nmod] [-I <dir>...]` | Produces a .nmod |
 | Project: compile and execute | `ncc -p <project.nproj> [-o out.nmod] [-I <dir>...]` | Compiles the project, then runs |
-| Project: compile only | `ncc build -p <project.nproj> [-o out.nmod]` | Produces a .nmod |
+| Project: compile only | `ncc build -p <project.nproj> [-o out.nmod] [-I <dir>...]` | Produces a .nmod |
 | Execute only | `ncc run <module.nmod>` | Same as nvm; extra arguments are ignored |
 
 ## Flags
@@ -69,3 +69,26 @@ output directory outright.
 `outputDir` optionally redirects the `.nmod` (relative to the project
 file), and `File` paths are relative to the project file's directory.
 See `examples/hello_project/` for a complete example.
+
+## Library search paths
+
+Imported `.n` files are looked up across an ordered set of directories:
+those given with `-I` first, then the `.nproj`'s `<ImportPaths>`, the
+source/project directory, the `NLANG_PATH` environment variable (`;` on
+Windows, `:` on POSIX), and finally system defaults such as the
+standard-library directory. Earlier directories win; duplicates keep only
+the first occurrence.
+
+A `.nproj` can persist search dirs under `<ImportPaths>` (paths stored
+relative to the project file):
+
+```xml
+<Project name="app">
+  <Sources><File path="main.n"/></Sources>
+  <ImportPaths><Dir path="../libs"/></ImportPaths>
+</Project>
+```
+
+For the full five-level order, `native` libraries and graphical
+configuration in nide, see "Libraries and search paths" in the language
+specification.
