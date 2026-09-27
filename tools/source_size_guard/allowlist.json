@@ -1,11 +1,11 @@
 [
   {
     "path": "include/nlang/compiler/SnExpressions.h",
-    "reason": "syntax-node class declarations; macro-generated Visit surface makes splitting artificial (later round)"
+    "reason": "one grammar category's syntax-node class declarations; the macro-generated Visit surface ties the family to one header"
   },
   {
     "path": "include/nlang/compiler/SnStatements.h",
-    "reason": "syntax-node class declarations; macro-generated Visit surface makes splitting artificial (later round)"
+    "reason": "one grammar category's syntax-node class declarations; the macro-generated Visit surface ties the family to one header"
   },
   {
     "path": "src/compiler/builder/ExprResolver.h",
@@ -102,7 +102,7 @@
   {
     "path": "src/vm/VmExecutorOps.cpp",
     "function": "VmExecutor::ExecuteFunction",
-    "reason": "flat dispatch skeleton: the opcode switch routes every case to a 1-3 line Op helper call"
+    "reason": "flat dispatch skeleton: the opcode switch routes each case to a short Op helper call"
   },
   {
     "path": "src/vm/VmExecutorSer.h",

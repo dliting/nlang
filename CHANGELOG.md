@@ -13,17 +13,37 @@ All notable changes to NLang are documented here. The format follows
   source files stay <= 500 lines and function definitions <= 50 lines,
   with any exception registered alongside its reason; enforced as the
   ctest case `source_size_guard`. CONTRIBUTING documents the guidelines.
+- Manual: "Common Error Messages" reference page in both language
+  trees, mapping the frequent ncc diagnostics to their causes.
+- Manual: concept sections for loops and conditionals
+  (`for`/`while`/`do..while`/`if`), arrays and virtual-method
+  overriding, plus an `assert` example in the statements page.
+- Manual: high-frequency nide FAQ entries (typical scenarios,
+  help-window items) and a known-limitations cross-reference; the
+  module-serialization page now documents the v1.12 format.
+- Manual: the nide running guide now covers the recent-file list, the
+  toolbar icon size and the project-properties dialog; the language
+  overview page was renamed to match the project name
+  (what-is-nlang).
 
 ### Changed
-- Internal: the three oversized core sources were split into
-  per-concern files with zero behavior change — verified by a
-  byte-identical bytecode golden set across all 1042 fixtures plus
-  line-level purity proofs for every move. The backend emitter went
-  from a single 6533-line `VmBackend.cpp` to 24 files under
-  `src/vm/backend/`, the expression resolver from a 4521-line
-  `ExprResolver.cpp` to 15 files, and the bytecode interpreter from a
-  3894-line `VmExecutor.cpp` to 15 files with the largest function now
-  a 30-line orchestrator.
+- Internal: the oversized core sources were split into per-concern
+  files with zero behavior change — verified by a byte-identical
+  bytecode golden set across all 1042 fixtures plus line-level purity
+  proofs for every move. The backend emitter went from a single
+  6533-line `VmBackend.cpp` to 24 files under `src/vm/backend/`, the
+  expression and statement resolvers from a 4521-line
+  `ExprResolver.cpp` to 23 per-concern files, and the bytecode
+  interpreter from a 3894-line `VmExecutor.cpp` to 14 files with the
+  largest non-dispatch function now a 30-line orchestrator.
+- Internal: the decomposition pass then covered the remaining
+  oversized modules, all behavior-neutral under the same test suites:
+  the 695-line `ModuleBuilder.cpp` into three per-concern TUs,
+  syntax-node class declarations into per-category TUs, the oversized
+  functions of the CLI tools (ncc/nvm/ndb/ndisasm) and the shared
+  disassembler, and the IDE — the 1974-line `MainWindow.cpp` into six
+  domain TUs and the project model into in-memory operations plus
+  .nproj/.nsln persistence TUs.
 
 ### Fixed
 - Compiled module output is byte-reproducible again: the class table's
@@ -35,6 +55,9 @@ All notable changes to NLang are documented here. The format follows
   backend now reads the actual access value, and a new regression test
   (`nmod_determinism`) asserts byte-identical output across repeated
   compiles.
+- Manual: the Object virtual-method documentation now matches the
+  implementation (`equals`/`getHashCode`), and a stray reference to a
+  separate bool type was corrected.
 
 ## [0.7.3] - 2026-09-25
 
