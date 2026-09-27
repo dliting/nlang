@@ -1,0 +1,21 @@
+// Auto-generated from include/nlang/vm/StdLib.h — DO NOT EDIT.
+// Namespace: io — 5 native functions.
+
+namespace io {
+    // Print a value to stdout followed by a newline and flush.
+    // Accepts string, int or float; for a class or enum value
+    // call .toString() first.
+    native void print(any s);
+    // Read one line from stdin; trailing '\r' is stripped.
+    // EOF and an empty input line both return "".
+    native string readLine();
+    // Read a whole text file as bytes.
+    // Raises IOException on failure; capped at 16 MiB.
+    native string readFile(string path);
+    // Create or truncate path and write content.
+    // Raises IOException on failure.
+    native void writeFile(string path, string content);
+    // Create or append content to path.
+    // Raises IOException on failure.
+    native void appendFile(string path, string content);
+}

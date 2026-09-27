@@ -1,0 +1,25 @@
+// Auto-generated from include/nlang/vm/StdLib.h — DO NOT EDIT.
+// Namespace: fs — 8 native functions.
+
+namespace fs {
+    // Whether path exists (0/1). Never raises.
+    native int exists(string path);
+    // Whether path is a regular file (0/1). Never raises.
+    native int isFile(string path);
+    // Whether path is a directory (0/1). Never raises.
+    native int isDirectory(string path);
+    // Size of a regular file in bytes.
+    // Raises IOException for a directory or special file.
+    native int size(string path);
+    // List regular-file names in a directory.
+    // Non-recursive, names only, sorted lexicographically.
+    native List<string> listFiles(string path);
+    // Create directories recursively (mkdir -p); idempotent.
+    native void makeDirs(string path);
+    // Remove a file or an empty directory.
+    // A missing path is a silent no-op.
+    native void remove(string path);
+    // Join two path segments; always uses forward slashes.
+    // A rooted right segment replaces the left (std::filesystem).
+    native string join(string a, string b);
+}

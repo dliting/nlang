@@ -588,6 +588,12 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nmod_determinism.py
             $<TARGET_FILE:ncc>)
     set_tests_properties(nmod_determinism PROPERTIES TIMEOUT 180)
+    # stdlib/*.n declaration guard: files generated from kStdLibTable must
+    # exist and carry matching signatures (return type + param types).
+    add_test(NAME stdlib_generation
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_stdlib_generation.py)
+    set_tests_properties(stdlib_generation PROPERTIES TIMEOUT 60)
     # Source-size guard: hand-written sources stay <=500 lines per file
     # and <=50 lines per function; registered exceptions live in
     # tools/source_size_guard/allowlist.json, each with a reason.
