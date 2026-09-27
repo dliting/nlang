@@ -8,6 +8,8 @@ set(CMAKE_AUTOUIC ON)
 # SolutionTreeModel.cpp -- static-library qrc objects need it).
 add_library(nide_projectmodel
     ProjectModel.cpp
+    ProjectModelXml.cpp
+    SolutionModelXml.cpp
     SolutionTreeModel.cpp
     nide.qrc
 )
@@ -154,6 +156,11 @@ target_include_directories(nide_dialogs
 # using-declarations because uic cannot emit namespaced types.
 add_library(nide_mainwindow
     MainWindow.cpp
+    MainWindowSolution.cpp
+    MainWindowEditors.cpp
+    MainWindowBuildRun.cpp
+    MainWindowDebug.cpp
+    MainWindowHelp.cpp
     HelpBrowser.cpp
     MainStatusBar.cpp
     ui/MainWindow.ui

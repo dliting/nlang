@@ -33,56 +33,60 @@ ProjectNode* ProjectPropDialog::createProject(SolutionNode& solution) {
     while (true) {
         if (exec() != QDialog::Accepted)
             return nullptr;
-
-        const QString name = m_ui->edtProjectName->text();
-        const QString projectDirText = m_ui->edtProjectDir->text();
-
-        //Validate before touching the solution. Path separators in the
-        //name would escape the chosen directory; empty fields are
-        //normally blocked by the disabled OK button but a programmatic
-        //accept skips it. Emptiness is judged on the raw text: the
-        //normalization below would turn an empty field into the CWD.
-        QString problem;
-        if (name.isEmpty() || projectDirText.isEmpty())
-            problem = tr("Name and location must not be empty.");
-        else if (name.contains('/') || name.contains('\\'))
-            problem = tr("The project name must not contain path separators.");
-        if (!problem.isEmpty()) {
-            QMessageBox::warning(this, tr("Error"), problem);
-            continue;
-        }
-
-        //Normalize before use: the exists-check below and addProject()
-        //must agree on where a relative directory resolves (addProject
-        //anchors relative paths at the solution dir when known, not
-        //the CWD this check would use).
-        const QString projectDir = QDir(projectDirText).absolutePath();
-
-        const QString projectFilePath =
-            QDir(projectDir).filePath(name + kProjectFileExt);
-
-        //Never overwrite an existing project file; the solution's
-        //addProject() rejects a path it already owns. Both keep the
-        //dialog open so the user can adjust or cancel.
-        if (QFileInfo::exists(projectFilePath)) {
-            QMessageBox::warning(this, tr("Error"),
-                tr("A project file already exists at '%1'.")
-                    .arg(projectFilePath));
-            continue;
-        }
-        ProjectNode* project = solution.addProject(projectFilePath);
-        if (project == nullptr) {
-            QMessageBox::warning(this, tr("Error"),
-                tr("The solution already contains the project '%1'.")
-                    .arg(projectFilePath));
-            continue;
-        }
-
-        project->setNamespace(m_ui->edtNamespace->text());
-        project->setOutputDir(m_ui->edtOutputDir->text());
-        project->setIntermediateDir(m_ui->edtIntermediateDir->text());
-        return project;
+        if (ProjectNode* project = tryCreateProject(solution))
+            return project;
     }
+}
+
+ProjectNode* ProjectPropDialog::tryCreateProject(SolutionNode& solution) {
+    const QString name = m_ui->edtProjectName->text();
+    const QString projectDirText = m_ui->edtProjectDir->text();
+
+    //Validate before touching the solution. Path separators in the
+    //name would escape the chosen directory; empty fields are
+    //normally blocked by the disabled OK button but a programmatic
+    //accept skips it. Emptiness is judged on the raw text: the
+    //normalization below would turn an empty field into the CWD.
+    QString problem;
+    if (name.isEmpty() || projectDirText.isEmpty())
+        problem = tr("Name and location must not be empty.");
+    else if (name.contains('/') || name.contains('\\'))
+        problem = tr("The project name must not contain path separators.");
+    if (!problem.isEmpty()) {
+        QMessageBox::warning(this, tr("Error"), problem);
+        return nullptr;
+    }
+
+    //Normalize before use: the exists-check below and addProject()
+    //must agree on where a relative directory resolves (addProject
+    //anchors relative paths at the solution dir when known, not
+    //the CWD this check would use).
+    const QString projectDir = QDir(projectDirText).absolutePath();
+
+    const QString projectFilePath =
+        QDir(projectDir).filePath(name + kProjectFileExt);
+
+    //Never overwrite an existing project file; the solution's
+    //addProject() rejects a path it already owns. Both keep the
+    //dialog open so the user can adjust or cancel.
+    if (QFileInfo::exists(projectFilePath)) {
+        QMessageBox::warning(this, tr("Error"),
+            tr("A project file already exists at '%1'.")
+                .arg(projectFilePath));
+        return nullptr;
+    }
+    ProjectNode* project = solution.addProject(projectFilePath);
+    if (project == nullptr) {
+        QMessageBox::warning(this, tr("Error"),
+            tr("The solution already contains the project '%1'.")
+                .arg(projectFilePath));
+        return nullptr;
+    }
+
+    project->setNamespace(m_ui->edtNamespace->text());
+    project->setOutputDir(m_ui->edtOutputDir->text());
+    project->setIntermediateDir(m_ui->edtIntermediateDir->text());
+    return project;
 }
 
 bool ProjectPropDialog::editProject(ProjectNode& project) {

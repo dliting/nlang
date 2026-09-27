@@ -62,6 +62,11 @@ private:
     //OK needs a name and a location.
     void updateSubmitEnabled();
 
+    //One accept attempt: validates the fields, reports problems as
+    //modal warnings and returns nullptr (the caller re-execs); on
+    //success the project is added to the solution and returned.
+    ProjectNode* tryCreateProject(SolutionNode& solution);
+
     std::unique_ptr<Ui::ProjectPropDialog> m_ui;
 };
 

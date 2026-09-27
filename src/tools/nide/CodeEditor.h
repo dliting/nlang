@@ -73,6 +73,12 @@ private slots:
     void highlightCurrentLine();
 
 private:
+    //One gutter row of paintLineArea: the line number, the breakpoint
+    //dot (filled when bound in the live session, hollow otherwise) and
+    //the paused-line arrow (drawn over the dot when both mark the same
+    //line).
+    void paintBlockGutter(QPainter& painter, int blockNumber, int top);
+
     LineArea* m_lineArea;
     QSet<int> m_breakpointLines;
     QSet<int> m_boundBreakpointLines;

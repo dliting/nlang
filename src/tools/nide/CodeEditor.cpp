@@ -75,6 +75,44 @@ int CodeEditor::lineAreaWidth() const {
         + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
 }
 
+void CodeEditor::paintBlockGutter(QPainter& painter, int blockNumber,
+                                   int top) {
+    const QString number = QString::number(blockNumber + 1);
+    painter.setPen(Qt::darkCyan);
+    painter.drawText(kBreakpointColumnWidth, top,
+                     m_lineArea->width() - kBreakpointColumnWidth
+                         - kLineAreaMarginPx,
+                     fontMetrics().height(), Qt::AlignRight, number);
+
+    const int centerY = top + fontMetrics().height() / 2;
+    const int centerX = kBreakpointColumnWidth / 2;
+    if (m_breakpointLines.contains(blockNumber + 1)) {
+        //Bound in the live session = filled; unbound or no
+        //session = hollow.
+        if (m_boundBreakpointLines.contains(blockNumber + 1)) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(Qt::red);
+        } else {
+            painter.setPen(QPen(Qt::red, 1));
+            painter.setBrush(Qt::NoBrush);
+        }
+        painter.drawEllipse(QPoint(centerX, centerY),
+                            kBreakpointDotRadius,
+                            kBreakpointDotRadius);
+    }
+    if (m_stoppedLine == blockNumber + 1) {
+        //The paused line's arrow; drawn over the dot when both
+        //mark the same line.
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(Qt::red);
+        static const QPointF arrow[] = {
+            QPointF(2, centerY - kStopArrowHeadPx),
+            QPointF(2, centerY + kStopArrowHeadPx),
+            QPointF(kBreakpointColumnWidth - 2.0, centerY)};
+        painter.drawPolygon(arrow, 3);
+    }
+}
+
 void CodeEditor::paintLineArea(QPaintEvent* event) {
     QPainter painter(m_lineArea);
     painter.fillRect(event->rect(), QColor(Qt::lightGray).lighter(120));
@@ -86,42 +124,8 @@ void CodeEditor::paintLineArea(QPaintEvent* event) {
     int bottom = top + static_cast<int>(blockBoundingRect(block).height());
 
     while (block.isValid() && top <= event->rect().bottom()) {
-        if (block.isVisible() && bottom >= event->rect().top()) {
-            QString number = QString::number(blockNumber + 1);
-            painter.setPen(Qt::darkCyan);
-            painter.drawText(kBreakpointColumnWidth, top,
-                             m_lineArea->width() - kBreakpointColumnWidth
-                                 - kLineAreaMarginPx,
-                             fontMetrics().height(), Qt::AlignRight, number);
-
-            const int centerY = top + fontMetrics().height() / 2;
-            const int centerX = kBreakpointColumnWidth / 2;
-            if (m_breakpointLines.contains(blockNumber + 1)) {
-                //Bound in the live session = filled; unbound or no
-                //session = hollow.
-                if (m_boundBreakpointLines.contains(blockNumber + 1)) {
-                    painter.setPen(Qt::NoPen);
-                    painter.setBrush(Qt::red);
-                } else {
-                    painter.setPen(QPen(Qt::red, 1));
-                    painter.setBrush(Qt::NoBrush);
-                }
-                painter.drawEllipse(QPoint(centerX, centerY),
-                                    kBreakpointDotRadius,
-                                    kBreakpointDotRadius);
-            }
-            if (m_stoppedLine == blockNumber + 1) {
-                //The paused line's arrow; drawn over the dot when both
-                //mark the same line.
-                painter.setPen(Qt::NoPen);
-                painter.setBrush(Qt::red);
-                static const QPointF arrow[] = {
-                    QPointF(2, centerY - kStopArrowHeadPx),
-                    QPointF(2, centerY + kStopArrowHeadPx),
-                    QPointF(kBreakpointColumnWidth - 2.0, centerY)};
-                painter.drawPolygon(arrow, 3);
-            }
-        }
+        if (block.isVisible() && bottom >= event->rect().top())
+            paintBlockGutter(painter, blockNumber, top);
 
         block = block.next();
         top = bottom;

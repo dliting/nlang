@@ -289,6 +289,12 @@ private:
     bool renameFileEverywhere(QString oldPath,
                               const QString& newFileName,
                               FileNode* trackedFile);
+    //Disk + domain half of the rename: persist the editor's dirty edits
+    //to the OLD path, rename on disk, then move the domain node (a
+    //domain rejection rolls the disk back so both layers stay
+    //consistent). False leaves nothing moved.
+    bool moveFileOnDisk(const QString& oldPath, const QString& newPath,
+                        FileNode* trackedFile, FileEditor* editor);
     //The tree node for a file path; null when the file is standalone.
     FileNode* findFileNodeByPath(const QString& filePath) const;
 
@@ -325,6 +331,9 @@ private:
     //fresh ndb session with every stored breakpoint preset. False keeps
     //the window idle (the compile log shows why).
     bool startDebugSession();
+    //Create this session's DebugClient and wire its signals to the
+    //onDebug* slots (one client per session: Ended is terminal there).
+    void createDebugClient();
     //One convergence point for every session end: tear the client down
     //safely (deferred delete -- a signal may still be on the stack),
     //clear the stop marker and refresh the action states.
@@ -372,6 +381,13 @@ private:
 
     //Menu/toolbar enablement from the current tree/editor selection.
     void updateMenuState();
+    //The debug-menu share of updateMenuState: F5/Stop/steps track the
+    //session windows, the throw checkbox grays out while Running.
+    //canBuild mirrors updateMenuState's target check.
+    void updateDebugMenuState(bool canBuild);
+    //Every signal wiring of the ctor (view, editors, tree, tabs, log,
+    //run process) -- kept out of it to leave the setup sequence legible.
+    void wireSignals();
 
     //--- help ---
     //Open the generated docs-site page in the embedded help browser

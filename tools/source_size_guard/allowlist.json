@@ -12,14 +12,6 @@
     "reason": "resolver class pair plus the shared helper-declaration surface of the resolver TU family; C++ has no partial class, splitting would fragment the pair"
   },
   {
-    "path": "src/tools/nide/MainWindow.cpp",
-    "reason": "Qt main-window wiring; later round"
-  },
-  {
-    "path": "src/tools/nide/ProjectModel.cpp",
-    "reason": "Qt project-tree model and XML persistence; later round"
-  },
-  {
     "path": "src/vm/VmBackend.h",
     "reason": "single-class VmBackend declaration; C++ has no partial class, splitting would fragment the class"
   },
@@ -48,19 +40,9 @@
     "reason": "CLI entry point: sequential dump sections"
   },
   {
-    "path": "src/tools/nide/CodeEditor.cpp",
-    "function": "CodeEditor::paintLineArea",
-    "reason": "Qt paint pass; later round"
-  },
-  {
     "path": "src/tools/nide/DebugClient.cpp",
     "function": "DebugClient::handleEvent",
-    "reason": "debugger event fan-in; later round"
-  },
-  {
-    "path": "src/tools/nide/ProjectPropDialog.cpp",
-    "function": "ProjectPropDialog::createProject",
-    "reason": "Qt dialog project creation; later round"
+    "reason": "wire-event dispatch switch; each arm is a short handler (same shape as the intrinsic switches)"
   },
   {
     "path": "src/tools/nvm/main.cpp",
