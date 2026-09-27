@@ -1,6 +1,6 @@
 int main() {
     int x = 7;
     float f = x;
-    int y = f;
+    int y = f as int;
     return y;
 }

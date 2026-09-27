@@ -2,6 +2,6 @@ int main() {
     int a = 1;
     float b = 2.0;
     float c = a + b * 2;
-    int r = c;
+    int r = c as int;
     return r;
 }

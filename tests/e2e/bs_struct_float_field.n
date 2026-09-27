@@ -10,7 +10,7 @@ int main() {
     Vec w = bs.readStruct("Vec");
     float fx = w.x;
     float fy = w.y;
-    int xi = fx;
-    int yi = fy;
+    int xi = fx as int;
+    int yi = fy as int;
     return xi + yi;
 }

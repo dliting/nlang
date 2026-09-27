@@ -286,6 +286,29 @@ void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
+//As arm: TCK_Explicit — 0.7.5 narrowing scalar conversion.
+//Transitional: the reachable kind pair (float→int) reuses the legacy
+//opcode until OP_PrimCast (the generalized kind-immediate cast) lands
+//in the next task of this series; truncation semantics are identical
+//to the pre-0.7.5 implicit conversion. Other kind pairs cannot reach
+//the resolver gate yet — their source keywords arrive later. False =
+//uncovered pair; the caller falls through to the invariant throw.
+bool VmBackend::EmitAsExplicitNarrowOp(SnAsExpr& asExpr,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset) {
+    auto* srcType = asExpr.Operand()->EvalDataType();
+    auto* tgtType = asExpr.ResolvedTarget();
+    if (!srcType || !tgtType || srcType->Kind() != NK_Float
+        || tgtType->Kind() != NK_Int32) {
+        return false;
+    }
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_CastFloatToInt);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    return true;
+}
+
 //As arm: `f as string` — the one resolver-approved TCK_Auto form.
 //Returns true when OP_Func_to_str was emitted.
 bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
@@ -304,7 +327,8 @@ bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
 
     //Phase 8e-1.5: `expr as T` runtime-checked cast.
     //Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
-    //(Object→primitive), TCK_Downcast (ancestor→subclass).
+    //(Object→primitive), TCK_Downcast (ancestor→subclass), TCK_Explicit
+    //(0.7.5 narrowing scalar conversion, e.g. float→int).
 void VmBackend::Access(SnAsExpr& expr) {
     //No `NodeKind kind` snapshot: this body's only `kind` is its own
     //TypeCastKind local below (the pre-refactor branch shadowed the chain
@@ -333,13 +357,19 @@ void VmBackend::Access(SnAsExpr& expr) {
             EmitAsDowncastOp(asExpr, emitter, resultOffset);
             return;
         }
+        if (kind == TCK_Explicit) {
+            if (EmitAsExplicitNarrowOp(asExpr, emitter, resultOffset))
+                return;
+            //Uncovered kind pair — fall through to the invariant throw.
+        }
         //Phase 13: `f as string` is the one resolver-approved TCK_Auto
         //`as` form — function handles render as "func <name>".
         if (kind == TCK_Auto) {
             if (EmitAsFuncToString(asExpr, emitter, resultOffset))
                 return;
         }
-        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None) are rejected by
+        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None, and TCK_Explicit
+        //pairs outside the transitional opcode coverage) are rejected by
         //ExprResolver.Access(SnAsExpr&) before codegen — reaching here is
         //an internal invariant break. Round-13: this used to silently
         //return, leaving resultOffset unwritten (stale/garbage value).

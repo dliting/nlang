@@ -585,8 +585,10 @@ private:
 	Calculate the type "distance" from source type to target type.
 	\return
 	1) If the source type can be implicitly covert to target type:
-	1.1)If the source type and the target type are primitive types, it returns
-	abs(source.Kind() - Target.Kind()).
+	1.1)If both are scalar primitives (0.7.5): the registry ladder — same
+	row 0, in-category/cross-sign containment widening the rank delta,
+	integer→float a fixed rung above every widening, any scalar→string
+	one rung above that (see ExprResolverCast.cpp).
 	1.2)If the source type is primitive type, the target type is Object, it
 	returns PRIMITIVE_TYPE_COUNT.
 	1.3)If the source type and the target type are classes or interfaces, it
@@ -594,7 +596,8 @@ private:
 	1.4)If the source type is enumerator and the target type is not enumerator,
 	the source type will be convert to it primitive type firstly, and use the
 	above rules to calculate the distance.
-	2) If the source type can not be implicitly covert to target type, it
+	2) If the source type can not be implicitly covert to target type
+	(including the 0.7.5 explicit-only narrowings, TCK_Explicit), it
 	returns	-1.
 	*/
 	int CalcTypeDistance(const SnField &source,

@@ -111,8 +111,10 @@ void ExprResolveAccessor::Access(SnCastExpr &sn)
 }
 
 //Phase 8e-1.5: resolve `expr as T` runtime-checked cast.
-//Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox (Object→primitive),
-//TCK_Downcast (ancestor→subclass). Other kinds → compile error.
+//Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
+//(Object→primitive), TCK_Downcast (ancestor→subclass), TCK_Explicit
+//(0.7.5 narrowing scalar conversion, e.g. float→int). Other kinds →
+//compile error.
 void ExprResolveAccessor::Access(SnAsExpr &sn)
 {
 	assert(!sn.IsResolved());
@@ -208,8 +210,11 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 	}
 
 	//TCK_Auto (e.g. int→float) is not allowed via `as` — use primitive cast syntax.
-	//TCK_Dynamic similarly. Only TCK_Same/Box/Unbox/Downcast are valid.
-	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox && kind != TCK_Downcast)
+	//TCK_Dynamic similarly. Valid: TCK_Same/Box/Unbox/Downcast, plus
+	//TCK_Explicit (0.7.5) — narrowing scalar conversions are exactly what
+	//the operator exists for.
+	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox
+		&& kind != TCK_Downcast && kind != TCK_Explicit)
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
 			"`as` cannot perform implicit conversion `%s` → `%s`.",

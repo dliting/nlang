@@ -860,13 +860,16 @@ private:
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
 
-    //SnAsExpr arms: box / unbox / downcast, and the `f as string` render.
+    //SnAsExpr arms: box / unbox / downcast / explicit narrowing, and
+    //the `f as string` render.
     void EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                      uint16_t resultOffset);
     void EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                        uint16_t resultOffset);
     void EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                           uint16_t resultOffset);
+    bool EmitAsExplicitNarrowOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                                uint16_t resultOffset);
     bool EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                             uint16_t resultOffset);
 

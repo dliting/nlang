@@ -1,7 +1,7 @@
-// cast_operator.n — the `as` cast: boxed unbox + reference downcast.
-// (Numeric float->int is an implicit assignment conversion, not `as`;
-//  `as` targets are single type names — primitives (unbox) or classes
-//  (downcast) — never generic instantiations.)
+// cast_operator.n — the `as` cast: explicit narrowing, boxed unbox,
+// reference downcast. (0.7.5: float->int narrowing moved from implicit
+//  assignment to `as`; `as` targets are single type names — primitives
+//  or classes — never generic instantiations.)
 import io;
 class Config {
     public int answer;
@@ -9,7 +9,7 @@ class Config {
 
 int main() {
     float price = 9.9;
-    int units = price;             // implicit conversion truncates toward zero: 9
+    int units = price as int;      // explicit narrowing truncates toward zero: 9
     io.print(units);
     Object boxed = units;          // box the int into an Object
     int back = boxed as int;       // `as` unbox recovers the value

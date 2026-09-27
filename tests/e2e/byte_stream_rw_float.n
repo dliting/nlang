@@ -5,7 +5,7 @@ int main() {
     bs.reset();
     float a = bs.readFloat();
     float b = bs.readFloat();
-    int ra = a;
-    int rb = b;
+    int ra = a as int;
+    int rb = b as int;
     return ra + rb;
 }

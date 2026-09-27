@@ -1,0 +1,7 @@
+// 0.7.5: float->int narrowing is explicit-only (TCK_Explicit) — the
+// implicit assignment form must be rejected; use `f as int`.
+int main() {
+    float f = 3.5;
+    int x = f;
+    return x;
+}

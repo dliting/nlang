@@ -10,8 +10,16 @@ Runtime::StaticInit() must run before anything else.
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/RnTypes.h>
+#include <nlang/compiler/ModuleBuilder.h>
+#include <nlang/compiler/BuildEnvironment.h>
+#include <nlang/compiler/SnTypes.h>
+#include <nlang/compiler/CastInfo.h>
+#include <nlang/compiler/Logger.h>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 
 using namespace nlang;
@@ -170,6 +178,145 @@ static void test_nodekind_layout()
     PASS();
 }
 
+//---- cast matrix (0.7.5 Task 3) -------------------------------------------
+
+//Collects error diagnostics in memory (same shape as test_array_token).
+class MemLogger : public CompileLogger
+{
+public:
+    void WriteLog(CompileLogLevel level, const ISourceLocation*,
+        const char* szMessage) override
+    {
+        if (level == CLL_Error || level == CLL_Fatal)
+            m_errors.emplace_back(szMessage);
+    }
+private:
+    std::vector<std::string> m_errors;
+};
+
+//One real build mints the Sn mirrors for every registered primitive
+//(BuildFromRuntime walks the global namespace, which StaticInit filled
+//with all 13 Rn type singletons). The builder must OUTLIVE the test
+//assertions: ~ModuleBuilder clears TheAST(), taking the mirrors with
+//it — same ownership discipline as test_array_token's primitiveHost.
+static bool buildCastHost()
+{
+    static std::unique_ptr<BuildParams> s_params;
+    static std::unique_ptr<MemLogger> s_logger;
+    static std::unique_ptr<ModuleBuilder> s_builder;
+    static bool s_ok = false;
+    if (s_builder)
+        return s_ok;
+    const auto dir = std::filesystem::temp_directory_path()
+        / "nlang_prim_cast_tests";
+    std::error_code fsError;
+    std::filesystem::create_directories(dir, fsError);
+    const auto file = dir / "main.n";
+    {
+        std::ofstream stream(file, std::ios::binary);
+        stream << "int main() { return 0; }\n";
+        if (!stream.good())
+            return false;
+    }
+    s_params = std::make_unique<BuildParams>();
+    s_params->m_SourceFiles.push_back(file.string());
+    s_params->m_sProjectDir = dir.string();
+    s_params->m_sOutputModule = "prim_cast_host";
+    s_params->m_sOutputDir = dir.string();
+    s_params->m_sTempDir = dir.string();
+    s_logger = std::make_unique<MemLogger>();
+    s_builder = std::make_unique<ModuleBuilder>(*s_params, *s_logger);
+    try { s_ok = s_builder->Build(); }
+    catch (const std::exception&) { s_ok = false; }
+    return s_ok;
+}
+
+//The Sn mirror of a registry row (keyword-indexed for readable
+//expectations). Null when the keyword is not a registered scalar.
+static SnField *SnPrimOf(const char *kw)
+{
+    for (size_t i = 0; i < kScalarPrimCount; ++i)
+        if (std::string(kScalarPrims[i].name) == kw)
+            return SnBuiltinDataType::InstanceOf(kScalarPrims[i].kind);
+    return nullptr;
+}
+
+#define EXPECT_CAST(SKW, TKW, EXPECT)                                          \
+    do {                                                                       \
+        SnField *pS = SnPrimOf(SKW), *pT = SnPrimOf(TKW);                      \
+        CHECK(pS && pT, SKW " mirror must exist");                             \
+        TypeCastKind k = TypeCastInfo(pS, pT).Kind();                          \
+        CHECK(k == EXPECT, SKW "->" TKW " expected " #EXPECT ", got kind "     \
+            + std::to_string(static_cast<int>(k)));                            \
+    } while (0);
+
+//Derived cast verdicts, hand-written expectations (C#-style matrix,
+//spec §2.2). These intentionally do NOT share a derivation with
+//CastInfo.cpp — they pin the language contract, not the algorithm.
+static void test_cast_matrix()
+{
+    TEST(cast_matrix);
+    CHECK(buildCastHost(), "cast host build must succeed");
+    //Same-type identities across the family.
+    EXPECT_CAST("int", "int", TCK_Same);
+    EXPECT_CAST("bool", "bool", TCK_Same);
+    EXPECT_CAST("byte", "byte", TCK_Same);
+    //Widening chains.
+    EXPECT_CAST("byte", "short", TCK_Auto);
+    EXPECT_CAST("byte", "int", TCK_Auto);
+    EXPECT_CAST("byte", "long", TCK_Auto);
+    EXPECT_CAST("byte", "float", TCK_Auto);
+    EXPECT_CAST("byte", "double", TCK_Auto);
+    EXPECT_CAST("ubyte", "short", TCK_Auto);
+    EXPECT_CAST("ubyte", "int", TCK_Auto);
+    EXPECT_CAST("ubyte", "long", TCK_Auto);
+    EXPECT_CAST("ubyte", "ushort", TCK_Auto);
+    EXPECT_CAST("ubyte", "uint", TCK_Auto);
+    EXPECT_CAST("ubyte", "ulong", TCK_Auto);
+    EXPECT_CAST("ushort", "int", TCK_Auto);
+    EXPECT_CAST("ushort", "long", TCK_Auto);
+    //Cross-sign narrowing / sign change: explicit only.
+    EXPECT_CAST("short", "ubyte", TCK_Explicit);
+    EXPECT_CAST("long", "uint", TCK_Explicit);
+    EXPECT_CAST("byte", "ushort", TCK_Explicit);
+    //uint→long is the one legal cross-sign widening.
+    EXPECT_CAST("uint", "long", TCK_Auto);
+    //Integer → float of any width is implicit.
+    EXPECT_CAST("int", "float", TCK_Auto);
+    EXPECT_CAST("uint", "float", TCK_Auto);
+    EXPECT_CAST("long", "float", TCK_Auto);
+    EXPECT_CAST("ulong", "float", TCK_Auto);
+    EXPECT_CAST("long", "double", TCK_Auto);
+    EXPECT_CAST("ulong", "double", TCK_Auto);
+    //Float → integer and float narrowing: explicit.
+    EXPECT_CAST("float", "int", TCK_Explicit);
+    EXPECT_CAST("double", "float", TCK_Explicit);
+    EXPECT_CAST("float", "double", TCK_Auto);
+    //bool is isolated both ways.
+    EXPECT_CAST("bool", "int", TCK_None);
+    EXPECT_CAST("int", "bool", TCK_None);
+    //char ↔ numeric: explicit both directions.
+    EXPECT_CAST("char", "int", TCK_Explicit);
+    EXPECT_CAST("char", "float", TCK_Explicit);
+    EXPECT_CAST("int", "char", TCK_Explicit);
+    //Legacy int/float/string anchors (behavior unchanged).
+    EXPECT_CAST("int", "float", TCK_Auto);
+    EXPECT_CAST("float", "float", TCK_Same);
+    {
+        auto *pS = SnPrimOf("int");
+        auto *pStr = SnBuiltinDataType::InstanceOf(NK_String);
+        CHECK(pS && pStr, "string mirror must exist");
+        CHECK(TypeCastInfo(pS, pStr).Kind() == TCK_Auto,
+            "int->string stays Auto");
+        CHECK(TypeCastInfo(pStr, pS).Kind() == TCK_None,
+            "string->int stays None");
+        auto *pF = SnPrimOf("float");
+        CHECK(TypeCastInfo(pF, pStr).Kind() == TCK_Auto,
+            "float->string stays Auto");
+    }
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -179,6 +326,7 @@ int main()
     test_rn_instances();
     test_categories();
     test_nodekind_layout();
+    test_cast_matrix();
 
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

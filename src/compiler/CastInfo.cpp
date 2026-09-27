@@ -1,49 +1,114 @@
 #include "CastInfo.h"
 #include "SnMisc.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 
 namespace nlang
 {
 
 TypeCastKind TypeCastInfo::s_CastTable[NK_DT_COUNT][NK_DT_COUNT];
 
+//Value-domain containment: does every value of catA/rankA fit in
+//catB/rankB? The six legal cross-sign containments (spec §2.2):
+//ubyte→short/int/long, ushort→int/long, uint→long.
+static bool DomainContained(ScalarPrimCategory ca, uint8_t ra,
+                            ScalarPrimCategory cb, uint8_t rb)
+{
+	if (ca == cb) return ra <= rb;              // same-sign chain / float chain
+	if (ca == PC_UInt && cb == PC_SInt)          // the three cross-sign cases
+		return rb >= ra + 1;                     // ubyte(1)→short(2), ushort(2)→int(3), uint(3)→long(4)
+	return false;
+}
+
+//0.7.5: one derivation rule per scalar pair replaces the hand-written
+//matrix — the source of truth is the registry's category+rank.
+static TypeCastKind DeriveScalarCast(const ScalarPrimInfo &src,
+                                     const ScalarPrimInfo &dst)
+{
+	if (src.kind == dst.kind)
+		return TCK_Same;
+	//bool is isolated: no implicit or explicit scalar conversion in
+	//either direction (comparisons produce bool; nothing consumes it
+	//numerically). `b as bool`-style identities are Same above.
+	if (src.category == PC_Bool || dst.category == PC_Bool)
+		return TCK_None;
+	//char: implicit target is string only (the anchor row in StaticInit);
+	//char ↔ numeric is explicit both ways (`c as int` = code point,
+	//`n as char` validates the scalar value at run time).
+	if (src.category == PC_Char || dst.category == PC_Char)
+		return TCK_Explicit;
+	//integer → float of any width: implicit (Java/C# convention, the
+	//lossy pairs warn — the value-range warnings land with the integer
+	//family); float → integer: explicit.
+	if (PrimCategoryIsNumeric(src.category)
+		&& PrimCategoryIsNumeric(dst.category))
+	{
+		bool srcInt = src.category != PC_Float;
+		bool dstInt = dst.category != PC_Float;
+		if (srcInt && !dstInt) return TCK_Auto;              // int → f32/f64
+		if (!srcInt && dstInt) return TCK_Explicit;          // f32/f64 → int
+		if (DomainContained(src.category, src.rank,
+			dst.category, dst.rank))
+			return TCK_Auto;                                  // widening
+		return TCK_Explicit;                                  // narrowing / sign-change
+	}
+	return TCK_None;
+}
+
+//The →string column and the string row: every scalar coerces to string
+//(Auto — the runtime rendering family); string converts to nothing
+//(None) — spec §2.2 lists string→number as an explicit `as` conversion,
+//but 0.7.5 ships it as the toInt/toLong/toDouble/toFloat/toBool METHODS
+//only, so `s as int` stays a compile error this release (marked spec
+//deviation, the known-limitations page records it).
+static void InitStringColumn(
+	TypeCastKind (&table)[NK_DT_COUNT][NK_DT_COUNT])
+{
+	table[NK_Int32][NK_String]  = TCK_Auto;
+	table[NK_Float][NK_String]  = TCK_Auto;
+	table[NK_Byte][NK_String]   = TCK_Auto;
+	table[NK_UByte][NK_String]  = TCK_Auto;
+	table[NK_Short][NK_String]  = TCK_Auto;
+	table[NK_UShort][NK_String] = TCK_Auto;
+	table[NK_UInt32][NK_String] = TCK_Auto;
+	table[NK_Long][NK_String]   = TCK_Auto;
+	table[NK_ULong][NK_String]  = TCK_Auto;
+	table[NK_Double][NK_String] = TCK_Auto;
+	//bool → string renders "true"/"false".
+	table[NK_Bool][NK_String]   = TCK_Auto;
+	//char → string: Auto (encodes one UTF-8 code point, 1–4 bytes).
+	table[NK_Char][NK_String]   = TCK_Auto;
+	table[NK_String][NK_Int32]  = TCK_None;
+	table[NK_String][NK_Float]  = TCK_None;
+	table[NK_String][NK_String] = TCK_Same;
+}
+
 void TypeCastInfo::StaticInit()
 {
-	s_CastTable[NK_Int32][NK_Int32]		= TCK_Same;
-	s_CastTable[NK_Int32][NK_Float]		= TCK_Auto;
-	s_CastTable[NK_Int32][NK_String]	= TCK_Auto;
-	s_CastTable[NK_Int32][NK_Type]		= TCK_None;
+	//Rule-derived primitive matrix (spec §2.2). Row/col range covers all
+	//data-type kinds; non-scalar cells stay TCK_None (their verdicts are
+	//computed by CalcCastKind's special paths, never this table).
+	for (size_t i = 0; i < NK_DT_COUNT; ++i)
+		for (size_t j = 0; j < NK_DT_COUNT; ++j)
+			s_CastTable[i][j] = TCK_None;
 
-	s_CastTable[NK_Float][NK_Int32]		= TCK_Auto;
-	s_CastTable[NK_Float][NK_Float]		= TCK_Same;
-	s_CastTable[NK_Float][NK_String]	= TCK_Auto;
-	s_CastTable[NK_Float][NK_Type]		= TCK_None;
-
-	s_CastTable[NK_String][NK_Int32]	= TCK_None;
-	s_CastTable[NK_String][NK_Float]	= TCK_None;
-	s_CastTable[NK_String][NK_String]	= TCK_Same;
-	s_CastTable[NK_String][NK_Type]		= TCK_None;
-
-	s_CastTable[NK_Type][NK_Int32]		= TCK_None;
-	s_CastTable[NK_Type][NK_Float]		= TCK_None;
-	s_CastTable[NK_Type][NK_String]		= TCK_None;
-	s_CastTable[NK_Type][NK_Type]		= TCK_Same;
-
-	//Phase 13: void exists only as a Func<...> return slot and never
-	//reaches expression casting as a value type, but NK_DT_COUNT grew
-	//with the new kind — fill the row/column so the init assert holds
-	//and any accidental use yields TCK_None instead of an unset entry.
-	s_CastTable[NK_Void][NK_Int32]		= TCK_None;
-	s_CastTable[NK_Void][NK_Float]		= TCK_None;
-	s_CastTable[NK_Void][NK_String]		= TCK_None;
-	s_CastTable[NK_Void][NK_Type]		= TCK_None;
-	s_CastTable[NK_Void][NK_Void]		= TCK_Same;
-	s_CastTable[NK_Int32][NK_Void]		= TCK_None;
-	s_CastTable[NK_Float][NK_Void]		= TCK_None;
-	s_CastTable[NK_String][NK_Void]		= TCK_None;
-	s_CastTable[NK_Type][NK_Void]		= TCK_None;
+	for (size_t i = 0; i < kScalarPrimCount; ++i)
+	{
+		const auto &src = kScalarPrims[i];
+		for (size_t j = 0; j < kScalarPrimCount; ++j)
+		{
+			const auto &dst = kScalarPrims[j];
+			s_CastTable[src.kind][dst.kind] =
+				DeriveScalarCast(src, dst);
+		}
+	}
+	InitStringColumn(s_CastTable);
+	//void row/col (Phase 13 comment preserved): all None except Same.
+	s_CastTable[NK_Void][NK_Void]     = TCK_Same;
+	//type row/col: Same on the diagonal only (already None elsewhere).
+	s_CastTable[NK_Type][NK_Type]     = TCK_Same;
 #ifndef NDEBUG
-	for (size_t i = NK_Int32; i < NK_DT_COUNT; ++i)
-		for (size_t j = NK_Int32; j < NK_DT_COUNT; ++j)
+	for (size_t i = 0; i < NK_DT_COUNT; ++i)
+		for (size_t j = 0; j < NK_DT_COUNT; ++j)
 		{
 			assert(s_CastTable[i][j] != 0 &&
 				"The cast table is not initialized properly");
