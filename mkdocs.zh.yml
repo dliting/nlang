@@ -36,14 +36,38 @@ nav:
       - 命名约定: language-spec/naming-convention.md
       - 类型:
           - 类型: language-spec/types.md
+          - 基本类型: language-spec/primitives.md
+          - 字符串: language-spec/string.md
+          - 枚举: language-spec/enum.md
+          - 结构体: language-spec/struct.md
+          - 类: language-spec/class.md
+          - 接口: language-spec/interface.md
+          - 数组: language-spec/array.md
+          - Object 与装箱: language-spec/object.md
+          - 类型强制转换: language-spec/type-casts.md
           - 类型语义: language-spec/type-semantics.md
           - 声明: language-spec/declarations.md
           - 内建泛型类: language-spec/builtin-generic-classes.md
       - 表达式与语句:
           - 表达式: language-spec/expressions.md
+          - 运算符: language-spec/operators.md
+          - 集合初始化器: language-spec/collection-initializers.md
           - 语句: language-spec/statements.md
+          - If: language-spec/if.md
+          - 循环: language-spec/loops.md
+          - Foreach: language-spec/foreach.md
+          - Switch: language-spec/switch.md
+          - 异常: language-spec/exception.md
+          - Assert: language-spec/assert.md
+          - 复合赋值: language-spec/compound-assignment.md
+          - Const 局部: language-spec/const-local.md
       - 函数:
           - 函数: language-spec/functions.md
+          - 默认参数: language-spec/default-parameters.md
+          - 命名实参: language-spec/named-arguments.md
+          - 重载解析: language-spec/overload-resolution.md
+          - out 参数: language-spec/out-parameters.md
+          - native 函数: language-spec/native-functions.md
           - 函数类型与委托: language-spec/function-types-and-delegates.md
       - 标准库: language-spec/standard-library.md
       - 运行时:

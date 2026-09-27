@@ -36,14 +36,38 @@ nav:
       - Naming Convention: language-spec/naming-convention.md
       - Types:
           - Types: language-spec/types.md
+          - Primitives: language-spec/primitives.md
+          - String: language-spec/string.md
+          - Enum: language-spec/enum.md
+          - Struct: language-spec/struct.md
+          - Class: language-spec/class.md
+          - Interface: language-spec/interface.md
+          - Array: language-spec/array.md
+          - Object & Boxing: language-spec/object.md
+          - Type Casts: language-spec/type-casts.md
           - Type Semantics: language-spec/type-semantics.md
           - Declarations: language-spec/declarations.md
           - Built-in Generic Classes: language-spec/builtin-generic-classes.md
       - Expressions & Statements:
           - Expressions: language-spec/expressions.md
+          - Operators: language-spec/operators.md
+          - Collection Initializers: language-spec/collection-initializers.md
           - Statements: language-spec/statements.md
+          - If: language-spec/if.md
+          - Loops: language-spec/loops.md
+          - Foreach: language-spec/foreach.md
+          - Switch: language-spec/switch.md
+          - Exceptions: language-spec/exception.md
+          - Assert: language-spec/assert.md
+          - Compound Assignment: language-spec/compound-assignment.md
+          - Const Local: language-spec/const-local.md
       - Functions:
           - Functions: language-spec/functions.md
+          - Default Parameters: language-spec/default-parameters.md
+          - Named Arguments: language-spec/named-arguments.md
+          - Overload Resolution: language-spec/overload-resolution.md
+          - Out Parameters: language-spec/out-parameters.md
+          - Native Functions: language-spec/native-functions.md
           - Function Types & Delegates: language-spec/function-types-and-delegates.md
       - Standard Library: language-spec/standard-library.md
       - Runtime:

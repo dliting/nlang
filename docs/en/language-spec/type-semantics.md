@@ -1,67 +1,71 @@
 # Type Semantics
 
 
-### Struct: Value Semantics
+Every type in NLang has defined semantics for four operations: **assignment**
+(`a = b`), **parameter passing**, **return value**, and use as a **field or
+array element**. This page is the complete per-type summary; each row links
+to the page that explains that type in detail.
 
-Structs follow value semantics throughout the language:
+### Summary table
 
-- **Assignment**: `s2 = s1` creates a deep copy. `s2` is an independent
-  instance — modifying `s2` does not affect `s1`.
-- **Parameter passing**: Struct arguments are deep-copied into the callee's
-  local frame. The callee operates on its own copy.
-- **Return value**: A struct return value is deep-copied to the caller's
-  result slot.
-- **Class field**: When a struct is a class field, the class owns an
-  independent deep copy. Assigning `obj.s = s1` deep-copies `s1` into the
-  class's field slot.
-- **Array element**: `new Point[n]` eagerly materializes a
-  fresh, independent struct instance per element (including nested struct
-  fields, recursively). Reading an element into a struct variable
-  (`Point p = arr[i]`) deep-copies it; writing through a subscript
-  (`arr[i].x = v`, `arr[i] = p`) stores into the array's own element.
-  Zero-length struct arrays (`new Point[0]`) are legal — `.length` is 0
-  and no elements are materialized.
+| Type        | Kind              | Assignment       | Parameter passing | Return value        | As field / element  |
+|-------------|-------------------|------------------|-------------------|---------------------|---------------------|
+| `int`       | value              | copy             | copy              | copy                | copy                |
+| `float`     | value              | copy             | copy              | copy                | copy                |
+| `string`    | value (immutable)  | copy handle      | copy handle       | copy handle         | copy handle         |
+| `enum`      | value (int32)      | copy             | copy              | copy                | copy                |
+| `struct`    | value (deep copy)  | deep copy        | deep copy         | deep copy           | deep copy (owned)   |
+| `class`     | reference          | copy reference   | pass reference    | return reference    | store reference     |
+| `interface` | reference          | copy reference   | pass reference    | return reference    | store reference     |
+| `T[]`       | reference (heap)   | copy reference   | pass reference    | return reference    | store reference     |
+| `List<T>`   | reference          | copy reference   | pass reference    | return reference    | store reference     |
+| `Dict<K,V>` | reference          | copy reference   | pass reference    | return reference    | store reference     |
+| `Object`    | reference (boxed)  | copy reference   | pass reference    | return reference    | store reference     |
+| `Func`      | value (func ref)   | copy             | copy              | copy                | copy                |
 
-**Shallow copy of class references within structs**: When a struct contains a
-class-typed field, the class reference (heap index) is copied as-is during
-struct copy. Both the original and the copy refer to the same class object on
-the heap. This is consistent with C#'s behavior for struct fields of reference
-type.
+### Per-type notes
 
-Example:
-```nlang
-class Inner { public int x; }
-struct Wrapper { public Inner ref; }
+- **`int` / `float`** — value types. Assigned, passed, and returned by value;
+  numeric promotion applies in arithmetic and comparison. See
+  [Primitives](primitives.md).
+- **`string`** — value semantics *via* an immutable interned object: the
+  handle is copied, but the object's content never changes, so "sharing" is
+  harmless. `==` compares content, not identity. A null string handle (0)
+  reads as the empty string `""`. See [String](string.md).
+- **`enum`** — value type backed by int32. Assigned, passed, and returned by
+  value; compared by its integer value; there is no independent object
+  identity. See [Enum](enum.md).
+- **`struct`** — value type with **deep-copy** semantics: copying copies the
+  whole aggregate, including nested struct fields. The one exception is a
+  class-typed field inside the struct, which is shallow-copied (the reference
+  is shared). See [Struct](struct.md).
+- **`class`** — reference type. Assignment/passing/return copy the reference
+  (heap index); both names point at the same object. A null reference throws
+  `NullPointerException` on member access. See [Class](class.md).
+- **`interface`** — reference type like `class`; a value of interface type
+  refers to the implementing object. See [Interface](interface.md).
+- **`T[]`** — reference type: the array lives on the heap; assignment and
+  passing copy the array *reference*, not the elements. See [Array](array.md).
+- **`List<T>` / `Dict<K,V>`** — reference types; assignment and passing copy
+  the container reference. See [Built-in Generic Classes](builtin-generic-classes.md).
+- **`Object`** — reference type that may hold a boxed primitive or a class
+  reference; assignment copies the reference. See [Object & Boxing](object.md).
+- **`Func`** — a first-class value: the function reference is copied by
+  value. See [Functions](functions.md).
 
-int main() {
-    Inner obj = new Inner();
-    obj.x = 10;
-    Wrapper a;
-    a.ref = obj;
-    Wrapper b = a;       // shallow copy: b.ref == a.ref (same object)
-    b.ref.x = 99;        // modifies the shared Inner object
-    return a.ref.x;      // returns 99, not 10
-}
-```
+### Why the two families differ
 
-### Class: Reference Semantics
+The split is value vs. reference:
 
-Classes follow reference semantics:
+- **Value types** (`int`, `float`, `enum`, `string`, `struct`, `Func`) are
+  copied on assignment. Two variables hold independent data; mutating one
+  never affects the other. (`string` is a value type even though it is an
+  object, because the object is immutable.)
+- **Reference types** (`class`, `interface`, array, `List`, `Dict`, `Object`)
+  share the underlying object. Assignment copies the reference, so both names
+  observe the same object and the same mutations.
 
-- **Assignment**: `obj2 = obj1` copies the reference (heap index). Both
-  variables point to the same object.
-- **Parameter passing**: Class arguments pass the reference. The callee can
-  modify the object's fields, and the caller sees the changes.
-- **Return value**: Returns the reference. No copy is made.
-- **Struct field**: When a class is a struct field, the struct stores the
-  reference (heap index). Struct copy shallow-copies this reference.
-
-### Summary Table
-
-| Operation          | struct          | class           |
-|--------------------|-----------------|-----------------|
-| Assignment         | Deep copy       | Copy reference  |
-| Parameter passing  | Deep copy       | Pass reference  |
-| Return value       | Deep copy       | Return reference|
-| As class field     | Deep copy owned | Store reference |
-| As struct field    | Deep copy owned | Store reference |
+The reference family shares one rule: **a null reference throws
+`NullPointerException` on member access** (class, interface, array, and
+container nulls all behave the same). See [Class](class.md) for the null
+semantics.
