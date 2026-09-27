@@ -68,7 +68,6 @@ void VmBackend::EmitCompoundOp(int opInt,
 //walker reserves 1+argCount for this shape; claiming only argCount
 //over-reserves by one slot, which is the safe direction.
 void VmBackend::EmitStdLibCall(const langservice::SymbolInfo& sig,
-        const StdLibEntry& entry,
         SnInvokeExpr& invoke, BytecodeEmitter& emitter,
         uint16_t resultOffset) {
     uint16_t argCount = 0;
@@ -92,8 +91,11 @@ void VmBackend::EmitStdLibCall(const langservice::SymbolInfo& sig,
         ++paramIdx;
     }
     CopyClaimToCallParams(claimBase, argCount, emitter);
-    emitter.Emit(OpCode::OP_CallIntrinsic);
-    emitter.EmitUint16(entry.intrinsicId);
+    //The callee is an isNative stub synthesized from the signature; the VM
+    //loads nlang_<ns> (or a third-party module) lazily by the stub's name.
+    const uint16_t calleeIdx = EnsureNativeStub(sig);
+    emitter.Emit(OpCode::OP_CallFunc);
+    emitter.EmitUint16(calleeIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);
     //A void call has nothing to assign — the InvokeStmt handler already
     //staged a throwaway claim slot as resultOffset.
@@ -102,6 +104,56 @@ void VmBackend::EmitStdLibCall(const langservice::SymbolInfo& sig,
         emitter.EmitUint16(resultOffset);
     }
     emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+uint16_t VmBackend::EnsureNativeStub(const langservice::SymbolInfo& sig) {
+    const std::string fullName = sig.ns + "." + sig.name;
+    auto found = m_nativeStubMap.find(fullName);
+    if (found != m_nativeStubMap.end())
+        return found->second;
+
+    //Signature-only isNative stub. It carries no bytecode; OP_CallFunc
+    //dispatches it to CallNative, whose lazy module load is driven by this
+    //"ns.name". This is the exact record shape a user `native` declaration
+    //produces (FillNativeFunctionRecord), so stdlib and third-party calls
+    //share one runtime path.
+    CompiledFunction stub;
+    stub.name = fullName;
+    stub.isNative = true;
+    stub.paramCount = static_cast<uint16_t>(sig.params.size());
+    stub.localsSize = static_cast<uint16_t>(stub.paramCount * VALUE_SIZE);
+    uint8_t retKind = RTK_Void;
+    switch (sig.returnKind) {
+    case langservice::TypeKind::Int:        retKind = RTK_Int32; break;
+    case langservice::TypeKind::Float:      retKind = RTK_Float; break;
+    case langservice::TypeKind::String:     retKind = RTK_String; break;
+    case langservice::TypeKind::ListString: retKind = RTK_Class; break;
+    case langservice::TypeKind::Any:        retKind = RTK_Int32; break;
+    default:                                retKind = RTK_Void; break;
+    }
+    stub.returnTypeKind = retKind;
+
+    //Stage rather than append: the stub joins m_compiledModule.functions
+    //only in CommitPendingNativeStubs, after every function body has been
+    //emitted. Emission therefore never reallocates the functions vector,
+    //which would dangle the CompiledFunction& held by GenerateFunction.
+    //The logical index equals the position CommitPendingNativeStubs will
+    //place it at (existing functions first, then stubs in creation order).
+    const uint16_t idx = static_cast<uint16_t>(
+        m_compiledModule.functions.size() + m_pendingNativeStubs.size());
+    m_pendingNativeStubs.push_back(std::move(stub));
+    m_nativeStubMap[fullName] = idx;
+    return idx;
+}
+
+void VmBackend::CommitPendingNativeStubs() {
+    if (m_pendingNativeStubs.empty())
+        return;
+    //Runs only after all GenerateFunction calls have finished, so no
+    //CompiledFunction reference is live when this insert reallocates.
+    m_compiledModule.functions.insert(m_compiledModule.functions.end(),
+        m_pendingNativeStubs.begin(), m_pendingNativeStubs.end());
+    m_pendingNativeStubs.clear();
 }
 
 //io.print coercion for one already-emitted stdlib argument: int/float

@@ -195,6 +195,13 @@ std::vector<std::string> SymbolIndex::Namespaces() const {
     return out;
 }
 
+bool SymbolIndex::HasNamespace(const std::string& ns) const {
+    for (const SymbolInfo& s : m_symbols)
+        if (s.ns == ns)
+            return true;
+    return false;
+}
+
 std::string FindStdLibDir(const std::string& exeDir) {
     fs::path cur = fs::absolute(exeDir);
     for (int up = 0; up < 8; ++up) {

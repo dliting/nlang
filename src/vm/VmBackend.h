@@ -715,8 +715,16 @@ private:
     //an evalArea claim, then bulk-copy to callParamBase from slot 0 — the
     //namespace intrinsic ABI has no this (see StdLib.h).
     void EmitStdLibCall(const langservice::SymbolInfo& sig,
-                        const StdLibEntry& entry, SnInvokeExpr& invoke,
+                        SnInvokeExpr& invoke,
                         BytecodeEmitter& emitter, uint16_t resultOffset);
+
+    //Function index of the isNative stub for sig, created and appended once
+    //per ns.name. OP_CallFunc dispatches to this stub; its "ns.name" drives
+    //the VM's lazy load of the matching native module.
+    uint16_t EnsureNativeStub(const langservice::SymbolInfo& sig);
+    //Append the staged native stubs to the module after all function bodies
+    //have been emitted (called at the end of GenerateAllBytecode).
+    void CommitPendingNativeStubs();
 
     //Stdlib arm: io.print coercion for one already-emitted argument —
     //int/float/array/func-typed args convert to string in their claim slot.
@@ -1006,6 +1014,14 @@ private:
 
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+    // "ns.name" -> function index of the lazily synthesized isNative stub.
+    std::map<std::string, uint16_t> m_nativeStubMap;
+    //Stubs are staged here during emission and appended to the module only
+    //once all function bodies have been emitted (CommitPendingNativeStubs).
+    //This keeps m_compiledModule.functions fixed during emission, so a
+    //CompiledFunction& held by an in-flight GenerateFunction can never be
+    //dangled by a push_back reallocation.
+    std::vector<CompiledFunction> m_pendingNativeStubs;
     std::unordered_map<SnEnumDecl*, size_t> m_enumIndexMap;  //Phase 8e-9b: AST enum decl → enumDefIdx (parallel to m_compiledModule.enumNames)
     std::vector<std::vector<std::string>> m_structFieldTypeNames;
     //v1.12: per-struct resolved field types (parallel to

@@ -163,6 +163,9 @@ add_subdirectory(src/tools/ndb)
 if(NLANG_BUILD_IDE)
     add_subdirectory(src/tools/nide)
 endif()
+# Native stdlib modules are added after the tools so their POST_BUILD step can
+# deploy each module into every host tool's output directory.
+add_subdirectory(src/native)
 
 # --- Documentation site (nlang-docs subproject) -----------------------------
 # Defined BEFORE add_subdirectory(tests): test targets hook a dependency on
@@ -269,6 +272,12 @@ endif()
 # Build packages from the IDE tree (NLANG_BUILD_IDE=ON, which contains all
 # tools) with:  cpack -C Release -B <release_dir>
 install(TARGETS ncc nvm ndisasm ndb RUNTIME DESTINATION bin)
+
+# Standard library declarations, installed at the top level next to bin/ so
+# FindStdLibDir (which walks up from the executable's directory) resolves them
+# in the installed layout: prefix/bin/ncc -> prefix/stdlib.
+install(DIRECTORY stdlib/ DESTINATION stdlib
+    FILES_MATCHING PATTERN "*.n")
 
 if(NLANG_BUILD_IDE)
     install(TARGETS nide RUNTIME DESTINATION bin)

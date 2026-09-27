@@ -71,6 +71,11 @@ public:
     // All indexed namespace names, sorted and unique.
     std::vector<std::string> Namespaces() const;
 
+    // Whether any symbol is declared under the given namespace. Used by the
+    // compiler/codegen to recognize a library namespace from the index
+    // instead of a hard-coded name list (so third-party namespaces work too).
+    bool HasNamespace(const std::string& ns) const;
+
     std::size_t size() const { return m_symbols.size(); }
 
 private:

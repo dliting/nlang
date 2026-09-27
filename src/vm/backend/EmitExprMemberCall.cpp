@@ -32,23 +32,20 @@ bool VmBackend::EmitMemberStdlibCall(SnMemberExpr& member,
         && inner && inner->Kind() == NK_InvokeExpr)
     {
         auto& outerId = static_cast<SnIdentifierExpr&>(*outer);
-        if (IsStdLibNamespaceName(outerId.Name()))
+        //Recognize a library namespace from the index (stdlib and any
+        //third-party namespace use the same lookup — no hard-coded list).
+        if (m_pLibraryIndex
+            && m_pLibraryIndex->HasNamespace(outerId.Name()))
         {
             auto& invoke = static_cast<SnInvokeExpr&>(*inner);
-            const StdLibEntry* pEntry = FindStdLibFunction(
-                outerId.Name(), invoke.CalleeName());
-            //Signatures come from the library index (the .n declarations);
-            //the resolver guarantees both a signature and an implementation
-            //here, but fall through defensively if either is missing.
+            //The signature comes from the library index; the resolver
+            //guarantees it here, but fall through defensively if missing.
             const langservice::SymbolInfo* pSig =
-                m_pLibraryIndex
-                    ? m_pLibraryIndex->Resolve(outerId.Name(),
-                                               invoke.CalleeName())
-                    : nullptr;
-            if (pEntry && pSig)
+                m_pLibraryIndex->Resolve(outerId.Name(),
+                                         invoke.CalleeName());
+            if (pSig)
             {
-                EmitStdLibCall(*pSig, *pEntry, invoke, emitter,
-                               resultOffset);
+                EmitStdLibCall(*pSig, invoke, emitter, resultOffset);
                 return true;
             }
         }

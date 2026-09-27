@@ -873,3 +873,22 @@ if(NLANG_BUILD_DOCS)
             "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
     endif()
 endif()
+
+# Make the stdlib native modules discoverable to in-process VM tests. The
+# loader's default search path is the host executable's directory; a test exe
+# lives in tests/<config>, so copy nlang_math/io/fs there as part of the
+# default test build. Tools (ncc/nvm/ndb) launched as test subprocesses use
+# the copies deployed next to them, so this only serves tests driving the VM
+# in-process (test_stdlib, test_debugger, test_module_import, ...). Depending
+# on the module targets guarantees the DLLs are built and current first.
+add_custom_target(nlang_stdlib_native_for_tests ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${CMAKE_BINARY_DIR}/tests/$<CONFIG>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:nlang_math>
+                $<TARGET_FILE:nlang_io>
+                $<TARGET_FILE:nlang_fs>
+                "${CMAKE_BINARY_DIR}/tests/$<CONFIG>"
+    VERBATIM)
+add_dependencies(nlang_stdlib_native_for_tests nlang_math nlang_io nlang_fs)
+

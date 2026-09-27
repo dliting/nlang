@@ -102,6 +102,9 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
             m_pCurrClass = prevClass;
         }
     }
+    //All function bodies are now emitted and no CompiledFunction reference
+    //is live; append the staged native stubs at their logical indices.
+    CommitPendingNativeStubs();
 }
 
 //Returns field offset in bytes, or -1 if not found.
