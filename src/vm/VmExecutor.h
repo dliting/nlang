@@ -1,8 +1,11 @@
 #pragma once
 #include "nlang/vm/CompiledModule.h"
+#include "nlang/vm/NativeHost.h"
 #include "BytecodeReader.h"
 #include "IDebugHooks.h"
 #include "IHostIo.h"
+#include "VmExecutorNativeHost.h"
+#include "NativeLibraryLoader.h"
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -66,17 +69,19 @@ public:
     DebugFrameInfo FrameInfo(size_t depth) const override;
     std::vector<DebugLocalValue> FrameLocals(size_t depth) const override;
 
-    //Phase 9f: host-registered native function. Called when OP_CallFunc
-    //reaches a CompiledFunction with isNative set:
-    //  ret   — 4-byte cell the native writes its return value into (may be
-    //           null for void natives; write a memcpy of VALUE_SIZE bytes)
-    //  args  — callee argument cells: args[i*4 .. i*4+3], raw little-endian
-    //           int32/float bits or heap idx, mirroring the intrinsic ABI
-    //  argc  — declared paramCount of the native declaration
-    //Lookup is by the NLang-side declaration name; an unregistered name
-    //throws at the call site.
-    using NativeFn = void (*)(uint8_t* ret, const uint8_t* args, int argc);
+    //Native functions (standard library AND third-party) share the public
+    //NativeHost ABI (nlang/vm/NativeHost.h): each call receives a NativeHost
+    //function table for all VM access, a return cell, the argument cells and
+    //the declared parameter count. A namespace function's args start at
+    //slot 0; methods pass the receiver in slot 0. Native code is stateless;
+    //lookup is by the CompiledFunction name (a qualified "ns.name" for
+    //library functions, a bare name for host-registered natives).
+    using NativeFn = ::NativeFn;
     void RegisterNative(const std::string& name, NativeFn fn);
+
+    //Append a directory searched for native modules (nlang_<ns>.dll /
+    //libnlang_<ns>.so). The executable directory is searched by default.
+    void AddNativeSearchDir(std::string dir);
 
     //Backtrace captured from the last Execute() call. Empty if execution
     //succeeded without throwing.
@@ -386,6 +391,25 @@ private:
     void CallNative(const CompiledFunction& callee, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
+    //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
+    void InitNativeHost(VmNativeHost& host);
+    int32_t BuildListString(const char* const* items, int count);
+    NativeLibraryLoader& EnsureNativeLoader();
+    void EnsureNativeAvailable(const std::string& name);
+    //NativeHost function-table callbacks (static; they restore the
+    //VmExecutor through the VmNativeHost wrapper whose first member is the
+    //public table).
+    static const char* NativeGetString(NativeHost* self, int32_t handle);
+    static int32_t NativeNewString(NativeHost* self, const char* utf8);
+    static int32_t NativeNewListString(NativeHost* self,
+        const char* const* items, int count);
+    static void NativeWriteOutput(NativeHost* self, const char* text);
+    static const char* NativeReadLine(NativeHost* self);
+    static void NativeRaiseException(NativeHost* self, int exceptionKind,
+        const char* message);
+    static uint32_t NativeNextRandom(NativeHost* self);
+    static void NativeSeedRandom(NativeHost* self, int32_t seed);
+
     //Allocate a handle from the ByteStream side table. Returns 1-based handle.
     int32_t AllocByteStreamHandle();
     //Allocate a handle from the FileStream side table. Returns 1-based handle.
@@ -450,8 +474,11 @@ private:
     std::vector<int32_t> m_strFreeList;
     std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
     int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
-    //Phase 9f: name → host function table for native declarations.
+    //Name → host function table for native calls.
     std::unordered_map<std::string, NativeFn> m_natives;
+    //Lazy on-demand loader for native modules (standard-library DLLs and
+    //third-party modules use it). Created on first native-module need.
+    std::unique_ptr<NativeLibraryLoader> m_upNativeLoader;
 
     //Last captured backtrace (filled by Execute's catch block).
     std::string m_lastBacktrace;

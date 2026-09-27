@@ -17,6 +17,71 @@ target_link_libraries(test_vm
 
 add_test(NAME vm_tests COMMAND test_vm)
 
+# NativeHost ABI unit tests: mock host verifies the C ABI function table and
+# the header-only C++ wrappers. No VM/shared library needed.
+add_executable(test_native_abi
+    test_vm/test_native_abi.cpp
+)
+target_include_directories(test_native_abi
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+add_test(NAME native_abi_tests COMMAND test_native_abi)
+
+# NativeLibraryLoader fixture shared modules (real DLLs loaded by the test).
+add_library(nlang_sample SHARED
+    fixtures/native/sample/sample_native.cpp
+)
+target_include_directories(nlang_sample PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+add_library(nlang_badabi SHARED
+    fixtures/native/badabi/badabi_native.cpp
+)
+target_include_directories(nlang_badabi PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+add_library(nlang_noentry SHARED
+    fixtures/native/noentry/noentry_native.cpp
+)
+
+# NativeLibraryLoader unit tests: real discovery/loading of the fixtures.
+add_executable(test_native_loader
+    test_vm/test_native_loader.cpp
+)
+target_include_directories(test_native_loader
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_native_loader
+    PRIVATE nlang_vm
+)
+target_compile_definitions(test_native_loader
+    PRIVATE
+        FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_sample>"
+)
+add_dependencies(test_native_loader nlang_sample nlang_badabi nlang_noentry)
+add_test(NAME native_loader_tests COMMAND test_native_loader)
+
+# NativeHost callback integration tests: real compile+run exercising every
+# host callback through in-process registered natives.
+add_executable(test_native_host
+    test_vm/test_native_host.cpp
+)
+target_include_directories(test_native_host
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_native_host
+    PRIVATE
+        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+)
+target_compile_definitions(test_native_host
+    PRIVATE
+        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+)
+add_test(NAME native_host_tests COMMAND test_native_host)
+
 # Phase 11 stdlib unit tests: in-process compile+run of real .n sources
 # via ModuleBuilder (temp .nmod round-trip) + VmExecutor.
 add_executable(test_stdlib

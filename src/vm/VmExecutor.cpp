@@ -1,4 +1,5 @@
 #include "VmExecutor.h"
+#include "NativeLibraryLoader.h"
 #include <cstring>
 #include <cstdio>
 #include <exception>

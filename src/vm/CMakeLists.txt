@@ -14,6 +14,7 @@ add_library(nlang_vm
     VmExecutorContainers.cpp
     VmExecutorFormat.cpp
     VmExecutorIntrinsics.cpp
+    VmExecutorNativeHost.cpp
     DebugSessionController.cpp
     IntrinsicsMath.cpp
     IntrinsicsIo.cpp
@@ -50,6 +51,7 @@ add_library(nlang_vm
     DisassemblerWalk.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp
+    NativeLibraryLoader.cpp
     TypeDesc.cpp
 )
 
@@ -63,5 +65,5 @@ target_include_directories(nlang_vm
 
 target_link_libraries(nlang_vm
     PUBLIC nlang_runtime
-    PRIVATE nlang_compiler nlang_langservice
+    PRIVATE nlang_compiler nlang_langservice ${CMAKE_DL_LIBS}
 )

@@ -20,11 +20,14 @@ void VmExecutor::RegisterNative(const std::string& name, NativeFn fn)
 void VmExecutor::CallNative(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
+    EnsureNativeAvailable(callee.name);
     auto it = m_natives.find(callee.name);
     if (it == m_natives.end())
         throw std::runtime_error(
             "NLang VM: native function not registered: " + callee.name);
-    it->second(pResult, locals + callParamBase, callee.paramCount);
+    VmNativeHost host;
+    InitNativeHost(host);
+    it->second(&host.c, pResult, locals + callParamBase, callee.paramCount);
 }
 
 void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
