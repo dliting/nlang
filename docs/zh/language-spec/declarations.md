@@ -136,10 +136,29 @@ struct Point {
     int x;
     int y;
 }
+
+int main() {
+    Point p;                       // 零初始化: x = 0, y = 0
+    p.x = 3;
+    p.y = 4;
+    Point q = p;                   // 深拷贝: q.x、q.y 独立于 p
+    q.x = 9;
+    Point r = new Point{x: 1, y: 2};   // 具名初始化
+    return p.x + p.y + q.x + q.y + r.x + r.y;   // 3+4+9+4+1+2 = 23
+}
 ```
 
+struct 是值类型：
+- 声明变量（`Point p;`）会把每个字段零初始化。
+- 拷贝（`Point q = p;`）按值复制整个结构体，包括嵌套 struct 字段，
+  因此源与拷贝相互独立。
+- 字段通过成员表达式 `p.x` 读写；struct 没有方法体，因此没有可绑定的
+  `this`。
+- 具名初始化（`new Point{x: 1, y: 2}`）设置具名字段；未列出的字段保持
+  零值。
+
 struct 可以包含：
-- 基本类型字段（int、float、string）
+- 基本类型字段（int、float、string 等）
 - enum 字段（按 int32 存储）
 - struct 字段（深拷贝，由外层 struct 持有）
 - class 字段（引用，浅拷贝）
@@ -226,7 +245,7 @@ interface IShape {
     public int Perimeter();
 }
 
-class Square : IShape {
+class Square implements IShape {
     public int side;
     public int Area() { return this.side * this.side; }
     public int Perimeter() { return 4 * this.side; }
@@ -239,8 +258,8 @@ int TotalArea(IShape s) {
 
 接口支持：
 - 仅方法签名（无字段、无实现）
-- `class X : IShape`（或 `class X implements IShape`）——类用 `:` 或
-  `implements` 关键字声明符合接口
+- `class X implements IShape`——类用 `implements` 关键字声明符合接口
+  （`:` 形式用于类继承，不用于接口符合；`class X : IShape` 会被拒绝）
 - 对接口类型的局部变量/参数/字段虚分派
 - 多态集合（混合 `Square`/`Circle` 的 `List<IShape>`）
 
@@ -374,9 +393,12 @@ int apply(BinOp f) { ... }   // 参数与返回类型
 - 开命名空间的 `using Foo;` 形式（无 `=`）保持不变，与此无关。
 
 **限制：**
-- 右侧必须是普通类型形式（类型名、泛型实例化、数组后缀）。不支持
-  **成员路径**（`using X = ns.Inner;`）——文法的类型形式只接受标识
-  符，因此会以解析器语法错误失败。
+- 右侧必须是**基本类型名**（`int`、`float`、`string` 等）、**数组类型**
+  （`int[]`）、**泛型实例化**（`List<int>`）或**函数类型**
+  （`Func<int, int>`）。裸的 **class/struct/enum 类型名**
+  （`using X = Counter;`）不是合法目标——会以解析器语法错误失败。
+  **成员路径**（`using X = ns.Inner;`）同样不支持——文法的类型形式只
+  接受标识符，因此会以解析器语法错误失败。
 - 别名只能出现在类型位置；值表达式永远不会解析到别名。
 - 锚定在使用点的诊断有时会指向 `using` 行（展开克隆优先采用别名
   目标的位置）。

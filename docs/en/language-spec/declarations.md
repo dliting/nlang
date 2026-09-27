@@ -149,10 +149,29 @@ struct Point {
     int x;
     int y;
 }
+
+int main() {
+    Point p;                       // zero-initialized: x = 0, y = 0
+    p.x = 3;
+    p.y = 4;
+    Point q = p;                   // deep copy: q.x, q.y independent of p
+    q.x = 9;
+    Point r = new Point{x: 1, y: 2};   // named initializer
+    return p.x + p.y + q.x + q.y + r.x + r.y;   // 3+4+9+4+1+2 = 23
+}
 ```
 
+Structs are value types:
+- Declaring a variable (`Point p;`) zero-initializes every field.
+- Copying (`Point q = p;`) copies the whole struct by value, including any
+  nested struct fields, so the source and the copy are independent.
+- A field is read or written through the member expression `p.x`; a struct
+  has no method body, so there is no `this` to bind one to.
+- A named initializer (`new Point{x: 1, y: 2}`) sets the named fields; any
+  field left out keeps its zero value.
+
 Structs can contain:
-- Primitive fields (int, float, string)
+- Primitive fields (int, float, string, etc.)
 - Enum fields (stored as int32)
 - Struct fields (deep-copied, owned by the containing struct)
 - Class fields (reference, shallow-copied)
@@ -246,7 +265,7 @@ interface IShape {
     public int Perimeter();
 }
 
-class Square : IShape {
+class Square implements IShape {
     public int side;
     public int Area() { return this.side * this.side; }
     public int Perimeter() { return 4 * this.side; }
@@ -259,8 +278,9 @@ int TotalArea(IShape s) {
 
 Interfaces support:
 - Method signatures only (no fields, no implementation)
-- `class X : IShape` (or `class X implements IShape`) — a class declares
-  conformance with `:` or the `implements` keyword
+- `class X implements IShape` — a class declares conformance with the
+  `implements` keyword (the `:` form is for class inheritance, not
+  interface conformance; `class X : IShape` is rejected)
 - Virtual dispatch on interface-typed locals/params/fields
 - Polymorphic collections (`List<IShape>` of mixed `Square`/`Circle`)
 
@@ -409,10 +429,13 @@ int apply(BinOp f) { ... }   // parameters and returns
   unrelated.
 
 **Restrictions:**
-- The right-hand side must be a plain type form (type name, generic
-  instantiation, array suffix). **Member paths** (`using X = ns.Inner;`)
-  are not supported — the grammar's type form is identifier-only, so
-  they fail as a parser syntax error.
+- The right-hand side must be a **primitive type name** (`int`, `float`,
+  `string`, etc.), an **array type** (`int[]`), a **generic instantiation**
+  (`List<int>`), or a **function type** (`Func<int, int>`). A bare
+  **class/struct/enum type name** (`using X = Counter;`) is not a valid
+  target — it fails as a parser syntax error. **Member paths**
+  (`using X = ns.Inner;`) are also not supported — the grammar's type
+  form is identifier-only, so they fail as a parser syntax error.
 - Aliases are type-position only; a value expression can never resolve
   to an alias.
 - Diagnostics anchored at a use site sometimes point at the `using` line

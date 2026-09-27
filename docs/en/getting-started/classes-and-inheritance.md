@@ -40,3 +40,41 @@ Output `dog has 4 legs`, exit code 4. Classes are reference types; once
 concatenation directly.
 
 See also: [Language Specification / Declarations](../language-spec/declarations.md).
+
+### Interface
+
+```nlang
+import io;
+
+interface IShape {
+    public int Area();
+}
+
+class Square implements IShape {
+    public int side;
+    public int Area() { return this.side * this.side; }
+}
+
+int total(IShape s) {
+    return s.Area();              // virtual dispatch
+}
+
+int main() {
+    Square sq = new Square();
+    sq.side = 4;                  // set via the concrete type
+    IShape shape = sq;             // upcast to the interface
+    io.print(total(shape));        // 16
+    if (total(shape) == 16)
+        return 16;
+    return 1;
+}
+```
+
+Output `16`; exit code 16. An interface declares method signatures only
+(no fields, no bodies). A class conforms with `class X implements IShape`;
+a variable of the interface type holds any conforming object, and calls
+dispatch virtually to the runtime class. Interface methods must be marked
+`public` — the default access is `private`, so an unmarked method is
+parsed but not callable.
+
+See also: [Language Specification / Declarations](../language-spec/declarations.md).

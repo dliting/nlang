@@ -23,13 +23,93 @@ int main() {
 ```
 
 Output `demo: 30 / 1.5`. The primitive types are `int` (32-bit integer),
-`float` (32-bit float), and `string` (UTF-8 bytes, reference semantics);
-for the compound types enum, struct, and class see the declarations
-chapter.
+`float` (32-bit float), and `string` (UTF-8 bytes, reference semantics).
+The compound types enum, struct, and class are covered in the sections
+below and in the declarations chapter.
 
 See also: [Language Specification / Types](../language-spec/types.md),
 [Type Semantics](../language-spec/type-semantics.md),
 [Declarations](../language-spec/declarations.md).
+
+### Enum
+
+```nlang
+import io;
+
+enum Color { Red, Green, Blue }
+
+int main() {
+    Color c = Color.Blue;
+    int n = c;                   // enum values are integers
+    io.print(c.toString());       // "Blue"
+    io.print(n);                  // 2
+    switch (c) {
+        case Color.Red: return 1;
+        case Color.Green: return 2;
+        case Color.Blue: return 3;
+    }
+}
+```
+
+Output `Blue` and `2`; exit code 3. Enum values are `int` constants the
+compiler assigns (auto-increment from 0 unless you give them explicit
+values); a value converts to `int` directly, `toString()` returns the
+member name, and an enum is a valid `switch` discriminant.
+
+See also: [Language Specification / Declarations](../language-spec/declarations.md).
+
+### Struct
+
+```nlang
+import io;
+
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    Point p;                     // zero-initialized
+    p.x = 3;
+    p.y = 4;
+    Point q = p;                 // deep copy (value semantics)
+    q.x = 9;                     // does not affect p
+    io.print(p.x + p.y);          // 7
+    if (q.x == 9 && p.x == 3)
+        return 34;
+    return 1;
+}
+```
+
+Output `7`; exit code 34. A struct is a value type: declaring one
+zero-initializes its fields, and copying it (`Point q = p;`) copies the
+whole struct — including any nested structs — so the copies are
+independent. Unlike a class, a struct has no methods.
+
+See also: [Language Specification / Declarations](../language-spec/declarations.md).
+
+### Type alias
+
+```nlang
+import io;
+
+using Ints = int[];
+
+int main() {
+    Ints xs = [10, 20, 30];
+    io.print(xs[0] + xs.length);  // 10 + 3 = 13
+    if (xs.length == 3)
+        return 13;
+    return 1;
+}
+```
+
+Output `13`; exit code 13. `using Name = Type;` gives a type a second
+name; the alias expands textually at each use site, so `Ints xs = ...` is
+exactly `int[] xs = ...`. Aliases work over primitive, array, generic, and
+`Func<...>` type forms.
+
+See also: [Language Specification / Declarations](../language-spec/declarations.md).
 
 ### Strings
 

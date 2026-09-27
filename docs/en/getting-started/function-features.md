@@ -31,6 +31,54 @@ return `void`.
 
 See also: [Language Specification / Functions](../language-spec/functions.md).
 
+### Function values
+
+```nlang
+import io;
+
+using Op = Func<int, int>;
+
+int doubleIt(int x) { return x * 2; }
+int apply(Op f, int x) { return f(x); }
+
+int main() {
+    int a = apply(doubleIt, 21);   // 42 — free function reference
+    if (a == 42)
+        return 42;
+    return 1;
+}
+```
+
+Output: none; exit code 42. A function can be passed around as a value:
+`Func<Ret, Args...>` names a function type, and a free function or a bound
+method (`c.foo`) binds to it. Function values are stored in variables,
+fields, and collections (`List<Func<int, int>>`, `Func<int, int>[]`).
+
+See also: [Language Specification / Function Types and Delegates](../language-spec/function-types-and-delegates.md).
+
+### Native functions
+
+```nlang
+import io;
+
+native int natAdd(int a, int b);
+
+int main() {
+    int r = natAdd(20, 22);        // dispatched to the host
+    if (r == 42)
+        return 42;
+    return 1;
+}
+```
+
+Output: none; exit code 42. A `native` function has no body — the host
+process supplies the implementation and registers it by name; the call
+is dispatched straight to it with no NLang frame. `ncc` and `nvm` ship a
+small built-in set of natives (`natAdd`, `natConst`, `natFAdd`, `natPing`)
+for testing, so the snippet above runs as-is.
+
+See also: [Language Specification / Functions](../language-spec/functions.md).
+
 ### Modules
 
 Multiple `.n` files in a project form modules by relative path: files in

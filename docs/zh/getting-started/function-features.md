@@ -29,6 +29,52 @@ int main() {
 
 详见 → [语言规格/函数](../language-spec/functions.md)。
 
+### 函数值
+
+```nlang
+import io;
+
+using Op = Func<int, int>;
+
+int doubleIt(int x) { return x * 2; }
+int apply(Op f, int x) { return f(x); }
+
+int main() {
+    int a = apply(doubleIt, 21);   // 42 —— 自由函数引用
+    if (a == 42)
+        return 42;
+    return 1;
+}
+```
+
+输出：无；退出码 42。函数可以当作值传递：`Func<Ret, Args...>` 命名一种
+函数类型，自由函数或绑定方法（`c.foo`）都能绑到它上面。函数值可存进
+变量、字段与集合（`List<Func<int, int>>`、`Func<int, int>[]`）。
+
+详见 → [语言规格/函数类型与委托](../language-spec/function-types-and-delegates.md)。
+
+### 原生函数
+
+```nlang
+import io;
+
+native int natAdd(int a, int b);
+
+int main() {
+    int r = natAdd(20, 22);        // 分派到宿主
+    if (r == 42)
+        return 42;
+    return 1;
+}
+```
+
+输出：无；退出码 42。`native` 函数没有函数体——实现由宿主进程提供并按名
+注册；调用直接分派给它，不经过 NLang 栈帧。`ncc` 与 `nvm` 自带一小撮内建
+原生函数（`natAdd`、`natConst`、`natFAdd`、`natPing`）供测试用，因此上面
+的片段可直接运行。
+
+详见 → [语言规格/函数](../language-spec/functions.md)。
+
 ### 模块
 
 一个工程里的多个 `.n` 文件按相对路径组成模块：同目录文件天然互见，
