@@ -1,0 +1,23 @@
+// mylib.n - an example third-party native library.
+//
+// This file declares the public surface of the "mylib" package. Every
+// function is marked `native`, so its implementation is NOT written in
+// NLang. It lives in the shared library nlang_mylib.dll (built from
+// mylib_native.cpp in this folder) and is loaded at runtime through the
+// same NativeHost ABI as the standard library (math/io/fs).
+//
+// Shipping layout: put this file and nlang_mylib.dll in the same
+// directory, add that directory to the import path (ncc -I, or the
+// search paths configured in the IDE), and `import mylib;`.
+namespace mylib
+{
+    // Return the sum of two integers.
+    native int add(int a, int b);
+
+    // Return the product of two integers.
+    native int mul(int a, int b);
+
+    // Return a greeting for the given name, e.g. greet("NLang") ->
+    // "hello, NLang".
+    native string greet(string who);
+}

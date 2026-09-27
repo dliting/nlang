@@ -153,7 +153,7 @@ bool ExprResolveAccessor::TryResolveNamespaceStdLibCall(
 		return false;
 	auto& outerId = static_cast<SnIdentifierExpr&>(*pOuterExpr);
 	auto* pInnerExpr = snMember.Inner();
-	if (!(IsStdLibNamespaceName(outerId.Name())
+	if (!(m_Env.IsLibraryNamespace(outerId.Name())
 		&& pInnerExpr && pInnerExpr->Kind() == NK_InvokeExpr))
 		return false;
 	//D6: built-in namespaces are gated like any module — the

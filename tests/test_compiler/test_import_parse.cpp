@@ -18,6 +18,10 @@ visibility gating is a later task in the same plan.
 #include <utility>
 #include <vector>
 
+#ifndef STDLIB_DIR
+#define STDLIB_DIR ""
+#endif
+
 using namespace nlang;
 
 namespace {
@@ -66,6 +70,8 @@ std::pair<bool, std::vector<std::string>> compileSource(
     params.m_sOutputModule = tag;
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
+    //`import io;` resolves against the real stdlib index.
+    params.m_sStdLibDir = STDLIB_DIR;
     MemLogger logger;
     ModuleBuilder builder(params, logger);
     bool ok = false;

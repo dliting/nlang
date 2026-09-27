@@ -115,6 +115,29 @@ static void TestNlangFunctionIsNotNative() {
     fs::remove_all(tmp);
 }
 
+static void TestAllmanNamespaceBraces() {
+    // The namespace opening brace may sit on its own line (Allman style);
+    // the indexer must still recognize the namespace and its declarations.
+    fs::path tmp = fs::temp_directory_path() / "nlang_ls_allman";
+    fs::remove_all(tmp);
+    fs::create_directories(tmp);
+    std::ofstream(tmp / "mylib.n")
+        << "namespace mylib\n"
+        << "{\n"
+        << "native int add(int a, int b);\n"
+        << "native string greet(string who);\n"
+        << "}\n";
+
+    SymbolIndex index;
+    index.LoadFile((tmp / "mylib.n").string());
+    CHECK(index.HasNamespace("mylib"));
+    const SymbolInfo* add = index.Resolve("mylib", "add");
+    CHECK(add != nullptr && add->native);
+    const SymbolInfo* greet = index.Resolve("mylib", "greet");
+    CHECK(greet != nullptr && greet->returnKind == TypeKind::String);
+    fs::remove_all(tmp);
+}
+
 static void TestFindStdLibDir() {
     // Build <tmp>/a/b with <tmp>/a/stdlib; starting from b, the walk up must
     // find it.
@@ -183,6 +206,7 @@ int main() {
     TestSemanticParamNames();
     TestCompletion();
     TestNlangFunctionIsNotNative();
+    TestAllmanNamespaceBraces();
     TestFindStdLibDir();
     TestTypeKinds();
     if (g_failures > 0) {

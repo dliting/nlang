@@ -100,6 +100,13 @@ public:
 	//for function signatures during type checking and codegen.
 	langservice::SymbolIndex& LibraryIndex();
 
+	//True when name is a loaded library namespace (standard or third
+	//party). Thin wrapper over the library index so internal passes need
+	//not depend on the langservice headers.
+	bool IsLibraryNamespace(const std::string& name) const;
+	//Load one library declaration file into the index (idempotent).
+	void LoadLibrarySource(const std::string& path);
+
 	//Get the current module been compiled.
 	Module* CurrModule() const
 	{

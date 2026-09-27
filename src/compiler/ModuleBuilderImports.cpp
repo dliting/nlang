@@ -29,6 +29,11 @@ bool ModuleBuilder::LoadImports()
 		m_upEnv->Log(CLL_Info, "Loading the import modules ...");
 	}
 
+	//Load third-party library sources (<name>.n) into the library index
+	//before the gates are built, so a discovered namespace opens the same
+	//gate as the standard library.
+	DiscoverLibrarySources();
+
 	std::vector<std::string> externalNames;
 	if (!BuildImportGates(externalNames))
 		return false;
@@ -58,7 +63,10 @@ bool ModuleBuilder::BuildImportGates(
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		if (!reg.BuildGate(gateModuleIndex++, pTransUnit->Imports(),
-				rExternalNames, gateErrors))
+				rExternalNames, gateErrors,
+				[this](const std::string &ns) {
+					return m_upEnv->IsLibraryNamespace(ns);
+				}))
 		{
 			for (const auto &error : gateErrors)
 				m_upEnv->Log(CLL_Error, "%s", error.c_str());
@@ -66,6 +74,39 @@ bool ModuleBuilder::BuildImportGates(
 		}
 	}
 	return true;
+}
+
+//Discover third-party library sources. For every single-segment,
+//non-wildcard import that is not already a known library namespace,
+//search the import dirs for <name>.n and load it once into the library
+//index. Only declarations inside a namespace block are indexed, so a
+//program file that happens to sit on the import path contributes nothing.
+void ModuleBuilder::DiscoverLibrarySources()
+{
+	for (auto pTransUnit : *m_upTransUnits)
+	{
+		for (const auto &spec : pTransUnit->Imports())
+		{
+			if (spec.wildcard)
+				continue;
+			const std::string name = spec.DottedName();
+			//A package file on the import path is single-segment; a dotted
+			//name resolves as a project module instead.
+			if (name.find('.') != std::string::npos
+				|| m_upEnv->IsLibraryNamespace(name))
+				continue;
+			for (const auto &dir : m_upEnv->Params().m_ImportDirs)
+			{
+				const std::string path = dir + "/" + name + ".n";
+				std::ifstream test(path, std::ios::binary);
+				if (test.good())
+				{
+					m_upEnv->LoadLibrarySource(path);
+					break;
+				}
+			}
+		}
+	}
 }
 
 //Load one external .nmod candidate end to end: locate, parse, mint

@@ -82,6 +82,63 @@ target_compile_definitions(test_native_host
 )
 add_test(NAME native_host_tests COMMAND test_native_host)
 
+# Third-party native library fixture (a real DLL shipped inside a package).
+add_library(nlang_mylib SHARED
+    fixtures/native/mylib/mylib_native.cpp
+)
+target_include_directories(nlang_mylib PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+# Third-party library integration tests: a package dir holding mylib.n and
+# the nlang_mylib.dll fixture, imported and run through the same path as the
+# standard library (real compile + real run).
+add_executable(test_thirdparty
+    test_vm/test_thirdparty.cpp
+)
+target_include_directories(test_thirdparty
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_thirdparty
+    PRIVATE
+        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+)
+target_compile_definitions(test_thirdparty
+    PRIVATE
+        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_mylib>"
+)
+add_dependencies(test_thirdparty nlang_mylib)
+add_test(NAME thirdparty_tests COMMAND test_thirdparty)
+
+# ncc end-to-end test for a third-party native package: assemble a package
+# directory holding the declaration (mylib.n), an example program
+# (use_mylib.n) and the nlang_mylib.dll fixture, then compile and run through
+# ncc with the package on the import path. The in-process thirdparty_tests
+# above drives ModuleBuilder/VmExecutor directly; this one covers the CLI's
+# native search wiring in main.cpp.
+set(mylib_pkg_dir ${CMAKE_BINARY_DIR}/e2e_out/mylib_pkg)
+add_custom_target(nlang_mylib_pkg ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${mylib_pkg_dir}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${PROJECT_SOURCE_DIR}/tests/fixtures/native/mylib/mylib.n
+        ${PROJECT_SOURCE_DIR}/tests/fixtures/native/mylib/use_mylib.n
+        ${mylib_pkg_dir}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:nlang_mylib>
+        ${mylib_pkg_dir}
+    VERBATIM)
+add_dependencies(nlang_mylib_pkg nlang_mylib)
+
+add_test(NAME ncc_thirdparty_run
+    COMMAND ncc
+        ${mylib_pkg_dir}/use_mylib.n
+        -I ${mylib_pkg_dir}
+        -o ${CMAKE_BINARY_DIR}/e2e_out/use_mylib.nmod)
+set_tests_properties(ncc_thirdparty_run PROPERTIES
+    PASS_REGULAR_EXPRESSION "hello, world"
+    TIMEOUT 180)
+
 # Phase 11 stdlib unit tests: in-process compile+run of real .n sources
 # via ModuleBuilder (temp .nmod round-trip) + VmExecutor.
 add_executable(test_stdlib
@@ -303,6 +360,10 @@ if(NLANG_BUILD_IDE)
             nlang_runtime
             nlang_vm
             Qt5::Test
+    )
+    target_compile_definitions(test_import_parse
+        PRIVATE
+            STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
     )
     if(WIN32)
         add_custom_command(TARGET test_import_parse POST_BUILD

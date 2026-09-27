@@ -81,6 +81,9 @@ int main(int argc, char* argv[]) {
         RegisterTestNatives(executor);
         try {
             mod = ModuleLoader::Load(argv[2]);
+            //A native DLL may ship beside the module file.
+            fs::path modPath(argv[2]);
+            executor.AddNativeSearchDir(modPath.parent_path().string());
             int result = executor.Execute(mod);
 #ifdef _WIN32
             ExitProcess(static_cast<UINT>(result));
@@ -314,6 +317,11 @@ int main(int argc, char* argv[]) {
     VmExecutor executor;
     //Phase 9f: host-provided natives (e2e test surface).
     RegisterTestNatives(executor);
+    //Native libraries (nlang_<ns>.dll) are searched in the import dirs in
+    //addition to the executable directory, so a third-party package ships
+    //its DLL beside its .n source.
+    for (const auto& dir : params.m_ImportDirs)
+        executor.AddNativeSearchDir(dir);
     try {
         mod = ModuleLoader::Load(outputFile);
         int result = executor.Execute(mod);

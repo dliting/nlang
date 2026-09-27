@@ -1,0 +1,23 @@
+// use_mylib.n - example program for the third-party "mylib" package.
+//
+// Run with ncc, adding the package directory (holding both mylib.n and
+// nlang_mylib.dll) to the import path:
+//
+//     ncc use_mylib.n -I <package-dir>
+import io;
+import mylib;
+
+int main()
+{
+    // The native implementations are exercised and self-checked first.
+    if (mylib.add(2, 3) != 5)
+        return 1;
+    if (mylib.mul(4, 5) != 20)
+        return 2;
+    if (mylib.greet("check") != "hello, check")
+        return 3;
+
+    // Route a native string result through the host IO.
+    io.print(mylib.greet("world"));
+    return 0;
+}

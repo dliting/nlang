@@ -52,6 +52,16 @@ langservice::SymbolIndex& BuildEnvironment::LibraryIndex()
 	return *m_upLibraryIndex;
 }
 
+bool BuildEnvironment::IsLibraryNamespace(const std::string& name) const
+{
+	return m_upLibraryIndex && m_upLibraryIndex->HasNamespace(name);
+}
+
+void BuildEnvironment::LoadLibrarySource(const std::string& path)
+{
+	m_upLibraryIndex->LoadFileOnce(path);
+}
+
 SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType)
 {
 	assert(pElemType);

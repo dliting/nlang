@@ -226,19 +226,20 @@ void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 //external .nmod), delegating the wildcard union to ApplyWildcardImport.
 void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 	ImportGate& gate, std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors) const
+	std::vector<std::string>& outErrors,
+	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
 	const std::string name = spec.DottedName();
-	//D10: a wildcard on a builtin name is rejected BEFORE the
-	//builtin branch — builtins are namespaces, not module trees,
-	//and a silently eaten '*' would teach the wrong model.
-	if (spec.wildcard && IsStdLibNamespaceName(name))
+	//A wildcard on a library namespace is rejected BEFORE the library
+	//branch — namespaces are not module trees, and a silently eaten '*'
+	//would teach the wrong model.
+	if (spec.wildcard && isLibraryNamespace(name))
 	{
-		outErrors.push_back("Wildcard import cannot target builtin "
+		outErrors.push_back("Wildcard import cannot target library "
 			"namespace '" + name + "'. Use 'import " + name + ";'.");
 		return;
 	}
-	if (IsStdLibNamespaceName(name))
+	if (isLibraryNamespace(name))
 	{
 		if (!ContainsValue(gate.builtins, name))
 			gate.builtins.push_back(name);
@@ -274,7 +275,8 @@ void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	const std::vector<ImportSpec>& specs,
 	std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors)
+	std::vector<std::string>& outErrors,
+	const LibraryNamespacePredicate& isLibraryNamespace)
 {
 	assert(moduleIndex < m_modules.size()
 		&& !m_modules[moduleIndex].isExternal);
@@ -293,7 +295,8 @@ bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	}
 
 	for (const ImportSpec& spec : specs)
-		ApplyImportSpec(spec, gate, externalOut, outErrors);
+		ApplyImportSpec(spec, gate, externalOut, outErrors,
+			isLibraryNamespace);
 
 	if (!outErrors.empty())
 		return false;

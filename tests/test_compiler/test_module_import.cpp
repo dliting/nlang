@@ -537,17 +537,17 @@ private slots:
         QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
     }
 
-    //D10: a wildcard on a builtin name is rejected — builtins are
-    //namespaces, not module trees (the '*' would be silently eaten).
+    //D10: a wildcard on a library namespace is rejected — namespaces
+    //are not module trees (the '*' would be silently eaten).
     void builtinWildcardRejected()
     {
         auto res = buildGateProject({
             "import io.*;\n"
             "int main() { return 0; }\n"});
-        QVERIFY2(!res.ok, "builtin wildcard must fail the build");
+        QVERIFY2(!res.ok, "library namespace wildcard must fail the build");
         QVERIFY2(containsError(res.errors,
-            "Wildcard import cannot target builtin namespace 'io'."),
-            "builtin wildcard must get the dedicated diagnostic");
+            "Wildcard import cannot target library namespace 'io'."),
+            "library namespace wildcard must get the dedicated diagnostic");
     }
 
     //D10: a wildcard matching no project TU module path is almost

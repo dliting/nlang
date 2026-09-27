@@ -62,6 +62,11 @@ private:
 	bool RegisterUnits();
 	//Load imported symbols to a rebuilt AST.
 	bool LoadImports();
+	//Discover third-party library sources: for every single-segment import
+	//not already a known library namespace, look for <name>.n in the import
+	//dirs and load it into the library index (idempotent). Afterwards the
+	//namespace is resolved through the same path as the standard library.
+	void DiscoverLibrarySources();
 	//Build the per-TU import gates (D1: imports are file-scoped) and
 	//collect the single-segment external .nmod candidates into
 	//rExternalNames. False after logging the gate errors.

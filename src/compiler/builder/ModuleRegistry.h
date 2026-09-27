@@ -9,6 +9,7 @@ gate (module import visibility plan, spec §6).
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include <cstdint>
 #include "SyntaxNode.h"
 
@@ -19,6 +20,13 @@ class SnField;
 class SnFunction;
 class TranslationUnit;
 struct ImportSpec;
+
+//Predicate deciding whether a single-segment name is a known library
+//namespace (standard library OR a discovered third-party namespace).
+//Injected by ModuleBuilder so the registry stays independent of the
+//langservice symbol index (dependency inversion).
+using LibraryNamespacePredicate =
+	std::function<bool(const std::string&)>;
 
 //Spec §7 module-not-found wording — single source shared by the gate
 //resolver (BuildGate) and the .nmod loader (ModuleBuilder::LoadImports).
@@ -79,7 +87,8 @@ public:
 	bool BuildGate(uint32_t moduleIndex,
 		const std::vector<ImportSpec>& specs,
 		std::vector<std::string>& externalOut,
-		std::vector<std::string>& outErrors);
+		std::vector<std::string>& outErrors,
+		const LibraryNamespacePredicate& isLibraryNamespace);
 
 	//"utils.helper" / "main"; empty before RegisterUnit.
 	const std::string& ModulePathOf(uint32_t moduleIndex) const;
@@ -166,7 +175,8 @@ private:
 	//or an outErrors entry. See BuildGate for the priority contract.
 	void ApplyImportSpec(const ImportSpec& spec, ImportGate& gate,
 		std::vector<std::string>& externalOut,
-		std::vector<std::string>& outErrors) const;
+		std::vector<std::string>& outErrors,
+		const LibraryNamespacePredicate& isLibraryNamespace) const;
 
 	//Wildcard arm of ApplyImportSpec (D11 union semantics): the exact
 	//module "X" plus every "X."-prefixed project module. An empty union

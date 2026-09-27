@@ -137,11 +137,11 @@ private:
 			//resolver can route `math.sqrt(x)` on the outer name alone.
 			//Every NameDict (namespace/class/struct/enum members, function
 			//params) flows through here — one choke point for all of them.
-			if (IsStdLibNamespaceName(pCurrField->Name()))
+			if (m_Env.IsLibraryNamespace(pCurrField->Name()))
 			{
 				m_Env.Log(CLL_Error, pCurrField->Location(),
-					"The name \"%s\" is reserved for a standard library "
-					"namespace.", pCurrField->Name().c_str());
+					"The name \"%s\" is reserved for a library namespace.",
+					pCurrField->Name().c_str());
 			}
 			if (sPrevName == pCurrField->Name())
 			{
@@ -266,7 +266,7 @@ public:
 				|| treeRoot.FindField(sName)
 				|| sName == "List" || sName == "Dict" || sName == "Func"
 				|| IsBuiltinClassName(sName)
-				|| IsStdLibNamespaceName(sName))
+				|| m_Accessor.m_Env.IsLibraryNamespace(sName))
 			{
 				m_Accessor.m_Env.Log(CLL_Error, pUsing->Location(),
 					"The name \"%s\" cannot be used as a type alias.",

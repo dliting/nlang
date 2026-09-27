@@ -79,6 +79,45 @@ SymbolInfo BuildSymbol(const std::smatch& m,
     return sym;
 }
 
+// Tracks the current namespace while scanning a declaration file. The
+// opening brace is accepted on the same line as `namespace name` (K&R) or
+// on the following line (Allman); a lone '}' closes the namespace.
+class NamespaceScope {
+public:
+    // Feed one raw line. True when the line is namespace structure (a
+    // head, an Allman brace, or a close) and holds no declaration.
+    bool ConsumeStructure(const std::string& line) {
+        const std::string t = Trim(line);
+        // Complete a pending Allman head: this line must be '{'.
+        if (!m_pending.empty()) {
+            if (t == "{")
+                m_current = m_pending;
+            m_pending.clear();
+            return true;
+        }
+        static const std::regex kHead(
+            R"(^\s*namespace\s+(\w+)\s*(\{)?\s*$)");
+        std::smatch m;
+        if (std::regex_match(line, m, kHead)) {
+            if (m[2].matched)
+                m_current = m[1].str();
+            else
+                m_pending = m[1].str();
+            return true;
+        }
+        if (t == "}") {
+            m_current.clear();
+            return true;
+        }
+        return false;
+    }
+
+    const std::string& Current() const { return m_current; }
+private:
+    std::string m_current;
+    std::string m_pending;
+};
+
 } // namespace
 
 TypeKind TypeKindFromName(const std::string& name) {
@@ -113,9 +152,8 @@ void SymbolIndex::LoadFile(const std::string& path) {
     //   [native] <return type> <name> ( <params> ) ;  or  {
     static const std::regex kDecl(
         R"(^\s*(native\s+)?(.+?)\s+([A-Za-z_]\w*)\s*\((.*)\)\s*[;{]\s*$)");
-    static const std::regex kNamespace(R"(^\s*namespace\s+(\w+)\s*\{)");
 
-    std::string currentNs;
+    NamespaceScope scope;
     std::vector<std::string> pendingDoc;
     std::string line;
     int lineNo = 0;
@@ -123,26 +161,20 @@ void SymbolIndex::LoadFile(const std::string& path) {
         ++lineNo;
         std::string trimmed = Trim(line);
 
-        std::smatch m;
-        if (std::regex_match(line, m, kNamespace)) {
-            currentNs = m[1].str();
-            pendingDoc.clear();
-            continue;
-        }
-        if (trimmed == "}") {
-            currentNs.clear();
+        if (scope.ConsumeStructure(line)) {
             pendingDoc.clear();
             continue;
         }
         // Only collect doc comments once inside a namespace, so the file
         // header banner is not mistaken for a function's doc.
-        if (!currentNs.empty() && trimmed.substr(0, 2) == "//") {
+        if (!scope.Current().empty() && trimmed.substr(0, 2) == "//") {
             pendingDoc.push_back(Trim(trimmed.substr(2)));
             continue;
         }
-        if (!currentNs.empty() && std::regex_match(line, m, kDecl)) {
+        std::smatch m;
+        if (!scope.Current().empty() && std::regex_match(line, m, kDecl)) {
             m_symbols.push_back(
-                BuildSymbol(m, currentNs, pendingDoc, path, lineNo));
+                BuildSymbol(m, scope.Current(), pendingDoc, path, lineNo));
             pendingDoc.clear();
         } else if (!trimmed.empty()) {
             // A non-decl line (a body statement, a blank already skipped)
@@ -150,6 +182,14 @@ void SymbolIndex::LoadFile(const std::string& path) {
             pendingDoc.clear();
         }
     }
+}
+
+void SymbolIndex::LoadFileOnce(const std::string& path) {
+    // m_loadedFiles guards against parsing the same file twice; the insert
+    // succeeds only on the first encounter.
+    if (!m_loadedFiles.insert(path).second)
+        return;
+    LoadFile(path);
 }
 
 void SymbolIndex::LoadLibraryDir(const std::string& dir) {

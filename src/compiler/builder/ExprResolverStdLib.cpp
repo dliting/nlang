@@ -201,9 +201,13 @@ const langservice::SymbolInfo *ExprResolveAccessor::FindStdLibEntry(
 			ns.c_str(), fnName.c_str());
 		return nullptr;
 	}
-	//A native declaration must have a VM implementation; a missing one
-	//is a build/installation problem, not a user source error.
-	if (pSig->native && !FindStdLibFunction(ns, fnName))
+	//A native declaration must have a VM implementation. A built-in
+	//standard library namespace provides a host intrinsic, so a miss is a
+	//build/installation problem. Third-party natives are resolved from
+	//nlang_<ns>.dll at runtime (like JNI / Python C extensions), so their
+	//implementation is not verified at compile time.
+	if (pSig->native && !FindStdLibFunction(ns, fnName)
+		&& IsStdLibNamespaceName(ns))
 	{
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"Standard library function \"%s.%s\" is declared native but "

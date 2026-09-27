@@ -12,6 +12,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace nlang {
@@ -59,6 +60,11 @@ public:
     // Index one .n file.
     void LoadFile(const std::string& path);
 
+    // Index one .n file at most once (a repeat path is a no-op). Used when
+    // discovering third-party library sources so the same file is not parsed
+    // twice across imports.
+    void LoadFileOnce(const std::string& path);
+
     // Resolve a qualified name, e.g. Resolve("io", "print").
     // Returns nullptr when unknown.
     const SymbolInfo* Resolve(const std::string& ns,
@@ -80,6 +86,7 @@ public:
 
 private:
     std::vector<SymbolInfo> m_symbols;
+    std::unordered_set<std::string> m_loadedFiles;
 };
 
 // Find the stdlib directory starting from the directory that holds the

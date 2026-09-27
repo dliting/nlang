@@ -43,10 +43,10 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 void StatementResolveAccessor::CheckLocalNameReserved(const std::string &name,
 	const ISourceLocation *pLoc)
 {
-	if (IsStdLibNamespaceName(name))
+	if (m_Env.IsLibraryNamespace(name))
 		m_Env.Log(CLL_Error, pLoc,
-			"The name \"%s\" is reserved for a standard library "
-			"namespace.", name.c_str());
+			"The name \"%s\" is reserved for a library namespace.",
+			name.c_str());
 }
 
 void StatementResolveAccessor::Access(SnFunction &sn)
