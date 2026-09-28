@@ -98,6 +98,13 @@ add_library(nlang_mylib SHARED
 )
 target_include_directories(nlang_mylib PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+# Mixed-library fixture: a second namespace/DLL so the in-process test can
+# load two native packages in one process (Windows maps images by base name).
+add_library(nlang_mixlib SHARED
+    fixtures/native/mixlib/mixlib_native.cpp
+)
+target_include_directories(nlang_mixlib PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
 # Third-party library integration tests: a package dir holding mylib.n and
 # the nlang_mylib.dll fixture, imported and run through the same path as the
 # standard library (real compile + real run).
@@ -117,8 +124,12 @@ target_compile_definitions(test_thirdparty
     PRIVATE
         STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
         FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_mylib>"
+        MYLIB_DLL_NAME="$<TARGET_FILE_NAME:nlang_mylib>"
+        MIXLIB_DLL_NAME="$<TARGET_FILE_NAME:nlang_mixlib>"
+        SOURCE_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/native/mylib"
+        MIX_SOURCE_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/native/mixlib"
 )
-add_dependencies(test_thirdparty nlang_mylib)
+add_dependencies(test_thirdparty nlang_mylib nlang_mixlib)
 add_test(NAME thirdparty_tests COMMAND test_thirdparty)
 add_executable(test_library_source
     test_vm/test_library_source.cpp

@@ -16,6 +16,9 @@ int main()
         return 2;
     if (mylib.greet("check") != "hello, check")
         return 3;
+    // The NLang wrapper in the mixed library calls the native add twice.
+    if (mylib.addTwice(2, 3) != 10)
+        return 4;
 
     // Route a native string result through the host IO.
     io.print(mylib.greet("world"));
