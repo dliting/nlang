@@ -7,7 +7,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/StdLib.h>
+#include <nlang/vm/CompiledModule.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -85,8 +85,8 @@ std::vector<std::string> OuterIdentifierChain(
 }
 
 //Phase 11: printable language name of a stdlib param kind (RTK_*). Only
-//the kinds StdLibEntry::paramKinds may carry are covered — extending the
-//table with a new kind means extending this switch too.
+//the kinds StringMethodEntry::paramKinds may carry are covered — adding
+//a kind to the string-method table means extending this switch too.
 const char* StdLibKindName(uint8_t rtk)
 {
 	switch (rtk)

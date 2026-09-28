@@ -881,12 +881,12 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nmod_determinism.py
             $<TARGET_FILE:ncc>)
     set_tests_properties(nmod_determinism PROPERTIES TIMEOUT 180)
-    # stdlib/*.n declaration guard: files generated from kStdLibTable must
-    # exist and carry matching signatures (return type + param types).
-    add_test(NAME stdlib_generation
+    # Phase 4c guard: no hardcoded standard library may return to the VM
+    # (signature table, math/io/fs intrinsic families, their id blocks).
+    add_test(NAME no_builtin_stdlib
         COMMAND ${PYTHON3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/check_stdlib_generation.py)
-    set_tests_properties(stdlib_generation PROPERTIES TIMEOUT 60)
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_no_builtin_stdlib.py)
+    set_tests_properties(no_builtin_stdlib PROPERTIES TIMEOUT 60)
     # langservice: index real stdlib/*.n, resolve / complete / locate.
     add_executable(test_langservice
         test_langservice/test_symbol_index.cpp

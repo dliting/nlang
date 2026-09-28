@@ -3,7 +3,6 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
-#include <nlang/vm/StdLib.h>
 #include <vector>
 
 namespace nlang

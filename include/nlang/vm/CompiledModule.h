@@ -206,8 +206,8 @@ static constexpr uint16_t INTR_Math_Random = 92;
 static constexpr uint16_t INTR_Math_Srand  = 93;
 static constexpr uint16_t INTR_Math_Randomi = 94;
 //Executable allocation invariant: the math block is contiguous 70-94 and
-//kStdLibTable references exactly this range (an unimplemented id is only
-//a runtime "unknown intrinsic" hole, so bind the block size here).
+//the id constants above cover exactly this range (an unimplemented id is
+//only a runtime "unknown intrinsic" hole, so bind the block size here).
 static constexpr uint16_t kMathIntrinsicFirst = 70;
 static constexpr uint16_t kMathIntrinsicCount = 25;
 static_assert(INTR_Math_Sqrt == kMathIntrinsicFirst,

@@ -5,7 +5,6 @@
 #include "BuiltinNames.h"
 #include "TranslationUnit.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/StdLib.h>
 #include <set>
 #include <string>
 

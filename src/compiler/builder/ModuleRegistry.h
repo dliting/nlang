@@ -32,6 +32,11 @@ using LibraryNamespacePredicate =
 //resolver (BuildGate) and the .nmod loader (ModuleBuilder::LoadImports).
 std::string ModuleNotFoundText(const std::string& moduleName);
 
+//Library namespaces that are permanently taken by stdlib/*.n + nlang_<ns>.dll:
+//a project directory or module with one of these names would shadow a
+//standard library. The list lives here (the compiler's gate), not in the VM.
+bool IsReservedLibraryName(const std::string& name);
+
 /*
 Compile-time module registry (spec §6): maps every translation unit
 to its dotted module path (relative to BuildParams::m_sProjectDir),

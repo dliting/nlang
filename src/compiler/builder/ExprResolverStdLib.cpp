@@ -1,5 +1,5 @@
 /*---
-    ExprResolverStdLib.cpp — 标准库命名空间调用与跨模块限定名解析（TryResolveStdLibCall / TryResolveModuleQualified / 模块提示）。
+    ExprResolverStdLib.cpp — 库命名空间调用与跨模块限定名解析（TryResolveModuleQualified / 模块提示）。
     从 ExprResolver.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
@@ -11,7 +11,6 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/StdLib.h>
 #include <nlang/langservice/SymbolIndex.h>
 #include <algorithm>
 #include <map>

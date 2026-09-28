@@ -149,10 +149,6 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl);
 //phase declarations below hand around pointers into it.
 struct StringMethodEntry;
 
-//Standard library function table entry (defined in vm/StdLib.h); the
-//stdlib-call decomposition below hands around pointers into it.
-struct StdLibEntry;
-
 //Library declaration symbol (nlang_langservice); the stdlib-call
 //resolution reads signatures (param/return types, arity) from it.
 namespace langservice { struct SymbolInfo; }

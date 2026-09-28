@@ -4,7 +4,6 @@ ModuleRegistry.cpp - compile-time module registry of the NLang compiler.
 #include "ModuleRegistry.h"
 #include "TranslationUnit.h"
 #include "SyntaxTree.h"
-#include <nlang/vm/StdLib.h>
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
@@ -78,7 +77,7 @@ std::string FindReservedSegment(const std::string &modulePath)
 		const std::string segment = modulePath.substr(searchFrom,
 			dotPos == std::string::npos ? std::string::npos
 				: dotPos - searchFrom);
-		if (IsStdLibNamespaceName(segment))
+		if (IsReservedLibraryName(segment))
 			return segment;
 		if (dotPos == std::string::npos)
 			return std::string();
@@ -87,6 +86,16 @@ std::string FindReservedSegment(const std::string &modulePath)
 }
 
 } //namespace
+
+bool IsReservedLibraryName(const std::string& name)
+{
+	//io/math/fs each own a stdlib/<ns>.n source and an nlang_<ns>.dll.
+	static const char* const kReservedLibraryNames[] = { "io", "math", "fs" };
+	for (const char* reserved : kReservedLibraryNames)
+		if (name == reserved)
+			return true;
+	return false;
+}
 
 std::string ModuleNotFoundText(const std::string& moduleName)
 {
