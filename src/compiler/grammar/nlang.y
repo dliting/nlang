@@ -1325,6 +1325,8 @@ LiteralExpr:	TT_Int		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	$1,	@1);	} |
 					TT_Byte		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
 					TT_UByte	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
 					TT_Float	{ $$ = new SnLiteralExpr(*RnFloat::Instance(),	$1,	@1);	} |
+					KT_True		{ $$ = new SnLiteralExpr(*RnBool::Instance(),	1,	@1);	} |
+					KT_False	{ $$ = new SnLiteralExpr(*RnBool::Instance(),	0,	@1);	} |
 					TT_String 	{ $$ = BuildStringExpr($1, @1, parser);	} ;
 
 InvokeExpr:	TT_Identifier '(' ConcreteParamList ')' {
@@ -1334,7 +1336,8 @@ InvokeExpr:	TT_Identifier '(' ConcreteParamList ')' {
 IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 					KT_Int   		{ $$ = new SnIdentifierExpr(NK_Int32, @1);	} |
 					KT_Float		{ $$ = new SnIdentifierExpr(NK_Float, @1);	} |
-					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} ;
+					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} |
+					KT_Bool		{ $$ = new SnIdentifierExpr(NK_Bool, @1);	} ;
 
 NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 					auto* pId = new SnIdentifierExpr($2, @2);

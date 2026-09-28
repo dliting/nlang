@@ -152,25 +152,27 @@ bool ExprResolveAccessor::CheckCompareOperands(SnBinaryExpr &sn,
 		return false;
 	if (RejectArrayIdentityMisuse(sn, op, lk, rk, lNull, rNull))
 		return false;
+	if (RejectBoolMisuse(sn, op, lk, rk))
+		return false;
 	PromoteCompareOperands(sn, lk, rk, lNull, rNull);
 	return true;
 }
 
-//Short-circuit hardening (2026-08-31): logical operands feed
-//OP_JumpIfNot, which reads one int32 — the same policy as statement
-//conditions (CheckIntCondition in StatementResolverFlow.cpp; widen both
-//together). Without this gate a float/string operand is read as raw
-//bits, giving garbage truthiness. False = rejected.
-bool ExprResolveAccessor::CheckLogicalIntOperands(SnBinaryExpr &sn)
+//0.7.5 strict bool: logical operands feed OP_JumpIfNot and now must be
+//bool — the same policy as statement conditions (CheckBoolCondition in
+//StatementResolverFlow.cpp; widened together). Comparisons produce
+//bool, so `a > 0 && b > 0` keeps working; raw int truthiness is a
+//compile error. False = rejected.
+bool ExprResolveAccessor::CheckLogicalBoolOperands(SnBinaryExpr &sn)
 {
 	auto bop = sn.Op();
 	const char* szOp = bop == SnBinaryExpr::OP_LogicalAnd
 		? "&&" : bop == SnBinaryExpr::OP_LogicalOr
 		? "||" : "!";
 	const char* szShape = sn.Right()
-		? "int operands" : "an int operand";
+		? "bool operands" : "a bool operand";
 	auto* pLT = sn.Left()->EvalDataType();
-	if (pLT && pLT->Kind() != NK_Int32)
+	if (pLT && pLT->Kind() != NK_Bool)
 	{
 		m_Env.Log(CLL_Error, sn.Left()->Location(),
 			"operator '%s' requires %s, got \"%s\".",
@@ -180,7 +182,7 @@ bool ExprResolveAccessor::CheckLogicalIntOperands(SnBinaryExpr &sn)
 	if (sn.Right())
 	{
 		auto* pRT = sn.Right()->EvalDataType();
-		if (pRT && pRT->Kind() != NK_Int32)
+		if (pRT && pRT->Kind() != NK_Bool)
 		{
 			m_Env.Log(CLL_Error, sn.Right()->Location(),
 				"operator '%s' requires %s, got \"%s\".",
@@ -189,6 +191,36 @@ bool ExprResolveAccessor::CheckLogicalIntOperands(SnBinaryExpr &sn)
 		}
 	}
 	return true;
+}
+
+//0.7.5 strict bool: ==/!= between two bools is the only comparison
+//bools support. Relational ordering on bool (< <= > >=) has no
+//semantics, and mixed bool/non-bool (true == 1, b == null) must not
+//silently compare the raw 0/1 carrier against an int — reject both.
+//True = rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectBoolMisuse(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op, NodeKind lk, NodeKind rk)
+{
+	bool lBool = lk == NK_Bool;
+	bool rBool = rk == NK_Bool;
+	if (!lBool && !rBool)
+		return false;
+	bool bEq = op == SnBinaryExpr::OP_Equal
+		|| op == SnBinaryExpr::OP_NotEqual;
+	if (!bEq)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"bool values cannot be ordered; only == and != are "
+			"supported.");
+		return true;
+	}
+	if (!(lBool && rBool))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"a bool value can only be compared with a bool value.");
+		return true;
+	}
+	return false;
 }
 
 //T_result selection for the arithmetic branch: string + OP_Add
@@ -286,10 +318,12 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 			if (!CheckCompareOperands(sn, op))
 				return;
 		}
-		else if (!CheckLogicalIntOperands(sn))
+		else if (!CheckLogicalBoolOperands(sn))
 			return;
-		auto* intType = SnBuiltinDataType::InstanceOf(NK_Int32);
-		sn.EvalDataType(intType);
+		//0.7.5: comparisons and logical ops produce bool (carrier
+		//int32 0/1 — OP_Cmp/OP_Eq_str/JumpIfNot bit patterns unchanged).
+		auto* boolType = SnBuiltinDataType::InstanceOf(NK_Bool);
+		sn.EvalDataType(boolType);
 	}
 	else if (!ResolveArithmeticBinary(sn, op))
 		return;

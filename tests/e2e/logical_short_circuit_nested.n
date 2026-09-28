@@ -1,18 +1,18 @@
 //Nested chains: left associativity (a&&b)&&c — each link can short-
 //circuit the rest.
 int main() {
-    int a = 0;
-    int b = 1;
-    int c = 2;
+    bool a = false;
+    bool b = true;
+    bool c = true;
     //&& chain: first link false -> rest (1/0) must not run
-    int r1 = (a != 0) && (b != 0) && (1 / 0 == 0);
+    bool r1 = a && b && (1 / 0 == 0);
     //|| chain: first link true -> rest (1/0) must not run
-    int r2 = (b == 1) || (a == 5) || (1 / 0 == 0);
-    //mixed: a truthy compound && result short-circuits ||'s right;
+    bool r2 = b || a || (1 / 0 == 0);
+    //mixed: a true compound && result short-circuits ||'s right;
     //grouping is explicit (parenthesized), so precedence is not exercised
-    int r3 = (b == 1 && c == 2) || (1 / 0 == 0);
-    if (r1 != 0) return 2;
-    if (r2 != 1) return 3;
-    if (r3 != 1) return 4;
+    bool r3 = (b && c) || (1 / 0 == 0);
+    if (r1 != false) return 2;
+    if (r2 != true) return 3;
+    if (r3 != true) return 4;
     return 7;
 }

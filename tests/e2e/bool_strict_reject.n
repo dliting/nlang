@@ -1,0 +1,7 @@
+// 0.7.5 strict bool: conditions accept bool only — an int condition
+// must be rejected at compile time.
+int main() {
+    int x = 1;
+    if (x) { }
+    return 0;
+}

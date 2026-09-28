@@ -226,7 +226,8 @@ void ExprResolveAccessor::WrapContainerStoreArgs(SnInvokeExpr &invoke,
 
 //Return-type computation for the builtin container methods:
 // - List Add/Set/RemoveAt/Clear, Dict Set/Clear: void (no EvalDataType)
-// - List Length/IndexOf/Contains, Dict ContainsKey/Remove/Count: int
+// - List Contains, Dict ContainsKey: bool (0.7.5 membership predicates)
+// - List Length/IndexOf, Dict Remove/Count: int
 // - List Get: T (typeArgs[0]); Dict Get: V (typeArgs[1])
 //All elements at runtime are heap idxs (boxed primitives or class refs);
 //VmBackend emits OP_Box/OP_Unbox around primitive-typed call sites.
@@ -248,11 +249,19 @@ SnField *ExprResolveAccessor::ComputeContainerMethodResult(
 			snMember.EvalDataType(typeArgs[1]);
 			pResultField = typeArgs[1];
 		}
+	} else if ((baseName == "List" && name == "contains")
+		|| (baseName == "Dict" && name == "containsKey")
+	) {
+		//0.7.5: membership predicates return bool (the intrinsics
+		//already wrote 0/1 into the int32 carrier slot).
+		auto* pBool = SnBuiltinDataType::InstanceOf(NK_Bool);
+		snMember.EvalDataType(pBool);
+		pResultField = pBool;
 	} else if (
 		(baseName == "List"
-			&& (name == "length" || name == "indexOf" || name == "contains"))
+			&& (name == "length" || name == "indexOf"))
 		|| (baseName == "Dict"
-			&& (name == "containsKey" || name == "remove" || name == "count"))
+			&& (name == "remove" || name == "count"))
 	) {
 		auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
 		snMember.EvalDataType(pInt);

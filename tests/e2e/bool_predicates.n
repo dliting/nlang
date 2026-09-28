@@ -1,0 +1,15 @@
+// 0.7.5: predicates return bool — startsWith drives an if directly,
+// fs.exists prints through the bool formatter ("false" for a missing
+// path). Exit codes pin the boolean values.
+import io;
+import fs;
+int main() {
+    string s = "abc";
+    bool b = s.startsWith("ab");
+    bool e = fs.exists("no_such_file_xyz");
+    if (!b) { return 1; }
+    if (e) { return 2; }
+    io.print(b);
+    io.print(e);
+    return 0;
+}

@@ -642,9 +642,11 @@ private:
 		SnField *L, SnField *R, bool lNull, bool rNull);
 	bool RejectArrayIdentityMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		NodeKind lk, NodeKind rk, bool lNull, bool rNull);
+	bool RejectBoolMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		NodeKind lk, NodeKind rk);
 	void PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
 		bool lNull, bool rNull);
-	bool CheckLogicalIntOperands(SnBinaryExpr &sn);
+	bool CheckLogicalBoolOperands(SnBinaryExpr &sn);
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
 		SnBinaryExpr::Operator op);

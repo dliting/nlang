@@ -36,13 +36,13 @@ const char kProgSource[] =
 
 //spin.n: never terminates, so only kill() can end the session.
 const char kSpinSource[] =
-    "int main() {\n"          //1
-    "    int i = 0;\n"        //2
-    "    while (1) {\n"       //3
-    "        i = i + 1;\n"    //4
-    "    }\n"                 //5
-    "    return i;\n"         //6
-    "}\n";                    //7
+    "int main() {\n"            //1
+    "    int i = 0;\n"          //2
+    "    while (true) {\n"      //3
+    "        i = i + 1;\n"      //4
+    "    }\n"                   //5
+    "    return i;\n"           //6
+    "}\n";                      //7
 
 //throw.n: an uncaught NLang exception ends the session via the error
 //event (ndb exits 1, no exited event).

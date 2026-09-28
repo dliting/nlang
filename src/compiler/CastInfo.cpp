@@ -269,12 +269,15 @@ void TypeCastInfo::CalcCastKind()
 	}
 	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
 	{
-		//Phase 8e-1: primitive (int/float/string) → Object = implicit box.
+		//Phase 8e-1: primitive (registry scalar or string) → Object =
+		//implicit box. 0.7.5: the hardcoded int/float/string triple is
+		//registry-driven now — every scalar primitive (bool today, the
+		//full integer family in P4) boxes without touching this file.
 		//Must be checked BEFORE the generic null-literal rule below so that
 		//`Object o = 5` produces TCK_Box (and emits OP_Box), not TCK_Auto
 		//(which would skip boxing entirely and store the raw int).
 		//Object is recognized by name ("Object") since it has no AST parent.
-		if ((srcKind == NK_Int32 || srcKind == NK_Float || srcKind == NK_String)
+		if ((ScalarPrimIndexOf(srcKind) >= 0 || srcKind == NK_String)
 			&& tgtKind == NK_ClassDecl
 			&& m_pTarget && m_pTarget->Name() == "Object")
 		{
@@ -293,8 +296,9 @@ void TypeCastInfo::CalcCastKind()
 		//Phase 8e-1.5: Object → primitive = explicit unbox (TCK_Unbox).
 		//Only honored through `o as int` (SnAsExpr). Assignments from Object
 		//to primitive still reject (TCK_None) to keep implicit flows safe.
+		//0.7.5: registry-driven target set (see the box branch above).
 		if (srcKind == NK_ClassDecl && m_pSource && m_pSource->Name() == "Object"
-			&& (tgtKind == NK_Int32 || tgtKind == NK_Float || tgtKind == NK_String))
+			&& (ScalarPrimIndexOf(tgtKind) >= 0 || tgtKind == NK_String))
 		{
 			m_Kind = TCK_Unbox;
 			return;

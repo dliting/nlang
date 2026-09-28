@@ -8,6 +8,7 @@
 
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -21,9 +22,12 @@ namespace {
 const int kMaxElementsShown = 5;
 
 const char* DebugKindName(uint8_t kind) {
+    //0.7.5: scalars name themselves through the registry (bool today,
+    //the P4-P6 family later) — no per-kind arm to forget.
+    int i = ScalarPrimIndexOfRtk(kind);
+    if (i >= 0)
+        return kScalarPrims[i].name;
     switch (kind) {
-    case RTK_Int32:  return "int";
-    case RTK_Float:  return "float";
     case RTK_String: return "string";
     case RTK_Struct: return "struct";
     case RTK_Class:  return "class";
@@ -111,6 +115,7 @@ std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     std::memcpy(&raw, frameLocals + ld.offset, sizeof(raw));
     switch (ld.typeKind) {
     case RTK_Int32:  return std::to_string(raw);
+    case RTK_Bool:   return raw ? "true" : "false";
     case RTK_Float:  return FormatFloatBits(raw);
     case RTK_String: return FormatDebugStringIdx(raw);
     case RTK_Struct:
@@ -132,6 +137,7 @@ std::string VmExecutor::FormatDebugStringIdx(int32_t idx) const {
 
 std::string VmExecutor::FormatDebugBoxed(int32_t tag, int32_t val) const {
     if (tag == RTK_Int32) return std::to_string(val);
+    if (tag == RTK_Bool)  return val ? "true" : "false";
     if (tag == RTK_Float) return FormatFloatBits(val);
     if (tag == RTK_String) return FormatDebugStringIdx(val);
     return "<unknown>";
@@ -219,6 +225,7 @@ std::string VmExecutor::FormatDebugField(int32_t raw,
     uint16_t declaredKind) const {
     switch (declaredKind) {
     case RTK_Int32:  return std::to_string(raw);
+    case RTK_Bool:   return raw ? "true" : "false";
     case RTK_Float:  return FormatFloatBits(raw);
     case RTK_String: return FormatDebugStringIdx(raw);
     case RTK_Array:

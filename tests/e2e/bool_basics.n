@@ -1,0 +1,16 @@
+// 0.7.5 strict bool: literals, comparison-produced bools, logical
+// operators, and ==/!= between bools. Prints "cf", "cnt", "true",
+// "false"; exit 0 pins every gate.
+import io;
+int main() {
+    bool a = true;
+    bool b = 1 < 2;
+    bool c = a && !b || false;   // true && false || false = false
+    bool d = a && b;             // true
+    if (c == false) { io.print("cf"); }
+    if (c != true) { io.print("cnt"); }
+    assert(d);
+    io.print(a);
+    io.print(c);
+    return 0;
+}

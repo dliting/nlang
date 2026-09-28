@@ -2216,14 +2216,14 @@ void test_loop_anchor_per_iteration()
     //raising the sentinel.
     TEST(loop_anchor_per_iteration);
     BuildOutcome b = buildSource("loop_anchor",
-        "int spin() {\n"        //1
-        "    while (1) {}\n"    //2
-        "    return 0;\n"       //3
-        "}\n"                   //4
-        "int main() {\n"        //5
-        "    spin();\n"         //6
-        "    return 0;\n"       //7
-        "}\n");                 //8
+        "int spin() {\n"            //1
+        "    while (true) {}\n"     //2
+        "    return 0;\n"           //3
+        "}\n"                       //4
+        "int main() {\n"            //5
+        "    spin();\n"             //6
+        "    return 0;\n"           //7
+        "}\n");                     //8
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadBuilt("loop_anchor");
     VmExecutor exec;

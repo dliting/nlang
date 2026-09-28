@@ -3,6 +3,7 @@
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "VmExecutor.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cstring>
 #include <cstdio>
 #include <exception>
@@ -187,17 +188,16 @@ void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
     int32_t actualTag = m_structHeap[static_cast<size_t>(heapIdx)][0];
     if (static_cast<uint8_t>(actualTag) != expectedTag)
     {
-        const char* expName = expectedTag == RTK_Int32  ? "int"  :
-                              expectedTag == RTK_Float  ? "float":
-                              expectedTag == RTK_String ? "string" :
-                              "unknown";
-        const char* actName = actualTag == RTK_Int32  ? "int"  :
-                              actualTag == RTK_Float  ? "float":
-                              actualTag == RTK_String ? "string" :
-                              "unknown";
+        //0.7.5: names come from the scalar registry so every primitive
+        //kind (bool today, the full family in P4) reports correctly.
+        auto tagName = [](uint8_t rtk) {
+            int i = ScalarPrimIndexOfRtk(rtk);
+            return i < 0 && rtk == RTK_String ? "string"
+                 : i < 0 ? "unknown" : kScalarPrims[i].name;
+        };
         throw std::runtime_error(std::string(
-            "NLang VM: invalid unbox - expected ") + expName +
-            ", got " + actName);
+            "NLang VM: invalid unbox - expected ") + tagName(expectedTag) +
+            ", got " + tagName(static_cast<uint8_t>(actualTag)));
     }
     int32_t val = m_structHeap[static_cast<size_t>(heapIdx)][1];
     std::memcpy(pResult, &val, sizeof(val));

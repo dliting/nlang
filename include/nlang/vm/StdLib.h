@@ -25,6 +25,7 @@ enum StdLibReturnType : uint8_t
 	SLRT_Void = 0,
 	SLRT_Int32,
 	SLRT_Float,
+	SLRT_Bool,   //0.7.5: predicates
 	SLRT_String,
 	SLRT_ListString,  //Step 3: s.split / fs.listFiles
 };
@@ -102,9 +103,9 @@ inline constexpr StdLibEntry kStdLibTable[] =
 	//queries that cannot answer raise IOException at run time
 	//(std::filesystem with error_code — no exceptions cross the ABI);
 	//the three type predicates never raise: an un-statable path answers 0.
-	{"fs", "exists",    {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_Exists,    false},
-	{"fs", "isFile",    {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_IsFile,    false},
-	{"fs", "isDirectory", {RTK_String}, 1, 1, SLRT_Int32,     INTR_FileSystem_IsDir,     false},
+	{"fs", "exists",    {RTK_String}, 1, 1, SLRT_Bool,       INTR_FileSystem_Exists,    false},
+	{"fs", "isFile",    {RTK_String}, 1, 1, SLRT_Bool,       INTR_FileSystem_IsFile,    false},
+	{"fs", "isDirectory", {RTK_String}, 1, 1, SLRT_Bool,     INTR_FileSystem_IsDir,     false},
 	{"fs", "size",      {RTK_String}, 1, 1, SLRT_Int32,       INTR_FileSystem_Size,      false},
 	{"fs", "listFiles", {RTK_String}, 1, 1, SLRT_ListString,  INTR_FileSystem_ListFiles, false},
 	{"fs", "makeDirs",  {RTK_String}, 1, 1, SLRT_Void,        INTR_FileSystem_MakeDirs,  false},
@@ -254,9 +255,9 @@ inline constexpr StringMethodEntry kStringMethodTable[] =
 {
 	{"substring",  {RTK_Int32, RTK_Int32}, 1, 2, SLRT_String,     INTR_String_Substring,  STD_ReceiverLength},
 	{"indexOf",    {RTK_String},           1, 1, SLRT_Int32,      INTR_String_IndexOf,    STD_None},
-	{"startsWith", {RTK_String},           1, 1, SLRT_Int32,      INTR_String_StartsWith, STD_None},
-	{"endsWith",   {RTK_String},           1, 1, SLRT_Int32,      INTR_String_EndsWith,   STD_None},
-	{"contains",   {RTK_String},           1, 1, SLRT_Int32,      INTR_String_Contains,   STD_None},
+	{"startsWith", {RTK_String},           1, 1, SLRT_Bool,      INTR_String_StartsWith, STD_None},
+	{"endsWith",   {RTK_String},           1, 1, SLRT_Bool,      INTR_String_EndsWith,   STD_None},
+	{"contains",   {RTK_String},           1, 1, SLRT_Bool,      INTR_String_Contains,   STD_None},
 	{"toUpper",    {},                     0, 0, SLRT_String,     INTR_String_ToUpper,    STD_None},
 	{"toLower",    {},                     0, 0, SLRT_String,     INTR_String_ToLower,    STD_None},
 	{"trim",       {},                     0, 0, SLRT_String,     INTR_String_Trim,       STD_None},

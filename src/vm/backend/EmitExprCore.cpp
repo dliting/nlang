@@ -66,7 +66,10 @@ void VmBackend::Access(SnLiteralExpr& expr) {
         }
 
         NodeKind typeKind = evalType->Kind();
-        if (typeKind == NK_Int32) {
+        //0.7.5: bool literals ride the int32 carrier (0/1) — same const
+        //op as int. Task 6 generalizes this branch family by registry
+        //slot width.
+        if (typeKind == NK_Int32 || typeKind == NK_Bool) {
             int32_t v = lit.Value().Get<int32_t>();
             emitter.Emit(OpCode::OP_ConstInt32);
             emitter.EmitInt32(v);

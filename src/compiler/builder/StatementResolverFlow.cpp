@@ -7,22 +7,21 @@
 namespace nlang
 {
 
-//Conditions feed OP_JumpIfNot, which reads a single int32 from
-//pResult. Non-int conditions get silent garbage semantics: a string
-//is a pool handle (index 0 encodes as 0 — a nonempty string reads
-//false), structs/arrays are heap indices, floats only work by bit
-//luck (IEEE non-zero bits ≠ int 0). Static typing: conditions must
-//be int; comparisons already produce int.
-//The logical-operator operand gate in ExprResolver.cpp (Access(SnBinaryExpr),
-//"Short-circuit hardening") mirrors this policy — widen both together.
-void StatementResolveAccessor::CheckIntCondition(SnExpression &cond, const char *what)
+//0.7.5 strict bool: conditions must be bool (carrier int32 0/1, so
+//OP_JumpIfNot bit patterns are unchanged). Historically int was
+//accepted and non-int kinds read as silent garbage (string = pool
+//handle, struct/array = heap index, float = bit luck); comparisons
+//now produce bool, so the int-truthiness escape hatch is closed.
+//The logical-operator operand gate in ExprResolverBinary.cpp
+//(CheckLogicalBoolOperands) mirrors this policy — widened together.
+void StatementResolveAccessor::CheckBoolCondition(SnExpression &cond, const char *what)
 {
 	if (!cond.IsResolved())
 		return;
 	auto* pType = cond.EvalDataType();
-	if (pType && pType->Kind() != NK_Int32) {
+	if (pType && pType->Kind() != NK_Bool) {
 		m_Env.Log(CLL_Error, cond.Location(),
-			"%s condition must be int, got \"%s\".",
+			"%s condition must be bool, not \"%s\".",
 			what, pType->ToString().c_str());
 	}
 }
@@ -31,7 +30,7 @@ void StatementResolveAccessor::Access(SnIfStmt &sn)
 {
 	assert(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
-	CheckIntCondition(*sn.Cond(), "if");
+	CheckBoolCondition(*sn.Cond(), "if");
 	sn.ThenStmt()->Accept(*m_pVisitor);
 	if (sn.ElseStmt())
 		sn.ElseStmt()->Accept(*m_pVisitor);
@@ -41,7 +40,7 @@ void StatementResolveAccessor::Access(SnWhileStmt &sn)
 {
 	assert(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
-	CheckIntCondition(*sn.Cond(), "while");
+	CheckBoolCondition(*sn.Cond(), "while");
 	sn.Body()->Accept(*m_pVisitor);
 }
 
@@ -50,7 +49,7 @@ void StatementResolveAccessor::Access(SnDoStmt &sn)
 	assert(m_pVisitor);
 	sn.Body()->Accept(*m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
-	CheckIntCondition(*sn.Cond(), "do-while");
+	CheckBoolCondition(*sn.Cond(), "do-while");
 }
 
 //For-init local declaration. Route the type through ExprResolver, not
@@ -144,7 +143,7 @@ void StatementResolveAccessor::Access(SnForStmt &sn)
 	}
 
 	sn.Cond()->Accept(*m_pVisitor);
-	CheckIntCondition(*sn.Cond(), "for");
+	CheckBoolCondition(*sn.Cond(), "for");
 	sn.Body()->Accept(*m_pVisitor);
 	if (sn.Fini())
 		sn.Fini()->Accept(*m_pVisitor);

@@ -2,5 +2,8 @@ int main() {
     List<int> lst = new List<int>();
     lst.add(10);
     lst.add(20);
-    return lst.contains(20) + lst.contains(99);
+    bool a = lst.contains(20);
+    bool b = lst.contains(99);
+    if (a && !b) { return 1; }
+    return 0;
 }

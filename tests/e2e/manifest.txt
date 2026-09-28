@@ -73,6 +73,15 @@ cast_float_to_int 3
 cast_int_to_float 7
 implicit_float_to_int_reject compile_error Incompatible type
 
+# --- bool (0.7.5 strict) ---
+bool_basics 0 false
+bool_strict_reject compile_error condition must be bool
+bool_int_reject compile_error Incompatible type
+bool_predicates 0 false
+bool_ordering_reject compile_error bool values cannot be ordered
+bool_mixed_reject compile_error a bool value can only be compared with a bool value
+bool_box_roundtrip 0
+
 # --- for loop ---
 for_loop 45
 for_break 10
@@ -452,9 +461,9 @@ logical_short_circuit_values 42
 logical_short_circuit_side_effect 42
 logical_short_circuit_nested 7
 # --- 2026-08-31: logical/! operands must be int (aligns with if/while condition gate) ---
-logical_operand_float compile_error operator '&&' requires int operands
-logical_operand_string compile_error operator '||' requires int operands
-not_operand_float compile_error operator '!' requires an int operand
+logical_operand_float compile_error operator '&&' requires bool operands
+logical_operand_string compile_error operator '||' requires bool operands
+not_operand_float compile_error operator '!' requires a bool operand
 # --- P3.8: lock array negative-index throws (mirrors list_negative_index_throws) ---
 array_negative_index_throws 1
 # --- Phase 8e-9b: Object.toString() protocol (class/enum/string/int/float) ---
@@ -1155,7 +1164,7 @@ array_eq_identity 4
 array_eq_null 6
 array_relational_reject compile_error identity comparison only
 array_eq_scalar_reject compile_error identity comparison only
-condition_array_reject compile_error condition must be int
+condition_array_reject compile_error condition must be bool
 delegate_arg_upcast 2
 delegate_arg_array_exact 9
 delegate_arg_array_reject compile_error incompatible

@@ -1,5 +1,6 @@
 int main() {
     Dict<int, int> d = new Dict<int, int>();
     d.set(5, 50);
-    return d.containsKey(5);
+    if (d.containsKey(5)) { return 1; }
+    return 0;
 }

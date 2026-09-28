@@ -56,16 +56,17 @@ static void RejectCoercedStringArg(BuildEnvironment &env,
 		return;
 	}
 	//Phase 13: function handles print through the direct conversion
-	//path ("func <name>") like the other three toString routes.
+	//path ("func <name>") like the other toString routes.
+	//0.7.5: the scalar set is registry-driven — bool prints as
+	//true/false, and the P4-P6 kinds join without touching this gate.
 	const NodeKind argKind = pArgType->Kind();
-	if (argKind != NK_String && argKind != NK_Int32
-		&& argKind != NK_Float
-		&& argKind != NK_ArrayTypeToken
+	if (argKind != NK_String && argKind != NK_ArrayTypeToken
+		&& ScalarPrimIndexOf(argKind) < 0
 		&& !IsFuncTypeDecl(pArgType))
 	{
 		env.Log(CLL_Error, arg.Location(),
-			"Argument %d of \"%s.%s\" has type \"%s\"; string, int "
-			"or float expected (class and enum values: call "
+			"Argument %d of \"%s.%s\" has type \"%s\"; string or a "
+			"primitive value expected (class and enum values: call "
 			".toString() first).",
 			(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
 			pArgType->ToString().c_str());
@@ -139,6 +140,9 @@ void ExprResolveAccessor::BindStdLibCallResult(SnMemberExpr &snMember,
 		break;
 	case SLRT_Int32:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
+		break;
+	case SLRT_Bool:   //0.7.5: predicates
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Bool);
 		break;
 	case SLRT_String:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_String);

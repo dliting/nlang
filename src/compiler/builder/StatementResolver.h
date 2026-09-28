@@ -47,7 +47,7 @@ private:
 	SnParagraph *FindEnclosingParagraph(SyntaxNode *pNode);
 	void CheckLocalNameReserved(const std::string &name,
 		const ISourceLocation *pLoc);
-	void CheckIntCondition(SnExpression &cond, const char *what);
+	void CheckBoolCondition(SnExpression &cond, const char *what);
 	void CheckFunctionNativeFormals(SnFunction &sn,
 		std::vector<SnFormalParam*> &formals);
 	void ResolveFunctionFormals(SnFunction &sn,

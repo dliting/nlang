@@ -143,10 +143,11 @@ bool ExprResolveAccessor::IsNonClassToStringReceiver(SnMemberExpr &snMember)
 				isNonClassToString = true;
 		}
 	}
-	//Int/float via m_pContext (int x; x.toString(), 42.toString())
+	//Scalar via m_pContext (int x; x.toString(), 42.toString()).
+	//0.7.5: registry-driven — bool (and the P4-P6 kinds) stringify
+	//through the same OP_Prim_to_str path as int/float.
 	if (!isNonClassToString && m_pContext
-		&& (m_pContext->Kind() == NK_Int32
-			|| m_pContext->Kind() == NK_Float))
+		&& ScalarPrimIndexOf(m_pContext->Kind()) >= 0)
 	{
 		isNonClassToString = true;
 	}

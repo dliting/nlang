@@ -178,6 +178,9 @@ void ExprResolveAccessor::BindTableStringMethodResult(SnMemberExpr &snMember,
 	case SLRT_Int32:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
 		break;
+	case SLRT_Bool:   //0.7.5: predicates
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Bool);
+		break;
 	case SLRT_Float:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
 		break;

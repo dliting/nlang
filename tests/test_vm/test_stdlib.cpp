@@ -377,6 +377,9 @@ void test_string_table_full_dispatch()
         case SLRT_Float:
             src = "int main() { float r = " + call + "; return 0; }\n";
             break;
+        case SLRT_Bool:   //0.7.5: startsWith/endsWith/contains
+            src = "int main() { bool r = " + call + "; return 0; }\n";
+            break;
         case SLRT_ListString:
             src = "int main() { List<string> r = " + call
                 + "; return 0; }\n";
@@ -402,8 +405,8 @@ void test_string_equals_gethashcode_migrated()
     //ids 42/43 unchanged, value semantics unchanged.
     const int rc = runSource("str_proto",
         "int main() {\n"
-        "    if (!(\"a\".equals(\"a\"))) return 1;\n"
-        "    if (\"a\".equals(\"b\")) return 2;\n"
+        "    if (\"a\".equals(\"a\") == 0) return 1;\n"
+        "    if (\"a\".equals(\"b\") != 0) return 2;\n"
         "    if (\"a\".getHashCode() != \"a\".getHashCode()) return 3;\n"
         "    return 0;\n"
         "}\n");
