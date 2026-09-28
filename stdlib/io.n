@@ -1,11 +1,13 @@
-// Auto-generated from include/nlang/vm/StdLib.h — DO NOT EDIT.
-// Namespace: io — 5 native functions.
-
+// Standard library source for the "io" namespace — authoritative
+// declarations, indexed by langservice::SymbolIndex and inlined into every
+// build. The native functions are implemented in the host (nlang_io.dll);
+// any plain NLang function would compile from this file. Edit freely.
 namespace io {
     // Print a value to stdout followed by a newline and flush.
-    // Accepts string, int or float; for a class or enum value
-    // call .toString() first.
-    native void print(any s);
+    // The parameter is a string: int, float and array values convert
+    // implicitly (an array renders as e.g. [1, 2]); a class, interface
+    // or enum value must call .toString() first, and null is rejected.
+    native void print(string s);
     // Read one line from stdin; trailing '\r' is stripped.
     // EOF and an empty input line both return "".
     native string readLine();

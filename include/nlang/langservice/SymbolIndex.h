@@ -24,7 +24,6 @@ namespace langservice {
 enum class TypeKind : uint8_t {
     Unknown,
     Void,         // no return value
-    Any,          // io.print accepts string/int/float
     Int,
     Float,
     String,

@@ -79,6 +79,7 @@ add_library(nlang_compiler
     builder/StatementResolverFlow.cpp
     builder/StatementResolverSwitchTry.cpp
     builder/ModuleRegistry.cpp
+    builder/ModuleRegistryGate.cpp
 )
 
 target_include_directories(nlang_compiler

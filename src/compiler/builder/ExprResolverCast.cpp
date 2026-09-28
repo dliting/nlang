@@ -44,6 +44,24 @@ static int FuncRefBindingDistance(const FormalBinding &b)
 	return 0;
 }
 
+//Null-literal policy against a formal type (the null literal is
+//Int32-typed): 0 = no null special case, adjudicate via CalcTypeDistance;
+//1 = accept (null binds an array formal as the raw sentinel 0, same bridge
+//the assignment grants); -1 = reject (null against a string formal would
+//emit OP_Int32_to_str and print "0"). Class/interface formals fall through
+//to the distance calculation.
+static int NullBindingVerdict(SnExpression &caller, const SnField &formal)
+{
+	if (!caller.ContainFlags(NF_NullLiteral))
+		return 0;
+	const NodeKind k = formal.Kind();
+	if (k == NK_ArrayTypeToken)
+		return 1;
+	if (k == NK_String)
+		return -1;
+	return 0;
+}
+
 //Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
 //entries. B_Default contributes 0. Returns -1 if any bound entry has
 //incompatible types.
@@ -67,18 +85,13 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)
 			return -1;
-		//0.7.3 B: array-ness is adjudicated by CalcTypeDistance's kind
-		//matching alone — an interned token against a scalar formal (and
-		//the symmetric hole) verdicts -1 there. One exemption follows:
-		//null against an array formal.
-		//0.7.3 B: the null literal is Int32-typed, so against an
-		//array-token formal CalcTypeDistance reads -1. Null binds to
-		//any array type at distance 0 — the same bridge the assignment
-		//flavor grants (`int[] a = null`; the null sentinel is not an
-		//array value).
-		if (b.pCallerExpr->ContainFlags(NF_NullLiteral)
-			&& pTgt->Kind() == NK_ArrayTypeToken)
+		//Null-literal policy (array accept / string reject) precedes the
+		//generic distance; see NullBindingVerdict.
+		const int nNull = NullBindingVerdict(*b.pCallerExpr, *pTgt);
+		if (nNull > 0)
 			continue;
+		if (nNull < 0)
+			return -1;
 		int n = CalcTypeDistance(*pSrc, *pTgt);
 		if (n < 0)
 		{
@@ -256,7 +269,14 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	if (srcKind == NK_ArrayTypeToken && tgtKind == NK_String)
 		return 1;
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
+	{
+		//A string only binds another string (or converts via toString);
+		//string->int/float has no implicit conversion (the cast table
+		//verdicts None), so it must not pick up the raw kind distance.
+		if (srcKind == NK_String && tgtKind != NK_String)
+			return -1;
 		return std::abs(srcKind - tgtKind);
+	}
 	return -1;
 }
 

@@ -499,7 +499,10 @@ private slots:
             "int main() { return 0; }\n"});
         QVERIFY2(res.ok, "gated project with valid imports must build");
         const ModuleRegistry& reg = res.builder->Registry();
-        QVERIFY(reg.IsBuiltinImported(0, "io"));
+        //Unified mechanism: stdlib io is inlined from stdlib/io.n and opens
+        //the same exact gate a project or third-party module does; it is no
+        //longer routed through a special "builtin" gate.
+        QVERIFY(reg.IsModuleImported(0, "io"));
         QVERIFY(reg.IsModuleImported(0, "utils.helper"));
         QVERIFY(reg.IsModuleImported(0, "lib"));
         QVERIFY(!reg.IsModuleImported(0, "utils.sub.deep"));
@@ -1475,11 +1478,10 @@ private slots:
             "    return 0;\n"
             "}\n"});
         QVERIFY2(run.ok, runFailureText(run,
-            "an imported builtin namespace call must build and execute")
-            .c_str());
+            "imported builtin namespace must build and run").c_str());
         QVERIFY2(run.runtimeError.empty(), "execution must be clean");
         QVERIFY2(run.exitValue == 0,
-            "io.print must run and math.sqrt(4.0) must yield 2.0");
+            "io.print must run and math.sqrt(4.0) must equal 2.0");
     }
 
     //--- Task 8: owner-aware duplicate check (spec section 3.2) --------

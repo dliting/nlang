@@ -97,7 +97,7 @@ std::string ModuleNotFoundText(const std::string& moduleName)
 
 bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 	const TranslationUnit& tu, const std::string& projectDir,
-	std::vector<std::string>& outErrors)
+	std::vector<std::string>& outErrors, bool isLibrary)
 {
 	//Registration order is the module index space shared with
 	//AddExternalModule; a drift here would silently mis-own symbols.
@@ -121,16 +121,23 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 	}
 
 	const std::string modulePath = DeriveModulePath(filePath, projectDir);
-	const std::string reservedSegment = FindReservedSegment(modulePath);
-	if (!reservedSegment.empty())
+	//A library TU legitimately occupies a reserved library namespace name
+	//(the standard library's own io.n); the reserved-segment guard only
+	//keeps PROJECT directories from taking such a name.
+	if (!isLibrary)
 	{
-		outErrors.push_back("Module path segment '" + reservedSegment +
-			"' collides with a built-in namespace.");
-		return false;
+		const std::string reservedSegment = FindReservedSegment(modulePath);
+		if (!reservedSegment.empty())
+		{
+			outErrors.push_back("Module path segment '" + reservedSegment +
+				"' collides with a built-in namespace.");
+			return false;
+		}
 	}
 
 	ModuleEntry entry;
 	entry.path = std::move(modulePath);
+	entry.isLibrary = isLibrary;
 	m_modules.push_back(std::move(entry));
 	return true;
 }
@@ -177,8 +184,29 @@ bool ModuleRegistry::IsExternal(uint32_t moduleIndex) const
 		&& m_modules[moduleIndex].isExternal;
 }
 
+bool ModuleRegistry::IsLibraryModule(uint32_t moduleIndex) const
+{
+	return moduleIndex < m_modules.size()
+		&& m_modules[moduleIndex].isLibrary;
+}
+
 bool ModuleRegistry::IsProjectModule(const std::string& dottedPath) const
 {
+	for (const ModuleEntry& entry : m_modules)
+	{
+		//Inline library TUs are not project modules: they are reached only
+		//through an explicit import, never same-directory/wildcard.
+		if (!entry.isExternal && !entry.isLibrary
+			&& entry.path == dottedPath)
+			return true;
+	}
+	return false;
+}
+
+bool ModuleRegistry::IsCompiledInModule(const std::string& dottedPath) const
+{
+	//Project modules and inline library TUs alike (no isExternal, no
+	//isLibrary filter) — the unified compiled-in surface.
 	for (const ModuleEntry& entry : m_modules)
 	{
 		if (!entry.isExternal && entry.path == dottedPath)
@@ -187,122 +215,8 @@ bool ModuleRegistry::IsProjectModule(const std::string& dottedPath) const
 	return false;
 }
 
-//Wildcard arm of ApplyImportSpec (D11 union semantics). Evaluated
-//BEFORE IsProjectModule in the caller so a root-level namesake
-//("utils.n" beside "utils/helper.n") cannot silently degrade the
-//wildcard to exact-only and strand the subtree outside the gate.
-void ModuleRegistry::ApplyWildcardImport(const std::string& name,
-	ImportGate& gate, std::vector<std::string>& outErrors) const
-{
-	//Recursive prefix over PROJECT module paths (D5): external names
-	//are single-segment, so a wildcard never reaches one (§3.3). The
-	//importing TU's own path counts toward the match surface.
-	const std::string prefix = name + '.';
-	const bool exactExists = IsProjectModule(name);
-	bool prefixMatched = false;
-	for (const ModuleEntry& entry : m_modules)
-	{
-		if (!entry.isExternal && entry.path.rfind(prefix, 0) == 0)
-		{
-			prefixMatched = true;
-			break;
-		}
-	}
-	//D10: an empty union (no exact module and no prefix match) is
-	//almost certainly a typo, not a silent no-op.
-	if (!exactExists && !prefixMatched)
-	{
-		outErrors.push_back("No project modules matched import '"
-			+ name + ".*'. Check the project Sources list.");
-		return;
-	}
-	if (exactExists && !ContainsValue(gate.exact, name))
-		gate.exact.push_back(name);
-	if (prefixMatched && !ContainsValue(gate.wildcards, prefix))
-		gate.wildcards.push_back(prefix);
-}
-
-//BuildGate's per-spec arm: §5.1 priority (builtin → project module →
-//external .nmod), delegating the wildcard union to ApplyWildcardImport.
-void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
-	ImportGate& gate, std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors,
-	const LibraryNamespacePredicate& isLibraryNamespace) const
-{
-	const std::string name = spec.DottedName();
-	//A wildcard on a library namespace is rejected BEFORE the library
-	//branch — namespaces are not module trees, and a silently eaten '*'
-	//would teach the wrong model.
-	if (spec.wildcard && isLibraryNamespace(name))
-	{
-		outErrors.push_back("Wildcard import cannot target library "
-			"namespace '" + name + "'. Use 'import " + name + ";'.");
-		return;
-	}
-	if (isLibraryNamespace(name))
-	{
-		if (!ContainsValue(gate.builtins, name))
-			gate.builtins.push_back(name);
-		return;
-	}
-	if (spec.wildcard)
-	{
-		ApplyWildcardImport(name, gate, outErrors);
-		return;
-	}
-	if (IsProjectModule(name))
-	{
-		if (!ContainsValue(gate.exact, name))
-			gate.exact.push_back(name);
-		return;
-	}
-	//External .nmod names are single-segment: record the candidate
-	//for the loader and open the gate optimistically — if the
-	//.nmod fails to load, the build aborts right after.
-	if (name.find('.') == std::string::npos)
-	{
-		if (!ContainsValue(gate.exact, name))
-			gate.exact.push_back(name);
-		if (!ContainsValue(externalOut, name))
-			externalOut.push_back(name);
-		return;
-	}
-	//A dotted path that is no project module can never resolve
-	//(external names are single-segment, §5.3 single-file rule).
-	outErrors.push_back(ModuleNotFoundText(name));
-}
-
-bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
-	const std::vector<ImportSpec>& specs,
-	std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors,
-	const LibraryNamespacePredicate& isLibraryNamespace)
-{
-	assert(moduleIndex < m_modules.size()
-		&& !m_modules[moduleIndex].isExternal);
-
-	ImportGate gate;
-	//D7: the TU's own directory is implicitly imported — same-dir
-	//files resolve bare AND qualified without an explicit import.
-	const std::string ownDir = DirectoryOf(moduleIndex);
-	for (uint32_t i = 0; i < m_modules.size(); ++i)
-	{
-		if (i == moduleIndex || m_modules[i].isExternal)
-			continue;
-		if (DirectoryOf(i) == ownDir
-			&& !ContainsValue(gate.exact, m_modules[i].path))
-			gate.exact.push_back(m_modules[i].path);
-	}
-
-	for (const ImportSpec& spec : specs)
-		ApplyImportSpec(spec, gate, externalOut, outErrors,
-			isLibraryNamespace);
-
-	if (!outErrors.empty())
-		return false;
-	m_modules[moduleIndex].gate = std::move(gate);
-	return true;
-}
+//Import gate construction — ApplyWildcardImport, ApplyNonWildcardImport,
+//ApplyImportSpec, BuildGate — lives in ModuleRegistryGate.cpp.
 
 bool ModuleRegistry::IsModuleImported(uint32_t moduleIndex,
 	const std::string& dottedPath) const
@@ -319,15 +233,6 @@ bool ModuleRegistry::IsModuleImported(uint32_t moduleIndex,
 			return true;
 	}
 	return false;
-}
-
-bool ModuleRegistry::IsBuiltinImported(uint32_t moduleIndex,
-	const std::string& ns) const
-{
-	if (moduleIndex >= m_modules.size())
-		return false;
-	const ImportGate& gate = m_modules[moduleIndex].gate;
-	return ContainsValue(gate.builtins, ns);
 }
 
 bool ModuleRegistry::IsKnownModule(const std::string& dottedPath) const
@@ -363,50 +268,62 @@ void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 	m_externalStubs[moduleIndex] = std::move(stubs);
 }
 
+std::vector<SnFunction*> ModuleRegistry::CompiledInFunctions(
+	uint32_t moduleIndex, const std::string& path,
+	const std::string& calleeName) const
+{
+	//An inline library TU keeps its functions in `namespace <path>`; a
+	//project module uses root-level free functions. Pick the container,
+	//then return same-name functions owned by moduleIndex (owner tags land
+	//in MergeTransUnits).
+	std::vector<SnFunction*> owned;
+	SnNamespace* pRoot = TheAST().Root();
+	if (pRoot == nullptr)
+		return owned;
+	SnNamespace* pContainer = nullptr;
+	if (m_modules[moduleIndex].isLibrary)
+	{
+		SnField* pField = pRoot->FindField(path);
+		if (pField != nullptr && pField->Kind() == NK_Namespace)
+			pContainer = static_cast<SnNamespace*>(pField);
+	}
+	SnNamespace& candidates =
+		pContainer != nullptr ? *pContainer : *pRoot;
+	auto range = candidates.Members().NameDict()
+		.equal_range(calleeName);
+	for (auto iField = range.first; iField != range.second; ++iField)
+	{
+		SnField& member = *iField->second;
+		if (member.Kind() == NK_Function
+			&& OwnerOf(member) == moduleIndex)
+			owned.push_back(static_cast<SnFunction*>(&member));
+	}
+	return owned;
+}
+
 std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 	const std::string& path, const std::string& calleeName) const
 {
-	//First path hit returns — safe because a registered name is either
-	//a project module or an external .nmod, never both: the import gate
-	//resolves project names before the external load, so the two entry
-	//kinds cannot share a path (don't "fix" this into a full scan).
+	//First path hit returns — a registered name is either a project module
+	//or an external .nmod, never both: the import gate resolves project
+	//names before the external load (don't "fix" this into a full scan).
 	for (uint32_t i = 0; i < m_modules.size(); ++i)
 	{
 		if (m_modules[i].path != path)
 			continue;
 		if (m_modules[i].isExternal)
 		{
-			//Same-name subset of the module's stub table — symmetric
-			//with the project branch (all overloads of the name).
+			//Same-name subset of the module's stub table (all overloads).
 			const auto iFound = m_externalStubs.find(i);
 			if (iFound == m_externalStubs.end())
 				return std::vector<SnFunction*>{};
 			std::vector<SnFunction*> matching;
 			for (SnFunction* pStub : iFound->second)
-			{
 				if (pStub->Name() == calleeName)
 					matching.push_back(pStub);
-			}
 			return matching;
 		}
-		//Project module: same-name functions owned by this module among
-		//the merged root's top-level members (owner tags land in
-		//MergeTransUnits). Namespaces are out of the v1 surface. The name
-		//dictionary keeps the candidate lookup off a linear scan (same
-		//pattern as FindFuncByInvoke's scope search).
-		std::vector<SnFunction*> owned;
-		SnNamespace* pRoot = TheAST().Root();
-		if (pRoot == nullptr)
-			return owned;
-		auto range = pRoot->Members().NameDict().equal_range(calleeName);
-		for (auto iField = range.first; iField != range.second; ++iField)
-		{
-			SnField& member = *iField->second;
-			if (member.Kind() == NK_Function
-				&& OwnerOf(member) == i)
-				owned.push_back(static_cast<SnFunction*>(&member));
-		}
-		return owned;
+		return CompiledInFunctions(i, path, calleeName);
 	}
 	return std::vector<SnFunction*>{};
 }

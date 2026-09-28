@@ -41,7 +41,7 @@ static void TestResolvePrint() {
     CHECK(s->native);
     CHECK(s->params.size() == 1);
     if (s->params.size() == 1) {
-        CHECK(s->params[0].type == "any");
+        CHECK(s->params[0].type == "string");
         CHECK(s->params[0].name == "s");
     }
     CHECK(!s->doc.empty());
@@ -163,7 +163,9 @@ static void TestTypeKinds() {
     CHECK(TypeKindFromName("float") == TypeKind::Float);
     CHECK(TypeKindFromName("string") == TypeKind::String);
     CHECK(TypeKindFromName("List<string>") == TypeKind::ListString);
-    CHECK(TypeKindFromName("any") == TypeKind::Any);
+    //"any" is no longer a type kind: print takes a string, so an unknown
+    //spelling falls through to Unknown like any other unrecognized name.
+    CHECK(TypeKindFromName("any") == TypeKind::Unknown);
     CHECK(TypeKindFromName("void") == TypeKind::Void);
     CHECK(TypeKindFromName("widget") == TypeKind::Unknown);
     CHECK(NameOfTypeKind(TypeKind::Int) == "int");
@@ -178,7 +180,7 @@ static void TestTypeKinds() {
     if (print) {
         CHECK(print->returnKind == TypeKind::Void);
         CHECK(print->params.size() == 1
-              && print->params[0].kind == TypeKind::Any);
+              && print->params[0].kind == TypeKind::String);
     }
 
     const SymbolInfo* sqrt = index.Resolve("math", "sqrt");

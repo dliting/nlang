@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/SyntaxTree.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -12,6 +13,27 @@
 #include <nlang/runtime/NodeConsts.h>
 
 namespace nlang {
+namespace {
+
+//Qualified name of a function nested in one or more non-root namespaces,
+//e.g. "io.print" / "math.ext.hypot3". Top-level free functions, and class
+//or enum methods, keep a bare name: methods dispatch through their
+//receiver and root-level functions have no namespace segment.
+std::string QualifiedFunctionName(const SnFunction& func) {
+    SnNamespace* const pRoot = TheAST().Root();
+    std::string prefix;
+    for (SyntaxNode* pNode = func.Parent(); pNode != nullptr;
+        pNode = pNode->Parent()) {
+        if (pNode->Kind() == NK_Namespace && pNode != pRoot) {
+            const auto* pNs = static_cast<const SnNamespace*>(pNode);
+            prefix = pNs->Name() + (prefix.empty() ? "" : ".") + prefix;
+        }
+    }
+    return prefix.empty() ? func.Name() : prefix + "." + func.Name();
+}
+
+} // namespace
+
 void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     CompiledStruct cs;
     cs.name = sn.Name();
@@ -261,7 +283,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             if (!func.Body() && !func.ContainFlags(NF_Native))
                 continue;
             CompiledFunction cf;
-            cf.name = func.Name();
+            cf.name = QualifiedFunctionName(func);
             cf.sourceFile = SourceFilePathOf(func);
             m_compiledModule.functions.push_back(std::move(cf));
             m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
@@ -275,7 +297,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
                 if (!method.Body() && !method.ContainFlags(NF_Native))
                     continue;
                 CompiledFunction cf;
-                cf.name = method.Name();
+                cf.name = QualifiedFunctionName(method);
                 cf.sourceFile = SourceFilePathOf(method);
                 m_compiledModule.functions.push_back(std::move(cf));
                 m_funcIndexMap[&method] =
@@ -288,7 +310,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
                     if (!func.Body() && !func.ContainFlags(NF_Native))
                         continue;
                     CompiledFunction cf;
-                    cf.name = func.Name();
+                    cf.name = QualifiedFunctionName(func);
                     cf.sourceFile = SourceFilePathOf(func);
                     m_compiledModule.functions.push_back(std::move(cf));
                     m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;

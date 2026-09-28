@@ -37,7 +37,7 @@ Compile-time module registry (spec §6): maps every translation unit
 to its dotted module path (relative to BuildParams::m_sProjectDir),
 tracks which module owns each merged top-level symbol (side table —
 NF_ flag bits are fully allocated), and holds each unit's import gate
-(exact paths + wildcard prefixes + builtin namespaces + same-directory
+(exact paths + wildcard prefixes + same-directory
 auto-inclusion). External .nmod modules join the registry with
 isExternal=true (they own their stubs and never share a directory with
 a TU). VM/bytecode are untouched: everything here is resolution-time
@@ -62,16 +62,16 @@ public:
 		std::vector<std::string> exact;
 		//Wildcard prefixes ("utils." — recursive, D5).
 		std::vector<std::string> wildcards;
-		//Builtin namespaces ("io" / "math" / "fs").
-		std::vector<std::string> builtins;
 	};
 
 	//Register a TU; moduleIndex == position in registration order.
+	//isLibrary marks an inline library TU (from the search path): it is
+	//compiled in but never a project module (no same-directory visibility).
 	//Returns false after filling outErrors on a reserved path segment
 	//(io/math/fs) — the caller logs and aborts the build.
 	bool RegisterUnit(uint32_t moduleIndex, const TranslationUnit& tu,
 		const std::string& projectDir,
-		std::vector<std::string>& outErrors);
+		std::vector<std::string>& outErrors, bool isLibrary = false);
 
 	//Register an external .nmod by name; returns its module index
 	//(stubs get TagOwner'd with it by the caller). External
@@ -102,14 +102,14 @@ public:
 	//callers must rule those out before comparing directories.
 	std::string DirectoryOf(uint32_t moduleIndex) const;
 	bool IsExternal(uint32_t moduleIndex) const;
+	//True for an inline library TU module (search-path <name>.n).
+	bool IsLibraryModule(uint32_t moduleIndex) const;
 
 	//NO_OWNER context (no tagged ancestor) never passes a gate: both
 	//return false for moduleIndex == NO_OWNER — the gate queries are
 	//NO_OWNER-safe (no m_modules[NO_OWNER] indexing).
 	bool IsModuleImported(uint32_t moduleIndex,
 		const std::string& dottedPath) const;
-	bool IsBuiltinImported(uint32_t moduleIndex,
-		const std::string& ns) const;
 	//Module import visibility (D1/D7): shared "same bare pool" core —
 	//bare-visible entities live in one pool per directory, so same-
 	//directory modules always collide and cross-directory ones never do.
@@ -124,6 +124,10 @@ public:
 			return false;
 		return DirectoryOf(ownerA) == DirectoryOf(ownerB);
 	}
+	//True when name is a TU compiled into this build (project module or an
+	//inline library TU) — a known non-external module. The unified
+	//"compiled in" surface after libraries are inlined.
+	bool IsCompiledInModule(const std::string& dottedPath) const;
 	//Project TU paths + external .nmod names (union).
 	bool IsKnownModule(const std::string& dottedPath) const;
 	//True when some known module path equals dottedPrefix or starts with
@@ -134,10 +138,10 @@ public:
 	//loads; consumed by ModuleFunctions).
 	void SetExternalStubs(uint32_t moduleIndex,
 		std::vector<SnFunction*> stubs);
-	//Functions of a module matching calleeName: project module →
-	//scan the global root's top-level members for same-name
-	//NK_Functions owned by that module; external module → the
-	//same-name subset of its stub table.
+	//Functions of a module matching calleeName: project module → root
+	//top-level free functions owned by it; inline library TU → functions
+	//inside namespace <path> owned by it; external module → same-name
+	//subset of its stub table.
 	std::vector<SnFunction*> ModuleFunctions(
 		const std::string& path,
 		const std::string& calleeName) const;
@@ -177,6 +181,20 @@ private:
 		std::vector<std::string>& externalOut,
 		std::vector<std::string>& outErrors,
 		const LibraryNamespacePredicate& isLibraryNamespace) const;
+	//Non-wildcard arm of ApplyImportSpec: compiled-in module, signature-
+	//only library fallback, external .nmod candidate, or an unresolvable
+	//dotted path.
+	void ApplyNonWildcardImport(const std::string& name, ImportGate& gate,
+		std::vector<std::string>& externalOut,
+		std::vector<std::string>& outErrors,
+		const LibraryNamespacePredicate& isLibraryNamespace) const;
+
+	//Same-name functions of a compiled-in module owned by moduleIndex. An
+	//inline library TU keeps them in `namespace <path>`; a project module
+	//uses root-level free functions.
+	std::vector<SnFunction*> CompiledInFunctions(uint32_t moduleIndex,
+		const std::string& path,
+		const std::string& calleeName) const;
 
 	//Wildcard arm of ApplyImportSpec (D11 union semantics): the exact
 	//module "X" plus every "X."-prefixed project module. An empty union
@@ -188,6 +206,7 @@ private:
 	{
 		std::string path;      //"utils.helper" / "lib"
 		bool isExternal = false;
+		bool isLibrary = false; //inline library TU (search path), not a project module
 		ImportGate gate;       //TU entries only (BuildGate)
 	};
 	std::vector<ModuleEntry> m_modules;

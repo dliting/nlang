@@ -53,7 +53,7 @@ static void TestLoadsStdLib()
         CHECK(print->native);
         CHECK(print->returnKind == langservice::TypeKind::Void);
         CHECK(print->params.size() == 1
-              && print->params[0].kind == langservice::TypeKind::Any);
+              && print->params[0].kind == langservice::TypeKind::String);
     }
 
     const langservice::SymbolInfo* sqrt =

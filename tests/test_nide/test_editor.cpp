@@ -481,12 +481,12 @@ private slots:
         symbol.ns = "io";
         symbol.name = "print";
         symbol.returnType = "void";
-        symbol.params.push_back({"any", "s"});
+        symbol.params.push_back({"string", "s"});
         symbol.doc.push_back("Print a value.");
 
         const QString text = CodeEditor::formatSymbol(symbol);
         QVERIFY(text.contains(QStringLiteral("[native]")));
-        QVERIFY(text.contains(QStringLiteral("void io.print(any s)")));
+        QVERIFY(text.contains(QStringLiteral("void io.print(string s)")));
         QVERIFY(text.contains(QStringLiteral("Print a value.")));
 
         // A nlang-implemented symbol must not carry [native].

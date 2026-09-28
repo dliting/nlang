@@ -264,14 +264,6 @@ private:
 	bool ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 		SnField *pTgtType, TypeCastKind kind);
 
-	//Phase 11: resolve a namespace-qualified stdlib call (math.sqrt(x),
-	//io.print(s)) against the built-in table in StdLib.h. Called from the
-	//top of Access(SnMemberExpr&) — namespace names are reserved and never
-	//resolve as fields, so every branch here consumes the expression
-	//(resolved or diagnosed); there is no fallback to normal resolution.
-	void TryResolveStdLibCall(SnMemberExpr &snMember,
-		SnIdentifierExpr &outerId, SnInvokeExpr &invoke);
-
 	/*
 	Module import visibility (spec §6.2 rule 5): resolve a dotted call
 	chain (utils.helper.help(), lib.add(2,3)) against the module registry
@@ -306,8 +298,6 @@ private:
 	from it before returning.
 	*/
 	bool TryResolveMemberHead(SnMemberExpr &snMember,
-		SnExpression *pOuterExpr);
-	bool TryResolveNamespaceStdLibCall(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr);
 	void SwitchContextToReceiver(SnMemberExpr &snMember);
 	bool RejectArrayReceiverMethodCall(SnMemberExpr &snMember,
@@ -465,7 +455,8 @@ private:
 	*/
 	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &outBindings,
-		bool &rbNameMatchedImported, bool &rbVisibilityHintLogged);
+		bool &rbNameMatchedImported, bool &rbVisibilityHintLogged,
+		std::vector<SnFunction*> *pOutCandidates = nullptr);
 
 	/*
 	Module import visibility (M3b): the TryBindInvoke / type-distance core
@@ -511,7 +502,36 @@ private:
 	failure results only (FFR_Incompatible / FFR_FuncNameNotFound).
 	*/
 	void LogInvokeFailure(SnInvokeExpr &invoke, FindFuncResult res,
-		SnFunction *pCallee, bool bNameMatchedImported);
+		SnFunction *pCallee, bool bNameMatchedImported,
+		const std::vector<SnFunction*> &candidates);
+
+	/*
+	Per-argument detail for an incompatible call, shared by the bare and
+	module-qualified paths: among the name-matched candidates, pick the
+	first whose arguments route (correct arity / out markers) and log each
+	bound argument that cannot implicitly bind its formal — a void result,
+	a non-printable value for a string formal, or a scalar/array mismatch.
+	Returns true when at least one detail line was logged; the caller still
+	emits the summary so the call site stays named.
+	*/
+	SnFunction *SelectRoutableCandidate(SnInvokeExpr &invoke,
+		const std::vector<SnFunction*> &candidates,
+		std::vector<FormalBinding> &outBindings);
+	bool MaybeLogArgumentMismatch(SnInvokeExpr &invoke,
+		const std::vector<SnFunction*> &candidates);
+	//True when an argument of argType implicitly binds formalType through
+	//the same two gates the real invoke path uses: CalcTypeDistance
+	//(candidate admission) followed by an implicit-only cast kind
+	//(Same/Auto/Box). Mirrors ComputeBindingDistance +
+	//FixupParamTypesWithBindings so the per-argument verdict matches the
+	//final compile result (string->float passes the distance but has no
+	//cast; class->string has a cast but fails the distance).
+	bool CanImplicitlyBind(const SnField &argType,
+		const SnField &formalType) const;
+	void LogArgumentTypeMismatch(SnExpression &arg, const SnField &argType,
+		const SnField &formalType, const std::string &callee, int paramIdx);
+	bool LogSingleArgumentMismatch(SnExpression &arg,
+		const SnFormalParam &formal, const std::string &callee, int paramIdx);
 
 	/*
 	Phase 13: locate the delegate target of a bare invoke — a non-function
@@ -684,19 +704,11 @@ private:
 		uint32_t curModule);
 
 	/*
-	2026-09-27 decomposition of the stdlib / module-qualified resolution
-	(ExprResolverStdLib.cpp) — the per-parameter type gate of
-	TryResolveStdLibCall and its result binding, plus the phase chain of
-	TryResolveModuleQualified (decline tests, the unimported reject,
-	argument handling, callee matching and the shared finish).
+	2026-09-27 decomposition of the module-qualified resolution
+	(ExprResolverStdLib.cpp): the phase chain of TryResolveModuleQualified
+	(decline tests, the unimported reject, argument handling, callee
+	matching and the shared finish).
 	*/
-	void CheckStdLibParamTypes(SnInvokeExpr &invoke,
-		const std::string &ns, const std::string &fnName,
-		const langservice::SymbolInfo *pSig);
-	const langservice::SymbolInfo *FindStdLibEntry(SnInvokeExpr &invoke,
-		const std::string &ns, const std::string &fnName);
-	void BindStdLibCallResult(SnMemberExpr &snMember, SnInvokeExpr &invoke,
-		const langservice::SymbolInfo *pSig);
 	bool TryResolveModuleCallTarget(SnMemberExpr &snMember,
 		SnInvokeExpr *&rpInvoke, std::string &rModulePath);
 	bool RejectUnimportedModuleCall(SnMemberExpr &snMember,

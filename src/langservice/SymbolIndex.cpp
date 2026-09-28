@@ -118,6 +118,64 @@ private:
     std::string m_pending;
 };
 
+// Net '{' minus '}' on a line, ignoring braces inside string/char literals
+// and after a '//' comment, so a '}' written in text or a comment does not
+// change the function-body depth.
+int NetBraces(const std::string& line) {
+    int net = 0;
+    bool inLiteral = false;
+    char quote = 0;
+    for (size_t i = 0; i < line.size(); ++i) {
+        const char ch = line[i];
+        if (inLiteral) {
+            if (ch == '\\' && i + 1 < line.size()) { ++i; continue; }
+            if (ch == quote) inLiteral = false;
+            continue;
+        }
+        if (ch == '"' || ch == '\'') { inLiteral = true; quote = ch; continue; }
+        if (ch == '/' && i + 1 < line.size() && line[i + 1] == '/') break;
+        if (ch == '{') ++net;
+        else if (ch == '}') --net;
+    }
+    return net;
+}
+
+//Consume one source line during indexing: namespace structure, a body's
+//braces, doc comments, or a declaration. Updates scope/pendingDoc/bodyDepth
+//and appends a recognized declaration to symbols.
+bool ConsumeIndexLine(const std::string& line, const std::string& trimmed,
+    NamespaceScope& scope, std::vector<std::string>& pendingDoc,
+    int& bodyDepth, const std::string& path, int lineNo,
+    std::vector<SymbolInfo>& symbols) {
+    if (bodyDepth == 0 && scope.ConsumeStructure(line)) {
+        pendingDoc.clear();
+        return true;
+    }
+    if (scope.Current().empty())
+        return false;
+    if (bodyDepth > 0) {
+        bodyDepth += NetBraces(line);
+        if (bodyDepth < 0) bodyDepth = 0;
+        return false;
+    }
+    if (trimmed.substr(0, 2) == "//") {
+        pendingDoc.push_back(Trim(trimmed.substr(2)));
+        return false;
+    }
+    static const std::regex kDecl(
+        R"(^\s*(native\s+)?(.+?)\s+([A-Za-z_]\w*)\s*\((.*)\)\s*[;{]\s*$)");
+    std::smatch m;
+    if (std::regex_match(line, m, kDecl)) {
+        symbols.push_back(
+            BuildSymbol(m, scope.Current(), pendingDoc, path, lineNo));
+        pendingDoc.clear();
+        bodyDepth = std::max(0, NetBraces(line));
+    } else if (!trimmed.empty()) {
+        pendingDoc.clear();
+    }
+    return false;
+}
+
 } // namespace
 
 TypeKind TypeKindFromName(const std::string& name) {
@@ -127,7 +185,6 @@ TypeKind TypeKindFromName(const std::string& name) {
     if (n == "float") return TypeKind::Float;
     if (n == "string") return TypeKind::String;
     if (n == "List<string>") return TypeKind::ListString;
-    if (n == "any") return TypeKind::Any;
     return TypeKind::Unknown;
 }
 
@@ -138,7 +195,6 @@ std::string NameOfTypeKind(TypeKind kind) {
     case TypeKind::Float: return "float";
     case TypeKind::String: return "string";
     case TypeKind::ListString: return "List<string>";
-    case TypeKind::Any: return "any";
     default: return "unknown";
     }
 }
@@ -152,40 +208,18 @@ void SymbolIndex::LoadFile(const std::string& path) {
     std::ifstream in(path);
     if (!in)
         return;
-
-    // A declaration line:
-    //   [native] <return type> <name> ( <params> ) ;  or  {
-    static const std::regex kDecl(
-        R"(^\s*(native\s+)?(.+?)\s+([A-Za-z_]\w*)\s*\((.*)\)\s*[;{]\s*$)");
-
     NamespaceScope scope;
     std::vector<std::string> pendingDoc;
     std::string line;
     int lineNo = 0;
+    //Brace depth inside the function body currently being scanned, so a
+    //body's '}' is not mistaken for the namespace close. 0 = directly in
+    //the namespace, where declarations are recognized.
+    int bodyDepth = 0;
     while (std::getline(in, line)) {
         ++lineNo;
-        std::string trimmed = Trim(line);
-
-        if (scope.ConsumeStructure(line)) {
-            pendingDoc.clear();
-            continue;
-        }
-        // Only collect doc comments once inside a namespace, so the file
-        // header banner is not mistaken for a function's doc.
-        if (!scope.Current().empty() && trimmed.substr(0, 2) == "//") {
-            pendingDoc.push_back(Trim(trimmed.substr(2)));
-            continue;
-        }
-        std::smatch m;
-        if (!scope.Current().empty() && std::regex_match(line, m, kDecl)) {
-            m_symbols.push_back(
-                BuildSymbol(m, scope.Current(), pendingDoc, path, lineNo));
-            pendingDoc.clear();
-        } else if (!trimmed.empty()) {
-            // A non-decl line (a body statement, a blank already skipped)
-            // breaks the doc run.
-            pendingDoc.clear();
-        }
+        ConsumeIndexLine(line, Trim(line), scope, pendingDoc, bodyDepth,
+            path, lineNo, m_symbols);
     }
 }
 

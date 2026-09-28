@@ -146,8 +146,23 @@ void VmBackend::Access(SnMemberExpr& expr) {
 bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
                                          BytecodeEmitter& emitter,
                                          uint16_t resultOffset) {
-    if (EmitMemberStdlibCall(member, emitter, resultOffset))
-        return true;
+    //Library calls (stdlib or third-party, native or NLang) resolve to an
+    //inlined AST function. A namespace-qualified free call emits ONLY its
+    //inner invoke (the outer namespace name is never emitted): the invoke
+    //binds an inlined function and dispatches through OP_CallFunc.
+    {
+        SnField* outerField = nullptr;
+        if (member.Outer()
+            && member.Outer()->Kind() == NK_IdentifierExpr)
+            outerField = static_cast<SnFieldExpr*>(
+                member.Outer())->Field();
+        if (outerField && outerField->Kind() == NK_Namespace
+            && member.Inner()
+            && member.Inner()->Kind() == NK_InvokeExpr) {
+            EmitExpression(*member.Inner(), emitter, resultOffset);
+            return true;
+        }
+    }
     if (field && field->Kind() == NK_EnumMember) {
         //Enum member constant (e.g. Color.Red).
         auto* pEnumMember = static_cast<SnEnumMember*>(field);

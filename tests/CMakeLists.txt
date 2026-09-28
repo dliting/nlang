@@ -120,6 +120,23 @@ target_compile_definitions(test_thirdparty
 )
 add_dependencies(test_thirdparty nlang_mylib)
 add_test(NAME thirdparty_tests COMMAND test_thirdparty)
+add_executable(test_library_source
+    test_vm/test_library_source.cpp
+)
+target_include_directories(test_library_source
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_library_source
+    PRIVATE
+        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+)
+target_compile_definitions(test_library_source
+    PRIVATE
+        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+)
+add_test(NAME library_source_tests COMMAND test_library_source)
 
 # ncc end-to-end test for a third-party native package: assemble a package
 # directory holding the declaration (mylib.n), an example program

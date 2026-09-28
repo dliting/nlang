@@ -9,6 +9,8 @@
 #include "nlang/vm/CompiledModule.h"
 #include <list>
 #include <memory>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace nlang
@@ -57,16 +59,26 @@ private:
 	//singletons. Must run before parsing (the parser resolves built-in
 	//type names against them).
 	void InitSyntaxTree();
+	//Front-end orchestration: create, init, parse, discover library
+	//sources, register, expand aliases, then load imports.
+	bool PrepareUnits();
+	//Merge TU roots and run every resolution pass; false after errors.
+	bool ResolveAll();
 	//Register every TU's module path in the registry. False after
 	//logging the registration errors.
 	bool RegisterUnits();
 	//Load imported symbols to a rebuilt AST.
 	bool LoadImports();
-	//Discover third-party library sources: for every single-segment import
-	//not already a known library namespace, look for <name>.n in the import
-	//dirs and load it into the library index (idempotent). Afterwards the
-	//namespace is resolved through the same path as the standard library.
-	void DiscoverLibrarySources();
+	//Discover every import-reachable library <name>.n source (single-
+	//segment imports, iterated to a fixed point so a library can depend on
+	//a library): index its signatures and parse it fully as an inline
+	//library translation unit. Idempotent per file.
+	void DiscoverLibraryUnits();
+	//Locate <name>.n on the import dirs; empty if not present.
+	std::string FindLibrarySourceFile(const std::string& name) const;
+	//Index and fully parse one library source file as a library TU.
+	//True when it was newly inlined this call (false: already inlined).
+	bool ParseLibraryUnit(const std::string& path);
 	//Build the per-TU import gates (D1: imports are file-scoped) and
 	//collect the single-segment external .nmod candidates into
 	//rExternalNames. False after logging the gate errors.
@@ -154,6 +166,10 @@ private:
 	//transferred to VmBackend at the start of GenerateCodes via
 	//SetImportedModules(); the backend then merges them into the user
 	//module during GenerateStatements.
+	//Absolute paths of library .n files already parsed inline this build,
+	//so each is fully parsed at most once (independent of the signature
+	//index, which loads the standard library at construction).
+	std::unordered_set<std::string> m_inlinedLibraryFiles;
 	std::vector<CompiledModule> m_loadedImports;
 	//External function stubs whose name already existed in the root
 	//(e.g. two .nmod modules exporting the same function). They are

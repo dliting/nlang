@@ -137,7 +137,14 @@ private:
 			//resolver can route `math.sqrt(x)` on the outer name alone.
 			//Every NameDict (namespace/class/struct/enum members, function
 			//params) flows through here — one choke point for all of them.
-			if (m_Env.IsLibraryNamespace(pCurrField->Name()))
+			//A library TU's own namespace node legitimately carries the
+			//library namespace name (it IS that library); the reserved-name
+			//rule only keeps every other scope from declaring such a name.
+			const ModuleRegistry &fieldReg = m_Env.Registry();
+			const bool ownerIsLibrary =
+				fieldReg.IsLibraryModule(fieldReg.OwnerOf(*pCurrField));
+			if (!ownerIsLibrary
+				&& m_Env.IsLibraryNamespace(pCurrField->Name()))
 			{
 				m_Env.Log(CLL_Error, pCurrField->Location(),
 					"The name \"%s\" is reserved for a library namespace.",

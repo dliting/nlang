@@ -20,6 +20,7 @@
 #include "VmBackend.h"
 #include "ModuleLoader.h"
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -55,51 +56,58 @@ const ModuleRegistry& ModuleBuilder::Registry() const
 	return m_upEnv->Registry();
 }
 
-bool ModuleBuilder::Build()
+bool ModuleBuilder::PrepareUnits()
 {
 	if (!CreateModule())
 		return false;
 	InitSyntaxTree();
-
 	//Parse sources first so TranslationUnit.m_Imports is populated; the
 	//list of imports to load comes from source, not from CLI.
 	ParseTransUnits();
 	if (m_upEnv->HasError())
 		return false;
-
+	//Discover and fully parse import-reachable library .n sources before
+	//registration so their library TUs join the module index space too.
+	DiscoverLibraryUnits();
+	if (m_upEnv->HasError())
+		return false;
 	if (!RegisterUnits())
 		return false;
-
-	//Phase 13: type alias pre-pass — must run before the units are merged
-	//(alias scope is the translation unit; the merge clears unit roots).
+	//Type alias pre-pass must run before the units are merged (alias scope
+	//is the translation unit; the merge clears unit roots).
 	ExpandTypeAliases();
 	if (m_upEnv->HasError())
 		return false;
+	//Load .nmod imports and merge stubs into the root namespace.
+	return LoadImports();
+}
 
-	//Load .nmod imports and merge stubs into root namespace.
-	if (!LoadImports())
-		return false;
-
-	//Merge user TU roots (post-import) into the AST root and run all
-	//subsequent resolution passes.
+bool ModuleBuilder::ResolveAll()
+{
+	//Merge user TU roots (post-import) into the AST root, then run every
+	//resolution pass.
 	MergeTransUnits();
 	ResolveUsingLists();
 	ResolveDataTypes();
 	CheckDuplicateFields();
 	ResolveDataValues();
 	ResolveStatements();
-	if (m_upEnv->HasError())
-		return false;
+	return !m_upEnv->HasError();
+}
 
-	//Phase 13: sweep function references that are still pending after
-	//every consumer ran — they never met an expected Func type.
+bool ModuleBuilder::Build()
+{
+	if (!PrepareUnits())
+		return false;
+	if (!ResolveAll())
+		return false;
+	//Sweep function references still pending after every consumer ran —
+	//they never met an expected Func type.
 	SweepPendingFuncRefs();
 	if (m_upEnv->HasError())
 		return false;
-
 	if (!GenerateCodes())
 		return false;
-
 	return SaveModule();
 }
 
@@ -129,8 +137,14 @@ bool ModuleBuilder::RegisterUnits()
 	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
+		//Library TUs (parsed from a search-path <name>.n) are registered
+		//with isLibrary so they are compiled in but not project modules.
+		const std::string absPath =
+			std::filesystem::absolute(std::filesystem::path(
+				pTransUnit->FilePath())).lexically_normal().string();
+		const bool isLib = m_inlinedLibraryFiles.count(absPath) > 0;
 		if (!reg.RegisterUnit(moduleIndex++, *pTransUnit,
-				m_upEnv->Params().m_sProjectDir, regErrors))
+				m_upEnv->Params().m_sProjectDir, regErrors, isLib))
 		{
 			for (const auto& error : regErrors)
 				m_upEnv->Log(CLL_Error, "%s", error.c_str());

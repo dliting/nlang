@@ -18,41 +18,6 @@
 
 namespace nlang {
 
-//Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Must be
-//dispatched before anything that needs member.Field() — the
-//resolver marks these resolved without a field, and the outer
-//identifier (the namespace name) is never emitted at all.
-//Returns true when the call was emitted.
-bool VmBackend::EmitMemberStdlibCall(SnMemberExpr& member,
-                                     BytecodeEmitter& emitter,
-                                     uint16_t resultOffset) {
-    auto* outer = member.Outer();
-    auto* inner = member.Inner();
-    if (outer && outer->Kind() == NK_IdentifierExpr
-        && inner && inner->Kind() == NK_InvokeExpr)
-    {
-        auto& outerId = static_cast<SnIdentifierExpr&>(*outer);
-        //Recognize a library namespace from the index (stdlib and any
-        //third-party namespace use the same lookup — no hard-coded list).
-        if (m_pLibraryIndex
-            && m_pLibraryIndex->HasNamespace(outerId.Name()))
-        {
-            auto& invoke = static_cast<SnInvokeExpr&>(*inner);
-            //The signature comes from the library index; the resolver
-            //guarantees it here, but fall through defensively if missing.
-            const langservice::SymbolInfo* pSig =
-                m_pLibraryIndex->Resolve(outerId.Name(),
-                                         invoke.CalleeName());
-            if (pSig)
-            {
-                EmitStdLibCall(*pSig, invoke, emitter, resultOffset);
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 //Phase 13 Step 2: bound method reference (c.foo / o.run in a
 //value position) — the resolver bound the member's EvalDataType
 //to the Func declaration while Field() stayed the SnFunction

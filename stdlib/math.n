@@ -1,6 +1,7 @@
-// Auto-generated from include/nlang/vm/StdLib.h — DO NOT EDIT.
-// Namespace: math — 25 native functions.
-
+// Standard library source for the "math" namespace — authoritative
+// declarations, indexed by langservice::SymbolIndex and inlined into every
+// build. The native functions are implemented in the host (nlang_math.dll);
+// any plain NLang function would compile from this file. Edit freely.
 namespace math {
     // Square root of x.
     native float sqrt(float x);

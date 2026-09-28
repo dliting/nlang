@@ -87,10 +87,11 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 
 	SnFunction *pCallee;
 	std::vector<FormalBinding> bindings;
+	std::vector<SnFunction*> candidates;
 	bool bNameMatchedImported = false;
 	bool bVisibilityHintLogged = false;
 	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings,
-		bNameMatchedImported, bVisibilityHintLogged);
+		bNameMatchedImported, bVisibilityHintLogged, &candidates);
 
 	//Phase 9e: out arguments on virtual (by-name dispatched) methods are
 	//rejected before anything binds — see OutArgOnDispatchedCalleeRejected.
@@ -114,7 +115,8 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	//the complete diagnosis — appending the generic failure text would
 	//only blur it.
 	if (!bVisibilityHintLogged)
-		LogInvokeFailure(snInvoke, res, pCallee, bNameMatchedImported);
+		LogInvokeFailure(snInvoke, res, pCallee, bNameMatchedImported,
+			candidates);
 }
 
 //Phase 9c: validate caller-side argument syntax (candidate-independent).
@@ -272,7 +274,8 @@ bool ExprResolveAccessor::CollectInvokeCandidates(SnInvokeExpr &invoke,
 
 FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings,
-	bool &rbNameMatchedImported, bool &rbVisibilityHintLogged)
+	bool &rbNameMatchedImported, bool &rbVisibilityHintLogged,
+	std::vector<SnFunction*> *pOutCandidates)
 {
 	//Contract: the out-params are always initialized. The NotFound path
 	//returns early without touching pFuncFound — an uninitialized caller
@@ -293,6 +296,10 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	if (!CollectInvokeCandidates(invoke, bSearchInAncestor, candidates,
 			bImportedMatch, rbVisibilityHintLogged))
 		return FFR_FuncNameNotFound;
+	//Hand the name-matched set to the caller so the failure path can log
+	//per-argument detail (the set is non-empty here).
+	if (pOutCandidates)
+		*pOutCandidates = candidates;
 
 	//One matching core for both call paths; the ambiguity log lives there.
 	//rbNameMatchedImported stays reserved for the no-viable-bind verdict

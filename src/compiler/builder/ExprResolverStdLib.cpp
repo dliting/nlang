@@ -21,232 +21,6 @@
 namespace nlang
 {
 
-//A resolved stdlib arg with no type is a void call (the assignment
-//statement guards the same shape): passing it would silently stage a
-//stale pResult in the claim slot. True = the diagnostic fired.
-static bool MaybeLogVoidStdLibArg(BuildEnvironment &env,
-	SnExpression &arg, size_t paramIdx, const std::string &ns,
-	const std::string &fnName)
-{
-	if (!arg.IsResolved())
-		return false;
-	env.Log(CLL_Error, arg.Location(),
-		"Argument %d of \"%s.%s\" has no value: a void function "
-		"result cannot be used as an argument.",
-		(int)paramIdx + 1, ns.c_str(), fnName.c_str());
-	return true;
-}
-
-//io.print (coerceToString) branch of the per-param gate: every param
-//accepts string|int|float|array — codegen branches on the arg's own
-//static kind and converts at the call site (OP_Array_to_str for
-//tokens). No widening wrap here; class/struct/enum must call
-//.toString() explicitly. Diagnostics only; the caller continues with
-//the next argument either way.
-static void RejectCoercedStringArg(BuildEnvironment &env,
-	SnExpression &arg, SnField *pArgType, size_t paramIdx,
-	const std::string &ns, const std::string &fnName)
-{
-	//null literal is Int32-typed (KT_Null); accepting it would
-	//print "0". Reject it explicitly.
-	if (arg.ContainFlags(NF_NullLiteral))
-	{
-		env.Log(CLL_Error, arg.Location(),
-			"Argument %d of \"%s.%s\" cannot be null.",
-			(int)paramIdx + 1, ns.c_str(), fnName.c_str());
-		return;
-	}
-	//Phase 13: function handles print through the direct conversion
-	//path ("func <name>") like the other three toString routes.
-	const NodeKind argKind = pArgType->Kind();
-	if (argKind != NK_String && argKind != NK_Int32
-		&& argKind != NK_Float
-		&& argKind != NK_ArrayTypeToken
-		&& !IsFuncTypeDecl(pArgType))
-	{
-		env.Log(CLL_Error, arg.Location(),
-			"Argument %d of \"%s.%s\" has type \"%s\"; string, int "
-			"or float expected (class and enum values: call "
-			".toString() first).",
-			(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
-			pArgType->ToString().c_str());
-	}
-}
-
-//Per-param type policy of TryResolveStdLibCall: exact RTK kind match,
-//or int->float widening (wrapped in a cast expr in place — the
-//FixupParamTypesWithBindings recipe over invoke.Children()). Everything
-//else is a compile error naming the function, so the user sees which
-//call is wrong.
-void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
-	const std::string &ns, const std::string &fnName,
-	const langservice::SymbolInfo *pSig)
-{
-	auto& children = invoke.Children();
-	size_t paramIdx = 0;
-	for (auto it = children.begin(); it != children.end(); ++it, ++paramIdx)
-	{
-		auto& arg = static_cast<SnExpression&>(*it);
-		auto* pArgType = arg.EvalDataType();
-		if (!pArgType)
-		{
-			MaybeLogVoidStdLibArg(m_Env, arg, paramIdx, ns, fnName);
-			continue;  //unresolved arg was diagnosed above
-		}
-		const NodeKind argKind = pArgType->Kind();
-		const langservice::TypeKind want =
-			paramIdx < pSig->params.size()
-				? pSig->params[paramIdx].kind
-				: langservice::TypeKind::Unknown;
-		if (want == langservice::TypeKind::Any)
-		{
-			RejectCoercedStringArg(m_Env, arg, pArgType, paramIdx, ns,
-				fnName);
-			continue;
-		}
-		bool ok = (argKind == NK_Int32 && want == langservice::TypeKind::Int)
-			|| (argKind == NK_Float && want == langservice::TypeKind::Float)
-			|| (argKind == NK_String && want == langservice::TypeKind::String);
-		const bool widen = (argKind == NK_Int32
-			&& want == langservice::TypeKind::Float);
-		if (!ok && !widen)
-		{
-			m_Env.Log(CLL_Error, arg.Location(),
-				"Argument %d of \"%s.%s\" has type \"%s\"; \"%s\" expected.",
-				(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
-				pArgType->ToString().c_str(),
-				langservice::NameOfTypeKind(want).c_str());
-			continue;
-		}
-		if (widen)
-		{
-			//Sole automatic promotion (same policy as user-function calls).
-			auto* pFloatType = SnBuiltinDataType::InstanceOf(NK_Float);
-			TypeCastInfo castInfo(pArgType, pFloatType);
-			FixupExprType(it, castInfo);
-		}
-	}
-}
-
-//Result binding of TryResolveStdLibCall: the return-type switch and
-//the member/channel writes. invoke.Callee() deliberately stays null —
-//same as the built-in string methods — so the walker reserves
-//argCount+1 slots; the namespace-shaped emission only uses argCount
-//(over-reserve is safe).
-void ExprResolveAccessor::BindStdLibCallResult(SnMemberExpr &snMember,
-	SnInvokeExpr &invoke, const langservice::SymbolInfo *pSig)
-{
-	invoke.AddFlags(NF_Resolved);
-	SnField* pResultField = nullptr;
-	switch (pSig->returnKind)
-	{
-	case langservice::TypeKind::Float:
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
-		break;
-	case langservice::TypeKind::Int:
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
-		break;
-	case langservice::TypeKind::String:
-		pResultField = SnBuiltinDataType::InstanceOf(NK_String);
-		break;
-	case langservice::TypeKind::ListString:
-		//fs.listFiles: List<string> generic instance.
-	{
-		std::vector<SnField*> listArgs{
-			SnBuiltinDataType::InstanceOf(NK_String) };
-		pResultField = GetGenericClassDecl("List", listArgs, {},
-			invoke.Location());
-		break;
-	}
-	default:
-		break;  //Void/Unknown: no result type; void assignment rejected downstream
-	}
-	if (pResultField)
-	{
-		snMember.EvalDataType(pResultField);
-		//Set m_pField directly (not via ResolveFieldExprAs) so chained
-		//access (fs.join(a, b).length()) survives IsDataExpr().
-		snMember.m_pField = pResultField;
-	}
-	snMember.AddFlags(NF_Resolved);
-	BindArrayTypeToken(snMember);
-}
-
-//Lookup gate of TryResolveStdLibCall: table-driven by-name dispatch
-//rejects named and out arguments outright (same guards as the built-in
-//string methods in Access(SnMemberExpr&)), then the table lookup and
-//the arity range check run. Null = a diagnostic is logged and the call
-//is consumed.
-const langservice::SymbolInfo *ExprResolveAccessor::FindStdLibEntry(
-	SnInvokeExpr &invoke, const std::string &ns, const std::string &fnName)
-{
-	if (HasNamedArgument(invoke))
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"Named arguments are not supported by standard library functions.");
-		return nullptr;
-	}
-	if (HasOutArgument(invoke))
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"out arguments are not supported by standard library functions.");
-		return nullptr;
-	}
-	const langservice::SymbolInfo* pSig =
-		m_Env.LibraryIndex().Resolve(ns, fnName);
-	if (!pSig)
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"Unknown standard library function \"%s.%s\".",
-			ns.c_str(), fnName.c_str());
-		return nullptr;
-	}
-	//A native declaration must have a VM implementation. A built-in
-	//standard library namespace provides a host intrinsic, so a miss is a
-	//build/installation problem. Third-party natives are resolved from
-	//nlang_<ns>.dll at runtime (like JNI / Python C extensions), so their
-	//implementation is not verified at compile time.
-	if (pSig->native && !FindStdLibFunction(ns, fnName)
-		&& IsStdLibNamespaceName(ns))
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"Standard library function \"%s.%s\" is declared native but "
-			"has no runtime implementation.", ns.c_str(), fnName.c_str());
-		return nullptr;
-	}
-	const size_t argCount = ArgCountOf(invoke);
-	const size_t expected = pSig->params.size();
-	if (argCount == expected)
-		return pSig;
-	m_Env.Log(CLL_Error, invoke.Location(),
-		"\"%s.%s\" expects %d argument(s).",
-		ns.c_str(), fnName.c_str(), (int)expected);
-	return nullptr;
-}
-
-//Phase 11: namespace-qualified stdlib call (math.sqrt(x), io.print(s)).
-//Resolves against the built-in table in StdLib.h. Every branch consumes
-//the expression — resolved or diagnosed — because namespace names are
-//reserved and never resolve as fields (no fallback path exists).
-void ExprResolveAccessor::TryResolveStdLibCall(SnMemberExpr &snMember,
-	SnIdentifierExpr &outerId, SnInvokeExpr &invoke)
-{
-	const std::string ns(outerId.Name());
-	const auto& fnName = invoke.CalleeName();
-
-	const langservice::SymbolInfo *pSig = FindStdLibEntry(invoke, ns, fnName);
-	if (!pSig)
-		return;
-
-	//Args resolve in the caller's scope. The intercept runs before
-	//Access(SnMemberExpr&) sets ERF_SearchInParentOnly / swaps m_pContext,
-	//so no context restore is needed (unlike the string-methods branch).
-	ResolveExpressionList(invoke.Params());
-
-	CheckStdLibParamTypes(invoke, ns, fnName, pSig);
-	BindStdLibCallResult(snMember, invoke, pSig);
-}
-
 //Mark the member resolved and bind the array token — the shared
 //close-out of every module-qualified path (diagnosed failures and the
 //success tail alike), so no later phase re-reports the chain.
@@ -286,7 +60,13 @@ bool ExprResolveAccessor::TryResolveModuleCallTarget(
 		|| IsBuiltinClassName(pathSegs.front()))
 		return false;
 
-	return m_Env.Registry().IsKnownModule(rModulePath);
+	if (m_Env.Registry().IsKnownModule(rModulePath))
+		return true;
+	//A library namespace the symbol index knows but this build did not
+	//inline (the caller never imported it, so DiscoverLibraryUnits did not
+	//pull it in) is still a library target — RejectUnimportedModuleCall
+	//names the missing import instead of a spurious field error.
+	return m_Env.IsLibraryNamespace(pathSegs.front());
 }
 
 //Spec §7 row 1: the module is known but not imported into the current
@@ -301,14 +81,15 @@ bool ExprResolveAccessor::RejectUnimportedModuleCall(
 		return false;
 	if (modulePath.find('.') == std::string::npos)
 	{
-		//Single-segment path. Only the EXTERNAL .nmod case is why no
-		//wildcard is suggested — a wildcard never matches an external
-		//single-segment name (§3.3). A project ROOT module would
-		//additionally be reachable via `import <name>.*;` (D11 union);
-		//the exact form always suffices, so the message stays minimal.
+		//Single-segment path. A library namespace (io/math/fs or a
+		//third-party namespace) reads "Namespace"; an external .nmod reads
+		//"Module". No wildcard is suggested — it never matches a
+		//single-segment name (§3.3); the exact form always suffices.
+		const char *pKind = m_Env.IsLibraryNamespace(modulePath)
+			? "Namespace" : "Module";
 		m_Env.Log(CLL_Error, snMember.Location(),
-			"Module '%s' is not imported. Add 'import %s;' at the top "
-			"of this file.", modulePath.c_str(), modulePath.c_str());
+			"%s '%s' is not imported. Add 'import %s;' at the top "
+			"of this file.", pKind, modulePath.c_str(), modulePath.c_str());
 	}
 	else
 	{
@@ -377,7 +158,8 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 				if (pCandidate->ContainFlags(NF_Imported))
 					bNameMatchedImported = true;
 		}
-		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported);
+		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported,
+			candidates);
 		FinishModuleQualifiedMember(snMember);
 		return false;
 	}
@@ -438,6 +220,12 @@ bool ExprResolveAccessor::ProbeNonFunctionField(const std::string &name)
 	auto *pField = FindFieldInAncestor(name, *m_pContext, *m_pAccessor,
 		Flags());
 	if (pField && pField->Kind() == NK_Function)
+		return false;
+	//An inlined library namespace is reached through the module-qualified
+	//path, not as a non-function field that declines that path.
+	if (pField && pField->Kind() == NK_Namespace
+		&& m_Env.Registry().IsLibraryModule(
+			m_Env.Registry().OwnerOf(*pField)))
 		return false;
 	return pField != nullptr;
 }

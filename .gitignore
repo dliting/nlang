@@ -1,6 +1,7 @@
 # Build directories
 build/
 build-asan/
+build-dev/
 build-ide/
 out/
 
@@ -47,8 +48,10 @@ Thumbs.db
 *.dll
 *.pdb
 
-# Claude Code local settings (machine-specific permissions)
+# Local agent guidance and settings (machine-specific; not shipped)
 .claude/
 docs/superpowers/
 CLAUDE.md
+AGENT.md
+AGENTS.md
 .superpowers/

@@ -142,40 +142,6 @@ bool ExprResolveAccessor::RejectNamedOrOutArguments(SnInvokeExpr &invoke)
 	return false;
 }
 
-//Phase 11: namespace-qualified stdlib call (math.sqrt(x)). Intercept
-//before the outer identifier resolves — namespace names are reserved
-//and never resolve as fields, so the normal path below would only log
-//"Cannot resolve the field" without naming the actual mistake.
-bool ExprResolveAccessor::TryResolveNamespaceStdLibCall(
-	SnMemberExpr &snMember, SnExpression *pOuterExpr)
-{
-	if (pOuterExpr->Kind() != NK_IdentifierExpr)
-		return false;
-	auto& outerId = static_cast<SnIdentifierExpr&>(*pOuterExpr);
-	auto* pInnerExpr = snMember.Inner();
-	if (!(m_Env.IsLibraryNamespace(outerId.Name())
-		&& pInnerExpr && pInnerExpr->Kind() == NK_InvokeExpr))
-		return false;
-	//D6: built-in namespaces are gated like any module — the
-	//gate fires before the table lookup so an unimported call
-	//names the missing import, not an unknown function.
-	auto &reg = m_Env.Registry();
-	const uint32_t curModule = reg.OwnerOfContext(*m_pContext);
-	if (!reg.IsBuiltinImported(curModule, outerId.Name()))
-	{
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"Namespace '%s' is not imported. Add 'import %s;' at "
-			"the top of this file.",
-			outerId.Name().c_str(), outerId.Name().c_str());
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		return true;
-	}
-	TryResolveStdLibCall(snMember, outerId,
-		static_cast<SnInvokeExpr&>(*pInnerExpr));
-	return true;
-}
-
 //Receiver-scope switch: a data-typed outer resolves in its type context;
 //a type outer (namespace/class name) resolves in the type's scope, with
 //the enum-member re-anchor for `Color.Blue.rank()` receivers (the member
@@ -245,8 +211,6 @@ bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
 bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	SnExpression *pOuterExpr)
 {
-	if (TryResolveNamespaceStdLibCall(snMember, pOuterExpr))
-		return true;
 	//Module import visibility (spec §6.2 rule 5): module-table fallback
 	//for dotted call chains. Runs BEFORE the outer resolves — a module
 	//diagnostic must not double with a spurious "Cannot resolve the field",
