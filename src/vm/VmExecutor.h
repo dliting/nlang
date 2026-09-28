@@ -119,33 +119,25 @@ private:
     void OpEq_str(BytecodeReader& reader, uint8_t* locals);
     void OpNe_str(BytecodeReader& reader, uint8_t* locals);
     void OpStrLen(BytecodeReader& reader, uint8_t* locals);
-    void OpCastIntToFloat(uint8_t* pResult);
-    void OpCastFloatToInt(uint8_t* pResult);
-    void OpInt32_to_str(uint8_t* pResult);
-    void OpFloat_to_str(uint8_t* pResult);
-    void OpAdd_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpSub_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpMul_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpDiv_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpMod_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpNeg_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpAdd_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpSub_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpMul_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpDiv_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpNeg_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpLess_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpLessEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreater_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreaterEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpNotEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpLess_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpLessEqual_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreater_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreaterEqual_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpEqual_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpNotEqual_f32(BytecodeReader& reader, uint8_t* locals);
+    //0.7.5 generalized numeric family (VmExecutorOpsPrim.cpp): handlers
+    //read the kind immediate, resolve the registry row, and dispatch
+    //through the function-pointer tables in VmPrimOps.h — no per-kind
+    //switches in the executor.
+    void OpAdd(BytecodeReader& reader, uint8_t* locals);
+    void OpSub(BytecodeReader& reader, uint8_t* locals);
+    void OpMul(BytecodeReader& reader, uint8_t* locals);
+    void OpDiv(BytecodeReader& reader, uint8_t* locals);
+    void OpMod(BytecodeReader& reader, uint8_t* locals);
+    void OpNeg(BytecodeReader& reader, uint8_t* locals);
+    void OpCmp(BytecodeReader& reader, uint8_t* locals);
+    void OpPrimCast(BytecodeReader& reader, uint8_t* pResult);
+    void OpPrimToStr(BytecodeReader& reader, uint8_t* pResult);
+    void OpConstInt64(BytecodeReader& reader, uint8_t* pResult);
+    void OpConstDouble(BytecodeReader& reader, uint8_t* pResult);
+    //Registry-driven slot read: sign-extends signed rows by width,
+    //zero-extends unsigned rows, truncates float rows first. Used by
+    //OpPrimCast's numeric->char code-point validation.
+    int64_t ReadScalarAsInt64(int row, const uint8_t* p) const;
     void OpLogicalNot(BytecodeReader& reader, uint8_t* locals);
     void OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);

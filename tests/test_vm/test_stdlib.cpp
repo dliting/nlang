@@ -9,6 +9,7 @@
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
+#include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/StdLib.h"
@@ -506,6 +507,7 @@ int main()
     //interned-name table the resolver indexes fields by. Without it any
     //Build() segfaults in IdString lookup rather than failing loudly.
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
 
     std::cerr << "=== NLang StdLib Unit Tests ===\n\n";
 

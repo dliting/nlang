@@ -5,6 +5,7 @@ add_library(nlang_vm
     VmExecutorDebug.cpp
     VmExecutorOps.cpp
     VmExecutorOpsArith.cpp
+    VmExecutorOpsPrim.cpp
     VmExecutorOpsControl.cpp
     VmExecutorOpsCalls.cpp
     VmExecutorOpsStrings.cpp
@@ -47,6 +48,7 @@ add_library(nlang_vm
     backend/EmitStmtSwitchTry.cpp
     CrashReporter.cpp
     Disassembler.cpp
+    DisassemblerPrim.cpp
     DisassemblerWalk.cpp
     ModuleLoader.cpp
     ModuleSaver.cpp

@@ -210,8 +210,8 @@ SnField* ExprResolveAccessor::SelectArithmeticResultType(SnBinaryExpr &sn,
 			return nullptr;
 		}
 		//Phase 8e-9a: allow mixed (e.g. int + string). The non-string
-		//operand is wrapped in SnCastExpr below; VmBackend.cpp:951
-		//emits OP_Int32_to_str / OP_Float_to_str for the conversion.
+		//operand is wrapped in SnCastExpr below; the backend emits the
+		//kind-immediate OP_Prim_to_str for the conversion.
 		//Then OP_Concat_str concatenates the two string indices.
 		return SnBuiltinDataType::InstanceOf(NK_String);
 	}

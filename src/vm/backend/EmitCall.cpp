@@ -4,6 +4,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 
@@ -12,7 +13,7 @@ namespace nlang {
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Several opcodes read the pResult accumulator (OP_Box/OP_Unbox,
-//OP_CastIntToFloat/OP_CastFloatToInt, OP_Int32_to_str/OP_Float_to_str).
+//OP_PrimCast/OP_Prim_to_str).
 //EmitExpression only leaves the value in pResult when the source's final
 //opcode writes the accumulator (var_local, consts, calls); locals-writing
 //sources (binary arithmetic, field/element loads) leave it stale — the
@@ -31,7 +32,6 @@ void VmBackend::EmitCompoundOp(int opInt,
         BytecodeEmitter& emitter, uint16_t dst, uint16_t src,
         SnField* lhsType) {
     auto op = static_cast<SnBinaryExpr::Operator>(opInt);
-    bool isFloat = lhsType && lhsType->Kind() == NK_Float;
     bool isString = lhsType && lhsType->Kind() == NK_String;
 
     //String only supports += (concat). All other ops are invalid.
@@ -47,16 +47,20 @@ void VmBackend::EmitCompoundOp(int opInt,
 
     OpCode opc;
     switch (op) {
-    case SnBinaryExpr::OP_Add: opc = isFloat ? OpCode::OP_Add_f32 : OpCode::OP_Add_i32; break;
-    case SnBinaryExpr::OP_Sub: opc = isFloat ? OpCode::OP_Sub_f32 : OpCode::OP_Sub_i32; break;
-    case SnBinaryExpr::OP_Mul: opc = isFloat ? OpCode::OP_Mul_f32 : OpCode::OP_Mul_i32; break;
-    case SnBinaryExpr::OP_Div: opc = isFloat ? OpCode::OP_Div_f32 : OpCode::OP_Div_i32; break;
-    case SnBinaryExpr::OP_Mod: opc = OpCode::OP_Mod_i32; break;
+    case SnBinaryExpr::OP_Add: opc = OpCode::OP_Add; break;
+    case SnBinaryExpr::OP_Sub: opc = OpCode::OP_Sub; break;
+    case SnBinaryExpr::OP_Mul: opc = OpCode::OP_Mul; break;
+    case SnBinaryExpr::OP_Div: opc = OpCode::OP_Div; break;
+    case SnBinaryExpr::OP_Mod: opc = OpCode::OP_Mod; break;
     default: return;  //not an arithmetic op
     }
-    emitter.Emit(opc);
-    emitter.EmitUint16(dst);
-    emitter.EmitUint16(src);
+    //0.7.5: kind-immediate family — compound assigns carry the LHS
+    //type's kind (enum≡int32 normalized).
+    NodeKind numKind = BinNumericKindOf(
+        lhsType ? lhsType->Kind() : NK_Int32);
+    if (op == SnBinaryExpr::OP_Mod && numKind != NK_Int32)
+        return;  //float % stays resolver-rejected in 0.7.5 (P5 may revisit)
+    EmitBinOp(emitter, opc, numKind, dst, src);
 }
 
 //Phase 11: namespace-qualified stdlib call (math.sqrt(x), io.print(s)).
@@ -97,32 +101,35 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
-//io.print coercion for one already-emitted stdlib argument: int/float
-//args convert to string in their claim slot right after being emitted.
-//pResult discipline — the to_str opcodes have no operands and rewrite the
-//accumulator in place, so the sequence must be load-slot -> convert ->
-//store-slot (the cast_f2i / string-pool-dedup bug family otherwise).
-//String args pass through (conv stays OP_Count).
+//io.print coercion for one already-emitted stdlib argument: scalar
+//args convert to string in their claim slot right after being emitted
+//(registry-driven OP_Prim_to_str — every current and future scalar
+//rides the same instruction); arrays and func handles keep their
+//dedicated conversions.
+//pResult discipline — the to_str opcodes rewrite the accumulator in
+//place, so the sequence must be load-slot -> convert -> store-slot
+//(the cast_f2i / string-pool-dedup bug family otherwise).
+//String args pass through (nothing emitted).
 void VmBackend::EmitStdLibArgToString(SnExpression& param,
         BytecodeEmitter& emitter, uint16_t slot) {
     auto* pArgType = param.EvalDataType();
-    OpCode conv = OpCode::OP_Count;  //string args pass through
-    if (pArgType && pArgType->Kind() == NK_Int32)
-        conv = OpCode::OP_Int32_to_str;
-    else if (pArgType && pArgType->Kind() == NK_Float)
-        conv = OpCode::OP_Float_to_str;
-    else if (pArgType && pArgType->Kind() == NK_ArrayTypeToken)
-        conv = OpCode::OP_Array_to_str;
-    else if (pArgType && pArgType->Kind() == NK_ClassDecl
-        && static_cast<SnClassDecl*>(pArgType)->IsFuncType())
-        conv = OpCode::OP_Func_to_str;
-    if (conv != OpCode::OP_Count) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(slot);
-        emitter.Emit(conv);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(slot);
-    }
+    NodeKind kind = pArgType ? pArgType->Kind() : NK_Void;
+    bool scalar = ScalarPrimIndexOf(kind) >= 0;
+    bool array = kind == NK_ArrayTypeToken;
+    bool func = kind == NK_ClassDecl
+        && static_cast<SnClassDecl*>(pArgType)->IsFuncType();
+    if (!scalar && !array && !func)
+        return;
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(slot);
+    if (scalar)
+        EmitPrimToStr(emitter, kind);
+    else if (array)
+        emitter.Emit(OpCode::OP_Array_to_str);
+    else
+        emitter.Emit(OpCode::OP_Func_to_str);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(slot);
 }
 
 //Bulk-copy evalArea claim → callParamBase just before the call.

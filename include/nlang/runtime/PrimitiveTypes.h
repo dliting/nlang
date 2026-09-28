@@ -149,6 +149,32 @@ inline std::string Utf8EncodeCodePoint(uint32 cp)
     return out;
 }
 
+//--- Compile-time row mapping (0.7.5 Task 4) ---
+//Row id enum generated from the same X-macro list — the compile-time
+//key for the VM dispatch-table instantiation (VmPrimOps.h).
+#define PRIM_ID_ROW(Name, Kw, Width, Carrier, Cat, Rank) SPR_##Name,
+enum ScalarPrimId : uint8_t
+{
+    SCALAR_PRIMITIVE_DECL(PRIM_ID_ROW)
+    SPR_Count
+};
+#undef PRIM_ID_ROW
+
+//Carrier type per row (compile-time).
+template <ScalarPrimId ID> struct PrimCarrier;
+#define CARRIER_ROW(Name, Kw, Width, Carrier, Cat, Rank)              \
+    template <> struct PrimCarrier<SPR_##Name> { using T = Carrier; };
+SCALAR_PRIMITIVE_DECL(CARRIER_ROW)
+#undef CARRIER_ROW
+
+//Category per row (constexpr array, compile-time indexable).
+#define CAT_ROW(Name, Kw, Width, Carrier, Cat, Rank) Cat,
+constexpr ScalarPrimCategory kPrimCategory[SPR_Count] =
+{
+    SCALAR_PRIMITIVE_DECL(CAT_ROW)
+};
+#undef CAT_ROW
+
 } // namespace nlang
 
 #endif // NLANG_RUNTIME_PRIMITIVE_TYPES_H

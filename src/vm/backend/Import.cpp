@@ -15,10 +15,6 @@ static size_t NoOperandStride(OpCode op) {
         case OpCode::OP_Return:
         case OpCode::OP_Stop:
         case OpCode::OP_ConstZero:
-        case OpCode::OP_CastIntToFloat:
-        case OpCode::OP_CastFloatToInt:
-        case OpCode::OP_Int32_to_str:
-        case OpCode::OP_Float_to_str:
         case OpCode::OP_Array_to_str:
         case OpCode::OP_Func_to_str:
         case OpCode::OP_ParaEnd:
@@ -38,8 +34,6 @@ static size_t SingleU16OperandStride(OpCode op) {
         case OpCode::OP_VarLocal:
         case OpCode::OP_Assign:
         case OpCode::OP_Enum_to_str:
-        case OpCode::OP_Neg_i32:
-        case OpCode::OP_Neg_f32:
         case OpCode::OP_LogicalNot:
         case OpCode::OP_Switch:
         case OpCode::OP_DebugInfo:
@@ -59,27 +53,6 @@ static size_t SingleU16OperandStride(OpCode op) {
 static size_t DoubleU16OperandStride(OpCode op) {
     switch (op) {
         case OpCode::OP_JumpIfNot:
-        case OpCode::OP_Add_i32:
-        case OpCode::OP_Sub_i32:
-        case OpCode::OP_Mul_i32:
-        case OpCode::OP_Div_i32:
-        case OpCode::OP_Mod_i32:
-        case OpCode::OP_Add_f32:
-        case OpCode::OP_Sub_f32:
-        case OpCode::OP_Mul_f32:
-        case OpCode::OP_Div_f32:
-        case OpCode::OP_Less_i32:
-        case OpCode::OP_LessEqual_i32:
-        case OpCode::OP_Greater_i32:
-        case OpCode::OP_GreaterEqual_i32:
-        case OpCode::OP_Equal_i32:
-        case OpCode::OP_NotEqual_i32:
-        case OpCode::OP_Less_f32:
-        case OpCode::OP_LessEqual_f32:
-        case OpCode::OP_Greater_f32:
-        case OpCode::OP_GreaterEqual_f32:
-        case OpCode::OP_Equal_f32:
-        case OpCode::OP_NotEqual_f32:
         case OpCode::OP_Concat_str:
         case OpCode::OP_Eq_str:
         case OpCode::OP_Ne_str:
@@ -107,8 +80,10 @@ static size_t DoubleU16OperandStride(OpCode op) {
 //(opcode + all operands). Used by RemapBytecode to walk a bytecode buffer.
 //All operands are uint16 (2 bytes) except OP_Box/OP_Unbox (1-byte tag),
 //OP_ConstInt32/OP_ConstFloat/OP_Jump (4 / 4 / 2-byte immediate), and
-//OP_JumpIfNot (2 + 2 = 4). The 11 remap-relevant opcodes are tagged in
-//the second switch below.
+//OP_JumpIfNot (2 + 2 = 4). The 0.7.5 kind-immediate families (Add..Mod,
+//Neg, Cmp, PrimCast, Prim_to_str, ConstInt64/ConstDouble) carry uint8
+//kind immediates and/or 8-byte immediates — see the arms below. The 11
+//remap-relevant opcodes are tagged in the second switch below.
 static size_t InstructionStride(OpCode op) {
     if (size_t stride = NoOperandStride(op))
         return stride;
@@ -117,17 +92,29 @@ static size_t InstructionStride(OpCode op) {
     if (size_t stride = DoubleU16OperandStride(op))
         return stride;
     switch (op) {
+        case OpCode::OP_Prim_to_str:   // uint8 kind
         case OpCode::OP_Box:
-        case OpCode::OP_Unbox:
-            return 1 + 1;  // uint8 tag
-        case OpCode::OP_Jump:
-        case OpCode::OP_Case:
+        case OpCode::OP_Unbox:         // uint8 tag
+            return 1 + 1;
+        case OpCode::OP_PrimCast:
+            return 1 + 1 + 1;  // uint8 srcKind + uint8 dstKind
+        case OpCode::OP_Neg:
+            return 1 + 1 + 2;  // uint8 kind + uint16 dst
+        case OpCode::OP_Cmp:
+            return 1 + 1 + 1 + 2 + 2;  // kind + cmpOp + two uint16 slots
+        case OpCode::OP_Add:
+        case OpCode::OP_Sub:
+        case OpCode::OP_Mul:
+        case OpCode::OP_Div:
+        case OpCode::OP_Mod:
+            return 1 + 1 + 2 + 2;  // uint8 kind + two uint16 slots
+        case OpCode::OP_Jump: case OpCode::OP_Case:
             return 1 + 2;  // int16 / uint16
-        case OpCode::OP_ConstInt32:
-        case OpCode::OP_ConstFloat:
+        case OpCode::OP_ConstInt32: case OpCode::OP_ConstFloat:
             return 1 + 4;
-        case OpCode::OP_CallFuncOut:
-        case OpCode::OP_CallMethodDirectOut:
+        case OpCode::OP_ConstInt64: case OpCode::OP_ConstDouble:
+            return 1 + 8;  // 8-byte immediate (0.7.5)
+        case OpCode::OP_CallFuncOut: case OpCode::OP_CallMethodDirectOut:
         case OpCode::OP_CallDelegateOut:
             return 1 + 2 + 2 + 4;  // uint16 + uint16 + uint32 outMask (Phase 9e / 13)
         case OpCode::OP_AllocStruct:

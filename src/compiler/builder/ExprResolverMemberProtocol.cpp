@@ -153,11 +153,11 @@ bool ExprResolveAccessor::IsNonClassToStringReceiver(SnMemberExpr &snMember)
 	return isNonClassToString;
 }
 
-//Phase 8e-9b: non-class receiver toString() — enum, int, float, array.
+//Phase 8e-9b: non-class receiver toString() — enum, scalar, array.
 //These types have no method table; the resolver accepts the call by setting
 //EvalDataType=String + NF_Resolved. Codegen dispatches based on the
-//outer expression's EvalDataType (enum→OP_Enum_to_str, int→OP_Int32_to_str,
-//float→OP_Float_to_str). No m_pField hack needed — the type information
+//outer expression's EvalDataType (enum→OP_Enum_to_str, scalar→OP_Prim_to_str,
+//array→OP_Array_to_str). No m_pField hack needed — the type information
 //flows through the existing outer->EvalDataType() channel, same as struct/
 //class/interface field access in codegen.
 bool ExprResolveAccessor::TryResolveNonClassToString(SnMemberExpr &snMember,

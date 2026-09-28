@@ -8,6 +8,7 @@
 
 #include "Disassembler.h"
 #include "BytecodeReader.h"
+#include "DisassemblerPrim.h"
 #include <cstdio>
 #include <sstream>
 #include <stdexcept>
@@ -234,8 +235,6 @@ static bool DisasmConstOps(OpCode op, BytecodeReader &r,
     const CompiledModule &module) {
     switch (op) {
         case OpCode::OP_ConstZero:
-        case OpCode::OP_CastIntToFloat:
-        case OpCode::OP_CastFloatToInt:
             EmitPlain(out, head);
             return true;
         case OpCode::OP_ConstInt32:
@@ -244,6 +243,19 @@ static bool DisasmConstOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_ConstFloat:
             EmitF32(r, out, head);
             return true;
+        case OpCode::OP_ConstInt64: {
+            char buf[48];
+            snprintf(buf, sizeof(buf), " %lld",
+                     static_cast<long long>(r.ReadInt64()));
+            out << head << buf << "\n";
+            return true;
+        }
+        case OpCode::OP_ConstDouble: {
+            char buf[48];
+            snprintf(buf, sizeof(buf), " %.17g", r.ReadDouble());
+            out << head << buf << "\n";
+            return true;
+        }
         case OpCode::OP_ConstString:
             EmitConstString(r, out, head, module);
             return true;
@@ -256,37 +268,28 @@ static bool DisasmConstOps(OpCode op, BytecodeReader &r,
     }
 }
 
+//--- 0.7.5 kind-immediate family printers live in DisassemblerPrim.cpp
+//(file-size guard split); the call sites below route through them.
+
 static bool DisasmArithOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head) {
     switch (op) {
-        //dst, src (binary arithmetic)
-        case OpCode::OP_Add_i32:
-        case OpCode::OP_Sub_i32:
-        case OpCode::OP_Mul_i32:
-        case OpCode::OP_Div_i32:
-        case OpCode::OP_Mod_i32:
-        case OpCode::OP_Add_f32:
-        case OpCode::OP_Sub_f32:
-        case OpCode::OP_Mul_f32:
-        case OpCode::OP_Div_f32:
-        //lhs, rhs (comparison)
-        case OpCode::OP_Less_i32:
-        case OpCode::OP_LessEqual_i32:
-        case OpCode::OP_Greater_i32:
-        case OpCode::OP_GreaterEqual_i32:
-        case OpCode::OP_Equal_i32:
-        case OpCode::OP_NotEqual_i32:
-        case OpCode::OP_Less_f32:
-        case OpCode::OP_LessEqual_f32:
-        case OpCode::OP_Greater_f32:
-        case OpCode::OP_GreaterEqual_f32:
-        case OpCode::OP_Equal_f32:
-        case OpCode::OP_NotEqual_f32:
-            EmitU16x2(r, out, head, " %u %u");
+        //kind, dst, src (binary arithmetic)
+        case OpCode::OP_Add:
+        case OpCode::OP_Sub:
+        case OpCode::OP_Mul:
+        case OpCode::OP_Div:
+        case OpCode::OP_Mod:
+            DisasmPrimBinOp(r, out, head);
             return true;
-        //dst (unary)
-        case OpCode::OP_Neg_i32:
-        case OpCode::OP_Neg_f32:
+        //kind, cmpOp, lhs, rhs (comparison)
+        case OpCode::OP_Cmp:
+            DisasmPrimCmp(r, out, head);
+            return true;
+        //kind, dst (unary)
+        case OpCode::OP_Neg:
+            DisasmPrimNeg(r, out, head);
+            return true;
         case OpCode::OP_LogicalNot:
             EmitU16(r, out, head, " %u");
             return true;
@@ -310,8 +313,12 @@ static bool DisasmStringOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_StrLen:
             EmitU16x2(r, out, head, " %u %u");
             return true;
-        case OpCode::OP_Int32_to_str:
-        case OpCode::OP_Float_to_str:
+        case OpCode::OP_Prim_to_str:
+            DisasmPrimToStr(r, out, head);
+            return true;
+        case OpCode::OP_PrimCast:
+            DisasmPrimCast(r, out, head);
+            return true;
         case OpCode::OP_Array_to_str:
             EmitPlain(out, head);
             return true;

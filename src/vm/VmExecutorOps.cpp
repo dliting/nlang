@@ -94,19 +94,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             OpAssign(reader, locals, pResult);
             break;
 
-        case OpCode::OP_CastIntToFloat:
-            OpCastIntToFloat(pResult);
+        case OpCode::OP_PrimCast:
+            OpPrimCast(reader, pResult);
             break;
 
-        case OpCode::OP_CastFloatToInt:
-            OpCastFloatToInt(pResult);
-            break;
-
-        case OpCode::OP_Int32_to_str:
-            OpInt32_to_str(pResult);
-            break;
-        case OpCode::OP_Float_to_str:
-            OpFloat_to_str(pResult);
+        case OpCode::OP_Prim_to_str:
+            OpPrimToStr(reader, pResult);
             break;
         case OpCode::OP_Enum_to_str:
             OpEnum_to_str(reader, pResult);
@@ -116,97 +109,42 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             OpArray_to_str(pResult);
             break;
 
-        case OpCode::OP_Add_i32:
-            OpAdd_i32(reader, locals);
+        //0.7.5 generalized numeric family: kind-immediate ops dispatched
+        //through the registry tables (VmExecutorOpsPrim.cpp).
+        case OpCode::OP_Add:
+            OpAdd(reader, locals);
             break;
 
-        case OpCode::OP_Sub_i32:
-            OpSub_i32(reader, locals);
+        case OpCode::OP_Sub:
+            OpSub(reader, locals);
             break;
 
-        case OpCode::OP_Mul_i32:
-            OpMul_i32(reader, locals);
+        case OpCode::OP_Mul:
+            OpMul(reader, locals);
             break;
 
-        case OpCode::OP_Div_i32:
-            OpDiv_i32(reader, locals);
+        case OpCode::OP_Div:
+            OpDiv(reader, locals);
             break;
 
-        case OpCode::OP_Mod_i32:
-            OpMod_i32(reader, locals);
+        case OpCode::OP_Mod:
+            OpMod(reader, locals);
             break;
 
-        case OpCode::OP_Neg_i32:
-            OpNeg_i32(reader, locals);
+        case OpCode::OP_Neg:
+            OpNeg(reader, locals);
             break;
 
-        case OpCode::OP_Add_f32:
-            OpAdd_f32(reader, locals);
+        case OpCode::OP_Cmp:
+            OpCmp(reader, locals);
             break;
 
-        case OpCode::OP_Sub_f32:
-            OpSub_f32(reader, locals);
+        case OpCode::OP_ConstInt64:
+            OpConstInt64(reader, pResult);
             break;
 
-        case OpCode::OP_Mul_f32:
-            OpMul_f32(reader, locals);
-            break;
-
-        case OpCode::OP_Div_f32:
-            OpDiv_f32(reader, locals);
-            break;
-
-        case OpCode::OP_Neg_f32:
-            OpNeg_f32(reader, locals);
-            break;
-
-        //Comparison ops: result written to locals[lhs], like arithmetic ops.
-        case OpCode::OP_Less_i32:
-            OpLess_i32(reader, locals);
-            break;
-
-        case OpCode::OP_LessEqual_i32:
-            OpLessEqual_i32(reader, locals);
-            break;
-
-        case OpCode::OP_Greater_i32:
-            OpGreater_i32(reader, locals);
-            break;
-
-        case OpCode::OP_GreaterEqual_i32:
-            OpGreaterEqual_i32(reader, locals);
-            break;
-
-        case OpCode::OP_Equal_i32:
-            OpEqual_i32(reader, locals);
-            break;
-
-        case OpCode::OP_NotEqual_i32:
-            OpNotEqual_i32(reader, locals);
-            break;
-
-        case OpCode::OP_Less_f32:
-            OpLess_f32(reader, locals);
-            break;
-
-        case OpCode::OP_LessEqual_f32:
-            OpLessEqual_f32(reader, locals);
-            break;
-
-        case OpCode::OP_Greater_f32:
-            OpGreater_f32(reader, locals);
-            break;
-
-        case OpCode::OP_GreaterEqual_f32:
-            OpGreaterEqual_f32(reader, locals);
-            break;
-
-        case OpCode::OP_Equal_f32:
-            OpEqual_f32(reader, locals);
-            break;
-
-        case OpCode::OP_NotEqual_f32:
-            OpNotEqual_f32(reader, locals);
+        case OpCode::OP_ConstDouble:
+            OpConstDouble(reader, pResult);
             break;
 
         case OpCode::OP_LogicalNot:

@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -207,7 +208,7 @@ void VmBackend::EmitForeachLength(bool isArray, uint16_t iterSlot,
 
 //Loop head: mark the loop start, enter the LoopContext (break/continue
 //reuse the loop machinery), then the condition i < n → jumpToEnd if
-//not. tempSlot = i; tempSlot2 = n; OP_Less_i32 writes 1/0 into
+//not. tempSlot = i; tempSlot2 = n; OP_Cmp <i32> Less writes 1/0 into
 //tempSlot. The miss-jump placeholder doubles as this loop's break
 //target. Returns the loop-start offset for the back-jump.
 size_t VmBackend::EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
@@ -222,9 +223,9 @@ size_t VmBackend::EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
     emitter.EmitUint16(nSlot);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->tempSlot2);
-    emitter.Emit(OpCode::OP_Less_i32);
-    emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.EmitUint16(m_currFunc->tempSlot2);
+    //Counter/length hidden locals are fixed int32 (0.7.5 kind-immediate).
+    EmitCmp(emitter, NK_Int32, kCmpLess,
+            m_currFunc->tempSlot, m_currFunc->tempSlot2);
     emitter.Emit(OpCode::OP_JumpIfNot);
     size_t jumpToEnd = emitter.CurrentOffset();
     emitter.EmitUint16(0);  //placeholder, patched by the loop tail
@@ -290,10 +291,9 @@ void VmBackend::EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
     emitter.EmitInt32(1);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->tempSlot2);
-    //OP_Add_i32 <dst> <src>: locals[dst] += locals[src].
-    emitter.Emit(OpCode::OP_Add_i32);
-    emitter.EmitUint16(iSlot);
-    emitter.EmitUint16(m_currFunc->tempSlot2);
+    //OP_Add <i32> <dst> <src>: locals[dst] += locals[src] (counter int32).
+    EmitBinOp(emitter, OpCode::OP_Add, NK_Int32,
+              iSlot, m_currFunc->tempSlot2);
     //Jump back to loop start
     emitter.Emit(OpCode::OP_Jump);
     emitter.EmitUint16(static_cast<uint16_t>(loopStart));

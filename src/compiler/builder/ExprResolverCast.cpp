@@ -373,7 +373,7 @@ bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 
 //Null literal (KT_Null is Int32-typed) must reach the slot as the raw
 //sentinel 0. Wrapping it destroys the null identity downstream:
-//Int32→String emits OP_Int32_to_str ("0"), TCK_Box to Object allocates
+//Int32→String emits OP_Prim_to_str ("0"), TCK_Box to Object allocates
 //a boxed 0. Class/interface targets already treat TCK_Auto as a
 //runtime no-op, so skipping the wrap uniformly is safe there too.
 //Null operands in binary arithmetic/concat are rejected outright by

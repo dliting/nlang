@@ -16,54 +16,38 @@ enum class OpCode : uint8_t {
     OP_ConstFloat,      // float value
     OP_ConstString,     // uint16 pool_index
     OP_ConstZero,       // write zero/nullptr to pResult
+    OP_ConstInt64,      // int64 value (8-byte immediate written to pResult)
+    OP_ConstDouble,     // double value (8-byte immediate written to pResult)
 
     // === Variable access (byte-offset into locals) ===
     OP_VarLocal,        // uint16 offset, read locals[offset..] to pResult
     OP_Assign,          // uint16 dst_offset, write pResult to locals[dst_offset..]
 
     // === Type conversion ===
-    OP_CastIntToFloat,  // read int32 from pResult, write float to pResult
-    OP_CastFloatToInt,  // read float from pResult, write int32 to pResult
-    OP_Int32_to_str,    // Phase 8e-9a: read int32 from pResult, format decimal,
-                        // mint a new string object, write its handle (int32) to pResult
-    OP_Float_to_str,    // Phase 8e-9a: read float from pResult, format with "%g",
-                        // mint a new string object, write its handle (int32) to pResult
+    OP_PrimCast,        // u8 srcKind, u8 dstKind — convert pResult in place
+                        // (kinds are scalar RTK immediates; registry-driven)
+    OP_Prim_to_str,     // u8 kind — read the scalar from pResult, format via the
+                        // kind's ValueToString, mint a string object, write its
+                        // handle (int32) to pResult. Covers every scalar→string
+                        // coercion (the retired OP_Int32_to_str/OP_Float_to_str
+                        // generalized; bool renders true/false, char encodes UTF-8)
     OP_Enum_to_str,     // Phase 8e-9b: uint16 enumDefIdx immediate; read int32 enum value
                         // from pResult, lookup m_compiledModule.enumNames[enumDefIdx][value],
                         // mint a string object, write its handle (int32) to pResult
     OP_Array_to_str,    // Phase 9b-pre: no operands; read array heap idx from pResult,
                         // format as "[e1, e2, ...]", mint a string object, write handle to pResult
 
-    // === Arithmetic - int32 (dst += src) ===
-    OP_Add_i32,         // uint16 dst, uint16 src, locals[dst] += locals[src]
-    OP_Sub_i32,         // uint16 dst, uint16 src
-    OP_Mul_i32,         // uint16 dst, uint16 src
-    OP_Div_i32,         // uint16 dst, uint16 src
-    OP_Mod_i32,         // uint16 dst, uint16 src
-    OP_Neg_i32,         // uint16 dst, locals[dst] = -locals[dst]
-
-    // === Arithmetic - float ===
-    OP_Add_f32,         // uint16 dst, uint16 src
-    OP_Sub_f32,         // uint16 dst, uint16 src
-    OP_Mul_f32,         // uint16 dst, uint16 src
-    OP_Div_f32,         // uint16 dst, uint16 src
-    OP_Neg_f32,         // uint16 dst
-
-    // === Comparison - int32 (result: int32 0 or 1 written to locals[lhs]) ===
-    OP_Less_i32,        // uint16 lhs, uint16 rhs
-    OP_LessEqual_i32,
-    OP_Greater_i32,
-    OP_GreaterEqual_i32,
-    OP_Equal_i32,
-    OP_NotEqual_i32,
-
-    // === Comparison - float ===
-    OP_Less_f32,
-    OP_LessEqual_f32,
-    OP_Greater_f32,
-    OP_GreaterEqual_f32,
-    OP_Equal_f32,
-    OP_NotEqual_f32,
+    // === Generalized numeric ops (0.7.5; kind = scalar RTK immediate,
+    //     dispatched through registry-instantiated function-pointer tables) ===
+    OP_Add,             // u8 kind, u16 dst, u16 src — locals[dst] ⊕= locals[src]
+    OP_Sub,
+    OP_Mul,
+    OP_Div,
+    OP_Mod,
+    OP_Neg,             // u8 kind, u16 dst — locals[dst] = -locals[dst]
+    OP_Cmp,             // u8 kind, u8 cmpOp, u16 lhs, u16 rhs — int32 0/1
+                        // written to locals[lhs]; cmpOp ∈ {0 Less, 1 LessEqual,
+                        // 2 Greater, 3 GreaterEqual, 4 Equal, 5 NotEqual}
 
     // === Logical ===
     //&& and || are lowered to short-circuit jump sequences in

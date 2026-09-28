@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -128,7 +129,7 @@ bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset) {
     //Enum → string MUST be checked before collapsing enum to int below,
-    //otherwise OP_Int32_to_str would fire and produce a numeric string
+    //otherwise OP_Prim_to_str would fire and produce a numeric string
     //instead of the value name.
     if (dstKind == NK_String) {
         if (EmitCastEnumToString(cast, srcKind, sourceType, emitter,
@@ -166,30 +167,23 @@ bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
 }
 
 //Cast arm: numeric and primitive→string conversions after the enum
-//kinds have collapsed to int (Phase 8e-9a: int/float → string coercion).
+//kinds have collapsed to int. 0.7.5: both shapes ride the
+//kind-immediate family — OP_PrimCast for int↔float (and every future
+//scalar pair), OP_Prim_to_str for the →string coercion (the retired
+//OP_Int32_to_str/OP_Float_to_str generalized).
 void VmBackend::EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
-    if (srcKind == NK_Int32 && dstKind == NK_Float) {
+    if (dstKind == NK_String) {
+        //Phase 8e-9a: scalar → string coercion for `int + string` etc.
         EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_CastIntToFloat);
+        EmitPrimToStr(emitter, srcKind);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
-    } else if (srcKind == NK_Float && dstKind == NK_Int32) {
+    } else if ((srcKind == NK_Int32 && dstKind == NK_Float)
+        || (srcKind == NK_Float && dstKind == NK_Int32)) {
         EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_CastFloatToInt);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    } else if (srcKind == NK_Int32 && dstKind == NK_String) {
-        //Phase 8e-9a: int → string coercion for `int + string` etc.
-        EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_Int32_to_str);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    } else if (srcKind == NK_Float && dstKind == NK_String) {
-        //Phase 8e-9a: float → string coercion.
-        EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_Float_to_str);
+        EmitPrimCast(emitter, srcKind, dstKind);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
     }
@@ -286,24 +280,24 @@ void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
-//As arm: TCK_Explicit — 0.7.5 narrowing scalar conversion.
-//Transitional: the reachable kind pair (float→int) reuses the legacy
-//opcode until OP_PrimCast (the generalized kind-immediate cast) lands
-//in the next task of this series; truncation semantics are identical
-//to the pre-0.7.5 implicit conversion. Other kind pairs cannot reach
-//the resolver gate yet — their source keywords arrive later. False =
-//uncovered pair; the caller falls through to the invariant throw.
+//As arm: TCK_Explicit — 0.7.5 narrowing scalar conversion via the
+//kind-immediate OP_PrimCast (C# unchecked semantics: truncation for
+//float→int, wrap for wide→narrow integers). Only scalar pairs whose
+//cast-table cell is non-null reach codegen; bool is excluded by the
+//table itself. False = operand/target are not both scalars (the
+//caller falls through to the invariant throw).
 bool VmBackend::EmitAsExplicitNarrowOp(SnAsExpr& asExpr,
                                        BytecodeEmitter& emitter,
                                        uint16_t resultOffset) {
     auto* srcType = asExpr.Operand()->EvalDataType();
     auto* tgtType = asExpr.ResolvedTarget();
-    if (!srcType || !tgtType || srcType->Kind() != NK_Float
-        || tgtType->Kind() != NK_Int32) {
+    if (!srcType || !tgtType
+        || ScalarPrimIndexOf(srcType->Kind()) < 0
+        || ScalarPrimIndexOf(tgtType->Kind()) < 0) {
         return false;
     }
     EmitPResultRefresh(emitter, resultOffset);
-    emitter.Emit(OpCode::OP_CastFloatToInt);
+    EmitPrimCast(emitter, srcType->Kind(), tgtType->Kind());
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
     return true;

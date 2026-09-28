@@ -1,6 +1,7 @@
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/Runtime.h>
 #include "VmBackend.h"
@@ -65,6 +66,9 @@ int main(int argc, char* argv[]) {
 #endif
 
     Runtime::StaticInit();
+    //Compiler-side cast table (0.7.5: Runtime::StaticInit no longer
+    //calls this — runtime must stay compiler-free for nvm/ndb links).
+    TypeCastInfo::StaticInit();
 
     std::string command = argv[1];
 

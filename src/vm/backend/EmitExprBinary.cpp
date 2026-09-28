@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -18,18 +19,16 @@
 namespace nlang {
 
 //Unary arm: evaluate operand to resultOffset, then negate in-place
-//(float variant keys on the operand kind); LogicalNot normalizes to {0,1}.
+//(kind immediate keys on the operand's EvalDataType); LogicalNot
+//normalizes to {0,1}.
 void VmBackend::EmitUnaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                             uint16_t resultOffset) {
     auto op = bin.Op();
     EmitExpression(*bin.Left(), emitter, resultOffset);
     if (op == SnBinaryExpr::OP_Neg) {
         auto* evalType = bin.Left()->EvalDataType();
-        if (evalType && evalType->Kind() == NK_Float)
-            emitter.Emit(OpCode::OP_Neg_f32);
-        else
-            emitter.Emit(OpCode::OP_Neg_i32);
-        emitter.EmitUint16(resultOffset);
+        EmitNeg(emitter, BinNumericKindOf(
+            evalType ? evalType->Kind() : NK_Int32), resultOffset);
     } else {
         emitter.Emit(OpCode::OP_LogicalNot);
         emitter.EmitUint16(resultOffset);
@@ -150,21 +149,24 @@ void VmBackend::EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
     EmitExpression(static_cast<SnExpression&>(*binIt), emitter, rightSlot);
 
     auto* evalType = leftChild.EvalDataType();
-    bool isFloat = evalType && evalType->Kind() == NK_Float;
-    bool isString = evalType && evalType->Kind() == NK_String;
+    //0.7.5: the numeric family keys on the LEFT operand's kind
+    //(enum≡int32 normalized; string/func keep their dedicated opcodes).
+    NodeKind numKind = BinNumericKindOf(
+        evalType ? evalType->Kind() : NK_Int32);
+    bool isString = numKind == NK_String;
     //Phase 13: Func operands compare by handle content, not by heap
     //index (no interning) — keyed on the LEFT operand like the other
     //flags; mixed non-null operands are resolver-rejected.
     bool isFunc = evalType && evalType->Kind() == NK_ClassDecl
         && static_cast<SnClassDecl*>(evalType)->IsFuncType();
 
-    EmitBinaryOpCode(bin, isFloat, isString, isFunc, emitter, resultOffset,
+    EmitBinaryOpCode(bin, numKind, isString, isFunc, emitter, resultOffset,
                      rightSlot);
 }
 
 //Opcode dispatch on the resolved left-operand kind; the family emitters
 //below hold the arm bodies. Unsupported operators are an internal error.
-void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, bool isFloat,
+void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
                                  bool isString, bool isFunc,
                                  BytecodeEmitter& emitter,
                                  uint16_t resultOffset, uint16_t rightSlot) {
@@ -175,19 +177,19 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, bool isFloat,
     case SnBinaryExpr::OP_Mul:
     case SnBinaryExpr::OP_Div:
     case SnBinaryExpr::OP_Mod:
-        EmitBinaryArithmeticOp(bin, isFloat, isString, emitter,
+        EmitBinaryArithmeticOp(bin, numKind, isString, emitter,
                                resultOffset, rightSlot);
         break;
     case SnBinaryExpr::OP_Less:
     case SnBinaryExpr::OP_LessEqual:
     case SnBinaryExpr::OP_Greater:
     case SnBinaryExpr::OP_GreaterEqual:
-        EmitBinaryRelationalOp(bin, isFloat, isString, emitter,
+        EmitBinaryRelationalOp(bin, numKind, isString, emitter,
                                resultOffset, rightSlot);
         break;
     case SnBinaryExpr::OP_Equal:
     case SnBinaryExpr::OP_NotEqual:
-        EmitBinaryEqualityOp(bin, isFloat, isString, isFunc, emitter,
+        EmitBinaryEqualityOp(bin, numKind, isString, isFunc, emitter,
                              resultOffset, rightSlot);
         break;
     default:
@@ -196,9 +198,11 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, bool isFloat,
     }
 }
 
-//Arithmetic arm bodies: Add string-folds to OP_Concat_str, the rest
-//select the i32/f32 variant from the left operand kind.
-void VmBackend::EmitBinaryArithmeticOp(SnBinaryExpr& bin, bool isFloat,
+//Arithmetic arm bodies: Add string-folds to OP_Concat_str, the rest go
+//through the kind-immediate EmitBinOp (registry-driven dispatch).
+//OP_Mod keeps resolver-level int-only semantics — float % is rejected
+//upstream in 0.7.5 (P5 may revisit fmod).
+void VmBackend::EmitBinaryArithmeticOp(SnBinaryExpr& bin, NodeKind numKind,
                                        bool isString, BytecodeEmitter& emitter,
                                        uint16_t resultOffset,
                                        uint16_t rightSlot) {
@@ -206,109 +210,100 @@ void VmBackend::EmitBinaryArithmeticOp(SnBinaryExpr& bin, bool isFloat,
     switch (op) {
     case SnBinaryExpr::OP_Add:
         if (isString)
+        {
             emitter.Emit(OpCode::OP_Concat_str);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(rightSlot);
+        }
         else
-            emitter.Emit(isFloat ? OpCode::OP_Add_f32 : OpCode::OP_Add_i32);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
+            EmitBinOp(emitter, OpCode::OP_Add, numKind,
+                      resultOffset, rightSlot);
         break;
     case SnBinaryExpr::OP_Sub:
-        emitter.Emit(isFloat ? OpCode::OP_Sub_f32 : OpCode::OP_Sub_i32);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
+        EmitBinOp(emitter, OpCode::OP_Sub, numKind,
+                  resultOffset, rightSlot);
         break;
     case SnBinaryExpr::OP_Mul:
-        emitter.Emit(isFloat ? OpCode::OP_Mul_f32 : OpCode::OP_Mul_i32);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
+        EmitBinOp(emitter, OpCode::OP_Mul, numKind,
+                  resultOffset, rightSlot);
         break;
     case SnBinaryExpr::OP_Div:
-        emitter.Emit(isFloat ? OpCode::OP_Div_f32 : OpCode::OP_Div_i32);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
+        EmitBinOp(emitter, OpCode::OP_Div, numKind,
+                  resultOffset, rightSlot);
         break;
     case SnBinaryExpr::OP_Mod:
-        emitter.Emit(OpCode::OP_Mod_i32);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
+        EmitBinOp(emitter, OpCode::OP_Mod, numKind,
+                  resultOffset, rightSlot);
         break;
     default:
         break;
     }
 }
 
-//Relational arm bodies: string compares bytewise (Phase 11 Q4), otherwise
-//the i32/f32 variant from the left operand kind.
-void VmBackend::EmitBinaryRelationalOp(SnBinaryExpr& bin, bool isFloat,
+//Relational arm bodies: string compares bytewise (Phase 11 Q4), the
+//rest go through the kind-immediate OP_Cmp (bool 0/1 → lhs slot,
+//same convention as the legacy family).
+void VmBackend::EmitBinaryRelationalOp(SnBinaryExpr& bin, NodeKind numKind,
                                        bool isString, BytecodeEmitter& emitter,
                                        uint16_t resultOffset,
                                        uint16_t rightSlot) {
     auto op = bin.Op();
-    switch (op) {
-    case SnBinaryExpr::OP_Less:
+    if (isString)
+    {
         //Phase 11 Q4: string relational compare is bytewise (UTF-8
         //byte order == code point order). isString keys on the LEFT
         //operand; the resolver guard rejects mixed non-null operands.
-        emitter.Emit(isString ? OpCode::OP_Less_str
-            : (isFloat ? OpCode::OP_Less_f32 : OpCode::OP_Less_i32));
+        OpCode strOp = OpCode::OP_Less_str;
+        switch (op)
+        {
+        case SnBinaryExpr::OP_Less:        strOp = OpCode::OP_Less_str; break;
+        case SnBinaryExpr::OP_LessEqual:   strOp = OpCode::OP_LessEqual_str; break;
+        case SnBinaryExpr::OP_Greater:     strOp = OpCode::OP_Greater_str; break;
+        default:                           strOp = OpCode::OP_GreaterEqual_str; break;
+        }
+        emitter.Emit(strOp);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(rightSlot);
-        break;
-    case SnBinaryExpr::OP_LessEqual:
-        emitter.Emit(isString ? OpCode::OP_LessEqual_str
-            : (isFloat ? OpCode::OP_LessEqual_f32 : OpCode::OP_LessEqual_i32));
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
-        break;
-    case SnBinaryExpr::OP_Greater:
-        emitter.Emit(isString ? OpCode::OP_Greater_str
-            : (isFloat ? OpCode::OP_Greater_f32 : OpCode::OP_Greater_i32));
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
-        break;
-    case SnBinaryExpr::OP_GreaterEqual:
-        emitter.Emit(isString ? OpCode::OP_GreaterEqual_str
-            : (isFloat ? OpCode::OP_GreaterEqual_f32 : OpCode::OP_GreaterEqual_i32));
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
-        break;
-    default:
-        break;
+        return;
     }
+    uint8_t cmpOp = kCmpLess;
+    switch (op)
+    {
+    case SnBinaryExpr::OP_Less:        cmpOp = kCmpLess; break;
+    case SnBinaryExpr::OP_LessEqual:   cmpOp = kCmpLessEqual; break;
+    case SnBinaryExpr::OP_Greater:     cmpOp = kCmpGreater; break;
+    default:                           cmpOp = kCmpGreaterEqual; break;
+    }
+    EmitCmp(emitter, numKind, cmpOp, resultOffset, rightSlot);
 }
 
 //Equality arm bodies: Func handles compare by handle content
-//(OP_*_func), strings by bytes, primitives by the i32/f32 variant.
-void VmBackend::EmitBinaryEqualityOp(SnBinaryExpr& bin, bool isFloat,
+//(OP_*_func), strings by bytes, primitives by OP_Cmp Eq/Ne.
+void VmBackend::EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
                                      bool isString, bool isFunc,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset,
                                      uint16_t rightSlot) {
     auto op = bin.Op();
-    switch (op) {
-    case SnBinaryExpr::OP_Equal:
-        if (isFunc)
-            emitter.Emit(OpCode::OP_Eq_func);
-        else if (isString)
-            emitter.Emit(OpCode::OP_Eq_str);
-        else
-            emitter.Emit(isFloat ? OpCode::OP_Equal_f32 : OpCode::OP_Equal_i32);
+    if (isFunc)
+    {
+        emitter.Emit(op == SnBinaryExpr::OP_Equal
+            ? OpCode::OP_Eq_func : OpCode::OP_Ne_func);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(rightSlot);
-        break;
-    case SnBinaryExpr::OP_NotEqual:
-        if (isFunc)
-            emitter.Emit(OpCode::OP_Ne_func);
-        else if (isString)
-            emitter.Emit(OpCode::OP_Ne_str);
-        else
-            emitter.Emit(isFloat ? OpCode::OP_NotEqual_f32 : OpCode::OP_NotEqual_i32);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(rightSlot);
-        break;
-    default:
-        break;
+        return;
     }
+    if (isString)
+    {
+        emitter.Emit(op == SnBinaryExpr::OP_Equal
+            ? OpCode::OP_Eq_str : OpCode::OP_Ne_str);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(rightSlot);
+        return;
+    }
+    EmitCmp(emitter, numKind,
+            op == SnBinaryExpr::OP_Equal ? kCmpEqual : kCmpNotEqual,
+            resultOffset, rightSlot);
 }
 
 void VmBackend::Access(SnBinaryExpr& expr) {

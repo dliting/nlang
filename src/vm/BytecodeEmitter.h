@@ -42,6 +42,21 @@ public:
         }
     }
 
+    //0.7.5: 8-byte immediates for OP_ConstInt64/OP_ConstDouble (same
+    //little-endian byte-at-a-time shape as EmitFloat).
+    void EmitInt64(int64_t v) {
+        for (size_t i = 0; i < sizeof(int64_t); ++i) {
+            m_bytes.push_back(static_cast<uint8_t>(
+                (v >> (i * 8)) & 0xFF));
+        }
+    }
+
+    void EmitDouble(double v) {
+        int64_t bits;
+        std::memcpy(&bits, &v, sizeof(bits));
+        EmitInt64(bits);
+    }
+
     uint16_t AddStringConstant(const std::string& s) {
         for (uint16_t i = 0; i < static_cast<uint16_t>(
             m_stringConstants.size()); ++i) {

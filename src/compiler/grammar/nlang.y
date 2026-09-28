@@ -136,7 +136,7 @@ static SnExpression* BuildStringExpr(
 
 	//If first part is an identifier (not string literal), prepend empty
 	//string literal "" to force string context. Otherwise two int
-	//identifiers would produce arithmetic OP_Add_i32 instead of concat.
+	//identifiers would produce arithmetic OP_Add instead of concat.
 	//   "${a}${b}" with a,b both int -> Add(Add("", a), b) -> string ctx.
 	if (parts[0]->Kind() != NK_LiteralExpr) {
 		auto* pEmpty = new SnLiteralExpr(*RnString::Instance(),

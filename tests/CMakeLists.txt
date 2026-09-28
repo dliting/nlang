@@ -105,6 +105,30 @@ target_link_libraries(test_primitivetypes
 
 add_test(NAME primitivetypes_tests COMMAND test_primitivetypes)
 
+# 0.7.5 kind-immediate opcode family unit tests (console suite). Three
+# layers: dispatch-table drives (kAddTable etc. on byte buffers — ops x
+# all 12 registry kinds), the Rn formatters OP_Prim_to_str calls, and
+# real compiled .n sources for handler guards (div/mod-zero messages,
+# scalar+string concat end-to-end).
+add_executable(test_primops
+    test_vm/test_primops.cpp
+)
+
+target_include_directories(test_primops
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_primops
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME primops_tests COMMAND test_primops)
+
 # ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,

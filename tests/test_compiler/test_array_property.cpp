@@ -13,6 +13,7 @@ the old shape-inference predicate computed post hoc.
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SyntaxNode.h>
 #include <nlang/vm/CompiledModule.h>
@@ -128,7 +129,10 @@ class TestArrayProperty : public QObject
     Q_OBJECT
 private slots:
     //Runtime tables (IdString etc.) must exist before any Build().
-    void initTestCase() { Runtime::StaticInit(); }
+    void initTestCase() {
+        Runtime::StaticInit();
+        TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
+    }
 
     void identifierAndMemberShapes();
     void valueShapes();

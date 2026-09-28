@@ -547,18 +547,28 @@ private:
     //miss) and reports the implicit no-fallthrough exit via
     //bodyExitJump. EmitSwitchOneLabelCompare returns the label's
     //miss-jump offset (caller picks next-label vs clause-exit target).
+    //0.7.5: the per-switch compare descriptor — string discriminants
+    //keep the dedicated OP_Eq_str; scalar discriminants ride the
+    //kind-immediate OP_Cmp Equal (enum ≡ int32, never the raw
+    //NK_EnumDecl kind — RtkOfKind would reject it).
+    struct SwitchCompare {
+        NodeKind kind = NK_Int32;
+        bool isString = false;
+    };
+    static SwitchCompare SwitchCompareOf(SnSwitchStmt& switchStmt);
     void EmitSwitchCaseClause(SnCaseClause& clause, uint16_t switchSlot,
-                              OpCode compareOp,
+                              const SwitchCompare& compare,
                               std::vector<size_t>& clauseExits,
                               size_t& bodyExitJump,
                               BytecodeEmitter& emitter);
     void EmitSwitchLabelCompares(SnCaseClause& clause,
-                                 uint16_t switchSlot, OpCode compareOp,
+                                 uint16_t switchSlot,
+                                 const SwitchCompare& compare,
                                  std::vector<size_t>& clauseExits,
                                  BytecodeEmitter& emitter);
     size_t EmitSwitchOneLabelCompare(SnExpression& label,
                                      uint16_t switchSlot,
-                                     OpCode compareOp,
+                                     const SwitchCompare& compare,
                                      BytecodeEmitter& emitter);
     void EmitSwitchClauseExits(
         const std::vector<size_t>& caseStartOffsets,
@@ -895,17 +905,19 @@ private:
                             BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                       uint16_t resultOffset);
-    void EmitBinaryOpCode(SnBinaryExpr& bin, bool isFloat, bool isString,
+    void EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind, bool isString,
                           bool isFunc, BytecodeEmitter& emitter,
                           uint16_t resultOffset, uint16_t rightSlot);
-    void EmitBinaryArithmeticOp(SnBinaryExpr& bin, bool isFloat, bool isString,
+    void EmitBinaryArithmeticOp(SnBinaryExpr& bin, NodeKind numKind,
+                                bool isString,
                                 BytecodeEmitter& emitter, uint16_t resultOffset,
                                 uint16_t rightSlot);
-    void EmitBinaryRelationalOp(SnBinaryExpr& bin, bool isFloat, bool isString,
+    void EmitBinaryRelationalOp(SnBinaryExpr& bin, NodeKind numKind,
+                                bool isString,
                                 BytecodeEmitter& emitter, uint16_t resultOffset,
                                 uint16_t rightSlot);
-    void EmitBinaryEqualityOp(SnBinaryExpr& bin, bool isFloat, bool isString,
-                              bool isFunc, BytecodeEmitter& emitter,
+    void EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
+                              bool isString, bool isFunc, BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
 
     //SnNewExpr arms: Round-12 class-resolution guards, positional ctor-arg

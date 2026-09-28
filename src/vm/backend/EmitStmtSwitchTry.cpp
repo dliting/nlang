@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -20,18 +21,21 @@ namespace nlang {
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Phase 12 Step 1: typed switch equality. The resolver family-gated the
-//discriminant; pick the compare opcode per family. All three share the
-//(lhs, rhs) operand layout and write the int result to the lhs slot, so
-//the case-clause emission is family-agnostic. Enum discriminants are
-//int32 values — OP_Equal_i32 (default).
-static OpCode SwitchCompareOp(SnSwitchStmt& switchStmt) {
+//discriminant; pick the compare shape per family. Scalar discriminants
+//ride the kind-immediate OP_Cmp Equal (same (lhs, rhs) layout, bool
+//result to the lhs slot, so the case-clause emission is family-agnostic).
+//Enum discriminants are int32 values — the int32 default arm covers
+//them; never key OP_Cmp on the raw NK_EnumDecl kind.
+VmBackend::SwitchCompare VmBackend::SwitchCompareOf(
+    SnSwitchStmt& switchStmt) {
     if (auto* pCondType = switchStmt.Cond()->EvalDataType()) {
-        if (pCondType->Kind() == NK_Float)
-            return OpCode::OP_Equal_f32;
-        if (pCondType->Kind() == NK_String)
-            return OpCode::OP_Eq_str;
+        NodeKind k = pCondType->Kind();
+        if (k == NK_String)
+            return {NK_Int32, true};
+        if (k == NK_Float)
+            return {NK_Float, false};
     }
-    return OpCode::OP_Equal_i32;
+    return {NK_Int32, false};
 }
 
 void VmBackend::Access(SnSwitchStmt& stmt) {
@@ -54,12 +58,12 @@ void VmBackend::Access(SnSwitchStmt& stmt) {
         std::vector<std::vector<size_t>> exitJumps;   //per clause: OP_Case placeholder + last label's miss
         std::vector<size_t> bodyExitJumps;            //implicit no-fallthrough jumps, one per clause body
         std::vector<size_t> caseStartOffsets;
-        OpCode compareOp = SwitchCompareOp(switchStmt);
+        SwitchCompare compare = SwitchCompareOf(switchStmt);
         for (auto* pCase : switchStmt.Cases()) {
             caseStartOffsets.push_back(emitter.CurrentOffset());
             std::vector<size_t> clauseExits;
             size_t bodyExitJump = 0;
-            EmitSwitchCaseClause(*pCase, switchSlot, compareOp,
+            EmitSwitchCaseClause(*pCase, switchSlot, compare,
                 clauseExits, bodyExitJump, emitter);
             exitJumps.push_back(std::move(clauseExits));
             bodyExitJumps.push_back(bodyExitJump);
@@ -90,7 +94,7 @@ void VmBackend::Access(SnSwitchStmt& stmt) {
 //jumps the clause-exit fixup must patch (the OP_Case placeholder and
 //the LAST label's miss jump); bodyExitJump is the implicit exit.
 void VmBackend::EmitSwitchCaseClause(SnCaseClause& clause,
-        uint16_t switchSlot, OpCode compareOp,
+        uint16_t switchSlot, const SwitchCompare& compare,
         std::vector<size_t>& clauseExits, size_t& bodyExitJump,
         BytecodeEmitter& emitter) {
     //OP_Case with jump-to-next-handler placeholder. OP_Case is a marker
@@ -101,7 +105,7 @@ void VmBackend::EmitSwitchCaseClause(SnCaseClause& clause,
     size_t jumpToNext = emitter.CurrentOffset();
     emitter.EmitUint16(0);  //placeholder, patched by the clause-exit fixup
     clauseExits.push_back(jumpToNext);
-    EmitSwitchLabelCompares(clause, switchSlot, compareOp, clauseExits,
+    EmitSwitchLabelCompares(clause, switchSlot, compare, clauseExits,
         emitter);
     //Compile case body
     EmitStatement(*clause.Body(), emitter);
@@ -127,7 +131,7 @@ void VmBackend::EmitSwitchCaseClause(SnCaseClause& clause,
 //clauseExits). A single-label clause degenerates to the pre-Phase-12
 //shape.
 void VmBackend::EmitSwitchLabelCompares(SnCaseClause& clause,
-        uint16_t switchSlot, OpCode compareOp,
+        uint16_t switchSlot, const SwitchCompare& compare,
         std::vector<size_t>& clauseExits, BytecodeEmitter& emitter) {
     const auto& labels = clause.Labels();
     std::vector<size_t> labelStarts;      //start of each label's compare
@@ -136,7 +140,7 @@ void VmBackend::EmitSwitchLabelCompares(SnCaseClause& clause,
     for (size_t li = 0; li < labels.size(); ++li) {
         labelStarts.push_back(emitter.CurrentOffset());
         size_t condJumpPos = EmitSwitchOneLabelCompare(*labels[li],
-            switchSlot, compareOp, emitter);
+            switchSlot, compare, emitter);
         if (li + 1 == labels.size()) {
             clauseExits.push_back(condJumpPos);
         } else {
@@ -171,7 +175,8 @@ void VmBackend::EmitSwitchLabelCompares(SnCaseClause& clause,
 //per label (labels are sequential; one claim's worth suffices —
 //StmtPeakDepth's SwitchStmt case tracks claim=1).
 size_t VmBackend::EmitSwitchOneLabelCompare(SnExpression& label,
-        uint16_t switchSlot, OpCode compareOp, BytecodeEmitter& emitter) {
+        uint16_t switchSlot, const SwitchCompare& compare,
+        BytecodeEmitter& emitter) {
     size_t condJumpPos;
     {
         EvalAreaClaim condClaim(*this, 1);
@@ -184,10 +189,16 @@ size_t VmBackend::EmitSwitchOneLabelCompare(SnExpression& label,
         emitter.EmitUint16(switchSlot);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(m_currFunc->tempSlot2);
-        //Compare: tempSlot2 == condSlot → result in tempSlot2
-        emitter.Emit(compareOp);
-        emitter.EmitUint16(m_currFunc->tempSlot2);
-        emitter.EmitUint16(condSlot);
+        //Compare: tempSlot2 == condSlot → bool result in tempSlot2.
+        //String keeps the dedicated opcode; scalars ride OP_Cmp Equal.
+        if (compare.isString) {
+            emitter.Emit(OpCode::OP_Eq_str);
+            emitter.EmitUint16(m_currFunc->tempSlot2);
+            emitter.EmitUint16(condSlot);
+        } else {
+            EmitCmp(emitter, compare.kind, kCmpEqual,
+                    m_currFunc->tempSlot2, condSlot);
+        }
         //If not equal: intermediate labels try the next label, the last
         //label exits to the next case handler.
         emitter.Emit(OpCode::OP_JumpIfNot);

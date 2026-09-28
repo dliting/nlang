@@ -12,6 +12,7 @@ visibility gating is a later task in the same plan.
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -94,7 +95,10 @@ class TestImportParse : public QObject
     Q_OBJECT
 private slots:
     //Runtime tables (IdString etc.) must exist before any Build().
-    void initTestCase() { Runtime::StaticInit(); }
+    void initTestCase() {
+        Runtime::StaticInit();
+        TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
+    }
 
     void parseIdentifierImport()
     {

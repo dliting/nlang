@@ -10,6 +10,7 @@
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
+#include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
@@ -2256,6 +2257,7 @@ int main()
     //IdString static tables — StaticInit must run first or Build()
     //segfaults (a crash try/catch cannot intercept).
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
 
     test_v19_sourcefile_single_tu();
     test_v19_import_roundtrip();

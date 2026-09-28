@@ -14,6 +14,7 @@ test_stdlib); the e2e suite pins the end-to-end compile/run behavior.
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SyntaxNode.h>
@@ -331,6 +332,7 @@ static void test_dict_keys_recast_carries_token()
 int main()
 {
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     test_generic_array_flags_split_keys();
     test_dict_keys_recast_carries_token();
     test_gc_list_arm_traces_array();

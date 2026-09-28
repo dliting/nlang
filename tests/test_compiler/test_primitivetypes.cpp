@@ -320,6 +320,7 @@ static void test_cast_matrix()
 int main()
 {
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();
 
     test_registry_shape();
     test_rtk_allocation();
