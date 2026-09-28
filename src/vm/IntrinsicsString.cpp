@@ -31,6 +31,14 @@ namespace nlang
 
 static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
+//Phase 11 error model: argument/range errors raise the BASE Exception.
+//Declared in VmExecutor.h; defined here because this is the one TU that
+//still raises intrinsically since the math/io/fs families retired.
+[[noreturn]] void VmExecutor::RaiseNlangExceptionBase(const std::string& msg)
+{
+    RaiseNlangException(m_exceptionClassIdx, msg);
+}
+
 //Read one string operand (receiver at slot 0, args from slot 1). Returns
 //by value: the store can grow during an intrinsic (result strings), and a
 //held reference would dangle. Null/out-of-range handles read as "" — same

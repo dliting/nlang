@@ -25,14 +25,6 @@ namespace nlang
 constexpr unsigned kRngFloatShift = 8;
 constexpr float kRngFloatScale = 1.0f / 16777216.0f;
 
-//Phase 11 error model: argument/range errors raise the BASE Exception.
-//Defined here (first stdlib family TU) but declared in the header so the
-//string/io/fs TUs reuse the same seam.
-[[noreturn]] void VmExecutor::RaiseNlangExceptionBase(const std::string& msg)
-{
-	RaiseNlangException(m_exceptionClassIdx, msg);
-}
-
 bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
