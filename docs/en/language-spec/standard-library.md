@@ -12,14 +12,13 @@ qualified name only (`math.sin(x)`); bare names are not in scope (a future
 The **signatures** (parameter kinds, arity, return type) live in the
 `stdlib/*.n` declarations shipped with the toolchain and reach the compiler
 and editor (completion, hover, go-to-definition) through the language
-service's symbol index. The runtime implementation is currently built into
-the VM: qualified calls are recognized at compile time against
-`kStdLibTable` (namespace + function name → intrinsic id) and type-checked;
-the generated code emits `OP_CallIntrinsic` — no runtime function records,
-no host registration. This table is the last hardcoded piece of the standard
-library and will be replaced by the native dynamic-loading mechanism,
-making the standard library identical in shape to third-party libraries;
-see "Libraries and search paths" below for the directory rules.
+service's symbol index. The shape is the one a third-party library uses:
+`stdlib/*.n` declares the surface, the `native` members are implemented in
+`nlang_<ns>.dll` and reached through the host ABI at run time. A qualified
+call type-checks against the declaration and emits `OP_CallFunc`; the
+built-in string methods are receiver-dispatched and emit
+`OP_CallIntrinsic`. See "Libraries and search paths" below for the
+directory rules.
 
 **Parameter types**: exact match against the declared kind; the only automatic
 conversion is int→float widening (`math.sqrt(4)` compiles). float→int is never
@@ -199,9 +198,6 @@ rebuild after editing to pick up the change.
 
 ### Future directions
 
-- retire `kStdLibTable`: move the standard-library runtime to native dynamic
-  libraries, fully matching third-party libraries (signatures already in
-  `stdlib/*.n`)
 - hybrid (native + NLang) third-party libraries with automatic recompilation
   after edits
 - `using`-style keyword to open up unqualified names

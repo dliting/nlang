@@ -1,0 +1,175 @@
+# 库机制：搜索路径、源码内联与 native 模块
+
+本页记录 NLang 库系统在 0.7.4 各轮（阶段 1–4c）之后的整体设计：一个库
+如何被发现、解析、编译和执行，以及机制为何是这个形状。这是面向维护者
+的设计文档；用户使用面见[标准库](../language-spec/standard-library.md)。
+
+## 1. 指导原则
+
+**标准库与第三方库是同一套机制。** 标准库就是搜索路径上的
+`stdlib/*.n`，和其他库没有任何区别；编译器与 VM 不区分二者。这对应
+Python（标准库就是 `sys.path` 上的普通源码）与 Java/C#（托管源码与
+native 实现（JNI/P-Invoke）共存于同一个包）。编译器和 VM 里没有任何
+硬编码的标准库签名：声明文件与 native DLL 就是全部实现。
+
+## 2. 库的形态
+
+一个库就是搜索路径上的一个目录：
+
+```
+mylib/
+  mylib.n            # 库本体：声明、NLang 实现，或两者混合
+  nlang_mylib.dll    # 可选：`native` 声明的 native 实现
+```
+
+`<name>.n` 内部用 `namespace <name>` 承载库的接口面。函数分两类，可以
+自由混合（**混合库**）：
+
+- **普通 NLang 函数**——有函数体；从源码编译进消费方的模块，按字节码
+  执行；
+- **`native` 函数**——只有签名与文档注释（无函数体）；运行时经宿主
+  ABI 分派到 `nlang_<name>.dll`（第 5 节）。
+
+标准库同形：`stdlib/io.n`、`math.n`、`fs.n` 是手写的权威声明文件
+（io/math/fs 三个命名空间目前为纯 native），实现由 `src/native/` 构建
+为 `nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll`。
+
+## 3. 编译模型：源码完整内联
+
+单段 `import` 在搜索路径上找到的库 `.n` 会被**完整解析**（含函数体），
+成为*库翻译单元*，与项目翻译单元合并进同一个 AST 根
+（`src/compiler/ModuleBuilderImports.cpp`、
+`src/compiler/builder/ModuleRegistry*`）。构建顺序：
+
+1. 解析项目源（收集 import）；
+2. **库发现迭代到不动点**：worklist 以项目的单段 import 起步；每个定位
+   到的 `<name>.n` 依次 (a) 做签名索引（`langservice::SymbolIndex`）、
+   (b) 完整解析为库 TU，其自身的单段 import 再加入 worklist——第三方
+   库因此可以依赖其他库；
+3. 注册全部 TU，库 TU 带 `isLibrary` 标志；
+4. 展开别名、构建 import 门、加载 `.nmod` 外部模块；
+5. 合并、解析、生成代码。
+
+统一模型带来以下结论：
+
+- **命名空间限定调用编译为普通调用**：`mylib.f(...)` 发射
+  `OP_CallFunc` + 全限定名 `ns.f`；运行时按被调函数自身性质分派——
+  字节码体，或 `isNative` → DLL。签名表调用路径与按库区分的 codegen
+  分支已不存在。
+- **函数表中命名空间限定的顶层函数使用全限定名**（含库 native 函数），
+  使运行时 `m_natives["ns.name"]` 查表与 DLL 导出的注册名一致。
+- **库可以定义类型**：命名空间合并进根，库内 class/struct/enum/
+  interface 在消费方与项目类型同等解析（含继承、虚分派、enum 方法）。
+- **去重**按"已完整解析的库文件"集合跟踪，与符号索引的"已索引"集合
+  分离：标准库命名空间在构建环境构造时就已签名索引，但仍必须内联，
+  两者不能混用同一个判据。
+
+### 库 TU 与项目 TU 的差别（可见性隔离）
+
+库 TU 编译进构建，但刻意**不是**项目模块：
+
+- 不加入同目录隐式可见池（D7 规则只适用于项目），也不把同目录其他
+  文件注入自身视野；
+- 通配 import 不会把库 TU 当项目模块卷入；
+- 库永远看不到消费方项目的模块，只看得见自己 import 的内容；
+- 保留段 `io`/`math`/`fs` 仍禁止用作项目模块目录名
+  （`FindReservedSegment`），即当前不允许项目 shadow 标准库（是否放开
+  是后续决策）。
+
+库之间的循环 import 允许：所有 TU 先合并、后统一解析，声明在一次编译
+内彼此可见，与项目多源文件的道理相同。
+
+## 4. 搜索路径
+
+编译期发现 `.n` 与运行期加载 native DLL 使用**同一个有序目录列表**——
+前者优先，重复目录规范化去重（Windows 上折叠大小写）。五层，从高到
+低（`include/nlang/common/LibrarySearchPath.h`）：
+
+1. 命令行 `-I <dir>`（可重复）；
+2. `.nproj` 的 `<ImportPaths>`；
+3. 项目 / 源文件 / 模块所在目录；
+4. 环境变量 `NLANG_PATH`（Windows `;`、POSIX `:`）；
+5. 系统缺省：标准库目录、可执行文件目录、当前目录。
+
+`ncc`、`nvm`、`ndb` 共用这一个 header（纯 STL、不依赖 VM，将来独立的
+语言服务可零耦合复用）。nide 在其上叠加分层：全局配置（工具 → 选项）
++ 项目配置（项目 → 属性），项目条目优先；构建 / 运行 / 调试统一传同一
+组 `-I`。修改库 `.n` 不需要编译器侧的失效机制：每次构建都从磁盘重新
+解析。
+
+## 5. Native 宿主 ABI
+
+native 实现是普通动态库，背后只有一个稳定契约
+（`include/nlang/vm/NativeHost.h`）：
+
+- 文件名 `nlang_<ns>.dll`（`libnlang_<ns>.so`/`.dylib`），在第 4 节的
+  搜索路径上定位；
+- 仅一个导出入口 `nlang_native_init`，经宏注册并同时钉住宿主 ABI 版本
+  （`NLANG_HOST_ABI_VERSION`）；版本不符则加载失败并给出可读错误，
+  无入口的模块直接拒绝；
+- native 函数拿到一个小**宿主接口**（IO、PRNG、字符串访问的回调），
+  而不是链接 VM——第三方源码只需要这一个头文件；
+- 懒加载：首次调用某命名空间才触发模块加载，未用到的库零成本。
+
+DLL 里的普通 C++ 函数可以被同一个 `.n` 中的 NLang 函数体包装组合（例
+如 NLang 的 `quad` 两次调用 native 的 `dbl`），标准库与
+`tests/fixtures/native/mylib/` 都是这个形态。
+
+## 6. 标准库由什么构成
+
+不存在签名表调用路径：codegen 发射限定的 `OP_CallFunc`，resolver 直接
+对内联 AST 绑定，VM 不携带任何标准库知识。
+
+| 对象 | 作用 |
+|---|---|
+| `stdlib/*.n` | 手写的权威声明——唯一的签名来源 |
+| `src/native/{math,io,fs}/` | native 实现，构建为 `nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll` |
+| `IsReservedLibraryName`（`src/compiler/builder/ModuleRegistry.h`） | 保留名 `io`/`math`/`fs`，阻止项目目录 shadow 标准库 |
+| `kStringMethodTable`（`include/nlang/vm/StdLib.h`） | 仅 string 方法——接收者分派的内建方法，仍是 intrinsic；库命名空间不用这套机制 |
+| ctest `no_builtin_stdlib` | 一旦硬编码表、math/io/fs 的 intrinsic 家族或它们的 id 回归，或 `stdlib/*.n` 被删除而非表被删除，即失败 |
+
+`io.print` 即 `native void print(string)`：int/float/array 经通用 string
+形参隐式转换，class/enum/func 要求显式 `.toString()`。没有
+`TypeKind::Any`，也没有 print 专属的实参转 string codegen。
+
+## 7. 决策记录
+
+- **内联源码，而不是把库预编译成 `.nmod`**（早期计划的性能缓解项）：
+  内联才让函数体可读、可改、可重编，并保住单一解析路径；少量 `.n`
+  每次重析的成本在没有实测数据前可以忽略。`.nmod` 仍是"无源码分发"
+  的格式；两种形态都按函数逐个分派，所以混合 native/托管库两边都成立。
+- **不设过渡双路径**（标准库走签名、第三方走 AST）：内联机制对两者
+  完全相同，4a 一步切换所有库并直接删除签名驱动的 codegen，行为不变
+  由全量回归兜底。
+- **放弃通用 `any` 而不是实现它**：string 形参的隐式转换已覆盖
+  int/float/array，与语言其余部分一致；顶类型意味着第二套特例实参
+  ABI。
+- **nide 不编译第三方 `.cpp` 为 DLL**：采用 C/Python 扩展模型——库
+  作者随包提供二进制或构建脚本；DLL 过期只做告警，不做自动编译。内置
+  通用 native 构建命令需要工具链发现与跨平台 flag 支持，当前收益不足。
+- **库源码不做增量缓存**：正确性来自每次构建重新解析；缓存留待编译
+  耗时数据证明必要之后再谈。
+
+## 8. 剩余工作（设计状态截至 2026-09-29）
+
+已落地的机制：4a 统一内联（提交 `ab4546a`）、in-process 的混合 native +
+NLang 库测试（4b-1，`test_thirdparty.cpp`）、内建标准库的退役（4c，第 6
+节）、搜索路径（3d）、native ABI 与加载器（3b/3c）。未结项：
+
+1. **4b-2**——库的*类型*面（库声明 class/struct/enum 并被消费方使用）。
+   尚未进入代码树；落地时由 `tests/test_vm/test_library_source.cpp` 增加
+   覆盖用例。
+2. **4d**——变更感知的自动重编译：nide 的 standalone 过期检测要把内联
+   的库 `.n` 纳入比较，而不能只看主源。两个候选设计，共同点是库发现
+   规则只活在编译器一处：把参与编译的库源（路径 + mtime）序列化进
+   `.nmod`（格式升版；项目不要求向下兼容），或提供 `ncc deps` 查询模式
+   输出发现列表。另有：ndb 进入库源断点/步进的验证、nide
+   `runNccBuild` 异步化、文档与翻译、VERSION/CHANGELOG。
+
+## 9. 测试约定
+
+按仓库规则：真实编译 `.n`、真实运行 `VmExecutor`（不 mock 内部）——
+见 `test_library_source.cpp`、`test_thirdparty.cpp`、
+`test_native_loader.cpp`/`test_native_abi.cpp`、
+`tests/fixtures/native/` 下的 fixture，以及 `check_nvm_native.py` /
+`check_ndb_native.py` e2e 脚本。

@@ -59,6 +59,7 @@ nav:
       - 初始化列表降级: vm-architecture/init-list-lowering.md
       - 二元表达式提升: vm-architecture/binary-expression-promotion.md
       - 标准库内建函数: vm-architecture/standard-library-intrinsics.md
+      - 库机制: vm-architecture/library-mechanism.md
       - 一等函数值: vm-architecture/first-class-function-values.md
       - 已知限制: vm-architecture/known-limitations.md
 #The per-tree header link to the other tree's home page (rendered by

@@ -59,6 +59,7 @@ nav:
       - Init List Lowering: vm-architecture/init-list-lowering.md
       - Binary Expression Promotion: vm-architecture/binary-expression-promotion.md
       - Standard Library Intrinsics: vm-architecture/standard-library-intrinsics.md
+      - Library Mechanism: vm-architecture/library-mechanism.md
       - First-Class Function Values: vm-architecture/first-class-function-values.md
       - Known Limitations: vm-architecture/known-limitations.md
 #The per-tree header link to the other tree's home page (rendered by
