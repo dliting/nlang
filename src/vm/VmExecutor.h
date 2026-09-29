@@ -304,19 +304,13 @@ private:
     void ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
-    //Phase 11: stdlib namespace dispatch chain. Each family lives in its
-    //own TU (IntrinsicsMath.cpp etc.) and returns false when the id is
-    //not ours; ExecuteIntrinsic falls through to the next family. Args
-    //are at callParamBase slot 0 upward — no this (see StdLib.h).
-    bool ExecuteIntrinsicMath(uint16_t intrinsicId, uint16_t callParamBase,
-        uint8_t* locals, uint8_t* pResult);
-    bool ExecuteIntrinsicIo(uint16_t intrinsicId, uint16_t callParamBase,
-        uint8_t* locals, uint8_t* pResult);
-    bool ExecuteIntrinsicFs(uint16_t intrinsicId, uint16_t callParamBase,
-        uint8_t* locals, uint8_t* pResult);
-    //Receiver-dispatched variant (string methods): receiver string handle
-    //at callParamBase[0], args from slot 1 — the string.equals ABI, NOT the
-    //namespace free-function ABI above.
+    //Phase 11: the surviving stdlib intrinsic family. The string methods live
+    //in their own TU (IntrinsicsString.cpp) with their table in vm/StdLib.h,
+    //and return false when the id is not ours — ExecuteIntrinsic then reaches
+    //the unknown-id throw. Receiver-dispatched: the receiver string handle is
+    //at callParamBase[0] and the arguments start at slot 1 (the string.equals
+    //ABI). math/io/fs are not intrinsics: they are library sources whose
+    //native members run from nlang_<ns>.dll.
     bool ExecuteIntrinsicString(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 

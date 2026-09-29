@@ -60,21 +60,6 @@
     "reason": "per-intrinsic switch; each arm is a short handler"
   },
   {
-    "path": "src/vm/IntrinsicsFs.cpp",
-    "function": "VmExecutor::ExecuteIntrinsicFs",
-    "reason": "per-intrinsic switch; each arm is a short handler"
-  },
-  {
-    "path": "src/vm/IntrinsicsIo.cpp",
-    "function": "VmExecutor::ExecuteIntrinsicIo",
-    "reason": "per-intrinsic switch; each arm is a short handler"
-  },
-  {
-    "path": "src/vm/IntrinsicsMath.cpp",
-    "function": "VmExecutor::ExecuteIntrinsicMath",
-    "reason": "per-intrinsic switch; each arm is a short handler"
-  },
-  {
     "path": "src/vm/IntrinsicsString.cpp",
     "function": "VmExecutor::ExecuteIntrinsicString",
     "reason": "per-intrinsic switch; each arm is a short handler"

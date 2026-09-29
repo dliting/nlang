@@ -221,17 +221,16 @@ void test_stdlib_unknown_namespace_still_errors()
     PASS();
 }
 
-void test_stdlib_table_full_dispatch()
+void test_stdlib_native_full_dispatch()
 {
-    TEST(stdlib_table_full_dispatch);
-    //Signature<->implementation binding guard: walk every native function
-    //declared in stdlib/math.n (via the langservice index) and compile AND
-    //run one real program per function. A declaration whose intrinsicId is
-    //missing from the runtime table is rejected by the resolver ("declared
-    //native but has no runtime implementation"); a table row pointing at an
-    //id the VM does not dispatch compiles but throws "unknown intrinsic" at
-    //run time. This walk proves every math declaration actually executes
-    //end to end.
+    TEST(stdlib_native_full_dispatch);
+    //Library-source <-> native-implementation binding guard: walk every
+    //native function declared in stdlib/math.n (via the langservice index)
+    //and compile AND run one real program per function. Nothing but this
+    //walk connects the two sides: a declaration whose export is missing
+    //from nlang_math.dll fails when the call dispatches, and a body the VM
+    //cannot serve throws at run time. So this proves every math declaration
+    //actually executes end to end.
     langservice::SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
 
@@ -271,12 +270,14 @@ void test_stdlib_table_full_dispatch()
         }
         //Unique output tag per entry: the builder's module registry
         //rejects a second module with the same name in one process.
-        const int rc = runSource("tbl_" + sig->name, src);
+        const int rc = runSource("native_" + sig->name, src);
         CHECK(rc == 0, ("dispatch failed for " + call
             + " (rc=" + std::to_string(rc) + ")").c_str());
         ++checked;
     }
-    CHECK(checked == static_cast<int>(kMathIntrinsicCount),
+    //25 is stdlib/math.n's native declaration count: a deliberate tripwire,
+    //so a declaration cannot silently disappear from the library source.
+    CHECK(checked == 25,
         "every math native declaration must be exercised by this walk");
     PASS();
 }
@@ -544,7 +545,7 @@ int main()
         test_stdlib_type_error();
         test_stdlib_array_arg_rejected();
         test_stdlib_unknown_namespace_still_errors();
-        test_stdlib_table_full_dispatch();
+        test_stdlib_native_full_dispatch();
         test_io_print_accepts_primitives();
         test_io_print_void_not_assignable();
         test_io_print_rejects_nonprintable();

@@ -415,16 +415,11 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
-    //Phase 11: stdlib namespace functions (free-function ABI — args from
-    //callParamBase slot 0, no this). Chained before the unknown-id throw
-    //so each family TU stays independently extensible.
-    if (ExecuteIntrinsicMath(intrinsicId, callParamBase, locals, pResult))
-        return;
-    if (ExecuteIntrinsicIo(intrinsicId, callParamBase, locals, pResult))
-        return;
+    //String methods (receiver at callParamBase slot 0, args from slot 1).
+    //Chained before the unknown-id throw so each family TU stays
+    //independently extensible. math/io/fs are not here: they are library
+    //sources whose native members run from nlang_<ns>.dll.
     if (ExecuteIntrinsicString(intrinsicId, callParamBase, locals, pResult))
-        return;
-    if (ExecuteIntrinsicFs(intrinsicId, callParamBase, locals, pResult))
         return;
 
     throw std::runtime_error("NLang VM: unknown intrinsic id " + std::to_string(intrinsicId));

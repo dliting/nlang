@@ -172,64 +172,10 @@ static constexpr uint16_t INTR_IndexOutOfBoundsException_Ctor = 67;
 static constexpr uint16_t INTR_AssertionException_Ctor       = 68;
 static constexpr uint16_t INTR_IOException_Ctor              = 69;
 
-//Phase 11: stdlib namespace intrinsics. Allocation map (see StdLib.h for
-//the shared function table; args from callParamBase slot 0, no this):
-//  69          IOException ctor
-//  70-94       math, 25 functions
-//  95-106      string methods, 12 new (existing Equals/GetHashCode keep
-//              their 8e-1 ids 42/43 — only the implementation moves TUs)
-//  110-114     io, 5
-//  120-127     fs, 8 (prefix INTR_FileSystem_*: INTR_FS_* is FileStream)
-static constexpr uint16_t INTR_Math_Sqrt   = 70;
-static constexpr uint16_t INTR_Math_Sin    = 71;
-static constexpr uint16_t INTR_Math_Cos    = 72;
-static constexpr uint16_t INTR_Math_Tan    = 73;
-static constexpr uint16_t INTR_Math_Asin   = 74;
-static constexpr uint16_t INTR_Math_Acos   = 75;
-static constexpr uint16_t INTR_Math_Atan   = 76;
-static constexpr uint16_t INTR_Math_Atan2  = 77;
-static constexpr uint16_t INTR_Math_Pow    = 78;
-static constexpr uint16_t INTR_Math_Exp    = 79;
-static constexpr uint16_t INTR_Math_Log    = 80;
-static constexpr uint16_t INTR_Math_Absi   = 81;
-static constexpr uint16_t INTR_Math_Absf   = 82;
-static constexpr uint16_t INTR_Math_Mini   = 83;
-static constexpr uint16_t INTR_Math_Maxi   = 84;
-static constexpr uint16_t INTR_Math_Minf   = 85;
-static constexpr uint16_t INTR_Math_Maxf   = 86;
-static constexpr uint16_t INTR_Math_Clampi = 87;
-static constexpr uint16_t INTR_Math_Clampf = 88;
-static constexpr uint16_t INTR_Math_Floor  = 89;
-static constexpr uint16_t INTR_Math_Ceil   = 90;
-static constexpr uint16_t INTR_Math_Round  = 91;
-static constexpr uint16_t INTR_Math_Random = 92;
-static constexpr uint16_t INTR_Math_Srand  = 93;
-static constexpr uint16_t INTR_Math_Randomi = 94;
-//Executable allocation invariant: the math block is contiguous 70-94 and
-//the id constants above cover exactly this range (an unimplemented id is
-//only a runtime "unknown intrinsic" hole, so bind the block size here).
-static constexpr uint16_t kMathIntrinsicFirst = 70;
-static constexpr uint16_t kMathIntrinsicCount = 25;
-static_assert(INTR_Math_Sqrt == kMathIntrinsicFirst,
-    "math intrinsic block must start at kMathIntrinsicFirst");
-static_assert(INTR_Math_Randomi
-        == kMathIntrinsicFirst + kMathIntrinsicCount - 1,
-    "math intrinsic block must be contiguous up to Randomi");
-
-//Phase 11 Step 2: io namespace intrinsics (content IO — console + text
-//files; see StdLib.h). Same executable-contiguity invariant as math.
-static constexpr uint16_t INTR_Io_Print      = 110;
-static constexpr uint16_t INTR_Io_ReadLine   = 111;
-static constexpr uint16_t INTR_Io_ReadFile   = 112;
-static constexpr uint16_t INTR_Io_WriteFile  = 113;
-static constexpr uint16_t INTR_Io_AppendFile = 114;
-static constexpr uint16_t kIoIntrinsicFirst = 110;
-static constexpr uint16_t kIoIntrinsicCount = 5;
-static_assert(INTR_Io_Print == kIoIntrinsicFirst,
-    "io intrinsic block must start at kIoIntrinsicFirst");
-static_assert(INTR_Io_AppendFile
-        == kIoIntrinsicFirst + kIoIntrinsicCount - 1,
-    "io intrinsic block must be contiguous up to AppendFile");
+//Phase 11 stdlib namespace ids: the math (70-94), io (110-114) and fs
+//(120-127) blocks retired with the built-in standard library. The freed
+//ids stay unallocated — intrinsic ids are only ever appended, never
+//reused. String methods (95-106) survive as receiver-dispatched built-ins.
 
 //Phase 11 Step 3: built-in string methods (receiver-dispatched via
 //OP_CallIntrinsic — receiver string idx at callParamBase[0], args from
@@ -254,25 +200,6 @@ static_assert(INTR_String_Substring == kStringMethodIntrinsicFirst,
 static_assert(INTR_String_ToFloat
         == kStringMethodIntrinsicFirst + kStringMethodIntrinsicCount - 1,
     "string-method intrinsic block must be contiguous up to ToFloat");
-
-//Phase 11 Step 4: fs namespace — namespace/directory/metadata only,
-//never content (content IO lives in io). INTR_FS_* is taken by the
-//FileStream intrinsics, so this block uses the FileSystem_ prefix.
-static constexpr uint16_t INTR_FileSystem_Exists    = 120;
-static constexpr uint16_t INTR_FileSystem_IsFile    = 121;
-static constexpr uint16_t INTR_FileSystem_IsDir     = 122;
-static constexpr uint16_t INTR_FileSystem_Size      = 123;
-static constexpr uint16_t INTR_FileSystem_ListFiles = 124;
-static constexpr uint16_t INTR_FileSystem_MakeDirs  = 125;
-static constexpr uint16_t INTR_FileSystem_Remove    = 126;
-static constexpr uint16_t INTR_FileSystem_Join      = 127;
-static constexpr uint16_t kFileSystemIntrinsicFirst = 120;
-static constexpr uint16_t kFileSystemIntrinsicCount = 8;
-static_assert(INTR_FileSystem_Exists == kFileSystemIntrinsicFirst,
-    "file-system intrinsic block must start at its First constant");
-static_assert(INTR_FileSystem_Join
-        == kFileSystemIntrinsicFirst + kFileSystemIntrinsicCount - 1,
-    "file-system intrinsic block must be contiguous up to Join");
 
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:

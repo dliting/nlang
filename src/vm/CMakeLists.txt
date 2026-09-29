@@ -16,12 +16,9 @@ add_library(nlang_vm
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
     DebugSessionController.cpp
-    IntrinsicsMath.cpp
-    IntrinsicsIo.cpp
     IntrinsicsString.cpp
     IntrinsicsByteStream.cpp
     IntrinsicsFileStream.cpp
-    IntrinsicsFs.cpp
     backend/VmBackend.cpp
     backend/Register.cpp
     backend/RegisterClass.cpp
