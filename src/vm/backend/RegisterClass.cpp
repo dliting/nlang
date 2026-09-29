@@ -183,46 +183,38 @@ void VmBackend::ApplyImplicitObjectInheritance() {
 void VmBackend::RegisterClasses(SnNamespace& root) {
     //Map from class name to SnClassDecl* for post-registration resolution.
     std::unordered_map<std::string, SnClassDecl*> declMap;
-    for (auto& member : root.Members()) {
-        if (member.Kind() == NK_ClassDecl) {
-            if (member.IsImported()) continue;  //Phase 9c R3-F: skip stubs
-            RegisterClassDecl(static_cast<SnClassDecl&>(member), declMap);
-        } else if (CanBeFuncParentEx(member.Kind())) {
-            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_ClassDecl) {
-                    if (child.IsImported()) continue;  //Phase 9c R3-F
-                    RegisterClassDecl(static_cast<SnClassDecl&>(child), declMap);
-                }
-            }
-        }
-    }
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() == NK_ClassDecl && !node.IsImported())
+            RegisterClassDecl(static_cast<SnClassDecl&>(node), declMap);
+    });
     ResolveClassMetadata(declMap);
     ApplyImplicitObjectInheritance();
 }
 
 void VmBackend::PopulateClassMethods(SnNamespace& root) {
-    for (auto& member : root.Members()) {
-        if (member.Kind() == NK_ClassDecl) {
-            if (member.IsImported()) continue;  //Phase 9c R6-1: stub has no AST methods; merged cc.methodIndices from Phase B must be preserved
-            auto& sn = static_cast<SnClassDecl&>(member);
-            int ccIdx = m_compiledModule.FindClass(sn.Name());
-            if (ccIdx < 0) continue;
-            auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
-            cc.methodIndices.clear();
-            cc.constructorIdx = 0xFFFF;
-            for (auto& child : sn.Members()) {
-                if (child.Kind() == NK_Function) {
-                    auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
-                    if (it != m_funcIndexMap.end()) {
-                        uint16_t funcIdx = static_cast<uint16_t>(it->second);
-                        cc.methodIndices.push_back(funcIdx);
-                        if (child.Name() == sn.Name())
-                            cc.constructorIdx = funcIdx;
-                    }
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() != NK_ClassDecl)
+            return;
+        if (node.IsImported())
+            return;  //Phase 9c R6-1: stub has no AST methods; merged cc.methodIndices from Phase B must be preserved
+        auto& sn = static_cast<SnClassDecl&>(node);
+        int ccIdx = m_compiledModule.FindClass(sn.Name());
+        if (ccIdx < 0) return;
+        auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
+        cc.methodIndices.clear();
+        cc.constructorIdx = 0xFFFF;
+        for (auto& child : sn.Members()) {
+            if (child.Kind() == NK_Function) {
+                auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
+                if (it != m_funcIndexMap.end()) {
+                    uint16_t funcIdx = static_cast<uint16_t>(it->second);
+                    cc.methodIndices.push_back(funcIdx);
+                    if (child.Name() == sn.Name())
+                        cc.constructorIdx = funcIdx;
                 }
             }
         }
-    }
+    });
 }
 
 } //namespace nlang

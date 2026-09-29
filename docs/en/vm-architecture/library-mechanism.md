@@ -73,7 +73,12 @@ Consequences of one shared model:
 - **Types defined by a library are usable**: namespaces merge into the
   root, so a library's class/struct/enum/interface resolve at the
   consumer side like project types (inheritance, virtual dispatch and
-  enum methods included).
+  enum methods included). A type position writes the reference as
+  `ns.Type`; the resolver looks the declaration up inside the compiled-in
+  unit (`ModuleRegistry::FindModuleType`) and binds it, and an
+  unimported namespace is diagnosed rather than silently bound. An
+  external `.nmod` exposes no source-level types, so `ns.Type` resolves
+  only for inlined library sources.
 - **Deduplication** is tracked per *fully-parsed library file*, separate
   from the symbol index's already-indexed set: standard-library
   namespaces are signature-indexed at build-environment construction,
@@ -189,13 +194,11 @@ argument-to-string codegen.
 
 Mechanism landed: 4a unified inlining (commit `ab4546a`), the in-process
 mixed native + NLang library test (4b-1, `test_thirdparty.cpp`), the
-retirement of the built-in standard library (4c, section 6), search paths
-(3d), native ABI and loader (3b/3c). Open items:
+library type surface (4b-2, section 3), the retirement of the built-in
+standard library (4c, section 6), search paths (3d), native ABI and
+loader (3b/3c). Open items:
 
-1. **4b-2** — a library's *type* surface (class/struct/enum declared by a
-   library and used by the consumer). Not in the tree yet; when it lands,
-   `tests/test_vm/test_library_source.cpp` grows the covering cases.
-2. **4d** — change-aware recompilation: nide's standalone staleness
+1. **4d** — change-aware recompilation: nide's standalone staleness
    check must account for inlined library `.n` files, not only the main
    source. Two candidate designs, both keeping library-discovery rules
    in the compiler alone: serialize the participating library sources

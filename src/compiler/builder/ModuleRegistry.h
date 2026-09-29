@@ -151,6 +151,12 @@ public:
 		const std::string& path,
 		const std::string& calleeName) const;
 
+	//Find a type declaration (class/struct/enum/interface) named
+	//typeName inside the compiled-in unit path. Returns null for an
+	//external .nmod or when the unit/type is not present.
+	SnField* FindModuleType(const std::string& path,
+		const std::string& typeName) const;
+
 	//Owner side table: tag a merged top-level member (also used for
 	//namespace members one+ levels deep — namespaces can span TUs).
 	void TagOwner(SnField& member, uint32_t moduleIndex);

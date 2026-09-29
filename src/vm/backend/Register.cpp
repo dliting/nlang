@@ -16,10 +16,18 @@ namespace nlang {
 namespace {
 
 //Qualified name of a function nested in one or more non-root namespaces,
-//e.g. "io.print" / "math.ext.hypot3". Top-level free functions, and class
-//or enum methods, keep a bare name: methods dispatch through their
-//receiver and root-level functions have no namespace segment.
+//e.g. "io.print" / "math.ext.hypot3". Top-level free functions keep a bare
+//name. A CLASS/INTERFACE/ENUM METHOD always keeps a bare name too, even when
+//its owning type is nested inside a namespace: methods dispatch by name
+//through their receiver (VmExecutor::FindMethodByName compares the bare
+//name), so a namespace prefix would make every lookup fail.
 std::string QualifiedFunctionName(const SnFunction& func) {
+    if (func.Parent()
+        && (func.Parent()->Kind() == NK_ClassDecl
+            || func.Parent()->Kind() == NK_InterfaceDecl
+            || func.Parent()->Kind() == NK_EnumDecl))
+        return func.Name();
+
     SnNamespace* const pRoot = TheAST().Root();
     std::string prefix;
     for (SyntaxNode* pNode = func.Parent(); pNode != nullptr;
@@ -63,19 +71,10 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
 }
 
 void VmBackend::RegisterStructs(SnNamespace& root) {
-    for (auto& member : root.Members()) {
-        if (member.Kind() == NK_StructDecl) {
-            if (member.IsImported()) continue;  //Phase 9c R3-F: skip stubs
-            RegisterStructDecl(static_cast<SnStructDecl&>(member));
-        } else if (CanBeFuncParentEx(member.Kind())) {
-            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_StructDecl) {
-                    if (child.IsImported()) continue;  //Phase 9c R3-F
-                    RegisterStructDecl(static_cast<SnStructDecl&>(child));
-                }
-            }
-        }
-    }
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() == NK_StructDecl && !node.IsImported())
+            RegisterStructDecl(static_cast<SnStructDecl&>(node));
+    });
     //Resolve fieldStructIndices now that all structs are registered.
     //fieldClassIndices are resolved later by ResolveStructClassRefs
     //(after RegisterClasses, since classes are not yet registered here).
@@ -146,13 +145,7 @@ uint16_t VmBackend::RegisterArrayType(SnField* pElemType) {
 //type in before resolve), so the element type is one ElemTypeOf() away
 //and the syntactic shape walk is gone.
 void VmBackend::RegisterArrayTypes(SnNamespace& root) {
-    for (auto& member : root.Members()) {
-        WalkArrayTypeNode(member);
-        if (CanBeFuncParentEx(member.Kind())) {
-            for (auto& child : static_cast<SnFunctionParentField&>(member).Members())
-                WalkArrayTypeNode(child);
-        }
-    }
+    ForEachDeclNode(root, [&](SnField& node) { WalkArrayTypeNode(node); });
 }
 
 //If the type expression resolves to an interned array token, register its
@@ -247,19 +240,10 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
         m_compiledModule.enumNames.push_back(std::move(names));
         m_enumIndexMap[&sn] = defIdx;
     };
-    for (auto& member : root.Members()) {
-        if (member.Kind() == NK_EnumDecl) {
-            if (member.IsImported()) continue;  //Phase 9c R3-F: skip stubs
-            registerEnum(static_cast<SnEnumDecl&>(member));
-        } else if (CanBeFuncParentEx(member.Kind())) {
-            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_EnumDecl) {
-                    if (child.IsImported()) continue;  //Phase 9c R3-F
-                    registerEnum(static_cast<SnEnumDecl&>(child));
-                }
-            }
-        }
-    }
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() == NK_EnumDecl && !node.IsImported())
+            registerEnum(static_cast<SnEnumDecl&>(node));
+    });
 }
 
 //v1.9 (debugger): source file path recorded per function. Imported
@@ -275,48 +259,20 @@ static std::string SourceFilePathOf(const SnFunction& func) {
 
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
-    for (auto& member : root.Members()) {
-        if (member.Kind() == NK_Function) {
-            auto& func = static_cast<SnFunction&>(member);
-            //Phase 9f: native declarations register like normal
-            //functions (the record carries isNative + param signature).
-            if (!func.Body() && !func.ContainFlags(NF_Native))
-                continue;
-            CompiledFunction cf;
-            cf.name = QualifiedFunctionName(func);
-            cf.sourceFile = SourceFilePathOf(func);
-            m_compiledModule.functions.push_back(std::move(cf));
-            m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
-        } else if (member.Kind() == NK_EnumDecl) {
-            //Phase 12: enum methods. SnEnumDecl is not a
-            //SnFunctionParentField — methods live in a separate
-            //kind-filtered child list.
-            for (auto& method : static_cast<SnEnumDecl&>(member).Methods()) {
-                //Body-less methods were rejected by the resolver (D4);
-                //skipping here only mirrors the class path's defense.
-                if (!method.Body() && !method.ContainFlags(NF_Native))
-                    continue;
-                CompiledFunction cf;
-                cf.name = QualifiedFunctionName(method);
-                cf.sourceFile = SourceFilePathOf(method);
-                m_compiledModule.functions.push_back(std::move(cf));
-                m_funcIndexMap[&method] =
-                    m_compiledModule.functions.size() - 1;
-            }
-        } else if (CanBeFuncParentEx(member.Kind())) {
-            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_Function) {
-                    auto& func = static_cast<SnFunction&>(child);
-                    if (!func.Body() && !func.ContainFlags(NF_Native))
-                        continue;
-                    CompiledFunction cf;
-                    cf.name = QualifiedFunctionName(func);
-                    cf.sourceFile = SourceFilePathOf(func);
-                    m_compiledModule.functions.push_back(std::move(cf));
-                    m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
-                }
-            }
-        }
-    }
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() != NK_Function)
+            return;
+        auto& func = static_cast<SnFunction&>(node);
+        //Phase 9f: native declarations register like normal functions
+        //(the record carries isNative + param signature); a body-less
+        //non-native declaration gets no record.
+        if (!func.Body() && !func.ContainFlags(NF_Native))
+            return;
+        CompiledFunction cf;
+        cf.name = QualifiedFunctionName(func);
+        cf.sourceFile = SourceFilePathOf(func);
+        m_compiledModule.functions.push_back(std::move(cf));
+        m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
+    });
 }
 } //namespace nlang

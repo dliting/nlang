@@ -154,7 +154,16 @@ void ExprResolveAccessor::SwitchContextToReceiver(SnMemberExpr &snMember)
 		auto &outerFieldExpr = static_cast<SnFieldExpr &>(*snMember.Outer());
 		auto* pOuterField = static_cast<SnField *>(outerFieldExpr.Field());
 		m_pContext = pOuterField;
-		if (pOuterField && !pOuterField->IsTypeField())
+		//A namespace receiver must stay on the namespace node so a non-function
+		//member (enum value, constant, nested type: `shapes.Color.Green`) is
+		//looked up inside it. SnNamespace carries no NF_Type, so the generic
+		//IsTypeField() test below is false and would switch to its
+		//EvalDataType() — the meta SnType singleton, which has none of the
+		//namespace's members. Function calls (`ns.f(...)`) never reach here:
+		//TryResolveModuleQualified consumes them at the chain head.
+		if (pOuterField && pOuterField->Kind() == NK_Namespace)
+			m_pContext = pOuterField;
+		else if (pOuterField && !pOuterField->IsTypeField())
 			m_pContext = snMember.Outer()->EvalDataType();
 		//Phase 12: enum member receiver (`Color.Blue.rank()`). The member
 		//masquerades as Int32 (SnEnumMember::EvalDataType), which would

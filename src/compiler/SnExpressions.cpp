@@ -1,8 +1,4 @@
-/*-----------------------------------------------------------------------------
-	ncomp/intf/SnExpressions.h
-	This file define the implementation of expression syntax nodes in an nlang 
-AST.
------------------------------------------------------------------------------*/
+/*--- SnExpressions.cpp — expression syntax node implementations ---*/
 
 #include "SnExpressions.h"
 #include "SyntaxNodeVisitor.h"
@@ -61,7 +57,6 @@ SnField * SnExpression::OwnerType() const
 SnCompoundPlainExpr::SnCompoundPlainExpr(NodeKind k) :
 	Super_(k), m_upChildren(new ImmutableNodeList())
 {
-
 }
 
 SnCompoundPlainExpr::SnCompoundPlainExpr(NodeKind k, const ISourceLocation &loc) :
@@ -123,7 +118,6 @@ bool SnFieldExpr::IsDataExpr() const
 SnCompoundFieldExpr::SnCompoundFieldExpr(NodeKind k) :
 	Super_(k), m_upChildren(new ImmutableNodeList())
 {
-
 }
 
 SnCompoundFieldExpr::SnCompoundFieldExpr(NodeKind k,
@@ -447,6 +441,60 @@ bool SnGenericTypeExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 		}
 	}
 	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
+//--- SnQualifiedTypeExpr (Phase 4b) ---
+
+SnQualifiedTypeExpr::SnQualifiedTypeExpr(const std::string &first,
+	const std::string &second, const ISourceLocation &loc) :
+	Super_(s_Kind, loc)
+{
+	m_segments.push_back(first);
+	m_segments.push_back(second);
+}
+
+void SnQualifiedTypeExpr::AppendSegment(const std::string &seg)
+{
+	m_segments.push_back(seg);
+}
+
+const std::string &SnQualifiedTypeExpr::TypeName() const
+{
+	assert(!m_segments.empty());
+	return m_segments.back();
+}
+
+std::string SnQualifiedTypeExpr::NamespacePath() const
+{
+	std::string path;
+	for (size_t i = 0; i + 1 < m_segments.size(); ++i)
+	{
+		if (i) path += '.';
+		path += m_segments[i];
+	}
+	return path;
+}
+
+void SnQualifiedTypeExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnQualifiedTypeExpr::ToString() const
+{
+	std::string s;
+	for (size_t i = 0; i < m_segments.size(); ++i)
+	{
+		if (i) s += '.';
+		s += m_segments[i];
+	}
+	return s;
+}
+
+bool SnQualifiedTypeExpr::ReplaceChildNode(SyntaxNode *, SyntaxNode *)
+{
+	//The node carries only string segments, no child syntax nodes.
+	return false;
 }
 
 } //namespace nlang

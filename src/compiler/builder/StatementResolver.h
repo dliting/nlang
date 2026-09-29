@@ -90,6 +90,11 @@ private:
 
 public:
 
+	//Pre-pass entry (forward-reference fix): resolve one class's
+	//extends/implements before any function body is visited, so an upcast in
+	//an earlier-merged consumer TU still sees the inheritance chain.
+	void ResolveClassBaseNow(SnClassDecl &sn) { ResolveClassBases(sn); }
+
 	void Access(SnNamespace &sn);
 	void Access(SnFunction &sn);
 	void Access(SnField &sn);
@@ -150,6 +155,12 @@ public:
 	explicit StatementResolver(BuildEnvironment &env);
 
 	static void PreAssignEnumMemberValues(Node& node,
+		StatementResolveAccessor& accessor);
+
+	//Pre-pass: resolve every class's extends/implements before the
+	//document-order traversal visits any function body (forward-reference
+	//fix for upcasts across the user/library TU merge order).
+	static void PreResolveClassBases(Node& node,
 		StatementResolveAccessor& accessor);
 
 	void Resolve(SnNamespace &root);

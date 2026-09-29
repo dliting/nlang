@@ -52,6 +52,16 @@ void VmBackend::Access(SnGenericTypeExpr& expr) {
                                : std::string("?")));
 }
 
+//Phase 4b: a qualified type reference (ns.Type) is likewise compile-time
+//only; reaching codegen as a value is an internal invariant break.
+void VmBackend::Access(SnQualifiedTypeExpr& expr) {
+        throw std::runtime_error(
+            "NLang backend: type-reference expression reached codegen "
+            "(compile-time-only node) at "
+            + (expr.Location() ? expr.Location()->ToString()
+                               : std::string("?")));
+}
+
 void VmBackend::Access(SnLiteralExpr& expr) {
     NodeKind kind = expr.Kind();
     BytecodeEmitter& emitter = *m_pCurrEmitter;

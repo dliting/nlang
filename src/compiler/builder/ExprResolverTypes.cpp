@@ -1,7 +1,4 @@
-/*---
-    ExprResolverTypes.cpp — 内建/泛型类型机器与类型位节点解析
-    从 ExprResolver.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
----*/
+/*--- ExprResolverTypes.cpp — 内建/泛型类型机器与类型位节点解析 ---*/
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
@@ -321,6 +318,64 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	ResolveFieldExprAs(genType, pSynClass);
+}
+
+//Phase 4b: a qualified type reference "ns.Type" (or "a.b.Type") in a type
+//position. Mirrors the module-qualified CALL resolution: the namespace must
+//be imported, then the type declaration is looked up inside that compiled-in
+//unit and bound. An external .nmod exposes no source-level types in v1.
+void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
+{
+	if (qtype.IsResolved())
+		return;
+
+	const auto &segs = qtype.Segments();
+	if (segs.size() < 2)
+	{
+		//A single-segment type uses SnNameExpr; a qualified node with one
+		//segment is a grammar/internal error.
+		m_Env.Log(CLL_Error, qtype.Location(),
+			"Malformed qualified type reference.");
+		return;
+	}
+
+	const std::string nsPath = qtype.NamespacePath();
+	auto &reg = m_Env.Registry();
+	const uint32_t curModule = reg.OwnerOfContext(qtype);
+	if (!reg.IsModuleImported(curModule, nsPath))
+	{
+		RejectUnimportedQualifiedType(qtype, nsPath);
+		return;
+	}
+
+	SnField *pType = reg.FindModuleType(nsPath, qtype.TypeName());
+	if (pType == nullptr)
+	{
+		m_Env.Log(CLL_Error, qtype.Location(),
+			"Type '%s' is not a member of namespace '%s'.",
+			qtype.TypeName().c_str(), nsPath.c_str());
+		return;
+	}
+
+	ResolveFieldExprAs(qtype, pType);
+}
+
+//Phase 4b: the namespace named by a qualified type is not imported into
+//the current TU — name the fix (mirrors RejectUnimportedModuleCall).
+void ExprResolveAccessor::RejectUnimportedQualifiedType(
+	SnQualifiedTypeExpr &qtype, const std::string &nsPath)
+{
+	//Single-segment: "Namespace" for a library namespace, "Module" for an
+	//external .nmod; a dotted (nested) path is always a module.
+	const char *pKind = "Module";
+	if (nsPath.find('.') == std::string::npos
+		&& m_Env.IsLibraryNamespace(nsPath))
+		pKind = "Namespace";
+	m_Env.Log(CLL_Error, qtype.Location(),
+		"%s '%s' is not imported. Add 'import %s;' at the top of this "
+		"file before using type '%s'.",
+		pKind, nsPath.c_str(), nsPath.c_str(),
+		qtype.TypeName().c_str());
 }
 
 //The not-found fallback of Access(SnIdentifierExpr&): a built-in class

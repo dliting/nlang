@@ -64,44 +64,64 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
 }
 
 void VmBackend::GenerateAllBytecode(SnNamespace& root) {
-    for (auto& member : root.Members()) {
-        if (member.Kind() == NK_Function) {
-            auto& func = static_cast<SnFunction&>(member);
-            //Phase 9f: native declarations are body-less by contract but
-            //still need a generated (minimal) function record.
-            if (!func.Body() && !func.ContainFlags(NF_Native))
-                continue;
-            auto it = m_funcIndexMap.find(&func);
-            if (it != m_funcIndexMap.end())
-                GenerateFunction(func, it->second);
-        } else if (member.Kind() == NK_EnumDecl) {
-            //Phase 12: generate enum method bodies (separate kind-
-            //filtered list; SnEnumDecl is not a SnFunctionParentField).
-            for (auto& method : static_cast<SnEnumDecl&>(member).Methods()) {
-                if (!method.Body() && !method.ContainFlags(NF_Native))
-                    continue;
-                auto it = m_funcIndexMap.find(&method);
-                if (it != m_funcIndexMap.end())
-                    GenerateFunction(method, it->second);
-            }
-        } else if (CanBeFuncParentEx(member.Kind())) {
-            //Phase 9d-2: super(...) emission needs the enclosing class.
-            SnClassDecl* prevClass = m_pCurrClass;
-            if (member.Kind() == NK_ClassDecl)
-                m_pCurrClass = static_cast<SnClassDecl*>(&member);
-            for (auto& child : static_cast<SnFunctionParentField&>(member).Members()) {
-                if (child.Kind() == NK_Function) {
-                    auto& func = static_cast<SnFunction&>(child);
-                    if (!func.Body() && !func.ContainFlags(NF_Native))
-                        continue;
-                    auto it = m_funcIndexMap.find(&func);
-                    if (it != m_funcIndexMap.end())
-                        GenerateFunction(func, it->second);
-                }
-            }
-            m_pCurrClass = prevClass;
-        }
+    GenerateBytecodeRecursive(root);
+}
+
+void VmBackend::ForEachDeclNode(SnField& parent,
+    const std::function<void(SnField&)>& fn) {
+    //Enum: value members are not containers; visit its methods as functions.
+    if (parent.Kind() == NK_EnumDecl) {
+        for (auto& method : static_cast<SnEnumDecl&>(parent).Methods())
+            fn(method);
+        return;
     }
+    //Only namespace/class/interface own a member list to descend. Structs
+    //hold fields only; fields/params/values are leaves here.
+    if (parent.Kind() != NK_Namespace
+        && parent.Kind() != NK_ClassDecl
+        && parent.Kind() != NK_InterfaceDecl)
+        return;
+    auto& members =
+        static_cast<SnFunctionParentField&>(parent).Members();
+    for (auto& child : members) {
+        fn(child);
+        ForEachDeclNode(child, fn);
+    }
+}
+
+void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
+    //Enum methods (enum is not a SnFunctionParentField).
+    if (parent.Kind() == NK_EnumDecl) {
+        for (auto& method : static_cast<SnEnumDecl&>(parent).Methods()) {
+            if (!method.Body() && !method.ContainFlags(NF_Native))
+                continue;
+            auto it = m_funcIndexMap.find(&method);
+            if (it != m_funcIndexMap.end())
+                GenerateFunction(method, it->second);
+        }
+        return;
+    }
+    if (parent.Kind() != NK_Namespace
+        && parent.Kind() != NK_ClassDecl
+        && parent.Kind() != NK_InterfaceDecl)
+        return;
+    SnClassDecl* prevClass = m_pCurrClass;
+    if (parent.Kind() == NK_ClassDecl)
+        m_pCurrClass = static_cast<SnClassDecl*>(&parent);
+    auto& members =
+        static_cast<SnFunctionParentField&>(parent).Members();
+    for (auto& child : members) {
+        if (child.Kind() == NK_Function) {
+            auto& func = static_cast<SnFunction&>(child);
+            if (func.Body() || func.ContainFlags(NF_Native)) {
+                auto it = m_funcIndexMap.find(&func);
+                if (it != m_funcIndexMap.end())
+                    GenerateFunction(func, it->second);
+            }
+        }
+        GenerateBytecodeRecursive(child);
+    }
+    m_pCurrClass = prevClass;
 }
 
 //Returns field offset in bytes, or -1 if not found.

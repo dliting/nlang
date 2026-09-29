@@ -179,6 +179,10 @@ public:
 	//tuple to preserve pointer identity for CalcTypeDistance.
 	void Access(SnGenericTypeExpr &);
 
+	//Phase 4b: resolve a qualified type reference "ns.Type" in a type
+	//position (library-defined class/struct/enum/interface).
+	void Access(SnQualifiedTypeExpr &);
+
 	void Access(SnIdentifierExpr &);
 
 	void Access(SnInvokeExpr &);
@@ -698,6 +702,12 @@ private:
 		std::vector<uint8> &outFlags);
 	bool TryResolveBuiltinNameFallback(SnIdentifierExpr &idExpr,
 		uint32_t curModule);
+
+	//Phase 4b: the namespace named by a qualified type is not imported
+	//into the current TU — name the fix (mirrors
+	//RejectUnimportedModuleCall).
+	void RejectUnimportedQualifiedType(SnQualifiedTypeExpr &qtype,
+		const std::string &nsPath);
 
 	/*
 	2026-09-27 decomposition of the module-qualified resolution

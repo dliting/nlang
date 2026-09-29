@@ -559,6 +559,44 @@ private:
 	std::unique_ptr<std::vector<SnFieldExpr*>>	m_upTypeArgs;
 };
 
+//Qualified type expression (e.g. "shapes.Point", "pkg.mod.Type").
+//A type position naming a type inside another (imported) namespace. The
+//last segment is the type name; the preceding segments name its
+//namespace/module, mirroring the ns.member expression style. ExprResolver
+//looks the type declaration up in that module and binds it; the node is a
+//type reference only and never reaches codegen as a value.
+class NLANG_COMPILER_API SnQualifiedTypeExpr : public SnCompoundFieldExpr
+{
+	typedef SnCompoundFieldExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_QualifiedTypeExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnQualifiedTypeExpr(const std::string &first,
+		const std::string &second, const ISourceLocation &loc);
+
+	//Append one more segment to the dotted chain (a.b -> a.b.c).
+	void AppendSegment(const std::string &seg);
+
+	const std::vector<std::string> &Segments() const
+	{
+		return m_segments;
+	}
+
+	//Namespace path (all but the last segment), joined by dots.
+	std::string NamespacePath() const;
+	//Type name (the last segment).
+	const std::string &TypeName() const;
+
+	void Accept(ISyntaxNodeVisitor &) override;
+
+	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+private:
+	std::vector<std::string> m_segments;
+};
+
 //Type cast expression syntax node.
 class NLANG_COMPILER_API SnCastExpr : public SnCompoundPlainExpr
 {

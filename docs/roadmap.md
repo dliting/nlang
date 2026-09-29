@@ -76,6 +76,7 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 ### 统一库机制（0.7.4 阶段 1–4c）✅（2026-09-29）
 - 标准库与第三方库并为一套机制：`stdlib/*.n` 是手写的权威声明，`nlang_<ns>.dll` 经宿主 ABI 提供 native 实现；单段 `import` 命中的库源被**完整内联**为库 TU，限定调用编译为 `OP_CallFunc`，运行时按被调函数自身性质分派（字节码体 / `isNative` → DLL）
 - 搜索路径五层统一（`-I`、`.nproj` `<ImportPaths>`、项目目录、`NLANG_PATH`、系统缺省），编译期发现 `.n` 与运行期加载 DLL 共用同一有序列表；nide 叠加工具选项 + 项目属性两级配置
+- 库的类型面可用（4b-2）：类型位置写 `ns.Type`，解析器在被内联的库单元内查找 class/struct/enum/interface 并绑定，继承、虚分派、enum 方法与 interface 上行转换同项目类型等价；未 import 的命名空间直接诊断
 - 内建标准库退役：硬编码签名表、math/io/fs 三套 intrinsic 家族及其 id 块（70-94、110-114、120-127）全部删除，`OP_CallIntrinsic` 只保留接收者分派的内建方法（string 12 个、流与容器协议）；ctest `no_builtin_stdlib` 守护不留回归路径
 
 ---

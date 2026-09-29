@@ -337,6 +337,49 @@ std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 	return std::vector<SnFunction*>{};
 }
 
+SnField* ModuleRegistry::FindModuleType(const std::string& path,
+	const std::string& typeName) const
+{
+	//Find the registered unit for path (project or inline library).
+	//External .nmod stubs carry no source-level type declarations in v1.
+	for (uint32_t i = 0; i < m_modules.size(); ++i)
+	{
+		if (m_modules[i].path != path)
+			continue;
+		if (m_modules[i].isExternal)
+			return nullptr;
+
+		//A library unit keeps its members in `namespace <path>`; a project
+		//module's members are at the root (same container rule as
+		//CompiledInFunctions).
+		SnNamespace* pRoot = TheAST().Root();
+		SnNamespace* pContainer = pRoot;
+		if (m_modules[i].isLibrary)
+		{
+			SnField* pField = pRoot ? pRoot->FindField(path) : nullptr;
+			if (pField == nullptr || pField->Kind() != NK_Namespace)
+				return nullptr;
+			pContainer = static_cast<SnNamespace*>(pField);
+		}
+		if (pContainer == nullptr)
+			return nullptr;
+		SnField* pFound = pContainer->FindField(typeName);
+		if (pFound == nullptr)
+			return nullptr;
+		switch (pFound->Kind())
+		{
+		case NK_ClassDecl:
+		case NK_StructDecl:
+		case NK_EnumDecl:
+		case NK_InterfaceDecl:
+			return pFound;
+		default:
+			return nullptr;
+		}
+	}
+	return nullptr;
+}
+
 void ModuleRegistry::TagOwner(SnField& member, uint32_t moduleIndex)
 {
 	m_ownerOf[&member] = moduleIndex;

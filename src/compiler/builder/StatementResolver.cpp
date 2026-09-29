@@ -107,12 +107,29 @@ void StatementResolver::PreAssignEnumMemberValues(Node& node,
 		PreAssignEnumMemberValues(child, accessor);
 }
 
+//Pre-pass for Resolve: resolve every class declaration's extends/implements
+//before the document-order traversal visits any function body. The user TU
+//is merged before an imported library TU, so a consumer's upcast
+//(`Base b = derived;`) is otherwise visited before the library class's
+//SuperClass chain exists and is wrongly rejected. Same forward-reference
+//discipline as PreAssignEnumMemberValues; the in-order Access re-runs
+//ResolveClassBases, which is idempotent on already-resolved bases.
+void StatementResolver::PreResolveClassBases(Node& node,
+	StatementResolveAccessor& accessor)
+{
+	if (node.Kind() == NK_ClassDecl)
+		accessor.ResolveClassBaseNow(static_cast<SnClassDecl&>(node));
+	for (auto& child : node.Children())
+		PreResolveClassBases(child, accessor);
+}
+
 void StatementResolver::Resolve(SnNamespace &root)
 {
 	SyntaxNodeVisitor<StatementResolveAccessor>
 		visitor(m_Accessor, NVK_CustomTraverse);
 	m_Accessor.Visitor(&visitor);
 	PreAssignEnumMemberValues(root, m_Accessor);
+	PreResolveClassBases(root, m_Accessor);
 	root.Accept(visitor);
 }
 

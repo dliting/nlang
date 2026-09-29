@@ -191,6 +191,190 @@ void TestOwnerIsolation() {
     CHECK(cap.text == "ok\n", "project/library same-named function output");
 }
 
+// Phase 4b-2: a library may define its own TYPES - a class with a ctor and
+// methods, an enum, and an NLang factory that returns the class. The consumer
+// instantiates the class, reads a field, calls a method, uses an enum value,
+// and calls the factory. This exercises two fixes:
+//   * the recursive codegen traversal - root -> namespace -> class -> method
+//     is THREE levels; the old fixed two-level walk never registered or
+//     compiled a method nested inside a namespaced class
+//     ("call to method without a body");
+//   * the namespace-receiver context fix - `alib.Color.Green` enum-value
+//     access must look Color up inside the namespace node, not the meta
+//     SnType singleton.
+const char* kTypeLibSource =
+    "namespace alib {\n"
+    "class Point {\n"
+    "  public int x;\n"
+    "  public int y;\n"
+    "  public int Point(int x, int y) {\n"
+    "    this.x = x;\n"
+    "    this.y = y;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  public int manhattan() {\n"
+    "    return x + y;\n"
+    "  }\n"
+    "}\n"
+    "enum Color { Red = 0, Green = 1, Blue = 2 }\n"
+    "Point makePoint(int x, int y) {\n"
+    "  return new Point(x, y);\n"
+    "}\n"
+    "}\n";
+
+const char* kTypeProgram =
+    "import io;\n"
+    "import alib;\n"
+    "int main() {\n"
+    "  alib.Point p = new alib.Point(2, 5);\n"
+    "  if (p.manhattan() != 7) return 1;\n"
+    "  if (p.x != 2) return 2;\n"
+    "  alib.Point q = alib.makePoint(3, 4);\n"
+    "  if (q.manhattan() != 7) return 3;\n"
+    "  alib.Color c = alib.Color.Green;\n"
+    "  if (c != alib.Color.Green) return 4;\n"
+    "  io.print(\"ok\");\n"
+    "  return 0;\n"
+    "}\n";
+
+void TestLibraryDefinedTypes() {
+    const auto dir = scenarioDir("types");
+    writeFiles(dir, { { "alib.n", kTypeLibSource },
+                      { "main.n", kTypeProgram } });
+    CapturingIo cap;
+    int rc = compileRun(dir, cap);
+    CHECK(rc == 0, "library-defined class/enum/factory (rc)");
+    CHECK(cap.text == "ok\n", "library-defined types program output");
+}
+
+// Phase 4b-2 (inheritance): a library value struct plus a class hierarchy
+// with virtual methods. The consumer uses the struct, upcasts a derived
+// instance to the library base type, and relies on virtual dispatch to the
+// override. This pins two fixes:
+//   * the class-base pre-pass - the user TU is merged BEFORE the library TU,
+//     so the upcast in main is visited before the library class's super
+//     chain would otherwise exist and was wrongly rejected ("Incompatible
+//     type"); bases are now resolved for every class before any body runs;
+//   * bare method names for classes nested in a namespace - a method's VM
+//     name is never namespace-qualified, so `legs`/`kind` resolve.
+const char* kInheritLibSource =
+    "namespace alib {\n"
+    "struct Vec {\n"
+    "  int a;\n"
+    "  int b;\n"
+    "}\n"
+    "class Animal {\n"
+    "  public virtual int legs() { return 0; }\n"
+    "  public virtual string kind() { return \"animal\"; }\n"
+    "}\n"
+    "class Dog : Animal {\n"
+    "  public int legs() { return 4; }\n"
+    "  public string kind() { return \"dog\"; }\n"
+    "}\n"
+    "}\n";
+
+const char* kInheritProgram =
+    "import io;\n"
+    "import alib;\n"
+    "int main() {\n"
+    "  alib.Vec v;\n"
+    "  v.a = 3; v.b = 4;\n"
+    "  if (v.a + v.b != 7) return 1;\n"
+    "  alib.Dog d = new alib.Dog();\n"
+    "  alib.Animal a = d;\n"
+    "  if (a.legs() != 4) return 2;\n"
+    "  if (a.kind() != \"dog\") return 3;\n"
+    "  io.print(\"ok\");\n"
+    "  return 0;\n"
+    "}\n";
+
+void TestLibraryInheritance() {
+    const auto dir = scenarioDir("inherit");
+    writeFiles(dir, { { "alib.n", kInheritLibSource },
+                      { "main.n", kInheritProgram } });
+    CapturingIo cap;
+    int rc = compileRun(dir, cap);
+    CHECK(rc == 0, "library struct + inheritance/virtual dispatch (rc)");
+    CHECK(cap.text == "ok\n", "library inheritance program output");
+}
+
+// Phase 4b-2 (interface): a library declares an interface and a class that
+// implements it. The consumer upcasts the instance to the library interface
+// type and calls through it; the call resolves to the interface method and
+// dispatches virtually to the implementing class. Interface method
+// declarations carry `public` and end with ';' (no body).
+const char* kIfaceLibSource =
+    "namespace alib {\n"
+    "interface IShape {\n"
+    "  public int area();\n"
+    "}\n"
+    "class Square implements IShape {\n"
+    "  public int side;\n"
+    "  public int Square(int s) {\n"
+    "    this.side = s;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  public int area() {\n"
+    "    return side * side;\n"
+    "  }\n"
+    "}\n"
+    "}\n";
+
+const char* kIfaceProgram =
+    "import io;\n"
+    "import alib;\n"
+    "int main() {\n"
+    "  alib.Square s = new alib.Square(3);\n"
+    "  alib.IShape sh = s;\n"
+    "  if (sh.area() != 9) return 1;\n"
+    "  io.print(\"ok\");\n"
+    "  return 0;\n"
+    "}\n";
+
+void TestLibraryInterface() {
+    const auto dir = scenarioDir("iface");
+    writeFiles(dir, { { "alib.n", kIfaceLibSource },
+                      { "main.n", kIfaceProgram } });
+    CapturingIo cap;
+    int rc = compileRun(dir, cap);
+    CHECK(rc == 0, "library interface implementation/dispatch (rc)");
+    CHECK(cap.text == "ok\n", "library interface program output");
+}
+
+// Phase 4b-2 (enum methods): a library enum may declare methods (this is the
+// enum's int value). The consumer calls one through an enum-typed variable.
+// This pins the enum branches of the recursive traversal - enum value
+// members are not a container; only its Methods() are visited/compiled.
+const char* kEnumMethodLibSource =
+    "namespace alib {\n"
+    "enum Rank {\n"
+    "  Low = 0, High = 1;\n"
+    "  public int doubled() {\n"
+    "    return this * 2;\n"
+    "  }\n"
+    "}\n"
+    "}\n";
+
+const char* kEnumMethodProgram =
+    "import io;\n"
+    "import alib;\n"
+    "int main() {\n"
+    "  alib.Rank r = alib.Rank.High;\n"
+    "  if (r.doubled() != 2) return 1;\n"
+    "  io.print(\"ok\");\n"
+    "  return 0;\n"
+    "}\n";
+
+void TestLibraryEnumMethod() {
+    const auto dir = scenarioDir("enum_method");
+    writeFiles(dir, { { "alib.n", kEnumMethodLibSource },
+                      { "main.n", kEnumMethodProgram } });
+    CapturingIo cap;
+    int rc = compileRun(dir, cap);
+    CHECK(rc == 0, "library enum method dispatch (rc)");
+    CHECK(cap.text == "ok\n", "library enum method program output");
+}
+
 } // namespace
 
 int main() {
@@ -201,6 +385,10 @@ int main() {
     TestNoBareNames();
     TestNoSiblingAutoVisibility();
     TestOwnerIsolation();
+    TestLibraryDefinedTypes();
+    TestLibraryInheritance();
+    TestLibraryInterface();
+    TestLibraryEnumMethod();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

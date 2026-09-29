@@ -22,6 +22,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(ArrayTypeExpr)			/* array type expression T[] */		\
 	MACRO_IMPL(ArrayTypeToken)			/* interned "array of T" type token (0.7.3 B) */	\
 	MACRO_IMPL(GenericTypeExpr)			/* generic type expression List<T> (Phase 8e-3) */	\
+	MACRO_IMPL(QualifiedTypeExpr)		/* qualified type expression ns.Type (Phase 4b) */	\
 	MACRO_IMPL(MemberExpr)				/* member access expression  */		\
 	MACRO_IMPL(CastExpr)				/* type cast expression  */			\
 	MACRO_IMPL(AsExpr)					/* `expr as T` (Phase 8e-1.5) */		\

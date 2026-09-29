@@ -68,6 +68,9 @@ public:
 	//Phase 8e-3: `List<T>` is not a runtime type declaration (VM-registered).
 	void Access(SnGenericTypeExpr &) {}
 
+	//Phase 4b: `ns.Type` is not a runtime type declaration.
+	void Access(SnQualifiedTypeExpr &) {}
+
 	//Interfaces are not concrete runtime types (no heap layout); classes that
 	//implement them carry the runtime representation. Skip type generation.
 	void Access(SnInterfaceDecl &) {}

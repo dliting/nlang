@@ -152,6 +152,25 @@ static SnExpression* BuildStringExpr(
 	return result;
 }
 
+//Phase 4b: flatten a MemberExpr point-chain (a.b.c) into identifier
+//segments for a qualified type reference. The chain is parsed with the
+//normal member-access shifts, then converted only when it is reduced in
+//a type position — this keeps a lone identifier a plain NameExpr and
+//avoids a reduce/reduce over a single token.
+static void CollectQualifiedSegments(
+		SnExpression *pExpr, std::vector<std::string> &out)
+{
+	if (pExpr->Kind() == NK_IdentifierExpr)
+	{
+		out.push_back(static_cast<SnIdentifierExpr*>(pExpr)->Name());
+		return;
+	}
+	auto* pMember = static_cast<SnMemberExpr*>(pExpr);
+	CollectQualifiedSegments(pMember->Outer(), out);
+	out.push_back(
+		static_cast<SnIdentifierExpr*>(pMember->Inner())->Name());
+}
+
 %}
 
 /*data value union */
@@ -239,7 +258,7 @@ static SnExpression* BuildStringExpr(
 %type <v_AccessType>    		AccessType
 %type <v_NodeFlags>    			NodeFlags NodeFlag
 %type <v_pNameExpr>				NameExpr
-%type <v_pFieldExpr>				Type TypeArg
+%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType
 %type <v_pFieldExprVec>			TypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
@@ -680,10 +699,10 @@ InvokeStmt: InvokeExpr ';' { $$ = new SnInvokeStmt($1, @1); } |
 Local variable declaration statement.
 Phase 9a: `const Type decls;` form marks all locals as const (NF_Const).
 */
-LocalDeclStmt: Type LocalDeclList ';' {
+LocalDeclStmt: HeadType LocalDeclList ';' {
 						$$ = new SnLocalDeclStmt($1, $2, @1);
 					} |
-					KT_Const Type LocalDeclList ';' {
+					KT_Const HeadType LocalDeclList ';' {
 						$$ = new SnLocalDeclStmt($2, $3, true, @1);
 					} ;
 
@@ -1236,6 +1255,7 @@ NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 //is only reached in declaration contexts where Expression is not a valid
 //reduction (Type is never an Expression in NLang grammar).
 Type:	NameExpr		{ $$ = $1; } |
+				QualifiedType	{ $$ = $1; } |
 				NameExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr($1, $3, @1); } |
 				//Phase 13: void in the first type-arg slot (Func's return
 				//slot). KT_Void never derives Type, so the void spellings
@@ -1253,6 +1273,66 @@ Type:	NameExpr		{ $$ = $1; } |
 						$$ = new SnGenericTypeExpr($1, $5, @1);
 					} |
 				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } ;
+
+//Qualified type reference for UNAMBIGUOUS type positions (params, fields,
+//catch, foreach, return types, type arguments, new): "ns.Type" /
+//"a.b.Type". It starts from a NameExpr and requires at least one '.', so
+//a lone identifier stays a plain NameExpr and never collides over a
+//single token. These positions do not pass through the statement-head
+//state where a declaration and an expression statement are ambiguous,
+//so the NameExpr-led chain does not create a reduce/reduce there. The
+//segments drive ExprResolver's module lookup. Generic/array suffixes
+//stay on the outer Type rule.
+QualifiedType:	NameExpr '.' TT_Identifier {
+					auto* pFirst = static_cast<SnIdentifierExpr*>($1->Expr());
+					$$ = new SnQualifiedTypeExpr(pFirst->Name(), *$3, @1);
+					delete $1;
+					delete $3;
+				} |
+				QualifiedType '.' TT_Identifier {
+					auto* pQ = static_cast<SnQualifiedTypeExpr*>($1);
+					pQ->AppendSegment(*$3);
+					delete $3;
+					$$ = $1;
+				} ;
+
+//HeadType: a type at a STATEMENT HEAD (a local declaration), where a
+//declaration and an expression statement are otherwise
+//indistinguishable. The dotted chain is parsed with the normal member-
+//access shifts (bison keeps shifting '.'), and is reduced to a type
+//only once the token after the chain proves it is a declaration — that
+//token is the variable-name identifier (`a.b c;`); '=' / ';' / '.' / an
+//operator instead mean an expression statement (`a.b;`, `a.b = ...;`).
+//LALR keeps only the viable reduction per lookahead. Plain/generic/
+//array spellings are included so all local declarations route here.
+HeadType:	IdentifierExpr {
+				$$ = new SnNameExpr($1, @1);
+			} |
+			IdentifierExpr '<' TypeList '>' {
+				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1);
+			} |
+			IdentifierExpr '<' KT_Void '>' {
+				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+			} |
+			IdentifierExpr '<' KT_Void ',' TypeList '>' {
+				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+				$5->insert($5->begin(), pVoid);
+				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
+			} |
+			MemberExpr {
+				std::vector<std::string> segs;
+				CollectQualifiedSegments($1, segs);
+				auto* pQ = new SnQualifiedTypeExpr(segs.at(0), segs.at(1), @1);
+				for (size_t k = 2; k < segs.size(); ++k)
+					pQ->AppendSegment(segs[k]);
+				$$ = pQ;
+				delete $1;
+			} |
+			HeadType OT_Brackets {
+				$$ = new SnArrayTypeExpr($1, @2);
+			} ;
 
 //A single type argument inside `<...>`: a plain type, or an
 //out-marked type (only legal as a Func parameter slot, checked at
@@ -1338,6 +1418,12 @@ IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 					auto* pId = new SnIdentifierExpr($2, @2);
 					$$ = new SnNewExpr(new SnNameExpr(pId, @2), $4, @1);
+				} |
+				//Qualified construction: new shapes.Point(...). After new the
+				//identifier is followed by '.', which distinguishes this from
+				//the plain/generic/init forms at the same LALR state.
+				KT_New QualifiedType '(' ConcreteParamList ')' {
+					$$ = new SnNewExpr($2, $4, @1);
 				} |
 				//Phase 8e-3: generic construction `new List<int>()`.
 				//Separate rule to avoid touching the plain `new Foo()` parse

@@ -120,6 +120,9 @@ public:
 	//Phase 8e-3: `List<T>` introduces no data fields.
 	void Access(SnGenericTypeExpr &) {}
 
+	//Phase 4b: `ns.Type` introduces no data fields.
+	void Access(SnQualifiedTypeExpr &) {}
+
 	//Interface declarations have no data fields — only method signatures,
 	//which are registered elsewhere. Skip.
 	void Access(SnInterfaceDecl &) {}

@@ -108,6 +108,7 @@ public:
     //unhandled-kind throw as the pre-refactor chain tails.
     void Access(SnArrayTypeExpr&);   //round-13: type reference reaching codegen = invariant break
     void Access(SnGenericTypeExpr&); //same
+    void Access(SnQualifiedTypeExpr&); //same (Phase 4b)
     void Access(SnLiteralExpr&);
     void Access(SnIdentifierExpr&);
     void Access(SnInvokeExpr&);
@@ -738,6 +739,17 @@ private:
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
+
+    //Recursively visit every declaration node under a function-parent
+    //(namespace/class/interface) at any depth; enum methods are visited as
+    //functions. fn runs on each node before descending. Replaces the old
+    //fixed two-level (root -> parent -> member) traversal so a type nested
+    //inside a library namespace (root -> ns -> class -> method) is reached.
+    void ForEachDeclNode(SnField& parent,
+        const std::function<void(SnField&)>& fn);
+    //GenerateAllBytecode worker: recursive, maintaining m_pCurrClass as it
+    //descends into a class so method bodies resolve the right receiver.
+    void GenerateBytecodeRecursive(SnField& parent);
 
     //Phase 9c cross-module: Phase A merges imported classes/structs/arrayTypes
     //(and builds per-module stringMap + classMap/structMap/arrayTypeMap) right
