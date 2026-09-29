@@ -1,0 +1,10 @@
+int main() {
+    //compile_error: the label folds to long INT64_MIN, which an int
+    //discriminant cannot hold. Before the range gate the staged key
+    //truncated to its low 32 bits (0) and silently matched x == 0.
+    int x = 0;
+    switch (x) {
+        case -9223372036854775808: return 1;
+        default: return 0;
+    }
+}

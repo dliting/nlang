@@ -1,0 +1,5 @@
+// 0.7.5: constant-fit rejects a double literal outside float range.
+int main() {
+    float f = 1e50;
+    return 0;
+}

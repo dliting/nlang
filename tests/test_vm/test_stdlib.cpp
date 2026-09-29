@@ -117,8 +117,8 @@ void test_stdlib_sqrt_value()
     TEST(stdlib_sqrt_value);
     const int rc = runSource("sqrt_value",
         "int main() {\n"
-        "    float a = math.sqrt(4.0);\n"
-        "    float b = math.sqrt(4);\n"
+        "    double a = math.sqrt(4.0);\n"
+        "    double b = math.sqrt(4);\n"
         "    if (a == 2.0 && b == 2.0) return 0;\n"
         "    return 1;\n"
         "}\n");
@@ -238,6 +238,10 @@ void test_stdlib_table_full_dispatch()
         std::string src;
         if (entry.returnType == SLRT_Void)
             src = "int main() { " + call + "; return 0; }\n";
+        else if (entry.returnType == SLRT_Double)
+            src = "int main() { double r = " + call + "; return 0; }\n";
+        else if (entry.returnType == SLRT_Long)
+            src = "int main() { long r = " + call + "; return 0; }\n";
         else if (entry.returnType == SLRT_Float)
             src = "int main() { float r = " + call + "; return 0; }\n";
         else

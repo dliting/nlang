@@ -54,11 +54,11 @@ void VmBackend::EmitCompoundOp(int opInt,
     default: return;  //not an arithmetic op
     }
     //0.7.5: kind-immediate family — compound assigns carry the LHS
-    //type's kind (enum≡int32 normalized).
+    //type's kind (enum≡int32 normalized). Every numeric kind rides the
+    //same tables as the binary operator, % included (ModInt template
+    //covers the 8/16/64-bit integer rows, ModFloat is fmod).
     NodeKind numKind = BinNumericKindOf(
         lhsType ? lhsType->Kind() : NK_Int32);
-    if (op == SnBinaryExpr::OP_Mod && numKind != NK_Int32)
-        return;  //float % stays resolver-rejected in 0.7.5 (P5 may revisit)
     EmitBinOp(emitter, opc, numKind, dst, src);
 }
 
@@ -147,6 +147,39 @@ void VmBackend::CopyClaimToCallParams(uint16_t claimBase, uint16_t slotCount,
     }
 }
 
+//B_Default arm of EmitBinding: emit the default expression under the
+//earlier-formals override scope, then normalize the staged slot. The
+//default expression carries its own literal kind (an unsuffixed float
+//default is double since the 0.7.5 literal tiering; `float x = 0.5`
+//passed the declaration gate via constant-fit) — the in-place
+//PrimCast re-stages it at the FORMAL's kind so the callee reads the
+//declared width. Caller-expr args never land here — they convert via
+//FixupParamTypesWithBindings at the call site.
+void VmBackend::EmitDefaultBinding(const FormalBinding* pBindings,
+                                     size_t bindingIdx, uint16_t slotIdx,
+                                     size_t slotBase, uint16_t base,
+                                     uint16_t paramOffset,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t thisSlot)
+{
+    const auto& b = pBindings[bindingIdx];
+    assert(b.pFormal && b.pFormal->Value());
+    OverrideScope scope(*this);
+    for (size_t j = 0; j < bindingIdx; ++j) {
+        scope.Add(pBindings[j].pFormal->Name(),
+                  base + (static_cast<uint16_t>(j + slotBase)) * kFrameSlotBytes);
+    }
+    if (thisSlot != UINT16_MAX) {
+        scope.BindThis(thisSlot);
+    }
+    EmitExpression(*b.pFormal->Value(), emitter, paramOffset);
+    auto* pFormalType = b.pFormal->EvalDataType();
+    auto* pDefaultType = b.pFormal->Value()->EvalDataType();
+    if (pFormalType && pDefaultType)
+        EmitScalarSlotCast(pDefaultType->Kind(), pFormalType->Kind(),
+                           paramOffset, emitter);
+}
+
 void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                               uint16_t slotIdx, size_t slotBase,
                               BytecodeEmitter& emitter, uint16_t thisSlot,
@@ -158,18 +191,11 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     //a bulk-copy loop in EmitCallArgs then moves them to callParamBase.
     uint16_t base = claimBase;
     uint16_t paramOffset = base + slotIdx * kFrameSlotBytes;
+    auto* pFormalType = b.pFormal->EvalDataType();
 
     if (b.kind == FormalBinding::B_Default) {
-        assert(b.pFormal && b.pFormal->Value());
-        OverrideScope scope(*this);
-        for (size_t j = 0; j < bindingIdx; ++j) {
-            scope.Add(pBindings[j].pFormal->Name(),
-                      base + (static_cast<uint16_t>(j + slotBase)) * kFrameSlotBytes);
-        }
-        if (thisSlot != UINT16_MAX) {
-            scope.BindThis(thisSlot);
-        }
-        EmitExpression(*b.pFormal->Value(), emitter, paramOffset);
+        EmitDefaultBinding(pBindings, bindingIdx, slotIdx, slotBase, base,
+                           paramOffset, emitter, thisSlot);
     } else {
         assert(b.pCallerExpr);
         EmitExpression(*b.pCallerExpr, emitter, paramOffset);
@@ -181,7 +207,6 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     //RuntimeTypeKind files as RTK_Array — so arrays pass by reference
     //regardless of element kind, with no separate IsArrayType guard
     //(Phase 9d-3 dispatch invariant, now derived from the token).
-    auto* pFormalType = b.pFormal->EvalDataType();
     if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct) {
         int structIdx = m_compiledModule.FindStruct(pFormalType->Name());
         emitter.Emit(OpCode::OP_CopyStruct);

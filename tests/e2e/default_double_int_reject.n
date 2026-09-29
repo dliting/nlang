@@ -1,0 +1,9 @@
+int probe(int x = 2.5) {
+    return x;
+}
+int main() {
+    //compile_error: a double default never converts to an integer
+    //formal implicitly (assignment-side rule: integer targets accept no
+    //floating constants). Write 2 (or 2.5 as double on a double formal).
+    return probe();
+}

@@ -85,19 +85,9 @@ do {																		\
 
 /*0.7.5 value-range tiering: <=INT32_MAX stays int, then long, then
   ulong — the five narrow tokens retired (constant-fit at the cast
-  site replaces lexical tiering into byte/short).*/
-#define DEAL_INT_TOKEN(n)													\
-do {																		\
-    if (n >= INT32_MIN && n <= INT32_MAX)									\
-    {																		\
-        yylval->v_Int = (nlang::int32)n;									\
-        return TT_Int;														\
-    }																		\
-    yylval->v_Long = n;														\
-    return TT_Long;															\
-} while(0)
-
-
+  site replaces lexical tiering into byte/short). Unsigned-only:
+  literal signs are retired ('-'/'+' are unary operators), so the
+  signed DEAL tier is dead and removed with them.*/
 #define DEAL_UINT_TOKEN(n)													\
 do {																		\
     if (n <= INT32_MAX)														\
@@ -125,9 +115,9 @@ Blanks  	[ \t]+
 Alpha		[_A-Za-z]
 DecDigit	[0-9]
 HexDigit    {DecDigit}[a-fA-F]
-DecInt      [-+]?{DecDigit}+([eE][-+]?{DecDigit}+)?
-HexInt      [-+]?(0x|0X){HexDigit}+
-Float       [-+]?{DecDigit}*"."{DecDigit}+([eE][-+]?{DecDigit}+)?
+DecInt      {DecDigit}+
+HexInt      (0x|0X){HexDigit}+
+Float       {DecDigit}*"."{DecDigit}+([eE][-+]?{DecDigit}+)?[fF]?|{DecDigit}+[eE][-+]?{DecDigit}+[fF]?
 Name		{Alpha}({Alpha}|{DecDigit})*
 LineComment	\/\/[^\n]*
 
@@ -152,6 +142,7 @@ LineComment	\/\/[^\n]*
 "continue"  { return KT_Continue; }
 "do"        { return KT_Do; }
 "default"   { return KT_Default; }
+"double"    { return KT_Double; }
 "else"      { return KT_Else; }
 "elseif"    { return KT_Elseif; }
 "enum"      { return KT_Enum; }
@@ -268,68 +259,39 @@ LineComment	\/\/[^\n]*
             }
 
 {Float}     {
-                yylval->v_Float = static_cast<float>(atof(yytext));
-                return TT_Float;
+                /*0.7.5: an f/F suffix selects the float carrier, an
+                 *unsuffixed literal (dot or exponent form) is double.
+                 *The pattern validated the shape, so pEnd lands on
+                 *the suffix or the NUL. */
+                char* pEnd = NULL;
+                double full = strtod(yytext, &pEnd);
+                if (*pEnd == 'f' || *pEnd == 'F')
+                {
+                    yylval->v_Float = static_cast<float>(full);
+                    return TT_Float;
+                }
+                yylval->v_Double = full;
+                return TT_Double;
             }
 
 {DecInt}    {
-                /*Full-value 64-bit parse (0.7.5): plain decimals go
-                 *through strtoll/strtoull so the long/ulong tiers stay
-                 *exact (a double parse loses bits past 2^53); beyond
-                 *INT64_MIN/UINT64_MAX is a lexical error. Exponent
-                 *forms ("2e5") stay in this rule for now but tier
-                 *through the same DEAL macros (double parse, integral
-                 *values only) — they migrate to {Float}/double with
-                 *P5. */
-                const char* pExp = strpbrk(yytext, "eE");
-                if (pExp != NULL)
-                {
-                    double full = atof(yytext);
-                    if (full != std::floor(full))
-                        return TT_Error;
-                    if (yytext[0] == '-')
-                    {
-                        if (full < INT32_MIN) return TT_Error;
-                        DEAL_INT_TOKEN((nlang::int64)full);
-                    }
-                    else
-                    {
-                        if (full > UINT32_MAX) return TT_Error;
-                        DEAL_UINT_TOKEN((nlang::uint64)full);
-                    }
-                }
-                else if (yytext[0] == '-')
-                {
-                    errno = 0;
-                    nlang::int64 n = strtoll(yytext, NULL, 10);
-                    if (errno == ERANGE) return TT_Error;
-                    DEAL_INT_TOKEN(n);
-                }
-                else
-                {
-                    errno = 0;
-                    nlang::uint64 n = strtoull(yytext, NULL, 10);
-                    if (errno == ERANGE) return TT_Error;
-                    DEAL_UINT_TOKEN(n);
-                }
+                /*Full-value 64-bit parse (0.7.5): literals are
+                 *unsigned (signs are unary operators), exponent forms
+                 *live in {Float}; beyond UINT64_MAX is a lexical
+                 *error. */
+                errno = 0;
+                nlang::uint64 n = strtoull(yytext, NULL, 10);
+                if (errno == ERANGE) return TT_Error;
+                DEAL_UINT_TOKEN(n);
             }
 
 {HexInt}    {
-                /*Full-value 64-bit parse (0.7.5), same tiers as DecInt. */
-                if (yytext[0] == '-')
-                {
-                    errno = 0;
-                    nlang::int64 n = strtoll(yytext, NULL, 16);
-                    if (errno == ERANGE) return TT_Error;
-                    DEAL_INT_TOKEN(n);
-                }
-                else
-                {
-                    errno = 0;
-                    nlang::uint64 n = strtoull(yytext, NULL, 16);
-                    if (errno == ERANGE) return TT_Error;
-                    DEAL_UINT_TOKEN(n);
-                }
+                /*Full-value 64-bit parse (0.7.5), unsigned-only like
+                 *DecInt. */
+                errno = 0;
+                nlang::uint64 n = strtoull(yytext, NULL, 16);
+                if (errno == ERANGE) return TT_Error;
+                DEAL_UINT_TOKEN(n);
             }
 
 '[^'\n\r\t\\]'   {

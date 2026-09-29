@@ -575,6 +575,10 @@ private:
                                   const SwitchCompare& compare,
                                   uint16_t condSlot,
                                   BytecodeEmitter& emitter);
+    //0.7.5: in-place PrimCast of a staged scalar slot — shared by the
+    //switch-label normalize and the default-argument fill (EmitBinding).
+    void EmitScalarSlotCast(NodeKind from, NodeKind to, uint16_t slot,
+                            BytecodeEmitter& emitter);
     void EmitSwitchClauseExits(
         const std::vector<size_t>& caseStartOffsets,
         const std::vector<std::vector<size_t>>& exitJumps,
@@ -654,6 +658,13 @@ private:
                      BytecodeEmitter& emitter,
                      uint16_t thisSlot,
                      uint16_t claimBase);
+    //B_Default arm of EmitBinding: the override scope, the default
+    //expression, and the 0.7.5 in-place kind normalize to the formal.
+    void EmitDefaultBinding(const FormalBinding* pBindings,
+                            size_t bindingIdx, uint16_t slotIdx,
+                            size_t slotBase, uint16_t base,
+                            uint16_t paramOffset,
+                            BytecodeEmitter& emitter, uint16_t thisSlot);
 
     //EmitCallArgs decomposition (2026-09-25): one arm/phase per helper.
     //applyBox flows through as std::function so the per-arg boxing

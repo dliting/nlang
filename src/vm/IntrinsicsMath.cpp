@@ -5,12 +5,16 @@ ABI per StdLib.h: arguments are read from callParamBase slot 0 upward —
 no this pointer.
 
 Error model: argument/range errors (clampi lo>hi, randomi min>max) and
-int32-overflow guards (floor/ceil/round out of range or NaN, absi of
+int64-overflow guards (floor/ceil/round out of range or NaN, absi of
 INT_MIN) raise the BASE Exception class — NLang has no dedicated
 argument-exception subclass, and base throws stay catch-compatible if
 one is added later. Domain errors of the transcendental family (sqrt of
 negatives, log of non-positives, asin outside [-1,1]) deliberately
 propagate NaN per C semantics.
+
+0.7.5: the float-typed families run at double precision (StdLib.h says
+RTK_Double) — arguments are read as 8-byte doubles and results written
+back the same way.
 ---*/
 #include "VmExecutor.h"
 #include <cmath>
@@ -21,9 +25,16 @@ namespace nlang
 {
 
 //Q9 PRNG constants: (rng() >> 8) is a 24-bit value; scaling by 2^-24 maps
-//it exactly onto [0,1) with no rounding (24-bit mantissa).
-constexpr unsigned kRngFloatShift = 8;
-constexpr float kRngFloatScale = 1.0f / 16777216.0f;
+//it exactly onto [0,1) with no rounding. Since 0.7.5 the product feeds a
+//double result — the generator granularity stays 24 bits (one draw), the
+//carrier widened only.
+constexpr unsigned kRngUnitShift = 8;
+constexpr double kRngUnitScale = 1.0 / 16777216.0;
+
+//int64 conversion bounds as doubles: -2^63 is exactly representable,
+//2^63 itself is one past int64 max (2^63-1 is not representable).
+constexpr double kInt64MinAsDouble = -9223372036854775808.0;
+constexpr double kInt64EndAsDouble = 9223372036854775808.0;
 
 //Phase 11 error model: argument/range errors raise the BASE Exception.
 //Defined here (first stdlib family TU) but declared in the header so the
@@ -40,9 +51,9 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 	case INTR_Math_Sqrt:
 	{
-		float x;
+		double x;
 		std::memcpy(&x, locals + callParamBase, sizeof(x));
-		float r = std::sqrt(x);
+		double r = std::sqrt(x);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
 	}
@@ -55,9 +66,9 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	case INTR_Math_Exp:
 	case INTR_Math_Log:
 	{
-		float x;
+		double x;
 		std::memcpy(&x, locals + callParamBase, sizeof(x));
-		float r;
+		double r;
 		switch (intrinsicId)
 		{
 		case INTR_Math_Sin:  r = std::sin(x);  break;
@@ -74,19 +85,19 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	}
 	case INTR_Math_Atan2:
 	{
-		float y, x;
+		double y, x;
 		std::memcpy(&y, locals + callParamBase, sizeof(y));
 		std::memcpy(&x, locals + callParamBase + kFrameSlotBytes, sizeof(x));
-		float r = std::atan2(y, x);
+		double r = std::atan2(y, x);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
 	}
 	case INTR_Math_Pow:
 	{
-		float x, e;
+		double x, e;
 		std::memcpy(&x, locals + callParamBase, sizeof(x));
 		std::memcpy(&e, locals + callParamBase + kFrameSlotBytes, sizeof(e));
-		float r = std::pow(x, e);
+		double r = std::pow(x, e);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
 	}
@@ -103,9 +114,9 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	}
 	case INTR_Math_Absf:
 	{
-		float x;
+		double x;
 		std::memcpy(&x, locals + callParamBase, sizeof(x));
-		float r = std::fabs(x);
+		double r = std::fabs(x);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
 	}
@@ -123,10 +134,10 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	case INTR_Math_Minf:
 	case INTR_Math_Maxf:
 	{
-		float a, b;
+		double a, b;
 		std::memcpy(&a, locals + callParamBase, sizeof(a));
 		std::memcpy(&b, locals + callParamBase + kFrameSlotBytes, sizeof(b));
-		float r = (intrinsicId == INTR_Math_Minf)
+		double r = (intrinsicId == INTR_Math_Minf)
 			? ((a < b) ? a : b) : ((a > b) ? a : b);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
@@ -145,13 +156,13 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	}
 	case INTR_Math_Clampf:
 	{
-		float v, lo, hi;
+		double v, lo, hi;
 		std::memcpy(&v, locals + callParamBase, sizeof(v));
 		std::memcpy(&lo, locals + callParamBase + kFrameSlotBytes, sizeof(lo));
 		std::memcpy(&hi, locals + callParamBase + 2 * kFrameSlotBytes, sizeof(hi));
 		if (lo > hi)
 			RaiseNlangExceptionBase("math.clampf: low is greater than high.");
-		float r = (v < lo) ? lo : ((v > hi) ? hi : v);
+		double r = (v < lo) ? lo : ((v > hi) ? hi : v);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
 	}
@@ -159,13 +170,12 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	case INTR_Math_Ceil:
 	case INTR_Math_Round:
 	{
-		float x;
+		double x;
 		std::memcpy(&x, locals + callParamBase, sizeof(x));
-		//double math: the float arg widens exactly, and the range guard
-		//must see the double-rounded value (std::round of 2.1e9f etc.).
-		//C++ float->int conversion outside int32 is UB (x86 silently
-		//yields 0x80000000), so reject loudly before casting. NaN fails
-		//the same comparison and lands in the same error.
+		//0.7.5: long result — C++ double->int64 conversion outside
+		//[-2^63, 2^63) is UB (x86 silently yields 0x80000000...), so
+		//reject loudly before casting. NaN fails the same comparison
+		//and lands in the same error.
 		double d;
 		const char* funcName;
 		switch (intrinsicId)
@@ -174,22 +184,22 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 		case INTR_Math_Ceil:  d = std::ceil(x);  funcName = "ceil";  break;
 		default:              d = std::round(x); funcName = "round"; break; //half away from zero
 		}
-		if (!(d >= -2147483648.0 && d <= 2147483647.0))
+		if (!(d >= kInt64MinAsDouble && d < kInt64EndAsDouble))
 		{
 			char buf[96];
 			std::snprintf(buf, sizeof(buf),
-				"math.%s: value %g is outside the int32 range.",
+				"math.%s: value %g is outside the int64 range.",
 				funcName, x);
 			RaiseNlangExceptionBase(buf);
 		}
-		int32_t r = static_cast<int32_t>(d);
+		int64_t r = static_cast<int64_t>(d);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
 	}
 	case INTR_Math_Random:
 	{
-		float r = static_cast<float>(m_rng() >> kRngFloatShift)
-			* kRngFloatScale;
+		double r = static_cast<double>(m_rng() >> kRngUnitShift)
+			* kRngUnitScale;
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
 	}

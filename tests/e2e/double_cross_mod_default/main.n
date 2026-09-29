@@ -1,0 +1,8 @@
+// 0.7.5 consumer: imported double default parameter round-trips.
+import io;
+import lib;
+
+int main() {
+    io.print(lib.scale(4.0));
+    return 0;
+}

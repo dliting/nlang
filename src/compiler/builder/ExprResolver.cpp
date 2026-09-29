@@ -93,6 +93,7 @@ const char* StdLibKindName(uint8_t rtk)
 	{
 	case RTK_Int32:  return "int";
 	case RTK_Float:  return "float";
+	case RTK_Double: return "double";
 	case RTK_String: return "string";
 	default:         return "<unknown>";
 	}

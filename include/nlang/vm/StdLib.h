@@ -28,6 +28,8 @@ enum StdLibReturnType : uint8_t
 	SLRT_Bool,   //0.7.5: predicates
 	SLRT_String,
 	SLRT_ListString,  //Step 3: s.split / fs.listFiles
+	SLRT_Long,        //0.7.5: math.floor/ceil/round
+	SLRT_Double,      //0.7.5: math at double precision
 };
 
 //ABI note: namespace intrinsics differ from every other intrinsic family
@@ -63,32 +65,34 @@ inline bool IsStdLibNamespaceName(const std::string& name)
 //The table itself (see the file-header note for why it is constexpr here).
 inline constexpr StdLibEntry kStdLibTable[] =
 {
-	//math — 25 functions. Types are exact; the only automatic promotion
-	//is int->float widening (resolver wraps the argument in a cast).
-	{"math", "sqrt",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Sqrt, false},
-	{"math", "sin",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Sin, false},
-	{"math", "cos",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Cos, false},
-	{"math", "tan",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Tan, false},
-	{"math", "asin",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Asin, false},
-	{"math", "acos",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Acos, false},
-	{"math", "atan",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Atan, false},
+	//math — 25 functions, double precision since 0.7.5 (f-suffix float
+	//arguments widen through the cast matrix; the resolver wraps the
+	//argument in a cast). floor/ceil/round return long; the absi/mini/
+	//maxi/clampi/randomi/srand integer families keep int32.
+	{"math", "sqrt",   {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Sqrt, false},
+	{"math", "sin",    {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Sin, false},
+	{"math", "cos",    {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Cos, false},
+	{"math", "tan",    {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Tan, false},
+	{"math", "asin",   {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Asin, false},
+	{"math", "acos",   {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Acos, false},
+	{"math", "atan",   {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Atan, false},
 	//atan2 takes (y, x) in that order — same as C/C++ atan2.
-	{"math", "atan2",  {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Atan2, false},
-	{"math", "pow",    {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Pow, false},
-	{"math", "exp",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Exp, false},
-	{"math", "log",    {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Log, false}, //ln
+	{"math", "atan2",  {RTK_Double, RTK_Double}, 2, 2, SLRT_Double, INTR_Math_Atan2, false},
+	{"math", "pow",    {RTK_Double, RTK_Double}, 2, 2, SLRT_Double, INTR_Math_Pow, false},
+	{"math", "exp",    {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Exp, false},
+	{"math", "log",    {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Log, false}, //ln
 	{"math", "absi",   {RTK_Int32}, 1, 1, SLRT_Int32, INTR_Math_Absi, false},
-	{"math", "absf",   {RTK_Float}, 1, 1, SLRT_Float, INTR_Math_Absf, false},
+	{"math", "absf",   {RTK_Double}, 1, 1, SLRT_Double, INTR_Math_Absf, false},
 	{"math", "mini",   {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Mini, false},
 	{"math", "maxi",   {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Maxi, false},
-	{"math", "minf",   {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Minf, false},
-	{"math", "maxf",   {RTK_Float, RTK_Float}, 2, 2, SLRT_Float, INTR_Math_Maxf, false},
+	{"math", "minf",   {RTK_Double, RTK_Double}, 2, 2, SLRT_Double, INTR_Math_Minf, false},
+	{"math", "maxf",   {RTK_Double, RTK_Double}, 2, 2, SLRT_Double, INTR_Math_Maxf, false},
 	{"math", "clampi", {RTK_Int32, RTK_Int32, RTK_Int32}, 3, 3, SLRT_Int32, INTR_Math_Clampi, false},
-	{"math", "clampf", {RTK_Float, RTK_Float, RTK_Float}, 3, 3, SLRT_Float, INTR_Math_Clampf, false},
-	{"math", "floor",  {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Floor, false},
-	{"math", "ceil",   {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Ceil, false},
-	{"math", "round",  {RTK_Float}, 1, 1, SLRT_Int32, INTR_Math_Round, false},
-	{"math", "random", {}, 0, 0, SLRT_Float, INTR_Math_Random, false},
+	{"math", "clampf", {RTK_Double, RTK_Double, RTK_Double}, 3, 3, SLRT_Double, INTR_Math_Clampf, false},
+	{"math", "floor",  {RTK_Double}, 1, 1, SLRT_Long, INTR_Math_Floor, false},
+	{"math", "ceil",   {RTK_Double}, 1, 1, SLRT_Long, INTR_Math_Ceil, false},
+	{"math", "round",  {RTK_Double}, 1, 1, SLRT_Long, INTR_Math_Round, false},
+	{"math", "random", {}, 0, 0, SLRT_Double, INTR_Math_Random, false},
 	{"math", "srand",  {RTK_Int32}, 1, 1, SLRT_Void, INTR_Math_Srand, false},
 	{"math", "randomi", {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Randomi, false},
 	//io — content IO (console + text files). print is the one coercing

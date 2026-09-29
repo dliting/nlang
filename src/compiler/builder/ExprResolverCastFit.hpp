@@ -14,6 +14,25 @@ namespace nlang
 
 class SnExpression;
 
+//A constant literal (or its negation) flattened to a value — shared by
+//the constant-fit gate below and the switch/enum label consumers
+//(numeric literals are unsigned since the 0.7.5 sign retirement, so
+//every negative constant arrives as OP_Neg over a literal).
+struct ConstLiteralValue
+{
+    NodeKind kind;   // NK_Int32 / NK_Long / NK_ULong / NK_Double / NK_Float
+    int64    i;      // valid for NK_Int32 / NK_Long
+    uint64   u;      // valid for NK_ULong
+    double   d;      // valid for NK_Double / NK_Float
+};
+
+//True when e is a literal or OP_Neg over a literal; fills v with the
+//kind and value. Negated ulong is not a candidate, except the 2^63
+//special case which folds to long INT64_MIN (keeping
+//`-9223372036854775808` legal — the lexer produces it unsigned-only).
+//The NK_Float value rides v.d at float precision (exact widening).
+bool TryGetConstantLiteral(SnExpression* e, ConstLiteralValue& v);
+
 //Verdict of TryConstantFit for one (constant, target-row) pair.
 enum ConstantFitVerdict
 {
@@ -29,13 +48,20 @@ struct ConstantFitOutcome
 };
 
 //Java/C# constant-fit: a constant whose value fits the narrowing target
-//converts implicitly. Only literals and negated literals count (negative
-//ints carry the sign inside the token; negated ulong is not a candidate);
-//folded expressions stay out of scope for v1. char/bool targets are
-//excluded via the numeric-domain gate — spec keeps char↔numeric
-//explicit-only (`char c = 97` is an error; write 'a').
+//converts implicitly. Only literals and negated literals count (signs
+//are unary operators since 0.7.5, so every negative constant is the
+//OP_Neg form; negated ulong is not a candidate); folded expressions
+//stay out of scope for v1. char/bool targets are excluded via the
+//numeric-domain gate — spec keeps char↔numeric explicit-only
+//(`char c = 97` is an error; write 'a').
 ConstantFitOutcome TryConstantFit(SnExpression& srcExpr,
 	const ScalarPrimInfo& tgtRow);
+
+//Range predicate shared by TryConstantFit and the switch-label range
+//gate (enum member labels carry a bare int32 value, not an expression
+//TryConstantFit can walk). Signed rows span [-2^(8w-1), 2^(8w-1)-1],
+//unsigned rows [0, 2^8w-1], w = slotWidth from the registry row.
+bool IntFitsRow(int64 v, const ScalarPrimInfo& p);
 
 //Lossy implicit pairs: int/uint/long/ulong → float; long/ulong →
 //double. 32-bit integers → double are exact (52-bit mantissa covers

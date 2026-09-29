@@ -161,6 +161,7 @@ static SnExpression* BuildStringExpr(
     nlang::int64        					v_Long;
     nlang::uint64      					v_ULong;
     float               					v_Float;
+    double             					v_Double;
     std::string *           				v_pStr;
     nlang::SnUsing *						v_pUsing;
     nlang::PtrList<nlang::SnUsing> *		v_pUsingList;
@@ -222,7 +223,7 @@ static SnExpression* BuildStringExpr(
 	nlang::InitEntry*						v_pInitEntry;
 }
 
-%destructor { } <v_Char> <v_Int> <v_Long> <v_ULong> <v_Float>
+%destructor { } <v_Char> <v_Int> <v_Long> <v_ULong> <v_Float> <v_Double>
 %destructor { } <v_NodeFlags> <v_AccessType>
 %destructor { delete $$; } <*>
 
@@ -230,6 +231,7 @@ static SnExpression* BuildStringExpr(
 %printer { fprintf (yyoutput, "%lld", (long long)$$); } <v_Long>
 %printer { fprintf (yyoutput, "%llu", (unsigned long long)$$); } <v_ULong>
 %printer { fprintf (yyoutput, "%g", $$); } <v_Float>
+%printer { fprintf (yyoutput, "%g", $$); } <v_Double>
 %printer { fprintf (yyoutput, "%u", $$); } <v_AccessType>
 %printer { fprintf (yyoutput, "%llu", (unsigned long long)$$); } <v_NodeFlags>
 %printer { fprintf (yyoutput, "\"%s\"", $$->c_str()); } <v_pStr>
@@ -301,6 +303,7 @@ static SnExpression* BuildStringExpr(
 %token <v_Long>		TT_Long
 %token <v_ULong>	TT_ULong
 %token <v_Float>	TT_Float
+%token <v_Double>	TT_Double
 %token TT_Comment	TT_Error
 
 /*keyword type */
@@ -320,6 +323,7 @@ static SnExpression* BuildStringExpr(
 %token KT_Continue
 %token KT_Do
 %token KT_Default
+%token KT_Double
 %token KT_Else
 %token KT_Elseif
 %token KT_Enum
@@ -1308,6 +1312,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				Expression OT_AND Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1); } |
 				Expression OT_OR Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalOr, $1, $3, @1); } |
 				'-' Expression %prec P_Minus	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1); } |
+				'+' Expression %prec P_Minus	{ $$ = $2; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
 				Expression KT_As NameExpr		{ $$ = new SnAsExpr($1, $3, @2); } ;
 
@@ -1324,6 +1329,7 @@ LiteralExpr:	TT_Int		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	$1,	@1);	} |
 					TT_Long		{ $$ = new SnLiteralExpr(*RnLong::Instance(),	$1,	@1);	} |
 					TT_ULong	{ $$ = new SnLiteralExpr(*RnULong::Instance(),	$1,	@1);	} |
 					TT_Float	{ $$ = new SnLiteralExpr(*RnFloat::Instance(),	$1,	@1);	} |
+					TT_Double	{ $$ = new SnLiteralExpr(*RnDouble::Instance(),	$1,	@1);	} |
 					KT_True		{ $$ = new SnLiteralExpr(*RnBool::Instance(),	1,	@1);	} |
 					KT_False	{ $$ = new SnLiteralExpr(*RnBool::Instance(),	0,	@1);	} |
 					TT_String 	{ $$ = BuildStringExpr($1, @1, parser);	} ;
@@ -1342,6 +1348,7 @@ IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 					KT_Long		{ $$ = new SnIdentifierExpr(NK_Long, @1);	} | 
 					KT_ULong	{ $$ = new SnIdentifierExpr(NK_ULong, @1);	} | 
 					KT_Float		{ $$ = new SnIdentifierExpr(NK_Float, @1);	} |
+					KT_Double	{ $$ = new SnIdentifierExpr(NK_Double, @1);	} |
 					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} |
 					KT_Bool		{ $$ = new SnIdentifierExpr(NK_Bool, @1);	} ;
 

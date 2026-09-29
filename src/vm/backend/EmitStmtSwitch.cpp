@@ -177,10 +177,27 @@ void VmBackend::EmitSwitchLabelCompares(SnCaseClause& clause,
     }
 }
 
+//0.7.5: in-place OP_PrimCast of a staged scalar slot from one primitive
+//kind to another. Shared by the switch-label normalize (labels stage
+//into the cond slot) and the default-argument fill (EmitBinding: a
+//double-typed literal default staged into a float formal would leave
+//the double's low bytes in the slot). No-op for equal kinds and for
+//any non-scalar kind — callers pass their own domain guards.
+void VmBackend::EmitScalarSlotCast(NodeKind from, NodeKind to,
+        uint16_t slot, BytecodeEmitter& emitter) {
+    if (from == to || ScalarPrimIndexOf(from) < 0
+        || ScalarPrimIndexOf(to) < 0)
+        return;
+    EmitPResultRefresh(emitter, slot);
+    EmitPrimCast(emitter, from, to);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(slot);
+}
+
 //0.7.5: normalize the staged label to the compare kind. The Int family
 //admits cross-width labels (an int literal on a long switch, a long
 //literal on an int switch) and the compare's two operands must read the
-//same slot width — OP_PrimCast in place re-widens/truncates the staged
+//same slot width — the in-place PrimCast re-widens/truncates the staged
 //label. The wrap lives HERE, not in the resolver: the label list is
 //SnCaseClause's separate m_upLabels vector, which a FixupExprType child
 //replacement would desync. (Enum labels compare as their int32 value.)
@@ -192,14 +209,7 @@ void VmBackend::EmitSwitchLabelNormalize(SnExpression& label,
         return;
     NodeKind lk = pLabelType->Kind();
     if (lk == NK_EnumDecl) lk = NK_Int32;
-    if (lk != compare.kind && ScalarPrimIndexOf(lk) >= 0
-        && ScalarPrimIndexOf(compare.kind) >= 0)
-    {
-        EmitPResultRefresh(emitter, condSlot);
-        EmitPrimCast(emitter, lk, compare.kind);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(condSlot);
-    }
+    EmitScalarSlotCast(lk, compare.kind, condSlot, emitter);
 }
 
 //One label's compare: switch_value == case_constant, then the miss-jump

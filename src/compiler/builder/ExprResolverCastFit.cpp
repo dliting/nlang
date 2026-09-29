@@ -10,39 +10,27 @@
 #include <nlang/runtime/RnTypes.h>
 #include <nlang/runtime/Variant.h>
 #include <cmath>
-#include <cstdio>
 
 namespace nlang
 {
 
-//Constant-fit special case (Java/C#, spec §2.2): a CONSTANT whose
-//value fits the narrowing target converts implicitly. Only literals
-//and negated literals count (negative ints carry the sign inside the
-//token — DecInt keeps its sign prefix; the OP_Neg form mainly serves
-//negative double literals once Task 7 retires the lexer sign, and
-//rejects negated ulong); folded expressions stay out of scope for v1.
-struct ConstLiteralValue
-{
-	NodeKind kind;   // NK_Int32 / NK_Long / NK_ULong / NK_Double / NK_Float
-	int64    i;      // valid for NK_Int32 / NK_Long
-	uint64   u;      // valid for NK_ULong
-	double   d;      // valid for NK_Double / NK_Float
-};
-
-static bool TryGetConstantLiteral(SnExpression* e, ConstLiteralValue& v)
+//True when e is a literal or OP_Neg over a literal (declared in the
+//header — the switch/enum label consumers share it). Kind-exact member
+//reads: an int32 literal writes only the 4-byte m_Int member;
+//Get<int64> would read the 8-byte m_Long member and pick up garbage in
+//the upper bytes.
+bool TryGetConstantLiteral(SnExpression* e, ConstLiteralValue& v)
 {
 	if (e->Kind() == NK_LiteralExpr)
 	{
 		Variant& val = static_cast<SnLiteralExpr*>(e)->Value();
 		v.kind = val.Type()->Kind();
-		//Kind-exact member read: an int32 literal writes only the
-		//4-byte m_Int member; Get<int64> would read the 8-byte m_Long
-		//member and pick up garbage in the upper bytes.
 		if (v.kind == NK_ULong)                 v.u = val.Get<uint64>();
 		else if (v.kind == NK_Double)           v.d = val.Get<double>();
 		else if (v.kind == NK_Long)             v.i = val.Get<int64>();
 		else if (v.kind == NK_Int32)            v.i = val.Get<int32>();
-		return true;    // NK_Float: kind set, value unread (domain gates reject)
+		else if (v.kind == NK_Float)            v.d = val.Get<float>();
+		return true;
 	}
 	if (e->Kind() == NK_BinaryExpr)
 	{
@@ -51,9 +39,23 @@ static bool TryGetConstantLiteral(SnExpression* e, ConstLiteralValue& v)
 			pBin->Left()->Kind() == NK_LiteralExpr)
 		{
 			TryGetConstantLiteral(pBin->Left(), v);
-			if (v.kind == NK_ULong) return false;  // negated ulong: not a candidate
+			if (v.kind == NK_ULong)
+			{
+				//2^63 is the one negated ulong a legal program can write:
+				//`-9223372036854775808` lexes as the unsigned literal
+				//(signs are unary operators) then negates. Fold it to long
+				//INT64_MIN; anything else is out of range for every
+				//signed target.
+				if (v.u == (uint64(1) << 63))
+				{
+					v.kind = NK_Long;
+					v.i = INT64_MIN;
+					return true;
+				}
+				return false;	// other negated ulong: not a candidate
+			}
 			if (v.kind == NK_Int32 || v.kind == NK_Long) v.i = -v.i;
-			else if (v.kind == NK_Double)               v.d = -v.d;
+			else if (v.kind == NK_Double || v.kind == NK_Float) v.d = -v.d;
 			return true;
 		}
 	}
@@ -73,10 +75,8 @@ static bool ConstantFitDomain(NodeKind srcKind, const ScalarPrimInfo& tgt)
 	return srcKind == NK_Double && tgt.kind == NK_Float;
 }
 
-//Registry-driven range check: signed targets span [-2^(8w-1), 2^(8w-1)-1],
-//unsigned targets [0, 2^(8w)-1], w = slotWidth from the registry row.
 //bits==64 short-circuits the shifts (1<<63 on int64 is not portable).
-static bool IntFitsRow(int64 v, const ScalarPrimInfo& p)
+bool IntFitsRow(int64 v, const ScalarPrimInfo& p)
 {
 	int bits = p.slotWidth * 8;
 	if (p.category == PC_UInt)

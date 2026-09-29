@@ -1,6 +1,7 @@
 int main() {
-    //2e-1 = 0.2 is not an integer — rejected as an int literal. The
-    //Float rule requires a decimal point: write "2.0e-1" for 0.2.
+    //0.7.5: 2e-1 = 0.2 is a double literal — an int target never
+    //accepts a floating constant implicitly. Write `2e-1 as int` (or a
+    //double target) for the value.
     int x = 2e-1;
     return x;
 }

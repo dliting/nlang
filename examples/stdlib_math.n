@@ -4,7 +4,7 @@
 import io;
 import math;
 int main() {
-    io.print(math.sqrt(2.0));             // 1.41421
+    io.print(math.sqrt(2.0));             // 1.4142135623730951 — full double precision since 0.7.5
     io.print(math.pow(2.0, 10.0));        // 1024
     io.print(math.log(math.exp(1.0)));    // 1 — log is the natural log
     io.print(math.floor(-1.5));           // -2
@@ -12,9 +12,9 @@ int main() {
     io.print(math.maxi(3, 7));            // 7
     io.print(math.clampf(5.0, 0.0, 1.0)); // 1
     math.srand(42);
-    float first = math.random();
+    double first = math.random();
     math.srand(42);
-    float second = math.random();
+    double second = math.random();
     if (first != second) return 1;        // srand reseeds deterministically
     io.print(math.randomi(1, 6));         // dice roll, inclusive bounds
     return 0;

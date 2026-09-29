@@ -365,6 +365,88 @@ bool ExprResolveAccessor::TryResolveStreamBuiltinMethod(
 	return true;
 }
 
+//Per-name value-argument expectation of the stream writers: returns
+//the accepted-argument phrase for the diagnostic, or nullptr when the
+//argument's kind is legal. Null is Int32-typed on the wire (KT_Null);
+//only writeObject takes it (a null object reference serializes as the
+//null marker).
+static const char* StreamArgExpectation(const std::string &name,
+	SnExpression &arg, bool nullLit)
+{
+	auto* pArgType = arg.EvalDataType();
+	NodeKind ak = pArgType ? pArgType->Kind()
+		: static_cast<NodeKind>(-1);
+	if (name == "writeInt")
+	{
+		//Any integer category up to 32 bits: narrow rows ride the
+		//value-extension convention, so the low 4 bytes are exact;
+		//long/ulong would silently lose their high bits.
+		int pi = ScalarPrimIndexOf(ak);
+		bool ok = !nullLit && pi >= 0
+			&& (kScalarPrims[pi].category == PC_SInt
+				|| kScalarPrims[pi].category == PC_UInt)
+			&& kScalarPrims[pi].slotWidth <= 4;
+		return ok ? nullptr : "an integer of at most 32 bits";
+	}
+	if (name == "writeFloat")
+		return (!nullLit && ak == NK_Float) ? nullptr : "a float";
+	if (name == "writeString")
+		return (!nullLit && ak == NK_String) ? nullptr : "a string";
+	if (name == "writeStruct")
+		return (!nullLit && ak == NK_StructDecl) ? nullptr : "a struct";
+	if (name == "writeObject")
+	{
+		//Interface slots hold class references — serializing writes the
+		//actual object (polymorphism is resolved at runtime).
+		bool ok = nullLit || ak == NK_ClassDecl || ak == NK_InterfaceDecl;
+		return ok ? nullptr : "a class";
+	}
+	return nullptr;
+}
+
+//0.7.5: stream methods declare no NLang formals — the value argument
+//travels via callParamBase and the intrinsic reads the slot raw — so
+//nothing else gates what lands in that slot. A double literal into
+//writeFloat's float slot wrote the double's low bytes silently (the
+//literal tiering made `1.0` double-typed and surfaced the gap; the
+//same hole accepted writeInt(1.5f) and wrong arities). Gate arity and
+//value kind by name; readStruct/readObject's string-literal argument
+//is gated upstream in ResolveStreamSpecialTypeArg.
+void ExprResolveAccessor::CheckStreamMethodSignature(
+	SnInvokeExpr &invoke, const std::string &name)
+{
+	if (name == "readStruct" || name == "readObject")
+		return;  //string-literal argument gated upstream
+	const size_t argCount = ArgCountOf(invoke);
+	//Zero-argument methods: the readers and the stream-control pair.
+	if (name == "readInt" || name == "readFloat" || name == "readString"
+		|| name == "length" || name == "position"
+		|| name == "reset" || name == "close")
+	{
+		if (argCount != 0)
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"stream method \"%s\" takes no arguments.",
+				name.c_str());
+		return;
+	}
+	if (argCount != 1)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"stream method \"%s\" expects one argument.",
+			name.c_str());
+		return;
+	}
+	auto& arg = *invoke.Params().begin();
+	if (!arg.IsResolved())
+		return;   //its own resolution already reported
+	const char* want = StreamArgExpectation(name, arg,
+		arg.ContainFlags(NF_NullLiteral));
+	if (want)
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"stream method \"%s\" expects %s argument.",
+			name.c_str(), want);
+}
+
 //Stream method resolve tail: shared by-name rejection, caller-scope arg
 //resolution, and the per-name return kind (void-returning writers leave
 //EvalDataType unset; readStruct/readObject already set theirs above).
@@ -392,6 +474,7 @@ void ExprResolveAccessor::ResolveStreamMethodTail(SnMemberExpr &snMember,
 	m_pContext = pSavedContext;
 	RemoveFlags(ERF_SearchInParentOnly);
 	ResolveExpressionList(invoke.Params());
+	CheckStreamMethodSignature(invoke, name);
 	pInnerExpr->AddFlags(NF_Resolved);
 	//For void-returning methods, leave EvalDataType unset.
 	if (name != "writeInt" && name != "writeFloat"

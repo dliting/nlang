@@ -199,9 +199,10 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
 }
 
 //Arithmetic arm bodies: Add string-folds to OP_Concat_str, the rest go
-//through the kind-immediate EmitBinOp (registry-driven dispatch).
-//OP_Mod keeps resolver-level int-only semantics — float % is rejected
-//upstream in 0.7.5 (P5 may revisit fmod).
+//through the kind-immediate EmitBinOp (registry-driven dispatch). %
+//rides the same table family as every other op — integer rows use %,
+//float/double rows are fmod (never resolver-rejected; see the Task 7
+//2026-09-30 plan note: ≤0.7.4 silently mis-dispatched float %).
 void VmBackend::EmitBinaryArithmeticOp(SnBinaryExpr& bin, NodeKind numKind,
                                        bool isString, BytecodeEmitter& emitter,
                                        uint16_t resultOffset,

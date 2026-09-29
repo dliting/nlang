@@ -2,8 +2,8 @@
 native float natFAdd(float a, float b);
 
 int main() {
-    float f = natFAdd(1.5, 2.25);
-    if (f == 3.75)
+    float f = natFAdd(1.5f, 2.25f);
+    if (f == 3.75f)
         return 7;
     return 3;
 }

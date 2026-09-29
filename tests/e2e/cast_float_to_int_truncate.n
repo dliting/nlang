@@ -9,8 +9,8 @@ int main() {
     //
     //Returns 7 only if both negative and positive cases truncate toward
     //zero. Any other behavior (floor, round-half-to-even, etc.) returns 1.
-    float neg = -3.7;
-    float pos = 3.7;
+    float neg = -3.7f;
+    float pos = 3.7f;
     int ni = neg as int;
     int pi = pos as int;
     if (ni == -3 && pi == 3) {

@@ -3,6 +3,7 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include "ExprResolverCastFit.hpp"
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <vector>
 
@@ -85,6 +86,10 @@ bool StatementResolveAccessor::ExtractLiteralLabel(SnLiteralExpr& lit,
 		key.family = SwitchFamily::Float;
 		key.floatValue = lit.Value().Get<float>();
 		return true;
+	case NK_Double:
+		key.family = SwitchFamily::Float;
+		key.floatValue = lit.Value().Get<double>();
+		return true;
 	case NK_String:
 	{
 		key.family = SwitchFamily::String;
@@ -104,9 +109,32 @@ bool StatementResolveAccessor::ExtractSwitchLabelKey(SnExpression& label,
 		return false;
 	if (label.Kind() == NK_MemberExpr || label.Kind() == NK_IdentifierExpr)
 		return ExtractEnumMemberLabel(label, key);
-	if (label.Kind() != NK_LiteralExpr)
-		return false;
-	return ExtractLiteralLabel(static_cast<SnLiteralExpr&>(label), key);
+	if (label.Kind() == NK_LiteralExpr)
+		return ExtractLiteralLabel(static_cast<SnLiteralExpr&>(label), key);
+	//0.7.5 sign retirement: negative numeric labels parse as OP_Neg
+	//over a literal (`case -1:`). The shared constant fold handles the
+	//negation (and the 2^63 INT64_MIN shape), so route through it;
+	//negated ulong stays non-extractable like before.
+	if (label.Kind() == NK_BinaryExpr)
+	{
+		ConstLiteralValue v;
+		if (TryGetConstantLiteral(&label, v))
+		{
+			if (v.kind == NK_Int32 || v.kind == NK_Long)
+			{
+				key.family = SwitchFamily::Int;
+				key.intValue = v.i;
+				return true;
+			}
+			if (v.kind == NK_Double || v.kind == NK_Float)
+			{
+				key.family = SwitchFamily::Float;
+				key.floatValue = v.d;
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 //Report one error per redundant occurrence of a foldable value.
@@ -153,6 +181,53 @@ void StatementResolveAccessor::CheckDuplicateCaseLabels(SnSwitchStmt& sn)
 				reprs.push_back(key.stringValue);
 		}
 	}
+}
+
+//0.7.5: foldable labels must be representable in the discriminant's own
+//type. The emission-side normalize (EmitSwitchLabelNormalize) PrimCasts
+//the staged label to the compare width, so an out-of-range label
+//silently truncates — `case -9223372036854775808` on an int switch
+//compared as 0 and matched x == 0 (probed); a double label beyond float
+//precision on a float switch truncates the same way. Same rule as the
+//assignment-side constant-fit gate, so `switch (f) case 0.1:` rejects
+//exactly where `float f = 0.1;` does.
+void StatementResolveAccessor::CheckSwitchLabelFitsDiscriminant(
+	SnExpression& label, NodeKind condKind)
+{
+	//Enum discriminants compare as their int32 value (SwitchCompareOf).
+	if (condKind == NK_EnumDecl)
+		condKind = NK_Int32;
+	int ri = ScalarPrimIndexOf(condKind);
+	if (ri < 0)
+		return;                     //string discriminant: no range domain
+	const ScalarPrimInfo& row = kScalarPrims[ri];
+
+	//Enum member labels carry a bare int32 value — the member's own
+	//value may still exceed a narrower discriminant (E.A = 300 on a byte
+	//switch can never match). Other member/identifier labels are not
+	//enum members and have nothing constant to gate.
+	if (label.Kind() == NK_MemberExpr || label.Kind() == NK_IdentifierExpr)
+	{
+		SwitchLabelKey key;
+		if (ExtractEnumMemberLabel(label, key)
+			&& !IntFitsRow(key.intValue, row))
+			m_Env.Log(CLL_Error, label.Location(),
+				"case label %lld is out of range for the switch "
+				"discriminant '%s'",
+				(long long)key.intValue, row.name);
+		return;
+	}
+
+	//Literal / negated literal: TryConstantFit applies the same domain
+	//and range predicates as the assignment-side gate and renders the
+	//constant text. Non-constant labels (calls, variables) come back
+	//CF_NotApplicable — runtime first-match-wins, nothing to gate.
+	auto fit = TryConstantFit(label, row);
+	if (fit.verdict == CF_OutOfRange)
+		m_Env.Log(CLL_Error, label.Location(),
+			"case label %s is out of range for the switch "
+			"discriminant '%s'",
+			fit.constantText, row.name);
 }
 
 void StatementResolveAccessor::Access(SnSwitchStmt &sn)
@@ -214,6 +289,9 @@ void StatementResolveAccessor::Access(SnCaseClause &sn)
 			&& SwitchFamilyOfKind(pLabelType->Kind()) != condFamily)
 			m_Env.Log(CLL_Error, pLabel->Location(),
 				"case label type must match the switch discriminant family");
+		else if (condFamily != SwitchFamily::None)
+			CheckSwitchLabelFitsDiscriminant(*pLabel,
+				pCondType->Kind());
 	}
 	sn.Body()->Accept(*m_pVisitor);
 }

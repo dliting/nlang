@@ -3,6 +3,7 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include "ExprResolverCastFit.hpp"
 #include <nlang/vm/StdLib.h>
 #include <vector>
 
@@ -181,24 +182,59 @@ void StatementResolveAccessor::CheckDefaultForwardRefs(
 	}
 }
 
+//0.7.5: an explicit-only default must clear the same constant-fit bar
+//as an assignment — `float x = 3.14` is an error exactly where
+//`float f = 3.14;` is (the double literal is not float-representable),
+//while `float x = 0.5` passes and the fill-side EmitScalarSlotCast
+//(VmBackend::EmitBinding) normalizes the staged slot to the formal's
+//kind. Without the gate the double default's low bytes reached the
+//callee as the float's bits.
+void StatementResolveAccessor::CheckDefaultConstantFit(
+	SnFormalParam *param, SnField *pFormalType)
+{
+	int ri = ScalarPrimIndexOf(pFormalType->Kind());
+	ConstantFitOutcome fit;
+	if (ri >= 0)
+		fit = TryConstantFit(*param->Value(), kScalarPrims[ri]);
+	if (fit.verdict == CF_Fits)
+		return;
+	if (fit.verdict == CF_OutOfRange)
+		m_Env.Log(CLL_Error,
+			param->Value()->Location(),
+			"default value for parameter \"%s\": "
+			"constant %s out of range for '%s'",
+			param->Name().c_str(), fit.constantText,
+			kScalarPrims[ri].name);
+	else
+		m_Env.Log(CLL_Error,
+			param->Value()->Location(),
+			"default value for parameter \"%s\" "
+			"requires an explicit conversion to \"%s\".",
+			param->Name().c_str(),
+			pFormalType->ToString().c_str());
+}
+
 //Reporting an incompatible default at declaration gives clearer errors
 //than at every call site that uses the default.
 void StatementResolveAccessor::CheckDefaultTypeCompat(SnFormalParam *param)
 {
 	auto *pDefaultType = param->Value()->EvalDataType();
 	auto *pFormalType = param->EvalDataType();
-	if (pDefaultType && pFormalType) {
-		auto ci = GetCastInfo(pDefaultType, pFormalType);
-		if (ci.Kind() == TCK_None) {
-			m_Env.Log(CLL_Error,
-				param->Value()->Location(),
-				"default value for parameter \"%s\" has "
-				"incompatible type \"%s\"; expected \"%s\".",
-				param->Name().c_str(),
-				pDefaultType->ToString().c_str(),
-				pFormalType->ToString().c_str());
-		}
+	if (!pDefaultType || !pFormalType)
+		return;
+	auto ci = GetCastInfo(pDefaultType, pFormalType);
+	if (ci.Kind() == TCK_None) {
+		m_Env.Log(CLL_Error,
+			param->Value()->Location(),
+			"default value for parameter \"%s\" has "
+			"incompatible type \"%s\"; expected \"%s\".",
+			param->Name().c_str(),
+			pDefaultType->ToString().c_str(),
+			pFormalType->ToString().c_str());
+		return;
 	}
+	if (ci.Kind() == TCK_Explicit)
+		CheckDefaultConstantFit(param, pFormalType);
 }
 
 //Walk up to the enclosing statement paragraph — the insertion point for
@@ -383,6 +419,47 @@ void StatementResolveAccessor::Access(SnEnumDecl &sn)
 	}
 }
 
+//Explicit-value arm of AssignEnumMemberValues: resolve the value
+//expression in the enum decl's own scope (the generic expression
+//visitor asserts a current type context, and both callers run outside
+//any function; since the 0.7.5 sign retirement `A = -1` is an OP_Neg
+//tree that needs a real resolve — same shape as formal defaults), fold
+//it via the shared constant extractor, and apply the non-negative
+//invariant. Returns true when the member carried a value expression
+//(assigned or rejected) — false leaves the caller nothing to do.
+bool StatementResolveAccessor::TryAssignExplicitEnumValue(
+	SnEnumMember &member, SnEnumDecl &sn, int32_t &nextValue)
+{
+	if (!member.ValueExpr()->IsResolved())
+		m_ExprResolver.Resolve(*member.ValueExpr(), sn, sn, ERF_None);
+	auto* pValueType = member.ValueExpr()->IsResolved()
+		? member.ValueExpr()->EvalDataType() : nullptr;
+	if (!pValueType || pValueType->Kind() != NK_Int32)
+		return true;  //diagnosed by its own resolve; not implicitly bumped
+	//0.7.5 sign retirement: `A = -1` parses as OP_Neg over an int
+	//literal. The shared constant fold covers both the plain and the
+	//negated shape (negated ulong folds to long, so the NK_Int32 gate
+	//still rejects it).
+	ConstLiteralValue v;
+	if (!TryGetConstantLiteral(member.ValueExpr(), v) || v.kind != NK_Int32)
+		return true;  //non-constant value: not implicitly bumped
+	//The runtime enum name table is indexed by the member value
+	//(RegisterEnums), so a negative value has no slot — reject at
+	//declaration instead of letting the backend's table fill run away.
+	if (v.i < 0)
+	{
+		m_Env.Log(CLL_Error, member.Location(),
+			"enum member \"%s\" has negative value %lld; enum member "
+			"values must be non-negative.",
+			member.Name().c_str(), (long long)v.i);
+		return true;
+	}
+	nextValue = static_cast<int32_t>(v.i);
+	member.SetValue(nextValue);
+	nextValue++;
+	return true;
+}
+
 //Assign sequential/explicit values to members and flag the decl
 //resolved. Shared by the document-order Access and the pre-pass
 //(PreAssignEnumMemberValues), which must NOT resolve method bodies —
@@ -394,21 +471,7 @@ void StatementResolveAccessor::AssignEnumMemberValues(SnEnumDecl &sn)
 	for (auto &member : sn.Members())
 	{
 		if (member.ValueExpr())
-		{
-			member.ValueExpr()->Accept(*m_pVisitor);
-			if (member.ValueExpr()->IsResolved()
-				&& member.ValueExpr()->EvalDataType()
-				&& member.ValueExpr()->EvalDataType()->Kind() == NK_Int32)
-			{
-				auto *pLit = dynamic_cast<SnLiteralExpr*>(member.ValueExpr());
-				if (pLit)
-				{
-					nextValue = pLit->Value().Get<int32_t>();
-					member.SetValue(nextValue);
-					nextValue++;
-				}
-			}
-		}
+			TryAssignExplicitEnumValue(member, sn, nextValue);
 		else
 		{
 			member.SetValue(nextValue);

@@ -139,6 +139,7 @@ enum_mixed 22
 enum_default 3
 enum_param 1
 enum_to_int 2
+enum_neg_reject compile_error non-negative
 
 # --- string ---
 string_length 5
@@ -265,6 +266,10 @@ debug_class_method_throws 1
 # --- ByteStream ---
 byte_stream_rw_int 6
 byte_stream_rw_float 4
+# --- 0.7.5: stream methods gate argument kind and arity by name ---
+byte_stream_arg_float_reject compile_error expects a float argument
+byte_stream_arg_int_reject compile_error an integer of at most 32 bits
+byte_stream_arity_reject compile_error takes no arguments
 byte_stream_rw_string 1
 byte_stream_length_position 1
 byte_stream_eos 1
@@ -633,6 +638,11 @@ cross_mod_default_override 28
 # Option B Step 5: cross-module non-foldable defaults are rejected
 cross_mod_default_call_error compile_error
 cross_mod_default_ident_error compile_error
+# --- 0.7.5: defaults clear the assignment-side constant-fit bar;
+# the fill emits an in-place PrimCast to the formal's kind ---
+default_fit_cast 115
+default_nofit_float_reject compile_error out of range for 'float'
+default_double_int_reject compile_error requires an explicit conversion
 
 # --- Phase 9d: Exception handling ---
 exception_basic_throw_catch 7
@@ -899,6 +909,12 @@ switch_dup_not_rejected_calls 0
 switch_fwd_enum_ok 0
 switch_dup_not_rejected_enum 0
 switch_float_nan 0
+# --- 0.7.5: switch labels must fit the discriminant's value range ---
+switch_label_long_range_reject compile_error out of range
+switch_label_ulong_signed_reject compile_error out of range
+switch_label_narrow_reject compile_error out of range
+switch_label_enum_narrow_reject compile_error out of range
+switch_label_double_float_reject compile_error out of range
 int_sci_literal 0
 int_sci_overflow compile_error
 int_sci_fractional compile_error
@@ -1197,3 +1213,11 @@ delegate_arg_upcast 2
 delegate_arg_array_exact 9
 delegate_arg_array_reject compile_error incompatible
 delegate_arg_widen_reject compile_error incompatible
+double_basics 0 1.5
+double_precision 0 0.30000000000000004
+double_math 0 1.4142135623730951
+double_mod 21
+double_neg_literal 0 -1.5
+double_cross_mod_default 0 10
+double_cross_mod_default_float 33
+double_float_fit_reject compile_error out of range

@@ -32,7 +32,10 @@ private slots:
         QCOMPARE(SyntaxHighlighter::typeOf(TT_Int), SyntaxHighlighter::HTT_Number);
         QCOMPARE(SyntaxHighlighter::typeOf(TT_Long), SyntaxHighlighter::HTT_Number);
         QCOMPARE(SyntaxHighlighter::typeOf(TT_Float), SyntaxHighlighter::HTT_Number);
+        //TT_Double (0.7.5) closes the literal range after TT_Float.
+        QCOMPARE(SyntaxHighlighter::typeOf(TT_Double), SyntaxHighlighter::HTT_Number);
         QCOMPARE(SyntaxHighlighter::typeOf(KT_Bool), SyntaxHighlighter::HTT_Keyword);
+        QCOMPARE(SyntaxHighlighter::typeOf(KT_Double), SyntaxHighlighter::HTT_Keyword);
         QCOMPARE(SyntaxHighlighter::typeOf(KT_While), SyntaxHighlighter::HTT_Keyword);
         QCOMPARE(SyntaxHighlighter::typeOf(TT_Char), SyntaxHighlighter::HTT_Char);
         QCOMPARE(SyntaxHighlighter::typeOf(TT_String), SyntaxHighlighter::HTT_String);
@@ -63,6 +66,18 @@ private slots:
         doc.setPlainText("x = 42;");
         highlighter.rehighlight();
         QCOMPARE(colorAt(doc.firstBlock(), 4), QColor(Qt::darkCyan));
+    }
+
+    void testDoubleLiteralAndKeywordHighlighted() {
+        //0.7.5: unsuffixed float literals lex as TT_Double and the
+        //`double` type keyword is KT_Double — both must color correctly.
+        QTextDocument doc;
+        SyntaxHighlighter highlighter(&doc);
+        doc.setPlainText("double d = 2.5;");
+        highlighter.rehighlight();
+        QTextBlock block = doc.firstBlock();
+        QCOMPARE(colorAt(block, 0), QColor(Qt::blue));       // "double"
+        QCOMPARE(colorAt(block, 11), QColor(Qt::darkCyan));  // "2.5"
     }
 
     void testStringHighlighted() {

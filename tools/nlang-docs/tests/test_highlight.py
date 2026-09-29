@@ -21,10 +21,11 @@ def _tokens(code):
 
 
 def test_keywords_and_types_color_distinctly():
-    toks = dict(_tokens("import class int foreach List"))
+    toks = dict(_tokens("import class int double foreach List"))
     assert toks["import"] is Keyword
     assert toks["class"] is Keyword
     assert toks["int"] is Keyword.Type
+    assert toks["double"] is Keyword.Type  # 0.7.5
     assert toks["foreach"] is Keyword
     assert toks["List"] is Keyword.Type
 

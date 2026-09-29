@@ -43,6 +43,8 @@ public:
 	static bool ExtractSwitchLabelKey(SnExpression& label,
 		SwitchLabelKey& key);
 	void CheckDuplicateCaseLabels(SnSwitchStmt& sn);
+	void CheckSwitchLabelFitsDiscriminant(SnExpression& label,
+		NodeKind condKind);
 	void Visitor(ISyntaxNodeVisitor *pVisitor);
 
 private:
@@ -58,6 +60,14 @@ private:
 	void CheckDefaultForwardRefs(std::vector<SnFormalParam*> &formals,
 		size_t i);
 	void CheckDefaultTypeCompat(SnFormalParam *param);
+	//0.7.5 constant-fit arm of the check above: an explicit-only
+	//default must be an in-range constant (assignment-side rule).
+	void CheckDefaultConstantFit(SnFormalParam *param,
+		SnField *pFormalType);
+	//Explicit-value arm of AssignEnumMemberValues: resolve + fold the
+	//member's value expression and apply the non-negative invariant.
+	bool TryAssignExplicitEnumValue(SnEnumMember &member, SnEnumDecl &sn,
+		int32_t &nextValue);
 	void RejectIllegalEnumMethod(SnFunction &method);
 	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
 	SnAssignStmt *BuildLocalInitAssign(SnLocalDeclStmt &sn,

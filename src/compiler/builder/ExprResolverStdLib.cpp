@@ -73,11 +73,37 @@ static void RejectCoercedStringArg(BuildEnvironment &env,
 	}
 }
 
-//Per-param type policy of TryResolveStdLibCall: exact RTK kind match,
-//or int->float widening (wrapped in a cast expr in place — the
-//FixupParamTypesWithBindings recipe over invoke.Children()). Everything
-//else is a compile error naming the function, so the user sees which
-//call is wrong.
+//One stdlib argument vs its declared kind (0.7.5 scalar-matrix policy):
+//TCK_Same admits as-is, a widening TCK_Auto admits wrapped in a cast
+//expr in place (the FixupParamTypesWithBindings recipe); narrowing
+//stays explicit-only. String params keep the exact-kind policy (the
+//scalar registry does not know NK_String).
+bool ExprResolveAccessor::ScalarArgAdmitted(NodeIterator &it,
+	SnField* pArgType, uint8_t want)
+{
+	const int wantIdx = ScalarPrimIndexOfRtk(want);
+	const int argIdx = ScalarPrimIndexOf(pArgType->Kind());
+	if (wantIdx >= 0 && argIdx >= 0)
+	{
+		auto* pWantType =
+			SnBuiltinDataType::InstanceOf(kScalarPrims[wantIdx].kind);
+		TypeCastInfo castInfo(pArgType, pWantType);
+		const TypeCastKind verdict = castInfo.Kind();
+		if (verdict == TCK_Same)
+			return true;
+		if (verdict == TCK_Auto)
+		{
+			FixupExprType(it, castInfo);  //wrap result ignored, as before
+			return true;
+		}
+		return false;
+	}
+	return pArgType->Kind() == NK_String && want == RTK_String;
+}
+
+//Per-param type policy of TryResolveStdLibCall: the per-argument
+//admission above plus the error naming the function, so the user sees
+//which call is wrong.
 void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
 	const std::string &ns, const std::string &fnName,
 	const StdLibEntry *pEntry)
@@ -93,7 +119,6 @@ void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
 			MaybeLogVoidStdLibArg(m_Env, arg, paramIdx, ns, fnName);
 			continue;  //unresolved arg was diagnosed above
 		}
-		const NodeKind argKind = pArgType->Kind();
 		const uint8_t want = pEntry->paramKinds[paramIdx];
 		if (pEntry->coerceToString)
 		{
@@ -101,24 +126,13 @@ void ExprResolveAccessor::CheckStdLibParamTypes(SnInvokeExpr &invoke,
 				fnName);
 			continue;
 		}
-		bool ok = (argKind == NK_Int32 && want == RTK_Int32)
-			|| (argKind == NK_Float && want == RTK_Float)
-			|| (argKind == NK_String && want == RTK_String);
-		const bool widen = (argKind == NK_Int32 && want == RTK_Float);
-		if (!ok && !widen)
+		if (!ScalarArgAdmitted(it, pArgType, want))
 		{
 			m_Env.Log(CLL_Error, arg.Location(),
 				"Argument %d of \"%s.%s\" has type \"%s\"; \"%s\" expected.",
 				(int)paramIdx + 1, ns.c_str(), fnName.c_str(),
 				pArgType->ToString().c_str(), StdLibKindName(want));
 			continue;
-		}
-		if (widen)
-		{
-			//Sole automatic promotion (same policy as user-function calls).
-			auto* pFloatType = SnBuiltinDataType::InstanceOf(NK_Float);
-			TypeCastInfo castInfo(pArgType, pFloatType);
-			FixupExprType(it, castInfo);
 		}
 	}
 }
@@ -137,6 +151,12 @@ void ExprResolveAccessor::BindStdLibCallResult(SnMemberExpr &snMember,
 	{
 	case SLRT_Float:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
+		break;
+	case SLRT_Double:  //0.7.5: math at double precision
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Double);
+		break;
+	case SLRT_Long:    //0.7.5: math.floor/ceil/round
+		pResultField = SnBuiltinDataType::InstanceOf(NK_Long);
 		break;
 	case SLRT_Int32:
 		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);

@@ -100,6 +100,13 @@ template<NodeKind KIND, class CPP_T>
 const char* RnBuiltinDataTypeT<KIND, CPP_T>::s_szName =
 	RnBuiltinDataType::NameOf(KIND);
 
+//Shortest round-trip rendering of a floating-point value (Python-repr
+//style): the fewest significant digits that parse back to the same bit
+//pattern, fixed-point form inside [1e-4, 1e16), scientific outside.
+//isFloat selects the 4-byte round-trip target. Single choke point for
+//both float-category ValueToString rows.
+std::string FormatFloatShortest(double v, bool isFloat);
+
 //The 32-bit signed integer type.
 class NLANG_RUNTIME_API RnInt32 : public RnBuiltinDataTypeT<NK_Int32, int32>
 {

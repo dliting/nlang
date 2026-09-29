@@ -16,7 +16,6 @@
 #include <nlang/vm/StdLib.h>
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <map>
 #include <set>
 #include <vector>

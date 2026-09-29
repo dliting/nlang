@@ -1,0 +1,11 @@
+enum E { A = 300 }
+int main() {
+    //compile_error: the enum member's value (300) exceeds the byte
+    //discriminant domain — the same range rule as an int literal label,
+    //applied to the member's int32 value.
+    byte b = 5;
+    switch (b) {
+        case E.A: return 1;
+        default: return 0;
+    }
+}

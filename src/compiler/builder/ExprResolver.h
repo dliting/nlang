@@ -333,6 +333,8 @@ private:
 		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const std::string &name, NodeKind retKind,
 		SyntaxNode *pSavedContext);
+	void CheckStreamMethodSignature(SnInvokeExpr &invoke,
+		const std::string &name);
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
@@ -730,6 +732,12 @@ private:
 	void CheckStdLibParamTypes(SnInvokeExpr &invoke,
 		const std::string &ns, const std::string &fnName,
 		const StdLibEntry *pEntry);
+	//One stdlib argument vs its declared kind: Same admits as-is, a
+	//widening Auto admits with the in-place cast wrap performed here
+	//(the caller owns the loop; this owns the child iterator); anything
+	//else — narrowing, cross-category, string mismatch — is rejected.
+	bool ScalarArgAdmitted(NodeIterator &it, SnField* pArgType,
+		uint8_t want);
 	const StdLibEntry *FindStdLibEntry(SnInvokeExpr &invoke,
 		const std::string &ns, const std::string &fnName);
 	void BindStdLibCallResult(SnMemberExpr &snMember, SnInvokeExpr &invoke,

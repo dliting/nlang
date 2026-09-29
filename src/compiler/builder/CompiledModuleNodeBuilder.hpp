@@ -297,6 +297,9 @@ private:
 			case RTK_ULong:
 				return new SnLiteralExpr(*RnULong::Instance(),
 					static_cast<uint64>(dv.longValue), loc);
+			case RTK_Double:
+				return new SnLiteralExpr(*RnDouble::Instance(),
+					dv.doubleValue, loc);
 			case RTK_Float:
 				return new SnLiteralExpr(*RnFloat::Instance(),
 					dv.floatValue, loc);

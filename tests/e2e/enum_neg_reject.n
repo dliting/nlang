@@ -1,0 +1,9 @@
+//compile_error: enum member values are table-indexed at runtime (the
+//name table), so a negative value has no slot — rejected at declaration
+//with a pointed diagnostic (this shape used to hang the compiler: the
+//table fill loop wrapped the negative to SIZE_MAX).
+enum E { A = -1 }
+int main() {
+    E e = E.A;
+    return 0;
+}

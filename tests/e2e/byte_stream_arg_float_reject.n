@@ -1,0 +1,9 @@
+int main() {
+    //compile_error: unsuffixed 1.0 is a double since the 0.7.5 literal
+    //tiering; writeFloat's slot is float and the intrinsic reads it raw
+    //— before the signature gate the double's low bytes were written
+    //silently. Write 1.0f (or cast).
+    ByteStream bs = new ByteStream();
+    bs.writeFloat(1.0);
+    return 0;
+}

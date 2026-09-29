@@ -306,6 +306,14 @@ SnField* ExprResolveAccessor::SelectArithmeticResultType(SnBinaryExpr &sn,
 		//Then OP_Concat_str concatenates the two string indices.
 		return SnBuiltinDataType::InstanceOf(NK_String);
 	}
+	//Unary negation keys on the operand alone — it never mixes two
+	//operand types, so the common-type ladder below (whose int/ulong
+	//pair has no implicit common) must not apply. `-9223372036854775808`
+	//is the negated 2^63 ulong literal (the only lexical form of long
+	//min since the 0.7.5 sign retirement); it resolves ulong-typed and
+	//the assignment-side constant-fit gate folds it to long INT64_MIN.
+	if (!R && PrimKindIsNumeric(lk))
+		return L;
 	//0.7.5: both operands numeric → the registry-derived common type;
 	//a null common type (int + ulong) is a compile error, not a silent
 	//int truncation. Non-numeric leftovers (enum arithmetic, void)
@@ -317,8 +325,8 @@ SnField* ExprResolveAccessor::SelectArithmeticResultType(SnBinaryExpr &sn,
 		{
 			m_Env.Log(CLL_Error, sn.Location(),
 				"no implicit common type for \"%s\" and \"%s\".",
-				sn.Left()->EvalDataType()->ToString().c_str(),
-				sn.Right()->EvalDataType()->ToString().c_str());
+				L->ToString().c_str(),
+				R->ToString().c_str());
 			return nullptr;
 		}
 		return T_common;

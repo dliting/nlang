@@ -8,7 +8,7 @@ class Config {
 }
 
 int main() {
-    float price = 9.9;
+    double price = 9.9;
     int units = price as int;      // explicit narrowing truncates toward zero: 9
     io.print(units);
     Object boxed = units;          // box the int into an Object

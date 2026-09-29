@@ -57,8 +57,9 @@ void VmBackend::Access(SnGenericTypeExpr& expr) {
 //const op by slot width — 8-byte rows (long/ulong) use OP_ConstInt64
 //with a kind-exact Variant read (Get<int32_t> on a long literal would
 //read only the low 4 bytes); every 4-byte row (int/bool/char carriers)
-//rides OP_ConstInt32. The double row is float-category and reserved
-//for Task 7's OP_ConstDouble.
+//rides OP_ConstInt32. The float-category rows split by kind: float
+//keeps OP_ConstFloat, double rides OP_ConstDouble (both carriers are
+//exact — the Variant stores the CppType bit pattern).
 void VmBackend::EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset) {
@@ -79,6 +80,10 @@ void VmBackend::EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
         float v = lit.Value().Get<float>();
         emitter.Emit(OpCode::OP_ConstFloat);
         emitter.EmitFloat(v);
+    } else if (typeKind == NK_Double) {
+        double v = lit.Value().Get<double>();
+        emitter.Emit(OpCode::OP_ConstDouble);
+        emitter.EmitDouble(v);
     } else if (typeKind == NK_Bool) {
         //Bool rides the int32 carrier (0/1) — same const op.
         int32_t v = lit.Value().Get<int32_t>();
@@ -86,7 +91,7 @@ void VmBackend::EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
         emitter.EmitInt32(v);
     } else {
         //Round-12 shape: unhandled scalar literal kind. char
-        //literals land with Task 8, double literals Task 7.
+        //literals land with Task 8.
         throw std::runtime_error(
             "NLang backend: literal with unhandled type kind: "
             + std::to_string(static_cast<int>(typeKind)));

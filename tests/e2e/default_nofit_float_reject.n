@@ -1,0 +1,9 @@
+int probe(float x = 3.14) {
+    return x as int;
+}
+int main() {
+    //compile_error: the unsuffixed 3.14 is a double since the 0.7.5
+    //literal tiering and is not float-representable — a default must
+    //clear the same constant-fit bar as an assignment. Write 3.14f.
+    return probe();
+}

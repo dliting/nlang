@@ -93,10 +93,32 @@ static void TestColumnsAfterMultiLineComment() {
     CHECK(tokens[2].line == 2 && tokens[2].col == 11);
 }
 
+//0.7.5 literal tiering: a dot-or-exponent form without a suffix is
+//double (TT_Double); the f/F suffix selects the float carrier
+//(TT_Float). Signs are unary operators, so every fixture is unsigned.
+static void TestFloatDoubleTiering() {
+    std::printf("float/double tiering\n");
+    auto bare = ScanAll("2.5; 2.5e3; 1e30; 2e-1;");
+    CHECK(bare.size() == 8);
+    if (bare.size() == 8) {
+        CHECK(bare[0].type == TT_Double);  //dot form
+        CHECK(bare[2].type == TT_Double);  //dot+exponent
+        CHECK(bare[4].type == TT_Double);  //exponent only
+        CHECK(bare[6].type == TT_Double);  //negative exponent
+    }
+    auto suffixed = ScanAll("2.5f; 1.5e3F;");
+    CHECK(suffixed.size() == 4);
+    if (suffixed.size() == 4) {
+        CHECK(suffixed[0].type == TT_Float);
+        CHECK(suffixed[2].type == TT_Float);
+    }
+}
+
 int main() {
     TestColumnsWithoutComment();
     TestColumnsAfterSingleLineComment();
     TestColumnsAfterMultiLineComment();
+    TestFloatDoubleTiering();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

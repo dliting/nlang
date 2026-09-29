@@ -1,0 +1,20 @@
+//0.7.5: constant defaults that clear the constant-fit bar fill with an
+//in-place PrimCast to the formal's kind — before the fill-side normalize
+//a double/int literal default left its raw bytes in a float/byte slot.
+int probe(float x = 0.5) {
+    if (x == 0.5) { return 7; }
+    return 0;
+}
+int fromInt(float x = 3) {
+    if (x == 3.0) { return 1; }
+    return 0;
+}
+byte narrowByte(byte v = 100) { return v; }
+long widenLong(long v = 7) { return v; }
+int main() {
+    int a = probe();       //0.5 fills as double → PrimCast to float
+    int b = fromInt();     //int32 3 → PrimCast to float
+    int c = narrowByte();  //int32 100 → PrimCast to byte, back to int
+    int d = widenLong() as int;  //int32 7 → PrimCast to long, back to int
+    return a + b + c + d;  //7 + 1 + 100 + 7 = 115
+}

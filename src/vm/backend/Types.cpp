@@ -50,6 +50,8 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
 //  - SnLiteralExpr with NK_Float kind                 → RTK_Float
 //  - SnLiteralExpr with NK_String kind                → RTK_String (pool idx)
 //  - SnBinaryExpr(OP_Neg, SnLiteralExpr NK_Int32)     → RTK_Int32 (negative)
+//  - 0.7.5: long/ulong/double literals (and their negations) fold the
+//    same way through the 8-byte channels
 //Anything else (identifier ref, function call, cast, member access, etc.)
 //returns RTK_Void — caller-side (Step 5 declaration check) rejects this
 //for IsImported functions. In-module callers don't consult this vector
@@ -76,6 +78,11 @@ void VmBackend::ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv) 
     if (litType == RnFloat::Instance()) {
         dv.tag = RTK_Float;
         dv.floatValue = lit->Value().Data().m_Float;
+        return;
+    }
+    if (litType == RnDouble::Instance()) {
+        dv.tag = RTK_Double;
+        dv.doubleValue = lit->Value().Data().m_Double;
         return;
     }
     //0.7.5: 8-byte scalar literals — kind-exact Variant member reads.
@@ -122,6 +129,11 @@ void VmBackend::ExtractNegatedLiteralDefault(SnBinaryExpr* bin,
         if (lit->Value().Type() == RnFloat::Instance()) {
             dv.tag = RTK_Float;
             dv.floatValue = -lit->Value().Data().m_Float;
+            return;
+        }
+        if (lit->Value().Type() == RnDouble::Instance()) {
+            dv.tag = RTK_Double;
+            dv.doubleValue = -lit->Value().Data().m_Double;
             return;
         }
     }
