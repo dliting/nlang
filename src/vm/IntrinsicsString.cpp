@@ -55,7 +55,7 @@ static std::string ReadStrArg(VmExecutor& ex,
 
 //Phase 11 Step 3: allocate one boxed-value heap slot (layout per OP_Box:
 //slot[0]=typeTag, slot[1]=value bits, m_slotKinds=RTK_Boxed). Extracted
-//from the OP_Box body so split (and later fs.listFiles) share the exact
+//from the OP_Box body so split and the opcode share the exact
 //allocation semantics — always allocate, even for value 0 (null literals
 //never reach boxing; treating 0 as null broke List<int>.add(0)).
 int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int32_t val)

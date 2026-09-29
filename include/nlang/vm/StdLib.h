@@ -21,8 +21,8 @@ side would force a circular link.
 namespace nlang
 {
 
-//Return type of a stdlib function, resolved by the caller side to the
-//matching language type (primitives via SnBuiltinDataType, List<string>
+//Return type of a built-in string method, resolved by the caller side to
+//the matching language type (primitives via SnBuiltinDataType, List<string>
 //via the generic class decl).
 enum StdLibReturnType : uint8_t
 {
@@ -30,7 +30,7 @@ enum StdLibReturnType : uint8_t
 	SLRT_Int32,
 	SLRT_Float,
 	SLRT_String,
-	SLRT_ListString,  //Step 3: s.split / fs.listFiles
+	SLRT_ListString,  //s.split
 };
 
 //Built-in string methods (Step 3): receiver-dispatched, NOT namespace

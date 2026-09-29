@@ -598,7 +598,7 @@ private:
     //Phase 11: argument/range/parse errors of stdlib intrinsics raise the
     //BASE Exception (no dedicated argument-exception subclass exists).
     //Defined in IntrinsicsString.cpp, the one family TU that still raises
-    //intrinsically; shared by the string/io/fs TUs.
+    //intrinsically and its only user.
     [[noreturn]] void RaiseNlangExceptionBase(const std::string& msg);
 
     //Phase 9d: returns true if the heap object at heapIdx is an instance of

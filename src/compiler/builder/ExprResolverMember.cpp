@@ -204,7 +204,7 @@ bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
 	return false;
 }
 
-//Chain-head resolution: the stdlib namespace interception, the module-table
+//Chain-head resolution: the library namespace interception, the module-table
 //fallback, and the outer expression's own resolution. Returns true when
 //the member is consumed (resolved or diagnosed).
 bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,

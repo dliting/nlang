@@ -34,7 +34,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     uint8_t* locals, uint8_t* pResult)
 {
     //ByteStream intrinsics (0-14): family delegation to
-    //IntrinsicsByteStream.cpp (same shape as the math/io/string chain).
+    //IntrinsicsByteStream.cpp (same shape as the string family below).
     if (ExecuteIntrinsicByteStream(intrinsicId, callParamBase, locals, pResult))
         return;
 

@@ -199,8 +199,7 @@ void ExprResolveAccessor::BindTableStringMethodResult(SnMemberExpr &snMember,
 	{
 		snMember.EvalDataType(pResultField);
 		//m_pField directly (not via ResolveFieldExprAs) so chained
-		//access (s.substring(1).toUpper()) survives IsDataExpr() —
-		//same rationale as the stdlib path.
+		//access (s.substring(1).toUpper()) survives IsDataExpr().
 		snMember.m_pField = pResultField;
 	}
 }
