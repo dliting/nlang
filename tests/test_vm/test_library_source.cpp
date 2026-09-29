@@ -375,6 +375,61 @@ void TestLibraryEnumMethod() {
     CHECK(cap.text == "ok\n", "library enum method program output");
 }
 
+// A unit reached by a single-segment import whose file carries NO `namespace`
+// wrapper keeps its members at the root, exactly like a project module. Its
+// type must still be nameable as `unit.Type` - the container rule is one rule,
+// shared with the qualified-call side (which already resolved other.total).
+const char* kRootModuleSource =
+    "struct Box {\n"
+    "  int a;\n"
+    "  int b;\n"
+    "}\n"
+    "int total(Box x) {\n"
+    "  return x.a + x.b;\n"
+    "}\n";
+
+const char* kRootModuleProgram =
+    "import io;\n"
+    "import other;\n"
+    "int main() {\n"
+    "  other.Box b;\n"
+    "  b.a = 2;\n"
+    "  b.b = 5;\n"
+    "  io.print(other.total(b));\n"
+    "  return 0;\n"
+    "}\n";
+
+void TestModuleTypeWithoutNamespaceWrapper() {
+    const auto dir = scenarioDir("root_module_type");
+    writeFiles(dir, { { "other.n", kRootModuleSource },
+                      { "main.n", kRootModuleProgram } });
+    CapturingIo cap;
+    int rc = compileRun(dir, cap);
+    CHECK(rc == 0, "qualified type of a wrapper-less unit (rc)");
+    CHECK(cap.text == "7\n", "wrapper-less unit type program output");
+}
+
+// The same container holds the CONSUMER's own root types, so a container
+// lookup without an owner check would bind `other.Box` to main's Box. The
+// owner tag is what keeps one unit's qualification inside that unit.
+void TestModuleTypeOwnerIsolation() {
+    const auto dir = scenarioDir("root_module_owner");
+    const char* other = "int seven() {\n  return 7;\n}\n";
+    const char* prog =
+        "import other;\n"
+        "struct Box {\n"
+        "  int a;\n"
+        "}\n"
+        "int main() {\n"
+        "  other.Box b;\n"
+        "  b.a = 1;\n"
+        "  return 0;\n"
+        "}\n";
+    writeFiles(dir, { { "other.n", other }, { "main.n", prog } });
+    CHECK(!compileDir(dir),
+          "a foreign unit cannot borrow the consumer's root type");
+}
+
 } // namespace
 
 int main() {
@@ -389,6 +444,8 @@ int main() {
     TestLibraryInheritance();
     TestLibraryInterface();
     TestLibraryEnumMethod();
+    TestModuleTypeWithoutNamespaceWrapper();
+    TestModuleTypeOwnerIsolation();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -337,6 +337,25 @@ std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 	return std::vector<SnFunction*>{};
 }
 
+namespace {
+
+//The source-level declarations a `path.Type` reference can bind.
+bool IsBindableTypeDecl(const SnField& member)
+{
+	switch (member.Kind())
+	{
+	case NK_ClassDecl:
+	case NK_StructDecl:
+	case NK_EnumDecl:
+	case NK_InterfaceDecl:
+		return true;
+	default:
+		return false;
+	}
+}
+
+} //namespace
+
 SnField* ModuleRegistry::FindModuleType(const std::string& path,
 	const std::string& typeName) const
 {
@@ -349,33 +368,30 @@ SnField* ModuleRegistry::FindModuleType(const std::string& path,
 		if (m_modules[i].isExternal)
 			return nullptr;
 
-		//A library unit keeps its members in `namespace <path>`; a project
-		//module's members are at the root (same container rule as
-		//CompiledInFunctions).
+		//Same container rule as CompiledInFunctions: a library unit keeps its
+		//members in `namespace <path>`; a project module - and a library TU
+		//whose file carries no namespace wrapper - has them at the root.
 		SnNamespace* pRoot = TheAST().Root();
-		SnNamespace* pContainer = pRoot;
+		if (pRoot == nullptr)
+			return nullptr;
+		SnNamespace* pContainer = nullptr;
 		if (m_modules[i].isLibrary)
 		{
-			SnField* pField = pRoot ? pRoot->FindField(path) : nullptr;
-			if (pField == nullptr || pField->Kind() != NK_Namespace)
-				return nullptr;
-			pContainer = static_cast<SnNamespace*>(pField);
+			SnField* pField = pRoot->FindField(path);
+			if (pField != nullptr && pField->Kind() == NK_Namespace)
+				pContainer = static_cast<SnNamespace*>(pField);
 		}
-		if (pContainer == nullptr)
-			return nullptr;
-		SnField* pFound = pContainer->FindField(typeName);
-		if (pFound == nullptr)
-			return nullptr;
-		switch (pFound->Kind())
-		{
-		case NK_ClassDecl:
-		case NK_StructDecl:
-		case NK_EnumDecl:
-		case NK_InterfaceDecl:
-			return pFound;
-		default:
-			return nullptr;
-		}
+		SnNamespace& candidates =
+			pContainer != nullptr ? *pContainer : *pRoot;
+
+		//Owner-filtered scan, like the function side: `path.Type` must bind a
+		//declaration the unit itself owns, never a same-name type another TU
+		//merged into the same container.
+		auto range = candidates.Members().NameDict().equal_range(typeName);
+		for (auto iField = range.first; iField != range.second; ++iField)
+			if (IsBindableTypeDecl(*iField->second)
+				&& OwnerOf(*iField->second) == i)
+				return iField->second;
 	}
 	return nullptr;
 }
