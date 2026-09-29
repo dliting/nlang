@@ -35,6 +35,7 @@ static void PrintUsage() {
               << "  ncc build -p <project.nproj> [-o out.nmod]  Compile a project\n"
               << "  ncc run <module.nmod>       Execute only\n"
               << "  -I <dir>                    Add directory to .nmod import search path\n"
+              << "  --no-warn                   Suppress compile warnings (e.g. lossy conversion)\n"
               << "  ncc --version               Print the compiler version\n";
 }
 
@@ -104,6 +105,7 @@ int main(int argc, char* argv[]) {
     // ncc <source.n> [-I <dir>...] (compile + run)
     // ncc -p <project.nproj> [-I <dir>...] (compile + run)
     bool compileOnly = (command == "build");
+    bool noWarn = false;
     std::string sourceFile;
     std::string projectFile;
     std::string outputFile;
@@ -147,6 +149,8 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg.size() > 2 && arg.compare(0, 2, "-I") == 0)
             importDirs.push_back(arg.substr(2));
+        else if (arg == "--no-warn")
+            noWarn = true;   // 0.7.5: suppress precision-loss warnings
         else if (sourceFile.empty()) {
             //A .nproj fed positionally would reach the NLang parser and
             //die with a bare syntax error — point at -p instead.
@@ -226,6 +230,8 @@ int main(int argc, char* argv[]) {
         params.m_SourceFiles.push_back(sourceFile);
     }
     params.m_sOutputModule = moduleName;
+    //0.7.5: --no-warn — suppress the precision-loss warning family.
+    params.m_bNoWarn = noWarn;
     //Phase 9c cross-module: import search path. "." is already in m_ImportDirs
     //(BuildParams default); append user -I dirs after.
     for (const auto& dir : importDirs)

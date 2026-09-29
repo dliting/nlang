@@ -157,12 +157,9 @@ static SnExpression* BuildStringExpr(
 /*data value union */
 %union {
     nlang::nchar           					v_Char;
-    nlang::int8         					v_Byte;
-    nlang::uint8        					v_UByte;
-    nlang::int16        					v_Short;
-    nlang::uint16       					v_UShort;
     nlang::int32        					v_Int;
-    nlang::uint32       					v_UInt;
+    nlang::int64        					v_Long;
+    nlang::uint64      					v_ULong;
     float               					v_Float;
     std::string *           				v_pStr;
     nlang::SnUsing *						v_pUsing;
@@ -225,13 +222,15 @@ static SnExpression* BuildStringExpr(
 	nlang::InitEntry*						v_pInitEntry;
 }
 
-%destructor { } <v_Char> <v_Byte> <v_UByte> <v_Short> <v_UShort> <v_Int> <v_UInt> <v_Float>
+%destructor { } <v_Char> <v_Int> <v_Long> <v_ULong> <v_Float>
 %destructor { } <v_NodeFlags> <v_AccessType>
 %destructor { delete $$; } <*>
 
-%printer { fprintf (yyoutput, "%d", $$); } <v_Byte> <v_Short> <v_Int>
+%printer { fprintf (yyoutput, "%d", $$); } <v_Int>
+%printer { fprintf (yyoutput, "%lld", (long long)$$); } <v_Long>
+%printer { fprintf (yyoutput, "%llu", (unsigned long long)$$); } <v_ULong>
 %printer { fprintf (yyoutput, "%g", $$); } <v_Float>
-%printer { fprintf (yyoutput, "%u", $$); } <v_UByte> <v_UShort> <v_UInt> <v_AccessType>
+%printer { fprintf (yyoutput, "%u", $$); } <v_AccessType>
 %printer { fprintf (yyoutput, "%llu", (unsigned long long)$$); } <v_NodeFlags>
 %printer { fprintf (yyoutput, "\"%s\"", $$->c_str()); } <v_pStr>
 %printer { fprintf (yyoutput, "&%p", (void*)$$); } <*>
@@ -298,12 +297,9 @@ static SnExpression* BuildStringExpr(
 %token <v_Char>		TT_Char
 %token <v_pStr>		TT_Identifier
 %token <v_pStr>		TT_String /*Note: TT_String is not KT_String */
-%token <v_Byte>		TT_Byte
-%token <v_UByte>	TT_UByte
-%token <v_Short>	TT_Short
-%token <v_UShort>	TT_UShort
 %token <v_Int>		TT_Int
-%token <v_UInt>		TT_UInt
+%token <v_Long>		TT_Long
+%token <v_ULong>	TT_ULong
 %token <v_Float>	TT_Float
 %token TT_Comment	TT_Error
 
@@ -338,6 +334,7 @@ static SnExpression* BuildStringExpr(
 %token KT_In
 %token KT_Int
 %token KT_Interface
+%token KT_Long
 %token KT_Namespace
 %token KT_Native
 %token KT_New
@@ -360,6 +357,7 @@ static SnExpression* BuildStringExpr(
 %token KT_Try
 %token KT_Ubyte
 %token KT_Uint
+%token KT_ULong
 %token KT_Ushort
 %token KT_Using
 %token KT_Virtual
@@ -1208,21 +1206,25 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //(generic type) vs a less-than comparison. bison's reduce-first
 //default picks the NameExpr/Type derivation, which keeps
 //`Foo<int> x;` parsing as a declaration — the intended behavior.
-//Accepted-conflict ledger (measured 2026-09-12, bison 3.8.2, `-r
-//state`): 1 reduce/reduce (state 133, above) + 12 shift/reduce in
-//three families, every one resolved by bison's default to the
-//intended reading. The notices stay in the build log on purpose:
-//%expect cannot pin this set (it errors on any rr while the lone
-//rr above exists — %expect-rr is GLR-only), so the log lines are
-//the drift signal; a count change means an unaudited grammar edit.
-//The 12 shift/reduce are:
-//- state 167 (1): the lone sr on '<' at the `new C` prefix — shift
-//  commits to the explicit generic NewExpr/NewArrayExpr productions
+//Accepted-conflict ledger (re-measured 2026-09-28, bison 3.8.2,
+//`-Wcounterexamples`): 1 reduce/reduce (the '<' state above) +
+//20 shift/reduce in three families, every one resolved by bison's
+//default to the intended reading. The notices stay in the build log
+//on purpose: %expect cannot pin this set (it errors on any rr while
+//the lone rr above exists — %expect-rr is GLR-only), so the log
+//lines are the drift signal; a count change means an unaudited
+//grammar edit. The 20 shift/reduce are:
+//- the `new C` prefix on '<' (1): shift commits to the explicit
+//  generic NewExpr/NewArrayExpr productions
 //  (`new C<T>(...)`, `new C<T>{...}`, `new C<T>[n]`).
-//- state 225 (9): ClassMember's NodeFlag-singular vs NodeFlags-plural
-//  productions overlap on the flag/type first tokens — both
-//  derivations parse the same member; shift keeps reading flags.
-//- state 260 (2): catch/finally after a nested `try` statement — the
+//- ClassMember's NodeFlag-singular vs NodeFlags-plural overlap (17):
+//  one conflict per token that can begin a member Type —
+//  TT_Identifier, KT_Void, the four flag keywords, and the twelve
+//  scalar type keywords (int/float/string/bool from the historic
+//  grammar + the 0.7.5 integer family). Both derivations parse the
+//  same member; shift keeps reading flags. Every future scalar type
+//  keyword adds exactly one conflict here — audit it as this family.
+//- catch/finally after a nested `try` statement (2): the
 //  dangling-clause shape; shift binds the clause to the innermost
 //  try (the Java/C++ rule).
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
@@ -1319,11 +1321,8 @@ MemberExpr:	Expression '.' InvokeExpr		{
 				} ;
 
 LiteralExpr:	TT_Int		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	$1,	@1);	} |
-					TT_UInt		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_Short	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_UShort	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_Byte		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_UByte	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
+					TT_Long		{ $$ = new SnLiteralExpr(*RnLong::Instance(),	$1,	@1);	} |
+					TT_ULong	{ $$ = new SnLiteralExpr(*RnULong::Instance(),	$1,	@1);	} |
 					TT_Float	{ $$ = new SnLiteralExpr(*RnFloat::Instance(),	$1,	@1);	} |
 					KT_True		{ $$ = new SnLiteralExpr(*RnBool::Instance(),	1,	@1);	} |
 					KT_False	{ $$ = new SnLiteralExpr(*RnBool::Instance(),	0,	@1);	} |
@@ -1335,6 +1334,13 @@ InvokeExpr:	TT_Identifier '(' ConcreteParamList ')' {
 
 IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 					KT_Int   		{ $$ = new SnIdentifierExpr(NK_Int32, @1);	} |
+					KT_Byte		{ $$ = new SnIdentifierExpr(NK_Byte, @1);	} | 
+					KT_Ubyte	{ $$ = new SnIdentifierExpr(NK_UByte, @1);	} | 
+					KT_Short	{ $$ = new SnIdentifierExpr(NK_Short, @1);	} | 
+					KT_Ushort	{ $$ = new SnIdentifierExpr(NK_UShort, @1);	} | 
+					KT_Uint		{ $$ = new SnIdentifierExpr(NK_UInt32, @1);	} | 
+					KT_Long		{ $$ = new SnIdentifierExpr(NK_Long, @1);	} | 
+					KT_ULong	{ $$ = new SnIdentifierExpr(NK_ULong, @1);	} | 
 					KT_Float		{ $$ = new SnIdentifierExpr(NK_Float, @1);	} |
 					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} |
 					KT_Bool		{ $$ = new SnIdentifierExpr(NK_Bool, @1);	} ;

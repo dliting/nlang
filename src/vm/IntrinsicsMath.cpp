@@ -76,7 +76,7 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 		float y, x;
 		std::memcpy(&y, locals + callParamBase, sizeof(y));
-		std::memcpy(&x, locals + callParamBase + 4, sizeof(x));
+		std::memcpy(&x, locals + callParamBase + kFrameSlotBytes, sizeof(x));
 		float r = std::atan2(y, x);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
@@ -85,7 +85,7 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 		float x, e;
 		std::memcpy(&x, locals + callParamBase, sizeof(x));
-		std::memcpy(&e, locals + callParamBase + 4, sizeof(e));
+		std::memcpy(&e, locals + callParamBase + kFrameSlotBytes, sizeof(e));
 		float r = std::pow(x, e);
 		std::memcpy(pResult, &r, sizeof(r));
 		return true;
@@ -114,7 +114,7 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 		int32_t a, b;
 		std::memcpy(&a, locals + callParamBase, sizeof(a));
-		std::memcpy(&b, locals + callParamBase + 4, sizeof(b));
+		std::memcpy(&b, locals + callParamBase + kFrameSlotBytes, sizeof(b));
 		int32_t r = (intrinsicId == INTR_Math_Mini)
 			? ((a < b) ? a : b) : ((a > b) ? a : b);
 		std::memcpy(pResult, &r, sizeof(r));
@@ -125,7 +125,7 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 		float a, b;
 		std::memcpy(&a, locals + callParamBase, sizeof(a));
-		std::memcpy(&b, locals + callParamBase + 4, sizeof(b));
+		std::memcpy(&b, locals + callParamBase + kFrameSlotBytes, sizeof(b));
 		float r = (intrinsicId == INTR_Math_Minf)
 			? ((a < b) ? a : b) : ((a > b) ? a : b);
 		std::memcpy(pResult, &r, sizeof(r));
@@ -135,8 +135,8 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 		int32_t v, lo, hi;
 		std::memcpy(&v, locals + callParamBase, sizeof(v));
-		std::memcpy(&lo, locals + callParamBase + 4, sizeof(lo));
-		std::memcpy(&hi, locals + callParamBase + 8, sizeof(hi));
+		std::memcpy(&lo, locals + callParamBase + kFrameSlotBytes, sizeof(lo));
+		std::memcpy(&hi, locals + callParamBase + 2 * kFrameSlotBytes, sizeof(hi));
 		if (lo > hi)
 			RaiseNlangExceptionBase("math.clampi: low is greater than high.");
 		int32_t r = (v < lo) ? lo : ((v > hi) ? hi : v);
@@ -147,8 +147,8 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 		float v, lo, hi;
 		std::memcpy(&v, locals + callParamBase, sizeof(v));
-		std::memcpy(&lo, locals + callParamBase + 4, sizeof(lo));
-		std::memcpy(&hi, locals + callParamBase + 8, sizeof(hi));
+		std::memcpy(&lo, locals + callParamBase + kFrameSlotBytes, sizeof(lo));
+		std::memcpy(&hi, locals + callParamBase + 2 * kFrameSlotBytes, sizeof(hi));
 		if (lo > hi)
 			RaiseNlangExceptionBase("math.clampf: low is greater than high.");
 		float r = (v < lo) ? lo : ((v > hi) ? hi : v);
@@ -205,7 +205,7 @@ bool VmExecutor::ExecuteIntrinsicMath(uint16_t intrinsicId,
 	{
 		int32_t lo, hi;
 		std::memcpy(&lo, locals + callParamBase, sizeof(lo));
-		std::memcpy(&hi, locals + callParamBase + 4, sizeof(hi));
+		std::memcpy(&hi, locals + callParamBase + kFrameSlotBytes, sizeof(hi));
 		if (lo > hi)
 			RaiseNlangExceptionBase("math.randomi: min is greater than max.");
 		//Modulo bias exists for ranges not dividing 2^32; documented as

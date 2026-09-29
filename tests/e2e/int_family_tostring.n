@@ -1,0 +1,28 @@
+//int_family_tostring.n — 0.7.5: the whole integer family renders
+//through one canonical scalar renderer (registry-driven): boxed
+//payloads via Object.toString, and long[]/uint[] array toString at
+//full width (uint unsigned — the cell's sign bit must not leak into
+//the digits).
+import io;
+int main() {
+    Object big = 5000000000;   // boxed long
+    uint uval = 3000000000;
+    Object u = uval;           // boxed uint (cell bit 31 set)
+    long[] arr = new long[2];
+    arr[0] = 9223372036854775807;
+    arr[1] = -1;
+    uint[] uarr = new uint[1];
+    uarr[0] = 4000000000;
+    string a = big.toString();
+    string b = u.toString();
+    string c = arr.toString();
+    string d = uarr.toString();
+    io.print(a);
+    io.print(b);
+    io.print(c);
+    io.print(d);
+    if (a == "5000000000" && b == "3000000000"
+        && c == "[9223372036854775807, -1]" && d == "[4000000000]")
+        return 0;
+    return 1;
+}

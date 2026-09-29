@@ -18,7 +18,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Foreach iterable classification: exactly one of isArray/isList/isDict
 //fires, with elemType = the field the loop-var slot kind keys on
@@ -140,7 +139,7 @@ VmBackend::ForeachSlots VmBackend::AllocForeachLocals(SnForeachStmt& fe,
         uint8_t elemKind, bool isArray) {
     ForeachSlots slots;
     uint16_t counter = m_currFunc->foreachCounter++;
-    slots.userVarSlot = AllocLocal(fe.VarName(), VALUE_SIZE, elemKind,
+    slots.userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes, elemKind,
         false);
     //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
     uint8_t iterKind = isArray
@@ -148,13 +147,13 @@ VmBackend::ForeachSlots VmBackend::AllocForeachLocals(SnForeachStmt& fe,
         : static_cast<uint8_t>(RTK_Class);
     slots.iterSlot = AllocLocal(
         "__foreach_iter_" + std::to_string(counter),
-        VALUE_SIZE, iterKind, false);
+        kFrameSlotBytes, iterKind, false);
     slots.iSlot = AllocLocal(
         "__foreach_i_" + std::to_string(counter),
-        VALUE_SIZE, RTK_Int32, false);
+        kFrameSlotBytes, RTK_Int32, false);
     slots.nSlot = AllocLocal(
         "__foreach_n_" + std::to_string(counter),
-        VALUE_SIZE, RTK_Int32, false);
+        kFrameSlotBytes, RTK_Int32, false);
     return slots;
 }
 
@@ -259,7 +258,7 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
         }
         return;
     }
-    uint16_t paramOffset = m_currFunc->callParamBase + 1 * VALUE_SIZE;
+    uint16_t paramOffset = m_currFunc->callParamBase + 1 * kFrameSlotBytes;
     emitter.Emit(OpCode::OP_VarLocal);
     emitter.EmitUint16(slots.iSlot);
     emitter.Emit(OpCode::OP_Assign);

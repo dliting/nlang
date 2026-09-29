@@ -1,0 +1,13 @@
+//0.7.5: struct init entries wrap against the field's declared type —
+//OP_StoreField copies the full 2-cell slot, so an int entry into a
+//long field previously carried the staging claim's stale upper bytes
+//(new P{id:1} read 4294967297 after any method call).
+long helper(long a, long b) { return a + b; }
+struct P { long id; int x; }
+int main() {
+    long r = helper(4294967295, 4294967295);
+    P p = new P{id:1, x:2};
+    if (p.id != 1) return 1;
+    if (p.x != 2) return 2;
+    return 0;
+}

@@ -1,0 +1,14 @@
+// 0.7.5: C#-unchecked truncation semantics of explicit `as` narrowing,
+// pinned by its own manifest substring (int_family_basic prints the
+// wrapped byte but its row pins a different value — one assertion per
+// test shape).
+import io;
+int main() {
+    byte w = (127 + 1) as byte;       // 128 wraps to -128
+    ushort u = 65536 as ushort;       // 0x10000 truncates to 0
+    io.print(w);
+    io.print(u);
+    if (w == -128 && u == 0)
+        return 0;
+    return 1;
+}

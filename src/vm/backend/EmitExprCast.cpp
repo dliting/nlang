@@ -18,20 +18,17 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Cast arm: primitive → Object implicit boxing — OP_Box with the source's
 //type tag so the VM knows what to wrap.
 void VmBackend::EmitCastBoxOp(SnCastExpr& cast, BytecodeEmitter& emitter,
                               uint16_t resultOffset) {
+    //0.7.5: registry-driven tag (string/enum/int32-carrier/scalar rows).
+    //0xFF would mean a non-boxable kind reached boxing — the executor
+    //raises a named error on it rather than boxing garbage.
     auto* sourceType = cast.Source()->EvalDataType();
-    uint8_t typeTag = RTK_Int32;
-    if (sourceType) {
-        NodeKind srcKind = sourceType->Kind();
-        if (srcKind == NK_Float) typeTag = RTK_Float;
-        else if (srcKind == NK_String) typeTag = RTK_String;
-        else typeTag = RTK_Int32;
-    }
+    uint8_t typeTag = sourceType ? BoxTypeTagOfKind(sourceType->Kind())
+                                 : RTK_Int32;
     EmitPResultRefresh(emitter, resultOffset);
     emitter.Emit(OpCode::OP_Box);
     emitter.EmitByte(typeTag);
@@ -168,9 +165,11 @@ bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
 
 //Cast arm: numeric and primitive→string conversions after the enum
 //kinds have collapsed to int. 0.7.5: both shapes ride the
-//kind-immediate family — OP_PrimCast for int↔float (and every future
-//scalar pair), OP_Prim_to_str for the →string coercion (the retired
-//OP_Int32_to_str/OP_Float_to_str generalized).
+//kind-immediate family — OP_PrimCast for EVERY scalar pair the
+//resolver lets through implicitly (the int32↔float special case
+//generalized: CommonNumericType widenings like int32→long and
+//constant-fit narrowings like int32→byte land here too), OP_Prim_to_str
+//for the →string coercion.
 void VmBackend::EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
@@ -180,8 +179,8 @@ void VmBackend::EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
         EmitPrimToStr(emitter, srcKind);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
-    } else if ((srcKind == NK_Int32 && dstKind == NK_Float)
-        || (srcKind == NK_Float && dstKind == NK_Int32)) {
+    } else if (ScalarPrimIndexOf(srcKind) >= 0
+        && ScalarPrimIndexOf(dstKind) >= 0) {
         EmitPResultRefresh(emitter, resultOffset);
         EmitPrimCast(emitter, srcKind, dstKind);
         emitter.Emit(OpCode::OP_Assign);
@@ -231,14 +230,10 @@ void VmBackend::EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                             uint16_t resultOffset) {
     if (asExpr.ContainFlags(NF_NullLiteral))
         return;
+    //0.7.5: registry-driven tag (see EmitCastBoxOp).
     auto* sourceType = asExpr.Operand()->EvalDataType();
-    uint8_t typeTag = RTK_Int32;
-    if (sourceType) {
-        NodeKind srcKind = sourceType->Kind();
-        if (srcKind == NK_Float) typeTag = RTK_Float;
-        else if (srcKind == NK_String) typeTag = RTK_String;
-        else typeTag = RTK_Int32;
-    }
+    uint8_t typeTag = sourceType ? BoxTypeTagOfKind(sourceType->Kind())
+                                 : RTK_Int32;
     EmitPResultRefresh(emitter, resultOffset);
     emitter.Emit(OpCode::OP_Box);
     emitter.EmitByte(typeTag);
@@ -249,14 +244,10 @@ void VmBackend::EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
 //As arm: TCK_Unbox — target type is primitive, derive RTK_* from target.
 void VmBackend::EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                               uint16_t resultOffset) {
+    //0.7.5: registry-driven tag (see EmitCastBoxOp).
     auto* targetType = asExpr.ResolvedTarget();
-    uint8_t typeTag = RTK_Int32;
-    if (targetType) {
-        NodeKind tgtKind = targetType->Kind();
-        if (tgtKind == NK_Float) typeTag = RTK_Float;
-        else if (tgtKind == NK_String) typeTag = RTK_String;
-        else typeTag = RTK_Int32;
-    }
+    uint8_t typeTag = targetType ? BoxTypeTagOfKind(targetType->Kind())
+                                 : RTK_Int32;
     EmitPResultRefresh(emitter, resultOffset);
     emitter.Emit(OpCode::OP_Unbox);
     emitter.EmitByte(typeTag);
@@ -418,7 +409,7 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
     //arg0 = index (box primitive Dict keys).
-    uint16_t keyOffset = claimBase + VALUE_SIZE;
+    uint16_t keyOffset = claimBase + kFrameSlotBytes;
     EmitExpression(*sub.Index(), emitter, keyOffset);
     if (keyBox.isPrimitive) {
         EmitPResultRefresh(emitter, keyOffset);
@@ -431,10 +422,10 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
     //preserve tagged representations).
     for (uint16_t i = 0; i < 2; ++i) {
         emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(
-            m_currFunc->callParamBase + i * VALUE_SIZE);
+            m_currFunc->callParamBase + i * kFrameSlotBytes);
     }
     uint16_t nameIdx = AddStringConstant("get");
     emitter.Emit(OpCode::OP_CallMethod);
@@ -475,7 +466,7 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
         EmitExpression(*sub.Array(), emitter, claimBase);
         emitter.Emit(OpCode::OP_NullCheck);
         emitter.EmitUint16(claimBase);
-        uint16_t indexSlot = claimBase + VALUE_SIZE;
+        uint16_t indexSlot = claimBase + kFrameSlotBytes;
         EmitExpression(*sub.Index(), emitter, indexSlot);
         emitter.Emit(OpCode::OP_LoadElement);
         emitter.EmitUint16(resultOffset);

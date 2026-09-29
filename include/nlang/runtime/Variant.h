@@ -8,7 +8,10 @@ namespace nlang
 union VariantData
 {
 	int32			m_Int;
+	int64			m_Long;     // 0.7.5: long/ulong/double literal storage
+	uint64			m_ULong;
 	float			m_Float;
+	double			m_Double;
 	std::string*	m_String;
 	void*			m_Memory;
 };
@@ -68,6 +71,23 @@ public:
 		{
 			return m_Data.m_Float;
 		}
+	//0.7.5: 8-byte scalar channels. Kind-exact reads only — an int32
+	//write touches the low 4 bytes and leaves the upper half stale.
+	template<>
+	int64 Get<int64>() const
+	{
+		return m_Data.m_Long;
+	}
+	template<>
+	uint64 Get<uint64>() const
+	{
+		return m_Data.m_ULong;
+	}
+	template<>
+	double Get<double>() const
+	{
+		return m_Data.m_Double;
+	}
 
 	VariantData& Data()
 	{

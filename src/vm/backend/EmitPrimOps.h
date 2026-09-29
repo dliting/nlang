@@ -7,6 +7,7 @@
 #include "BytecodeOps.h"
 #include "BytecodeEmitter.h"      // src/vm/BytecodeEmitter.h
 #include "nlang/runtime/PrimitiveTypes.h"
+#include "nlang/vm/CompiledModule.h"   // RTK_String (non-scalar tag row)
 
 namespace nlang {
 
@@ -47,6 +48,20 @@ inline void EmitNeg(BytecodeEmitter& e, NodeKind kind, uint16_t dst)
 inline void EmitPrimToStr(BytecodeEmitter& e, NodeKind kind)
 {
     e.Emit(OpCode::OP_Prim_to_str); e.EmitByte(RtkOfKind(kind));
+}
+
+//Boxed-record type tag for a boxed source kind (0.7.5): string boxes
+//carry RTK_String, enums ride their int32 carrier (the enum≡int32
+//convention — the boxed record holds the member value, not the decl),
+//every registry scalar its own row tag. 0xFF = not a boxable kind
+//(callers treat it as an internal error).
+inline uint8_t BoxTypeTagOfKind(NodeKind k)
+{
+    if (k == NK_String)
+        return RTK_String;
+    if (k == NK_EnumDecl)
+        return RTK_Int32;
+    return RtkOfKind(k);
 }
 
 //Kind normalization for binary-op emission. Two remaps, both legacy

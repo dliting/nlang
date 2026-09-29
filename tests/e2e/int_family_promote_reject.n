@@ -1,0 +1,9 @@
+// 0.7.5: int + ulong has no implicit common type — the binary
+// promotion rejects the mix at compile time.
+import io;
+int main() {
+    int x = 1;
+    ulong u = 2;
+    long bad = x + u;
+    return 0;
+}

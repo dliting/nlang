@@ -10,6 +10,12 @@ For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
 the stderr of the module compile that failed).
+A <name>.stderr file next to the source asserts on the compile-phase
+stderr of a SUCCESSFULLY compiled single-file test (warning-behavior
+tests): the file's content is a substring ncc's diagnostics must
+contain; a leading '!' negates (must NOT contain). This exists because
+warnings are compile-time diagnostics invisible in the run's stdout —
+without it, warning tests cannot express their named contract.
 A <name>.stdin file next to the source is piped to the program's stdin.
 Also reads examples_manifest.txt (when present): entries resolve against
 ../../examples, their .nmod and scratch artifacts live under
@@ -335,10 +341,19 @@ def main():
                 os.makedirs(PHASE11_TMP, exist_ok=True)
 
             # Compile
+            #0.7.5: <name>.ncc.flags (if present) supplies extra ncc CLI
+            #flags (e.g. --no-warn) — same sibling-file discovery shape
+            #as .stdin/.flags.
+            ncc_flags_path = os.path.join(sources_dir, f"{name}.ncc.flags")
+            ncc_extra = []
+            if os.path.isfile(ncc_flags_path):
+                with open(ncc_flags_path, encoding='utf-8') as ff:
+                    ncc_extra = shlex.split(ff.read().strip(),
+                                            comments=True)
             nmod_file = os.path.join(out_dir, f"{name}.nmod")
             try:
                 compile_result = subprocess.run(
-                    [ncc, 'build', test_file, '-o', nmod_file],
+                    [ncc, 'build', test_file, '-o', nmod_file] + ncc_extra,
                     capture_output=True, timeout=TIMEOUT_SEC)
             except Exception as e:
                 print(f"FAIL {name} (compile error: {e})")
@@ -385,6 +400,30 @@ def main():
                 if os.path.isfile(nmod_file):
                     os.remove(nmod_file)
                 continue
+
+            #0.7.5: <name>.stderr asserts on the compile-phase stderr of a
+            #successfully compiled test (warning-behavior contract — see
+            #the module docstring). Applied AFTER the compile_error gates
+            #so rejection pinning (manifest column 3) keeps its own path.
+            stderr_expect_path = os.path.join(sources_dir, f"{name}.stderr")
+            if os.path.isfile(stderr_expect_path):
+                with open(stderr_expect_path, encoding='utf-8') as sf:
+                    want = sf.read().strip()
+                negate = want.startswith('!')
+                want = want.lstrip('!').strip()
+                got_stderr = (compile_result.stderr.decode(
+                    'utf-8', errors='replace')
+                    if compile_result.stderr else '')
+                if (want in got_stderr) == negate:
+                    print(f"FAIL {name} (stderr expectation mismatch)")
+                    failed += 1
+                    errors.append(
+                        f"  {name}: expected stderr "
+                        f"{'NOT containing' if negate else 'containing'} "
+                        f"{want!r}; stderr: {got_stderr[:300]}")
+                    if os.path.isfile(nmod_file):
+                        os.remove(nmod_file)
+                    continue
 
             # Run
             #Phase 8/11: file-path tests need CWD = tests/e2e/ so their

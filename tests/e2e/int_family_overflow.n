@@ -1,0 +1,10 @@
+// 0.7.5: int32 wraps (two's complement, unchanged); long holds
+// 2^53+1 exactly where a double-trope float would lose the low bits.
+import io;
+int main() {
+    int maxi = 2147483647;
+    io.print(maxi + 1);
+    long big = 9007199254740993;
+    io.print(big);
+    return 0;
+}

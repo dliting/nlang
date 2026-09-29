@@ -32,7 +32,10 @@ public:
 	struct SwitchLabelKey
 	{
 		SwitchFamily	family = SwitchFamily::None;
-		int32_t		intValue = 0;
+		//0.7.5: long/ulong labels carry their full 64-bit key (int
+		//labels zero-extend into it — one comparison domain for the
+		//whole Int family).
+		int64_t		intValue = 0;
 		double		floatValue = 0.0;
 		std::string	stringValue;
 	};

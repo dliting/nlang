@@ -11,7 +11,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Helper: read this.__handle from callParamBase[0].
 //Returns the 1-based handle. Throws if invalid or closed.
@@ -50,7 +49,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t val;
-            std::memcpy(&val, locals + callParamBase + VALUE_SIZE, sizeof(val));
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
             uint8_t bytes[4];
             std::memcpy(bytes, &val, 4);
             st->buf.insert(st->buf.end(), bytes, bytes + 4);
@@ -78,7 +77,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             float val;
-            std::memcpy(&val, locals + callParamBase + VALUE_SIZE, sizeof(val));
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
             uint8_t bytes[4];
             std::memcpy(bytes, &val, 4);
             st->buf.insert(st->buf.end(), bytes, bytes + 4);
@@ -106,7 +105,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t strIdx;
-            std::memcpy(&strIdx, locals + callParamBase + VALUE_SIZE, sizeof(strIdx));
+            std::memcpy(&strIdx, locals + callParamBase + kFrameSlotBytes, sizeof(strIdx));
             const std::string& s = StrVal(strIdx);
             int32_t len = static_cast<int32_t>(s.size());
             uint8_t lenBytes[4];
@@ -180,7 +179,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t structHeapIdx;
-            std::memcpy(&structHeapIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&structHeapIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(structHeapIdx));
             if (structHeapIdx <= 0
                 || static_cast<size_t>(structHeapIdx) >= m_structHeap.size())
@@ -202,7 +201,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t typeNameIdx;
-            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&typeNameIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(typeNameIdx));
             const std::string& typeName = StrVal(typeNameIdx);
             int sIdx = m_currModule->FindStruct(typeName);
@@ -230,7 +229,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t heapIdx;
-            std::memcpy(&heapIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&heapIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(heapIdx));
             if (heapIdx < 0
                 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
@@ -250,7 +249,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t typeNameIdx;
-            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&typeNameIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(typeNameIdx));
             const std::string& declaredName = StrVal(typeNameIdx);
             int declaredIdx = m_currModule->FindClass(declaredName);

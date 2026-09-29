@@ -30,7 +30,7 @@ private slots:
 
     void testTypeOfMapping() {
         QCOMPARE(SyntaxHighlighter::typeOf(TT_Int), SyntaxHighlighter::HTT_Number);
-        QCOMPARE(SyntaxHighlighter::typeOf(TT_Byte), SyntaxHighlighter::HTT_Number);
+        QCOMPARE(SyntaxHighlighter::typeOf(TT_Long), SyntaxHighlighter::HTT_Number);
         QCOMPARE(SyntaxHighlighter::typeOf(TT_Float), SyntaxHighlighter::HTT_Number);
         QCOMPARE(SyntaxHighlighter::typeOf(KT_Bool), SyntaxHighlighter::HTT_Keyword);
         QCOMPARE(SyntaxHighlighter::typeOf(KT_While), SyntaxHighlighter::HTT_Keyword);

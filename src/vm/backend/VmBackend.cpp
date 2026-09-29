@@ -20,7 +20,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 VmBackend::VmBackend()
     : m_EmitVisitor(*this, NVK_CustomTraverse)
@@ -167,7 +166,7 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
             || func.Parent()->Kind() == NK_EnumDecl);
     compiledFunc.paramCount = static_cast<uint16_t>(
         func.Params().size() + (isMethod ? 1 : 0));
-    compiledFunc.localsSize = compiledFunc.paramCount * VALUE_SIZE;
+    compiledFunc.localsSize = compiledFunc.paramCount * kFrameSlotBytes;
     if (func.HasReturn() && func.ReturnType()) {
         compiledFunc.returnTypeKind = SerializedReturnKind(func);
     } else {
@@ -200,12 +199,12 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
         //treat the integer as a heap index (plan 12b round-1 MAJOR 2/3).
         uint8_t thisKind =
             (func.Parent()->Kind() == NK_EnumDecl) ? RTK_Int32 : RTK_Class;
-        AllocLocal("__this", VALUE_SIZE, thisKind, true);
+        AllocLocal("__this", kFrameSlotBytes, thisKind, true);
     }
 
     // Allocate slots for parameters
     for (auto& param : func.Params()) {
-        AllocLocal(param.Name(), VALUE_SIZE,
+        AllocLocal(param.Name(), kFrameSlotBytes,
                    RuntimeTypeKind(param.EvalDataType()),
                    true);
     }
@@ -237,7 +236,7 @@ VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
     if (func.HasReturn() && func.ReturnType()) {
         compiledFunc.returnTypeKind = SerializedReturnKind(func);
         ctx.returnSlot = ctx.nextOffset;
-        ctx.nextOffset += VALUE_SIZE;
+        ctx.nextOffset += kFrameSlotBytes;
     } else {
         //Void functions carry RTK_Void so cross-module stubs rebuild
         //without a return type (CreateFunctionStub: RTK_Void →
@@ -251,13 +250,13 @@ VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
     // staging before AllocArray. Live operands across nested emission go
     // through EvalAreaClaim; nothing parks here by design).
     ctx.tempSlot = ctx.nextOffset;
-    ctx.nextOffset += VALUE_SIZE;
+    ctx.nextOffset += kFrameSlotBytes;
     ctx.tempSlot2 = ctx.nextOffset;
-    ctx.nextOffset += VALUE_SIZE;
+    ctx.nextOffset += kFrameSlotBytes;
     ctx.tempSlot3 = ctx.nextOffset;
-    ctx.nextOffset += VALUE_SIZE;
+    ctx.nextOffset += kFrameSlotBytes;
     ctx.tempSlot4 = ctx.nextOffset;
-    ctx.nextOffset += VALUE_SIZE;
+    ctx.nextOffset += kFrameSlotBytes;
 
     //Call parameter area + evalArea. callParamBase is the final landing
     //zone consumed by OP_CallFunc; evalArea is a disjoint staging area
@@ -270,9 +269,9 @@ VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
     //exists even for leaf functions).
     ctx.callParamSlots = stats.maxArgs > 1 ? stats.maxArgs : 1;
     ctx.callParamBase  = ctx.nextOffset;
-    ctx.nextOffset    += ctx.callParamSlots * VALUE_SIZE;
+    ctx.nextOffset    += ctx.callParamSlots * kFrameSlotBytes;
     ctx.evalAreaBase   = ctx.nextOffset;
-    ctx.nextOffset    += stats.peakDepth * VALUE_SIZE;
+    ctx.nextOffset    += stats.peakDepth * kFrameSlotBytes;
     return stats;
 }
 
@@ -305,11 +304,11 @@ void VmBackend::EmitBodyAndImplicitReturn(SnFunction& func, FuncContext& ctx,
 //silently — keep MaxArgsWalker symmetric with every call-emitting path.
 void VmBackend::CheckEvalAreaWalkerDrift(SnFunction& func, FuncContext& ctx,
                                          const CallSlotStats& stats) {
-    if (ctx.observedPeakCursor > stats.peakDepth * VALUE_SIZE) {
+    if (ctx.observedPeakCursor > stats.peakDepth * kFrameSlotBytes) {
         throw std::runtime_error(
             "VmBackend: evalArea walker drift in function '"
             + func.Name() + "': claims need "
-            + std::to_string(ctx.observedPeakCursor / VALUE_SIZE)
+            + std::to_string(ctx.observedPeakCursor / kFrameSlotBytes)
             + " slots but frame reserved "
             + std::to_string(stats.peakDepth));
     }

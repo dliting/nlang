@@ -3,6 +3,7 @@
     从 ExprResolver.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "ExprResolverCastFit.hpp"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnArrayTypeToken.h"
@@ -14,6 +15,8 @@
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/vm/StdLib.h>
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <vector>
@@ -330,12 +333,43 @@ bool ExprResolveAccessor::RejectArrayTokenCast(SnExpression &srcExpr,
 	return false;
 }
 
+//0.7.5 constant-fit gate (Java/C# rule, spec §2.2): an explicit-only
+//narrowing from a constant that fits the target converts implicitly; a
+//domain-matching constant that does not fit gets the specific
+//out-of-range diagnostic. Runs BEFORE the generic accept-set gate so
+//`byte b = 5` passes as TCK_Auto (the wrap then emits the PrimCast).
+ExprResolveAccessor::ConstantFitGateResult
+	ExprResolveAccessor::ConstantFitGate(SnExpression &srcExpr,
+		TypeCastInfo &castInfo)
+{
+	if (castInfo.Kind() != TCK_Explicit)
+		return CFG_NotApplicable;
+	auto *pTgt = castInfo.Target();
+	int ti = pTgt ? ScalarPrimIndexOf(pTgt->Kind()) : -1;
+	if (ti < 0)
+		return CFG_NotApplicable;
+	ConstantFitOutcome fit = TryConstantFit(srcExpr, kScalarPrims[ti]);
+	if (fit.verdict == CF_NotApplicable)
+		return CFG_NotApplicable;
+	if (fit.verdict == CF_Fits)
+	{
+		castInfo.Kind(TCK_Auto);
+		return CFG_Promoted;
+	}
+	m_Env.Log(CLL_Error, srcExpr.Location(),
+		"constant %s out of range for '%s'",
+		fit.constantText, kScalarPrims[ti].name);
+	return CFG_Rejected;
+}
+
 //The three incompatibility gates of FixupExprType, in their required
 //order. True = a diagnostic was logged and the caller must stop.
 bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 	TypeCastInfo &castInfo)
 {
 	if (RejectArrayTokenCast(srcExpr, castInfo))
+		return true;
+	if (ConstantFitGate(srcExpr, castInfo) == CFG_Rejected)
 		return true;
 
 	//0.7.5: this accept set (Same/Auto/Box) is the implicit-flow gate —
@@ -401,6 +435,23 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 		return false;
 	if (SkipNullIdentityWrap(srcExpr, castInfo))
 		return false;
+
+	//0.7.5: precision-loss warning on the implicitly accepted
+	//int-family → float conversions (spec §2.2) — suppressed by
+	//--no-warn and exempt for constants the target represents exactly.
+	//Runs after the gates so constant-fit promotions (byte b = 5) are
+	//already Auto — IsLossyImplicitPair's float-target test excludes
+	//them.
+	if (castInfo.Kind() == TCK_Auto && !m_Env.Params().m_bNoWarn)
+	{
+		auto *pSrcT = castInfo.Source();
+		auto *pTgtT = castInfo.Target();
+		if (pSrcT && pTgtT && IsLossyImplicitPair(pSrcT->Kind(), pTgtT->Kind())
+			&& !ConstantExactlyRepresentable(&srcExpr, pTgtT->Kind()))
+			m_Env.Log(CLL_Warn, srcExpr.Location(),
+				"implicit conversion from '%s' to '%s' loses precision",
+				pSrcT->ToString().c_str(), pTgtT->ToString().c_str());
+	}
 
 	auto pSrcParent = srcExpr.Parent();
 	assert(pSrcParent);

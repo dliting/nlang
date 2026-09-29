@@ -156,7 +156,7 @@ void VmExecutor::MarkClassFields(int32_t idx,
     int32_t classIdx = m_structHeap[idx][0];
     auto& cc = m_currModule->classes[classIdx];
     for (uint16_t i = 0; i < cc.fieldCount; ++i) {
-        int32_t refIdx = m_structHeap[idx][i + 1];
+        int32_t refIdx = m_structHeap[idx][i * 2 + 1];
         //String fields carry a string-store handle, not a heap
         //index — route before the heap-index guard (a valid handle
         //may lie beyond the struct heap's size). No runtime slot-
@@ -244,7 +244,7 @@ void VmExecutor::MarkStructFields(int32_t idx,
     uint16_t structIdx = m_slotStructIdx[idx];
     auto& cs = m_currModule->structs[structIdx];
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
-        int32_t refIdx = m_structHeap[idx][i];
+        int32_t refIdx = m_structHeap[idx][i * 2];
         //String fields carry a string-store handle, not a heap
         //index — same pre-guard routing as the class field arm.
         if (cs.fieldTypeKinds[i] == RTK_String) {
@@ -270,13 +270,39 @@ void VmExecutor::MarkStructFields(int32_t idx,
     }
 }
 
+namespace {
+//Single source for the array-element trace acceptance (was four
+//hand-expanded else-if arms): declared elemKind must match the record's
+//runtime slot kind. Object[] elements carry boxed primitive records
+//(declared RTK_Class, runtime RTK_Boxed) — same acceptance as the
+//field arms. The RTK_Array row (an array whose elements are themselves
+//array records, array redesign B spec §5.3#1) is currently unreachable
+//from compilable source (jagged declarations rejected; List<int[]>
+//elements live in the container store) — defensive base for
+//future/external .nmod paths. String elements never reach this test
+//(they carry store handles, routed before it).
+inline bool ArrayElemKindAccepts(uint8_t elemKind, uint8_t runtimeKind)
+{
+    return (elemKind == RTK_Class
+                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed))
+        || (elemKind == RTK_Struct && runtimeKind == RTK_Struct)
+        || (elemKind == RTK_Func && runtimeKind == RTK_Func)
+        || (elemKind == RTK_Array && runtimeKind == RTK_Array);
+}
+} // namespace
+
 void VmExecutor::MarkArrayElements(int32_t idx,
                                    std::vector<int32_t>& worklist) {
     uint16_t arrayTypeIdx = m_slotStructIdx[idx];
     auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     int32_t length = m_structHeap[idx][2];
+    //0.7.5: stride from the registry — reference-bearing kinds are all
+    //1-cell (the acceptance test below unchanged); 2-cell scalars hold
+    //no references, the honest offset just keeps the reads
+    //element-aligned.
+    const int cells = ArrayElemCells(at.elemKind);
     for (int32_t i = 0; i < length; ++i) {
-        int32_t elemRef = m_structHeap[idx][3 + i];
+        int32_t elemRef = m_structHeap[idx][3 + i * cells];
         //String elements are raw string handles (hole-1 uses 0 =
         //null) — same pre-guard routing as the field arms.
         if (at.elemKind == RTK_String) {
@@ -285,34 +311,8 @@ void VmExecutor::MarkArrayElements(int32_t idx,
         }
         if (elemRef <= 0 || static_cast<size_t>(elemRef) >= m_slotKinds.size())
             continue;
-        //Object[] elements carry boxed primitive records (elemKind
-        //RTK_Class, runtime kind RTK_Boxed) — same acceptance as
-        //the field arms.
-        if (at.elemKind == RTK_Class
-                && (m_slotKinds[elemRef] == RTK_Class
-                    || m_slotKinds[elemRef] == RTK_Boxed)
+        if (ArrayElemKindAccepts(at.elemKind, m_slotKinds[elemRef])
                 && !m_markBits[elemRef]) {
-            PushMarked(elemRef, worklist);
-        }
-        else if (at.elemKind == RTK_Struct && m_slotKinds[elemRef] == RTK_Struct
-                 && !m_markBits[elemRef]) {
-            PushMarked(elemRef, worklist);
-        }
-        else if (at.elemKind == RTK_Func
-                 && m_slotKinds[elemRef] == RTK_Func
-                 && !m_markBits[elemRef]) {
-            PushMarked(elemRef, worklist);
-        }
-        //Array redesign B (spec §5.3#1): an array whose ELEMENTS are
-        //themselves array records (elemKind == RTK_Array). Currently
-        //unreachable from compilable source (jagged declarations are
-        //rejected; List<int[]> elements live in the container store) —
-        //defensive base for future/external .nmod paths. Declared
-        //elemKind and runtime slot kind must BOTH be RTK_Array (same
-        //double condition as the field arms above).
-        else if (at.elemKind == RTK_Array
-                 && m_slotKinds[elemRef] == RTK_Array
-                 && !m_markBits[elemRef]) {
             PushMarked(elemRef, worklist);
         }
     }
@@ -356,7 +356,7 @@ void VmExecutor::FreeOwnedStructs(int32_t heapIdx) {
     for (uint16_t i = 0; i < cc.fieldCount; ++i) {
         if (cc.fieldTypeKinds[i] == RTK_Struct
             && cc.fieldStructIndices[i] != 0xFFFF) {
-            int32_t structSlotIdx = m_structHeap[heapIdx][i + 1];
+            int32_t structSlotIdx = m_structHeap[heapIdx][i * 2 + 1];
             if (structSlotIdx > 0 && static_cast<size_t>(structSlotIdx) < m_slotKinds.size()
                 && m_slotKinds[structSlotIdx] == RTK_Struct) {
                 FreeNestedStructs(structSlotIdx, cc.fieldStructIndices[i]);
@@ -373,7 +373,7 @@ void VmExecutor::FreeNestedStructs(int32_t heapIdx, uint16_t structIdx) {
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         if (cs.fieldTypeKinds[i] == RTK_Struct
             && cs.fieldStructIndices[i] != 0xFFFF) {
-            int32_t nestedIdx = m_structHeap[heapIdx][i];
+            int32_t nestedIdx = m_structHeap[heapIdx][i * 2];
             if (nestedIdx > 0 && static_cast<size_t>(nestedIdx) < m_slotKinds.size()
                 && m_slotKinds[nestedIdx] == RTK_Struct) {
                 FreeNestedStructs(nestedIdx, cs.fieldStructIndices[i]);

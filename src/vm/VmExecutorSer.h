@@ -6,6 +6,7 @@
 ---*/
 #pragma once
 #include "VmExecutor.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cstring>
 
 namespace nlang {
@@ -31,16 +32,21 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
     for (uint16_t i = 0; i < cs.fieldCount; ++i)
     {
         uint16_t ftk = cs.fieldTypeKinds[i];
-        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        int primRow = ScalarPrimIndexOfRtk(static_cast<uint8_t>(ftk));
+        if (primRow >= 0)
         {
-            int32_t val = slot[i];
-            uint8_t bytes[4];
-            std::memcpy(bytes, &val, 4);
-            write(bytes, 4);
+            //0.7.5: registry-driven scalar fields — every primitive row
+            //(byte..ulong, bool/char) serializes at its own width; the
+            //value is value-extended in the field's low cell(s), so
+            //8-byte rows span cells [i*2, i*2+1].
+            uint8_t bytes[8];
+            std::memcpy(bytes, &slot[i * 2],
+                kScalarPrims[primRow].slotWidth);
+            write(bytes, kScalarPrims[primRow].slotWidth);
         }
         else if (ftk == RTK_String)
         {
-            const std::string& s = StrVal(slot[i]);
+            const std::string& s = StrVal(slot[i * 2]);
             int32_t len = static_cast<int32_t>(s.size());
             uint8_t lenBytes[4];
             std::memcpy(lenBytes, &len, 4);
@@ -51,7 +57,7 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
         {
             if (cs.fieldStructIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
-            int32_t innerHeapIdx = slot[i];
+            int32_t innerHeapIdx = slot[i * 2];
             SerializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
                 std::forward<Writer>(write), st, depth + 1);
         }
@@ -59,7 +65,7 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
         {
             if (cs.fieldClassIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested class type");
-            int32_t childHeapIdx = slot[i];
+            int32_t childHeapIdx = slot[i * 2];
             SerializeClassFields(childHeapIdx,
                 std::forward<Writer>(write), st, depth + 1);
         }
@@ -74,6 +80,15 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
             //are not serializable bytes.
             throw std::runtime_error(
                 "NLang VM: WriteStruct does not support Func fields");
+        }
+        else
+        {
+            //Unrecognized kinds must fail loudly, not skip: a silent
+            //skip desynchronizes writer and reader (0.7.5 stage-2
+            //review finding — this arm used to be absent).
+            throw std::runtime_error(
+                "NLang VM: WriteStruct unsupported field kind ("
+                + std::to_string(ftk) + ")");
         }
     }
 }
@@ -93,13 +108,16 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
     for (uint16_t i = 0; i < cs.fieldCount; ++i)
     {
         uint16_t ftk = cs.fieldTypeKinds[i];
-        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        int primRow = ScalarPrimIndexOfRtk(static_cast<uint8_t>(ftk));
+        if (primRow >= 0)
         {
-            uint8_t bytes[4];
-            read(bytes, 4);
-            int32_t val;
-            std::memcpy(&val, bytes, 4);
-            m_structHeap[heapIdxSz][i] = val;
+            //0.7.5: registry-driven scalar read at the row's own width;
+            //4-byte rows fill exactly the low cell, 8-byte rows span
+            //cells [i*2, i*2+1] (mirrors the write side).
+            uint8_t bytes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            read(bytes, kScalarPrims[primRow].slotWidth);
+            std::memcpy(&m_structHeap[heapIdxSz][i * 2], bytes,
+                kScalarPrims[primRow].slotWidth);
         }
         else if (ftk == RTK_String)
         {
@@ -120,14 +138,14 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
                     static_cast<size_t>(len));
-            m_structHeap[heapIdxSz][i] = MintNewString(std::move(s));
+            m_structHeap[heapIdxSz][i * 2] = MintNewString(std::move(s));
         }
         else if (ftk == RTK_Struct)
         {
             if (cs.fieldStructIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
             int32_t innerHeapIdx = AllocStructOnHeap(cs.fieldStructIndices[i]);
-            m_structHeap[heapIdxSz][i] = innerHeapIdx;
+            m_structHeap[heapIdxSz][i * 2] = innerHeapIdx;
             DeserializeStructFields(innerHeapIdx, cs.fieldStructIndices[i],
                 std::forward<Reader>(read), st, depth + 1);
         }
@@ -138,7 +156,7 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             int32_t childHeapIdx = 0;
             DeserializeClassFields(cs.fieldClassIndices[i], childHeapIdx,
                 std::forward<Reader>(read), st, depth + 1);
-            m_structHeap[heapIdxSz][i] = childHeapIdx;
+            m_structHeap[heapIdxSz][i * 2] = childHeapIdx;
         }
         else if (ftk == RTK_Array)
         {
@@ -155,6 +173,14 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
             throw std::runtime_error(
                 "NLang VM: ReadStruct does not support Func fields");
         }
+        else
+        {
+            //No writer emits an unrecognized kind (the write side
+            //throws), so this means a corrupted or hand-crafted stream.
+            throw std::runtime_error(
+                "NLang VM: ReadStruct unsupported field kind ("
+                + std::to_string(ftk) + ")");
+        }
     }
 }
 
@@ -163,8 +189,8 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
 //tag=0: null (heapIdx <= 0). tag=1: new object (class name + field payload),
 //recorded in st.serializeObjIds for later back-references. tag=2: back-ref
 //to a previously-emitted object id. Per-kind field switch mirrors
-//SerializeStructFields but reads from cc.fieldTypeKinds[i] / slot[i+1]
-//(class header occupies slot[0]).
+//SerializeStructFields but reads from cc.fieldTypeKinds[i] / slot[i*2+1]
+//(class header occupies cell[0]; field i lives at cell 1+2i).
 template<typename Writer, typename StreamState>
 void VmExecutor::SerializeClassFields(int32_t heapIdx,
     Writer&& write, StreamState& st, int depth)
@@ -208,16 +234,20 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
     for (uint16_t i = 0; i < cc.fieldCount; ++i)
     {
         uint16_t ftk = cc.fieldTypeKinds[i];
-        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        int primRow = ScalarPrimIndexOfRtk(static_cast<uint8_t>(ftk));
+        if (primRow >= 0)
         {
-            int32_t val = slot[i + 1];
-            uint8_t bytes[4];
-            std::memcpy(bytes, &val, 4);
-            write(bytes, 4);
+            //0.7.5: registry-driven scalar fields at their own width
+            //(class header occupies cell 0; field i spans cells
+            //[1+2i, 2+2i]).
+            uint8_t bytes[8];
+            std::memcpy(bytes, &slot[i * 2 + 1],
+                kScalarPrims[primRow].slotWidth);
+            write(bytes, kScalarPrims[primRow].slotWidth);
         }
         else if (ftk == RTK_String)
         {
-            const std::string& s = StrVal(slot[i + 1]);
+            const std::string& s = StrVal(slot[i * 2 + 1]);
             int32_t len = static_cast<int32_t>(s.size());
             uint8_t lenBytes[4];
             std::memcpy(lenBytes, &len, 4);
@@ -228,7 +258,7 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         {
             if (cc.fieldStructIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
-            int32_t innerHeapIdx = slot[i + 1];
+            int32_t innerHeapIdx = slot[i * 2 + 1];
             SerializeStructFields(innerHeapIdx, cc.fieldStructIndices[i],
                 std::forward<Writer>(write), st, depth + 1);
         }
@@ -236,7 +266,7 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         {
             if (cc.fieldClassIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested class type");
-            int32_t childHeapIdx = slot[i + 1];
+            int32_t childHeapIdx = slot[i * 2 + 1];
             SerializeClassFields(childHeapIdx,
                 std::forward<Writer>(write), st, depth + 1);
         }
@@ -251,6 +281,15 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
             //are not serializable bytes.
             throw std::runtime_error(
                 "NLang VM: WriteStruct does not support Func fields");
+        }
+        else
+        {
+            //Unrecognized kinds must fail loudly, not skip: a silent
+            //skip desynchronizes writer and reader (0.7.5 stage-2
+            //review finding — this arm used to be absent).
+            throw std::runtime_error(
+                "NLang VM: WriteStruct unsupported field kind ("
+                + std::to_string(ftk) + ")");
         }
     }
 }
@@ -318,13 +357,15 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
     for (uint16_t i = 0; i < cc.fieldCount; ++i)
     {
         uint16_t ftk = cc.fieldTypeKinds[i];
-        if (ftk == RTK_Int32 || ftk == RTK_Float)
+        int primRow = ScalarPrimIndexOfRtk(static_cast<uint8_t>(ftk));
+        if (primRow >= 0)
         {
-            uint8_t bytes[4];
-            read(bytes, 4);
-            int32_t val;
-            std::memcpy(&val, bytes, 4);
-            m_structHeap[heapIdxSz][i + 1] = val;
+            //0.7.5: registry-driven scalar read at the row's own width
+            //(mirrors the write side; field i writes cells [1+2i, 2+2i]).
+            uint8_t bytes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            read(bytes, kScalarPrims[primRow].slotWidth);
+            std::memcpy(&m_structHeap[heapIdxSz][i * 2 + 1], bytes,
+                kScalarPrims[primRow].slotWidth);
         }
         else if (ftk == RTK_String)
         {
@@ -345,14 +386,14 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
             if (len > 0)
                 read(reinterpret_cast<uint8_t*>(&s[0]),
                     static_cast<size_t>(len));
-            m_structHeap[heapIdxSz][i + 1] = MintNewString(std::move(s));
+            m_structHeap[heapIdxSz][i * 2 + 1] = MintNewString(std::move(s));
         }
         else if (ftk == RTK_Struct)
         {
             if (cc.fieldStructIndices[i] == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
             int32_t innerHeapIdx = AllocStructOnHeap(cc.fieldStructIndices[i]);
-            m_structHeap[heapIdxSz][i + 1] = innerHeapIdx;
+            m_structHeap[heapIdxSz][i * 2 + 1] = innerHeapIdx;
             DeserializeStructFields(innerHeapIdx, cc.fieldStructIndices[i],
                 std::forward<Reader>(read), st, depth + 1);
         }
@@ -363,7 +404,7 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
             int32_t childHeapIdx = 0;
             DeserializeClassFields(cc.fieldClassIndices[i], childHeapIdx,
                 std::forward<Reader>(read), st, depth + 1);
-            m_structHeap[heapIdxSz][i + 1] = childHeapIdx;
+            m_structHeap[heapIdxSz][i * 2 + 1] = childHeapIdx;
         }
         else if (ftk == RTK_Array)
         {
@@ -379,6 +420,14 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
             //throws), so reaching this arm means a corrupted stream.
             throw std::runtime_error(
                 "NLang VM: ReadStruct does not support Func fields");
+        }
+        else
+        {
+            //No writer emits an unrecognized kind (the write side
+            //throws), so this means a corrupted or hand-crafted stream.
+            throw std::runtime_error(
+                "NLang VM: ReadStruct unsupported field kind ("
+                + std::to_string(ftk) + ")");
         }
     }
 

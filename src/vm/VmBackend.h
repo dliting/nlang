@@ -541,15 +541,16 @@ private:
     void EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
                              BytecodeEmitter& emitter);
 
-    //Switch (EmitStmtSwitchTry.cpp): per-clause emission and the
+    //Switch (EmitStmtSwitch.cpp): per-clause emission and the
     //clause-exit fixup. EmitSwitchCaseClause appends to clauseExits the
     //jumps the fixup must patch (OP_Case placeholder + last label's
     //miss) and reports the implicit no-fallthrough exit via
     //bodyExitJump. EmitSwitchOneLabelCompare returns the label's
-    //miss-jump offset (caller picks next-label vs clause-exit target).
-    //0.7.5: the per-switch compare descriptor — string discriminants
-    //keep the dedicated OP_Eq_str; scalar discriminants ride the
-    //kind-immediate OP_Cmp Equal (enum ≡ int32, never the raw
+    //miss-jump offset (caller picks next-label vs clause-exit target);
+    //EmitSwitchLabelNormalize applies its 0.7.5 cross-width PrimCast
+    //wrap. 0.7.5: the per-switch compare descriptor — string
+    //discriminants keep the dedicated OP_Eq_str; scalar discriminants
+    //ride the kind-immediate OP_Cmp Equal (enum ≡ int32, never the raw
     //NK_EnumDecl kind — RtkOfKind would reject it).
     struct SwitchCompare {
         NodeKind kind = NK_Int32;
@@ -570,13 +571,17 @@ private:
                                      uint16_t switchSlot,
                                      const SwitchCompare& compare,
                                      BytecodeEmitter& emitter);
+    void EmitSwitchLabelNormalize(SnExpression& label,
+                                  const SwitchCompare& compare,
+                                  uint16_t condSlot,
+                                  BytecodeEmitter& emitter);
     void EmitSwitchClauseExits(
         const std::vector<size_t>& caseStartOffsets,
         const std::vector<std::vector<size_t>>& exitJumps,
         bool hasDefault, size_t locCaseEnd, size_t locEnd,
         BytecodeEmitter& emitter);
 
-    //Try/catch/finally (EmitStmtSwitchTry.cpp). EmitTryCatchClauses
+    //Try/catch/finally (EmitStmtTry.cpp). EmitTryCatchClauses
     //registers each handler's tryBlocks entry, emits its body and the
     //completion jump; the returned patch offsets target postTry (or
     //finallyNormal when a finally clause exists). EmitTryFinallyTail
@@ -601,7 +606,8 @@ private:
     struct OutSpill { uint16_t slotIdx; uint16_t localOffset; };
 
     //Phase 9e: emit the post-call spill code for out arguments:
-    //per spill, `OP_VarLocal callParamBase+slotIdx*4; OP_Assign localOffset`.
+    //per spill, `OP_VarLocal callParamBase+slotIdx*kFrameSlotBytes;
+    //OP_Assign localOffset`.
     void EmitOutSpills(const std::vector<OutSpill>& spills,
                        BytecodeEmitter& emitter);
 
@@ -841,6 +847,11 @@ private:
                                       uint16_t resultOffset, SnField* field);
     void EmitIdentifierFieldRead(BytecodeEmitter& emitter,
                                  uint16_t resultOffset, SnField* field);
+
+    //SnLiteralExpr arm: registry-driven scalar const emission (the
+    //caller has already verified typeKind is a registry row).
+    void EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
+                           BytecodeEmitter& emitter, uint16_t resultOffset);
 
     //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
     //the free-function OP_CallFunc/OP_CallFuncOut tail.
@@ -1097,7 +1108,8 @@ private:
     }
 
     //Per-function code generation context.
-    //Layout of the local variable frame (all slots are VALUE_SIZE=4 bytes):
+    //Layout of the local variable frame (all slots are uniform
+    //kFrameSlotBytes = 8-byte cells):
     //  [params...] [returnSlot] [tempSlot..tempSlot4] [callParamBase(N)] [evalArea(peakDepth)] [user locals...]
     //N = max callee formal count seen in this function's body (min 1).
     //peakDepth = max simultaneous evalArea slot need across all call sites.
@@ -1197,16 +1209,16 @@ private:
         EvalAreaClaim(VmBackend& b, uint16_t slots) : m_B(b), m_slots(slots)
         {
             auto& ctx = *m_B.m_currFunc;
-            ctx.evalAreaCursor += m_slots * 4;
+            ctx.evalAreaCursor += m_slots * kFrameSlotBytes;
             if (ctx.evalAreaCursor > ctx.observedPeakCursor)
                 ctx.observedPeakCursor = ctx.evalAreaCursor;
         }
         ~EvalAreaClaim()
-        { m_B.m_currFunc->evalAreaCursor -= m_slots * 4; }
+        { m_B.m_currFunc->evalAreaCursor -= m_slots * kFrameSlotBytes; }
         uint16_t base() const
         { return m_B.m_currFunc->evalAreaBase
               + m_B.m_currFunc->evalAreaCursor
-              - m_slots * 4; }
+              - m_slots * kFrameSlotBytes; }
     };
 
     //Returns {true, slot} if `name` is bound in any active override scope

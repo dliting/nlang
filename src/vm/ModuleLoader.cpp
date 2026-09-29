@@ -151,6 +151,12 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                     sizeof(dv.floatValue));
             fs.read(reinterpret_cast<char*>(&dv.stringIdx),
                     sizeof(dv.stringIdx));
+            //0.7.5 v1.13: 8-byte scalar channels (matches the saver's
+            //extended record; the loader floor is already 13).
+            fs.read(reinterpret_cast<char*>(&dv.longValue),
+                    sizeof(dv.longValue));
+            fs.read(reinterpret_cast<char*>(&dv.doubleValue),
+                    sizeof(dv.doubleValue));
         }
 
         uint32_t bcSize;

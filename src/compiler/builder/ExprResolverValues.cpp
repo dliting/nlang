@@ -269,7 +269,24 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 	if (baseName == "List" && !typeArgs.empty())
 		elem = typeArgs[0];
 	else if (baseName == "Dict" && typeArgs.size() > 1)
+	{
 		elem = typeArgs[1];
+		//0.7.5: the read sugar `d[k]` lowers to get(k), whose boxing
+		//plan stages the key with K's tag — wrap the key against K like
+		//the store sugar (ApplyContainerStoreCasts) and the method form
+		//so the slot holds K's width before the box read. List indexes
+		//stay unchecked (a plain int position, runtime-bounds-checked).
+		if (sn.Index() && sn.Index()->IsResolved()
+			&& sn.Index()->EvalDataType())
+		{
+			auto keyCast = GetCastInfo(
+				sn.Index()->EvalDataType(), typeArgs[0]);
+			auto iKey = sn.Children().find(sn.Index());
+			if (iKey != sn.Children().end()
+				&& FixupExprType(iKey, keyCast))
+				sn.Index(static_cast<SnExpression*>(&*iKey));
+		}
+	}
 	if (!elem)
 		return false;
 	sn.EvalDataType(elem);

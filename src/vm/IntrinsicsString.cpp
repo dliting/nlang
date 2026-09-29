@@ -29,7 +29,6 @@ Exception; substring range errors raise IndexOutOfBoundsException.
 namespace nlang
 {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Read one string operand (receiver at slot 0, args from slot 1). Returns
 //by value: the store can grow during an intrinsic (result strings), and a
@@ -39,33 +38,52 @@ static std::string ReadStrArg(VmExecutor& ex,
     const uint8_t* locals, uint16_t callParamBase, int slot)
 {
     int32_t handle;
-    std::memcpy(&handle, locals + callParamBase + slot * VALUE_SIZE,
+    std::memcpy(&handle, locals + callParamBase + slot * kFrameSlotBytes,
         sizeof(handle));
     return ex.StrValCopy(handle);   //args are consumed once; Copy avoids
                                     //any in-place flatten surprise mid-ABI
 }
 
 //Phase 11 Step 3: allocate one boxed-value heap slot (layout per OP_Box:
-//slot[0]=typeTag, slot[1]=value bits, m_slotKinds=RTK_Boxed). Extracted
-//from the OP_Box body so split (and later fs.listFiles) share the exact
-//allocation semantics — always allocate, even for value 0 (null literals
-//never reach boxing; treating 0 as null broke List<int>.add(0)).
-int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int32_t val)
+//cell[0]=typeTag, cell[1]=value low bits, cell[2]=value high bits,
+//m_slotKinds=RTK_Boxed).
+//Extracted from the OP_Box body so split (and later fs.listFiles) share
+//the exact allocation semantics — always allocate, even for value 0
+//(null literals never reach boxing; treating 0 as null broke
+//List<int>.add(0)).
+//0.7.5: payload width from the registry — 8-byte rows (long/ulong and
+//later double) span cells [1..2]; every ≤4-byte tag (incl. the string
+//and func handle families) rides cell[1] with the high cell zeroed by
+//the assign/emplace above.
+int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
 {
     int32_t heapIdx;
     if (!m_freeList.empty()) {
         heapIdx = m_freeList.back();
         m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(2, 0);
+        m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(2, 0);
+        m_structHeap.emplace_back(3, 0);
         m_slotKinds.push_back(0);
         m_slotStructIdx.push_back(0);
     }
-    m_structHeap[static_cast<size_t>(heapIdx)][0] =
-        static_cast<int32_t>(typeTag);
-    m_structHeap[static_cast<size_t>(heapIdx)][1] = val;
+    auto& rec = m_structHeap[static_cast<size_t>(heapIdx)];
+    rec[0] = static_cast<int32_t>(typeTag);
+    int pi = ScalarPrimIndexOfRtk(typeTag);
+    if (pi >= 0 && kScalarPrims[pi].slotWidth == 8)
+    {
+        uint64_t bits;
+        std::memcpy(&bits, &val, sizeof(bits));
+        rec[1] = static_cast<int32_t>(
+            static_cast<uint32_t>(bits & 0xFFFFFFFFu));
+        rec[2] = static_cast<int32_t>(
+            static_cast<uint32_t>(bits >> 32));
+    }
+    else
+    {
+        rec[1] = static_cast<int32_t>(val);
+    }
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Boxed;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
     m_gcPending = true;
@@ -99,9 +117,9 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
     {
         std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         int32_t start, end;
-        std::memcpy(&start, locals + callParamBase + VALUE_SIZE,
+        std::memcpy(&start, locals + callParamBase + kFrameSlotBytes,
             sizeof(start));
-        std::memcpy(&end, locals + callParamBase + 2 * VALUE_SIZE,
+        std::memcpy(&end, locals + callParamBase + 2 * kFrameSlotBytes,
             sizeof(end));
         //Both offsets always staged by codegen: the 1-arg form is
         //lowered with end = receiver.length() (STD_ReceiverLength in

@@ -17,7 +17,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
     //Assignment statement.
 void VmBackend::Access(SnAssignStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -185,7 +184,7 @@ void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
         BytecodeEmitter& emitter) {
     EvalAreaClaim claim(*this, 2);
     uint16_t objSlot = claim.base();
-    uint16_t valueSlot = objSlot + VALUE_SIZE;
+    uint16_t valueSlot = objSlot + kFrameSlotBytes;
     EmitExpression(sub, emitter, objSlot);
     if (elemType->Kind() == NK_ClassDecl) {
         emitter.Emit(OpCode::OP_NullCheck);
@@ -210,8 +209,8 @@ void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
         BytecodeEmitter& emitter) {
     EvalAreaClaim claim(*this, 3);
     uint16_t claimBase = claim.base();
-    uint16_t indexSlot = claimBase + VALUE_SIZE;
-    uint16_t valueSlot = claimBase + 2 * VALUE_SIZE;
+    uint16_t indexSlot = claimBase + kFrameSlotBytes;
+    uint16_t valueSlot = claimBase + 2 * kFrameSlotBytes;
     //1. Evaluate right side → claim[2]
     EmitExpression(*assign.Right(), emitter, valueSlot);
     //2. Evaluate index → claim[1]
@@ -255,7 +254,7 @@ void VmBackend::EmitAssignClassField(SnAssignStmt& assign,
     uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
     EvalAreaClaim claim(*this, 2);
     uint16_t objSlot = claim.base();
-    uint16_t valueSlot = objSlot + VALUE_SIZE;
+    uint16_t valueSlot = objSlot + kFrameSlotBytes;
     EmitExpression(*memberExpr.Outer(), emitter, objSlot);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(objSlot);
@@ -305,8 +304,8 @@ void VmBackend::EmitAssignStructFieldDeepCopy(SnAssignStmt& assign,
         BytecodeEmitter& emitter) {
     EvalAreaClaim claim(*this, 3);
     uint16_t copySlot = claim.base();
-    uint16_t objSlot = copySlot + VALUE_SIZE;
-    uint16_t rhsSlot = objSlot + VALUE_SIZE;
+    uint16_t objSlot = copySlot + kFrameSlotBytes;
+    uint16_t rhsSlot = objSlot + kFrameSlotBytes;
     EmitExpression(*assign.Right(), emitter, rhsSlot);
     int fieldStructIdx = m_compiledModule.FindStruct(
         fieldType->Name());
@@ -332,7 +331,7 @@ void VmBackend::EmitAssignStructFieldPlain(SnAssignStmt& assign,
         BytecodeEmitter& emitter) {
     EvalAreaClaim claim(*this, 2);
     uint16_t objSlot = claim.base();
-    uint16_t valueSlot = objSlot + VALUE_SIZE;
+    uint16_t valueSlot = objSlot + kFrameSlotBytes;
     EmitExpression(*memberExpr.Outer(), emitter, objSlot);
     EmitExpression(*assign.Right(), emitter, valueSlot);
     emitter.Emit(OpCode::OP_StoreField);
@@ -395,8 +394,8 @@ void VmBackend::EmitCompoundAssignThisField(SnCompoundAssignStmt& ca,
         SnField* field, int fieldOff, int op, BytecodeEmitter& emitter) {
     EvalAreaClaim claim(*this, 3);
     uint16_t claimBase = claim.base();
-    uint16_t oldValSlot = claimBase + VALUE_SIZE;
-    uint16_t rhsSlot = claimBase + 2 * VALUE_SIZE;
+    uint16_t oldValSlot = claimBase + kFrameSlotBytes;
+    uint16_t rhsSlot = claimBase + 2 * kFrameSlotBytes;
     emitter.Emit(OpCode::OP_VarLocal);
     emitter.EmitUint16(ImplicitThisSlot());
     emitter.Emit(OpCode::OP_Assign);
@@ -441,8 +440,8 @@ void VmBackend::EmitCompoundAssignMemberField(SnCompoundAssignStmt& ca,
     uint16_t fieldOff = ResolveMemberFieldOffset(outerType, fieldName);
     EvalAreaClaim claim(*this, 3);
     uint16_t claimBase = claim.base();
-    uint16_t oldValSlot = claimBase + VALUE_SIZE;
-    uint16_t rhsSlot = claimBase + 2 * VALUE_SIZE;
+    uint16_t oldValSlot = claimBase + kFrameSlotBytes;
+    uint16_t rhsSlot = claimBase + 2 * kFrameSlotBytes;
     EmitExpression(*memberExpr.Outer(), emitter, claimBase);
     if (outerType->Kind() == NK_ClassDecl) {
         emitter.Emit(OpCode::OP_NullCheck);

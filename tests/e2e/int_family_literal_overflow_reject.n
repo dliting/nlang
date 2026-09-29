@@ -1,0 +1,6 @@
+// 0.7.5: a decimal literal beyond UINT64_MAX is a lexical error.
+import io;
+int main() {
+    io.print(18446744073709551616);
+    return 0;
+}

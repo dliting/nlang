@@ -1,0 +1,16 @@
+// 0.7.5: switch accepts the integer family — a long discriminant
+// matches long-tiered case constants and in-range narrow labels.
+import io;
+int main() {
+    long v = 5000000000;
+    switch (v) {
+        case 5000000000: io.print("hit"); break;
+        default: io.print("miss"); break;
+    }
+    long w = 6;
+    switch (w) {
+        case 6: io.print("narrow"); break;
+        default: io.print("miss"); break;
+    }
+    return 0;
+}

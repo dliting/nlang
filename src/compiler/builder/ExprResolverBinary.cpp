@@ -11,6 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/vm/StdLib.h>
 #include <algorithm>
 #include <map>
@@ -106,23 +107,78 @@ bool ExprResolveAccessor::RejectArrayIdentityMisuse(SnBinaryExpr &sn,
 	return false;
 }
 
-//Symmetric int/float promotion (Phase 8e-8 mechanism) extended to
+//0.7.5 numeric promotion (spec §2.2), registry-derived. Narrower-than-
+//int integer operands promote to int FIRST (byte+byte = int, the C#
+//rule); then the result is the smallest type that can implicitly
+//receive BOTH operands. bool/char never arrive here (their categories
+//are not numeric — callers gate). Returns null when no implicit common
+//type exists (int/long + ulong).
+SnField* ExprResolveAccessor::CommonNumericType(NodeKind lk, NodeKind rk)
+{
+	int li = ScalarPrimIndexOf(lk), ri = ScalarPrimIndexOf(rk);
+	if (li < 0 || ri < 0)
+		return nullptr;
+	const auto &lRow = kScalarPrims[li], &rRow = kScalarPrims[ri];
+	if (!PrimCategoryIsNumeric(lRow.category)
+		|| !PrimCategoryIsNumeric(rRow.category))
+		return nullptr;
+	//float involved → the wider float rank wins; any float beats any
+	//integer (C# rule): float+float stays float, byte+double is double.
+	if (lRow.category == PC_Float || rRow.category == PC_Float)
+	{
+		bool anyDouble = (lRow.category == PC_Float && lRow.rank == 2)
+			|| (rRow.category == PC_Float && rRow.rank == 2);
+		return SnBuiltinDataType::InstanceOf(
+			anyDouble ? NK_Double : NK_Float);
+	}
+	//both integers: widen narrower-than-int rows to int first
+	//(registry rank <3 = narrower than the int/uint rank 3)
+	if (lRow.rank < 3) { lk = NK_Int32; li = ScalarPrimIndexOf(lk); }
+	if (rRow.rank < 3) { rk = NK_Int32; ri = ScalarPrimIndexOf(rk); }
+	if (lk == rk)
+		return SnBuiltinDataType::InstanceOf(lk);
+	//smallest implicit receiver of both: the first registry integer row
+	//both operands are domain-contained in (registry order is
+	//int,..,uint,..,long,ulong — int+uint→long, long+uint→long,
+	//uint+ulong→ulong; int+ulong finds no row → null).
+	for (size_t i = 0; i < kScalarPrimCount; ++i)
+	{
+		const auto &p = kScalarPrims[i];
+		if (!PrimCategoryIsNumeric(p.category) || p.category == PC_Float)
+			continue;
+		if (PrimDomainContained(kScalarPrims[li].category,
+				kScalarPrims[li].rank, p.category, p.rank)
+			&& PrimDomainContained(kScalarPrims[ri].category,
+				kScalarPrims[ri].rank, p.category, p.rank))
+			return SnBuiltinDataType::InstanceOf(p.kind);
+	}
+	return nullptr;  // e.g. int + ulong
+}
+
+//Symmetric numeric promotion (Phase 8e-8 mechanism) extended to
 //comparisons. Prerequisite the arithmetic branch does not have: BOTH
 //operands numeric and neither a null literal — class/enum/null pairs
 //stay on their existing identity or sentinel paths, and wrapping them
 //(as the arithmetic branch would) would break e.g. class identity
-//equality.
-void ExprResolveAccessor::PromoteCompareOperands(SnBinaryExpr &sn,
+//equality. 0.7.5: the promotion type comes from CommonNumericType; a
+//null common type (int vs ulong) is a compile error — codegen would
+//otherwise compare mismatched widths. False = rejected.
+bool ExprResolveAccessor::PromoteCompareOperands(SnBinaryExpr &sn,
 	NodeKind lk, NodeKind rk, bool lNull, bool rNull)
 {
-	bool lNum = lk == NK_Int32 || lk == NK_Float;
-	bool rNum = rk == NK_Int32 || rk == NK_Float;
-	if (!(lNum && rNum && !lNull && !rNull && lk != rk))
-		return;
-	SnField* T_promote =
-		(lk == NK_Float || rk == NK_Float)
-		? SnBuiltinDataType::InstanceOf(NK_Float)
-		: SnBuiltinDataType::InstanceOf(NK_Int32);
+	if (lNull || rNull || lk == rk)
+		return true;
+	if (!PrimKindIsNumeric(lk) || !PrimKindIsNumeric(rk))
+		return true;
+	SnField* T_promote = CommonNumericType(lk, rk);
+	if (!T_promote)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"no implicit common type for \"%s\" and \"%s\".",
+			sn.Left()->EvalDataType()->ToString().c_str(),
+			sn.Right()->EvalDataType()->ToString().c_str());
+		return false;
+	}
 	auto it = sn.Children().begin();
 	auto& leftExpr = static_cast<SnExpression&>(*it);
 	TypeCastInfo leftCI(leftExpr.EvalDataType(), T_promote);
@@ -131,6 +187,7 @@ void ExprResolveAccessor::PromoteCompareOperands(SnBinaryExpr &sn,
 	auto& rightExpr = static_cast<SnExpression&>(*it);
 	TypeCastInfo rightCI(rightExpr.EvalDataType(), T_promote);
 	FixupExprType(it, rightCI);
+	return true;
 }
 
 //Phase 11 Q4: relational operands get type checks here — the old
@@ -154,7 +211,8 @@ bool ExprResolveAccessor::CheckCompareOperands(SnBinaryExpr &sn,
 		return false;
 	if (RejectBoolMisuse(sn, op, lk, rk))
 		return false;
-	PromoteCompareOperands(sn, lk, rk, lNull, rNull);
+	if (!PromoteCompareOperands(sn, lk, rk, lNull, rNull))
+		return false;
 	return true;
 }
 
@@ -224,8 +282,9 @@ bool ExprResolveAccessor::RejectBoolMisuse(SnBinaryExpr &sn,
 }
 
 //T_result selection for the arithmetic branch: string + OP_Add
-//(concat; Phase 8e-9a) beats float beats int. Null = op not supported
-//on a string operand (diagnostic logged).
+//(concat; Phase 8e-9a) beats the numeric family beats int. Null = op
+//not supported on a string operand, or no implicit common numeric type
+//(both diagnosed).
 SnField* ExprResolveAccessor::SelectArithmeticResultType(SnBinaryExpr &sn,
 	SnBinaryExpr::Operator op)
 {
@@ -247,8 +306,23 @@ SnField* ExprResolveAccessor::SelectArithmeticResultType(SnBinaryExpr &sn,
 		//Then OP_Concat_str concatenates the two string indices.
 		return SnBuiltinDataType::InstanceOf(NK_String);
 	}
-	if (lk == NK_Float || rk == NK_Float)
-		return SnBuiltinDataType::InstanceOf(NK_Float);
+	//0.7.5: both operands numeric → the registry-derived common type;
+	//a null common type (int + ulong) is a compile error, not a silent
+	//int truncation. Non-numeric leftovers (enum arithmetic, void)
+	//keep the legacy int result.
+	if (PrimKindIsNumeric(lk) && PrimKindIsNumeric(rk))
+	{
+		SnField* T_common = CommonNumericType(lk, rk);
+		if (!T_common)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"no implicit common type for \"%s\" and \"%s\".",
+				sn.Left()->EvalDataType()->ToString().c_str(),
+				sn.Right()->EvalDataType()->ToString().c_str());
+			return nullptr;
+		}
+		return T_common;
+	}
 	return SnBuiltinDataType::InstanceOf(NK_Int32);
 }
 

@@ -1,0 +1,24 @@
+// 0.7.5: the full integer family — declare, assign, print, and the
+// C#-unchecked truncation of an explicit `as byte` narrowing.
+import io;
+int main() {
+    byte b = 100;
+    ubyte ub = 200;
+    short s = -300;
+    ushort us = 60000;
+    int i = 2147483647;
+    uint u = 4000000000;
+    long l = 9007199254740993;
+    ulong ul = 18000000000000000000;
+    io.print(b);
+    io.print(ub);
+    io.print(s);
+    io.print(us);
+    io.print(i);
+    io.print(u);
+    io.print(l);
+    io.print(ul);
+    byte w = (127 + 1) as byte;
+    io.print(w);
+    return 0;
+}

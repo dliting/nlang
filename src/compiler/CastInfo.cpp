@@ -7,18 +7,6 @@ namespace nlang
 
 TypeCastKind TypeCastInfo::s_CastTable[NK_DT_COUNT][NK_DT_COUNT];
 
-//Value-domain containment: does every value of catA/rankA fit in
-//catB/rankB? The six legal cross-sign containments (spec §2.2):
-//ubyte→short/int/long, ushort→int/long, uint→long.
-static bool DomainContained(ScalarPrimCategory ca, uint8_t ra,
-                            ScalarPrimCategory cb, uint8_t rb)
-{
-	if (ca == cb) return ra <= rb;              // same-sign chain / float chain
-	if (ca == PC_UInt && cb == PC_SInt)          // the three cross-sign cases
-		return rb >= ra + 1;                     // ubyte(1)→short(2), ushort(2)→int(3), uint(3)→long(4)
-	return false;
-}
-
 //0.7.5: one derivation rule per scalar pair replaces the hand-written
 //matrix — the source of truth is the registry's category+rank.
 static TypeCastKind DeriveScalarCast(const ScalarPrimInfo &src,
@@ -46,7 +34,7 @@ static TypeCastKind DeriveScalarCast(const ScalarPrimInfo &src,
 		bool dstInt = dst.category != PC_Float;
 		if (srcInt && !dstInt) return TCK_Auto;              // int → f32/f64
 		if (!srcInt && dstInt) return TCK_Explicit;          // f32/f64 → int
-		if (DomainContained(src.category, src.rank,
+		if (PrimDomainContained(src.category, src.rank,
 			dst.category, dst.rank))
 			return TCK_Auto;                                  // widening
 		return TCK_Explicit;                                  // narrowing / sign-change

@@ -18,7 +18,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Phase 8e-9b: non-class receiver toString() dispatch.
 //For enum/int/float receivers, the resolver accepted the call
@@ -262,7 +261,7 @@ void VmBackend::EmitMemberStringEquals(SnInvokeExpr& invoke,
     uint16_t paramIdx = 1;
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
-            claimBase + paramIdx * VALUE_SIZE);
+            claimBase + paramIdx * kFrameSlotBytes);
         ++paramIdx;
     }
     CopyClaimToCallParams(claimBase, n, emitter);
@@ -317,14 +316,14 @@ bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
     uint16_t paramIdx = 1;
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
-            claimBase + paramIdx * VALUE_SIZE);
+            claimBase + paramIdx * kFrameSlotBytes);
         ++paramIdx;
     }
     if (stagedArgs > argCount) {
         //dst = StrLen(receiver copy at claim slot 0)
         emitter.Emit(OpCode::OP_StrLen);
         emitter.EmitUint16(static_cast<uint16_t>(
-            claimBase + stagedArgs * VALUE_SIZE));
+            claimBase + stagedArgs * kFrameSlotBytes));
         emitter.EmitUint16(claimBase);
     }
     CopyClaimToCallParams(claimBase, n, emitter);

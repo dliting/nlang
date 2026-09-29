@@ -3,6 +3,7 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <vector>
 
 namespace nlang
@@ -10,16 +11,26 @@ namespace nlang
 
 //Kind→family mapper for the switch label model — file-static: this TU's
 //duplicate-detection and family-gating arms are its only consumers.
+//0.7.5: registry-driven — every integer-category row (byte..ulong)
+//joins the Int family (one 64-bit key domain); float rows stay Float
+//(double joins with Task 7); bool/char stay None — bool by design,
+//char until its Task 8 switch support (spec section 3.4).
 static StatementResolveAccessor::SwitchFamily SwitchFamilyOfKind(NodeKind kind)
 {
-	switch (kind)
+	if (kind == NK_String)
+		return StatementResolveAccessor::SwitchFamily::String;
+	int pi = ScalarPrimIndexOf(kind);
+	if (pi >= 0)
 	{
-	case NK_Int32:
-	case NK_EnumDecl:	return StatementResolveAccessor::SwitchFamily::Int;
-	case NK_Float:	return StatementResolveAccessor::SwitchFamily::Float;
-	case NK_String:	return StatementResolveAccessor::SwitchFamily::String;
-	default:	return StatementResolveAccessor::SwitchFamily::None;
+		const auto c = kScalarPrims[pi].category;
+		if (c == PC_SInt || c == PC_UInt)
+			return StatementResolveAccessor::SwitchFamily::Int;
+		if (c == PC_Float)
+			return StatementResolveAccessor::SwitchFamily::Float;
 	}
+	if (kind == NK_EnumDecl)
+		return StatementResolveAccessor::SwitchFamily::Int;
+	return StatementResolveAccessor::SwitchFamily::None;
 }
 
 //Enum member reference (`Color.Red`): the resolved Field() chain
@@ -60,6 +71,15 @@ bool StatementResolveAccessor::ExtractLiteralLabel(SnLiteralExpr& lit,
 	case NK_Int32:
 		key.family = SwitchFamily::Int;
 		key.intValue = lit.Value().Get<int32_t>();
+		return true;
+	case NK_Long:
+		key.family = SwitchFamily::Int;
+		key.intValue = lit.Value().Get<int64_t>();
+		return true;
+	case NK_ULong:
+		key.family = SwitchFamily::Int;
+		key.intValue = static_cast<int64_t>(
+			lit.Value().Get<uint64_t>());
 		return true;
 	case NK_Float:
 		key.family = SwitchFamily::Float;

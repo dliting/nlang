@@ -1,0 +1,7 @@
+// 0.7.5: a constant outside the target's value range is an error,
+// not a silent truncation.
+import io;
+int main() {
+    byte bad = 1000;
+    return 0;
+}

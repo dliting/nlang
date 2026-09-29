@@ -1,0 +1,8 @@
+// 0.7.5: decimal literals tier by value range — beyond int32 the
+// literal is long, beyond int64 it is ulong.
+import io;
+int main() {
+    io.print(5000000000);
+    io.print(18446744073709551615);
+    return 0;
+}

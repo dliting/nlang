@@ -4,10 +4,11 @@
 //→ call) deterministically; hosts embedding the VM register their own
 //table via VmExecutor::RegisterNative instead.
 //
-//ABI reminder (VmExecutor.h): args[i] is the i-th 4-byte argument cell —
-//raw int32/float bits or heap idx, exactly the bytes the caller staged at
-//callParamBase. The return value is memcpy'd into ret (may be null for
-//void natives). argc is the declaration's paramCount.
+//ABI reminder (VmExecutor.h): args[i] is the i-th uniform frame cell
+//(kFrameSlotBytes = 8 bytes; a 4-byte argument's value is in the low
+//half) — exactly the bytes the caller staged at callParamBase. The
+//return value is memcpy'd into ret (may be null for void natives).
+//argc is the declaration's paramCount.
 //
 //Production note: ncc and nvm are test hosts — they always register these
 //natives so the e2e suite can exercise the binding path. A production
@@ -25,7 +26,7 @@ inline void NatAdd(uint8_t* ret, const uint8_t* args, int argc) {
     (void)argc;
     int32_t a, b;
     std::memcpy(&a, args, sizeof(a));
-    std::memcpy(&b, args + 4, sizeof(b));
+    std::memcpy(&b, args + kFrameSlotBytes, sizeof(b));
     int32_t r = a + b;
     std::memcpy(ret, &r, sizeof(r));
 }
@@ -42,7 +43,7 @@ inline void NatFAdd(uint8_t* ret, const uint8_t* args, int argc) {
     (void)argc;
     float a, b;
     std::memcpy(&a, args, sizeof(a));
-    std::memcpy(&b, args + 4, sizeof(b));
+    std::memcpy(&b, args + kFrameSlotBytes, sizeof(b));
     float r = a + b;
     std::memcpy(ret, &r, sizeof(r));
 }

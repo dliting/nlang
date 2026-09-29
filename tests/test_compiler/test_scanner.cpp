@@ -48,13 +48,14 @@ static std::vector<TokenPos> ScanAll(const char* zInput) {
 }
 
 //Every fixture scans "int 5;" plus leading noise; the token triple is
-//always KT_Int, TT_UByte (unsigned 5 fits a byte), ';'.
+//always KT_Int, TT_Int (unsigned 5 fits int32 under the tiered
+//literal rules), ';'.
 static void CheckTokenTriple(const std::vector<TokenPos>& tokens) {
     CHECK(tokens.size() == 3);
     if (tokens.size() != 3)
         return;
     CHECK(tokens[0].type == KT_Int);
-    CHECK(tokens[1].type == TT_UByte);
+    CHECK(tokens[1].type == TT_Int);
     CHECK(tokens[2].type == ';');
 }
 

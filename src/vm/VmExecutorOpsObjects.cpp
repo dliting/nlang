@@ -25,13 +25,20 @@ void VmExecutor::OpLoadField(BytecodeReader& reader, uint8_t* locals) {
     uint16_t fieldOff = reader.ReadUint16();
     int32_t heapIdx;
     std::memcpy(&heapIdx, locals + obj, sizeof(heapIdx));
-    int32_t fieldIdx = static_cast<int32_t>(fieldOff / 4);
+    //Every struct/class data field is a uniform 2-cell (8-byte) heap
+    //slot (0.7.5 Step A2); fieldOff is the emission-side byte offset.
+    //The 8-byte copy fills the whole frame slot — narrow kinds read the
+    //low half, so the upper bytes ride along harmlessly.
+    int32_t fieldIdx = static_cast<int32_t>(fieldOff / kHeapCellBytes);
+    const size_t kFieldCells = kHeapFieldStrideBytes / kHeapCellBytes;
     if (heapIdx < 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size()
         || fieldIdx < 0
-        || static_cast<size_t>(fieldIdx) >= m_structHeap[static_cast<size_t>(heapIdx)].size())
+        || static_cast<size_t>(fieldIdx) + kFieldCells
+            > m_structHeap[static_cast<size_t>(heapIdx)].size())
         throw std::runtime_error("NLang VM: struct field access out of bounds");
-    int32_t val = m_structHeap[static_cast<size_t>(heapIdx)][static_cast<size_t>(fieldIdx)];
-    std::memcpy(locals + dst, &val, sizeof(val));
+    std::memcpy(locals + dst,
+                &m_structHeap[static_cast<size_t>(heapIdx)][static_cast<size_t>(fieldIdx)],
+                kHeapFieldStrideBytes);
 }
 
 void VmExecutor::OpStoreField(BytecodeReader& reader, uint8_t* locals) {
@@ -40,14 +47,15 @@ void VmExecutor::OpStoreField(BytecodeReader& reader, uint8_t* locals) {
     uint16_t src = reader.ReadUint16();
     int32_t heapIdx;
     std::memcpy(&heapIdx, locals + obj, sizeof(heapIdx));
-    int32_t fieldIdx = static_cast<int32_t>(fieldOff / 4);
-    int32_t val;
-    std::memcpy(&val, locals + src, sizeof(val));
+    int32_t fieldIdx = static_cast<int32_t>(fieldOff / kHeapCellBytes);
+    const size_t kFieldCells = kHeapFieldStrideBytes / kHeapCellBytes;
     if (heapIdx < 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size()
         || fieldIdx < 0
-        || static_cast<size_t>(fieldIdx) >= m_structHeap[static_cast<size_t>(heapIdx)].size())
+        || static_cast<size_t>(fieldIdx) + kFieldCells
+            > m_structHeap[static_cast<size_t>(heapIdx)].size())
         throw std::runtime_error("NLang VM: struct field store out of bounds");
-    m_structHeap[static_cast<size_t>(heapIdx)][static_cast<size_t>(fieldIdx)] = val;
+    std::memcpy(&m_structHeap[static_cast<size_t>(heapIdx)][static_cast<size_t>(fieldIdx)],
+                locals + src, kHeapFieldStrideBytes);
 }
 
 void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
@@ -118,18 +126,27 @@ void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {
     if (idx < 0 || idx >= length)
         RaiseNlangException(m_oobExcClassIdx,
                             "NLang VM: array index out of bounds");
-    int32_t val = slot[3 + idx];
-    std::memcpy(locals + dst, &val, sizeof(val));
+    //0.7.5: element stride is registry-driven (slot[1] holds the array
+    //type idx recorded at alloc). A 2-cell element copies 8 bytes —
+    //the destination frame slot is the uniform 8-byte cell.
+    uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
+    if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error(
+            "NLang VM: OP_LoadElement on invalid array type");
+    const int cells = ArrayElemCells(
+        m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
+    std::memcpy(locals + dst,
+        slot.data() + 3 + static_cast<size_t>(idx) * cells,
+        static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
 void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
     uint16_t arr = reader.ReadUint16();
     uint16_t index = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
-    int32_t heapIdx, idx, val;
+    int32_t heapIdx, idx;
     std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
     std::memcpy(&idx, locals + index, sizeof(idx));
-    std::memcpy(&val, locals + src, sizeof(val));
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
@@ -143,7 +160,16 @@ void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
     if (idx < 0 || idx >= length)
         RaiseNlangException(m_oobExcClassIdx,
                             "NLang VM: array index out of bounds");
-    slot[3 + idx] = val;
+    //0.7.5: mirror of OP_LoadElement's stride read — 2-cell elements
+    //copy the full 8 bytes from the source frame slot.
+    uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
+    if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error(
+            "NLang VM: OP_StoreElement on invalid array type");
+    const int cells = ArrayElemCells(
+        m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
+    std::memcpy(slot.data() + 3 + static_cast<size_t>(idx) * cells,
+        locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
 void VmExecutor::OpArrayLength(BytecodeReader& reader, uint8_t* locals) {
@@ -166,8 +192,13 @@ void VmExecutor::OpArrayLength(BytecodeReader& reader, uint8_t* locals) {
 
 void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
     uint8_t typeTag = reader.ReadByte();
-    int32_t val;
-    std::memcpy(&val, pResult, sizeof(val));
+    //0.7.5: payload width from the registry — 8-byte rows (long/ulong)
+    //read the full slot; ≤4-byte tags keep the legacy 4-byte read (the
+    //upper half of the slot can be stale for narrow writers).
+    int pi = ScalarPrimIndexOfRtk(typeTag);
+    bool wide = pi >= 0 && kScalarPrims[pi].slotWidth == 8;
+    int64_t val = 0;
+    std::memcpy(&val, pResult, wide ? sizeof(val) : sizeof(int32_t));
     //Allocation (incl. the always-allocate invariant for val==0)
     //lives in AllocBoxedValue — shared with IntrinsicsString.cpp.
     int32_t heapIdx = AllocBoxedValue(typeTag, val);
@@ -199,8 +230,23 @@ void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
             "NLang VM: invalid unbox - expected ") + tagName(expectedTag) +
             ", got " + tagName(static_cast<uint8_t>(actualTag)));
     }
-    int32_t val = m_structHeap[static_cast<size_t>(heapIdx)][1];
-    std::memcpy(pResult, &val, sizeof(val));
+    //0.7.5: payload width from the registry (mirror of OpBox) — 8-byte
+    //rows rebuild the value from cells [1..2]; ≤4-byte tags read
+    //cell[1].
+    int pi = ScalarPrimIndexOfRtk(expectedTag);
+    if (pi >= 0 && kScalarPrims[pi].slotWidth == 8)
+    {
+        auto& rec = m_structHeap[static_cast<size_t>(heapIdx)];
+        uint64_t bits = static_cast<uint32_t>(rec[1])
+            | (static_cast<uint64_t>(
+                static_cast<uint32_t>(rec[2])) << 32);
+        std::memcpy(pResult, &bits, sizeof(bits));
+    }
+    else
+    {
+        int32_t val = m_structHeap[static_cast<size_t>(heapIdx)][1];
+        std::memcpy(pResult, &val, sizeof(val));
+    }
 }
 
 void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {

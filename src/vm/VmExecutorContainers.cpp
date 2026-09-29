@@ -3,6 +3,7 @@
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "VmExecutor.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cstring>
 #include <cstdio>
 #include <exception>
@@ -96,19 +97,37 @@ bool VmExecutor::DictKeysEqual(int32_t k1, int32_t k2) const {
         return false;
     if (kind == RTK_Class || kind == RTK_Struct)
         return k1 == k2;  //identity (k1!=k2 already checked above → false)
-    //RTK_Boxed: branch on the wrapped type tag (slot[0]).
-    int32_t tag1 = m_structHeap[static_cast<size_t>(k1)][0];
-    int32_t tag2 = m_structHeap[static_cast<size_t>(k2)][0];
-    if (tag1 != tag2) return false;
-    int32_t bits1 = m_structHeap[static_cast<size_t>(k1)][kBoxedValueSlot];
-    int32_t bits2 = m_structHeap[static_cast<size_t>(k2)][kBoxedValueSlot];
-    if (tag1 == RTK_String) {
-        //bits are string-object handles. This method is const (a GC/dict
-        //helper, never an execution path), so content comparison goes
-        //through the non-mutating StrValCopy; invalid handles read "".
-        return StrValCopy(bits1) == StrValCopy(bits2);
+    //RTK_Boxed: the shared full-payload comparator (0.7.5: 8-byte rows
+    //carry a hi cell a lo-only compare silently dropped).
+    return BoxedValuesEqual(k1, k2);
+}
+
+bool VmExecutor::BoxedValuesEqual(int32_t a, int32_t b) const
+{
+    if (a <= 0 || b <= 0
+        || static_cast<size_t>(a) >= m_structHeap.size()
+        || static_cast<size_t>(b) >= m_structHeap.size())
+        return false;
+    const auto& recA = m_structHeap[static_cast<size_t>(a)];
+    const auto& recB = m_structHeap[static_cast<size_t>(b)];
+    if (recA[0] != recB[0])
+        return false;
+    if (recA[0] == RTK_String) {
+        //Value cells are string-object handles. This method is const (a
+        //GC/dict helper, never an execution path), so content comparison
+        //goes through the non-mutating StrValCopy; invalid handles read "".
+        return StrValCopy(recA[kBoxedValueSlot])
+            == StrValCopy(recB[kBoxedValueSlot]);
     }
-    return bits1 == bits2;  //int / float value bits
+    int row = ScalarPrimIndexOfRtk(static_cast<uint8_t>(recA[0]));
+    if (row < 0)
+        return false;
+    if (recA[kBoxedValueSlot] != recB[kBoxedValueSlot])
+        return false;
+    //8-byte rows (long/ulong) must compare the hi cell too; narrower
+    //rows keep the value-extension convention in the lo cell alone.
+    return kScalarPrims[row].slotWidth < 8
+        || recA[kBoxedValueSlot + 1] == recB[kBoxedValueSlot + 1];
 }
 
 //Phase 8e-3 fix-up: read this.__handle from callParamBase[0] for a List
@@ -137,36 +156,23 @@ int32_t VmExecutor::ReadListHandle(uint16_t callParamBase, uint8_t* locals,
 
 //Shared matcher behind IndexOf/Contains (was ~25 verbatim-duplicated
 //lines in each intrinsic). Decodes the probe value, then compares it
-//against each stored element: boxed primitives by tag — strings by
-//content (aligns with == and Dict; the old payload bit compare made
-//indexOf("hel"+"lo") miss a stored "hello"), int/float by value bits —
-//and reference values by identity. Returns the matching index or -1.
+//against each stored element: boxed primitives through BoxedValuesEqual
+//(strings by content, scalars by full payload — 0.7.5: 8-byte rows
+//compare both cells) and reference values by identity. Returns the
+//matching index or -1.
 int32_t VmExecutor::FindListElement(const ListSlot& list, int32_t value)
 {
     bool primitiveT = (value > 0
         && static_cast<size_t>(value) < m_slotKinds.size()
         && m_slotKinds[value] == RTK_Boxed);
-    int32_t valTag = 0, valBits = 0;
-    if (primitiveT) {
-        valTag = m_structHeap[static_cast<size_t>(value)][0];
-        valBits = m_structHeap[static_cast<size_t>(value)][kBoxedValueSlot];
-    }
     for (size_t i = 0; i < list.elements.size(); ++i) {
         int32_t elem = list.elements[i];
         bool match = false;
         if (primitiveT) {
             if (elem > 0
                 && static_cast<size_t>(elem) < m_slotKinds.size()
-                && m_slotKinds[elem] == RTK_Boxed) {
-                int32_t elemTag =
-                    m_structHeap[static_cast<size_t>(elem)][0];
-                int32_t elemBits =
-                    m_structHeap[static_cast<size_t>(elem)][kBoxedValueSlot];
-                if (elemTag == RTK_String && valTag == RTK_String)
-                    match = (StrVal(elemBits) == StrVal(valBits));
-                else
-                    match = (elemBits == valBits);  //int/float bits
-            }
+                && m_slotKinds[elem] == RTK_Boxed)
+                match = BoxedValuesEqual(elem, value);
         } else {
             if (elem == value) match = true;
         }

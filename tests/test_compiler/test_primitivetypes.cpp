@@ -194,6 +194,19 @@ private:
     std::vector<std::string> m_errors;
 };
 
+//Collects warning diagnostics only (0.7.5 lossy-warn pin).
+class WarnLogger : public CompileLogger
+{
+public:
+    void WriteLog(CompileLogLevel level, const ISourceLocation*,
+        const char* szMessage) override
+    {
+        if (level == CLL_Warn)
+            m_warnings.emplace_back(szMessage);
+    }
+    std::vector<std::string> m_warnings;
+};
+
 //One real build mints the Sn mirrors for every registered primitive
 //(BuildFromRuntime walks the global namespace, which StaticInit filled
 //with all 13 Rn type singletons). The builder must OUTLIVE the test
@@ -317,6 +330,82 @@ static void test_cast_matrix()
     PASS();
 }
 
+//---- lossy-conversion warnings (0.7.5 Task 6) -----------------------------
+
+//One real build per case (the warning fires in the resolver's
+//FixupExprType pass). Sequential scoped builders: each destructs before
+//the next constructs (~ModuleBuilder clears TheAST — the same lifetime
+//discipline test_module_import's lib/main pair relies on). The output
+//module name must be unique per call: the global ModuleManager rejects
+//a duplicate registration outright, which would turn every case after
+//the first into a vacuous no-warning pass.
+static bool compileWarnings(const std::string &src, bool noWarn,
+    std::vector<std::string> &outWarnings)
+{
+    static int s_caseSeq = 0;
+    const auto dir = std::filesystem::temp_directory_path()
+        / "nlang_prim_warn_tests";
+    std::error_code fsError;
+    std::filesystem::create_directories(dir, fsError);
+    const auto file = dir / "main.n";
+    {
+        std::ofstream stream(file, std::ios::binary);
+        stream << src;
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back(file.string());
+    params.m_sProjectDir = dir.string();
+    params.m_sOutputModule = "prim_warn_case"
+        + std::to_string(++s_caseSeq);
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_bNoWarn = noWarn;
+    WarnLogger logger;
+    bool ok = false;
+    {
+        ModuleBuilder builder(params, logger);
+        try { ok = builder.Build(); } catch (const std::exception&) {}
+    }
+    outWarnings = logger.m_warnings;
+    return ok;
+}
+
+static size_t countLossyWarnings(const std::vector<std::string> &logs)
+{
+    size_t n = 0;
+    for (const auto &s : logs)
+        if (s.find("loses precision") != std::string::npos)
+            ++n;
+    return n;
+}
+
+static void test_lossy_warning()
+{
+    TEST(lossy_warning);
+    std::vector<std::string> w;
+    //16777217 is the first int a float32 cannot hold — implicit
+    //int→float conversion warns exactly once.
+    CHECK(compileWarnings(
+        "int main() { float f = 16777217; return 0; }\n", false, w),
+        "case build must succeed");
+    CHECK(countLossyWarnings(w) == 1,
+        "int->float lossy conversion must warn exactly once");
+    //Exactly representable constants stay silent, as do integer-family
+    //widenings (double joins this pin in the Task 7 suite).
+    CHECK(compileWarnings(
+        "int main() { float f = 5; float g = 16777216; long l = 7;"
+        " return 0; }\n", false, w),
+        "case build must succeed");
+    CHECK(countLossyWarnings(w) == 0,
+        "representable constants and widenings must not warn");
+    //--no-warn silences the whole warning family.
+    CHECK(compileWarnings(
+        "int main() { float f = 16777217; return 0; }\n", true, w),
+        "case build must succeed");
+    CHECK(w.empty(), "--no-warn must suppress every warning");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -328,6 +417,7 @@ int main()
     test_categories();
     test_nodekind_layout();
     test_cast_matrix();
+    test_lossy_warning();
 
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -51,8 +51,8 @@ static constexpr size_t kMaxParamDescCount = 256;
 //  RTK_Array              : 1 nested element descriptor
 //  RTK_List               : 1 nested T descriptor
 //  RTK_Dict               : 2 nested K, V descriptors
-//  RTK_Int32 / RTK_Float / RTK_String / RTK_Boxed / RTK_Func /
-//  RTK_NonSerialized     : kind byte only
+//  every scalar kind (RTK_Int32/RTK_Float plus RTK_Byte..RTK_Char) /
+//  RTK_String / RTK_Boxed / RTK_Func / RTK_NonSerialized : kind byte only
 //RTK_NonSerialized is the "type present but not expressible" sentinel
 //(interface types, Func<...> signatures, defensive lookup misses) —
 //consumers degrade to the int32 placeholder for those, matching the

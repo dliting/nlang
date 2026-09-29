@@ -82,6 +82,33 @@ bool_ordering_reject compile_error bool values cannot be ordered
 bool_mixed_reject compile_error a bool value can only be compared with a bool value
 bool_box_roundtrip 0
 
+# --- integer family (0.7.5) ---
+int_family_basic 0 9007199254740993
+int_family_as_wrap 0 -128
+int_family_promote 0 2147483648
+int_family_promote_reject compile_error no implicit common type
+int_family_overflow 0 -2147483648
+int_family_literal_tier 0 18446744073709551615
+int_family_literal_overflow_reject compile_error
+int_family_constant_fit 0 3000000000
+int_family_constant_fit_reject compile_error out of range
+int_family_lossy_warn 0 rounded
+ncc_no_warn 0 rounded
+int_family_box 0 5000000000
+int_family_tostring 0 [9223372036854775807, -1]
+int_family_boxed_eq 0 ok
+container_probe_type_reject compile_error Incompatible type
+init_list_int_to_float 0
+init_list_long_after_call 0
+init_list_constant_fit_reject compile_error out of range
+init_struct_long_field 0
+init_class_long_field 0
+dict_init_nonstring_key_reject compile_error string keys
+dict_subscript_read_key 0
+dict_subscript_read_key_type_reject compile_error Incompatible type
+int_family_switch 0 hit
+int_family_cross_mod_default 0 5000000005
+
 # --- for loop ---
 for_loop 45
 for_break 10
@@ -253,6 +280,7 @@ file_stream_missing_read_throws 1
 # --- Phase 8b: struct serialization ---
 bs_struct_simple 30
 bs_struct_string 1
+bs_struct_long_field 0 ok
 bs_struct_nested 13
 bs_struct_float_field 4
 bs_struct_class_field 0

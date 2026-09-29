@@ -4,13 +4,13 @@
 ---*/
 #include "VmExecutor.h"
 #include "VmExecutorSer.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cstring>
 #include <cstdio>
 #include <exception>
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 void VmExecutor::RegisterNative(const std::string& name, NativeFn fn)
 {
@@ -47,7 +47,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (intrinsicId == INTR_Object_Equals) {
         int32_t thisHeapIdx, otherHeapIdx;
         std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
-        std::memcpy(&otherHeapIdx, locals + callParamBase + VALUE_SIZE,
+        std::memcpy(&otherHeapIdx, locals + callParamBase + kFrameSlotBytes,
                     sizeof(otherHeapIdx));
         int32_t result;
         if (thisHeapIdx == 0 && otherHeapIdx == 0)
@@ -88,19 +88,17 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         //toString shares the payload handle: string objects are
         //immutable, and handle 0 reads as "" everywhere).
         if (m_slotKinds[static_cast<size_t>(thisHeapIdx)] == RTK_Boxed) {
-            int32_t tag = m_structHeap[static_cast<size_t>(thisHeapIdx)][0];
-            int32_t val = m_structHeap[static_cast<size_t>(thisHeapIdx)][1];
+            const auto& rec = m_structHeap[static_cast<size_t>(thisHeapIdx)];
             int32_t handle;
-            if (tag == RTK_Int32) {
-                handle = MintNewString(std::to_string(val));
-            } else if (tag == RTK_Float) {
-                float fv;
-                std::memcpy(&fv, &val, sizeof(fv));
-                char fbuf[32];
-                std::snprintf(fbuf, sizeof(fbuf), "%g", fv);
-                handle = MintNewString(fbuf);
-            } else if (tag == RTK_String) {
-                handle = val > 0 ? val : MintNewString(std::string());
+            if (rec[0] == RTK_String) {
+                handle = rec[1] > 0 ? rec[1] : MintNewString(std::string());
+            } else if (ScalarPrimIndexOfRtk(
+                           static_cast<uint8_t>(rec[0])) >= 0) {
+                //0.7.5: the full scalar family (narrow rows, uint,
+                //long/ulong) renders through the canonical registry
+                //renderer — records are {tag, lo, hi}.
+                handle = MintNewString(FormatScalarValue(
+                    static_cast<uint8_t>(rec[0]), rec[1], rec[2]));
             } else {
                 throw std::runtime_error(
                     "NLang VM: toString on unsupported boxed type tag");
@@ -127,8 +125,9 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //Phase 9d: Exception ctor intrinsic. Shared by all 5 built-in
     //Exception subclasses (INTR_Exception_Ctor, INTR_NullPointer..,
     //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..).
-    //Formals: (this, message). Writes message idx to slot[1], allocates
-    //an empty List<string> and stores its heap idx in slot[2] (backtrace).
+    //Formals: (this, message). Writes message idx to cell[1], allocates
+    //an empty List<string> and stores its heap idx in cell[3] (backtrace
+    //— field 1 under the uniform 2-cell stride).
     //Direct writes (no held references) because AllocClassOnHeap may
     //reallocate m_structHeap mid-execution.
     if (intrinsicId == INTR_Exception_Ctor
@@ -148,23 +147,23 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
 
         //Read message formal (string handle).
         int32_t msgHandle;
-        std::memcpy(&msgHandle, locals + callParamBase + VALUE_SIZE,
+        std::memcpy(&msgHandle, locals + callParamBase + kFrameSlotBytes,
                     sizeof(msgHandle));
 
-        //slot[1] = message (string handle). Direct write — safe because
+        //cell[1] = message (string handle). Direct write — safe because
         //no allocation between read and write.
         m_structHeap[static_cast<size_t>(thisHeapIdx)][1] = msgHandle;
 
-        //slot[2] = backtrace. Allocate a List<string>, set __handle = 0
-        //(empty), then write its heap idx to slot[2]. The allocation may
+        //cell[3] = backtrace. Allocate a List<string>, set __handle = 0
+        //(empty), then write its heap idx to cell[3]. The allocation may
         //reallocate m_structHeap, so we don't hold any references across
         //the AllocClassOnHeap call.
         int32_t listHeapIdx = AllocClassOnHeap(
             static_cast<uint16_t>(m_listClassIdx));
         if (listHeapIdx > 0) {
-            //__handle field (slot[1] of List instance) = 0 = empty
+            //__handle field (cell[1] of List instance) = 0 = empty
             m_structHeap[static_cast<size_t>(listHeapIdx)][1] = 0;
-            m_structHeap[static_cast<size_t>(thisHeapIdx)][2] = listHeapIdx;
+            m_structHeap[static_cast<size_t>(thisHeapIdx)][3] = listHeapIdx;
         }
         return;
     }
@@ -192,7 +191,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_List_Add: push element to list.
     if (intrinsicId == INTR_List_Add) {
         int32_t value;
-        std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
+        std::memcpy(&value, locals + callParamBase + kFrameSlotBytes, sizeof(value));
         int32_t handle = ReadListHandle(callParamBase, locals, "add");
         m_listStore[handle - 1].elements.push_back(value);
         return;
@@ -200,7 +199,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_List_Get: return element at index.
     if (intrinsicId == INTR_List_Get) {
         int32_t idx;
-        std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
+        std::memcpy(&idx, locals + callParamBase + kFrameSlotBytes, sizeof(idx));
         int32_t handle = ReadListHandle(callParamBase, locals, "get");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
@@ -213,8 +212,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_List_Set: replace element at index.
     if (intrinsicId == INTR_List_Set) {
         int32_t idx, value;
-        std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
-        std::memcpy(&value, locals + callParamBase + 2 * VALUE_SIZE, sizeof(value));
+        std::memcpy(&idx, locals + callParamBase + kFrameSlotBytes, sizeof(idx));
+        std::memcpy(&value, locals + callParamBase + 2 * kFrameSlotBytes, sizeof(value));
         int32_t handle = ReadListHandle(callParamBase, locals, "set");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
@@ -233,7 +232,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_List_RemoveAt: erase element at index.
     if (intrinsicId == INTR_List_RemoveAt) {
         int32_t idx;
-        std::memcpy(&idx, locals + callParamBase + VALUE_SIZE, sizeof(idx));
+        std::memcpy(&idx, locals + callParamBase + kFrameSlotBytes, sizeof(idx));
         int32_t handle = ReadListHandle(callParamBase, locals, "removeAt");
         auto& lst = m_listStore[handle - 1];
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
@@ -251,7 +250,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //inspect).
     if (intrinsicId == INTR_List_IndexOf) {
         int32_t value;
-        std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
+        std::memcpy(&value, locals + callParamBase + kFrameSlotBytes, sizeof(value));
         int32_t handle = ReadListHandle(callParamBase, locals, "indexOf");
         int32_t result = FindListElement(m_listStore[handle - 1], value);
         std::memcpy(pResult, &result, sizeof(result));
@@ -261,7 +260,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //class branching as IndexOf (C2 fix); matching lives in FindListElement.
     if (intrinsicId == INTR_List_Contains) {
         int32_t value;
-        std::memcpy(&value, locals + callParamBase + VALUE_SIZE, sizeof(value));
+        std::memcpy(&value, locals + callParamBase + kFrameSlotBytes, sizeof(value));
         int32_t handle = ReadListHandle(callParamBase, locals, "contains");
         int32_t result =
             (FindListElement(m_listStore[handle - 1], value) >= 0) ? 1 : 0;
@@ -296,8 +295,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_Dict_Set: insert-or-replace (linear scan).
     if (intrinsicId == INTR_Dict_Set) {
         int32_t k, v;
-        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
-        std::memcpy(&v, locals + callParamBase + 2 * VALUE_SIZE, sizeof(v));
+        std::memcpy(&k, locals + callParamBase + kFrameSlotBytes, sizeof(k));
+        std::memcpy(&v, locals + callParamBase + 2 * kFrameSlotBytes, sizeof(v));
         int32_t handle = ReadDictHandle(callParamBase, locals, "set");
         auto& entries = m_dictStore[handle - 1].entries;
         for (auto& kv : entries) {
@@ -309,7 +308,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_Dict_Get: lookup; throw on missing key.
     if (intrinsicId == INTR_Dict_Get) {
         int32_t k;
-        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
+        std::memcpy(&k, locals + callParamBase + kFrameSlotBytes, sizeof(k));
         int32_t handle = ReadDictHandle(callParamBase, locals, "get");
         auto& entries = m_dictStore[handle - 1].entries;
         for (auto& kv : entries) {
@@ -323,7 +322,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_Dict_ContainsKey: 1 if found, 0 otherwise.
     if (intrinsicId == INTR_Dict_ContainsKey) {
         int32_t k;
-        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
+        std::memcpy(&k, locals + callParamBase + kFrameSlotBytes, sizeof(k));
         int32_t handle = ReadDictHandle(callParamBase, locals, "containsKey");
         auto& entries = m_dictStore[handle - 1].entries;
         int32_t result = 0;
@@ -336,7 +335,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //INTR_Dict_Remove: 1 if removed, 0 if not found.
     if (intrinsicId == INTR_Dict_Remove) {
         int32_t k;
-        std::memcpy(&k, locals + callParamBase + VALUE_SIZE, sizeof(k));
+        std::memcpy(&k, locals + callParamBase + kFrameSlotBytes, sizeof(k));
         int32_t handle = ReadDictHandle(callParamBase, locals, "remove");
         auto& entries = m_dictStore[handle - 1].entries;
         int32_t result = 0;

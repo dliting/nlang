@@ -213,10 +213,16 @@ private:
 	SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 		const CompiledModule &cm, const ISourceLocation &loc)
 	{
+		//0.7.5: scalar kinds (legacy RTK_Int32/RTK_Float and the
+		//RTK_Byte..RTK_Char family) resolve through the registry — the
+		//old switch handled only RTK_Float, silently degrading every
+		//other scalar to the int32 placeholder (an imported `long`
+		//formal/return truncated its 8-byte values at consumer call
+		//sites before this arm existed).
+		if (int pi = ScalarPrimIndexOfRtk(td.kind); pi >= 0)
+			return new SnIdentifierExpr(kScalarPrims[pi].kind, loc);
 		switch (td.kind)
 		{
-			case RTK_Float:
-				return new SnIdentifierExpr(NK_Float, loc);
 			case RTK_String:
 				return new SnIdentifierExpr(NK_String, loc);
 			case RTK_Struct:
@@ -285,6 +291,12 @@ private:
 			case RTK_Int32:
 				return new SnLiteralExpr(*RnInt32::Instance(),
 					static_cast<int32_t>(dv.intValue), loc);
+			case RTK_Long:
+				return new SnLiteralExpr(*RnLong::Instance(),
+					static_cast<int64>(dv.longValue), loc);
+			case RTK_ULong:
+				return new SnLiteralExpr(*RnULong::Instance(),
+					static_cast<uint64>(dv.longValue), loc);
 			case RTK_Float:
 				return new SnLiteralExpr(*RnFloat::Instance(),
 					dv.floatValue, loc);

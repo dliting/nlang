@@ -1,0 +1,5 @@
+// 0.7.5: cross-module long default parameter — the DefaultValueDesc
+// 8-byte channel carries the value through .nmod serialization.
+long dist(long base, long scale = 5000000000) {
+    return base + scale;
+}

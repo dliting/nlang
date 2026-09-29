@@ -11,6 +11,7 @@
 #include <nlang/compiler/SnExtraTypes.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/NodeConsts.h>
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cassert>
 #include <map>
 #include <unordered_set>
@@ -52,50 +53,78 @@ void VmBackend::Access(SnGenericTypeExpr& expr) {
                                : std::string("?")));
 }
 
-void VmBackend::Access(SnLiteralExpr& expr) {
-    NodeKind kind = expr.Kind();
-    BytecodeEmitter& emitter = *m_pCurrEmitter;
-    uint16_t resultOffset = m_resultOffset;
-        auto& lit = static_cast<SnLiteralExpr&>(expr);
-        auto* evalType = lit.EvalDataType();
-
-        if (!evalType) {
-            //Round-12: a literal without a resolved type is an internal error.
-            throw std::runtime_error(
-                "NLang backend: literal expression without a resolved type");
-        }
-
-        NodeKind typeKind = evalType->Kind();
-        //0.7.5: bool literals ride the int32 carrier (0/1) — same const
-        //op as int. Task 6 generalizes this branch family by registry
-        //slot width.
-        if (typeKind == NK_Int32 || typeKind == NK_Bool) {
+//Literal arm: registry-driven scalar emission. Integer rows pick the
+//const op by slot width — 8-byte rows (long/ulong) use OP_ConstInt64
+//with a kind-exact Variant read (Get<int32_t> on a long literal would
+//read only the low 4 bytes); every 4-byte row (int/bool/char carriers)
+//rides OP_ConstInt32. The double row is float-category and reserved
+//for Task 7's OP_ConstDouble.
+void VmBackend::EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
+                                  BytecodeEmitter& emitter,
+                                  uint16_t resultOffset) {
+    const auto& row = kScalarPrims[ScalarPrimIndexOf(typeKind)];
+    if (row.category == PC_SInt || row.category == PC_UInt) {
+        if (row.slotWidth == 8) {
+            int64_t v = typeKind == NK_ULong
+                ? static_cast<int64_t>(lit.Value().Get<uint64_t>())
+                : lit.Value().Get<int64_t>();
+            emitter.Emit(OpCode::OP_ConstInt64);
+            emitter.EmitInt64(v);
+        } else {
             int32_t v = lit.Value().Get<int32_t>();
             emitter.Emit(OpCode::OP_ConstInt32);
             emitter.EmitInt32(v);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-        } else if (typeKind == NK_Float) {
-            float v = lit.Value().Get<float>();
-            emitter.Emit(OpCode::OP_ConstFloat);
-            emitter.EmitFloat(v);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-        } else if (typeKind == NK_String) {
-            auto* pStr = lit.Value().Data().m_String;
-            std::string sVal = pStr ? *pStr : "";
-            uint16_t poolIdx = AddStringConstant(sVal);
-            emitter.Emit(OpCode::OP_ConstString);
-            emitter.EmitUint16(poolIdx);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-        } else {
-            //Round-12: unknown literal type — internal error.
-            throw std::runtime_error(
-                "NLang backend: literal with unhandled type kind: "
-                + std::to_string(static_cast<int>(typeKind)));
         }
-        return;
+    } else if (typeKind == NK_Float) {
+        float v = lit.Value().Get<float>();
+        emitter.Emit(OpCode::OP_ConstFloat);
+        emitter.EmitFloat(v);
+    } else if (typeKind == NK_Bool) {
+        //Bool rides the int32 carrier (0/1) — same const op.
+        int32_t v = lit.Value().Get<int32_t>();
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(v);
+    } else {
+        //Round-12 shape: unhandled scalar literal kind. char
+        //literals land with Task 8, double literals Task 7.
+        throw std::runtime_error(
+            "NLang backend: literal with unhandled type kind: "
+            + std::to_string(static_cast<int>(typeKind)));
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
+void VmBackend::Access(SnLiteralExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    uint16_t resultOffset = m_resultOffset;
+    auto& lit = static_cast<SnLiteralExpr&>(expr);
+    auto* evalType = lit.EvalDataType();
+
+    if (!evalType) {
+        //Round-12: a literal without a resolved type is an internal error.
+        throw std::runtime_error(
+            "NLang backend: literal expression without a resolved type");
+    }
+
+    NodeKind typeKind = evalType->Kind();
+    if (ScalarPrimIndexOf(typeKind) >= 0) {
+        EmitScalarLiteral(lit, typeKind, emitter, resultOffset);
+    } else if (typeKind == NK_String) {
+        auto* pStr = lit.Value().Data().m_String;
+        std::string sVal = pStr ? *pStr : "";
+        uint16_t poolIdx = AddStringConstant(sVal);
+        emitter.Emit(OpCode::OP_ConstString);
+        emitter.EmitUint16(poolIdx);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+    } else {
+        //Round-12: unknown literal type — internal error.
+        throw std::runtime_error(
+            "NLang backend: literal with unhandled type kind: "
+            + std::to_string(static_cast<int>(typeKind)));
+    }
+    return;
 }
 
 //Identifier arm: default-param binding override — read the formal's

@@ -17,7 +17,9 @@
 #include "nlang.tab.h"
 #include "ScriptScanner.h"
 #include <cassert>
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 /* handle locations */
@@ -81,44 +83,37 @@ do {																		\
 } while(0)
 
 
+/*0.7.5 value-range tiering: <=INT32_MAX stays int, then long, then
+  ulong — the five narrow tokens retired (constant-fit at the cast
+  site replaces lexical tiering into byte/short).*/
 #define DEAL_INT_TOKEN(n)													\
 do {																		\
-    if (n >= -128)															\
+    if (n >= INT32_MIN && n <= INT32_MAX)									\
     {																		\
-        yylval->v_Byte = n;													\
-        return TT_Byte;														\
-    }																		\
-    else if (n >= -65536)													\
-    {																		\
-        yylval->v_Short = n;												\
-        return TT_Short;													\
-    }																		\
-    else																	\
-    {																		\
-        yylval->v_Int = n;													\
+        yylval->v_Int = (nlang::int32)n;									\
         return TT_Int;														\
     }																		\
-} while(0)																	
+    yylval->v_Long = n;														\
+    return TT_Long;															\
+} while(0)
 
 
 #define DEAL_UINT_TOKEN(n)													\
 do {																		\
-    if (n < 128)															\
+    if (n <= INT32_MAX)														\
     {																		\
-        yylval->v_UByte = n;												\
-        return TT_UByte;													\
+        yylval->v_Int = (nlang::int32)n;									\
+        return TT_Int;														\
     }																		\
-    else if (n < 65536)														\
+    if (n <= INT64_MAX)														\
     {																		\
-        yylval->v_UShort = n;												\
-        return TT_UShort;													\
+        yylval->v_Long = (nlang::int64)n;									\
+        return TT_Long;														\
     }																		\
-    else																	\
-    {																		\
-        yylval->v_UInt = n;													\
-        return TT_UInt;														\
-    }																		\
-} while(0)																	
+    yylval->v_ULong = n;													\
+    return TT_ULong;														\
+} while(0)
+
 
 %}
 %option extra-type="nlang::ScriptScanner*"
@@ -171,6 +166,7 @@ LineComment	\/\/[^\n]*
 "in"        { return KT_In; }
 "int"       { return KT_Int; }
 "interface" { return KT_Interface; }
+"long"      { return KT_Long; }
 "namespace" { return KT_Namespace; }
 "native"    { return KT_Native; }
 "new"       { return KT_New; }
@@ -193,6 +189,7 @@ LineComment	\/\/[^\n]*
 "try"       { return KT_Try; }
 "ubyte"     { return KT_Ubyte; }
 "uint"      { return KT_Uint; }
+"ulong"     { return KT_ULong; }
 "ushort"    { return KT_Ushort; }
 "using"     { return KT_Using; }
 "virtual"   { return KT_Virtual; }
@@ -276,43 +273,61 @@ LineComment	\/\/[^\n]*
             }
 
 {DecInt}    {
-                /*Full-value parse. The pattern admits exponent forms
-                 *("2e5"), and sscanf("%d") silently stops at 'e' (the
-                 *whole literal would read as 2). atof applies the
-                 *exponent; values that are not integral or fall outside
-                 *the 32-bit token range (int32 signed / uint32 unsigned)
-                 *are rejected as TT_Error — same channel as the unknown
-                 *string-escape rejection. */
-                double full = atof(yytext);
-                if (yytext[0] == '-')
+                /*Full-value 64-bit parse (0.7.5): plain decimals go
+                 *through strtoll/strtoull so the long/ulong tiers stay
+                 *exact (a double parse loses bits past 2^53); beyond
+                 *INT64_MIN/UINT64_MAX is a lexical error. Exponent
+                 *forms ("2e5") stay in this rule for now but tier
+                 *through the same DEAL macros (double parse, integral
+                 *values only) — they migrate to {Float}/double with
+                 *P5. */
+                const char* pExp = strpbrk(yytext, "eE");
+                if (pExp != NULL)
                 {
-                    if (full < INT32_MIN || full != std::floor(full))
+                    double full = atof(yytext);
+                    if (full != std::floor(full))
                         return TT_Error;
-                    nlang::int32 n;
-                    n = (nlang::int32)full;
+                    if (yytext[0] == '-')
+                    {
+                        if (full < INT32_MIN) return TT_Error;
+                        DEAL_INT_TOKEN((nlang::int64)full);
+                    }
+                    else
+                    {
+                        if (full > UINT32_MAX) return TT_Error;
+                        DEAL_UINT_TOKEN((nlang::uint64)full);
+                    }
+                }
+                else if (yytext[0] == '-')
+                {
+                    errno = 0;
+                    nlang::int64 n = strtoll(yytext, NULL, 10);
+                    if (errno == ERANGE) return TT_Error;
                     DEAL_INT_TOKEN(n);
                 }
                 else
                 {
-                    if (full > UINT32_MAX || full != std::floor(full))
-                        return TT_Error;
-                    nlang::uint32 n;
-                    n = (nlang::uint32)full;
+                    errno = 0;
+                    nlang::uint64 n = strtoull(yytext, NULL, 10);
+                    if (errno == ERANGE) return TT_Error;
                     DEAL_UINT_TOKEN(n);
                 }
             }
 
 {HexInt}    {
+                /*Full-value 64-bit parse (0.7.5), same tiers as DecInt. */
                 if (yytext[0] == '-')
                 {
-                    nlang::int32 n;
-                    sscanf(yytext, "%x", &n);
+                    errno = 0;
+                    nlang::int64 n = strtoll(yytext, NULL, 16);
+                    if (errno == ERANGE) return TT_Error;
                     DEAL_INT_TOKEN(n);
                 }
                 else
                 {
-                    nlang::uint32 n;
-                    sscanf(yytext, "%x", &n);
+                    errno = 0;
+                    nlang::uint64 n = strtoull(yytext, NULL, 16);
+                    if (errno == ERANGE) return TT_Error;
                     DEAL_UINT_TOKEN(n);
                 }
             }

@@ -1,0 +1,12 @@
+// 0.7.5: int→float implicit conversion may lose precision — the
+// compiler warns (int_family_lossy_warn.stderr pins the warning through
+// the real CLI), the program still runs. float32 rounds 16777217 to
+// 16777216 (the halfway tie rounds to even); %g printing cannot show
+// that low bit, so the == comparison observes the rounding directly.
+import io;
+int main() {
+    float f = 16777217;
+    if (f == 16777216) { io.print("rounded"); }
+    else { io.print("exact"); }
+    return 0;
+}

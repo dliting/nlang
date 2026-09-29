@@ -352,9 +352,9 @@ private:
 	bool BindContainerArgPositions(SnInvokeExpr &invoke,
 		const std::vector<SnField*> &typeArgs,
 		const std::string &baseName, const std::string &name,
-		int elemSlot, size_t valArg, bool isStoreValue,
+		int elemSlot, size_t valArg,
 		SnExpression *&rpWrapValue, SnExpression *&rpWrapKey);
-	void WrapContainerStoreArgs(SnInvokeExpr &invoke,
+	void WrapContainerElemArgs(SnInvokeExpr &invoke,
 		const std::vector<SnField*> &typeArgs, int elemSlot,
 		SnExpression *pWrapKey, SnExpression *pWrapValue);
 	SnField *ComputeContainerMethodResult(SnMemberExpr &snMember,
@@ -619,10 +619,24 @@ private:
 	2026-09-27 decomposition of the cast/binding resolution family
 	(ExprResolverCast.cpp) — the reject/skip gates of FixupExprType, the
 	named-arg arm of FixupParamTypesWithBindings and the named array
-	diagnostic arm of ComputeBindingDistance.
+	diagnostic arm of ComputeBindingDistance. ConstantFitGate (0.7.5)
+	runs the Java/C# constant-fit rule inside RejectIncompatibleCast;
+	its verdicts leave the cast info untouched (NotApplicable), promote
+	an in-range constant narrowing to TCK_Auto (Promoted) or log the
+	out-of-range error (Rejected). The fit/lossy predicates themselves
+	live in ExprResolverCastFit.hpp (pure functions, no resolver state).
 	*/
+	enum ConstantFitGateResult
+	{
+		CFG_NotApplicable,
+		CFG_Promoted,
+		CFG_Rejected
+	};
+
 	bool RejectIncompatibleCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool RejectArrayTokenCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
+	ConstantFitGateResult ConstantFitGate(SnExpression &srcExpr,
+		TypeCastInfo &castInfo);
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
 		TypeCastInfo &castInfo);
@@ -644,7 +658,12 @@ private:
 		NodeKind lk, NodeKind rk, bool lNull, bool rNull);
 	bool RejectBoolMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		NodeKind lk, NodeKind rk);
-	void PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
+	//0.7.5: registry-derived numeric promotion (spec §2.2). Returns the
+	//smallest type that can implicitly receive BOTH operands, or null
+	//when no implicit common type exists (int/long + ulong). Shared by
+	//arithmetic result selection and compare-operand promotion.
+	SnField *CommonNumericType(NodeKind lk, NodeKind rk);
+	bool PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
 		bool lNull, bool rNull);
 	bool CheckLogicalBoolOperands(SnBinaryExpr &sn);
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
@@ -652,22 +671,39 @@ private:
 		SnBinaryExpr::Operator op);
 
 	/*
-	2026-09-27 decomposition of the allocation/value resolution family
-	(ExprResolverNew.cpp / ExprResolverValues.cpp) — the ctor-arity check
-	of Access(SnNewExpr&), the four phases of Access(SnInitListExpr&)
-	and the string-base reject / container sugar of
-	Access(SnSubscriptExpr&).
+	2026-09-27 decomposition of the allocation resolution family
+	(ExprResolverNew.cpp) — the ctor-arity check of Access(SnNewExpr&)
+	and the allocation binding of Access(SnNewArrayExpr&).
 	*/
 	size_t CountPositionalCtorArgs(SnNewExpr &sn);
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
 	bool FindCtorArity(SnClassDecl *pClassDecl, size_t &ctorArity);
 	void CheckNewExprCtorArity(SnNewExpr &sn, SnClassDecl *pClassDecl);
+
+	/*
+	2026-09-29 split of the collection-initializer resolution family
+	(ExprResolverInitList.cpp, out of ExprResolverNew.cpp at the
+	source-size guard) — the phases of Access(SnInitListExpr&): target
+	determination, the class-form checks, the 0.7.5 Dict key-form gate
+	and the element/field cast wraps.
+	*/
 	bool ResolveInitListTarget(SnInitListExpr &sn,
 		SnField* &pTargetField, bool &bIsArray);
 	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
 	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
 	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);
 	void ApplyInitListElemCasts(SnInitListExpr &sn, SnField *pElemType);
+	void ApplyInitListFieldCasts(SnInitListExpr &sn, SnField *pTargetField);
+	SnField *InitListEntryFieldType(SnField &targetDecl,
+		const SnInitListExpr &sn, size_t entryIdx);
+	bool RejectNonStringDictInitKeys(SnInitListExpr &sn,
+		SnField *pTargetField);
+
+	/*
+	2026-09-27 decomposition of the value resolution family
+	(ExprResolverValues.cpp) — the string-base reject / container
+	sugar of Access(SnSubscriptExpr&).
+	*/
 	bool RejectStringSubscriptBase(SnSubscriptExpr &sn, SnField *pBaseType);
 	bool TryResolveContainerSubscript(SnSubscriptExpr &sn,
 		SnField *pBaseType);

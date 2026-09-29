@@ -17,7 +17,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 void VmBackend::Access(SnNewExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
@@ -98,7 +97,7 @@ void VmBackend::EmitCtorInvocation(SnNewExpr& newExpr, BytecodeEmitter& emitter,
     uint16_t paramIdx = 1;
     for (auto& param : newExpr.Args()) {
         if (&param == newExpr.ClassName()) continue;
-        uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+        uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
         EmitExpression(param, emitter, paramOffset);
         ++paramIdx;
     }
@@ -118,9 +117,9 @@ void VmBackend::EmitCtorInvocation(SnNewExpr& newExpr, BytecodeEmitter& emitter,
     //Bulk-copy evalArea claim → callParamBase just before the call.
     for (uint16_t i = 0; i < n; ++i) {
         emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
         emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+        emitter.EmitUint16(m_currFunc->callParamBase + i * kFrameSlotBytes);
     }
     emitter.Emit(OpCode::OP_CallMethodDirect);
     emitter.EmitUint16(ctorIdx);

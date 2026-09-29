@@ -1,0 +1,20 @@
+// 0.7.5: numeric promotion — narrower-than-int operands compute in
+// int; mixed-width integer pairs take the smallest common receiver.
+import io;
+int main() {
+    byte a = 100;
+    byte b = 20;
+    int s = a + b;
+    io.print(s);
+    byte c = (a + b) as byte;
+    io.print(c);
+    int i = 2147483647;
+    uint u = 1;
+    long l = i + u;
+    io.print(l);
+    long g = 5000000000;
+    uint w = 5;
+    long h = g + w;
+    io.print(h);
+    return 0;
+}

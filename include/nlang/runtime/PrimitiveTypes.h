@@ -118,6 +118,20 @@ inline bool PrimCategoryIsNumeric(ScalarPrimCategory c)
 }
 bool PrimKindIsNumeric(NodeKind kind);
 
+//Value-domain containment: does every value of category/rank A fit in
+//category/rank B? Shared by the cast-table derivation and numeric
+//promotion (CommonNumericType). The three cross-sign containments
+//(spec §2.2): ubyte→short/int/long, ushort→int/long, uint→long —
+//encoded as "unsigned rank r fits signed rank >= r+1".
+inline bool PrimDomainContained(ScalarPrimCategory ca, uint8_t ra,
+                                ScalarPrimCategory cb, uint8_t rb)
+{
+    if (ca == cb) return ra <= rb;      // same-sign chain / float chain
+    if (ca == PC_UInt && cb == PC_SInt) // the cross-sign cases
+        return rb >= ra + 1;
+    return false;
+}
+
 //Encode one Unicode scalar value as its 1-4 byte UTF-8 sequence.
 //Shared by RnChar::ValueToString here and the char->string bridge in
 //the VM (0.7.5 Task 6); surrogate-pair validity is the caller's job.

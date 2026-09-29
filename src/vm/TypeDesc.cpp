@@ -70,16 +70,19 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
 			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
 			break;
-		case RTK_Int32:
-		case RTK_Float:
 		case RTK_String:
 		case RTK_Boxed:
 		case RTK_Func:
 		case RTK_NonSerialized:
 			break;
 		default:
-			throw std::runtime_error(
-				"Invalid module: unknown type descriptor kind");
+			//0.7.5: every scalar kind (RTK_Int32/RTK_Float and the
+			//RTK_Byte..RTK_Char family) is a kind-byte-only leaf —
+			//accept through the registry instead of enumerating rows.
+			if (ScalarPrimIndexOfRtk(td.kind) < 0)
+				throw std::runtime_error(
+					"Invalid module: unknown type descriptor kind");
+			break;
 	}
 	return td;
 }
@@ -239,18 +242,17 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 			//since the basic-types expansion (the old layout held a
 			//coincidental identity for int/float/string) — map through the
 			//registry, never a cast. String is the one non-scalar builtin.
-			//Only the v1.12 descriptor-grammar scalars are emitted today;
-			//the new scalar kinds (RTK_Byte..RTK_Char) join alongside the
-			//ParseOne whitelist when their wire grammar lands — degrade
-			//anything the current parser would reject.
+			//0.7.5: every registry scalar emits its RTK (the pre-0.7.5 arm
+			//whitelisted only int32/float, degrading imported long
+			//formals/returns to NonSerialized — the consumer's int32
+			//placeholder then truncated the 8-byte values).
 			if (pType->Kind() == NK_String)
 			{
 				td.kind = RTK_String;
 				return td;
 			}
 			const uint8_t rtk = RtkOfKind(pType->Kind());
-			td.kind = (rtk == RTK_Int32 || rtk == RTK_Float)
-				? rtk : RTK_NonSerialized;
+			td.kind = (rtk != 0xFF) ? rtk : RTK_NonSerialized;
 			return td;
 		}
 	}

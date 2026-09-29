@@ -57,13 +57,46 @@ static constexpr uint8_t RTK_String = 2;
 static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;
 static constexpr uint8_t RTK_Array  = 5;
-static constexpr uint8_t RTK_Boxed  = 6;  //Phase 8e-1: boxed primitive (slot[0]=tag, slot[1]=value)
+static constexpr uint8_t RTK_Boxed  = 6;  //boxed primitive (slot[0]=tag, slots[1..2]=value; 8-byte family uses both cells)
 static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=target, slot[1]=this, slot[2]=form; 0=static, 1=virtual)
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
 static constexpr uint8_t RTK_Unfoldable = 0xFC;  //Option B: had default but not constant-foldable
 static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
+
+//--- Slot-width ABI (0.7.5) ----------------------------------------------
+//The frame and the heap use two different stride contracts; both live
+//here because they are shared by the backend (producer) and the
+//executor (consumer) — a per-TU constant on either side would drift.
+//
+//Frame: every slot — params, locals, temps, return, call staging, eval
+//area — is one uniform 8-byte cell. 4-byte kinds live value-extended in
+//the low half (narrow ints sign/zero-extended by their row); the upper
+//half may hold garbage that no kind-correct consumer ever reads.
+//long/ulong/double use all 8 bytes. One uniform stride replaces the
+//former 4-byte per-TU VALUE_SIZE statics, so no emission site has to
+//pick a copy width by kind (returns, switch value slots, temps and
+//eval-area claims are width-correct by construction).
+static constexpr uint16_t kFrameSlotBytes = 8;
+
+//Heap: records are vectors of int32 cells. Struct/class data fields are
+//uniform 2-cell (8-byte) slots — field i sits at cell 2i (struct) /
+//1+2i (class, cell 0 = classIdx for virtual dispatch) — which keeps the
+//positional field walks kind-free. Array elements are registry-driven:
+//1 cell for kinds up to 4 bytes, 2 cells for the long/double family.
+static constexpr uint16_t kHeapCellBytes = 4;
+static constexpr uint16_t kHeapFieldStrideBytes = 8;  // = 2 * kHeapCellBytes
+
+//Cells occupied by one array element of the given RTK elem kind:
+//2 for the 8-byte scalar family (long/ulong, double when it lands),
+//1 for everything else (≤4-byte scalars and every reference kind).
+//Element i of an array record lives at cell 3 + i*cells.
+inline int ArrayElemCells(uint8_t elemRtk)
+{
+    int pi = ScalarPrimIndexOfRtk(elemRtk);
+    return (pi >= 0 && kScalarPrims[pi].slotWidth > 4) ? 2 : 1;
+}
 
 struct LocalDescriptor {
     uint16_t offset = 0;
@@ -288,6 +321,10 @@ static_assert(INTR_FileSystem_Join
 //  RTK_Float  — floatValue holds the float default.
 //  RTK_String — stringIdx is an index into the PRODUCER module's stringConstants.
 //               The consumer loader remaps this into its own stringConstants.
+//  RTK_Long   — longValue holds the long default (0.7.5).
+//  RTK_ULong  — longValue holds the ulong default's bit pattern (0.7.5).
+//  RTK_Double — doubleValue holds the double default (0.7.5; payloads
+//               exist ahead of double literals landing in Task 7).
 //  RTK_Void   — sentinel: this formal has no default. Used to keep the vector
 //               dense (always == paramCount entries; entries without defaults
 //               carry RTK_Void so positional alignment is preserved).
@@ -299,6 +336,9 @@ struct DefaultValueDesc {
     uint32_t intValue = 0;     // RTK_Int32
     float    floatValue = 0.0f;// RTK_Float
     uint32_t stringIdx = 0;    // RTK_String (producer-side index)
+    //0.7.5: 8-byte scalar channels (RTK_Long/RTK_ULong/RTK_Double).
+    int64_t  longValue = 0;
+    double   doubleValue = 0.0;
 
     bool hasDefault() const { return tag != RTK_Void; }
 };

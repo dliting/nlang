@@ -30,7 +30,7 @@ SyntaxHighlighter::SyntaxHighlighter(QTextDocument* parent)
 SyntaxHighlighter::HighlightType SyntaxHighlighter::typeOf(int tokenType) {
     //Number and keyword tokens form contiguous ranges in nlang.tab.h;
     //match the ranges, not each value.
-    if (tokenType >= TT_Byte && tokenType <= TT_Float)
+    if (tokenType >= TT_Int && tokenType <= TT_Float)
         return HTT_Number;
     if (tokenType >= KT_Bool && tokenType <= KT_While)
         return HTT_Keyword;

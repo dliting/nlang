@@ -96,6 +96,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
                      sizeof(dv.floatValue));
             fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
                      sizeof(dv.stringIdx));
+            //0.7.5 v1.13: 8-byte scalar channels (RTK_Long/RTK_ULong/
+            //RTK_Double payloads). Unconditional — the v1.13 floor
+            //readers expect the extended record.
+            fs.write(reinterpret_cast<const char*>(&dv.longValue),
+                     sizeof(dv.longValue));
+            fs.write(reinterpret_cast<const char*>(&dv.doubleValue),
+                     sizeof(dv.doubleValue));
         }
 
         uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());

@@ -1,0 +1,21 @@
+// 0.7.5: boxed 8-byte payloads compare full width in List/Dict (stage-2
+// review: the equality read only the low cell, so a stored 4294967295
+// matched a probed -1 and a Dict long key 4294967295 matched key 0).
+import io;
+int main() {
+    List<long> a = new List<long>();
+    a.add(4294967295);
+    a.add(0);
+    if (a.contains(-1)) return 1;
+    if (!a.contains(4294967295)) return 2;
+    if (a.indexOf(-1) != -1) return 3;
+    Dict<long, int> d = new Dict<long, int>();
+    d.set(4294967295, 7);
+    d.set(0, 9);
+    if (!d.containsKey(4294967295)) return 4;
+    if (!d.containsKey(0)) return 5;
+    if (d.get(4294967295) != 7) return 6;
+    if (d.get(0) != 9) return 7;
+    io.print("ok");
+    return 0;
+}

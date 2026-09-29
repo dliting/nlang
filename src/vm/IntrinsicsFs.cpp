@@ -29,7 +29,6 @@ namespace nlang
 //the NLang namespace this TU implements.
 namespace fsys = std::filesystem;
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Read one string argument. Returns by value: the store can grow during an
 //intrinsic (result strings), and a held reference would dangle. Null or
@@ -38,7 +37,7 @@ static std::string ReadFsStringArg(VmExecutor& ex,
     const uint8_t* locals, uint16_t callParamBase, int slot)
 {
     int32_t handle;
-    std::memcpy(&handle, locals + callParamBase + slot * VALUE_SIZE, sizeof(handle));
+    std::memcpy(&handle, locals + callParamBase + slot * kFrameSlotBytes, sizeof(handle));
     return ex.StrValCopy(handle);
 }
 

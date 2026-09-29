@@ -46,6 +46,15 @@ public:
 		return m_Kind;
 	}
 
+	//0.7.5 constant-fit: promote the verdict at the decision site (an
+	//explicit-only narrowing whose source is a constant that fits the
+	//target converts implicitly — Java/C# rule). The one reclassification
+	//that exists; every other flow constructs and reads only.
+	void Kind(TypeCastKind k)
+	{
+		m_Kind = k;
+	}
+
 	SnField *Source() const
 	{
 		return m_pSource;

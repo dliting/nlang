@@ -78,7 +78,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
 
         case OpCode::OP_ConstZero: {
-            std::memset(pResult, 0, sizeof(int32_t));
+            //Zero the full uniform frame cell so 8-byte kinds read 0.
+            std::memset(pResult, 0, kFrameSlotBytes);
             break;
         }
 

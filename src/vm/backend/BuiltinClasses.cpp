@@ -9,14 +9,13 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 namespace {
 
 //One method stub: a CompiledFunction with intrinsicId set so
 //OP_CallMethod{,Direct} short-circuits to ExecuteIntrinsic.
 //paramCount includes the `this` slot; localsSize derives as
-//paramCount * VALUE_SIZE in the push helper.
+//paramCount * kFrameSlotBytes in the push helper.
 struct BuiltinMethod {
     const char* name;
     uint16_t intrinsicId;
@@ -220,7 +219,7 @@ uint16_t PushBuiltinMethodFunc(CompiledModule& module,
     CompiledFunction func;
     func.name = m.name;
     func.paramCount = m.paramCount;
-    func.localsSize = static_cast<uint16_t>(m.paramCount * VALUE_SIZE);
+    func.localsSize = static_cast<uint16_t>(m.paramCount * kFrameSlotBytes);
     func.returnTypeKind = m.returnTypeKind;
     func.intrinsicId = m.intrinsicId;
     module.functions.push_back(std::move(func));

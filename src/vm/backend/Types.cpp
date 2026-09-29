@@ -4,6 +4,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
@@ -77,6 +78,18 @@ void VmBackend::ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv) 
         dv.floatValue = lit->Value().Data().m_Float;
         return;
     }
+    //0.7.5: 8-byte scalar literals — kind-exact Variant member reads.
+    if (litType == RnLong::Instance()) {
+        dv.tag = RTK_Long;
+        dv.longValue = lit->Value().Data().m_Long;
+        return;
+    }
+    if (litType == RnULong::Instance()) {
+        dv.tag = RTK_ULong;
+        dv.longValue = static_cast<int64_t>(
+            lit->Value().Data().m_ULong);
+        return;
+    }
     if (litType == RnString::Instance()) {
         dv.tag = RTK_String;
         //Intern into producer's pool. Consumer remaps during load.
@@ -98,6 +111,12 @@ void VmBackend::ExtractNegatedLiteralDefault(SnBinaryExpr* bin,
             dv.tag = RTK_Int32;
             int32_t neg = -lit->Value().Data().m_Int;
             dv.intValue = static_cast<uint32_t>(neg);
+            return;
+        }
+        //0.7.5: negated long defaults fold the same way.
+        if (lit->Value().Type() == RnLong::Instance()) {
+            dv.tag = RTK_Long;
+            dv.longValue = -lit->Value().Data().m_Long;
             return;
         }
         if (lit->Value().Type() == RnFloat::Instance()) {
@@ -134,13 +153,14 @@ DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr) {
 //"is class-T (no boxing)" and "is int-T (box as RTK_Int32)" both yield tag=0.
 //Equivalent to the bool needsBoxing + uint8_t tTag pair from the Phase 8e-3
 //C1 fix; refactored here so List and Dict can share the helper.
+//0.7.5: registry-driven — every scalar row (and string/enum via their
+//carrier tags) boxes; class/struct/array/other kinds keep the no-boxing
+//verdict (BoxTypeTagOfKind's 0xFF).
 VmBackend::BoxingTagResult VmBackend::BoxingTagFor(SnField* pT) {
     if (!pT) return {0, false};
-    NodeKind k = pT->Kind();
-    if (k == NK_Int32 || k == NK_EnumDecl) return {RTK_Int32, true};
-    if (k == NK_Float)  return {RTK_Float,  true};
-    if (k == NK_String) return {RTK_String, true};
-    return {0, false};  //class/struct/other T → no boxing
+    uint8_t tag = BoxTypeTagOfKind(pT->Kind());
+    if (tag != 0xFF) return {tag, true};
+    return {0, false};
 }
 
 //Return-type kind for .nmod serialization (caller checks HasReturn()).

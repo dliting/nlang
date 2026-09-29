@@ -79,14 +79,16 @@ bool ExprResolveAccessor::CheckContainerMethodArity(SnInvokeExpr &invoke,
 //Phase 13 (D11 site 6, review round-1 F3): value positions by (base,
 //method) — List add/indexOf/contains arg 0 → T; List set arg 1 → T
 //(arg 0 is the int index); Dict get/containsKey/remove arg 0 → K;
-//Dict set arg 1 → V (arg 0 is the key). Also flags the STORE value
-//positions (List add/set value, Dict set value) which admit through
-//the cast table — the same choke point as subscript stores (0.7.3 B
-//T11): without this gate a mismatched value compiled and stored raw
-//bits (an int into List<float> read back as a denormal, an array
-//handle into List<int> into a primitive-traced slot). Read positions
-//(get/indexOf/contains/containsKey/remove) probe by equality and
-//stay ungated.
+//Dict set arg 1 → V (arg 0 is the key). Every element-typed position
+//admits through the cast table — the same choke point as subscript
+//stores (0.7.3 B T11) and init-list elements: without the wrap a
+//mismatched value compiled and crossed the boundary as raw bits
+//(an int into List<float> read back as a denormal; from 0.7.5 on,
+//an int probe into List<long> was boxed reading undefined upper
+//slot bytes, so contains(-1) matched a stored 4294967295). Probe
+//positions (indexOf/contains/containsKey/remove/get) are wrapped for
+//the same reason: OP_Box reads the staged slot at the element kind's
+//width, so the probe must already BE the element kind.
 static int ContainerElemSlotFor(const std::string &baseName,
 	const std::string &name, size_t &valArg)
 {
@@ -125,9 +127,6 @@ bool ExprResolveAccessor::BindContainerMethodArgs(SnInvokeExpr &invoke,
 	auto typeArgs = GetGenericTypeArgs(pGenClass);
 	size_t valArg = 0;
 	const int elemSlot = ContainerElemSlotFor(baseName, name, valArg);
-	const bool isStoreValue = (baseName == "List"
-			&& (name == "add" || name == "set"))
-		|| (baseName == "Dict" && name == "set");
 	if (elemSlot >= 0
 		&& typeArgs.size() > static_cast<size_t>(elemSlot)
 		&& typeArgs[elemSlot])
@@ -135,9 +134,9 @@ bool ExprResolveAccessor::BindContainerMethodArgs(SnInvokeExpr &invoke,
 		SnExpression* pWrapValue = nullptr;
 		SnExpression* pWrapKey = nullptr;
 		if (!BindContainerArgPositions(invoke, typeArgs, baseName, name,
-			elemSlot, valArg, isStoreValue, pWrapValue, pWrapKey))
+			elemSlot, valArg, pWrapValue, pWrapKey))
 			return false;
-		WrapContainerStoreArgs(invoke, typeArgs, elemSlot, pWrapKey,
+		WrapContainerElemArgs(invoke, typeArgs, elemSlot, pWrapKey,
 			pWrapValue);
 	}
 	return true;
@@ -145,20 +144,20 @@ bool ExprResolveAccessor::BindContainerMethodArgs(SnInvokeExpr &invoke,
 
 //One pass over the arguments: bind pending function references at the
 //value position (in-loop — binds never touch the child list) and collect
-//the store-value / Dict-key wrap candidates.
+//the element-value / Dict-key wrap candidates (stores and probes alike —
+//see ContainerElemSlotFor).
 //Deferred-wrap discipline: the wraps are applied AFTER the loop, not here —
 //FixupExprType frees the arg's list cell (Params() aliases Children()),
 //and wrapping inside the range-for leaves its saved iterator dangling
 //(heap-use-after-free on ++; manifests intermittently as SEGV, an endless
-//loop, or a lucky pass). Dict.set also gates its KEY argument (arg 0
+//loop, or a lucky pass). Dict.set also wraps its KEY argument (arg 0
 //against K): the key is stored when absent, and an ungated mismatched key
 //corrupted the key-slot invariant (DictKeysEqual compares by the declared
-//kind); read positions stay ungated per the read/write split.
+//kind).
 bool ExprResolveAccessor::BindContainerArgPositions(SnInvokeExpr &invoke,
 	const std::vector<SnField*> &typeArgs, const std::string &baseName,
 	const std::string &name, int elemSlot, size_t valArg,
-	bool isStoreValue, SnExpression *&rpWrapValue,
-	SnExpression *&rpWrapKey)
+	SnExpression *&rpWrapValue, SnExpression *&rpWrapKey)
 {
 	size_t argIdx = 0;
 	for (auto &arg : invoke.Params())
@@ -181,7 +180,7 @@ bool ExprResolveAccessor::BindContainerArgPositions(SnInvokeExpr &invoke,
 					typeArgs[elemSlot]))
 					return false;
 			}
-			else if (isStoreValue && pValue->IsResolved()
+			else if (pValue->IsResolved()
 				&& pValue->EvalDataType())
 			{
 				rpWrapValue = pValue;
@@ -202,8 +201,11 @@ bool ExprResolveAccessor::BindContainerArgPositions(SnInvokeExpr &invoke,
 //Deferred wraps (see BindContainerArgPositions): the element type-arg is
 //the interned token for array elements, so the cast table sees full type
 //identity — Same/Box/Auto wrap transparently under codegen's per-method
-//boxing plan, None rejects.
-void ExprResolveAccessor::WrapContainerStoreArgs(SnInvokeExpr &invoke,
+//boxing plan, None rejects. Applies to store AND probe positions: the
+//boxing plan stages the arg at the element kind's width, so the arg must
+//be converted to the element kind first (0.7.5: an int probe into
+//List<long> was boxed reading undefined upper slot bytes).
+void ExprResolveAccessor::WrapContainerElemArgs(SnInvokeExpr &invoke,
 	const std::vector<SnField*> &typeArgs, int elemSlot,
 	SnExpression *pWrapKey, SnExpression *pWrapValue)
 {

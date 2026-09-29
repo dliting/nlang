@@ -42,13 +42,17 @@ void VmExecutor::OpConstString(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 void VmExecutor::OpVarLocal(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+    //Uniform frame slots: copy the whole 8-byte cell. 4-byte kinds
+    //keep their value in the low half; the upper-half bytes may be
+    //garbage, which is harmless — kind-correct consumers never read
+    //them (see kFrameSlotBytes in CompiledModule.h).
     uint16_t offset = reader.ReadUint16();
-    std::memcpy(pResult, locals + offset, sizeof(int32_t));
+    std::memcpy(pResult, locals + offset, kFrameSlotBytes);
 }
 
 void VmExecutor::OpAssign(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t dstOffset = reader.ReadUint16();
-    std::memcpy(locals + dstOffset, pResult, sizeof(int32_t));
+    std::memcpy(locals + dstOffset, pResult, kFrameSlotBytes);
 }
 
 void VmExecutor::OpJump(BytecodeReader& reader) {
