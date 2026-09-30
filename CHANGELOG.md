@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.5] - Unreleased
+## [0.7.5] - 2026-09-30
 
 ### Added
 - The scalar primitive family is complete: twelve types — `byte`
@@ -79,7 +79,7 @@ All notable changes to NLang are documented here. The format follows
 - Negative enum member values (`enum E { A = -1 }`) are an explicit
   compile rejection; they hung the compiler outright before.
 
-## [0.7.4] - Unreleased
+## [0.7.4] - 2026-09-27
 
 ### Added
 - Source-size regression guard (`tools/source_size_guard`): hand-written

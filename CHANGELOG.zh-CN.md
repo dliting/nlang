@@ -6,7 +6,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.7.5] - Unreleased
+## [0.7.5] - 2026-09-30
 
 ### 新增
 - 标量基本类型家族完备：十二个类型——`byte` `ubyte` `short`
@@ -63,7 +63,7 @@
 - enum 负值成员（`enum E { A = -1 }`）转为明确的编译期拒绝；
   此前会让编译器直接挂死。
 
-## [0.7.4] - Unreleased
+## [0.7.4] - 2026-09-27
 
 ### 新增
 - 源码尺寸回归守卫（tools/source_size_guard）：手写源文件保持
