@@ -32,13 +32,6 @@ void ProjectNode::setName(const QString& name) {
     }
 }
 
-void ProjectNode::setNamespace(const QString& ns) {
-    if (m_namespace != ns) {
-        m_namespace = ns;
-        markDirty();
-    }
-}
-
 void ProjectNode::setOutputDir(const QString& dir) {
     if (m_outputDir != dir) {
         m_outputDir = dir;

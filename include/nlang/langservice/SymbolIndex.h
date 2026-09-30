@@ -41,7 +41,7 @@ struct ParamInfo {
 };
 
 struct SymbolInfo {
-    std::string ns;
+    std::string pkg;
     std::string name;
     std::string returnType;
     TypeKind returnKind = TypeKind::Unknown;
@@ -80,16 +80,16 @@ public:
                               const std::string& name) const;
 
     // All symbols declared in a namespace (completion after "io.").
-    std::vector<const SymbolInfo*> CompleteNamespace(
+    std::vector<const SymbolInfo*> CompletePackage(
         const std::string& ns) const;
 
     // All indexed namespace names, sorted and unique.
-    std::vector<std::string> Namespaces() const;
+    std::vector<std::string> Packages() const;
 
     // Whether any symbol is declared under the given namespace. Used by the
     // compiler/codegen to recognize a library namespace from the index
     // instead of a hard-coded name list (so third-party namespaces work too).
-    bool HasNamespace(const std::string& ns) const;
+    bool HasPackage(const std::string& ns) const;
 
     std::size_t size() const { return m_symbols.size(); }
 

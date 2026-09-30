@@ -264,7 +264,7 @@ public:
 				|| treeRoot.FindField(sName)
 				|| sName == "List" || sName == "Dict" || sName == "Func"
 				|| IsBuiltinClassName(sName)
-				|| m_Accessor.m_Env.IsLibraryNamespace(sName))
+				|| m_Accessor.m_Env.IsLibraryPackage(sName))
 			{
 				m_Accessor.m_Env.Log(CLL_Error, pUsing->Location(),
 					"The name \"%s\" cannot be used as a type alias.",

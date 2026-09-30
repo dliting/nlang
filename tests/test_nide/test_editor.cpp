@@ -467,8 +467,12 @@ private slots:
                  QStringLiteral("io.print"));
         // No qualifier.
         QCOMPARE(CodeEditor::qualifiedNameAt("print", 3), QString());
-        // Member chain a.b.c is not a two-segment library call.
-        QCOMPARE(CodeEditor::qualifiedNameAt("a.b.c", 5), QString());
+        // Dotted-package chains are library-call shapes now
+        // (a.b.c = package a.b + member c, exactly vendor.graphics.hue's
+        // shape); object member chains yield the same text and simply
+        // miss the index lookup.
+        QCOMPARE(CodeEditor::qualifiedNameAt("a.b.c", 5),
+                 QStringLiteral("a.b.c"));
         // Whitespace / punctuation column away from an identifier.
         QCOMPARE(CodeEditor::qualifiedNameAt("io. print", 3), QString());
     }
@@ -478,7 +482,7 @@ private slots:
     void testFormatSymbol() {
         langservice::SymbolInfo symbol;
         symbol.native = true;
-        symbol.ns = "io";
+        symbol.pkg = "io";
         symbol.name = "print";
         symbol.returnType = "void";
         symbol.params.push_back({"string", "s"});
@@ -492,7 +496,7 @@ private slots:
         // A nlang-implemented symbol must not carry [native].
         langservice::SymbolInfo plain;
         plain.native = false;
-        plain.ns = "mylib";
+        plain.pkg = "mylib";
         plain.name = "add";
         plain.returnType = "int";
         plain.params.push_back({"int", "a"});

@@ -48,38 +48,6 @@
     <number>255</number>
    </property>
   </widget>
-  <widget class="QLabel" name="label_6">
-   <property name="geometry">
-    <rect>
-     <x>20</x>
-     <y>50</y>
-     <width>101</width>
-     <height>16</height>
-    </rect>
-   </property>
-   <property name="toolTip">
-    <string>模块命名空间</string>
-   </property>
-   <property name="text">
-    <string>命名空间(&amp;S):</string>
-   </property>
-   <property name="buddy">
-    <cstring>edtNamespace</cstring>
-   </property>
-  </widget>
-  <widget class="QLineEdit" name="edtNamespace">
-   <property name="geometry">
-    <rect>
-     <x>125</x>
-     <y>48</y>
-     <width>181</width>
-     <height>21</height>
-    </rect>
-   </property>
-   <property name="maxLength">
-    <number>255</number>
-   </property>
-  </widget>
   <widget class="QLabel" name="label_2">
    <property name="geometry">
     <rect>
@@ -276,7 +244,6 @@
  </widget>
  <tabstops>
   <tabstop>edtProjectName</tabstop>
-  <tabstop>edtNamespace</tabstop>
   <tabstop>edtProjectDir</tabstop>
   <tabstop>btnProjectDir</tabstop>
   <tabstop>edtOutputDir</tabstop>

@@ -9,14 +9,14 @@ namespace nlang {
 
 //Phase 10 Step 0: a compiled unit described by a .nproj XML file.
 //  <?xml version="1.0" encoding="UTF-8"?>
-//  <Project name="Hello" namespace="hello" outputDir="bin" intermediateDir="obj">
+//  <Project name="Hello" outputDir="bin" intermediateDir="obj">
 //    <Sources>
 //      <File path="main.n"/>
 //    </Sources>
 //  </Project>
 //Paths are relative to the .nproj's directory and resolved to absolute on
-//load. namespace/intermediateDir are IDE-facing (Step 1+) and ignored by
-//ncc, which only consumes name/outputDir/sources.
+//load. intermediateDir is IDE-facing (Step 1+) and ignored by ncc, which
+//only consumes name/outputDir/sources.
 struct ProjectFile {
     std::string name;        //module/output name; defaults to the file stem
     std::string projectDir;  //absolute directory of the .nproj file

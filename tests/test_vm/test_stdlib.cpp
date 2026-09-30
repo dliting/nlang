@@ -236,7 +236,7 @@ void test_stdlib_native_full_dispatch()
 
     int checked = 0;
     for (const langservice::SymbolInfo* sig :
-         index.CompleteNamespace("math"))
+         index.CompletePackage("math"))
     {
         if (!sig->native)
             continue;

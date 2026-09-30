@@ -103,7 +103,7 @@ public:
 	//True when name is a loaded library namespace (standard or third
 	//party). Thin wrapper over the library index so internal passes need
 	//not depend on the langservice headers.
-	bool IsLibraryNamespace(const std::string& name) const;
+	bool IsLibraryPackage(const std::string& name) const;
 	//Load one library declaration file into the index (idempotent).
 	//packageRoot: the matched search root the file was found under — the
 	//index entry's package is the path relative to THAT root.

@@ -52,7 +52,7 @@ Error: 'examples/hello_project/hello_project.nproj' looks like a project file; u
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<Project name="hello_project" namespace="hello_project">
+<Project name="hello_project">
   <Sources>
     <File path="main.n"/>
     <File path="utils.n"/>

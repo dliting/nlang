@@ -61,7 +61,6 @@ QString ProjectPropDialog::validateProjectInput(
 }
 
 void ProjectPropDialog::applyProjectFields(ProjectNode* project) {
-    project->setNamespace(m_ui->edtNamespace->text());
     project->setOutputDir(m_ui->edtOutputDir->text());
     project->setIntermediateDir(m_ui->edtIntermediateDir->text());
     project->setImportPaths(m_pathEditor->paths());
@@ -108,7 +107,6 @@ bool ProjectPropDialog::editProject(ProjectNode& project) {
     if (exec() != QDialog::Accepted)
         return false;
 
-    project.setNamespace(m_ui->edtNamespace->text());
     project.setOutputDir(m_ui->edtOutputDir->text());
     project.setIntermediateDir(m_ui->edtIntermediateDir->text());
     project.setImportPaths(m_pathEditor->paths());
@@ -151,7 +149,6 @@ void ProjectPropDialog::initForCreate() {
     m_ui->edtProjectDir->setReadOnly(false);
     m_ui->btnProjectDir->setEnabled(true);
     m_ui->edtProjectName->setText(tr("Project1"));
-    m_ui->edtNamespace->setText("");
     m_ui->edtProjectDir->setText(QDir::currentPath());
     //Empty = the project directory itself (the .nproj default).
     m_ui->edtOutputDir->setText("");
@@ -162,7 +159,6 @@ void ProjectPropDialog::initForCreate() {
 void ProjectPropDialog::initForEdit(const ProjectNode& project) {
     setWindowTitle(project.name() + tr(" Property"));
     m_ui->edtProjectName->setText(project.name());
-    m_ui->edtNamespace->setText(project.namespace_());
     m_ui->edtProjectDir->setText(project.projectDir());
     m_ui->edtOutputDir->setText(project.outputDir());
     m_ui->edtIntermediateDir->setText(project.intermediateDir());

@@ -157,7 +157,6 @@ private slots:
         inExec([&] {
             edit(&dialog, "edtProjectName")->setText("App");
             edit(&dialog, "edtProjectDir")->setText(dir.path());
-            edit(&dialog, "edtNamespace")->setText("app");
             edit(&dialog, "edtOutputDir")->setText("bin");
             edit(&dialog, "edtIntermediateDir")->setText("obj");
             dialog.accept();
@@ -168,7 +167,6 @@ private slots:
         QCOMPARE(solution.projectCount(), 1);
         QCOMPARE(project->name(), QString("App"));
         QCOMPARE(project->projectDir(), QDir(dir.path()).absolutePath());
-        QCOMPARE(project->namespace_(), QString("app"));
         QCOMPARE(project->outputDir(), QString("bin"));
         QCOMPARE(project->intermediateDir(), QString("obj"));
         QVERIFY(project->isDirty());
@@ -242,7 +240,6 @@ private slots:
             [&] {
                 edit(&dialog, "edtProjectName")->setText("App");
                 edit(&dialog, "edtProjectDir")->setText(takenDir.path());
-                edit(&dialog, "edtNamespace")->setText("app");
                 dialog.accept();
             },
             &dismissWarnings,   // warning shows: file already exists
@@ -253,11 +250,10 @@ private slots:
 
         ProjectNode* project = dialog.createProject(solution);
         QVERIFY(project != nullptr);
-        //The name/namespace come from the FIRST entry: only a loop that
-        //keeps the user's edits across the retry produces them (a re-init
-        //would reset the name to "Project1" and the namespace to "").
+        //The name comes from the FIRST entry: only a loop that keeps the
+        //user's edits across the retry produces it (a re-init would reset
+        //the name to "Project1").
         QCOMPARE(project->name(), QString("App"));
-        QCOMPARE(project->namespace_(), QString("app"));
         QCOMPARE(project->projectDir(), QDir(cleanDir.path()).absolutePath());
         QCOMPARE(solution.projectCount(), 1);
     }
@@ -284,38 +280,35 @@ private slots:
     void testEditAppliesFields() {
         QTemporaryDir dir;
         ProjectNode project("App", dir.path());
-        project.setNamespace("old");
         project.setOutputDir("oldBin");
         project.setIntermediateDir("oldObj");
         project.clearDirty();
 
         ProjectPropDialog dialog;
         inExec([&] {
-            edit(&dialog, "edtNamespace")->setText("new");
             edit(&dialog, "edtOutputDir")->setText("newBin");
             edit(&dialog, "edtIntermediateDir")->setText("newObj");
             dialog.accept();
         });
 
         QVERIFY(dialog.editProject(project));
-        QCOMPARE(project.namespace_(), QString("new"));
         QCOMPARE(project.outputDir(), QString("newBin"));
         QCOMPARE(project.intermediateDir(), QString("newObj"));
-        //The editable namespace field is actually applied.
+        //The editable fields are actually applied.
         QVERIFY(project.isDirty());
     }
 
     void testEditRejectKeepsFields() {
         QTemporaryDir dir;
         ProjectNode project("App", dir.path());
-        project.setNamespace("keep");
+        project.setOutputDir("keepBin");
         project.clearDirty();
 
         ProjectPropDialog dialog;
         inExec([&] { dialog.reject(); });
 
         QVERIFY(!dialog.editProject(project));
-        QCOMPARE(project.namespace_(), QString("keep"));
+        QCOMPARE(project.outputDir(), QString("keepBin"));
     }
 
     void testEditLocksNameAndLocation() {

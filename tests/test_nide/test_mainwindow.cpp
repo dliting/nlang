@@ -163,7 +163,6 @@ void acceptProjectDialog(const QString& name, const QString& dir) {
     if (nameEdit != nullptr) {
         nameEdit->setText(name);
         dialog->findChild<QLineEdit*>("edtProjectDir")->setText(dir);
-        dialog->findChild<QLineEdit*>("edtNamespace")->setText("app");
         acceptDialog(dialog);
     }
 }

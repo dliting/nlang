@@ -77,10 +77,10 @@ static void TestCompletion() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
 
-    const auto fsSyms = index.CompleteNamespace("fs");
+    const auto fsSyms = index.CompletePackage("fs");
     CHECK(fsSyms.size() == 8);
 
-    const auto namespaces = index.Namespaces();
+    const auto namespaces = index.Packages();
     CHECK(namespaces.size() == 3);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "io");
@@ -134,8 +134,8 @@ static void TestPackageComesFromFilePath() {
 
     SymbolIndex index;
     index.LoadFile((tmp / "mylib.n").string());
-    CHECK(index.HasNamespace("mylib"));
-    CHECK(!index.HasNamespace("fake"));
+    CHECK(index.HasPackage("mylib"));
+    CHECK(!index.HasPackage("fake"));
     const SymbolInfo* add = index.Resolve("mylib", "add");
     CHECK(add != nullptr && add->native);
     const SymbolInfo* greet = index.Resolve("mylib", "greet");
@@ -214,7 +214,7 @@ static void TestClear() {
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
-    CHECK(index.Namespaces().empty());
+    CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
     CHECK(index.size() == 38);

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Project name="proj_import_visibility" namespace="proj_import_visibility">
+<Project name="proj_import_visibility">
   <Sources>
     <File path="main.n"/>
     <File path="utils/helper.n"/>

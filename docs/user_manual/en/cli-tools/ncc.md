@@ -57,7 +57,7 @@ output directory outright.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<Project name="hello_project" namespace="hello_project">
+<Project name="hello_project">
   <Sources>
     <File path="main.n"/>
     <File path="utils.n"/>

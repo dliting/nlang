@@ -84,7 +84,7 @@ bool ModuleBuilder::BuildImportGates(
 		if (!reg.BuildGate(gateModuleIndex++, pTransUnit->Imports(),
 				rExternalNames, gateErrors,
 				[this](const std::string &ns) {
-					return m_upEnv->IsLibraryNamespace(ns);
+					return m_upEnv->IsLibraryPackage(ns);
 				}))
 		{
 			for (const auto &error : gateErrors)

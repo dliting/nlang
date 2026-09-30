@@ -369,7 +369,7 @@ void ExprResolveAccessor::RejectUnimportedQualifiedType(
 	//external .nmod; a dotted (nested) path is always a module.
 	const char *pKind = "Module";
 	if (nsPath.find('.') == std::string::npos
-		&& m_Env.IsLibraryNamespace(nsPath))
+		&& m_Env.IsLibraryPackage(nsPath))
 		pKind = "Package";
 	m_Env.Log(CLL_Error, qtype.Location(),
 		"%s '%s' is not imported. Add 'import %s;' at the top of this "

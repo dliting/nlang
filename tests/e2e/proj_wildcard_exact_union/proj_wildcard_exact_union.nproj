@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Project name="proj_wildcard_exact_union" namespace="proj_wildcard_exact_union">
+<Project name="proj_wildcard_exact_union">
   <Sources>
     <File path="app/main.n"/>
     <File path="utils.n"/>

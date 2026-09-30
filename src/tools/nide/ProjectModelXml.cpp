@@ -241,8 +241,6 @@ void ProjectNode::writeToXml(QXmlStreamWriter& xml, const QString& baseDir,
 
     xml.writeStartElement("Project");
     xml.writeAttribute("name", m_name);
-    if (!m_namespace.isEmpty())
-        xml.writeAttribute("namespace", m_namespace);
     if (!m_outputDir.isEmpty())
         xml.writeAttribute("outputDir", m_outputDir);
     if (!m_intermediateDir.isEmpty())
@@ -281,7 +279,6 @@ bool ProjectNode::readFromXml(QXmlStreamReader& xml, const QString& projectDir,
     //validated (all-or-nothing).
     QXmlStreamAttributes attrs = xml.attributes();
     QString name = attrs.value("name").toString();
-    QString ns = attrs.value("namespace").toString();
     QString outputDir = attrs.value("outputDir").toString();
     QString intermediateDir = attrs.value("intermediateDir").toString();
     std::vector<std::unique_ptr<FileNode>> files;
@@ -305,7 +302,6 @@ bool ProjectNode::readFromXml(QXmlStreamReader& xml, const QString& projectDir,
     }
 
     m_name = name;
-    m_namespace = ns;
     m_outputDir = outputDir;
     m_intermediateDir = intermediateDir;
     m_files = std::move(files);

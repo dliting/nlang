@@ -239,6 +239,31 @@ void CodeEditor::setSymbolIndex(const langservice::SymbolIndex* index) {
     m_symbolIndex = index;
 }
 
+namespace {
+//Walk left from `chainEnd` (a position on the '.' before the call name)
+//over ident ('.' ident)* package segments; returns the chain's first
+//character index. Identifiers are ASCII word characters (the lexer's
+//keyword/library alphabet).
+int PackageChainStart(const QString& lineText, int chainEnd) {
+    auto isIdent = [](QChar ch) {
+        return ch.isLetterOrNumber() || ch == '_';
+    };
+    int chainStart = chainEnd;
+    while (chainStart > 1 && lineText.at(chainStart - 1) == QLatin1Char('.')
+        && lineText.at(chainStart - 2).isLetterOrNumber())
+    {
+        int segEnd = chainStart - 1;
+        int segStart = segEnd;
+        while (segStart > 0 && isIdent(lineText.at(segStart - 1)))
+            --segStart;
+        if (segStart == segEnd)
+            break;
+        chainStart = segStart;
+    }
+    return chainStart;
+}
+} // namespace
+
 QString CodeEditor::qualifiedNameAt(const QString& lineText, int column) {
     // Identifier characters nlang uses (ASCII word chars; nlang is ASCII
     // for keywords and library names).
@@ -273,12 +298,14 @@ QString CodeEditor::qualifiedNameAt(const QString& lineText, int column) {
         --nsStart;
     if (nsStart == nsEnd)
         return QString();
-    // Exclude member chains like a.b.c: the namespace token must not be
-    // preceded by another '.' (library calls are exactly ns.name).
-    if (nsStart > 0 && lineText.at(nsStart - 1) == QLatin1Char('.'))
-        return QString();
+    // Extend left across a dotted PACKAGE prefix: library calls are
+    // package-qualified (`io.print`, `vendor.graphics.hue`), so the whole
+    // chain left of the call name is the package path. An object member
+    // chain yields the same shape; the index lookup below simply misses
+    // for those.
+    const int chainStart = PackageChainStart(lineText, nsStart);
 
-    return lineText.mid(nsStart, nsEnd - nsStart) + QLatin1Char('.')
+    return lineText.mid(chainStart, p - chainStart)
          + lineText.mid(nameStart, end - nameStart);
 }
 
@@ -295,7 +322,7 @@ QString CodeEditor::formatSymbol(const langservice::SymbolInfo& symbol) {
                 + QString::fromStdString(symbol.params[i].name);
     }
     text += QString::fromStdString(symbol.returnType) + QLatin1Char(' ')
-          + QString::fromStdString(symbol.ns) + QLatin1Char('.')
+          + QString::fromStdString(symbol.pkg) + QLatin1Char('.')
           + QString::fromStdString(symbol.name)
           + QLatin1Char('(') + params + QStringLiteral(")");
     if (!symbol.doc.empty()) {
@@ -374,19 +401,27 @@ void CodeEditor::keyPressEvent(QKeyEvent* event) {
     QPlainTextEdit::keyPressEvent(event);
 
     if (event->key() == Qt::Key_Period)
-        triggerNamespaceCompletion();
+        triggerPackageCompletion();
 }
 
-QString CodeEditor::namespaceTokenBeforeDot() {
+QString CodeEditor::packageTokenBeforeDot() {
+    // The dotted package chain left of the just-typed '.' (`vendor.`
+    // collects `vendor`; `vendor.graphics.` collects `vendor.graphics`).
     const QTextBlock block = textCursor().block();
     const QString text = block.text();
     const int dot = textCursor().positionInBlock() - 1;  // '.' position
     int start = dot;
-    while (start > 0) {
-        const QChar ch = text.at(start - 1);
-        if (!ch.isLetterOrNumber() && ch != '_')
+    for (;;) {
+        while (start > 0) {
+            const QChar ch = text.at(start - 1);
+            if (!ch.isLetterOrNumber() && ch != '_')
+                break;
+            --start;
+        }
+        if (start > 1 && text.at(start - 1) == QLatin1Char('.'))
+            --start;   // consume the dot, scan the previous segment
+        else
             break;
-        --start;
     }
     if (start == dot)
         return QString();
@@ -404,7 +439,7 @@ void CodeEditor::showCompletionPopup(
             QString::fromStdString(symbol->name), m_completionPopup);
         //Stash the full qualified name for insertion.
         item->setData(Qt::UserRole,
-                      QString::fromStdString(symbol->ns) + QLatin1Char('.')
+                      QString::fromStdString(symbol->pkg) + QLatin1Char('.')
                       + QString::fromStdString(symbol->name));
     }
     connect(m_completionPopup, &QListWidget::itemClicked,
@@ -421,15 +456,15 @@ void CodeEditor::showCompletionPopup(
     m_completionPopup->show();
 }
 
-void CodeEditor::triggerNamespaceCompletion() {
+void CodeEditor::triggerPackageCompletion() {
     if (!m_symbolIndex)
         return;
-    const QString ns = namespaceTokenBeforeDot();
-    if (ns.isEmpty())
+    const QString pkg = packageTokenBeforeDot();
+    if (pkg.isEmpty())
         return;
-    //The token left of the just-typed '.' must be a known namespace.
+    //The chain left of the just-typed '.' must be a known package.
     const auto candidates =
-        m_symbolIndex->CompleteNamespace(ns.toStdString());
+        m_symbolIndex->CompletePackage(pkg.toStdString());
     if (!candidates.empty())
         showCompletionPopup(candidates);
 }
@@ -437,10 +472,10 @@ void CodeEditor::triggerNamespaceCompletion() {
 void CodeEditor::applyCompletion(QListWidgetItem* item) {
     if (!item)
         return;
-    // Insert just the function name (the 'ns.' prefix is already typed).
+    // Insert just the function name (the package prefix is already typed).
     insertPlainText(QString::fromStdString(
         item->data(Qt::UserRole).toString().section(
-            QLatin1Char('.'), 1).toStdString()));
+            QLatin1Char('.'), -1).toStdString()));
     closeCompletion();
 }
 

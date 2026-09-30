@@ -65,7 +65,7 @@ bool ExprResolveAccessor::TryResolveModuleCallTarget(
 	//inline (the caller never imported it, so DiscoverLibraryUnits did not
 	//pull it in) is still a library target — RejectUnimportedModuleCall
 	//names the missing import instead of a spurious field error.
-	return m_Env.IsLibraryNamespace(pathSegs.front());
+	return m_Env.IsLibraryPackage(pathSegs.front());
 }
 
 //Spec §7 row 1: the module is known but not imported into the current
@@ -84,7 +84,7 @@ bool ExprResolveAccessor::RejectUnimportedModuleCall(
 		//third-party package) reads "Package"; an external .nmod reads
 		//"Module". No wildcard is suggested — it never matches a
 		//single-segment name (§3.3); the exact form always suffices.
-		const char *pKind = m_Env.IsLibraryNamespace(modulePath)
+		const char *pKind = m_Env.IsLibraryPackage(modulePath)
 			? "Package" : "Module";
 		m_Env.Log(CLL_Error, snMember.Location(),
 			"%s '%s' is not imported. Add 'import %s;' at the top "
@@ -255,7 +255,7 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 
 	auto &reg = m_Env.Registry();
 	if (!reg.IsKnownModule(modulePath)
-		&& !m_Env.IsLibraryNamespace(segs.front()))
+		&& !m_Env.IsLibraryPackage(segs.front()))
 		return false;
 
 	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording

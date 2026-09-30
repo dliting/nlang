@@ -52,9 +52,9 @@ langservice::SymbolIndex& BuildEnvironment::LibraryIndex()
 	return *m_upLibraryIndex;
 }
 
-bool BuildEnvironment::IsLibraryNamespace(const std::string& name) const
+bool BuildEnvironment::IsLibraryPackage(const std::string& name) const
 {
-	return m_upLibraryIndex && m_upLibraryIndex->HasNamespace(name);
+	return m_upLibraryIndex && m_upLibraryIndex->HasPackage(name);
 }
 
 void BuildEnvironment::LoadLibrarySource(const std::string& path,

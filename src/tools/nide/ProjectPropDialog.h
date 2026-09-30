@@ -29,7 +29,6 @@ namespace nlang {
 //  the "referenced packages" list is gone (the NLang project format
 //  has no such element); the namespace is optional (ncc does not read
 //  it) and editProject() actually applies it; the namespace label's
-//  buddy now points at edtNamespace.
 class ProjectPropDialog : public QDialog {
     Q_OBJECT
 public:

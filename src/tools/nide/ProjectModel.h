@@ -59,9 +59,6 @@ public:
 
     const QString& projectDir() const { return m_projectDir; }
 
-    const QString& namespace_() const { return m_namespace; }
-    void setNamespace(const QString& ns);
-
     const QString& outputDir() const { return m_outputDir; }
     void setOutputDir(const QString& dir);
 
@@ -139,7 +136,6 @@ private:
 
     QString m_name;
     QString m_projectDir;       // absolute directory of the .nproj file
-    QString m_namespace;
     QString m_outputDir;        // relative to projectDir
     QString m_intermediateDir;  // relative to projectDir
     bool m_dirty = false;

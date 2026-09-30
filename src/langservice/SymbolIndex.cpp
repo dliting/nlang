@@ -67,7 +67,7 @@ SymbolInfo BuildSymbol(const std::smatch& m,
                        const std::vector<std::string>& pendingDoc,
                        const std::string& path, int lineNo) {
     SymbolInfo sym;
-    sym.ns = package;
+    sym.pkg = package;
     sym.native = m[1].matched;
     sym.returnType = Trim(m[2].str());
     sym.returnKind = TypeKindFromName(sym.returnType);
@@ -238,35 +238,35 @@ void SymbolIndex::LoadFileWithPackage(const std::string& path,
 const SymbolInfo* SymbolIndex::Resolve(const std::string& ns,
                                        const std::string& name) const {
     for (const SymbolInfo& s : m_symbols) {
-        if (s.ns == ns && s.name == name)
+        if (s.pkg == ns && s.name == name)
             return &s;
     }
     return nullptr;
 }
 
-std::vector<const SymbolInfo*> SymbolIndex::CompleteNamespace(
+std::vector<const SymbolInfo*> SymbolIndex::CompletePackage(
     const std::string& ns) const {
     std::vector<const SymbolInfo*> out;
     for (const SymbolInfo& s : m_symbols) {
-        if (s.ns == ns)
+        if (s.pkg == ns)
             out.push_back(&s);
     }
     return out;
 }
 
-std::vector<std::string> SymbolIndex::Namespaces() const {
+std::vector<std::string> SymbolIndex::Packages() const {
     std::vector<std::string> out;
     for (const SymbolInfo& s : m_symbols) {
-        if (std::find(out.begin(), out.end(), s.ns) == out.end())
-            out.push_back(s.ns);
+        if (std::find(out.begin(), out.end(), s.pkg) == out.end())
+            out.push_back(s.pkg);
     }
     std::sort(out.begin(), out.end());
     return out;
 }
 
-bool SymbolIndex::HasNamespace(const std::string& ns) const {
+bool SymbolIndex::HasPackage(const std::string& ns) const {
     for (const SymbolInfo& s : m_symbols)
-        if (s.ns == ns)
+        if (s.pkg == ns)
             return true;
     return false;
 }

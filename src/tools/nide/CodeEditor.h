@@ -106,9 +106,9 @@ private:
     bool handleToolTip(QHelpEvent* helpEvent);
     //Open a completion popup right after a typed '.' when the token to
     //the left is a known namespace.
-    void triggerNamespaceCompletion();
+    void triggerPackageCompletion();
     //Namespace token immediately left of the just-typed '.', or "".
-    QString namespaceTokenBeforeDot();
+    QString packageTokenBeforeDot();
     //Build, fill and position the completion popup for candidates.
     void showCompletionPopup(
         const std::vector<const langservice::SymbolInfo*>& candidates);

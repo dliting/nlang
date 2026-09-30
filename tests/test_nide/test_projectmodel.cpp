@@ -82,7 +82,6 @@ private slots:
 
         QCOMPARE(proj.name(), QString("Hello"));
         QCOMPARE(proj.projectDir(), m_tmpDir.path());
-        QCOMPARE(proj.namespace_(), QString());
         QCOMPARE(proj.outputDir(), QString());
         QCOMPARE(proj.intermediateDir(), QString());
         QVERIFY(!proj.isDirty());
@@ -90,11 +89,9 @@ private slots:
 
     void testProjectNodeSetProperties() {
         ProjectNode proj("Hello", m_tmpDir.path());
-        proj.setNamespace("hello");
         proj.setOutputDir("bin");
         proj.setIntermediateDir("obj");
 
-        QCOMPARE(proj.namespace_(), QString("hello"));
         QCOMPARE(proj.outputDir(), QString("bin"));
         QCOMPARE(proj.intermediateDir(), QString("obj"));
         QVERIFY(proj.isDirty());
@@ -307,7 +304,6 @@ private slots:
         // Create and save
         {
             ProjectNode proj("HelloApp", m_tmpDir.path());
-            proj.setNamespace("hello");
             proj.setOutputDir("bin");
             proj.setIntermediateDir("obj");
             proj.addFile("main.n");
@@ -324,7 +320,6 @@ private slots:
             QVERIFY(proj.load(projPath, &error));
 
             QCOMPARE(proj.name(), QString("HelloApp"));
-            QCOMPARE(proj.namespace_(), QString("hello"));
             QCOMPARE(proj.outputDir(), QString("bin"));
             QCOMPARE(proj.intermediateDir(), QString("obj"));
             QCOMPARE(proj.fileCount(), 2);
@@ -396,7 +391,7 @@ private slots:
         ProjectNode proj("Hello", m_tmpDir.path());
         QVERIFY(!proj.isDirty());
 
-        proj.setNamespace("hello");
+        proj.setOutputDir("bin");
         QVERIFY(proj.isDirty());
 
         proj.clearDirty();
@@ -406,7 +401,7 @@ private slots:
         QVERIFY(proj.isDirty());
 
         proj.clearDirty();
-        proj.setOutputDir("bin");
+        proj.setIntermediateDir("obj");
         QVERIFY(proj.isDirty());
     }
 
@@ -418,7 +413,6 @@ private slots:
 
         {
             ProjectNode proj("RoundTrip", m_tmpDir.path());
-            proj.setNamespace("rt");
             proj.setOutputDir("out");
             proj.setIntermediateDir("tmp");
             proj.addFile("a.n");
@@ -484,12 +478,12 @@ private slots:
         // Create subdirectories and project files
         writeFixture("app/app.nproj",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            "<Project name=\"App\" namespace=\"app\" outputDir=\"bin\">\n"
+            "<Project name=\"App\" outputDir=\"bin\">\n"
             "  <Sources><File path=\"main.n\"/></Sources>\n"
             "</Project>\n");
         writeFixture("lib/lib.nproj",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            "<Project name=\"Lib\" namespace=\"lib\" outputDir=\"bin\">\n"
+            "<Project name=\"Lib\" outputDir=\"bin\">\n"
             "  <Sources><File path=\"lib.n\"/></Sources>\n"
             "</Project>\n");
 
@@ -603,7 +597,6 @@ private slots:
         QString projPath = m_tmpDir.path() + "/format.nproj";
 
         ProjectNode proj("Hello", m_tmpDir.path());
-        proj.setNamespace("hello");
         proj.setOutputDir("bin");
         proj.setIntermediateDir("obj");
         proj.addFile("main.n");
@@ -620,7 +613,7 @@ private slots:
         // Must contain the expected XML declaration
         QVERIFY(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         // Must have the root element with all attributes
-        QVERIFY(content.contains("<Project name=\"Hello\" namespace=\"hello\" outputDir=\"bin\" intermediateDir=\"obj\">"));
+        QVERIFY(content.contains("<Project name=\"Hello\" outputDir=\"bin\" intermediateDir=\"obj\">"));
         // Must have Sources wrapper
         QVERIFY(content.contains("<Sources>"));
         // Must have File entries with path attributes
@@ -649,12 +642,12 @@ private slots:
         QVERIFY(content.contains("<Project path=\"lib/lib.nproj\"/>"));
     }
 
-    // Verify that loading a .nproj with namespace/intermediateDir attributes
-    // works (these are IDE-facing, ncc ignores them).
+    // Verify that loading a .nproj with intermediateDir attributes works
+    // (these are IDE-facing, ncc ignores them).
     void testProjectNodeLoadWithAllAttributes() {
         QString projPath = writeFixture("full.nproj",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            "<Project name=\"Full\" namespace=\"full\" outputDir=\"out\" intermediateDir=\"tmp\">\n"
+            "<Project name=\"Full\" outputDir=\"out\" intermediateDir=\"tmp\">\n"
             "  <Sources><File path=\"main.n\"/></Sources>\n"
             "</Project>\n");
 
@@ -663,7 +656,6 @@ private slots:
         QVERIFY(proj.load(projPath, &error));
 
         QCOMPARE(proj.name(), QString("Full"));
-        QCOMPARE(proj.namespace_(), QString("full"));
         QCOMPARE(proj.outputDir(), QString("out"));
         QCOMPARE(proj.intermediateDir(), QString("tmp"));
         QCOMPARE(proj.fileCount(), 1);
@@ -682,7 +674,6 @@ private slots:
         QVERIFY(proj.load(projPath, &error));
 
         QCOMPARE(proj.name(), QString("Min"));
-        QCOMPARE(proj.namespace_(), QString());
         QCOMPARE(proj.outputDir(), QString());
         QCOMPARE(proj.intermediateDir(), QString());
     }
@@ -1090,7 +1081,7 @@ private slots:
         proj.addFile("main.n");
         QString error;
         QVERIFY(proj.save(path, &error));  // create the file first
-        proj.setNamespace("unsaved");      // make the project dirty again
+        proj.setOutputDir("unsaved");      // make the project dirty again
 
         QByteArray before;
         {

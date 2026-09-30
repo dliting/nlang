@@ -38,7 +38,7 @@ int main() {
     {
         auto proj = WriteFixture(tmp, "valid.nproj",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            "<Project name=\"Hello\" namespace=\"hello\" outputDir=\"bin\">\n"
+            "<Project name=\"Hello\" outputDir=\"bin\">\n"
             "  <Sources>\n"
             "    <File path=\"main.n\"/>\n"
             "    <File path=\"sub/utils.n\"/>\n"

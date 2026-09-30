@@ -178,7 +178,7 @@ def group_programs(blocks):
 
 
 _NPROJ = """<?xml version="1.0" encoding="UTF-8"?>
-<Project name="{name}" namespace="{name}">
+<Project name="{name}">
   <Sources>
 {sources}
   </Sources>

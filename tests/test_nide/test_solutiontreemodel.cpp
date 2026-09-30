@@ -27,7 +27,7 @@ QString writeFile(const QTemporaryDir& dir, const QString& name,
 QString projectXml(const QString& name) {
     return QString(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<Project name=\"%1\" namespace=\"ns\" outputDir=\"bin\" intermediateDir=\"obj\">\n"
+        "<Project name=\"%1\" outputDir=\"bin\" intermediateDir=\"obj\">\n"
         "  <Sources>\n"
         "    <File path=\"main.n\"/>\n"
         "    <File path=\"util.n\"/>\n"
