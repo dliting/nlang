@@ -146,7 +146,7 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
     emitter.EmitUint16(claimBase);
     //For struct element types, deep-copy value before storing.
     if (elemType && RuntimeTypeKind(elemType) == RTK_Struct) {
-        int structIdx = m_compiledModule.FindStruct(elemType->Name());
+        int structIdx = m_compiledModule.FindStruct(KeyOf(*elemType));
         emitter.Emit(OpCode::OP_CopyStruct);
         emitter.EmitUint16(valueSlot);
         emitter.EmitUint16(valueSlot);

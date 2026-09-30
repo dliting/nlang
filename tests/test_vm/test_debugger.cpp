@@ -154,8 +154,8 @@ void test_v19_sourcefile_single_tu()
     const std::string* mainSrc = nullptr;
     const std::string* helperSrc = nullptr;
     for (const auto& f : mod.functions) {
-        if (f.name == "main") mainSrc = &f.sourceFile;
-        if (f.name == "helper") helperSrc = &f.sourceFile;
+        if (f.name == "srcfile_single.main") mainSrc = &f.sourceFile;
+        if (f.name == "srcfile_single.helper") helperSrc = &f.sourceFile;
     }
     CHECK(mainSrc != nullptr, "main should be in the module");
     CHECK(helperSrc != nullptr, "helper should be in the module");
@@ -181,7 +181,7 @@ void test_v19_import_roundtrip()
     CHECK(b.ok, "import build should succeed: " + b.diagnostics);
 
     CompiledModule mod = loadBuilt("dbgutil_main");
-    int tripleIdx = mod.FindFunction("triple");
+    int tripleIdx = mod.FindFunction("dbgutil_lib.triple");
     CHECK(tripleIdx >= 0, "triple should be merged into the consumer");
     const auto& triple = mod.functions[static_cast<size_t>(tripleIdx)];
     CHECK(triple.sourceFile.find("dbgutil_lib.n") != std::string::npos,
@@ -250,10 +250,10 @@ void test_loader_rejects_v1_9()
     CHECK(bytes.size() >= 12, "module file should have a full header");
     //Guard the patch anchor: if a future header change moves minorVer,
     //the patch below would silently hit another field — fail loudly on
-    //layout drift instead (fresh build must carry the current minor 12).
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0C
+    //layout drift instead (fresh build must carry the current minor 13).
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 12");
+        "fresh module should be stamped minorVer 13");
     bytes[10] = 0x09;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v19.nmod";
@@ -297,9 +297,9 @@ void test_loader_rejects_v1_10()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0C
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 12");
+        "fresh module should be stamped minorVer 13");
     bytes[10] = 0x0A;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v110.nmod";
@@ -345,9 +345,9 @@ void test_loader_rejects_v1_11()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0C
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 12");
+        "fresh module should be stamped minorVer 13");
     bytes[10] = 0x0B;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v111.nmod";
@@ -365,6 +365,77 @@ void test_loader_rejects_v1_11()
     }
     CHECK(threw, "loader must reject a v1.11 module (floor is 12)");
     CHECK(what.find("outdated") != std::string::npos,
+        "rejection should hit the floor path, got: " + what);
+    PASS();
+}
+
+//Boundary negative for BOTH version gates (before this there was only a
+//"too old" pin; nothing stopped a floor-only regression from silently
+//accepting newer modules). The fresh build is stamped 13; patch the
+//header byte up to 14 (ceiling) and assert the newer-ncc wording, then
+//down to 12 (floor) and assert the outdated wording — the exact loader
+//sentences, not just "it threw" (same reason as the v1.8 pin).
+void test_loader_accepts_ceiling_and_floor()
+{
+    TEST(loader_accepts_ceiling_and_floor);
+    //Distinct build tag: ModuleManager::Create keys the process-global
+    //loaded map by module name, so reusing the other floor tests' tags
+    //would fail the build with "already exists".
+    BuildOutcome b = buildSource("verbound",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "verbound.nmod";
+
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
+        && static_cast<uint8_t>(bytes[11]) == 0x00,
+        "fresh module should be stamped minorVer 13");
+
+    //Above the ceiling: a v1.14 module — the reader must refuse it (it
+    //would misparse every record after the first layout change).
+    bytes[10] = 0x0E;
+    bytes[11] = 0x00;
+    const auto newPath = scratchDir() / "verbound_v114.nmod";
+    {
+        std::ofstream out(newPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(newPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must reject a v1.14 module (above the ceiling)");
+    CHECK(what.find("was written by a newer ncc; upgrade ncc/nvm to run it")
+              != std::string::npos,
+        "rejection should hit the ceiling path, got: " + what);
+
+    //Below the floor: a v1.12 module — misparses every keyed name.
+    bytes[10] = 0x0C;
+    const auto oldPath = scratchDir() / "verbound_v112.nmod";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    threw = false;
+    what.clear();
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must reject a v1.12 module (floor is 13)");
+    CHECK(what.find("is outdated; recompile with current ncc")
+              != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
 }
@@ -677,15 +748,15 @@ void test_view_frames_and_locals()
     CompiledModule mod = loadBuilt("view_locals");
     VmExecutor exec;
     InspectHooks hooks;
-    hooks.target = "inner";
+    hooks.target = "view_locals.inner";
     hooks.stopLine = 4;  //return s; — line 3 has run, so s is computed
     exec.SetDebugHooks(&hooks);
     CHECK(exec.Execute(mod) == 13, "program result");
     CHECK(hooks.captured, "should stop inside inner");
     CHECK(hooks.frameCount == 2, "inner + main frames");
     CHECK(hooks.frameNames.size() == 2
-        && hooks.frameNames[0] == "inner"
-        && hooks.frameNames[1] == "main", "innermost-first ordering");
+        && hooks.frameNames[0] == "view_locals.inner"
+        && hooks.frameNames[1] == "view_locals.main", "innermost-first ordering");
     //Exact visible-locals pin: filter hidden names (the ndb info-locals
     //contract), then the visible set must be exactly {p, s} — no extra
     //descriptors leak into the display. (Frame temps never appear here:
@@ -702,7 +773,7 @@ void test_view_frames_and_locals()
     CHECK(visible.size() == 2, "exactly two visible locals (param p, s)");
     bool sawP = false, sawS = false;
     for (const auto& l : visible) {
-        if (l == "p=Point{x=6, y=7}") sawP = true;
+        if (l == "p=view_locals.Point{x=6, y=7}") sawP = true;
         if (l == "s=13") sawS = true;
     }
     CHECK(sawP, "class local renders one-level fields (got lines mismatch)");
@@ -753,7 +824,7 @@ void test_view_value_kinds()
     CompiledModule mod = loadBuilt("view_kinds");
     VmExecutor exec;
     InspectHooks hooks;
-    hooks.target = "main";
+    hooks.target = "view_kinds.main";
     hooks.stopLine = 8;  //return 0; — s/p/a all assigned by then
     exec.SetDebugHooks(&hooks);
     CHECK(exec.Execute(mod) == 0, "program result");
@@ -763,7 +834,7 @@ void test_view_value_kinds()
     bool sawS = false, sawP = false, sawA = false;
     for (const auto& l : hooks.localLines) {
         if (l == "s=\"hi\"") sawS = true;
-        if (l == "p=P{x=1, y=2}") sawP = true;
+        if (l == "p=view_kinds.P{x=1, y=2}") sawP = true;
         if (l == "a=int[2]{7, 8}") sawA = true;
     }
     CHECK(sawS, "string local renders quoted");
@@ -792,14 +863,14 @@ void test_view_struct_array_field_local()
     CompiledModule mod = loadBuilt("view_struct_arr_field");
     VmExecutor exec;
     InspectHooks hooks;
-    hooks.target = "main";
+    hooks.target = "view_struct_arr_field.main";
     hooks.stopLine = 7;  //return 0; — b.a fully assigned by then
     exec.SetDebugHooks(&hooks);
     CHECK(exec.Execute(mod) == 0, "program result");
     REQUIRE(hooks.captured);
     bool sawBox = false;
     for (const auto& l : hooks.localLines)
-        if (l == "b=Box{a=int[2]{7, 8}}") sawBox = true;
+        if (l == "b=view_struct_arr_field.Box{a=int[2]{7, 8}}") sawBox = true;
     CHECK(sawBox, "struct local's array field renders via array formatter");
     PASS();
 }
@@ -855,7 +926,7 @@ void test_linepc_map_first_pc()
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadBuilt("linepc_map");
-    int mainIdx = mod.FindFunction("main");
+    int mainIdx = mod.FindFunction("linepc_map.main");
     REQUIRE(mainIdx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(mainIdx)];
     auto map = BuildLinePcMap(mainf);
@@ -889,7 +960,7 @@ void test_linepc_map_same_line_multi_anchor()
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadBuilt("linepc_multi_anchor");
-    int mainIdx = mod.FindFunction("main");
+    int mainIdx = mod.FindFunction("linepc_multi_anchor.main");
     REQUIRE(mainIdx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(mainIdx)];
     auto map = BuildLinePcMap(mainf);
@@ -926,7 +997,7 @@ void test_linepc_map_finally_duplicates()
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadBuilt("linepc_finally_dup");
-    int mainIdx = mod.FindFunction("main");
+    int mainIdx = mod.FindFunction("linepc_finally_dup.main");
     REQUIRE(mainIdx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(mainIdx)];
     auto map = BuildLinePcMap(mainf);
@@ -970,7 +1041,7 @@ void test_linepc_map_finally_single_two_copies()
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadBuilt("linepc_finally_single");
-    int mainIdx = mod.FindFunction("main");
+    int mainIdx = mod.FindFunction("linepc_finally_single.main");
     REQUIRE(mainIdx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(mainIdx)];
     auto map = BuildLinePcMap(mainf);
@@ -1082,7 +1153,7 @@ void test_session_initial_stop_and_continue()
         "    return a;\n"     //3
         "}\n",
         "c\n");
-    CHECK(out.find("Stopped: main (sess_init.n:2)") != std::string::npos,
+    CHECK(out.find("Stopped: sess_init.main (sess_init.n:2)") != std::string::npos,
         "initial stop at main's first statement");
     CHECK(out.find("(ndb) ") != std::string::npos, "prompt shown");
     PASS();
@@ -1104,15 +1175,15 @@ void test_session_step_semantics()
         "s\ns\nf\nc\n");
     //s: main:6 -> main:7; s: into inner:2; f: skips inner:3, lands
     //back in main:8 (depth 1 < recorded 2).
-    CHECK(out.find("Stopped: main (sess_step.n:6)") != std::string::npos,
+    CHECK(out.find("Stopped: sess_step.main (sess_step.n:6)") != std::string::npos,
         "initial stop line 6");
-    CHECK(out.find("Stopped: main (sess_step.n:7)") != std::string::npos,
+    CHECK(out.find("Stopped: sess_step.main (sess_step.n:7)") != std::string::npos,
         "step-into advances one statement");
-    CHECK(out.find("Stopped: inner (sess_step.n:2)") != std::string::npos,
+    CHECK(out.find("Stopped: sess_step.inner (sess_step.n:2)") != std::string::npos,
         "step-into descends into the call");
-    CHECK(out.find("Stopped: main (sess_step.n:8)") != std::string::npos,
+    CHECK(out.find("Stopped: sess_step.main (sess_step.n:8)") != std::string::npos,
         "step-out returns past remaining callee statements");
-    CHECK(out.find("Stopped: inner (sess_step.n:3)") == std::string::npos,
+    CHECK(out.find("Stopped: sess_step.inner (sess_step.n:3)") == std::string::npos,
         "inner:3 is passed over by finish");
     PASS();
 }
@@ -1135,9 +1206,9 @@ void test_session_breakpoint_hit()
     //three stops, checks the hit counter, then runs to completion
     //(final `c` — never end a script frozen, EOF would quit the test
     //binary).
-    CHECK(out.find("Breakpoint 1 at main (sess_bp.n:5)") != std::string::npos,
+    CHECK(out.find("Breakpoint 1 at sess_bp.main (sess_bp.n:5)") != std::string::npos,
         "set-time report names the resolved location");
-    CHECK(out.find("Breakpoint 1, main (sess_bp.n:5)") != std::string::npos,
+    CHECK(out.find("Breakpoint 1, sess_bp.main (sess_bp.n:5)") != std::string::npos,
         "hit-time report");
     CHECK(out.find("hits=3") != std::string::npos,
         "breakpoint counts every hit");
@@ -1157,9 +1228,9 @@ void test_session_bt_and_locals()
         "    return 0;\n"             //7
         "}\n",
         "b 2\nc\nbt\ninfo locals\nc\n");
-    CHECK(out.find("#0  scale (sess_bt.n:2)") != std::string::npos,
+    CHECK(out.find("#0  sess_bt.scale (sess_bt.n:2)") != std::string::npos,
         "bt frame 0 format");
-    CHECK(out.find("#1  main (sess_bt.n:6)") != std::string::npos,
+    CHECK(out.find("#1  sess_bt.main (sess_bt.n:6)") != std::string::npos,
         "bt frame 1 carries the CALLING statement anchor");
     CHECK(out.find("v = 5") != std::string::npos, "param local shown");
     CHECK(out.find("k = 3") != std::string::npos, "param local shown");
@@ -1206,13 +1277,13 @@ void test_session_break_by_func()
         "    int b = inner(a);\n"//7
         "    return 0;\n"       //8
         "}\n",
-        "b inner\nc\nc\n");
+        "b sess_bpfunc.inner\nc\nc\n");
     //b funcName resolves to the function's FIRST statement (line 2)
     //and reports the resolved location at set time (spec §8).
-    CHECK(out.find("Breakpoint 1 at inner (sess_bpfunc.n:2)")
+    CHECK(out.find("Breakpoint 1 at sess_bpfunc.inner (sess_bpfunc.n:2)")
             != std::string::npos,
         "set-time report names the first statement");
-    CHECK(out.find("Breakpoint 1, inner (sess_bpfunc.n:2)")
+    CHECK(out.find("Breakpoint 1, sess_bpfunc.inner (sess_bpfunc.n:2)")
             != std::string::npos,
         "hit-time report at the same location");
     PASS();
@@ -1270,7 +1341,7 @@ void test_controller_initial_stop()
         "the first stop is the initial stop");
     CHECK(fe.stops[0].line == 2, "first statement line");
     CHECK(fe.stops[0].depth == 1, "main is depth 1");
-    CHECK(fe.stops[0].funcIdx == mod.FindFunction("main"),
+    CHECK(fe.stops[0].funcIdx == mod.FindFunction("ctrl_init.main"),
         "funcIdx indexes the module's function table");
     PASS();
 }
@@ -1429,11 +1500,11 @@ void test_controller_break_by_func()
     ScriptedFrontEnd fe;
     DebugSessionController controller(mod, fe);
     fe.controller = &controller;
-    int id = controller.AddFunctionBreakpoint("inner");
+    int id = controller.AddFunctionBreakpoint("ctrl_bpfunc.inner");
     CHECK(id == 1, "function breakpoint gets id 1");
     const auto rows = controller.BreakpointRows();
     REQUIRE(rows.size() == 1);
-    CHECK(rows[0].label == "inner (ctrl_bpfunc.n:2)",
+    CHECK(rows[0].label == "ctrl_bpfunc.inner (ctrl_bpfunc.n:2)",
         "label names the resolved first statement, got: "
         + rows[0].label);
     VmExecutor exec;
@@ -1472,7 +1543,7 @@ void test_controller_funcbp_all_same_name()
     ScriptedFrontEnd fe;
     DebugSessionController controller(mod, fe);
     fe.controller = &controller;
-    int id = controller.AddFunctionBreakpoint("val");
+    int id = controller.AddFunctionBreakpoint("val");   //methods stay bare
     CHECK(id == 1, "one id for the whole name pool");
     CHECK(controller.BreakpointRows().size() == 1, "one row");
     VmExecutor exec;
@@ -1515,9 +1586,9 @@ void test_controller_funcbp_idempotent()
     ScriptedFrontEnd fe;
     DebugSessionController controller(mod, fe);
     fe.controller = &controller;
-    int id = controller.AddFunctionBreakpoint("inner");
+    int id = controller.AddFunctionBreakpoint("ctrl_funcbp_dup.inner");
     CHECK(id != 0, "first request binds");
-    CHECK(controller.AddFunctionBreakpoint("inner") == id,
+    CHECK(controller.AddFunctionBreakpoint("ctrl_funcbp_dup.inner") == id,
         "repeated request returns the existing id");
     CHECK(controller.BreakpointRows().size() == 1,
         "the duplicate did not create a second row");
@@ -1763,7 +1834,7 @@ void test_sourcecache_resolution()
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadBuilt("src_cache");
-    int idx = mod.FindFunction("main");
+    int idx = mod.FindFunction("src_cache.main");
     REQUIRE(idx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(idx)];
     SourceCache cache((scratchDir() / "src_cache.nmod").string());
@@ -1851,7 +1922,7 @@ void test_session_catch_throw()
     //stack still alive; the second c completes the unwind into catch.
     CHECK(out.find("Break on throw: on") != std::string::npos,
         "catch on echoes the new state");
-    CHECK(out.find("Throw: main (sess_catch.n:4)") != std::string::npos,
+    CHECK(out.find("Throw: sess_catch.main (sess_catch.n:4)") != std::string::npos,
         "throw site freeze report");
     PASS();
 }
@@ -1987,15 +2058,15 @@ void test_machine_session_roundtrip()
     CHECK(wire.find("bp\t1\t" + escaped + "\t4\tbound\n")
             != std::string::npos,
         "bound requests report the receipt");
-    CHECK(wire.find("stopped\tinitial\t0\tmain\t" + escaped
+    CHECK(wire.find("stopped\tinitial\t0\tmach_basic.main\t" + escaped
             + "\t2\t1\t1\n") != std::string::npos,
         "initial stop event (tab-joined fields)");
-    CHECK(wire.find("frame\t0\tmain\t" + escaped + "\t2\n")
+    CHECK(wire.find("frame\t0\tmach_basic.main\t" + escaped + "\t2\n")
             != std::string::npos,
         "bt frame 0 anchors at the initial stop");
     CHECK(wire.find("done\tbt\n") != std::string::npos,
         "bt terminates with done");
-    CHECK(wire.find("stopped\tbreakpoint\t1\tmain\t" + escaped
+    CHECK(wire.find("stopped\tbreakpoint\t1\tmach_basic.main\t" + escaped
             + "\t4\t1\t1\n") != std::string::npos,
         "breakpoint stop carries the id");
     CHECK(wire.find("local\ttotal\tint\t0\n") != std::string::npos,
@@ -2033,7 +2104,7 @@ void test_machine_bfunc_and_output()
     const std::string escaped = protocol::EncodeField(src);
     std::ostringstream events;
     std::istringstream in(
-        "bfunc helper\n"        //binds helper's first anchor (line 4)
+        "bfunc mach_bfunc.helper\n"   //binds helper's first anchor (line 4)
         "bfunc nosuch\n"        //no such function -> id 0, empty location
         "run\n"                 //initial stop at main line 8
         "c\n"                   //output fires, then the helper bp hits
@@ -2053,7 +2124,7 @@ void test_machine_bfunc_and_output()
         "bfunc resolves the function's first anchor");
     CHECK(wire.find("bp\t0\t\t0\tunbound\n") != std::string::npos,
         "unknown bfunc reports id 0 with an empty location");
-    CHECK(wire.find("stopped\tinitial\t0\tmain\t" + escaped
+    CHECK(wire.find("stopped\tinitial\t0\tmach_bfunc.main\t" + escaped
             + "\t8\t1\t1\n") != std::string::npos,
         "initial stop anchors main's first statement");
     CHECK(wire.find("output\ta\\tb\n") != std::string::npos,
@@ -2062,7 +2133,7 @@ void test_machine_bfunc_and_output()
         "print's newline is a second output event");
     CHECK(wire.find("output\ta\\tb\n") < wire.find("exited\t7\n"),
         "output events stream before the exit event");
-    CHECK(wire.find("stopped\tbreakpoint\t1\thelper\t" + escaped
+    CHECK(wire.find("stopped\tbreakpoint\t1\tmach_bfunc.helper\t" + escaped
             + "\t4\t2\t2\n") != std::string::npos,
         "the bfunc breakpoint hits inside helper (depth is 1-based: "
         "2 frames total)");
@@ -2095,7 +2166,7 @@ void test_machine_frame_and_discipline()
     const std::string escaped = protocol::EncodeField(src);
     std::ostringstream events;
     std::istringstream in(
-        "bfunc helper\n"        //bp 1 binds helper's first anchor (line 2)
+        "bfunc mach_frame.helper\n"   //bp 1 binds helper's first anchor (line 2)
         "run\n"                 //initial stop at main line 6
         "c\n"                   //the helper bp hits -> frozen at 2 frames
         "frame 1\n"             //select main's frame
@@ -2115,10 +2186,10 @@ void test_machine_frame_and_discipline()
     front.OnExited(exec.Execute(mod));
 
     const std::string wire = events.str();
-    CHECK(wire.find("stopped\tbreakpoint\t1\thelper\t" + escaped
+    CHECK(wire.find("stopped\tbreakpoint\t1\tmach_frame.helper\t" + escaped
             + "\t2\t2\t2\n") != std::string::npos,
         "the bfunc bp freezes inside helper (depth == frameCount == 2)");
-    CHECK(wire.find("frame\t1\tmain\t" + escaped + "\t7\n")
+    CHECK(wire.find("frame\t1\tmach_frame.main\t" + escaped + "\t7\n")
             != std::string::npos,
         "frame 1 is main, still at the call line");
     CHECK(wire.find("local\ta\tint\t5\n") != std::string::npos,
@@ -2130,7 +2201,7 @@ void test_machine_frame_and_discipline()
     CHECK(wire.find("bp\t2\t" + escaped + "\t2\tbound\n")
             != std::string::npos,
         "re-adding binds with a fresh id and a trimmed file part");
-    CHECK(wire.find("stopped\tstep\t0\tmain\t" + escaped + "\t8\t1\t1\n")
+    CHECK(wire.find("stopped\tstep\t0\tmach_frame.main\t" + escaped + "\t8\t1\t1\n")
             != std::string::npos,
         "stepping out of helper reports the step and drops to 1 frame");
     CHECK(wire.find("err\trun is only valid before the program starts\n")
@@ -2223,6 +2294,7 @@ int main()
     test_loader_rejects_v1_9();
     test_loader_rejects_v1_10();
     test_loader_rejects_v1_11();
+    test_loader_accepts_ceiling_and_floor();
     test_v19_import_gc_roots();
 
     //Task 6 GC stress pins (real allocation + real collection).

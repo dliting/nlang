@@ -10,41 +10,88 @@
 #include <nlang/compiler/SnStatements.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/compiler/TranslationUnit.h>
+#include <nlang/compiler/Logger.h>
 #include <nlang/runtime/NodeConsts.h>
+#include "builder/ModuleRegistry.h"
+#include "BuildEnvironment.h"
+#include <cassert>
+#include <vector>
 
 namespace nlang {
 namespace {
 
-//Qualified name of a function nested in one or more non-root namespaces,
-//e.g. "io.print" / "math.ext.hypot3". Top-level free functions keep a bare
-//name. A CLASS/INTERFACE/ENUM METHOD always keeps a bare name too, even when
-//its owning type is nested inside a namespace: methods dispatch by name
-//through their receiver (VmExecutor::FindMethodByName compares the bare
-//name), so a namespace prefix would make every lookup fail.
-std::string QualifiedFunctionName(const SnFunction& func) {
-    if (func.Parent()
-        && (func.Parent()->Kind() == NK_ClassDecl
-            || func.Parent()->Kind() == NK_InterfaceDecl
-            || func.Parent()->Kind() == NK_EnumDecl))
-        return func.Name();
-
-    SnNamespace* const pRoot = TheAST().Root();
-    std::string prefix;
-    for (SyntaxNode* pNode = func.Parent(); pNode != nullptr;
-        pNode = pNode->Parent()) {
-        if (pNode->Kind() == NK_Namespace && pNode != pRoot) {
-            const auto* pNs = static_cast<const SnNamespace*>(pNode);
-            prefix = pNs->Name() + (prefix.empty() ? "" : ".") + prefix;
-        }
-    }
-    return prefix.empty() ? func.Name() : prefix + "." + func.Name();
+//v1.9 (debugger): source file path recorded per function. Imported
+//stubs carry a location whose TransUnit() is null and are normally
+//filtered by the body-less check inside RegisterFunctions; the null
+//guards are defensive cover for anything that slips through. Hoisted
+//here (phase 5) so the entry-point scan can name candidate files too.
+static std::string SourceFilePathOf(const SnFunction& func) {
+    auto* pLoc = func.Location();
+    if (!pLoc) return std::string();
+    auto* pTu = pLoc->TransUnit();
+    return pTu ? pTu->FilePath() : std::string();
 }
 
 } // namespace
 
+//Canonical VM key of a declaration: "<package>.<name>", or the bare name
+//when the node carries no owner tag. The package comes from the compile-
+//time registry (path-derived), NOT from an AST namespace walk — a walk can
+//only name a unit that literally wrote `namespace <path>`, and project
+//members hang off the root, so every project key would stay bare.
+//A CLASS/INTERFACE/ENUM METHOD always keeps a bare name, even when its
+//owning type is package-nested: methods dispatch by name through their
+//receiver (VmExecutor::FindMethodByName compares the bare name), so a
+//package prefix would make every lookup fail.
+//A synthetic generic instantiation keeps its ERASED builtin key ("List"
+//for List<int>): the backing CompiledClass is registered once under the
+//base name, and the instantiation node is ownerless, so the registry
+//would otherwise degrade to its display name ("List<int>") — not a key.
+//File-local to Register.cpp; VmBackend::KeyOf is the only exported
+//spelling.
+static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field) {
+    if (field.Kind() == NK_ClassDecl) {
+        auto& cls = static_cast<const SnClassDecl&>(field);
+        if (cls.IsGenericInstantiation())
+            return cls.BaseName();
+    }
+    if (const SyntaxNode* pParent = field.Parent();
+        pParent && (pParent->Kind() == NK_ClassDecl
+            || pParent->Kind() == NK_InterfaceDecl
+            || pParent->Kind() == NK_EnumDecl))
+        return field.Name();
+    return reg.QualifiedName(field);
+}
+
+//Codegen-side accessor: every name written into or looked up in the VM
+//tables goes through here, so the spelling cannot drift from what the
+//resolver reports. Requires the registry injected by ModuleBuilder.
+std::string VmBackend::KeyOf(const SnField& field) const {
+    assert(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
+    return QualifiedName(*m_pRegistry, field);
+}
+
+//Phase 5 D5, called at the FillNativeFunctionRecord call side: the host
+//DLL is the first-dot segment (nlang_<seg>.dll), so a native in a
+//multi-segment package cannot name one yet (phase 6 lifts the limit).
+//Returns true (after logging) when the declaration must be refused.
+bool VmBackend::RejectMultiSegmentNativePackage(SnFunction& func) {
+    const std::string pkg = m_pRegistry->PackageOf(func);
+    if (pkg.find('.') == std::string::npos)
+        return false;
+    m_pEnv->Log(CLL_Error,
+        "native function '%s': multi-segment package '%s' cannot name a "
+        "host DLL yet.", KeyOf(func).c_str(), pkg.c_str());
+    return true;
+}
+
 void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     CompiledStruct cs;
-    cs.name = sn.Name();
+    //Same-package duplicates are stopped by the compiler's
+    //DuplicateFieldChecker before codegen runs, so the type tables keep
+    //no second gate here; a cross-module same key IS the same type (see
+    //MergeImportedTypeTables in Import.cpp).
+    cs.name = KeyOf(sn);
     cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
     std::vector<std::string> typeNames;
     std::vector<SnField*> fieldTypes;
@@ -60,7 +107,7 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
         cs.fieldStructIndices.push_back(0xFFFF);
         cs.fieldClassIndices.push_back(0xFFFF);
         if ((ftk == RTK_Struct || ftk == RTK_Class) && fieldType)
-            typeNames.push_back(fieldType->Name());
+            typeNames.push_back(KeyOf(*fieldType));
         else
             typeNames.push_back("");
         fieldTypes.push_back(fieldType);
@@ -111,7 +158,7 @@ void VmBackend::ResolveStructClassRefs() {
         auto& fieldTypes = m_structFieldTypes[si];
         for (size_t i = 0; i < fieldTypes.size(); ++i)
             cs.fieldTypeDescs.push_back(
-                BuildTypeDesc(fieldTypes[i], m_compiledModule));
+                BuildTypeDesc(fieldTypes[i], m_compiledModule, *m_pRegistry));
     }
 }
 
@@ -119,11 +166,11 @@ uint16_t VmBackend::RegisterArrayType(SnField* pElemType) {
     uint8_t elemKind = RuntimeTypeKind(pElemType);
     uint16_t elemTypeIdx = 0xFFFF;
     if (elemKind == RTK_Struct && pElemType) {
-        int idx = m_compiledModule.FindStruct(pElemType->Name());
+        int idx = m_compiledModule.FindStruct(KeyOf(*pElemType));
         if (idx >= 0)
             elemTypeIdx = static_cast<uint16_t>(idx);
     } else if (elemKind == RTK_Class && pElemType) {
-        int idx = m_compiledModule.FindClass(pElemType->Name());
+        int idx = m_compiledModule.FindClass(KeyOf(*pElemType));
         if (idx >= 0)
             elemTypeIdx = static_cast<uint16_t>(idx);
     }
@@ -246,16 +293,8 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
     });
 }
 
-//v1.9 (debugger): source file path recorded per function. Imported
-//stubs carry a location whose TransUnit() is null and are normally
-//filtered by the body-less check inside RegisterFunctions; the null
-//guards are defensive cover for anything that slips through.
-static std::string SourceFilePathOf(const SnFunction& func) {
-    auto* pLoc = func.Location();
-    if (!pLoc) return std::string();
-    auto* pTu = pLoc->TransUnit();
-    return pTu ? pTu->FilePath() : std::string();
-}
+//v1.9 (debugger): the source-file spelling lives in SourceFilePathOf
+//(anonymous namespace, top of file) — shared with the entry-point scan.
 
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
@@ -269,10 +308,65 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         if (!func.Body() && !func.ContainFlags(NF_Native))
             return;
         CompiledFunction cf;
-        cf.name = QualifiedFunctionName(func);
+        cf.name = KeyOf(func);
         cf.sourceFile = SourceFilePathOf(func);
         m_compiledModule.functions.push_back(std::move(cf));
         m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
     });
 }
+//Entry = a root-level (non-method) `main` declared by a PROJECT unit.
+//Libraries never provide the entry; a module with zero candidates keeps
+//entryPoint = -1 and nvm reports "no entry point" instead of today's
+//"no 'main' function found". Two candidates is a build error, not a
+//first-wins tie-break: the keys are `a.main` and `b.main`, both legal,
+//so only the source paths can tell the user which file they meant.
+void VmBackend::ResolveEntryPoint(SnNamespace& root) {
+    m_compiledModule.entryPoint = -1;
+    std::vector<SnFunction*> candidates;
+    for (auto& member : root.Members()) {
+        if (member.Kind() != NK_Function)
+            continue;
+        auto& func = static_cast<SnFunction&>(member);
+        if (func.Name() != "main")
+            continue;
+        //A method named main is never the entry: methods keep bare names
+        //and dispatch through their receiver. (Direct root members cannot
+        //be methods; the check keeps the rule explicit for a shell child.)
+        auto* pParent = func.Parent();
+        if (pParent && (pParent->Kind() == NK_ClassDecl
+            || pParent->Kind() == NK_InterfaceDecl
+            || pParent->Kind() == NK_EnumDecl))
+            continue;
+        //Libraries never provide the entry; an untagged node has no unit
+        //to be a project member of.
+        const uint32_t owner = m_pRegistry->OwnerOf(func);
+        if (owner == ModuleRegistry::NO_OWNER
+            || m_pRegistry->IsLibraryModule(owner))
+            continue;
+        candidates.push_back(&func);
+    }
+    if (candidates.empty())
+        return;   //entryPoint stays -1: no entry point in this module
+    if (candidates.size() > 1) {
+        std::string msg = "entry point is ambiguous:";
+        for (auto* pFunc : candidates) {
+            msg += " '" + KeyOf(*pFunc) + "' ("
+                + SourceFilePathOf(*pFunc) + ");";
+        }
+        msg += " keep exactly one main() in the project.";
+        m_pEnv->Log(CLL_Error, "%s", msg.c_str());
+        return;
+    }
+    SnFunction& entry = *candidates.front();
+    if (entry.ContainFlags(NF_Native)) {
+        //The native record exists, but executing the entry must not
+        //silently dispatch through the host table: name the key.
+        m_pEnv->Log(CLL_Error,
+            "entry point '%s' is native: main must be a compiled function,"
+            " not a host-table declaration.", KeyOf(entry).c_str());
+        return;
+    }
+    m_compiledModule.entryPoint = m_compiledModule.FindFunction(KeyOf(entry));
+}
+
 } //namespace nlang

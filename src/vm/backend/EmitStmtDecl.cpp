@@ -32,7 +32,7 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
             uint16_t offset = AllocLocal(local.name, VALUE_SIZE, typeKind, false);
             //For struct types, emit OP_AllocStruct to allocate on heap.
             if (typeKind == RTK_Struct && evalType) {
-                int structIdx = m_compiledModule.FindStruct(evalType->Name());
+                int structIdx = m_compiledModule.FindStruct(KeyOf(*evalType));
                 if (structIdx >= 0) {
                     auto& cs = m_compiledModule.structs[structIdx];
                     emitter.Emit(OpCode::OP_AllocStruct);

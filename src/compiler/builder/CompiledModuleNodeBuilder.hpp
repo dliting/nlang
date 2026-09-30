@@ -64,6 +64,18 @@ private:
 //After BuildFromCompiledModule, the caller can query ImportedFunctions() to
 //register each (stub, srcFuncIdx) tuple into VmBackend's side-table
 //m_importedFuncSourceIdx (which maps stub → {srcModIdx, srcFuncIdx}).
+//Phase 5: table keys are package-qualified ("<pkg>.<name>"), but an
+//imported stub's AST NAME must be the leaf — the resolver looks stubs up
+//by the caller's bare callee/type name, while the stub's owner tag (the
+//external module) supplies the package. The qualified key stays in the
+//CompiledModule tables (merged and remapped through Find* by qualified
+//name on the VM side).
+inline std::string LeafNameOfKey(const std::string &key)
+{
+	const size_t lastDot = key.find_last_of('.');
+	return lastDot == std::string::npos ? key : key.substr(lastDot + 1);
+}
+
 class CompiledModuleNodeBuilder
 {
 public:
@@ -138,7 +150,7 @@ public:
 			if (methodOrCtorIndices.count(i))
 				continue;  //class method/ctor — owned by its class, not free
 			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm, loc);
-			if (nameExistsInRoot(cm.functions[i].name))
+			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but
 				//the stub stays registered (ImportedFunctions) so its
@@ -156,7 +168,7 @@ public:
 		//Structs.
 		for (const auto &cs : cm.structs)
 		{
-			if (nameExistsInRoot(cs.name))
+			if (nameExistsInRoot(LeafNameOfKey(cs.name)))
 				continue;  //R10-1
 			SnStructDecl *stub = CreateStructStub(cs, loc);
 			m_Tree.Root()->Members().push_back(stub);
@@ -165,7 +177,7 @@ public:
 		//Classes.
 		for (const auto &cc : cm.classes)
 		{
-			if (nameExistsInRoot(cc.name))
+			if (nameExistsInRoot(LeafNameOfKey(cc.name)))
 				continue;  //R10-1
 			SnClassDecl *stub = CreateClassStub(cc, loc);
 			m_Tree.Root()->Members().push_back(stub);
@@ -366,7 +378,8 @@ private:
 		}
 
 		//Mint the function name as a heap string (SnFunction takes ownership).
-		auto pName = new std::string(cf.name);
+		//Leaf name: see LeafNameOfKey (phase 5 key vs. stub-name split).
+		auto pName = new std::string(LeafNameOfKey(cf.name));
 
 		auto *pFunc = new SnFunction(FA_Public, NF_Data, pRetType, pName,
 			pParams, loc);
@@ -394,7 +407,7 @@ private:
 		//raw PtrList* whose ownership is transferred via the implicit
 		//inner_collection* constructor.
 		auto *pMembers = new PtrList<SnStructField>();
-		auto pName = new std::string(cs.name);
+		auto pName = new std::string(LeafNameOfKey(cs.name));
 		auto *pDecl = new SnStructDecl(pName, pMembers, loc);
 		pDecl->AddFlags(NF_Imported);   //R6-2
 		return pDecl;
@@ -410,7 +423,7 @@ private:
 		//(superClassIdx etc.) is held by CompiledClass in m_importedModules
 		//and merged directly by Phase A. AST stub exists only for name
 		//resolution.
-		auto pName = new std::string(cc.name);
+		auto pName = new std::string(LeafNameOfKey(cc.name));
 		auto *pMembers = new PtrList<SnField>();
 		auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
 		pDecl->AddFlags(NF_Imported);   //R6-2
@@ -418,11 +431,15 @@ private:
 	}
 
 	//Layer 6 policy: imported module must not define main().
+	//Phase 5: the entry judgment uses the qualified key — a root main.n
+	//in the imported module is keyed "<module>.main", so the bare "main"
+	//comparison would miss it.
 	void CheckNoMainFunction(const CompiledModule &cm)
 	{
+		const std::string entryKey = cm.name + ".main";
 		for (const auto &cf : cm.functions)
 		{
-			if (cf.name == "main")
+			if (cf.name == entryKey)
 			{
 				throw std::runtime_error(
 					"imported module '" + cm.name +

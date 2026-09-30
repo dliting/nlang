@@ -58,6 +58,10 @@ target_include_directories(nlang_vm
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        #Phase 5: codegen spells table keys through the compile-time
+        #registry (VmBackend::KeyOf -> ModuleRegistry::QualifiedName).
+        #Reverse precedent: src/compiler/CMakeLists.txt lists src/vm.
+        ${PROJECT_SOURCE_DIR}/src/compiler
 )
 
 target_link_libraries(nlang_vm

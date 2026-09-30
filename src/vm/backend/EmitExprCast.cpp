@@ -276,7 +276,7 @@ void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
     auto* targetType = asExpr.ResolvedTarget();
     uint16_t classIdx = 0;
     if (targetType) {
-        int idx = m_compiledModule.FindClass(targetType->Name());
+        int idx = m_compiledModule.FindClass(KeyOf(*targetType));
         classIdx = (idx >= 0)
             ? static_cast<uint16_t>(idx) : 0;
     }

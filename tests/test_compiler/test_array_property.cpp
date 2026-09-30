@@ -232,8 +232,10 @@ void TestArrayProperty::structFieldKindStoredAsArray()
     } catch (const std::exception&) {}
     QVERIFY(loaded);
     int structIdx = -1;
+    //Phase 5: the table key is package-qualified — main.n in the project
+    //root is package "main", so the struct is keyed "main.S".
     for (size_t i = 0; i < mod.structs.size(); ++i)
-        if (mod.structs[i].name == "S") { structIdx = (int)i; break; }
+        if (mod.structs[i].name == "main.S") { structIdx = (int)i; break; }
     QVERIFY(structIdx >= 0);
     const auto& cs = mod.structs[structIdx];
     QCOMPARE(int(cs.fieldTypeKinds[0]), int(RTK_Array));   //int[] f

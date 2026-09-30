@@ -301,20 +301,70 @@ SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 	auto& lit = static_cast<SnLiteralExpr&>(*it);
 	const std::string* pTypeName = lit.Value().Data().m_String;
 	const std::string typeName = pTypeName ? *pTypeName : std::string();
+	//Phase 5 D10: the literal resolves to a declaration NOW, from the
+	//visible packages (own package + imported ones), and the string that
+	//reaches the VM is rewritten to that declaration's table key. No
+	//runtime bare-name fallback: the type tables are qualified-keyed.
+	//The old source walked the CALLER's AST scope chain, but import never
+	//adds a chain node (D2: import only opens visibility), so library
+	//types were unreachable — the collection surface must be the
+	//registry's visible-module set, not FindField up the chain.
 	SnField* found = nullptr;
-	auto* ctx = pSavedContext;
-	while (ctx && !found)
+	std::string foundKey;
+	size_t hits = 0;
 	{
-		found = ctx->FindField(typeName);
-		ctx = ctx->Parent();
+		auto& reg = m_Env.Registry();
+		//Visible modules: the caller's own package plus every module its
+		//import gate opened. A dotted literal names its package in the
+		//first segments, so only that module can own it; a bare literal
+		//competes across ALL visible modules (ambiguity surface).
+		const bool dotted = typeName.find('.') != std::string::npos;
+		const size_t lastDot = typeName.find_last_of('.');
+		const std::string prefix =
+			dotted ? typeName.substr(0, lastDot) : std::string();
+		const std::string leaf =
+			dotted ? typeName.substr(lastDot + 1) : typeName;
+		const uint32_t curModule = reg.OwnerOfContext(*pSavedContext);
+		std::vector<std::string> seenKeys;
+		for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
+		{
+			const std::string& path = reg.ModulePathOf(i);
+			if (i != curModule && !reg.IsModuleImported(curModule, path))
+				continue;
+			if (dotted && path != prefix)
+				continue;
+			SnField* hit = reg.FindModuleType(path, leaf);
+			if (!hit || hit->Kind() != wantKind)
+				continue;
+			const std::string key = reg.QualifiedName(*hit);
+			//A hit already seen (same qualified key) is the same type,
+			//not a second candidate — the per-package duplicate is
+			//rejected earlier by the name-conflict checks.
+			if (std::find(seenKeys.begin(), seenKeys.end(), key)
+				!= seenKeys.end())
+				continue;
+			seenKeys.push_back(key);
+			found = hit;
+			foundKey = key;
+			++hits;
+		}
 	}
-	if (!found || found->Kind() != wantKind)
-	{
+	if (hits > 1) {
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"%s: type name '%s' is ambiguous (%zu visible types share it); "
+			"qualify it (e.g. 'pkg.%s').", pMethodDisp, typeName.c_str(),
+			hits, typeName.c_str());
+		m_pContext = pSavedContext;
+		return nullptr;
+	}
+	if (!found) {
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"%s type not found: %s.", pMethodDisp, typeName.c_str());
 		m_pContext = pSavedContext;
 		return nullptr;
 	}
+	lit.RewriteStringValue(foundKey);   //table key, spelled by the registry
+	m_pContext = pSavedContext;
 	return found;
 }
 

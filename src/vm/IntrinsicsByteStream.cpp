@@ -205,6 +205,9 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
                 sizeof(typeNameIdx));
             const std::string& typeName = StrVal(typeNameIdx);
+            //Write/read same-source: the literal was rewritten at compile
+            //time to the table key (resolver D10), so the lookup consumes
+            //exactly what codegen wrote.
             int sIdx = m_currModule->FindStruct(typeName);
             if (sIdx < 0)
                 throw std::runtime_error(
@@ -253,6 +256,8 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
                 sizeof(typeNameIdx));
             const std::string& declaredName = StrVal(typeNameIdx);
+            //Write/read same-source: the literal carries the table key
+            //(resolver D10 rewrite); no bare-name fallback here.
             int declaredIdx = m_currModule->FindClass(declaredName);
             if (declaredIdx < 0)
                 throw std::runtime_error(

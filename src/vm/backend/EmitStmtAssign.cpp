@@ -59,7 +59,7 @@ void VmBackend::EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
     if (varType && RuntimeTypeKind(varType) == RTK_Struct) {
         //Struct assignment: evaluate right to temp, then deep-copy.
         EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
-        int structIdx = m_compiledModule.FindStruct(varType->Name());
+        int structIdx = m_compiledModule.FindStruct(KeyOf(*varType));
         emitter.Emit(OpCode::OP_CopyStruct);
         emitter.EmitUint16(offset);
         emitter.EmitUint16(m_currFunc->tempSlot2);
@@ -308,8 +308,10 @@ void VmBackend::EmitAssignStructFieldDeepCopy(SnAssignStmt& assign,
     uint16_t objSlot = copySlot + VALUE_SIZE;
     uint16_t rhsSlot = objSlot + VALUE_SIZE;
     EmitExpression(*assign.Right(), emitter, rhsSlot);
+    //fieldType's name was stored by Register.cpp's KeyOf writer
+    //(m_structFieldTypeNames), so the lookup spells the same key.
     int fieldStructIdx = m_compiledModule.FindStruct(
-        fieldType->Name());
+        KeyOf(*fieldType));
     emitter.Emit(OpCode::OP_CopyStruct);
     emitter.EmitUint16(copySlot);
     emitter.EmitUint16(rhsSlot);

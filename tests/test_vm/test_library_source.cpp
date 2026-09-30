@@ -58,7 +58,9 @@ fs::path scenarioDir(const char* name) {
 
 void writeFiles(const fs::path& dir, const Files& files) {
     for (const auto& entry : files) {
-        std::ofstream out(dir / entry.first, std::ios::binary);
+        fs::path target = dir / entry.first;
+        fs::create_directories(target.parent_path());   //nested fixtures need parents
+        std::ofstream out(target, std::ios::binary);
         out << entry.second;
     }
 }
@@ -71,6 +73,10 @@ bool runBuild(const fs::path& dir, ListCompileLogger& logger,
     //Unique output module per scenario: several Build() runs share the
     //process-wide module registry, so a repeated name would collide.
     for (const auto& s : vrSources) params.m_SourceFiles.push_back((dir / s).string());
+    //The scenario root IS the project root: without it DeriveModulePath
+    //falls back to the file stem for every source, so two nested main.n
+    //files would collapse to one bare pool and never reach the entry scan.
+    params.m_sProjectDir = dir.string();
     params.m_sOutputModule = dir.filename().string();
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
@@ -117,12 +123,21 @@ int compileRun(const fs::path& dir, CapturingIo& cap,
     if (!runBuild(dir, logger, vrSources))
         return -1;
     const std::string modName = dir.filename().string();
-    CompiledModule mod = ModuleLoader::Load(
-        (dir / (modName + ".nmod")).string());
-    VmExecutor exec;
-    exec.AddNativeSearchDir(dir.string());
-    exec.SetHostIo(&cap);
-    return exec.Execute(mod);
+    //A keyed-layout symptom (or a VM-side table break) surfaces as an
+    //exception, not a diagnostic; catch it so the scenario reports a
+    //failed CHECK instead of taking down the whole binary (compileDir
+    //protects its own call the same way).
+    try {
+        CompiledModule mod = ModuleLoader::Load(
+            (dir / (modName + ".nmod")).string());
+        VmExecutor exec;
+        exec.AddNativeSearchDir(dir.string());
+        exec.SetHostIo(&cap);
+        return exec.Execute(mod);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "internal error: %s\n", e.what());
+        return -1;
+    }
 }
 
 // Ordinary NLang functions: same-library bare calls (quad -> twice) and
@@ -558,6 +573,265 @@ static void TestQualifiedLibraryTypeWithoutArgsWorks() {
           "alib.Vec (no args) compiles and runs beside a builtin generic");
 }
 
+//Phase 5 Task 4 Step 1: with bare-name keys, a library Point and a root
+//Point collide and the later one silently gets the first one's field
+//layout. Qualified keys must isolate them by value.
+static void TestSameNameLibraryAndRootTypeIsolated() {
+    auto dir = scenarioDir("rb3_named");
+    writeFiles(dir, {
+        { "alib.n",
+          "namespace alib {\n"
+          "class Point { public int x; public int y;\n"
+          "  public int sum() { return x + y; } }\n"
+          "}\n" },
+        { "main.n",
+          "import io;\n"
+          "import alib;\n"
+          "class Point { public int a; public int b; public int c;\n"
+          "  public int id() { return a + b + c; } }\n"
+          "int main() {\n"
+          "  alib.Point p = new alib.Point();\n"
+          "  p.x = 1; p.y = 2;\n"
+          "  Point q = new Point();\n"
+          "  q.a = 4; q.b = 5; q.c = 6;\n"
+          "  io.print(p.sum());\n"
+          "  io.print(q.id());\n"
+          "  return p.sum() + q.id() - 18;\n"
+          "}\n" } });
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 0, "isolated layouts run clean");
+    CHECK(cap.text == "3\n15\n", "library sum(1+2)=3, root id(4+5+6)=15");
+}
+
+//(1) D8: the path beats the shell name. The file is zlib.n but the shell
+//says namespace alib - the package must come from the path (zlib).
+static void TestPathBeatsShellName() {
+    auto dir = scenarioDir("path_beats_shell");
+    writeFiles(dir, {
+        { "zlib.n",
+          "namespace alib {\n"
+          "int twice(int x) { return x * 2; }\n"
+          "}\n" },
+        { "main.n",
+          "import zlib;\n"
+          "int main() { return zlib.twice(3) - 6; }\n" } });
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 0, "zlib.n with a mismatched shell still builds");
+    //(1b) reverse: qualifying with the SHELL name. Today this still
+    //resolves through the legacy `namespace` container (the shell merges
+    //into root; container retirement is Task 5's de-shell commit, and
+    //until then the container route cannot be gated without breaking
+    //project-local namespaces). D8's rejection form lands there; this
+    //pin documents the interim behavior so Task 5 flips it deliberately.
+    auto dir2 = scenarioDir("path_beats_shell_neg");
+    writeFiles(dir2, { { "zlib.n", "namespace alib {\n"
+          "int twice(int x) { return x * 2; }\n}\n" },
+        { "main.n", "import zlib;\n"
+          "int main() { return alib.twice(3); }\n" } });
+    CapturingIo cap2;
+    CHECK(compileRun(dir2, cap2) == 6,
+          "the shell name still resolves via the legacy container (Task 5 flips this)");
+}
+
+//(2) Design §6 second rule: two same-named types in one package are a
+//diagnostic, not a silent first-wins. The reachable check is the
+//compiler's DuplicateFieldChecker (measured today's wording).
+static void TestDuplicateTypeInOnePackageRejected() {
+    auto dir = scenarioDir("dup_type");
+    writeFiles(dir, { { "main.n",
+        "class Box { public int a; }\n"
+        "struct Box { int b; }\n"      //same unit, same name -> collision
+        "int main() { return 0; }\n" } });
+    CHECK(!compileDir(dir), "two same-named types in one package fail");
+    auto dirLog = scenarioDir("dup_type_log");   //twin: log after a failed build
+    writeFiles(dirLog, { { "main.n",
+        "class Box { public int a; }\n"
+        "struct Box { int b; }\n"
+        "int main() { return 0; }\n" } });
+    CHECK(compileLog(dirLog).find("is conflicted with a exist field definition")
+              != std::string::npos,
+          "the reachable duplicate-type diagnostic still fires (measured today)");
+    //(2b) cross-package same names are legal - the reverse control.
+    auto dir2 = scenarioDir("dup_type_ok");
+    writeFiles(dir2, { { "alib.n", "namespace alib {\nstruct Box { int a; }\n}\n" },
+        { "main.n", "import alib;\nstruct Box { int b; }\n"
+          "int main() { Box q; alib.Box p; return 0; }\n" } });
+    CHECK(compileDir(dir2), "same type name in different packages is legal");
+}
+
+//(3) D10: an ambiguous literal type name must be diagnosed; a unique hit
+//must be rewritten to the table key the VM sees.
+static void TestStreamLiteralResolvesAtCompileTime() {
+    //(3a) unique hit: S lives in alib; the constant pool carries the
+    //table key alib.S, never the bare name.
+    auto dir = scenarioDir("stream_literal_one");
+    writeFiles(dir, {
+        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
+        { "main.n", "import alib;\n"
+          "int main() {\n"
+          "  ByteStream bs = new ByteStream();\n"
+          "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
+          "  alib.S r = bs.readStruct(\"S\");\n"
+          "  return r.a - 1;\n"
+          "}\n" } });
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 0, "unique readStruct(\"S\") round-trips");
+    CompiledModule mod = ModuleLoader::Load(
+        (dir / (dir.filename().string() + ".nmod")).string());
+    bool keyed = false;
+    for (const auto& s : mod.stringConstants)
+        if (s == "alib.S") keyed = true;
+    CHECK(keyed, "the literal that reaches the VM is the qualified table key");
+    bool bare = false;
+    for (const auto& s : mod.stringConstants)
+        if (s == "S") bare = true;
+    CHECK(!bare, "no bare-name type literal survives");
+    //(3b) two visible same-named types => ambiguity diagnostic, not a
+    //silent first-wins (Step 9's hits>1 branch). Same body as (3a); the
+    //only difference is the extra import, so the pair is a real control.
+    auto dir2 = scenarioDir("stream_literal_two");
+    writeFiles(dir2, {
+        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
+        { "blib.n", "namespace blib {\nstruct S { int b; }\n}\n" },
+        { "main.n", "import alib;\nimport blib;\n"
+          "int main() {\n"
+          "  ByteStream bs = new ByteStream();\n"
+          "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
+          "  alib.S r = bs.readStruct(\"S\");\n"
+          "  return r.a - 1;\n"
+          "}\n" } });
+    CHECK(!compileDir(dir2), "two visible types named S fail");
+    auto dir2Log = scenarioDir("stream_literal_two_log");   //twin for the log
+    writeFiles(dir2Log, {
+        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
+        { "blib.n", "namespace blib {\nstruct S { int b; }\n}\n" },
+        { "main.n", "import alib;\nimport blib;\n"
+          "int main() {\n"
+          "  ByteStream bs = new ByteStream();\n"
+          "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
+          "  alib.S r = bs.readStruct(\"S\");\n"
+          "  return r.a - 1;\n"
+          "}\n" } });
+    CHECK(compileLog(dir2Log).find("ambiguous") != std::string::npos,
+          "the ambiguity diagnostic is the one Step 9 adds");
+    //(3c) miss: today no test pins the not-found wording; keep it nailed
+    //while the lookup source changes.
+    auto dir3 = scenarioDir("stream_literal_none");
+    writeFiles(dir3, { { "main.n",
+        "int main() {\n"
+        "  ByteStream bs = new ByteStream();\n"
+        "  return bs.readStruct(\"NoSuchType\");\n"
+        "}\n" } });
+    CHECK(!compileDir(dir3), "an unknown literal type name fails");
+    auto dir3Log = scenarioDir("stream_literal_none_log");   //twin for the log
+    writeFiles(dir3Log, { { "main.n",
+        "int main() {\n"
+        "  ByteStream bs = new ByteStream();\n"
+        "  return bs.readStruct(\"NoSuchType\");\n"
+        "}\n" } });
+    CHECK(compileLog(dir3Log).find("type not found: NoSuchType")
+              != std::string::npos,
+          "the preserved bare wording is still the not-found path");
+    //(3d) the ambiguity advice says "qualify it (e.g. 'pkg.S')" - a
+    //dotted literal must really work, or the advice lies.
+    auto dir4 = scenarioDir("stream_literal_qualified");
+    writeFiles(dir4, {
+        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
+        { "blib.n", "namespace blib {\nstruct S { int b; }\n}\n" },
+        { "main.n", "import alib;\nimport blib;\n"
+          "int main() {\n"
+          "  ByteStream bs = new ByteStream();\n"
+          "  alib.S w; w.a = 4; bs.writeStruct(w); bs.reset();\n"
+          "  alib.S r = bs.readStruct(\"alib.S\");\n"
+          "  return r.a - 4;\n"
+          "}\n" } });
+    CapturingIo cap4;
+    CHECK(compileRun(dir4, cap4) == 0,
+          "the ambiguous advice form (a dotted literal) round-trips");
+}
+
+//(4) Step 8: the entryPoint write/read round trip.
+static void TestEntryPointRoundTrip() {
+    auto dir = scenarioDir("entry_round");
+    writeFiles(dir, { { "main.n", "int main() { return 7; }\n" } });
+    CHECK(compileDir(dir), "single-file program builds");
+    CompiledModule mod = ModuleLoader::Load(
+        (dir / (dir.filename().string() + ".nmod")).string());
+    CHECK(mod.entryPoint >= 0, "entry point index recorded");
+    CHECK(mod.entryPoint < static_cast<int32_t>(mod.functions.size()),
+          "entry point index in range");
+    //After ModuleLoader::Load, the index must still point at the entry:
+    CHECK(mod.functions[mod.entryPoint].name == "main.main",
+          "the entry key is the path-derived qualified name");
+    //Library-only module (the compile entry is alib.n, not main.n):
+    //no PROJECT unit declares main -> -1.
+    auto dir2 = scenarioDir("entry_lib");
+    writeFiles(dir2, { { "alib.n", kLibSource } });
+    CHECK(compileDir(dir2, { "alib.n" }), "a library unit builds on its own");
+    CompiledModule lib = ModuleLoader::Load(
+        (dir2 / (dir2.filename().string() + ".nmod")).string());
+    CHECK(lib.entryPoint == -1, "a library unit has no entry point");
+}
+
+//Design §4 "two TUs each writing main()": different directories, because
+//same directory is already rejected by the existing duplicate-name check
+//(round 6 measurement) - that guard would swallow this case before the
+//entry scan runs.
+static void TestTwoMainsRejected() {
+    auto dir = scenarioDir("two_mains");
+    writeFiles(dir, {
+        { "x/main.n", "int main() { return 1; }\n" },
+        { "y/main.n", "int main() { return 2; }\n" } });
+    CHECK(!compileDir(dir, { "x/main.n", "y/main.n" }),
+          "two project entry candidates are a build error");
+    auto dirLog = scenarioDir("two_mains_log");   //twin: log after a failed build
+    writeFiles(dirLog, {
+        { "x/main.n", "int main() { return 1; }\n" },
+        { "y/main.n", "int main() { return 2; }\n" } });
+    const std::string log = compileLog(dirLog, { "x/main.n", "y/main.n" });
+    CHECK(log.find("x.main") != std::string::npos
+          && log.find("y.main") != std::string::npos,
+          "the diagnostic names both candidates by their qualified key");
+}
+
+//(5) Design §8: the builtin Object and a user Object are two keys on
+//disk. Only the key shape is pinned here - the runtime use of a user
+//Object is blocked by the compiler-side bare-name short-circuits, which
+//this task does not touch, so the fixture uses fields only (no method).
+static void TestBuiltinAndUserTypeNameCoexist() {
+    auto dir = scenarioDir("object_key");
+    writeFiles(dir, {
+        { "alib.n", "namespace alib {\nclass Object { public int tag; }\n}\n" },
+        { "main.n", "import alib;\n"
+          "class Object { public int marker; }\n"   //§8: root-level user Object
+          "int main() {\n"
+          "  alib.Object y = new alib.Object();\n"
+          "  y.tag = 2;\n"
+          "  return y.tag - 2;\n"
+          "}\n" } });
+    CHECK(compileDir(dir),
+          "a library Object and a root Object build beside the builtin one");
+    CompiledModule mod = ModuleLoader::Load(
+        (dir / (dir.filename().string() + ".nmod")).string());
+    int nBare = 0, nLib = 0, nRoot = 0;
+    for (const auto& c : mod.classes) {
+        if (c.name == "Object") ++nBare;       //builtin: NO_OWNER => bare key
+        if (c.name == "alib.Object") ++nLib;   //library: path-derived key
+        if (c.name == "main.Object") ++nRoot;  //project root TU: also packaged
+    }
+    CHECK(nLib == 1, "the library declares exactly one alib.Object key");
+    CHECK(nBare == 1, "the builtin keeps its bare Object key and nothing else shares it");
+    CHECK(nRoot == 1, "the root-level user Object is keyed main.Object, not Object");
+    //Keys apart, the layouts must point apart too: the builtin carries 0
+    //fields, each user declaration 1 (CompiledClass::fieldCount).
+    for (const auto& c : mod.classes) {
+        if (c.name == "Object")
+            CHECK(c.fieldCount == 0, "the bare key is the field-less builtin");
+        if (c.name == "main.Object")
+            CHECK(c.fieldCount == 1, "main.Object carries the user field");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -579,6 +853,13 @@ int main() {
     TestThreeSegmentBaseGivesNamedDiagnosis();
     TestQualifiedGenericArgStaysRejected();
     TestQualifiedLibraryTypeWithoutArgsWorks();
+    TestSameNameLibraryAndRootTypeIsolated();
+    TestPathBeatsShellName();
+    TestDuplicateTypeInOnePackageRejected();
+    TestStreamLiteralResolvesAtCompileTime();
+    TestEntryPointRoundTrip();
+    TestTwoMainsRejected();
+    TestBuiltinAndUserTypeNameCoexist();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

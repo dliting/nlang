@@ -46,6 +46,11 @@ struct InitEntry;
 //signatures from it. Pointer only, never owned.
 namespace langservice { class SymbolIndex; struct SymbolInfo; }
 
+//Phase 5: the compile-time module registry (src/compiler/builder/
+//ModuleRegistry.h) — the package/qualified-name seam KeyOf spells table
+//keys from. Pointer only, never owned.
+class ModuleRegistry;
+
 //Phase 9d: the built-in Exception family — synthetic declarations carry
 //no AST fields but a fixed two-field (message/backtrace) runtime layout.
 //Shared by field-offset lookup (EmitExprMember.cpp) and the registration
@@ -84,6 +89,26 @@ public:
     {
         m_pLibraryIndex = pIndex;
     }
+
+    //Phase 5: the package/qualified-name seam lives on the compile-time
+    //registry. Codegen must build the SAME string the resolver shows the
+    //user, so it borrows the registry (never owns it; it outlives codegen
+    //inside one Build() call). The env pointer is the diagnostic channel:
+    //VmBackend has no m_Env member (env arrives by value in Build() and by
+    //reference in SaveModule()), so duplicate-key errors need it injected.
+    void SetModuleRegistry(const ModuleRegistry* pRegistry,
+        BuildEnvironment* pEnv)
+    {
+        m_pRegistry = pRegistry;
+        m_pEnv = pEnv;
+    }
+
+    //Phase 5: canonical VM key of a declaration — "<package>.<name>", or
+    //the bare name when the node carries no owner tag. Every name written
+    //into or looked up in the VM tables goes through here, so the spelling
+    //cannot drift from what the resolver reports. Requires the registry
+    //injected by ModuleBuilder. Defined in Register.cpp.
+    std::string KeyOf(const SnField& field) const;
 
     //Phase 9c cross-module: register an imported function stub to its
     //source-module index pair. CompiledModuleNodeBuilder produces stubs;
@@ -739,6 +764,14 @@ private:
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
+    //GenerateAllBytecode close-out: scan the root for the entry function
+    //and stamp m_compiledModule.entryPoint. Defined in Register.cpp (it
+    //shares the registry spelling helpers with the key registration).
+    void ResolveEntryPoint(SnNamespace& root);
+    //Phase 5 D5, run at the FillNativeFunctionRecord call side: returns
+    //true (after logging) when a native's package is multi-segment — the
+    //host DLL is chosen by the first dot segment (phase 6 lifts this).
+    bool RejectMultiSegmentNativePackage(SnFunction& func);
 
     //Recursively visit every declaration node under a function-parent
     //(namespace/class/interface) at any depth; enum methods are visited as
@@ -1026,6 +1059,12 @@ private:
     //Borrowed library declaration index (SetLibraryIndex); null until
     //ModuleBuilder injects it. Codegen reads stdlib signatures from it.
     const langservice::SymbolIndex* m_pLibraryIndex = nullptr;
+    //Phase 5: borrowed compile-time registry + diagnostic channel
+    //(SetModuleRegistry; one injection point carries both). The registry
+    //outlives codegen inside one Build() call; m_pEnv is where the entry
+    //scan's ambiguity diagnostic goes (VmBackend has no env of its own).
+    const ModuleRegistry* m_pRegistry = nullptr;
+    BuildEnvironment* m_pEnv = nullptr;
     //Side-table: imported function stub → (srcModIdx, srcFuncIdx). Filled
     //by ModuleBuilder via RegisterImportedFunctionStub(); read by
     //MergeImportedFinalize to fill m_funcIndexMap[stub] for user codegen.

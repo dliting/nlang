@@ -15,6 +15,7 @@ namespace nlang
 
 class SnField;
 struct CompiledModule;
+class ModuleRegistry;
 
 //Descriptor-only runtime type kinds. They never appear in the legacy
 //fieldTypeKinds / returnTypeKind bytes, only inside TypeDesc — defined
@@ -100,8 +101,10 @@ void RemapTypeDesc(TypeDesc& td,
 //interned array token; never a raw syntactic expression). Names it
 //cannot resolve through mod's tables degrade to RTK_NonSerialized, and
 //so does a container nested at kMaxTypeDescDepth (see the caps note).
-//Defined in TypeDesc.cpp — vm-internal, may include compiler headers.
+//reg supplies the phase 5 package-qualified table keys the lookups must
+//spell (the same seam VmBackend::KeyOf uses). Defined in TypeDesc.cpp —
+//vm-internal, may include compiler headers.
 TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
-	size_t depth = 0);
+	const ModuleRegistry& reg, size_t depth = 0);
 
 } //namespace nlang

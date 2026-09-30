@@ -48,7 +48,7 @@ TIMEOUT_SEC = 60
 # NMOD_FORMAT_MINOR bumps).
 NMOD_MAGIC = b'NLANGMOD'
 NMOD_MAJOR = 1
-NMOD_MINOR = 12
+NMOD_MINOR = 13
 
 BIN_FILES = [
     'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe', 'ndb.exe',

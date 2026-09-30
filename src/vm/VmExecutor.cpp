@@ -34,6 +34,9 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
 
     //Phase 9d: cache Exception hierarchy class indices. These are required
     //by RaiseNlangException to allocate the right subclass instance.
+    //All FindClass calls in this function use bare names deliberately:
+    //the builtin List/Dict/Exception family carries no owner tag, so its
+    //table keys stay bare even after phase 5 qualified user keys.
     auto cacheExcClass = [&](const char* name, int16_t* out) {
         int idx = module.FindClass(name);
         *out = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
@@ -86,9 +89,13 @@ int VmExecutor::Execute(const CompiledModule& module) {
     m_currModule = &module;
     ResetPerRunState(module);
 
-    int mainIdx = module.FindFunction("main");
-    if (mainIdx < 0)
-        throw std::runtime_error("NLang VM: no 'main' function found");
+    //Only the root module's entryPoint is meaningful; imported modules
+    //carry -1 (and merged function-table indices would shift anyway), so
+    //there is deliberately no by-name fallback here.
+    int mainIdx = module.entryPoint;
+    if (mainIdx < 0
+        || mainIdx >= static_cast<int32_t>(module.functions.size()))
+        throw std::runtime_error("NLang VM: module has no entry point");
 
     InitStringStore(module);
     InitStructHeap();

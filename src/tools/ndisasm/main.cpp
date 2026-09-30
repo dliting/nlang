@@ -142,6 +142,9 @@ int main(int argc, char* argv[]) {
     std::cout << "\n";
 
     //Functions
+    //funcFilter is compared against table keys verbatim (D13: the table
+    //key IS the display name) — since phase 5, project free functions
+    //are keyed "<package>.<name>"; builtin intrinsic methods stay bare.
     for (auto& func : module.functions) {
         if (!funcFilter.empty() && func.name != funcFilter)
             continue;

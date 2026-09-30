@@ -189,6 +189,12 @@ bool ModuleBuilder::GenerateCodes()
 		//signatures (param/return types) from the .n declarations rather
 		//than from the runtime table.
 		vmBackend->SetLibraryIndex(&m_upEnv->LibraryIndex());
+		//Phase 5: codegen spells table keys through the compile-time
+		//registry (VmBackend::KeyOf) and reports entry-scan and native-
+		//package diagnostics through the env. Runs before GenerateStatements,
+		//so the injection precedes every spelling need (GenerateTypes is a
+		//documented no-op on this backend).
+		vmBackend->SetModuleRegistry(&m_upEnv->Registry(), m_upEnv.get());
 	}
 	backend->GenerateTypes(TreeRoot());
 	backend->GenerateData(TreeRoot());

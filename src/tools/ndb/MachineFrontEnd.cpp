@@ -136,6 +136,9 @@ void MachineFrontEnd::DoBreakFunction(const std::string& name)
 {
     if (name.empty())
         throw std::runtime_error("bfunc expects <funcName>");
+    //`name` is matched against table keys verbatim: since phase 5 a
+    //project free function is keyed "<package>.<name>" (methods stay
+    //bare) — the user types the qualified spelling, no short-name alias.
     const int id = m_pController->AddFunctionBreakpoint(name);
     //Resolved first-statement location: mirror the controller's binding
     //scan (first same-named function that owns statement anchors).

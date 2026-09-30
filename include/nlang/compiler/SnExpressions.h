@@ -253,6 +253,15 @@ public:
 		return m_Value;
 	}
 
+	//Phase 5 D10: rewrite the string payload in place. Sole use: turn a
+	//compile-time-resolved stream type-name literal into its declaration's
+	//qualified table key (VmBackend::KeyOf spells the same string). Only
+	//the RnString data changes — the node kind and type are untouched.
+	void RewriteStringValue(const std::string& s)
+	{
+		*Value().Data().m_String = s;
+	}
+
 	virtual bool IsDataExpr() const override;
 
 	void Accept(nlang::ISyntaxNodeVisitor&) override;

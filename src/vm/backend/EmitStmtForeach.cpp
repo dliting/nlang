@@ -249,7 +249,7 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
         //Struct element types need deep-copy on read (value semantics).
         if (elemKind == RTK_Struct && pElemType) {
             int structIdx = m_compiledModule.FindStruct(
-                pElemType->Name());
+                KeyOf(*pElemType));
             emitter.Emit(OpCode::OP_CopyStruct);
             emitter.EmitUint16(slots.userVarSlot);
             emitter.EmitUint16(slots.userVarSlot);

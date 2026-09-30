@@ -29,7 +29,8 @@ bool SourceFileMatches(const std::string& sourceFile,
         && sf[sf.size() - spec.size() - 1] == '/';
 }
 
-//Set-time report label: "main (file.n:9)".
+//Set-time report label: "main (file.n:9)" — the name is the table key,
+//so since phase 5 a project free function shows as "<package>.main".
 std::string LabelOf(const CompiledFunction& func, int line) {
     return DebugSessionController::LocationLabel(func.name,
         DebugSessionController::ShownFile(func.sourceFile),
@@ -140,7 +141,9 @@ int DebugSessionController::AddFunctionBreakpoint(
     const std::string& funcName) {
     //Table key: one id per function name (identifiers are case-sensitive,
     //so the raw name is the key). Line bps always carry line > 0, so the
-    //two key spaces cannot collide.
+    //two key spaces cannot collide. funcName is matched against table
+    //keys verbatim: since phase 5 a project free function is keyed
+    //"<package>.<name>" (methods stay bare) — no short-name aliasing.
     for (const auto& bp : m_breakpoints)
         if (bp.line == 0 && bp.key == funcName)
             return bp.id;

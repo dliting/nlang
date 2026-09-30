@@ -57,14 +57,13 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
     const uint16_t kCurrentMinorVer = NMOD_FORMAT_MINOR;
-    //v1.12 (type descriptors): LAYOUT bump — per-formal and return type
-    //descriptors after the source-file block, per-field descriptors in
-    //every struct/class record. A v1.11 module has none of those bytes
-    //and its stub reconstruction relied on return-kind placeholders;
-    //loading it would misparse every record after the first function.
-    //Refuse v1.11 and older outright (floor/ceiling double-reject
+    //v1.13 (phase 5 qualified keys): LAYOUT bump — table keys and stream
+    //type-name literals are package-qualified ("<package>.<name>",
+    //ownerless built-ins stay bare) and the wire gains an int32
+    //entryPoint after the module name. A v1.12 module misparses every
+    //keyed name, so it is refused outright (floor/ceiling double-reject
     //unchanged).
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 12)
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < NMOD_FORMAT_MINOR)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
@@ -81,6 +80,15 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         throw std::runtime_error("Invalid module: bad name length");
     mod.name.resize(nameLen);
     fs.read(mod.name.data(), nameLen);
+
+    //v1.13: entry function index. Only the ROOT module's copy is read by
+    //VmExecutor; a library .nmod carries -1, and even a non-(-1) value in
+    //an imported module is untrustworthy (function-table indices shift in
+    //the merge) — Import's per-field function copy never touches it.
+    fs.read(reinterpret_cast<char*>(&mod.entryPoint),
+            sizeof(mod.entryPoint));
+    if (!fs.good())
+        throw std::runtime_error("Invalid module: truncated entry point");
 
     // String constants
     uint32_t strCount = 0;
@@ -213,10 +221,10 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
             fs.read(func.sourceFile.data(), sfileLen);
         }
 
-        //v1.12: true formal / return type descriptors. The floor is
-        //already 12, so the gate only documents the record position for
-        //readers diffing versions (floor subsumption).
-        if (minorVer >= 12) {
+        //v1.12: true formal / return type descriptors. The floor moved
+        //past 12 in v1.13, so the gate is gone — the record position is
+        //what documents the layout for readers diffing versions.
+        {
             uint16_t paramDescCount = 0;
             fs.read(reinterpret_cast<char*>(&paramDescCount),
                     sizeof(paramDescCount));
@@ -283,9 +291,9 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                     sizeof(st.fieldClassIndices[j]));
         }
 
-        //v1.12: per-field type descriptors (floor subsumption — see the
-        //function-record site).
-        if (minorVer >= 12) {
+        //v1.12: per-field type descriptors (the gate is gone — the
+        //v1.13 floor subsumes 12; see the function-record site).
+        {
             st.fieldTypeDescs.resize(st.fieldCount);
             for (uint16_t j = 0; j < st.fieldCount; ++j)
                 st.fieldTypeDescs[j] = ReadTypeDesc(fs);
@@ -342,9 +350,9 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                     sizeof(cc.fieldClassIndices[j]));
         }
 
-        //v1.12: per-field type descriptors (floor subsumption — see the
-        //function-record site).
-        if (minorVer >= 12) {
+        //v1.12: per-field type descriptors (the gate is gone — the
+        //v1.13 floor subsumes 12; see the function-record site).
+        {
             cc.fieldTypeDescs.resize(cc.fieldCount);
             for (uint16_t j = 0; j < cc.fieldCount; ++j)
                 cc.fieldTypeDescs[j] = ReadTypeDesc(fs);
@@ -373,7 +381,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //v1.12: descriptors reference struct/class indices of THIS module —
     //the function records were parsed before the tables, so bounds are
     //only checkable now. Any violation is a corrupt or hostile module.
-    if (minorVer >= 12) {
+    //v1.13: the version gate is gone — the floor subsumes 12.
+    {
         for (const auto& func : mod.functions) {
             for (const auto& ptd : func.paramTypeDescs)
                 ValidateTypeDescIndices(ptd.type, mod.structs.size(),

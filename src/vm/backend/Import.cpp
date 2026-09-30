@@ -234,10 +234,12 @@ void VmBackend::MergeImportedTypeTables() {
             pm.stringMap[i] = AddStringConstant(im.stringConstants[i]);
 
         for (uint32_t i = 0; i < im.classes.size(); ++i) {
+            //Phase 5: both sides are qualified table keys (same seam), so
+            //same qualified name == same type; write/read same-source.
             int existing = m_compiledModule.FindClass(im.classes[i].name);
             if (existing >= 0) {
                 pm.classMap[i] = static_cast<uint32_t>(existing);
-                continue;  // dedup to existing (e.g. user Object / built-in)
+                continue;
             }
             pm.classMap[i] = m_compiledModule.classes.size();
             m_compiledModule.classes.push_back(im.classes[i]);
@@ -245,6 +247,7 @@ void VmBackend::MergeImportedTypeTables() {
         }
 
         for (uint32_t i = 0; i < im.structs.size(); ++i) {
+            //Struct branch: same qualified-name dedup rule as classes.
             int existing = m_compiledModule.FindStruct(im.structs[i].name);
             if (existing >= 0) {
                 pm.structMap[i] = static_cast<uint32_t>(existing);

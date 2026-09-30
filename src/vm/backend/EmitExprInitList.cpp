@@ -128,7 +128,7 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
     //would change the stored element).
     if (RuntimeTypeKind(pElemField) == RTK_Struct) {
         int structIdx =
-            m_compiledModule.FindStruct(pElemField->Name());
+            m_compiledModule.FindStruct(KeyOf(*pElemField));
         emitter.Emit(OpCode::OP_CopyStruct);
         emitter.EmitUint16(valueSlot);
         emitter.EmitUint16(valueSlot);
@@ -177,7 +177,8 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
                                      uint16_t resultOffset) {
     int classIdx = m_compiledModule.FindClass("List");
     if (classIdx < 0) {
-        //Round-12: List is a built-in class — always registered.
+        //Round-12: List is a built-in class — always registered. (The
+        //bare literal is the erasure key: builtins carry no owner tag.)
         throw std::runtime_error(
             "NLang backend: List class not registered in module");
     }
@@ -231,7 +232,8 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
                                      uint16_t resultOffset) {
     int classIdx = m_compiledModule.FindClass("Dict");
     if (classIdx < 0) {
-        //Round-12: Dict is a built-in class — always registered.
+        //Round-12: Dict is a built-in class — always registered. (The
+        //bare literal is the erasure key: builtins carry no owner tag.)
         throw std::runtime_error(
             "NLang backend: Dict class not registered in module");
     }
@@ -302,8 +304,9 @@ void VmBackend::EmitInitListClassForm(SnInitListExpr& initList,
                                       SnClassDecl& classDecl,
                                       BytecodeEmitter& emitter,
                                       uint16_t resultOffset) {
-    const std::string& className = classDecl.BaseName().empty()
-        ? classDecl.Name() : classDecl.BaseName();
+    //Table key via KeyOf (same rule as EmitExprNew: erased builtin key
+    //for instantiations, "<package>.<Name>" for user classes).
+    const std::string className = KeyOf(classDecl);
     int classIdx = m_compiledModule.FindClass(className);
     if (classIdx < 0) {
         //Round-12: class was resolved but not registered.
@@ -341,7 +344,9 @@ void VmBackend::EmitInitListStructForm(SnInitListExpr& initList,
                                        SnStructDecl& structDecl,
                                        BytecodeEmitter& emitter,
                                        uint16_t resultOffset) {
-    const std::string& structName = structDecl.Name();
+    //The producer of the string this lookup consumes — the name is the
+    //table key, so it must go through KeyOf like every writer.
+    const std::string structName = KeyOf(structDecl);
     int structIdx = m_compiledModule.FindStruct(structName);
     if (structIdx < 0) {
         //Round-12: struct was resolved but not registered.

@@ -46,6 +46,10 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
     fs.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
     fs.write(mod.name.c_str(), nameLen);
 
+    // v1.13: entry function index (-1 when the module exports none).
+    fs.write(reinterpret_cast<const char*>(&mod.entryPoint),
+             sizeof(mod.entryPoint));
+
     // String constants
     uint32_t strCount = static_cast<uint32_t>(mod.stringConstants.size());
     fs.write(reinterpret_cast<const char*>(&strCount), sizeof(strCount));

@@ -111,7 +111,7 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     //(Phase 9d-3 dispatch invariant, now derived from the token).
     auto* pFormalType = b.pFormal->EvalDataType();
     if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct) {
-        int structIdx = m_compiledModule.FindStruct(pFormalType->Name());
+        int structIdx = m_compiledModule.FindStruct(KeyOf(*pFormalType));
         emitter.Emit(OpCode::OP_CopyStruct);
         emitter.EmitUint16(m_currFunc->tempSlot);
         emitter.EmitUint16(paramOffset);

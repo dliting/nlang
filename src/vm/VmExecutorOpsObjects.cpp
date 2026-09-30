@@ -322,6 +322,10 @@ bool VmExecutor::IsSubclassOf(uint16_t actualIdx, uint16_t declaredIdx) {
 int32_t VmExecutor::ReceiverClassIndex(int32_t heapIdx) const {
     if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Boxed) {
         const auto& classes = m_currModule->classes;
+        //Bare-name comparison = builtin: only the ownerless synthesized
+        //Object keeps a bare "Object" key after phase 5; a user pkg.Object
+        //is keyed with its package and must not be treated as the
+        //boxed-primitive root.
         for (size_t i = 0; i < classes.size(); ++i)
             if (classes[i].name == "Object")
                 return static_cast<int32_t>(i);

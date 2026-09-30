@@ -73,6 +73,8 @@ DebugFrameInfo VmExecutor::FrameInfo(size_t depth) const {
     if (depth >= m_callStack.size()) return info;
     const auto& frame = m_callStack[m_callStack.size() - 1 - depth];
     if (frame.func) {
+        //D13: the table key IS the display name — free functions show as
+        //"<package>.<name>" since phase 5, methods keep bare names.
         info.funcName = frame.func->name;
         info.sourceFile = frame.func->sourceFile;
         //funcIdx for the ndb `x` command (disassembly needs the

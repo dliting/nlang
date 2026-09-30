@@ -92,12 +92,16 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
 void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     std::unordered_map<std::string, SnClassDecl*>& declMap) {
     CompiledClass cc;
-    cc.name = sn.Name();
+    //Same-package duplicates are stopped by the compiler's
+    //DuplicateFieldChecker before codegen runs, so the type tables keep
+    //no second gate here; a cross-module same key IS the same type (see
+    //MergeImportedTypeTables in Import.cpp).
+    cc.name = KeyOf(sn);
     cc.superClassIdx = -1;
     CollectInheritedClassFields(sn, cc);
     CollectOwnClassFields(sn, cc);
     cc.fieldCount = static_cast<uint16_t>(cc.fieldNames.size());
-    declMap[sn.Name()] = &sn;
+    declMap[cc.name] = &sn;   //key = the qualified name just written
     m_compiledModule.classes.push_back(std::move(cc));
 }
 
@@ -110,11 +114,11 @@ void VmBackend::ResolveClassFieldRefs(SnClassDecl* pDecl, CompiledClass& cc) {
             auto* ft = pField->EvalDataType();
             if (ft) {
                 if (cc.fieldTypeKinds[i] == RTK_Class) {
-                    int idx = m_compiledModule.FindClass(ft->Name());
+                    int idx = m_compiledModule.FindClass(KeyOf(*ft));
                     if (idx >= 0)
                         cc.fieldClassIndices[i] = static_cast<uint16_t>(idx);
                 } else if (cc.fieldTypeKinds[i] == RTK_Struct) {
-                    int idx = m_compiledModule.FindStruct(ft->Name());
+                    int idx = m_compiledModule.FindStruct(KeyOf(*ft));
                     if (idx >= 0)
                         cc.fieldStructIndices[i] = static_cast<uint16_t>(idx);
                 }
@@ -135,7 +139,8 @@ void VmBackend::BuildClassFieldTypeDescs(SnClassDecl* pDecl, CompiledClass& cc) 
         auto* pField = pDecl->FindField(cc.fieldNames[i]);
         if (pField && pField->Kind() == NK_ClassField) {
             cc.fieldTypeDescs.push_back(
-                BuildTypeDesc(pField->EvalDataType(), m_compiledModule));
+                BuildTypeDesc(pField->EvalDataType(), m_compiledModule,
+                    *m_pRegistry));
             continue;
         }
         TypeDesc td;
@@ -158,7 +163,7 @@ void VmBackend::ResolveClassMetadata(
         if (it == declMap.end()) continue;
         auto* pDecl = it->second;
         if (pDecl->SuperClass()) {
-            int idx = m_compiledModule.FindClass(pDecl->SuperClass()->Name());
+            int idx = m_compiledModule.FindClass(KeyOf(*pDecl->SuperClass()));
             cc.superClassIdx = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
         }
         ResolveClassFieldRefs(pDecl, cc);
@@ -173,6 +178,10 @@ void VmBackend::ResolveClassMetadata(
 void VmBackend::ApplyImplicitObjectInheritance() {
     if (m_objectClassIdx >= 0) {
         for (auto& cc : m_compiledModule.classes) {
+            //Bare-name comparison = builtin: the synthesized Object has no
+            //owner tag, so its key stays bare "Object"; a user `pkg.Object`
+            //is keyed with its package and correctly still gets an
+            //implicit Object parent (it is not the builtin root).
             if (cc.superClassIdx == -1 && cc.name != "Object") {
                 cc.superClassIdx = m_objectClassIdx;
             }
@@ -198,7 +207,7 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
         if (node.IsImported())
             return;  //Phase 9c R6-1: stub has no AST methods; merged cc.methodIndices from Phase B must be preserved
         auto& sn = static_cast<SnClassDecl&>(node);
-        int ccIdx = m_compiledModule.FindClass(sn.Name());
+        int ccIdx = m_compiledModule.FindClass(KeyOf(sn));
         if (ccIdx < 0) return;
         auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
         cc.methodIndices.clear();

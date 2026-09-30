@@ -10,6 +10,7 @@
 #include <nlang/compiler/TranslationUnit.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/NodeConsts.h>
+#include "builder/ModuleRegistry.h"
 #include <cassert>
 #include <fstream>
 #include <filesystem>
@@ -65,6 +66,8 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
 
 void VmBackend::GenerateAllBytecode(SnNamespace& root) {
     GenerateBytecodeRecursive(root);
+    //Phase 5: entryPoint write-side close-out (definition in Register.cpp).
+    ResolveEntryPoint(root);
 }
 
 void VmBackend::ForEachDeclNode(SnField& parent,
@@ -131,6 +134,8 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CollectSignatureTypeDescs(func, compiledFunc);
 
     if (func.ContainFlags(NF_Native)) {
+        if (RejectMultiSegmentNativePackage(func))
+            return;
         FillNativeFunctionRecord(func, compiledFunc);
         return;
     }
@@ -166,12 +171,12 @@ void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
         ParamTypeDesc ptd;
         if (param.ContainFlags(NF_Out))
             ptd.flags |= PTDF_Out;
-        ptd.type = BuildTypeDesc(param.EvalDataType(), m_compiledModule);
+        ptd.type = BuildTypeDesc(param.EvalDataType(), m_compiledModule, *m_pRegistry);
         compiledFunc.paramTypeDescs.push_back(std::move(ptd));
     }
     if (func.HasReturn() && func.ReturnType())
         compiledFunc.returnTypeDesc = BuildTypeDesc(
-            func.ReturnType()->Field(), m_compiledModule);
+            func.ReturnType()->Field(), m_compiledModule, *m_pRegistry);
 }
 
 //Phase 9f: native function declaration (`native int f(...);`). No

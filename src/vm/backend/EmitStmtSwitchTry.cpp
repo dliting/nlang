@@ -309,7 +309,9 @@ uint16_t VmBackend::FindCatchExceptionClassIdx(SnCatchClause& pCatch) {
         && pCatch.CatchType()->Field()) {
         auto* pType = pCatch.CatchType()->Field();
         if (pType && pType->Kind() == NK_ClassDecl) {
-            auto& ccName = pType->Name();
+            //The catch scan is a hand-rolled FindClass (invisible to the
+            //Find* grep): the key must come from KeyOf like the writer.
+            const std::string ccName = KeyOf(*pType);
             auto found = std::find_if(
                 m_compiledModule.classes.begin(),
                 m_compiledModule.classes.end(),
@@ -425,7 +427,7 @@ void VmBackend::Access(SnSuperCallStmt& stmt) {
         if (!m_pCurrClass || !m_pCurrClass->SuperClass())
             return;  //resolver already reported; emit nothing
         auto* pParent = m_pCurrClass->SuperClass();
-        int parentClassIdx = m_compiledModule.FindClass(pParent->Name());
+        int parentClassIdx = m_compiledModule.FindClass(KeyOf(*pParent));
         if (parentClassIdx < 0)
             return;
         uint16_t ctorIdx =

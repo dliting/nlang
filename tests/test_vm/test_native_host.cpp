@@ -73,15 +73,18 @@ void HsReadLine(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
     native::ReturnInt(ret, host->newString(host, line));
 }
 
-void RegisterHs(VmExecutor& e) {
-    e.RegisterNative("hsMint", &HsMint);
-    e.RegisterNative("hsEcho", &HsEcho);
-    e.RegisterNative("hsList", &HsList);
-    e.RegisterNative("hsRaiseIo", &HsRaiseIo);
-    e.RegisterNative("hsRaiseBase", &HsRaiseBase);
-    e.RegisterNative("hsRawRandom", &HsRawRandom);
-    e.RegisterNative("hsSeededRandom", &HsSeededRandom);
-    e.RegisterNative("hsReadLine", &HsReadLine);
+void RegisterHs(VmExecutor& e, const std::string& pkg) {
+    //The package prefix is the TU the `native` declarations were compiled
+    //from (runSource writes <tag>.n), because a free function's VM key is
+    //now "<package>.<name>" (phase 5). Methods keep bare names - none here.
+    e.RegisterNative(pkg + ".hsMint", &HsMint);
+    e.RegisterNative(pkg + ".hsEcho", &HsEcho);
+    e.RegisterNative(pkg + ".hsList", &HsList);
+    e.RegisterNative(pkg + ".hsRaiseIo", &HsRaiseIo);
+    e.RegisterNative(pkg + ".hsRaiseBase", &HsRaiseBase);
+    e.RegisterNative(pkg + ".hsRawRandom", &HsRawRandom);
+    e.RegisterNative(pkg + ".hsSeededRandom", &HsSeededRandom);
+    e.RegisterNative(pkg + ".hsReadLine", &HsReadLine);
 }
 
 // Compile + run; `configure` registers natives / installs host IO.
@@ -155,7 +158,7 @@ void TestMintEchoListRandomRaise() {
         "  return 0;\n"
         "}\n";
     int rc = runSource("host_core", source,
-                       [](VmExecutor& e) { RegisterHs(e); });
+                       [](VmExecutor& e) { RegisterHs(e, "host_core"); });
     CHECK(rc == 0, "mint/echo/list/random/raise callbacks (rc)");
 }
 
@@ -175,7 +178,7 @@ void TestReadLine() {
     const std::string source = kDecls +
         "int main() { if (hsReadLine() != \"line-from-stdin\") return 1; return 0; }\n";
     int rc = runSource("host_readline", source,
-                       [](VmExecutor& e) { RegisterHs(e); });
+                       [](VmExecutor& e) { RegisterHs(e, "host_readline"); });
     CHECK(rc == 0, "readLine callback (rc)");
 }
 

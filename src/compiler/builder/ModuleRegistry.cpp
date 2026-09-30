@@ -277,12 +277,39 @@ void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 	m_externalStubs[moduleIndex] = std::move(stubs);
 }
 
+namespace {
+
+//Owner-filtered same-name function walk over a namespace subtree (and
+//its nested namespace shells). The phase 5 D8 fallback: a library file's
+//`namespace` shell may not match the file's path-derived package, and
+//the owner tag — not the shell name — decides membership.
+void CollectOwnedFunctions(const ModuleRegistry& reg, SnNamespace& ns,
+	uint32_t moduleIndex, const std::string& calleeName,
+	std::vector<SnFunction*>& owned)
+{
+	auto range = ns.Members().NameDict().equal_range(calleeName);
+	for (auto iField = range.first; iField != range.second; ++iField)
+	{
+		SnField& member = *iField->second;
+		if (member.Kind() == NK_Function
+			&& reg.OwnerOf(member) == moduleIndex)
+			owned.push_back(static_cast<SnFunction*>(&member));
+	}
+	for (auto& member : ns.Members())
+		if (member.Kind() == NK_Namespace)
+			CollectOwnedFunctions(reg,
+				static_cast<SnNamespace&>(member),
+				moduleIndex, calleeName, owned);
+}
+
+} //namespace
+
 std::vector<SnFunction*> ModuleRegistry::CompiledInFunctions(
 	uint32_t moduleIndex, const std::string& path,
 	const std::string& calleeName) const
 {
-	//An inline library TU keeps its functions in `namespace <path>`; a
-	//project module uses root-level free functions. Pick the container,
+	//An inline library TU keeps its functions in `namespace <path>`; a project module
+	//uses root-level free functions. Pick the container,
 	//then return same-name functions owned by moduleIndex (owner tags land
 	//in MergeTransUnits).
 	std::vector<SnFunction*> owned;
@@ -307,6 +334,13 @@ std::vector<SnFunction*> ModuleRegistry::CompiledInFunctions(
 			&& OwnerOf(member) == moduleIndex)
 			owned.push_back(static_cast<SnFunction*>(&member));
 	}
+	//Phase 5 D8 (path beats shell): when the container scan found nothing,
+	//fall back to the owner-filtered walk — a library file whose shell
+	//name differs from its file path still owns its members. (Task 5
+	//retires the shells; until then this keeps the owner rule
+	//authoritative without touching the fast path.)
+	if (owned.empty())
+		CollectOwnedFunctions(*this, *pRoot, moduleIndex, calleeName, owned);
 	return owned;
 }
 

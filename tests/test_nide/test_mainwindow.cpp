@@ -2281,7 +2281,7 @@ private slots:
         QTreeWidget* stack = window.findChild<QTreeWidget*>("tvwDebugStack");
         QVERIFY(stack != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(stack->topLevelItemCount() >= 1, 10000);
-        QCOMPARE(stack->topLevelItem(0)->text(1), QString("main"));
+        QCOMPARE(stack->topLevelItem(0)->text(1), QString("dbg_page.main"));
         //Variables tree: total == 40 (int) at the pause.
         QTreeWidget* vars = window.findChild<QTreeWidget*>("tvwDebugVars");
         QVERIFY(vars != nullptr);
@@ -2553,7 +2553,7 @@ private slots:
         //null): neither call may dereference it.
         QVERIFY(QMetaObject::invokeMethod(&window, "onDebugStopped",
             Q_ARG(QString, QStringLiteral("breakpoint")), Q_ARG(int, 1),
-            Q_ARG(QString, QStringLiteral("main")),
+            Q_ARG(QString, QStringLiteral("dbg_dead.main")),
             Q_ARG(QString, path), Q_ARG(int, 6), Q_ARG(int, 1),
             Q_ARG(int, 1)));
         QVERIFY(QMetaObject::invokeMethod(&window, "onDebugBreakpointBound",

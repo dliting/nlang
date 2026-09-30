@@ -973,6 +973,20 @@ set_tests_properties(proj_same_dir_run PROPERTIES
     DEPENDS proj_same_dir_compile
     PASS_REGULAR_EXPRESSION "7")
 
+#Phase 5 D13 gate: ndisasm -func filters by the TABLE KEY, which is now
+#package-qualified — the project free function f in extra.n is keyed
+#"extra.f". Before the key change this printed nothing (bare "f" no
+#longer exists); the output assertion (not the exit code: -func misses
+#exit 0) is what makes the spelling change loud. The trailing space
+#separates the key from a hypothetical "extra.fx". Consumes the merged
+#proj_same_dir.nmod produced above (no new fixture, no new artifact).
+add_test(NAME ndisasm_qualified_func_name
+    COMMAND $<TARGET_FILE:ndisasm> -func extra.f
+        ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.nmod)
+set_tests_properties(ndisasm_qualified_func_name PROPERTIES
+    DEPENDS proj_same_dir_compile
+    PASS_REGULAR_EXPRESSION "function extra\\.f ")
+
 #Duplicate and overlapping imports (exact repeat + exact/wildcard
 #overlap) are idempotent: the project compiles clean.
 add_test(NAME proj_dup_import_compile
@@ -1032,7 +1046,8 @@ add_test(NAME ncc_no_o_output_cwd
 #Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
 #real compile too. Keep each well under the 3-minute unit-test ceiling.
 set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
-    proj_same_dir_compile proj_same_dir_run proj_dup_import_compile
+    proj_same_dir_compile proj_same_dir_run ndisasm_qualified_func_name
+    proj_dup_import_compile
     proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
     proj_not_imported_compile proj_bare_cross_dir_compile
     proj_reserved_segment_compile ncc_no_o_output_cwd

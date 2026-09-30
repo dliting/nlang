@@ -1,9 +1,11 @@
-//Phase 13 Step 1: member-form toString on a function value.
+//Phase 13 Step 1: member-form toString on a function value. Phase 5 D13:
+//the rendered name is the function's qualified table key, so a project
+//function renders "<package>.<name>".
 int bar(int x) { return x; }
 
 int main() {
     Func<int, int> f = bar;
-    if (f.toString() == "func bar") {
+    if (f.toString() == "func func_tostring_member.bar") {
         return 0;
     }
     return 1;

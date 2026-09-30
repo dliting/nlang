@@ -40,7 +40,16 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //signatures instead of return-kind placeholders, so call-site type
 //checking for imported callees is now performed; the loader refuses
 //v1.11 and older outright.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 12;
+//v1.13 (phase 5 qualified keys): LAYOUT bump — struct/class/function
+//table keys and stream type-name literals become package-qualified
+//("<package>.<name>"; ownerless built-ins keep the bare name), and the
+//wire gains an int32 entryPoint field right after the module name
+//(index of the entry function, -1 when the module exports none). By-name
+//entry lookup is gone: `main.n` in a directory is package `main`, so its
+//entry key is `main.main`, and the name alone no longer identifies it.
+//A v1.12 module misparses every keyed name; the loader refuses v1.12
+//and older outright.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 13;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -294,6 +303,10 @@ struct CompiledClass {
 
 struct CompiledModule {
     std::string name;
+    //v1.13: index of the entry function, -1 when the module exports none.
+    //By-name lookup is gone: `main.n` in a directory is package `main`, so
+    //its entry key is `main.main`, and the name alone no longer identifies it.
+    int32_t entryPoint = -1;
     std::vector<CompiledFunction> functions;
     std::vector<std::string> stringConstants;
     std::vector<CompiledStruct> structs;

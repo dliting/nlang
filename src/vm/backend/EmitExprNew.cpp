@@ -49,10 +49,11 @@ int VmBackend::ResolveNewExprClassIdx(SnNewExpr& newExpr) {
         throw std::runtime_error(
             "NLang backend: new expression without a bound class declaration");
     }
-    //Phase 8e-3: generic instantiations (List<int>) share one CompiledClass
-    //named "List" at runtime (erasure). BaseName() returns the unqualified
-    //"List" for generic instances, or the full name for ordinary classes.
-    const std::string& className = pClassDecl->BaseName();
+    //Phase 5: the table key, not BaseName() — a user class is keyed
+    //"<package>.<Name>". KeyOf keeps the erased builtin key ("List") for
+    //a generic instantiation and the bare name for ownerless builtins,
+    //so one rule covers every shape.
+    const std::string className = KeyOf(*pClassDecl);
     int classIdx = m_compiledModule.FindClass(className);
     if (classIdx < 0) {
         //Round-12: the class was resolved by the front-end but never

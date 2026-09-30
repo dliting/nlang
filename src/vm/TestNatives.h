@@ -12,8 +12,9 @@
 //
 //Production note: ncc and nvm are test hosts — they always register these
 //natives so the e2e suite can exercise the binding path. A production
-//embedder would NOT include this header; scripts calling natAdd/... against
-//a non-test host get "native function not registered".
+//embedder would NOT include this header; scripts calling e.g.
+//native_args.natAdd against a non-test host get
+//"native function not registered".
 #include "VmExecutor.h"
 #include "nlang/vm/NativeHost.h"
 #include <cstdint>
@@ -57,11 +58,24 @@ inline void NatPing(NativeHost* host, uint8_t* ret, const uint8_t* args,
     (void)host; (void)ret; (void)args; (void)argc;
 }
 
+//Phase 5: the VM keys of free `native` declarations are package-qualified
+//("<package>.<name>"), and the package is the TU stem that declared them.
+//This table is the measured (package x symbol) cross product of every
+//e2e fixture's native declarations (methods would keep bare names —
+//none here except the natConst method shape, registered bare for
+//native_method.n).
 inline void RegisterTestNatives(VmExecutor& executor) {
-    executor.RegisterNative("natAdd", &NatAdd);
+    executor.RegisterNative("native_basic.natConst", &NatConst);
+    executor.RegisterNative("native_basic.natPing", &NatPing);
+    executor.RegisterNative("native_args.natAdd", &NatAdd);
+    executor.RegisterNative("native_default.natAdd", &NatAdd);
+    executor.RegisterNative("native_float.natFAdd", &NatFAdd);
+    executor.RegisterNative("nativelib.natConst", &NatConst);
+    executor.RegisterNative("nativelib.natAdd", &NatAdd);
+    executor.RegisterNative("func_ref_native.natConst", &NatConst);
+    //native_method.n declares the native as a CLASS METHOD: methods keep
+    //bare names (receiver dispatch), so its key is the bare natConst.
     executor.RegisterNative("natConst", &NatConst);
-    executor.RegisterNative("natFAdd", &NatFAdd);
-    executor.RegisterNative("natPing", &NatPing);
 }
 
 } // namespace nlang

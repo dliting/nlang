@@ -159,7 +159,7 @@ void TestDebugClient::fullSessionRunsToTheExitCode() {
     const QList<QVariant> stop = stoppedSpy.first();
     QCOMPARE(stop.at(0).toString(), QStringLiteral("breakpoint"));
     QCOMPARE(stop.at(1).toInt(), 1);
-    QCOMPARE(stop.at(2).toString(), QStringLiteral("main"));
+    QCOMPARE(stop.at(2).toString(), QStringLiteral("prog.main"));
     QCOMPARE(stop.at(4).toInt(), 7);
     QCOMPARE(stop.at(5).toInt(), 1);   //depth: 1-based
     QCOMPARE(stop.at(6).toInt(), 1);   //frameCount
@@ -175,7 +175,7 @@ void TestDebugClient::fullSessionRunsToTheExitCode() {
     QTRY_COMPARE_WITH_TIMEOUT(btReady.count(), 1, kSessionTimeoutMs);
     QCOMPARE(frames.count(), 1);   //main-only program: exactly frame 0
     QCOMPARE(frames.first().at(0).toInt(), 0);
-    QCOMPARE(frames.first().at(1).toString(), QStringLiteral("main"));
+    QCOMPARE(frames.first().at(1).toString(), QStringLiteral("prog.main"));
 
     QSignalSpy localsReady(&client, &DebugClient::localsReady);
     QSignalSpy locals(&client, &DebugClient::localReceived);

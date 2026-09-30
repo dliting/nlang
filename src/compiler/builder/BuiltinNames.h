@@ -25,6 +25,8 @@ inline bool IsBuiltinExceptionClassName(const std::string& name)
 //a future builtin added to one copy but not the chain below would fall
 //into the old `s_pObjectClass` fallback and silently corrupt the Object
 //singleton. Everything routes through this one function now.
+//Phase 5: the bare-name comparison stays — builtins carry no owner tag,
+//so their table keys stay bare; a user `pkg.Object` never matches here.
 inline bool IsBuiltinClassName(const std::string& name)
 {
 	return name == "ByteStream" || name == "FileStream" || name == "Object"

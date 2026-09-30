@@ -9,6 +9,7 @@ and ParseOne in lockstep with the struct comment in TypeDesc.h.
 #include "nlang/vm/CompiledModule.h"
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnMisc.h>
+#include "builder/ModuleRegistry.h"
 #include <stdexcept>
 
 namespace nlang {
@@ -131,7 +132,7 @@ void RemapTypeDesc(TypeDesc& td,
 }
 
 TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
-	size_t depth)
+	const ModuleRegistry& reg, size_t depth)
 {
 	TypeDesc td;
 	if (!pType)
@@ -164,7 +165,7 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 		td.kind = RTK_Array;
 		td.elems.push_back(BuildTypeDesc(
 			static_cast<const SnArrayTypeToken*>(pType)->ElemTypeOf(), mod,
-			depth + 1));
+			reg, depth + 1));
 		return td;
 	}
 	switch (pType->Kind())
@@ -176,7 +177,9 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 			return td;
 		case NK_StructDecl:
 		{
-			int idx = mod.FindStruct(pType->Name());
+			//Table keys are package-qualified (phase 5); the registry
+			//spells the same key the registration side wrote.
+			int idx = mod.FindStruct(reg.QualifiedName(*pType));
 			if (idx < 0)
 				break;  //not registered — degrade
 			td.kind = RTK_Struct;
@@ -199,6 +202,9 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 			}
 			if (pClass->IsGenericInstantiation())
 			{
+				//Bare BaseName comparisons: builtin erasure keys — the
+				//instantiation node is ownerless and its backing class is
+				//registered once under "List"/"Dict".
 				const auto& args = pClass->GenericTypeArgs();
 				if (pClass->BaseName() == "List" && args.size() == 1)
 				{
@@ -208,7 +214,7 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 						return td;
 					}
 					td.kind = RTK_List;
-					td.elems.push_back(BuildTypeDesc(args[0], mod, depth + 1));
+					td.elems.push_back(BuildTypeDesc(args[0], mod, reg, depth + 1));
 					return td;
 				}
 				if (pClass->BaseName() == "Dict" && args.size() == 2)
@@ -219,14 +225,14 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 						return td;
 					}
 					td.kind = RTK_Dict;
-					td.elems.push_back(BuildTypeDesc(args[0], mod, depth + 1));
-					td.elems.push_back(BuildTypeDesc(args[1], mod, depth + 1));
+					td.elems.push_back(BuildTypeDesc(args[0], mod, reg, depth + 1));
+					td.elems.push_back(BuildTypeDesc(args[1], mod, reg, depth + 1));
 					return td;
 				}
 				//Any other instantiation is unexpected (Func took the
 				//exit above) — fall through to the plain-class path.
 			}
-			int idx = mod.FindClass(pClass->Name());
+			int idx = mod.FindClass(reg.QualifiedName(*pClass));
 			if (idx < 0)
 				break;  //not registered — degrade
 			td.kind = RTK_Class;

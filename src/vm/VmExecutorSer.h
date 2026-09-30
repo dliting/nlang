@@ -201,6 +201,9 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         throw std::runtime_error("NLang VM: invalid class index in class heap slot");
     const auto& cc = m_currModule->classes[static_cast<size_t>(classIdx)];
 
+    //Write/read same-source (phase 5): the name in the stream IS the table
+    //key — qualified for user classes since the key change; the reader
+    //below consumes exactly this string (no cross-version bare-name read).
     uint32_t nameLen = static_cast<uint32_t>(cc.name.size());
     write(reinterpret_cast<const uint8_t*>(&nameLen), 4);
     write(reinterpret_cast<const uint8_t*>(cc.name.data()), nameLen);
@@ -298,6 +301,8 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
     if (nameLen > 0)
         read(reinterpret_cast<uint8_t*>(&className[0]), nameLen);
 
+    //Consumes the string the writer above stored: same compilation, same
+    //table key — self-consistent whatever spelling the keys use.
     int classIdx = m_currModule->FindClass(className);
     if (classIdx < 0)
         throw std::runtime_error(
