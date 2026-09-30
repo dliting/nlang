@@ -98,12 +98,16 @@ const BuiltinField s_ExceptionFields[] = {
 //never fired, and the value argument travels via callParamBase anyway
 //(intrinsic ABI per StdLib.h reads slots directly). Return kinds: readInt/
 //readStruct/readObject/length/position → int, readFloat → float,
-//readString → string, the rest void.
+//readLong → long, readDouble → double, readString → string, the rest void.
 const BuiltinMethod s_ByteStreamMethods[] = {
     {"writeInt",    INTR_BS_WriteInt,    1, RTK_Void},
     {"readInt",     INTR_BS_ReadInt,     1, RTK_Int32},
     {"writeFloat",  INTR_BS_WriteFloat,  1, RTK_Void},
     {"readFloat",   INTR_BS_ReadFloat,   1, RTK_Float},
+    {"writeLong",   INTR_BS_WriteLong,   1, RTK_Void},
+    {"readLong",    INTR_BS_ReadLong,    1, RTK_Long},
+    {"writeDouble", INTR_BS_WriteDouble, 1, RTK_Void},
+    {"readDouble",  INTR_BS_ReadDouble,  1, RTK_Double},
     {"writeString", INTR_BS_WriteString, 1, RTK_Void},
     {"readString",  INTR_BS_ReadString,  1, RTK_String},
     {"writeStruct", INTR_BS_WriteStruct, 1, RTK_Void},
@@ -121,6 +125,10 @@ const BuiltinMethod s_FileStreamMethods[] = {
     {"readInt",     INTR_FS_ReadInt,     1, RTK_Int32},
     {"writeFloat",  INTR_FS_WriteFloat,  1, RTK_Void},
     {"readFloat",   INTR_FS_ReadFloat,   1, RTK_Float},
+    {"writeLong",   INTR_FS_WriteLong,   1, RTK_Void},
+    {"readLong",    INTR_FS_ReadLong,    1, RTK_Long},
+    {"writeDouble", INTR_FS_WriteDouble, 1, RTK_Void},
+    {"readDouble",  INTR_FS_ReadDouble,  1, RTK_Double},
     {"writeString", INTR_FS_WriteString, 1, RTK_Void},
     {"readString",  INTR_FS_ReadString,  1, RTK_String},
     {"writeStruct", INTR_FS_WriteStruct, 1, RTK_Void},

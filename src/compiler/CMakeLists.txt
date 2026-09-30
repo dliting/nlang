@@ -59,6 +59,7 @@ add_library(nlang_compiler
     builder/ExprResolverStdLib.cpp
     builder/ExprResolverMember.cpp
     builder/ExprResolverMemberBuiltins.cpp
+    builder/ExprResolverStreamBuiltins.cpp
     builder/ExprResolverMemberProtocol.cpp
     builder/ExprResolverMemberContainer.cpp
     builder/ExprResolverMemberFields.cpp

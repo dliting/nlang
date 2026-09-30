@@ -60,7 +60,8 @@ def _manifest_configs():
 def _needs_script_cwd(name):
     return (name.startswith('file_stream_') or name.startswith('fs_struct_')
             or name.startswith('fs_object_') or name.startswith('stdlib_io_')
-            or name.startswith('stdlib_fs_'))
+            or name.startswith('stdlib_fs_')
+            or name.startswith('stream_long_'))
 
 #Test name suffixes that mark intentional throw-tests. Tests ending in
 #these suffixes are excluded from the P3.7 hidden-throw detector: their

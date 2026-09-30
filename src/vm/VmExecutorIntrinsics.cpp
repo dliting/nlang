@@ -30,12 +30,12 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
 void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     uint8_t* locals, uint8_t* pResult)
 {
-    //ByteStream intrinsics (0-14): family delegation to
+    //ByteStream intrinsics (0-18): family delegation to
     //IntrinsicsByteStream.cpp (same shape as the math/io/string chain).
     if (ExecuteIntrinsicByteStream(intrinsicId, callParamBase, locals, pResult))
         return;
 
-    //FileStream intrinsics (20-33): family delegation to
+    //FileStream intrinsics (20-37): family delegation to
     //IntrinsicsFileStream.cpp.
     if (ExecuteIntrinsicFileStream(intrinsicId, callParamBase, locals, pResult))
         return;

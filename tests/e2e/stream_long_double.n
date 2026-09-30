@@ -1,0 +1,57 @@
+//0.7.5 Task 9: 64-bit stream primitives — ByteStream and FileStream
+//writeLong/readLong and writeDouble/readDouble round-trips. Narrower
+//integer/float arguments ride the resolver's widening wrap into the
+//8-byte slot (the same admission math.sqrt arguments use).
+import fs;
+
+int main() {
+    // --- ByteStream ---
+    ByteStream bs = new ByteStream();
+    bs.writeLong(5000000000);      // literal tiers to long
+    bs.writeLong(-1);              // int, widened in place to long
+    bs.writeDouble(0.5);           // double literal
+    bs.writeDouble(1.5f);          // float, widened losslessly to double
+    if (bs.length() != 32) { return 1; }
+    bs.reset();
+    long a = bs.readLong();
+    long b = bs.readLong();
+    double c = bs.readDouble();
+    double d = bs.readDouble();
+    if (a != 5000000000) { return 2; }
+    if (b != -1) { return 3; }
+    if (c != 0.5) { return 4; }
+    if (d != 1.5) { return 5; }
+    if (bs.position() != 32) { return 6; }
+
+    // --- narrow integer kinds reach writeLong through the wrap ---
+    //(fresh stream: reset() rewinds the cursor but keeps the buffer,
+    //so interleaving more writes after the read phase would append
+    //behind the cursor)
+    ByteStream narrow = new ByteStream();
+    byte by = 100;
+    ushort us = 60000;
+    narrow.writeLong(by);          // byte -> long widening
+    narrow.writeLong(us);          // ushort -> long widening
+    narrow.reset();
+    long e = narrow.readLong();
+    long f = narrow.readLong();
+    if (e != 100) { return 7; }
+    if (f != 60000) { return 8; }
+
+    // --- FileStream through a temp file ---
+    FileStream fw = new FileStream("_phase8_tmp/test_long_double.bin", "w");
+    fw.writeLong(9223372036854775807);
+    fw.writeDouble(-0.25);
+    fw.writeLong(42);              // int, widened in place
+    fw.close();
+    if (fs.size("_phase8_tmp/test_long_double.bin") != 24) { return 9; }
+    FileStream fr = new FileStream("_phase8_tmp/test_long_double.bin", "r");
+    long g = fr.readLong();
+    double h = fr.readDouble();
+    long i = fr.readLong();
+    fr.close();
+    if (g != 9223372036854775807) { return 10; }
+    if (h != -0.25) { return 11; }
+    if (i != 42) { return 12; }
+    return 0;
+}

@@ -146,6 +146,12 @@ static constexpr uint16_t INTR_BS_WriteStruct = 11;
 static constexpr uint16_t INTR_BS_ReadStruct  = 12;
 static constexpr uint16_t INTR_BS_WriteObject = 13;
 static constexpr uint16_t INTR_BS_ReadObject  = 14;
+//0.7.5 Task 9: 64-bit scalar family (8-byte wire form, mirroring the
+//4-byte writeInt/readInt/writeFloat/readFloat quartet).
+static constexpr uint16_t INTR_BS_WriteLong   = 15;
+static constexpr uint16_t INTR_BS_ReadLong    = 16;
+static constexpr uint16_t INTR_BS_WriteDouble = 17;
+static constexpr uint16_t INTR_BS_ReadDouble  = 18;
 
 //FileStream intrinsics.
 static constexpr uint16_t INTR_FS_Ctor         = 20;
@@ -162,6 +168,12 @@ static constexpr uint16_t INTR_FS_WriteStruct = 30;
 static constexpr uint16_t INTR_FS_ReadStruct  = 31;
 static constexpr uint16_t INTR_FS_WriteObject = 32;
 static constexpr uint16_t INTR_FS_ReadObject  = 33;
+//0.7.5 Task 9: 64-bit scalar family (34..37; 30..33 were already taken
+//by the struct/object serialization block above).
+static constexpr uint16_t INTR_FS_WriteLong   = 34;
+static constexpr uint16_t INTR_FS_ReadLong    = 35;
+static constexpr uint16_t INTR_FS_WriteDouble = 36;
+static constexpr uint16_t INTR_FS_ReadDouble  = 37;
 
 //Object/String intrinsic methods (Phase 8e-1).
 static constexpr uint16_t INTR_Object_Equals        = 40;

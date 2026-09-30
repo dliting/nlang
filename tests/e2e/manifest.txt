@@ -1240,3 +1240,10 @@ char_foreach_var_reject compile_error does not match the element type
 char_foreach_break 0
 char_foreach_nested 0
 char_switch_cross 0
+
+# 0.7.5 Task 9: 64-bit stream primitives + all-primitive printing.
+stream_long_double 0
+print_all_primitives 0 true
+stream_long_arg_char_reject compile_error expects a long argument
+stream_long_arg_ulong_reject compile_error expects a long argument
+stream_double_arg_string_reject compile_error expects a double argument

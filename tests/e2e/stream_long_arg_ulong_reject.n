@@ -1,0 +1,9 @@
+//0.7.5 Task 9: writeLong goes through the cast matrix, so ulong (whose
+//values above INT64_MAX have no signed representation) needs the
+//explicit `as long` — the same rule as assigning ulong to a long.
+int main() {
+    ByteStream bs = new ByteStream();
+    ulong u = 18446744073709551615;
+    bs.writeLong(u);
+    return 0;
+}

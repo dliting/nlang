@@ -335,6 +335,10 @@ private:
 		SyntaxNode *pSavedContext);
 	void CheckStreamMethodSignature(SnInvokeExpr &invoke,
 		const std::string &name);
+	//0.7.5 Task 9: writeLong/writeDouble value-argument admission —
+	//cast-matrix verdict with a widening wrap (see the TU for rationale).
+	void AdmitWideStreamWriterArg(SnInvokeExpr &invoke,
+		const std::string &name);
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
