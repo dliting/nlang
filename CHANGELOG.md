@@ -18,6 +18,14 @@ All notable changes to NLang are documented here. The format follows
   (expanded one level); before, a method frame's locals query came
   back empty, which left nide's variables pane blank for those frames.
 
+### Added
+- Manual: the char representation chain is documented end to end in
+  both trees (source files are UTF-8 without BOM; a compiled char is
+  its plain 32-bit code point in a 4-byte slot — neither UTF-8 nor
+  UTF-16; UTF-8 appears on the string side and on the console, which
+  receives verbatim UTF-8 bytes and needs a UTF-8 terminal on
+  Windows).
+
 ## [0.7.5] - 2026-09-30
 
 ### Added

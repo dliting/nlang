@@ -23,7 +23,10 @@ constant table. `string.length()` returns the **byte count**, not the Unicode
 code-point count — `"héllo".length()` is 6 (5 code points, but `é` is 2 bytes
 in UTF-8); the code-point count is `charCount()`. Byte access and code-point
 access are two different paths over the same string — see "The char bridge"
-below.
+below. `io.print` writes the raw bytes verbatim to standard output, so the
+console sees UTF-8; the full representation chain (source file, compiled
+char, console) is on [Primitives](primitives.md) "Representation: from
+source to console".
 
 ### Memory semantics
 

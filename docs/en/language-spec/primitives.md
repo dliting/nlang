@@ -78,6 +78,35 @@ The char↔string bridge (`"x" + 'y'` concatenation, `foreach (char c in s)`
 code-point iteration, the `charAt`/`charCount` methods) is on
 [String](string.md).
 
+### Representation: from source to console
+
+One representation question spans the whole chain — what a char is in
+the source file, after compilation, and on the console:
+
+- **Source files are UTF-8.** The scanner decodes a character literal's
+  1-4 byte UTF-8 span into one code point (`'中'` is the 3 bytes
+  `E4 B8 AD`, decoded to U+4E2D). A file must not start with a UTF-8
+  byte-order mark: the BOM is not recognized and silently corrupts the
+  first token (a BOM-prefixed `int main()...` compiles "successfully"
+  but yields no main function). Save sources as UTF-8 **without** BOM.
+- **After compilation a char is its 32-bit code point — neither UTF-8
+  nor UTF-16.** Every char lives in a 4-byte slot holding the raw code
+  point: frame slots, the 4 immediate bytes of a char literal, and the
+  4-byte value in boxed records and stream writes. The module format
+  marks the kind in one byte (`char` is kind 19), while the value
+  stays the plain code point end to end.
+- **Strings are where UTF-8 lives**: a string object is a UTF-8 byte
+  sequence (see [String](string.md) "Encoding and length"). A char
+  converts to that form on joining a string — `"x" + 'y'` encodes the
+  code point as its 1-4 UTF-8 bytes. In the other direction,
+  `s.charAt(i)` decodes the code point starting at byte i, and
+  `"65".toChar()` parses a decimal code point.
+- **The console receives UTF-8 bytes.** `io.print` writes a char as
+  its UTF-8 encoding and a string as its raw bytes, verbatim, to
+  standard output. The tools do not switch the console's code page, so
+  on Windows non-ASCII output needs a UTF-8 terminal — Windows
+  Terminal, or `chcp 65001` in the classic console.
+
 ### Arithmetic
 
 ```nlang
