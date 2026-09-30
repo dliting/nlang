@@ -17,6 +17,10 @@ All notable changes to NLang are documented here. The format follows
 - ndb `locals` now shows the receiver of a method frame as `this`
   (expanded one level); before, a method frame's locals query came
   back empty, which left nide's variables pane blank for those frames.
+- nide: the run-output and compile-output pages now decode program
+  and compiler output as UTF-8 (matching the debug page); they were
+  decoded with the local code page, which mojibaked every non-ASCII
+  output on a non-UTF-8 system locale.
 
 ### Added
 - Manual: the char representation chain is documented end to end in

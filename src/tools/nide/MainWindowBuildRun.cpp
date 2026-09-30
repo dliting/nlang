@@ -49,7 +49,10 @@ bool MainWindow::runNccSync(const QString& workDir, const QStringList& args,
         return false;
     }
     ncc.waitForFinished(-1);
-    *log = QString::fromLocal8Bit(ncc.readAll());
+    //ncc emits UTF-8 bytes verbatim (source snippets inside diagnostics
+    //carry the source encoding) — decode as UTF-8, not the local code
+    //page, matching the debug page's wire decoding.
+    *log = QString::fromUtf8(ncc.readAll());
     //Read the exit state only after a real run: start() resets
     //exitCode/exitStatus, so the failed-start path would fake success
     //if it shared this expression.
@@ -214,8 +217,10 @@ void MainWindow::on_actClearBuild_triggered() {
 }
 
 void MainWindow::onExecOutput() {
+    //Program output is verbatim UTF-8 (io.print writes UTF-8 bytes);
+    //decoding as the local code page mojibaked non-ASCII output.
     m_ui->txtExecuteOut->append(
-        QString::fromLocal8Bit(m_executed.readAllStandardOutput()));
+        QString::fromUtf8(m_executed.readAllStandardOutput()));
 }
 
 void MainWindow::onExecFinished(int exitCode, QProcess::ExitStatus status) {

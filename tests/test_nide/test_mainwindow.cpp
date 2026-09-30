@@ -1991,6 +1991,37 @@ private slots:
         QVERIFY(!act(window, "actStopRunning")->isEnabled());
     }
 
+    //0.7.6: program output is verbatim UTF-8 bytes (the char
+    //representation chain ends in UTF-8 on the console), so the run
+    //page must decode it as UTF-8 — fromLocal8Bit rendered '中'
+    //(E4 B8 AD) as mojibake under a GBK system code page.
+    void testRunOutputDecodesUtf8() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+
+        //Overwrite the fixture source on disk (the editor stays clean,
+        //so the build compiles what is here): print one non-ASCII char.
+        writeFile(QDir(dir.path()).filePath("App/main.n"),
+            "import io;\n"
+            "public int main() {\n"
+            "    io.print('\xE4\xB8\xAD');\n"  // '中' as raw UTF-8
+            "    return 42;\n"
+            "}\n");
+
+        act(window, "actBuild")->trigger();
+        QCOMPARE(window.statusBar()->currentMessage(),
+                 QString("Build succeeded"));
+        act(window, "actStartRunning")->trigger();
+        QTextBrowser* executeOut =
+            window.findChild<QTextBrowser*>("txtExecuteOut");
+        QVERIFY(QTest::qWaitFor([&] {
+            return executeOut->toPlainText()
+                .contains("Program exited with code 42");
+        }, 15000));
+        QVERIFY(executeOut->toPlainText().contains(QString(QChar(0x4E2D))));
+    }
+
     void testRunWithoutBuildWarns() {
         MainWindow window;
         QTemporaryDir dir;
