@@ -474,6 +474,90 @@ static void TestQualifiedTypeHeadKeepsLegalMemberAccess() {
     CHECK(compileDir(dir3), "member access in expression stays legal");
 }
 
+//Phase 5 audit I4: `class D : alib.B` and `x as alib.B` were NameExpr-only,
+//so a library type could not be a base class or a cast target.
+static void TestQualifiedBaseAndCast() {
+    auto dir = scenarioDir("qbase");
+    writeFiles(dir, {
+        { "alib.n",
+          "namespace alib {\n"
+          "class B {\n"
+          "  public int v;\n"
+          "  public int get() { return v + 1; }\n"
+          "}\n"
+          "}\n" },
+        { "main.n",
+          "import io;\n"
+          "import alib;\n"
+          "class D : alib.B {\n"
+          "  public int bump() { v = v + 10; return this.get(); }\n"
+          "}\n"
+          "int main() {\n"
+          "  D d = new D();\n"
+          "  alib.B b = d as alib.B;\n"
+          "  io.print(b.get());\n"
+          "  return d.bump() - 11;\n"
+          "}\n" } });
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 0, "qualified base + cast compile/run");
+    CHECK(cap.text == "1\n", "inherited method through qualified base");
+}
+
+//Phase 5 §11: a three-segment type in the ':' position must reach the
+//resolver, not the parser. `a.b` is not importable in this phase (dotted
+//library imports land in Task 6), so the reachable, stable diagnosis is
+//the unimported-module one naming the exact intermediate path.
+static void TestThreeSegmentBaseGivesNamedDiagnosis() {
+    auto dir = scenarioDir("qbase_three_seg");
+    writeFiles(dir, { { "main.n",
+        "class D : a.b.C {\n  int z;\n}\n"
+        "int main() { D d; return 0; }\n" } });
+    const std::string log = compileLog(dir);
+    CHECK(log.find("a.b") != std::string::npos,
+          "the diagnosis names the exact package path a.b");
+    CHECK(log.find("syntax error") == std::string::npos,
+          "the ':' slot accepts a dotted type (else Step 3 did not land)");
+}
+
+//(§4-10 负例) D9：限定类型上写泛型实参今天得到裸语法错误。本阶段只钉「不误接受」，
+//指名文案是阶段 7 的缺口——所以断言吃的是实测到的那句，不是愿望。
+static void TestQualifiedGenericArgStaysRejected() {
+    const Files files = {
+        { "alib.n", "namespace alib {\nstruct Vec { int x; }\n}\n" },
+        { "main.n", "import alib;\nint main() {\n"
+          "  alib.Vec<int> v;\n"
+          "  return 0;\n}\n" } };
+    auto dir = scenarioDir("qgen_neg");
+    writeFiles(dir, files);
+    CHECK(!compileDir(dir), "a generic argument on a qualified type is rejected");
+    //runBuild is one-build-per-output-name (the process-wide module registry
+    //keeps the output module even after a failed build), so the log view
+    //rebuilds the same sources in a twin scenario dir.
+    auto dirLog = scenarioDir("qgen_neg_log");
+    writeFiles(dirLog, files);
+    const std::string log = compileLog(dirLog);
+    CHECK(log.find("syntax error") != std::string::npos,
+          "the measured rejection is the grammar one (D9 deferred wording)");
+    CHECK(log.find("Compiler internal error") == std::string::npos,
+          "and it is a diagnostic, not an internal failure");
+}
+
+//(§4-10 正例) 同一份库源，不带实参的限定拼写要能声明、能读写字段；
+//内建泛型的擦除键（"List"/"Dict"）在同一条程序里一起用，钉住「限定面没有动到内建」。
+static void TestQualifiedLibraryTypeWithoutArgsWorks() {
+    auto dir = scenarioDir("qgen_pos");
+    writeFiles(dir, {
+        { "alib.n", "namespace alib {\nstruct Vec { int x; }\n}\n" },
+        { "main.n", "import alib;\nint main() {\n"
+          "  alib.Vec v; v.x = 2;\n"
+          "  List<int> nums;\n"
+          "  return v.x - 2;\n"
+          "}\n" } });
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 0,
+          "alib.Vec (no args) compiles and runs beside a builtin generic");
+}
+
 } // namespace
 
 int main() {
@@ -491,6 +575,10 @@ int main() {
     TestModuleTypeWithoutNamespaceWrapper();
     TestModuleTypeOwnerIsolation();
     TestQualifiedTypeHeadKeepsLegalMemberAccess();
+    TestQualifiedBaseAndCast();
+    TestThreeSegmentBaseGivesNamedDiagnosis();
+    TestQualifiedGenericArgStaysRejected();
+    TestQualifiedLibraryTypeWithoutArgsWorks();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

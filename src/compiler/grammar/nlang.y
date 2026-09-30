@@ -6,7 +6,7 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-%expect 14
+%expect 16
 
 %code requires {
 
@@ -270,7 +270,7 @@ static bool CollectQualifiedSegments(
 %type <v_AccessType>    		AccessType
 %type <v_NodeFlags>    			NodeFlags NodeFlag
 %type <v_pNameExpr>				NameExpr
-%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType
+%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName
 %type <v_pFieldExprVec>			TypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
@@ -320,7 +320,7 @@ static bool CollectQualifiedSegments(
 %type <v_pField>			InterfaceMember
 %type <v_pField>			ClassMember
 %type <v_pClassMemberList>	ClassMemberList
-%type <v_pNameExpr>			ClassInheritOpt
+%type <v_pFieldExpr>			ClassInheritOpt
 
 %start CompileUnit
 
@@ -1065,8 +1065,17 @@ ClassDecl:	KT_Class TT_Identifier ClassInheritOpt ImplementsOpt '{' ClassMemberL
 					$$ = pClass;
 				} ;
 
-ClassInheritOpt:	':' NameExpr { $$ = $2; } |
+ClassInheritOpt:	':' TypeName { $$ = $2; } |
 					{ $$ = nullptr; } ;
+
+//A type spelled at a position that has a unique leading token (':' after a
+//class name, `as`): the dotted chain may be reduced freely, so NameExpr and
+//QualifiedType both derive here without fighting over '.'. Measured: +2
+//shift/reduce, both on '.', both benign — no production expects a '.' AFTER
+//a type name, so bison's shift default is the only correct reading. A
+//statement head cannot use this shape (see the HeadType comment above).
+TypeName:	NameExpr { $$ = $1; } |
+			QualifiedType { $$ = $1; } ;
 
 /*
 Optional "implements I1, I2" clause on a class. Empty when omitted.
@@ -1234,22 +1243,26 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-09-29, bison 3.8.2): 14
-//shift/reduce, 0 reduce/reduce, in three families, every one resolved by
+//Accepted-conflict ledger (re-measured 2026-09-30, bison 3.8.2): 16
+//shift/reduce, 0 reduce/reduce, in four families, every one resolved by
 //bison's default to the intended reading. The count is pinned by the
-//`%expect 14` in the prologue, so bison is SILENT on a clean tree — any
+//`%expect 16` in the prologue, so bison is SILENT on a clean tree — any
 //grammar edit that moves the count now fails the build with
-//`error: shift/reduce conflicts: N found, 14 expected` instead of
+//`error: shift/reduce conflicts: N found, 16 expected` instead of
 //leaving a notice in a log nobody reads. Bump `%expect` in the same
 //commit as the edit, never in a commit of its own.
-//- states 148/185/191 (1 each): the '<' shapes — an explicit generic
+//- states 150/187/193 (1 each): the '<' shapes — an explicit generic
 //  type head (`List<int> l;`), `new C<T>(...)`, and the void-return
 //  Func spellings. Reduce-first keeps the declaration reading.
-//- state 254 (9): ClassMember's NodeFlag-singular vs NodeFlags-plural
+//- state 256 (9): ClassMember's NodeFlag-singular vs NodeFlags-plural
 //  productions overlap on the flag/type first tokens — both derivations
 //  parse the same member; shift keeps reading flags.
-//- state 290 (2): catch/finally after a nested `try` statement — the
+//- state 292 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
+//- states 76/77 (1 each, added with TypeName): ':' / `as` followed by a
+//  dotted type name — '.' shifts to continue the chain, the default
+//  reduces TypeName. Nothing may follow a type name with '.', so the
+//  default is the intended reading.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
@@ -1405,7 +1418,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				Expression OT_OR Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalOr, $1, $3, @1); } |
 				'-' Expression %prec P_Minus	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1); } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
-				Expression KT_As NameExpr		{ $$ = new SnAsExpr($1, $3, @2); } ;
+				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } ;
 
 ParenthesesExpr: '(' Expression ')' { $$ = $2; } ;
 

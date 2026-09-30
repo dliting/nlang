@@ -667,7 +667,7 @@ public:
 	static const NodeKind	s_Kind			= NK_AsExpr;
 	static const NodeBits	s_DefaultFlags	= NF_Expression;
 public:
-	SnAsExpr(SnExpression *pOperand, SnNameExpr *pTargetType,
+	SnAsExpr(SnExpression *pOperand, SnFieldExpr *pTargetType,
 		const ISourceLocation &loc)
 		: Super_(s_Kind, loc), m_pOperand(pOperand), m_pTargetType(pTargetType),
 		  m_pResolvedTarget(nullptr), m_CastKind(TCK_None)
