@@ -69,6 +69,11 @@ public:
     // twice across imports.
     void LoadFileOnce(const std::string& path);
 
+    // Same guard, with the package supplied by the caller (the matched
+    // search root's derived package — vendor/graphics.n under root R is
+    // "vendor.graphics", not the bare stem).
+    void LoadFileOnce(const std::string& path, const std::string& package);
+
     // Resolve a qualified name, e.g. Resolve("io", "print").
     // Returns nullptr when unknown.
     const SymbolInfo* Resolve(const std::string& ns,

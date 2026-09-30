@@ -10,6 +10,7 @@
 #include <list>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -69,16 +70,31 @@ private:
 	bool RegisterUnits();
 	//Load imported symbols to a rebuilt AST.
 	bool LoadImports();
-	//Discover every import-reachable library <name>.n source (single-
-	//segment imports, iterated to a fixed point so a library can depend on
-	//a library): index its signatures and parse it fully as an inline
-	//library translation unit. Idempotent per file.
+	//Discover every import-reachable library <pkg>.n source (imports
+	//iterated to a fixed point so a library can depend on a library):
+	//index its signatures and parse it fully as an inline library
+	//translation unit. Dotted names map to <root>/<a/b/c.n>; idempotent
+	//per file.
 	void DiscoverLibraryUnits();
-	//Locate <name>.n on the import dirs; empty if not present.
-	std::string FindLibrarySourceFile(const std::string& name) const;
-	//Index and fully parse one library source file as a library TU.
-	//True when it was newly inlined this call (false: already inlined).
-	bool ParseLibraryUnit(const std::string& path);
+	//Locate the library source for a dotted package name:
+	//`a.b.c` is <root>/a/b/c.n on the first matching search dir. Returns
+	//(file, matched root); the file is empty when no root has it.
+	std::pair<std::string, std::string> FindLibrarySourceFile(
+		const std::string& dottedName) const;
+	//Every (file, root) match across the effective library dirs — the
+	//duplicate-package diagnosis scans the full set instead of stopping
+	//at the first hit.
+	std::vector<std::pair<std::string, std::string>>
+	FindLibrarySourceMatches(const std::string& dottedName) const;
+	//One import's library-source handling (DiscoverLibraryUnits' inner
+	//loop body): the multi-root duplicate diagnosis, otherwise inline the
+	//single match under its root. True when a TU was added.
+	bool HandleLibraryImport(const std::string &dottedName);
+	//Index and fully parse one library source file as a library TU,
+	//recording the root it was found under (the package derives from
+	//that root, not from the project dir). True when newly inlined.
+	bool ParseLibraryUnit(const std::string& path,
+		const std::string& packageRoot);
 	//Build the per-TU import gates (D1: imports are file-scoped) and
 	//collect the single-segment external .nmod candidates into
 	//rExternalNames. False after logging the gate errors.
@@ -170,6 +186,13 @@ private:
 	//so each is fully parsed at most once (independent of the signature
 	//index, which loads the standard library at construction).
 	std::unordered_set<std::string> m_inlinedLibraryFiles;
+	//Library source abs path -> the search root it was found under
+	//(the matched root is the package-name base for that TU).
+	std::unordered_map<std::string, std::string> m_librarySourceRoots;
+	//The project source files, normalized: discovery must not re-inline
+	//a <root>/<pkg>.n candidate that is already a project TU (it would
+	//register the same package twice).
+	std::unordered_set<std::string> m_projectSourceFiles;
 	std::vector<CompiledModule> m_loadedImports;
 	//External function stubs whose name already existed in the root
 	//(e.g. two .nmod modules exporting the same function). They are

@@ -95,25 +95,47 @@ bool ModuleBuilder::BuildImportGates(
 	return true;
 }
 
-//Locate <name>.n on the effective library dirs; the first match, or empty.
-//A package file is single-segment, so callers pass a bare name.
-std::string ModuleBuilder::FindLibrarySourceFile(
-	const std::string &name) const
+//Every (file, root) match across the effective library dirs: the
+//duplicate-package diagnosis must see the second root too, so the scan
+//does not stop at the first hit.
+std::vector<std::pair<std::string, std::string>>
+ModuleBuilder::FindLibrarySourceMatches(const std::string& dottedName) const
 {
+	std::string rel = dottedName;
+	std::replace(rel.begin(), rel.end(), '.', '/');
+	std::vector<std::pair<std::string, std::string>> matches;
 	for (const auto &dir : EffectiveLibraryDirs(m_upEnv->Params()))
 	{
-		const std::string path = dir + "/" + name + ".n";
+		const std::string path = dir + "/" + rel + ".n";
 		std::ifstream test(path, std::ios::binary);
 		if (test.good())
-			return path;
+			matches.push_back({ path, dir });
 	}
-	return std::string();
+	return matches;
 }
 
-//Index the signatures of one library source file (so its namespace opens
+//Locate a library source for a dotted package name: `a.b.c` is
+//<root>/a/b/c.n on the first matching search dir. Returns the file and the
+//root it was found under, because the package name is the path RELATIVE TO
+//THAT ROOT — a bare stem would make vendor/graphics.n register as `graphics`
+//and be unreachable as `import vendor.graphics;`.
+std::pair<std::string, std::string> ModuleBuilder::FindLibrarySourceFile(
+	const std::string& dottedName) const
+{
+	const auto matches = FindLibrarySourceMatches(dottedName);
+	if (matches.empty())
+		return { };
+	return matches.front();
+}
+
+//Index the signatures of one library source file (so its package opens
 //the same gate as the standard library) and then parse it fully as an
 //inline library translation unit. Each absolute path is inlined once.
-bool ModuleBuilder::ParseLibraryUnit(const std::string &path)
+//packageRoot is the search root the file was found under — the package
+//name is the path relative to THAT root (Step 4's RegisterUnits reads it
+//back through m_librarySourceRoots).
+bool ModuleBuilder::ParseLibraryUnit(const std::string &path,
+	const std::string &packageRoot)
 {
 	std::error_code fsError;
 	const std::string absPath =
@@ -121,10 +143,12 @@ bool ModuleBuilder::ParseLibraryUnit(const std::string &path)
 			.lexically_normal().string();
 	if (!m_inlinedLibraryFiles.insert(absPath).second)
 		return false;  //already fully parsed this build
+	m_librarySourceRoots[absPath] = packageRoot;
 
-	//Signature index (idempotent): declarations inside the namespace are
-	//indexed, so the namespace resolves as a library namespace in gates.
-	m_upEnv->LoadLibrarySource(path);
+	//Signature index (idempotent): declarations are indexed under the
+	//matched-root package, so the package resolves as a library package
+	//in gates.
+	m_upEnv->LoadLibrarySource(path, packageRoot);
 
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
 		m_upEnv->Log(CLL_Info, "Parsing library %s ...", path.c_str());
@@ -136,12 +160,45 @@ bool ModuleBuilder::ParseLibraryUnit(const std::string &path)
 	return true;
 }
 
-//Discover every import-reachable library <name>.n source. Iterate the
+//One import's library-source handling (DiscoverLibraryUnits' inner loop
+//body): a dotted name maps to <root>/a/b/c.n under the matched root (a
+//bare stem is the same rule at one segment). More than one root offering
+//the same package is the duplicate-package error — the reserved-name
+//table's replacement — naming both source paths instead of silently
+//binding the import to whichever root searched first. True when a TU
+//was added (drives the fixed-point iteration).
+bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
+{
+	const auto matches = FindLibrarySourceMatches(dottedName);
+	if (matches.size() > 1)
+	{
+		std::string message = "Duplicate package '" + dottedName
+			+ "': '" + matches.front().first + "' and '"
+			+ matches.back().first + "'.";
+		m_upEnv->Log(CLL_Error, "%s", message.c_str());
+		return false;
+	}
+	if (matches.empty())
+		return false;
+	//A match that IS a project source is already compiled in; inlining it
+	//again would register the same package twice.
+	std::error_code fsError;
+	const std::string absPath =
+		std::filesystem::absolute(std::filesystem::path(
+			matches.front().first), fsError).lexically_normal().string();
+	if (m_projectSourceFiles.count(absPath) > 0)
+		return false;
+	return ParseLibraryUnit(matches.front().first, matches.front().second);
+}
+
+//Discover every import-reachable library <pkg>.n source. Iterate the
 //imports of all known TUs to a fixed point so a library can depend on a
 //library: each pass may add library TUs whose imports are scanned on the
-//next pass. Only single-segment, non-wildcard imports that are not yet a
-//known (signature-indexed) library namespace are candidates; dotted
-//names resolve as project modules instead.
+//next pass. Non-wildcard imports are candidates (a dotted name maps to
+//<root>/a/b/c.n under the matched root; a bare stem is the same rule at
+//one segment), whether or not the signature index already knows the
+//package, so the standard library is inlined exactly like a third-party
+//source library.
 void ModuleBuilder::DiscoverLibraryUnits()
 {
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
@@ -170,15 +227,7 @@ void ModuleBuilder::DiscoverLibraryUnits()
 			{
 				if (spec.wildcard)
 					continue;
-				const std::string name = spec.DottedName();
-				//Dotted names resolve as project modules, not package files.
-				//Single-segment names are looked up whether or not the
-				//signature index already knows them, so the standard library
-				//is inlined exactly like a third-party source library.
-				if (name.find('.') != std::string::npos)
-					continue;
-				const std::string path = FindLibrarySourceFile(name);
-				if (!path.empty() && ParseLibraryUnit(path))
+				if (HandleLibraryImport(spec.DottedName()))
 					changed = true;
 			}
 		}

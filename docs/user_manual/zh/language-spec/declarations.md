@@ -42,9 +42,11 @@ import utils.*;            // 递归通配符
   路径或同目录文件是无害的冗余。
 - 导入目标的解析顺序：内建 → 项目文件 → 外部 `.nmod`（经 `-I`）。
   没有隐式回退。
-- 项目路径段不得与 `io`/`math`/`fs` 撞名（编译错误）。单文件模式
-  （无 `.nproj`）只支持单段导入——内建与外部 `.nmod`；点分路径无法
-  解析。
+- 同一次构建内两个单元解析出同一个点分包名是编译错误，诊断会指名
+  两条来源路径。名为 `io`/`math`/`fs` 的项目目录就是普通目录；每个包名
+  只能存在一份。带点导入会按匹配到的搜索根解析库源（`-I <根>` ＋
+  `<根>/a/b/c.n` 即可寻址 `import a.b.c;`）；预编译的带点包（`.nmod`）
+  在后续阶段之前仍按末段主干搜索。
 
 诊断信息（示例）：
 
@@ -53,7 +55,6 @@ Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import ut
 Package 'io' is not imported. Add 'import io;' at the top of this file.
 Module 'utils.helper' not found. Check the project Sources list or -I import path.
 String import is removed. Use 'import <module>;' with an identifier path.
-Module path segment 'io' collides with a built-in namespace.
 Function 'add' is not visible here. It lives in module 'utils.helper'; import it and qualify the call.
 ```
 

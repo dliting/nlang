@@ -45,8 +45,6 @@ public:
 private:
 	//Named decomposition phases shared across the per-concern TUs.
 	SnParagraph *FindEnclosingParagraph(SyntaxNode *pNode);
-	void CheckLocalNameReserved(const std::string &name,
-		const ISourceLocation *pLoc);
 	void CheckIntCondition(SnExpression &cond, const char *what);
 	void CheckFunctionNativeFormals(SnFunction &sn,
 		std::vector<SnFormalParam*> &formals);

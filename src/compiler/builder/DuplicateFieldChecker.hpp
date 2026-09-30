@@ -137,23 +137,6 @@ private:
 		for (auto iCurr = nameMap.begin(); iCurr != iEnd; ++iCurr)
 		{
 			SnField *pCurrField = iCurr->second;
-			//Phase 11: math/io/fs are reserved as stdlib namespaces so the
-			//resolver can route `math.sqrt(x)` on the outer name alone.
-			//Every NameDict (namespace/class/struct/enum members, function
-			//params) flows through here — one choke point for all of them.
-			//A library TU's own namespace node legitimately carries the
-			//library namespace name (it IS that library); the reserved-name
-			//rule only keeps every other scope from declaring such a name.
-			const ModuleRegistry &fieldReg = m_Env.Registry();
-			const bool ownerIsLibrary =
-				fieldReg.IsLibraryModule(fieldReg.OwnerOf(*pCurrField));
-			if (!ownerIsLibrary
-				&& m_Env.IsLibraryNamespace(pCurrField->Name()))
-			{
-				m_Env.Log(CLL_Error, pCurrField->Location(),
-					"The name \"%s\" is reserved for a library namespace.",
-					pCurrField->Name().c_str());
-			}
 			if (sPrevName == pCurrField->Name())
 			{
 				//Find the first field conflicted with the current one.
@@ -197,16 +180,20 @@ private:
 	{
 		if (!f1.ConflictedWith(f2))
 			return false;
-		//Spec §3.2: same-name FUNCTIONS in different directories (or one
-		//local + one imported stub) never conflict — their qualified
-		//paths differ and the bare pools are disjoint. Only
-		//same-directory duplicates are real redefinitions.
-		//FUNCTION-PAIR GATE: the exemption applies only when BOTH sides
-		//are NK_Function. Non-function symbols (class/struct/global
-		//fields) keep the legacy name-equality conflict — spec §5.5 keeps
-		//types globally visible in v1, and silent cross-directory class
-		//coexistence would create bare-name ambiguity with no diagnostic.
-		if (f1.Kind() == NK_Function && f2.Kind() == NK_Function
+		//Spec §3.2 + phase 5 design §2/§3: same-name FUNCTIONS and TYPES
+		//in different bare pools never conflict — their qualified paths
+		//differ and the bare pools are disjoint, so each keeps its own
+		//identity (a.io.Rec vs b.io.Rec; utils.helper.Cfg vs
+		//core.helper.Cfg). Same-pool pairs are real redefinitions. The
+		//exemption covers functions and the four type kinds; global
+		//fields and mixed-kind pairs keep the legacy name-equality
+		//conflict.
+		if (f1.Kind() == f2.Kind()
+			&& (f1.Kind() == NK_Function
+				|| f1.Kind() == NK_ClassDecl
+				|| f1.Kind() == NK_StructDecl
+				|| f1.Kind() == NK_EnumDecl
+				|| f1.Kind() == NK_InterfaceDecl)
 			&& !SameBarePool(f1, f2))
 			return false;
 		auto &errorField = (f1.IsImported()) ? f2 : f1;

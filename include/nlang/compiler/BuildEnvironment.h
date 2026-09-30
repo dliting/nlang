@@ -105,7 +105,10 @@ public:
 	//not depend on the langservice headers.
 	bool IsLibraryNamespace(const std::string& name) const;
 	//Load one library declaration file into the index (idempotent).
-	void LoadLibrarySource(const std::string& path);
+	//packageRoot: the matched search root the file was found under — the
+	//index entry's package is the path relative to THAT root.
+	void LoadLibrarySource(const std::string& path,
+		const std::string& packageRoot);
 
 	//Get the current module been compiled.
 	Module* CurrModule() const

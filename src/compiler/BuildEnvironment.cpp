@@ -57,9 +57,10 @@ bool BuildEnvironment::IsLibraryNamespace(const std::string& name) const
 	return m_upLibraryIndex && m_upLibraryIndex->HasNamespace(name);
 }
 
-void BuildEnvironment::LoadLibrarySource(const std::string& path)
+void BuildEnvironment::LoadLibrarySource(const std::string& path,
+	const std::string& packageRoot)
 {
-	m_upLibraryIndex->LoadFileOnce(path);
+	m_upLibraryIndex->LoadFileOnce(path, packageRoot);
 }
 
 SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType)

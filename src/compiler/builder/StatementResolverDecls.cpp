@@ -35,19 +35,6 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 	return false;
 }
 
-//Phase 11: math/io/fs are reserved stdlib namespaces (the resolver
-//routes `math.sqrt(x)` on the outer name alone, so any local with
-//that name would be silently shadowed). Called at every local
-//registration site below — decl, for-init, foreach, catch var.
-void StatementResolveAccessor::CheckLocalNameReserved(const std::string &name,
-	const ISourceLocation *pLoc)
-{
-	if (m_Env.IsLibraryNamespace(name))
-		m_Env.Log(CLL_Error, pLoc,
-			"The name \"%s\" is reserved for a library namespace.",
-			name.c_str());
-}
-
 void StatementResolveAccessor::Access(SnFunction &sn)
 {
 	assert(m_pVisitor);
@@ -258,7 +245,6 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 			*sn.Location());
 		if (bIsArray)
 			pLocal->SetArrayType(true);
-		CheckLocalNameReserved(decl.name, sn.Location());
 		paragraph.AddLocal(decl.name, pLocal);
 
 		if (decl.pInitExpr)

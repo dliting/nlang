@@ -1025,12 +1025,16 @@ set_tests_properties(proj_bare_cross_dir_compile PROPERTIES
 
 #Spec section 5.2: project path segments may not use builtin namespace
 #names (io here).
-add_test(NAME proj_reserved_segment_compile
-    COMMAND ncc build -p
-        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_reserved_segment/proj_reserved_segment.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_reserved_segment.nmod)
-set_tests_properties(proj_reserved_segment_compile PROPERTIES
-    PASS_REGULAR_EXPRESSION "collides with a built-in namespace")
+#Task 6: two search roots offering the same package is a build error
+#naming both source paths (the reserved-name table's replacement).
+add_test(NAME duplicate_package_path_compile
+    COMMAND ncc build
+        -I ${PROJECT_SOURCE_DIR}/tests/e2e/duplicate_package_path/roots/r1
+        -I ${PROJECT_SOURCE_DIR}/tests/e2e/duplicate_package_path/roots/r2
+        -p ${PROJECT_SOURCE_DIR}/tests/e2e/duplicate_package_path/duplicate_package_path.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/duplicate_package_path.nmod)
+set_tests_properties(duplicate_package_path_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "Duplicate package 'graphics'")
 
 #Getting-started FAQ pin: without -o the .nmod lands in the process CWD,
 #not beside the source (both halves asserted by the script, since ctest
@@ -1049,7 +1053,7 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_dup_import_compile
     proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
     proj_not_imported_compile proj_bare_cross_dir_compile
-    proj_reserved_segment_compile ncc_no_o_output_cwd
+    duplicate_package_path_compile ncc_no_o_output_cwd
     PROPERTIES TIMEOUT 180)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------

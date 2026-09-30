@@ -772,7 +772,7 @@ compile_error_ctor_arity compile_error
 compile_error_outarg_builtin compile_error
 # Phase 11 stdlib (math/io/fs namespaces + string methods).
 stdlib_sqrt_canary 0
-stdlib_reserved_names compile_error
+stdlib_reserved_names 2
 stdlib_array_arg compile_error
 delegate_result_arg_reject compile_error has type "Int32[]"
 cross_mod_stdlib_array_arg compile_error

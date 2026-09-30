@@ -32,11 +32,6 @@ using LibraryNamespacePredicate =
 //resolver (BuildGate) and the .nmod loader (ModuleBuilder::LoadImports).
 std::string ModuleNotFoundText(const std::string& moduleName);
 
-//Library namespaces that are permanently taken by stdlib/*.n + nlang_<ns>.dll:
-//a project directory or module with one of these names would shadow a
-//standard library. The list lives here (the compiler's gate), not in the VM.
-bool IsReservedLibraryName(const std::string& name);
-
 /*
 Compile-time module registry (spec §6): maps every translation unit
 to its dotted module path (relative to BuildParams::m_sProjectDir),
@@ -72,10 +67,13 @@ public:
 	//Register a TU; moduleIndex == position in registration order.
 	//isLibrary marks an inline library TU (from the search path): it is
 	//compiled in but never a project module (no same-directory visibility).
-	//Returns false after filling outErrors on a reserved path segment
-	//(io/math/fs) — the caller logs and aborts the build.
+	//packageRoot is the relative starting point for the package name: the
+	//project dir for project TUs, the matched search root for library TUs
+	//(vendor/graphics.n under root R registers as vendor.graphics).
+	//Returns false after filling outErrors on a duplicate package path —
+	//the caller logs and aborts the build.
 	bool RegisterUnit(uint32_t moduleIndex, const TranslationUnit& tu,
-		const std::string& projectDir,
+		const std::string& packageRoot,
 		std::vector<std::string>& outErrors, bool isLibrary = false);
 
 	//Register an external .nmod by name; returns its module index
@@ -227,6 +225,7 @@ private:
 	struct ModuleEntry
 	{
 		std::string path;      //"utils.helper" / "lib"
+		std::string sourceFile; //the TU that registered it (duplicate diagnostics)
 		bool isExternal = false;
 		bool isLibrary = false; //inline library TU (search path), not a project module
 		ImportGate gate;       //TU entries only (BuildGate)

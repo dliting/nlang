@@ -245,7 +245,6 @@ void StatementResolveAccessor::Access(SnCatchClause &sn)
 		&& sn.CatchType()->Field()) {
 		auto *pLocal = new SnLocalVar(sn.VarName(),
 			sn.CatchType()->Field(), *sn.Location());
-		CheckLocalNameReserved(sn.VarName(), sn.Location());
 		pParagraph->AddLocal(sn.VarName(), pLocal);
 	}
 

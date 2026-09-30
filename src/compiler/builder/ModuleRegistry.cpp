@@ -64,38 +64,7 @@ std::string DeriveModulePath(const std::filesystem::path &filePath,
 	return modulePath;
 }
 
-//Reserved-name gate (spec §5.2): every dotted segment must avoid the
-//built-in namespace names — a project directory named "io" would
-//otherwise make its modules unreachable through `import io.*;`
-//forever. Returns the first colliding segment, or an empty string.
-std::string FindReservedSegment(const std::string &modulePath)
-{
-	size_t searchFrom = 0;
-	for (;;)
-	{
-		const size_t dotPos = modulePath.find('.', searchFrom);
-		const std::string segment = modulePath.substr(searchFrom,
-			dotPos == std::string::npos ? std::string::npos
-				: dotPos - searchFrom);
-		if (IsReservedLibraryName(segment))
-			return segment;
-		if (dotPos == std::string::npos)
-			return std::string();
-		searchFrom = dotPos + 1;
-	}
-}
-
 } //namespace
-
-bool IsReservedLibraryName(const std::string& name)
-{
-	//io/math/fs each own a stdlib/<ns>.n source and an nlang_<ns>.dll.
-	static const char* const kReservedLibraryNames[] = { "io", "math", "fs" };
-	for (const char* reserved : kReservedLibraryNames)
-		if (name == reserved)
-			return true;
-	return false;
-}
 
 std::string ModuleNotFoundText(const std::string& moduleName)
 {
@@ -105,7 +74,7 @@ std::string ModuleNotFoundText(const std::string& moduleName)
 }
 
 bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
-	const TranslationUnit& tu, const std::string& projectDir,
+	const TranslationUnit& tu, const std::string& packageRoot,
 	std::vector<std::string>& outErrors, bool isLibrary)
 {
 	//Registration order is the module index space shared with
@@ -129,23 +98,25 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 		return false;
 	}
 
-	const std::string modulePath = DeriveModulePath(filePath, projectDir);
-	//A library TU legitimately occupies a reserved library namespace name
-	//(the standard library's own io.n); the reserved-segment guard only
-	//keeps PROJECT directories from taking such a name.
-	if (!isLibrary)
+	const std::string modulePath = DeriveModulePath(filePath, packageRoot);
+	//Duplicate-package rule (the reserved-name table's replacement): two
+	//units resolving to the same dotted package in one build is an error
+	//naming BOTH source paths — first-wins would silently bind the import
+	//to whichever root the search hit first.
+	for (const ModuleEntry& existing : m_modules)
 	{
-		const std::string reservedSegment = FindReservedSegment(modulePath);
-		if (!reservedSegment.empty())
+		if (existing.path == modulePath)
 		{
-			outErrors.push_back("Module path segment '" + reservedSegment +
-				"' collides with a built-in namespace.");
+			outErrors.push_back("Duplicate package '" + modulePath
+				+ "': '" + existing.sourceFile + "' and '"
+				+ filePath.string() + "'.");
 			return false;
 		}
 	}
 
 	ModuleEntry entry;
 	entry.path = std::move(modulePath);
+	entry.sourceFile = filePath.string();
 	entry.isLibrary = isLibrary;
 	m_modules.push_back(std::move(entry));
 	return true;

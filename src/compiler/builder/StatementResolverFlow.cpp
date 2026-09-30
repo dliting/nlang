@@ -78,7 +78,6 @@ void StatementResolveAccessor::ResolveForInitDecl(SnForStmt &sn)
 			*decl.Location());
 		if (bIsArray)
 			pLocal->SetArrayType(true);
-		CheckLocalNameReserved(d.name, decl.Location());
 		if (pParagraph) {
 			pParagraph->AddLocal(d.name, pLocal);
 		}
@@ -261,7 +260,6 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 			*sn.Location());
 		if (sn.VarType()->IsArrayType())
 			pLocal->SetArrayType(true);
-		CheckLocalNameReserved(sn.VarName(), sn.Location());
 		pParagraph->AddLocal(sn.VarName(), pLocal);
 	}
 

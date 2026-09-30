@@ -46,9 +46,13 @@ Visibility:
   harmless redundancy.
 - Resolution order for an import target: built-in → project file →
   external `.nmod` (via `-I`). No implicit fallback.
-- Project path segments may not collide with `io`/`math`/`fs` (compile
-  error). Single-file mode (no `.nproj`) supports single-segment imports
-  only — built-ins and external `.nmod`; dotted paths cannot resolve.
+- Two units resolving to the same dotted package in one build are a
+  compile error naming both source paths. A project directory named
+  `io`/`math`/`fs` is an ordinary directory; only one package of each
+  name may exist. Dotted imports resolve library sources under the
+  matched search root (`-I <root>` + `<root>/a/b/c.n` addresses
+  `import a.b.c;`); precompiled dotted packages (`.nmod`) still search
+  by their single last segment until a later phase.
 
 Diagnostics (examples):
 
@@ -57,7 +61,6 @@ Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import ut
 Package 'io' is not imported. Add 'import io;' at the top of this file.
 Module 'utils.helper' not found. Check the project Sources list or -I import path.
 String import is removed. Use 'import <module>;' with an identifier path.
-Module path segment 'io' collides with a built-in namespace.
 Function 'add' is not visible here. It lives in module 'utils.helper'; import it and qualify the call.
 ```
 

@@ -462,25 +462,28 @@ private slots:
         QCOMPARE(outcome.modulePaths[0], std::string("solo"));
     }
 
-    //A source path segment colliding with a built-in namespace name
-    //(io/math/fs) is a compile error, not a silently unreachable module.
-    void reservedPathSegmentRejected()
+    //Two units resolving to the same dotted package in one build are a
+    //compile error naming the source paths — the reserved-name table's
+    //replacement. A project directory named `io` is legal now; what is
+    //still illegal is ONE package name coming from TWO units.
+    void duplicatePackagePathRejected()
     {
         auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_reserved";
-        std::filesystem::create_directories(dir / "io");
+            / "nlang_proj_dup_pkg";
+        std::filesystem::create_directories(dir);
         std::ofstream(dir / "main.n", std::ios::binary)
             << "int main() { return 0; }\n";
-        std::ofstream(dir / "io/ops.n", std::ios::binary)
+        std::ofstream(dir / "helper.n", std::ios::binary)
             << "int f() { return 1; }\n";
-        const auto outcome = compile("reserved_test",
-            {(dir / "main.n").string(), (dir / "io/ops.n").string()},
+        //The same file listed twice registers package "helper" twice.
+        const auto outcome = compile("dup_pkg_test",
+            {(dir / "main.n").string(), (dir / "helper.n").string(),
+             (dir / "helper.n").string()},
             dir.string());
-        QVERIFY2(!outcome.ok, "reserved segment must fail the build");
+        QVERIFY2(!outcome.ok, "duplicate package path must fail the build");
         QVERIFY2(containsError(outcome.errors,
-            "Module path segment 'io' collides with a built-in "
-            "namespace."),
-            "reserved segment must get the collision diagnostic");
+            "Duplicate package 'helper'"),
+            "duplicate package must get the collision diagnostic");
     }
 
     //The shared helper keeps the single-file contract: an empty project
@@ -1453,7 +1456,12 @@ private slots:
     //FUNCTION-PAIR GATE: the exemption is for functions only. Classes
     //stay globally visible (spec section 5.5), so cross-directory
     //same-name classes keep the legacy name-equality conflict.
-    void crossDirectorySameNameClassStillConflicts()
+    //Phase 5 design §3 superseded the legacy spec-5.5 rule: two same-name
+    //CLASSES in different packages coexist (utils.helper.widget vs
+    //main.widget — qualified identity), each keeping its own layout. The
+    //conflict this slot used to pin survives in the same bare pool only
+    //(dup_type's same-TU pair; Task 5's rb3/Object pins).
+    void crossDirectorySameNameClassesCoexist()
     {
         GateProjectOptions opts;
         opts.szMainBody =
@@ -1466,13 +1474,24 @@ private slots:
             "    public int size;\n"
             "}\n";
         auto res = buildGateProject(opts);
-        QVERIFY2(res.builder != nullptr,
-            "gate scaffold failed before the gate stage");
-        QVERIFY2(!res.ok,
-            "cross-directory same-name classes must still conflict");
-        QVERIFY2(containsError(res.errors,
-            "is conflicted with a exist field definition"),
-            "the legacy duplicate-definition diagnostic must stay");
+        QVERIFY2(res.ok,
+            "cross-directory same-name classes coexist (design §3)");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const SnNamespace& rootView = res.builder->TreeRootView();
+        bool sawMain = false, sawHelper = false;
+        for (const auto& member : rootView.Members())
+        {
+            if (member.Kind() != NK_ClassDecl
+                || member.Name() != "widget")
+                continue;
+            const uint32_t owner = reg.OwnerOf(member);
+            if (reg.ModulePathOf(owner) == "main")
+                sawMain = true;
+            if (reg.ModulePathOf(owner) == "utils.helper")
+                sawHelper = true;
+        }
+        QVERIFY2(sawMain && sawHelper,
+            "both widgets are on root, each owned by its own package");
     }
 
     //Phase 5 R1/D8: the package name is the OWNING unit's path, not any

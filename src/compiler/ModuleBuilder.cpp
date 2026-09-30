@@ -137,14 +137,21 @@ bool ModuleBuilder::RegisterUnits()
 	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		//Library TUs (parsed from a search-path <name>.n) are registered
+		//Library TUs (parsed from a search-path <pkg>.n) are registered
 		//with isLibrary so they are compiled in but not project modules.
+		//Their package derives from the ROOT THE FILE WAS FOUND UNDER, not
+		//from the project dir: vendor/graphics.n under root R is the
+		//package `vendor.graphics`, which is the only spelling
+		//`import vendor.graphics;` can address.
 		const std::string absPath =
 			std::filesystem::absolute(std::filesystem::path(
 				pTransUnit->FilePath())).lexically_normal().string();
 		const bool isLib = m_inlinedLibraryFiles.count(absPath) > 0;
+		const auto iRoot = m_librarySourceRoots.find(absPath);
+		const std::string& packageRoot = iRoot != m_librarySourceRoots.end()
+			? iRoot->second : m_upEnv->Params().m_sProjectDir;
 		if (!reg.RegisterUnit(moduleIndex++, *pTransUnit,
-				m_upEnv->Params().m_sProjectDir, regErrors, isLib))
+				packageRoot, regErrors, isLib))
 		{
 			for (const auto& error : regErrors)
 				m_upEnv->Log(CLL_Error, "%s", error.c_str());
@@ -216,6 +223,10 @@ void ModuleBuilder::ParseTransUnits()
 		if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
 			m_upEnv->Log(CLL_Info, "Parsing %s ...", sFilePath.c_str());
 
+		std::error_code fsError;
+		m_projectSourceFiles.insert(
+			std::filesystem::absolute(std::filesystem::path(sFilePath),
+				fsError).lexically_normal().string());
 		TranslationUnit *pTransUnit = new TranslationUnit(sFilePath);
 		m_upTransUnits->push_back(pTransUnit);
 		parser.ParseUnit(*pTransUnit, m_upEnv->ContainFlags(MBF_ParserDebug));

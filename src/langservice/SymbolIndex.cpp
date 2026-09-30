@@ -194,6 +194,13 @@ void SymbolIndex::LoadFileOnce(const std::string& path) {
     LoadFile(path);
 }
 
+void SymbolIndex::LoadFileOnce(const std::string& path,
+    const std::string& package) {
+    if (!m_loadedFiles.insert(path).second)
+        return;
+    LoadFileWithPackage(path, package);
+}
+
 void SymbolIndex::LoadLibraryDir(const std::string& dir) {
     fs::path p(dir);
     if (!fs::is_directory(p))
