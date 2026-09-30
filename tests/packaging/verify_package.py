@@ -15,6 +15,7 @@ Usage: python verify_package.py [release_dir]
 
 import glob
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -44,11 +45,18 @@ from nlang_docs.public_text import find_violations  # noqa: E402
 SMOKE_EXIT_CODE = 42
 TIMEOUT_SEC = 60
 # .nmod format floor asserted in the smoke: magic "NLANGMOD" + u16 major
-# + u16 minor (CompiledModule.h is the single source; keep in sync when
-# NMOD_FORMAT_MINOR bumps).
+# + u16 minor. Parsed from CompiledModule.h (the single source) so this
+# check cannot drift when NMOD_FORMAT_MINOR bumps.
 NMOD_MAGIC = b'NLANGMOD'
-NMOD_MAJOR = 1
-NMOD_MINOR = 12
+with open(os.path.join(REPO_ROOT, 'include', 'nlang', 'vm',
+                       'CompiledModule.h'), encoding='utf-8') as hdr:
+    _hdr_text = hdr.read()
+_major_m = re.search(r'NMOD_FORMAT_MAJOR\s*=\s*(\d+)', _hdr_text)
+_minor_m = re.search(r'NMOD_FORMAT_MINOR\s*=\s*(\d+)', _hdr_text)
+assert _major_m and _minor_m, \
+    'NMOD_FORMAT_MAJOR/MINOR not found in CompiledModule.h'
+NMOD_MAJOR = int(_major_m.group(1))
+NMOD_MINOR = int(_minor_m.group(1))
 
 BIN_FILES = [
     'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe', 'ndb.exe',
