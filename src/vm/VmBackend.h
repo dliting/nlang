@@ -95,7 +95,8 @@ public:
     //user, so it borrows the registry (never owns it; it outlives codegen
     //inside one Build() call). The env pointer is the diagnostic channel:
     //VmBackend has no m_Env member (env arrives by value in Build() and by
-    //reference in SaveModule()), so duplicate-key errors need it injected.
+    //reference in SaveModule()), so the entry-point scan and the D5 native
+    //package diagnostics need it injected.
     void SetModuleRegistry(const ModuleRegistry* pRegistry,
         BuildEnvironment* pEnv)
     {
