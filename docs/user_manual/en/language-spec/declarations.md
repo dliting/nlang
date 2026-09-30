@@ -4,7 +4,7 @@
 ### Import Declaration
 
 ```nlang
-import io;                 // built-in namespace
+import io;                 // built-in package
 import lib;                // external lib.nmod
 import utils.helper;       // project file utils/helper.n
 import utils.*;            // recursive wildcard
@@ -18,7 +18,7 @@ files. Three sources share one syntax:
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` root: directory path + file stem | `utils/helper.n` → `utils.helper`; root `main.n` → `main` |
 | External `.nmod` | file stem (single segment) | `lib.nmod` → `lib` |
-| Built-in namespace | `io` / `math` / `fs` (reserved names, preset modules) | `io` |
+| Built-in package | `io` / `math` / `fs` (preset modules) | `io` |
 
 Visibility:
 
@@ -419,9 +419,9 @@ int apply(BinOp f) { ... }   // parameters and returns
   a compile error.
 - An alias name must not collide with classes, functions, other
   aliases, built-in type names (`List`, `Dict`, `Func`, `int`, ...),
-  or the reserved stdlib namespaces (`math`, `io`, `fs`) in the same
+  or a builtin package name (`math`, `io`, `fs`) in the same
   translation unit.
-- The namespace-opening form `using Foo;` (no `=`) is unchanged and
+- The scope-opening form `using Foo;` (no `=`) is unchanged and
   unrelated.
 
 **Restrictions:**

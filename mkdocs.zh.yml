@@ -36,6 +36,7 @@ nav:
       - 类型: language-spec/types.md
       - 类型语义: language-spec/type-semantics.md
       - 声明: language-spec/declarations.md
+      - 包: language-spec/packages.md
       - 内建泛型类: language-spec/builtin-generic-classes.md
       - 表达式: language-spec/expressions.md
       - 语句: language-spec/statements.md

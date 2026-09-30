@@ -22,8 +22,9 @@ mylib/
   nlang_mylib.dll    # 可选：`native` 声明的 native 实现
 ```
 
-`<name>.n` 内部用 `namespace <name>` 承载库的接口面。函数分两类，可以
-自由混合（**混合库**）：
+库的接口面就是 `<pkg>.n` 文件本身——包名由文件相对匹配搜索根的路径
+派生（`vendor/graphics.n` 在根 `R` 下即包 `vendor.graphics`），文件内
+不再有任何包装语法。函数分两类，可以自由混合（**混合库**）：
 
 - **普通 NLang 函数**——有函数体；从源码编译进消费方的模块，按字节码
   执行；
@@ -31,7 +32,7 @@ mylib/
   ABI 分派到 `nlang_<name>.dll`（第 5 节）。
 
 标准库同形：`stdlib/io.n`、`math.n`、`fs.n` 是手写的权威声明文件
-（io/math/fs 三个命名空间目前为纯 native），实现由 `src/native/` 构建
+（io/math/fs 三个包目前为纯 native），实现由 `src/native/` 构建
 为 `nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll`。
 
 ## 3. 编译模型：源码完整内联

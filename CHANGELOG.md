@@ -9,6 +9,39 @@ All notable changes to NLang are documented here. The format follows
 ## [0.7.4] - Unreleased
 
 ### Added
+- Packages: a `.n` file's package is its path relative to the matched
+  search root (`vendor/graphics.n` under `-I <root>` is
+  `vendor.graphics`), and dotted imports address library sources
+  directly. One build may contain only one package of each dotted name
+  (a duplicate is a compile error naming both source paths); the old
+  reserved-name table (`io`/`math`/`fs`) is gone — a project directory
+  named `io` is an ordinary directory. The manual gains a Packages
+  page in both language trees.
+- Compiler: `readStruct`/`readObject` type-name literals resolve at
+  compile time against the visible packages and are rewritten to the
+  declaration's qualified table key; ambiguous literals are a compile
+  error asking for the qualified spelling.
+- VM: `.nmod` format v1.13 — struct/class/function table keys and
+  stream type-name literals are package-qualified (ownerless built-ins
+  keep bare keys), and the module record carries an entry-point index.
+  The loader refuses older modules outright; recompile.
+
+### Changed
+- Language: the `namespace` keyword is removed — the wrapper syntax,
+  the cross-unit container merge and the reserved-name table went with
+  it; every package identity is the path. User-visible diagnostics now
+  say package (`Package 'io' is not imported. ...`), the IDE completes
+  and indexes by package, and the project-properties dialog lost its
+  never-read namespace field along with the `.nproj` attribute.
+- Debugger/tooling spelling: function keys are qualified everywhere —
+  breakpoints take `b main.main`, backtraces print `at main.main`,
+  `ndisasm -func` filters by the qualified key, and function values /
+  object `toString()` render the qualified key. Cross-program object
+  streams store the qualified class key (programs must agree on the
+  package layout).
+- Native: a `native` declaration in a multi-segment package is a
+  compile-time diagnostic (host DLL names split at the first dot);
+  single-segment packages are unchanged.
 - Source-size regression guard (`tools/source_size_guard`): hand-written
   source files stay <= 500 lines and function definitions <= 50 lines,
   with any exception registered alongside its reason; enforced as the

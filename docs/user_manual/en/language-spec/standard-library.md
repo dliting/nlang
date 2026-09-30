@@ -1,13 +1,15 @@
 # Standard Library
 
 
-NLang ships four built-in libraries: `math`, `io`, `fs` (namespace-qualified
-free functions) and string methods (receiver-dispatched). The namespace names
-are **reserved** — declaring a local, function, class, struct, enum, parameter
-or catch variable named `math`, `io` or `fs` is a compile error. Calls use the
-qualified name only (`math.sin(x)`); bare names are not in scope (a future
-`using`-style keyword may lift this). A namespace name used as a value
-(`int x = math;`) fails to resolve — namespaces are not values.
+NLang ships four built-in libraries: `math`, `io`, `fs` (package-qualified
+free functions) and string methods (receiver-dispatched). A package is
+identified by its file's path — `stdlib/io.n` is the package `io` — and
+one build may contain only one package of each name (a duplicate is a
+compile error naming both sources; a project directory named `io` is an
+ordinary directory). Calls use the qualified name only (`math.sin(x)`);
+bare names are not in scope (a future `using`-style keyword may lift
+this). A package name used as a value (`int x = math;`) fails to resolve
+— packages are not values.
 
 The **signatures** (parameter kinds, arity, return type) live in the
 `stdlib/*.n` declarations shipped with the toolchain and reach the compiler
@@ -81,7 +83,7 @@ untrusted length prefixes); larger files raise IOException.
 
 `fs` never reads or writes content — content belongs to `io`. The split is an
 operation principle: io = all content (console + disk text, later stream
-classes), fs = namespace/directory/metadata.
+classes), fs = names/directories/metadata.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|

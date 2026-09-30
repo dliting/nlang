@@ -119,7 +119,7 @@ and run:
     ncc build -p modules.nproj -o modules.nmod
     nvm modules.nmod                 # output 42, 42; exit code 42
 
-The built-in namespaces (`io`/`math`/`fs`) also require an `import`
+The built-in packages (`io`/`math`/`fs`) also require an `import`
 before use — that is the `import io;` at the top of every snippet on
 this page that calls `io.print`; omitting it produces the compile error
 `Package 'io' is not imported`.

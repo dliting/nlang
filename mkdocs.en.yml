@@ -36,6 +36,7 @@ nav:
       - Types: language-spec/types.md
       - Type Semantics: language-spec/type-semantics.md
       - Declarations: language-spec/declarations.md
+      - Packages: language-spec/packages.md
       - Built-in Generic Classes: language-spec/builtin-generic-classes.md
       - Expressions: language-spec/expressions.md
       - Statements: language-spec/statements.md

@@ -27,61 +27,71 @@ mylib/
   nlang_mylib.dll    # optional: native implementation of `native` declarations
 ```
 
-Inside `<name>.n`, a `namespace <name>` block carries the library's
-surface. Functions come in two kinds, freely mixed (a *mixed library*):
+The library's surface is the `<pkg>.n` file itself; the package name is
+the file's path relative to the matched search root
+(`vendor/graphics.n` under root `R` is the package `vendor.graphics`),
+and the file carries no wrapper syntax. Functions come in two kinds,
+freely mixed (a *mixed library*):
 
 - **plain NLang functions** — have bodies; compiled from source into the
   consumer's module and executed as bytecode;
 - **`native` functions** — signature plus documentation comment only (no
   body); at run time dispatched through the host ABI into
-  `nlang_<name>.dll` (section 5).
+  `nlang_<name>.dll` (section 5; the DLL name splits at the first dot of
+  the package's last segment, so a `native` in a multi-segment package
+  is a compile-time diagnostic).
 
 The standard library follows the same shape: `stdlib/io.n`, `math.n`,
 `fs.n` are hand-written authoritative declaration files (the io/math/fs
-namespaces are pure native today), built as `nlang_math.dll`,
+packages are pure native today), built as `nlang_math.dll`,
 `nlang_io.dll`, `nlang_fs.dll` from `src/native/`.
 
 ## 3. Compilation model: full source inlining
 
-Library `.n` files reached through a single-segment `import` are parsed
-**completely** — bodies included — as *library translation units* and
-merged into the same AST root as the project's units
-(`src/compiler/ModuleBuilderImports.cpp`,
+Library `.n` files reached through an `import` — single-segment or
+dotted — are parsed **completely** — bodies included — as *library
+translation units* and merged into the same AST root as the project's
+units (`src/compiler/ModuleBuilderImports.cpp`,
 `src/compiler/builder/ModuleRegistry*`). Build order:
 
 1. parse project sources (collecting imports);
 2. **library discovery to a fixpoint**: a worklist seeded with the
-   project's single-segment imports; each located `<name>.n` is (a)
-   signature-indexed (`langservice::SymbolIndex`) and (b) fully parsed as
-   a library TU, whose own single-segment imports join the worklist —
-   so a third-party library may depend on other libraries;
-3. register all TUs; library TUs carry an `isLibrary` flag;
+   project's imports; a dotted name `a.b.c` locates `<root>/a/b/c.n`
+   under the first search root that has it (more than one root offering
+   the same package is a duplicate-package error naming both paths), and
+   each located file is (a) signature-indexed
+   (`langservice::SymbolIndex`, under the matched-root package) and (b)
+   fully parsed as a library TU, whose own imports join the worklist —
+   so a third-party library may depend on other libraries. A match that
+   is already a project source is not re-inlined;
+3. register all TUs; library TUs carry an `isLibrary` flag and derive
+   their package from the matched root;
 4. expand aliases, build import gates, load `.nmod` externals;
 5. merge everything, resolve, emit.
 
 Consequences of one shared model:
 
-- **Namespace-qualified calls compile as ordinary calls.** A call
+- **Package-qualified calls compile as ordinary calls.** A call
   `mylib.f(...)` emits `OP_CallFunc` with the fully-qualified name
-  `ns.f`; run time dispatches on the callee's own nature — a bytecode
+  `pkg.f`; run time dispatches on the callee's own nature — a bytecode
   body, or `isNative` → the DLL. There is no signature-table call path
   and no per-library codegen branch anymore.
 - **Top-level function names in the function table are fully
-  qualified** for namespaced functions (including library natives), so
-  the runtime lookup `m_natives["ns.name"]` matches the DLL's exported
+  qualified** for packaged functions (including library natives), so
+  the runtime lookup `m_natives["pkg.f"]` matches the DLL's exported
   registrations.
-- **Types defined by a library are usable**: namespaces merge into the
-  root, so a library's class/struct/enum/interface resolve at the
-  consumer side like project types (inheritance, virtual dispatch and
-  enum methods included). A type position writes the reference as
-  `ns.Type`; the resolver looks the declaration up inside the compiled-in
-  unit (`ModuleRegistry::FindModuleType`) and binds it, and an
-  unimported namespace is diagnosed rather than silently bound. An
-  external `.nmod` exposes no source-level types, so `ns.Type` resolves
+- **Types defined by a library are usable**: library members merge into
+  the root with their owner tags, so a library's class/struct/enum/
+  interface resolve at the consumer side like project types (inheritance,
+  virtual dispatch and enum methods included). A type position writes
+  the reference as `pkg.Type`; the resolver looks the declaration up in
+  the compiled-in unit (`ModuleRegistry::FindModuleType`) and binds it,
+  and an unimported package is diagnosed rather than silently bound. An
+  external `.nmod` exposes no source-level types, so `pkg.Type` resolves
   only for inlined library sources.
 - **Deduplication** is tracked per *fully-parsed library file*, separate
   from the symbol index's already-indexed set: standard-library
-  namespaces are signature-indexed at build-environment construction,
+  packages are signature-indexed at build-environment construction,
   yet must still be inlined.
 
 ### Library TU vs project TU (visibility isolation)
@@ -93,9 +103,11 @@ A library TU is compiled in but is deliberately *not* a project module:
 - wildcards never pull library TUs in as project modules;
 - a library never sees the consuming project's modules; it only sees
   what it itself imports;
-- the reserved segments `io`/`math`/`fs` stay blocked as project module
-  directory names (`FindReservedSegment`), so a project cannot shadow a
-  standard library today (project-side shadowing is a future decision).
+- one build may contain only one package of each dotted name: two roots
+  offering the same package, or two units deriving one path, are a
+  duplicate-package error naming both source paths (the reserved-name
+  table's replacement — a project directory named `io` is an ordinary
+  directory now).
 
 Circular imports between libraries are allowed: all TUs merge before
 resolution, so declarations are mutually visible within one build, the
@@ -137,7 +149,7 @@ contract (`include/nlang/vm/NativeHost.h`):
 - native functions receive a small **host interface** (callbacks for IO,
   PRNG and string access) instead of linking the VM — the third-party
   source needs only the one header;
-- loading is lazy: the first call into a namespace triggers the module
+- loading is lazy: the first call into a package triggers the module
   load, so unused libraries cost nothing.
 
 Plain C++ functions in a DLL can be wrapped and combined by NLang
@@ -154,8 +166,8 @@ carries no standard-library knowledge.
 |---|---|
 | `stdlib/*.n` | hand-written authoritative declarations — the only signature source |
 | `src/native/{math,io,fs}/` | the native implementations, built as `nlang_math.dll`, `nlang_io.dll`, `nlang_fs.dll` |
-| `IsReservedLibraryName` (`src/compiler/builder/ModuleRegistry.h`) | the reserved names `io`/`math`/`fs`, blocking a project directory from shadowing a standard library |
-| `kStringMethodTable` (`include/nlang/vm/StdLib.h`) | string methods only — receiver-dispatched built-ins, still intrinsics; a library namespace is not implemented this way |
+| duplicate-package check (`ModuleRegistry::RegisterUnit` + discovery) | one build may contain only one package of each dotted name; the error names both source paths |
+| `kStringMethodTable` (`include/nlang/vm/StdLib.h`) | string methods only — receiver-dispatched built-ins, still intrinsics; a library package is not implemented this way |
 | ctest `no_builtin_stdlib` | fails if a hardcoded table, a math/io/fs intrinsic family or their ids return, or if `stdlib/*.n` is deleted instead |
 
 `io.print` is `native void print(string)`: int/float/array coerce through

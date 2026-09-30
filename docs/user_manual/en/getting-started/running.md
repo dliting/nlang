@@ -47,15 +47,13 @@ empties the whole list at once.
 
 ### Project Properties
 
-Project → Project Properties opens the project dialog with five
+Project → Project Properties opens the project dialog with four
 fields:
 
 - **Name**: the project name, which becomes the `.nproj` file
   name. Must be non-empty and contain no path separators (`/` or
   `\`). Filled in when creating a project; a saved project cannot
   be renamed.
-- **Namespace**: the module namespace. A reserved IDE-facing
-  field that the current ncc does not read.
 - **Location**: the project root directory (the `.nproj` file's
   directory). Filled in when creating a project; a saved project
   cannot be moved.

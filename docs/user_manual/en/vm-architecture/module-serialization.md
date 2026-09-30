@@ -63,8 +63,8 @@ v1.8 — first-class function values:
 `RTK_Func` kind byte plus the eight function-value opcodes above; older
 VMs cannot execute these opcodes and refuse v1.8 modules outright (the
 floor moved to minor 8 at this step).
-v1.7 — stdlib namespace intrinsics + reserved
-namespaces; no field-layout change, but the relational string opcodes share
+v1.7 — stdlib intrinsics + reserved library
+names; no field-layout change, but the relational string opcodes share
 this version step, so older VMs must refuse these modules (the floor
 moved to minor 7 at this step).
 
