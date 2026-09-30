@@ -1584,6 +1584,67 @@ private slots:
             "is conflicted with a exist field definition"),
             "the legacy duplicate-definition diagnostic must stay");
     }
+
+    //Phase 5 R1/D8: the package name is the OWNING unit's path, not the AST
+    //namespace chain. Untagged members (built-ins, synthetic generic
+    //instantiations) have no package and stay bare.
+    void packageOfIsOwnerDerived()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody = "int main() { return 0; }\n";
+        opts.szHelperBody = "int help() { return 3; }\n";   //proj/utils/helper.n
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.ok, "gate project with a cross-directory module must build");
+        const ModuleRegistry& reg = res.builder->Registry();
+        const SnNamespace& rootView = res.builder->TreeRootView();
+
+        //(a) project member in a nested directory: path "utils.helper",
+        //    so the key is utils.helper.help -- the path, not any wrapper.
+        QVERIFY(moduleIndexOfPath(reg, "utils.helper") != ModuleRegistry::NO_OWNER);
+        const SnField* pHelp = findMember(rootView.Members(), NK_Function, "help");
+        QVERIFY2(pHelp != nullptr, "help() must reach the merged root");
+        QCOMPARE(reg.PackageOf(*pHelp), std::string("utils.helper"));
+        QCOMPARE(reg.QualifiedName(*pHelp), std::string("utils.helper.help"));
+
+        //(b) the root project unit is package "main" (stem of main.n),
+        //    so its entry key is main.main -- D13's visible spelling.
+        const SnField* pMain = findMember(rootView.Members(), NK_Function, "main");
+        QVERIFY(pMain != nullptr);
+        QCOMPARE(reg.QualifiedName(*pMain), std::string("main.main"));
+
+        //(c) D12 anchor: a stdlib member keeps today's key. `io.print` is
+        //    reached through the namespace container the shell still
+        //    provides on this tree, and its owner tag is the unit whose
+        //    path is "io" -- same string, different source of truth.
+        //    Measured fix (round 4): the library unit only reaches the AST
+        //    root when it is import-reachable (ModuleBuilder::PrepareUnits ->
+        //    DiscoverLibraryUnits, ModuleBuilder.cpp:71), so this case needs
+        //    its OWN gate project with `import io;` -- the shared `opts`
+        //    above has no import and would leave `io` out of the root,
+        //    making the QVERIFY2 below red for a reason unrelated to R1.
+        GateProjectOptions ioOpts;
+        ioOpts.szMainBody = "import io;\n"
+                            "int main() { io.print(1); return 0; }\n";
+        auto ioRes = buildGateProject(ioOpts);
+        QVERIFY2(ioRes.ok, "gate project importing stdlib io must build");
+        const ModuleRegistry& ioReg = ioRes.builder->Registry();
+        const SnNamespace& ioRoot = ioRes.builder->TreeRootView();
+        const SnField* pIo = findMember(ioRoot.Members(), NK_Namespace, "io");
+        QVERIFY2(pIo != nullptr, "stdlib io unit must be merged into root");
+        const SnField* pPrint = findMember(
+            static_cast<const SnNamespace*>(pIo)->Members(), NK_Function, "print");
+        QVERIFY2(pPrint != nullptr, "io.print must be indexed");
+        QCOMPARE(ioReg.PackageOf(*pPrint), std::string("io"));
+        QCOMPARE(ioReg.QualifiedName(*pPrint), std::string("io.print"));
+
+
+        //(d) unowned member degrades to the bare name. The merged root
+        //    container itself carries no owner tag, so this is the free
+        //    NO_OWNER case (a synthetic generic instantiation would do
+        //    too, but needs a compile to mint).
+        QCOMPARE(reg.PackageOf(rootView), std::string());
+        QCOMPARE(reg.QualifiedName(rootView), rootView.Name());
+    }
 };
 
 QTEST_GUILESS_MAIN(TestModuleImport)

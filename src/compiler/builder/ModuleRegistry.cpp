@@ -430,4 +430,25 @@ uint32_t ModuleRegistry::OwnerOfContext(const SyntaxNode& context) const
 	return NO_OWNER;
 }
 
+std::string ModuleRegistry::PackageOf(const SnField& member) const
+{
+	//The unit's dotted path is the package name; an untagged member
+	//(built-in type, synthetic generic instantiation) has no package.
+	//Deliberately NOT derived from the AST namespace chain: the container
+	//exists only where a library file literally writes `namespace <path>`,
+	//so the chain cannot express a path-derived package for project units.
+	const uint32_t owner = OwnerOf(member);
+	if (owner == NO_OWNER || owner >= m_modules.size())
+		return std::string();
+	return m_modules[owner].path;
+}
+
+std::string ModuleRegistry::QualifiedName(const SnField& member) const
+{
+	const std::string pkg = PackageOf(member);
+	if (pkg.empty())
+		return member.Name();
+	return pkg + "." + member.Name();
+}
+
 } //namespace nlang

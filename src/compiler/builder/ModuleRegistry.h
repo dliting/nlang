@@ -172,6 +172,18 @@ public:
 	//NO_OWNER when the member carries no tag.
 	uint32_t OwnerOf(const SnField& member) const;
 
+	//Package name of a member: the OWNING unit's dotted path ("" when
+	//unowned). Deliberately NOT derived from the AST namespace chain —
+	//the container exists only where a library file literally writes
+	//`namespace <path>`, so the chain cannot express a path-derived
+	//package for project units. Call contract: valid only for top-level
+	//members merged into root and for library members; class methods
+	//keep their bare-name rule on the caller's side.
+	std::string PackageOf(const SnField& member) const;
+	//PackageOf, dotted with the member's name; the bare name when the
+	//member has no package.
+	std::string QualifiedName(const SnField& member) const;
+
 	//Nearest ancestor (Parent() chain) carrying an owner tag — the
 	//"current TU" for a resolver context (spec F18); NO_OWNER at root.
 	uint32_t OwnerOfContext(const SyntaxNode& context) const;
