@@ -11,7 +11,7 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
 | Types (class / struct / enum / interface) | PascalCase | `MyClass`, `List<T>`, `Color` |
 | Methods — action / command (side effects or multi-arg) | camelCase, bare verb | `add(x)`, `clear()`, `readInt()`, `run()` |
 | Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` (reserved for future property feature) |
-| Methods — predicate (returns `int` truth value, convention 1/0) | camelCase, bare word | `equals(o)`, `contains(x)` |
+| Methods — predicate (returns `bool`) | camelCase, bare word | `contains(x)`, `startsWith(s)`, `fs.exists(p)` |
 | Free functions | camelCase | `print(s)`, `assert(c)` |
 | Variables / parameters / locals | camelCase | `firstName`, `itemCount` |
 | Entry-point function `main` | lowercase (sole exception) | `int main()` |
@@ -29,5 +29,7 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
   `setHashCode(v)`). Only `getHashCode` currently uses this form; other
   accessors (`length`, `count`, `position`, `keys`) use bare camelCase and
   may be upgraded to `getXxx` when properties land.
-- Predicates do not use `isXxx` / `hasXxx` prefixes — `equals` and
-  `contains` are clear on their own.
+- Predicates do not use `isXxx` / `hasXxx` prefixes — `contains` and
+  `startsWith` are clear on their own. (Exception: `equals` follows the
+  Object virtual method protocol and returns int 0/1 — see
+  [Object & Boxing](object.md).)

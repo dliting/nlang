@@ -13,14 +13,29 @@ Supported iterables:
 | `T[N]` (array) | elements `arr[0]..arr[N-1]` | `OP_LoadElement` |
 | `List<T>` | elements in insertion order | `List<T>.get(i)` |
 | `Dict<K,V>` | **keys** (Python style) | inline `dict.keys()` then `List<K>.get(i)` |
+| `string` | **code points** (`char`) | UTF-8 decode advance |
 
-**Source constraint**: the source expression must be an array, `List`, or
-`Dict` — any shape works: an lvalue, a container- or array-valued call result
-(`li.get(0)` on a `List<int[]>`), member access, `new int[n]`, a dict
-subscript. The source is evaluated exactly once (bound to a hidden iteration
-local), so side-effecting sources run once. Any other source (an `int` local,
-a `string`, a non-container call result) is a compile error: "the foreach
-source must be an array, List, or Dict".
+**Source constraint**: the source expression must be an array, `List`,
+`Dict`, or `string` — any shape works: an lvalue, a container- or
+array-valued call result (`li.get(0)` on a `List<int[]>`), member access,
+`new int[n]`, a dict subscript. The source is evaluated exactly once (bound
+to a hidden iteration local), so side-effecting sources run once. Any other
+source (an `int` local, a non-container call result) is a compile error:
+"the foreach source must be an array, List, Dict, or string".
+
+**String sources**: the loop variable must be `char`, and each iteration
+binds one complete code point (multi-byte characters are never split) — this
+is the string's code-point iteration path, in contrast with the byte
+subscript `s[i]` (see [String](string.md) "The char bridge"):
+
+```nlang
+string s = "héllo";
+int n = 0;
+foreach (char c in s) {
+    n = n + 1;   // counts code points
+}
+// n == 5 (contrast s.length() == 6 bytes)
+```
 
 **Loop variable typing**: the declared type must match the element type
 **exactly** — same underlying field and same arrayness. The variable may be

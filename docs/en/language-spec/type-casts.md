@@ -1,80 +1,103 @@
 # Type Casts
 
 
-Three ways to convert a value between types: the C-style `(T)` cast, the
-runtime-checked `as` operator, and implicit coercion to `string`.
+There are two ways to convert a value between types: the explicit `as`
+operator (scalar narrowing, numeric↔char, unboxing, class downcast), and
+implicit coercion to `string`. Which conversions between scalar-family
+members are implicitly legal (widening, range containment, integer→float)
+is decided by the conversion matrix — see
+[Type Semantics](type-semantics.md).
 
-### Explicit `(T)` cast
-
-```nlang
-int x = 5;
-float y = (float)x;
-int z = (int)y;
-```
-
-Explicit casts between int and float. Implicit widening (int→float) is
-allowed in some contexts (see [Primitives](primitives.md)).
-
-### Runtime-checked cast (`as`)
+### Explicit cast (`as`)
 
 ```nlang
 expr as TypeName
 ```
 
-The following runtime-checked conversions are supported:
+`as` is NLang's only explicit conversion form (there is no C-style
+`(T)expr` prefix cast — a prefix form cannot be told apart from a
+parenthesized expression reliably; the parser cannot distinguish
+`(foo) + bar` from `(foo + bar)`. The keyword operator has no such
+ambiguity, matching C#, TypeScript, and Kotlin). Four classes of
+conversion are supported:
 
-- **Unbox**: `o as int` / `o as float` / `o as string` — unwrap a boxed
-  primitive. Throws if `o` is null or the boxed type tag doesn't match.
+- **Scalar narrowing and cross-sign** (bit-truncating, the C# unchecked
+  equivalent): `d as int` (double→int), `d as float` (double→float),
+  `l as int` (long→int), `s as ubyte` (reverse cross-sign) — any scalar
+  pair the implicit matrix does not admit can be made explicit with `as`.
+  Explicit means user-acknowledged: **no lossy-conversion warning is
+  emitted**.
+- **Numeric ↔ char**: `c as int` reads the code point; `65 as char`
+  constructs a char explicitly, validating the scalar value at run time
+  (a surrogate or a value above U+10FFFF throws the runtime error
+  `value is not a valid Unicode scalar value`).
+- **Unboxing**: `o as int` / `o as long` / `o as string` — unwrap a boxed
+  primitive; all 12 scalars can be unboxed. Throws if `o` is null or the
+  boxed type tag doesn't match.
 - **Class downcast**: `o as SubClass` — verify the runtime class of `o` is
-  `SubClass` or a subclass thereof. Throws on mismatch.
-- **Identity / upcast**: `o as Object` — no-op (any class is already
-  Object). Allowed for symmetry.
+  `SubClass` or a subclass thereof. Throws on mismatch. `o as Object` is a
+  no-op (allowed for symmetry).
 
-Type-incompatible casts (`5 as string`, `o as int` when `o` holds a class ref)
-are compile errors — `as` only permits same/box/unbox/downcast. Array operands
-are rejected outright (`ia as int`, `ia as Object` — "the cast operand is an
-array"): an array value's legal conversions are its own array type and string
-targets in every position — never `as` (see
-[Known Limitations](known-limitations.md) for the full array-value conversion
-rule).
+`as` is reserved for pairs the matrix does not admit — using `as` on a
+conversion that is **already implicit** is also a compile error
+(`` `as` cannot perform implicit conversion `UByte` → `Int32` ``):
+`ubyte`→`int` is implicit widening anyway; writing `b as int` is
+redundant — plain `int x = b;` works. The implicit matrix is on
+[Type Semantics](type-semantics.md).
 
-The `as` keyword was chosen over C-style `(T)expr` prefix cast for unboxing
-and class casts because `(T)expr` cannot be reliably distinguished from
-parenthesized expressions (the parser cannot tell `(foo) + bar` from
-`(foo + bar)`). Keyword operators like `as` have no such ambiguity — this
-matches the approach taken by C#, TypeScript, and Kotlin. See
-[Object & Boxing](object.md) for the Object side of unbox/downcast.
+**Forbidden `as`**:
 
-### Primitive → String Coercion
+- `string → numeric`: `"5" as int` is a compile error (`` Invalid cast:
+  `String as Int32` is not allowed ``) — use the standard library's
+  `s.toInt()` / `s.toFloat()` / `s.toLong()` / `s.toDouble()` family (see
+  [Standard Library](standard-library.md)).
+- `bool ↔ anything`: bool takes part in no conversion.
+- Array operands are rejected outright (`ia as int`, `ia as Object` —
+  "the cast operand is an array"): an array value's legal conversions are
+  its own array type and string targets — never `as` (see
+  [Known Limitations](known-limitations.md) for the full array-value
+  conversion rule).
 
-When a primitive (int or float) appears in a context expecting string, NLang
-auto-coerces it to its decimal string form. This is most common in string
-concatenation, but also fires in direct assignment and field stores.
+The Object side of unboxing/downcasting is on
+[Object & Boxing](object.md).
+
+### Primitive → string coercion
+
+When a scalar primitive (any of the 12) appears where a string is
+expected, NLang automatically coerces it to its string form. Most common
+in concatenation, but it also fires on direct assignment and field
+storage.
 
 ```nlang
 string s1 = "x" + 5;       // "x5" — int coerced to "5"
 string s2 = 5 + "x";       // "5x" — symmetric
-string s3 = "x=" + 2.5;    // "x=2.5" — float uses %g format
-string s4 = "a" + 1 + "b" + 2.5 + "c";  // "a1b2.5c"
-string s5 = 42;            // "42" — direct assignment path
-string s6 = "x" + (-7);    // "x-7" — negative formatted with sign
+string s3 = "x=" + 2.5;    // "x=2.5" — double shortest round-trip
+string s4 = "x" + 'y';     // "xy" — char coerced to its UTF-8 encoding
+string s5 = "ok=" + true;  // "ok=true" — bool coerced to true/false
+string s6 = "n=" + 5000000000;   // "n=5000000000" — long printed directly
+string s7 = "a" + 1 + "b" + 2.5 + "c";  // "a1b2.5c"
 ```
 
-**Implementation**:
-- `int → string`: `OP_Int32_to_str` (decimal, via `std::to_string`)
-- `float → string`: `OP_Float_to_str` (`%g` format — `2.5` not `2.500000`)
-- Both mint the formatted string as a runtime string object and write the new
-  handle into the result slot; `OP_Assign` then moves the result into the
-  destination slot.
-- `string → int/float` remains rejected — use the standard library's
-  `s.toInt()` / `s.toFloat()` instead (see [Standard Library](standard-library.md)).
+**Rendering rules**: bool → `true`/`false`; char → the UTF-8 bytes of its
+code point (1–4 bytes); the integer family prints in decimal as-is
+(narrow integers and long/ulong alike); float and double use
+**shortest round-trip** rendering — the shortest decimal representation
+for which `parse(format(x)) == x` holds (`0.5` rather than `0.500000`;
+`0.1` prints as `0.1`, not the internal binary approximation). print,
+string methods, and interpolation share the same conversion point.
 
-### Object.toString() Protocol
+**Implementation**: all scalar→string conversions share one generalized
+instruction, `OP_Prim_to_str <kind>` (the kind immediate selects one of
+the 12 scalar renderer rows); enum and arrays keep their dedicated
+instructions. `string → numeric` remains rejected — see "Forbidden `as`"
+above.
+
+### Object.toString() protocol
 
 All class instances inherit `string toString()` from `Object`. The default
 implementation returns `"ClassName@heapIdxHex"` (e.g. `"Point@7"`,
-`"Point@ff"`). User classes override it by declaring `string toString() { ... }`
-— virtual dispatch by name, same as `equals`/`getHashCode`. See
+`"Point@ff"`). User classes override it by declaring `string toString()
+{ ... }` — dispatched by name, like `equals`/`getHashCode`. See
 [Object & Boxing](object.md).
 
 ```nlang
@@ -87,29 +110,28 @@ class Point {
 
 Dispatch matrix:
 
-| Receiver | `.toString()` result | Override? |
-|----------|---------------------|-----------|
-| class (user override) | user-defined | yes |
-| class (no override) | `"ClassName@hex(heapIdx)"` | no (Object intrinsic) |
-| enum | enum member name (e.g. `"Red"`) | no |
-| int | decimal string (e.g. `"42"`) | no |
-| float | `%g` format (e.g. `"2.5"`) | no |
-| string | self (identity) | no |
+| Receiver          | `.toString()` result          | Overridable? |
+|-------------------|-------------------------------|--------------|
+| class (user override) | user-defined             | yes |
+| class (no override) | `"ClassName@hex(heapIdx)"`   | no (Object built-in) |
+| enum              | enum member name (e.g. `"Red"`) | no |
+| all scalar primitives | same rendering as the →string coercion | no |
+| string            | itself (identity)             | no |
 
-**Implicit coercion**: `"x" + obj` automatically calls `obj.toString()`, same
-as Java/C#. This applies to class, enum, int, and float receivers. Struct
-receivers are **permanently excluded** — `"x" + structInstance` is a compile
-error (struct is a pure-data type in NLang; use class for object semantics).
-See [Struct](struct.md).
+**Implicit coercion**: `"x" + obj` automatically calls `obj.toString()`,
+as in Java/C#. This applies to class, enum, and all scalar receivers.
+struct receivers are **permanently excluded** — `"x" + structInstance`
+is a compile error (struct is NLang's plain-data type; use class for
+object semantics). See [Struct](struct.md).
 
-**Enum name output**: `Color.Red.toString()` returns `"Red"` (not `"0"`). The
-compiler embeds a per-enum name table; the VM uses `OP_Enum_to_str` to look
-up the member name by value. Out-of-range enum values throw at runtime. See
-[Enum](enum.md).
+**Enum name output**: `Color.Red.toString()` returns `"Red"` (not `"0"`).
+The compiler embeds one name table per enum; the VM looks the member name
+up by value with `OP_Enum_to_str`. Out-of-range enum values throw at run
+time. See [Enum](enum.md).
 
-**String identity**: `"hello".toString()` returns `"hello"` — the compiler
-folds this to a no-op (no opcode emitted).
+**String identity**: `"hello".toString()` returns `"hello"` — the
+compiler folds this to a no-op (no instruction emitted).
 
 **Limitations**:
-- No warning when implicit coercion occurs (silent, like Java)
+- No warning when implicit coercion happens (silent, like Java)
 - `struct.toString()` / `"x" + structInstance` — permanently rejected

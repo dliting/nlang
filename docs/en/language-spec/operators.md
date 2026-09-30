@@ -8,25 +8,35 @@ a + b    a - b    a * b    a / b    a % b
 ```
 
 Integer division truncates toward zero. Division/modulo by zero throws a
-runtime error — this includes `float` division by zero, which throws rather
-than producing IEEE 754 ±inf/NaN (NLang diverges from C/C++/Java here).
+runtime error — this includes floating-point division by zero, which
+throws rather than producing IEEE 754 ±inf/NaN (NLang diverges from
+C/C++/Java here). `%` on floating-point operands takes the fmod remainder
+(`7.5 % 2.0` = 1.5).
 
 **Integer overflow** wraps silently in two's complement (C-style):
 `INT_MAX + 1 == INT_MIN`. There is no SafeInt-style checking. Lock-in test:
 `tests/e2e/int_overflow_wrap.n`.
 
-**Numeric promotion**: arithmetic ops follow symmetric C-style promotion —
-both operands are promoted to the wider type before the op:
+**Numeric promotion**: integer operands narrower than int are first
+promoted to int; the result type is then the smallest type that can
+implicitly receive both operands:
 
-- `int + int` → `int`
-- `int + float` / `float + int` → `float` (both operands promoted to float)
-- `float + float` → `float`
+- `int + int` → `int`; `byte + byte` → `int`
+- `int + uint` → `long`; `long + uint` → `long`
+- mixing `int`/`long` with `ulong` → compile error (unify the sign domain
+  explicitly first)
+- `int + float` / `float + int` → `float` (symmetric); any `double`
+  operand → `double`
 
-So `1 + 2.5 == 2.5 + 1 == 3.5` (symmetric). The result type is the promoted
-type; assignment to a narrower type (e.g. `int r = 1.5 + 1;`) implicitly
-truncates.
+So `1 + 2.5 == 2.5 + 1 == 3.5` (symmetric). The result type is the
+promoted type; assigning back to a narrower type requires an explicit
+`as` (constant fit excepted). bool and char take no part in arithmetic.
+The complete promotion and conversion rules are on
+[Type Semantics](type-semantics.md).
 
-`string + string` (OP_Add only) is concatenation. `string - string` etc. are
+`string + string` (OP_Add only) is concatenation; `"x" + 'y'` (char
+implicitly converts to string) and `+` with a scalar operand concatenate
+the same way. `string - string` and the other arithmetic forms are
 compile errors. See [String](string.md).
 
 ### Comparison
@@ -35,29 +45,33 @@ compile errors. See [String](string.md).
 a == b   a != b   a < b   a > b   a <= b   a >= b
 ```
 
-Returns 1 (true) or 0 (false).
+Comparison results are always **`bool`** (`true` / `false`).
 
 **Comparison operands are typed**:
 
-- **Mixed string/non-string is a compile error** (`"a" < 5`, `5 == "a"`).
-  The one exception is the null literal: `s == null` / `c == null` compare
-  against the null sentinel — identity for class/reference operands; for a
-  string operand the null side reads as the empty string (handle 0 is the
-  reserved null sentinel; a real empty string has its own object, distinct
-  from null by bits). `"" == null` therefore compares equal, and any non-empty
-  string compares unequal.
-- **int/float pairs** get the same symmetric promotion as arithmetic:
-  `-2 < -1.5` promotes to float and is true; `1 == 1.0` is true. See
+- **Mixing string with non-string is a compile error** (`"a" < 5`,
+  `5 == "a"`). The only exception is the null literal: `s == null` /
+  `c == null` compares against the null sentinel — identity for
+  class/reference operands; for string operands, the null side reads as
+  the empty string (handle 0 is the reserved null sentinel; a genuine
+  empty string has its own object and is bitwise different from null).
+  Hence `"" == null` compares equal; any non-empty string does not.
+- **Numeric pairs** get the same symmetric promotion as arithmetic:
+  `-2 < -1.5` promotes to double and is true; `1 == 1.0` is true. See
   [Primitives](primitives.md).
-- **String equality** compares content; string relational ordering uses C
-  `strcmp`-style byte-by-byte comparison (e.g. `"Z" < "a"` is true because
-  `'Z'` (90) < `'a'` (97)). Because strings are UTF-8 and UTF-8 byte order
-  equals code-point order, ordering is also correct for non-ASCII text:
-  `"é" > "z"` is true. See [String](string.md) "Comparison".
-- **Class/reference equality** (`==`, `!=`) is identity (same heap object).
-  See [Class](class.md).
-- **Arithmetic/concat with a null operand** is a compile error — null has a
-  value only through the comparison identity path above.
+- **char compares only with char** (`'a' < 'b'` is legal); comparing a
+  char against a number goes through no implicit conversion — take the
+  code point first with `c as int` (`a char value can only be compared
+  with a char value`).
+- **String equality** compares content; string relational order is a
+  C `strcmp`-style byte-wise comparison (e.g. `"Z" < "a"` is true because
+  `'Z'`(90) < `'a'`(97)). Since strings are UTF-8 and UTF-8 byte order
+  equals code-point order, the ordering is also correct for non-ASCII
+  text: `"é" > "z"` is true. See [String](string.md) "Comparison".
+- **Class/reference equality** (`==`, `!=`) is identity (same heap
+  object). See [Class](class.md).
+- **Arithmetic/concatenation with a null operand** is a compile error —
+  null only has a value through the comparison-identity path above.
 
 ### Logical
 
@@ -65,9 +79,10 @@ Returns 1 (true) or 0 (false).
 a && b   a || b   !a
 ```
 
-Short-circuit, C-style: `&&` evaluates `b` only when `a` is non-zero; `||`
-evaluates `b` only when `a` is zero. The skipped operand produces no
-observable effect at all — no calls, no throws. The result is always `int`
-`0` or `1` (never the raw operand value). Operands of `&&`, `||` and `!` must
-be `int` — the same rule as `if`/`while` conditions (comparisons already
-produce `int`). See [Statements](statements.md) "Condition typing".
+Short-circuiting, C-style: `&&` evaluates `b` only when `a` is `true`;
+`||` evaluates `b` only when `a` is `false`. The skipped operand has no
+observable effect at all — no calls, no throws. The result is always
+**`bool`** (never an original operand value). The operands of `&&`,
+`||`, and `!` must be `bool` (`operator '&&' requires bool operands`) —
+comparisons and predicates already produce bool. See
+[Statements](statements.md) "Condition types".

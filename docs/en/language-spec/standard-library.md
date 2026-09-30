@@ -14,29 +14,36 @@ time against the built-in table as standard-library functions and
 type-checked; the generated code emits `OP_CallIntrinsic` — no function
 records, no host registration.
 
-**Parameter types**: exact match against the declared kind; the only automatic
-conversion is int→float widening (`math.sqrt(4)` compiles). float→int is never
-implicit (`math.absi(1.5)` is a compile error). The single exception is
-`io.print`, which accepts string|int|float (converted at the call site);
-class and enum values need an explicit `.toString()` before printing
-(struct arguments are rejected outright — structs have no `toString`).
+**Parameter types**: each argument is checked against the declared kind
+per the conversion matrix — same-kind passes as-is, matrix-allowed implicit
+widening is applied automatically (integer-family and `float` arguments
+enter `double` parameters, e.g. `math.sqrt(4)`; narrowing is always an
+explicit `as` — `math.absi(1.5)` is a compile error). The single exception
+is `io.print`, which accepts string, arrays and all scalar primitives
+(converted at the call site); class and enum values need an explicit
+`.toString()` before printing (struct arguments are rejected outright —
+structs have no `toString`).
 
 ### math — 25 functions
 
+The floating-point function family all runs at **double** precision
+(since 0.7.5): parameters and return values are `double`; integer and
+`float` arguments enter via implicit widening (`math.sqrt(4)` and
+`math.sin(1.5f)` both compile).
 `sin`/`cos`/`tan` take radians; `asin`/`acos`/`atan` return radians.
 `log` is the natural logarithm.
-`floor`/`ceil`/`round` return int (`round` is half-away-from-zero).
+`floor`/`ceil`/`round` return **long** (`round` is half-away-from-zero).
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
-| sin cos tan asin acos atan | (float) → float | radians |
-| atan2 | (float y, float x) → float | C/C++ argument order |
-| sqrt pow exp log | see below | pow(x,y); log = ln |
-| absi / absf | (int)→int / (float)→float | absi(INT_MIN) throws |
-| mini maxi / minf maxf | (T, T) → T | |
+| sin cos tan asin acos atan | (double) → double | radians |
+| atan2 | (double y, double x) → double | C/C++ argument order |
+| sqrt pow exp log | (double[,double]) → double | pow(x,y); log = ln |
+| absi / absf | (int)→int / (double)→double | absi(INT_MIN) throws |
+| mini maxi / minf maxf | (T, T) → T | int pair / double pair |
 | clampi / clampf | (v, lo, hi) → T | lo > hi → Exception |
-| floor ceil round | (float) → int | out-of-int32 or NaN → Exception |
-| random | () → float | [0,1), PRNG below |
+| floor ceil round | (double) → long | out-of-int64 or NaN → Exception |
+| random | () → double | [0,1), PRNG below |
 | srand | (int) → void | reseeds |
 | randomi | (int min, int max) → int | inclusive bounds; min > max → Exception |
 
@@ -45,7 +52,7 @@ program start. `math.srand(n)` reseeds explicitly — after it, sequences are
 fully deterministic and identical across platforms:
 
 ```text
-random()  = (float)((next() >> 8) * (1.0f / 16777216.0f))   // 24-bit mantissa, exact in [0,1)
+random()  = (double)((next() >> 8) * (1.0 / 16777216.0))   // 24-bit mantissa, exact in [0,1)
 randomi(min,max) = min + (int32)(next() % (uint32)(max - min + 1))   // small modular bias, documented
 ```
 
@@ -56,7 +63,7 @@ and not portable.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
-| print | (string\|int\|float) → void | stdout + '\n' + flush |
+| print | (string\|array\|scalar primitive) → void | stdout + '\n' + flush |
 | readLine | () → string | stdin line, trailing '\r' stripped |
 | readFile | (string) → string | whole file as bytes; failure → IOException |
 | writeFile | (string path, string s) → void | create/truncate; failure → IOException |
@@ -79,7 +86,7 @@ classes), fs = namespace/directory/metadata.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
-| exists / isFile / isDirectory | (string) → int | 0/1; never raise |
+| exists / isFile / isDirectory | (string) → bool | never raise |
 | size | (string) → int | byte size; regular files only |
 | listFiles | (string) → List\<string\> | names only, non-recursive, regular files only, lexicographically sorted |
 | makeDirs | (string) → void | mkdir -p (idempotent) |
@@ -88,8 +95,8 @@ classes), fs = namespace/directory/metadata.
 
 **Error model**: `size`/`listFiles`/`makeDirs`/`remove` raise `IOException` on
 failure. The three predicates never raise — a path that cannot be stated
-(missing, or inaccessible) simply answers 0. `remove` on a missing path is a
-silent no-op. `size` on a directory or special file raises IOException
+(missing, or inaccessible) simply answers `false`. `remove` on a missing path
+is a silent no-op. `size` on a directory or special file raises IOException
 (directory "sizes" are filesystem noise).
 
 **join edge semantics** (std::filesystem path append, same as Python
@@ -102,27 +109,76 @@ page (`generic_string`, file opens); non-ASCII filenames may not round-trip
 as UTF-8. The same limitation applies to `io.readFile`/`writeFile`/
 `appendFile`.
 
-### string methods — 12 built-in
+### string methods — 18 built-ins
 
 Methods on the string receiver (`s.substring(1)`; literal receivers work:
 `"abc".toUpper()`). The method surface is frozen as the future string class's
 method list. **Byte semantics** (Go/Lua model): length, substring
 and indexOf are byte offsets; UTF-8 byte order equals code point order (so
 relational comparison is well-defined); case conversion is ASCII-only.
-String subscripting (`s[i]`) is **not supported** — there is no byte-access
-operator on strings (a subscript is a compile-time rejection: "string
-does not support subscript access"; see Known Limitations).
+Code-point access (`charAt`/`charCount`/`foreach char`) is a code-point layer
+over the byte core — see [String](string.md) "The char bridge".
 
 | Method | Signature | Notes |
 |---------|-----------|-------|
 | substring | (start[, end]) → string | end exclusive, defaults to length; out of range → IndexOutOfBoundsException |
 | indexOf | (string) → int | first byte offset, -1 if absent |
-| startsWith / endsWith / contains | (string) → int | 0/1 |
+| startsWith / endsWith / contains | (string) → bool | predicates |
 | toUpper / toLower | () → string | ASCII only |
 | trim | () → string | strips `" \t\n\r\f\v"` |
 | split | (string sep) → List\<string\> | sep must be non-empty (else Exception) |
 | replace | (string old, string new) → string | all non-overlapping occurrences; old must be non-empty |
-| toInt / toFloat | () → int / float | strict whole-string parse; malformed → Exception |
+| toInt / toLong | () → int / long | strict whole-string parse; malformed → Exception |
+| toFloat / toDouble | () → float / double | strict whole-string parse; malformed → Exception |
+| toBool | () → bool | strict parse of `"true"`/`"false"` |
+| toChar | () → char | strict decimal code-point parse; invalid scalar → Exception |
+| charAt | (int byteIndex) → char | the code point **starting at** that byte offset; out of range → IndexOutOfBoundsException, continuation byte → Exception |
+| charCount | () → int | code-point count (contrast `length()`, bytes); invalid sequence → Exception |
+
+String subscripting (`s[i]`) returns byte i as a `ubyte` (out of range
+throws the runtime error `string index out of range`) — byte access goes
+through the subscript, code-point access through `charAt`.
+
+### Streams — ByteStream and FileStream
+
+Two built-in stream classes provide binary serialization: `ByteStream` reads
+and writes over an in-memory buffer, `FileStream` lands on a disk file. The
+method surface is identical (FileStream has no `reset()`).
+
+```nlang
+ByteStream bs = new ByteStream();
+bs.writeInt(1);
+bs.writeDouble(0.5);
+bs.reset();                  // rewinds the cursor, keeps the buffer
+double d = bs.readDouble();
+```
+
+| Method | Wire form | Notes |
+|---------|-----------|-------|
+| writeInt / readInt | 4 bytes | int32 |
+| writeFloat / readFloat | 4 bytes | float |
+| writeLong / readLong | 8 bytes | long (narrower integer arguments enter via implicit widening) |
+| writeDouble / readDouble | 8 bytes | double (float arguments widen losslessly) |
+| writeString / readString | length-prefixed bytes | string |
+| writeStruct / readStruct | recursive fields | write takes the struct value; read takes the type name — `bs.readStruct("Point")` |
+| writeObject / readObject | recursive reference graph | class instances; read likewise by type name |
+| length / position | — | byte count / current cursor |
+| reset (ByteStream only) | — | rewinds the cursor, keeps the buffer |
+| close | — | releases the FileStream's file handle |
+
+**FileStream construction**: `new FileStream(path, mode)`, where mode is
+`"w"` (create/truncate), `"a"` (create/append) or `"r"` (read-only; a
+missing file throws a runtime error). An invalid mode throws a runtime
+error.
+
+**Argument types**: the scalar write methods check each argument per the
+conversion matrix — narrower integer and `float` arguments implicitly widen
+into the 8-byte slots (the same rule as `math.sqrt` arguments); a `ulong`
+argument exceeds the long range and needs an explicit `as long`; `char`
+and string arguments are compile errors for the numeric methods.
+
+**EOS semantics**: reading from a stream whose cursor is already at the end
+throws a runtime error (it does not return 0).
 
 ### Exception mapping
 
@@ -131,7 +187,8 @@ does not support subscript access"; see Known Limitations).
 - **IndexOutOfBoundsException**: substring range errors.
 - **base Exception**: argument/range/parse errors — `clampi`/`clampf`
   lo>hi, `randomi` min>max, `split`/`replace` empty argument,
-  `toInt`/`toFloat` malformed input, `floor`/`ceil`/`round`/`absi`
+  `toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar` malformed input,
+  `charAt`/`charCount` invalid UTF-8 sequence, `floor`/`ceil`/`round`/`absi`
   overflow. There is no
   `IllegalArgumentException` built-in; narrowing these to a dedicated
   subclass later is source-compatible for `catch (Exception)` callers.
@@ -140,6 +197,5 @@ does not support subscript access"; see Known Limitations).
 
 - `using`-style keyword to open up unqualified names
 - string class-ification (method surface frozen above)
-- Stream family unifying byte streams / file streams under io
 - `IllegalArgumentException` built-in subclass
 - package manager

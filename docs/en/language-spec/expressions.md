@@ -9,11 +9,12 @@ has a type, and the compiler checks each operation against it.
 | Expression                                        | Page |
 |---------------------------------------------------|------|
 | operators (`+ - * / %`, comparison, logical)      | [Operators](operators.md) |
-| casts (`(T)`, `as`, coercion to string)            | [Type Casts](type-casts.md) |
+| casts (`as`, coercion to string)                  | [Type Casts](type-casts.md) |
 | collection initializers (`[...]`, `new Type{...}`) | [Collection Initializers](collection-initializers.md) |
 
 String interpolation (`${...}`), escape sequences, and string comparison are
-string-literal features: see [String](string.md).
+string-literal features: see [String](string.md). Char literals (`'a'`,
+`'A'`) and type semantics are on [Primitives](primitives.md).
 
 ### Member access
 

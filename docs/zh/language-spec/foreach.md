@@ -12,12 +12,26 @@ foreach (Type var in iterable) { body }
 | `T[N]`（数组）  | 元素 `arr[0]..arr[N-1]`   | `OP_LoadElement` |
 | `List<T>`      | 按插入顺序的元素          | `List<T>.get(i)` |
 | `Dict<K,V>`    | **键**（Python 风格）      | 内联 `dict.keys()` 然后 `List<K>.get(i)` |
+| `string`       | **码点**（`char`）        | UTF-8 解码推进 |
 
-**源约束**：源表达式必须是数组、`List`、或 `Dict`——任何形态均可：lvalue、
+**源约束**：源表达式必须是数组、`List`、`Dict` 或 `string`——任何形态均可：lvalue、
 容器或数组值的调用结果（`List<int[]>` 上的 `li.get(0)`）、成员访问、
 `new int[n]`、字典下标。源只求值一次（绑定到一个隐藏迭代局部），所以有副作用
-的源只运行一次。其他任何源（`int` 局部、`string`、非容器调用结果）是编译错
-误："the foreach source must be an array, List, or Dict"。
+的源只运行一次。其他任何源（`int` 局部、非容器调用结果）是编译错
+误："the foreach source must be an array, List, Dict, or string"。
+
+**string 源**：循环变量必须是 `char`，每轮绑定一个完整码点（多字节字符不
+会被拆开）——这是 string 的码点迭代路径，与字节下标 `s[i]` 相对（见
+[字符串](string.md)「char 桥接」）：
+
+```nlang
+string s = "héllo";
+int n = 0;
+foreach (char c in s) {
+    n = n + 1;   // 码点计数
+}
+// n == 5（对比 s.length() == 6 字节）
+```
 
 **循环变量类型**：声明类型必须与元素类型**精确**匹配——相同底层字段与相同数
 组性。变量可以是数组类型：`grid : List<int[]>` 时 `foreach (int[] row in

@@ -175,7 +175,7 @@ import 来源共用一种语法：
 完整语义——解析顺序、保留路径段、单文件模式——见「声明」章
 （`docs/zh/language-spec/declarations.md`，Import Declaration）。
 
-编译模块使用带版本的二进制格式，当前为 v1.11。加载器强制兼容性
+编译模块使用带版本的二进制格式，当前为 v1.13。加载器强制兼容性
 下限：下限提升后，较旧的 `.nmod` 会因过期被拒绝，必须用匹配的
 `ncc` 重新编译。格式历史（每个版本新增或变更了什么）见
 [CHANGELOG.md](CHANGELOG.md)。
@@ -191,7 +191,7 @@ import math;
 import fs;
 
 int main() {
-    io.print(math.sqrt(2.0));                   // 1.41421
+    io.print(math.sqrt(2.0));                   // 1.4142135623730951（double 精度）
     string s = "hello world".substring(0, 5);   // "hello"（字节偏移）
     List<string> words = "a,b,c".split(",");    // 3 个元素
     fs.makeDirs("out");

@@ -8,7 +8,7 @@ assert(condition);
 Evaluates `condition`. If false, throws an `AssertionException` which can be
 caught by a `try/catch` block. If uncaught, terminates the program with exit
 code 1. Single-argument form only (no message override yet). The condition
-must be `int` (see [Statements](statements.md) "Condition typing").
+must be `bool` (see [Statements](statements.md) "Condition typing").
 
 ```nlang
 int x = 5;

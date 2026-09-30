@@ -115,13 +115,15 @@ the "Cross-module function values are rejected, not transported"
 imported functions" items. See [Common Error
 Messages](../language-spec/common-errors.md) for the full error text.
 
-### Condition / `&&` / `||` / `!` says "must be int"? More than 64 parameters?
+### Condition / `&&` / `||` / `!` says "must be bool"? More than 64 parameters?
 
 The condition of `if` / `while` / `do-while` / `for` / `assert` and the
-operands of `&&` / `||` / `!` must all be `int` (comparisons produce
-`int`); string, float, class, struct, and array are named compile-time
-rejections (`if condition must be int, got "String"`, `operator '&&'
-requires int operands, got "String"`). Separately, the parameter count
+operands of `&&` / `||` / `!` must all be `bool` (comparisons and
+predicates already produce bool — there is no C-style "non-zero is
+true"); int, string, float, char, class, struct, and array are named
+compile-time rejections (`if condition must be bool, not "Int32"`,
+`operator '&&' requires bool operands, got "Int32"`). Count tests
+should be written `if (count != 0)`. Separately, the parameter count
 of a function has a sanity ceiling of 64; exceeding it is a compile
 error (`function "f" has 65 parameters; limit is 64.`). The condition
 typing is on [Language Specification / Statements](../language-spec/statements.md)

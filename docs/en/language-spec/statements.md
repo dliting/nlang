@@ -19,11 +19,14 @@ specific statement has its own page.
 
 ### Condition typing
 
-`if`/`while`/`do-while`/`for`/`assert` conditions must be `int` (comparisons
-produce `int`). String, float, class, struct, and array conditions are
-compile errors — the VM's `OP_JumpIfNot` reads a single int32, and non-int
-values (string object handles, heap indices) have no meaningful truthiness.
-Use an explicit comparison instead: `if (s != "")`, `if (obj != null)`.
+`if`/`while`/`do-while`/`for`/`assert` conditions must be **`bool`** —
+comparisons and predicates already produce bool (see
+[Operators](operators.md), [Primitives](primitives.md)). int, string,
+float, char, class, struct, and array conditions are compile errors
+(`if condition must be bool, not "Int32"`). NLang is a strict-bool
+language with no C-style "non-zero is true": `if (1)` and `if (count)`
+are both illegal — write `if (count != 0)`; likewise `if (s != "")`,
+`if (obj != null)`.
 
 ### `break`, `continue`, `return`
 

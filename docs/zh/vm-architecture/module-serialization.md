@@ -10,7 +10,7 @@ minor 版本号实施语义下限。想直接查看某个 `.nmod` 的内容，�
 ```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
-uint16 minorVer = 12
+uint16 minorVer = 13
 string moduleName
 string[] stringConstants
 function[] functions
@@ -18,7 +18,14 @@ struct[] structs
 class[] classes
 ```
 
-**版本历史**：v1.12（递归类型描述符）——布局变更：每个函数记录
+**版本历史**：v1.13（基本类型家族扩表）——一次语义下限抬升，不是
+布局变更：没有新增序列化字段，但标量 kind 码段扩表——
+byte/ubyte/short/ushort/uint/long/ulong/double/bool/char 以新 RTK 码
+（10..19）出现在局部与字段的 kind 字节、类型描述符与装箱标签中，
+数值指令以带 kind 立即数的通用族发射。旧 ncc 产出的 v1.12 模块没有
+这些 kind 的语义，因此加载器直接拒绝 minor < 13——旧模块必须重新
+编译。
+v1.12（递归类型描述符）——布局变更：每个函数记录
 新增形参类型描述符序列，每个 struct/class 字段新增字段类型描述符
 （递归类型描述符：嵌套数组、`List`/`Dict` 实例化、struct/class
 索引，深度帽 8），记录真实的形参、返回与字段类型。被导入函数桩

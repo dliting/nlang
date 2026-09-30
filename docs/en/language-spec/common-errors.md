@@ -39,15 +39,17 @@ int main() {
 ```
 
 ```text
-Error: if condition must be int, got "String".
+Error: if condition must be bool, not "String".
 ```
 
-The condition of `if`/`while`/`do-while`/`for`/`assert` and the operand
-of `&&`/`||`/`!` must all be `int` (comparisons produce `int`) — string,
-float, class, struct, and array are named rejections
-(`operator '&&' requires int operands, got "String"`). See →
-[Statements](statements.md) "Condition typing" and [Expressions]
-(expressions.md) "Logical". Full forms: e2e cases `cond_*`,
+The condition of `if`/`while`/`do-while`/`for`/`assert` and the operands
+of `&&`/`||`/`!` must all be `bool` (comparisons and predicates already
+produce bool) — int, string, float, char, class, struct, and array are
+named rejections (`if condition must be bool, not "Int32"`,
+`operator '&&' requires bool operands, got "Int32"`). Rewrite as an
+explicit comparison: `if (s != "")`, `if (count != 0)`. See →
+[Statements](statements.md) "Condition typing" and
+[Expressions](expressions.md) "Logical". Full forms: e2e cases `cond_*`,
 `condition_array_reject`, `logical_operand_*`, `not_operand_*`.
 
 ### import and visibility
@@ -138,13 +140,26 @@ int main() {
 Error: switch discriminant must be int, float, string, or enum
 ```
 
-A switch discriminant can only be `int`/`float`/`string`/enum; class,
-struct, `List`, `Dict`, and array values are rejected — use `if`/`else` +
-`equals()` instead. See → [Statements](statements.md) "Switch". Full
-forms: e2e cases `switch_*`, `array_elem_switch*`,
-`array_elem_dict_value_switch_reject`, `enum_*`.
+A switch discriminant may be an integer-family value (including char),
+`float`/`double`, `string`, or enum; bool, class, struct, `List`,
+`Dict`, and array values are rejected — use `if`/`else` + `equals()`
+for class values, and expand bool discrimination into `if`/`else`. See
+→ [Statements](statements.md) "Switch". Full forms: e2e cases
+`switch_*`, `array_elem_switch*`, `array_elem_dict_value_switch_reject`,
+`enum_*`.
 
-### Literals
+### Literal and constant fit
+
+```nlang
+int main() {
+    byte b = 1000;
+    return 0;
+}
+```
+
+```text
+Error: constant 1000 out of range for 'byte'
+```
 
 ```nlang
 int main() {
@@ -154,8 +169,7 @@ int main() {
 ```
 
 ```text
-Error: syntax error
-Error: Invalid statement.
+Error: Incompatible type "1e+30".
 ```
 
 ```nlang
@@ -169,12 +183,119 @@ int main() {
 Error: invalid identifier "123" in ${...}: only ${name} supported (no expressions).
 ```
 
-An integer scientific-notation literal that exceeds `int32` is rejected
-by the lexer (`1e30` → syntax error; the exponent is not silently
-truncated); string interpolation only supports `${name}` identifiers,
-not expressions. See → [Expressions](expressions.md) "String
-interpolation" and the escape-sequence table. Full forms: e2e cases
-`int_sci_*`, `string_escape_*`, `interp_*`.
+An integer **literal** assigned to a narrower target must be within the
+target's range (a constant-fit special case — `byte b = 5` is legal);
+unsuffixed decimal and exponent forms are `double` literals, and integer
+targets never accept float constants (`int x = 2e5` likewise reports
+Incompatible type); string interpolation only supports `${name}` named
+variables, not expressions. See → [Primitives](primitives.md) "Numeric
+literals" and [Expressions](expressions.md) "String interpolation".
+Full forms: e2e cases `int_sci_*`, `string_escape_*`, `interp_*`,
+`int_family_literal_tier`, `int_family_constant_fit*`.
+
+### Numeric type mixing
+
+```nlang
+int main() {
+    int i = 1;
+    ulong u = 2;
+    long x = i + u;
+    return 0;
+}
+```
+
+```text
+Error: no implicit common type for "Int32" and "ULong".
+```
+
+```nlang
+int main() {
+    char c = 'a';
+    bool z = c < 100;
+    return 0;
+}
+```
+
+```text
+Error: a char value can only be compared with a char value.
+```
+
+```nlang
+int main() {
+    long l = 5000000000;
+    float f = l;
+    return 0;
+}
+```
+
+```text
+Warning: implicit conversion from 'Long' to 'Float' loses precision
+```
+
+Arithmetic mixing `int`/`long` with `ulong` has no implicit common type
+— unify the sign domain explicitly first (`i as ulong` or `u as long`);
+char never converts implicitly to a numeric type (take the code point
+with `c as int` before comparing, likewise for arithmetic); implicit
+assignment of int/uint/long/ulong→float and long/ulong→double raises a
+**lossy warning** (it does not affect the exit code; `ncc --no-warn`
+suppresses all warnings; an explicit `as` never warns). See →
+[Type Semantics](type-semantics.md) "Numeric conversion matrix" and
+[Operators](operators.md) "Arithmetic". Full forms: e2e cases
+`int_family_promote*`, `int_family_lossy_warn`, `ncc_no_warn`,
+`char_numeric_cmp_reject`.
+
+### `as` casts
+
+```nlang
+int main() {
+    ubyte b = 200;
+    int i = b as int;
+    return 0;
+}
+```
+
+```text
+Error: `as` cannot perform implicit conversion `UByte` → `Int32`.
+```
+
+```nlang
+int main() {
+    string s = "5";
+    int x = s as int;
+    return 0;
+}
+```
+
+```text
+Error: Invalid cast: `String as Int32` is not allowed.
+```
+
+`as` exists only for pairs the conversion matrix does not admit —
+writing `as` for a widening that is already implicitly legal is
+redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
+numeric type is forbidden — use the `s.toInt()`/`toLong()`/
+`toDouble()` method family. See → [Type Casts](type-casts.md). Full
+forms: e2e cases `cast_*` (including `char_cast`, `char_cast_invalid`).
+
+### Dict initializer keys
+
+```nlang
+int main() {
+    Dict<int, int> d = new Dict<int, int>{"1": 2};
+    return 0;
+}
+```
+
+```text
+Error: the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key
+```
+
+The collection initializer emits dict keys as string constants and boxes
+them by K's tag — this is only correct for `K = string`. Construct a
+non-string-keyed `Dict<K,V>` with the empty initializer, then fill
+entries with `set()`. See →
+[Collection Initializers](collection-initializers.md). Full forms: e2e
+case `dict_init_nonstring_key_reject`.
 
 ### Type aliases
 

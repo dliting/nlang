@@ -32,6 +32,13 @@ foo(new Point{x:1, y:2}, new Point{x:3, y:4});
 - `标识符 : 表达式` —— struct/class 字段（例如 `x:1, y:2`）
 - `表达式`（无键）—— 列表元素（仅当 Type 是 `List<T>` 时合法）
 
+**字典键必须是 string 字面量**：集合初始化器把每个键按字符串常量发射并按
+K 的标签装箱——这只对 `K = string` 正确。非 string 键的 `Dict<K,V>` 带非空
+初始化器是编译错误（`new Dict<int, int>{"1": 2}` 报
+`the Dict collection initializer requires string keys; use set() with
+an explicit 'Int32' key`）；空初始化器 `new Dict<int, int>{}` 合法，随后
+用 `set()` 逐条填入。
+
 **类型消歧**：编译器用左值变量（或 `new Type{...}` 中的显式 `Type`）来选择类
 型：
 

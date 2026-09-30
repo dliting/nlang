@@ -34,6 +34,14 @@ foo(new Point{x:1, y:2}, new Point{x:3, y:4});
 - `identifier : Expression` — struct/class field (e.g. `x:1, y:2`)
 - `Expression` (no key) — list element (only valid when Type is `List<T>`)
 
+**Dict keys must be string literals**: the collection initializer emits each
+key as a string constant and boxes it by K's tag — this is only correct for
+`K = string`. A `Dict<K,V>` with a non-string key and a non-empty
+initializer is a compile error (`new Dict<int, int>{"1": 2}` reports
+`the Dict collection initializer requires string keys; use set() with
+an explicit 'Int32' key`); the empty initializer `new Dict<int, int>{}`
+is legal — fill entries afterwards with `set()`.
+
 **Type disambiguation:** the compiler uses the LHS variable (or the explicit
 `Type` in `new Type{...}`) to pick the kind:
 

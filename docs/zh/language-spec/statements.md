@@ -18,10 +18,12 @@ NLang 的控制流语句。本页覆盖它们共享的规则；每个具体语�
 
 ### 条件类型
 
-`if`/`while`/`do-while`/`for`/`assert` 的条件必须是 `int`（比较产生 `int`）。
-string、float、class、struct、数组条件都是编译错误——VM 的 `OP_JumpIfNot`
-只读单个 int32，非 int 值（string 对象句柄、堆索引）没有有意义的真值。请改
-用显式比较：`if (s != "")`、`if (obj != null)`。
+`if`/`while`/`do-while`/`for`/`assert` 的条件必须是 **`bool`**——比较与谓词
+已经产生 bool（见 [运算符](operators.md)、[基本类型](primitives.md)）。
+int、string、float、char、class、struct、数组条件都是编译错误
+（`if condition must be bool, not "Int32"`）。NLang 是严格 bool 语言，
+没有 C 式的「非零即真」：`if (1)` 与 `if (count)` 都不合法，请写
+`if (count != 0)`；`if (s != "")`、`if (obj != null)` 同理。
 
 ### `break`、`continue`、`return`
 

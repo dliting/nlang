@@ -20,6 +20,13 @@ int equals(Object other);    // identity: same heap reference → 1, else 0
 int getHashCode();           // identity: heap index of `this` (or 0 for null)
 ```
 
+**`equals` returns int (0/1), not bool** — it is a user-overridable virtual
+method protocol, outside the comparison/predicate surface of the strict-bool
+migration. An `equals` result therefore needs an explicit comparison to
+enter a condition: `if (a.equals(b) != 0)` (writing `if (a.equals(b))`
+directly is the compile error `if condition must be bool, not "Int32"`).
+The built-in string `equals` likewise returns int.
+
 `equals` and `getHashCode` are virtual via name-based dispatch — subclasses
 override them simply by declaring a method with the same name (no `override`
 keyword needed; the runtime walks the class hierarchy and finds the
@@ -48,12 +55,15 @@ value equality without breaking identity-equality tests in the wider codebase.
 
 ### Boxing (primitive → Object)
 
-A primitive value (int / float / string) is implicitly boxed when assigned to
-an `Object`-typed target:
+A scalar primitive value (integer family, `float`/`double`, `bool`, `char`)
+or a `string` is implicitly boxed when assigned to an `Object`-typed target:
 
 ```nlang
 Object o = 5;            // int boxed
-Object f = 3.14;         // float boxed
+Object f = 3.14;         // double boxed
+Object l = 5000000000;   // long boxed
+Object b = true;         // bool boxed
+Object c = '中';          // char boxed
 Object s = "hi";         // string boxed
 
 int TakesObject(Object o) { return o.getHashCode(); }

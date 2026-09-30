@@ -187,7 +187,7 @@ Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
 (`docs/en/language-spec/declarations.md`, Import Declaration).
 
-Compiled modules use a versioned binary format, currently v1.11. The
+Compiled modules use a versioned binary format, currently v1.13. The
 loader enforces a compatibility floor: after a floor bump, older
 `.nmod` files are rejected as outdated and must be recompiled with the
 matching `ncc`. The format history (what each version added or changed)
@@ -205,7 +205,7 @@ import math;
 import fs;
 
 int main() {
-    io.print(math.sqrt(2.0));                     // 1.41421
+    io.print(math.sqrt(2.0));                     // 1.4142135623730951 (double precision)
     string s = "hello world".substring(0, 5);     // "hello" (byte offsets)
     List<string> words = "a,b,c".split(",");      // 3 elements
     fs.makeDirs("out");

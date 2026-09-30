@@ -11,8 +11,10 @@ and how it behaves in expressions and statements.
 
 | Type        | Category                    | Page |
 |-------------|-----------------------------|------|
-| `int`       | primitive — value type        | [Primitives](primitives.md) |
-| `float`     | primitive — value type        | [Primitives](primitives.md) |
+| `byte` `ubyte` `short` `ushort` `int` `uint` `long` `ulong` | primitive — integer family (value type) | [Primitives](primitives.md) |
+| `float` `double` | primitive — floating point (value type) | [Primitives](primitives.md) |
+| `bool`      | primitive — truth value (value type) | [Primitives](primitives.md) |
+| `char`      | primitive — Unicode scalar value (value type) | [Primitives](primitives.md) |
 | `string`    | primitive — immutable object  | [String](string.md) |
 | `enum`      | composite — value (int32)     | [Enum](enum.md) |
 | `struct`    | composite — value (deep copy) | [Struct](struct.md) |
@@ -28,9 +30,9 @@ and how it behaves in expressions and statements.
 
 - **What a type is, and how to declare it** — the per-type pages above.
 - **How each type behaves on assignment, parameter passing, return, and as
-  a field or array element** — [Type Semantics](type-semantics.md), a
-  complete per-type summary.
-- **How values convert between types** (explicit casts, `as`, coercion to
-  string) — [Type Casts](type-casts.md).
-- **Declaring non-type things** (imports, variables, type aliases) —
+  a field or array element** — [Type
+  Semantics](type-semantics.md), the complete per-type summary.
+- **How values convert between types** (implicit widening, explicit `as`,
+  coercion to string) — [Type Casts](type-casts.md).
+- **Declaring non-type things** (import, variables, type aliases) —
   [Declarations](declarations.md).

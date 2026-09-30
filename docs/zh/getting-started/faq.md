@@ -92,12 +92,14 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 实参」条。完整错误消息见 →
 [常见错误消息](../language-spec/common-errors.md)。
 
-### 条件 / `&&` / `||` / `!` 报「必须 int」？参数超 64？
+### 条件 / `&&` / `||` / `!` 报「必须 bool」？参数超 64？
 
 `if` / `while` / `do-while` / `for` / `assert` 的条件与 `&&` / `||` /
-`!` 的操作数都必须是 `int`（比较产生 `int`）；string、float、class、
-struct、array 都是编译期具名拒绝（`if condition must be int, got
-"String"`、`operator '&&' requires int operands, got "String"`）。另
+`!` 的操作数都必须是 `bool`（比较与谓词已经产生 bool——没有 C 式的
+「非零即真」）；int、string、float、char、class、
+struct、array 都是编译期具名拒绝（`if condition must be bool, not
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数
+判断请写 `if (count != 0)`。另
 外函数参数数有合理性上限 64，超出触发编译期错误
 （`function "f" has 65 parameters; limit is 64.`）。条件类型的机制
 见 [语言规格/语句](../language-spec/statements.md) 的「条件类型」，

@@ -12,7 +12,7 @@ Compiled modules are saved as `.nmod` files with this layout:
 ```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
-uint16 minorVer = 12
+uint16 minorVer = 13
 string moduleName
 string[] stringConstants
 function[] functions
@@ -20,7 +20,15 @@ struct[] structs
 class[] classes
 ```
 
-**Version history**: v1.12 (recursive type descriptors) — a layout
+**Version history**: v1.13 (primitive-type family expansion) — a semantic
+floor, not a layout change: no new serialized fields, but the scalar kind
+code space is expanded — byte/ubyte/short/ushort/uint/long/ulong/double/
+bool/char appear with new RTK codes (10..19) in the kind bytes of locals
+and fields, in type descriptors, and as boxing tags; numeric instructions
+are emitted as generic families with a kind immediate. A v1.12 module from
+an older ncc lacks the semantics of these kinds, so the loader refuses
+minor < 13 outright — older modules must be recompiled.
+v1.12 (recursive type descriptors) — a layout
 change: each function record gains a formal-parameter type descriptor
 sequence, and each struct/class field gains a field type descriptor
 (recursive type descriptors: nested arrays, `List`/`Dict`

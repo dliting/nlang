@@ -17,6 +17,12 @@ int equals(Object other);    // 恒等：同一堆引用 → 1，否则 0
 int getHashCode();           // 恒等：`this` 的堆索引（null 为 0）
 ```
 
+**`equals` 返回 int（0/1），不是 bool**——它是可由用户类覆写的虚方法协议，
+不属于严格 bool 迁移的比较/谓词面。因此 `equals` 结果进入条件需要显式比较：
+`if (a.equals(b) != 0)`（直接写 `if (a.equals(b))` 是编译错误
+`if condition must be bool, not "Int32"`）。string 的内建 `equals` 同样
+返回 int。
+
 `equals` 与 `getHashCode` 经按名分派实现虚方法——子类只需声明同名方法
 即可覆写（不需要 `override` 关键字；运行期沿类层次上溯，最先命中最派生
 的实现）：
@@ -42,11 +48,15 @@ equals 用内容比较）。这使 string 无需包装类即可用作 `Dict` 键
 
 ### 装箱（基本类型 → Object）
 
-基本类型值（int / float / string）赋给 Object 类型的目标时被隐式装箱：
+标量基本类型的值（整型家族、`float`/`double`、`bool`、`char`）与 `string`
+赋给 Object 类型的目标时被隐式装箱：
 
 ```nlang
 Object o = 5;            // int 装箱
-Object f = 3.14;         // float 装箱
+Object f = 3.14;         // double 装箱
+Object l = 5000000000;   // long 装箱
+Object b = true;         // bool 装箱
+Object c = '中';          // char 装箱
 Object s = "hi";         // string 装箱
 
 int TakesObject(Object o) { return o.getHashCode(); }

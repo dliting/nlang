@@ -36,13 +36,15 @@ int main() {
 ```
 
 ```text
-Error: if condition must be int, got "String".
+Error: if condition must be bool, not "String".
 ```
 
 `if`/`while`/`do-while`/`for`/`assert` 的条件与 `&&`/`||`/`!` 的运算数
-都必须是 `int`（比较产生 `int`）——string、float、class、struct、
-array 都是具名拒绝（`operator '&&' requires int operands, got
-"String"`）。详见 → [语句](statements.md)「条件类型」与 [表达式](expressions.md)「逻辑」。
+都必须是 `bool`（比较与谓词已经产生 bool）——int、string、float、char、
+class、struct、array 都是具名拒绝（`if condition must be bool, not
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。请改写
+为显式比较：`if (s != "")`、`if (count != 0)`。详见 →
+[语句](statements.md)「条件类型」与 [表达式](expressions.md)「逻辑」。
 完整形态见 e2e 用例 `cond_*`、`condition_array_reject`、
 `logical_operand_*`、`not_operand_*`。
 
@@ -126,12 +128,25 @@ int main() {
 Error: switch discriminant must be int, float, string, or enum
 ```
 
-switch 判别式只能是 `int`/`float`/`string`/enum；class、struct、
-`List`、`Dict` 以及数组值被拒——用 `if`/`else` + `equals()` 代替。详见
+switch 判别式可以是整型家族（含 char）、`float`/`double`、`string` 或
+enum；bool、class、struct、`List`、`Dict` 以及数组值被拒——class
+值用 `if`/`else` + `equals()` 代替，bool 判别请展开为 `if`/`else`。
+详见
 → [语句](statements.md)「switch」。完整形态见 e2e 用例 `switch_*`、
 `array_elem_switch*`、`array_elem_dict_value_switch_reject`、`enum_*`。
 
-### 字面量
+### 字面量与常量适配
+
+```nlang
+int main() {
+    byte b = 1000;
+    return 0;
+}
+```
+
+```text
+Error: constant 1000 out of range for 'byte'
+```
 
 ```nlang
 int main() {
@@ -141,8 +156,7 @@ int main() {
 ```
 
 ```text
-Error: syntax error
-Error: Invalid statement.
+Error: Incompatible type "1e+30".
 ```
 
 ```nlang
@@ -156,10 +170,114 @@ int main() {
 Error: invalid identifier "123" in ${...}: only ${name} supported (no expressions).
 ```
 
-整型科学计数法字面量超出 `int32` 时词法器拒绝（`1e30` → 语法错误，
-不静默截断指数）；字符串插值只支持 `${name}` 具名变量，不支持表达式。
-详见 → [表达式](expressions.md)「字符串插值」与转义序列。完整形态见
-e2e 用例 `int_sci_*`、`string_escape_*`、`interp_*`。
+整型**字面量**赋给更窄目标时值必须在目标值域内（常量适配特例，
+`byte b = 5` 合法）；无后缀小数与指数形式是 `double` 字面量，整数
+目标不接受浮点常量（`int x = 2e5` 同样报 Incompatible type）；字符串
+插值只支持 `${name}` 具名变量，不支持表达式。详见 →
+[基本类型](primitives.md)「数字字面量」与 [表达式](expressions.md)
+「字符串插值」。完整形态见
+e2e 用例 `int_sci_*`、`string_escape_*`、`interp_*`、
+`int_family_literal_tier`、`int_family_constant_fit*`。
+
+### 数值类型混合
+
+```nlang
+int main() {
+    int i = 1;
+    ulong u = 2;
+    long x = i + u;
+    return 0;
+}
+```
+
+```text
+Error: no implicit common type for "Int32" and "ULong".
+```
+
+```nlang
+int main() {
+    char c = 'a';
+    bool z = c < 100;
+    return 0;
+}
+```
+
+```text
+Error: a char value can only be compared with a char value.
+```
+
+```nlang
+int main() {
+    long l = 5000000000;
+    float f = l;
+    return 0;
+}
+```
+
+```text
+Warning: implicit conversion from 'Long' to 'Float' loses precision
+```
+
+`int`/`long` 与 `ulong` 混合的算术没有隐式公共类型——先显式统一符号域
+（`i as ulong` 或 `u as long`）；char 不与数值隐式转换（比较先
+`c as int` 取码点，算术同样如此）；int/uint/long/ulong→float 与
+long/ulong→double 的隐式赋值触发**有损警告**（不影响退出码，
+`ncc --no-warn` 整体抑制，显式 `as` 不警告）。详见 →
+[类型语义](type-semantics.md)「数值转换矩阵」与
+[运算符](operators.md)「算术」。完整形态见 e2e 用例
+`int_family_promote*`、`int_family_lossy_warn`、`ncc_no_warn`、
+`char_numeric_cmp_reject`。
+
+### `as` 转换
+
+```nlang
+int main() {
+    ubyte b = 200;
+    int i = b as int;
+    return 0;
+}
+```
+
+```text
+Error: `as` cannot perform implicit conversion `UByte` → `Int32`.
+```
+
+```nlang
+int main() {
+    string s = "5";
+    int x = s as int;
+    return 0;
+}
+```
+
+```text
+Error: Invalid cast: `String as Int32` is not allowed.
+```
+
+`as` 只用于转换矩阵不放行的对——对已经隐式合法的加宽写 `as` 是冗余
+（`ubyte→int` 直接 `int i = b;`）；string→数值的 `as` 被禁止——用
+`s.toInt()`/`toLong()`/`toDouble()` 方法族。详见 →
+[类型强制转换](type-casts.md)。完整形态见 e2e 用例 `cast_*`
+（含 `char_cast`、`char_cast_invalid`）。
+
+### 字典初始化器键
+
+```nlang
+int main() {
+    Dict<int, int> d = new Dict<int, int>{"1": 2};
+    return 0;
+}
+```
+
+```text
+Error: the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key
+```
+
+集合初始化器把字典键按字符串常量发射并按 K 的标签装箱——这只对
+`K = string` 正确。非 string 键的 `Dict<K,V>` 用空初始化器构造后
+`set()` 逐条填入。详见 →
+[集合初始化器](collection-initializers.md)。完整形态见 e2e 用例
+`dict_init_nonstring_key_reject`。
 
 ### 类型别名
 

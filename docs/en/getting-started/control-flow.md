@@ -33,11 +33,15 @@ int main() {
 }
 ```
 
-Output `200`, exit code 25. `switch` supports multi-value labels and
-four discriminant families (`int`/`float`/`string`/enum); case bodies
-do not fall through, so no `break` is needed to close one off
-(Java/C# semantics); `foreach` iterates arrays, `List<T>`, and the keys
-of a `Dict`. The precise semantics of `if`/`for`/`while`/`do-while`
+Output `200`, exit code 25. `switch` supports multi-value labels; the
+discriminant may be an integer-family value (including char),
+`float`/`double`, `string`, or enum, and case bodies do not fall
+through, so no `break` is needed to close one off
+(Java/C# semantics); `foreach` iterates arrays, `List<T>`, the keys
+of a `Dict`, and the code points of a string. Condition positions
+accept `bool` only — comparisons and predicates already produce bool,
+so `if (count)` is illegal (write `if (count != 0)`). The precise
+semantics of `if`/`for`/`while`/`do-while`
 (clause evaluation order, loop-header variable scope, block scope)
 are detailed on the Statements page.
 

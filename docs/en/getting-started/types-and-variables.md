@@ -12,20 +12,26 @@ import io;
 
 int main() {
     int level = 3;              // every variable declares its type; no inference
-    float scale = 1.5;
+    double scale = 1.5;         // unsuffixed decimal is double; float is 1.5f
+    long total = 5000000000;    // 64-bit integer
+    char grade = 'A';
+    bool ok = level * 10 == 30; // comparisons produce bool
     string title = "demo";
     const int MAX = 100;        // const: assigning after initialization is a compile error
     io.print(title + ": " + level * 10 + " / " + scale);
-    if (level * 10 == 30)
+    io.print(grade + " " + ok + " " + total);
+    if (ok)
         return 30;              // exit code 30
     return 1;
 }
 ```
 
-Output `demo: 30 / 1.5`. The primitive types are `int` (32-bit integer),
-`float` (32-bit float), and `string` (UTF-8 bytes, reference semantics).
-The compound types enum, struct, and class are covered in the sections
-below and in the declarations chapter.
+Output `demo: 30 / 1.5` and `A true 5000000000`. There are 12 scalar
+primitives: the integer family (`byte` `ubyte` `short` `ushort` `int`
+`uint` `long` `ulong`), `float`/`double`, `bool`, and `char` (a Unicode
+code point); `string` is the 13th primitive (UTF-8 bytes, reference
+semantics). The compound types enum, struct, and class are covered in the
+sections below and in the declarations chapter.
 
 See also: [Language Specification / Types](../language-spec/types.md),
 [Type Semantics](../language-spec/type-semantics.md),
@@ -129,7 +135,8 @@ int main() {
 
 Output `hello, NLang` and `year: 2026`; exit code 9. Strings are UTF-8
 byte sequences, and `length()`/`substring()`/`indexOf()` all count
-bytes.
+bytes; code-point access (`charAt`, `charCount`, `foreach (char c in s)`)
+is on the String page under "The char bridge".
 
 See also: [Language Specification / Types](../language-spec/types.md),
 [Standard Library](../language-spec/standard-library.md).

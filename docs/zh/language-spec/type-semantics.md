@@ -9,8 +9,9 @@ NLang 中每种类型都对四个操作定义了语义：**赋值**（`a = b`）
 
 | 类型        | 种类              | 赋值           | 参数传递      | 返回值          | 作为字段/元素   |
 |-------------|-------------------|----------------|--------------|----------------|----------------|
-| `int`       | 值                | 拷贝           | 拷贝         | 拷贝           | 拷贝           |
-| `float`     | 值                | 拷贝           | 拷贝         | 拷贝           | 拷贝           |
+| `byte` `ubyte` `short` `ushort` `int` `uint` `long` `ulong` | 值 | 拷贝 | 拷贝 | 拷贝 | 拷贝 |
+| `float` `double` | 值             | 拷贝           | 拷贝         | 拷贝           | 拷贝           |
+| `bool` `char` | 值              | 拷贝           | 拷贝         | 拷贝           | 拷贝           |
 | `string`    | 值（不可变）      | 拷贝句柄       | 拷贝句柄     | 拷贝句柄       | 拷贝句柄       |
 | `enum`      | 值（int32）       | 拷贝           | 拷贝         | 拷贝           | 拷贝           |
 | `struct`    | 值（深拷贝）      | 深拷贝         | 深拷贝       | 深拷贝         | 深拷贝（自有） |
@@ -24,8 +25,9 @@ NLang 中每种类型都对四个操作定义了语义：**赋值**（`a = b`）
 
 ### 逐类型说明
 
-- **`int` / `float`** —— 值类型。赋值、传参、返回都按值；算术与比较适用数值
-  提升。见 [基本类型](primitives.md)。
+- **12 个标量基本类型**（整型家族、`float`/`double`、`bool`、`char`）—— 值
+  类型。赋值、传参、返回都按值；数值家族适用算术提升与转换矩阵（见下方）。
+  见 [基本类型](primitives.md)。
 - **`string`** —— 经不可变驻留对象实现*值*语义：句柄被拷贝，但对象内容永不
   改变，所以共享句柄无害。`==` 比较内容而非身份。null 字符串句柄（0）读作
   空串 `""`。见 [字符串](string.md)。
@@ -46,11 +48,52 @@ NLang 中每种类型都对四个操作定义了语义：**赋值**（`a = b`）
   见 [Object 与装箱](object.md)。
 - **`Func`** —— 一等值：函数引用按值拷贝。见 [函数](functions.md)。
 
+### 数值转换矩阵
+
+数值类型之间的转换分三档：**隐式**（编译器自动插入）、**有损警告**（隐式但
+警告）、**显式 `as`**（用户明示，不警告）。完整规则与示例见
+[基本类型](primitives.md)与[类型强制转换](type-casts.md)。
+
+**隐式（无警告）**：
+
+- 同符号秩加宽：`byte→short→int→long`；`ubyte→ushort→uint→ulong`。
+- 跨符号值域包含：`ubyte→short/int/long`；`ushort→int/long`；`uint→long`。
+- 整型→浮点且目标能精确表示该值域：窄整型（byte..ushort）→ `float/double`、
+  `int/uint` 及更窄 → `double`。
+- 浮点加宽：`float→double`。
+- `char→string`（编码为该码点的 UTF-8 串）；`enum→int`（底座）。
+
+**隐式但有损警告**——目标类型装不下源值域时，编译器发出
+`implicit conversion from 'X' to 'Y' loses precision`（`ncc --no-warn` 可
+整体抑制）：
+
+- `int/uint/long/ulong → float`
+- `long/ulong → double`
+
+常量操作数的值精确可表示时豁免（`float f = 5;` 无警告）——警告指向「本次
+转换的实际损失」而非「类型对的可能损失」。
+
+**常量适配特例**：整型**字面量**赋给更窄目标，值在目标值域内即隐式合法
+（`byte b = 5;`）；只覆盖字面量本身，不覆盖折叠表达式（`byte b = 1 + 2;`
+仍需 `as`）。double 字面量到 `float` 目标同例。见
+[基本类型](primitives.md)。
+
+**显式 `as`**：一切收窄（`float→int`、`double→float`、`long→int`、
+`ulong→long`…）、反向跨符号（`short→ubyte`…）、`数值↔char`。见
+[类型强制转换](type-casts.md)。
+
+**禁止**：`bool` 与任何类型互转；`string→数值` 的 `as`（用 `toInt()` 家族）。
+
+**算术提升**：窄于 int 的整型操作数先提升到 int；结果类型是能同时隐式接收
+两个操作数的最小类型（`int + uint` → `long`；`int`/`long` 与 `ulong` 混合
+是编译错误）；浮点参与取较大浮秩。bool 与 char 不参与算术。见
+[运算符](operators.md)。
+
 ### 为什么分两族
 
 分界是值 vs 引用：
 
-- **值类型**（`int`、`float`、`enum`、`string`、`struct`、`Func`）在赋值时
+- **值类型**（12 个标量基本类型、`enum`、`string`、`struct`、`Func`）在赋值时
   拷贝。两个变量持有独立数据；修改一个绝不影响另一个。（`string` 虽是对象
   却属值类型，因为对象不可变。）
 - **引用类型**（`class`、`interface`、数组、`List`、`Dict`、`Object`）共享

@@ -1,10 +1,11 @@
 # String
 
 
-`string` is a primitive, but unlike `int`/`float` it is an **immutable
-object** referenced by a handle. This page covers the string type end to
-end: what it is, its memory semantics, how to build and compare them, and
-escape sequences and interpolation inside literals.
+`string` is a primitive, but unlike the scalar types (integers, floats,
+`bool`, `char`) it is an **immutable object** referenced by a handle. This
+page covers the string type end to end: what it is, its memory semantics,
+how to build and compare them, and escape sequences and interpolation
+inside literals.
 
 ### Value semantics
 
@@ -20,7 +21,9 @@ harmless — two names to the same string can never diverge. (Contrast with
 String literals are stored as their UTF-8 byte sequence in the module string
 constant table. `string.length()` returns the **byte count**, not the Unicode
 code-point count — `"héllo".length()` is 6 (5 code points, but `é` is 2 bytes
-in UTF-8). Proper UTF-8 code-point iteration is deferred to a future release.
+in UTF-8); the code-point count is `charCount()`. Byte access and code-point
+access are two different paths over the same string — see "The char bridge"
+below.
 
 ### Memory semantics
 
@@ -44,9 +47,10 @@ means null and **reads as the empty string** `""`.
 
 ### Building strings
 
-- **Concatenation**: `string + string` and `string + primitive` (the
-  primitive is coerced — see [Type Casts](type-casts.md) "Primitive → String
-  Coercion"). `string - string` and the other arithmetic forms are compile
+- **Concatenation**: `string + string` and `string + scalar primitive` (the
+  scalar is coerced — see [Type Casts](type-casts.md) "Primitive → String
+  Coercion"; a char concatenates as its UTF-8 encoding, so `"x" + 'y'` is
+  `"xy"`). `string - string` and the other arithmetic forms are compile
   errors.
 - **Interpolation**: `${identifier}` inside a literal — see below.
 - **Escape sequences**: see below.
@@ -73,10 +77,17 @@ Inside double-quoted literals:
 | `\n` `\r` `\t`  | newline, CR, tab                                      |
 | `\\` `\"` `\'`  | backslash, double quote, apostrophe                   |
 | `\0` `\a` `\b` `\f` `\v` | NUL, bell, backspace, form feed, vertical tab |
-| `\x`/`\u`…      | not supported                                         |
+| `\uXXXX`          | the UTF-8 encoding of that code point (4 hex digits) |
 
-Any other escape (e.g. `\q`) is a compile error — escapes never pass through
-as literal backslash pairs. Escapes compose with interpolation:
+`\uXXXX` covers 4-hex-digit BMP code points only. **Adjacent surrogate-range
+escapes combine into one code point**: `"\ud83d\ude00"` is U+1F600 😀
+(as in Java); a surrogate-range escape appearing alone is a compile error.
+char literals support the same `\uXXXX` form but **never accept the
+surrogate range** (char excludes surrogate code points — see
+[Primitives](primitives.md)).
+
+Any other escape (e.g. `\q`, `\x`) is a compile error — escapes never pass
+through as literal backslash pairs. Escapes compose with interpolation:
 `"${name}\n"` interpolates then appends a newline.
 
 ### String interpolation
@@ -118,13 +129,32 @@ applied automatically:
 
 | Identifier type | Coercion applied       |
 |-----------------|------------------------|
-| `int`            | `OP_Int32_to_str`      |
-| `float`           | `OP_Float_to_str`      |
+| scalar primitives (integer family, `float`/`double`, `bool`, `char`) | `OP_Prim_to_str <kind>` |
 | `string`          | none                   |
 | `enum`            | `OP_Enum_to_str`       |
 | `Array`           | `OP_Array_to_str`      |
 | `List` / `Dict`   | `OP_CallMethod "toString"` |
 | `class`           | `OP_CallMethod "toString"` |
+
+### The char bridge
+
+A string is a UTF-8 **byte string**; a char is one Unicode scalar value
+(see [Primitives](primitives.md)). The bridge between them:
+
+- **Byte access**: `s[i]` returns byte i as a `ubyte` (supported since
+  0.7.5; out of range throws the runtime error `string index out of
+  range`).
+- **Code-point iteration**: `foreach (char c in s)` binds each complete
+  code point to `c` (UTF-8 decoding advances — multi-byte characters are
+  never split) — see [Foreach](foreach.md).
+- **Code-point access**: `s.charAt(i)` returns the code point starting at
+  byte i (a `char`); out of range or an invalid sequence throws a runtime
+  error.
+- **Counting**: `s.charCount()` returns the code-point count (contrast
+  `s.length()`, bytes).
+- **Parsing and construction**: `"65".toChar()` strictly parses a decimal
+  code point as a `char`; in `"x" + 'y'` the char joins the string as its
+  UTF-8 encoding.
 
 ### Null
 

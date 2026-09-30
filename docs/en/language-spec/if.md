@@ -6,8 +6,8 @@ if (cond) { body }
 if (cond) { body } else { body }
 ```
 
-The first body runs when the condition is non-zero; otherwise the `else` body
-runs (if present). The condition must be `int` (see [Statements](statements.md)
+The first body runs when the condition is `true`; otherwise the `else` body
+runs (if present). The condition must be `bool` (see [Statements](statements.md)
 "Condition typing"). Another `if` may follow `else` to form chained tests —
 the `else` body is simply another `if` statement; there is no standalone
 `else if` keyword (the one-word `elseif` form is a syntax error).
