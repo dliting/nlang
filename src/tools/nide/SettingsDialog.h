@@ -27,11 +27,12 @@ public:
 
     //Seed the form (call before exec()).
     void init(const QString& language, const QString& buildOutputDir,
-              const QString& toolbarIconSize);
+              const QString& toolbarIconSize, bool noWarn);
     //Current values for the caller to persist on accept.
     QString language() const;
     QString buildOutputDir() const;  // trimmed; "" = disabled
     QString toolbarIconSize() const;  // TOOLBAR_ICON_SMALL | TOOLBAR_ICON_LARGE
+    bool noWarn() const;  // compiler-options group
 
 private slots:
     void onBrowseDirectory();

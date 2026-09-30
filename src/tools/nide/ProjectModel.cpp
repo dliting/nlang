@@ -53,6 +53,13 @@ void ProjectNode::setIntermediateDir(const QString& dir) {
     }
 }
 
+void ProjectNode::setNoWarn(bool noWarn) {
+    if (m_noWarn != noWarn) {
+        m_noWarn = noWarn;
+        markDirty();
+    }
+}
+
 FileNode* ProjectNode::addFile(const QString& path) {
     QString abs = resolvedPath(path, m_projectDir);
     //Reject duplicates (matched on the normalized path)

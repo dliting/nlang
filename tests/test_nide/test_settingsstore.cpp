@@ -22,6 +22,9 @@ private slots:
         QCOMPARE(store.language(), QString("system"));
         QVERIFY(store.buildOutputDir().isEmpty());
         QCOMPARE(store.toolbarIconSize(), QString("small"));
+        //0.7.5: the compiler-options group starts with warning
+        //suppression, off by default.
+        QVERIFY(!store.noWarn());
     }
 
     void testRoundTrip() {
@@ -31,7 +34,10 @@ private slots:
         store.setLanguage("zh");
         store.setBuildOutputDir("D:/dev/out");
         store.setToolbarIconSize("large");
+        store.setNoWarn(true);
         store.save(settings);
+        //Pin the persisted key spelling (the whole suite's convention).
+        QVERIFY(settings.value("compiler/noWarn").toBool());
 
         SettingsStore reloaded;
         QSettings reloadedSettings(iniPath(), QSettings::IniFormat);
@@ -39,6 +45,7 @@ private slots:
         QCOMPARE(reloaded.language(), QString("zh"));
         QCOMPARE(reloaded.buildOutputDir(), QString("D:/dev/out"));
         QCOMPARE(reloaded.toolbarIconSize(), QString("large"));
+        QVERIFY(reloaded.noWarn());
     }
 
     void testLocaleForLanguage() {

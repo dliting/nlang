@@ -83,9 +83,7 @@ ProjectNode* ProjectPropDialog::tryCreateProject(SolutionNode& solution) {
         return nullptr;
     }
 
-    project->setNamespace(m_ui->edtNamespace->text());
-    project->setOutputDir(m_ui->edtOutputDir->text());
-    project->setIntermediateDir(m_ui->edtIntermediateDir->text());
+    applyFields(*project);
     return project;
 }
 
@@ -94,10 +92,18 @@ bool ProjectPropDialog::editProject(ProjectNode& project) {
     if (exec() != QDialog::Accepted)
         return false;
 
+    applyFields(project);
+    return true;
+}
+
+//The form's mutable properties, shared by create and edit (the
+//identity fields name/dir are create-only). 0.7.5 adds the project's
+//warning-suppression opt-in to the family.
+void ProjectPropDialog::applyFields(ProjectNode& project) const {
     project.setNamespace(m_ui->edtNamespace->text());
     project.setOutputDir(m_ui->edtOutputDir->text());
     project.setIntermediateDir(m_ui->edtIntermediateDir->text());
-    return true;
+    project.setNoWarn(m_ui->chkNoWarn->isChecked());
 }
 
 void ProjectPropDialog::on_btnProjectDir_clicked() {
@@ -141,6 +147,7 @@ void ProjectPropDialog::initForCreate() {
     //Empty = the project directory itself (the .nproj default).
     m_ui->edtOutputDir->setText("");
     m_ui->edtIntermediateDir->setText("");
+    m_ui->chkNoWarn->setChecked(false);
 }
 
 void ProjectPropDialog::initForEdit(const ProjectNode& project) {
@@ -150,6 +157,7 @@ void ProjectPropDialog::initForEdit(const ProjectNode& project) {
     m_ui->edtProjectDir->setText(project.projectDir());
     m_ui->edtOutputDir->setText(project.outputDir());
     m_ui->edtIntermediateDir->setText(project.intermediateDir());
+    m_ui->chkNoWarn->setChecked(project.noWarn());
     //A saved project cannot be renamed or relocated from here -- the
     //solution reference and the file location belong together.
     m_ui->edtProjectName->setReadOnly(true);

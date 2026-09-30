@@ -246,6 +246,77 @@ private slots:
         }
     }
 
+    void testProjectNodeNoWarnRoundTrip() {
+        //0.7.5: the per-project compiler override persists as
+        //<CompilerOptions noWarn="1"/>; the element is written only
+        //for the explicit opt-in and its absence loads as false.
+        const QString projPath = m_tmpDir.path() + "/nowarn.nproj";
+        {
+            ProjectNode proj("App", m_tmpDir.path());
+            QVERIFY(!proj.noWarn());
+            proj.setNoWarn(true);
+            QVERIFY(proj.isDirty());  // property setters mark dirty
+            proj.addFile("main.n");
+            QString error;
+            QVERIFY(proj.save(projPath, &error));
+        }
+        {
+            QFile f(projPath);
+            QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+            const QString content = QTextStream(&f).readAll();
+            QVERIFY(content.contains("<CompilerOptions noWarn=\"1\"/>"));
+        }
+        {
+            ProjectNode proj("", m_tmpDir.path());
+            QString error;
+            QVERIFY(proj.load(projPath, &error));
+            QVERIFY(proj.noWarn());
+        }
+        //Unchecked saves leave the element out entirely.
+        const QString plainPath = m_tmpDir.path() + "/plain.nproj";
+        ProjectNode plain("Plain", m_tmpDir.path());
+        plain.setNoWarn(false);
+        plain.addFile("main.n");
+        QString error;
+        QVERIFY(plain.save(plainPath, &error));
+        QFile f(plainPath);
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString content = QTextStream(&f).readAll();
+        QVERIFY(!content.contains("CompilerOptions"));
+    }
+
+    void testProjectNodeNoWarnLoadNonOptInValue() {
+        //A hand-written noWarn="0" (or any non-"1" value) is simply
+        //"not opted in" -- the write side only ever emits "1".
+        const QString projPath = writeFixture("nowarn0.nproj",
+            "<?xml version=\"1.0\"?>\n"
+            "<Project name=\"Zero\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <CompilerOptions noWarn=\"0\"/>\n"
+            "</Project>\n");
+        ProjectNode proj("", m_tmpDir.path());
+        QString error;
+        QVERIFY(proj.load(projPath, &error));
+        QVERIFY(!proj.noWarn());
+    }
+
+    void testProjectNodeLoadDuplicateCompilerOptions() {
+        //A second <CompilerOptions> block's options would be silently
+        //dropped -- rejected under the same rule as <Sources>.
+        const QString projPath = writeFixture("dupopts.nproj",
+            "<?xml version=\"1.0\"?>\n"
+            "<Project name=\"Dup\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <CompilerOptions noWarn=\"1\"/>\n"
+            "  <CompilerOptions noWarn=\"1\"/>\n"
+            "</Project>\n");
+        ProjectNode proj("", m_tmpDir.path());
+        QString error;
+        QVERIFY(!proj.load(projPath, &error));
+        QVERIFY2(error.contains("more than one <CompilerOptions>"),
+                 qPrintable(error));
+    }
+
     void testProjectNodeLoadMissingFile() {
         ProjectNode proj("", m_tmpDir.path());
         QString error;

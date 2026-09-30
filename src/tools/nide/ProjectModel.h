@@ -68,6 +68,12 @@ public:
     const QString& intermediateDir() const { return m_intermediateDir; }
     void setIntermediateDir(const QString& dir);
 
+    //--- 0.7.5: compiler options ---
+    //Per-project warning suppression (the .nproj's explicit opt-in
+    //that adds on top of the global Tools > Options setting).
+    bool noWarn() const { return m_noWarn; }
+    void setNoWarn(bool noWarn);
+
     //--- Dirty tracking ---
     bool isDirty() const { return m_dirty; }
     void clearDirty() { m_dirty = false; }
@@ -129,6 +135,7 @@ private:
     QString m_namespace;
     QString m_outputDir;        // relative to projectDir
     QString m_intermediateDir;  // relative to projectDir
+    bool m_noWarn = false;     // compiler-options opt-in
     bool m_dirty = false;
 
     std::vector<std::unique_ptr<FileNode>> m_files;

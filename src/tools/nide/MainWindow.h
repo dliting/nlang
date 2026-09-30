@@ -309,6 +309,11 @@ private:
     //--- build / run ---
     //Synchronous ncc build; false on failure (the log browser shows why).
     bool buildProject(ProjectNode& project);
+    //One synchronous ncc run for both build paths: merged channels so
+    //the stderr diagnostics reach the log; *log collects the output
+    //either way (false also covers a failed start).
+    bool runNccSync(const QString& workDir, const QStringList& args,
+                    QString* log);
     void runProject(ProjectNode& project);
     //Standalone .n target: the selected standalone tree row, or -- when the
     //tree points at no project/standalone row -- the active editor tab if

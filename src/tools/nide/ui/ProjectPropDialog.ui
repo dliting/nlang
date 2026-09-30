@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>639</width>
-    <height>230</height>
+    <height>252</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -215,11 +215,27 @@
     <string>浏览...</string>
    </property>
   </widget>
+  <widget class="QCheckBox" name="chkNoWarn">
+   <property name="geometry">
+    <rect>
+     <x>125</x>
+     <y>168</y>
+     <width>400</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="toolTip">
+    <string>当前为有损类型转换警告；勾选后本项目在全局设置之外再抑制它们</string>
+   </property>
+   <property name="text">
+    <string>抑制编译警告(&amp;W)</string>
+   </property>
+  </widget>
   <widget class="Line" name="line">
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>174</y>
+     <y>196</y>
      <width>600</width>
      <height>10</height>
     </rect>
@@ -232,7 +248,7 @@
    <property name="geometry">
     <rect>
      <x>426</x>
-     <y>192</y>
+     <y>214</y>
      <width>93</width>
      <height>28</height>
     </rect>
@@ -251,7 +267,7 @@
    <property name="geometry">
     <rect>
      <x>526</x>
-     <y>192</y>
+     <y>214</y>
      <width>93</width>
      <height>28</height>
     </rect>
@@ -273,6 +289,7 @@
   <tabstop>btnOutputDir</tabstop>
   <tabstop>edtIntermediateDir</tabstop>
   <tabstop>btnIntermediateDir</tabstop>
+  <tabstop>chkNoWarn</tabstop>
   <tabstop>btnSubmit</tabstop>
   <tabstop>btnCancel</tabstop>
  </tabstops>

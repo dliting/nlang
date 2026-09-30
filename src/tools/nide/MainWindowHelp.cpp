@@ -28,13 +28,14 @@ void MainWindow::on_actToolsOptions_triggered() {
     const SettingsStore stored = SettingsStore::persisted();
     SettingsDialog dialog(this);
     dialog.init(stored.language(), stored.buildOutputDir(),
-                stored.toolbarIconSize());
+                stored.toolbarIconSize(), stored.noWarn());
     if (dialog.exec() != QDialog::Accepted)
         return;
     SettingsStore updated = stored;
     updated.setLanguage(dialog.language());
     updated.setBuildOutputDir(dialog.buildOutputDir());
     updated.setToolbarIconSize(dialog.toolbarIconSize());
+    updated.setNoWarn(dialog.noWarn());
     updated.persist();
     applyToolbarIconSize(updated.toolbarIconSize());
     //The catalogs install once at startup, so a language change needs

@@ -41,17 +41,42 @@ bool appendSourceEntry(QXmlStreamReader& xml, const QString& projectDir,
     return true;
 }
 
+//Staged load state for the elements under <Project>: sources plus the
+//IDE-facing compiler options. The caller commits members only on full
+//success (all-or-nothing).
+struct ProjectElementState {
+    std::vector<std::unique_ptr<FileNode>> files;
+    bool sawSources = false;            // <Sources> appeared at depth 1
+    bool sawCompilerOptions = false;    // <CompilerOptions> ditto
+    bool noWarn = false;                // its noWarn="1" opt-in
+};
+
+//The <CompilerOptions> start element: duplicate-reject (a second
+//block's options would be silently dropped), then stage the noWarn
+//opt-in. The write side only ever emits "1", so any other attribute
+//value (or none) is simply "not opted in". False fills error.
+bool readCompilerOptions(QXmlStreamReader& xml, ProjectElementState& state,
+                         QString* error) {
+    if (state.sawCompilerOptions) {
+        if (error)
+            *error =
+                "project file has more than one <CompilerOptions> element";
+        return false;
+    }
+    state.sawCompilerOptions = true;
+    state.noWarn =
+        xml.attributes().value("noWarn").toString() == QLatin1String("1");
+    return true;
+}
+
 //The element walk under <Project>: depth-aware, matching ncc's
 //FirstChildElement tiers -- only a direct child of <Project> is a
-//<Sources> element, and only a direct child of that is a <File> entry.
-//All-or-nothing: the parse stages into the out-params, committed by the
-//caller only on full success. False fills error.
-bool readSourceEntries(QXmlStreamReader& xml, const QString& projectDir,
-                       ProjectNode* owner,
-                       std::vector<std::unique_ptr<FileNode>>& files,
-                       bool* sawSources, QString* error) {
+//<Sources> or <CompilerOptions> element, and only a direct child of
+//<Sources> is a <File> entry. False fills error.
+bool readProjectElements(QXmlStreamReader& xml, const QString& projectDir,
+                         ProjectNode* owner, ProjectElementState& state,
+                         QString* error) {
     bool inSources = false;  // currently inside <Sources>
-    *sawSources = false;     // <Sources> appeared at depth 1
     QSet<QString> seenKeys;
     int open = 1;  // <Project> root already open; its children sit at open==1
 
@@ -63,15 +88,18 @@ bool readSourceEntries(QXmlStreamReader& xml, const QString& projectDir,
                 //A second <Sources> block is a schema violation: its
                 //files would be silently dropped -- reject (same rule
                 //as ncc).
-                if (*sawSources) {
+                if (state.sawSources) {
                     if (error)
                         *error =
                             "project file has more than one <Sources> element";
                     return false;
                 }
-                *sawSources = inSources = true;
+                state.sawSources = inSources = true;
+            } else if (open == 1 && xml.name() == "CompilerOptions") {
+                if (!readCompilerOptions(xml, state, error))
+                    return false;
             } else if (open == 2 && xml.name() == "File" && inSources) {
-                if (!appendSourceEntry(xml, projectDir, owner, files,
+                if (!appendSourceEntry(xml, projectDir, owner, state.files,
                                        seenKeys, error))
                     return false;
             }
@@ -194,6 +222,13 @@ void ProjectNode::writeToXml(QXmlStreamWriter& xml, const QString& baseDir,
     }
     xml.writeEndElement(); // Sources
 
+    //0.7.5: compiler options persist as an explicit opt-in -- the
+    //element is written only when set, and its absence loads false.
+    if (m_noWarn) {
+        xml.writeEmptyElement("CompilerOptions");
+        xml.writeAttribute("noWarn", "1");
+    }
+
     xml.writeEndElement(); // Project
     xml.writeEndDocument();
 }
@@ -211,18 +246,17 @@ bool ProjectNode::readFromXml(QXmlStreamReader& xml, const QString& projectDir,
     QString ns = attrs.value("namespace").toString();
     QString outputDir = attrs.value("outputDir").toString();
     QString intermediateDir = attrs.value("intermediateDir").toString();
-    std::vector<std::unique_ptr<FileNode>> files;
-    bool sawSources = false;
+    ProjectElementState state;
 
-    if (!readSourceEntries(xml, projectDir, this, files, &sawSources, error))
+    if (!readProjectElements(xml, projectDir, this, state, error))
         return false;
 
-    if (!sawSources) {
+    if (!state.sawSources) {
         if (error)
             *error = "project file has no <Sources> element";
         return false;
     }
-    if (files.empty()) {
+    if (state.files.empty()) {
         if (error)
             *error = "project has no source files";
         return false;
@@ -232,7 +266,8 @@ bool ProjectNode::readFromXml(QXmlStreamReader& xml, const QString& projectDir,
     m_namespace = ns;
     m_outputDir = outputDir;
     m_intermediateDir = intermediateDir;
-    m_files = std::move(files);
+    m_noWarn = state.noWarn;
+    m_files = std::move(state.files);
     return true;
 }
 

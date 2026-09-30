@@ -32,7 +32,7 @@ SettingsDialog::~SettingsDialog() = default;
 
 void SettingsDialog::init(const QString& language,
                           const QString& buildOutputDir,
-                          const QString& toolbarIconSize) {
+                          const QString& toolbarIconSize, bool noWarn) {
     const int index = m_ui->cmbLanguage->findData(language);
     m_ui->cmbLanguage->setCurrentIndex(index < 0 ? 0 : index);
     m_ui->edtBuildOutputDir->setText(buildOutputDir);
@@ -43,6 +43,7 @@ void SettingsDialog::init(const QString& language,
         SettingsStore::defaultStandaloneBuildDir());
     const int iconIdx = m_ui->cmbIconSize->findData(toolbarIconSize);
     m_ui->cmbIconSize->setCurrentIndex(iconIdx < 0 ? 0 : iconIdx);
+    m_ui->chkNoWarn->setChecked(noWarn);
 }
 
 QString SettingsDialog::language() const {
@@ -57,6 +58,10 @@ QString SettingsDialog::buildOutputDir() const {
 QString SettingsDialog::toolbarIconSize() const {
     const QVariant data = m_ui->cmbIconSize->currentData();
     return data.isValid() ? data.toString() : TOOLBAR_ICON_SMALL;
+}
+
+bool SettingsDialog::noWarn() const {
+    return m_ui->chkNoWarn->isChecked();
 }
 
 void SettingsDialog::onBrowseDirectory() {

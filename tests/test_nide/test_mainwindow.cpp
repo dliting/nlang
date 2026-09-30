@@ -13,6 +13,7 @@
 #include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDir>
@@ -55,6 +56,15 @@ namespace {
 //on Windows).
 const char* const kMainSource =
     "public int main() {\n"
+    "    return 42;\n"
+    "}\n";
+
+//0.7.5: int 16777217 does not survive the float mantissa -- ncc warns
+//"implicit conversion ... loses precision" on this line, which is how
+//the build tests observe whether --no-warn rode along.
+const char* const kLossySource =
+    "public int main() {\n"
+    "    float f = 16777217;\n"
     "    return 42;\n"
     "}\n";
 
@@ -152,8 +162,10 @@ void acceptFileDialog(const QString& filePath) {
     }
 }
 
-//Accept the active project-properties dialog with name/dir/namespace.
-void acceptProjectDialog(const QString& name, const QString& dir) {
+//Accept the active project-properties dialog with name/dir/namespace;
+//noWarn checks the per-project warning-suppression override first.
+void acceptProjectDialog(const QString& name, const QString& dir,
+                         bool noWarn = false) {
     QDialog* dialog =
         qobject_cast<QDialog*>(QApplication::activeModalWidget());
     QLineEdit* nameEdit =
@@ -163,6 +175,8 @@ void acceptProjectDialog(const QString& name, const QString& dir) {
         nameEdit->setText(name);
         dialog->findChild<QLineEdit*>("edtProjectDir")->setText(dir);
         dialog->findChild<QLineEdit*>("edtNamespace")->setText("app");
+        if (QCheckBox* box = dialog->findChild<QCheckBox*>("chkNoWarn"))
+            box->setChecked(noWarn);
         acceptDialog(dialog);
     }
 }
@@ -1368,6 +1382,68 @@ private slots:
         QFile::remove(nmod);
         QFile::remove(QDir(dir.path()).filePath("App.nproj"));
         settings.remove("ide/buildOutputDir");
+    }
+
+    //--- 0.7.5: --no-warn three-state assembly (real ncc builds) ---
+
+    void testBuildStandaloneNoWarnFollowsGlobal() {
+        //Standalone files have no project half: both settings off keeps
+        //the warning visible; the global switch alone suppresses it.
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("compiler");
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("solo_warn.n");
+        writeFile(path, kLossySource);
+
+        //Both off: the lossy warning reaches the compile log.
+        {
+            MainWindow window;
+            inExec([&path] { acceptFileDialog(path); });
+            act(window, "actOpenFile")->trigger();
+            act(window, "actBuild")->trigger();  // synchronous QProcess
+            QTextEdit* out = window.findChild<QTextEdit*>("txtCompileOut");
+            QVERIFY(out->toPlainText().contains("loses precision"));
+            QCOMPARE(window.statusBar()->currentMessage(),
+                     QString("Build succeeded"));
+        }
+        //Global on: suppressed (standalone builds read the global
+        //setting only -- no project override exists for them).
+        {
+            settings.setValue("compiler/noWarn", true);
+            MainWindow window;
+            inExec([&path] { acceptFileDialog(path); });
+            act(window, "actOpenFile")->trigger();
+            act(window, "actBuild")->trigger();
+            QTextEdit* out = window.findChild<QTextEdit*>("txtCompileOut");
+            QVERIFY(!out->toPlainText().contains("loses precision"));
+            QCOMPARE(window.statusBar()->currentMessage(),
+                     QString("Build succeeded"));
+        }
+        settings.remove("compiler");
+        QFile::remove(QDir(QDir::temp())
+                          .filePath("nlang-nide/solo_warn.nmod"));
+    }
+
+    void testBuildProjectNoWarnOverride() {
+        //Global off + project opt-in: the .nproj-level override
+        //suppresses the warning for the project build.
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("compiler");
+        MainWindow window;
+        QTemporaryDir dir;
+        inExec([&] { acceptProjectDialog("App", dir.path(), true); });
+        act(window, "actNewProject")->trigger();
+        inExec([&] { acceptNewFileDialog("main.n"); });
+        act(window, "actAddNewFile")->trigger();
+        currentCode(window)->setPlainText(kLossySource);
+        act(window, "actBuild")->trigger();
+
+        QTextEdit* out = window.findChild<QTextEdit*>("txtCompileOut");
+        QVERIFY(!out->toPlainText().contains("loses precision"));
+        QCOMPARE(window.statusBar()->currentMessage(),
+                 QString("Build succeeded"));
+        QFile::remove(QDir(dir.path()).filePath("App.nmod"));
+        QFile::remove(QDir(dir.path()).filePath("App.nproj"));
     }
 
     //--- Tools > Options ---

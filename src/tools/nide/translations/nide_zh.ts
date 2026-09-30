@@ -578,6 +578,16 @@
         <source>Esc</source>
         <translation>Esc</translation>
     </message>
+    <message>
+        <location filename="../ui/ProjectPropDialog.ui" line="228"/>
+        <source>当前为有损类型转换警告；勾选后本项目在全局设置之外再抑制它们</source>
+        <translation>当前为有损类型转换警告；勾选后本项目在全局设置之外再抑制它们</translation>
+    </message>
+    <message>
+        <location filename="../ui/ProjectPropDialog.ui" line="231"/>
+        <source>抑制编译警告(&amp;W)</source>
+        <translation>抑制编译警告(&amp;W)</translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialog</name>
@@ -605,6 +615,21 @@
         <location filename="../ui/SettingsDialog.ui" line="51"/>
         <source>Toolbar icon size:</source>
         <translation>工具栏图标尺寸：</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="61"/>
+        <source>Compiler options</source>
+        <translation>编译选项</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="67"/>
+        <source>Currently the lossy-conversion warnings; future compiler options extend this group.</source>
+        <translation>当前为有损类型转换警告；将来的编译选项沿本组扩展。</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="70"/>
+        <source>Suppress compile warnings</source>
+        <translation>抑制编译警告</translation>
     </message>
 </context>
 <context>

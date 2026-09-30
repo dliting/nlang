@@ -59,6 +59,10 @@ private:
     //The project's current values; identity fields become read-only.
     void initForEdit(const ProjectNode& project);
 
+    //Apply the form's mutable properties (namespace, output and
+    //intermediate directories, warning suppression) to the project.
+    void applyFields(ProjectNode& project) const;
+
     //OK needs a name and a location.
     void updateSubmitEnabled();
 

@@ -6,6 +6,7 @@
 #include "CompileLogBrowser.h"
 #include "FileEditor.h"
 #include "ProjectModel.h"
+#include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 
 #include "ui_MainWindow.h"
@@ -34,6 +35,27 @@ void MainWindow::on_actBuild_triggered() {
         buildStandaloneFile(standalone);
 }
 
+//Synchronous ncc run shared by both builds. Merged channels: the
+//diagnostics CompileLogBrowser parses arrive on stderr, and a plain
+//readAll() would only see stdout. False also covers the failed start.
+bool MainWindow::runNccSync(const QString& workDir, const QStringList& args,
+                            QString* log) {
+    QProcess ncc(this);
+    ncc.setProcessChannelMode(QProcess::MergedChannels);
+    ncc.setWorkingDirectory(workDir);
+    ncc.start(toolPath("ncc"), args);
+    if (!ncc.waitForStarted(-1)) {
+        *log = tr("Failed to start '%1'.").arg(toolPath("ncc"));
+        return false;
+    }
+    ncc.waitForFinished(-1);
+    *log = QString::fromLocal8Bit(ncc.readAll());
+    //Read the exit state only after a real run: start() resets
+    //exitCode/exitStatus, so the failed-start path would fake success
+    //if it shared this expression.
+    return ncc.exitStatus() == QProcess::NormalExit && ncc.exitCode() == 0;
+}
+
 bool MainWindow::buildProject(ProjectNode& project) {
     //Save the editors of this project's files so ncc sees the edits.
     for (const auto& file : project.files()) {
@@ -58,27 +80,15 @@ bool MainWindow::buildProject(ProjectNode& project) {
         return false;
     }
 
-    //Synchronous build: ncc writes diagnostics in the
-    //shape CompileLogBrowser parses -- on stderr, so merge the channels
-    //before reading (plain readAll() would only see stdout).
-    QProcess ncc(this);
-    ncc.setProcessChannelMode(QProcess::MergedChannels);
-    ncc.setWorkingDirectory(project.projectDir());
-    ncc.start(toolPath("ncc"),
-              {"build", "-p", projectFilePath(&project), "-o", output});
+    //0.7.5: warning suppression is two-level -- the project's opt-in
+    //adds on top of the global Tools > Options setting.
+    QStringList nccArgs{"build", "-p", projectFilePath(&project),
+                        "-o", output};
+    if (project.noWarn() || SettingsStore::persisted().noWarn())
+        nccArgs << "--no-warn";
     QString log;
-    bool succeeded = false;
-    if (!ncc.waitForStarted(-1)) {
-        log = tr("Failed to start '%1'.").arg(toolPath("ncc"));
-    } else {
-        ncc.waitForFinished(-1);
-        log = QString::fromLocal8Bit(ncc.readAll());
-        //Read the exit state only after a real run: start() resets
-        //exitCode/exitStatus, so the failed-start path would fake
-        //success if it shared this expression.
-        succeeded = ncc.exitStatus() == QProcess::NormalExit
-            && ncc.exitCode() == 0;
-    }
+    const bool succeeded =
+        runNccSync(project.projectDir(), nccArgs, &log);
     m_ui->txtCompileOut->append(log);
     m_ui->statusBar->showMessage(
         succeeded ? tr("Build succeeded") : tr("Build failed"));
@@ -148,22 +158,14 @@ bool MainWindow::buildStandaloneFile(const QString& filePath) {
     showOutputPage(m_ui->tabCompileOut);
 
     const QString output = standaloneNmodPath(filePath);
-    QProcess ncc(this);
-    ncc.setProcessChannelMode(QProcess::MergedChannels);
-    ncc.setWorkingDirectory(QFileInfo(filePath).absolutePath());
-    ncc.start(toolPath("ncc"), {"build", filePath, "-o", output});
+    //Standalone files have no project half: only the global setting
+    //decides whether --no-warn rides along.
+    QStringList nccArgs{"build", filePath, "-o", output};
+    if (SettingsStore::persisted().noWarn())
+        nccArgs << "--no-warn";
     QString log;
-    bool succeeded = false;
-    if (!ncc.waitForStarted(-1)) {
-        log = tr("Failed to start '%1'.").arg(toolPath("ncc"));
-    } else {
-        ncc.waitForFinished(-1);
-        log = QString::fromLocal8Bit(ncc.readAll());
-        //Read the exit state only after a real run (same trap as
-        //buildProject: a failed start would fake success here).
-        succeeded = ncc.exitStatus() == QProcess::NormalExit
-            && ncc.exitCode() == 0;
-    }
+    const bool succeeded =
+        runNccSync(QFileInfo(filePath).absolutePath(), nccArgs, &log);
     m_ui->txtCompileOut->append(log);
     m_ui->statusBar->showMessage(
         succeeded ? tr("Build succeeded") : tr("Build failed"));

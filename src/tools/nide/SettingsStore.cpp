@@ -11,6 +11,7 @@ namespace {
 const char* const LANGUAGE_KEY = "ide/language";
 const char* const BUILD_OUTPUT_DIR_KEY = "ide/buildOutputDir";
 const char* const TOOLBAR_ICON_SIZE_KEY = "ide/toolbarIconSize";
+const char* const NO_WARN_KEY = "compiler/noWarn";
 } // namespace
 
 void SettingsStore::load(QSettings& settings) {
@@ -19,12 +20,14 @@ void SettingsStore::load(QSettings& settings) {
         settings.value(BUILD_OUTPUT_DIR_KEY).toString();
     m_toolbarIconSize =
         settings.value(TOOLBAR_ICON_SIZE_KEY, TOOLBAR_ICON_SMALL).toString();
+    m_noWarn = settings.value(NO_WARN_KEY, false).toBool();
 }
 
 void SettingsStore::save(QSettings& settings) const {
     settings.setValue(LANGUAGE_KEY, m_language);
     settings.setValue(BUILD_OUTPUT_DIR_KEY, m_buildOutputDir);
     settings.setValue(TOOLBAR_ICON_SIZE_KEY, m_toolbarIconSize);
+    settings.setValue(NO_WARN_KEY, m_noWarn);
 }
 
 SettingsStore SettingsStore::persisted() {
