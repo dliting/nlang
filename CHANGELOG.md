@@ -6,6 +6,79 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.5] - Unreleased
+
+### Added
+- The scalar primitive family is complete: twelve types — `byte`
+  `ubyte` `short` `ushort` `int` `uint` `long` `ulong` `float` `double`
+  `bool` `char` — over a single registry (RTK 10..19). Integer literals
+  tier by value range across the family (`5000000000` is a long),
+  constants must fit their declared target (`byte b = 1000` is a compile
+  error, `byte b = 5` is not), and mixed integer arithmetic promotes to
+  the minimal type that implicitly holds both operands (`int` + `uint`
+  is a long; `int` + `ulong` has no implicit common type and is a
+  compile error).
+- `char`: a Unicode scalar value with `'\uXXXX'` literals (BMP only;
+  adjacent surrogate escapes combine into one code point inside string
+  literals, and char literals reject the surrogate range). The string
+  bridge: byte access `s[i]` returning `ubyte`, code-point iteration
+  `foreach (char c in s)`, and the `charAt`/`charCount`/`toChar` method
+  family.
+- Strict bool: comparisons and library predicates return `bool`; the
+  five condition positions (`if`/`while`/`do-while`/`for`/`assert`) and
+  the operands of `&&`/`||`/`!` accept bool only (`if (count)` must
+  become `if (count != 0)`). `equals` deliberately stays int 0/1 as a
+  user-overridable protocol, so its result needs `!= 0` in conditions.
+- Lossy implicit conversions now warn (`implicit conversion from 'Long'
+  to 'Float' loses precision`), with constants that are exactly
+  representable exempt; `ncc --no-warn` suppresses warnings, and an
+  explicit `as` never warns.
+- Streams: 64-bit primitives `writeLong`/`readLong` and
+  `writeDouble`/`readDouble` on `ByteStream` and `FileStream`, with
+  scalar arguments checked per the conversion matrix (narrower integers
+  and `float` widen implicitly; `ulong` needs `as long`).
+- `io.print` accepts every scalar primitive (in addition to string and
+  arrays); to-string rendering for all scalars goes through one
+  generalized `OP_Prim_to_str <kind>`, with doubles printed in
+  shortest round-trip form.
+- nide: two-level compiler options — warning suppression globally under
+  Tools → Options, with a per-project override in the project
+  properties.
+- ndb: locals render in type-aware form (char as `'中' (U+4E2D)`, bool
+  as `true`/`false`, narrow and 64-bit integers decimally); ndisasm and
+  the shared disassembler name scalar wire kinds
+  (`i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/char`).
+
+### Changed
+- Breaking: `long`, `ulong` and `double` are reserved words (they were
+  valid identifiers before).
+- Unsuffixed decimal literals are `double` (`1.5f` stays `float`), and
+  exponent literals are double; integer targets never accept float
+  constants (`int x = 2e5` is a compile error).
+- Numeric literals no longer carry a leading sign: `-5` is unary minus
+  applied to the literal `5` (constant-fit still covers negated
+  literals).
+- Narrowing assignments (`float`→`int`, `double`→`float`, wider→narrower
+  integers) are compile errors unless written with `as`; `as` performs
+  exactly the conversions the implicit matrix does not admit.
+- The math floating-point family runs at double precision (`floor`/
+  `ceil`/`round` return `long`; integer and `float` arguments widen
+  implicitly).
+- Overload resolution ranks scalar conversion distance by type category
+  and rank: a narrow integer argument now prefers an `int` formal over a
+  `float` or `string` formal.
+- The 0.7.3 string-subscript compile-time rejection is rescinded: `s[i]`
+  is byte access returning `ubyte`; out of range throws at runtime.
+- `.nmod` format v1.13: the scalar kind code space expands in local and
+  field kind bytes, type descriptors, and boxing tags; numeric
+  instructions emit as kind-immediate generic families dispatched
+  through function-pointer tables. The loader rejects minor < 13 —
+  older modules must be recompiled.
+
+### Fixed
+- Negative enum member values (`enum E { A = -1 }`) are an explicit
+  compile rejection; they hung the compiler outright before.
+
 ## [0.7.4] - Unreleased
 
 ### Added

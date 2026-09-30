@@ -6,6 +6,63 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.5] - Unreleased
+
+### 新增
+- 标量基本类型家族完备：十二个类型——`byte` `ubyte` `short`
+  `ushort` `int` `uint` `long` `ulong` `float` `double` `bool`
+  `char`——统一建于单一注册表（RTK 10..19）。整型字面量按值域在
+  家族内分层（`5000000000` 是 long），常量必须适配声明目标
+  （`byte b = 1000` 是编译错误，`byte b = 5` 合法），混合整型算术
+  提升到能隐式容纳两操作数的最小类型（`int` + `uint` 是 long；
+  `int` + `ulong` 无隐式公共类型，是编译错误）。
+- `char`：Unicode 标量值，支持 `'\uXXXX'` 字面量（仅 BMP；字符串
+  字面量内相邻代理区转义合并为一个码点，char 字面量拒绝代理区）。
+  string 桥接：字节访问 `s[i]` 返回 `ubyte`、码点迭代
+  `foreach (char c in s)`、`charAt`/`charCount`/`toChar` 方法族。
+- 严格 bool：比较与库谓词返回 `bool`；五处条件位置
+  （`if`/`while`/`do-while`/`for`/`assert`）与 `&&`/`||`/`!` 的
+  操作数仅接受 bool（`if (count)` 须改写为 `if (count != 0)`）。
+  `equals` 作为可由用户覆写的协议刻意保持 int 0/1，其结果进条件
+  需要 `!= 0`。
+- 有损隐式转换发出警告（`implicit conversion from 'Long' to
+  'Float' loses precision`），可精确表示的常量豁免；`ncc
+  --no-warn` 抑制警告，显式 `as` 从不警告。
+- 流：`ByteStream` 与 `FileStream` 上的 64 位原语
+  `writeLong`/`readLong` 与 `writeDouble`/`readDouble`，标量实参按
+  转换矩阵审查（窄整型与 `float` 隐式加宽；`ulong` 须 `as long`）。
+- `io.print` 接受全部标量基本类型（外加 string 与数组）；全部标量
+  的转字符串渲染走单一通用化的 `OP_Prim_to_str <kind>`，double 以
+  最短往返形式打印。
+- nide：两级编译器选项——Tools → Options 全局警告抑制，工程属性
+  内按工程覆写。
+- ndb：局部变量按类型感知形态渲染（char 显 `'中' (U+4E2D)`、bool
+  显 `true`/`false`、窄整型与 64 位整型按十进制）；ndisasm 与共享
+  反汇编器命名标量线上 kind
+  （`i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/char`）。
+
+### 变更
+- 破坏性：`long`、`ulong`、`double` 成为保留字（此前可作标识符）。
+- 无后缀小数字面量是 `double`（`1.5f` 仍是 `float`），指数字面量
+  是 double；整型目标永不接受浮点常量（`int x = 2e5` 是编译错误）。
+- 数字字面量不再带前置正负号：`-5` 是对字面量 `5` 施加一元负号
+  （常量适配仍覆盖取负后的字面量）。
+- 收窄赋值（`float`→`int`、`double`→`float`、更宽→更窄整型）是
+  编译错误，除非写成 `as`；`as` 恰好执行隐式矩阵不放行的转换。
+- math 浮点函数族以 double 精度运行（`floor`/`ceil`/`round` 返回
+  `long`；整型与 `float` 实参隐式加宽进入）。
+- 重载解析按类型类别与秩推导标量转换距离：窄整型实参现在偏好
+  `int` 形参甚于 `float` 或 `string` 形参。
+- 废止 0.7.3 的 string 下标编译期拒绝：`s[i]` 为字节访问，返回
+  `ubyte`；越界在运行期抛错。
+- `.nmod` 格式 v1.13：标量 kind 码段在局部/字段 kind 字节、类型
+  描述符与装箱标签中扩表；数值指令以带 kind 立即数的通用族发射并
+  经函数指针表分派。加载器拒绝 minor < 13——旧模块必须重新编译。
+
+### 修复
+- enum 负值成员（`enum E { A = -1 }`）转为明确的编译期拒绝；
+  此前会让编译器直接挂死。
+
 ## [0.7.4] - Unreleased
 
 ### 新增

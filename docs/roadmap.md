@@ -73,6 +73,15 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 - 语义收口：协变别名（`Base[] ba = da`）与 `enum[]`↔`int[]` 互通编译期拒；string 强制转换全位置统一（string 形参 / `io.print` / 元素槽）；string 下标编译期拒；foreach 数组值源翻正（源单次求值）；数值二元 / 关系比较 / 条件位 / null 重载平手 / 容器方法值实参全部具名拒绝
 - `.nmod` v1.12 布局地板：递归类型描述符（真形参 / 返回 / 字段类型，嵌套数组与 List/Dict，深度帽 8）——跨模块 stub 真签名重建，跨模块调用点类型检查与同模块一致；973 e2e / ctest 46
 
+### 基本类型完备化（0.7.5）✅（2026-09-30）
+- 12 标量基元注册表（byte..ulong 整型家族 + float/double + bool + char，RTK 10..19，单一 PrimitiveTypes 源）；字面量按值域分层、常量适配、混合算术最小容纳提升；有损隐式转换警告 + `ncc --no-warn`
+- 严格 bool：比较与谓词产 bool，五处条件位置与 `&&`/`||`/`!` 操作数仅收 bool（`equals` 保持 int 协议例外）
+- double 精度默认：无后缀小数与指数字面量 = double；math 浮点族全 double（floor/ceil/round→long）；数值指令改为带 kind 立即数的通用族（函数指针表分派，专用数值 opcode 整族退役）
+- char 与 string 桥接：`s[i]` 字节访问（废止 0.7.3 编译期拒）、码点迭代、charAt/charCount/toChar、`\uXXXX` 转义；码点层补齐 Unicode 支持
+- 流 64 位原语（writeLong/readLong/writeDouble/readDouble）+ 全基元打印（io.print 扩面 + 单一 OP_Prim_to_str，double 最短往返渲染）
+- nide 两级编译器选项（Tools→Options 全局 + 工程属性覆写，首项警告抑制）；ndb 局部变量类型感知渲染 + ndisasm 标量 kind 短名
+- `.nmod` v1.13 语义地板（标量 kind 扩表）；1054 e2e（manifest 1034 + 20 示例）/ ctest 50
+
 ---
 
 ## 进行中
@@ -88,9 +97,6 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 - 包管理器：模块依赖管理（阶段 11 延后项）
 - 基于class的数组实现（非动态容量，但是属性和方法重用class的机制）
 - 基于class的字符串实现（非动态容量，但是属性和方法重用class的机制）
-- foreach 支持string遍历（阶段 8e 延后项）
-- Unicode字符串支持（阶段 8e 延后项）
-- 按下标访问字符：需考虑字符集，参考主流语言（string 下标现为编译期拒绝）
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
 - Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
 - 安装包组件化（tools-only / IDE-only）与捆绑 VC++ 运行库（/MT 或 vc_redist）
@@ -100,10 +106,10 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 
 ## 当前状态
 
-- **973 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，manifest 953 项 + 20 个示例）；ctest 46 项（build-ide 树）
+- **1054 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，manifest 1034 项 + 20 个示例）；ctest 50 项（build-ide 树）
 - 工具链：ncc / nvm / ndisasm / ndb（调试器）/ nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 v1.12（v1.8 Func 句柄 + per-function sourceFile 调试器寻址；v1.10/v1.11 语义地板；v1.12 递归类型描述符——真形参/返回/字段类型跨模块往返，布局地板，旧模块须重编译）
-- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器（类型实参允许 `T[]`）+ 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名 + 一等数组类型令牌
+- 模块格式 v1.13（v1.8 Func 句柄 + per-function sourceFile 调试器寻址；v1.10/v1.11 语义地板；v1.12 递归类型描述符——真形参/返回/字段类型跨模块往返，布局地板；v1.13 标量 kind 扩表——12 基元家族 RTK 10..19，旧模块须重编译）
+- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器（类型实参允许 `T[]`）+ 异常 + 原生绑定 + 标准库 + 一等函数值（Func/委托）+ 类型别名 + 一等数组类型令牌 + 12 标量基元家族（严格 bool、double 默认、char 码点桥）
 - 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持；B.1 导入合并不拷贝 defaultValues（executor 零消费——纯编译期数据，调用点内联；但消费方再导出 .nmod 的链路默认参数会丢）
 
 ## 实施优先级
