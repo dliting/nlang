@@ -9,6 +9,7 @@
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
 #include <nlang/runtime/PrimitiveTypes.h>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -35,6 +36,26 @@ const char* DebugKindName(uint8_t kind) {
     case RTK_Func:   return "func";
     default:         return "unknown";
     }
+}
+
+//0.7.5 Task 11: debugger-only char rendering. The registry renderer
+//gives toString semantics (the bare UTF-8 code point — right for
+//printing and string building); a debugger local wants the value
+//self-describing, so it carries an identity tag: the quoted code point
+//plus the U+ hex form ('中' (U+4E2D)). Control characters and
+//out-of-scalar values drop the quotes (no raw newlines in the display)
+//but keep the tag.
+std::string DebugCharDisplay(uint32_t cp) {
+    const bool printable =
+        (cp >= 0x20 && cp < 0x7F)
+        || (cp >= 0xA0 && cp < 0xD800)
+        || (cp >= 0xE000 && cp <= 0x10FFFF);
+    char tag[16];
+    std::snprintf(tag, sizeof(tag), "(U+%04llX)",
+                  static_cast<unsigned long long>(cp));
+    if (!printable)
+        return tag;
+    return "'" + Utf8EncodeCodePoint(cp) + "' " + tag;
 }
 
 } // namespace
@@ -112,6 +133,10 @@ std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     switch (ld.typeKind) {
     case RTK_String:
         return FormatDebugStringIdx(lo);
+    case RTK_Char:
+        //Locals get the debugger identity tag, not the toString form —
+        //char elements inside arrays/boxes keep the plain renderer.
+        return DebugCharDisplay(static_cast<uint32_t>(lo));
     case RTK_Struct:
     case RTK_Class:
     case RTK_Array:

@@ -21,6 +21,13 @@ std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
     const CompiledModule& module);
 std::string DisassembleTryBlocks(const CompiledFunction& func);
 
+//Wire-kind display name for the descriptor surfaces (ndisasm's
+//struct/class field types and function return kinds): i32-style short
+//names for the 12 scalar registry rows, str/struct/... for the legacy
+//kinds, "unknown" otherwise. The kind immediates inside instruction
+//lines render the language keywords instead (DisassemblerPrim.cpp).
+const char* DisasmTypeKindName(uint16_t kind);
+
 //Bytecode offset advance per opcode — read-side twin of VmBackend's
 //compiler-side emission walk. Two tables on purpose: they differ by
 //failure policy (the compiler copy asserts on an internal-consistency

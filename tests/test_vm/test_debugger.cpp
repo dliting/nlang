@@ -12,6 +12,7 @@
 #include "nlang/compiler/Logger.h"
 #include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
@@ -748,6 +749,80 @@ void test_view_frames_and_locals()
     }
     CHECK(sawP, "class local renders one-level fields (got lines mismatch)");
     CHECK(sawS, "int local renders value");
+    PASS();
+}
+
+//Captures "name:kindName=display" rows for main() at the return line —
+//the 0.7.5 scalar-family display contract (one row per declared local,
+//kindName straight from the registry).
+class FamilyHooks : public IDebugHooks {
+public:
+    std::vector<std::string> rows;
+    uint16_t stopLine = 0;
+    bool captured = false;
+    void OnStatement(const DebugStopInfo& s, IVmDebugView& view) override {
+        if (captured || s.line != stopLine
+            || view.FrameInfo(0).funcName != "main") return;
+        captured = true;
+        for (const auto& l : view.FrameLocals(0))
+            rows.push_back(l.name + ":" + l.kindName + "=" + l.display);
+    }
+    void OnThrow(const DebugStopInfo&, IVmDebugView&) override {}
+};
+
+static std::string FamilyRow(const std::vector<std::string>& rows,
+                             const char* name) {
+    const std::string prefix = std::string(name) + ":";
+    for (const auto& r : rows)
+        if (r.compare(0, prefix.size(), prefix) == 0)
+            return r.substr(prefix.size());
+    return "<missing " + std::string(name) + ">";
+}
+
+void test_view_scalar_family_display()
+{
+    TEST(view_scalar_family_display);
+    BuildOutcome b = buildSource("family_locals",
+        "int main() {\n"                          //1
+        "    bool flag = 1 < 2;\n"                //2
+        "    bool off = 2 < 1;\n"                 //3
+        "    char c = '中';\n"                    //4
+        "    char nl = '\\n';\n"                  //5
+        "    char a = '\\u0041';\n"               //6
+        "    byte b = 42;\n"                      //7
+        "    ushort us = 65535;\n"                //8
+        "    uint u = 4000000000;\n"              //9
+        "    long l = 5000000000;\n"              //10
+        "    double d = 0.5;\n"                   //11
+        "    float f = 1.25f;\n"                  //12
+        "    ulong ul = 18446744073709551615;\n"  //13
+        "    return 0;\n"                         //14
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("family_locals");
+    VmExecutor exec;
+    FamilyHooks hooks;
+    hooks.stopLine = 14;
+    exec.SetDebugHooks(&hooks);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    CHECK(hooks.captured, "should stop at main's return");
+    CHECK(hooks.rows.size() == 12, "one row per declared local");
+    CHECK(FamilyRow(hooks.rows, "flag") == "bool=true", "bool true");
+    CHECK(FamilyRow(hooks.rows, "off") == "bool=false", "bool false");
+    CHECK(FamilyRow(hooks.rows, "c") == "char='中' (U+4E2D)",
+        "char: quoted code point + identity tag");
+    CHECK(FamilyRow(hooks.rows, "nl") == "char=(U+000A)",
+        "non-printable char keeps the tag, drops the quotes");
+    CHECK(FamilyRow(hooks.rows, "a") == "char='A' (U+0041)",
+        "\\uXXXX literal round-trips");
+    CHECK(FamilyRow(hooks.rows, "b") == "byte=42", "byte decimal");
+    CHECK(FamilyRow(hooks.rows, "us") == "ushort=65535", "ushort decimal");
+    CHECK(FamilyRow(hooks.rows, "u") == "uint=4000000000", "uint decimal");
+    CHECK(FamilyRow(hooks.rows, "l") == "long=5000000000", "long direct");
+    CHECK(FamilyRow(hooks.rows, "d") == "double=0.5", "double direct");
+    CHECK(FamilyRow(hooks.rows, "f") == "float=1.25", "float direct");
+    CHECK(FamilyRow(hooks.rows, "ul") == "ulong=18446744073709551615",
+        "ulong direct");
     PASS();
 }
 
@@ -1874,6 +1949,33 @@ void test_session_disasm_marker()
     PASS();
 }
 
+//0.7.5 Task 11: the descriptor surfaces (ndisasm struct/class field
+//types, function return kinds) name every scalar registry row in wire
+//style; the legacy kinds keep their existing names, and a corrupt wide
+//kind must not alias a real RTK through its low byte.
+void test_disasm_type_kind_names()
+{
+    TEST(disasm_type_kind_names);
+    struct Row { uint16_t kind; const char* name; };
+    const Row rows[] = {
+        {RTK_Int32, "i32"},   {RTK_Float, "f32"},
+        {RTK_Byte, "i8"},     {RTK_UByte, "u8"},
+        {RTK_Short, "i16"},   {RTK_UShort, "u16"},
+        {RTK_UInt32, "u32"},
+        {RTK_Long, "i64"},    {RTK_ULong, "u64"},
+        {RTK_Double, "f64"},
+        {RTK_Bool, "bool"},   {RTK_Char, "char"},
+        {RTK_String, "str"},  {RTK_Struct, "struct"},
+        {RTK_Class, "class"}, {RTK_Array, "array"},
+        {RTK_Boxed, "boxed"}, {RTK_Func, "func"},
+        {300, "unknown"},     {0x102, "unknown"},
+    };
+    for (const auto& r : rows)
+        CHECK(std::string(DisasmTypeKindName(r.kind)) == r.name,
+            std::string("wire name for kind ") + r.name);
+    PASS();
+}
+
 void test_session_catch_throw()
 {
     TEST(session_catch_throw);
@@ -2278,6 +2380,7 @@ int main()
     test_hooks_line_sequence();
     test_hooks_call_depths();
     test_view_frames_and_locals();
+    test_view_scalar_family_display();
     test_hooks_on_throw();
     test_view_value_kinds();
     test_view_struct_array_field_local();
@@ -2311,6 +2414,7 @@ int main()
     test_sourcecache_resolution();
     test_session_source_list();
     test_session_disasm_marker();
+    test_disasm_type_kind_names();
     test_session_catch_throw();
 
     test_hostio_output_capture();

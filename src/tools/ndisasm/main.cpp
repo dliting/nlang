@@ -2,33 +2,16 @@
 #include "Disassembler.h"
 #include <nlang_version.h>  // generated from the repo VERSION file
 #include <iostream>
-#include <iterator>  //std::size for s_typeKindNames bound
 #include <string>
 
 using namespace nlang;
-
-static const char* s_typeKindNames[] = {
-    "i32",    // NK_Int32 = 0 (also default for void-like functions)
-    "f32",    // NK_Float = 1
-    "str",    // NK_String = 2
-    "struct", // RTK_Struct = 3
-    "class",  // RTK_Class = 4
-    "array",  // RTK_Array = 5 (serialized array return types, Phase 11 Step 0)
-    "boxed"   // RTK_Boxed = 6 (Phase 8e-1 boxed primitive)
-};
-
-static const char* TypeKindName(uint16_t kind) {
-    if (kind < std::size(s_typeKindNames))
-        return s_typeKindNames[kind];
-    return "unknown";
-}
 
 static void DisassembleFunction(const CompiledFunction& func,
                                  const CompiledModule& module) {
     std::cout << "function " << func.name
               << " (frameSize=" << func.localsSize
               << ", params=" << func.paramCount
-              << ", returnType=" << TypeKindName(func.returnTypeKind);
+              << ", returnType=" << DisasmTypeKindName(func.returnTypeKind);
     if (func.isNative)
         std::cout << ", native";
     if (func.intrinsicId != 0xFFFF)
@@ -94,7 +77,7 @@ int main(int argc, char* argv[]) {
                       << " (fields=" << st.fieldCount << ")\n";
             for (uint16_t j = 0; j < st.fieldCount; ++j) {
                 std::cout << "    " << st.fieldNames[j]
-                          << ": " << TypeKindName(st.fieldTypeKinds[j]);
+                          << ": " << DisasmTypeKindName(st.fieldTypeKinds[j]);
                 if (st.fieldTypeKinds[j] == RTK_Struct
                     && st.fieldStructIndices[j] != 0xFFFF)
                     std::cout << " [" << st.fieldStructIndices[j] << "]";
@@ -116,7 +99,7 @@ int main(int argc, char* argv[]) {
                       << ", super=" << cc.superClassIdx << ")\n";
             for (uint16_t j = 0; j < cc.fieldCount; ++j) {
                 std::cout << "    " << cc.fieldNames[j]
-                          << ": " << TypeKindName(cc.fieldTypeKinds[j]);
+                          << ": " << DisasmTypeKindName(cc.fieldTypeKinds[j]);
                 if (cc.fieldTypeKinds[j] == RTK_Struct
                     && cc.fieldStructIndices[j] != 0xFFFF)
                     std::cout << " [" << cc.fieldStructIndices[j] << "]";
