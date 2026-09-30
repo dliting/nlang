@@ -445,6 +445,12 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
+        //0.7.5 string subscript: byte read on a string base.
+        if (sub.Array()->IsResolved() && sub.Array()->EvalDataType()
+            && sub.Array()->EvalDataType()->Kind() == NK_String) {
+            EmitStringByteAt(sub, emitter, resultOffset);
+            return;
+        }
         //List<T>/Dict<K,V> subscript sugar: li[i] == li.get(i),
         //d[k] == d.get(k). Dispatch on the base's resolved type being a
         //generic instantiation (arrays take the OP_LoadElement path below).

@@ -1055,8 +1055,7 @@ foreach_src_this_member 5
 foreach_src_member_invoke_reject 60
 foreach_src_single_eval 1
 foreach_src_dict_sub_reject 30
-foreach_noncontainer_reject compile_error the foreach source must be an array, List, or Dict
-foreach_string_reject compile_error the foreach source must be an array, List, or Dict
+foreach_noncontainer_reject compile_error the foreach source must be an array, List, Dict, or string
 
 # Module import visibility (Task 10): single-file error matrix. Column 3
 # pins the exact rejection sentence from spec section 7; the project-mode
@@ -1171,7 +1170,6 @@ array_tostring_return 7
 as_cast_array_box_reject compile_error the cast operand is an array
 as_cast_array_same_reject compile_error the cast operand is an array
 stringelem_array_coercion 5
-string_subscript_read_reject compile_error string does not support subscript access
 string_subscript_write_reject compile_error string does not support subscript access
 container_stringelem_subscript_coercion 6
 container_stringelem_add_coercion 6
@@ -1221,3 +1219,24 @@ double_neg_literal 0 -1.5
 double_cross_mod_default 0 10
 double_cross_mod_default_float 33
 double_float_fit_reject compile_error out of range
+
+# 0.7.5 char (Unicode scalar values) + string bridge: literals and
+# escapes, comparisons, casts, switch, s[i] byte indexing, code-point
+# foreach, and the extended string method table.
+char_basics 0 true
+char_string_bridge 0 xy
+char_foreach 5
+string_byte_at 0 99
+string_byte_at_oob 0 oob
+char_escape 0
+char_escape_reject compile_error
+string_charat 0 3
+char_numeric_reject compile_error do not support arithmetic
+char_numeric_cmp_reject compile_error only be compared with a char
+char_cast 0 97
+char_cast_invalid 0 invalid
+char_switch 12
+char_foreach_var_reject compile_error does not match the element type
+char_foreach_break 0
+char_foreach_nested 0
+char_switch_cross 0

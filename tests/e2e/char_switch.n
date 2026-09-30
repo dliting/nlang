@@ -1,0 +1,15 @@
+//0.7.5 switch on a char discriminant: labels are char literals
+//compared by code point (Int family), literal discriminants included.
+int main() {
+    int hits = 0;
+    char c = '中';
+    switch (c) {
+        case 'a': { hits = 1; break; }
+        case '中': { hits = 2; break; }
+        default: { hits = 3; break; }
+    }
+    switch ('z') {
+        case 'z': { hits += 10; break; }
+    }
+    return hits;   // 12
+}

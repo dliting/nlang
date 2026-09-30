@@ -44,6 +44,11 @@ VmBackend::SwitchCompare VmBackend::SwitchCompareOf(
             const auto& row = kScalarPrims[pi];
             if (row.category == PC_Float || row.slotWidth == 8)
                 return {k, false};
+            //0.7.5 string bridge: char discriminants compare at their
+            //own kind (labels normalize through EmitScalarSlotCast,
+            //char↔int cross-forms included).
+            if (k == NK_Char)
+                return {NK_Char, false};
             return {NK_Int32, false};
         }
     }

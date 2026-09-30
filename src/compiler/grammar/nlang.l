@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <nlang/runtime/PrimitiveTypes.h>  // Utf8EncodeCodePoint (0.7.5)
 
 /* handle locations */
 #define YY_USER_ACTION														\
@@ -105,6 +106,84 @@ do {																		\
 } while(0)
 
 
+/*0.7.5 char/string \uXXXX support. Hex value of exactly 4
+  digits; the pattern side has already bounded the shape. */
+static unsigned ParseHex4(const char* p)
+{
+    unsigned v = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        const char c = p[i];
+        v <<= 4;
+        if (c >= '0' && c <= '9')
+            v |= unsigned(c - '0');
+        else if (c >= 'a' && c <= 'f')
+            v |= unsigned(c - 'a' + 10);
+        else
+            v |= unsigned(c - 'A' + 10);
+    }
+    return v;
+}
+
+/*Decode one char-literal body (the bytes between the quotes) into a
+  Unicode scalar value. The flex pattern bounds the byte span; this
+  action enforces the semantics: a bare segment must decode to exactly
+  one UTF-8 code point (minimal length, non-surrogate, <= 0x10FFFF),
+  escapes resolve by table, \uXXXX is BMP non-surrogate only. */
+static bool DecodeCharLiteral(const char* p, int len, nlang::nchar& out)
+{
+    if (len >= 2 && p[0] == '\\')
+    {
+        if (len == 2)
+        {
+            switch (p[1])
+            {
+            case 'n':   out = 0x0A; return true;
+            case 'r':   out = 0x0D; return true;
+            case 't':   out = 0x09; return true;
+            case '\'':   out = 0x27; return true;
+            case '\\':  out = 0x5C; return true;
+            default:    return false;
+            }
+        }
+        if (len == 6 && p[1] == 'u')
+        {
+            const unsigned v = ParseHex4(p + 2);
+            if (v >= 0xD800 && v <= 0xDFFF)
+                return false;
+            out = nlang::nchar(v);
+            return true;
+        }
+        return false;
+    }
+    if (len < 1 || len > 4)
+        return false;
+    const unsigned char b0 = (unsigned char)p[0];
+    unsigned cp;
+    int n;
+    if (b0 < 0x80)                   { cp = b0;          n = 1; }
+    else if ((b0 & 0xE0) == 0xC0)    { cp = b0 & 0x1F;   n = 2; }
+    else if ((b0 & 0xF0) == 0xE0)    { cp = b0 & 0x0F;   n = 3; }
+    else if ((b0 & 0xF8) == 0xF0)    { cp = b0 & 0x07;   n = 4; }
+    else                             { return false; }
+    if (len != n)
+        return false;
+    for (int i = 1; i < n; ++i)
+    {
+        const unsigned char bi = (unsigned char)p[i];
+        if ((bi & 0xC0) != 0x80)
+            return false;
+        cp = (cp << 6) | (bi & 0x3F);
+    }
+    static const unsigned kMinCp[5] = { 0, 0, 0x80, 0x800, 0x10000 };
+    if (cp < kMinCp[n] || cp > 0x10FFFF)
+        return false;
+    if (cp >= 0xD800 && cp <= 0xDFFF)
+        return false;
+    out = nlang::nchar(cp);
+    return true;
+}
+
 %}
 %option extra-type="nlang::ScriptScanner*"
 
@@ -114,7 +193,7 @@ do {																		\
 Blanks  	[ \t]+
 Alpha		[_A-Za-z]
 DecDigit	[0-9]
-HexDigit    {DecDigit}[a-fA-F]
+HexDigit    ({DecDigit}|[a-fA-F])
 DecInt      {DecDigit}+
 HexInt      (0x|0X){HexDigit}+
 Float       {DecDigit}*"."{DecDigit}+([eE][-+]?{DecDigit}+)?[fF]?|{DecDigit}+[eE][-+]?{DecDigit}+[fF]?
@@ -294,33 +373,17 @@ LineComment	\/\/[^\n]*
                 DEAL_UINT_TOKEN(n);
             }
 
-'[^'\n\r\t\\]'   {
-                yylval->v_Char = yytext[1];
-                return TT_Char;
-            }
-
-'\''       {
-                yylval->v_Char = '\'';
-                return TT_Char;
-            }
-
-'\\n'       {
-                yylval->v_Char = '\n';
-                return TT_Char;
-            }
-
-'\\r'       {
-                yylval->v_Char = '\r';
-                return TT_Char;
-            }
-
-'\\t'       {
-                yylval->v_Char = '\t';
-                return TT_Char;
-            }
-
-'\\\\'       {
-                yylval->v_Char = '\\';
+'([^'\n\r\t\\]{1,4}|\\u[0-9a-fA-F]{4}|\\[nrt'\\])'   {
+                //0.7.5: one rule for the whole char-literal family.
+                //Flex bracket classes match BYTES, so {1,4} covers
+                //any single UTF-8 code point (1-4 bytes) without
+                //scanner state; this action then enforces "exactly
+                //one Unicode scalar value" (rejects multi-point
+                //spans, truncated sequences, surrogate \uXXXX).
+                nlang::nchar cp;
+                if (!DecodeCharLiteral(yytext + 1, yyleng - 2, cp))
+                    return TT_Error;
+                yylval->v_Char = cp;
                 return TT_Char;
             }
 
@@ -426,6 +489,31 @@ LineComment	\/\/[^\n]*
 
 <STRING_S>"\\v"	{
                 APPEND_TEXT(std::string(1, '\v'));
+            }
+
+<STRING_S>"\\u"[dD][89aAbB][0-9a-fA-F]{2}"\\u"[dD][cdefCDEF][0-9a-fA-F]{2}	{
+                //0.7.5: adjacent surrogate pair (Java-style) combines
+                //into one non-BMP code point (4 UTF-8 bytes). Longer
+                //than the singleton rule, so longest-match picks it.
+                const unsigned hi = ParseHex4(yytext + 2);
+                const unsigned lo = ParseHex4(yytext + 8);
+                const unsigned cp = 0x10000u
+                    + ((hi - 0xD800u) << 10) + (lo - 0xDC00u);
+                APPEND_TEXT(nlang::Utf8EncodeCodePoint(cp));
+            }
+
+<STRING_S>"\\u"[0-9a-fA-F]{4}	{
+                //0.7.5: \uXXXX - BMP only; a lone surrogate is an
+                //error (pairing requires adjacency, matched above).
+                const unsigned cp = ParseHex4(yytext + 2);
+                if (cp >= 0xD800 && cp <= 0xDFFF)
+                {
+                    FREE_TEXT();
+                    bConcatToken = false;
+                    BEGIN_STATE(INITIAL);
+                    return TT_Error;
+                }
+                APPEND_TEXT(nlang::Utf8EncodeCodePoint(cp));
             }
 
 <STRING_S>"\\".    {

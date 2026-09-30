@@ -132,6 +132,17 @@ enum class OpCode : uint8_t {
                         // outMask — OP_CallDelegate + out write-back; bound
                         // handles reverse the this-shift when copying back
 
+    // === 0.7.5 char/string bridge ===
+    OP_StrByteAt,       // uint16 dst, uint16 str, uint16 idx — read the idx-th
+                        // BYTE of the string into locals[dst] as ubyte (byte
+                        // semantics, like OP_StrLen/substring/indexOf); out of
+                        // range raises IndexOutOfBoundsException
+    OP_StrForeachStep,  // uint16 str, uint16 off, uint16 cond, uint16 ch — one
+                        // code-point iteration step: decode the UTF-8 code
+                        // point at byte offset locals[off] into locals[ch],
+                        // advance off by its UTF-8 length, write 1/0 continue
+                        // flag to locals[cond] (0 = off at/past byte length)
+
     OP_Count
 };
 

@@ -1,0 +1,7 @@
+//0.7.5 a string foreach source requires a char loop variable — an int
+//variable does not match the element type.
+int main() {
+    int total = 0;
+    foreach (int x in "abc") { total += x; }
+    return total;
+}

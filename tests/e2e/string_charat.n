@@ -1,0 +1,22 @@
+//0.7.5 code-point string methods: charAt(byteIndex) returns the char
+//starting at that byte offset, charCount() counts code points, and
+//toChar/toLong/toDouble/toBool parse strictly (toInt family). Prints 3.
+import io;
+int main() {
+    string s = "中文a";
+    char c0 = s.charAt(0);            // 中 (bytes 0-2)
+    char c3 = s.charAt(3);            // 文 (bytes 3-5)
+    char c6 = s.charAt(6);            // a (byte 6)
+    if (c0 != '中' || c3 != '文' || c6 != 'a') { return 1; }
+    if (s.charCount() != 3) { return 2; }
+    char a = "65".toChar();
+    if (a != 'A') { return 3; }
+    long n = "123".toLong();
+    if (n != 123) { return 4; }
+    double d = "1.5".toDouble();
+    if (d != 1.5) { return 5; }
+    bool b = "true".toBool();
+    if (!b) { return 6; }
+    io.print(s.charCount());
+    return 0;
+}

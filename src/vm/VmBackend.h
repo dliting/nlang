@@ -540,6 +540,11 @@ private:
     //patching, LoopContext pop.
     void EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
                              BytecodeEmitter& emitter);
+    //0.7.5 string arm: code-point iteration — OP_StrForeachStep at the
+    //loop head decodes+advances; continue targets the step (the head),
+    //break the loop end. Hidden locals mirror the index-based expansion
+    //(iter handle / byte offset / continue flag).
+    void EmitStringForeach(SnForeachStmt& fe, BytecodeEmitter& emitter);
 
     //Switch (EmitStmtSwitch.cpp): per-clause emission and the
     //clause-exit fixup. EmitSwitchCaseClause appends to clauseExits the
@@ -906,13 +911,16 @@ private:
                             uint16_t resultOffset);
 
     //SnSubscriptExpr arms: List/Dict get() sugar — classification, then
-    //the claimed receive/index/call emission.
+    //the claimed receive/index/call emission. EmitStringByteAt is the
+    //0.7.5 string s[i] byte-read arm (OP_StrByteAt on a 2-slot claim).
     void EmitContainerSubscriptGet(SnSubscriptExpr& sub,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
     void EmitContainerGetCall(SnSubscriptExpr& sub, BoxingTagResult keyBox,
                               BoxingTagResult valBox,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitStringByteAt(SnSubscriptExpr& sub, BytecodeEmitter& emitter,
+                          uint16_t resultOffset);
 
     //SnBinaryExpr arms: unary, short-circuit And/Or, and the binary tail
     //(operand staging + opcode dispatch into the arithmetic/relational/

@@ -211,6 +211,8 @@ bool ExprResolveAccessor::CheckCompareOperands(SnBinaryExpr &sn,
 		return false;
 	if (RejectBoolMisuse(sn, op, lk, rk))
 		return false;
+	if (RejectCharMisuse(sn, op, lk, rk))
+		return false;
 	if (!PromoteCompareOperands(sn, lk, rk, lNull, rNull))
 		return false;
 	return true;
@@ -276,6 +278,45 @@ bool ExprResolveAccessor::RejectBoolMisuse(SnBinaryExpr &sn,
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
 			"a bool value can only be compared with a bool value.");
+		return true;
+	}
+	return false;
+}
+
+//0.7.5 char: a char is a Unicode scalar value, not a number — 'a'+1 has
+//no semantics and must not fall into the numeric ladder (whose legacy
+//int fallback would emit a misleading cast diagnostic). Comparing with
+//a number is equally rejected: convert explicitly with 'as int' first.
+//String operands are exempt ("x" + 'y' is a legal concat). True =
+//rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectCharArithmetic(SnBinaryExpr &sn,
+	NodeKind lk, NodeKind rk)
+{
+	if (lk != NK_Char && rk != NK_Char)
+		return false;
+	if (lk == NK_String || rk == NK_String)
+		return false;
+	m_Env.Log(CLL_Error, sn.Location(),
+		"char values do not support arithmetic; convert with 'as int'.");
+	return true;
+}
+
+//0.7.5 char: char×char supports all six comparisons in code-point
+//order; a char mixed with anything else (number, bool, string, null)
+//is rejected — the comparison dispatch would otherwise silently pick a
+//numeric kind and mis-compare. Mirrors the bool gate shape. True =
+//rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectCharMisuse(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op, NodeKind lk, NodeKind rk)
+{
+	bool lChar = lk == NK_Char;
+	bool rChar = rk == NK_Char;
+	if (!lChar && !rChar)
+		return false;
+	if (!(lChar && rChar))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"a char value can only be compared with a char value.");
 		return true;
 	}
 	return false;
@@ -352,6 +393,14 @@ bool ExprResolveAccessor::ResolveArithmeticBinary(SnBinaryExpr &sn,
 		m_Env.Log(CLL_Error, sn.Location(),
 			"null is not a valid arithmetic operand.");
 		return false;
+	}
+	{
+		auto* L = sn.Left()->EvalDataType();
+		auto* R = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+		if (RejectCharArithmetic(sn,
+			L ? L->Kind() : NK_Int32,
+			R ? R->Kind() : NK_Int32))
+			return false;
 	}
 	SnField* T_result = SelectArithmeticResultType(sn, op);
 	if (!T_result)

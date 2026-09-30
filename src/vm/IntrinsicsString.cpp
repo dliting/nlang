@@ -4,16 +4,21 @@ IntrinsicsString.cpp — built-in string method intrinsics.
 Two families live here:
   ids 42/43   String.Equals / String.GetHashCode (Phase 8e-1, migrated
               from VmExecutor.cpp unchanged — ids and semantics frozen)
-  ids 95-106  the 12 Phase 11 Step 3 methods (kStringMethodTable in
-              StdLib.h is the resolver/codegen counterpart)
+  ids 95-112  the 18 table methods (Phase 11 Step 3 laid down 12; the
+              0.7.5 char bridge appended the 6 code-point/parse methods
+              — kStringMethodTable in StdLib.h is the resolver/codegen
+              counterpart)
 
 ABI (mirror of string.equals): receiver string handle at callParamBase
 slot 0, arguments from slot 1 upward.
 
 Byte semantics (user decision #7, Go/Lua model): length/substring/
 indexOf are byte offsets; UTF-8 byte order == code point order. Case
-conversion is ASCII-only. Argument/parse errors raise the base
-Exception; substring range errors raise IndexOutOfBoundsException.
+conversion is ASCII-only. The 0.7.5 char bridge adds the code-point
+surfaces on top (charAt decodes at a byte offset, charCount counts
+code points); invalid UTF-8 raises like every other argument error.
+Argument/parse errors raise the base Exception; substring range
+errors raise IndexOutOfBoundsException.
 ---*/
 #include "VmExecutor.h"
 #include <cctype>
@@ -88,6 +93,44 @@ int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
     m_gcPending = true;
     return heapIdx;
+}
+
+//0.7.5: decode the UTF-8 code point starting at byte i of s. Returns
+//the code point (0..0x10FFFF) and stores its byte length in *len;
+//returns -1 on any invalid shape (continuation lead, truncated or
+//overlong form, surrogate, out of range). Shared by the charAt/
+//charCount intrinsics; OP_StrForeachStep keeps its own inline decode
+//(executor TU) — the raise wording stays per call site.
+static int64_t DecodeCodePointAt(const std::string& s, size_t i, int& len)
+{
+    const auto byte = [&s](size_t k) {
+        return static_cast<unsigned char>(s[k]);
+    };
+    const unsigned char lead = byte(i);
+    int n = 0;                //continuation byte count
+    int64_t cp = -1;
+    if (lead < 0x80)                { n = 0; cp = lead; }
+    else if ((lead & 0xE0) == 0xC0) { n = 1; cp = lead & 0x1F; }
+    else if ((lead & 0xF0) == 0xE0) { n = 2; cp = lead & 0x0F; }
+    else if ((lead & 0xF8) == 0xF0) { n = 3; cp = lead & 0x07; }
+    else return -1;           //continuation byte or 0xF8+ lead
+    const auto isCont = [&s](size_t k) {
+        return k < s.size()
+            && (static_cast<unsigned char>(s[k]) & 0xC0) == 0x80;
+    };
+    for (int k = 1; k <= n; ++k)
+    {
+        if (!isCont(i + static_cast<size_t>(k)))
+            return -1;
+        cp = (cp << 6) | (byte(i + static_cast<size_t>(k)) & 0x3F);
+    }
+    //Minimal-form (overlong), surrogate and range validation.
+    static const int64_t kMinCp[5] = {0, 0, 0x80, 0x800, 0x10000};
+    if (cp < kMinCp[n + 1] || cp > 0x10FFFF
+        || (cp >= 0xD800 && cp <= 0xDFFF))
+        return -1;
+    len = n + 1;
+    return cp;
 }
 
 bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
@@ -322,6 +365,111 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             RaiseNlangExceptionBase(
                 "string.toFloat: \"" + s + "\" is not a valid float.");
         std::memcpy(pResult, &parsed, sizeof(parsed));
+        return true;
+    }
+    //---- 0.7.5 char bridge: code-point surfaces + strict parses ----
+    case INTR_String_CharAt:
+    {
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        int32_t idx;
+        std::memcpy(&idx, locals + callParamBase + kFrameSlotBytes,
+            sizeof(idx));
+        if (idx < 0 || static_cast<size_t>(idx) >= s.size())
+            RaiseNlangException(m_oobExcClassIdx,
+                "string.charAt: byte index " + std::to_string(idx)
+                + " outside string of " + std::to_string(s.size())
+                + " bytes.");
+        int len = 0;
+        int64_t cp = DecodeCodePointAt(s, static_cast<size_t>(idx), len);
+        if (cp < 0)
+            RaiseNlangExceptionBase(
+                "string.charAt: byte index " + std::to_string(idx)
+                + " does not start a valid UTF-8 sequence.");
+        uint32_t result = static_cast<uint32_t>(cp);
+        std::memcpy(pResult, &result, sizeof(result));
+        return true;
+    }
+    case INTR_String_CharCount:
+    {
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        int32_t count = 0;
+        size_t i = 0;
+        while (i < s.size())
+        {
+            int len = 0;
+            if (DecodeCodePointAt(s, i, len) < 0)
+                RaiseNlangExceptionBase(
+                    "string.charCount: invalid UTF-8 sequence at byte "
+                    + std::to_string(i) + ".");
+            ++count;
+            i += static_cast<size_t>(len);
+        }
+        std::memcpy(pResult, &count, sizeof(count));
+        return true;
+    }
+    case INTR_String_ToChar:
+    {
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        //Strict parse family: the decimal CODE POINT, then the same
+        //scalar validation as `n as char` (surrogate / > 0x10FFFF
+        //reject) so both spellings agree.
+        if (s.empty() || std::isspace(static_cast<unsigned char>(s[0])))
+            RaiseNlangExceptionBase(
+                "string.toChar: \"" + s + "\" is not a valid char.");
+        errno = 0;
+        char* end = nullptr;
+        long long parsed = std::strtoll(s.c_str(), &end, 10);
+        if (end == s.c_str() || *end != '\0' || errno == ERANGE
+            || parsed < 0 || parsed > 0x10FFFF
+            || (parsed >= 0xD800 && parsed <= 0xDFFF))
+            RaiseNlangExceptionBase(
+                "string.toChar: \"" + s + "\" is not a valid char.");
+        uint32_t result = static_cast<uint32_t>(parsed);
+        std::memcpy(pResult, &result, sizeof(result));
+        return true;
+    }
+    case INTR_String_ToLong:
+    {
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        if (s.empty() || std::isspace(static_cast<unsigned char>(s[0])))
+            RaiseNlangExceptionBase(
+                "string.toLong: \"" + s + "\" is not a valid long.");
+        errno = 0;
+        char* end = nullptr;
+        long long parsed = std::strtoll(s.c_str(), &end, 10);
+        if (end == s.c_str() || *end != '\0' || errno == ERANGE)
+            RaiseNlangExceptionBase(
+                "string.toLong: \"" + s + "\" is not a valid long.");
+        std::memcpy(pResult, &parsed, sizeof(parsed));
+        return true;
+    }
+    case INTR_String_ToDouble:
+    {
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        if (s.empty() || std::isspace(static_cast<unsigned char>(s[0])))
+            RaiseNlangExceptionBase(
+                "string.toDouble: \"" + s + "\" is not a valid double.");
+        errno = 0;
+        char* end = nullptr;
+        double parsed = std::strtod(s.c_str(), &end);
+        if (end == s.c_str() || *end != '\0' || !std::isfinite(parsed))
+            RaiseNlangExceptionBase(
+                "string.toDouble: \"" + s + "\" is not a valid double.");
+        std::memcpy(pResult, &parsed, sizeof(parsed));
+        return true;
+    }
+    case INTR_String_ToBool:
+    {
+        std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        //Strict: exactly "true"/"false". No case folding and no
+        //garbage-as-false (Java's parseBoolean answers false for any
+        //other input — a silent false hides typos).
+        if (s != "true" && s != "false")
+            RaiseNlangExceptionBase(
+                "string.toBool: \"" + s + "\" is not a valid bool "
+                "(expected \"true\" or \"false\").");
+        int32_t result = (s == "true") ? 1 : 0;
+        std::memcpy(pResult, &result, sizeof(result));
         return true;
     }
     default:

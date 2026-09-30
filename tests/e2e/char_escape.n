@@ -1,0 +1,17 @@
+//0.7.5 char escapes: \n \' \\ and \uXXXX (BMP, non-surrogate); string
+//\uXXXX combines adjacent surrogate pairs Java-style - U+1F600 is 4 UTF-8 bytes. The \u
+//forms must decode to the same values as the literal
+//multi-byte forms.
+int main() {
+    char nl = '\n';
+    char q = '\'';
+    char bs = '\\';
+    char zh = '\u4e2d';
+    if (zh != '中') { return 1; }
+    if ((nl as int) != 10 || (q as int) != 39
+        || (bs as int) != 92) { return 2; }
+    string emoji = "\ud83d\ude00";
+    if (emoji.length() != 4) { return 3; }
+    if ("\u4e2d" != "中") { return 4; }
+    return 0;
+}

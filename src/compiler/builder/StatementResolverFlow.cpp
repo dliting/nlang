@@ -173,9 +173,12 @@ void StatementResolveAccessor::CheckForeachSource(SnForeachStmt &sn)
 		&& static_cast<SnClassDecl*>(pSrcType)->IsGenericInstantiation()
 		&& (static_cast<SnClassDecl*>(pSrcType)->BaseName() == "List"
 			|| static_cast<SnClassDecl*>(pSrcType)->BaseName() == "Dict");
-	if (!isArray && !isContainer)
+	//0.7.5 char bridge: a string source iterates Unicode scalar values
+	//(code points) via UTF-8 decoding; the loop variable is char.
+	const bool isString = pSrcType && pSrcType->Kind() == NK_String;
+	if (!isArray && !isContainer && !isString)
 		m_Env.Log(CLL_Error, sn.Iterable()->Location(),
-			"the foreach source must be an array, List, or Dict");
+			"the foreach source must be an array, List, Dict, or string");
 }
 
 //Exact-match gate: the loop variable type must match the source
@@ -212,6 +215,12 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 		{
 			pElemField = pGen->GenericTypeArgs()[0];
 		}
+	}
+	//0.7.5 char bridge: a string source yields code points — the loop
+	//variable must be char (singleton identity, like the var side).
+	else if (pSrcType && pSrcType->Kind() == NK_String)
+	{
+		pElemField = SnBuiltinDataType::InstanceOf(NK_Char);
 	}
 	if (pElemField && pElemField != pVarField)
 		m_Env.Log(CLL_Error, sn.VarType()->Location(),

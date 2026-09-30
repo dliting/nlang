@@ -13,9 +13,9 @@ namespace nlang
 //Kind→family mapper for the switch label model — file-static: this TU's
 //duplicate-detection and family-gating arms are its only consumers.
 //0.7.5: registry-driven — every integer-category row (byte..ulong)
-//joins the Int family (one 64-bit key domain); float rows stay Float
-//(double joins with Task 7); bool/char stay None — bool by design,
-//char until its Task 8 switch support (spec section 3.4).
+//joins the Int family (one 64-bit key domain); float rows stay Float;
+//char joins Int with the string bridge (labels dedup as int64 code
+//points); bool stays None by design (spec section 3.4).
 static StatementResolveAccessor::SwitchFamily SwitchFamilyOfKind(NodeKind kind)
 {
 	if (kind == NK_String)
@@ -28,6 +28,8 @@ static StatementResolveAccessor::SwitchFamily SwitchFamilyOfKind(NodeKind kind)
 			return StatementResolveAccessor::SwitchFamily::Int;
 		if (c == PC_Float)
 			return StatementResolveAccessor::SwitchFamily::Float;
+		if (c == PC_Char)
+			return StatementResolveAccessor::SwitchFamily::Int;
 	}
 	if (kind == NK_EnumDecl)
 		return StatementResolveAccessor::SwitchFamily::Int;
@@ -81,6 +83,13 @@ bool StatementResolveAccessor::ExtractLiteralLabel(SnLiteralExpr& lit,
 		key.family = SwitchFamily::Int;
 		key.intValue = static_cast<int64_t>(
 			lit.Value().Get<uint64_t>());
+		return true;
+	case NK_Char:
+		//0.7.5 string bridge: char labels join the Int key domain —
+		//the carrier's raw 4 bytes ARE the code point (bit-preserving
+		//Get, same as EmitScalarLiteral's char arm).
+		key.family = SwitchFamily::Int;
+		key.intValue = lit.Value().Get<int32_t>();
 		return true;
 	case NK_Float:
 		key.family = SwitchFamily::Float;

@@ -660,6 +660,11 @@ private:
 		NodeKind lk, NodeKind rk, bool lNull, bool rNull);
 	bool RejectBoolMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		NodeKind lk, NodeKind rk);
+	//0.7.5 char gates: arithmetic on char is rejected (string concat
+	//exempt); char compares only with char (code-point order).
+	bool RejectCharArithmetic(SnBinaryExpr &sn, NodeKind lk, NodeKind rk);
+	bool RejectCharMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		NodeKind lk, NodeKind rk);
 	//0.7.5: registry-derived numeric promotion (spec §2.2). Returns the
 	//smallest type that can implicitly receive BOTH operands, or null
 	//when no implicit common type exists (int/long + ulong). Shared by
@@ -703,10 +708,10 @@ private:
 
 	/*
 	2026-09-27 decomposition of the value resolution family
-	(ExprResolverValues.cpp) — the string-base reject / container
-	sugar of Access(SnSubscriptExpr&).
+	(ExprResolverValues.cpp) — the string subscript (0.7.5 byte read) /
+	container sugar of Access(SnSubscriptExpr&).
 	*/
-	bool RejectStringSubscriptBase(SnSubscriptExpr &sn, SnField *pBaseType);
+	bool ResolveStringSubscript(SnSubscriptExpr &sn, SnField *pBaseType);
 	bool TryResolveContainerSubscript(SnSubscriptExpr &sn,
 		SnField *pBaseType);
 

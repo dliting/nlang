@@ -71,6 +71,8 @@ static const char* s_OpCodeNames[] = {
     "make_bound_func",
     "make_vfunc",
     "call_delegate_out",
+    "str_byte_at",
+    "str_foreach_step",
 };
 
 const char* OpCodeName(OpCode op) {

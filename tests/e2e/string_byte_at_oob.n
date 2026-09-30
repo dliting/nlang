@@ -1,0 +1,13 @@
+//0.7.5 string indexing: an out-of-range byte index raises at run time
+//("string index out of range"); the catch prints "oob".
+import io;
+int main() {
+    try {
+        ubyte b = "abc"[5];
+        io.print(b);
+        return 1;
+    } catch (Exception e) {
+        io.print("oob");
+    }
+    return 0;
+}

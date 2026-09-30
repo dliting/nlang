@@ -367,7 +367,11 @@ void test_string_table_full_dispatch()
             args += (i ? ", " : "")
                 + std::string(entry.paramKinds[i] == RTK_Int32
                     ? "1" : "\"x\"");
-        std::string call = std::string("\"12\".") + entry.name
+        //toBool needs a parseable receiver — the walk's default "12"
+        //would raise at run time (strict "true"/"false" parse).
+        const std::string recv = (std::string(entry.name) == "toBool")
+            ? "\"true\"" : "\"12\"";
+        std::string call = recv + "." + entry.name
             + "(" + args + ")";
         std::string src;
         switch ((StdLibReturnType)entry.returnType)
@@ -383,6 +387,15 @@ void test_string_table_full_dispatch()
             break;
         case SLRT_Bool:   //0.7.5: startsWith/endsWith/contains
             src = "int main() { bool r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Char:   //0.7.5 Task 8: charAt/toChar
+            src = "int main() { char r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Long:   //0.7.5 Task 8: toLong
+            src = "int main() { long r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Double: //0.7.5 Task 8: toDouble
+            src = "int main() { double r = " + call + "; return 0; }\n";
             break;
         case SLRT_ListString:
             src = "int main() { List<string> r = " + call

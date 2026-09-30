@@ -1330,6 +1330,7 @@ LiteralExpr:	TT_Int		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	$1,	@1);	} |
 					TT_ULong	{ $$ = new SnLiteralExpr(*RnULong::Instance(),	$1,	@1);	} |
 					TT_Float	{ $$ = new SnLiteralExpr(*RnFloat::Instance(),	$1,	@1);	} |
 					TT_Double	{ $$ = new SnLiteralExpr(*RnDouble::Instance(),	$1,	@1);	} |
+					TT_Char		{ $$ = new SnLiteralExpr(*RnChar::Instance(),	$1,	@1);	} |
 					KT_True		{ $$ = new SnLiteralExpr(*RnBool::Instance(),	1,	@1);	} |
 					KT_False	{ $$ = new SnLiteralExpr(*RnBool::Instance(),	0,	@1);	} |
 					TT_String 	{ $$ = BuildStringExpr($1, @1, parser);	} ;
@@ -1350,7 +1351,8 @@ IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 					KT_Float		{ $$ = new SnIdentifierExpr(NK_Float, @1);	} |
 					KT_Double	{ $$ = new SnIdentifierExpr(NK_Double, @1);	} |
 					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} |
-					KT_Bool		{ $$ = new SnIdentifierExpr(NK_Bool, @1);	} ;
+					KT_Bool		{ $$ = new SnIdentifierExpr(NK_Bool, @1);	} |
+					KT_Char		{ $$ = new SnIdentifierExpr(NK_Char, @1);	} ;
 
 NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 					auto* pId = new SnIdentifierExpr($2, @2);

@@ -254,6 +254,14 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             OpStrLen(reader, locals);
             break;
 
+        case OpCode::OP_StrByteAt:
+            OpStrByteAt(reader, locals);
+            break;
+
+        case OpCode::OP_StrForeachStep:
+            OpStrForeachStep(reader, locals);
+            break;
+
         case OpCode::OP_AllocStruct:
             OpAllocStruct(reader, locals);
             break;

@@ -216,9 +216,12 @@ static constexpr uint16_t INTR_IOException_Ctor              = 69;
 //the shared function table; args from callParamBase slot 0, no this):
 //  69          IOException ctor
 //  70-94       math, 25 functions
-//  95-106      string methods, 12 new (existing Equals/GetHashCode keep
-//              their 8e-1 ids 42/43 — only the implementation moves TUs)
-//  110-114     io, 5
+//  95-112      string methods, 18 (0.7.5 Task 8 extended the block by the
+//              six char-bridge methods, which pushed io out of 110-114 —
+//              io moved to 115-119; no compat: ids are .nmod immediates
+//              and every module recompiles; existing Equals/GetHashCode
+//              keep their 8e-1 ids 42/43 — only the implementation moved)
+//  115-119     io, 5
 //  120-127     fs, 8 (prefix INTR_FileSystem_*: INTR_FS_* is FileStream)
 static constexpr uint16_t INTR_Math_Sqrt   = 70;
 static constexpr uint16_t INTR_Math_Sin    = 71;
@@ -258,12 +261,12 @@ static_assert(INTR_Math_Randomi
 
 //Phase 11 Step 2: io namespace intrinsics (content IO — console + text
 //files; see StdLib.h). Same executable-contiguity invariant as math.
-static constexpr uint16_t INTR_Io_Print      = 110;
-static constexpr uint16_t INTR_Io_ReadLine   = 111;
-static constexpr uint16_t INTR_Io_ReadFile   = 112;
-static constexpr uint16_t INTR_Io_WriteFile  = 113;
-static constexpr uint16_t INTR_Io_AppendFile = 114;
-static constexpr uint16_t kIoIntrinsicFirst = 110;
+static constexpr uint16_t INTR_Io_Print      = 115;
+static constexpr uint16_t INTR_Io_ReadLine   = 116;
+static constexpr uint16_t INTR_Io_ReadFile   = 117;
+static constexpr uint16_t INTR_Io_WriteFile  = 118;
+static constexpr uint16_t INTR_Io_AppendFile = 119;
+static constexpr uint16_t kIoIntrinsicFirst = 115;
 static constexpr uint16_t kIoIntrinsicCount = 5;
 static_assert(INTR_Io_Print == kIoIntrinsicFirst,
     "io intrinsic block must start at kIoIntrinsicFirst");
@@ -287,13 +290,20 @@ static constexpr uint16_t INTR_String_Split      = 103;
 static constexpr uint16_t INTR_String_Replace    = 104;
 static constexpr uint16_t INTR_String_ToInt      = 105;
 static constexpr uint16_t INTR_String_ToFloat    = 106;
+//0.7.5 char bridge (Task 8): the six code-point / strict-parse methods.
+static constexpr uint16_t INTR_String_CharAt     = 107;
+static constexpr uint16_t INTR_String_CharCount  = 108;
+static constexpr uint16_t INTR_String_ToChar     = 109;
+static constexpr uint16_t INTR_String_ToLong     = 110;
+static constexpr uint16_t INTR_String_ToDouble   = 111;
+static constexpr uint16_t INTR_String_ToBool     = 112;
 static constexpr uint16_t kStringMethodIntrinsicFirst = 95;
-static constexpr uint16_t kStringMethodIntrinsicCount = 12;
+static constexpr uint16_t kStringMethodIntrinsicCount = 18;
 static_assert(INTR_String_Substring == kStringMethodIntrinsicFirst,
     "string-method intrinsic block must start at its First constant");
-static_assert(INTR_String_ToFloat
+static_assert(INTR_String_ToBool
         == kStringMethodIntrinsicFirst + kStringMethodIntrinsicCount - 1,
-    "string-method intrinsic block must be contiguous up to ToFloat");
+    "string-method intrinsic block must be contiguous up to ToBool");
 
 //Phase 11 Step 4: fs namespace — namespace/directory/metadata only,
 //never content (content IO lives in io). INTR_FS_* is taken by the

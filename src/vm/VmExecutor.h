@@ -121,6 +121,10 @@ private:
     void OpEq_str(BytecodeReader& reader, uint8_t* locals);
     void OpNe_str(BytecodeReader& reader, uint8_t* locals);
     void OpStrLen(BytecodeReader& reader, uint8_t* locals);
+    //0.7.5 char bridge: s[i] byte read and the code-point iteration step
+    //(operand contracts in BytecodeOps.h).
+    void OpStrByteAt(BytecodeReader& reader, uint8_t* locals);
+    void OpStrForeachStep(BytecodeReader& reader, uint8_t* locals);
     //0.7.5 generalized numeric family (VmExecutorOpsPrim.cpp): handlers
     //read the kind immediate, resolve the registry row, and dispatch
     //through the function-pointer tables in VmPrimOps.h — no per-kind

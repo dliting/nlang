@@ -1,0 +1,13 @@
+//0.7.5 char: foreach over a string iterates CODE POINTS, not bytes —
+//"中文abc" is 2 CJK chars + 3 ASCII = 5 code points across 9 bytes.
+int main() {
+    int count = 0;
+    int sum = 0;
+    foreach (char ch in "中文abc") {
+        count += 1;
+        sum += ch as int;
+    }
+    if (count != 5) { return 1; }
+    if (sum != 0x4E2D + 0x6587 + 0x61 + 0x62 + 0x63) { return 2; }
+    return count;   // 5
+}

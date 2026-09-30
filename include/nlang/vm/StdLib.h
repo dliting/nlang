@@ -30,6 +30,7 @@ enum StdLibReturnType : uint8_t
 	SLRT_ListString,  //Step 3: s.split / fs.listFiles
 	SLRT_Long,        //0.7.5: math.floor/ceil/round
 	SLRT_Double,      //0.7.5: math at double precision
+	SLRT_Char,        //0.7.5 Task 8: s.charAt — code point at a byte offset
 };
 
 //ABI note: namespace intrinsics differ from every other intrinsic family
@@ -239,8 +240,9 @@ enum StringTrailingDefault : uint8_t
 struct StringMethodEntry
 {
 	const char* name;
-	//Expected RTK_* of each parameter in order (substring takes byte
-	//offsets; everything else takes strings). Exact kind match only.
+	//Expected RTK_* of each parameter in order (substring and charAt
+	//take byte offsets; everything else takes strings). Exact kind
+	//match only.
 	//Fixed size 2 — the method surface is frozen by decision #6, so no
 	//entry may take a 3rd param; a zero-init slot would read as
 	//RTK_Int32, so keep maxArgs <= 2 when extending the table.
@@ -269,6 +271,18 @@ inline constexpr StringMethodEntry kStringMethodTable[] =
 	{"replace",    {RTK_String, RTK_String}, 2, 2, SLRT_String,   INTR_String_Replace,    STD_None},
 	{"toInt",      {},                     0, 0, SLRT_Int32,      INTR_String_ToInt,      STD_None},
 	{"toFloat",    {},                     0, 0, SLRT_Float,      INTR_String_ToFloat,    STD_None},
+	//0.7.5 char bridge: code-point surfaces over the byte-semantics
+	//core. charAt(byteIndex) decodes the code point STARTING at that
+	//byte (a continuation byte is an invalid sequence — raise);
+	//charCount counts code points; to* are strict whole-string parses
+	//(toChar parses the decimal code point and validates the scalar
+	//range; toBool accepts exactly "true"/"false").
+	{"charAt",     {RTK_Int32},            1, 1, SLRT_Char,       INTR_String_CharAt,     STD_None},
+	{"charCount",  {},                     0, 0, SLRT_Int32,      INTR_String_CharCount,  STD_None},
+	{"toChar",     {},                     0, 0, SLRT_Char,       INTR_String_ToChar,     STD_None},
+	{"toLong",     {},                     0, 0, SLRT_Long,       INTR_String_ToLong,     STD_None},
+	{"toDouble",   {},                     0, 0, SLRT_Double,     INTR_String_ToDouble,   STD_None},
+	{"toBool",     {},                     0, 0, SLRT_Bool,       INTR_String_ToBool,     STD_None},
 };
 
 //Table <-> id-block binding for the string-method family.

@@ -102,10 +102,8 @@ static size_t InstructionStride(OpCode op) {
             return 1 + 1 + 2;  // uint8 kind + uint16 dst
         case OpCode::OP_Cmp:
             return 1 + 1 + 1 + 2 + 2;  // kind + cmpOp + two uint16 slots
-        case OpCode::OP_Add:
-        case OpCode::OP_Sub:
-        case OpCode::OP_Mul:
-        case OpCode::OP_Div:
+        case OpCode::OP_Add: case OpCode::OP_Sub:
+        case OpCode::OP_Mul: case OpCode::OP_Div:
         case OpCode::OP_Mod:
             return 1 + 1 + 2 + 2;  // uint8 kind + two uint16 slots
         case OpCode::OP_Jump: case OpCode::OP_Case:
@@ -117,14 +115,13 @@ static size_t InstructionStride(OpCode op) {
         case OpCode::OP_CallFuncOut: case OpCode::OP_CallMethodDirectOut:
         case OpCode::OP_CallDelegateOut:
             return 1 + 2 + 2 + 4;  // uint16 + uint16 + uint32 outMask (Phase 9e / 13)
-        case OpCode::OP_AllocStruct:
-        case OpCode::OP_LoadField:
-        case OpCode::OP_StoreField:
-        case OpCode::OP_CopyStruct:
-        case OpCode::OP_AllocArray:
-        case OpCode::OP_LoadElement:
-        case OpCode::OP_StoreElement:
+        case OpCode::OP_AllocStruct: case OpCode::OP_LoadField:
+        case OpCode::OP_StoreField: case OpCode::OP_CopyStruct:
+        case OpCode::OP_AllocArray: case OpCode::OP_LoadElement:
+        case OpCode::OP_StoreElement: case OpCode::OP_StrByteAt:
             return 1 + 2 + 2 + 2;  // three uint16 operands
+        case OpCode::OP_StrForeachStep:
+            return 1 + 2 + 2 + 2 + 2;  // four uint16 operands (0.7.5)
         default:
             //Unknown opcode — should never happen. Returning 1 lets the
             //walker make progress (likely produces garbage but doesn't

@@ -111,4 +111,79 @@ void VmExecutor::OpStrLen(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, &len, sizeof(len));
 }
 
+//0.7.5 char bridge: s[i] — read the idx-th BYTE as ubyte. Byte semantics
+//match length/substring/indexOf (the code-point surfaces are foreach and
+//charAt); a null string handle reads "" and fails the range check with
+//the same catchable OOB exception as arrays.
+void VmExecutor::OpStrByteAt(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t dst = reader.ReadUint16();
+    uint16_t str = reader.ReadUint16();
+    uint16_t idx = reader.ReadUint16();
+    int32_t handle, index;
+    std::memcpy(&handle, locals + str, sizeof(handle));
+    std::memcpy(&index, locals + idx, sizeof(index));
+    const std::string& s = StrVal(handle);
+    if (index < 0 || static_cast<size_t>(index) >= s.size())
+        RaiseNlangException(m_oobExcClassIdx,
+                            "NLang VM: string index out of range");
+    int32_t byte = static_cast<uint8_t>(
+        s[static_cast<size_t>(index)]);
+    std::memcpy(locals + dst, &byte, sizeof(byte));
+}
+
+//0.7.5 char bridge: one code-point iteration step (the whole foreach
+//lowering is this op at the loop head). Decode shape mirrors the lexer's
+//DecodeCharLiteral: minimal length, continuation bytes, overlong /
+//surrogate / >0x10FFFF rejections. A malformed sequence raises the
+//catchable base Exception like the other string methods (spec §4.4):
+//io.readFile can load arbitrary bytes, so invalid UTF-8 is reachable
+//from pure NLang code and must not be an uncatchable internal error.
+void VmExecutor::OpStrForeachStep(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t str = reader.ReadUint16();
+    uint16_t off = reader.ReadUint16();
+    uint16_t cond = reader.ReadUint16();
+    uint16_t ch = reader.ReadUint16();
+    int32_t handle, offset;
+    std::memcpy(&handle, locals + str, sizeof(handle));
+    std::memcpy(&offset, locals + off, sizeof(offset));
+    int32_t more;
+    const std::string& s = StrVal(handle);
+    if (offset < 0 || static_cast<size_t>(offset) >= s.size()) {
+        more = 0;  // past the byte length — loop exit flag
+    } else {
+        const size_t pos = static_cast<size_t>(offset);
+        const unsigned char b0 = static_cast<unsigned char>(s[pos]);
+        unsigned cp;
+        int len;
+        if (b0 < 0x80)                { cp = b0;          len = 1; }
+        else if ((b0 & 0xE0) == 0xC0) { cp = b0 & 0x1F;   len = 2; }
+        else if ((b0 & 0xF0) == 0xE0) { cp = b0 & 0x0F;   len = 3; }
+        else if ((b0 & 0xF8) == 0xF0) { cp = b0 & 0x07;   len = 4; }
+        else RaiseNlangExceptionBase(
+                 "string iteration: invalid UTF-8 sequence.");
+        if (pos + static_cast<size_t>(len) > s.size())
+            RaiseNlangExceptionBase(
+                "string iteration: invalid UTF-8 sequence.");
+        for (int i = 1; i < len; ++i) {
+            const unsigned char bi =
+                static_cast<unsigned char>(s[pos + static_cast<size_t>(i)]);
+            if ((bi & 0xC0) != 0x80)
+                RaiseNlangExceptionBase(
+                    "string iteration: invalid UTF-8 sequence.");
+            cp = (cp << 6) | (bi & 0x3F);
+        }
+        static const unsigned kMinCp[5] = { 0, 0, 0x80, 0x800, 0x10000 };
+        if (cp < kMinCp[len] || cp > 0x10FFFF
+            || (cp >= 0xD800 && cp <= 0xDFFF))
+            RaiseNlangExceptionBase(
+                "string iteration: invalid UTF-8 sequence.");
+        int32_t codePoint = static_cast<int32_t>(cp);
+        std::memcpy(locals + ch, &codePoint, sizeof(codePoint));
+        offset += len;
+        std::memcpy(locals + off, &offset, sizeof(offset));
+        more = 1;
+    }
+    std::memcpy(locals + cond, &more, sizeof(more));
+}
+
 } // namespace nlang

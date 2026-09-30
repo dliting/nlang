@@ -11,6 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/vm/StdLib.h>
 #include <algorithm>
 #include <map>
@@ -225,21 +226,37 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 	return false;
 }
 
-//0.7.3 B D3: a string base has no subscript semantics (NLang has
-//no char type — the substring methods are the char-access surface).
-//Before this arm the subscript silently resolved to the string
-//itself and codegen read the index as an array handle, failing
-//only at runtime ("null array access"). True = rejected.
-bool ExprResolveAccessor::RejectStringSubscriptBase(SnSubscriptExpr &sn,
+//0.7.5 char bridge: s[i] resolves as a BYTE read (ubyte result) —
+//byte semantics stay consistent with length/substring/indexOf; the
+//code-point surfaces are string foreach and charAt. 0.7.3 B D3
+//rejected the shape outright; the byte read replaces that reject.
+//The index must be an integer kind (a char index would silently
+//misread as a byte offset — code-point access is foreach/charAt);
+//write access stays rejected in StatementResolverAssign (strings
+//are immutable). True = consumed (resolved or diagnosed).
+bool ExprResolveAccessor::ResolveStringSubscript(SnSubscriptExpr &sn,
 	SnField *pBaseType)
 {
-	if (pBaseType && pBaseType->Kind() == NK_String)
+	if (!pBaseType || pBaseType->Kind() != NK_String)
+		return false;
+	auto* pIdxType = sn.Index()->IsResolved()
+		? sn.Index()->EvalDataType() : nullptr;
+	if (pIdxType)
 	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"string does not support subscript access.");
-		return true;
+		int pi = ScalarPrimIndexOf(pIdxType->Kind());
+		const bool isInteger = pi >= 0
+			&& (kScalarPrims[pi].category == PC_SInt
+				|| kScalarPrims[pi].category == PC_UInt);
+		if (!isInteger)
+		{
+			m_Env.Log(CLL_Error, sn.Index()->Location(),
+				"the string index must be an integer.");
+			return true;
+		}
 	}
-	return false;
+	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_UByte));
+	sn.AddFlags(NF_Resolved);
+	return true;
 }
 
 //List<T>/Dict<K,V> subscript (li[i] / d[k]): sugar over get().
@@ -314,7 +331,7 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//Look up arr.length-style access is handled by MemberExpr.
 	//For now, the result type of subscript is the element type.
 	auto* arrayType = arrayExpr.EvalDataType();
-	if (RejectStringSubscriptBase(sn, arrayType))
+	if (ResolveStringSubscript(sn, arrayType))
 		return;
 	if (TryResolveContainerSubscript(sn, arrayType))
 		return;

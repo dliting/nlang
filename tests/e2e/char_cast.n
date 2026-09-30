@@ -1,0 +1,13 @@
+//0.7.5 explicit char casts: 'a' as int is the code point (97);
+//97 as char validates the scalar value at run time. Prints "97".
+import io;
+int main() {
+    int cp = 'a' as int;
+    if (cp != 97) { return 1; }
+    char a = 97 as char;
+    if (a != 'a') { return 2; }
+    long wide = '中' as long;
+    if (wide != 20013) { return 3; }   // U+4E2D
+    io.print(cp);
+    return 0;
+}

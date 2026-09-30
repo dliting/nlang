@@ -18,6 +18,28 @@
 
 namespace nlang {
 
+//Subscript arm: 0.7.5 string byte read — s[i] lowers to OP_StrByteAt on
+//a 2-slot claim (receiver, index), mirroring the container-get shape so
+//nested subscripts cannot clobber an outer parked value. The resolver
+//already typed the result ubyte and gated the index to an integer kind.
+//(Emitted from EmitExprCast.cpp's Access(SnSubscriptExpr); defined here
+//with the other string-family expression emitters.)
+void VmBackend::EmitStringByteAt(SnSubscriptExpr& sub,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset) {
+    EvalAreaClaim claim(*this, 2);
+    uint16_t claimBase = claim.base();
+    EmitExpression(*sub.Array(), emitter, claimBase);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(claimBase);
+    uint16_t indexSlot = claimBase + kFrameSlotBytes;
+    EmitExpression(*sub.Index(), emitter, indexSlot);
+    emitter.Emit(OpCode::OP_StrByteAt);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(claimBase);
+    emitter.EmitUint16(indexSlot);
+}
+
 
 //Phase 8e-9b: non-class receiver toString() dispatch.
 //For enum/int/float receivers, the resolver accepted the call

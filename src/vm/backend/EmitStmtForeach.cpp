@@ -19,14 +19,15 @@
 namespace nlang {
 
 
-//Foreach iterable classification: exactly one of isArray/isList/isDict
-//fires, with elemType = the field the loop-var slot kind keys on
-//(arrays: the ELEMENT, token peeled; List/Dict: the first type
-//argument).
+//Foreach iterable classification: exactly one of isArray/isList/isDict/
+//isString fires, with elemType = the field the loop-var slot kind keys
+//on (arrays: the ELEMENT, token peeled; List/Dict: the first type
+//argument; string: the builtin char singleton — code points).
 struct ForeachIterableKind {
     bool isArray = false;
     bool isList = false;
     bool isDict = false;
+    bool isString = false;
     SnField* elemType = nullptr;
 };
 
@@ -79,6 +80,13 @@ static ForeachIterableKind ClassifyForeachIterable(
             pIterType)->ElemTypeOf();
         return k;
     }
+    //0.7.5 char bridge: a string source iterates Unicode scalar values;
+    //elemType = char drives RTK_Char for the loop-var slot.
+    if (pIterType && pIterType->Kind() == NK_String) {
+        k.isString = true;
+        k.elemType = SnBuiltinDataType::InstanceOf(NK_Char);
+        return k;
+    }
     if (pIterType && pIterType->Kind() == NK_ClassDecl) {
         auto* pClass = static_cast<SnClassDecl*>(pIterType);
         if (pClass->IsGenericInstantiation()) {
@@ -100,11 +108,17 @@ void VmBackend::Access(SnForeachStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& fe = static_cast<SnForeachStmt&>(stmt);
         ForeachIterableKind iter = ClassifyForeachIterable(fe.Iterable());
+        //0.7.5 char bridge: string sources take the dedicated
+        //code-point expansion (no length/get() calls — OP_StrForeachStep).
+        if (iter.isString) {
+            EmitStringForeach(fe, emitter);
+            return;
+        }
         //Phase C: Array + List. Phase D: Dict (the Keys() prelude
         //materializes a List<K> into iterSlot, then the rest mirrors
         //the List path).
         assert((iter.isArray || iter.isList || iter.isDict)
-            && "foreach iterable must be Array, List<T>, or Dict<K,V>");
+            && "foreach iterable must be Array, List<T>, Dict<K,V>, or string");
         //0.7.3 B: an array-typed element (List<int[]> / Dict<K[],V> key
         //iteration) IS the interned token, and RuntimeTypeKind maps the
         //token to RTK_Array through the IsArrayType() override — so one
@@ -302,6 +316,62 @@ void VmBackend::EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
         emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
     for (size_t pos : ctx.continueJumps)
         emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
+    m_loopStack.pop_back();
+}
+
+//0.7.5 string arm: code-point iteration. Hidden locals mirror the
+//index-based expansion in kind role (string handle / byte offset /
+//continue flag — the counter-and-length pair collapses into the
+//offset, since OP_StrForeachStep detects end-of-string itself).
+//The loop head IS the step (decode + advance + continue flag in one
+//op): continue jumps to the head (the step is the increment), break
+//to the loop end via the miss-jump. No NullCheck — StrVal(0) reads
+//as "" and the first step clears the flag; no EvalAreaClaim — the
+//step touches only these locals (the walker's 2-slot foreach
+//reservation stays a harmless over-estimate).
+void VmBackend::EmitStringForeach(SnForeachStmt& fe,
+                                  BytecodeEmitter& emitter) {
+    uint16_t counter = m_currFunc->foreachCounter++;
+    uint16_t userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes,
+                                      RTK_Char, false);
+    uint16_t iterSlot = AllocLocal(
+        "__foreach_iter_" + std::to_string(counter),
+        kFrameSlotBytes, RTK_String, false);
+    uint16_t offSlot = AllocLocal(
+        "__foreach_off_" + std::to_string(counter),
+        kFrameSlotBytes, RTK_Int32, false);
+    uint16_t condSlot = AllocLocal(
+        "__foreach_cond_" + std::to_string(counter),
+        kFrameSlotBytes, RTK_Int32, false);
+    //Evaluate the source once; the byte offset starts at 0.
+    EmitExpression(*fe.Iterable(), emitter, iterSlot);
+    emitter.Emit(OpCode::OP_ConstInt32);
+    emitter.EmitInt32(0);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(offSlot);
+    //Loop head = the step. Miss-jump doubles as the break target.
+    size_t loopStart = emitter.CurrentOffset();
+    PushLoopContext();
+    emitter.Emit(OpCode::OP_StrForeachStep);
+    emitter.EmitUint16(iterSlot);
+    emitter.EmitUint16(offSlot);
+    emitter.EmitUint16(condSlot);
+    emitter.EmitUint16(userVarSlot);
+    emitter.Emit(OpCode::OP_JumpIfNot);
+    size_t jumpToEnd = emitter.CurrentOffset();
+    emitter.EmitUint16(0);  //placeholder, patched below
+    emitter.EmitUint16(condSlot);
+    m_loopStack.back().breakJumps.push_back(jumpToEnd);
+    EmitStatement(*fe.Body(), emitter);
+    emitter.Emit(OpCode::OP_Jump);
+    emitter.EmitUint16(static_cast<uint16_t>(loopStart));
+    //continue target = the head (the step advances the offset).
+    size_t loopEnd = emitter.CurrentOffset();
+    auto& ctx = m_loopStack.back();
+    for (size_t pos : ctx.breakJumps)
+        emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
+    for (size_t pos : ctx.continueJumps)
+        emitter.PatchUint16(pos, static_cast<uint16_t>(loopStart));
     m_loopStack.pop_back();
 }
 

@@ -1,0 +1,13 @@
+//0.7.5 nested string foreachs: each loop owns its hidden __foreach_*
+//locals (uniquified by the per-function counter), so the inner iterator
+//cannot clobber the outer one. 2 x 2 = 4 steps.
+int main() {
+    int total = 0;
+    foreach (char a in "ab") {
+        foreach (char b in "xy") {
+            total += 1;
+        }
+    }
+    if (total != 4) { return 1; }
+    return 0;
+}

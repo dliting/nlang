@@ -89,9 +89,14 @@ void VmBackend::EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
         int32_t v = lit.Value().Get<int32_t>();
         emitter.Emit(OpCode::OP_ConstInt32);
         emitter.EmitInt32(v);
+    } else if (typeKind == NK_Char) {
+        //char rides the uint32 carrier (m_Int bit alias); the 4 raw
+        //bytes ARE the code point — same const op as bool.
+        int32_t v = lit.Value().Get<int32_t>();
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(v);
     } else {
-        //Round-12 shape: unhandled scalar literal kind. char
-        //literals land with Task 8.
+        //Round-12 shape: unhandled scalar literal kind.
         throw std::runtime_error(
             "NLang backend: literal with unhandled type kind: "
             + std::to_string(static_cast<int>(typeKind)));

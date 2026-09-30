@@ -1,0 +1,14 @@
+//0.7.5 numeric -> char validates the Unicode scalar value at run
+//time — 1114112 (0x110000) is beyond the range and raises. The catch
+//prints "invalid".
+import io;
+int main() {
+    try {
+        char c = 1114112 as char;
+        io.print(c);
+        return 1;
+    } catch (Exception e) {
+        io.print("invalid");
+    }
+    return 0;
+}
