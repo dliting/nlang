@@ -73,7 +73,9 @@ Qt5 nide ＋ 手写 `.nmod` 序列化（小端，`NLANGMOD` magic）。
   ```
   **三个坑**（坑③ 是轮 7 审阅者的命令里我实测出来的）：① `test_import_parse.cpp`／
   `test_module_import.cpp`／`test_array_property.cpp`／`tests/test_nide/*` 是 QtTest
-  （`private slots:` ＋ 宏自动注册；本仓库 `QTEST_MAIN` 与 `QTEST_GUILESS_MAIN` 各 10 个文件），
+  （`private slots:` ＋ 宏自动注册；本仓库 QtTest 文件共 **15** 个：`QTEST_MAIN(` **5** 个、
+  `QTEST_GUILESS_MAIN(` **10** 个，互不重叠——轮 10 按宏调用级 `grep -rlE 'QTEST[A-Z_]*MAIN\('`
+  实测；
   槽名带缩进、模式本就不匹配，但 `continue` 仍要留着——它防的是「以后有人把槽写成顶格」；
   ② 排除宏时写 `QTEST_[A-Z_]*MAIN`，**不能**写 `grep -q QTEST_MAIN`：
   `QTEST_GUILESS_MAIN` 里不含 `QTEST_MAIN` 这个子串，写错等于没排除；
@@ -89,10 +91,11 @@ Qt5 nide ＋ 手写 `.nmod` 序列化（小端，`NLANGMOD` magic）。
   拼错一条就是少跑一条而读数照旧。⇒ 每个 e2e 门在后面加
   `| tee /tmp/e2e.log; grep -c '^SKIP' /tmp/e2e.log`，期望 **0**（`d7ca710` 实测：按
   manifest 逐名查存在性＝0 条缺失）。
-- **工作树「干净」的门要写基线**（轮 7 实测）：`git status --porcelain` 在本工作树**恒有一行**
-  `?? main.n`（仓库根的游离源文件，`.gitignore` 没盖它，不属于本阶段）。全篇五处
+- **工作树「干净」的门要写基线**（轮 7 实测，轮 10 重建时补第二条）：`git status --porcelain`
+  在本工作树**恒有两行**：`?? main.n`（仓库根的游离源文件）与 `?? .zcodeignore`（本地 agent
+  配置）——`.gitignore` 都没盖它们，不属于本阶段，**永不 add**。全篇
   「`git status --porcelain` 期望：空」的门因此永远红，看久了就被 eyeball 掉，真的漏文件反而藏在
-  这条噪声里。统一写成：**除 `?? main.n` 外为空**，或直接用带路径限定的形式
+  这条噪声里。统一写成：**除 `?? main.n`、`?? .zcodeignore` 外为空**，或直接用带路径限定的形式
   `git status --porcelain -- src tests tools docs stdlib examples`（期望空）。
 - **文档管线门不在这 63 条里**——轮 7 把「为什么不在」查实了，因为这条正是门限曲线的地基：
   `nlang_docs_pytest` 确实是 `tests/CMakeLists.txt:1050-1065` 的一条 `add_test`，但它整块包在
@@ -112,7 +115,7 @@ Qt5 nide ＋ 手写 `.nmod` 序列化（小端，`NLANGMOD` magic）。
   WindowsApps stub，会 `Permission denied`，那不是失败）。
 - **`source_size_guard`**（轮 7 重写：原稿只写了函数一条，而**先撞的是文件那条**；
   原稿点名的 `Register.cpp` 根本不会撞，`nlang.y` 更不在扫描范围内）：
-  `tools/source_size_guard/check_source_size.py:38-39` 定死 **每文件 ≤500 行、每函数 ≤50 行**，
+  `tools/source_size_guard/check_source_size.py:35-36` 定死 **每文件 ≤500 行、每函数 ≤50 行**，
   扫描面是 `scanned_files()`（`:46-55`）＝ `src/`＋`include/` 的 `*.cpp/*.hpp/*.h`
   （**`.y`／`.l`／`.md` 不在内**）。本计划要动的文件里，`d7ca710` 的余量是：
   | 文件 | 现状 | 余量 | 谁在动它 |
@@ -137,11 +140,33 @@ Qt5 nide ＋ 手写 `.nmod` 序列化（小端，`NLANGMOD` magic）。
   `VmExecutor::Execute`），不 mock VM 内部。
 - 每一步完成后按 `verification-before-completion`：报出跑了哪条命令、回报什么数字，才可以说绿。
 
+## 执行简报（轮 10 重建 ＋ 执行风险评估，2026-09-30，开工前先读）
+
+- **`nlang.y` 的两处编辑有顺序**：先做 Step 7 的账本块替换（`:1218-1245`），**再**插入
+  `%expect 14`（`:8` 附近）——先插 `%expect` 会把账本块整体下移一行，按行号脚本切割就会
+  割错行（Files 头警告过的 `:1218-1246` 事故正是这个形状）。两改完成后复核：
+  `grep -n "^NameExpr:" src/compiler/grammar/nlang.y` 仍**恰好 1 命中**。
+- **Step 2 的 `-R` 门先数选中数**：`ctest --test-dir build-dev/tests -C Release -N -R
+  "library_source_tests"` 必须列出 **1** 条再跑真门（ctest 陷阱①的一致性要求；Step 2 原文
+  「这里不需要 `-N` 的选中数检查」作废——那是就 `qhead_*` 三条说的，对 `-R` 名字本身仍要数）。
+- **Steps 3～7 是一个构建单元**：Step 4 的动作调用 Step 5 的 `MarkMalformed`、Step 6 读
+  `IsMalformed`，中途单独构建必然编译红。迭代期用 `ncc build` 直探 qhead 输入（秒级），
+  e2e runner 是分钟级全量跑，只留给 Step 2 红 Run 与 Step 8 终门。
+- **生成器 mtime 陷阱**：文法改完后构建，若 bison 的 custom command 没触发（mtime 不比
+  `generated/nlang.tab.*` 新），会链接旧解析器、门永远红且原因难找——构建输出里必须看到
+  bison 重新生成那一行才算数。
+- **`compileLog` 随本任务一起落地**，虽然它的调用方在 Task 4 Step 1b——不是可延后项。
+- **基线状态噪声**：`git status --porcelain` 恒有 `?? main.n`、`?? .zcodeignore` 两行
+  （Global Constraints 已记），都**永不 add**；对这两行之外的任何脏行都要查出原因。
+- **bison 路径**：门禁直接跑的 `win_bison` 与构建用的是同一份（`build-dev/CMakeCache.txt`
+  的 `BISON_EXE=D:/dev/win_flex_bison/win_bison.exe`，PATH 里的同名），测量即构建。
+
 ## 前置事实（已实测，执行者不必重做）
 
 - 冲突基线（**Task 1 落地之前**的树上实测，当时还没有 `%expect`）：
   `win_bison -d -o /tmp/p.cpp --header=/tmp/p.h src/compiler/grammar/nlang.y`
-  → stderr 一行 `warning: 14 shift/reduce conflicts` ＋ **0 reduce/reduce**
+  → stderr 两行：`warning: 14 shift/reduce conflicts` ＋ `note: rerun with option '-Wcounterexamples'`，
+  退出码 **0**，冲突 **0 reduce/reduce**
   （state 148/185/191 各 1、254 共 9、290 共 2）。
   `nlang.y:1218-1245` 的账本注释写「1 rr ＋ 12 sr」，是过期的（Task 1 Step 7 重写它）。
   **Task 1 之后这条命令变成静音**：`%expect 14` 在位时 bison 一个字都不打印，
@@ -264,10 +289,10 @@ Qt5 nide ＋ 手写 `.nmod` 序列化（小端，`NLANGMOD` magic）。
 - Modify: `src/compiler/builder/ExprResolverTypes.cpp:332-340`（`Access(SnQualifiedTypeExpr&)` 的
   `segs.size() < 2` 分支。**轮 8 改界**：原稿写 `:327-340`，而 `:327` 是函数签名行、`:329-330`
   是 `IsResolved()` 早退，Step 6 的替换体从 `const auto &segs` 起——真正被换的是 `:332-340`
-  共 **9 行**，替换体 **11 行** ⇒ **净 +2**，而本文件在 `d7ca710` 是 **498 行**、上限 500
-  （Global Constraints 的余量表同一行写的就是这个 2）。**顶格不算越界，但没有余量给后来的
-  Task 2/5/6**，所以 Step 6 的替换体必须做到**净零行**（改两行删两行），或者在本步就把
-  `:325-326` 那两行说明注释压成一行。）
+  共 **9 行**。本文件在 `d7ca710` 是 **498 行**、上限 500，**顶格不算越界但没有余量**，所以
+  Step 6 的替换体必须做到**净零行**。**轮 10 更正**：Step 6 正文的替换体（轮 8 版）已经是
+  **9 行＝净零行**；本条旧稿里「替换体 11 行 ⇒ 净 +2」的算术和「把 `:325-326` 压成一行」的
+  备选**作废**——按 Step 6 正文执行，**不要碰 `:325-326`**。）
 - Modify: `include/nlang/compiler/SnExpressions.h`（`SnQualifiedTypeExpr` 的「never reaches codegen」注释）
 - Test: `tests/test_vm/test_library_source.cpp`（进程内只留对照正例）＋
   Create: `tests/e2e/qhead_call/{order.txt,alib.n,main.n}`、
@@ -284,13 +309,14 @@ Qt5 nide ＋ 手写 `.nmod` 序列化（小端，`NLANGMOD` magic）。
   `compileLog(dir, {"x/main.n", "y/main.n"})` 这一形状）；
   `SnQualifiedTypeExpr` 上的 `bool IsMalformed() const` ＋ `void MarkMalformed()`。
   **这两个 flag 的消费方只有本任务自己**（Step 4 的语法侧写、Step 6 的 resolver 侧读）——
-  轮 8 把原稿的两处口径错一起改掉：① 原稿说 Task 2 的 `TypeName` 也消费它们，实测
-  `awk 'NR>=650 && NR<=980' docs/dev/phase5_plan.md \| grep -ci malformed` ＝ **0**，Task 2 全文
+  轮 8 把原稿的两处口径错一起改掉，轮 10 重建时再改成**结构式判定**（绝对行号会随稿子增删
+  漂移，两次实测都撞上了）：① 原稿说 Task 2 的 `TypeName` 也消费它们——不成立，Task 2 全文
   没提过这个概念（Task 2 依赖的是 Step 5 那条 `TypeName` 产生式，不是 flag）；
-  ② 原稿引的 `grep -n IsMalformed docs/dev/phase5_plan.md` 命中行号（156/369/376/387/388/402/2622）
-  是**旧稿的**，现在同一条命令给 275/277/540/547/558/559/573/3774。行号会随稿子增删移动，
-  所以这里给的是**判定方法**：命中落在 247-638（Task 1）或 3720 之后（自查／审核记录）以外，
-  才说明有别的任务在消费它们——今天的答案是「没有」。
+  ② 原稿引的 grep 命中行号是旧稿的，不作数。**判定方法**：
+  `grep -n IsMalformed docs/dev/phase5_plan.md` 的每个命中，看它落在哪个区——前言
+  （Global Constraints／执行简报／前置事实）、本任务正文（Task 1 标题行 → Task 2 标题行）、
+  Task 9 之后的自查／审核记录区，都算本任务自用或全计划元描述；
+  落在 Task 2～8 的正文里才算有别的任务在消费——今天的答案是「没有」。
   **这不改变本任务要造这两个名字**：Step 6 的守卫要靠它把「语法拒了的点链」与
   「合法但只有一段」分开，两者共用同一条 `Malformed qualified type reference.` 诊断。
 
@@ -321,7 +347,7 @@ e2e runner 逐条用 `subprocess.run` 起 ncc（`tests/e2e/run_e2e_tests.py:211-
 新增三条 e2e 用例（前两条**目录型**：`order.txt` 依赖在前、消费方在最后，runner 以
 `-I <用例目录>` 逐个编译。形状照 `tests/e2e/native_crossmod/`，但**两处别照抄**——
 轮 8 实测：① 它的 `order.txt` 写的是 `nativelib nativemain`，最后一名不叫 `main`；
-runner 是按下标取最后一个模块跑的（`run_e2e_tests.py:269` 的 `modules[-1]`），
+runner 是按下标取最后一个模块跑的（`run_e2e_tests.py:270` 的 `modules[-1]`），
 所以本用例写 `alib main` 成立，但要清楚**成立的是位置不是名字**。
 ② 它的 `nativelib.n` **没有** `namespace` 外壳（全文只有 `native int natConst();` ＋顶层
 `int wrapped()`），所以它不是「带壳库源」的样板；本任务的 `alib.n` 要带壳，
@@ -430,7 +456,7 @@ static void TestQualifiedTypeHeadKeepsLegalMemberAccess() {
 
 `compileLog(dir)` 本步仍要加（Task 4 Step 1b 的四条文案断言吃它：`(1b)` 未导入、`(2)` 同包重名、
 `(3b)` 歧义、`(3c)` 未命中）——`compileDir`
-（`tests/test_vm/test_library_source.cpp:68-84`）把 `ListCompileLogger` 丢在函数作用域里，
+（`tests/test_vm/test_library_source.cpp:68-82`）把 `ListCompileLogger` 丢在函数作用域里，
 测试拿不到文案。做法：照 `compileDir` 抄一份，遍历
 `logger` 的 `cbegin()/cend()`（`include/nlang/compiler/Logger.h:97-119`，条目是 `CompileLogItem*`）
 把消息拼成一个 `std::string` 返回；原 `compileDir` 改成调它并只看 `Build()` 的返回值
@@ -516,7 +542,7 @@ bool compileDir(const fs::path& dir,
 **轮 8 把这一段整块重写**：原稿在这里点名了四个 helper，其中 `DrainLogger` 与
 `compileAndCheck` **全篇没有定义**，`compileLog` 还给了两种互斥签名（一参
 `const std::string&` 版与两参 `fs::path` 版），而同一步上面自己写的规矩正是
-「不要造文件里不存在的东西」（`:394-395` 的原文是「不要为『换个入口名』再抄一份 build，
+「不要造文件里不存在的东西」（`:488-489` 的原文是「不要为『换个入口名』再抄一份 build，
 也不要造 `compileDirOnly`／三参 `compileRun` 这种文件里不存在的东西」——原稿自己就在这条上犯规）。
 现在**只有三个名字**（`runBuild`／`compileLog`／`compileDir`），每个都有字面定义。
 `compileRun` 走同一条路加第三个默认实参：今天它是 `:90-100` 的
@@ -571,7 +597,7 @@ rm -f tests/e2e/qhead_call/alib.nmod tests/e2e/qhead_deep/alib.nmod
 ```
 **为什么清**：`run_e2e_tests.py` 只在**期望命中**的 compile_error 分支删中间产物（`:247-251`），
 而**diagnostic mismatch 分支直接 `continue`（`:238-244`）不删**。本步正是走 mismatch，
-而 `:210` 给 `order.txt` 里**每个**模块都指定了 `<name>.nmod` 当输出（`:213` 的 argv），
+而 `:211` 给 `order.txt` 里**每个**模块都指定了 `<name>.nmod` 当输出（`:214` 的 argv），
 所以先编成功的 `alib.nmod` 会留在 `tests/e2e/qhead_call/`、`qhead_deep/` 里。
 留着的代价不是「脏」（**轮 9 实测：`.gitignore:33` 有 `*.nmod`，`git check-ignore -v` 确认命中，
 所以它不进 `git status --porcelain`，不会把提交前的树干净门搞红**——审阅者 F4 的这条前提不成立），
@@ -831,7 +857,8 @@ awk '/[0-9]+ conflicts: [0-9]+ shift\/reduce/{n+=$4} END{print "sr="n}' /tmp/p.o
 cmake --build build-dev --config Release -j 8
 ctest --test-dir build-dev/tests -C Release
 D:/dev/miniconda3/python.exe tests/e2e/run_e2e_tests.py \
-  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe
+  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe \
+  | tee /tmp/e2e.log; grep -c '^SKIP' /tmp/e2e.log      # 期望：0
 ```
 （`awk` 那行要先 `win_bison --report=all` 才有 `.output`——本步因为要核对「账本注释里的
 14 与实测一致」，把上面第二条命令换成 Step 7 第 3 条那组三条一起跑。）
@@ -851,7 +878,7 @@ ctest **63/63**，
 断言；轮 6 纠正：原稿写「三条 `CHECK`」，那三条负例走的是 `manifest.txt`＋runner 子进程门，
 不是 ctest 里的 `CHECK`——按字面数断言会以为少了两条）。e2e 门期望 **977 passed / 6 failed**
 （基线 974＋本任务放的三条 `qhead_*`；六条既有失败逐字见 Task 1 Step 2 的「runner 的 argv 形状」块，
-一条都不能变）。
+一条都不能变），SKIP 计数 ＝ **0**。
 **轮 5 补**：Step 2 已经跑过 runner，但**这道全量门原本没有它**——本任务往 `tests/e2e/` 放
 `qhead_call/`、`qhead_deep/` 两个目录＋`qhead_index.n` 一个单文件并写 `manifest.txt` 的三行，
 而 `manifest.txt` 不在 ctest 里（Task 4 Step 11 的轮 4 实测：`grep -n manifest tests/CMakeLists.txt`
@@ -2456,7 +2483,8 @@ grep -rln "native" tests/e2e --include='*.n' | while read f; do
 cmake --build build-dev --config Release -j 8
 ctest --test-dir build-dev/tests -C Release
 D:/dev/miniconda3/python.exe tests/e2e/run_e2e_tests.py \
-  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe
+  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe \
+  | tee /tmp/e2e.log; grep -c '^SKIP' /tmp/e2e.log      # 期望：0
 ```
 ctest 期望 **64/64**（63 条基线＋Step 8c 新增的 `ndisasm_qualified_func_name`——本计划全篇
 唯一一条新增 ctest 条目，此后的门限就是 64）。特别核对：`test_stdlib`、`test_native_*`、
@@ -3089,7 +3117,8 @@ grep -rn '"[^"]*namespace[^"]*"' src/compiler src/vm src/langservice src/tools \
 cmake --build build-dev --config Release -j 8
 ctest --test-dir build-dev/tests -C Release
 D:/dev/miniconda3/python.exe tests/e2e/run_e2e_tests.py \
-  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe
+  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe \
+  | tee /tmp/e2e.log; grep -c '^SKIP' /tmp/e2e.log      # 期望：0
 PYTHONPATH=tools/nlang-docs/src NLANG_NCC=$PWD/build-dev/tests/Release/ncc.exe \
 NLANG_NVM=$PWD/build-dev/tests/Release/nvm.exe \
 D:/dev/miniconda3/envs/py313/python.exe -m pytest tools/nlang-docs/tests -q
@@ -3630,7 +3659,8 @@ built-in namespace.`）、`src/compiler/builder/DuplicateFieldChecker.hpp:154` �
 cmake --build build-dev --config Release -j 8
 ctest --test-dir build-dev/tests -C Release
 D:/dev/miniconda3/python.exe tests/e2e/run_e2e_tests.py \
-  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe
+  build-dev/src/tools/ncc/Release/ncc.exe build-dev/src/tools/nvm/Release/nvm.exe \
+  | tee /tmp/e2e.log; grep -c '^SKIP' /tmp/e2e.log      # 期望：0
 PYTHONPATH=tools/nlang-docs/src NLANG_NCC=$PWD/build-dev/tests/Release/ncc.exe \
 NLANG_NVM=$PWD/build-dev/tests/Release/nvm.exe \
 D:/dev/miniconda3/envs/py313/python.exe -m pytest tools/nlang-docs/tests -q
