@@ -225,6 +225,11 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	//and a declined chain leaves normal resolution untouched.
 	if (TryResolveModuleQualified(snMember))
 		return true;
+	//Phase 5: the package-qualified value chain (`alib.Color.Green`) —
+	//same position, same consumption contract (declines leave the generic
+	//path untouched).
+	if (TryResolveQualifiedTypeValue(snMember))
+		return true;
 	pOuterExpr->Accept(*m_pVisitor);
 	if (!pOuterExpr->IsResolved())
 	{

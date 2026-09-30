@@ -70,17 +70,16 @@ CodeEditor* currentCode(MainWindow& window) {
     return qobject_cast<CodeEditor*>(tabCodes(window)->currentWidget());
 }
 
-//A nlang-implemented library in its own dir: namespace greetlib with one
-//function hello (exercising the nlang-source side of a package).
+//A nlang-implemented library in its own dir: one function hello
+//(exercising the nlang-source side of a package; the package is the
+//file stem "greetlib").
 QString writeGreetLib(const QString& baseDir) {
     const QString libDir = QDir(baseDir).filePath("libs");
     QDir().mkpath(libDir);
     writeFile(QDir(libDir).filePath("greetlib.n"),
-        "namespace greetlib {\n"
-        "    // Return the given name (a nlang-implemented library fn).\n"
-        "    string hello(string who) {\n"
-        "        return who;\n"
-        "    }\n"
+        "// Return the given name (a nlang-implemented library fn).\n"
+        "string hello(string who) {\n"
+        "    return who;\n"
         "}\n");
     return libDir;
 }

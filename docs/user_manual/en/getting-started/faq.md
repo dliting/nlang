@@ -71,10 +71,7 @@ See the "Known v1 limitations" section of [Debugging in nide](debugging.md).
 ### Cross-module reference gives `Module '...' is not imported`?
 
 `import` only opens **qualified names** — after `import lib;` you must
-write `lib.f()`; the bare name `f()` does not resolve. Members of a
-cross-directory **shared namespace** (two files declaring the same
-`namespace NS`) are currently unreachable from the other directory —
-there is neither a bare-name form nor a qualified form. The visibility
+write `lib.f()`; the bare name `f()` does not resolve. The visibility
 rules for each reference form are on the [Language Specification /
 Declarations](../language-spec/declarations.md) "Import Declaration"
 section. See [Common Error Messages](../language-spec/common-errors.md)

@@ -40,10 +40,6 @@ import utils.*;            // 递归通配符
   完整路径或通配符。
 - 重复导入是幂等的；精确导入与通配符重叠时取并集；导入自身模块
   路径或同目录文件是无害的冗余。
-- 已知限制：跨目录共享的命名空间（两个文件声明同一个
-  `namespace NS`）的成员目前从另一目录不可达——裸名解析只覆盖本文件
-  与同目录文件，又不存在限定形式（模块路径只寻址根级函数），因此
-  「导入它并限定调用」提示给出的修复建议对它们无效。
 - 导入目标的解析顺序：内建 → 项目文件 → 外部 `.nmod`（经 `-I`）。
   没有隐式回退。
 - 项目路径段不得与 `io`/`math`/`fs` 撞名（编译错误）。单文件模式
@@ -54,7 +50,7 @@ import utils.*;            // 递归通配符
 
 ```
 Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.
-Namespace 'io' is not imported. Add 'import io;' at the top of this file.
+Package 'io' is not imported. Add 'import io;' at the top of this file.
 Module 'utils.helper' not found. Check the project Sources list or -I import path.
 String import is removed. Use 'import <module>;' with an identifier path.
 Module path segment 'io' collides with a built-in namespace.

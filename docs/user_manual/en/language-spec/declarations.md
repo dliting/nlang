@@ -44,13 +44,6 @@ Visibility:
 - Duplicate imports are idempotent; exact + wildcard overlap takes the
   union; importing the own module path or a same-directory file is a
   harmless redundancy.
-- Known limitation: members of a namespace shared across directories
-  (two files declare the same `namespace NS`) are currently unreachable
-  from another directory — bare-name resolution covers only the own file
-  plus same-directory files, and no qualified form exists because a
-  module path addresses root-level functions only, so the
-  `import it and qualify the call` hint's suggested fix does not work
-  for them.
 - Resolution order for an import target: built-in → project file →
   external `.nmod` (via `-I`). No implicit fallback.
 - Project path segments may not collide with `io`/`math`/`fs` (compile
@@ -61,7 +54,7 @@ Diagnostics (examples):
 
 ```
 Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.
-Namespace 'io' is not imported. Add 'import io;' at the top of this file.
+Package 'io' is not imported. Add 'import io;' at the top of this file.
 Module 'utils.helper' not found. Check the project Sources list or -I import path.
 String import is removed. Use 'import <module>;' with an identifier path.
 Module path segment 'io' collides with a built-in namespace.

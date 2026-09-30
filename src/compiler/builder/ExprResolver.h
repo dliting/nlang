@@ -725,6 +725,14 @@ private:
 		SnInvokeExpr &invoke, const std::string &modulePath);
 	void FinishModuleQualifiedMember(SnMemberExpr &snMember);
 
+	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the
+	//enum-constant chain). The de-shelled tree has no namespace node for
+	//the generic receiver route to anchor on, so the chain resolves
+	//through the registry (FindModuleType). Calls keep
+	//TryResolveModuleQualified; a chain whose tip is not a plain
+	//identifier declines and keeps the generic path.
+	bool TryResolveQualifiedTypeValue(SnMemberExpr &snMember);
+
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;
 	SnField *m_pAccessor;

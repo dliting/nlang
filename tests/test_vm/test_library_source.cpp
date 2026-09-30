@@ -143,7 +143,6 @@ int compileRun(const fs::path& dir, CapturingIo& cap,
 // Ordinary NLang functions: same-library bare calls (quad -> twice) and
 // recursion (fact). No native keyword, no DLL - every body is compiled.
 const char* kLibSource =
-    "namespace alib {\n"
     "int twice(int x) {\n"
     "  return x * 2;\n"
     "}\n"
@@ -153,7 +152,6 @@ const char* kLibSource =
     "int fact(int n) {\n"
     "  if (n <= 1) return 1;\n"
     "  return n * fact(n - 1);\n"
-    "}\n"
     "}\n";
 
 const char* kHappyProgram =
@@ -179,29 +177,36 @@ void TestHappyPath() {
 // A library the program never imports cannot be reached by qualification.
 void TestUnimportedRejected() {
     const auto dir = scenarioDir("unimported");
-    const char* lib = "namespace alib {\nint f() { return 1; }\n}\n";
+    const char* lib = "int f() { return 1; }\n";
     const char* prog = "int main() {\n  return alib.f();\n}\n";
     writeFiles(dir, { { "alib.n", lib }, { "main.n", prog } });
     CHECK(!compileDir(dir), "unimported library call is rejected");
 }
 
-// import exposes only the qualified name (alib.f), never a bare f().
+// A library file in the consumer's directory shares the directory's bare
+// pool (D7): once `import alib;` pulls the file into the build, the bare
+// f() resolves alongside the qualified form. (The pre-shell pin — "import
+// injects no bare names" — held only while the shell kept the members out
+// of every directory pool; a library NOT in the build stays
+// bare-unreachable, which TestUnimportedRejected pins from the other
+// side. Task 6's dotted imports restore a cross-directory variant.)
 void TestNoBareNames() {
     const auto dir = scenarioDir("bare");
-    const char* lib = "namespace alib {\nint f() { return 1; }\n}\n";
+    const char* lib = "int f() { return 1; }\n";
     const char* prog = "import alib;\nint main() {\n  return f();\n}\n";
     writeFiles(dir, { { "alib.n", lib }, { "main.n", prog } });
-    CHECK(!compileDir(dir), "import does not inject bare names");
+    CHECK(compileDir(dir),
+          "a same-directory imported library joins the bare pool (D7)");
 }
 
 // A library TU has no same-directory auto-visibility (the project-only D7
 // rule): alib.g may not call blib.h unless alib itself imports blib, even
-// though the consumer imports both (so both namespaces are inlined).
+// though the consumer imports both (so both packages are inlined).
 void TestNoSiblingAutoVisibility() {
     const auto dir = scenarioDir("sibling");
-    const char* blib = "namespace blib {\nint h() { return 5; }\n}\n";
+    const char* blib = "int h() { return 5; }\n";
     const char* alib =
-        "namespace alib {\nint g() { return blib.h(); }\n}\n";
+        "int g() { return blib.h(); }\n";
     const char* prog =
         "import alib;\nimport blib;\n"
         "int main() {\n  return alib.g();\n}\n";
@@ -211,40 +216,37 @@ void TestNoSiblingAutoVisibility() {
           "library TU has no same-directory auto-visibility");
 }
 
-// A project free function and a library function with the same name bind
-// independently (owner tagging keeps the candidates apart).
+// A project free function and a same-name library function in the SAME
+// directory are one bare pool (D7) — same signature, so the duplicate
+// rule rejects the pair once the import pulls the file in. (The pre-shell
+// pin — "owner tagging binds them independently" — held only while the
+// shell kept the library's members out of the pool; cross-directory owner
+// isolation is pinned by test_module_import's moduleFunctionsProjectBranch,
+// and Task 6's dotted imports restore a library variant.)
 void TestOwnerIsolation() {
     const auto dir = scenarioDir("owner");
-    const char* lib = "namespace alib {\nint val() { return 7; }\n}\n";
+    const char* lib = "int val() { return 7; }\n";
     const char* prog =
-        "import io;\nimport alib;\n"
+        "import alib;\n"
         "int val() { return 9; }\n"
-        "int main() {\n"
-        "  if (val() != 9) return 1;\n"
-        "  if (alib.val() != 7) return 2;\n"
-        "  io.print(\"ok\");\n"
-        "  return 0;\n"
-        "}\n";
+        "int main() { return 0; }\n";
     writeFiles(dir, { { "alib.n", lib }, { "main.n", prog } });
-    CapturingIo cap;
-    int rc = compileRun(dir, cap);
-    CHECK(rc == 0, "project/library same-named function (rc)");
-    CHECK(cap.text == "ok\n", "project/library same-named function output");
+    CHECK(!compileDir(dir),
+          "same-directory project/library same-name functions conflict");
 }
 
 // Phase 4b-2: a library may define its own TYPES - a class with a ctor and
 // methods, an enum, and an NLang factory that returns the class. The consumer
 // instantiates the class, reads a field, calls a method, uses an enum value,
 // and calls the factory. This exercises two fixes:
-//   * the recursive codegen traversal - root -> namespace -> class -> method
-//     is THREE levels; the old fixed two-level walk never registered or
-//     compiled a method nested inside a namespaced class
-//     ("call to method without a body");
-//   * the namespace-receiver context fix - `alib.Color.Green` enum-value
-//     access must look Color up inside the namespace node, not the meta
-//     SnType singleton.
+//   * the recursive codegen traversal - root -> class -> method is
+//     THREE levels for a library type; the old fixed two-level walk
+//     never registered or compiled a method nested inside a packaged
+//     class ("call to method without a body");
+//   * the package-qualified receiver context fix - `alib.Color.Green`
+//     enum-value access must resolve Color through alib's package
+//     entry, not the meta SnType singleton.
 const char* kTypeLibSource =
-    "namespace alib {\n"
     "class Point {\n"
     "  public int x;\n"
     "  public int y;\n"
@@ -260,7 +262,6 @@ const char* kTypeLibSource =
     "enum Color { Red = 0, Green = 1, Blue = 2 }\n"
     "Point makePoint(int x, int y) {\n"
     "  return new Point(x, y);\n"
-    "}\n"
     "}\n";
 
 const char* kTypeProgram =
@@ -296,10 +297,9 @@ void TestLibraryDefinedTypes() {
 //     so the upcast in main is visited before the library class's super
 //     chain would otherwise exist and was wrongly rejected ("Incompatible
 //     type"); bases are now resolved for every class before any body runs;
-//   * bare method names for classes nested in a namespace - a method's VM
-//     name is never namespace-qualified, so `legs`/`kind` resolve.
+//   * bare method names for every class, packaged or not - a method's
+//     VM name is never package-qualified, so `legs`/`kind` resolve.
 const char* kInheritLibSource =
-    "namespace alib {\n"
     "struct Vec {\n"
     "  int a;\n"
     "  int b;\n"
@@ -311,7 +311,6 @@ const char* kInheritLibSource =
     "class Dog : Animal {\n"
     "  public int legs() { return 4; }\n"
     "  public string kind() { return \"dog\"; }\n"
-    "}\n"
     "}\n";
 
 const char* kInheritProgram =
@@ -345,7 +344,6 @@ void TestLibraryInheritance() {
 // dispatches virtually to the implementing class. Interface method
 // declarations carry `public` and end with ';' (no body).
 const char* kIfaceLibSource =
-    "namespace alib {\n"
     "interface IShape {\n"
     "  public int area();\n"
     "}\n"
@@ -358,7 +356,6 @@ const char* kIfaceLibSource =
     "  public int area() {\n"
     "    return side * side;\n"
     "  }\n"
-    "}\n"
     "}\n";
 
 const char* kIfaceProgram =
@@ -387,13 +384,11 @@ void TestLibraryInterface() {
 // This pins the enum branches of the recursive traversal - enum value
 // members are not a container; only its Methods() are visited/compiled.
 const char* kEnumMethodLibSource =
-    "namespace alib {\n"
     "enum Rank {\n"
     "  Low = 0, High = 1;\n"
     "  public int doubled() {\n"
     "    return this * 2;\n"
     "  }\n"
-    "}\n"
     "}\n";
 
 const char* kEnumMethodProgram =
@@ -416,10 +411,11 @@ void TestLibraryEnumMethod() {
     CHECK(cap.text == "ok\n", "library enum method program output");
 }
 
-// A unit reached by a single-segment import whose file carries NO `namespace`
-// wrapper keeps its members at the root, exactly like a project module. Its
-// type must still be nameable as `unit.Type` - the container rule is one rule,
-// shared with the qualified-call side (which already resolved other.total).
+// Every library unit is a bare source file now (the `namespace` wrapper
+// syntax is gone): members sit at the root, exactly like a project
+// module. Its type must still be nameable as `unit.Type` - the owner
+// rule is one rule, shared with the qualified-call side (which already
+// resolved other.total).
 const char* kRootModuleSource =
     "struct Box {\n"
     "  int a;\n"
@@ -495,11 +491,9 @@ static void TestQualifiedBaseAndCast() {
     auto dir = scenarioDir("qbase");
     writeFiles(dir, {
         { "alib.n",
-          "namespace alib {\n"
           "class B {\n"
           "  public int v;\n"
           "  public int get() { return v + 1; }\n"
-          "}\n"
           "}\n" },
         { "main.n",
           "import io;\n"
@@ -538,7 +532,7 @@ static void TestThreeSegmentBaseGivesNamedDiagnosis() {
 //指名文案是阶段 7 的缺口——所以断言吃的是实测到的那句，不是愿望。
 static void TestQualifiedGenericArgStaysRejected() {
     const Files files = {
-        { "alib.n", "namespace alib {\nstruct Vec { int x; }\n}\n" },
+        { "alib.n", "struct Vec { int x; }\n" },
         { "main.n", "import alib;\nint main() {\n"
           "  alib.Vec<int> v;\n"
           "  return 0;\n}\n" } };
@@ -562,7 +556,7 @@ static void TestQualifiedGenericArgStaysRejected() {
 static void TestQualifiedLibraryTypeWithoutArgsWorks() {
     auto dir = scenarioDir("qgen_pos");
     writeFiles(dir, {
-        { "alib.n", "namespace alib {\nstruct Vec { int x; }\n}\n" },
+        { "alib.n", "struct Vec { int x; }\n" },
         { "main.n", "import alib;\nint main() {\n"
           "  alib.Vec v; v.x = 2;\n"
           "  List<int> nums;\n"
@@ -573,17 +567,20 @@ static void TestQualifiedLibraryTypeWithoutArgsWorks() {
           "alib.Vec (no args) compiles and runs beside a builtin generic");
 }
 
-//Phase 5 Task 4 Step 1: with bare-name keys, a library Point and a root
-//Point collide and the later one silently gets the first one's field
-//layout. Qualified keys must isolate them by value.
+//Phase 4b-2 audit I3 (reproduced in temp/rb3): with bare-name keys, a
+//library Point and a root Point collided and the later one silently got
+//the first one's field layout. The shell syntax is gone now, so the pair
+//cannot coexist at all: both declarations land on the merged root under
+//one name, and the duplicate-class rule (spec 5.5 name-equality) rejects
+//the build before any layout question can arise. The key-isolation pin
+//this scenario used to carry lives on in TestBuiltinAndUserTypeNameCoexist
+//(builtin bare key vs alib.Object) and the entry/stream-key pins.
 static void TestSameNameLibraryAndRootTypeIsolated() {
     auto dir = scenarioDir("rb3_named");
     writeFiles(dir, {
         { "alib.n",
-          "namespace alib {\n"
           "class Point { public int x; public int y;\n"
-          "  public int sum() { return x + y; } }\n"
-          "}\n" },
+          "  public int sum() { return x + y; } }\n" },
         { "main.n",
           "import io;\n"
           "import alib;\n"
@@ -592,45 +589,50 @@ static void TestSameNameLibraryAndRootTypeIsolated() {
           "int main() {\n"
           "  alib.Point p = new alib.Point();\n"
           "  p.x = 1; p.y = 2;\n"
-          "  Point q = new Point();\n"
-          "  q.a = 4; q.b = 5; q.c = 6;\n"
           "  io.print(p.sum());\n"
-          "  io.print(q.id());\n"
-          "  return p.sum() + q.id() - 18;\n"
+          "  return p.sum() - 3;\n"
           "}\n" } });
-    CapturingIo cap;
-    CHECK(compileRun(dir, cap) == 0, "isolated layouts run clean");
-    CHECK(cap.text == "3\n15\n", "library sum(1+2)=3, root id(4+5+6)=15");
+    CHECK(!compileDir(dir),
+          "a library Point and a root Point are a duplicate-class error");
 }
 
-//(1) D8: the path beats the shell name. The file is zlib.n but the shell
-//says namespace alib - the package must come from the path (zlib).
+//(1) D8 anchor: the package name has exactly one source — the file's
+//path. The shell-name relationship this test used to pin ("path beats
+//shell") is no longer expressible: `namespace` shells cannot be written
+//at all, so there is nothing for the path to "beat". The positive form
+//(a bare library source reached as `zlib.twice`) stays as the pin.
 static void TestPathBeatsShellName() {
     auto dir = scenarioDir("path_beats_shell");
     writeFiles(dir, {
         { "zlib.n",
-          "namespace alib {\n"
-          "int twice(int x) { return x * 2; }\n"
-          "}\n" },
+          "int twice(int x) { return x * 2; }\n" },
         { "main.n",
           "import zlib;\n"
           "int main() { return zlib.twice(3) - 6; }\n" } });
     CapturingIo cap;
-    CHECK(compileRun(dir, cap) == 0, "zlib.n with a mismatched shell still builds");
-    //(1b) reverse: qualifying with the SHELL name. Today this still
-    //resolves through the legacy `namespace` container (the shell merges
-    //into root; container retirement is Task 5's de-shell commit, and
-    //until then the container route cannot be gated without breaking
-    //project-local namespaces). D8's rejection form lands there; this
-    //pin documents the interim behavior so Task 5 flips it deliberately.
+    CHECK(compileRun(dir, cap) == 0, "bare zlib.n builds and resolves");
+    //(1b) reverse: qualifying with a name that is not an imported package.
+    //`alib` is neither a path-derived package nor an import here, so the
+    //call must be rejected as not-imported. (Pre-Task 5 this resolved
+    //through the legacy `namespace` container; the shell syntax is gone,
+    //so the container route is gone with it and the rejection is total.)
     auto dir2 = scenarioDir("path_beats_shell_neg");
-    writeFiles(dir2, { { "zlib.n", "namespace alib {\n"
-          "int twice(int x) { return x * 2; }\n}\n" },
+    writeFiles(dir2, { { "zlib.n",
+          "int twice(int x) { return x * 2; }\n" },
         { "main.n", "import zlib;\n"
           "int main() { return alib.twice(3); }\n" } });
-    CapturingIo cap2;
-    CHECK(compileRun(dir2, cap2) == 6,
-          "the shell name still resolves via the legacy container (Task 5 flips this)");
+    CHECK(!compileDir(dir2), "the shell name is not a use-site qualifier");
+    //Twin dir for the log: one build per output module name (the
+    //process-global registry refuses a second Create of the same name),
+    //and the failed build above already registered this scenario's name.
+    auto dir2Log = scenarioDir("path_beats_shell_neg_log");
+    writeFiles(dir2Log, { { "zlib.n",
+          "int twice(int x) { return x * 2; }\n" },
+        { "main.n", "import zlib;\n"
+          "int main() { return alib.twice(3); }\n" } });
+    CHECK(compileLog(dir2Log).find("Cannot resolve the field: alib")
+              != std::string::npos,
+          "a name that is no package and no import resolves as nothing");
 }
 
 //(2) Design §6 second rule: two same-named types in one package are a
@@ -651,12 +653,16 @@ static void TestDuplicateTypeInOnePackageRejected() {
     CHECK(compileLog(dirLog).find("is conflicted with a exist field definition")
               != std::string::npos,
           "the reachable duplicate-type diagnostic still fires (measured today)");
-    //(2b) cross-package same names are legal - the reverse control.
+    //(2b) cross-package same names used to be legal — the shell kept the
+    //declarations apart. Both land on the merged root now, so the
+    //duplicate-class rule (spec 5.5 name-equality) rejects the pair
+    //regardless of package.
     auto dir2 = scenarioDir("dup_type_ok");
-    writeFiles(dir2, { { "alib.n", "namespace alib {\nstruct Box { int a; }\n}\n" },
+    writeFiles(dir2, { { "alib.n", "struct Box { int a; }\n" },
         { "main.n", "import alib;\nstruct Box { int b; }\n"
-          "int main() { Box q; alib.Box p; return 0; }\n" } });
-    CHECK(compileDir(dir2), "same type name in different packages is legal");
+          "int main() { return 0; }\n" } });
+    CHECK(!compileDir(dir2),
+          "same type name across packages is a duplicate-class error now");
 }
 
 //(3) D10: an ambiguous literal type name must be diagnosed; a unique hit
@@ -666,7 +672,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     //table key alib.S, never the bare name.
     auto dir = scenarioDir("stream_literal_one");
     writeFiles(dir, {
-        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
+        { "alib.n", "struct S { int a; }\n" },
         { "main.n", "import alib;\n"
           "int main() {\n"
           "  ByteStream bs = new ByteStream();\n"
@@ -691,8 +697,8 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     //only difference is the extra import, so the pair is a real control.
     auto dir2 = scenarioDir("stream_literal_two");
     writeFiles(dir2, {
-        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
-        { "blib.n", "namespace blib {\nstruct S { int b; }\n}\n" },
+        { "alib.n", "struct S { int a; }\n" },
+        { "blib.n", "struct S { int b; }\n" },
         { "main.n", "import alib;\nimport blib;\n"
           "int main() {\n"
           "  ByteStream bs = new ByteStream();\n"
@@ -703,8 +709,8 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     CHECK(!compileDir(dir2), "two visible types named S fail");
     auto dir2Log = scenarioDir("stream_literal_two_log");   //twin for the log
     writeFiles(dir2Log, {
-        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
-        { "blib.n", "namespace blib {\nstruct S { int b; }\n}\n" },
+        { "alib.n", "struct S { int a; }\n" },
+        { "blib.n", "struct S { int b; }\n" },
         { "main.n", "import alib;\nimport blib;\n"
           "int main() {\n"
           "  ByteStream bs = new ByteStream();\n"
@@ -732,13 +738,14 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     CHECK(compileLog(dir3Log).find("type not found: NoSuchType")
               != std::string::npos,
           "the preserved bare wording is still the not-found path");
-    //(3d) the ambiguity advice says "qualify it (e.g. 'pkg.S')" - a
-    //dotted literal must really work, or the advice lies.
+    //(3d) a dotted literal names its package, so it round-trips with no
+    //ambiguity at all — the unique-hit shape in the qualified spelling.
+    //(The ambiguous advice scenario itself is a hard spec-5.5 conflict
+    //now — see (2b) — so the qualified form is pinned on its own.)
     auto dir4 = scenarioDir("stream_literal_qualified");
     writeFiles(dir4, {
-        { "alib.n", "namespace alib {\nstruct S { int a; }\n}\n" },
-        { "blib.n", "namespace blib {\nstruct S { int b; }\n}\n" },
-        { "main.n", "import alib;\nimport blib;\n"
+        { "alib.n", "struct S { int a; }\n" },
+        { "main.n", "import alib;\n"
           "int main() {\n"
           "  ByteStream bs = new ByteStream();\n"
           "  alib.S w; w.a = 4; bs.writeStruct(w); bs.reset();\n"
@@ -747,7 +754,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
           "}\n" } });
     CapturingIo cap4;
     CHECK(compileRun(dir4, cap4) == 0,
-          "the ambiguous advice form (a dotted literal) round-trips");
+          "a dotted literal round-trips on its own");
 }
 
 //(4) Step 8: the entryPoint write/read round trip.
@@ -794,42 +801,54 @@ static void TestTwoMainsRejected() {
           "the diagnostic names both candidates by their qualified key");
 }
 
-//(5) Design §8: the builtin Object and a user Object are two keys on
-//disk. Only the key shape is pinned here - the runtime use of a user
-//Object is blocked by the compiler-side bare-name short-circuits, which
-//this task does not touch, so the fixture uses fields only (no method).
+//(5) Design §8: the builtin Object and a library Object are two keys on
+//disk. The shell syntax is gone, so the old third shape — a ROOT-level
+//user Object beside a library one — is a cross-module duplicate-class
+//conflict now (spec 5.5 name-equality; the shell was the only thing that
+//kept those two declarations apart). Only the key shape is pinned here -
+//the runtime use of a user Object is blocked by the compiler-side
+//bare-name short-circuits, which no task touches, so fields only.
 static void TestBuiltinAndUserTypeNameCoexist() {
     auto dir = scenarioDir("object_key");
     writeFiles(dir, {
-        { "alib.n", "namespace alib {\nclass Object { public int tag; }\n}\n" },
+        { "alib.n", "class Object { public int tag; }\n" },
         { "main.n", "import alib;\n"
-          "class Object { public int marker; }\n"   //§8: root-level user Object
           "int main() {\n"
           "  alib.Object y = new alib.Object();\n"
           "  y.tag = 2;\n"
           "  return y.tag - 2;\n"
           "}\n" } });
-    CHECK(compileDir(dir),
-          "a library Object and a root Object build beside the builtin one");
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 0,
+          "a library Object builds and runs beside the builtin one");
     CompiledModule mod = ModuleLoader::Load(
         (dir / (dir.filename().string() + ".nmod")).string());
-    int nBare = 0, nLib = 0, nRoot = 0;
+    int nBare = 0, nLib = 0;
     for (const auto& c : mod.classes) {
         if (c.name == "Object") ++nBare;       //builtin: NO_OWNER => bare key
         if (c.name == "alib.Object") ++nLib;   //library: path-derived key
-        if (c.name == "main.Object") ++nRoot;  //project root TU: also packaged
     }
     CHECK(nLib == 1, "the library declares exactly one alib.Object key");
     CHECK(nBare == 1, "the builtin keeps its bare Object key and nothing else shares it");
-    CHECK(nRoot == 1, "the root-level user Object is keyed main.Object, not Object");
     //Keys apart, the layouts must point apart too: the builtin carries 0
-    //fields, each user declaration 1 (CompiledClass::fieldCount).
+    //fields, the library declaration 1 (CompiledClass::fieldCount).
     for (const auto& c : mod.classes) {
         if (c.name == "Object")
             CHECK(c.fieldCount == 0, "the bare key is the field-less builtin");
-        if (c.name == "main.Object")
-            CHECK(c.fieldCount == 1, "main.Object carries the user field");
+        if (c.name == "alib.Object")
+            CHECK(c.fieldCount == 1, "alib.Object carries the library field");
     }
+    //The old root-level user Object no longer coexists with a library
+    //Object: both land on root under one name, and the duplicate-class
+    //rule rejects the pair.
+    auto dir2 = scenarioDir("object_key_dup");
+    writeFiles(dir2, {
+        { "alib.n", "class Object { public int tag; }\n" },
+        { "main.n", "import alib;\n"
+          "class Object { public int marker; }\n"
+          "int main() { return 0; }\n" } });
+    CHECK(!compileDir(dir2),
+          "a root Object beside a library Object is a duplicate-class error");
 }
 
 } // namespace

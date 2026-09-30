@@ -74,13 +74,13 @@ void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
 			gate.exact.push_back(name);
 		return;
 	}
-	//A library namespace known to the index but not inlined this build —
+	//A library package known to the index but not inlined this build —
 	//its .n source was not found in the effective library dirs (a
-	//search-path problem). Report it instead of silently gating a namespace
+	//search-path problem). Report it instead of silently gating a package
 	//whose call path no longer exists (the legacy builtin codegen was removed).
 	if (isLibraryNamespace(name))
 	{
-		outErrors.push_back("Library namespace '" + name
+		outErrors.push_back("Library package '" + name
 			+ "' is indexed but its source was not found in the library "
 			"search path; check the configured search paths.");
 		return;
@@ -108,13 +108,13 @@ void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
 	const std::string name = spec.DottedName();
-	//A wildcard on a library namespace is rejected BEFORE the library
-	//branch — namespaces are not module trees, and a silently eaten '*'
+	//A wildcard on a library package is rejected BEFORE the library
+	//branch — packages are not module trees, and a silently eaten '*'
 	//would teach the wrong model.
 	if (spec.wildcard && isLibraryNamespace(name))
 	{
 		outErrors.push_back("Wildcard import cannot target library "
-			"namespace '" + name + "'. Use 'import " + name + ";'.");
+			"package '" + name + "'. Use 'import " + name + ";'.");
 		return;
 	}
 	if (spec.wildcard)

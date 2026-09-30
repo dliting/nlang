@@ -122,7 +122,7 @@ and run:
 The built-in namespaces (`io`/`math`/`fs`) also require an `import`
 before use — that is the `import io;` at the top of every snippet on
 this page that calls `io.print`; omitting it produces the compile error
-`Namespace 'io' is not imported`.
+`Package 'io' is not imported`.
 
 `import` also supports recursive wildcards: `import utils.*;` imports
 `utils/` and all of its nested subdirectories in one go (calls still

@@ -1,23 +1,23 @@
-// Standard library source for the "io" namespace — authoritative
+// Standard library source for the "io" package — authoritative
 // declarations, indexed by langservice::SymbolIndex and inlined into every
-// build. The native functions are implemented in the host (nlang_io.dll);
-// any plain NLang function would compile from this file. Edit freely.
-namespace io {
-    // Print a value to stdout followed by a newline and flush.
-    // The parameter is a string: int, float and array values convert
-    // implicitly (an array renders as e.g. [1, 2]); a class, interface
-    // or enum value must call .toString() first, and null is rejected.
-    native void print(string s);
-    // Read one line from stdin; trailing '\r' is stripped.
-    // EOF and an empty input line both return "".
-    native string readLine();
-    // Read a whole text file as bytes.
-    // Raises IOException on failure; capped at 16 MiB.
-    native string readFile(string path);
-    // Create or truncate path and write content.
-    // Raises IOException on failure.
-    native void writeFile(string path, string content);
-    // Create or append content to path.
-    // Raises IOException on failure.
-    native void appendFile(string path, string content);
-}
+// build. The package comes from this file's path (the stem "io"), not from
+// any in-file wrapper. The native functions are implemented in the host
+// (nlang_io.dll); any plain NLang function would compile from this file.
+// Edit freely.
+// Print a value to stdout followed by a newline and flush.
+// The parameter is a string: int, float and array values convert
+// implicitly (an array renders as e.g. [1, 2]); a class, interface
+// or enum value must call .toString() first, and null is rejected.
+native void print(string s);
+// Read one line from stdin; trailing '\r' is stripped.
+// EOF and an empty input line both return "".
+native string readLine();
+// Read a whole text file as bytes.
+// Raises IOException on failure; capped at 16 MiB.
+native string readFile(string path);
+// Create or truncate path and write content.
+// Raises IOException on failure.
+native void writeFile(string path, string content);
+// Create or append content to path.
+// Raises IOException on failure.
+native void appendFile(string path, string content);

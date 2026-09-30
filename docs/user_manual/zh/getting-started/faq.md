@@ -58,9 +58,7 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 ### 跨模块引用报 `Module '...' is not imported`？
 
 `import` 只开放**限定名**——`import lib;` 之后只能写 `lib.f()`，
-裸名 `f()` 不解析；跨目录**共享命名空间**（两个文件声明同一个
-`namespace NS`）的成员目前从另一目录不可达，既没有裸名形式也没有
-限定形式。各引用形式的可见性规则见
+裸名 `f()` 不解析。各引用形式的可见性规则见
 [语言规格/声明](../language-spec/declarations.md) 的「import 声明」。
 完整错误消息见 → [常见错误消息](../language-spec/common-errors.md)。
 

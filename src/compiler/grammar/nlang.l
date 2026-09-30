@@ -171,7 +171,6 @@ LineComment	\/\/[^\n]*
 "in"        { return KT_In; }
 "int"       { return KT_Int; }
 "interface" { return KT_Interface; }
-"namespace" { return KT_Namespace; }
 "native"    { return KT_Native; }
 "new"       { return KT_New; }
 "null"      { return KT_Null; }

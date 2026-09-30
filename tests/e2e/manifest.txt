@@ -1007,7 +1007,7 @@ foreach_string_reject compile_error the foreach source must be an array, List, o
 # Module import visibility (Task 10): single-file error matrix. Column 3
 # pins the exact rejection sentence from spec section 7; the project-mode
 # (.nproj) half of the matrix is gated by ctest (proj_* entries).
-import_io_missing compile_error Namespace 'io' is not imported. Add 'import io;' at the top of this file.
+import_io_missing compile_error Package 'io' is not imported. Add 'import io;' at the top of this file.
 import_dotted_singlefile compile_error Module 'utils.helper' not found. Check the project Sources list or -I import path.
 import_not_found compile_error Module 'nosuch' not found. Check the project Sources list or -I import path.
 import_string_form compile_error String import is removed. Use 'import <module>;' with an identifier path.

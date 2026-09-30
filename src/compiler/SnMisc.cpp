@@ -75,7 +75,7 @@ void SnNamespace::MergeFrom(SnNamespace &other, BuildEnvironment &env)
 		default:
 			assert(mak == MAK_Conflicted && pExisted);
 			env.Log(CLL_Error, pOther->Location(),
-				"The namespace member \"%s\" has has already been defined.",
+				"The package member \"%s\" has already been defined.",
 				pOther->Name().c_str());
 			env.Log(CLL_Error, pExisted->Location(),
 				"See also the definition of  \"%s\".",
@@ -188,7 +188,7 @@ SnUsing::SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc) :
 		if (pField->Kind() == NK_Namespace)
 			return true;
 		env.Log(CLL_Error, path.Location(),
-			"The field \"%s\" is not a namespace.",
+			"The field \"%s\" is not a package.",
 			pField->ToString().c_str());
 		env.Log(CLL_More, pField->Location(),
 			"See the declaration of \"%s\".",

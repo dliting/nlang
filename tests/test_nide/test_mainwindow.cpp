@@ -608,12 +608,12 @@ private slots:
         QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
         CodeEditor* lib = currentCode(window);
         QVERIFY(lib != nullptr && lib != src);
-        QVERIFY(lib->toPlainText().contains("namespace io"));
+        QVERIFY(lib->toPlainText().contains("native void print"));
         // The cursor landed on the print declaration line.
         QVERIFY(lib->textCursor().block().text().contains("print"));
     }
 
-    void testCompletionAfterNamespaceDot() {
+    void testCompletionAfterPackageDot() {
         MainWindow window;
         QTemporaryDir dir;
         const QString srcPath = QDir(dir.path()).filePath("snippet.n");

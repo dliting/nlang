@@ -1,4 +1,4 @@
-// Phase 11 Step 0 canary: one namespace-qualified intrinsic call through
+// Phase 11 Step 0 canary: one package-qualified intrinsic call through
 // the whole pipeline (resolver intercept -> OP_CallIntrinsic codegen ->
 // .nmod -> VM execution).
 import math;

@@ -63,7 +63,7 @@ Error: Module 'nosuch' not found. Check the project Sources list or -I import pa
 `import` only opens qualified names. Referencing a member of an
 unimported builtin namespace (or a known project module) without
 importing it reports a "not imported" diagnostic — for example, calling
-`io.print` without `import io;` reports `Namespace 'io' is not imported.
+`io.print` without `import io;` reports `Package 'io' is not imported.
 Add 'import io;' at the top of this file.`. See →
 [Declarations](declarations.md) "Import Declaration". Full forms: e2e
 cases `import_not_found`, `import_io_missing`, `import_dotted_singlefile`,

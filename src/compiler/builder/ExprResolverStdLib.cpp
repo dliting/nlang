@@ -80,12 +80,12 @@ bool ExprResolveAccessor::RejectUnimportedModuleCall(
 		return false;
 	if (modulePath.find('.') == std::string::npos)
 	{
-		//Single-segment path. A library namespace (io/math/fs or a
-		//third-party namespace) reads "Namespace"; an external .nmod reads
+		//Single-segment path. A library package (io/math/fs or a
+		//third-party package) reads "Package"; an external .nmod reads
 		//"Module". No wildcard is suggested — it never matches a
 		//single-segment name (§3.3); the exact form always suffices.
 		const char *pKind = m_Env.IsLibraryNamespace(modulePath)
-			? "Namespace" : "Module";
+			? "Package" : "Module";
 		m_Env.Log(CLL_Error, snMember.Location(),
 			"%s '%s' is not imported. Add 'import %s;' at the top "
 			"of this file.", pKind, modulePath.c_str(), modulePath.c_str());
@@ -204,6 +204,83 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 	if (!ResolveModuleQualifiedCallee(snMember, invoke, modulePath))
 		return true;
 
+	FinishModuleQualifiedMember(snMember);
+	return true;
+}
+
+//Shape split of a qualified-value chain (the file-local prologue of
+//TryResolveQualifiedTypeValue): pkg[.sub].Type.member — the member is
+//the last segment, the type the second-to-last, everything before them
+//the module path. False when the chain is shorter than pkg.Type.member
+//(no shorter value shape exists).
+static bool SplitQualifiedName(std::vector<std::string> &rSegs,
+	std::string &rModulePath, std::string &rTypeName,
+	std::string &rMemberName)
+{
+	if (rSegs.size() < 3)
+		return false;
+	rMemberName = rSegs.back();
+	rTypeName = rSegs[rSegs.size() - 2];
+	for (size_t i = 0; i + 2 < rSegs.size(); ++i)
+	{
+		if (!rModulePath.empty())
+			rModulePath += ".";
+		rModulePath += rSegs[i];
+	}
+	return true;
+}
+
+//Phase 5: package-qualified VALUE access — the `alib.Color.Green`
+//enum-constant chain, resolved through the registry (see the header
+//declaration for the route contract). True = consumed (resolved or
+//diagnosed); false = declined, the generic path keeps the expression.
+bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
+{
+	std::vector<std::string> segs = OuterIdentifierChain(snMember);
+	if (segs.empty()
+		|| !snMember.Inner()
+		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
+		return false;
+	segs.push_back(
+		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
+
+	//m12 priority: the leftmost local/field/type wins (as for calls).
+	if (ProbeNonFunctionField(segs.front())
+		|| IsBuiltinClassName(segs.front()))
+		return false;
+
+	std::string modulePath, typeName, memberName;
+	if (!SplitQualifiedName(segs, modulePath, typeName, memberName))
+		return false;
+
+	auto &reg = m_Env.Registry();
+	if (!reg.IsKnownModule(modulePath)
+		&& !m_Env.IsLibraryNamespace(segs.front()))
+		return false;
+
+	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
+		return true;
+
+	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	if (pType == nullptr)
+	{
+		m_Env.Log(CLL_Error, snMember.Location(),
+			"Type '%s' is not a member of package '%s'.",
+			typeName.c_str(), modulePath.c_str());
+		FinishModuleQualifiedMember(snMember);
+		return true;
+	}
+	if (pType->Kind() != NK_EnumDecl)
+		return false;   //value members of other type kinds: the generic path
+
+	SnField *pMember = pType->FindField(memberName);   //miss: generic path names it
+	if (pMember == nullptr)
+		return false;
+
+	//Bind tip + member exactly like FinishResolvedMember does.
+	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()),
+		pMember);
+	ResolveFieldExprAs(snMember, pMember);
 	FinishModuleQualifiedMember(snMember);
 	return true;
 }

@@ -114,7 +114,7 @@ int answer() { return 42; }
 
 内建命名空间（`io`/`math`/`fs`）同样要先 `import` 才能调用——本页每个
 用到 `io.print` 的片段顶部的 `import io;` 就是它；漏写会得到编译错误
-「Namespace 'io' is not imported」。
+「Package 'io' is not imported」。
 
 `import` 还支持递归通配：`import utils.*;` 一次性导入 `utils/` 及其全部
 嵌套子目录（调用仍写全限定 `utils.helper.f()`）。重复导入、通配与精确

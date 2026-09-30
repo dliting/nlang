@@ -63,11 +63,11 @@ std::vector<ParamInfo> ParseParams(const std::string& text) {
 
 // Build a SymbolInfo from a declaration regex match.
 SymbolInfo BuildSymbol(const std::smatch& m,
-                       const std::string& currentNs,
+                       const std::string& package,
                        const std::vector<std::string>& pendingDoc,
                        const std::string& path, int lineNo) {
     SymbolInfo sym;
-    sym.ns = currentNs;
+    sym.ns = package;
     sym.native = m[1].matched;
     sym.returnType = Trim(m[2].str());
     sym.returnKind = TypeKindFromName(sym.returnType);
@@ -79,44 +79,25 @@ SymbolInfo BuildSymbol(const std::smatch& m,
     return sym;
 }
 
-// Tracks the current namespace while scanning a declaration file. The
-// opening brace is accepted on the same line as `namespace name` (K&R) or
-// on the following line (Allman); a lone '}' closes the namespace.
-class NamespaceScope {
-public:
-    // Feed one raw line. True when the line is namespace structure (a
-    // head, an Allman brace, or a close) and holds no declaration.
-    bool ConsumeStructure(const std::string& line) {
-        const std::string t = Trim(line);
-        // Complete a pending Allman head: this line must be '{'.
-        if (!m_pending.empty()) {
-            if (t == "{")
-                m_current = m_pending;
-            m_pending.clear();
-            return true;
+// The symbol's package = the file's path made relative to the library root
+// and dotted ("net/http.n" -> "net.http"), falling back to the file stem
+// outside any root — the same rule as the compiler's DeriveModulePath, so
+// the index cannot disagree with the compiler about a file's package
+// (phase 5 removed the `namespace` shell syntax; the path is the only
+// package source).
+std::string PackageFromFilePath(const fs::path& file, const fs::path& root) {
+    if (!root.empty()) {
+        std::error_code fsError;
+        const fs::path rel = fs::relative(file, root, fsError);
+        if (!fsError && !rel.empty()) {
+            std::string dotted = rel.stem().string();
+            for (const fs::path& part : rel.parent_path())
+                dotted = part.string() + "." + dotted;
+            return dotted;
         }
-        static const std::regex kHead(
-            R"(^\s*namespace\s+(\w+)\s*(\{)?\s*$)");
-        std::smatch m;
-        if (std::regex_match(line, m, kHead)) {
-            if (m[2].matched)
-                m_current = m[1].str();
-            else
-                m_pending = m[1].str();
-            return true;
-        }
-        if (t == "}") {
-            m_current.clear();
-            return true;
-        }
-        return false;
     }
-
-    const std::string& Current() const { return m_current; }
-private:
-    std::string m_current;
-    std::string m_pending;
-};
+    return file.stem().string();
+}
 
 // Net '{' minus '}' on a line, ignoring braces inside string/char literals
 // and after a '//' comment, so a '}' written in text or a comment does not
@@ -140,19 +121,14 @@ int NetBraces(const std::string& line) {
     return net;
 }
 
-//Consume one source line during indexing: namespace structure, a body's
-//braces, doc comments, or a declaration. Updates scope/pendingDoc/bodyDepth
-//and appends a recognized declaration to symbols.
+//Consume one source line during indexing: a body's braces, doc comments,
+//or a declaration. Updates pendingDoc/bodyDepth and appends a recognized
+//declaration to symbols. Every declaration belongs to `package` — the
+//file's path-derived package; there is no in-file scope syntax anymore.
 bool ConsumeIndexLine(const std::string& line, const std::string& trimmed,
-    NamespaceScope& scope, std::vector<std::string>& pendingDoc,
+    const std::string& package, std::vector<std::string>& pendingDoc,
     int& bodyDepth, const std::string& path, int lineNo,
     std::vector<SymbolInfo>& symbols) {
-    if (bodyDepth == 0 && scope.ConsumeStructure(line)) {
-        pendingDoc.clear();
-        return true;
-    }
-    if (scope.Current().empty())
-        return false;
     if (bodyDepth > 0) {
         bodyDepth += NetBraces(line);
         if (bodyDepth < 0) bodyDepth = 0;
@@ -167,7 +143,7 @@ bool ConsumeIndexLine(const std::string& line, const std::string& trimmed,
     std::smatch m;
     if (std::regex_match(line, m, kDecl)) {
         symbols.push_back(
-            BuildSymbol(m, scope.Current(), pendingDoc, path, lineNo));
+            BuildSymbol(m, package, pendingDoc, path, lineNo));
         pendingDoc.clear();
         bodyDepth = std::max(0, NetBraces(line));
     } else if (!trimmed.empty()) {
@@ -205,22 +181,9 @@ void SymbolIndex::Clear() {
 }
 
 void SymbolIndex::LoadFile(const std::string& path) {
-    std::ifstream in(path);
-    if (!in)
-        return;
-    NamespaceScope scope;
-    std::vector<std::string> pendingDoc;
-    std::string line;
-    int lineNo = 0;
-    //Brace depth inside the function body currently being scanned, so a
-    //body's '}' is not mistaken for the namespace close. 0 = directly in
-    //the namespace, where declarations are recognized.
-    int bodyDepth = 0;
-    while (std::getline(in, line)) {
-        ++lineNo;
-        ConsumeIndexLine(line, Trim(line), scope, pendingDoc, bodyDepth,
-            path, lineNo, m_symbols);
-    }
+    //No library root in context: the package degenerates to the file stem
+    //(same degenerate branch as the compiler's DeriveModulePath).
+    LoadFileWithPackage(path, PackageFromFilePath(fs::path(path), {}));
 }
 
 void SymbolIndex::LoadFileOnce(const std::string& path) {
@@ -242,7 +205,27 @@ void SymbolIndex::LoadLibraryDir(const std::string& dir) {
     }
     std::sort(files.begin(), files.end());
     for (const fs::path& f : files)
-        LoadFile(f.string());
+        LoadFileWithPackage(f.string(),
+            PackageFromFilePath(f, p));
+}
+
+void SymbolIndex::LoadFileWithPackage(const std::string& path,
+    const std::string& package) {
+    std::ifstream in(path);
+    if (!in)
+        return;
+    std::vector<std::string> pendingDoc;
+    std::string line;
+    int lineNo = 0;
+    //Brace depth inside the function body currently being scanned, so a
+    //body's '}' is not mistaken for a declaration boundary. 0 = top level,
+    //where declarations are recognized.
+    int bodyDepth = 0;
+    while (std::getline(in, line)) {
+        ++lineNo;
+        ConsumeIndexLine(line, Trim(line), package, pendingDoc, bodyDepth,
+            path, lineNo, m_symbols);
+    }
 }
 
 const SymbolInfo* SymbolIndex::Resolve(const std::string& ns,

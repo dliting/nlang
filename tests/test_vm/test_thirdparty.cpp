@@ -27,9 +27,6 @@
 #ifndef FIXTURE_DIR
 #define FIXTURE_DIR ""
 #endif
-#ifndef SOURCE_FIXTURE_DIR
-#define SOURCE_FIXTURE_DIR ""
-#endif
 #ifndef MIX_SOURCE_FIXTURE_DIR
 #define MIX_SOURCE_FIXTURE_DIR ""
 #endif
@@ -63,11 +60,9 @@ fs::path packageDir() {
 }
 
 const char* kMylibSource =
-    "namespace mylib {\n"
     "native int add(int a, int b);\n"
     "native int mul(int a, int b);\n"
-    "native string greet(string who);\n"
-    "}\n";
+    "native string greet(string who);\n";
 
 const char* kProgram =
     "import io;\n"

@@ -126,7 +126,6 @@ target_compile_definitions(test_thirdparty
         FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_mylib>"
         MYLIB_DLL_NAME="$<TARGET_FILE_NAME:nlang_mylib>"
         MIXLIB_DLL_NAME="$<TARGET_FILE_NAME:nlang_mixlib>"
-        SOURCE_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/native/mylib"
         MIX_SOURCE_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/native/mixlib"
 )
 add_dependencies(test_thirdparty nlang_mylib nlang_mixlib)

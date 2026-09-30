@@ -1,65 +1,63 @@
-// Standard library source for the "math" namespace — authoritative
+// Standard library source for the "math" package — authoritative
 // declarations, indexed by langservice::SymbolIndex and inlined into every
 // build. The native functions are implemented in the host (nlang_math.dll);
 // any plain NLang function would compile from this file. Edit freely.
-namespace math {
-    // Square root of x.
-    native float sqrt(float x);
-    // Sine of x; x is in radians.
-    native float sin(float x);
-    // Cosine of x; x is in radians.
-    native float cos(float x);
-    // Tangent of x; x is in radians.
-    native float tan(float x);
-    // Arc sine; result is in radians.
-    native float asin(float x);
-    // Arc cosine; result is in radians.
-    native float acos(float x);
-    // Arc tangent; result is in radians.
-    native float atan(float x);
-    // Two-argument arc tangent of (y, x);
-    // same argument order as C/C++ atan2.
-    native float atan2(float y, float x);
-    // x raised to the power y.
-    native float pow(float x, float y);
-    // e raised to the power x.
-    native float exp(float x);
-    // Natural logarithm (ln) of x.
-    native float log(float x);
-    // Absolute value of an int.
-    // Raises Exception for INT_MIN.
-    native int absi(int x);
-    // Absolute value of a float.
-    native float absf(float x);
-    // Smaller of two ints.
-    native int mini(int a, int b);
-    // Larger of two ints.
-    native int maxi(int a, int b);
-    // Smaller of two floats.
-    native float minf(float a, float b);
-    // Larger of two floats.
-    native float maxf(float a, float b);
-    // Clamp value into the closed range [lo, hi].
-    // Raises Exception when lo > hi.
-    native int clampi(int value, int lo, int hi);
-    // Clamp value into the closed range [lo, hi].
-    // Raises Exception when lo > hi.
-    native float clampf(float value, float lo, float hi);
-    // Round down toward negative infinity; returns int.
-    // Raises Exception on overflow or NaN.
-    native int floor(float x);
-    // Round up toward positive infinity; returns int.
-    // Raises Exception on overflow or NaN.
-    native int ceil(float x);
-    // Round half away from zero; returns int.
-    // Raises Exception on overflow or NaN.
-    native int round(float x);
-    // Next PRNG float in [0, 1).
-    native float random();
-    // Re-seed the PRNG with an explicit seed;
-    // the sequence is then deterministic.
-    native void srand(int x);
-    // Random int in the closed range [min, max].
-    // Raises Exception when min > max.
-    native int randomi(int min, int max);
-}
+// Square root of x.
+native float sqrt(float x);
+// Sine of x; x is in radians.
+native float sin(float x);
+// Cosine of x; x is in radians.
+native float cos(float x);
+// Tangent of x; x is in radians.
+native float tan(float x);
+// Arc sine; result is in radians.
+native float asin(float x);
+// Arc cosine; result is in radians.
+native float acos(float x);
+// Arc tangent; result is in radians.
+native float atan(float x);
+// Two-argument arc tangent of (y, x);
+// same argument order as C/C++ atan2.
+native float atan2(float y, float x);
+// x raised to the power y.
+native float pow(float x, float y);
+// e raised to the power x.
+native float exp(float x);
+// Natural logarithm (ln) of x.
+native float log(float x);
+// Absolute value of an int.
+// Raises Exception for INT_MIN.
+native int absi(int x);
+// Absolute value of a float.
+native float absf(float x);
+// Smaller of two ints.
+native int mini(int a, int b);
+// Larger of two ints.
+native int maxi(int a, int b);
+// Smaller of two floats.
+native float minf(float a, float b);
+// Larger of two floats.
+native float maxf(float a, float b);
+// Clamp value into the closed range [lo, hi].
+// Raises Exception when lo > hi.
+native int clampi(int value, int lo, int hi);
+// Clamp value into the closed range [lo, hi].
+// Raises Exception when lo > hi.
+native float clampf(float value, float lo, float hi);
+// Round down toward negative infinity; returns int.
+// Raises Exception on overflow or NaN.
+native int floor(float x);
+// Round up toward positive infinity; returns int.
+// Raises Exception on overflow or NaN.
+native int ceil(float x);
+// Round half away from zero; returns int.
+// Raises Exception on overflow or NaN.
+native int round(float x);
+// Next PRNG float in [0, 1).
+native float random();
+// Re-seed the PRNG with an explicit seed;
+// the sequence is then deterministic.
+native void srand(int x);
+// Random int in the closed range [min, max].
+// Raises Exception when min > max.
+native int randomi(int min, int max);

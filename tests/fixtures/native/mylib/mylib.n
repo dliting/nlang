@@ -1,32 +1,30 @@
 // mylib.n - an example third-party MIXED library (native + NLang).
 //
-// This file declares the public surface of the "mylib" package. A
-// function marked `native` (add/mul/greet) is implemented outside
-// NLang in nlang_mylib.dll (mylib_native.cpp) and loaded through the
-// same NativeHost ABI as the standard library. A plain function
-// (addTwice) is NLang: its body below is compiled from this file and
-// may call the native members by their bare names.
+// This file declares the public surface of the "mylib" package; the
+// package comes from the file's path (the stem "mylib"), not from any
+// in-file wrapper. A function marked `native` (add/mul/greet) is
+// implemented outside NLang in nlang_mylib.dll (mylib_native.cpp) and
+// loaded through the same NativeHost ABI as the standard library. A
+// plain function (addTwice) is NLang: its body below is compiled from
+// this file and may call the native members by their bare names.
 //
 // Shipping layout: put this file and nlang_mylib.dll in the same
 // directory, add that directory to the import path (ncc -I, or the
 // search paths configured in the IDE), and `import mylib;`.
-namespace mylib
-{
-    // Return the sum of two integers.
-    native int add(int a, int b);
+// Return the sum of two integers.
+native int add(int a, int b);
 
-    // Return the product of two integers.
-    native int mul(int a, int b);
+// Return the product of two integers.
+native int mul(int a, int b);
 
-    // Return a greeting for the given name, e.g. greet("NLang") ->
-    // "hello, NLang".
-    native string greet(string who);
+// Return a greeting for the given name, e.g. greet("NLang") ->
+// "hello, NLang".
+native string greet(string who);
 
-    // NLang-implemented wrapper (no native keyword): twice the native
-    // add. A mixed library — ordinary NLang code in the same namespace
-    // calls the native function by its bare name; this body is compiled
-    // from this file, only add() is dispatched to the DLL.
-    int addTwice(int a, int b) {
-        return add(a, b) + add(a, b);
-    }
+// NLang-implemented wrapper (no native keyword): twice the native
+// add. A mixed library — ordinary NLang code in the same package
+// calls the native function by its bare name; this body is compiled
+// from this file, only add() is dispatched to the DLL.
+int addTwice(int a, int b) {
+    return add(a, b) + add(a, b);
 }

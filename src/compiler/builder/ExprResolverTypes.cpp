@@ -352,7 +352,7 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 	if (pType == nullptr)
 	{
 		m_Env.Log(CLL_Error, qtype.Location(),
-			"Type '%s' is not a member of namespace '%s'.",
+			"Type '%s' is not a member of package '%s'.",
 			qtype.TypeName().c_str(), nsPath.c_str());
 		return;
 	}
@@ -360,17 +360,17 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 	ResolveFieldExprAs(qtype, pType);
 }
 
-//Phase 4b: the namespace named by a qualified type is not imported into
+//Phase 4b: the package named by a qualified type is not imported into
 //the current TU — name the fix (mirrors RejectUnimportedModuleCall).
 void ExprResolveAccessor::RejectUnimportedQualifiedType(
 	SnQualifiedTypeExpr &qtype, const std::string &nsPath)
 {
-	//Single-segment: "Namespace" for a library namespace, "Module" for an
+	//Single-segment: "Package" for a library package, "Module" for an
 	//external .nmod; a dotted (nested) path is always a module.
 	const char *pKind = "Module";
 	if (nsPath.find('.') == std::string::npos
 		&& m_Env.IsLibraryNamespace(nsPath))
-		pKind = "Namespace";
+		pKind = "Package";
 	m_Env.Log(CLL_Error, qtype.Location(),
 		"%s '%s' is not imported. Add 'import %s;' at the top of this "
 		"file before using type '%s'.",

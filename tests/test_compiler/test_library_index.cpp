@@ -43,9 +43,14 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 38 functions: io 5, math 25, fs 8.
+    // 38 functions: io 5, math 25, fs 8. The count is unchanged by the
+    // phase 5 index rewrite: the index counts declaration lines, and only
+    // each symbol's package source moved — from an in-file `namespace`
+    // head to the file's path-derived package (the stem).
     CHECK(env.LibraryIndex().size() == 38);
 
+    //The "io" in this lookup now comes from the file's PATH (the stem of
+    //io.n), not from any in-file head — same string, new source of truth.
     const langservice::SymbolInfo* print =
         env.LibraryIndex().Resolve("io", "print");
     CHECK(print != nullptr);

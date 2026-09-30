@@ -212,11 +212,10 @@ private:
 		std::vector<std::string>& outErrors,
 		const LibraryNamespacePredicate& isLibraryNamespace) const;
 
-	//Same-name functions of a compiled-in module owned by moduleIndex. An
-	//inline library TU keeps them in `namespace <path>`; a project module
-	//uses root-level free functions.
+	//Same-name functions of a compiled-in module owned by moduleIndex.
+	//Every member sits on the unit root with its owner tag (phase 5
+	//removed the shell syntax); the owner tag is the only membership rule.
 	std::vector<SnFunction*> CompiledInFunctions(uint32_t moduleIndex,
-		const std::string& path,
 		const std::string& calleeName) const;
 
 	//Wildcard arm of ApplyImportSpec (D11 union semantics): the exact

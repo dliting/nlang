@@ -200,7 +200,6 @@ static bool CollectQualifiedSegments(
     nlang::PtrList<nlang::SnUsing> *		v_pUsingList;
     std::vector<nlang::ImportSpec> *		v_pImportList;
     nlang::ImportSpec *						v_pImportSpec;
-	nlang::SnNamespace *					v_pNamespace;
     nlang::SnFunction  *      				v_pFunction;
 	nlang::PtrList<nlang::SnFormalParam> *	v_pFormalParamList;
 	nlang::SnFormalParam *					v_pFormalParam;
@@ -279,7 +278,6 @@ static bool CollectQualifiedSegments(
 %type <v_pUsingList>			UsingList
 %type <v_pImportList>			ImportList
 %type <v_pImportSpec>			ImportPath ImportTail
-%type <v_pNamespace>			Namespace
 %type <v_pField>				NamespaceMember
 %type <v_pMemberList>			NamespaceMemberList
 %type <v_pFormalParam>			FormalParam
@@ -368,7 +366,6 @@ static bool CollectQualifiedSegments(
 %token KT_In
 %token KT_Int
 %token KT_Interface
-%token KT_Namespace
 %token KT_Native
 %token KT_New
 %token KT_Null
@@ -543,10 +540,9 @@ NamespaceMemberList:	NamespaceMemberList NamespaceMember {
 								$$ = new PtrList<SnField>();
 							} ;
 
-NamespaceMember:	Namespace {
-							$$ = $1;
-						} |
-						Function {
+//File-top member table; the container is the file's own package (the
+//path-derived unit — Phase 5 removed the `namespace` shell syntax).
+NamespaceMember:	Function {
 							$$ = $1;
 						} |
 						EnumDecl {
@@ -561,10 +557,6 @@ NamespaceMember:	Namespace {
 						InterfaceDecl {
 							$$ = $1;
 						} ;
-
-Namespace:	KT_Namespace TT_Identifier '{' NamespaceMemberList '}' {
-					$$ = new SnNamespace($2, $4, @1);
-				} ;
 
 Function:	FunctionHeader FunctionBody {
 					$1->Body($2);

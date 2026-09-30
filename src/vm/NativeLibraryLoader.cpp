@@ -122,7 +122,7 @@ void NativeLibraryLoader::EnsureLoaded(
         }
         throw std::runtime_error(
             "cannot find native module '" + ModuleFileName(ns)
-            + "' for namespace '" + ns + "'; searched:\n" + searched);
+            + "' for package '" + ns + "'; searched:\n" + searched);
     }
 
     void* handle = OpenShared(path);

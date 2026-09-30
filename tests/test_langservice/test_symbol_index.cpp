@@ -92,15 +92,15 @@ static void TestCompletion() {
 
 static void TestNlangFunctionIsNotNative() {
     // A function declared without 'native' must index as native=false.
+    // The file is bare source now (no wrapper): the package comes from
+    // the file stem "mylib".
     fs::path tmp = fs::temp_directory_path() / "nlang_ls_nonnative";
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "mylib.n")
-        << "namespace mylib {\n"
-        << "    // Add two ints.\n"
-        << "    int add(int a, int b) {\n"
-        << "        return a + b;\n"
-        << "    }\n"
+        << "// Add two ints.\n"
+        << "int add(int a, int b) {\n"
+        << "    return a + b;\n"
         << "}\n";
 
     SymbolIndex index;
@@ -115,14 +115,18 @@ static void TestNlangFunctionIsNotNative() {
     fs::remove_all(tmp);
 }
 
-static void TestAllmanNamespaceBraces() {
-    // The namespace opening brace may sit on its own line (Allman style);
-    // the indexer must still recognize the namespace and its declarations.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_allman";
+static void TestPackageComesFromFilePath() {
+    // The scanner reads no in-file head anymore (phase 5 removed the
+    // shell syntax): the package is the file's path stem. Even a file
+    // whose text still wraps declarations in a `namespace fake` block
+    // indexes under the stem "mylib", and the head name must not mint a
+    // second package. (This replaces the former Allman-braces pin — the
+    // head it recognized no longer exists.)
+    fs::path tmp = fs::temp_directory_path() / "nlang_ls_pkgstem";
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "mylib.n")
-        << "namespace mylib\n"
+        << "namespace fake\n"
         << "{\n"
         << "native int add(int a, int b);\n"
         << "native string greet(string who);\n"
@@ -131,6 +135,7 @@ static void TestAllmanNamespaceBraces() {
     SymbolIndex index;
     index.LoadFile((tmp / "mylib.n").string());
     CHECK(index.HasNamespace("mylib"));
+    CHECK(!index.HasNamespace("fake"));
     const SymbolInfo* add = index.Resolve("mylib", "add");
     CHECK(add != nullptr && add->native);
     const SymbolInfo* greet = index.Resolve("mylib", "greet");
@@ -221,7 +226,7 @@ int main() {
     TestSemanticParamNames();
     TestCompletion();
     TestNlangFunctionIsNotNative();
-    TestAllmanNamespaceBraces();
+    TestPackageComesFromFilePath();
     TestFindStdLibDir();
     TestTypeKinds();
     TestClear();

@@ -5,9 +5,10 @@
  * signature help, completion and go-to-definition.
  *
  * The index is deliberately self-contained: it parses the small, regular
- * declaration surface (namespace blocks, native / nlang function decls with
- * leading '//' doc comments) and depends only on the C++ standard library.
- * Full semantic analysis of user source is a later phase.
+ * declaration surface (top-level native / nlang function decls with leading
+ * '//' doc comments; each file's package comes from its path) and depends
+ * only on the C++ standard library. Full semantic analysis of user source
+ * is a later phase.
  */
 #pragma once
 
@@ -88,6 +89,12 @@ public:
     std::size_t size() const { return m_symbols.size(); }
 
 private:
+    // Index one .n file whose package is already known (the path-derived
+    // package; LoadLibraryDir supplies the library root, LoadFile falls
+    // back to the file stem).
+    void LoadFileWithPackage(const std::string& path,
+                             const std::string& package);
+
     std::vector<SymbolInfo> m_symbols;
     std::unordered_set<std::string> m_loadedFiles;
 };

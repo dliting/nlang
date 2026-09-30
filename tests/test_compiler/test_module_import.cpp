@@ -6,7 +6,7 @@ In-process ModuleBuilder coverage of the compile-time module registry
 relative to BuildParams::m_sProjectDir, the single-file stem fallback,
 the reserved path-segment gate, the per-TU import gates with their
 external .nmod stub tables, and the owner tags MergeTransUnits stamps
-on every merged TU member (top-level and nested-namespace members).
+on every merged TU member (top-level and container members).
 ---*/
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
@@ -23,10 +23,12 @@ on every merged TU member (top-level and nested-namespace members).
 #include <nlang/vm/CompiledModule.h>
 #include "ModuleLoader.h"
 #include "VmExecutor.h"
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -144,7 +146,7 @@ uint32_t moduleIndexOfPath(const ModuleRegistry& reg,
     return ModuleRegistry::NO_OWNER;
 }
 
-//First member of the given kind and name in a namespace member list;
+//First member of the given kind and name in a member list;
 //null when absent.
 const SnField* findMember(
     const SnFunctionParentField::MemberList& members,
@@ -198,6 +200,7 @@ struct GateProjectOptions
     const char* szHelperBody = nullptr;   //explicit helper.n body
     const char* szExtraBody = nullptr;    //explicit extra.n body
     bool withUtils2MyClass = false;  //also register utils2/MyClass.n
+    bool withCoreHelper = false;     //also register core/helper.n (same stem, other dir)
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
@@ -225,6 +228,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     fs::create_directories(out, fsError);
     fs::create_directories(proj / "utils" / "sub", fsError);
     fs::create_directories(proj / "utils2", fsError);
+    fs::create_directories(proj / "core", fsError);
     auto writeFile = [](const fs::path& file, const char* szBody)
     {
         std::ofstream stream(file, std::ios::binary);
@@ -258,6 +262,10 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         (!opts.withUtils2MyClass ||
             writeFile(proj / "utils2" / "MyClass.n",
                 "int m() { return 8; }\n")) &&
+        (!opts.withCoreHelper ||
+            writeFile(proj / "core" / "helper.n",
+                "int help() { return 5; }\n"
+                "struct Cfg { int c; }\n")) &&
         writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
@@ -311,6 +319,9 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     if (opts.withUtils2MyClass)
         res.params->m_SourceFiles.push_back(
             (proj / "utils2" / "MyClass.n").string());
+    if (opts.withCoreHelper)
+        res.params->m_SourceFiles.push_back(
+            (proj / "core" / "helper.n").string());
     res.params->m_ImportDirs.push_back(out.string());
     res.params->m_sOutputModule =
         "gate_test_" + std::to_string(++gateRunCount);
@@ -540,17 +551,17 @@ private slots:
         QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
     }
 
-    //D10: a wildcard on a library namespace is rejected — namespaces
+    //D10: a wildcard on a library package is rejected — packages
     //are not module trees (the '*' would be silently eaten).
     void builtinWildcardRejected()
     {
         auto res = buildGateProject({
             "import io.*;\n"
             "int main() { return 0; }\n"});
-        QVERIFY2(!res.ok, "library namespace wildcard must fail the build");
+        QVERIFY2(!res.ok, "library package wildcard must fail the build");
         QVERIFY2(containsError(res.errors,
-            "Wildcard import cannot target library namespace 'io'."),
-            "library namespace wildcard must get the dedicated diagnostic");
+            "Wildcard import cannot target library package 'io'."),
+            "library package wildcard must get the dedicated diagnostic");
     }
 
     //D10: a wildcard matching no project TU module path is almost
@@ -791,14 +802,15 @@ private slots:
 
     //F18: MergeTransUnits tags every merged TU member with its owning
     //module BEFORE the merge erases the unit boundary — top-level
-    //functions/classes and nested namespace members alike (a namespace
-    //can span TUs, so the tag must land at member level, not on the
-    //namespace alone). The resolver-context view follows the parent
-    //chain: any descendant of main resolves to main's index.
-    void ownerTagsTopLevelAndNamespaceMembers()
+    //functions/classes and container members alike (a member's tag lands
+    //at member level, not on the container alone). The resolver-context
+    //view follows the parent chain: any descendant of main resolves to
+    //main's index. (The nested-`namespace` half this slot used to carry
+    //is gone with the shell syntax; the class is the surviving container.)
+    void ownerTagsTopLevelAndMemberNodes()
     {
         //main.n: int main + class Cfg; helper.n: int help +
-        //namespace NS { int inner }.
+        //class widget { public int size }.
         GateProjectOptions opts;
         opts.szMainBody =
             "class Cfg {\n"
@@ -807,11 +819,11 @@ private slots:
             "int main() { return 0; }\n";
         opts.szHelperBody =
             "int help() { return 3; }\n"
-            "namespace NS {\n"
-            "    int inner() { return 5; }\n"
+            "class widget {\n"
+            "    public int size;\n"
             "}\n";
         auto res = buildGateProject(opts);
-        QVERIFY2(res.ok, "project with class + namespace must build");
+        QVERIFY2(res.ok, "project with classes must build");
         const ModuleRegistry& reg = res.builder->Registry();
         const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
         const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
@@ -823,75 +835,36 @@ private slots:
             findMember(rootView.Members(), NK_Function, "main");
         const SnField* pCfg =
             findMember(rootView.Members(), NK_ClassDecl, "Cfg");
-        const SnField* pMergedNS =
-            findMember(rootView.Members(), NK_Namespace, "NS");
+        const SnField* pWidget =
+            findMember(rootView.Members(), NK_ClassDecl, "widget");
         const SnField* pHelp =
             findMember(rootView.Members(), NK_Function, "help");
         QVERIFY2(pMainFunc != nullptr, "main must reach the merged root");
         QVERIFY2(pCfg != nullptr, "Cfg must reach the merged root");
-        QVERIFY2(pMergedNS != nullptr, "NS must reach the merged root");
+        QVERIFY2(pWidget != nullptr, "widget must reach the merged root");
         QVERIFY2(pHelp != nullptr, "help must reach the merged root");
         QCOMPARE(reg.OwnerOf(*pMainFunc), mainIdx);
         QCOMPARE(reg.OwnerOf(*pCfg), mainIdx);
-        QCOMPARE(reg.OwnerOf(*pMergedNS), helperIdx);
+        QCOMPARE(reg.OwnerOf(*pWidget), helperIdx);
         QCOMPARE(reg.OwnerOf(*pHelp), helperIdx);
 
-        //Member-level tag inside a merged namespace (the F18 point).
-        const auto& mergedNS = static_cast<const SnNamespace&>(*pMergedNS);
-        const SnField* pInner =
-            findMember(mergedNS.Members(), NK_Function, "inner");
-        QVERIFY2(pInner != nullptr, "inner must reach the merged NS");
-        QCOMPARE(reg.OwnerOf(*pInner), helperIdx);
+        //Member-level resolution inside a class container (the F18
+        //point): the tag lives on the class itself — direct class members
+        //carry no owner of their own (only namespace members were tagged
+        //recursively, and the shell syntax is gone) — so the descendant
+        //resolves through the ancestor chain.
+        const auto& widget = static_cast<const SnClassDecl&>(*pWidget);
+        const SnField* pSize =
+            findMember(widget.Members(), NK_ClassField, "size");
+        QVERIFY2(pSize != nullptr, "size must reach the widget class");
+        QCOMPARE(reg.OwnerOf(*pWidget), helperIdx);
+        QCOMPARE(reg.OwnerOfContext(*pSize), helperIdx);
 
         //Any node of main's body carries main's owner through the
         //ancestor chain.
         const auto& mainFunc = static_cast<const SnFunction&>(*pMainFunc);
         QVERIFY2(mainFunc.Body() != nullptr, "main must have a body");
         QCOMPARE(reg.OwnerOfContext(*mainFunc.Body()), mainIdx);
-    }
-
-    //A namespace declared by several TUs merges member-wise into ONE
-    //root entry: every contributing TU's members keep their OWN module
-    //as owner inside the merged NS. (The losing NS shell dies with its
-    //unit root; which TU's shell survives follows TU order — here
-    //main.n parses first.)
-    void namespaceCrossTUTagsEachSide()
-    {
-        //main.n declares NS { outer }; helper.n declares NS { inner }.
-        GateProjectOptions opts;
-        opts.szMainBody =
-            "namespace NS {\n"
-            "    int outer() { return 7; }\n"
-            "}\n"
-            "int main() { return 0; }\n";
-        opts.szHelperBody =
-            "int help() { return 3; }\n"
-            "namespace NS {\n"
-            "    int inner() { return 5; }\n"
-            "}\n";
-        auto res = buildGateProject(opts);
-        QVERIFY2(res.ok, "cross-TU namespace project must build");
-        const ModuleRegistry& reg = res.builder->Registry();
-        const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
-        const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
-        QVERIFY(mainIdx != ModuleRegistry::NO_OWNER);
-        QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
-
-        const SnNamespace& rootView = res.builder->TreeRootView();
-        const SnField* pMergedNS =
-            findMember(rootView.Members(), NK_Namespace, "NS");
-        QVERIFY2(pMergedNS != nullptr, "the merged NS must reach the root");
-        QCOMPARE(reg.OwnerOf(*pMergedNS), mainIdx);
-        const auto& mergedNS = static_cast<const SnNamespace&>(*pMergedNS);
-
-        const SnField* pOuter =
-            findMember(mergedNS.Members(), NK_Function, "outer");
-        const SnField* pInner =
-            findMember(mergedNS.Members(), NK_Function, "inner");
-        QVERIFY2(pOuter != nullptr, "outer must reach the merged NS");
-        QVERIFY2(pInner != nullptr, "inner must reach the merged NS");
-        QCOMPARE(reg.OwnerOf(*pOuter), mainIdx);
-        QCOMPARE(reg.OwnerOf(*pInner), helperIdx);
     }
 
     //Task 3 review follow-up: the project branch of ModuleFunctions
@@ -928,56 +901,10 @@ private slots:
         QCOMPARE(reg.OwnerOf(*mainHelp.front()), mainIdx);
     }
 
-    //Task 4 review follow-up: the owner recursion descends through
-    //NESTED namespaces declared by different TUs - A{B{f}} in main and
-    //A{B{g}} in helper must merge into one A.B holding both functions,
-    //each keeping its own module as owner (recursive tagging + the
-    //nested MAK_Merge path).
-    void namespaceNestedCrossTUTagsEachSide()
-    {
-        GateProjectOptions opts;
-        opts.szMainBody =
-            "namespace A {\n"
-            "    namespace B {\n"
-            "        int f() { return 1; }\n"
-            "    }\n"
-            "}\n"
-            "int main() { return 0; }\n";
-        opts.szHelperBody =
-            "namespace A {\n"
-            "    namespace B {\n"
-            "        int g() { return 2; }\n"
-            "    }\n"
-            "}\n";
-        auto res = buildGateProject(opts);
-        QVERIFY2(res.ok, "nested cross-TU namespace project must build");
-        const ModuleRegistry& reg = res.builder->Registry();
-        const uint32_t mainIdx = moduleIndexOfPath(reg, "main");
-        const uint32_t helperIdx = moduleIndexOfPath(reg, "utils.helper");
-        QVERIFY(mainIdx != ModuleRegistry::NO_OWNER);
-        QVERIFY(helperIdx != ModuleRegistry::NO_OWNER);
-
-        const SnNamespace& rootView = res.builder->TreeRootView();
-        const SnField* pA =
-            findMember(rootView.Members(), NK_Namespace, "A");
-        QVERIFY2(pA != nullptr, "A must reach the merged root");
-        const auto& nsA = static_cast<const SnNamespace&>(*pA);
-        const SnField* pB = findMember(nsA.Members(), NK_Namespace, "B");
-        QVERIFY2(pB != nullptr, "B must reach the merged A");
-        const auto& nsB = static_cast<const SnNamespace&>(*pB);
-
-        const SnField* pF = findMember(nsB.Members(), NK_Function, "f");
-        const SnField* pG = findMember(nsB.Members(), NK_Function, "g");
-        QVERIFY2(pF != nullptr, "f must reach the merged A.B");
-        QVERIFY2(pG != nullptr, "g must reach the merged A.B");
-        QCOMPARE(reg.OwnerOf(*pF), mainIdx);
-        QCOMPARE(reg.OwnerOf(*pG), helperIdx);
-    }
-
     //Task 4 review follow-up: the NO_OWNER contract has a positive side -
-    //a node nobody tagged (the root namespace itself is never a merge
-    //member) reports NO_OWNER for both OwnerOf and OwnerOfContext instead
-    //of an index that would silently pass a gate.
+    //a node nobody tagged (the unit root is never a merge member) reports
+    //NO_OWNER for both OwnerOf and OwnerOfContext instead of an index
+    //that would silently pass a gate.
     void noOwnerForUntaggedNodes()
     {
         auto res = buildGateProject(
@@ -1359,43 +1286,6 @@ private slots:
             "the hint must replace the generic incompatibility report");
     }
 
-    //The bare pool filter also holds when the call site sits INSIDE a
-    //namespace: main.n and utils/a.n both declare NS, so the merged NS
-    //scope holds f() twice (utils.a's copy foreign). FindFuncByInvoke
-    //reaches NS through the parent chain, and the filtered search must
-    //drop the foreign overload. (A `using NS;` form cannot pin this -
-    //usings are a separate lookup path that Task 6 does not touch.)
-    void bareNamespaceScopeFiltered()
-    {
-        //The gate scaffold pins the same shape as the plan's hand-rolled
-        //fixture (main.n + a utils/ directory file both declaring NS);
-        //helper.n lands at module path utils.helper, so the hint names
-        //utils.helper. main() sits INSIDE NS, so FindFuncByInvoke reaches
-        //the merged NS through the parent chain - where the foreign f
-        //(owned by utils.helper) must be dropped from the bare pool.
-        GateProjectOptions opts;
-        opts.szMainBody =
-            "namespace NS {\n"
-            "int main() { return f(); }\n"
-            "}\n";
-        opts.szHelperBody = "namespace NS { int f() { return 1; } }\n";
-        auto res = buildGateProject(opts);
-        QVERIFY2(res.builder != nullptr,
-            "gate scaffold failed before the gate stage");
-        QVERIFY2(!res.ok,
-            "bare cross-directory namespace call must fail the build");
-        QVERIFY2(containsError(res.errors,
-            "Function 'f' is not visible here. It lives in module "
-            "'utils.helper'; import it and qualify the call."),
-            "the hint must name the owning module (utils.helper)");
-        QVERIFY2(!containsError(res.errors,
-            "does not exist or is not accessible"),
-            "the hint must replace the generic not-found report");
-        QVERIFY2(!containsError(res.errors,
-            "is not compatible with the declaration"),
-            "the hint must replace the generic incompatibility report");
-    }
-
     //T4 sibling pinning m12 from the other side. extra.n is a
     //same-directory peer, so D7 keeps it bare-visible and the narrowing
     //does NOT remove it - the original T4 probe (module path vs same-name
@@ -1424,10 +1314,10 @@ private slots:
             "sentinel) and the qualified call must reach helper.help()");
     }
 
-    //D6/spec section 7 row 2: built-in namespaces are gated like any
+    //D6/spec section 7 row 2: built-in packages are gated like any
     //module - io/math/fs calls without the import are rejected with the
-    //namespace wording, one representative call per namespace.
-    void builtinNamespaceRequiresImport()
+    //package wording, one representative call per package.
+    void builtinPackageRequiresImport()
     {
         const struct GateCase
         {
@@ -1446,8 +1336,8 @@ private slots:
             QVERIFY2(res.builder != nullptr,
                 "gate scaffold failed before the gate stage");
             QVERIFY2(!res.ok,
-                "an unimported builtin namespace call must fail the build");
-            const std::string needle = std::string("Namespace '") +
+                "an unimported builtin package call must fail the build");
+            const std::string needle = std::string("Package '") +
                 gateCase.szNs + "' is not imported. Add 'import " +
                 gateCase.szNs + ";' at the top of this file.";
             QVERIFY2(containsError(res.errors, needle.c_str()),
@@ -1463,10 +1353,10 @@ private slots:
         }
     }
 
-    //D6: with the import the namespace call resolves and executes exactly
+    //D6: with the import the package call resolves and executes exactly
     //as before the gate - executed (not compile-only) so a consumed-but
     //-never-emitted member cannot silently pass.
-    void builtinNamespaceImportedWorks()
+    void builtinPackageImportedWorks()
     {
         auto run = runGateProject({
             "import io;\n"
@@ -1478,7 +1368,7 @@ private slots:
             "    return 0;\n"
             "}\n"});
         QVERIFY2(run.ok, runFailureText(run,
-            "imported builtin namespace must build and run").c_str());
+            "imported builtin package must build and run").c_str());
         QVERIFY2(run.runtimeError.empty(), "execution must be clean");
         QVERIFY2(run.exitValue == 0,
             "io.print must run and math.sqrt(4.0) must equal 2.0");
@@ -1585,8 +1475,8 @@ private slots:
             "the legacy duplicate-definition diagnostic must stay");
     }
 
-    //Phase 5 R1/D8: the package name is the OWNING unit's path, not the AST
-    //namespace chain. Untagged members (built-ins, synthetic generic
+    //Phase 5 R1/D8: the package name is the OWNING unit's path, not any
+    //in-file scope chain. Untagged members (built-ins, synthetic generic
     //instantiations) have no package and stay bare.
     void packageOfIsOwnerDerived()
     {
@@ -1612,16 +1502,29 @@ private slots:
         QVERIFY(pMain != nullptr);
         QCOMPARE(reg.QualifiedName(*pMain), std::string("main.main"));
 
-        //(c) D12 anchor: a stdlib member keeps today's key. `io.print` is
-        //    reached through the namespace container the shell still
-        //    provides on this tree, and its owner tag is the unit whose
-        //    path is "io" -- same string, different source of truth.
+        //(d) unowned member degrades to the bare name. The merged root
+        //    container itself carries no owner tag, so this is the free
+        //    NO_OWNER case (a synthetic generic instantiation would do
+        //    too, but needs a compile to mint). Runs BEFORE (c): that
+        //    build resets the process-global AST (InitSyntaxTree), which
+        //    frees the tree this rootView points into.
+        QCOMPARE(reg.PackageOf(rootView), std::string());
+        QCOMPARE(reg.QualifiedName(rootView), rootView.Name());
+
+        //(c) D12 anchor: a stdlib member keeps today's key. `io.print`
+        //    sits on the root (the shell syntax is gone; the unit root is
+        //    the only container) and its owner tag is the unit whose path
+        //    is "io" -- same string as the pre-Task-5 shell spelling, so
+        //    the two assertions below are verbatim the D12 pin.
         //    Measured fix (round 4): the library unit only reaches the AST
         //    root when it is import-reachable (ModuleBuilder::PrepareUnits ->
         //    DiscoverLibraryUnits, ModuleBuilder.cpp:71), so this case needs
         //    its OWN gate project with `import io;` -- the shared `opts`
         //    above has no import and would leave `io` out of the root,
         //    making the QVERIFY2 below red for a reason unrelated to R1.
+        //    ORDERING: this block runs LAST because its build resets the
+        //    process-global AST (InitSyntaxTree), which frees the tree the
+        //    (a)/(b)/(d) views point into.
         GateProjectOptions ioOpts;
         ioOpts.szMainBody = "import io;\n"
                             "int main() { io.print(1); return 0; }\n";
@@ -1629,21 +1532,51 @@ private slots:
         QVERIFY2(ioRes.ok, "gate project importing stdlib io must build");
         const ModuleRegistry& ioReg = ioRes.builder->Registry();
         const SnNamespace& ioRoot = ioRes.builder->TreeRootView();
-        const SnField* pIo = findMember(ioRoot.Members(), NK_Namespace, "io");
-        QVERIFY2(pIo != nullptr, "stdlib io unit must be merged into root");
         const SnField* pPrint = findMember(
-            static_cast<const SnNamespace*>(pIo)->Members(), NK_Function, "print");
-        QVERIFY2(pPrint != nullptr, "io.print must be indexed");
+            ioRoot.Members(), NK_Function, "print");
+        QVERIFY2(pPrint != nullptr, "io.print must be indexed on the root");
         QCOMPARE(ioReg.PackageOf(*pPrint), std::string("io"));
         QCOMPARE(ioReg.QualifiedName(*pPrint), std::string("io.print"));
+    }
 
-
-        //(d) unowned member degrades to the bare name. The merged root
-        //    container itself carries no owner tag, so this is the free
-        //    NO_OWNER case (a synthetic generic instantiation would do
-        //    too, but needs a compile to mint).
-        QCOMPARE(reg.PackageOf(rootView), std::string());
-        QCOMPARE(reg.QualifiedName(rootView), rootView.Name());
+    //Phase 5 §3: two project units sharing a LAST path segment (utils/helper.n
+    //and core/helper.n) are two packages, and each one's `help`/`Cfg` keeps
+    //its own identity. Shell removal (this task) is what could merge them:
+    //both members land on root with equal_range hits, and the only thing
+    //telling them apart is the owner tag.
+    void sameStemProjectUnitsStayIndependent()
+    {
+        GateProjectOptions opts;
+        opts.withCoreHelper = true;
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "import core.helper;\n"
+            "int main() { return utils.helper.help() + core.helper.help(); }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.ok, "two same-stem project units must build together");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(moduleIndexOfPath(reg, "utils.helper") != ModuleRegistry::NO_OWNER);
+        QVERIFY(moduleIndexOfPath(reg, "core.helper") != ModuleRegistry::NO_OWNER);
+        QVERIFY(moduleIndexOfPath(reg, "utils.helper")
+                != moduleIndexOfPath(reg, "core.helper"));
+        //Both `help` members are on root now, in the SAME name-dict bucket.
+        //A single findMember() hit would be a coin flip -- collect the whole
+        //equal_range and check the owner SET (same traversal shape as
+        //CompiledInFunctions, ModuleRegistry.cpp:280-311).
+        auto range = res.builder->TreeRootView().Members()
+                         .NameDict().equal_range("help");
+        std::set<std::string> owners;
+        for (auto iField = range.first; iField != range.second; ++iField)
+            if (iField->second->Kind() == NK_Function)
+                owners.insert(reg.ModulePathOf(reg.OwnerOf(*iField->second)));
+        QCOMPARE(owners.size(), static_cast<size_t>(2));
+        QVERIFY(owners.count("utils.helper") == 1);
+        QVERIFY(owners.count("core.helper") == 1);
+        //Every hit's key starts with its own package -- no bare `help` left.
+        for (auto iField = range.first; iField != range.second; ++iField)
+            if (iField->second->Kind() == NK_Function)
+                QVERIFY(reg.QualifiedName(*iField->second)
+                            .rfind("help", 0) != 0);
     }
 };
 

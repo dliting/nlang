@@ -1,20 +1,17 @@
 // mixlib.n - third-party MIXED library fixture for the in-process tests.
 //
 // Same package shape as mylib (native declarations + the nlang_mixlib.dll
-// binary), but with its own namespace so a second DLL can be loaded in the
-// same process (Windows maps loaded images by base name). Here the NLang
-// body (quad) wraps a native function (dbl) twice — the mixed-library
-// scenario Phase 4b pins down: only dbl is dispatched to the DLL, quad's
-// body is compiled from this file.
-namespace mixlib
-{
-    // Return twice the argument. Implemented natively in nlang_mixlib.dll.
-    native int dbl(int x);
+// binary), but under its own package name (the file stem "mixlib") so a
+// second DLL can be loaded in the same process (Windows maps loaded images
+// by base name). Here the NLang body (quad) wraps a native function (dbl)
+// twice — the mixed-library scenario Phase 4b pins down: only dbl is
+// dispatched to the DLL, quad's body is compiled from this file.
+// Return twice the argument. Implemented natively in nlang_mixlib.dll.
+native int dbl(int x);
 
-    // NLang-implemented: double the native double. The body below is
-    // compiled into the consumer; the bare dbl call resolves to the
-    // native function of this namespace.
-    int quad(int x) {
-        return dbl(dbl(x));
-    }
+// NLang-implemented: double the native double. The body below is
+// compiled into the consumer; the bare dbl call resolves to the
+// native function of this package.
+int quad(int x) {
+    return dbl(dbl(x));
 }

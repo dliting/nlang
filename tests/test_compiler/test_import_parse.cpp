@@ -169,6 +169,24 @@ private slots:
         QVERIFY2(anyErrorMentions(outcome.second, "syntax error"),
             "double '*' must be a syntax error");
     }
+
+    void rejectNamespaceKeyword()
+    {
+        //Phase 5 Task 5: `namespace` is no longer a keyword. A source that
+        //still writes a `namespace x { ... }` shell must fail with a syntax
+        //error, not an internal assert (the production is gone, so `namespace`
+        //is an ordinary identifier and `namespace x` is two identifiers in a
+        //row).
+        const auto path = writeTempSource("namespace_kw.n",
+            "namespace x {\n"
+            "int f() { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("import_parse_ns", path);
+        QVERIFY2(!outcome.first, "namespace keyword must not compile");
+        QVERIFY2(anyErrorMentions(outcome.second, "syntax error"),
+            "namespace keyword must be a syntax error, not an internal assert");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestImportParse)

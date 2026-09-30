@@ -277,70 +277,23 @@ void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 	m_externalStubs[moduleIndex] = std::move(stubs);
 }
 
-namespace {
-
-//Owner-filtered same-name function walk over a namespace subtree (and
-//its nested namespace shells). The phase 5 D8 fallback: a library file's
-//`namespace` shell may not match the file's path-derived package, and
-//the owner tag — not the shell name — decides membership.
-void CollectOwnedFunctions(const ModuleRegistry& reg, SnNamespace& ns,
-	uint32_t moduleIndex, const std::string& calleeName,
-	std::vector<SnFunction*>& owned)
-{
-	auto range = ns.Members().NameDict().equal_range(calleeName);
-	for (auto iField = range.first; iField != range.second; ++iField)
-	{
-		SnField& member = *iField->second;
-		if (member.Kind() == NK_Function
-			&& reg.OwnerOf(member) == moduleIndex)
-			owned.push_back(static_cast<SnFunction*>(&member));
-	}
-	for (auto& member : ns.Members())
-		if (member.Kind() == NK_Namespace)
-			CollectOwnedFunctions(reg,
-				static_cast<SnNamespace&>(member),
-				moduleIndex, calleeName, owned);
-}
-
-} //namespace
-
 std::vector<SnFunction*> ModuleRegistry::CompiledInFunctions(
-	uint32_t moduleIndex, const std::string& path,
-	const std::string& calleeName) const
+	uint32_t moduleIndex, const std::string& calleeName) const
 {
-	//An inline library TU keeps its functions in `namespace <path>`; a project module
-	//uses root-level free functions. Pick the container,
-	//then return same-name functions owned by moduleIndex (owner tags land
-	//in MergeTransUnits).
 	std::vector<SnFunction*> owned;
 	SnNamespace* pRoot = TheAST().Root();
 	if (pRoot == nullptr)
 		return owned;
-	SnNamespace* pContainer = nullptr;
-	if (m_modules[moduleIndex].isLibrary)
-	{
-		SnField* pField = pRoot->FindField(path);
-		if (pField != nullptr && pField->Kind() == NK_Namespace)
-			pContainer = static_cast<SnNamespace*>(pField);
-	}
-	SnNamespace& candidates =
-		pContainer != nullptr ? *pContainer : *pRoot;
-	auto range = candidates.Members().NameDict()
-		.equal_range(calleeName);
+	//Library units and project modules are the same kind of unit now:
+	//every member sits on root and carries its owner tag, so the
+	//`namespace <path>` container lookup is gone. Identity = PackageOf.
+	auto range = pRoot->Members().NameDict().equal_range(calleeName);
 	for (auto iField = range.first; iField != range.second; ++iField)
 	{
 		SnField& member = *iField->second;
-		if (member.Kind() == NK_Function
-			&& OwnerOf(member) == moduleIndex)
+		if (member.Kind() == NK_Function && OwnerOf(member) == moduleIndex)
 			owned.push_back(static_cast<SnFunction*>(&member));
 	}
-	//Phase 5 D8 (path beats shell): when the container scan found nothing,
-	//fall back to the owner-filtered walk — a library file whose shell
-	//name differs from its file path still owns its members. (Task 5
-	//retires the shells; until then this keeps the owner rule
-	//authoritative without touching the fast path.)
-	if (owned.empty())
-		CollectOwnedFunctions(*this, *pRoot, moduleIndex, calleeName, owned);
 	return owned;
 }
 
@@ -366,7 +319,7 @@ std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 					matching.push_back(pStub);
 			return matching;
 		}
-		return CompiledInFunctions(i, path, calleeName);
+		return CompiledInFunctions(i, calleeName);
 	}
 	return std::vector<SnFunction*>{};
 }
@@ -402,26 +355,16 @@ SnField* ModuleRegistry::FindModuleType(const std::string& path,
 		if (m_modules[i].isExternal)
 			return nullptr;
 
-		//Same container rule as CompiledInFunctions: a library unit keeps its
-		//members in `namespace <path>`; a project module - and a library TU
-		//whose file carries no namespace wrapper - has them at the root.
+		//Every member sits on root (phase 5 removed the shell syntax); the
+		//unit's identity is the owner tag, not any container.
 		SnNamespace* pRoot = TheAST().Root();
 		if (pRoot == nullptr)
 			return nullptr;
-		SnNamespace* pContainer = nullptr;
-		if (m_modules[i].isLibrary)
-		{
-			SnField* pField = pRoot->FindField(path);
-			if (pField != nullptr && pField->Kind() == NK_Namespace)
-				pContainer = static_cast<SnNamespace*>(pField);
-		}
-		SnNamespace& candidates =
-			pContainer != nullptr ? *pContainer : *pRoot;
 
 		//Owner-filtered scan, like the function side: `path.Type` must bind a
 		//declaration the unit itself owns, never a same-name type another TU
 		//merged into the same container.
-		auto range = candidates.Members().NameDict().equal_range(typeName);
+		auto range = pRoot->Members().NameDict().equal_range(typeName);
 		for (auto iField = range.first; iField != range.second; ++iField)
 			if (IsBindableTypeDecl(*iField->second)
 				&& OwnerOf(*iField->second) == i)

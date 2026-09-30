@@ -1,4 +1,4 @@
-// stdlib_fs.n — fs namespace tour (Phase 11): names, directories, metadata.
+// stdlib_fs.n — fs package tour (Phase 11): names, directories, metadata.
 // fs never reads or writes content — that is io's job.
 
 import io;

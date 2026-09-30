@@ -1,4 +1,4 @@
-// stdlib_math.n — math namespace tour (Phase 11).
+// stdlib_math.n — math package tour (Phase 11).
 // Trigonometry is radians; log is ln; floor/ceil/round return int.
 
 import io;
