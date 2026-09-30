@@ -338,13 +338,14 @@ private slots:
 
     void testSettingsDialogSeedsAndEchoes() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL);
+        dialog.init("system", "", TOOLBAR_ICON_SMALL, false);
         QComboBox* combo =
             dialog.findChild<QComboBox*>("cmbLanguage");
         QVERIFY(combo != nullptr);
         QCOMPARE(combo->count(), 3);
         QCOMPARE(dialog.language(), QString("system"));
         QVERIFY(dialog.buildOutputDir().isEmpty());
+        QVERIFY(!dialog.noWarn());
         //The icon-size combo seeds and echoes like the others.
         QComboBox* iconCombo =
             dialog.findChild<QComboBox*>("cmbIconSize");
@@ -355,15 +356,16 @@ private slots:
         iconCombo->setCurrentIndex(largeIdx);
         QCOMPARE(dialog.toolbarIconSize(), TOOLBAR_ICON_LARGE);
         //Unknown seeds fall back to system/small, never an unset combo.
-        dialog.init("klingon", "D:/out", "huge");
+        dialog.init("klingon", "D:/out", "huge", true);
         QCOMPARE(dialog.language(), QString("system"));
         QCOMPARE(dialog.buildOutputDir(), QString("D:/out"));
         QCOMPARE(dialog.toolbarIconSize(), TOOLBAR_ICON_SMALL);
+        QVERIFY(dialog.noWarn());
     }
 
     void testSettingsDialogReturnsSelectedValues() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL);
+        dialog.init("system", "", TOOLBAR_ICON_SMALL, false);
         dialog.findChild<QComboBox*>("cmbLanguage")->setCurrentIndex(1);
         dialog.findChild<QLineEdit*>("edtBuildOutputDir")
             ->setText("  D:/out  ");
@@ -373,7 +375,7 @@ private slots:
 
     void testSettingsDialogShowsDefaultWhenUnset() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL);
+        dialog.init("system", "", TOOLBAR_ICON_SMALL, false);
         QLineEdit* edit =
             dialog.findChild<QLineEdit*>("edtBuildOutputDir");
         QVERIFY(edit != nullptr);
@@ -385,7 +387,7 @@ private slots:
         QCOMPARE(edit->placeholderText(),
                  SettingsStore::defaultStandaloneBuildDir());
         //A set directory seeds the real text; the placeholder is gone.
-        dialog.init("system", "D:/out", TOOLBAR_ICON_LARGE);
+        dialog.init("system", "D:/out", TOOLBAR_ICON_LARGE, false);
         QCOMPARE(edit->text(), QString("D:/out"));
     }
 };
