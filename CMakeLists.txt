@@ -198,8 +198,8 @@ if(NLANG_BUILD_DOCS)
             "(or configure with -DNLANG_BUILD_DOCS=OFF)")
     endif()
     file(GLOB_RECURSE NLANG_DOC_PAGES CONFIGURE_DEPENDS
-        ${CMAKE_CURRENT_SOURCE_DIR}/docs/zh/*.md
-        ${CMAKE_CURRENT_SOURCE_DIR}/docs/en/*.md)
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/user_manual/zh/*.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/user_manual/en/*.md)
     #ALL + no OUTPUT: every build reruns the pipeline once (seconds of
     #Python startup, accepted; add a stamp file if it ever becomes a
     #pain). Each language tree is its own mkdocs build (strict + offline

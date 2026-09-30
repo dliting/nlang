@@ -1,5 +1,5 @@
 """Bilingual tree parity: every page either has a counterpart in the
-other language tree or is listed in docs/translation-pending.txt. An
+other language tree or is listed in docs/user_manual/translation-pending.txt. An
 empty pending list turns the gate strict (any missing counterpart
 fails), so the trees can be seeded first and translated in batches
 without silent gaps. The two navs must list identical page paths once
@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from nlang_docs.linkcheck import _ConfigLoader  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
-ZH_TREE = REPO / "docs" / "zh"
-EN_TREE = REPO / "docs" / "en"
-PENDING_FILE = REPO / "docs" / "translation-pending.txt"
+ZH_TREE = REPO / "docs" / "user_manual" / "zh"
+EN_TREE = REPO / "docs" / "user_manual" / "en"
+PENDING_FILE = REPO / "docs" / "user_manual" / "translation-pending.txt"
 #The config family carries ``!!python/name:`` values (toc slugify) in
 #the shared base, which raw yaml.load never resolves through INHERIT --
 #a leaf config gaining a tag of its own must not break this read. The

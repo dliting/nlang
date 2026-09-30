@@ -307,7 +307,7 @@ def test_real_zh_config_resolves_a_nonempty_guide(monkeypatch, capsys):
     rc, line = cli._snippet_stage(opts)
     assert (rc, line) == (0, None)
     stderr = capsys.readouterr().err
-    #The docs/zh-based outcome: the guide resolved (the stage got past
+    #The docs/user_manual/zh-based outcome: the guide resolved (the stage got past
     #the path check) and only the missing binaries stopped it.
     assert "give --ncc/--nvm" in stderr, stderr
     assert "not found" not in stderr, stderr

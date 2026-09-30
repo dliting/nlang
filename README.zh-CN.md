@@ -123,7 +123,7 @@ ndb <module.nmod>   调试已编译的模块（像 gdb `start` 一样在首条
 
 面向嵌入场景，`ndb --machine <module.nmod>` 在 stdin/stdout 上以
 制表符分隔的行协议暴露同一会话——nide 调试器即构建于其上。引擎侧
-分层见 `docs/zh/vm-architecture/debugging.md`。
+分层见 `docs/user_manual/zh/vm-architecture/debugging.md`。
 
 所有命令行工具用 `--version` 报告版本（如 `ncc (NLang) <version>`）。
 IDE 在 帮助 → 关于 中显示，文档站在页脚显示。
@@ -173,7 +173,7 @@ import 来源共用一种语法：
 未导入的引用以精确诊断失败，例如
 `Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
 完整语义——解析顺序、保留路径段、单文件模式——见「声明」章
-（`docs/zh/language-spec/declarations.md`，Import Declaration）。
+（`docs/user_manual/zh/language-spec/declarations.md`，Import Declaration）。
 
 编译模块使用带版本的二进制格式，当前为 v1.11。加载器强制兼容性
 下限：下限提升后，较旧的 `.nmod` 会因过期被拒绝，必须用匹配的
@@ -202,10 +202,10 @@ int main() {
 ```
 
 完整细节——参数类型政策、异常映射、字节语义、确定性
-PRNG——见标准库章（`docs/zh/language-spec/standard-library.md`）；
+PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.md`）；
 示例的可运行副本在 `examples/stdlib_*.n`。
 
-初次接触 NLang？`docs/zh/getting-started/` 章节按主题逐页讲解
+初次接触 NLang？`docs/user_manual/zh/getting-started/` 章节按主题逐页讲解
 语言、命令行与 IDE（也可从 nide 帮助菜单到达）；
 `examples/README.md` 索引了全部可运行示例。
 
@@ -236,7 +236,7 @@ cmake --build build-ide --config Release
 （`docs/site`）。
 
 nide 还自带调试器（底层驱动 `ndb --machine`；完整演练见
-`docs/zh/getting-started/debugging.md`）。F5 启动调试会话——程序
+`docs/user_manual/zh/getting-started/debugging.md`）。F5 启动调试会话——程序
 运行到首个断点或运行到底——Shift+F5 随时停止：停止是硬终止，
 因此死循环或卡住的原生调用不会阻塞 IDE。断点用 F9 或行号槽点击
 切换（行号槽圆点初始为空心，实会话确认该行存在于已编译模块后
@@ -260,7 +260,7 @@ IDE 测试套件。
 
 ## 文档站点
 
-双语用户手册（`docs/zh/` 与 `docs/en/`，每树一份 mkdocs 配置，
+双语用户手册（`docs/user_manual/zh/` 与 `docs/user_manual/en/`，每树一份 mkdocs 配置，
 共同继承 `mkdocs.base.yml`）由 CMake 目标 `nlang_docs` 渲染成静态
 站点（默认开启，`-DNLANG_BUILD_DOCS=OFF` 跳过），合并到
 `<build>/docs/site/{zh,en}` 并置于语言选择落地页
@@ -293,7 +293,7 @@ PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
 
 # 独立审计某一页的 ```nlang 片段（编译 + 运行 + 退出码）
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \
-    --doc docs/zh/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
+    --doc docs/user_manual/zh/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
 ```
 
 `build` 串联四个阶段：mkdocs 构建、离线搜索内联、站点审计，以及

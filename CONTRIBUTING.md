@@ -101,7 +101,7 @@ growing the allowlist — remove an entry when its file is split.
 
 Architecture notes that will save you a debugging afternoon — the visitor
 macros, the result-pointer VM model, the local-declaration lowering — are in
-`docs/` (start with `docs/en/vm-architecture/`).
+`docs/` (start with `docs/user_manual/en/vm-architecture/`).
 
 ## Commits and Pull Requests
 

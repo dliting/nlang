@@ -1,11 +1,11 @@
 # English tree. INHERIT pulls every shared setting from the base; both
-# trees are fully translated (see docs/translation-pending.txt, whose
+# trees are fully translated (see docs/user_manual/translation-pending.txt, whose
 # list is empty) and the tree-parity pytest runs in strict nav-parity
 # mode: any new page must land in both trees and both navs in the same
 # change.
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
-docs_dir: docs/en
+docs_dir: docs/user_manual/en
 theme:
   language: en
   custom_dir: tools/nlang-docs/theme_override

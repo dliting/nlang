@@ -100,9 +100,9 @@ DOC_FILES = [
 # runtime ships as an exact whitelist (en-US/zh-CN only).
 ABSENT_PATHS = [
     #Markdown sources stay out (only the rendered site ships); the
-    #bilingual sources live in docs/zh/ and docs/en/ (the rendered site
+    #bilingual sources live in docs/user_manual/zh/ and docs/user_manual/en/ (the rendered site
     #under docs/site/<tree> is a different path, not caught here).
-    'docs/zh', 'docs/en',
+    'docs/user_manual/zh', 'docs/user_manual/en',
     'docs/superpowers', 'docs/roadmap.md', 'docs/ci_design.md',
     'docs/nide-file-rename-and-layout.md', 'bin/platforms/qwindowsd.dll',
     'bin/resources/qtwebengine_devtools_resources.pak',

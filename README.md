@@ -128,7 +128,7 @@ behaves like `q`. When the program finishes, ndb prints
 For embedding, `ndb --machine <module.nmod>` exposes the same session
 over a tab-separated line protocol on stdin/stdout — the nide debugger
 is built on it. The engine-side layering is described in
-`docs/en/vm-architecture/debugging.md`.
+`docs/user_manual/en/vm-architecture/debugging.md`.
 
 All command-line tools report their version with `--version`
 (e.g. `ncc (NLang) <version>`). The IDE shows it in Help → About, and the
@@ -185,7 +185,7 @@ An unimported reference fails with a pointed diagnostic, e.g.
 `Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
 Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
-(`docs/en/language-spec/declarations.md`, Import Declaration).
+(`docs/user_manual/en/language-spec/declarations.md`, Import Declaration).
 
 Compiled modules use a versioned binary format, currently v1.11. The
 loader enforces a compatibility floor: after a floor bump, older
@@ -217,10 +217,10 @@ int main() {
 
 Full details — parameter type policy, exception mapping, byte semantics,
 deterministic PRNG — are in the Standard Library chapter
-(`docs/en/language-spec/standard-library.md`); runnable copies of the example
+(`docs/user_manual/en/language-spec/standard-library.md`); runnable copies of the example
 live in `examples/stdlib_*.n`.
 
-New to NLang? The `docs/en/getting-started/` chapters walk the language, the
+New to NLang? The `docs/user_manual/en/getting-started/` chapters walk the language, the
 CLI and the IDE one topic per page (they are also reachable from the nide
 Help menu); `examples/README.md` indexes every runnable example.
 
@@ -254,7 +254,7 @@ when the source changed. The Help menu shows the bundled documentation
 site (`docs/site`) in an embedded viewer inside the IDE.
 
 nide also ships a built-in debugger (driving `ndb --machine` under the
-hood; a walkthrough lives in `docs/en/getting-started/debugging.md`). F5
+hood; a walkthrough lives in `docs/user_manual/en/getting-started/debugging.md`). F5
 starts a debug session — the program runs to the first breakpoint or to
 completion — and Shift+F5 stops it at any time: the stop is a hard
 termination, so an infinite loop or a stuck native call never blocks the
@@ -281,7 +281,7 @@ the layout to a scratch directory, pins Qt's search paths to it via
 
 ## Documentation Site
 
-The bilingual user manual (`docs/zh/` and `docs/en/`, one mkdocs config
+The bilingual user manual (`docs/user_manual/zh/` and `docs/user_manual/en/`, one mkdocs config
 per tree, both inheriting `mkdocs.base.yml`) is rendered into a static
 site by the CMake target `nlang_docs` (on by default,
 `-DNLANG_BUILD_DOCS=OFF` to skip), merged under `<build>/docs/site/{zh,en}`
@@ -318,7 +318,7 @@ PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
 
 # Audit one page's ```nlang snippets standalone (compile + run + exit code)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \
-    --doc docs/zh/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
+    --doc docs/user_manual/zh/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
 ```
 
 `build` chains four stages: the mkdocs build, offline search inlining, the
