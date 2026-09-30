@@ -94,3 +94,43 @@ identity, library types were given reachability without one**. Patching them one
 be symptom work, so 2/3/4 become **Phase 4e「type identity」** (user decision 2026-09-29,
 4e before 4d). 4b-2's feature commit stays; round 2 runs against
 `1bce551..HEAD` after 4e lands, since a round now would re-report 2/3/4 as open.
+
+## Round 2 — in-session fresh pass (single-LLM mode per user instruction
+2026-09-30), against `1bce551..HEAD` (= phase 5 complete, `b0ede47`)
+
+Reviewer re-ran: serial ctest 64/64, e2e 977/6 (verbatim pre-existing six), docs 67 passed,
+size guard clean — all at this HEAD during Tasks 5–8; nothing changed since.
+
+Round 1 dispositions verified against the tree, each with evidence:
+
+1. (was Important 1, fixed in `d7ca710`) — **still fixed**; Task 6's de-shell reduced
+   `FindModuleType` further (root `equal_range` + owner filter only; the wrapper branch is
+   gone with the shell syntax). `TestModuleTypeWithoutNamespaceWrapper` is now the normal
+   shape; owner isolation re-verified by `moduleFunctionsProjectBranch`/`sameStem` pins.
+2. (was Important 2, moved to 4e) — **fixed, guard-based rather than category-based**:
+   `CollectQualifiedSegments` (grammar/nlang.y:166) now Kind-checks every link (identifier in,
+   member with identifier inner, recursive outer) and returns false for call/subscript/paren
+   outers — "no unchecked downcast happens here" per the in-file comment. The dedicated
+   statement-head category 4e planned was measured at +2 sr on '.' and replaced by the
+   `TypeName` category + guards (grammar ledger :1240-1265). No UB path remains.
+3. (was Important 3, moved to 4e) — **fixed in Task 4** (`0ec7b42`): VM type/function keys are
+   package-qualified behind `VmBackend::KeyOf` (17 sites across Register.cpp/RegisterClass.cpp);
+   the bare-key collision Task 4's rb3 test reproduced now cannot coexist (same-name types in
+   different packages conflict or coexist by qualified identity — Task 5/6 pins).
+4. (was Important 4, moved to 4e) — **closed across Tasks 1/2/5/6**: dotted imports with
+   matched-root packages (Task 6), deep-chain negative `a.b.Type` (Task 1), qualified
+   generics on user types rejected per measured D9 behavior (Task 2 Step 7b), library types
+   in signatures/fields/containers and the missing-type diagnostic (Tasks 5/6 thirdparty
+   scenarios (4a)-(4c)).
+
+Round 1 Minors re-checked at HEAD: (1) the receiver re-assign in
+`ExprResolverMember.cpp` SwitchContextToReceiver — still present, still harmless (imported
+stub containers keep `NK_Namespace` receivers alive, so the branch is not dead); **open**,
+cosmetic. (2) `EmitExprCore.cpp` 8-space indent — file untouched this phase; **open** per the
+"fix with the next touch" rule. (3) the SnExpressions.h "never reaches codegen" comment — the
+node's contract is unchanged (reject paths leave it unresolved; error aborts the build);
+**open** wording nit. (4) the `TypeName()` dual discipline — the category landed; the two
+disciplines remain but no case reaches the divergence; **open**.
+
+**Verdict: no new Critical, no new Important** — the 4b-2 loop closes. Remaining items are
+the four carried Minors above.
