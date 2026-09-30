@@ -1,0 +1,20 @@
+//e2e dbgm_frame_locals: frame selection stays data-silent; method locals show `this`.
+class Point {
+    int x;
+    int y;
+
+    public int Point(int a, int b) {
+        this.x = a;
+        this.y = b;
+        return 0;
+    }
+
+    public int manhattan() {
+        return x + y;
+    }
+}
+
+int main() {
+    Point p = new Point(2, 5);
+    return p.manhattan();
+}

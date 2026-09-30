@@ -2261,9 +2261,15 @@ void test_machine_frame_and_discipline()
     CHECK(wire.find("stopped\tbreakpoint\t1\thelper\t" + escaped
             + "\t2\t2\t2\n") != std::string::npos,
         "the bfunc bp freezes inside helper (depth == frameCount == 2)");
+    //Selection answers done only -- frame events belong exclusively to
+    //bt responses. An echo here appends phantom rows to an IDE stack
+    //view on every click (nide duplicated the whole backtrace per
+    //`frame <n>` before this contract was pinned).
+    CHECK(wire.find("done\tframe\n") != std::string::npos,
+        "frame selection confirms with done");
     CHECK(wire.find("frame\t1\tmain\t" + escaped + "\t7\n")
-            != std::string::npos,
-        "frame 1 is main, still at the call line");
+            == std::string::npos,
+        "frame selection must not echo a frame event (bt-only grammar)");
     CHECK(wire.find("local\ta\tint\t5\n") != std::string::npos,
         "locals follow the frame selection (main's a)");
     CHECK(wire.find("local\tv\t") == std::string::npos,
@@ -2283,6 +2289,65 @@ void test_machine_frame_and_discipline()
             < wire.find("exited\t18\n"),
         "the session stays sane: commands after the err still work");
     CHECK(wire.find("exited\t18\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
+//A method frame's only slot is the receiver `__this`. Hiding it left
+//the locals query of every method frame empty (an IDE variables pane
+//showing nothing at all); the receiver is user-visible state, so
+//locals shows it under its display name `this`, one level deep like
+//any class local. Other synthesized `__`/`$` names stay hidden.
+void test_machine_method_locals_show_this()
+{
+    TEST(machine_method_locals_show_this);
+    BuildOutcome b = buildSource("mach_this",
+        "class Point {\n"                      //1
+        "    int x;\n"                         //2
+        "    int y;\n"                         //3
+        "\n"                                   //4
+        "    public int Point(int a, int b) {\n"//5
+        "        this.x = a;\n"                //6
+        "        this.y = b;\n"                //7
+        "        return 0;\n"                  //8
+        "    }\n"                              //9
+        "\n"                                   //10
+        "    public int manhattan() {\n"       //11
+        "        return x + y;\n"              //12
+        "    }\n"                              //13
+        "}\n"                                  //14
+        "\n"                                   //15
+        "int main() {\n"                       //16
+        "    Point p = new Point(2, 5);\n"     //17
+        "    return p.manhattan();\n"          //18
+        "}\n");                                //19
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("mach_this");
+    const std::string src = (scratchDir() / "mach_this.n").string();
+    std::ostringstream events;
+    std::istringstream in(
+        "b mach_this.n 12\n"   //manhattan's return: method frame freezes
+        "run\n"                //initial stop at main line 17
+        "c\n"                  //the bp hits inside manhattan
+        "frame 0\n"            //select the method frame (the default)
+        "locals\n"
+        "c\n");                //resume to completion
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);
+    front.PumpUntilRun();
+    front.OnExited(exec.Execute(mod));
+
+    const std::string wire = events.str();
+    CHECK(wire.find("local\tthis\tclass\tPoint{x=2, y=5}\n")
+            != std::string::npos,
+        "the method frame's locals show the receiver as `this`");
+    CHECK(wire.find("local\t__this\t") == std::string::npos,
+        "the internal slot name stays out of the wire");
+    CHECK(wire.find("exited\t7\n") != std::string::npos,
         "session ends with the program's exit code");
     PASS();
 }
@@ -2424,6 +2489,7 @@ int main()
     test_machine_session_roundtrip();
     test_machine_bfunc_and_output();
     test_machine_frame_and_discipline();
+    test_machine_method_locals_show_this();
 
     test_loop_anchor_per_iteration();
 

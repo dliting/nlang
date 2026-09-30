@@ -1,0 +1,9 @@
+b dbgm_frame_locals.n 13
+run
+c
+bt
+frame 0
+locals
+frame 1
+locals
+c

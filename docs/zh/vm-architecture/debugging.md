@@ -63,7 +63,12 @@ WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
 `breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/`n`/`f`）。会话以
 一段前奏开场，断点在此时预置；`run` 结束前奏并开始执行——在此之前，
 窗口绑定命令一律应答 `err`（还没有任何东西被冻结）。恢复命令应答下
-一次停止或退出事件；其余命令原地应答。帧编号：`stopped` 的深度从 1
+一次停止或退出事件；其余命令原地应答。应答形状遵循同一文法：查询
+命令先流出数据事件再 `done`（`bt` → `frame`* + `done`、`locals` →
+`local`* + `done`）；设断点命令以 `bp` 回执应答，其余选择与变更命令
+只应答 `done`——`frame` 事件绝不出
+现在 `bt` 应答之外，消费方因此可以每条 `frame` 事件追加一行栈帧而不
+会重复。帧编号：`stopped` 的深度从 1
 计起且恒等于帧数（一次停止冻结最内层帧），而 `bt`/`frame` 从 0 计
 起，最内层为 0。
 

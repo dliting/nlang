@@ -193,7 +193,10 @@ void MachineFrontEnd::DoFrame(const std::string& arg)
     if (depth >= view.FrameCount())
         throw std::runtime_error("no frame " + arg);
     m_selectedFrame = depth;   //selection routes later locals requests
-    EmitFrame(depth);
+    //Selection answers done only -- frame events belong exclusively to
+    //bt responses. IDEs append a row per frame event, so a data echo
+    //here duplicated stack rows on every `frame <n>` (one per click in
+    //nide's variables pane refresh).
     EmitLine(protocol::MakeEvent("done", {"frame"}));
 }
 

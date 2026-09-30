@@ -26,7 +26,7 @@ ndb <module.nmod>
 | `f` | finish | 步出当前函数 |
 | `bt` | backtrace | 调用栈 |
 | `frame <n>` | — | 选择帧 |
-| `info locals` | info | 所选帧的局部变量（隐藏名过滤） |
+| `info locals` | info | 所选帧的局部变量（合成名过滤；接收者以 `this` 显示） |
 | `p <name>` | print | 打印一个局部变量 |
 | `l [行号]` | list | 源码窗口（当前行 `->` 标记） |
 | `x` | — | 所选帧反汇编（当前指令 `>>` 标记） |

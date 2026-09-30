@@ -12,7 +12,7 @@ a raw tab in the wire is always a field separator:
   bp\t<id>\t<file>\t<line>\t<bound|unbound>   (id 0 = unbound)
   stopped\t<initial|breakpoint|step|throw>\t<bpId>\t<func>\t<file>
           \t<line>\t<depth>\t<frameCount>
-  frame\t<n>\t<func>\t<file>\t<line>
+  frame\t<n>\t<func>\t<file>\t<line>          (bt responses only)
   local\t<name>\t<type>\t<value>
   done\t<req>
   output\t<text>
@@ -29,6 +29,12 @@ locals, run (prelude only), c/s/n/f. Non-resume commands answer in place
 (bp receipt, done <req> or err); a resume command answers with the next
 event (the following stop or exit). `run` ends the prelude started by
 PumpUntilRun; before it, window-bound commands err (no frozen window).
+Response-shape grammar: query commands stream their data events followed
+by done (bt -> frame* + done; locals -> local* + done); breakpoint-set
+commands answer with their bp receipt, and the remaining selection and
+mutation commands answer done only — frame events NEVER appear
+outside a bt response (consumers append per frame event, so a data echo
+from `frame <n>` would duplicate stack rows on every selection).
 ---*/
 #pragma once
 #include "DebugSessionController.h"

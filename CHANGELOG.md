@@ -6,6 +6,18 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.6] - Unreleased
+
+### Fixed
+- nide debugger: clicking a row of the call-stack tree no longer
+  appends a duplicate frame to the list (the machine protocol's
+  `frame <n>` selection command echoed a `frame` event on every
+  variables-pane refresh; frame events now belong exclusively to `bt`
+  responses).
+- ndb `locals` now shows the receiver of a method frame as `this`
+  (expanded one level); before, a method frame's locals query came
+  back empty, which left nide's variables pane blank for those frames.
+
 ## [0.7.5] - 2026-09-30
 
 ### Added

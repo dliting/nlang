@@ -74,7 +74,8 @@ The Debug page of the output window concentrates the session state:
   selects it, the editor jumps to the matching line, and the locals
   refresh;
 - the locals tree (name / type / value): shows every local of the
-  selected frame.
+  selected frame; in a method frame the receiver shows as `this`,
+  expanded one level (its fields).
 
 Program output and the call-stack backtrace on error appear on the Run
 Output page. Breakpoints are remembered by file path, survive nide

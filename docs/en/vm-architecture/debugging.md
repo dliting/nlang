@@ -79,7 +79,13 @@ tab-joined lines with escaped fields
 preset; `run` ends the prelude and starts execution — before it,
 window-bound commands answer `err` (nothing is frozen yet). A resume
 command answers with the next stop or exit event; other commands answer
-in place. Frame numbering: `stopped`'s depth is 1-based and always
+in place. Response shapes follow one grammar: query commands stream
+their data events then `done` (`bt` → `frame`* + `done`, `locals` →
+`local`* + `done`); breakpoint-set commands answer with their `bp`
+receipt, and the remaining selection and mutation commands answer
+`done` alone — `frame` events never appear outside a `bt` response, so a
+consumer can append one stack row per `frame` event without duplication.
+Frame numbering: `stopped`'s depth is 1-based and always
 equals the frame count (a stop freezes the innermost frame), while
 `bt`/`frame` index 0-based, innermost = 0.
 
