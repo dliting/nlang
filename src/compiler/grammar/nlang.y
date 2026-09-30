@@ -6,6 +6,7 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
+%expect 14
 
 %code requires {
 
@@ -156,19 +157,30 @@ static SnExpression* BuildStringExpr(
 //segments for a qualified type reference. The chain is parsed with the
 //normal member-access shifts, then converted only when it is reduced in
 //a type position — this keeps a lone identifier a plain NameExpr and
-//avoids a reduce/reduce over a single token.
-static void CollectQualifiedSegments(
+//avoids a reduce/reduce over a single token (a dedicated dotted category
+//at a statement head steals '.' from member access; a 2026-09-29 probe
+//grammar with such a category measured +2 shift/reduce on '.').
+//Returns false when the chain is not made of identifiers (a call, a
+//subscript, a parenthesised outer) — the caller marks the node malformed
+//and ExprResolver reports it, so no unchecked downcast happens here.
+static bool CollectQualifiedSegments(
 		SnExpression *pExpr, std::vector<std::string> &out)
 {
 	if (pExpr->Kind() == NK_IdentifierExpr)
 	{
 		out.push_back(static_cast<SnIdentifierExpr*>(pExpr)->Name());
-		return;
+		return true;
 	}
-	auto* pMember = static_cast<SnMemberExpr*>(pExpr);
-	CollectQualifiedSegments(pMember->Outer(), out);
-	out.push_back(
-		static_cast<SnIdentifierExpr*>(pMember->Inner())->Name());
+	if (pExpr->Kind() != NK_MemberExpr)
+		return false;
+	auto& member = static_cast<SnMemberExpr&>(*pExpr);
+	SnExpression* pInner = member.Inner();
+	if (pInner == nullptr || pInner->Kind() != NK_IdentifierExpr)
+		return false;   //a.b() — the inner side is an InvokeExpr
+	if (!CollectQualifiedSegments(member.Outer(), out))
+		return false;
+	out.push_back(static_cast<SnIdentifierExpr*>(pInner)->Name());
+	return true;
 }
 
 %}
@@ -1220,29 +1232,24 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //and the dual parentage (NameExpr|Expression both deriving MemberExpr)
 //was the dominant source of reduce/reduce conflicts. Removing it (plus
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
-//conflicts down to 1 (bison-measured). Removed in the Phase 10 audit;
-//do not re-add without a real use.
-//The one remaining rr conflict is on '<': `Type: NameExpr '<' TypeList '>'`
-//(generic type) vs a less-than comparison. bison's reduce-first
-//default picks the NameExpr/Type derivation, which keeps
-//`Foo<int> x;` parsing as a declaration — the intended behavior.
-//Accepted-conflict ledger (measured 2026-09-12, bison 3.8.2, `-r
-//state`): 1 reduce/reduce (state 133, above) + 12 shift/reduce in
-//three families, every one resolved by bison's default to the
-//intended reading. The notices stay in the build log on purpose:
-//%expect cannot pin this set (it errors on any rr while the lone
-//rr above exists — %expect-rr is GLR-only), so the log lines are
-//the drift signal; a count change means an unaudited grammar edit.
-//The 12 shift/reduce are:
-//- state 167 (1): the lone sr on '<' at the `new C` prefix — shift
-//  commits to the explicit generic NewExpr/NewArrayExpr productions
-//  (`new C<T>(...)`, `new C<T>{...}`, `new C<T>[n]`).
-//- state 225 (9): ClassMember's NodeFlag-singular vs NodeFlags-plural
-//  productions overlap on the flag/type first tokens — both
-//  derivations parse the same member; shift keeps reading flags.
-//- state 260 (2): catch/finally after a nested `try` statement — the
-//  dangling-clause shape; shift binds the clause to the innermost
-//  try (the Java/C++ rule).
+//conflicts down to none, as the re-measure below shows. Removed in the
+//Phase 10 audit; do not re-add without a real use.
+//Accepted-conflict ledger (re-measured 2026-09-29, bison 3.8.2): 14
+//shift/reduce, 0 reduce/reduce, in three families, every one resolved by
+//bison's default to the intended reading. The count is pinned by the
+//`%expect 14` in the prologue, so bison is SILENT on a clean tree — any
+//grammar edit that moves the count now fails the build with
+//`error: shift/reduce conflicts: N found, 14 expected` instead of
+//leaving a notice in a log nobody reads. Bump `%expect` in the same
+//commit as the edit, never in a commit of its own.
+//- states 148/185/191 (1 each): the '<' shapes — an explicit generic
+//  type head (`List<int> l;`), `new C<T>(...)`, and the void-return
+//  Func spellings. Reduce-first keeps the declaration reading.
+//- state 254 (9): ClassMember's NodeFlag-singular vs NodeFlags-plural
+//  productions overlap on the flag/type first tokens — both derivations
+//  parse the same member; shift keeps reading flags.
+//- state 290 (2): catch/finally after a nested `try` statement — the
+//  dangling-clause shape; shift binds the clause to the innermost try.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
@@ -1323,10 +1330,22 @@ HeadType:	IdentifierExpr {
 			} |
 			MemberExpr {
 				std::vector<std::string> segs;
-				CollectQualifiedSegments($1, segs);
-				auto* pQ = new SnQualifiedTypeExpr(segs.at(0), segs.at(1), @1);
-				for (size_t k = 2; k < segs.size(); ++k)
-					pQ->AppendSegment(segs[k]);
+				SnQualifiedTypeExpr* pQ = nullptr;
+				if (CollectQualifiedSegments($1, segs) && segs.size() >= 2)
+				{
+					pQ = new SnQualifiedTypeExpr(segs[0], segs[1], @1);
+					for (size_t k = 2; k < segs.size(); ++k)
+						pQ->AppendSegment(segs[k]);
+				}
+				else
+				{
+					//Not an identifier chain (a call, a subscript, a
+					//parenthesised outer). Keep a typed, unresolved node on
+					//the tree so the resolver owns the diagnostic.
+					pQ = new SnQualifiedTypeExpr(
+						std::string(), std::string(), @1);
+					pQ->MarkMalformed();
+				}
 				$$ = pQ;
 				delete $1;
 			} |

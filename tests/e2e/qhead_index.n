@@ -1,0 +1,5 @@
+int main() {
+  int q;
+  q[0].x v;
+  return 0;
+}

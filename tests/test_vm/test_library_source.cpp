@@ -63,21 +63,45 @@ void writeFiles(const fs::path& dir, const Files& files) {
     }
 }
 
-// Compile main.n in dir with dir + the stdlib dir on the import path.
-// Returns the builder result (false = compile errors diagnosed).
-bool compileDir(const fs::path& dir) {
+//One build entry point for the whole file: fills params, runs Build(),
+//and leaves the diagnostics in the caller's logger. Never a second copy.
+bool runBuild(const fs::path& dir, ListCompileLogger& logger,
+              const std::vector<std::string>& vrSources = { "main.n" }) {
     BuildParams params;
-    params.m_SourceFiles.push_back((dir / "main.n").string());
     //Unique output module per scenario: several Build() runs share the
     //process-wide module registry, so a repeated name would collide.
+    for (const auto& s : vrSources) params.m_SourceFiles.push_back((dir / s).string());
     params.m_sOutputModule = dir.filename().string();
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
     params.m_sStdLibDir = STDLIB_DIR;
     params.m_ImportDirs = { dir.string(), STDLIB_DIR };
+    return ModuleBuilder(params, logger).Build();
+}
+
+//Text view: joins every logged item. ListCompileLogger only exposes
+//cbegin()/cend() and stores CompileLogItem* (Logger.h:97-119).
+std::string compileLog(const fs::path& dir,
+                       const std::vector<std::string>& vrSources = { "main.n" }) {
     ListCompileLogger logger;
-    ModuleBuilder builder(params, logger);
-    try { return builder.Build(); }
+    std::string out;
+    try { runBuild(dir, logger, vrSources); }
+    catch (const std::exception& e) {      //kept because today's compileDir
+        out += " internal error: ";        //already has this catch
+        out += e.what();
+        return out;
+    }
+    for (auto it = logger.cbegin(); it != logger.cend(); ++it)
+        out += (*it)->Message() + "\n";
+    return out;
+}
+
+// Compile main.n in dir with dir + the stdlib dir on the import path.
+// Returns the builder result (false = compile errors diagnosed).
+bool compileDir(const fs::path& dir,
+                const std::vector<std::string>& vrSources = { "main.n" }) {
+    ListCompileLogger logger;
+    try { return runBuild(dir, logger, vrSources); }
     catch (const std::exception&) { return false; }
 }
 
@@ -87,8 +111,10 @@ struct CapturingIo : IHostIo {
 };
 
 // Compile then run main.n; returns the program code (-1 on build failure).
-int compileRun(const fs::path& dir, CapturingIo& cap) {
-    if (!compileDir(dir))
+int compileRun(const fs::path& dir, CapturingIo& cap,
+               const std::vector<std::string>& vrSources = { "main.n" }) {
+    ListCompileLogger logger;
+    if (!runBuild(dir, logger, vrSources))
         return -1;
     const std::string modName = dir.filename().string();
     CompiledModule mod = ModuleLoader::Load(
@@ -430,6 +456,24 @@ void TestModuleTypeOwnerIsolation() {
           "a foreign unit cannot borrow the consumer's root type");
 }
 
+//Phase 5 audit I2 control: a member access in EXPRESSION position must stay
+//legal. The Step 3 guard only rejects a non-dotted chain in TYPE-head
+//position — if this case goes red, the guard widened too far.
+//The malformed-chain negatives are deliberately NOT here: they are
+//undefined behaviour on current dev (blind static_cast in
+//CollectQualifiedSegments, nlang.y:160-172) and are pinned as the e2e
+//subprocess cases qhead_call / qhead_deep / qhead_index instead, so a crash can take out
+//one e2e entry rather than this whole binary.
+static void TestQualifiedTypeHeadKeepsLegalMemberAccess() {
+    auto dir3 = scenarioDir("qhead_ok");
+    writeFiles(dir3, { { "alib.n", kLibSource }, { "main.n",
+        "import alib;\n"
+        "int main() {\n"
+        "  return alib.twice(1) - 2;\n"
+        "}\n" } });
+    CHECK(compileDir(dir3), "member access in expression stays legal");
+}
+
 } // namespace
 
 int main() {
@@ -446,6 +490,7 @@ int main() {
     TestLibraryEnumMethod();
     TestModuleTypeWithoutNamespaceWrapper();
     TestModuleTypeOwnerIsolation();
+    TestQualifiedTypeHeadKeepsLegalMemberAccess();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -563,8 +563,10 @@ private:
 //A type position naming a type inside another (imported) namespace. The
 //last segment is the type name; the preceding segments name its
 //namespace/module, mirroring the ns.member expression style. ExprResolver
-//looks the type declaration up in that module and binds it; the node is a
-//type reference only and never reaches codegen as a value.
+//looks the type declaration up in that module and binds it. A RESOLVED
+//node never reaches codegen as a value (VmBackend::Access(SnQualifiedTypeExpr&)
+//raises an internal error if it would); an unresolved one (including a
+//malformed chain) is stopped by the failed build after the diagnostic.
 class NLANG_COMPILER_API SnQualifiedTypeExpr : public SnCompoundFieldExpr
 {
 	typedef SnCompoundFieldExpr Super_;
@@ -577,6 +579,13 @@ public:
 
 	//Append one more segment to the dotted chain (a.b -> a.b.c).
 	void AppendSegment(const std::string &seg);
+
+	//Phase 5: a qualified type head whose chain is not made of identifiers
+	//(`a.b() v;`) is syntactically reachable but semantically meaningless —
+	//the flattener refuses it and the resolver reports it. The node stays
+	//unresolved; codegen never sees a resolved malformed chain.
+	void MarkMalformed() { m_malformed = true; }
+	bool IsMalformed() const { return m_malformed; }
 
 	const std::vector<std::string> &Segments() const
 	{
@@ -595,6 +604,7 @@ public:
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	std::vector<std::string> m_segments;
+	bool m_malformed = false;
 };
 
 //Type cast expression syntax node.

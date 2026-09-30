@@ -1,0 +1,5 @@
+import alib;
+int main() {
+  alib.twice(1) v;
+  return 0;
+}

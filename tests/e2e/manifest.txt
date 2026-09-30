@@ -1159,3 +1159,6 @@ delegate_arg_upcast 2
 delegate_arg_array_exact 9
 delegate_arg_array_reject compile_error incompatible
 delegate_arg_widen_reject compile_error incompatible
+qhead_call compile_error Malformed qualified type reference
+qhead_deep compile_error Malformed qualified type reference
+qhead_index compile_error Malformed qualified type reference

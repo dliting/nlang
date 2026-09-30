@@ -330,10 +330,10 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 		return;
 
 	const auto &segs = qtype.Segments();
-	if (segs.size() < 2)
+	if (qtype.IsMalformed() || segs.size() < 2)
 	{
-		//A single-segment type uses SnNameExpr; a qualified node with one
-		//segment is a grammar/internal error.
+		//A single-segment type uses SnNameExpr; a one-segment qualified
+		//node, or a chain that is not identifiers (`a.b() v;`), is refused.
 		m_Env.Log(CLL_Error, qtype.Location(),
 			"Malformed qualified type reference.");
 		return;
