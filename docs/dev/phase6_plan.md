@@ -47,7 +47,7 @@
 - [ ] **Step 2: 跑测试确认失败**（当前 1.13：版本断言与 modulePath 均红）。
 - [ ] **Step 3: 实现**——常量、Saver/Loader 对称读写、全部 `.ncu` 产出点补 `modulePath`；诊断文案按规格 §6 保持「指名两方版本号」。
 - [ ] **Step 4: 全量门**——ctest 串行全绿（版本钉已同步）、e2e 977/6 逐字、docs 67、守卫 clean。
-- [ ] **Step 5: Commit**——`git add <显式清单>`；`feat(vm): .ncu format 2.0 - module path in header, version floor/ceiling at 2.0`。
+- [x] **Step 5: Commit**——`8cd8362`（ctest 64/64、e2e 977/6 逐字、docs 67、守卫 clean；实施补充：2.0 地板/天花板使读取端五处 minor 门死代码化并移除——floor==ceiling 时每个被接受模块布局一致；版本钉从 minor 降级改为 major 降级）。
 
 ### Task 2: `.npkg` v1.0 归档——写端、读端、命令面
 
