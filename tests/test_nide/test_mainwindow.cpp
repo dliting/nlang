@@ -38,6 +38,7 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextBrowser>
+#include <functional>
 #include <QTextEdit>
 #include <QTextLayout>
 #include <QTimer>
@@ -153,6 +154,48 @@ void answerMessageBox(QMessageBox::StandardButton button) {
         box->button(button)->click();
 }
 
+//Detectors for scenarios that promise NO prompt: when the forbidden
+//modal did open, dismiss it (so the exec loop unblocks instead of
+//hanging the suite) and fail the test. No-ops when nothing is open.
+void failOnMessageBox(const char* message) {
+    if (QMessageBox* box =
+            qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+        box->button(QMessageBox::Discard)->click();
+        QFAIL(message);
+    }
+}
+
+void failOnFileDialog(const char* message) {
+    if (QFileDialog* dialog =
+            qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+        acceptDialog(dialog);
+        QFAIL(message);
+    }
+}
+
+//A repeating zero-interval tripwire around a call that may open modals:
+//while armed, every event-loop pass runs check() whenever a modal is
+//active, so each exec opened by the guarded call gets inspected
+//(answering one prompt can chain another modal). The destructor cancels
+//the timer -- a bare singleShot(0) would linger past a silent call and
+//fire inside the NEXT test's modal loop (cross-test bleed, where it
+//would dismiss and fail a perfectly healthy dialog).
+class ModalTripwire {
+public:
+    explicit ModalTripwire(std::function<void()> check) {
+        m_timer.setInterval(0);
+        QObject::connect(&m_timer, &QTimer::timeout, [check]() {
+            if (QApplication::activeModalWidget())
+                check();
+        });
+        m_timer.start();
+    }
+    ~ModalTripwire() { m_timer.stop(); }
+
+private:
+    QTimer m_timer;
+};
+
 //Accept the active (non-native) file dialog with the chosen path.
 void acceptFileDialog(const QString& filePath) {
     if (QFileDialog* dialog =
@@ -177,6 +220,22 @@ void acceptProjectDialog(const QString& name, const QString& dir,
         dialog->findChild<QLineEdit*>("edtNamespace")->setText("app");
         if (QCheckBox* box = dialog->findChild<QCheckBox*>("chkNoWarn"))
             box->setChecked(noWarn);
+        acceptDialog(dialog);
+    }
+}
+
+//Accept the active project-properties dialog with name/dir only --
+//every other field keeps its default (the "authored but untouched"
+//creation, where no property setter fires to mark the project dirty).
+void acceptProjectDialogDefaults(const QString& name, const QString& dir) {
+    QDialog* dialog =
+        qobject_cast<QDialog*>(QApplication::activeModalWidget());
+    QLineEdit* nameEdit =
+        dialog != nullptr ? dialog->findChild<QLineEdit*>("edtProjectName")
+                          : nullptr;
+    if (nameEdit != nullptr) {
+        nameEdit->setText(name);
+        dialog->findChild<QLineEdit*>("edtProjectDir")->setText(dir);
         acceptDialog(dialog);
     }
 }
@@ -554,6 +613,100 @@ private slots:
         QCOMPARE(solutionView(window)->model()->rowCount(), 0);
         QVERIFY(!act(window, "actSaveSolution")->isEnabled());
         QVERIFY(!act(window, "actBuild")->isEnabled());
+    }
+
+    //Opening a project with no solution open auto-creates a wrapper;
+    //that scaffolding alone must never read as unsaved changes at close
+    //(nothing user-visible was modified -- the phantom-prompt bug).
+    void testCloseSolutionSilentAfterOpenProjectOnly() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        QVERIFY(act(window, "actBuild")->isEnabled());  // project open
+
+        ModalTripwire noPhantomPrompt(
+            [] { failOnMessageBox("close must stay silent when only the "
+                                  "implicit wrapper exists"); });
+        act(window, "actCloseSolution")->trigger();
+
+        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+        QVERIFY(!act(window, "actSaveSolution")->isEnabled());
+    }
+
+    //A project AUTHORED through the New Project dialog (all-default
+    //properties, no file added, nothing written to disk) is user work:
+    //closing must prompt even though the surrounding solution is the
+    //implicit wrapper. Before the born-unsaved fix this exact flow
+    //closed silently and dropped the project.
+    void testClosePromptsAfterNewProject() {
+        MainWindow window;
+        QTemporaryDir dir;
+        inExec([&] { acceptProjectDialogDefaults("App", dir.path()); });
+        act(window, "actNewProject")->trigger();  // implicit wrapper
+        QVERIFY(act(window, "actBuild")->isEnabled());
+
+        bool prompted = false;
+        ModalTripwire guard([&] {
+            prompted = true;
+            answerMessageBox(QMessageBox::Discard);
+        });
+        act(window, "actCloseSolution")->trigger();
+
+        QVERIFY(prompted);
+        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+        QVERIFY(!QFileInfo::exists(
+            QDir(dir.path()).filePath("App.nproj")));  // discard kept
+    }
+
+    //Save at close routes by domain state: the wrapper has no file of
+    //its own, so only the dirty project is written to its own .nproj --
+    //no .nsln name may be demanded for scaffolding the user never
+    //created.
+    void testCloseSolutionSavesDirtyProjectWithoutNsln() {
+        MainWindow window;
+        QTemporaryDir dir;
+        QString nprojPath, mainPath;
+        writeProjectFixture(dir.path(), &nprojPath, &mainPath);
+        openFixtureProject(window, dir.path());
+
+        //A real user change: a tree rename marks the project dirty.
+        renameViaTree(window, "renamed.n");
+
+        //The close prompt is legitimate (a project is dirty) and gets
+        //Save; the tripwire only fails a PHANTOM .nsln name demand.
+        inExec([&] { answerMessageBox(QMessageBox::Save); });
+        ModalTripwire noNslnDialog([] {
+            failOnFileDialog("wrapper save must not ask for a .nsln name");
+        });
+        act(window, "actCloseSolution")->trigger();
+
+        QVERIFY(readTextFile(nprojPath).contains("renamed.n"));
+        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
+    }
+
+    //Once the user names and saves the wrapper (Save Solution), it is
+    //first-class: later membership changes prompt again at close.
+    void testSavedWrapperBecomesPrompting() {
+        MainWindow window;
+        QTemporaryDir dir;
+        QString nprojPath, mainPath;
+        writeProjectFixture(dir.path(), &nprojPath, &mainPath);
+        const QString slnPath = QDir(dir.path()).filePath("Wrapper.nsln");
+        openFixtureProject(window, dir.path());
+
+        inExec([&] { acceptFileDialog(slnPath); });
+        act(window, "actSaveSolution")->trigger();
+        QVERIFY(QFileInfo::exists(slnPath));
+
+        //A second project is a membership change on a first-class
+        //solution -- user work again.
+        QTemporaryDir secondDir;
+        inExec([&] { acceptProjectDialog("Second", secondDir.path()); });
+        act(window, "actNewProject")->trigger();
+
+        inExec([&] { answerMessageBox(QMessageBox::Discard); });
+        act(window, "actCloseSolution")->trigger();
+        QCOMPARE(solutionView(window)->model()->rowCount(), 0);
     }
 
     void testOpenSolution() {
@@ -1197,10 +1350,12 @@ private slots:
         QCOMPARE(model->rowCount(model->index(0, 0)), 1);  // project only
 
         // Closing the solution flips main.n's editor back to standalone
-        // (the reverse membership flip). The implicitly created solution
-        // is still dirty (the project was never saved into a solution),
-        // so Discard answers the close prompt.
-        inExec([&] { answerMessageBox(QMessageBox::Discard); });
+        // (the reverse membership flip). The implicitly created wrapper
+        // never prompts on its own (scaffolding is not user work), so
+        // the close is silent; the tripwire answers any phantom prompt
+        // a regression might reintroduce.
+        ModalTripwire phantomCloseGuard(
+            [] { answerMessageBox(QMessageBox::Discard); });
         act(window, "actCloseSolution")->trigger();
         QCOMPARE(model->rowCount(), 1);  // the group again
         QCOMPARE(model->index(0, 0).data().toString(),
@@ -1587,14 +1742,16 @@ private slots:
         QCOMPARE(recentEntries().size(), 1);
         QVERIFY(recentEntries().first().endsWith("App.nproj"));
 
-        //A .nsln over that solution: the close is NOT silent (opening a
-        //project marks the implicit solution dirty), so Discard answers
-        //the prompt and the file dialog follows -- then the solution
-        //itself is pushed on top.
+        //A .nsln over that solution: the implicit wrapper closes
+        //silently (it never reads as unsaved on its own), so the file
+        //dialog is the first modal -- then the solution itself is
+        //pushed on top. The tripwire answers any phantom close prompt a
+        //regression might reintroduce.
         writeSolutionFixture(dir.path(), "Sol", {"App/App.nproj"});
         const QString nslnPath = QDir(dir.path()).filePath("Sol.nsln");
-        inExecSteps2([&] { answerMessageBox(QMessageBox::Discard); },
-                     [&] { acceptFileDialog(nslnPath); });
+        ModalTripwire phantomCloseGuard(
+            [] { answerMessageBox(QMessageBox::Discard); });
+        inExec([&] { acceptFileDialog(nslnPath); });
         act(window, "actOpenSolution")->trigger();
         QCOMPARE(recentEntries().size(), 2);
         QVERIFY(recentEntries().first().endsWith("Sol.nsln"));
@@ -1711,9 +1868,11 @@ private slots:
         clearRecentStore();  //must precede the ctor: MainWindow loads the store
         MainWindow window;
         openFixtureProject(window, dir.path());
-        //The implicit solution IS dirty (addProject marks it): the close
-        //prompts; answer Discard (deterministic, writes nothing).
-        inExec([] { answerMessageBox(QMessageBox::Discard); });
+        //The implicit wrapper closes silently (scaffolding is not user
+        //work); the tripwire answers any phantom prompt a regression
+        //might reintroduce.
+        ModalTripwire phantomCloseGuard(
+            [] { answerMessageBox(QMessageBox::Discard); });
         act(window, "actCloseSolution")->trigger();
         QCOMPARE(solutionView(window)->model()->rowCount(), 0);
 
@@ -1942,16 +2101,45 @@ private slots:
         act(window, "actAddNewFile")->trigger();
         currentCode(window)->appendPlainText("    int x = 1;");
 
-        //One modal only: the unnamed solution asks for its .nsln path.
-        //The editor has a path already, and saveSolution writes the
-        //dirty project along.
-        const QString slnPath = QDir(dir.path()).filePath("All.nsln");
-        inExec([&] { acceptFileDialog(slnPath); });
+        //The wrapper around the new project is scaffolding the user
+        //never named: Save All writes the editor and the project to
+        //their own homes and must NOT demand a .nsln path (the phantom
+        //name-prompt family).
+        ModalTripwire noNslnDialog([] {
+            failOnFileDialog("Save All must not ask for a .nsln "
+                             "name for the implicit wrapper");
+        });
         act(window, "actSaveAll")->trigger();
 
-        QVERIFY(QFileInfo::exists(slnPath));
+        //The suggested name for an unnamed solution is Solution1.nsln.
+        QVERIFY(
+            !QFileInfo::exists(QDir(dir.path()).filePath("Solution1.nsln")));
         QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.nproj")));
         QCOMPARE(tabCodes(window)->tabText(0), QString("main.n"));  // saved
+    }
+
+    //A first-class solution keeps the one-write Save All: every project
+    //is written along with the .nsln, silently (the .nsln already has
+    //a home, so no name dialog).
+    void testSaveAllFirstClassSolution() {
+        MainWindow window;
+        QTemporaryDir dir;
+        QString nprojPath, mainPath;
+        writeProjectFixture(dir.path(), &nprojPath, &mainPath);
+        writeSolutionFixture(dir.path(), "Sol", {"App/App.nproj"});
+        const QString nslnPath = QDir(dir.path()).filePath("Sol.nsln");
+        inExec([&] { acceptFileDialog(nslnPath); });
+        act(window, "actOpenSolution")->trigger();
+
+        renameViaTree(window, "renamed.n");  // project dirty
+
+        ModalTripwire noNameDialog([] {
+            failOnFileDialog("Save All must not prompt when the "
+                             ".nsln already has a home");
+        });
+        act(window, "actSaveAll")->trigger();
+
+        QVERIFY(readTextFile(nprojPath).contains("renamed.n"));
     }
 
     //--- build & run (real ncc + nvm) ---
@@ -2668,8 +2856,8 @@ private slots:
     void testCloseEventPromptsOnDirtyEditor() {
         QTemporaryDir dir;
 
-        //Cancel on the FIRST prompt (the unsaved solution: the opened
-        //project was never saved into a .nsln) keeps the window open.
+        //Cancel on the single prompt (the dirty editor; the implicit
+        //wrapper never prompts on its own) keeps the window open.
         {
             MainWindow window;
             window.show();
@@ -2678,13 +2866,14 @@ private slots:
                 Q_ARG(QModelIndex, firstFileIndex(window)));
             currentCode(window)->appendPlainText("    int x = 1;");
 
-            inExec([&] { answerMessageBox(QMessageBox::Cancel); });
+            ModalTripwire promptGuard(
+                [] { answerMessageBox(QMessageBox::Cancel); });
             window.close();
             QVERIFY(window.isVisible());
         }
 
-        //Discard answers BOTH prompts (solution, then the dirty editor)
-        //and the window closes.
+        //Discard answers the editor prompt (and any second prompt a
+        //regression might reintroduce) and the window closes.
         {
             MainWindow window;
             window.show();
@@ -2693,12 +2882,33 @@ private slots:
                 Q_ARG(QModelIndex, firstFileIndex(window)));
             currentCode(window)->appendPlainText("    int x = 1;");
 
-            inExecSteps2([&] { answerMessageBox(QMessageBox::Discard); },
-                         [&] { answerMessageBox(QMessageBox::Discard); });
+            ModalTripwire promptGuard(
+                [] { answerMessageBox(QMessageBox::Discard); });
             window.close();
             QVERIFY(!window.isVisible());
             QCOMPARE(tabCodes(window)->count(), 0);
         }
+    }
+
+    //The literal 0.7.6 complaint: an opened project (implicit wrapper)
+    //plus an opened standalone file, zero edits -- quitting must not
+    //claim unsaved changes.
+    void testCloseEventSilentWithoutUserChanges() {
+        MainWindow window;
+        window.show();
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+        const QString soloPath = QDir(dir.path()).filePath("solo.n");
+        writeFile(soloPath, kMainSource);
+        inExec([&] { acceptFileDialog(soloPath); });
+        act(window, "actOpenFile")->trigger();
+        QCOMPARE(tabCodes(window)->count(), 1);  // open, not dirty
+
+        ModalTripwire noPhantomPrompt(
+            [] { failOnMessageBox("quit must stay silent when nothing "
+                                  "user-visible changed"); });
+        window.close();
+        QVERIFY(!window.isVisible());
     }
 
     //--- icons (Step 8) ---

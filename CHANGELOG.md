@@ -50,6 +50,19 @@ All notable changes to NLang are documented here. The format follows
   now accepted and skipped, so the editors' "UTF-8 with BOM" save
   form works, and line endings normalize to LF (CRLF pairs, and lone
   CRs, alike).
+- nide: quitting (or closing the solution) no longer claims unsaved
+  changes when the user only opened a project. Opening a project with
+  no solution open auto-creates a solution wrapper, and the wrapper's
+  own bookkeeping used to count as "the solution or its projects have
+  unsaved changes" — a phantom save prompt at exit with zero user
+  modifications. The wrapper is now ephemeral scaffolding: it never
+  prompts on its own, saving it (Save Solution) promotes it to a
+  first-class solution whose changes prompt as before, and at close
+  or Save All only genuinely dirty projects are persisted, each to
+  its own `.nproj` — no `.nsln` name is demanded for scaffolding the
+  user never created. A project authored through the New Project
+  dialog still counts as unsaved from its creation (nothing reaches
+  the disk until it is saved), so closing keeps prompting for it.
 
 ### Added
 - Manual: the char representation chain is documented end to end in

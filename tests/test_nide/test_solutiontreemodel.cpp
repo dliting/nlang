@@ -81,6 +81,19 @@ private slots:
         QVERIFY(root->file() == nullptr);
     }
 
+    //The ephemeral factory builds the same tree shape as newSolution,
+    //but the wrapper never reads as unsaved user work on its own (see
+    //SolutionNode::hasUnsavedChanges).
+    void testNewEphemeralSolutionIsWrapper() {
+        SolutionTreeModel model;
+        model.newEphemeralSolution("Solution1");
+
+        QVERIFY(model.hasSolution());
+        QCOMPARE(model.rowCount(), 1);
+        QVERIFY(model.solutionNode()->isEphemeral());
+        QVERIFY(!model.solutionNode()->hasUnsavedChanges());
+    }
+
     void testCloseSolutionClearsTree() {
         SolutionTreeModel model;
         model.newSolution("Solo");

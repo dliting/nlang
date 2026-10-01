@@ -172,6 +172,27 @@ private slots:
         QVERIFY(project->isDirty());
     }
 
+    //A project created with all-default properties is still authored
+    //work: it exists only in memory (no .nproj is written at creation),
+    // so it must read as unsaved from birth.
+    void testCreateAcceptDefaultsProjectIsDirty() {
+        QTemporaryDir dir;
+        SolutionNode solution("Sln");
+        ProjectPropDialog dialog;
+        inExec([&] {
+            edit(&dialog, "edtProjectName")->setText("App");
+            edit(&dialog, "edtProjectDir")->setText(dir.path());
+            //namespace/outputDir/intermediateDir/noWarn keep defaults
+            dialog.accept();
+        });
+
+        ProjectNode* project = dialog.createProject(solution);
+        QVERIFY(project != nullptr);
+        QVERIFY(!QFileInfo::exists(
+            QDir(dir.path()).filePath("App.nproj")));  // memory-only
+        QVERIFY(project->isDirty());
+    }
+
     void testCreateRejectReturnsNull() {
         SolutionNode solution("Sln");
         ProjectPropDialog dialog;

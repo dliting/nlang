@@ -124,8 +124,12 @@ bool SolutionNode::save(const QString& filePath, QString* error) {
         return false;
 
     //Success: adopt the canonical paths and relocate along with the file.
+    //A .nsln now exists on disk, so an ephemeral wrapper is promoted to
+    //first-class (the single promotion point -- its changes count as
+    //user work from here on).
     m_projectPaths = std::move(absPaths);
     m_solutionDir = baseDir;
+    m_ephemeral = false;
     clearDirty();
     return true;
 }
@@ -203,6 +207,7 @@ bool SolutionNode::saveWithProjects(const QString& filePath, QString* error) {
 void SolutionNode::adopt(SolutionNode&& other) {
     m_name = std::move(other.m_name);
     m_dirty = other.m_dirty;
+    m_ephemeral = other.m_ephemeral;
     m_solutionDir = std::move(other.m_solutionDir);
     m_projectPaths = std::move(other.m_projectPaths);
     m_projects = std::move(other.m_projects);

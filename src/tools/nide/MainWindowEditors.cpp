@@ -90,8 +90,13 @@ void MainWindow::on_actSaveAll_triggered() {
         if (editor->dirty() && !saveEditor(editor))
             return;
     }
-    if (m_solutionTree->hasSolution() && isSolutionModified())
-        saveSolution();
+    if (!m_solutionTree->hasSolution())
+        return;
+    //Same routing as the close prompt (saveUnsavedChanges): an ephemeral
+    //wrapper has no file of its own, so Save All writes only the dirty
+    //projects to their homes -- never a .nsln name dialog for scaffolding.
+    if (m_solutionTree->solutionNode()->hasUnsavedChanges())
+        saveUnsavedChanges();
 }
 
 void MainWindow::on_actQuit_triggered() {

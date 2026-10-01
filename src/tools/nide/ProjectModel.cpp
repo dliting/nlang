@@ -125,8 +125,8 @@ QString ProjectNode::absolutePathOf(const QString& relativePath) const {
 
 //--- SolutionNode ---
 
-SolutionNode::SolutionNode(const QString& name)
-    : m_name(name)
+SolutionNode::SolutionNode(const QString& name, bool ephemeral)
+    : m_name(name), m_ephemeral(ephemeral)
 {
 }
 
@@ -135,6 +135,17 @@ void SolutionNode::setName(const QString& name) {
         m_name = name;
         markDirty();
     }
+}
+
+bool SolutionNode::hasUnsavedChanges() const {
+    //An ephemeral wrapper has no persisted identity: its own dirty flag
+    //tracks membership bookkeeping the IDE performed, not user work.
+    if (!m_ephemeral && m_dirty)
+        return true;
+    for (const auto& project : m_projects)
+        if (project->isDirty())
+            return true;
+    return false;
 }
 
 ProjectNode* SolutionNode::addProject(const QString& path) {

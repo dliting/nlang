@@ -75,6 +75,11 @@ public:
     //Replace any open solution with an empty one (creating a solution).
     void newSolution(const QString& name);
 
+    //Same shape, but the solution is IDE scaffolding (the wrapper built
+    //around an opened project): ephemeral, so it never reads as unsaved
+    //user work on its own -- see SolutionNode::hasUnsavedChanges.
+    void newEphemeralSolution(const QString& name);
+
     //Deep load via SolutionNode::loadWithProjects (all-or-nothing); the
     //tree is rebuilt only on success.
     bool loadSolution(const QString& filePath, QString* error = nullptr);

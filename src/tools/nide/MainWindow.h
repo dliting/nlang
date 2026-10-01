@@ -54,9 +54,10 @@ namespace nlang {
 //    QDockWidgets).
 //  - Build runs `ncc build -p <nproj> -o <nmod>`, run launches
 //    `nvm <nmod>`.
-//  - Unsaved-work prompts key on solution-level state (the solution is
-//    dirty after add/remove), never on per-project isDirty() alone: a
-//    project created with all-default properties is not project-dirty.
+//  - Unsaved-work prompts key on SolutionNode::hasUnsavedChanges (any
+//    dirty project, or the solution's own state when first-class -- the
+//    ephemeral wrapper created around an opened project never counts:
+//    scaffolding is not user work; saving it promotes it).
 //  - removeFile never prompts for a dirty editor of that file (the
 //    editor stays open, so no edits are lost).
 //  - addExistingFile does not open the added file in an editor.
@@ -257,11 +258,17 @@ private:
     //Save the .nsln (asking for the path when unnamed) plus every
     //dirty project (via saveWithProjects); false on failure or cancel.
     bool saveSolution();
-    //Any unsaved work in the solution graph?
-    bool isSolutionModified() const;
-    //Prompt for unsaved work; false vetoes the close.
+    //Persist what the unsaved-work prompt guards: a first-class solution
+    //goes out in one write (saveSolution); an ephemeral wrapper has no
+    //file of its own, so only its dirty projects are written to their
+    //own homes -- demanding a .nsln name here would resurrect the
+    //phantom prompt the wrapper exemption removes.
+    bool saveUnsavedChanges();
+    //Prompt for unsaved work (SolutionNode::hasUnsavedChanges is the
+    //authority); false vetoes the close.
     bool closeSolution();
-    //No solution open -> create an empty one.
+    //No solution open -> create an ephemeral wrapper (never counts as
+    //user work on its own; promoted on save).
     void ensureSolution();
     //Open a .nsln from a path. The unsaved-work gate (closeSolution)
     //lives INSIDE, not only in the menu handler: loadSolution replaces
