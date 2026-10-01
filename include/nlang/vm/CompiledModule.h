@@ -15,6 +15,8 @@ inline constexpr char NCU_MAGIC[8] = {'N', 'L', 'A', 'N', 'G', 'C', 'U', '\0'};
 //Artifact extension. Name it once: the spelling has changed before and
 //may change again — never hard-code its length.
 inline constexpr const char *NCU_EXTENSION = ".ncu";
+//Package archive extension (the container, distinct from the unit).
+inline constexpr const char *NPKG_EXTENSION = ".npkg";
 
 //.ncu format version. Single source of truth shared by the writer
 //(WriteCompiledModule in ModuleSaver.cpp) and the reader (ModuleLoader) —

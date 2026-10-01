@@ -70,6 +70,11 @@
     "reason": "section-tag dispatch reader; one short arm per tag"
   },
   {
+    "path": "src/vm/ModuleLoader.cpp",
+    "function": "ModuleLoader::LoadFromBytes",
+    "reason": "section-tag dispatch reader; same body as ModuleLoader::Load, which delegates here"
+  },
+  {
     "path": "src/vm/ModuleSaver.cpp",
     "function": "WriteCompiledModule",
     "reason": "sequential field-group writer in on-disk-format order"

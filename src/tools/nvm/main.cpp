@@ -1,4 +1,5 @@
 #include "ModuleLoader.h"
+#include "nlang/vm/NcuPackage.h"
 #include "VmExecutor.h"
 #include "NativeLibraryLoader.h"
 #include "TestNatives.h"
@@ -99,7 +100,34 @@ int main(int argc, char* argv[]) {
     RegisterTestNatives(executor);
     int result = 1;
     try {
-        module = ModuleLoader::Load(argv[moduleArg]);
+        //.npkg input: extract the entry member (or the only member) and
+        //load it in memory — the package is the distribution form; the
+        //embedded .ncu is the execution unit. (Task 3+ links siblings
+        //from the package directly.)
+        if (std::string(argv[moduleArg]).rfind(".npkg") ==
+                std::string(argv[moduleArg]).size() - 5) {
+            NcuPackageReader pkg;
+            std::string pkgError;
+            if (!pkg.Open(argv[moduleArg], &pkgError))
+                throw std::runtime_error(pkgError);
+            std::string memberPath;
+            if (const NcuEntryRecord* entry = pkg.EntryRecord())
+                memberPath = entry->modulePath;
+            else if (!pkg.MemberPaths().empty())
+                memberPath = pkg.MemberPaths().front();
+            else
+                throw std::runtime_error(
+                    "Package '" + std::string(argv[moduleArg])
+                    + "' has no members");
+            std::string memberBytes;
+            if (!pkg.ExtractMember(memberPath, &memberBytes, &pkgError))
+                throw std::runtime_error(pkgError);
+            module = ModuleLoader::LoadFromBytes(
+                (fs::path(argv[moduleArg]) / memberPath).string(),
+                memberBytes);
+        } else {
+            module = ModuleLoader::Load(argv[moduleArg]);
+        }
         //Unified library search: CLI -I > module dir > NLANG_PATH >
         //exe dir/cwd (native DLLs may ship beside the module or in -I dirs).
         fs::path modPath(argv[moduleArg]);

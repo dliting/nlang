@@ -1,5 +1,6 @@
 #include "ModuleLoader.h"
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <cstring>
 #include <vector>
@@ -29,6 +30,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     std::ifstream fs(filePath, std::ios::binary);
     if (!fs.is_open())
         throw std::runtime_error("Failed to open module file: " + filePath);
+    std::stringstream buffer;
+    buffer << fs.rdbuf();
+    return LoadFromBytes(filePath, buffer.str());
+}
+
+CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
+                                           const std::string& bytes) {
+    std::istringstream fs(bytes);
 
     CompiledModule mod;
 

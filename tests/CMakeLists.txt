@@ -133,6 +133,16 @@ add_test(NAME thirdparty_tests COMMAND test_thirdparty)
 add_executable(test_library_source
     test_vm/test_library_source.cpp
 )
+# .npkg container unit tests (phase 6 Task 2): writer/reader round trip,
+# determinism, duplicate/checksum/magic/version rejections.
+add_executable(test_ncu_package
+    test_vm/test_ncu_package.cpp
+)
+target_link_libraries(test_ncu_package
+    PRIVATE
+        nlang_vm nlang_runtime
+)
+add_test(NAME ncu_package_tests COMMAND test_ncu_package)
 target_include_directories(test_library_source
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
