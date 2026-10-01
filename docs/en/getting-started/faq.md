@@ -42,6 +42,19 @@ legacy encoding in the same window afterwards may show as mojibake.
 
 See also: [Language Specification / Standard Library](../language-spec/standard-library.md).
 
+### Compile says `not valid UTF-8`?
+
+Source files and `.nproj` project files must be saved as UTF-8: ncc
+validates the whole file before tokenizing, and invalid bytes are
+rejected with a named error (`Source file is not valid UTF-8 ...
+(first invalid byte at line N). Save the file as UTF-8.`);
+a UTF-16 save gets a dedicated hint (re-save the file as UTF-8). This
+stops legacy encoding bytes from slipping silently into string
+constants. nide's build invokes ncc, so building there is gated the
+same way. A leading UTF-8 BOM is accepted and skipped — the editor
+"UTF-8 with BOM" save form needs no handling. See also:
+[Language Specification / Primitives](../language-spec/primitives.md).
+
 ### Where are the docs and search?
 
 The nide Help menu entries NLang Getting Started, Language

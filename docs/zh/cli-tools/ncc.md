@@ -61,5 +61,6 @@ Error: 'examples/hello_project/hello_project.nproj' looks like a project file; u
 ```
 
 `name` 是输出模块名（缺省取文件名主干），`outputDir` 可选重定向
-`.nmod`（相对项目文件），`File` 路径相对项目文件所在目录。完整示例见
-`examples/hello_project/`。
+`.nmod`（相对项目文件），`File` 路径相对项目文件所在目录。与源文件
+一样，`.nproj` 必须保存为 UTF-8——无效字节被具名拒绝，文件开头的
+UTF-8 BOM 被接受并跳过。完整示例见 `examples/hello_project/`。

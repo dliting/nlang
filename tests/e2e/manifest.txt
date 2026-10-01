@@ -1249,3 +1249,8 @@ print_all_primitives 0 true
 stream_long_arg_char_reject compile_error expects a long argument
 stream_long_arg_ulong_reject compile_error expects a long argument
 stream_double_arg_string_reject compile_error expects a double argument
+
+# 0.7.6: source files must be UTF-8 (invalid bytes rejected with a named
+# error; a leading UTF-8 BOM is accepted and skipped).
+src_utf8_bom 5
+src_not_utf8 compile_error not valid UTF-8

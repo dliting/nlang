@@ -1,11 +1,14 @@
 /*--- ProjectFile.cpp - .nproj project file loader for ncc (-p mode) ---*/
 #include "ProjectFile.h"
 
+#include "nlang/compiler/Utf8.h"
 #include "tinyxml2.h"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <set>
 
 namespace fs = std::filesystem;
@@ -71,6 +74,35 @@ static bool CollectSourceFiles(const tinyxml2::XMLElement* sources,
     return true;
 }
 
+//Byte half of Load: read the raw file and enforce the same UTF-8 input
+//contract as source files (before XML parsing — a legacy-encoded .nproj
+//used to smuggle mojibake names into the build or crash later; a UTF-8
+//BOM is accepted and skipped, UTF-16 saves get a dedicated hint).
+//False after filling errorMessage.
+static bool ReadProjectContent(const std::string& projectPath,
+                               std::string* content,
+                               std::string& errorMessage) {
+    std::ifstream stream(projectPath.c_str(),
+                         std::ios::in | std::ios::binary);
+    if (!stream) {
+        errorMessage = "cannot read project file: " + projectPath;
+        return false;
+    }
+    std::string raw((std::istreambuf_iterator<char>(stream)),
+                    std::istreambuf_iterator<char>());
+    const char* validated = nullptr;
+    size_t validatedLength = 0;
+    std::string reason;
+    if (!Utf8ContentCheck(raw.data(), raw.size(), &validated,
+                          &validatedLength, &reason)) {
+        errorMessage = "Project file " + projectPath + " " + reason
+            + ". Save the file as UTF-8.";
+        return false;
+    }
+    content->assign(validated, validatedLength);
+    return true;
+}
+
 bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
                        std::string& errorMessage) {
     fs::path proj(projectPath);
@@ -79,8 +111,13 @@ bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
         return false;
     }
 
+    std::string content;
+    if (!ReadProjectContent(projectPath, &content, errorMessage))
+        return false;
+
     tinyxml2::XMLDocument doc;
-    if (doc.LoadFile(projectPath.c_str()) != tinyxml2::XML_SUCCESS) {
+    if (doc.Parse(content.data(), content.size())
+        != tinyxml2::XML_SUCCESS) {
         errorMessage = "XML parse error in " + projectPath + ": "
             + doc.ErrorStr();
         return false;

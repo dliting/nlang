@@ -37,10 +37,24 @@ All notable changes to NLang are documented here. The format follows
   destroyed during argv ingestion and the tool failed hard, and even
   representable paths echoed as mojibake for UTF-8 readers (nide's
   output pages).
+- `.n` source files and `.nproj` project files are now validated as
+  strict UTF-8 before tokenizing: invalid bytes are rejected with a
+  named error carrying the first invalid byte's line, and a UTF-16
+  save gets a dedicated hint. Before, a legacy-encoded source passed
+  silently (the wrong bytes ended up inside string constants), a
+  legacy-encoded `.nproj` passed silently or failed with mojibake
+  diagnostics (an `outputDir` in the wrong encoding even created a
+  mojibake-named directory), and a leading UTF-8 BOM corrupted the
+  first token — a BOM-prefixed `int main()...` even "compiled
+  successfully" to a module with no main function. The UTF-8 BOM is
+  now accepted and skipped, so the editors' "UTF-8 with BOM" save
+  form works, and line endings normalize to LF (CRLF pairs, and lone
+  CRs, alike).
 
 ### Added
 - Manual: the char representation chain is documented end to end in
-  both trees (source files are UTF-8 without BOM; a compiled char is
+  both trees (source files must be strict UTF-8, a leading UTF-8 BOM
+  accepted and skipped; a compiled char is
   its plain 32-bit code point in a 4-byte slot — neither UTF-8 nor
   UTF-16; UTF-8 appears on the string side and on the console, which
   receives verbatim UTF-8 bytes — the tools switch the attached

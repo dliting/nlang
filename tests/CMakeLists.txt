@@ -645,6 +645,14 @@ if(Python3_FOUND)
             $<TARGET_FILE:ndisasm> $<TARGET_FILE:ndb>
             ${CMAKE_BINARY_DIR})
     set_tests_properties(cli_utf8_paths PROPERTIES TIMEOUT 120)
+    # .nproj UTF-8 contract guard: legacy-encoded project files are
+    # rejected with a named UTF-8 error (UTF-8 BOM accepted and
+    # skipped; UTF-16 gets a dedicated hint).
+    add_test(NAME nproj_utf8
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_nproj_utf8.py
+            $<TARGET_FILE:ncc> ${CMAKE_BINARY_DIR})
+    set_tests_properties(nproj_utf8 PROPERTIES TIMEOUT 120)
     # Source-size guard: hand-written sources stay <=500 lines per file
     # and <=50 lines per function; registered exceptions live in
     # tools/source_size_guard/allowlist.json, each with a reason.

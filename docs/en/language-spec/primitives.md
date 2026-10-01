@@ -83,12 +83,16 @@ code-point iteration, the `charAt`/`charCount` methods) is on
 One representation question spans the whole chain — what a char is in
 the source file, after compilation, and on the console:
 
-- **Source files are UTF-8.** The scanner decodes a character literal's
-  1-4 byte UTF-8 span into one code point (`'中'` is the 3 bytes
-  `E4 B8 AD`, decoded to U+4E2D). A file must not start with a UTF-8
-  byte-order mark: the BOM is not recognized and silently corrupts the
-  first token (a BOM-prefixed `int main()...` compiles "successfully"
-  but yields no main function). Save sources as UTF-8 **without** BOM.
+- **Source files must be UTF-8.** The scanner decodes a character
+  literal's 1-4 byte UTF-8 span into one code point (`'中'` is the 3
+  bytes `E4 B8 AD`, decoded to U+4E2D). The whole file passes strict
+  UTF-8 validation before tokenizing: invalid bytes are rejected with a
+  named error (`Source file is not valid UTF-8 ... (first invalid
+  byte at line N)`) and a UTF-16 save gets a dedicated hint — legacy
+  encoding bytes no longer slip silently into string constants. A
+  leading UTF-8 byte-order mark is accepted and skipped (the editor
+  "UTF-8 with BOM" save form works); other encodings get the hints
+  above.
 - **After compilation a char is its 32-bit code point — neither UTF-8
   nor UTF-16.** Every char lives in a 4-byte slot holding the raw code
   point: frame slots, the 4 immediate bytes of a char literal, and the

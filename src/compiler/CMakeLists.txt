@@ -38,6 +38,7 @@ add_library(nlang_compiler
     ScriptParser.cpp
     ScriptScanner.cpp
     ScriptLocation.cpp
+    Utf8.cpp
     BuildEnvironment.cpp
     ModuleBuilder.cpp
     ModuleBuilderImports.cpp

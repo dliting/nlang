@@ -293,3 +293,26 @@ Error: The type alias "A" is defined more than once in this translation unit.
 同一翻译单元内别名名不可重复；循环别名（`using A = B; using B = A;`）
 被拒。详见 → [声明](declarations.md)「类型别名」。完整形态见 e2e 用例
 `alias_*`。
+
+### 源文件编码
+
+```nlang
+int main() {
+    string s = "中文内容";   // 文件被编辑器以 GBK/ANSI 编码保存
+    return 0;
+}
+```
+
+```text
+Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line 2). Save the file as UTF-8.
+```
+
+`.n` 源文件与 `.nproj` 项目文件在词法前做严格 UTF-8 校验（执行
+点是 ncc；nide 的构建经由 ncc，同样受此门控）：无效
+字节被具名拒绝（报错带第一个无效字节所在行号），UTF-16 保存的
+文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧
+编码字节不会再静默混入字符串常量。文件开头的 UTF-8 BOM 被接受
+并跳过。详见 →
+[基本类型](primitives.md)「表示链：从源码到控制台」。完整形态见
+e2e 用例 `src_not_utf8`（源文件）与 ctest 守卫 `nproj_utf8`
+（项目文件）。

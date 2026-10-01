@@ -34,6 +34,18 @@ UTF-8 代码页，默认控制台即可正常显示中文输出，无需手动 `
 
 详见 → [语言规格/标准库](../language-spec/standard-library.md)。
 
+### 编译报 `not valid UTF-8`？
+
+源文件与 `.nproj` 项目文件必须保存为 UTF-8：ncc 在词法前对
+整个文件做严格校验，无效字节被具名拒绝（`Source file is not
+valid UTF-8 ... (first invalid byte at line N). Save the file as
+UTF-8.`），UTF-16 保存的文件得到专门提示（改用 UTF-8 重新保存
+即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide
+的构建经由 ncc，同样受此门控。文件
+开头的 UTF-8 BOM 被接受并跳过，编辑器的「UTF-8 with BOM」保存
+形式无需处理。详见 →
+[语言规格/基本类型](../language-spec/primitives.md)。
+
 ### 帮助文档与搜索在哪？
 
 nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令行工具」

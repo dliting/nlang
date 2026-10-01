@@ -68,4 +68,6 @@ output directory outright.
 `name` is the output module name (defaults to the file stem),
 `outputDir` optionally redirects the `.nmod` (relative to the project
 file), and `File` paths are relative to the project file's directory.
-See `examples/hello_project/` for a complete example.
+Like source files, a `.nproj` must be saved as UTF-8 — invalid bytes
+are rejected with a named error, and a leading UTF-8 BOM is accepted
+and skipped. See `examples/hello_project/` for a complete example.
