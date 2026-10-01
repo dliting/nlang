@@ -104,10 +104,14 @@ is a silent no-op. `size` on a directory or special file raises IOException
 empty right side leaves a trailing separator (`join("a","")` is `"a/"`); an
 empty left side yields the right side alone.
 
-**Windows limitation**: paths and filenames convert through the active code
-page (`generic_string`, file opens); non-ASCII filenames may not round-trip
-as UTF-8. The same limitation applies to `io.readFile`/`writeFile`/
-`appendFile`.
+**Windows encoding note**: paths and filenames convert through the
+process active code page (`generic_string`, file opens). The
+command-line tools run with UTF-8 as the active code page (declared
+in the tools' embedded manifest, Windows 10 1903+), so non-ASCII
+paths and filenames round-trip as UTF-8 —
+`io.readFile`/`writeFile`/`appendFile` included. Embedding hosts
+that run the VM under the system code page are still bound by that
+code page.
 
 ### string methods — 18 built-ins
 

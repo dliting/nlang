@@ -29,16 +29,30 @@ All notable changes to NLang are documented here. The format follows
   so a local declared below the paused line showed up as a zero value
   (a string read as `""`). Applies to ndb `info locals`, the machine
   protocol, and nide's variables pane alike.
+- The four command-line tools (ncc/nvm/ndisasm/ndb) now run with
+  UTF-8 as the process active code page (declared in an embedded
+  manifest, Windows 10 1903+): non-ASCII command-line arguments and
+  paths work end to end. Before, a path character outside the system
+  code page (an emoji directory name on a GBK-locale system, say) was
+  destroyed during argv ingestion and the tool failed hard, and even
+  representable paths echoed as mojibake for UTF-8 readers (nide's
+  output pages).
 
 ### Added
 - Manual: the char representation chain is documented end to end in
   both trees (source files are UTF-8 without BOM; a compiled char is
   its plain 32-bit code point in a 4-byte slot — neither UTF-8 nor
   UTF-16; UTF-8 appears on the string side and on the console, which
-  receives verbatim UTF-8 bytes and needs a UTF-8 terminal on
-  Windows).
+  receives verbatim UTF-8 bytes — the tools switch the attached
+  console to UTF-8, so the default console renders it).
 
 ### Changed
+- The four command-line tools switch the attached console to the
+  UTF-8 code page at startup (companion to the manifest above):
+  non-ASCII program output
+  renders in a default console without `chcp 65001`, and non-ASCII
+  `fs`/`io` paths and file names round-trip inside running programs.
+  Redirected output stays verbatim bytes.
 - `.nmod` format floor raised to v1.14 (a layout change): each local
   descriptor in a function's locals block gains a two-byte declaration
   PC, which the debug views use for the scope visibility above.

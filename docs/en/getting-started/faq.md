@@ -30,12 +30,15 @@ See also: [Language Specification / Exit Code Convention](../language-spec/exit-
 
 ### Garbled output in the console?
 
-Program output is UTF-8 bytes. A Windows console's default code page
-(e.g. GBK on Chinese-locale systems) renders them as mojibake; run
-`chcp 65001` first to switch the console to the UTF-8 code page, then
-run the program. Note that `fs` and `io` file paths and file names go
-through the system active code page — non-ASCII file names do not
-necessarily round-trip as UTF-8.
+Program output is UTF-8 bytes. The tools set the process active code
+page to UTF-8 (declared in the tools' embedded manifest, Windows 10
+1903+) and switch the attached console to the UTF-8 code page at
+startup, so the default console renders Chinese output correctly — no
+manual `chcp 65001` needed. `fs` and `io` non-ASCII paths and file
+names round-trip as UTF-8 as well. Redirected output is untouched
+bytes — an editor opening it with a non-UTF-8 encoding still shows
+mojibake. The console switch outlives the tool: a program emitting a
+legacy encoding in the same window afterwards may show as mojibake.
 
 See also: [Language Specification / Standard Library](../language-spec/standard-library.md).
 

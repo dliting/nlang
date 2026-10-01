@@ -64,6 +64,13 @@ int main(int argc, char* argv[]) {
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     nlang::InstallCrashReporter("ncc");
+    //Console UTF-8: the process active code page is UTF-8 (the
+    //nlang-utf8.manifest), so argv, file paths, and this tool's own
+    //diagnostics are all UTF-8 bytes — switch the attached console to
+    //UTF-8 too so default consoles render them instead of mojibake.
+    //No-op when stdout/stdin are redirected.
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 #endif
 
     Runtime::StaticInit();

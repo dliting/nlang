@@ -4,6 +4,9 @@ build-asan/
 build-ide/
 out/
 
+# ctest scratch (created when ctest runs from the repo root)
+Testing/
+
 # Release packages (cpack output)
 release/
 

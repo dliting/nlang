@@ -1,6 +1,9 @@
 #include "ModuleLoader.h"
 #include "Disassembler.h"
 #include <nlang_version.h>  // generated from the repo VERSION file
+#ifdef _WIN32
+#include <windows.h>  //SetConsoleOutputCP/SetConsoleCP (console UTF-8)
+#endif
 #include <iostream>
 #include <string>
 
@@ -45,6 +48,13 @@ int main(int argc, char* argv[]) {
         std::cout << "ndisasm (NLang) " << NLANG_VERSION << "\n";
         return 0;
     }
+
+#ifdef _WIN32
+    //Console UTF-8 — see ncc's main for the rationale (manifest code
+    //page + console rendering companion).
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
 
     std::string funcFilter;
     std::string modulePath;

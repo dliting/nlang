@@ -27,3 +27,12 @@ flags, and behavior.
 All four tools report their version with `--version`, in the form
 `ncc (NLang) <version>`; nide shows its version in Help → About, and
 the documentation site in its footer.
+
+## Encoding Conventions
+
+The four command-line tools use UTF-8 as the process encoding
+(declared in the tools' embedded manifest, Windows 10 1903+):
+command-line arguments and file paths accept full Unicode,
+diagnostics are UTF-8 bytes, and at startup the attached console is
+switched to the UTF-8 code page so the default console displays
+non-ASCII text. Output redirected to a file or pipe is not altered.

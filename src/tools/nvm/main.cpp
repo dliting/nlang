@@ -41,6 +41,10 @@ int main(int argc, char* argv[]) {
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     nlang::InstallCrashReporter("nvm");
+    //Console UTF-8 — see ncc's main for the rationale (manifest code
+    //page + console rendering companion).
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 #endif
 
     //0.7.5: OP_Prim_to_str formats scalars through the Rn builtin

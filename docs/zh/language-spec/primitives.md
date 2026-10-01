@@ -87,9 +87,9 @@ char 与 string 的桥接（`"x" + 'y'` 拼接、`foreach (char c in s)` 码点�
   `s.charAt(i)` 从字节 i 处解码码点，`"65".toChar()` 解析十进制
   码点。
 - **控制台收到的是 UTF-8 字节。** `io.print` 把 char 以其 UTF-8
-  编码、把 string 以其原始字节原样写入标准输出。工具链不切换
-  控制台代码页，因此 Windows 上非 ASCII 输出需要 UTF-8 终端——
-  Windows Terminal，或传统控制台里先 `chcp 65001`。
+  编码、把 string 以其原始字节原样写入标准输出。命令行工具启动
+  时把所在控制台切换到 UTF-8 代码页，Windows 默认控制台即可正常
+  显示非 ASCII 输出（重定向到文件/管道时字节原样，仍是 UTF-8）。
 
 ### 算术
 

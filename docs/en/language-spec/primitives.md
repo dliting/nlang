@@ -103,9 +103,10 @@ the source file, after compilation, and on the console:
   `"65".toChar()` parses a decimal code point.
 - **The console receives UTF-8 bytes.** `io.print` writes a char as
   its UTF-8 encoding and a string as its raw bytes, verbatim, to
-  standard output. The tools do not switch the console's code page, so
-  on Windows non-ASCII output needs a UTF-8 terminal — Windows
-  Terminal, or `chcp 65001` in the classic console.
+  standard output. The command-line tools switch the attached console
+  to the UTF-8 code page at startup, so the default Windows console
+  renders non-ASCII output correctly (redirected output is untouched
+  bytes — still UTF-8).
 
 ### Arithmetic
 

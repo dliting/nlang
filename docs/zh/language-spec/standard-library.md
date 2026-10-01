@@ -95,9 +95,11 @@ io = 全部内容（控制台 + 磁盘文本，将来的流类），fs =
 右侧留下结尾分隔符（`join("a","")` 是 `"a/"`）；空的左侧得到右侧
 本身。
 
-**Windows 限制**：路径与文件名经活动代码页转换
-（`generic_string`、文件打开）；非 ASCII 文件名可能无法按 UTF-8
-往返。`io.readFile`/`writeFile`/`appendFile` 受同样限制。
+**Windows 编码约定**：路径与文件名经进程活动代码页转换
+（`generic_string`、文件打开）。命令行工具以 UTF-8 为进程活动
+代码页运行（内嵌清单声明，Windows 10 1903+ 生效），非 ASCII 路径
+与文件名按 UTF-8 往返，`io.readFile`/`writeFile`/`appendFile` 同样
+适用；以系统代码页运行 VM 的嵌入宿主仍受该代码页限制。
 
 ### string 方法——18 个内建
 

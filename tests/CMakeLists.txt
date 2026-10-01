@@ -634,6 +634,17 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nmod_determinism.py
             $<TARGET_FILE:ncc>)
     set_tests_properties(nmod_determinism PROPERTIES TIMEOUT 180)
+    # UTF-8 path guard: the CLI executables' UTF-8 active code page
+    # (manifest) must survive argv ingestion, file I/O, and echo — a
+    # mixed CJK+emoji directory covers both the mojibake and the
+    # '?'-destruction layer.
+    add_test(NAME cli_utf8_paths
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_cli_utf8_paths.py
+            $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
+            $<TARGET_FILE:ndisasm> $<TARGET_FILE:ndb>
+            ${CMAKE_BINARY_DIR})
+    set_tests_properties(cli_utf8_paths PROPERTIES TIMEOUT 120)
     # Source-size guard: hand-written sources stay <=500 lines per file
     # and <=50 lines per function; registered exceptions live in
     # tools/source_size_guard/allowlist.json, each with a reason.
