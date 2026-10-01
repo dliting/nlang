@@ -6,7 +6,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.7.6] - 未发布
+## [0.7.6] - 2026-10-02
 
 ### 修复
 - nide 调试器：点击调用栈树的某一行不再向列表追加重复帧（机器协议的

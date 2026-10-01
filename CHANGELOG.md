@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.6] - Unreleased
+## [0.7.6] - 2026-10-02
 
 ### Fixed
 - nide debugger: clicking a row of the call-stack tree no longer
