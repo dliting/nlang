@@ -55,8 +55,6 @@ int main() {
               "round-trip write succeeds");
 
         NcuPackageReader reader;
-        if (!reader.Open((dir / "round.npkg").string(), &error))
-            std::fprintf(stderr, "open error: %s\n", error.c_str());
         CHECK(reader.Open((dir / "round.npkg").string(), &error),
               "round-trip read succeeds");
         const auto &paths = reader.MemberPaths();
@@ -64,8 +62,6 @@ int main() {
                   && paths[1] == "b.second",
               "member paths sorted and complete");
         std::string image;
-        if (!reader.ExtractMember("a.first", &image, &error))
-            std::fprintf(stderr, "extract error: %s\n", error.c_str());
         CHECK(reader.ExtractMember("a.first", &image, &error),
               "member a.first extracts");
         CHECK(image == someBytes("alpha", 30), "a.first bytes identical");

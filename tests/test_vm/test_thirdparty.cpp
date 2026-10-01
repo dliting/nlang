@@ -10,6 +10,7 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
+#include "nlang/vm/NcuPackage.h"
 #include "VmExecutor.h"
 #include "IHostIo.h"
 #include "ModuleLoader.h"
@@ -397,6 +398,103 @@ static void TestSameLastSegmentPackagesCoexist() {
           "two packages sharing a last segment coexist; functions and types stay separate");
 }
 
+//(7) Phase 6 Task 3 Step 1: a third-party package ships as .npkg ONLY
+//(no source, no loose .ncu). The consumer's build consumes the package's
+//embedded compile unit for signatures, and the built program runs
+//self-contained. Negative: removing the package makes the consumer build
+//fail with the module-not-found diagnostic.
+static void TestProgramPackageWithoutSources() {
+    //One packageDir() call: every later call remove_all's the whole
+    //shared root (established rule), so all scenario dirs derive from a
+    //single root and no scenario touches another's directory.
+    const fs::path root = packageDir();
+    const fs::path pkg = root / "pkg_only";
+    fs::create_directories(pkg);
+
+    //The third-party package: lib.ncu built in place, then packed and
+    //every other artifact (source, loose .ncu) removed.
+    {
+        std::ofstream out(pkg / "lib.n", std::ios::binary);
+        out << "int f() { return 5; }\n";
+    }
+    {
+        BuildParams libParams;
+        libParams.m_SourceFiles.push_back((pkg / "lib.n").string());
+        libParams.m_sOutputModule = "lib";
+        libParams.m_sOutputDir = pkg.string();
+        libParams.m_sTempDir = pkg.string();
+        libParams.m_sStdLibDir = STDLIB_DIR;
+        ListCompileLogger libLogger;
+        ModuleBuilder libBuilder(libParams, libLogger);
+        bool libOk = false;
+        try { libOk = libBuilder.Build(); }
+        catch (const std::exception&) { libOk = false; }
+        CHECK(libOk, "library package member builds");
+    }
+    std::string libBytes;
+    {
+        std::ifstream in(pkg / "lib.ncu", std::ios::binary);
+        CHECK(in.good(), "lib.ncu written by the library build");
+        libBytes.assign(std::istreambuf_iterator<char>(in),
+                        std::istreambuf_iterator<char>());
+    }
+    {
+        NcuPackageWriter packer;
+        CHECK(packer.AddMember({"lib", libBytes}), "member packed");
+        NcuEntryRecord entry;
+        entry.modulePath = "lib";
+        entry.functionName = "main";
+        std::string error;
+        CHECK(packer.Write((pkg / "lib.npkg").string(), "lib", &entry,
+                           &error),
+              "lib.npkg written");
+    }
+    std::error_code ec;
+    fs::remove(pkg / "lib.ncu", ec);
+    fs::remove(pkg / "lib.n", ec);
+    CHECK(!fs::exists(pkg / "lib.ncu") && !fs::exists(pkg / "lib.n"),
+          "only lib.npkg remains - no sources, no loose unit");
+
+    //Consumer: imports lib; built with only the package on the import
+    //path, then run in-process.
+    const fs::path app = root / "pkg_app";
+    fs::create_directories(app);
+    {
+        std::ofstream out(app / "prog.n", std::ios::binary);
+        out << "import lib;\n"
+               "int main() { return lib.f(); }\n";
+    }
+    ScenarioBuild build = compileScenario(app, { pkg.string() });
+    if (!build.ok)
+        std::fprintf(stderr, "consumer build log: %s\n", build.log.c_str());
+    CHECK(build.ok, "consumer builds against the .npkg signature surface");
+    if (build.ok) {
+        CapturingIo io;
+        const std::string moduleName = app.filename().string();
+        CompiledModule mod = ModuleLoader::Load(
+            (app / (moduleName + ".ncu")).string());
+        VmExecutor exec;
+        exec.AddNativeSearchDir(pkg.string());
+        exec.SetHostIo(&io);
+        //lib.f() returns 5; main returns it - the value IS the pin.
+        CHECK(exec.Execute(mod) == 5, "program runs self-contained (rc 5)");
+    }
+
+    //Negative: without the package the consumer build fails, naming the
+    //module (same in-process harness; distinct dir for a fresh build).
+    const fs::path gone = root / "pkg_gone";
+    fs::create_directories(gone);
+    {
+        std::ofstream out(gone / "prog.n", std::ios::binary);
+        out << "import lib;\n"
+               "int main() { return lib.f(); }\n";
+    }
+    ScenarioBuild missing = compileScenario(gone, { gone.string() });
+    CHECK(!missing.ok, "without the package the build fails");
+    CHECK(missing.log.find("'lib'") != std::string::npos,
+          "the diagnostic names the missing module");
+}
+
 int main() {
     Runtime::StaticInit();
     std::fprintf(stderr, "=== Third-party Library Integration Tests ===\n");
@@ -408,6 +506,7 @@ int main() {
     TestThreeSegmentPackageAndSiblingInvisibility();
     TestNativeInMultiSegmentPackageRejected();
     TestSameLastSegmentPackagesCoexist();
+    TestProgramPackageWithoutSources();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

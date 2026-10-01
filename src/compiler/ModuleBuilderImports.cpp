@@ -11,6 +11,7 @@
 #include "builder/ModuleRegistry.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "ModuleLoader.h"
+#include "nlang/vm/NcuPackage.h"
 #include "ScriptParser.h"
 #include "VmBackend.h"
 #include <algorithm>
@@ -238,6 +239,32 @@ void ModuleBuilder::DiscoverLibraryUnits()
 //Load one external .ncu candidate end to end: locate, parse, mint
 //stubs, register owners, keep detached stubs alive, then take ownership
 //of the compiled module.
+//Package form (`.npkg`): extract the embedded compile unit (entry
+//member, or the first member) and parse from memory.
+static CompiledModule LoadModuleArtifact(const std::string &path,
+                                         std::string *error)
+{
+	//Package form: extract the embedded compile unit (the entry member,
+	//or the first member) and parse from memory.
+	if (std::filesystem::path(path).extension() == NPKG_EXTENSION)
+	{
+		NcuPackageReader pkg;
+		std::string pkgError;
+		if (!pkg.Open(path, &pkgError))
+			throw std::runtime_error(pkgError);
+		std::string memberPath;
+		if (const NcuEntryRecord *entry = pkg.EntryRecord())
+			memberPath = entry->modulePath;
+		else if (!pkg.MemberPaths().empty())
+			memberPath = pkg.MemberPaths().front();
+		std::string memberBytes;
+		if (!pkg.ExtractMember(memberPath, &memberBytes, &pkgError))
+			throw std::runtime_error(pkgError);
+		return ModuleLoader::LoadFromBytes(path, memberBytes);
+	}
+	return ModuleLoader::Load(path);
+}
+
 bool ModuleBuilder::LoadExternalModule(const std::string &name)
 {
 	std::string path = FindModuleFile(name);
@@ -251,7 +278,7 @@ bool ModuleBuilder::LoadExternalModule(const std::string &name)
 	CompiledModule cm;
 	try
 	{
-		cm = ModuleLoader::Load(path);
+		cm = LoadModuleArtifact(path);
 	}
 	catch (const std::exception &e)
 	{
@@ -329,8 +356,14 @@ std::string ModuleBuilder::FindModuleFile(const std::string &name) const
 {
 	for (const auto &dir : EffectiveLibraryDirs(m_upEnv->Params()))
 	{
-		std::string path = dir + "/" + name + NCU_EXTENSION;
+			std::string path = dir + "/" + name + NCU_EXTENSION;
 		std::ifstream test(path, std::ios::binary);
+		if (test.good())
+			return path;
+		//Package form: <name>.npkg carries the compiled unit embedded.
+		path = dir + "/" + name + NPKG_EXTENSION;
+		test.clear();
+		test.open(path, std::ios::binary);
 		if (test.good())
 			return path;
 	}
