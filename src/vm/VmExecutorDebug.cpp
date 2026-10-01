@@ -110,6 +110,18 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(size_t depth) const {
     const auto& frame = m_callStack[m_callStack.size() - 1 - depth];
     if (!frame.func) return out;
     for (const auto& ld : frame.func->locals) {
+        //Scope visibility: the frame is flat (slots exist from entry),
+        //but a local joins the display only once the paused statement
+        //PC reaches its declaration — declPc equals the anchor of the
+        //declaring statement, and currentPc is the last executed
+        //anchor, so pausing ON the decl line still shows the local with
+        //its zero value (gdb/VS convention). The zero slot itself is
+        //meaningful and must stay allocated: the GC root scan walks the
+        //whole table from function entry. Same-name redeclarations
+        //reuse the first declaration's position (over-approximation:
+        //strictly fewer false leaks than no filter).
+        if (ld.declPc > frame.currentPc)
+            continue;
         DebugLocalValue v;
         v.name = ld.name;
         v.kindName = DebugKindName(ld.typeKind);

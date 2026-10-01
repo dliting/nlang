@@ -67,9 +67,12 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //and later tasks of the same series add kind-immediate opcodes;
     //a v1.12 module would execute those bytes with the old opcode
     //meanings.
-    //Refuse v1.12 and older outright (floor/ceiling double-reject
+    //v1.14 (debugger scope): two bytes of declaration PC per local in
+    //the locals block. A v1.13 module lacks them, so every local name
+    //length would be read from the wrong offset.
+    //Refuse v1.13 and older outright (floor/ceiling double-reject
     //unchanged).
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 13)
+    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < 14)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
@@ -203,6 +206,11 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                         sizeof(ld.isParam));
                 fs.read(reinterpret_cast<char*>(&ld.typeKind),
                         sizeof(ld.typeKind));
+                //v1.14: declaration PC for debugger scope visibility
+                //(the loader floor is already 14 — read unconditionally
+                //like the v1.13 default-value channels above).
+                fs.read(reinterpret_cast<char*>(&ld.declPc),
+                        sizeof(ld.declPc));
                 uint32_t lnameLen = 0;
                 fs.read(reinterpret_cast<char*>(&lnameLen),
                         sizeof(lnameLen));

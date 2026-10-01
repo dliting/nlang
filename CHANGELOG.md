@@ -21,6 +21,14 @@ All notable changes to NLang are documented here. The format follows
   and compiler output as UTF-8 (matching the debug page); they were
   decoded with the local code page, which mojibaked every non-ASCII
   output on a non-UTF-8 system locale.
+- Debugger locals now honor declaration scope: a local joins the
+  variables display only once the paused statement has reached its
+  declaration line — on the declaration line itself it shows the
+  default zero value (the gdb/IDE convention), and locals declared on
+  later lines stay hidden. Before, the whole flat frame was dumped,
+  so a local declared below the paused line showed up as a zero value
+  (a string read as `""`). Applies to ndb `info locals`, the machine
+  protocol, and nide's variables pane alike.
 
 ### Added
 - Manual: the char representation chain is documented end to end in
@@ -29,6 +37,12 @@ All notable changes to NLang are documented here. The format follows
   UTF-16; UTF-8 appears on the string side and on the console, which
   receives verbatim UTF-8 bytes and needs a UTF-8 terminal on
   Windows).
+
+### Changed
+- `.nmod` format floor raised to v1.14 (a layout change): each local
+  descriptor in a function's locals block gains a two-byte declaration
+  PC, which the debug views use for the scope visibility above.
+  Modules from older toolchains are rejected and must be recompiled.
 
 ## [0.7.5] - 2026-09-30
 

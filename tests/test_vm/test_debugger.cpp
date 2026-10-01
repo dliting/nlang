@@ -246,9 +246,9 @@ void test_loader_rejects_v1_9()
     //Guard the patch anchor: if a future header change moves minorVer,
     //the patch below would silently hit another field — fail loudly on
     //layout drift instead (fresh build must carry the current minor 12).
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0E
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
+        "fresh module should be stamped minorVer 14");
     bytes[10] = 0x09;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v19.nmod";
@@ -264,7 +264,7 @@ void test_loader_rejects_v1_9()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.9 module (floor is 13)");
+    CHECK(threw, "loader must reject a v1.9 module (floor is 14)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -292,9 +292,9 @@ void test_loader_rejects_v1_10()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0E
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
+        "fresh module should be stamped minorVer 14");
     bytes[10] = 0x0A;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v110.nmod";
@@ -310,7 +310,7 @@ void test_loader_rejects_v1_10()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.10 module (floor is 13)");
+    CHECK(threw, "loader must reject a v1.10 module (floor is 14)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -340,9 +340,9 @@ void test_loader_rejects_v1_11()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0E
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
+        "fresh module should be stamped minorVer 14");
     bytes[10] = 0x0B;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v111.nmod";
@@ -358,7 +358,7 @@ void test_loader_rejects_v1_11()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.11 module (floor is 13)");
+    CHECK(threw, "loader must reject a v1.11 module (floor is 14)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -387,9 +387,9 @@ void test_loader_rejects_v1_12()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0E
         && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
+        "fresh module should be stamped minorVer 14");
     bytes[10] = 0x0C;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v112.nmod";
@@ -405,7 +405,55 @@ void test_loader_rejects_v1_12()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.12 module (floor is 13)");
+    CHECK(threw, "loader must reject a v1.12 module (floor is 14)");
+    CHECK(what.find("outdated") != std::string::npos,
+        "rejection should hit the floor path, got: " + what);
+    PASS();
+}
+
+void test_loader_rejects_v1_13()
+{
+    TEST(loader_rejects_v1_13);
+    //Distinct build tag: ModuleManager::Create keys the process-global
+    //loaded map by module name, so reusing the other floor tests' tags
+    //would fail the build with "already exists".
+    BuildOutcome b = buildSource("oldver13",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "oldver13.nmod";
+
+    //Patch the minorVer field (header offset 10, little-endian u16:
+    //magic[8] + major(u16) + minor(u16)) down to 13. v1.14 is a LAYOUT
+    //bump (debugger scope): two bytes of declaration PC per local were
+    //inserted between the kind byte and the name length in every
+    //function's locals block — a v1.13 module has no such bytes, so
+    //every local name length would be read from the wrong offset. No
+    //migration path by design.
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0E
+        && static_cast<uint8_t>(bytes[11]) == 0x00,
+        "fresh module should be stamped minorVer 14");
+    bytes[10] = 0x0D;
+    bytes[11] = 0x00;
+    const auto oldPath = scratchDir() / "oldver_v113.nmod";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception &e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must reject a v1.13 module (floor is 14)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -749,6 +797,70 @@ void test_view_frames_and_locals()
     }
     CHECK(sawP, "class local renders one-level fields (got lines mismatch)");
     CHECK(sawS, "int local renders value");
+    PASS();
+}
+
+//Scope visibility of locals in the debug view. The frame is flat and
+//static — every slot exists from function entry — but a local must join
+//the display only once execution reaches its declaration line. On the
+//decl line itself it shows the zero slot (gdb/Visual Studio convention:
+//in scope at the declaration, uninitialized until the initializer
+//runs); while paused on earlier lines it stays hidden. This pins the
+//reported bug: pausing on line N showed line N+2's not-yet-declared
+//string local as "".
+void test_view_locals_decl_scope()
+{
+    TEST(view_locals_decl_scope);
+    BuildOutcome b = buildSource("decl_scope",
+        "int main() {\n"                     //1
+        "    int early = 1;\n"               //2
+        "    int mid = early + 1;\n"         //3
+        "    string late = \"v\";\n"         //4
+        "    return mid;\n"                  //5
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("decl_scope");
+    //Fresh run per stop line; stops fire BEFORE the statement runs, so
+    //a stop on line N has executed exactly lines < N.
+    auto visibleAt = [&](uint16_t stopLine) {
+        VmExecutor exec;
+        InspectHooks hooks;
+        hooks.target = "main";
+        hooks.stopLine = stopLine;
+        exec.SetDebugHooks(&hooks);
+        exec.Execute(mod);
+        if (!hooks.captured)
+            return std::vector<std::string>{"<no capture>"};
+        return hooks.localLines;
+    };
+    auto hasRow = [](const std::vector<std::string>& rows,
+                     const char* row) {
+        for (const auto& r : rows)
+            if (r == row) return true;
+        return false;
+    };
+    auto hasName = [](const std::vector<std::string>& rows,
+                      const char* name) {
+        const std::string prefix = std::string(name) + "=";
+        for (const auto& r : rows)
+            if (r.compare(0, prefix.size(), prefix) == 0) return true;
+        return false;
+    };
+    const auto at2 = visibleAt(2);
+    CHECK(hasRow(at2, "early=0"),
+        "paused on its own decl line: early in scope, zero value");
+    CHECK(!hasName(at2, "mid"), "mid hidden while paused on line 2");
+    CHECK(!hasName(at2, "late"), "late hidden while paused on line 2");
+    const auto at3 = visibleAt(3);
+    CHECK(hasRow(at3, "early=1"), "early keeps its computed value");
+    CHECK(hasRow(at3, "mid=0"), "mid joins on its own decl line (zero)");
+    CHECK(!hasName(at3, "late"), "late hidden while paused on line 3");
+    const auto at4 = visibleAt(4);
+    CHECK(hasRow(at4, "late=\"\""),
+        "string local on its decl line renders the zero slot as \"\"");
+    const auto at5 = visibleAt(5);
+    CHECK(hasRow(at5, "mid=2") && hasRow(at5, "late=\"v\""),
+        "computed values show after their initializers run");
     PASS();
 }
 
@@ -1283,6 +1395,37 @@ void test_session_bt_and_locals()
     bool leaked = out.find("__foreach") != std::string::npos
         || out.find("$finally") != std::string::npos;
     CHECK(!leaked, "hidden local names stay internal");
+    PASS();
+}
+
+//info locals honors declaration scope at the session level. The
+//session's initial stop lands on main's first statement (line 2,
+//before late's declaration): the first query — bounded by the line-4
+//breakpoint reports — must not mention late, while the query after
+//continuing past the declaration shows the computed value.
+void test_session_locals_decl_scope()
+{
+    TEST(session_locals_decl_scope);
+    std::string out = RunSession("sess_scope",
+        "int main() {\n"               //1
+        "    int early = 1;\n"         //2
+        "    int late = early + 1;\n"  //3
+        "    return late;\n"           //4
+        "}\n",
+        "info locals\nb 4\nc\ninfo locals\nc\n");
+    const size_t pos2 = out.find("Stopped: main (sess_scope.n:2)");
+    const size_t pos4 = out.find("sess_scope.n:4");  // b 4 set report
+    REQUIRE(pos2 != std::string::npos && pos4 != std::string::npos
+        && pos2 < pos4);
+    const std::string firstQuery = out.substr(pos2, pos4 - pos2);
+    CHECK(firstQuery.find("early = 0") != std::string::npos,
+        "declared local shows its zero value on the decl line");
+    CHECK(firstQuery.find("late = ") == std::string::npos,
+        "not-yet-declared local stays out of info locals");
+    CHECK(out.find("early = 1") != std::string::npos,
+        "computed value shows once the initializer has run");
+    CHECK(out.find("late = 2") != std::string::npos,
+        "late joins the display after execution passes its decl");
     PASS();
 }
 
@@ -2433,6 +2576,7 @@ int main()
     test_loader_rejects_v1_10();
     test_loader_rejects_v1_11();
     test_loader_rejects_v1_12();
+    test_loader_rejects_v1_13();
     test_v19_import_gc_roots();
 
     //Task 6 GC stress pins (real allocation + real collection).
@@ -2445,6 +2589,7 @@ int main()
     test_hooks_line_sequence();
     test_hooks_call_depths();
     test_view_frames_and_locals();
+    test_view_locals_decl_scope();
     test_view_scalar_family_display();
     test_hooks_on_throw();
     test_view_value_kinds();
@@ -2460,6 +2605,7 @@ int main()
     test_session_step_semantics();
     test_session_breakpoint_hit();
     test_session_bt_and_locals();
+    test_session_locals_decl_scope();
     test_session_frame_select();
     test_session_break_by_func();
 

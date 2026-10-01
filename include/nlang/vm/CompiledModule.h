@@ -46,7 +46,11 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //numeric opcodes with kind immediates, bool conditions, 8-byte scalar
 //slots (long/ulong/double) and the unified 3-slot boxed record. Older
 //modules are refused outright.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 13;
+//v1.14 (debugger): per-local declaration PC in the locals block — the
+//debug views filter locals whose declaration the paused PC has not
+//reached yet (scope visibility). A v1.13 module lacks the two bytes per
+//local and misparses every name that follows.
+inline constexpr uint16_t NMOD_FORMAT_MINOR = 14;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -103,6 +107,13 @@ struct LocalDescriptor {
     uint16_t size = 0;
     uint8_t  isParam = 0;
     uint8_t  typeKind = 0;
+    //Debugger scope visibility (v1.14): bytecode offset where the local
+    //joins its function's flat frame. 0 = live from entry (params and
+    //the implicit this receiver). The debug views hide a local while the
+    //paused statement PC (frame.currentPc) is below this value; the GC
+    //root scan deliberately ignores it — slots are zero-initialized at
+    //every call, so tracing the whole table from entry is safe.
+    uint16_t declPc = 0;
     std::string name;
 };
 

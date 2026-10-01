@@ -74,7 +74,11 @@ The Debug page of the output window concentrates the session state:
   selects it, the editor jumps to the matching line, and the locals
   refresh;
 - the locals tree (name / type / value): shows every local of the
-  selected frame; in a method frame the receiver shows as `this`,
+  selected frame whose declaration execution has reached — a local
+  joins the display once the paused statement is at or past its
+  declaration line (on the declaration line itself it shows the default
+  zero value until the initializer runs), and locals declared on later
+  lines stay hidden; in a method frame the receiver shows as `this`,
   expanded one level (its fields).
 
 Program output and the call-stack backtrace on error appear on the Run

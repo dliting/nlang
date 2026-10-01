@@ -12,7 +12,7 @@ Compiled modules are saved as `.nmod` files with this layout:
 ```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
-uint16 minorVer = 13
+uint16 minorVer = 14
 string moduleName
 string[] stringConstants
 function[] functions
@@ -20,7 +20,15 @@ struct[] structs
 class[] classes
 ```
 
-**Version history**: v1.13 (primitive-type family expansion) — a semantic
+**Version history**: v1.14 (debugger local scope) — a layout change:
+each local-variable descriptor in a function's locals block gains a
+`declPc` uint16 (the bytecode offset where the local's declaration is
+reached; 0 for parameters and the implicit method receiver). The debug
+views use it to hide locals whose declaration the paused position has
+not reached yet. A v1.13 module from an older ncc lacks those two bytes
+per local, so the loader refuses minor < 14 outright — older modules
+must be recompiled.
+v1.13 (primitive-type family expansion) — a semantic
 floor, not a layout change: no new serialized fields, but the scalar kind
 code space is expanded — byte/ubyte/short/ushort/uint/long/ulong/double/
 bool/char appear with new RTK codes (10..19) in the kind bytes of locals

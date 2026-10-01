@@ -10,7 +10,7 @@ minor 版本号实施语义下限。想直接查看某个 `.nmod` 的内容，�
 ```text
 "NLANGMOD"     magic (8 bytes)
 uint16 majorVer = 1
-uint16 minorVer = 13
+uint16 minorVer = 14
 string moduleName
 string[] stringConstants
 function[] functions
@@ -18,7 +18,13 @@ struct[] structs
 class[] classes
 ```
 
-**版本历史**：v1.13（基本类型家族扩表）——一次语义下限抬升，不是
+**版本历史**：v1.14（调试器局部作用域）——布局变更：函数局部变量
+块中的每个局部描述符新增 `declPc` uint16（执行到该局部声明处的
+字节码偏移；形参与方法隐式接收者为 0）。调试视图据此隐藏停驻
+位置尚未到达其声明的局部变量。旧 ncc 产出的 v1.13 模块缺少每个
+局部的这两个字节，因此加载器直接拒绝 minor < 14——旧模块必须
+重新编译。
+v1.13（基本类型家族扩表）——一次语义下限抬升，不是
 布局变更：没有新增序列化字段，但标量 kind 码段扩表——
 byte/ubyte/short/ushort/uint/long/ulong/double/bool/char 以新 RTK 码
 （10..19）出现在局部与字段的 kind 字节、类型描述符与装箱标签中，

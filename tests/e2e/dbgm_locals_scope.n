@@ -1,0 +1,6 @@
+//e2e dbgm_locals_scope: locals honor declaration scope through the machine protocol.
+int main() {
+    int early = 1;
+    int late = early + 1;
+    return late;
+}

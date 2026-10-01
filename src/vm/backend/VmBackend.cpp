@@ -118,6 +118,12 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     ctx.func = &compiledFunc;
     ctx.nextOffset = 0;
     m_currFunc = &ctx;
+    //The emitter pointer only ever points at this function's stack
+    //emitter (set by EmitStatement/EmitExpression). Null it here so
+    //AllocLocal — which runs for params before body emission — reads a
+    //defined null instead of the previous function's destroyed emitter
+    //and records declPc 0 ("live from entry") for params/__this.
+    m_pCurrEmitter = nullptr;
 
     AllocParamsAndDefaults(func, ctx, compiledFunc);
     CallSlotStats stats = ReserveReturnAndCallSlots(func, ctx, compiledFunc);
@@ -394,6 +400,17 @@ uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,
     desc.size = size;
     desc.typeKind = typeKind;
     desc.isParam = isParam ? 1 : 0;
+    //Where the local's slot first matters at run time: the next emitted
+    //instruction. For a body local that is exactly the anchor of its
+    //declaring statement (declarations emit no anchor themselves — a
+    //struct declaration does emit its allocation code, but before any
+    //anchor), so the debug views show it from the moment execution
+    //pauses on that statement. Emission-time synthesized locals (foreach
+    //iterators, catch variables) pick up their genuine first-use
+    //position. Null emitter = allocation phase before body emission
+    //(params, __this): live from entry.
+    desc.declPc = m_pCurrEmitter
+        ? static_cast<uint16_t>(m_pCurrEmitter->CurrentOffset()) : 0;
     desc.name = name;
     m_currFunc->func->locals.push_back(std::move(desc));
 
