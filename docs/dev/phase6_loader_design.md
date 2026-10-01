@@ -1,4 +1,10 @@
-# Phase 6 运行期包加载与链接设计（nlink）
+# Phase 6 运行期包加载与链接设计（加载器＝nloader，链接器＝nlink）
+
+组件命名（2026-10-01 用户裁定）：**nloader**＝运行期包加载器（本文件
+§4 的定位/加载/容器解析职责，落在 nvm 与 NcuPackage 容器）；**nlink**＝
+符号链接器（Task 3 的 SymbolReferenceTable＋解析表定址组件）。二者是
+加载流水线的先后两段：nloader 把包与模块装进内存，nlink 解析跨模块
+符号引用。
 
 状态：设计稿 v1（2026-10-01），细化 `docs/dev/phases_567_design.md` §2 阶段 6 的
 第 1–4 项（逐单元产码、未解析引用表、`.npkg` 归档、链接器）。
