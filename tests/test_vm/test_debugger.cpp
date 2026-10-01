@@ -209,8 +209,10 @@ void test_v19_loader_rejects_v1_8()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    bytes[10] = 0x08;
-    bytes[11] = 0x00;
+    //v2.0: the downgrade is a MAJOR step (1.x predates package identity).
+    //Patch the major field (header offset 8, little-endian u16) down to 1.
+    bytes[8] = 0x01;
+    bytes[9] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v18.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
@@ -248,14 +250,15 @@ void test_loader_rejects_v1_9()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    //Guard the patch anchor: if a future header change moves minorVer,
-    //the patch below would silently hit another field — fail loudly on
-    //layout drift instead (fresh build must carry the current minor 13).
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
-        && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
-    bytes[10] = 0x09;
-    bytes[11] = 0x00;
+    //Guard the patch anchor: if a future header change moves the version
+    //fields, the patch below would silently hit another field — fail
+    //loudly on layout drift instead (fresh build must be stamped 2.0).
+    CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
+        && static_cast<uint8_t>(bytes[10]) == 0x00,
+        "fresh module should be stamped format 2.0");
+    //v2.0: the downgrade is a MAJOR step (1.x predates package identity).
+    bytes[8] = 0x01;
+    bytes[9] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v19.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
@@ -297,11 +300,12 @@ void test_loader_rejects_v1_10()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
-        && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
-    bytes[10] = 0x0A;
-    bytes[11] = 0x00;
+    CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
+        && static_cast<uint8_t>(bytes[10]) == 0x00,
+        "fresh module should be stamped format 2.0");
+    //v2.0: the downgrade is a MAJOR step.
+    bytes[8] = 0x01;
+    bytes[9] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v110.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
@@ -345,11 +349,12 @@ void test_loader_rejects_v1_11()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
-        && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
-    bytes[10] = 0x0B;
-    bytes[11] = 0x00;
+    CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
+        && static_cast<uint8_t>(bytes[10]) == 0x00,
+        "fresh module should be stamped format 2.0");
+    //v2.0: the downgrade is a MAJOR step.
+    bytes[8] = 0x01;
+    bytes[9] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v111.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
@@ -392,15 +397,15 @@ void test_loader_accepts_ceiling_and_floor()
         bytes.assign(std::istreambuf_iterator<char>(in), {});
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
-    CHECK(static_cast<uint8_t>(bytes[10]) == 0x0D
-        && static_cast<uint8_t>(bytes[11]) == 0x00,
-        "fresh module should be stamped minorVer 13");
+    CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
+        && static_cast<uint8_t>(bytes[10]) == 0x00,
+        "fresh module should be stamped format 2.0");
 
-    //Above the ceiling: a v1.14 module — the reader must refuse it (it
+    //Above the ceiling: a v3.0 module — the reader must refuse it (it
     //would misparse every record after the first layout change).
-    bytes[10] = 0x0E;
-    bytes[11] = 0x00;
-    const auto newPath = scratchDir() / "verbound_v114.ncu";
+    bytes[8] = 0x03;
+    bytes[9] = 0x00;
+    const auto newPath = scratchDir() / "verbound_v300.ncu";
     {
         std::ofstream out(newPath, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -413,13 +418,13 @@ void test_loader_accepts_ceiling_and_floor()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.14 module (above the ceiling)");
+    CHECK(threw, "loader must reject a v3.0 module (above the ceiling)");
     CHECK(what.find("was written by a newer ncc; upgrade ncc/nvm to run it")
               != std::string::npos,
         "rejection should hit the ceiling path, got: " + what);
 
-    //Below the floor: a v1.12 module — misparses every keyed name.
-    bytes[10] = 0x0C;
+    //Below the floor: a v1.x module — misparses every keyed name.
+    bytes[8] = 0x01;
     const auto oldPath = scratchDir() / "verbound_v112.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
@@ -433,7 +438,7 @@ void test_loader_accepts_ceiling_and_floor()
         threw = true;
         what = e.what();
     }
-    CHECK(threw, "loader must reject a v1.12 module (floor is 13)");
+    CHECK(threw, "loader must reject a v1.x module (floor is 2.0)");
     CHECK(what.find("is outdated; recompile with current ncc")
               != std::string::npos,
         "rejection should hit the floor path, got: " + what);

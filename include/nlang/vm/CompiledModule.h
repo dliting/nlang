@@ -19,7 +19,7 @@ inline constexpr const char *NCU_EXTENSION = ".ncu";
 //.ncu format version. Single source of truth shared by the writer
 //(WriteCompiledModule in ModuleSaver.cpp) and the reader (ModuleLoader) —
 //bump both sides atomically by editing only these constants.
-inline constexpr uint16_t NCU_FORMAT_MAJOR = 1;
+inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //v1.7 (Phase 11): stdlib namespace intrinsics + reserved namespaces. No
 //field-layout change, but the later relational string opcodes share this
 //version step, so older VMs must refuse these modules outright.
@@ -49,16 +49,11 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 1;
 //signatures instead of return-kind placeholders, so call-site type
 //checking for imported callees is now performed; the loader refuses
 //v1.11 and older outright.
-//v1.13 (phase 5 qualified keys): LAYOUT bump — struct/class/function
-//table keys and stream type-name literals become package-qualified
-//("<package>.<name>"; ownerless built-ins keep the bare name), and the
-//wire gains an int32 entryPoint field right after the module name
-//(index of the entry function, -1 when the module exports none). By-name
-//entry lookup is gone: `main.n` in a directory is package `main`, so its
-//entry key is `main.main`, and the name alone no longer identifies it.
-//A v1.12 module misparses every keyed name; the loader refuses v1.12
-//and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 13;
+//v2.0 (phase 6 runtime linking): LAYOUT bump — the header gains the
+//module's dotted path (the compile unit's package identity) right after
+//the version fields, and the version floor/ceiling move to 2.0. A v1.x
+//module misparses at the first new field; the loader refuses it outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 0;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -311,6 +306,8 @@ struct CompiledClass {
 };
 
 struct CompiledModule {
+    //v2.0: the module's dotted path (the compile unit's package identity).
+    std::string modulePath;
     std::string name;
     //v1.13: index of the entry function, -1 when the module exports none.
     //By-name lookup is gone: `main.n` in a directory is package `main`, so

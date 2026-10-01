@@ -48,6 +48,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //"no 'main' function found" errors or worse.
     if (!fs.good())
         throw std::runtime_error("Truncated module file");
+    //v2.0: the module's dotted path (package identity of the unit).
+    uint16_t modulePathLen = 0;
+    fs.read(reinterpret_cast<char*>(&modulePathLen), sizeof(modulePathLen));
+    std::string modulePath(modulePathLen, '\0');
+    fs.read(modulePath.data(), modulePathLen);
+    mod.modulePath = std::move(modulePath);
+    if (!fs.good())
+        throw std::runtime_error("Truncated module file");
     //Phase 9d (v1.4): reject modules written by older ncc. v1.4 added
     //CompiledFunction.tryBlocks section; loading a v1.3 module would
     //misalign on the new section. Product hasn't shipped, so we refuse
@@ -56,6 +64,7 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //newer module and misparse everything after the first added field
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
+    const uint16_t kCurrentMajorVer = NCU_FORMAT_MAJOR;
     const uint16_t kCurrentMinorVer = NCU_FORMAT_MINOR;
     //v1.13 (phase 5 qualified keys): LAYOUT bump — table keys and stream
     //type-name literals are package-qualified ("<package>.<name>",
@@ -63,11 +72,12 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //entryPoint after the module name. A v1.12 module misparses every
     //keyed name, so it is refused outright (floor/ceiling double-reject
     //unchanged).
-    if (majorVer != NCU_FORMAT_MAJOR || minorVer < NCU_FORMAT_MINOR)
+    if (majorVer < kCurrentMajorVer
+        || (majorVer == kCurrentMajorVer && minorVer < kCurrentMinorVer))
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
-    if (minorVer > kCurrentMinorVer)
+    if (majorVer > kCurrentMajorVer || minorVer > kCurrentMinorVer)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer)
@@ -128,17 +138,11 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                 sizeof(func.paramCount));
         fs.read(reinterpret_cast<char*>(&func.returnTypeKind),
                 sizeof(func.returnTypeKind));
-        //intrinsicId was added in module format version 1.1.
-        if (minorVer >= 1)
-            fs.read(reinterpret_cast<char*>(&func.intrinsicId),
-                    sizeof(func.intrinsicId));
-        //Phase 9f: native function flag (v1.6).
-        if (minorVer >= 6) {
-            uint8_t nativeFlag = 0;
-            fs.read(reinterpret_cast<char*>(&nativeFlag),
-                    sizeof(nativeFlag));
-            func.isNative = (nativeFlag != 0);
-        }
+        fs.read(reinterpret_cast<char*>(&func.intrinsicId),
+                sizeof(func.intrinsicId));
+        uint8_t nativeFlag = 0;
+        fs.read(reinterpret_cast<char*>(&nativeFlag), sizeof(nativeFlag));
+        func.isNative = (nativeFlag != 0);
 
         //Option B v1.3: per-formal default-value descriptors.
         uint16_t defaultCount = 0;
@@ -182,8 +186,8 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         }
 
         //v1.5: local-variable descriptors (GC root scan, see VmBackend
-        //writer side). Older-format modules simply have no root set.
-        if (minorVer >= 5) {
+        //writer side).
+        {
             uint16_t localCount = 0;
             fs.read(reinterpret_cast<char*>(&localCount),
                     sizeof(localCount));
@@ -211,7 +215,7 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
         }
 
         //v1.9 (debugger): per-function source file path.
-        if (minorVer >= 9) {
+        {
             uint32_t sfileLen = 0;
             fs.read(reinterpret_cast<char*>(&sfileLen), sizeof(sfileLen));
             if (!fs.good() || sfileLen > (1u << 16))
@@ -413,11 +417,9 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
                 sizeof(mod.arrayTypes[i].elemTypeIdx));
     }
 
-    //Phase 8e-9b: enum name tables. Added in module format version 1.2.
-    //Older modules (minorVer < 2) lack this section — leave enumNames empty,
-    //which means OP_Enum_to_str cannot resolve; that's fine as no .ncu
-    //predating 8e-9b would emit OP_Enum_to_str.
-    if (minorVer >= 2) {
+    //Phase 8e-9b: enum name tables.
+    {
+
         uint32_t enumCount;
         fs.read(reinterpret_cast<char*>(&enumCount), sizeof(enumCount));
         if (!fs.good() || enumCount > (1u << 24))

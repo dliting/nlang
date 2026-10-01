@@ -764,6 +764,10 @@ static void TestEntryPointRoundTrip() {
     CHECK(compileDir(dir), "single-file program builds");
     CompiledModule mod = ModuleLoader::Load(
         (dir / (dir.filename().string() + ".ncu")).string());
+    //.ncu 2.0: the header carries the module's dotted path; the
+    //transitional producer spells it as the output module name.
+    CHECK(mod.modulePath == dir.filename().string(),
+          "the module path is recorded in the header");
     CHECK(mod.entryPoint >= 0, "entry point index recorded");
     CHECK(mod.entryPoint < static_cast<int32_t>(mod.functions.size()),
           "entry point index in range");

@@ -31,6 +31,10 @@ VmBackend::~VmBackend() = default;
 
 void VmBackend::OnModuleCreate(Module& module) {
     m_compiledModule.name = module.Name().ToString();
+    //Transitional (phase 6): the module path is spelled as the output
+    //module name until per-unit compilation gives every unit its own
+    //dotted path (Task 3).
+    m_compiledModule.modulePath = m_compiledModule.name;
 }
 
 void VmBackend::GenerateTypes(SnNamespace& root) {

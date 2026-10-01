@@ -41,6 +41,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 
+    // v2.0: the module's dotted path (package identity of the unit).
+    uint16_t modulePathLen =
+        static_cast<uint16_t>(mod.modulePath.size());
+    fs.write(reinterpret_cast<const char*>(&modulePathLen),
+             sizeof(modulePathLen));
+    fs.write(mod.modulePath.c_str(), modulePathLen);
+
     // Module name
     uint32_t nameLen = static_cast<uint32_t>(mod.name.size());
     fs.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
