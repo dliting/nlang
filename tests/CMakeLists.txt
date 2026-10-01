@@ -209,11 +209,16 @@ add_test(NAME ast_containment_tests COMMAND test_ast_containment)
 add_executable(test_projectfile
     test_ncc/test_projectfile.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ncc/ProjectFile.cpp
+    #ProjectFile.cpp validates bytes via Utf8ContentCheck (public
+    #header nlang/compiler/Utf8.h); ncc itself reaches both by linking
+    #nlang_compiler, which this standalone target stays out of.
+    ${PROJECT_SOURCE_DIR}/src/compiler/Utf8.cpp
 )
 
 target_include_directories(test_projectfile
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/tools/ncc
+        ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_projectfile
