@@ -851,6 +851,39 @@ static void TestBuiltinAndUserTypeNameCoexist() {
           "a root Object beside a library Object is a duplicate-class error");
 }
 
+//(5b) Design §8 runtime half: a packaged class named `Object` dispatches
+//its own methods and its toString override (receiver dispatch goes
+//through the receiver's own compiled class, keyed alib.Object — the
+//bare-name short-circuits only ever name the ownerless builtin). The
+//builtin root's own rendering is pinned by the object_ref e2e case.
+static void TestUserObjectDispatch() {
+    auto dir = scenarioDir("object_dispatch");
+    writeFiles(dir, {
+        { "alib.n",
+          "class Object {\n"
+          "  public int tag;\n"
+          "  public int bumped() { return tag + 1; }\n"
+          "  public string toString() { return \"user-object\"; }\n"
+          "}\n" },
+        { "main.n",
+          "import io;\n"
+          "import alib;\n"
+          "int main() {\n"
+          "  alib.Object o = new alib.Object();\n"
+          "  o.tag = 5;\n"
+          "  io.print(o.bumped());\n"
+          "  io.print(o.toString());\n"
+          "  return o.bumped() - 6;\n"
+          "}\n" } });
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 0,
+          "a packaged Object builds with its own methods");
+    //print keeps its documented contract for class values (explicit
+    //.toString()) regardless of the class's name.
+    CHECK(cap.text == "6\nuser-object\n",
+          "user methods and the toString override win");
+}
+
 } // namespace
 
 int main() {
@@ -879,6 +912,7 @@ int main() {
     TestEntryPointRoundTrip();
     TestTwoMainsRejected();
     TestBuiltinAndUserTypeNameCoexist();
+    TestUserObjectDispatch();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
