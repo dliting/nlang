@@ -1,6 +1,6 @@
 // Phase 11 Step 0 canary: one package-qualified intrinsic call through
 // the whole pipeline (resolver intercept -> OP_CallIntrinsic codegen ->
-// .nmod -> VM execution).
+// .ncu -> VM execution).
 import math;
 int main() {
     float a = math.sqrt(4.0);   // exact float argument

@@ -1,12 +1,12 @@
 # ndisasm —— 反汇编
 
-ndisasm 把 `.nmod` 反汇编为可读的字节码转储，回答「编译器实际生成
+ndisasm 把 `.ncu` 反汇编为可读的字节码转储，回答「编译器实际生成
 了什么」。用它核对 ndb `x` 命令中的指令地址、检查优化结果、排查
 序列化或模块加载问题。
 
 ```text
-ndisasm <module.nmod>
-ndisasm -func <name> <module.nmod>
+ndisasm <module.ncu>
+ndisasm -func <name> <module.ncu>
 ```
 
 两种调用：全量转储，或 `-func <name>` 只保留一个函数节（其余节仍在）。

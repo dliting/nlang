@@ -75,7 +75,7 @@ itself is not implemented). Limitation: a comparison against a variable
 shadowing the type name (`List < 3`, only blanks/comments between name
 and `<`) is misread as a generic open.
 
-**Cross-module**: container generic signatures cross `.nmod` import
+**Cross-module**: container generic signatures cross `.ncu` import
 boundaries — since the v1.12 type descriptors, imported functions carry
 their true formal and return types recursively (`List<int[]>`, `Dict`
 instantiations, nested arrays), so call-site type checking matches

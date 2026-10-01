@@ -10,7 +10,7 @@ and a quick tour of the language's core features with runnable snippets.
 It is also the landing page for nide's Help menu entry NLang Getting
 Started.
 
-Source code (`.n`) compiles first to a bytecode module (`.nmod`), which
+Source code (`.n`) compiles first to a bytecode module (`.ncu`), which
 the VM then executes. The language itself:
 
 - **Statically typed** — variables, parameters, and return values
@@ -27,10 +27,10 @@ The five tools shipped with the package:
 
 | Tool | Role |
 |---|---|
-| ncc | command-line compiler: compiles `.n` source files and `.nproj` project files into `.nmod`, and can execute right after compiling |
-| nvm | VM runner: executes `.nmod` |
+| ncc | command-line compiler: compiles `.n` source files and `.nproj` project files into `.ncu`, and can execute right after compiling |
+| nvm | VM runner: executes `.ncu` |
 | ndb | command-line debugger: breakpoints, stepping, and the call stack (it also drives the graphical debugging in nide) |
-| ndisasm | bytecode disassembler: inspects the instructions inside a `.nmod` |
+| ndisasm | bytecode disassembler: inspects the instructions inside a `.ncu` |
 | nide | IDE: edit, build, and run, with this help site embedded |
 
 For the complete usage of the five tools, see the

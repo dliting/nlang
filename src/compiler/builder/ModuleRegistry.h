@@ -29,7 +29,7 @@ using LibraryNamespacePredicate =
 	std::function<bool(const std::string&)>;
 
 //Spec §7 module-not-found wording — single source shared by the gate
-//resolver (BuildGate) and the .nmod loader (ModuleBuilder::LoadImports).
+//resolver (BuildGate) and the .ncu loader (ModuleBuilder::LoadImports).
 std::string ModuleNotFoundText(const std::string& moduleName);
 
 /*
@@ -38,7 +38,7 @@ to its dotted module path (relative to BuildParams::m_sProjectDir),
 tracks which module owns each merged top-level symbol (side table —
 NF_ flag bits are fully allocated), and holds each unit's import gate
 (exact paths + wildcard prefixes + same-directory
-auto-inclusion). External .nmod modules join the registry with
+auto-inclusion). External .ncu modules join the registry with
 isExternal=true (they own their stubs and never share a directory with
 a TU). VM/bytecode are untouched: everything here is resolution-time
 only.
@@ -58,7 +58,7 @@ public:
 	//--- per-TU import gates ---
 	struct ImportGate
 	{
-		//Exact module paths (project TUs + external .nmod names).
+		//Exact module paths (project TUs + external .ncu names).
 		std::vector<std::string> exact;
 		//Wildcard prefixes ("utils." — recursive, D5).
 		std::vector<std::string> wildcards;
@@ -76,7 +76,7 @@ public:
 		const std::string& packageRoot,
 		std::vector<std::string>& outErrors, bool isLibrary = false);
 
-	//Register an external .nmod by name; returns its module index
+	//Register an external .ncu by name; returns its module index
 	//(stubs get TagOwner'd with it by the caller). External
 	//directories never equal TU directories (see DirectoryOf).
 	uint32_t AddExternalModule(const std::string& name);
@@ -131,13 +131,13 @@ public:
 	//inline library TU) — a known non-external module. The unified
 	//"compiled in" surface after libraries are inlined.
 	bool IsCompiledInModule(const std::string& dottedPath) const;
-	//Project TU paths + external .nmod names (union).
+	//Project TU paths + external .ncu names (union).
 	bool IsKnownModule(const std::string& dottedPath) const;
 	//True when some known module path equals dottedPrefix or starts with
 	//"dottedPrefix." — segment-aligned, so "utils" matches "utils.helper"
 	//but not "utils2.x". Fires the class/module conflict hint (spec §6.2).
 	bool HasKnownModuleStartingWith(const std::string& dottedPrefix) const;
-	//Stub table of an external module (filled right after its .nmod
+	//Stub table of an external module (filled right after its .ncu
 	//loads; consumed by ModuleFunctions).
 	void SetExternalStubs(uint32_t moduleIndex,
 		std::vector<SnFunction*> stubs);
@@ -151,7 +151,7 @@ public:
 
 	//Find a type declaration (class/struct/enum/interface) named
 	//typeName inside the compiled-in unit path. Returns null for an
-	//external .nmod or when the unit/type is not present.
+	//external .ncu or when the unit/type is not present.
 	SnField* FindModuleType(const std::string& path,
 		const std::string& typeName) const;
 
@@ -192,7 +192,7 @@ public:
 	}
 private:
 	//A registered TU module path ("utils.helper") — externals are
-	//matched by their single-segment .nmod name only.
+	//matched by their single-segment .ncu name only.
 	bool IsProjectModule(const std::string& dottedPath) const;
 
 	//BuildGate's per-spec arm: resolves one ImportSpec into gate
@@ -203,7 +203,7 @@ private:
 		std::vector<std::string>& outErrors,
 		const LibraryNamespacePredicate& isLibraryNamespace) const;
 	//Non-wildcard arm of ApplyImportSpec: compiled-in module, signature-
-	//only library fallback, external .nmod candidate, or an unresolvable
+	//only library fallback, external .ncu candidate, or an unresolvable
 	//dotted path.
 	void ApplyNonWildcardImport(const std::string& name, ImportGate& gate,
 		std::vector<std::string>& externalOut,

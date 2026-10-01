@@ -29,7 +29,7 @@ def main():
         src = os.path.join(tmp, "gc_flag_pos.n")
         with open(src, "w", encoding="utf-8", newline="\n") as f:
             f.write(SOURCE)
-        mod = os.path.join(tmp, "gc_flag_pos.nmod")
+        mod = os.path.join(tmp, "gc_flag_pos.ncu")
         r = subprocess.run([ncc, "build", src, "-o", mod],
                            capture_output=True, timeout=TIMEOUT_SEC)
         if r.returncode != 0:

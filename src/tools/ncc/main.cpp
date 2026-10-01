@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 #include "nlang/common/LibrarySearchPath.h"
+#include "nlang/vm/CompiledModule.h"
 
 namespace fs = std::filesystem;
 
@@ -32,12 +33,12 @@ using namespace nlang;
 
 static void PrintUsage() {
     std::cerr << "Usage:\n"
-              << "  ncc <source.n> [-o out.nmod] [-I <dir>...]  Compile and execute\n"
-              << "  ncc build <source.n> [-o out.nmod] [-I <dir>...]  Compile only\n"
-              << "  ncc -p <project.nproj> [-o out.nmod] [-I <dir>...]  Compile and execute a project\n"
-              << "  ncc build -p <project.nproj> [-o out.nmod]  Compile a project\n"
-              << "  ncc run <module.nmod>       Execute only\n"
-              << "  -I <dir>                    Add directory to .nmod import search path\n"
+              << "  ncc <source.n> [-o out.ncu] [-I <dir>...]  Compile and execute\n"
+              << "  ncc build <source.n> [-o out.ncu] [-I <dir>...]  Compile only\n"
+              << "  ncc -p <project.nproj> [-o out.ncu] [-I <dir>...]  Compile and execute a project\n"
+              << "  ncc build -p <project.nproj> [-o out.ncu]  Compile a project\n"
+              << "  ncc run <module.ncu>       Execute only\n"
+              << "  -I <dir>                    Add directory to .ncu import search path\n"
               << "  ncc --version               Print the compiler version\n";
 }
 
@@ -100,7 +101,7 @@ int main(int argc, char* argv[]) {
 
     std::string command = argv[1];
 
-    // ncc run <module.nmod> [-I <dir>...]
+    // ncc run <module.ncu> [-I <dir>...]
     if (command == "run") {
         if (argc < 3) {
             std::cerr << "Error: 'run' requires a module file path.\n";
@@ -159,8 +160,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // ncc build <source.n> [-o out.nmod] [-I <dir>...]
-    // ncc build -p <project.nproj> [-o out.nmod] [-I <dir>...]
+    // ncc build <source.n> [-o out.ncu] [-I <dir>...]
+    // ncc build -p <project.nproj> [-o out.ncu] [-I <dir>...]
     // ncc <source.n> [-I <dir>...] (compile + run)
     // ncc -p <project.nproj> [-I <dir>...] (compile + run)
     bool compileOnly = (command == "build");
@@ -210,7 +211,9 @@ int main(int argc, char* argv[]) {
         else if (sourceFile.empty()) {
             //A .nproj fed positionally would reach the NLang parser and
             //die with a bare syntax error — point at -p instead.
-            if (arg.size() > 6 && arg.substr(arg.size() - 6) == ".nproj") {
+            //(fs::path::extension(), not length arithmetic: the suffix
+            //set has changed before and may change again.)
+            if (fs::path(arg).extension() == ".nproj") {
                 std::cerr << "Error: '" << arg << "' looks like a project"
                           << " file; use -p " << arg << "\n";
                 return 1;
@@ -260,7 +263,7 @@ int main(int argc, char* argv[]) {
             moduleName = moduleName.substr(slashPos + 1);
     }
 
-    //Default output: <name>.nmod beside the sources (project mode honors
+    //Default output: <name>.ncu beside the sources (project mode honors
     //the .nproj's outputDir; fs::path composition so an absolute outputDir
     //replaces the project dir instead of concatenating onto it).
     if (outputFile.empty()) {
@@ -268,9 +271,9 @@ int main(int argc, char* argv[]) {
             fs::path dir(project.projectDir);
             if (!project.outputDir.empty())
                 dir /= project.outputDir;
-            outputFile = (dir / (moduleName + ".nmod")).string();
+            outputFile = (dir / (moduleName + NCU_EXTENSION)).string();
         } else {
-            outputFile = moduleName + ".nmod";
+            outputFile = moduleName + NCU_EXTENSION;
         }
     }
 
@@ -307,23 +310,25 @@ int main(int argc, char* argv[]) {
 
     //Derive the save path parts from the whole outputFile via fs::path
     //(find_last_of/substr drops the separator of a root-only path like
-    //"/out.nmod", silently redirecting the write to the CWD):
-    //`ncc build src.n -o out.nmod` must write out.nmod, not <stem>.nmod
-    //while the success message names out.nmod.
+    //"/out.ncu", silently redirecting the write to the CWD):
+    //`ncc build src.n -o out.ncu` must write out.ncu, not <stem>.ncu
+    //while the success message names out.ncu.
     fs::path outPath(outputFile);
     if (!outPath.parent_path().empty())
         params.m_sOutputDir = outPath.parent_path().string();
     std::string outName = outPath.filename().string();
-    if (outName.size() > 5 && outName.substr(outName.size() - 5) == ".nmod")
-        outName = outName.substr(0, outName.size() - 5);
+    //Length-agnostic strip: fs::path::extension() compares the suffix
+    //itself, so renaming the artifact cannot desynchronize a count.
+    if (outPath.extension() == NCU_EXTENSION)
+        outName = outPath.stem().string();
     if (!outName.empty())
         params.m_sOutputModule = outName;
 
     //Recompute outputFile from the derived parts: ModuleSaver always writes
-    //<m_sOutputDir>/<module>.nmod, so the success message and the run-mode
+    //<m_sOutputDir>/<module>.ncu, so the success message and the run-mode
     //Load must target that composed path — not the raw -o value (which may
     //lack the extension or name only a directory).
-    fs::path saved = fs::path(params.m_sOutputModule + ".nmod");
+    fs::path saved = fs::path(params.m_sOutputModule + NCU_EXTENSION);
     if (!params.m_sOutputDir.empty())
         saved = fs::path(params.m_sOutputDir) / saved;
     outputFile = saved.string();

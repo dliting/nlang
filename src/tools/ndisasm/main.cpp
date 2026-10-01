@@ -51,8 +51,8 @@ static void DisassembleFunction(const CompiledFunction& func,
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: ndisasm <module.nmod>\n"
-                  << "       ndisasm -func <name> <module.nmod>\n"
+        std::cerr << "Usage: ndisasm <module.ncu>\n"
+                  << "       ndisasm -func <name> <module.ncu>\n"
                   << "       ndisasm --version\n";
         return 1;
     }

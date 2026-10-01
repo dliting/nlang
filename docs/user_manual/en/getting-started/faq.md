@@ -1,6 +1,6 @@
 # FAQ
 
-### Where did the `.nmod` go?
+### Where did the `.ncu` go?
 
 `ncc build hello.n` without `-o` writes the module file to the
 **current working directory**, not next to the source file — think of
@@ -87,9 +87,9 @@ Limitations](../language-spec/known-limitations.md), the "Array values
 in scalar contexts" item. See [Common Error
 Messages](../language-spec/common-errors.md) for the full error text.
 
-### `.nmod` version outdated, telling you to recompile?
+### `.ncu` version outdated, telling you to recompile?
 
-The `.nmod` format floor only ever rises: a module produced by an
+The `.ncu` format floor only ever rises: a module produced by an
 older ncc is refused as outdated
 (`Module version ... is outdated; recompile with current ncc`) and
 must be recompiled with the current toolchain. Each floor bump and its
@@ -100,7 +100,7 @@ corresponding CHANGELOG release section.
 
 ### Cross-module function values / complex defaults / named arguments rejected?
 
-The `.nmod` type descriptors carry only data types — not `Func`
+The `.ncu` type descriptors carry only data types — not `Func`
 signatures or parameter names — so these cross-module shapes are
 rejected at the consumer's compile time: referencing an imported
 function as a function value, passing a function reference to an

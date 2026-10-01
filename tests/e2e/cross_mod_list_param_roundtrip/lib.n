@@ -1,4 +1,4 @@
-// List<int>-typed formals and returns serialized through .nmod v1.12
+// List<int>-typed formals and returns serialized through .ncu v1.12
 // recursive type descriptors (RTK_List with an int element): the
 // consumer-side stub rebuilds a real List<int> signature, so the
 // container value crosses the boundary in both directions — passed in

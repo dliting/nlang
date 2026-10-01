@@ -91,14 +91,14 @@ void TestDebugClient::initTestCase() {
     QVERIFY(buildModule("throw", kThrowSource, &m_throwNmod));
 }
 
-//Write the source, compile with the real ncc, store the .nmod path.
+//Write the source, compile with the real ncc, store the .ncu path.
 //-o is explicit: without it ncc drops the module into the process CWD.
 //Uses QTest::qFail (not QVERIFY/QFAIL, which expand to a void return)
 //so the bool result carries the failure back to the caller's QVERIFY.
 bool TestDebugClient::buildModule(
     const char* tag, const char* source, QString* modPathOut) const {
     const QString srcPath = m_dir.filePath(QLatin1String(tag) + ".n");
-    const QString modPath = m_dir.filePath(QLatin1String(tag) + ".nmod");
+    const QString modPath = m_dir.filePath(QLatin1String(tag) + ".ncu");
     {
         QFile src(srcPath);
         if (!src.open(QIODevice::WriteOnly | QIODevice::Text)
@@ -267,7 +267,7 @@ void TestDebugClient::loadFailureReportsErrorBeforeHello() {
     QSignalSpy exited(&client, &DebugClient::exited);
     QSignalSpy abnormal(&client, &DebugClient::abnormallyExited);
 
-    QVERIFY(client.launch(m_dir.filePath("missing.nmod")));
+    QVERIFY(client.launch(m_dir.filePath("missing.ncu")));
     QTRY_COMPARE_WITH_TIMEOUT(
         client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
     QCOMPARE(errorSpy.count(), 1);

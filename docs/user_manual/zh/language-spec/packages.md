@@ -27,7 +27,7 @@ import gfx.color.deep;
 
 ## 编译模块与限定表键
 
-编译模块（`.nmod`，格式 v1.13）里每个 struct/class/函数表键都**带
+编译模块（`.ncu`，格式 v1.13）里每个 struct/class/函数表键都**带
 包名限定**：`main.main`、`utils.helper.help`、`alib.Point`。无属主的
 内建保持裸键（`Object`、`List`）。限定键同时是调试器与工具的统一
 拼写：

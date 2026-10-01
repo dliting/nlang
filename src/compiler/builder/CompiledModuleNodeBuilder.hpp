@@ -17,7 +17,7 @@ namespace nlang
 
 //Source location for stubs constructed from a CompiledModule.
 //Distinct from ImportedNodeLocation (which is backed by a RuntimeNode);
-//here we have no RuntimeNode — the stub is minted directly from .nmod data.
+//here we have no RuntimeNode — the stub is minted directly from .ncu data.
 class CompiledModuleNodeLocation : public ISourceLocation
 {
 public:
@@ -49,7 +49,7 @@ private:
 };
 
 //Builds Sn* AST stubs directly from a CompiledModule (the in-memory form of
-//a .nmod file), bypassing the legacy RnFunction / RuntimeNode pipeline.
+//a .ncu file), bypassing the legacy RnFunction / RuntimeNode pipeline.
 //
 //Stubs are intentionally minimal: they carry enough structural information
 //(name, param count, member names) for VmBackend to skip codegen on them
@@ -99,7 +99,7 @@ public:
 	//Throws std::runtime_error on policy violations (e.g. imported module
 	//defining main() — see Layer 6).
 	//
-	//R10-1 dedup: every compiled .nmod contains built-in functions/classes
+	//R10-1 dedup: every compiled .ncu contains built-in functions/classes
 	//emitted by RegisterBuiltinClasses (ByteStream/Dict/List constructors,
 	//their methods, etc.) because SaveModule writes everything in
 	//m_compiledModule. The consumer's AST root already has these same

@@ -7,10 +7,19 @@
 
 namespace nlang {
 
-//.nmod format version. Single source of truth shared by the writer
+//Container magic: 8 bytes, NUL-padded spelling of "NLANGCU". Single
+//source of truth for the writer, the reader and the packaging smoke
+//(tests/packaging/verify_package.py keeps its own byte copy — Python
+//cannot include this header).
+inline constexpr char NCU_MAGIC[8] = {'N', 'L', 'A', 'N', 'G', 'C', 'U', '\0'};
+//Artifact extension. Name it once: the spelling has changed before and
+//may change again — never hard-code its length.
+inline constexpr const char *NCU_EXTENSION = ".ncu";
+
+//.ncu format version. Single source of truth shared by the writer
 //(WriteCompiledModule in ModuleSaver.cpp) and the reader (ModuleLoader) —
 //bump both sides atomically by editing only these constants.
-inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
+inline constexpr uint16_t NCU_FORMAT_MAJOR = 1;
 //v1.7 (Phase 11): stdlib namespace intrinsics + reserved namespaces. No
 //field-layout change, but the later relational string opcodes share this
 //version step, so older VMs must refuse these modules outright.
@@ -49,7 +58,7 @@ inline constexpr uint16_t NMOD_FORMAT_MAJOR = 1;
 //entry key is `main.main`, and the name alone no longer identifies it.
 //A v1.12 module misparses every keyed name; the loader refuses v1.12
 //and older outright.
-inline constexpr uint16_t NMOD_FORMAT_MINOR = 13;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 13;
 
 //Runtime type kind constants for serialization.
 //Compile-time NK_* values exceed uint8_t range, so we map them.
@@ -347,7 +356,7 @@ struct CompiledModule {
     }
 };
 
-//Serialize a CompiledModule to a stream in the current .nmod format.
+//Serialize a CompiledModule to a stream in the current .ncu format.
 //Single writer shared by VmBackend::SaveModule (ncc) and unit tests, so
 //hand-written byte layouts can never drift from the reader again.
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod);

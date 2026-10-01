@@ -70,7 +70,7 @@ QString SettingsStore::resolveStandaloneNmodPath(
     const QString& buildOutputDir, const QString& sourcePath) {
     const QString fileName =
         QFileInfo(sourcePath).completeBaseName()
-        + QStringLiteral(".nmod");
+        + QStringLiteral(".ncu");
     if (buildOutputDir.isEmpty())
         return QDir(defaultStandaloneBuildDir()).filePath(fileName);
     return QDir(buildOutputDir).filePath(fileName);
@@ -89,7 +89,7 @@ QString SettingsStore::resolveProjectNmodPath(
         dir = buildOutputDir;
     else
         dir = projectDir;
-    return QDir(dir).filePath(projectName + QStringLiteral(".nmod"));
+    return QDir(dir).filePath(projectName + QStringLiteral(".ncu"));
 }
 
 } // namespace nlang

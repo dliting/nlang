@@ -108,8 +108,8 @@ static bool ParseDebugArgs(int argc, char* argv[], bool machine,
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: ndb <module.nmod> [-I <dir>...]\n"
-                  << "       ndb --machine <module.nmod> [-I <dir>...]\n"
+        std::cerr << "Usage: ndb <module.ncu> [-I <dir>...]\n"
+                  << "       ndb --machine <module.ncu> [-I <dir>...]\n"
                   << "       ndb --version\n";
         return 1;
     }
@@ -129,8 +129,8 @@ int main(int argc, char* argv[]) {
     int moduleIndex = -1;
     if (!ParseDebugArgs(argc, argv, machine, cliDirs, moduleIndex)) {
         std::cerr << (machine
-            ? "Usage: ndb --machine <module.nmod> [-I <dir>...]\n"
-            : "Usage: ndb <module.nmod> [-I <dir>...]\n");
+            ? "Usage: ndb --machine <module.ncu> [-I <dir>...]\n"
+            : "Usage: ndb <module.ncu> [-I <dir>...]\n");
         return 1;
     }
 

@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------------
 	ModuleBuilderImports.cpp
-	The .nmod import pipeline of ModuleBuilder: per-TU gates, external
+	The .ncu import pipeline of ModuleBuilder: per-TU gates, external
 	module loading and stub registration. Split from ModuleBuilder.cpp
 	(2026-09-27 maintainability refactor, zero behavior change).
 -----------------------------------------------------------------------------*/
@@ -52,12 +52,12 @@ bool ModuleBuilder::LoadImports()
 
 	//Library <name>.n sources were already discovered and fully parsed
 	//(DiscoverLibraryUnits, before registration); here only per-TU gates
-	//and .nmod external modules remain.
+	//and .ncu external modules remain.
 	std::vector<std::string> externalNames;
 	if (!BuildImportGates(externalNames))
 		return false;
 
-	//Load the external .nmod candidates once each (LOADING is global;
+	//Load the external .ncu candidates once each (LOADING is global;
 	//VISIBILITY stays per-TU via the gates built above).
 	for (const auto &name : externalNames)
 	{
@@ -70,7 +70,7 @@ bool ModuleBuilder::LoadImports()
 
 //Per-TU gates (D1: imports are file-scoped — one file's import must
 //not leak visibility to other files). Builtin / project names land
-//in the gate; single-segment non-project names are external .nmod
+//in the gate; single-segment non-project names are external .ncu
 //candidates collected below. PtrList is a std::list (no operator[]),
 //so the module index travels with a local counter.
 bool ModuleBuilder::BuildImportGates(
@@ -235,7 +235,7 @@ void ModuleBuilder::DiscoverLibraryUnits()
 	}
 }
 
-//Load one external .nmod candidate end to end: locate, parse, mint
+//Load one external .ncu candidate end to end: locate, parse, mint
 //stubs, register owners, keep detached stubs alive, then take ownership
 //of the compiled module.
 bool ModuleBuilder::LoadExternalModule(const std::string &name)
@@ -329,7 +329,7 @@ std::string ModuleBuilder::FindModuleFile(const std::string &name) const
 {
 	for (const auto &dir : EffectiveLibraryDirs(m_upEnv->Params()))
 	{
-		std::string path = dir + "/" + name + ".nmod";
+		std::string path = dir + "/" + name + NCU_EXTENSION;
 		std::ifstream test(path, std::ios::binary);
 		if (test.good())
 			return path;

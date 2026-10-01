@@ -39,13 +39,13 @@ static std::filesystem::path scratchDir()
     return dir;
 }
 
-//Compile one source into <tag>.nmod; false + diagnostics on failure.
+//Compile one source into <tag>.ncu; false + diagnostics on failure.
 static bool loadSource(const std::string& tag, const std::string& source,
     CompiledModule& mod)
 {
     const auto dir = scratchDir();
     const auto nPath = dir / (tag + ".n");
-    const auto modPath = dir / (tag + ".nmod");
+    const auto modPath = dir / (tag + ".ncu");
     std::filesystem::remove(modPath);
     {
         std::ofstream out(nPath, std::ios::binary);

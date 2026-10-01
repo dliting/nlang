@@ -1,6 +1,6 @@
 # 调试支持
 
-NLang 自带 **ndb**，一个命令行调试器（`ndb <module.nmod>`）。它在进
+NLang 自带 **ndb**，一个命令行调试器（`ndb <module.ncu>`）。它在进
 程内加载模块，跑在标准 `VmExecutor` 上，通过两个小接口驱动 VM——
 nide 调试器经线路协议复用的正是同一引擎层（debugpy/dlv 式的
 「引擎 + 轻前端」模型）。
@@ -56,7 +56,7 @@ WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
 
 ## 机器模式
 
-`ndb --machine <module.nmod>` 在 stdin/stdout 上讲一套线路协议（完
+`ndb --machine <module.ncu>` 在 stdin/stdout 上讲一套线路协议（完
 整文档见 src/tools/ndb/MachineFrontEnd.h）：事件是以制表符连接、字段
 转义的行（`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/
 `exited`/`error`/`err`），命令是空格分隔的裸记号（`b`/`bfunc`/`d`/
@@ -89,7 +89,7 @@ CLI 前端）行为不变。`OnOutput` 不得抛错：它跑在执行线程上�
   ——ndb 的命令循环捕获一切。
 
 引用类型值的判别与 GC 标记器相同：声明 kind 剪掉基本类型；数组类型字段
-在 `.nmod` 里携带声明侧的 `RTK_Array`，因此声明
+在 `.ncu` 里携带声明侧的 `RTK_Array`，因此声明
 kind 是可靠的数组探测器，运行期槽位 kind 起佐证作用。只有
 Class/Struct/Func 声明 kind 才落到运行期槽位 kind；Int32/Float/
 String/Array 直接按声明 kind 渲染，普通 int 永远不会走到引用标签路
@@ -109,7 +109,7 @@ String/Array 直接按声明 kind 渲染，普通 int 永远不会走到引用�
 到已运行进程；原生调用透明直通；抛出停止锚定在语句 pc 的近似值上；
 pc 值是 16 位字节码偏移（执行器既有的 `uint16_t opPc`——超过
 64 KiB 字节码的函数会回绕；这是既有的 VM 上限，不是调试
-器限制）；共享 `.nmod` 可能携带过期的源码路径（ndb 回退到 `.nmod`
+器限制）；共享 `.ncu` 可能携带过期的源码路径（ndb 回退到 `.ncu`
 所在目录，再退化为 `l` 只显示行号）。IDE 会话继承这些限制并另加若干
 面向用户的限制——调试会话内没有标准输入、每会话一份行号快照（不支
 持会话中编辑/重建）、停止即硬终止——记录在入门手册的调试指南：

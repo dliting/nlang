@@ -161,7 +161,7 @@ const BuiltinMethod s_DictMethods[] = {
 
 //The builtin class registration table. Row order IS registration order —
 //class and function indices derive from it, so any reorder changes the
-//serialized .nmod (golden compare guards this).
+//serialized .ncu (golden compare guards this).
 const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"Object",     BSR_ImplicitObject, nullptr, 0, false, 0, 0,
         s_ObjectMethods, std::size(s_ObjectMethods), BIDX_Object},

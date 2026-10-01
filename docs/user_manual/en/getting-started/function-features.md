@@ -83,7 +83,7 @@ See also: [Language Specification / Functions](../language-spec/functions.md).
 
 Multiple `.n` files in a project form modules by relative path: files in
 the same directory see each other naturally; other directories (or
-external `.nmod` files) require an explicit `import` and
+external `.ncu` files) require an explicit `import` and
 module-path-qualified calls.
 
 `main.n`:
@@ -116,8 +116,8 @@ int answer() { return 42; }
 After the project file lists the three sources under `Sources`, build
 and run:
 
-    ncc build -p modules.nproj -o modules.nmod
-    nvm modules.nmod                 # output 42, 42; exit code 42
+    ncc build -p modules.nproj -o modules.ncu
+    nvm modules.ncu                 # output 42, 42; exit code 42
 
 The built-in packages (`io`/`math`/`fs`) also require an `import`
 before use — that is the `import io;` at the top of every snippet on

@@ -1,6 +1,6 @@
 # Debugging Support
 
-NLang ships **ndb**, a CLI debugger (`ndb <module.nmod>`). It loads the
+NLang ships **ndb**, a CLI debugger (`ndb <module.ncu>`). It loads the
 module in-process, runs it on the standard `VmExecutor`, and drives the
 VM through two small interfaces — the same engine layer the nide
 debugger reuses over a line protocol (the debugpy/dlv "engine + thin
@@ -69,7 +69,7 @@ stop reports the shared id.
 
 ## Machine mode
 
-`ndb --machine <module.nmod>` speaks a line protocol on stdin/stdout
+`ndb --machine <module.ncu>` speaks a line protocol on stdin/stdout
 (documented in full in src/tools/ndb/MachineFrontEnd.h): events are
 tab-joined lines with escaped fields
 (`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/`exited`/
@@ -111,7 +111,7 @@ Inside a callback:
 
 Reference-typed values are discriminated like the GC marker does:
 declared kind prunes primitives; array-typed fields carry the
-declaration-side `RTK_Array` in `.nmod`, so the
+declaration-side `RTK_Array` in `.ncu`, so the
 declared kind is the reliable array detector and the runtime slot kind
 corroborates it. Only Class/Struct/Func declared kinds fall through to
 the runtime slot kind; Int32/Float/String/Array render directly from
@@ -136,8 +136,8 @@ throw stops anchor at the statement's pc approximation; pc values are
 16-bit bytecode offsets (the executor's existing `uint16_t opPc` — a
 function with >64 KiB of
 bytecode would wrap; a pre-existing VM bound, not a debugger limit); a
-shared `.nmod` may carry stale source paths (ndb falls back to the
-`.nmod`'s directory, then degrades `l` to numbers-only). The IDE
+shared `.ncu` may carry stale source paths (ndb falls back to the
+`.ncu`'s directory, then degrades `l` to numbers-only). The IDE
 session inherits these and adds user-facing ones — no stdin inside a
 debug session, per-session line-number snapshots (no mid-session
 edit/rebuild), hard-terminate stop — documented in the Getting Started

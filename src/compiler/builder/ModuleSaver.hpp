@@ -49,7 +49,7 @@ public:
 private:
 	bool GetModulePath(std::string &sFilePath)
 	{
-		static const char *MODULE_FILE_EXT = "nmod";
+		static const char *MODULE_FILE_EXT = "ncu";
 		namespace bf = std::filesystem;
 		const BuildParams &setting = m_Env.Params();
 		const std::string sFileName =

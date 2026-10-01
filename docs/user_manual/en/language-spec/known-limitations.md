@@ -75,7 +75,7 @@
 - **Named arguments on imported functions**: cross-module named
   arguments (`foo(b = 5, a = 3)` where `foo` is imported) are not
   supported. The consumer-side stub uses placeholder formal names
-  (`p0`, `p1`, ...) because the `.nmod` format does not carry formal
+  (`p0`, `p1`, ...) because the `.ncu` format does not carry formal
   names. Use positional arguments only when calling imported
   functions.
 - **Default parameters on interface methods**: interface method
@@ -109,6 +109,6 @@
 - **Cross-module function values are rejected, not transported**:
   referencing an imported function, or passing a function reference to
   an imported function, is a compile error (function signatures stay
-  outside the `.nmod` type-descriptor grammar, which carries data types
+  outside the `.ncu` type-descriptor grammar, which carries data types
   only). Lifting this requires extending the grammar to `Func`
   signatures.

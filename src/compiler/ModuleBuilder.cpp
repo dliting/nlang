@@ -78,7 +78,7 @@ bool ModuleBuilder::PrepareUnits()
 	ExpandTypeAliases();
 	if (m_upEnv->HasError())
 		return false;
-	//Load .nmod imports and merge stubs into the root namespace.
+	//Load .ncu imports and merge stubs into the root namespace.
 	return LoadImports();
 }
 

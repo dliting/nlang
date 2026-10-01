@@ -25,7 +25,7 @@ using namespace nlang;
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: nvm <module.nmod> [-I <dir>...] [--gc-stress=N]\n"
+        std::cerr << "Usage: nvm <module.ncu> [-I <dir>...] [--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
         }
     }
     if (moduleArg < 0) {
-        std::cerr << "Usage: nvm <module.nmod> [-I <dir>...] [--gc-stress=N]\n"
+        std::cerr << "Usage: nvm <module.ncu> [-I <dir>...] [--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }

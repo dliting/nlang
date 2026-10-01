@@ -136,7 +136,7 @@ VmBackend::BoxingTagResult VmBackend::BoxingTagFor(SnField* pT) {
     return {0, false};  //class/struct/other T → no boxing
 }
 
-//Return-type kind for .nmod serialization (caller checks HasReturn()).
+//Return-type kind for .ncu serialization (caller checks HasReturn()).
 //0.7.3 B: an array return type binds Field() to its interned array
 //token, so RuntimeTypeKind alone yields RTK_Array. The pre-token
 //IsArrayType() short-circuit existed because Field() degraded `int[]`

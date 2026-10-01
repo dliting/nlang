@@ -115,7 +115,7 @@ int runSource(const std::string& tag, const std::string& source,
         return -1;
     }
     CompiledModule mod = ModuleLoader::Load(
-        (dir / (tag + ".nmod")).string());
+        (dir / (tag + ".ncu")).string());
     VmExecutor exec;
     configure(exec);
     return exec.Execute(mod);

@@ -211,7 +211,7 @@ void TestArrayProperty::valueShapes()
 //Array redesign B Task 5: the compiled struct table must file an
 //`int[]` field as RTK_Array. Registration derived the kind from
 //EvalDataType(), which for array types returns the ELEMENT type, so
-//the .nmod recorded RTK_Int32 — the silent-corruption family
+//the .ncu recorded RTK_Int32 — the silent-corruption family
 //(writeStruct serialized the handle as 4 opaque bytes).
 void TestArrayProperty::structFieldKindStoredAsArray()
 {
@@ -219,15 +219,15 @@ void TestArrayProperty::structFieldKindStoredAsArray()
         "struct S { int[] f; int g; }\n"
         "int main() { S s; return s.g; }\n");
     QVERIFY(out.ok);
-    //fieldTypeKinds is a .nmod-borne fact: read the built module back
+    //fieldTypeKinds is a .ncu-borne fact: read the built module back
     //through ModuleLoader (static, throws on failure — same pattern as
     //test_module_import's execute path).
-    const auto nmod = std::filesystem::path(out.params->m_sOutputDir)
-        / (out.params->m_sOutputModule + ".nmod");
+    const auto ncu = std::filesystem::path(out.params->m_sOutputDir)
+        / (out.params->m_sOutputModule + ".ncu");
     CompiledModule mod;
     bool loaded = false;
     try {
-        mod = ModuleLoader::Load(nmod.string());
+        mod = ModuleLoader::Load(ncu.string());
         loaded = true;
     } catch (const std::exception&) {}
     QVERIFY(loaded);
@@ -258,11 +258,11 @@ void TestArrayProperty::writeStructArrayFieldThrows()
         "    return 0;\n"
         "}\n");
     QVERIFY(out.ok);
-    const auto nmod = std::filesystem::path(out.params->m_sOutputDir)
-        / (out.params->m_sOutputModule + ".nmod");
+    const auto ncu = std::filesystem::path(out.params->m_sOutputDir)
+        / (out.params->m_sOutputModule + ".ncu");
     std::string errorText;
     try {
-        CompiledModule mod = ModuleLoader::Load(nmod.string());
+        CompiledModule mod = ModuleLoader::Load(ncu.string());
         VmExecutor executor;
         executor.Execute(mod);
     } catch (const std::exception& e) {

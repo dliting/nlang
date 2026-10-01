@@ -74,7 +74,7 @@ public:
     bool SaveModule(BuildEnvironment& env) override;
 
     //Phase 9c cross-module import infrastructure: inject compiled modules
-    //loaded from .nmod files. Must be called before GenerateStatements.
+    //loaded from .ncu files. Must be called before GenerateStatements.
     //ModuleBuilder transfers ownership here so GenerateStatements can
     //access the imported modules when merging them into the user module.
     void SetImportedModules(std::vector<CompiledModule> mods)
@@ -828,7 +828,7 @@ private:
     uint16_t RegisterArrayType(SnField* pElemType);
 
     static uint8_t RuntimeTypeKind(SnField* pType);
-    //Return-type kind for .nmod serialization; array-ness is read from the
+    //Return-type kind for .ncu serialization; array-ness is read from the
     //return TYPE EXPRESSION, not from Field() (which resolves to the
     //element field and would degrade `int[]` to RTK_Int32).
     static uint16_t SerializedReturnKind(SnFunction& func);

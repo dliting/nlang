@@ -9,7 +9,7 @@ front ends as a line protocol (`--machine`) — nide's graphical
 debugger is built on it.
 
 ```text
-ndb <module.nmod> [-I <dir>...]
+ndb <module.ncu> [-I <dir>...]
 ```
 
 After loading the module it **stops at the first statement of the
@@ -44,9 +44,9 @@ A complete session (debugging `examples/hello_project`, breakpoint set
 by function name in the second file):
 
 ```console
-$ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.nmod
-Compiled successfully: hello_project.nmod
-$ ndb hello_project.nmod
+$ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.ncu
+Compiled successfully: hello_project.ncu
+$ ndb hello_project.ncu
 Stopped: main (main.n:6)
 (ndb) b addBoth
 Breakpoint 1 at addBoth (utils.n:2)
@@ -70,7 +70,7 @@ ndb itself with 0.
 
 ## Protocol for embedding front ends
 
-`ndb --machine <module.nmod> [-I <dir>...]` exposes the same session over a
+`ndb --machine <module.ncu> [-I <dir>...]` exposes the same session over a
 tab-separated line protocol on stdin/stdout for embedding front ends —
 the nide graphical debugger is built on it. Protocol details in
 [Debugging in nide](../getting-started/debugging.md) and

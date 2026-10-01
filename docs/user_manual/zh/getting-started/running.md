@@ -41,7 +41,7 @@
 - **命名空间**：模块命名空间。面向 IDE 的预留字段，当前 ncc 不读取。
 - **位置**：工程根目录（`.nproj` 文件所在目录）。新建时填写；
   已保存的工程不可移动。
-- **输出目录**：最终 `.nmod` 的输出位置；留空 = 工程目录自身。
+- **输出目录**：最终 `.ncu` 的输出位置；留空 = 工程目录自身。
   ncc 消费，优先级同「配置 nide」的全局构建输出目录。
 - **中间目录**：预留字段，当前工具链（ncc）尚未消费，暂不使用。
 
@@ -49,15 +49,15 @@
 
 在仓库根目录运行；安装包用户在安装根目录运行（ncc/nvm 位于 `bin\` 下）：
 
-    ncc build examples/hello.n -o hello.nmod   # 编译
-    nvm hello.nmod                             # 运行（退出码 42）
+    ncc build examples/hello.n -o hello.ncu   # 编译
+    nvm hello.ncu                             # 运行（退出码 42）
 
-安装包内未设置 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.nmod`。
+安装包内未设置 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.ncu`。
 
 多文件项目用 `-p` 指定 .nproj，`-o` 指定输出位置：
 
-    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.nmod
-    nvm hello_project.nmod
+    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.ncu
+    nvm hello_project.ncu
 
 完整参考（全部标志、默认输出位置、ndb 调试器与 ndisasm）见
 [命令行工具](../cli-tools/overview.md)一章。

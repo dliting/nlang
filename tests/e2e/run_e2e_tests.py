@@ -5,14 +5,14 @@ Usage:
     conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
-substring]), compiles each <name>.n, runs the .nmod, and reports results.
+substring]), compiles each <name>.n, runs the .ncu, and reports results.
 For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
 the stderr of the module compile that failed).
 A <name>.stdin file next to the source is piped to the program's stdin.
 Also reads examples_manifest.txt (when present): entries resolve against
-../../examples, their .nmod and scratch artifacts live under
+../../examples, their .ncu and scratch artifacts live under
 _examples_tmp/ (their run CWD), removed at end of run.
 """
 
@@ -33,7 +33,7 @@ PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
 PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
 
 #Shipped examples (examples/) run through the same compile+run gate.
-#Entries resolve against EXAMPLES_DIR; their .nmod/stdin/scratch all
+#Entries resolve against EXAMPLES_DIR; their .ncu/stdin/scratch all
 #live under EXAMPLES_TMP so the source examples/ never gains build
 #artifacts (fs-writing examples get an isolated, pre-cleaned CWD).
 EXAMPLES_MANIFEST = os.path.join(SCRIPT_DIR, 'examples_manifest.txt')
@@ -168,7 +168,7 @@ def main():
                 continue
 
             #Directory-form (multi-module) entries only exist for the
-            #tests manifest: they compile .nmod files INTO the source
+            #tests manifest: they compile .ncu files INTO the source
             #dir, which must never happen under examples/. Multi-module
             #examples are gated by ctest (project_compile/project_run).
             if os.path.isdir(test_dir) and out_dir != SCRIPT_DIR:
@@ -183,8 +183,8 @@ def main():
             #Phase 9c cross-module: multi-file tests use a directory layout.
             #Layout: <name>/ contains order.txt (module names in compile
             #order, dependency first, main last) + per-module <module>.n
-            #sources. Runner compiles each in order, emits .nmod into the
-            #test dir, then runs the last module's .nmod.
+            #sources. Runner compiles each in order, emits .ncu into the
+            #test dir, then runs the last module's .ncu.
             if os.path.isdir(test_dir):
                 order_path = os.path.join(test_dir, 'order.txt')
                 if not os.path.isfile(order_path):
@@ -200,14 +200,14 @@ def main():
                     errors.append(f"  {name}: empty order.txt")
                     continue
 
-                #Compile each module in order. Each gets its own .nmod
+                #Compile each module in order. Each gets its own .ncu
                 #output into the test dir; -I points at the test dir so
                 #later modules can import earlier ones.
                 compile_ok = True
                 reject_stderr = ''  #diagnostics of the failed compile
                 for mod_name in modules:
                     src = os.path.join(test_dir, f"{mod_name}.n")
-                    out = os.path.join(test_dir, f"{mod_name}.nmod")
+                    out = os.path.join(test_dir, f"{mod_name}.ncu")
                     try:
                         r = subprocess.run(
                             [ncc, 'build', src, '-o', out, '-I', test_dir],
@@ -244,9 +244,9 @@ def main():
                             continue
                         print(f"PASS {name} (compile error as expected)")
                         passed += 1
-                        #Clean partial .nmod files
+                        #Clean partial .ncu files
                         for mn in modules:
-                            p = os.path.join(test_dir, f"{mn}.nmod")
+                            p = os.path.join(test_dir, f"{mn}.ncu")
                             if os.path.isfile(p):
                                 os.remove(p)
                         continue
@@ -260,13 +260,13 @@ def main():
                     failed += 1
                     errors.append(f"  {name}: expected compile_error, compiled")
                     for mn in modules:
-                        p = os.path.join(test_dir, f"{mn}.nmod")
+                        p = os.path.join(test_dir, f"{mn}.ncu")
                         if os.path.isfile(p):
                             os.remove(p)
                     continue
 
                 #Run the last module
-                main_nmod = os.path.join(test_dir, f"{modules[-1]}.nmod")
+                main_nmod = os.path.join(test_dir, f"{modules[-1]}.ncu")
                 #dbg_/dbgm_ prefixes: run under ndb instead of nvm,
                 #driving it with the <name>.stdin command script (ndb
                 #stops at the first statement, so it always needs input).
@@ -287,14 +287,14 @@ def main():
                     failed += 1
                     errors.append(f"  {name}: runtime error: {e}")
                     for mn in modules:
-                        p = os.path.join(test_dir, f"{mn}.nmod")
+                        p = os.path.join(test_dir, f"{mn}.ncu")
                         if os.path.isfile(p):
                             os.remove(p)
                     continue
 
-                #Clean up .nmod files
+                #Clean up .ncu files
                 for mn in modules:
-                    p = os.path.join(test_dir, f"{mn}.nmod")
+                    p = os.path.join(test_dir, f"{mn}.ncu")
                     if os.path.isfile(p):
                         os.remove(p)
 
@@ -335,7 +335,7 @@ def main():
                 os.makedirs(PHASE11_TMP, exist_ok=True)
 
             # Compile
-            nmod_file = os.path.join(out_dir, f"{name}.nmod")
+            nmod_file = os.path.join(out_dir, f"{name}.ncu")
             try:
                 compile_result = subprocess.run(
                     [ncc, 'build', test_file, '-o', nmod_file],
@@ -347,8 +347,8 @@ def main():
                 continue
 
             if not os.path.isfile(nmod_file):
-                # ncc may output .nmod in CWD; try looking there
-                cwd_nmod = os.path.join(os.getcwd(), f"{name}.nmod")
+                # ncc may output .ncu in CWD; try looking there
+                cwd_nmod = os.path.join(os.getcwd(), f"{name}.ncu")
                 if os.path.isfile(cwd_nmod):
                     shutil.move(cwd_nmod, nmod_file)
                 elif expected == "compile_error":

@@ -89,7 +89,7 @@ def test_tracked_tree_has_no_forbidden_text():
             continue  #stale index entry
         raw = path.read_bytes()
         if b"\0" in raw[:8192]:
-            continue  #binary (image, .ico, .nmod fixture)
+            continue  #binary (image, .ico, .ncu fixture)
         scanned += 1
         text = raw.decode("utf-8", errors="replace")
         violations = public_text.find_violations(text)

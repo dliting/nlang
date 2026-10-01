@@ -19,7 +19,7 @@ Layout of the installation root:
 Two things to note:
 
 - `C:\Program Files` is read-only for regular users, while a build
-  writes its `.nmod` next to the project files — before opening an
+  writes its `.ncu` next to the project files — before opening an
   example in nide, copy `examples\` to a writable directory.
 - The executables link the MSVC runtime dynamically and require the
   [VC++ Redistributable for Visual Studio 2015-2022](https://aka.ms/vs/17/release/vc_redist.x64.exe)

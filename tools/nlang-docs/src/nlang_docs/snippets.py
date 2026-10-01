@@ -220,7 +220,7 @@ def audit_doc(doc_path, ncc, nvm, workdir):
     Returns (problems, programs, skipped) — the human-readable problems
     (empty = clean), the audited programs and the skipped bare blocks,
     so callers can account for every fence on the page. Every program
-    gets its own scratch directory, removed afterwards; the .nmod files
+    gets its own scratch directory, removed afterwards; the .ncu files
     stay inside it, so the source tree never gains build artifacts.
     """
     blocks, problems = parse_blocks(
@@ -255,10 +255,10 @@ def _audit_program(program, ncc, nvm, scratch):
     nproj = _materialize(program, scratch)
     if nproj is not None:
         build_cmd = [ncc, "build", "-p", str(nproj),
-                     "-o", str(scratch / "out.nmod")]
+                     "-o", str(scratch / "out.ncu")]
     else:
         build_cmd = [ncc, "build", str(scratch / program.entry),
-                     "-o", str(scratch / "out.nmod")]
+                     "-o", str(scratch / "out.ncu")]
     built = _run(build_cmd)
     if built.returncode != 0:
         return ["line %d (%s): snippet failed to compile: %s"
@@ -270,7 +270,7 @@ def _audit_program(program, ncc, nvm, scratch):
         #A refused exit-code promise is a problem naming the block, not
         #an uncaught exception ending the whole audit.
         return ["line %d (%s): %s" % (program.line, program.name, err)]
-    ran = _run([nvm, str(scratch / "out.nmod")])
+    ran = _run([nvm, str(scratch / "out.ncu")])
     if ran.returncode != expected:
         return ["line %d (%s): snippet exited %s, expected %s"
                 % (program.line, program.name, ran.returncode, expected)]

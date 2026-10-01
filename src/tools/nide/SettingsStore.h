@@ -20,7 +20,7 @@ inline const QString TOOLBAR_ICON_LARGE = QStringLiteral("large");
 //The Tools > Options values. No UI: SettingsDialog edits the form,
 //this persists (QSettings org/app from main.cpp). The value surface is
 //deliberately two strings -- every derived decision (translator
-//locale, help tree, .nmod placement) lives in a pure static resolver
+//locale, help tree, .ncu placement) lives in a pure static resolver
 //so tests need no QSettings.
 class SettingsStore {
 public:
@@ -34,7 +34,7 @@ public:
     //"system" (default) | "zh" | "en".
     QString language() const { return m_language; }
     void setLanguage(const QString& language) { m_language = language; }
-    //"" = disabled: standalone .nmod files keep the per-user temp area
+    //"" = disabled: standalone .ncu files keep the per-user temp area
     //and projects fall back to the project directory.
     QString buildOutputDir() const { return m_buildOutputDir; }
     void setBuildOutputDir(const QString& dir) { m_buildOutputDir = dir; }
@@ -56,11 +56,11 @@ public:
 
     static QLocale localeForLanguage(const QString& language);
     static QString helpTreeForLanguage(const QString& language);
-    //The per-user directory standalone .nmod files land in when the
+    //The per-user directory standalone .ncu files land in when the
     //global setting is empty; the Options dialog pre-fills it as the
     //visible default.
     static QString defaultStandaloneBuildDir();
-    //One .nmod slot per source stem: in the global build output
+    //One .ncu slot per source stem: in the global build output
     //directory when set, else the per-user temp area (today's layout).
     static QString resolveStandaloneNmodPath(const QString& buildOutputDir,
                                              const QString& sourcePath);

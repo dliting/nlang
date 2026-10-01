@@ -2,7 +2,7 @@
 //brick the module. The writer degrades the over-cap container to the
 //NonSerialized placeholder (mirroring the loader's cap), so what ncc
 //writes always loads — pre-guard this exact program compiled, but its
-//own .nmod then failed with "type descriptor too deep". Same-module
+//own .ncu then failed with "type descriptor too deep". Same-module
 //call uses the true types, so the run result pins both directions.
 int deep(List<List<List<List<List<List<List<List<List<List<int>>>>>>>>>> a) {
     return 4;

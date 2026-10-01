@@ -1,6 +1,6 @@
-"""check_nmod_determinism.py -- .nmod output must be byte-reproducible.
+"""check_nmod_determinism.py -- .ncu output must be byte-reproducible.
 
-The same ncc compiling the same source must produce byte-identical .nmod
+The same ncc compiling the same source must produce byte-identical .ncu
 output on every run. Regression net for the class-field access shadowing
 bug (2026-09-25): SnClassField declared an uninitialized derived-class
 m_access member that Access() returned, and the backend serialized it
@@ -57,7 +57,7 @@ def main():
         for i in range(COMPILE_RUNS):
             out_dir = work / f"run{i}"
             out_dir.mkdir()
-            out = out_dir / "det_fixture.nmod"
+            out = out_dir / "det_fixture.ncu"
             result = subprocess.run(
                 [str(ncc), "build", str(src), "-o", str(out)],
                 capture_output=True, text=True, timeout=COMPILE_TIMEOUT)
@@ -67,10 +67,10 @@ def main():
 
     if not all(b == outputs[0] for b in outputs):
         sizes = [len(b) for b in outputs]
-        sys.exit("nmod determinism FAILED: same source and compiler "
+        sys.exit("ncu determinism FAILED: same source and compiler "
                  f"produced differing bytes across {COMPILE_RUNS} runs "
                  f"(sizes {sizes})")
-    print("nmod determinism: OK")
+    print("ncu determinism: OK")
 
 
 if __name__ == "__main__":

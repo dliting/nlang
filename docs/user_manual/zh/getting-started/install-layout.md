@@ -17,7 +17,7 @@
 
 两点注意：
 
-- `C:\Program Files` 对普通用户只读，而构建会把 `.nmod` 写在工程文件旁——
+- `C:\Program Files` 对普通用户只读，而构建会把 `.ncu` 写在工程文件旁——
   在 nide 中打开示例前，先把 `examples\` 复制到可写目录。
 - 可执行文件动态链接 MSVC 运行库，需要
   [VC++ Redistributable for Visual Studio 2015-2022](https://aka.ms/vs/17/release/vc_redist.x64.exe)

@@ -60,7 +60,7 @@ void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 }
 
 //Non-wildcard arm of ApplyImportSpec: compiled-in module, signature-only
-//library fallback, external .nmod candidate, or an unresolvable dotted path.
+//library fallback, external .ncu candidate, or an unresolvable dotted path.
 void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
 	ImportGate& gate, std::vector<std::string>& externalOut,
 	std::vector<std::string>& outErrors,
@@ -85,7 +85,7 @@ void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
 			"search path; check the configured search paths.");
 		return;
 	}
-	//External .nmod names are single-segment: record the candidate for the
+	//External .ncu names are single-segment: record the candidate for the
 	//loader and open the gate optimistically.
 	if (name.find('.') == std::string::npos)
 	{
@@ -101,7 +101,7 @@ void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
 }
 
 //BuildGate's per-spec arm: §5.1 priority (builtin → project module →
-//external .nmod), delegating the wildcard union to ApplyWildcardImport.
+//external .ncu), delegating the wildcard union to ApplyWildcardImport.
 void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 	ImportGate& gate, std::vector<std::string>& externalOut,
 	std::vector<std::string>& outErrors,

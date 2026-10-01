@@ -171,7 +171,7 @@ add_test(NAME ncc_thirdparty_run
     COMMAND ncc
         ${mylib_pkg_dir}/use_mylib.n
         -I ${mylib_pkg_dir}
-        -o ${CMAKE_BINARY_DIR}/e2e_out/use_mylib.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/use_mylib.ncu)
 set_tests_properties(ncc_thirdparty_run PROPERTIES
     PASS_REGULAR_EXPRESSION "hello, world"
     TIMEOUT 180)
@@ -182,7 +182,7 @@ set_tests_properties(ncc_thirdparty_run PROPERTIES
 add_test(NAME ncc_thirdparty_default_run
     COMMAND ncc
         ${mylib_pkg_dir}/use_mylib.n
-        -o ${CMAKE_BINARY_DIR}/e2e_out/default_run.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/default_run.ncu)
 set_tests_properties(ncc_thirdparty_default_run PROPERTIES
     PASS_REGULAR_EXPRESSION "hello, world"
     TIMEOUT 180)
@@ -200,7 +200,7 @@ add_custom_target(nlang_mylib_env_src ALL
 add_test(NAME ncc_thirdparty_env_run
     COMMAND ncc
         ${env_src_dir}/use_mylib.n
-        -o ${CMAKE_BINARY_DIR}/e2e_out/env_run.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/env_run.ncu)
 set_tests_properties(ncc_thirdparty_env_run PROPERTIES
     PASS_REGULAR_EXPRESSION "hello, world"
     ENVIRONMENT "NLANG_PATH=${mylib_pkg_dir}"
@@ -228,7 +228,7 @@ if(Python3_FOUND)
 endif()
 
 # Phase 11 stdlib unit tests: in-process compile+run of real .n sources
-# via ModuleBuilder (temp .nmod round-trip) + VmExecutor.
+# via ModuleBuilder (temp .ncu round-trip) + VmExecutor.
 add_executable(test_stdlib
     test_vm/test_stdlib.cpp
 )
@@ -318,7 +318,7 @@ target_compile_definitions(test_library_index
 )
 add_test(NAME library_index_tests COMMAND test_library_index)
 
-# ndb debugger unit tests: .nmod v1.9 sourceFile, B.1 imported locals,
+# ndb debugger unit tests: .ncu v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,
 # MachineFrontEnd.cpp and SourceCache.cpp are compiled into the test
@@ -503,7 +503,7 @@ if(NLANG_BUILD_IDE)
     # container subscript) carries the property the old shape-inference
     # predicate computed post hoc. Driven in-process through
     # ModuleBuilder; the src include dirs cover later tasks reading the
-    # built .nmod back through ModuleLoader.
+    # built .ncu back through ModuleLoader.
     add_executable(test_array_property
         test_compiler/test_array_property.cpp
     )
@@ -642,7 +642,7 @@ if(NLANG_BUILD_IDE)
     nlang_add_qtest(debug_protocol_tests test_debug_protocol)
 
     # DebugClient session tests: a real `ndb --machine` child plus a
-    # real .nmod built by real ncc (no mocks; the real-tools pattern of
+    # real .ncu built by real ncc (no mocks; the real-tools pattern of
     # test_mainwindow). The tool paths arrive as compile definitions --
     # generator expressions, so forward slashes QProcess accepts as-is.
     add_executable(test_debug_client
@@ -872,14 +872,14 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
     set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
-    # .nmod byte-reproducibility guard: the same compiler and source must
+    # .ncu byte-reproducibility guard: the same compiler and source must
     # yield identical module bytes on every run (regression net for the
     # uninitialized class-field access serialization bug).
-    add_test(NAME nmod_determinism
+    add_test(NAME ncu_determinism
         COMMAND ${PYTHON3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/check_nmod_determinism.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_ncu_determinism.py
             $<TARGET_FILE:ncc>)
-    set_tests_properties(nmod_determinism PROPERTIES TIMEOUT 180)
+    set_tests_properties(ncu_determinism PROPERTIES TIMEOUT 180)
     # Phase 4c guard: no hardcoded standard library may return to the VM
     # (signature table, math/io/fs intrinsic families, their id blocks).
     add_test(NAME no_builtin_stdlib
@@ -917,7 +917,7 @@ add_test(NAME e2e_compile
 # the build tree so the source tree stays clean).
 add_test(NAME project_compile
     COMMAND ncc build -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
-    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project.nmod)
+    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project.ncu)
 
 # CLI guardrails: a trailing option without a value and -p combined with a
 # positional source must fail with the exact diagnostic (PASS_REGULAR_
@@ -935,7 +935,7 @@ set_tests_properties(ncc_p_conflict PROPERTIES
 # clean pass means utils.n's addBoth(40, 2) really returned 42.
 add_test(NAME project_run
     COMMAND ncc -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
-    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project_run.nmod)
+    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project_run.ncu)
 
 #--- Module import visibility matrix (module import visibility Task 10) --
 #Project-mode fixtures in tests/e2e/proj_*: the e2e runner gates only
@@ -953,9 +953,9 @@ file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/e2e_out)
 add_test(NAME proj_import_visibility_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_import_visibility/proj_import_visibility.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.ncu)
 add_test(NAME proj_import_visibility_run
-    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.nmod)
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.ncu)
 set_tests_properties(proj_import_visibility_run PROPERTIES
     DEPENDS proj_import_visibility_compile
     PASS_REGULAR_EXPRESSION "3")
@@ -965,9 +965,9 @@ set_tests_properties(proj_import_visibility_run PROPERTIES
 add_test(NAME proj_same_dir_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_same_dir/proj_same_dir.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.ncu)
 add_test(NAME proj_same_dir_run
-    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.nmod)
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.ncu)
 set_tests_properties(proj_same_dir_run PROPERTIES
     DEPENDS proj_same_dir_compile
     PASS_REGULAR_EXPRESSION "7")
@@ -978,10 +978,10 @@ set_tests_properties(proj_same_dir_run PROPERTIES
 #longer exists); the output assertion (not the exit code: -func misses
 #exit 0) is what makes the spelling change loud. The trailing space
 #separates the key from a hypothetical "extra.fx". Consumes the merged
-#proj_same_dir.nmod produced above (no new fixture, no new artifact).
+#proj_same_dir.ncu produced above (no new fixture, no new artifact).
 add_test(NAME ndisasm_qualified_func_name
     COMMAND $<TARGET_FILE:ndisasm> -func extra.f
-        ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.nmod)
+        ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.ncu)
 set_tests_properties(ndisasm_qualified_func_name PROPERTIES
     DEPENDS proj_same_dir_compile
     PASS_REGULAR_EXPRESSION "function extra\\.f ")
@@ -991,7 +991,7 @@ set_tests_properties(ndisasm_qualified_func_name PROPERTIES
 add_test(NAME proj_dup_import_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_dup_import/proj_dup_import.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_dup_import.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_dup_import.ncu)
 
 #D11 executed: the wildcard's union reaches the EXACT root module
 #(utils.f, main lives in app/ so D7 cannot mask it) and the recursive
@@ -1000,9 +1000,9 @@ add_test(NAME proj_dup_import_compile
 add_test(NAME proj_wildcard_exact_union_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_wildcard_exact_union/proj_wildcard_exact_union.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.ncu)
 add_test(NAME proj_wildcard_exact_union_run
-    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.nmod)
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.ncu)
 set_tests_properties(proj_wildcard_exact_union_run PROPERTIES
     DEPENDS proj_wildcard_exact_union_compile
     PASS_REGULAR_EXPRESSION "6")
@@ -1011,7 +1011,7 @@ set_tests_properties(proj_wildcard_exact_union_run PROPERTIES
 add_test(NAME proj_not_imported_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_not_imported/proj_not_imported.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_not_imported.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_not_imported.ncu)
 set_tests_properties(proj_not_imported_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "is not imported")
 
@@ -1019,7 +1019,7 @@ set_tests_properties(proj_not_imported_compile PROPERTIES
 add_test(NAME proj_bare_cross_dir_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_bare_cross_dir/proj_bare_cross_dir.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_cross_dir.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_cross_dir.ncu)
 set_tests_properties(proj_bare_cross_dir_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "is not visible here")
 
@@ -1032,11 +1032,11 @@ add_test(NAME duplicate_package_path_compile
         -I ${PROJECT_SOURCE_DIR}/tests/e2e/duplicate_package_path/roots/r1
         -I ${PROJECT_SOURCE_DIR}/tests/e2e/duplicate_package_path/roots/r2
         -p ${PROJECT_SOURCE_DIR}/tests/e2e/duplicate_package_path/duplicate_package_path.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/duplicate_package_path.nmod)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/duplicate_package_path.ncu)
 set_tests_properties(duplicate_package_path_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "Duplicate package 'graphics'")
 
-#Getting-started FAQ pin: without -o the .nmod lands in the process CWD,
+#Getting-started FAQ pin: without -o the .ncu lands in the process CWD,
 #not beside the source (both halves asserted by the script, since ctest
 #regexes cannot check the filesystem).
 add_test(NAME ncc_no_o_output_cwd

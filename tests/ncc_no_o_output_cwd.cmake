@@ -1,6 +1,6 @@
 #FAQ fact pin (ctest entry ncc_no_o_output_cwd): `ncc build src.n` without
-#-o writes <stem>.nmod into the PROCESS CWD, not beside the source. Both
-#halves are asserted: the .nmod must appear in the scratch CWD and must
+#-o writes <stem>.ncu into the PROCESS CWD, not beside the source. Both
+#halves are asserted: the .ncu must appear in the scratch CWD and must
 #not appear next to the source. Arguments:
 #  NCC - ncc binary; SOURCE - the .n file; CWD_DIR - scratch working dir.
 cmake_minimum_required(VERSION 3.16)
@@ -10,8 +10,8 @@ if(NOT DEFINED NCC OR NOT DEFINED SOURCE OR NOT DEFINED CWD_DIR)
 endif()
 
 get_filename_component(stem "${SOURCE}" NAME_WE)
-set(cwd_nmod "${CWD_DIR}/${stem}.nmod")
-set(beside_nmod "${SOURCE}/../${stem}.nmod")
+set(cwd_nmod "${CWD_DIR}/${stem}.ncu")
+set(beside_nmod "${SOURCE}/../${stem}.ncu")
 get_filename_component(beside_nmod "${beside_nmod}" ABSOLUTE)
 
 #Pre-clean both candidate locations so a stray artifact from an earlier
@@ -30,14 +30,14 @@ endif()
 
 if(NOT EXISTS "${cwd_nmod}")
     message(FATAL_ERROR
-        "ncc without -o did not write ${stem}.nmod into the working "
+        "ncc without -o did not write ${stem}.ncu into the working "
         "directory (${CWD_DIR})")
 endif()
 
 if(EXISTS "${beside_nmod}")
     message(FATAL_ERROR
-        "ncc without -o wrote the .nmod beside the source "
+        "ncc without -o wrote the .ncu beside the source "
         "(${beside_nmod}); expected the working directory only")
 endif()
 
-message(STATUS "ncc without -o wrote ${stem}.nmod into the CWD: OK")
+message(STATUS "ncc without -o wrote ${stem}.ncu into the CWD: OK")

@@ -1,12 +1,12 @@
 /*---
-ModuleSaver.cpp — .nmod serialization (write side).
+ModuleSaver.cpp — .ncu serialization (write side).
 
 Extracted from VmBackend::SaveModule in the Phase 10 audit round-7 so the
 format has one writer shared by the compiler backend and unit tests: the
 old test_module_save_load hand-wrote a v1.0 byte layout that drifted from
 the reader and got rejected by the version floor. VmBackend::SaveModule
 now only resolves the output path and delegates here. The reader side is
-ModuleLoader.cpp — keep the two in lockstep via NMOD_FORMAT_* in
+ModuleLoader.cpp — keep the two in lockstep via NCU_FORMAT_* in
 CompiledModule.h.
 ---*/
 #include "nlang/vm/CompiledModule.h"
@@ -33,11 +33,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
     if (!fs.good()) return false;
 
     // Magic
-    const char magic[] = "NLANGMOD";
+    const char(&magic)[8] = NCU_MAGIC;
     fs.write(magic, 8);
 
     // Version (shared with ModuleLoader via CompiledModule.h — single source)
-    uint16_t majorVer = NMOD_FORMAT_MAJOR, minorVer = NMOD_FORMAT_MINOR;
+    uint16_t majorVer = NCU_FORMAT_MAJOR, minorVer = NCU_FORMAT_MINOR;
     fs.write(reinterpret_cast<const char*>(&majorVer), sizeof(majorVer));
     fs.write(reinterpret_cast<const char*>(&minorVer), sizeof(minorVer));
 

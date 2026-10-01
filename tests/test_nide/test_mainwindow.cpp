@@ -1392,15 +1392,15 @@ private slots:
         act(window, "actOpenFile")->trigger();
         act(window, "actBuild")->trigger();  // synchronous QProcess
 
-        const QString nmod = QDir(QDir::temp())
-            .filePath("nlang-nide/solo_build.nmod");
-        QVERIFY(QFileInfo::exists(nmod));
-        QFile::remove(nmod);  // scratch cleanup
+        const QString ncu = QDir(QDir::temp())
+            .filePath("nlang-nide/solo_build.ncu");
+        QVERIFY(QFileInfo::exists(ncu));
+        QFile::remove(ncu);  // scratch cleanup
     }
 
     void testBuildStandaloneHonorsBuildOutputDir() {
         //The global build output directory redirects the standalone
-        //.nmod slot (org/app are pinned to NLang/nide-test in
+        //.ncu slot (org/app are pinned to NLang/nide-test in
         //initTestCase, so this QSettings is test-local).
         QTemporaryDir outDir;
         QSettings settings;
@@ -1413,9 +1413,9 @@ private slots:
         act(window, "actOpenFile")->trigger();
         act(window, "actBuild")->trigger();  // synchronous QProcess
 
-        const QString nmod = QDir(outDir.path()).filePath("solo_out.nmod");
-        QVERIFY(QFileInfo::exists(nmod));
-        QFile::remove(nmod);
+        const QString ncu = QDir(outDir.path()).filePath("solo_out.ncu");
+        QVERIFY(QFileInfo::exists(ncu));
+        QFile::remove(ncu);
         settings.remove("ide/buildOutputDir");
     }
 
@@ -1434,11 +1434,11 @@ private slots:
         act(window, "actBuild")->trigger();
 
         //Unset .nproj outputDir falls back to the global directory.
-        const QString nmod = QDir(outDir.path()).filePath("App.nmod");
-        QVERIFY(QFileInfo::exists(nmod));
+        const QString ncu = QDir(outDir.path()).filePath("App.ncu");
+        QVERIFY(QFileInfo::exists(ncu));
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
-        QFile::remove(nmod);
+        QFile::remove(ncu);
         QFile::remove(QDir(dir.path()).filePath("App.nproj"));
         settings.remove("ide/buildOutputDir");
     }
@@ -1501,16 +1501,16 @@ private slots:
         inExec([&path] { acceptFileDialog(path); });
         act(window, "actOpenFile")->trigger();
 
-        const QString nmod =
-            QDir(QDir::temp()).filePath("nlang-nide/solo_run.nmod");
-        QFile::remove(nmod);  // force the auto-build path (D2)
+        const QString ncu =
+            QDir(QDir::temp()).filePath("nlang-nide/solo_run.ncu");
+        QFile::remove(ncu);  // force the auto-build path (D2)
         act(window, "actStartRunning")->trigger();
 
         QTextEdit* out = window.findChild<QTextEdit*>("txtExecuteOut");
         QVERIFY(out != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(
             out->toPlainText().contains("exited with code 42"), 30000);
-        QFile::remove(nmod);
+        QFile::remove(ncu);
     }
 
     void testTreeSelectedStandaloneRowWinsOverActiveEditor() {
@@ -1525,9 +1525,9 @@ private slots:
         inExec([&pathB] { acceptFileDialog(pathB); });
         act(window, "actOpenFile")->trigger();  // B is the active editor
         const QString nmodA = QDir(QDir::temp())
-            .filePath("nlang-nide/solo_sel_a.nmod");
+            .filePath("nlang-nide/solo_sel_a.ncu");
         const QString nmodB = QDir(QDir::temp())
-            .filePath("nlang-nide/solo_sel_b.nmod");
+            .filePath("nlang-nide/solo_sel_b.ncu");
 
         //Select A's row in the tree: it wins over the active editor
         //(spec 3.4: rule 2 beats rule 3).
@@ -1973,7 +1973,7 @@ private slots:
         //missing file).
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
-        const QString nmodPath = QDir(dir.path()).filePath("App.nmod");
+        const QString nmodPath = QDir(dir.path()).filePath("App.ncu");
         QVERIFY(QFileInfo::exists(nmodPath));
 
         //Run the built module: nvm propagates main's return value.
@@ -1991,7 +1991,7 @@ private slots:
     void testRunWithoutBuildWarns() {
         MainWindow window;
         QTemporaryDir dir;
-        openFixtureProject(window, dir.path());  // no .nmod on disk
+        openFixtureProject(window, dir.path());  // no .ncu on disk
 
         inExec([&] { answerMessageBox(QMessageBox::Ok); });
         act(window, "actStartRunning")->trigger();
@@ -2025,7 +2025,7 @@ private slots:
                     ->toPlainText()
                     .contains("Error"));
         QVERIFY(!QFileInfo::exists(
-            QDir(dir.path()).filePath("App.nmod")));
+            QDir(dir.path()).filePath("App.ncu")));
     }
 
     void testStopRunningKillsProcess() {
@@ -2044,7 +2044,7 @@ private slots:
             "    return 0;\n"
             "}\n");
         act(window, "actBuild")->trigger();
-        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.nmod")));
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.ncu")));
 
         //runProject's waitForStarted is synchronous: past the trigger,
         //the process is either running or was never started.
@@ -2223,7 +2223,7 @@ private slots:
         //Live session: Stop is on; Start is off until a pause makes it
         //the Continue button, and the steps need a pause too. Build/Run
         //gate off as well -- a mid-session rebuild would rewrite the
-        //.nmod the debugger is executing.
+        //.ncu the debugger is executing.
         startDebug->trigger();  // synchronous build + launch
         QVERIFY(stopDebug->isEnabled());
         QVERIFY(!startDebug->isEnabled());
@@ -3020,7 +3020,7 @@ private slots:
         act(window, "actBuild")->trigger();
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
-        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.nmod")));
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.ncu")));
 
         //Run: nvm propagates main's exit code to the output page.
         act(window, "actStartRunning")->trigger();

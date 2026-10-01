@@ -1,6 +1,6 @@
 // --- ndb debugger unit tests ---
 // In-process compile+run via the public ModuleBuilder API (see
-// test_stdlib.cpp for the harness rationale). Covers the .nmod v1.9
+// test_stdlib.cpp for the harness rationale). Covers the .ncu v1.9
 // sourceFile field, the B.1 imported-locals fix, debug hooks, the
 // read-only view, the DebugSessionController session semantics (via a
 // scripted front end), the ndb CLI adapter's output formats, and the
@@ -70,13 +70,13 @@ struct BuildOutcome
 };
 
 //Write <tag>.n with the raw source (no stdlib imports prepended —
-//debugger tests target plain programs), build <tag>.nmod.
+//debugger tests target plain programs), build <tag>.ncu.
 static BuildOutcome buildSource(const std::string& tag,
     const std::string& source)
 {
     const auto dir = scratchDir();
     const auto nPath = dir / (tag + ".n");
-    const auto modPath = dir / (tag + ".nmod");
+    const auto modPath = dir / (tag + ".ncu");
     std::filesystem::remove(modPath);
 
     {
@@ -110,7 +110,7 @@ static BuildOutcome buildSource(const std::string& tag,
 
 //Build a consumer TU from raw source with the scratch dir on the
 //import path (shared by the import-shaped tests; the imported lib must
-//already exist as a compiled .nmod — see the FindModuleFile note in
+//already exist as a compiled .ncu — see the FindModuleFile note in
 //test_v19_import_roundtrip).
 static BuildOutcome buildConsumer(const std::string& tag,
     const std::string& source)
@@ -136,11 +136,11 @@ static BuildOutcome buildConsumer(const std::string& tag,
     return outcome;
 }
 
-//加载刚构建的 <tag>.nmod。
+//加载刚构建的 <tag>.ncu。
 static CompiledModule loadBuilt(const std::string& tag)
 {
     return ModuleLoader::Load(
-        (scratchDir() / (tag + ".nmod")).string());
+        (scratchDir() / (tag + ".ncu")).string());
 }
 
 void test_v19_sourcefile_single_tu()
@@ -169,8 +169,8 @@ void test_v19_sourcefile_single_tu()
 void test_v19_import_roundtrip()
 {
     TEST(v19_import_roundtrip);
-    //The import target must exist as a compiled .nmod — ModuleBuilder's
-    //FindModuleFile searches m_ImportDirs for <name>.nmod, never a .n
+    //The import target must exist as a compiled .ncu — ModuleBuilder's
+    //FindModuleFile searches m_ImportDirs for <name>.ncu, never a .n
     //source, so build the lib module first, then the consumer.
     BuildOutcome lib = buildSource("dbgutil_lib",
         "int triple(int v) { int t = v * 3; return t; }\n");
@@ -198,7 +198,7 @@ void test_v19_loader_rejects_v1_8()
     BuildOutcome b = buildSource("oldver",
         "int main() { return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    const auto modPath = scratchDir() / "oldver.nmod";
+    const auto modPath = scratchDir() / "oldver.ncu";
 
     //Patch the minorVer field (header offset 10, little-endian u16:
     //magic[8] + major(u16) + minor(u16)) down to 8 — the loader must
@@ -211,7 +211,7 @@ void test_v19_loader_rejects_v1_8()
     CHECK(bytes.size() >= 12, "module file should have a full header");
     bytes[10] = 0x08;
     bytes[11] = 0x00;
-    const auto oldPath = scratchDir() / "oldver_v18.nmod";
+    const auto oldPath = scratchDir() / "oldver_v18.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -235,7 +235,7 @@ void test_loader_rejects_v1_9()
     BuildOutcome b = buildSource("oldver9",
         "int main() { return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    const auto modPath = scratchDir() / "oldver9.nmod";
+    const auto modPath = scratchDir() / "oldver9.ncu";
 
     //Patch the minorVer field (header offset 10, little-endian u16:
     //magic[8] + major(u16) + minor(u16)) down to 9. v1.11 is a SEMANTIC
@@ -256,7 +256,7 @@ void test_loader_rejects_v1_9()
         "fresh module should be stamped minorVer 13");
     bytes[10] = 0x09;
     bytes[11] = 0x00;
-    const auto oldPath = scratchDir() / "oldver_v19.nmod";
+    const auto oldPath = scratchDir() / "oldver_v19.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -284,7 +284,7 @@ void test_loader_rejects_v1_10()
     BuildOutcome b = buildSource("oldver10",
         "int main() { return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    const auto modPath = scratchDir() / "oldver10.nmod";
+    const auto modPath = scratchDir() / "oldver10.ncu";
 
     //Patch the minorVer field (header offset 10, little-endian u16:
     //magic[8] + major(u16) + minor(u16)) down to 10. v1.11 is a SEMANTIC
@@ -302,7 +302,7 @@ void test_loader_rejects_v1_10()
         "fresh module should be stamped minorVer 13");
     bytes[10] = 0x0A;
     bytes[11] = 0x00;
-    const auto oldPath = scratchDir() / "oldver_v110.nmod";
+    const auto oldPath = scratchDir() / "oldver_v110.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -330,7 +330,7 @@ void test_loader_rejects_v1_11()
     BuildOutcome b = buildSource("oldver11",
         "int main() { return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    const auto modPath = scratchDir() / "oldver11.nmod";
+    const auto modPath = scratchDir() / "oldver11.ncu";
 
     //Patch the minorVer field (header offset 10, little-endian u16:
     //magic[8] + major(u16) + minor(u16)) down to 11. v1.12 is a LAYOUT
@@ -350,7 +350,7 @@ void test_loader_rejects_v1_11()
         "fresh module should be stamped minorVer 13");
     bytes[10] = 0x0B;
     bytes[11] = 0x00;
-    const auto oldPath = scratchDir() / "oldver_v111.nmod";
+    const auto oldPath = scratchDir() / "oldver_v111.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -384,7 +384,7 @@ void test_loader_accepts_ceiling_and_floor()
     BuildOutcome b = buildSource("verbound",
         "int main() { return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    const auto modPath = scratchDir() / "verbound.nmod";
+    const auto modPath = scratchDir() / "verbound.ncu";
 
     std::vector<char> bytes;
     {
@@ -400,7 +400,7 @@ void test_loader_accepts_ceiling_and_floor()
     //would misparse every record after the first layout change).
     bytes[10] = 0x0E;
     bytes[11] = 0x00;
-    const auto newPath = scratchDir() / "verbound_v114.nmod";
+    const auto newPath = scratchDir() / "verbound_v114.ncu";
     {
         std::ofstream out(newPath, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -420,7 +420,7 @@ void test_loader_accepts_ceiling_and_floor()
 
     //Below the floor: a v1.12 module — misparses every keyed name.
     bytes[10] = 0x0C;
-    const auto oldPath = scratchDir() / "verbound_v112.nmod";
+    const auto oldPath = scratchDir() / "verbound_v112.ncu";
     {
         std::ofstream out(oldPath, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -462,7 +462,7 @@ void test_v19_import_gc_roots()
     //pop recycles keep's slot and assign() zeroes its data, so the
     //final read observes 0 instead of 7. With the fix, keep is marked
     //at that GC and the drain cannot touch its slot.
-    //Lib must be a compiled .nmod before the consumer can import it
+    //Lib must be a compiled .ncu before the consumer can import it
     //(same FindModuleFile contract as the roundtrip test above).
     BuildOutcome lib = buildSource("gcutil_lib",
         "int churn() {\n"
@@ -1135,7 +1135,7 @@ static std::string RunSession(const std::string& tag,
     std::ostringstream out;
     std::istringstream in(commands);
     DebugSession session(mod,
-        (scratchDir() / (tag + ".nmod")).string(), in, out);
+        (scratchDir() / (tag + ".ncu")).string(), in, out);
     DebugSessionController controller(mod, session);
     session.SetController(&controller);
     VmExecutor exec;
@@ -1825,7 +1825,7 @@ void test_controller_break_on_throw()
 void test_sourcecache_resolution()
 {
     //As-recorded path resolves; stale recorded path falls back to the
-    //.nmod's directory by basename; unresolvable degrades to empty
+    //.ncu's directory by basename; unresolvable degrades to empty
     //(and the negative result is cached).
     TEST(sourcecache_resolution);
     BuildOutcome b = buildSource("src_cache",
@@ -1837,7 +1837,7 @@ void test_sourcecache_resolution()
     int idx = mod.FindFunction("src_cache.main");
     REQUIRE(idx >= 0);
     const auto& mainf = mod.functions[static_cast<size_t>(idx)];
-    SourceCache cache((scratchDir() / "src_cache.nmod").string());
+    SourceCache cache((scratchDir() / "src_cache.ncu").string());
     const auto& lines = cache.Lines(mainf.sourceFile);
     REQUIRE(lines.size() >= 3);
     CHECK(lines[0].find("int main()") != std::string::npos,
@@ -1848,7 +1848,7 @@ void test_sourcecache_resolution()
     }
     const auto& sib = cache.Lines("D:\\gone\\away\\sibling.n");
     CHECK(sib.size() == 2 && sib[1] == "line two",
-        "stale recorded path falls back to the .nmod directory");
+        "stale recorded path falls back to the .ncu directory");
     const auto& none = cache.Lines("Z:\\no\\such\\file.n");
     CHECK(none.empty(), "unresolvable file degrades to empty");
     CHECK(&cache.Lines("Z:\\no\\such\\file.n") == &none,

@@ -323,7 +323,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 //Phase 4b: a qualified type reference "ns.Type" (or "a.b.Type") in a type
 //position. Mirrors the module-qualified CALL resolution: the namespace must
 //be imported, then the type declaration is looked up inside that compiled-in
-//unit and bound. An external .nmod exposes no source-level types in v1.
+//unit and bound. An external .ncu exposes no source-level types in v1.
 void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 {
 	if (qtype.IsResolved())
@@ -366,7 +366,7 @@ void ExprResolveAccessor::RejectUnimportedQualifiedType(
 	SnQualifiedTypeExpr &qtype, const std::string &nsPath)
 {
 	//Single-segment: "Package" for a library package, "Module" for an
-	//external .nmod; a dotted (nested) path is always a module.
+	//external .ncu; a dotted (nested) path is always a module.
 	const char *pKind = "Module";
 	if (nsPath.find('.') == std::string::npos
 		&& m_Env.IsLibraryPackage(nsPath))

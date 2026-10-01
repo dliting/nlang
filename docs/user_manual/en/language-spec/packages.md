@@ -33,7 +33,7 @@ source paths.
 
 ## Compiled modules and qualified table keys
 
-A compiled module (`.nmod`, format v1.13) stores every
+A compiled module (`.ncu`, format v1.13) stores every
 struct/class/function table key **package-qualified**: `main.main`,
 `utils.helper.help`, `alib.Point`. Ownerless built-ins keep their bare
 keys (`Object`, `List`). The qualified key is also the debugger and

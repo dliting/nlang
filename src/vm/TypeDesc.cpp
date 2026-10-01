@@ -1,5 +1,5 @@
 /*---
-TypeDesc.cpp — .nmod v1.12 type descriptors (build / serialize / parse).
+TypeDesc.cpp — .ncu v1.12 type descriptors (build / serialize / parse).
 
 One grammar shared by the writer (VmBackend captures, ModuleSaver emits)
 and the reader (ModuleLoader parses + validates). Keep AppendTypeDescBytes

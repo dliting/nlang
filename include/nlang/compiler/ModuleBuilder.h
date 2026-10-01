@@ -36,7 +36,7 @@ public:
 	bool Build();
 
 	//Compile-time module registry; populated with one entry per
-	//translation unit (and per imported .nmod) during Build().
+	//translation unit (and per imported .ncu) during Build().
 	const ModuleRegistry& Registry() const;
 
 	//Read-only view of the merged syntax-tree root (tests and tooling;
@@ -96,10 +96,10 @@ private:
 	bool ParseLibraryUnit(const std::string& path,
 		const std::string& packageRoot);
 	//Build the per-TU import gates (D1: imports are file-scoped) and
-	//collect the single-segment external .nmod candidates into
+	//collect the single-segment external .ncu candidates into
 	//rExternalNames. False after logging the gate errors.
 	bool BuildImportGates(std::vector<std::string> &rExternalNames);
-	//Load one external .nmod candidate: parse it, mint the stub nodes,
+	//Load one external .ncu candidate: parse it, mint the stub nodes,
 	//register their owners and keep the detached stubs alive. False
 	//after logging the failure.
 	bool LoadExternalModule(const std::string &name);
@@ -108,7 +108,7 @@ private:
 	//(name clashes) stay owned by the builder.
 	void RegisterExternalStubs(CompiledModuleNodeBuilder &builder,
 		uint32_t srcModIdx, const std::string &name);
-	//Find .nmod file for a module name in m_ImportDirs. Returns empty if not found.
+	//Find .ncu file for a module name in m_ImportDirs. Returns empty if not found.
 	std::string FindModuleFile(const std::string& name) const;
 	//Generated executable codes.
 	bool GenerateCodes();
@@ -178,7 +178,7 @@ private:
 	std::unique_ptr<BuildEnvironment> m_upEnv;
 	std::unique_ptr<PtrList<TranslationUnit>> m_upTransUnits;
 	//Cross-module import infrastructure (Phase 9c follow-up): compiled
-	//modules loaded from .nmod files during LoadImports. Ownership is
+	//modules loaded from .ncu files during LoadImports. Ownership is
 	//transferred to VmBackend at the start of GenerateCodes via
 	//SetImportedModules(); the backend then merges them into the user
 	//module during GenerateStatements.
@@ -195,7 +195,7 @@ private:
 	std::unordered_set<std::string> m_projectSourceFiles;
 	std::vector<CompiledModule> m_loadedImports;
 	//External function stubs whose name already existed in the root
-	//(e.g. two .nmod modules exporting the same function). They are
+	//(e.g. two .ncu modules exporting the same function). They are
 	//registered in the VmBackend side-table and their module's registry
 	//stub table, but are NOT root members — the builder owns them so
 	//both tables stay valid until the build ends.

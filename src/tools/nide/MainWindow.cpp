@@ -311,7 +311,7 @@ void MainWindow::updateMenuState() {
     m_ui->actProjectProp->setEnabled(hasProject);
     //A project OR a standalone .n target can be built. While a debug
     //session is live, Build/Run stay off: a mid-session rebuild would
-    //rewrite the very .nmod the debugger is executing (bytecode offsets
+    //rewrite the very .ncu the debugger is executing (bytecode offsets
     //shift under the session) and a Run child would interleave its
     //output on the shared run page.
     const bool hasStandaloneTarget = !currentStandaloneTarget().isEmpty();

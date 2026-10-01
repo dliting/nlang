@@ -70,7 +70,7 @@ private:
     [[noreturn]] void Quit();
 
     const CompiledModule& m_module;   //`x` disassembly + name lookup
-    std::string m_modulePath;   //.nmod location (source search base)
+    std::string m_modulePath;   //.ncu location (source search base)
     std::istream& m_in;
     std::ostream& m_out;
     DebugSessionController* m_pController = nullptr;  //set via SetController

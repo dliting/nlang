@@ -124,7 +124,7 @@ SweepStrings():
 ### 数组字段与元素追踪
 
 - **数组类型字段是声明出来的，不是推断出来的**：array 型 struct/
-  class 字段在 `.nmod` 里的 `fieldTypeKinds` 条目直接存 `RTK_Array`
+  class 字段在 `.ncu` 里的 `fieldTypeKinds` 条目直接存 `RTK_Array`
   （语义下限 v1.11）。MarkPhase 对 class/struct 字段引用采用「声明
   kind + 运行期槽位 kind」双重条件路由——`fieldTypeKinds[i] ==
   RTK_Array` 且该槽位确实持有数组记录——与既有的
@@ -135,7 +135,7 @@ SweepStrings():
   ——已在 resolve 阶段被编译器拒绝。
 - **防御性 RTK_Array 元素分支**：数组分支会追踪声明 `elemKind` 为
   `RTK_Array` 的元素（与字段分支相同的双重条件）。该分支从可编译源码
-  出发不可达（锯齿声明被拒绝）——它是未来或外部产出的 `.nmod` 路径
+  出发不可达（锯齿声明被拒绝）——它是未来或外部产出的 `.ncu` 路径
   的正确性基座。数组类型的*容器*元素（`List<int[]>`、`Dict` 的键/
   值）改由容器分支追踪：List/Dict 分支标记并压入引用 kind 的条目，
   数组元素由此进入工作列表的 `RTK_Array` 分支，按 elemKind 追踪数组自

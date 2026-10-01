@@ -2,7 +2,7 @@
 """ndb --machine native search-path end-to-end check.
 
 Builds a module importing a third-party native package, then drives a real
-`ndb --machine <nmod> -I <pkg>` session with the prelude command `run`; the
+`ndb --machine <ncu> -I <pkg>` session with the prelude command `run`; the
 program's output arrives as an `output` event. Real ncc build + real ndb run
 (no mocks). Usage:
   check_ndb_native.py <ncc> <ndb> <pkg_dir> <out_dir>
@@ -19,11 +19,11 @@ def main() -> int:
     work = tempfile.mkdtemp(prefix="ndb_native_", dir=out_dir)
     src = os.path.join(pkg, "use_mylib.n")
 
-    nmod = os.path.join(work, "dbg.nmod")
-    subprocess.run([ncc, "build", src, "-I", pkg, "-o", nmod], check=True)
+    ncu = os.path.join(work, "dbg.ncu")
+    subprocess.run([ncc, "build", src, "-I", pkg, "-o", ncu], check=True)
 
     proc = subprocess.run(
-        [ndb, "--machine", nmod, "-I", pkg],
+        [ndb, "--machine", ncu, "-I", pkg],
         input="run\nc\n", capture_output=True, text=True, timeout=120)
     out = proc.stdout + proc.stderr
     # The program self-checks before printing, then the output event carries

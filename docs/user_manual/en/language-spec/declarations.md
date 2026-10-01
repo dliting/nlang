@@ -5,7 +5,7 @@
 
 ```nlang
 import io;                 // built-in package
-import lib;                // external lib.nmod
+import lib;                // external lib.ncu
 import utils.helper;       // project file utils/helper.n
 import utils.*;            // recursive wildcard
 ```
@@ -17,7 +17,7 @@ files. Three sources share one syntax:
 | Source | Module path | Example |
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` root: directory path + file stem | `utils/helper.n` → `utils.helper`; root `main.n` → `main` |
-| External `.nmod` | file stem (single segment) | `lib.nmod` → `lib` |
+| External `.ncu` | file stem (single segment) | `lib.ncu` → `lib` |
 | Built-in package | `io` / `math` / `fs` (preset modules) | `io` |
 
 Visibility:
@@ -27,7 +27,7 @@ Visibility:
 | Same file | no | bare |
 | Same directory, other project files | no (implicit) | bare **or** qualified |
 | Cross-directory, same project | **yes** (`import utils.helper;` or `import utils.*;`) | qualified only: `utils.helper.f()` |
-| External `.nmod` | **yes** (`import lib;`) | qualified only: `lib.f()` |
+| External `.ncu` | **yes** (`import lib;`) | qualified only: `lib.f()` |
 | Built-in `io`/`math`/`fs` | **yes** (`import io;`) | qualified: `io.print` |
 
 - Bare-name resolution covers only the own file plus same-directory
@@ -38,20 +38,20 @@ Visibility:
   path space: every path starting with `utils.` is importable
   (`utils.helper`, `utils.sub.x`, ...). It only abbreviates the import
   list — calls still write the full path. Wildcards match project files
-  only; external `.nmod` names are single-segment and never match.
+  only; external `.ncu` names are single-segment and never match.
 - `import utils;` matches only the root file `utils.n`; to reach the
   `utils/` directory use the full path or a wildcard.
 - Duplicate imports are idempotent; exact + wildcard overlap takes the
   union; importing the own module path or a same-directory file is a
   harmless redundancy.
 - Resolution order for an import target: built-in → project file →
-  external `.nmod` (via `-I`). No implicit fallback.
+  external `.ncu` (via `-I`). No implicit fallback.
 - Two units resolving to the same dotted package in one build are a
   compile error naming both source paths. A project directory named
   `io`/`math`/`fs` is an ordinary directory; only one package of each
   name may exist. Dotted imports resolve library sources under the
   matched search root (`-I <root>` + `<root>/a/b/c.n` addresses
-  `import a.b.c;`); precompiled dotted packages (`.nmod`) still search
+  `import a.b.c;`); precompiled dotted packages (`.ncu`) still search
   by their single last segment until a later phase.
 
 Diagnostics (examples):
@@ -132,7 +132,7 @@ rejected).
 - **Member/method name sharing is a conflict** (`enum E { f; int f() {...} }`
   is rejected). Access modifiers follow class-method rules.
 - **Cross-module enums are not supported.** An enum type declared in an
-  imported module is not visible to the importer (the `.nmod` format
+  imported module is not visible to the importer (the `.ncu` format
   serializes enum names only, not declarations) — this is a limitation
   of the module format, not specific to methods.
 - Arrays of enums: methods cannot be called on the array itself — index

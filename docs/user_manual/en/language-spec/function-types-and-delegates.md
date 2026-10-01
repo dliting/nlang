@@ -117,7 +117,7 @@ delegate invocations are rejected.
   `List<out int>`, `new List<out int>`).
 - **Cross-module**: referencing an imported function, or passing a
   function reference **to** an imported function (parameter signatures
-  are not serialized in `.nmod`).
+  are not serialized in `.ncu`).
 - Function values as `switch` discriminants (no case family matches).
 - Function values cannot cross the serialization API — `writeStruct` /
   `writeObject` on a struct/class holding a Func field is a run-time

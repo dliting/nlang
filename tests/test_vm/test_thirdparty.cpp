@@ -52,7 +52,7 @@ constexpr const char* kMixDllName = MIXLIB_DLL_NAME;
 
 fs::path packageDir() {
     static const auto dir = fs::temp_directory_path() / "nlang_test_thirdparty";
-    //Start from a clean slate: a stale prog.nmod left by an earlier run
+    //Start from a clean slate: a stale prog.ncu left by an earlier run
     //would collide with the module name and fake a build failure.
     fs::remove_all(dir);
     fs::create_directories(dir);
@@ -133,7 +133,7 @@ int buildAndRun(const fs::path& pkg, CapturingIo& ioCapture,
     }
     const std::string moduleName = pkg.filename().string();
     CompiledModule mod = ModuleLoader::Load(
-        (pkg / (moduleName + ".nmod")).string());
+        (pkg / (moduleName + ".ncu")).string());
     VmExecutor exec;
     exec.AddNativeSearchDir(pkg.string());
     exec.SetHostIo(&ioCapture);

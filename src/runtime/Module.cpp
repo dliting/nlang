@@ -121,7 +121,7 @@ Module *ModuleManager::LoadFrom(std::istream &is)
 
 std::string ModuleManager::FindModuleFile(const std::string &sModuleName) const
 {
-	static const char *MODULE_FILE_EXT = ".nmod";
+	static const char *MODULE_FILE_EXT = ".ncu";
 	//Search the module file dir-by-dir until we find one.
 	std::string sFoundPath; //empty path
 	for (const auto &sDir : *m_upLoadPaths)

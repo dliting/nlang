@@ -188,7 +188,7 @@ Enum methods reuse the class-method call path with one convention:
   root scan walks locals by typeKind — an enum `this` typed as a class
   would be traced as a heap index and corrupt the heap.
 - Representation decision: enums stay nominal-int32 at runtime —
-  `==`, `switch`, argument passing, and `.nmod` serialization are all
+  `==`, `switch`, argument passing, and `.ncu` serialization are all
   untouched. Java-style heap-singleton enums would need a module-level
   instance-init subsystem (init function execution order + GC roots)
   and are deliberately deferred.

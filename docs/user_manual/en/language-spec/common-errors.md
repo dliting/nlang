@@ -87,7 +87,7 @@ int main() {
 Error: imported function 'g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
 ```
 
-The `.nmod` type descriptor carries only data types — an imported
+The `.ncu` type descriptor carries only data types — an imported
 function's non-constant-foldable default, and a cross-module function
 value reference (a `Func` signature is beyond the descriptor syntax),
 are both rejected on the consumer side

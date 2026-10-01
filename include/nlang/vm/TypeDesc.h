@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------------
 	nvm/intf/TypeDesc.h
-	Recursive runtime-type descriptors (.nmod v1.12) — the true formal /
+	Recursive runtime-type descriptors (.ncu v1.12) — the true formal /
 	return / field types a consumer needs to rebuild imported declarations.
 -----------------------------------------------------------------------------*/
 

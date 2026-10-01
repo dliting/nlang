@@ -162,7 +162,7 @@ private:
 	//Task 8 (spec §3.2): true when two same-name FUNCTIONS share a bare
 	//pool — same owner, the same directory, or ownerless on either side:
 	//ownerless symbols (root built-ins, runtime tables) stay visible. An
-	//external .nmod stub never shares a bare pool with a local function.
+	//external .ncu stub never shares a bare pool with a local function.
 	//Owned pairs delegate to ModuleRegistry::ShareBarePool (single
 	//authority, same-source discipline as IsBarePoolScope).
 	bool SameBarePool(const SnField &f1, const SnField &f2)

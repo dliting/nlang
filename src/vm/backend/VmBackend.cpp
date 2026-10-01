@@ -460,7 +460,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     std::string sFilePath;
     namespace bf = std::filesystem;
     const BuildParams& setting = env.Params();
-    const std::string sFileName = setting.m_sOutputModule + ".nmod";
+    const std::string sFileName = setting.m_sOutputModule + NCU_EXTENSION;
 
     bf::path modulePath;
     if (setting.m_sOutputDir.empty()) {
@@ -483,7 +483,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     }
 
     //Serialization lives in WriteCompiledModule (ModuleSaver.cpp) — the
-    //single .nmod writer, shared with unit tests so hand-written byte
+    //single .ncu writer, shared with unit tests so hand-written byte
     //layouts cannot drift from the reader (ModuleLoader).
     if (!WriteCompiledModule(fs, m_compiledModule)) {
         env.Log(CLL_Fatal, "Failed to write module: %s.", sFilePath.c_str());

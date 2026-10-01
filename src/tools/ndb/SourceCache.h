@@ -6,8 +6,8 @@
 namespace nlang {
 
 //Reads source files for the `l` command. Resolution order per file:
-//the as-recorded path from .nmod v1.9, then <module dir>/<basename>
-//(shared .nmod whose recorded path went stale). A miss degrades to an
+//the as-recorded path from .ncu v1.9, then <module dir>/<basename>
+//(shared .ncu whose recorded path went stale). A miss degrades to an
 //empty line list — `l` then shows numbers without text — and is
 //cached so a missing file is not re-read on every stop.
 class SourceCache {

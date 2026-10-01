@@ -78,7 +78,7 @@ int main() {
 ### 模块
 
 一个工程里的多个 `.n` 文件按相对路径组成模块：同目录文件天然互见，
-其他目录（或外部 `.nmod`）需要显式 `import` 并以模块路径限定调用。
+其他目录（或外部 `.ncu`）需要显式 `import` 并以模块路径限定调用。
 
 `main.n`：
 
@@ -109,8 +109,8 @@ int answer() { return 42; }
 
 工程文件把三个源文件列进 `Sources` 后构建运行：
 
-    ncc build -p modules.nproj -o modules.nmod
-    nvm modules.nmod                 # 输出 42、42，退出码 42
+    ncc build -p modules.nproj -o modules.ncu
+    nvm modules.ncu                 # 输出 42、42，退出码 42
 
 内建命名空间（`io`/`math`/`fs`）同样要先 `import` 才能调用——本页每个
 用到 `io.print` 的片段顶部的 `import io;` 就是它；漏写会得到编译错误

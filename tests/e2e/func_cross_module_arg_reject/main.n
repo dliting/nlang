@@ -1,5 +1,5 @@
 //Phase 13 Step 2: cross-module negative — apply's Func formal cannot
-//cross the .nmod type-descriptor grammar, so the compiler cannot
+//cross the .ncu type-descriptor grammar, so the compiler cannot
 //verify the signature; the argument must be rejected by name instead
 //of being silently misused as a heap index at runtime.
 import lib;

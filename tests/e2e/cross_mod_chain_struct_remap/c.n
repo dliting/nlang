@@ -1,6 +1,6 @@
 // Bottom of a three-module chain (a imports b, b imports c). Two
 // structs so S's index inside c is non-zero; the struct-typed formal
-// of sumS and the S-returning mkS serialize their .nmod v1.12 type
+// of sumS and the S-returning mkS serialize their .ncu v1.12 type
 // descriptors with c-local struct indices.
 struct Pad { int z; }
 struct S { int x; int y; }

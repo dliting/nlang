@@ -133,7 +133,7 @@ void test_module_save_load() {
     mod.functions.push_back(std::move(func));
 
     // Save via the shared writer
-    std::string tmpPath = std::filesystem::temp_directory_path().string() + "/nlang_test_mod.nmod";
+    std::string tmpPath = std::filesystem::temp_directory_path().string() + "/nlang_test_mod.ncu";
     {
         std::ofstream fs(tmpPath, std::ios::binary);
         CHECK(WriteCompiledModule(fs, mod), "WriteCompiledModule failed");

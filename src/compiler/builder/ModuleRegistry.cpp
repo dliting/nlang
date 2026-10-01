@@ -13,7 +13,7 @@ namespace nlang
 
 namespace {
 
-//Directory sentinel for external .nmod entries: no reasonable directory
+//Directory sentinel for external .ncu entries: no reasonable directory
 //name contains '$', so this never equals a TU directory.
 const char EXTERNAL_DIR_SENTINEL[] = "$external$";
 
@@ -272,7 +272,7 @@ std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 	const std::string& path, const std::string& calleeName) const
 {
 	//First path hit returns — a registered name is either a project module
-	//or an external .nmod, never both: the import gate resolves project
+	//or an external .ncu, never both: the import gate resolves project
 	//names before the external load (don't "fix" this into a full scan).
 	for (uint32_t i = 0; i < m_modules.size(); ++i)
 	{
@@ -318,7 +318,7 @@ SnField* ModuleRegistry::FindModuleType(const std::string& path,
 	const std::string& typeName) const
 {
 	//Find the registered unit for path (project or inline library).
-	//External .nmod stubs carry no source-level type declarations in v1.
+	//External .ncu stubs carry no source-level type declarations in v1.
 	for (uint32_t i = 0; i < m_modules.size(); ++i)
 	{
 		if (m_modules[i].path != path)

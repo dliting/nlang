@@ -1,5 +1,5 @@
 // cross_mod_array_widen_arg — pins the imported exact-match semantics
-// (.nmod v1.12 type descriptors). The consumer-side stub rebuilds BOTH
+// (.ncu v1.12 type descriptors). The consumer-side stub rebuilds BOTH
 // formals of `int sum2(int[] a, float b)` from the serialized recursive
 // type descriptors, so both bindings are exact: no per-binding fixup
 // runs, `b` keeps 2.5 across the call, and the exit code is 3.

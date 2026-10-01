@@ -1,4 +1,4 @@
-// Dict<string, int>-typed formal serialized through .nmod v1.12
+// Dict<string, int>-typed formal serialized through .ncu v1.12
 // recursive type descriptors (RTK_Dict with both type arguments): the
 // consumer-side stub rebuilds the real instantiation, so the dict
 // constructed in the consumer binds as an argument to the imported

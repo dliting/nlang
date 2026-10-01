@@ -235,7 +235,7 @@ public:
 	//Access control lives in the Node base's m_AccessType bitfield —
 	//read it via AccessType(). SnClassField once redeclared a private
 	//m_access that no constructor initialized, so serialized fieldAccess
-	//bytes carried heap garbage (caught by the .nmod determinism guard).
+	//bytes carried heap garbage (caught by the .ncu determinism guard).
 
 	SnField *EvalDataType() const override;
 	bool IsArrayType() const override;

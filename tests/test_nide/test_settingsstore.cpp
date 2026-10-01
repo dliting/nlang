@@ -81,33 +81,33 @@ private slots:
         //per source stem, completeBaseName semantics preserved).
         QCOMPARE(SettingsStore::resolveStandaloneNmodPath(
                      "", "D:/src/main.n"),
-                 QDir(QDir::temp()).filePath("nlang-nide/main.nmod"));
+                 QDir(QDir::temp()).filePath("nlang-nide/main.ncu"));
         QCOMPARE(SettingsStore::resolveStandaloneNmodPath(
                      "", "D:/src/a.b.n"),
-                 QDir(QDir::temp()).filePath("nlang-nide/a.b.nmod"));
+                 QDir(QDir::temp()).filePath("nlang-nide/a.b.ncu"));
         //A set directory redirects the slot there.
         QCOMPARE(SettingsStore::resolveStandaloneNmodPath(
                      "D:/dev/out", "D:/src/main.n"),
-                 QString("D:/dev/out/main.nmod"));
+                 QString("D:/dev/out/main.ncu"));
     }
 
     void testResolveProjectNmodPath() {
         //Explicit .nproj outputDir wins (absolute spelling kept).
         QCOMPARE(SettingsStore::resolveProjectNmodPath(
                      "D:/explicit", "D:/proj", "D:/global", "App"),
-                 QString("D:/explicit/App.nmod"));
+                 QString("D:/explicit/App.ncu"));
         //A relative .nproj outputDir anchors at the project dir.
         QCOMPARE(SettingsStore::resolveProjectNmodPath(
                      "out", "D:/proj", "D:/global", "App"),
-                 QString("D:/proj/out/App.nmod"));
+                 QString("D:/proj/out/App.ncu"));
         //Unset .nproj + global setting: the global directory.
         QCOMPARE(SettingsStore::resolveProjectNmodPath(
                      "", "D:/proj", "D:/global", "App"),
-                 QString("D:/global/App.nmod"));
+                 QString("D:/global/App.ncu"));
         //Everything unset: the project directory (today's behavior).
         QCOMPARE(SettingsStore::resolveProjectNmodPath(
                      "", "D:/proj", "", "App"),
-                 QString("D:/proj/App.nmod"));
+                 QString("D:/proj/App.ncu"));
     }
 
 private:

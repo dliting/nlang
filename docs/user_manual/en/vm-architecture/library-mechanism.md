@@ -66,7 +66,7 @@ units (`src/compiler/ModuleBuilderImports.cpp`,
    is already a project source is not re-inlined;
 3. register all TUs; library TUs carry an `isLibrary` flag and derive
    their package from the matched root;
-4. expand aliases, build import gates, load `.nmod` externals;
+4. expand aliases, build import gates, load `.ncu` externals;
 5. merge everything, resolve, emit.
 
 Consequences of one shared model:
@@ -87,7 +87,7 @@ Consequences of one shared model:
   the reference as `pkg.Type`; the resolver looks the declaration up in
   the compiled-in unit (`ModuleRegistry::FindModuleType`) and binds it,
   and an unimported package is diagnosed rather than silently bound. An
-  external `.nmod` exposes no source-level types, so `pkg.Type` resolves
+  external `.ncu` exposes no source-level types, so `pkg.Type` resolves
   only for inlined library sources.
 - **Deduplication** is tracked per *fully-parsed library file*, separate
   from the symbol index's already-indexed set: standard-library
@@ -177,11 +177,11 @@ argument-to-string codegen.
 
 ## 7. Decision records
 
-- **Inline the source instead of precompiling libraries to `.nmod`**
+- **Inline the source instead of precompiling libraries to `.ncu`**
   (the earlier plan's performance mitigation): inlining is what makes
   bodies readable, modifiable and recompilable, keeps one resolution
   path, and the per-build re-parse cost of a handful of `.n` files is
-  negligible until measured otherwise. `.nmod` remains the
+  negligible until measured otherwise. `.ncu` remains the
   distribute-without-source format; both forms dispatch per function,
   so mixed native/managed libraries work in either.
 - **No transitional dual path** (stdlib via signatures, third-party via
@@ -214,7 +214,7 @@ loader (3b/3c). Open items:
    check must account for inlined library `.n` files, not only the main
    source. Two candidate designs, both keeping library-discovery rules
    in the compiler alone: serialize the participating library sources
-   (paths + mtimes) into the `.nmod` (format bump, no backward
+   (paths + mtimes) into the `.ncu` (format bump, no backward
    compatibility required), or a `ncc deps` query mode that reports the
    discovered list. Plus: ndb verification of breaking into library
    source, asynchronous `runNccBuild` in nide, documentation and

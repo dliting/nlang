@@ -213,7 +213,7 @@ std::string VmExecutor::FormatDebugStructInstance(int32_t heapIdx) const {
 
 //One field/element cell by declared kind. Dual discriminators (mirror
 //MarkPhase): declared kind prunes primitives; array fields carry the
-//declaration-side RTK_Array in .nmod (array redesign B) and render via
+//declaration-side RTK_Array in .ncu (array redesign B) and render via
 //the array formatter. Only Class/Struct/Func declared kinds fall
 //through to the runtime slotKind — primitives early-return above, so
 //no int value can reach the ref-tag path.

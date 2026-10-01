@@ -137,7 +137,7 @@ O(1), with memory bounded at 2x the live set.
 
 - **Array-typed fields are declared, not inferred**: array struct/class
   fields store `RTK_Array` as their `fieldTypeKinds` entry in the
-  `.nmod` (semantic floor v1.11). MarkPhase routes class and struct
+  `.ncu` (semantic floor v1.11). MarkPhase routes class and struct
   field references with an explicit declared-kind + runtime-slot-kind
   double condition — `fieldTypeKinds[i] == RTK_Array` paired with the
   slot actually holding an array record — alongside the existing
@@ -151,7 +151,7 @@ O(1), with memory bounded at 2x the live set.
   whose declared `elemKind` is `RTK_Array` (same double condition as
   the field arms). The arm is unreachable from compilable source (jagged
   declarations are rejected) — it is the correctness base for future
-  or externally produced `.nmod` paths. Array-typed *container*
+  or externally produced `.ncu` paths. Array-typed *container*
   elements (`List<int[]>`, `Dict` keys/values) are traced by the
   container branch instead: the List/Dict arm marks and pushes
   reference-kind entries, so an array element reaches the worklist's

@@ -32,13 +32,13 @@ automatically.
 Run in the directory that holds the source (installer users use
 `bin\ncc`, `bin\nvm`):
 
-    ncc build hello.n -o hello.nmod    # compile
-    nvm hello.nmod                     # run, exit code 0
+    ncc build hello.n -o hello.ncu    # compile
+    nvm hello.ncu                     # run, exit code 0
 
-- `.nmod` is the compiled bytecode module, executed directly by nvm —
+- `.ncu` is the compiled bytecode module, executed directly by nvm —
   deployment does not need to carry the sources.
 - The process exit code is `main`'s return value: view it with
   `echo %ERRORLEVEL%` in cmd or `$LASTEXITCODE` in PowerShell.
 - `ncc hello.n` compiles and immediately executes in one step; without
-  `-o` the `.nmod` is written to the current working directory (see the
+  `-o` the `.ncu` is written to the current working directory (see the
   FAQ below).

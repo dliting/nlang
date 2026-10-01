@@ -1,6 +1,6 @@
 // --- Phase 11 stdlib unit tests ---
 // In-process compile+run via the public ModuleBuilder API: write a temp
-// .n source, build it to a temp .nmod (Build() has no in-memory module
+// .n source, build it to a temp .ncu (Build() has no in-memory module
 // accessor), load it back with ModuleLoader, execute with VmExecutor.
 // Diagnostics come from ListCompileLogger. The e2e suite remains the
 // full-pipeline gate; these tests pin resolver/diagnostic behavior that
@@ -57,7 +57,7 @@ struct BuildOutcome
 };
 
 //Compile source text; on success returns true. The module is written to
-//<tag>.nmod in the scratch dir, ready to be loaded by the caller.
+//<tag>.ncu in the scratch dir, ready to be loaded by the caller.
 //Task 7 (D6): every source gets the built-in namespace imports prepended,
 //so the tests below exercise stdlib behavior — the import gate itself is
 //covered in test_module_import.cpp.
@@ -66,7 +66,7 @@ static BuildOutcome buildSource(const std::string& tag,
 {
     const auto dir = scratchDir();
     const auto nPath = dir / (tag + ".n");
-    const auto modPath = dir / (tag + ".nmod");
+    const auto modPath = dir / (tag + ".ncu");
     std::filesystem::remove(modPath);
 
     {
@@ -110,7 +110,7 @@ static BuildOutcome buildSource(const std::string& tag,
 //build failed.
 static int runSource(const std::string& tag, const std::string& source)
 {
-    const auto modPath = scratchDir() / (tag + ".nmod");
+    const auto modPath = scratchDir() / (tag + ".ncu");
     BuildOutcome outcome = buildSource(tag, source);
     if (!outcome.ok)
         return -1;

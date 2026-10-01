@@ -81,7 +81,7 @@ bool ExprResolveAccessor::RejectUnimportedModuleCall(
 	if (modulePath.find('.') == std::string::npos)
 	{
 		//Single-segment path. A library package (io/math/fs or a
-		//third-party package) reads "Package"; an external .nmod reads
+		//third-party package) reads "Package"; an external .ncu reads
 		//"Module". No wildcard is suggested — it never matches a
 		//single-segment name (§3.3); the exact form always suffices.
 		const char *pKind = m_Env.IsLibraryPackage(modulePath)

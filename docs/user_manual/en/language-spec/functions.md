@@ -165,7 +165,7 @@ invokes the native directly with the caller's staged argument cells:
   declaring `native string` over an int native) yields garbage output,
   not a type error. Two modules declaring the same native name share one
   table entry.
-- Cross-module: a module importing a `.nmod` containing natives calls
+- Cross-module: a module importing a `.ncu` containing natives calls
   them through the same table (the native flag survives the module merge).
 - Class-member `native` methods work: dispatch reaches the native through
   the normal method path, with `this` riding at `args[0]` (the receiver's

@@ -394,7 +394,7 @@ private slots:
             dialog.findChild<QLineEdit*>("edtBuildOutputDir");
         QVERIFY(edit != nullptr);
         //Unset stays "" (disabled semantics: projects fall back to the
-        //project directory), but the box shows where standalone .nmod
+        //project directory), but the box shows where standalone .ncu
         //files land by default instead of looking empty.
         QVERIFY(edit->text().isEmpty());
         QVERIFY(dialog.buildOutputDir().isEmpty());

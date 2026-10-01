@@ -144,9 +144,9 @@ NLang 的库由 **`.n` 源文件**承载：标准库的 `math.n`/`io.n`/`fs.n`
 命令行用法：
 
 ```text
-ncc build app.n -o app.nmod -I C:\libs\mylib
-nvm app.nmod -I C:\libs\mylib
-ndb --machine app.nmod -I C:\libs\mylib
+ncc build app.n -o app.ncu -I C:\libs\mylib
+nvm app.ncu -I C:\libs\mylib
+ndb --machine app.ncu -I C:\libs\mylib
 ```
 
 项目在 `.nproj` 中用 `<ImportPaths>` 持久化搜索目录（路径相对项目

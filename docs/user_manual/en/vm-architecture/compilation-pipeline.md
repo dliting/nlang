@@ -7,7 +7,7 @@ the stages in order and explains why one of them
 (`ResolveStructClassRefs`) has to run as its own pass.
 
 ```text
-AST → VmBackend → CompiledModule (.nmod)
+AST → VmBackend → CompiledModule (.ncu)
                       ↓
               BytecodeEmitter → bytecode
               AllocLocal → LocalDescriptor[] + frame layout

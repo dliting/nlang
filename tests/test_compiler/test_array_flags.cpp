@@ -132,7 +132,7 @@ static std::string joinErrors(const MemLogger& logger)
     return all;
 }
 
-//Compile + execute (test_stdlib's runSource shape): loads the .nmod the
+//Compile + execute (test_stdlib's runSource shape): loads the .ncu the
 //build wrote and runs main, returning its value. A VM runtime error
 //propagates out — the red signal of the GC-arm tests below.
 static int runOne(const char* szBody)
@@ -142,7 +142,7 @@ static int runOne(const char* szBody)
         return -1;
     const auto modPath = std::filesystem::temp_directory_path()
         / "nlang_array_flags_tests"
-        / (out.params->m_sOutputModule + ".nmod");
+        / (out.params->m_sOutputModule + ".ncu");
     CompiledModule mod = ModuleLoader::Load(modPath.string());
     VmExecutor exec;
     return exec.Execute(mod);

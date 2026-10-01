@@ -1,12 +1,12 @@
 # nvm — Run a Module
 
-nvm runs an already-compiled `.nmod` module — no compile step. Use it
+nvm runs an already-compiled `.ncu` module — no compile step. Use it
 to execute without recompiling in deployed or automated environments,
 to run the same module repeatedly, and as the execution step in
 scripts and pipelines where the exit code decides the outcome.
 
 ```text
-nvm <module.nmod> [-I <dir>...] [--gc-stress=N]
+nvm <module.ncu> [-I <dir>...] [--gc-stress=N]
 ```
 
 Runs a compiled module; the process exit code is `main`'s return value

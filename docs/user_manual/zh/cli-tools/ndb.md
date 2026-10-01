@@ -7,7 +7,7 @@ ndb 是 NLang 的交互式调试器：加载模块后停在入口，按命令设
 调试器就构建在其上。
 
 ```text
-ndb <module.nmod> [-I <dir>...]
+ndb <module.ncu> [-I <dir>...]
 ```
 
 加载模块后**停在入口首条语句**（等价 gdb 的 `start`），给出提示符
@@ -40,9 +40,9 @@ ndb <module.nmod> [-I <dir>...]
 文件里）：
 
 ```console
-$ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.nmod
-Compiled successfully: hello_project.nmod
-$ ndb hello_project.nmod
+$ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.ncu
+Compiled successfully: hello_project.ncu
+$ ndb hello_project.ncu
 Stopped: main (main.n:6)
 (ndb) b addBoth
 Breakpoint 1 at addBoth (utils.n:2)
@@ -65,7 +65,7 @@ Program exited with code 0.
 
 ## 嵌入前端协议
 
-`ndb --machine <module.nmod> [-I <dir>...]` 在 stdin/stdout 上暴露同一会话的
+`ndb --machine <module.ncu> [-I <dir>...]` 在 stdin/stdout 上暴露同一会话的
 tab 分隔行协议，供嵌入前端使用——nide 的图形调试器就构建在它之上。
 协议细节见[在 nide 中调试](../getting-started/debugging.md)与
 [调试器架构](../vm-architecture/debugging.md)。

@@ -1,14 +1,14 @@
 # ndisasm — Disassembler
 
-ndisasm turns a `.nmod` back into a readable bytecode dump — the
+ndisasm turns a `.ncu` back into a readable bytecode dump — the
 answer to "what did the compiler actually generate?". Use it to
 cross-check instruction addresses against ndb's `x` output, review
 optimization results, and diagnose serialization or module-loading
 problems.
 
 ```text
-ndisasm <module.nmod>
-ndisasm -func <name> <module.nmod>
+ndisasm <module.ncu>
+ndisasm -func <name> <module.ncu>
 ```
 
 Two invocations: a full dump, or `-func <name>` keeping only one

@@ -392,7 +392,7 @@ void VmBackend::PushImportedFunctionPlaceholder(CompiledModule& im,
     placeholder.locals = im.functions[i].locals;
     placeholder.sourceFile = im.functions[i].sourceFile;
     //v1.12: type descriptors must survive the merge for chained
-    //re-export (a consumer saving its own .nmod re-serializes
+    //re-export (a consumer saving its own .ncu re-serializes
     //these placeholders) — remap their table indices into ours.
     placeholder.paramTypeDescs = im.functions[i].paramTypeDescs;
     placeholder.returnTypeDesc = im.functions[i].returnTypeDesc;

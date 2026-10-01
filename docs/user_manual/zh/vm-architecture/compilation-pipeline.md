@@ -5,7 +5,7 @@
 各阶段，并解释其中一趟（`ResolveStructClassRefs`）为何必须单独执行。
 
 ```text
-AST → VmBackend → CompiledModule (.nmod)
+AST → VmBackend → CompiledModule (.ncu)
                       ↓
               BytecodeEmitter → bytecode
               AllocLocal → LocalDescriptor[] + frame layout

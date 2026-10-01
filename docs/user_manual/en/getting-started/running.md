@@ -57,7 +57,7 @@ fields:
 - **Location**: the project root directory (the `.nproj` file's
   directory). Filled in when creating a project; a saved project
   cannot be moved.
-- **Output directory**: where the final `.nmod` goes; empty means
+- **Output directory**: where the final `.ncu` goes; empty means
   the project directory itself. Consumed by ncc; the precedence
   is the same as the global build output directory in "Configuring
   nide".
@@ -69,17 +69,17 @@ fields:
 Run from the repository root; installer users run from the installation
 root (ncc/nvm live under `bin\`):
 
-    ncc build examples/hello.n -o hello.nmod   # compile
-    nvm hello.nmod                             # run (exit code 42)
+    ncc build examples/hello.n -o hello.ncu   # compile
+    nvm hello.ncu                             # run (exit code 42)
 
 If PATH is not set up inside the installation, use
-`bin\ncc build ...` and `bin\nvm <name>.nmod`.
+`bin\ncc build ...` and `bin\nvm <name>.ncu`.
 
 Multi-file projects pass the .nproj with `-p` and the output location
 with `-o`:
 
-    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.nmod
-    nvm hello_project.nmod
+    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.ncu
+    nvm hello_project.ncu
 
 The complete reference (all flags, default output locations, the ndb
 debugger, and ndisasm) is in the

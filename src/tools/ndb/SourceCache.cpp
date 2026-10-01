@@ -1,5 +1,5 @@
 // --- ndb source cache (`l` command) ---
-// Resolution: as-recorded path, then next to the .nmod, then give up
+// Resolution: as-recorded path, then next to the .ncu, then give up
 // (degraded `l`: numbers without text). Negative results are cached —
 // a missing file must not be re-read on every stop.
 
@@ -28,7 +28,7 @@ const std::vector<std::string>& SourceCache::Lines(
 
     std::filesystem::path candidate(sourceFile);
     if (!std::filesystem::exists(candidate)) {
-        //Fallback: basename next to the .nmod being debugged.
+        //Fallback: basename next to the .ncu being debugged.
         std::error_code ec;
         std::filesystem::path byModule(
             std::filesystem::path(m_moduleDir)

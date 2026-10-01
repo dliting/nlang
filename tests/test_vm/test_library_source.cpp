@@ -129,7 +129,7 @@ int compileRun(const fs::path& dir, CapturingIo& cap,
     //protects its own call the same way).
     try {
         CompiledModule mod = ModuleLoader::Load(
-            (dir / (modName + ".nmod")).string());
+            (dir / (modName + ".ncu")).string());
         VmExecutor exec;
         exec.AddNativeSearchDir(dir.string());
         exec.SetHostIo(&cap);
@@ -683,7 +683,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     CapturingIo cap;
     CHECK(compileRun(dir, cap) == 0, "unique readStruct(\"S\") round-trips");
     CompiledModule mod = ModuleLoader::Load(
-        (dir / (dir.filename().string() + ".nmod")).string());
+        (dir / (dir.filename().string() + ".ncu")).string());
     bool keyed = false;
     for (const auto& s : mod.stringConstants)
         if (s == "alib.S") keyed = true;
@@ -763,7 +763,7 @@ static void TestEntryPointRoundTrip() {
     writeFiles(dir, { { "main.n", "int main() { return 7; }\n" } });
     CHECK(compileDir(dir), "single-file program builds");
     CompiledModule mod = ModuleLoader::Load(
-        (dir / (dir.filename().string() + ".nmod")).string());
+        (dir / (dir.filename().string() + ".ncu")).string());
     CHECK(mod.entryPoint >= 0, "entry point index recorded");
     CHECK(mod.entryPoint < static_cast<int32_t>(mod.functions.size()),
           "entry point index in range");
@@ -776,7 +776,7 @@ static void TestEntryPointRoundTrip() {
     writeFiles(dir2, { { "alib.n", kLibSource } });
     CHECK(compileDir(dir2, { "alib.n" }), "a library unit builds on its own");
     CompiledModule lib = ModuleLoader::Load(
-        (dir2 / (dir2.filename().string() + ".nmod")).string());
+        (dir2 / (dir2.filename().string() + ".ncu")).string());
     CHECK(lib.entryPoint == -1, "a library unit has no entry point");
 }
 
@@ -822,7 +822,7 @@ static void TestBuiltinAndUserTypeNameCoexist() {
     CHECK(compileRun(dir, cap) == 0,
           "a library Object builds and runs beside the builtin one");
     CompiledModule mod = ModuleLoader::Load(
-        (dir / (dir.filename().string() + ".nmod")).string());
+        (dir / (dir.filename().string() + ".ncu")).string());
     int nBare = 0, nLib = 0;
     for (const auto& c : mod.classes) {
         if (c.name == "Object") ++nBare;       //builtin: NO_OWNER => bare key

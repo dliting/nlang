@@ -2,8 +2,8 @@
 """nvm native search-path end-to-end check.
 
 Builds a module that imports a third-party native package, then verifies:
-  1. `nvm <nmod> -I <pkg>` finds the DLL that lives off-module.
-  2. With the DLL copied beside the module, `nvm <nmod>` (no -I) finds it
+  1. `nvm <ncu> -I <pkg>` finds the DLL that lives off-module.
+  2. With the DLL copied beside the module, `nvm <ncu>` (no -I) finds it
      via the default module-dir search.
 
 Real ncc build + real nvm run (no mocks). Usage:
@@ -26,7 +26,7 @@ def main() -> int:
     assert dll, "nlang_mylib shared library missing from package"
 
     # 1. -I: compile (package on -I), run with the DLL off-module.
-    nmod_i = os.path.join(work, "via_i.nmod")
+    nmod_i = os.path.join(work, "via_i.ncu")
     subprocess.run([ncc, "build", src, "-I", pkg, "-o", nmod_i],
                    check=True)
     run_i = subprocess.run([nvm, nmod_i, "-I", pkg],
@@ -35,7 +35,7 @@ def main() -> int:
     assert "hello, world" in run_i.stdout, run_i.stdout
 
     # 2. Default module-dir: DLL beside the module, no -I.
-    nmod_d = os.path.join(work, "via_default.nmod")
+    nmod_d = os.path.join(work, "via_default.ncu")
     subprocess.run([ncc, "build", src, "-I", pkg, "-o", nmod_d],
                    check=True)
     shutil.copy2(dll[0], work)

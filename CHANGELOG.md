@@ -21,7 +21,7 @@ All notable changes to NLang are documented here. The format follows
   compile time against the visible packages and are rewritten to the
   declaration's qualified table key; ambiguous literals are a compile
   error asking for the qualified spelling.
-- VM: `.nmod` format v1.13 — struct/class/function table keys and
+- VM: `.ncu` format v1.13 — struct/class/function table keys and
   stream type-name literals are package-qualified (ownerless built-ins
   keep bare keys), and the module record carries an entry-point index.
   The loader refuses older modules outright; recompile.
@@ -169,7 +169,7 @@ All notable changes to NLang are documented here. The format follows
   `Dict<string, int>`) converts implicitly like every other string
   target. Read positions (`get`, `containsKey`, `remove`) stay
   unchecked, as before.
-- `.nmod` format floor raised to v1.11 → v1.12: recursive type
+- `.ncu` format floor raised to v1.11 → v1.12: recursive type
   descriptors record the true formal, return and field types (nested
   arrays, `List`/`Dict` instantiations, struct/class indices; depth
   capped at 8). Imported function stubs are rebuilt with real
@@ -248,7 +248,7 @@ All notable changes to NLang are documented here. The format follows
   concatenated or interned equivalents of a stored element now match.
 - `Exception.backtrace.get(i)` no longer raises
   "unbox on null/invalid reference"; frame entries read normally.
-- Manual: FAQ ".nmod output location" answer now reflects the 0.7.0
+- Manual: FAQ ".ncu output location" answer now reflects the 0.7.0
   global build output directory; the shipped-tools table now lists all
   five tools.
 - Manual: the stack-frame layout page was rewritten to match the actual
@@ -261,7 +261,7 @@ All notable changes to NLang are documented here. The format follows
 
 - nide `Tools → Options` dialog: UI language (system / Chinese /
   English, applied on restart) and a global build output directory
-  (standalone `.nmod` files land there; projects fall back to it when
+  (standalone `.ncu` files land there; projects fall back to it when
   the `.nproj` sets no output directory).
 - The manual is now fully bilingual: the docs site builds two complete
   trees (`zh/` + `en/`) behind a language-detecting landing page with
@@ -293,7 +293,7 @@ All notable changes to NLang are documented here. The format follows
 
 ### Changed
 
-- `.nmod` format floor raised to v1.10 → v1.11: a semantic change in
+- `.ncu` format floor raised to v1.10 → v1.11: a semantic change in
   generic container element storage (raw traced handles, no primitive
   boxing); older modules are rejected as outdated and must be
   recompiled.
@@ -330,7 +330,7 @@ All notable changes to NLang are documented here. The format follows
 
 ### Changed
 
-- `.nmod` format floor raised to v1.10: array struct/class fields now
+- `.ncu` format floor raised to v1.10: array struct/class fields now
   store `RTK_Array` as their field kind (previously the element kind);
   older modules must be recompiled.
 - Streaming a struct with an array field (`bs.writeStruct`) now throws
@@ -400,14 +400,14 @@ All notable changes to NLang are documented here. The format follows
   front-end-agnostic interfaces a future DAP adapter or the IDE can
   reuse. Disassembly printing extracted into a shared `Disassembler`
   (ndisasm output byte-identical).
-- `.nmod` v1.9: each function records its source file path (cross-file
+- `.ncu` v1.9: each function records its source file path (cross-file
   breakpoint addressing). The import merge now also copies
   `func.locals`, fixing a pre-existing GC root-set hole where imported
   frames had an empty root set (live objects could be swept).
 
 ### Changed
 
-- `.nmod` format floor raised from 8 to 9: older modules are refused
+- `.ncu` format floor raised from 8 to 9: older modules are refused
   by the loader and must be recompiled.
 
 ## [0.3.0] - 2026-08-31
@@ -460,7 +460,7 @@ First public release.
 - Standard library: `math`/`io`/`fs` namespaces and built-in string
   methods.
 - Cross-file programming: explicit `import` (single, wildcard and
-  precompiled `.nmod` module forms).
+  precompiled `.ncu` module forms).
 - Documentation: a fully offline-capable documentation site and runnable
   `examples/`.
 - Windows packaging: portable zip and NSIS installer.

@@ -35,7 +35,7 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     // Magic
     char magic[8] = {};
     fs.read(magic, 8);
-    if (std::memcmp(magic, "NLANGMOD", 8) != 0)
+    if (std::memcmp(magic, NCU_MAGIC, sizeof(NCU_MAGIC)) != 0)
         throw std::runtime_error("Invalid module file format");
 
     // Version
@@ -56,14 +56,14 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     //newer module and misparse everything after the first added field
     //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
     //Every format bump must raise the ceiling alongside the floor.
-    const uint16_t kCurrentMinorVer = NMOD_FORMAT_MINOR;
+    const uint16_t kCurrentMinorVer = NCU_FORMAT_MINOR;
     //v1.13 (phase 5 qualified keys): LAYOUT bump — table keys and stream
     //type-name literals are package-qualified ("<package>.<name>",
     //ownerless built-ins stay bare) and the wire gains an int32
     //entryPoint after the module name. A v1.12 module misparses every
     //keyed name, so it is refused outright (floor/ceiling double-reject
     //unchanged).
-    if (majorVer != NMOD_FORMAT_MAJOR || minorVer < NMOD_FORMAT_MINOR)
+    if (majorVer != NCU_FORMAT_MAJOR || minorVer < NCU_FORMAT_MINOR)
         throw std::runtime_error(
             "Module version " + std::to_string(majorVer) + "."
             + std::to_string(minorVer) + " is outdated; recompile with current ncc");
@@ -82,7 +82,7 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
     fs.read(mod.name.data(), nameLen);
 
     //v1.13: entry function index. Only the ROOT module's copy is read by
-    //VmExecutor; a library .nmod carries -1, and even a non-(-1) value in
+    //VmExecutor; a library .ncu carries -1, and even a non-(-1) value in
     //an imported module is untrustworthy (function-table indices shift in
     //the merge) — Import's per-field function copy never touches it.
     fs.read(reinterpret_cast<char*>(&mod.entryPoint),
@@ -415,7 +415,7 @@ CompiledModule ModuleLoader::Load(const std::string& filePath) {
 
     //Phase 8e-9b: enum name tables. Added in module format version 1.2.
     //Older modules (minorVer < 2) lack this section — leave enumNames empty,
-    //which means OP_Enum_to_str cannot resolve; that's fine as no .nmod
+    //which means OP_Enum_to_str cannot resolve; that's fine as no .ncu
     //predating 8e-9b would emit OP_Enum_to_str.
     if (minorVer >= 2) {
         uint32_t enumCount;

@@ -160,9 +160,9 @@ the first occurrence (paths are normalized, and case-folded on Windows):
 Command-line usage:
 
 ```text
-ncc build app.n -o app.nmod -I C:\libs\mylib
-nvm app.nmod -I C:\libs\mylib
-ndb --machine app.nmod -I C:\libs\mylib
+ncc build app.n -o app.ncu -I C:\libs\mylib
+nvm app.ncu -I C:\libs\mylib
+ndb --machine app.ncu -I C:\libs\mylib
 ```
 
 A project persists its search dirs in `.nproj` under `<ImportPaths>` (paths

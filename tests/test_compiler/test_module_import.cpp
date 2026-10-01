@@ -5,7 +5,7 @@ In-process ModuleBuilder coverage of the compile-time module registry
 (module import visibility plan): per-TU module path computation
 relative to BuildParams::m_sProjectDir, the single-file stem fallback,
 the reserved path-segment gate, the per-TU import gates with their
-external .nmod stub tables, and the owner tags MergeTransUnits stamps
+external .ncu stub tables, and the owner tags MergeTransUnits stamps
 on every merged TU member (top-level and container members).
 ---*/
 #include <QtTest/QtTest>
@@ -19,7 +19,7 @@ on every merged TU member (top-level and container members).
 #include "builder/ModuleRegistry.h"
 //Execute-level coverage (review C1): qualifying a call that returns a
 //Func<...> must not be emitted as a bound method reference, so the tests
-//below load and run the built .nmod (same pattern as test_stdlib).
+//below load and run the built .ncu (same pattern as test_stdlib).
 #include <nlang/vm/CompiledModule.h>
 #include "ModuleLoader.h"
 #include "VmExecutor.h"
@@ -169,7 +169,7 @@ const SnField* findMember(
 //Directory layout (<tmp>/nlang_import_gate):
 //  libsrc/lib.n           external lib source (int add(int,int))
 //  libsrc/lib2.n          twin lib exporting the same name (opt-in)
-//  out/lib.nmod           external lib artifact (stage 1)
+//  out/lib.ncu           external lib artifact (stage 1)
 //  proj/main.n            main project (content injected)
 //  proj/utils/helper.n    cross-directory module
 //  proj/utils/sub/deep.n  recursive wildcard target
@@ -214,7 +214,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     std::error_code fsError;
     //ModuleManager is process-global and refuses a second Create of the
     //same module name, so the external libs are built once per process
-    //and later calls reuse their .nmod artifacts on disk. Only the
+    //and later calls reuse their .ncu artifacts on disk. Only the
     //project subtree is refreshed per call; a fresh process starts
     //from a clean root.
     static bool firstCall = true;
@@ -274,15 +274,15 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         return failure;
     }
 
-    //Stage 1: compile the external .nmod(s) into out/ (skip the ones an
+    //Stage 1: compile the external .ncu(s) into out/ (skip the ones an
     //earlier call of this process already produced).
     const char* libNames[] = {"lib", "lib2"};
     const int libCount = opts.withTwinLib ? 2 : 1;
     for (int i = 0; i < libCount; ++i)
     {
-        const fs::path nmod =
-            out / (std::string(libNames[i]) + ".nmod");
-        if (fs::exists(nmod))
+        const fs::path ncu =
+            out / (std::string(libNames[i]) + ".ncu");
+        if (fs::exists(ncu))
             continue;
         BuildParams libParams;
         libParams.m_SourceFiles.push_back(
@@ -376,7 +376,7 @@ std::string runFailureText(const GateRunResult& run, const char* szWhat)
         + "; runtimeError: " + run.runtimeError;
 }
 
-//buildGateProject + load the produced .nmod and run its main(): the
+//buildGateProject + load the produced .ncu and run its main(): the
 //review demanded executed (not compile-only) coverage for the qualified
 //paths, because the C1 bug compiled cleanly and only crashed at
 //runtime. VmExecutor::Execute throws on runtime errors, so the call is
@@ -390,12 +390,12 @@ GateRunResult runGateProject(const GateProjectOptions& opts)
         run.errors = res.errors;
         return run;
     }
-    const std::filesystem::path nmod =
+    const std::filesystem::path ncu =
         std::filesystem::path(res.params->m_sOutputDir)
-        / (res.params->m_sOutputModule + ".nmod");
+        / (res.params->m_sOutputModule + ".ncu");
     try
     {
-        CompiledModule mod = ModuleLoader::Load(nmod.string());
+        CompiledModule mod = ModuleLoader::Load(ncu.string());
         VmExecutor executor;
         run.exitValue = executor.Execute(mod);
         run.ok = true;
@@ -568,7 +568,7 @@ private slots:
     }
 
     //D10: a wildcard matching no project TU module path is almost
-    //certainly a typo — external .nmod names are single-segment (§3.3)
+    //certainly a typo — external .ncu names are single-segment (§3.3)
     //and never count as matches.
     void wildcardZeroMatchRejected()
     {
@@ -581,7 +581,7 @@ private slots:
             "zero-match wildcard must get the dedicated diagnostic");
     }
 
-    //D11 regression: a wildcard never reaches an external .nmod name.
+    //D11 regression: a wildcard never reaches an external .ncu name.
     //'lib' exists only as an external module, so the D11 union surface
     //(exact project module OR 'lib.'-prefixed project module) is empty
     //and the import fails loud instead of building with a closed gate.
@@ -647,7 +647,7 @@ private slots:
     }
 
     //A single-segment import that is neither builtin, project module,
-    //nor a loadable .nmod gets the spec §7 module-not-found wording.
+    //nor a loadable .ncu gets the spec §7 module-not-found wording.
     void unknownImportFails()
     {
         auto res = buildGateProject({
@@ -726,7 +726,7 @@ private slots:
     }
 
     //IsKnownModule covers both kinds of registry entries — project
-    //modules and external .nmod names — and nothing else.
+    //modules and external .ncu names — and nothing else.
     void knownModuleTruthTable()
     {
         auto res = buildGateProject({
@@ -763,7 +763,7 @@ private slots:
         QVERIFY2(found, "the imported add() stub must reach the root");
     }
 
-    //Two external .nmod modules exporting the same function name: the
+    //Two external .ncu modules exporting the same function name: the
     //second module's stub must not gain a second root entry (one 'add'
     //stays) but must still land in its own module's stub table —
     //qualified calls resolve through the stub table, never through the
@@ -1077,7 +1077,7 @@ private slots:
     //The qualified-path tests above are compile-only; the C1 review bug
     //(a module-qualified call returning Func<...> was emitted as a bound
     //method reference and crashed at runtime) compiled cleanly, so these
-    //siblings load the built .nmod and run main(). T1-T3 cover the three
+    //siblings load the built .ncu and run main(). T1-T3 cover the three
     //shapes (int return / Func return / void statement form); T4-T7 pin
     //the m12 shadowing rule and the diagnostic contracts.
 
@@ -1267,7 +1267,7 @@ private slots:
         QVERIFY2(run.exitValue == 9, "extra() must return 9");
     }
 
-    //An imported external .nmod function is foreign even when imported:
+    //An imported external .ncu function is foreign even when imported:
     //the bare pool never spans module boundaries - qualify instead.
     void bareCrossModuleRejected()
     {
@@ -1404,7 +1404,7 @@ private slots:
             "f would return 100");
     }
 
-    //A local function and an imported .nmod stub with the same name and
+    //A local function and an imported .ncu stub with the same name and
     //signature coexist. The bare call binds the LOCAL one (the stub is
     //foreign, so the Task 6 bare pool drops it - asserted by execution);
     //the qualified form compiles alongside it, never executed here.
