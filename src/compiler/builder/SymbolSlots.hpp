@@ -7,7 +7,8 @@ SymbolSlots.hpp — 跨单元引用的槽位解析（Phase 6 Task 3 核心）。
 解析槽位并把操作数重映射为全局下标。
 
 三个不变量：
-1. 同一单元内同一目标只占一个槽（按限定名去重，函数另加形参数）；
+1. 同一单元内同一目标只占一个槽（按目标去重＝限定名＋所属模块路径，
+   函数另加形参数——裸方法键跨包同名同参合法，缺模块路径会误并槽）；
 2. 自有条目永远占据 0..n-1，占位槽从 n 开始、与导入节按序对应；
 3. 合并模式（VmBackend::MERGED_MODE，单文件模式）不产生占位槽——
    own 判定与查表走 VmBackend::IsOwnUnit 的既有路径。
@@ -40,7 +41,8 @@ inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	for (uint32_t i = ownCount; i < mod.functions.size(); ++i)
 	{
 		if (mod.functions[i].name == name
-			&& mod.functions[i].paramCount == paramCount)
+			&& mod.functions[i].paramCount == paramCount
+			&& mod.functionImports[i - ownCount].modulePath == modulePath)
 			return i;
 	}
 	CompiledFunction placeholder;

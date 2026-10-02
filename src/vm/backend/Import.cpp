@@ -187,18 +187,23 @@ void VmBackend::RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm
                 PatchU16Operand(bc, pos + 1, pm.stringMap);
                 break;
             case OpCode::OP_New:
+                // dst, classIdx — the table operand is the SECOND uint16
+                PatchU16Operand(bc, pos + 3, pm.classMap);
+                break;
             case OpCode::OP_CheckCast:
                 PatchU16Operand(bc, pos + 1, pm.classMap);
                 break;
             case OpCode::OP_AllocStruct:
-                PatchU16Operand(bc, pos + 1, pm.structMap);
+                // dst, structIdx, fieldCount — table operand is the SECOND
+                PatchU16Operand(bc, pos + 3, pm.structMap);
                 break;
             case OpCode::OP_CopyStruct:
                 // dst, src, structIdx — third operand
                 PatchU16Operand(bc, pos + 5, pm.structMap);
                 break;
             case OpCode::OP_AllocArray:
-                PatchU16Operand(bc, pos + 1, pm.arrayTypeMap);
+                // dst, arrayTypeIdx, sizeSlot — table operand is the SECOND
+                PatchU16Operand(bc, pos + 3, pm.arrayTypeMap);
                 break;
             case OpCode::OP_Enum_to_str:
                 PatchU16Operand(bc, pos + 1, pm.enumMap);

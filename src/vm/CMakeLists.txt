@@ -50,6 +50,8 @@ add_library(nlang_vm
     ModuleLoaderRecords.cpp
     ModuleSaver.cpp
     NcuPackage.cpp
+    NcuLinker.cpp
+    NcuLinkerRemap.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp
 )

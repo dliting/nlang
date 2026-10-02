@@ -17,6 +17,29 @@ target_link_libraries(test_vm
 
 add_test(NAME vm_tests COMMAND test_vm)
 
+# nlink unit tests: synthetic per-unit module images drive the load-time
+# linker (peer merge, slot resolution, operand remap) — no codegen, no I/O.
+# The src/compiler dir covers builder/SymbolSlots.hpp, the producer side of
+# the placeholder-slot contract (header-only; no nlang_compiler symbols).
+add_executable(test_nculinker
+    test_vm/test_nculinker.cpp
+)
+target_include_directories(test_nculinker
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+        #ModuleRegistry.h includes public compiler headers by bare name
+        #(same export nlang_compiler itself uses).
+        ${PROJECT_SOURCE_DIR}/include/nlang/compiler
+)
+target_link_libraries(test_nculinker
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+add_test(NAME nculinker_tests COMMAND test_nculinker)
+
 # NativeHost ABI unit tests: mock host verifies the C ABI function table and
 # the header-only C++ wrappers. No VM/shared library needed.
 add_executable(test_native_abi
