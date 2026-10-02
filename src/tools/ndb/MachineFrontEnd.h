@@ -2,9 +2,9 @@
 MachineFrontEnd.h — ndb --machine: line-protocol front end for IDE
 embedding. The debuggee runs in this process; the IDE drives it over
 stdin/stdout, one line per event (out) and command (in). The same object
-implements IHostIo: program output becomes output events, and io.readLine
-stays refused (the base-interface default) because stdin is the protocol
-channel.
+implements IHostIo: program output becomes output events, and the
+program's io.readLine is fed from stdin data commands (see below) — the
+protocol channel doubles as the program's input channel.
 Events (front end -> IDE) are tab-joined lines and every field is
 protocol::EncodeField'd, so data tabs/newlines never break the framing —
 a raw tab in the wire is always a field separator:
@@ -29,6 +29,13 @@ locals, run (prelude only), c/s/n/f. Non-resume commands answer in place
 (bp receipt, done <req> or err); a resume command answers with the next
 event (the following stop or exit). `run` ends the prelude started by
 PumpUntilRun; before it, window-bound commands err (no frozen window).
+stdin\t<payload> is a DATA command, not a control command: <payload> is
+one EncodeField'd program-input line, and the line is recognized on the
+RAW wire text (before trimming) so payload leading/trailing spaces
+survive. It is accepted at every read site — queued as type-ahead in
+the prelude, queued without breaking a frozen stop, and consumed live
+while the program is parked in io.readLine — and never answers (the
+program's next readLine is the response).
 Response-shape grammar: query commands stream their data events followed
 by done (bt -> frame* + done; locals -> local* + done); breakpoint-set
 commands answer with their bp receipt, and the remaining selection and
@@ -39,6 +46,7 @@ from `frame <n>` would duplicate stack rows on every selection).
 #pragma once
 #include "DebugSessionController.h"
 #include "IHostIo.h"
+#include <deque>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -138,10 +146,10 @@ public:
     void OnRuntimeError(const std::string& report) override;
     void WaitUntilResume() override;
 
-    //IHostIo — program output becomes output events. IsInputAvailable
-    //is not overridden: stdin is the protocol channel, so io.readLine
-    //is refused.
+    //IHostIo — program output becomes output events; ReadInputLine is
+    //io.readLine's input channel, fed from stdin data commands.
     void OnOutput(std::string_view text) override;
+    bool ReadInputLine(std::string& line) override;
 
 private:
     //Command dispatch; returns true when the current pump ends (`run`
@@ -170,6 +178,10 @@ private:
     DebugSessionController* m_pController = nullptr;  //set via SetController
     bool m_started = false;   //run issued: the frozen window governs now
     size_t m_selectedFrame = 0;   //frame <n> selection for locals
+    //Program input lines from stdin data commands, in arrival order.
+    //Type-ahead (prelude / frozen stop) parks here until the program
+    //reads; ReadInputLine pops from the front.
+    std::deque<std::string> m_inputQueue;
 };
 
 } // namespace nlang

@@ -75,7 +75,13 @@ tab-joined lines with escaped fields
 (`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/`exited`/
 `error`/`err`), commands are plain space-separated tokens
 (`b`/`bfunc`/`d`/`breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/
-`n`/`f`). The session opens with a prelude in which breakpoints are
+`n`/`f`). One data command rides the same channel: `stdin<TAB><payload>`
+(payload escaped like any field) delivers one program input line —
+recognized on the raw wire text so payload spaces survive, accepted at
+every read site (queued as type-ahead before `run`, queued without
+breaking a frozen stop, consumed live while the program is parked in
+`io.readLine`), and never answers; the program's next read is the
+response. The session opens with a prelude in which breakpoints are
 preset; `run` ends the prelude and starts execution — before it,
 window-bound commands answer `err` (nothing is frozen yet). A resume
 command answers with the next stop or exit event; other commands answer
@@ -93,14 +99,15 @@ equals the frame count (a stop freezes the innermost frame), while
 
 `IHostIo` (src/vm/IHostIo.h) decouples the executor's I/O from the
 process console: output bytes arrive verbatim through `OnOutput`, and
-input is opt-in — an installed host that does not override
-`IsInputAvailable()` makes `io.readLine` raise a catchable IOException
-instead of silently consuming the embedder's stream. Machine mode
-implements the seam to route program output into `output` events while
-keeping stdin as the protocol channel; with no host installed (nvm,
-ncc, the CLI front ends) behavior is unchanged. `OnOutput` must not
-throw: it runs on the execution thread, inside the same freeze-time
-discipline as the hooks.
+input is opt-in — `ReadInputLine` supplies whole program-input lines
+while the program is parked in `io.readLine` (blocking is allowed); a
+host that does not override it answers no-input, which makes readLine
+raise a catchable IOException instead of silently consuming the
+embedder's stream. Machine mode implements the seam to route program
+output into `output` events and to feed `readLine` from `stdin` data
+commands; with no host installed (nvm, ncc, the CLI front ends)
+behavior is unchanged. Both callbacks must not throw: they run on the
+execution thread, inside the same freeze-time discipline as the hooks.
 
 ## Freeze-time discipline
 

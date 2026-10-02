@@ -1,0 +1,10 @@
+//e2e dbgm_stdin_roundtrip: a stdin data command reaches io.readLine in
+//machine mode — the payload is queued as type-ahead before `run` and
+//consumed when the program reads.
+import io;
+int main() {
+    io.write("Name: ");
+    string n = io.readLine();
+    io.print("Hi " + n);
+    return 0;
+}

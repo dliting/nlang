@@ -2144,7 +2144,7 @@ void test_session_catch_throw()
 
 // --- Machine-mode debugging: host I/O seam ---
 
-//Captures what io.print emits. IsInputAvailable() keeps the interface
+//Captures what io.print emits. ReadInputLine keeps the interface
 //default (false): output-capable only.
 class CapturingHostIo : public IHostIo
 {
@@ -2353,6 +2353,119 @@ void test_machine_bfunc_and_output()
         "the bfunc breakpoint hits inside helper (depth is 1-based: "
         "2 frames total)");
     CHECK(wire.find("exited\t7\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
+//stdin data commands reach the program's io.readLine from all three
+//read sites: queued as type-ahead in the prelude (before run), queued
+//without breaking a frozen stop, and pumped live while the program is
+//parked in readLine. Payload recognition is on the RAW wire line —
+//leading/trailing spaces survive (only framing tabs separate fields),
+//and an escaped tab decodes into the payload. EOF paths are NOT driven
+//here: EOF quits the whole session by contract, so dbg_quit_eof-style
+//coverage must run in a subprocess (e2e).
+void test_machine_stdin_roundtrip()
+{
+    TEST(machine_stdin_roundtrip);
+    BuildOutcome b = buildSource("mach_stdin",
+        "import io;\n"                          //1
+        "\n"                                    //2
+        "int main() {\n"                        //3
+        "    io.write(\"a\");\n"                //4
+        "    string x = io.readLine();\n"       //5
+        "    io.write(\"b\");\n"                //6
+        "    string y = io.readLine();\n"       //7
+        "    string z = io.readLine();\n"       //8
+        "    io.print(\"[\" + x + \"|\" + y + \"|\" + z + \"]\");\n" //9
+        "    return 0;\n"                       //10
+        "}\n");                                 //11
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("mach_stdin");
+    std::ostringstream events;
+    std::istringstream in(
+        "stdin\t  padded \n"   //type-ahead in the prelude; spaces verbatim
+        "run\n"                //initial stop at main's first statement
+        "stdin\tin\\tband\n"   //frozen-window arrival: queued, stop holds
+        "c\n"                  //resume: readLine #1/#2 pop the two queued
+        "stdin\tlive\n");      //readLine #3: queue dry, pumped live
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);
+    front.PumpUntilRun();
+    //Embedder contract (RunMachine): an uncaught NLang throw escapes
+    //Execute — the embedder reports it as an error event and yields 1.
+    int code = 1;
+    try {
+        code = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        front.OnRuntimeError(e.what());
+    }
+    front.OnExited(code);
+
+    const std::string wire = events.str();
+    CHECK(wire.find("stopped\tinitial") != std::string::npos,
+        "the initial stop still freezes (stdin did not break it)");
+    CHECK(wire.find("unknown command 'stdin'") == std::string::npos,
+        "stdin lines are data commands, never unknown-command errs");
+    CHECK(wire.find("output\ta\n") != std::string::npos,
+        "io.write prompt streams as one output event");
+    CHECK(wire.find("output\t[  padded |in\\tband|live]\n")
+            != std::string::npos,
+        "all three readLine results arrive verbatim (spaces kept, tab "
+        "decoded)");
+    CHECK(wire.find("exited\t0\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
+//A non-stdin command seen while the program is parked in readLine is
+//dispatched live (the machine is running, so window-bound commands err)
+//without losing the input line that follows it.
+void test_machine_stdin_dispatch_while_parked()
+{
+    TEST(machine_stdin_dispatch_while_parked);
+    BuildOutcome b = buildSource("mach_stdin_disp",
+        "import io;\n"                          //1
+        "\n"                                    //2
+        "int main() {\n"                        //3
+        "    string s = io.readLine();\n"       //4
+        "    io.print(\"got \" + s);\n"         //5
+        "    return 0;\n"                       //6
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("mach_stdin_disp");
+    std::ostringstream events;
+    std::istringstream in(
+        "run\n"         //initial stop
+        "c\n"           //resume; the program parks in readLine
+        "locals\n"      //dispatched while parked: running, so View errs
+        "stdin\tok\n"); //the input line, still delivered after the err
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);
+    front.PumpUntilRun();
+    //Same embedder contract as the roundtrip test above.
+    int code = 1;
+    try {
+        code = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        front.OnRuntimeError(e.what());
+    }
+    front.OnExited(code);
+
+    const std::string wire = events.str();
+    CHECK(wire.find("err\tView outside the frozen window") != std::string::npos,
+        "window-bound commands dispatched mid-read err, not hang");
+    CHECK(wire.find("output\tgot ok\n") != std::string::npos,
+        "the stdin line after the dispatched command still arrives");
+    CHECK(wire.find("exited\t0\n") != std::string::npos,
         "session ends with the program's exit code");
     PASS();
 }
@@ -2634,6 +2747,8 @@ int main()
     test_protocol_escape_roundtrip();
     test_machine_session_roundtrip();
     test_machine_bfunc_and_output();
+    test_machine_stdin_roundtrip();
+    test_machine_stdin_dispatch_while_parked();
     test_machine_frame_and_discipline();
     test_machine_method_locals_show_this();
 

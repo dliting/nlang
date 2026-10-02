@@ -98,19 +98,25 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
     }
     case INTR_Io_ReadLine:
     {
-        //An installed host without input must fail loudly: in machine
-        //mode the subprocess stdin is the protocol channel, and a silent
-        //getline would consume protocol bytes. No host at all keeps the
-        //console getline behavior (nvm / CLI ndb).
-        if (m_pHostIo && !m_pHostIo->IsInputAvailable())
-            RaiseNlangException(m_ioExcClassIdx,
-                "io.readLine: stdin is not available in this session.");
+        //An installed host IS the input channel: it supplies whole lines
+        //(blocking allowed — the program is parked here) and a host with
+        //no input returns false, so readLine fails loudly instead of
+        //silently consuming the embedder's stream. No host at all keeps
+        //the console getline behavior (nvm / CLI ndb).
         std::string line;
-        //getline fails (and leaves line empty) at EOF with no chars read,
-        //so an empty final line and EOF are indistinguishable — documented
-        //semantics rather than a defect.
-        if (!std::getline(std::cin, line))
+        if (m_pHostIo) {
+            if (!m_pHostIo->ReadInputLine(line))
+                RaiseNlangException(m_ioExcClassIdx,
+                    "io.readLine: stdin is not available in this session.");
+        }
+        else if (!std::getline(std::cin, line)) {
+            //getline fails (and leaves line empty) at EOF with no chars
+            //read, so an empty final line and EOF are indistinguishable —
+            //documented semantics rather than a defect.
             line.clear();
+        }
+        //Strip a trailing '\r' from either source: console CRLF framing
+        //and a host that passes "\r\n"-shaped lines both normalize here.
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
         int32_t handle = MintNewString(std::move(line));

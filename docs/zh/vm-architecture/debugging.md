@@ -60,7 +60,12 @@ WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
 整文档见 src/tools/ndb/MachineFrontEnd.h）：事件是以制表符连接、字段
 转义的行（`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/
 `exited`/`error`/`err`），命令是空格分隔的裸记号（`b`/`bfunc`/`d`/
-`breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/`n`/`f`）。会话以
+`breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/`n`/`f`）。一条数据
+命令走同一通道：`stdin<TAB><payload>`（payload 与任何字段同样转义）
+送达一行程序输入——识别发生在原始线路文本上，因此 payload 的首尾
+空格得以保留；它在所有读取位置都被接受（`run` 之前作为提前输入排
+队、冻结停止期间排队而不打断停止、程序停在 `io.readLine` 时被实时
+消费），且从不应答；程序的下一次读取就是应答。会话以
 一段前奏开场，断点在此时预置；`run` 结束前奏并开始执行——在此之前，
 窗口绑定命令一律应答 `err`（还没有任何东西被冻结）。恢复命令应答下
 一次停止或退出事件；其余命令原地应答。应答形状遵循同一文法：查询
@@ -75,12 +80,13 @@ WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
 ## 宿主 I/O 接缝
 
 `IHostIo`（src/vm/IHostIo.h）把执行器的 I/O 与进程控制台解耦：输出
-字节经 `OnOutput` 原样送出；输入是可选的——已安装的宿主若不覆写
-`IsInputAvailable()`，`io.readLine` 会抛出可捕获的 IOException，而
-不是静默消费嵌入方的流。机器模式实现这条接缝，把程序输出导进
-`output` 事件、把 stdin 留作协议通道；没有安装宿主时（nvm、ncc、
-CLI 前端）行为不变。`OnOutput` 不得抛错：它跑在执行线程上，受与钩子
-相同的冻结期纪律约束。
+字节经 `OnOutput` 原样送出；输入是可选的——程序停在 `io.readLine`
+时由 `ReadInputLine` 逐行供给（允许阻塞）；已安装的宿主若不覆写
+它，就回答「无输入」，`io.readLine` 会抛出可捕获的 IOException，
+而不是静默消费嵌入方的流。机器模式实现这条接缝，把程序输出导进
+`output` 事件、用 `stdin` 数据命令供给 `readLine`；没有安装宿主时
+（nvm、ncc、CLI 前端）行为不变。两个回调都不得抛错：它们跑在执行
+线程上，受与钩子相同的冻结期纪律约束。
 
 ## 冻结期纪律
 

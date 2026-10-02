@@ -30,6 +30,26 @@ bool IsAllDigits(const std::string& s) {
         && s.find_first_not_of("0123456789") == std::string::npos;
 }
 
+//Strip one trailing '\r' left by CRLF framing. A real payload CR is
+//always \\r-escaped on the wire (EncodeField), so a RAW trailing CR can
+//only be framing noise — safe to drop before any recognition.
+void StripTrailingCr(std::string& line) {
+    if (!line.empty() && line.back() == '\r')
+        line.pop_back();
+}
+
+//Recognize a stdin data command on the RAW wire line — BEFORE Trim,
+//because the payload keeps its leading/trailing spaces and tabs (only
+//the framing tab after the keyword is structural). Fills the decoded
+//payload and returns true when the line was one; the caller queues it.
+bool ExtractStdinCommand(const std::string& raw, std::string& payload) {
+    constexpr char kPrefix[] = "stdin\t";
+    if (raw.rfind(kPrefix, 0) != 0)
+        return false;
+    payload = protocol::DecodeField(raw.substr(sizeof(kPrefix) - 1));
+    return true;
+}
+
 const char* ReasonName(StopInfo::Reason reason) {
     switch (reason) {
     case StopInfo::Reason::Breakpoint: return "breakpoint";
@@ -55,6 +75,14 @@ void MachineFrontEnd::PumpUntilRun()
         std::string line;
         if (!std::getline(m_in, line))
             QuitSession();   //EOF before run: nothing to report
+        StripTrailingCr(line);
+        std::string payload;
+        if (ExtractStdinCommand(line, payload)) {
+            //Type-ahead: program input arriving before `run` parks in
+            //the queue until the program reads.
+            m_inputQueue.push_back(std::move(payload));
+            continue;
+        }
         line = Trim(line);
         if (line.empty()) continue;
         if (Dispatch(line)) {
@@ -70,6 +98,14 @@ void MachineFrontEnd::WaitUntilResume()
         std::string line;
         if (!std::getline(m_in, line))
             QuitSession();   //EOF behaves like the CLI's q
+        StripTrailingCr(line);
+        std::string payload;
+        if (ExtractStdinCommand(line, payload)) {
+            //Program input while frozen: queue it WITHOUT dispatching —
+            //stdin is data, so it must not break the stop.
+            m_inputQueue.push_back(std::move(payload));
+            continue;
+        }
         line = Trim(line);
         if (line.empty()) continue;
         //Contract: this loop only returns after a resume command went
@@ -241,6 +277,37 @@ void MachineFrontEnd::OnRuntimeError(const std::string& report)
 void MachineFrontEnd::OnOutput(std::string_view text)
 {
     EmitLine(protocol::MakeEvent("output", {std::string(text)}));
+}
+
+bool MachineFrontEnd::ReadInputLine(std::string& line)
+{
+    //io.readLine's input channel. The queue drains first (type-ahead);
+    //when it runs dry the program is parked HERE, so pump the command
+    //channel until more input arrives. Non-stdin lines seen mid-pump
+    //dispatch normally — the machine is running, so window-bound
+    //commands err (live feedback beats silently buffering them) — and
+    //EOF ends the session like everywhere else: the channel is the
+    //session's lifeline.
+    for (;;) {
+        if (!m_inputQueue.empty()) {
+            line = std::move(m_inputQueue.front());
+            m_inputQueue.pop_front();
+            return true;
+        }
+        std::string raw;
+        if (!std::getline(m_in, raw))
+            QuitSession();   //EOF mid-read: deliberate session end
+        StripTrailingCr(raw);
+        std::string payload;
+        if (ExtractStdinCommand(raw, payload)) {
+            m_inputQueue.push_back(std::move(payload));
+            continue;
+        }
+        const std::string command = Trim(raw);
+        if (command.empty())
+            continue;   //blank line: same silent skip as the other pumps
+        Dispatch(command);
+    }
 }
 
 // --- emission ---
