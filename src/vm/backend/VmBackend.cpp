@@ -489,7 +489,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     //Serialization lives in WriteCompiledModule (ModuleSaver.cpp) — the
     //single .ncu writer, shared with unit tests so hand-written byte
     //layouts cannot drift from the reader (ModuleLoader).
-    if (!WriteCompiledModule(fs, m_compiledModule)) {
+    if (!WriteCompiledModule(fs, m_compiledModule, m_entryKey)) {
         env.Log(CLL_Fatal, "Failed to write module: %s.", sFilePath.c_str());
         return false;
     }

@@ -29,8 +29,16 @@ static void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
         fs.write(reinterpret_cast<const char*>(bytes.data()), len);
 }
 
-bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
+bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
+                         const std::string& entryKey) {
     if (!fs.good()) return false;
+    //enumNames/enumKeys stay parallel by construction (RegisterEnums,
+    //Import's merge push, EnumSymbolSlot, ModuleLoader). The writer is
+    //the single chokepoint to refuse a diverging module: the reader
+    //consumes exactly enumCount keys, so a mismatch would desync every
+    //later section into a misleading "bad import count" failure.
+    if (mod.enumKeys.size() != mod.enumNames.size())
+        return false;
 
     // Magic
     const char(&magic)[8] = NCU_MAGIC;
@@ -53,9 +61,19 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
     fs.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
     fs.write(mod.name.c_str(), nameLen);
 
-    // v1.13: entry function index (-1 when the module exports none).
-    fs.write(reinterpret_cast<const char*>(&mod.entryPoint),
-             sizeof(mod.entryPoint));
+    // v2.0: the entry function's qualified key (empty = no entry). The
+    // loader re-resolves the index by name — table-layout-dependent
+    // indices are not serializable.
+    uint16_t entryKeyLen = static_cast<uint16_t>(entryKey.size());
+    fs.write(reinterpret_cast<const char*>(&entryKeyLen),
+             sizeof(entryKeyLen));
+    fs.write(entryKey.c_str(), entryKeyLen);
+
+    // v2.0 phase 6: cross-unit import slots are appended after ALL own
+    // sections (see the reader for the layout). Own entries occupy table
+    // indices 0..n-1; slots n..n+m are placeholders resolved by nlink at
+    // load time. entryPoint is NOT serialized — the entry is the .npkg
+    // header's record, or <modulePath>.main for a bare unit.
 
     // String constants
     uint32_t strCount = static_cast<uint32_t>(mod.stringConstants.size());
@@ -316,6 +334,43 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod) {
             fs.write(n.c_str(), len);
         }
     }
+
+    //v2.0 phase 6: enum qualified keys, parallel to enumNames (enumCount
+    //entries, no separate count — the two vectors are kept in lockstep by
+    //their construction sites: RegisterEnums, Import's placeholder push,
+    //and EnumSymbolSlot's placeholder push).
+    for (auto& key : mod.enumKeys) {
+        uint16_t len = static_cast<uint16_t>(key.size());
+        fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
+        fs.write(key.c_str(), len);
+    }
+
+    //v2.0 phase 6: cross-unit import slots, one section per table, in
+    //slot order (own entries occupy 0..n-1, imports n..n+m). Per entry:
+    //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount.
+    auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>& imports)
+    {
+        uint32_t count = static_cast<uint32_t>(imports.size());
+        fs.write(reinterpret_cast<const char*>(&count), sizeof(count));
+        for (const auto& imp : imports)
+        {
+            uint16_t modulePathLen =
+                static_cast<uint16_t>(imp.modulePath.size());
+            fs.write(reinterpret_cast<const char*>(&modulePathLen),
+                     sizeof(modulePathLen));
+            fs.write(imp.modulePath.c_str(), modulePathLen);
+            uint16_t nameLen = static_cast<uint16_t>(imp.name.size());
+            fs.write(reinterpret_cast<const char*>(&nameLen),
+                     sizeof(nameLen));
+            fs.write(imp.name.c_str(), nameLen);
+            fs.write(reinterpret_cast<const char*>(&imp.paramCount),
+                     sizeof(imp.paramCount));
+        }
+    };
+    writeImports(mod.functionImports);
+    writeImports(mod.classImports);
+    writeImports(mod.structImports);
+    writeImports(mod.enumImports);
 
     return fs.good();
 }

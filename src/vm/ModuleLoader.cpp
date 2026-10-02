@@ -1,30 +1,11 @@
 #include "ModuleLoader.h"
+#include "ModuleLoaderRecords.h"
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <cstring>
-#include <vector>
 
 namespace nlang {
-
-//v1.12: read one length-prefixed type descriptor (u16 len + wire bytes).
-//len==0 means "no descriptor" — the caller keeps the NonSerialized
-//default. Throws on a bad length or a malformed wire form.
-static TypeDesc ReadTypeDesc(std::istream& fs)
-{
-    uint16_t len = 0;
-    fs.read(reinterpret_cast<char*>(&len), sizeof(len));
-    if (!fs.good() || len > kMaxTypeDescBytes)
-        throw std::runtime_error("Invalid module: bad type descriptor length");
-    if (len == 0)
-        return TypeDesc{};
-    std::vector<uint8_t> bytes(len);
-    fs.read(reinterpret_cast<char*>(bytes.data()), len);
-    if (!fs.good())
-        throw std::runtime_error(
-            "Invalid module: truncated type descriptor");
-    return ParseTypeDescBytes(bytes.data(), bytes.size());
-}
 
 CompiledModule ModuleLoader::Load(const std::string& filePath) {
     std::ifstream fs(filePath, std::ios::binary);
@@ -51,10 +32,8 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     uint16_t majorVer = 0, minorVer = 0;
     fs.read(reinterpret_cast<char*>(&majorVer), sizeof(majorVer));
     fs.read(reinterpret_cast<char*>(&minorVer), sizeof(minorVer));
-    //Truncated module detection — without this, an early EOF leaves
-    //downstream counts (nameLen, strCount, ...) uninitialized and the
-    //loader proceeds into resize() with garbage, producing confusing
-    //"no 'main' function found" errors or worse.
+    //Truncation check: without it an early EOF leaves downstream counts
+    //uninitialized and the loader resizes with garbage.
     if (!fs.good())
         throw std::runtime_error("Truncated module file");
     //v2.0: the module's dotted path (package identity of the unit).
@@ -65,22 +44,11 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     mod.modulePath = std::move(modulePath);
     if (!fs.good())
         throw std::runtime_error("Truncated module file");
-    //Phase 9d (v1.4): reject modules written by older ncc. v1.4 added
-    //CompiledFunction.tryBlocks section; loading a v1.3 module would
-    //misalign on the new section. Product hasn't shipped, so we refuse
-    //stale modules outright instead of carrying forward-compat baggage.
-    //Ceiling (v1.6 review): a floor alone let an older reader accept a
-    //newer module and misparse everything after the first added field
-    //(e.g. a v1.4 reader reads the v1.6 native flag as defaultCount).
-    //Every format bump must raise the ceiling alongside the floor.
+    //v2.0: floor and ceiling pin the current version exactly — a v1.x
+    //module misparses at the first 2.0 field (module path); the older
+    //per-field format gates were removed with the 2.0 bump.
     const uint16_t kCurrentMajorVer = NCU_FORMAT_MAJOR;
     const uint16_t kCurrentMinorVer = NCU_FORMAT_MINOR;
-    //v1.13 (phase 5 qualified keys): LAYOUT bump — table keys and stream
-    //type-name literals are package-qualified ("<package>.<name>",
-    //ownerless built-ins stay bare) and the wire gains an int32
-    //entryPoint after the module name. A v1.12 module misparses every
-    //keyed name, so it is refused outright (floor/ceiling double-reject
-    //unchanged).
     if (majorVer < kCurrentMajorVer
         || (majorVer == kCurrentMajorVer && minorVer < kCurrentMinorVer))
         throw std::runtime_error(
@@ -100,14 +68,16 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     mod.name.resize(nameLen);
     fs.read(mod.name.data(), nameLen);
 
-    //v1.13: entry function index. Only the ROOT module's copy is read by
-    //VmExecutor; a library .ncu carries -1, and even a non-(-1) value in
-    //an imported module is untrustworthy (function-table indices shift in
-    //the merge) — Import's per-field function copy never touches it.
-    fs.read(reinterpret_cast<char*>(&mod.entryPoint),
-            sizeof(mod.entryPoint));
+    //v2.0: the entry function's qualified key (empty = no entry). The
+    //index is re-resolved by name at the end of the parse — table-
+    //layout-dependent indices are not serializable; the .npkg entry
+    //record may re-point it after LoadFromBytes.
+    uint16_t entryKeyLen = 0;
+    fs.read(reinterpret_cast<char*>(&entryKeyLen), sizeof(entryKeyLen));
     if (!fs.good())
-        throw std::runtime_error("Invalid module: truncated entry point");
+        throw std::runtime_error("Invalid module: truncated entry key");
+    std::string entryKey(entryKeyLen, ' ');
+    fs.read(entryKey.data(), entryKeyLen);
 
     // String constants
     uint32_t strCount = 0;
@@ -124,272 +94,12 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
         fs.read(mod.stringConstants[i].data(), len);
     }
 
-    // Functions
-    uint32_t funcCount = 0;
-    fs.read(reinterpret_cast<char*>(&funcCount), sizeof(funcCount));
-    if (!fs.good() || funcCount > (1u << 24))
-        throw std::runtime_error("Invalid module: bad function count");
-    mod.functions.resize(funcCount);
-
-    for (uint32_t i = 0; i < funcCount; ++i) {
-        auto& func = mod.functions[i];
-
-        uint32_t fnameLen;
-        fs.read(reinterpret_cast<char*>(&fnameLen), sizeof(fnameLen));
-        if (!fs.good() || fnameLen > (1u << 24))
-            throw std::runtime_error("Invalid module: bad function name length");
-        func.name.resize(fnameLen);
-        fs.read(func.name.data(), fnameLen);
-
-        fs.read(reinterpret_cast<char*>(&func.localsSize),
-                sizeof(func.localsSize));
-        fs.read(reinterpret_cast<char*>(&func.paramCount),
-                sizeof(func.paramCount));
-        fs.read(reinterpret_cast<char*>(&func.returnTypeKind),
-                sizeof(func.returnTypeKind));
-        fs.read(reinterpret_cast<char*>(&func.intrinsicId),
-                sizeof(func.intrinsicId));
-        uint8_t nativeFlag = 0;
-        fs.read(reinterpret_cast<char*>(&nativeFlag), sizeof(nativeFlag));
-        func.isNative = (nativeFlag != 0);
-
-        //Option B v1.3: per-formal default-value descriptors.
-        uint16_t defaultCount = 0;
-        fs.read(reinterpret_cast<char*>(&defaultCount), sizeof(defaultCount));
-        if (!fs.good() || defaultCount > 256)
-            throw std::runtime_error("Invalid module: bad default count");
-        func.defaultValues.resize(defaultCount);
-        for (uint16_t j = 0; j < defaultCount; ++j) {
-            auto& dv = func.defaultValues[j];
-            fs.read(reinterpret_cast<char*>(&dv.tag), sizeof(dv.tag));
-            fs.read(reinterpret_cast<char*>(&dv.intValue), sizeof(dv.intValue));
-            fs.read(reinterpret_cast<char*>(&dv.floatValue),
-                    sizeof(dv.floatValue));
-            fs.read(reinterpret_cast<char*>(&dv.stringIdx),
-                    sizeof(dv.stringIdx));
-        }
-
-        uint32_t bcSize;
-        fs.read(reinterpret_cast<char*>(&bcSize), sizeof(bcSize));
-        if (!fs.good() || bcSize > (1u << 26))
-            throw std::runtime_error("Invalid module: bad bytecode size");
-        func.bytecode.resize(bcSize);
-        if (bcSize > 0)
-            fs.read(reinterpret_cast<char*>(func.bytecode.data()), bcSize);
-
-        //Phase 9d v1.4: try/catch table.
-        uint16_t tryBlockCount = 0;
-        fs.read(reinterpret_cast<char*>(&tryBlockCount), sizeof(tryBlockCount));
-        if (!fs.good() || tryBlockCount > 1024)
-            throw std::runtime_error("Invalid module: bad tryBlock count");
-        func.tryBlocks.resize(tryBlockCount);
-        for (uint16_t j = 0; j < tryBlockCount; ++j) {
-            auto& tb = func.tryBlocks[j];
-            fs.read(reinterpret_cast<char*>(&tb.startPc), sizeof(tb.startPc));
-            fs.read(reinterpret_cast<char*>(&tb.endPc), sizeof(tb.endPc));
-            fs.read(reinterpret_cast<char*>(&tb.handlerPc), sizeof(tb.handlerPc));
-            fs.read(reinterpret_cast<char*>(&tb.exceptionClassIdx),
-                    sizeof(tb.exceptionClassIdx));
-            fs.read(reinterpret_cast<char*>(&tb.catchLocalOff),
-                    sizeof(tb.catchLocalOff));
-        }
-
-        //v1.5: local-variable descriptors (GC root scan, see VmBackend
-        //writer side).
-        {
-            uint16_t localCount = 0;
-            fs.read(reinterpret_cast<char*>(&localCount),
-                    sizeof(localCount));
-            if (!fs.good() || localCount > 4096)
-                throw std::runtime_error("Invalid module: bad local count");
-            func.locals.resize(localCount);
-            for (uint16_t j = 0; j < localCount; ++j) {
-                auto& ld = func.locals[j];
-                fs.read(reinterpret_cast<char*>(&ld.offset),
-                        sizeof(ld.offset));
-                fs.read(reinterpret_cast<char*>(&ld.size),
-                        sizeof(ld.size));
-                fs.read(reinterpret_cast<char*>(&ld.isParam),
-                        sizeof(ld.isParam));
-                fs.read(reinterpret_cast<char*>(&ld.typeKind),
-                        sizeof(ld.typeKind));
-                uint32_t lnameLen = 0;
-                fs.read(reinterpret_cast<char*>(&lnameLen),
-                        sizeof(lnameLen));
-                if (!fs.good() || lnameLen > (1u << 16))
-                    throw std::runtime_error("Invalid module: bad local name length");
-                ld.name.resize(lnameLen);
-                fs.read(ld.name.data(), lnameLen);
-            }
-        }
-
-        //v1.9 (debugger): per-function source file path.
-        {
-            uint32_t sfileLen = 0;
-            fs.read(reinterpret_cast<char*>(&sfileLen), sizeof(sfileLen));
-            if (!fs.good() || sfileLen > (1u << 16))
-                throw std::runtime_error(
-                    "Invalid module: bad source file length");
-            func.sourceFile.resize(sfileLen);
-            fs.read(func.sourceFile.data(), sfileLen);
-        }
-
-        //v1.12: true formal / return type descriptors. The floor moved
-        //past 12 in v1.13, so the gate is gone — the record position is
-        //what documents the layout for readers diffing versions.
-        {
-            uint16_t paramDescCount = 0;
-            fs.read(reinterpret_cast<char*>(&paramDescCount),
-                    sizeof(paramDescCount));
-            if (!fs.good() || paramDescCount > kMaxParamDescCount)
-                throw std::runtime_error(
-                    "Invalid module: bad param descriptor count");
-            func.paramTypeDescs.resize(paramDescCount);
-            for (uint16_t j = 0; j < paramDescCount; ++j) {
-                auto& ptd = func.paramTypeDescs[j];
-                fs.read(reinterpret_cast<char*>(&ptd.flags),
-                        sizeof(ptd.flags));
-                ptd.type = ReadTypeDesc(fs);
-            }
-            if (func.returnTypeKind != RTK_Void)
-                func.returnTypeDesc = ReadTypeDesc(fs);
-        }
-    }
-
-    // Struct descriptors
-    uint32_t structCount;
-    fs.read(reinterpret_cast<char*>(&structCount), sizeof(structCount));
-    if (!fs.good() || structCount > (1u << 24))
-        throw std::runtime_error("Invalid module: bad struct count");
-    mod.structs.resize(structCount);
-
-    for (uint32_t i = 0; i < structCount; ++i) {
-        auto& st = mod.structs[i];
-
-        uint32_t stNameLen;
-        fs.read(reinterpret_cast<char*>(&stNameLen), sizeof(stNameLen));
-        if (!fs.good() || stNameLen > (1u << 24))
-            throw std::runtime_error("Invalid module: bad struct name length");
-        st.name.resize(stNameLen);
-        fs.read(st.name.data(), stNameLen);
-
-        fs.read(reinterpret_cast<char*>(&st.fieldCount),
-                sizeof(st.fieldCount));
-
-        st.fieldNames.resize(st.fieldCount);
-        for (uint16_t j = 0; j < st.fieldCount; ++j) {
-            uint32_t fnLen;
-            fs.read(reinterpret_cast<char*>(&fnLen), sizeof(fnLen));
-            if (!fs.good() || fnLen > (1u << 24))
-                throw std::runtime_error("Invalid module: bad struct field name length");
-            st.fieldNames[j].resize(fnLen);
-            fs.read(st.fieldNames[j].data(), fnLen);
-        }
-
-        st.fieldTypeKinds.resize(st.fieldCount);
-        for (uint16_t j = 0; j < st.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&st.fieldTypeKinds[j]),
-                    sizeof(st.fieldTypeKinds[j]));
-        }
-
-        st.fieldStructIndices.resize(st.fieldCount);
-        for (uint16_t j = 0; j < st.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&st.fieldStructIndices[j]),
-                    sizeof(st.fieldStructIndices[j]));
-        }
-
-        st.fieldClassIndices.resize(st.fieldCount);
-        for (uint16_t j = 0; j < st.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&st.fieldClassIndices[j]),
-                    sizeof(st.fieldClassIndices[j]));
-        }
-
-        //v1.12: per-field type descriptors (the gate is gone — the
-        //v1.13 floor subsumes 12; see the function-record site).
-        {
-            st.fieldTypeDescs.resize(st.fieldCount);
-            for (uint16_t j = 0; j < st.fieldCount; ++j)
-                st.fieldTypeDescs[j] = ReadTypeDesc(fs);
-        }
-    }
-
-    // Class descriptors
-    uint32_t classCount;
-    fs.read(reinterpret_cast<char*>(&classCount), sizeof(classCount));
-    if (!fs.good() || classCount > (1u << 24))
-        throw std::runtime_error("Invalid module: bad class count");
-    mod.classes.resize(classCount);
-
-    for (uint32_t i = 0; i < classCount; ++i) {
-        auto& cc = mod.classes[i];
-
-        uint32_t ccNameLen;
-        fs.read(reinterpret_cast<char*>(&ccNameLen), sizeof(ccNameLen));
-        if (!fs.good() || ccNameLen > (1u << 24))
-            throw std::runtime_error("Invalid module: bad class name length");
-        cc.name.resize(ccNameLen);
-        fs.read(cc.name.data(), ccNameLen);
-
-        fs.read(reinterpret_cast<char*>(&cc.fieldCount),
-                sizeof(cc.fieldCount));
-        fs.read(reinterpret_cast<char*>(&cc.superClassIdx),
-                sizeof(cc.superClassIdx));
-
-        cc.fieldNames.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            uint32_t fnLen;
-            fs.read(reinterpret_cast<char*>(&fnLen), sizeof(fnLen));
-            if (!fs.good() || fnLen > (1u << 24))
-                throw std::runtime_error("Invalid module: bad class field name length");
-            cc.fieldNames[j].resize(fnLen);
-            fs.read(cc.fieldNames[j].data(), fnLen);
-        }
-
-        cc.fieldTypeKinds.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldTypeKinds[j]),
-                    sizeof(cc.fieldTypeKinds[j]));
-        }
-
-        cc.fieldStructIndices.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldStructIndices[j]),
-                    sizeof(cc.fieldStructIndices[j]));
-        }
-
-        cc.fieldClassIndices.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldClassIndices[j]),
-                    sizeof(cc.fieldClassIndices[j]));
-        }
-
-        //v1.12: per-field type descriptors (the gate is gone — the
-        //v1.13 floor subsumes 12; see the function-record site).
-        {
-            cc.fieldTypeDescs.resize(cc.fieldCount);
-            for (uint16_t j = 0; j < cc.fieldCount; ++j)
-                cc.fieldTypeDescs[j] = ReadTypeDesc(fs);
-        }
-
-        cc.fieldAccess.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldAccess[j]),
-                    sizeof(cc.fieldAccess[j]));
-        }
-
-        //Method indices
-        uint16_t methodCount;
-        fs.read(reinterpret_cast<char*>(&methodCount), sizeof(methodCount));
-        cc.methodIndices.resize(methodCount);
-        for (uint16_t j = 0; j < methodCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.methodIndices[j]),
-                    sizeof(cc.methodIndices[j]));
-        }
-
-        //Constructor index
-        fs.read(reinterpret_cast<char*>(&cc.constructorIdx),
-                sizeof(cc.constructorIdx));
-    }
+    //Composite record tables parse in this stream order; the per-field
+    //parsers live in ModuleLoaderRecords.cpp (source-size split, zero
+    //behavior change).
+    ReadFunctionRecords(fs, mod);
+    ReadStructRecords(fs, mod);
+    ReadClassRecords(fs, mod);
 
     //v1.12: descriptors reference struct/class indices of THIS module —
     //the function records were parsed before the tables, so bounds are
@@ -449,6 +159,76 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 fs.read(mod.enumNames[i][j].data(), len);
             }
         }
+        //v2.0 phase 6: qualified keys, one per enum (same count — the
+        //writer emits exactly enumCount keys right after the name tables).
+        mod.enumKeys.resize(enumCount);
+        for (uint32_t i = 0; i < enumCount; ++i) {
+            uint16_t len;
+            fs.read(reinterpret_cast<char*>(&len), sizeof(len));
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: truncated enum keys");
+            mod.enumKeys[i].resize(len);
+            fs.read(mod.enumKeys[i].data(), len);
+        }
+        if (!fs.good())
+            throw std::runtime_error("Invalid module: truncated enum keys");
+    }
+
+    //v2.0 phase 6: cross-unit import slots, one section per table (in
+    //slot order — own entries occupy 0..n-1, imports n..n+m). Per entry:
+    //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount.
+    auto readImports = [&fs](std::vector<CompiledModule::SymbolImport>& imports)
+    {
+        uint32_t count;
+        fs.read(reinterpret_cast<char*>(&count), sizeof(count));
+        if (!fs.good() || count > (1u << 24))
+            throw std::runtime_error("Invalid module: bad import count");
+        imports.resize(count);
+        for (auto& imp : imports)
+        {
+            uint16_t modulePathLen;
+            fs.read(reinterpret_cast<char*>(&modulePathLen),
+                    sizeof(modulePathLen));
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: bad import module path length");
+            imp.modulePath.resize(modulePathLen);
+            fs.read(imp.modulePath.data(), modulePathLen);
+            uint16_t nameLen;
+            fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: bad import name length");
+            imp.name.resize(nameLen);
+            fs.read(imp.name.data(), nameLen);
+            fs.read(reinterpret_cast<char*>(&imp.paramCount),
+                    sizeof(imp.paramCount));
+            if (!fs.good())
+                throw std::runtime_error("Invalid module: truncated imports");
+        }
+    };
+    readImports(mod.functionImports);
+    readImports(mod.classImports);
+    readImports(mod.structImports);
+    readImports(mod.enumImports);
+    if (!fs.good())
+        throw std::runtime_error("Invalid module: truncated import sections");
+
+    //Resolve the serialized entry key to an index. An empty key is the
+    //"no entry" contract (libraries); a NON-empty key that names no
+    //function is a corrupt or hostile module — the producer wrote it
+    //from its own table — so refuse it here rather than degrade to a
+    //generic no-entry error at run time.
+    if (entryKey.empty()) {
+        mod.entryPoint = -1;
+    } else {
+        const int entryIdx = mod.FindFunction(entryKey);
+        if (entryIdx < 0)
+            throw std::runtime_error(
+                "Invalid module: entry key '" + entryKey
+                + "' names no function in the module");
+        mod.entryPoint = entryIdx;
     }
 
     return mod;

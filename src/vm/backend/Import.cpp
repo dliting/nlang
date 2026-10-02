@@ -360,6 +360,7 @@ void VmBackend::PushImportedEnumAndFunctionPlaceholders() {
         for (uint32_t i = 0; i < im.enumNames.size(); ++i) {
             pm.enumMap[i] = m_compiledModule.enumNames.size();
             m_compiledModule.enumNames.push_back(im.enumNames[i]);
+            m_compiledModule.enumKeys.push_back(im.enumKeys[i]);
         }
 
         for (uint32_t i = 0; i < im.functions.size(); ++i)

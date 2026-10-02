@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "builder/SymbolSlots.hpp"
 #include <nlang/compiler/SyntaxTree.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -34,6 +35,17 @@ static std::string SourceFilePathOf(const SnFunction& func) {
 
 } // namespace
 
+//True when the node sits directly inside a class/interface/enum body —
+//i.e. it is a type member (method/field), not a namespace member.
+//Shared by QualifiedName (members keep bare keys) and the entry-point
+//scan (methods are never the entry).
+static bool IsTypeMember(const SyntaxNode& node) {
+    const SyntaxNode* pParent = node.Parent();
+    return pParent && (pParent->Kind() == NK_ClassDecl
+        || pParent->Kind() == NK_InterfaceDecl
+        || pParent->Kind() == NK_EnumDecl);
+}
+
 //Canonical VM key of a declaration: "<package>.<name>", or the bare name
 //when the node carries no owner tag. The package comes from the compile-
 //time registry (path-derived), NOT from an AST namespace walk — a walk can
@@ -55,10 +67,7 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
         if (cls.IsGenericInstantiation())
             return cls.BaseName();
     }
-    if (const SyntaxNode* pParent = field.Parent();
-        pParent && (pParent->Kind() == NK_ClassDecl
-            || pParent->Kind() == NK_InterfaceDecl
-            || pParent->Kind() == NK_EnumDecl))
+    if (IsTypeMember(field))
         return field.Name();
     return reg.QualifiedName(field);
 }
@@ -71,7 +80,113 @@ std::string VmBackend::KeyOf(const SnField& field) const {
     return QualifiedName(*m_pRegistry, field);
 }
 
-//Phase 5 D5, called at the FillNativeFunctionRecord call side: the host
+//Phase 6 per-unit codegen: reset the per-unit tables and select the unit
+//the registration walks will see. MERGED_MODE keeps the legacy behavior
+//(single pass over the whole tree — single-file builds).
+void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
+    m_currentUnitIdx = unitIdx;
+    m_compiledModule = CompiledModule{};
+    m_compiledModule.modulePath = modulePath;
+    m_compiledModule.name = modulePath;
+    m_entryKey.clear();
+    m_funcIndexMap.clear();
+    m_enumIndexMap.clear();
+    m_structFieldTypeNames.clear();
+    m_structFieldTypes.clear();
+    m_objectClassIdx = -1;
+    m_listClassIdx = -1;
+    m_dictClassIdx = -1;
+    m_exceptionClassIdx = -1;
+    m_nullPtrExcClassIdx = -1;
+    m_divZeroExcClassIdx = -1;
+    m_oobExcClassIdx = -1;
+    m_assertExcClassIdx = -1;
+    m_ioExcClassIdx = -1;
+    m_importRemaps.clear();
+    m_importedModules.clear();
+    m_importedFuncSourceIdx.clear();
+    m_defaultEmitting.clear();
+}
+
+//Own-unit test for the registration walks and the slot helpers. Stubs
+//(NF_Imported) are never own — they resolve to placeholder slots. The
+//MERGED_MODE sentinel keeps every node own (legacy behavior).
+bool VmBackend::IsOwnUnit(const SnField& member) const {
+    if (m_currentUnitIdx == MERGED_MODE)
+        return true;
+    if (member.ContainFlags(NF_Imported))
+        return false;
+    const uint32_t owner = m_pRegistry->OwnerOf(member);
+    return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER;
+}
+
+//Phase 6 cross-unit reference slots (SymbolSlots.hpp supplies the table
+//mechanics). All four helpers discriminate by IsOwnUnit first and THROW
+//when an own declaration misses its table: a silent placeholder would
+//target the unit's own module path and could "link" to itself, hiding
+//the registration-order bug. Own-branch correctness in MERGED_MODE:
+//function stubs are bound by BindImportedFunctionStubs and class/struct
+//stubs resolve key-based through the merged tables, but imported ENUM
+//stubs never enter m_enumIndexMap — the Step 3/4 wiring must seed enum
+//stub indices (or finish the merge-mode deletion) before a merged-mode
+//emitter may call EnumSlotFor.
+uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
+    if (IsOwnUnit(callee)) {
+        auto it = m_funcIndexMap.find(&callee);
+        if (it == m_funcIndexMap.end())
+            throw std::runtime_error(
+                "NLang backend: own function missing from the unit table: "
+                + KeyOf(callee));
+        return static_cast<uint32_t>(it->second);
+    }
+    return FunctionSymbolSlot(m_compiledModule,
+        SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
+        static_cast<uint32_t>(callee.Params().size()));
+}
+
+uint32_t VmBackend::ClassSlotFor(SnClassDecl& decl) {
+    if (IsOwnUnit(decl)) {
+        int idx = m_compiledModule.FindClass(KeyOf(decl));
+        if (idx < 0)
+            throw std::runtime_error(
+                "NLang backend: own class missing from the unit table: "
+                + KeyOf(decl));
+        return static_cast<uint32_t>(idx);
+    }
+    return ClassSymbolSlot(m_compiledModule,
+        SymbolSlotModulePath(*m_pRegistry, decl), KeyOf(decl));
+}
+
+uint32_t VmBackend::StructSlotFor(SnStructDecl& decl) {
+    if (IsOwnUnit(decl)) {
+        int idx = m_compiledModule.FindStruct(KeyOf(decl));
+        if (idx < 0)
+            throw std::runtime_error(
+                "NLang backend: own struct missing from the unit table: "
+                + KeyOf(decl));
+        return static_cast<uint32_t>(idx);
+    }
+    return StructSymbolSlot(m_compiledModule,
+        SymbolSlotModulePath(*m_pRegistry, decl), KeyOf(decl));
+}
+
+uint32_t VmBackend::EnumSlotFor(SnEnumDecl& decl) {
+    //Own enums: the registration order IS the enum table order
+    //(m_enumIndexMap). Cross-unit: named placeholder slot. The own-miss
+    //throw mirrors the other slot helpers (see FunctionSlotFor).
+    if (IsOwnUnit(decl)) {
+        auto it = m_enumIndexMap.find(&decl);
+        if (it == m_enumIndexMap.end())
+            throw std::runtime_error(
+                "NLang backend: own enum missing from the unit table: "
+                + KeyOf(decl));
+        return static_cast<uint32_t>(it->second);
+    }
+    return EnumSymbolSlot(m_compiledModule,
+        SymbolSlotModulePath(*m_pRegistry, decl), KeyOf(decl));
+}
+
+//Phase 6 D5, called at the FillNativeFunctionRecord call side: the host
 //DLL is the first-dot segment (nlang_<seg>.dll), so a native in a
 //multi-segment package cannot name one yet (phase 6 lifts the limit).
 //Returns true (after logging) when the declaration must be refused.
@@ -268,6 +383,11 @@ void VmBackend::WalkArrayTypeNode(SyntaxNode& n) {
 void VmBackend::RegisterEnums(SnNamespace& root) {
     m_enumIndexMap.clear();
     m_compiledModule.enumNames.clear();
+    m_compiledModule.enumKeys.clear();
+    //Placeholder slots are appended AFTER registration (codegen), so
+    //clearing the import table here can never wipe a live placeholder —
+    //it only keeps a premature one from leaving an orphan import entry.
+    m_compiledModule.enumImports.clear();
     auto registerEnum = [&](SnEnumDecl& sn) {
         auto defIdx = m_compiledModule.enumNames.size();
         std::vector<std::string> names;
@@ -285,6 +405,8 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
             }
         }
         m_compiledModule.enumNames.push_back(std::move(names));
+        //v2.0: parallel qualified key (nlink name-addresses enum slots).
+        m_compiledModule.enumKeys.push_back(KeyOf(sn));
         m_enumIndexMap[&sn] = defIdx;
     };
     ForEachDeclNode(root, [&](SnField& node) {
@@ -322,6 +444,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
 //so only the source paths can tell the user which file they meant.
 void VmBackend::ResolveEntryPoint(SnNamespace& root) {
     m_compiledModule.entryPoint = -1;
+    m_entryKey.clear();
     std::vector<SnFunction*> candidates;
     for (auto& member : root.Members()) {
         if (member.Kind() != NK_Function)
@@ -329,13 +452,9 @@ void VmBackend::ResolveEntryPoint(SnNamespace& root) {
         auto& func = static_cast<SnFunction&>(member);
         if (func.Name() != "main")
             continue;
-        //A method named main is never the entry: methods keep bare names
-        //and dispatch through their receiver. (Direct root members cannot
-        //be methods; the check keeps the rule explicit for a shell child.)
-        auto* pParent = func.Parent();
-        if (pParent && (pParent->Kind() == NK_ClassDecl
-            || pParent->Kind() == NK_InterfaceDecl
-            || pParent->Kind() == NK_EnumDecl))
+        //A method named main is never the entry: methods dispatch
+        //through their receiver (IsTypeMember).
+        if (IsTypeMember(func))
             continue;
         //Libraries never provide the entry; an untagged node has no unit
         //to be a project member of.
@@ -358,15 +477,19 @@ void VmBackend::ResolveEntryPoint(SnNamespace& root) {
         return;
     }
     SnFunction& entry = *candidates.front();
-    if (entry.ContainFlags(NF_Native)) {
+    if (entry.ContainFlags(NF_Native) || !entry.Body()) {
         //The native record exists, but executing the entry must not
-        //silently dispatch through the host table: name the key.
+        //silently dispatch through the host table; a body-less non-native
+        //main registers no function record, so its key would dangle —
+        //either way the entry is not executable. Name the key.
         m_pEnv->Log(CLL_Error,
-            "entry point '%s' is native: main must be a compiled function,"
-            " not a host-table declaration.", KeyOf(entry).c_str());
+            "entry point '%s' is not a compiled function: main must have"
+            " a body and not be a host-table declaration.",
+            KeyOf(entry).c_str());
         return;
     }
-    m_compiledModule.entryPoint = m_compiledModule.FindFunction(KeyOf(entry));
+    m_entryKey = KeyOf(entry);
+    m_compiledModule.entryPoint = m_compiledModule.FindFunction(m_entryKey);
 }
 
 } //namespace nlang

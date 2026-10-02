@@ -311,10 +311,6 @@ struct CompiledModule {
     //v2.0: the module's dotted path (the compile unit's package identity).
     std::string modulePath;
     std::string name;
-    //v1.13: index of the entry function, -1 when the module exports none.
-    //By-name lookup is gone: `main.n` in a directory is package `main`, so
-    //its entry key is `main.main`, and the name alone no longer identifies it.
-    int32_t entryPoint = -1;
     std::vector<CompiledFunction> functions;
     std::vector<std::string> stringConstants;
     std::vector<CompiledStruct> structs;
@@ -324,6 +320,34 @@ struct CompiledModule {
     //declaration order across the module), inner index = enum int value.
     //Used by OP_Enum_to_str to render `Color.Red.toString()` → "Red".
     std::vector<std::vector<std::string>> enumNames;
+    //v2.0 phase 6: qualified key per enum entry, parallel to enumNames
+    //(same count; placeholder slots carry the target's key with empty
+    //names). nlink name-addresses enum import slots and dedups enums
+    //by key — enumNames alone carries no type identity.
+    std::vector<std::string> enumKeys;
+
+    //v2.0 phase 6: cross-unit reference slots. Each unit's tables hold its
+    //OWN declarations first (indices 0..n-1); slots n..n+m are PLACEHOLDER
+    //entries pushed by codegen when the unit references another unit's
+    //symbol, described here. nlink (the load-time linker) resolves each
+    //slot against the linked closure's tables and remaps the unit's
+    //bytecode operands (local slot → global index). modulePath drives the
+    //import-closure discovery; paramCount disambiguates overloads
+    //(functions share the qualified key across overloads).
+    struct SymbolImport {
+        std::string modulePath;   //target unit's dotted path
+        std::string name;         //target's qualified key
+        uint32_t paramCount = 0;  //functions only
+    };
+    std::vector<SymbolImport> functionImports;   //slots after own functions
+    std::vector<SymbolImport> classImports;      //slots after own classes
+    std::vector<SymbolImport> structImports;     //slots after own structs
+    std::vector<SymbolImport> enumImports;       //slots after own enum tables
+
+    //Runtime only (never serialized): set by nlink after linking — the
+    //global function index of this module's main(), or the entry the tool
+    //layer selected. -1 until then.
+    int32_t entryPoint = -1;
 
     int FindFunction(const std::string& funcName) const {
         for (int i = 0; i < static_cast<int>(functions.size()); ++i)
@@ -346,6 +370,13 @@ struct CompiledModule {
         return -1;
     }
 
+    int FindEnum(const std::string& enumKey) const {
+        for (int i = 0; i < static_cast<int>(enumKeys.size()); ++i)
+            if (enumKeys[i] == enumKey)
+                return i;
+        return -1;
+    }
+
     int FindArray(uint8_t elemKind, uint16_t elemTypeIdx) const {
         for (int i = 0; i < static_cast<int>(arrayTypes.size()); ++i)
             if (arrayTypes[i].elemKind == elemKind
@@ -358,6 +389,7 @@ struct CompiledModule {
 //Serialize a CompiledModule to a stream in the current .ncu format.
 //Single writer shared by VmBackend::SaveModule (ncc) and unit tests, so
 //hand-written byte layouts can never drift from the reader again.
-bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod);
+bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
+                         const std::string& entryKey);
 
 } // namespace nlang

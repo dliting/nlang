@@ -241,8 +241,7 @@ void ModuleBuilder::DiscoverLibraryUnits()
 //of the compiled module.
 //Package form (`.npkg`): extract the embedded compile unit (entry
 //member, or the first member) and parse from memory.
-static CompiledModule LoadModuleArtifact(const std::string &path,
-                                         std::string *error)
+static CompiledModule LoadModuleArtifact(const std::string &path)
 {
 	//Package form: extract the embedded compile unit (the entry member,
 	//or the first member) and parse from memory.

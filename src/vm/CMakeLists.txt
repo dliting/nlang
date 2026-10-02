@@ -47,6 +47,7 @@ add_library(nlang_vm
     Disassembler.cpp
     DisassemblerWalk.cpp
     ModuleLoader.cpp
+    ModuleLoaderRecords.cpp
     ModuleSaver.cpp
     NcuPackage.cpp
     NativeLibraryLoader.cpp

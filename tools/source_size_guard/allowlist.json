@@ -75,6 +75,21 @@
     "reason": "section-tag dispatch reader; same body as ModuleLoader::Load, which delegates here"
   },
   {
+    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "function": "ReadFunctionRecords",
+    "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
+  },
+  {
+    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "function": "ReadStructRecords",
+    "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
+  },
+  {
+    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "function": "ReadClassRecords",
+    "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
+  },
+  {
     "path": "src/vm/ModuleSaver.cpp",
     "function": "WriteCompiledModule",
     "reason": "sequential field-group writer in on-disk-format order"

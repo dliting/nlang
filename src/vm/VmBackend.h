@@ -73,6 +73,26 @@ public:
     void GenerateStatements(SnNamespace& root) override;
     bool SaveModule(BuildEnvironment& env) override;
 
+    //Phase 6 per-unit codegen: reset the per-unit tables and select the
+    //unit whose members the registration walks will see. unitIdx ==
+    //MERGED_MODE selects the legacy single-pass mode (whole tree, no
+    //owner filtering — single-file builds keep the merged model).
+    void BeginUnit(uint32_t unitIdx, const std::string& modulePath);
+    static constexpr uint32_t MERGED_MODE = 0xFFFFFFFFu;
+
+    //Own-unit test for the per-unit walks (Register.cpp). MERGED_MODE
+    //keeps everything own.
+    bool IsOwnUnit(const SnField& member) const;
+
+    //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
+    //declaration to its unit-local table slot — own declarations via the
+    //existing lookups, cross-unit ones via placeholder records + import
+    //entries. MERGED_MODE never creates slots (everything is local).
+    uint32_t FunctionSlotFor(SnFunction& callee);
+    uint32_t ClassSlotFor(SnClassDecl& decl);
+    uint32_t StructSlotFor(SnStructDecl& decl);
+    uint32_t EnumSlotFor(SnEnumDecl& decl);
+
     //Phase 9c cross-module import infrastructure: inject compiled modules
     //loaded from .ncu files. Must be called before GenerateStatements.
     //ModuleBuilder transfers ownership here so GenerateStatements can
@@ -1034,8 +1054,17 @@ private:
     BytecodeEmitter* m_pCurrEmitter = nullptr;
     uint16_t m_resultOffset = 0;
 
+    //v2.0: the entry function's qualified key (ResolveEntryPoint), e.g.
+    //"main.main". Serialized so the loader can re-resolve the index —
+    //the index itself is table-layout-dependent and not serialized.
+    std::string m_entryKey;
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+
+    //Phase 6 per-unit mode. MERGED_MODE (sentinel) = legacy single-pass;
+    //otherwise the registration walks only see members owned by this
+    //unit, and cross-unit references become import slots.
+    uint32_t m_currentUnitIdx = MERGED_MODE;
     std::unordered_map<SnEnumDecl*, size_t> m_enumIndexMap;  //Phase 8e-9b: AST enum decl → enumDefIdx (parallel to m_compiledModule.enumNames)
     std::vector<std::vector<std::string>> m_structFieldTypeNames;
     //v1.12: per-struct resolved field types (parallel to
