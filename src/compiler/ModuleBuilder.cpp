@@ -18,7 +18,6 @@
 #include <nlang/runtime/Module.h>
 #include <nlang/compiler/SnMisc.h>
 #include "VmBackend.h"
-#include "NcuLinker.h"
 #include "ModuleLoader.h"
 #include <algorithm>
 #include <filesystem>
@@ -112,78 +111,6 @@ bool ModuleBuilder::Build()
 	return SaveModule();
 }
 
-//Phase 6 per-unit build (ModuleBuilder.h contract): the same front end as
-//Build(), then VmBackend::GenerateUnits instead of the merged single-pass
-//codegen. The external .ncu imports stay un-merged on purpose: they enter
-//the caller's link closure as peer images, so codegen never bakes their
-//table layout into the unit images.
-ModuleBuilder::UnitImages ModuleBuilder::BuildUnitImages()
-{
-	UnitImages none;
-	if (!PrepareUnits() || !ResolveAll())
-		return none;
-	SweepPendingFuncRefs();
-	if (m_upEnv->HasError())
-		return none;
-	auto* vmBackend = dynamic_cast<VmBackend*>(m_upEnv->Backend());
-	if (!vmBackend)
-	{
-		m_upEnv->Log(CLL_Fatal, "Per-unit builds need the VM backend.");
-		return none;
-	}
-	//Same injections as GenerateCodes minus SetImportedModules: the
-	//library index feeds stdlib signature types, the registry feeds
-	//table keys and unit paths.
-	vmBackend->SetLibraryIndex(&m_upEnv->LibraryIndex());
-	vmBackend->SetModuleRegistry(&m_upEnv->Registry(), m_upEnv.get());
-	//TU order == module index (ModuleRegistry registration contract).
-	std::vector<uint32_t> unitIdxs;
-	for (uint32_t i = 0; i < m_upTransUnits->size(); ++i)
-		unitIdxs.push_back(i);
-	UnitImages out;
-	VmBackend::UnitBuildResult built =
-		vmBackend->GenerateUnits(TreeRoot(), unitIdxs);
-	if (m_upEnv->HasError())
-		return none;
-	out.units = std::move(built.units);
-	out.entryKey = std::move(built.entryKey);
-	out.external = std::move(m_loadedImports);
-	return out;
-}
-
-//Phase 6 production build (ModuleBuilder.h contract): per-unit images
-//-> NcuLinker::Link (peer merge of the images + the loaded external
-//.ncu imports) -> write the linked module as the artifact. The backend
-//keeps only merged-mode saving of its own m_compiledModule; the linked
-//module goes through WriteModuleArtifact (m_compiledModule is a
-//moved-out husk after GenerateUnits).
-bool ModuleBuilder::BuildLinked()
-{
-	UnitImages images = BuildUnitImages();
-	if (images.units.empty())
-		return false;   //front-end/codegen errors are already logged
-	std::vector<CompiledModule> closure = std::move(images.units);
-	for (auto& ext : images.external)
-		closure.push_back(std::move(ext));
-	CompiledModule linked;
-	try
-	{
-		linked = NcuLinker::Link(std::move(closure), images.entryKey);
-	}
-	catch (const std::exception& e)
-	{
-		m_upEnv->Log(CLL_Error, "%s", e.what());
-		return false;
-	}
-	auto* vmBackend = dynamic_cast<VmBackend*>(m_upEnv->Backend());
-	if (!vmBackend)
-	{
-		m_upEnv->Log(CLL_Fatal, "Per-unit builds need the VM backend.");
-		return false;
-	}
-	return vmBackend->WriteModuleArtifact(*m_upEnv, linked,
-		images.entryKey);
-}
 
 //Phase 9c cross-module: built-in types must be available BEFORE parser
 //runs (parser resolves "int" / "float" / "string" to SnBuiltinDataType

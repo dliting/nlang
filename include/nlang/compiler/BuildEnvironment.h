@@ -50,6 +50,11 @@ struct BuildParams
 	//files are computed relative to this (utils/helper.n →
 	//"utils.helper"); empty in single-file mode (stem only).
 	std::string m_sProjectDir;
+	//True only for .nproj builds (ncc -p): the mode that also packs
+	//the .npkg distribution archive beside the artifact. Distinct
+	//from m_sProjectDir, which callers also set as the package root
+	//for multi-source single builds (tests).
+	bool m_bProjectMode = false;
 	//Directory holding the standard library declaration files
 	//(stdlib/io.n, ...). Located by the host tool (ncc/nide via
 	//langservice::FindStdLibDir) and passed in; empty means no

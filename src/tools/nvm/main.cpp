@@ -1,5 +1,6 @@
-#include "ModuleLoader.h"
-#include "nlang/vm/NcuPackage.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
+#include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
 #include "NativeLibraryLoader.h"
 #include "TestNatives.h"
@@ -100,36 +101,11 @@ int main(int argc, char* argv[]) {
     RegisterTestNatives(executor);
     int result = 1;
     try {
-        //.npkg input: extract the entry member (or the only member) and
-        //load it in memory — the package is the distribution form; the
-        //embedded .ncu is the execution unit. (Task 3+ links siblings
-        //from the package directly.)
-        if (std::string(argv[moduleArg]).rfind(".npkg") ==
-                std::string(argv[moduleArg]).size() - 5) {
-            NcuPackageReader pkg;
-            std::string pkgError;
-            if (!pkg.Open(argv[moduleArg], &pkgError))
-                throw std::runtime_error(pkgError);
-            std::string memberPath;
-            if (const NcuEntryRecord* entry = pkg.EntryRecord())
-                memberPath = entry->modulePath;
-            else if (!pkg.MemberPaths().empty())
-                memberPath = pkg.MemberPaths().front();
-            else
-                throw std::runtime_error(
-                    "Package '" + std::string(argv[moduleArg])
-                    + "' has no members");
-            std::string memberBytes;
-            if (!pkg.ExtractMember(memberPath, &memberBytes, &pkgError))
-                throw std::runtime_error(pkgError);
-            module = ModuleLoader::LoadFromBytes(
-                (fs::path(argv[moduleArg]) / memberPath).string(),
-                memberBytes);
-        } else {
-            module = ModuleLoader::Load(argv[moduleArg]);
-        }
-        //Unified library search: CLI -I > module dir > NLANG_PATH >
-        //exe dir/cwd (native DLLs may ship beside the module or in -I dirs).
+        //Phase 6: every artifact executes through the closure loader and
+        //the load-time linker (nloader -> nlink). Artifacts are linked,
+        //self-contained modules today, so the closure is the single entry
+        //unit; the per-unit package form (design section 9.3) changes what
+        //the loader finds, not this call sequence.
         fs::path modPath(argv[moduleArg]);
         SearchPathInput search;
         search.explicitDirs = importDirs;
@@ -139,8 +115,23 @@ int main(int argc, char* argv[]) {
         search.systemDirs = {
             NativeLibraryLoader::ExecutableDir(), "."
         };
-        for (const auto& d : BuildLibrarySearchPath(search))
+        //Unified library search: CLI -I > module dir > NLANG_PATH >
+        //exe dir/cwd (native DLLs may ship beside the module or in -I
+        //dirs); packages resolve from the same dirs, plus the system
+        //stdlib directory (where stdlib.npkg lives) last.
+        const std::vector<std::string> searchPath =
+            BuildLibrarySearchPath(search);
+        for (const auto& d : searchPath)
             executor.AddNativeSearchDir(d);
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = searchPath;
+        const std::string stdlibDir = langservice::FindStdLibDir(
+            NativeLibraryLoader::ExecutableDir());
+        if (!stdlibDir.empty())
+            loaderOpts.searchDirs.push_back(stdlibDir);
+        const NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(argv[moduleArg], loaderOpts);
+        module = NcuLinker::Link(loaded.units, loaded.entryKey);
         result = executor.Execute(module);
     } catch (const std::exception& e) {
         std::cerr << "Runtime error: " << e.what() << "\n";

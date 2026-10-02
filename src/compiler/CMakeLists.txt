@@ -42,6 +42,7 @@ add_library(nlang_compiler
     ModuleBuilder.cpp
     ModuleBuilderImports.cpp
     ModuleBuilderChecks.cpp
+    ModuleBuilderUnits.cpp
     Logger.cpp
     CastInfo.cpp
     SnArrayTypeToken.cpp

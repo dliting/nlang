@@ -1,0 +1,11 @@
+import io;
+
+int main()
+{
+    //Self-check before printing so a wrong value exits 9 with empty
+    //stdout, failing the ctest regex.
+    int r = helper.helper(21);
+    if (r != 42) { return 9; }
+    io.print(r);
+    return 0;
+}

@@ -4,10 +4,10 @@
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/langservice/SymbolIndex.h>
-#include "VmBackend.h"
 #include "VmExecutor.h"
 #include "NativeLibraryLoader.h"
-#include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 #include "TestNatives.h"
 #include "CrashReporter.h"
 #ifdef _WIN32
@@ -26,7 +26,6 @@
 #include <vector>
 #include "nlang/common/LibrarySearchPath.h"
 #include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/NcuPackage.h"
 
 namespace fs = std::filesystem;
 
@@ -132,9 +131,9 @@ int main(int argc, char* argv[]) {
         //Phase 9f: host-provided natives (e2e test surface).
         RegisterTestNatives(executor);
         try {
-            mod = ModuleLoader::Load(argv[2]);
-            //Unified native search: CLI -I > module dir > NLANG_PATH >
-            //exe dir/cwd (a DLL may ship beside the module or in -I dirs).
+            //Phase 6: run the artifact through the closure loader and the
+            //load-time linker (same call sequence as nvm; see the note
+            //there).
             fs::path modPath(argv[2]);
             SearchPathInput search;
             search.explicitDirs = runDirs;
@@ -144,8 +143,19 @@ int main(int argc, char* argv[]) {
             search.systemDirs = {
                 NativeLibraryLoader::ExecutableDir(), "."
             };
-            for (const auto& d : BuildLibrarySearchPath(search))
+            const std::vector<std::string> searchPath =
+                BuildLibrarySearchPath(search);
+            for (const auto& d : searchPath)
                 executor.AddNativeSearchDir(d);
+            NcuLoader::Options loaderOpts;
+            loaderOpts.searchDirs = searchPath;
+            const std::string stdlibDir = langservice::FindStdLibDir(
+                NativeLibraryLoader::ExecutableDir());
+            if (!stdlibDir.empty())
+                loaderOpts.searchDirs.push_back(stdlibDir);
+            const NcuLoader::Result loaded =
+                NcuLoader::LoadClosure(argv[2], loaderOpts);
+            mod = NcuLinker::Link(loaded.units, loaded.entryKey);
             int result = executor.Execute(mod);
 #ifdef _WIN32
             ExitProcess(static_cast<UINT>(result));
@@ -284,8 +294,10 @@ int main(int argc, char* argv[]) {
         for (const auto& s : project.sources)
             params.m_SourceFiles.push_back(s);
         //Project mode: module paths are computed relative to the
-        //.nproj directory (utils/helper.n -> "utils.helper").
+        //.nproj directory (utils/helper.n -> "utils.helper"), and the
+        //build also packs the .npkg distribution archive.
         params.m_sProjectDir = project.projectDir;
+        params.m_bProjectMode = true;
     } else {
         params.m_SourceFiles.push_back(sourceFile);
     }
@@ -373,30 +385,6 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Compiled successfully: " << outputFile << "\n";
 
-    //Project mode: also pack the package archive (.npkg) - the
-    //distribution form. The transitional member is the single merged
-    //.ncu (Task 3 splits it per unit); the entry record names the
-    //project module and its main().
-    if (!projectFile.empty()) {
-        std::ifstream compiledImage(outputFile, std::ios::binary);
-        std::string ncuBytes((std::istreambuf_iterator<char>(compiledImage)),
-                             std::istreambuf_iterator<char>());
-        NcuPackageWriter packer;
-        if (packer.AddMember({params.m_sOutputModule, ncuBytes})) {
-            NcuEntryRecord entry;
-            entry.modulePath = params.m_sOutputModule;
-            entry.functionName = "main";
-            std::string packError;
-            fs::path pkgPath(outputFile);
-            pkgPath.replace_extension(NPKG_EXTENSION);
-            if (!packer.Write(pkgPath.string(), params.m_sOutputModule,
-                              &entry, &packError)) {
-                std::cerr << "Error: " << packError << "\n";
-                return 1;
-            }
-        }
-    }
-
     if (compileOnly) {
         //On Windows, static destructors from Runtime::StaticInit() can
         //corrupt the process exit code. ExitProcess() bypasses this.
@@ -414,25 +402,23 @@ int main(int argc, char* argv[]) {
     RegisterTestNatives(executor);
     //Native libraries (nlang_<ns>.dll) are searched in the import dirs in
     //addition to the executable directory, so a third-party package ships
-    //its DLL beside its .n source.
+    //its DLL beside its .n source. The just-built artifact executes
+    //through the same closure loader + load-time linker as nvm (phase 6).
     for (const auto& dir : params.m_ImportDirs)
         executor.AddNativeSearchDir(dir);
     try {
-        if (fs::path(outputFile).extension() == NPKG_EXTENSION) {
-            NcuPackageReader pkg;
-            std::string pkgError;
-            if (!pkg.Open(outputFile, &pkgError))
-                throw std::runtime_error(pkgError);
-            std::string memberPath = params.m_sOutputModule;
-            if (const NcuEntryRecord* entry = pkg.EntryRecord())
-                memberPath = entry->modulePath;
-            std::string memberBytes;
-            if (!pkg.ExtractMember(memberPath, &memberBytes, &pkgError))
-                throw std::runtime_error(pkgError);
-            mod = ModuleLoader::LoadFromBytes(outputFile, memberBytes);
-        } else {
-            mod = ModuleLoader::Load(outputFile);
-        }
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs.assign(params.m_ImportDirs.begin(),
+                                     params.m_ImportDirs.end());
+        loaderOpts.searchDirs.push_back(
+            fs::path(outputFile).parent_path().string());
+        const std::string stdlibDir = langservice::FindStdLibDir(
+            NativeLibraryLoader::ExecutableDir());
+        if (!stdlibDir.empty())
+            loaderOpts.searchDirs.push_back(stdlibDir);
+        const NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(outputFile, loaderOpts);
+        mod = NcuLinker::Link(loaded.units, loaded.entryKey);
         int result = executor.Execute(mod);
         //On Windows, static destructors from Runtime::StaticInit() can
         //corrupt the process exit code. ExitProcess() bypasses this.

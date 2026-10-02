@@ -1081,6 +1081,22 @@ set_tests_properties(proj_wildcard_exact_union_run PROPERTIES
     DEPENDS proj_wildcard_exact_union_compile
     PASS_REGULAR_EXPRESSION "6")
 
+#Phase 6 B2b: project-mode builds pack the .npkg beside the .ncu, and
+#the package runs under nvm as a first-class artifact — member,
+#header, and entry record name ONE identity even when a library unit
+#(helper.n) leads the source list. Tool-chain coverage only (the
+#in-process pin is test_perunit shape 12): ncc and nvm as real
+#subprocesses, exactly how users build and run program packages.
+add_test(NAME proj_pkg_run_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_pkg_run/proj_pkg_run.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_pkg_run.ncu)
+add_test(NAME proj_pkg_run_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_pkg_run.npkg)
+set_tests_properties(proj_pkg_run_run PROPERTIES
+    DEPENDS proj_pkg_run_compile
+    PASS_REGULAR_EXPRESSION "42")
+
 #Spec section 7 row 1: a known module path this TU did not import.
 add_test(NAME proj_not_imported_compile
     COMMAND ncc build -p
@@ -1126,6 +1142,7 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_same_dir_compile proj_same_dir_run ndisasm_qualified_func_name
     proj_dup_import_compile
     proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
+    proj_pkg_run_compile proj_pkg_run_run
     proj_not_imported_compile proj_bare_cross_dir_compile
     duplicate_package_path_compile ncc_no_o_output_cwd
     PROPERTIES TIMEOUT 180)

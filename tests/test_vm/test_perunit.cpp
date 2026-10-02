@@ -16,6 +16,7 @@
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
 #include "NcuLinker.h"
+#include "NcuLoader.h"
 #include "IHostIo.h"
 
 #include <cstdio>
@@ -476,6 +477,11 @@ void TestExternalNcuPeerImage() {
     }
     const fs::path libArtifact = libDir / "lib.ncu";
     CHECK(fs::exists(libArtifact), "library artifact written");
+    //Single-file builds pack no package (design section 3: .npkg is
+    //project-mode only — inlined library units must not tip a
+    //single-file build into packing).
+    CHECK(!fs::exists(libDir / "lib.npkg"),
+          "single-file builds write no package");
 
     //Stage 2: consumer imports it; closure = consumer units + lib image.
     const auto appDir = scenarioDir("ext_app");
@@ -635,6 +641,71 @@ void TestCrossUnitEnumToString() {
           "enum toString variable/literal/concat all keep value names");
 }
 
+// --- shape 12: project package artifact — identity and entry naming ---
+//
+// A multi-unit build also packs the .npkg beside the .ncu. The package
+// member, the artifact header, and the entry record must be ONE
+// identity naming the REAL entry: the runtime loader's identity rule
+// refuses a member whose header names anything else, and the record's
+// <module>.<function> override must hit a function the artifact owns.
+// Pinned with the entry unit listed SECOND — a library unit leading
+// the source list must not claim the merged header — by driving the
+// package through NcuLoader + nlink + execution, exactly as nvm runs
+// a program package from the command line.
+void TestProjectPackageArtifactIdentity() {
+    const auto dir = scenarioDir("pkg_artifact");
+    writeFiles(dir, {
+        { "helper.n",
+          "int helper(int x) {\n"
+          "  return x * 2;\n"
+          "}\n" },
+        { "main.n",
+          "import helper;\n"
+          "int main() {\n"
+          "  return helper.helper(21);\n"
+          "}\n" } });
+    BuildParams params;
+    params.m_SourceFiles.push_back((dir / "helper.n").string());
+    params.m_SourceFiles.push_back((dir / "main.n").string());
+    params.m_sProjectDir = dir.string();
+    params.m_bProjectMode = true;   //project mode ships the package
+    params.m_sOutputModule = "prog";
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    params.m_ImportDirs = { dir.string(), STDLIB_DIR };
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    CHECK(builder.BuildLinked(), "project builds linked");
+    const fs::path pkg = dir / "prog.npkg";
+    CHECK(fs::exists(pkg), "package artifact written beside the module");
+
+    NcuLoader::Options loaderOpts;
+    NcuLoader::Result loaded;
+    try {
+        loaded = NcuLoader::LoadClosure(pkg.string(), loaderOpts);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("package load failed: ") + e.what()).c_str());
+        return;
+    }
+    CHECK(loaded.units.size() == 1, "linked member is one unit");
+    CHECK(loaded.units[0].modulePath == "main",
+          "member and header carry the entry unit's identity");
+    CHECK(loaded.entryKey == "main.main",
+          "entry record names the real entry function");
+    CompiledModule linked;
+    try {
+        linked = NcuLinker::Link(std::move(loaded.units), loaded.entryKey);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("link failed: ") + e.what()).c_str());
+        return;
+    }
+    CapturingIo cap;
+    VmExecutor exec;
+    exec.SetHostIo(&cap);
+    CHECK(exec.Execute(linked) == 42, "package entry runs (21*2)");
+}
+
 } // namespace
 
 int main() {
@@ -651,6 +722,7 @@ int main() {
     TestExternalNcuPeerImage();
     TestForeignMethodsNotGhostCompiled();
     TestCrossUnitEnumToString();
+    TestProjectPackageArtifactIdentity();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

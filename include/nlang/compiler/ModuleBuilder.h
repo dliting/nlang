@@ -40,14 +40,18 @@ public:
 	//written as the single .ncu artifact. The linked artifact is a
 	//plain self-contained module — placeholders are resolved and the
 	//import tables empty — so today's loader/executor run it unchanged.
-	//Link diagnostics (unresolved symbols) are logged like compile
-	//errors. Returns false on any front-end, codegen, or link error.
+	//Project-mode builds (BuildParams.m_bProjectMode, ncc -p)
+	//additionally write the .npkg distribution archive beside the
+	//.ncu (member and entry record carry the artifact's own identity);
+	//single-file builds stop at the .ncu. Link diagnostics (unresolved
+	//symbols) are logged like compile errors. Returns false on any
+	//front-end, codegen, link, or artifact-write error.
 	bool BuildLinked();
 
 	//Phase 6 per-unit build result: one CompiledModule image per
-	//translation unit (TU order = registry module index), the loaded
-	//external .ncu imports (NOT merged in — they ride along for the
-	//load-time linker), and the program entry's qualified key
+	//translation unit (entry-owning unit first, then TU order), the
+	//loaded external .ncu imports (NOT merged in — they ride along for
+	//the load-time linker), and the program entry's qualified key
 	//("" = none or ambiguous, already logged).
 	struct UnitImages
 	{
@@ -142,6 +146,10 @@ private:
 	bool GenerateCodes();
 	//Save the current module to a file.
 	bool SaveModule();
+	//Pack the linked module as the .npkg distribution archive beside
+	//the .ncu (project-mode builds; BuildLinked).
+	bool WritePackageArtifact(const CompiledModule& linked,
+		const std::string& entryKey);
 	//Roughly parse the source files as translation units.
 	void ParseTransUnits();
 	//Phase 13: register `using N = T;` aliases and expand them at use
