@@ -6,6 +6,33 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.7] - Unreleased
+
+### Added
+- io: `io.write` — prints to stdout without a trailing newline (the
+  prompt half of interactive programs), and `io.eprint` — prints to
+  stderr. `io.print` is unchanged.
+- VM: `IHostIo::ReadInputLine` — the host I/O seam now carries program
+  input, not just output: an installed host can supply whole lines to
+  `io.readLine` (blocking is allowed); a host that does not override
+  it still answers no-input, which makes readLine raise a catchable
+  IOException (unchanged since 0.7.5). With no host installed (nvm,
+  ncc, the CLI front ends) the console behavior is unchanged.
+- ndb `--machine` mode: a `stdin<TAB><payload>` data command delivers
+  one program input line over the protocol channel. It is recognized
+  on the raw wire (payload spaces survive), accepted at every read
+  site — queued as type-ahead before `run`, queued without breaking a
+  frozen stop, consumed live while the program is parked in
+  `io.readLine` — and never answers; the program's next read is the
+  response. EOF on the channel still ends the session.
+- nide: the Run Output page gains a program-input row. While a run
+  child or a debug session is live, a typed line (Enter or the Send
+  button) is delivered to the program's next `io.readLine` — to the
+  child's stdin for Run, over the machine channel for a debug session
+  — and echoes into the output with a `>` prefix. The row is grayed
+  out when nothing is live. Debug sessions no longer reject
+  interactive input programs.
+
 ## [0.7.6] - 2026-10-02
 
 ### Fixed
