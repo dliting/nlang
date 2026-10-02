@@ -46,15 +46,48 @@ static bool IsTypeMember(const SyntaxNode& node) {
         || pParent->Kind() == NK_EnumDecl);
 }
 
+static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field);
+
+//Enclosure-qualified key of an ENUM method: "<unit>.<Type>.<method>"
+//("lib.Color.rank"; an enum nested in a class walks out as
+//"lib.Outer.Inner.rank"). Phase 6 §2 D-ruling (2026-10-02): enum
+//methods never dispatch by name — direct calls use function-table
+//indices — so a bare "rank" cannot disambiguate two same-named methods
+//of different enums in one unit. The qualified key lets cross-unit
+//enum-method imports resolve through the ordinary namespace branch,
+//by construction rather than bare-name luck.
+static std::string EnumMethodKey(const ModuleRegistry& reg, const SnField& method) {
+    std::vector<const SnField*> enclosure;   //owning enum first, then outer types
+    const SyntaxNode* p = method.Parent();
+    while (p && (p->Kind() == NK_EnumDecl || p->Kind() == NK_ClassDecl
+        || p->Kind() == NK_StructDecl || p->Kind() == NK_InterfaceDecl)) {
+        enclosure.push_back(static_cast<const SnField*>(p));
+        p = p->Parent();
+    }
+    //The outermost type's parent is a namespace, so its key comes from
+    //the registry branch of QualifiedName; inner types append bare names.
+    std::string key = QualifiedName(reg, *enclosure.back());
+    for (auto it = enclosure.rbegin() + 1; it != enclosure.rend(); ++it) {
+        key += '.';
+        key += (*it)->Name();
+    }
+    key += '.';
+    key += method.Name();
+    return key;
+}
+
 //Canonical VM key of a declaration: "<package>.<name>", or the bare name
 //when the node carries no owner tag. The package comes from the compile-
 //time registry (path-derived), NOT from an AST namespace walk — a walk can
 //only name a unit that literally wrote `namespace <path>`, and project
 //members hang off the root, so every project key would stay bare.
-//A CLASS/INTERFACE/ENUM METHOD always keeps a bare name, even when its
+//A CLASS/INTERFACE METHOD always keeps a bare name, even when its
 //owning type is package-nested: methods dispatch by name through their
 //receiver (VmExecutor::FindMethodByName compares the bare name), so a
-//package prefix would make every lookup fail.
+//package prefix would make every lookup fail. An ENUM METHOD is the one
+//exception — it takes its enclosure-qualified key instead (EnumMethodKey
+//above): enum methods never dispatch by name, so nothing loses by the
+//prefix, and same-named methods of different enums stay distinct keys.
 //A synthetic generic instantiation keeps its ERASED builtin key ("List"
 //for List<int>): the backing CompiledClass is registered once under the
 //base name, and the instantiation node is ownerless, so the registry
@@ -67,8 +100,11 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
         if (cls.IsGenericInstantiation())
             return cls.BaseName();
     }
-    if (IsTypeMember(field))
+    if (IsTypeMember(field)) {
+        if (field.Parent()->Kind() == NK_EnumDecl)
+            return EnumMethodKey(reg, field);
         return field.Name();
+    }
     return reg.QualifiedName(field);
 }
 

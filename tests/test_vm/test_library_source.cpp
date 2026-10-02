@@ -888,6 +888,59 @@ static void TestUserObjectDispatch() {
           "user methods and the toString override win");
 }
 
+//Phase 6 section 2 ruling (enum-method keys): enum methods carry
+//ENCLOSURE-QUALIFIED function-table keys ("alib.Color.rank"). Enum
+//methods never dispatch by name — direct calls go through table
+//indices — so a bare "rank" cannot disambiguate two same-named methods
+//of different enums in one unit. The qualified key resolves cross-unit
+//enum-method imports by construction, not by bare-name luck.
+const char* kEnumKeyLibSource =
+    "enum Color {\n"
+    "  Red,\n"
+    "  Green;\n"
+    "  public int rank() { return 7; }\n"
+    "}\n"
+    "enum Shape {\n"
+    "  Circle,\n"
+    "  Square;\n"
+    "  public int rank() { return 9; }\n"
+    "}\n";
+
+const char* kEnumKeyProgram =
+    "import alib;\n"
+    "int main() {\n"
+    "  alib.Color c = alib.Color.Red;\n"
+    "  alib.Shape s = alib.Shape.Circle;\n"
+    "  return c.rank() * 10 + s.rank();\n"
+    "}\n";   //7*10 + 9 = 79
+
+void TestEnumMethodQualifiedKeys() {
+    const auto dir = scenarioDir("enum_method_keys");
+    writeFiles(dir, {
+        { "alib.n", kEnumKeyLibSource },
+        { "main.n", kEnumKeyProgram } });
+    CapturingIo cap;
+    CHECK(compileRun(dir, cap) == 79,
+          "both same-named enum methods run (7*10+9)");
+    //The produced module's function table carries the qualified keys,
+    //and no bare "rank" record may survive them.
+    try {
+        CompiledModule mod = ModuleLoader::Load(
+            (dir / "enum_method_keys.ncu").string());
+        CHECK(mod.FindFunction("alib.Color.rank") >= 0,
+              "Color.rank keyed by its enclosure path");
+        CHECK(mod.FindFunction("alib.Shape.rank") >= 0,
+              "Shape.rank keyed by its enclosure path");
+        bool bareRemains = false;
+        for (const auto& fn : mod.functions)
+            if (fn.name == "rank") bareRemains = true;
+        CHECK(!bareRemains, "no bare 'rank' function record remains");
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "internal error: %s\n", e.what());
+        CHECK(false, "loading the enum-key scenario module");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -917,6 +970,7 @@ int main() {
     TestTwoMainsRejected();
     TestBuiltinAndUserTypeNameCoexist();
     TestUserObjectDispatch();
+    TestEnumMethodQualifiedKeys();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
