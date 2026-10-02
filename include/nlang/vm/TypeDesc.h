@@ -7,6 +7,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -97,14 +98,25 @@ void RemapTypeDesc(TypeDesc& td,
 	const std::unordered_map<uint32_t, uint32_t>& structMap,
 	const std::unordered_map<uint32_t, uint32_t>& classMap);
 
+//Leaf-slot resolution for the named struct/class arms of BuildTypeDesc
+//(phase 6 per-unit codegen): each callback slots one leaf into the
+//module under construction — an own entry lookup or, for a cross-unit
+//leaf, a fresh import placeholder. The callbacks own the table spelling
+//and the own-miss policy (VmBackend's SlotFor family throws: an own
+//declaration missing from its unit's table is a registration-order bug).
+struct TypeLeafSlots
+{
+	std::function<uint32_t(SnField&)> structSlotOf;
+	std::function<uint32_t(SnField&)> classSlotOf;
+};
+
 //Build the descriptor for one resolved type (a declaration field or an
-//interned array token; never a raw syntactic expression). Names it
-//cannot resolve through mod's tables degrade to RTK_NonSerialized, and
-//so does a container nested at kMaxTypeDescDepth (see the caps note).
-//reg supplies the phase 5 package-qualified table keys the lookups must
-//spell (the same seam VmBackend::KeyOf uses). Defined in TypeDesc.cpp —
-//vm-internal, may include compiler headers.
-TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
-	const ModuleRegistry& reg, size_t depth = 0);
+//interned array token; never a raw syntactic expression). Kinds without
+//a table slot (interfaces, Func signatures, containers nested at
+//kMaxTypeDescDepth) degrade to RTK_NonSerialized; struct/class leaves
+//resolve through slots. Defined in TypeDesc.cpp — vm-internal, may
+//include compiler headers.
+TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
+	size_t depth = 0);
 
 } //namespace nlang

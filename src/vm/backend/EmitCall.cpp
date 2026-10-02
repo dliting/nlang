@@ -75,6 +75,17 @@ void VmBackend::CopyClaimToCallParams(uint16_t claimBase, uint16_t slotCount,
     }
 }
 
+//Struct value-semantics tail shared by every deep-copy site: copy the
+//heap subtree src → dst via OP_CopyStruct. Per-unit: a cross-unit struct
+//slots as an import placeholder (StructSlotFor).
+void VmBackend::EmitStructDeepCopy(uint16_t dst, uint16_t src,
+        SnStructDecl& structDecl, BytecodeEmitter& emitter) {
+    emitter.Emit(OpCode::OP_CopyStruct);
+    emitter.EmitUint16(dst);
+    emitter.EmitUint16(src);
+    emitter.EmitUint16(static_cast<uint16_t>(StructSlotFor(structDecl)));
+}
+
 void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                               uint16_t slotIdx, size_t slotBase,
                               BytecodeEmitter& emitter, uint16_t thisSlot,
@@ -110,13 +121,10 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     //regardless of element kind, with no separate IsArrayType guard
     //(Phase 9d-3 dispatch invariant, now derived from the token).
     auto* pFormalType = b.pFormal->EvalDataType();
-    if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct) {
-        int structIdx = m_compiledModule.FindStruct(KeyOf(*pFormalType));
-        emitter.Emit(OpCode::OP_CopyStruct);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        emitter.EmitUint16(paramOffset);
-        emitter.EmitUint16(structIdx >= 0
-            ? static_cast<uint16_t>(structIdx) : 0);
+    if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct
+        && pFormalType->Kind() == NK_StructDecl) {
+        EmitStructDeepCopy(m_currFunc->tempSlot, paramOffset,
+            static_cast<SnStructDecl&>(*pFormalType), emitter);
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(m_currFunc->tempSlot);
         emitter.Emit(OpCode::OP_Assign);

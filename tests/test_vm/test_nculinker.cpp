@@ -735,6 +735,32 @@ static void test_link_owner_keyed_methods() {
               "diagnostic names the owner class");
     }
 
+    //The class exists but no member matches the imported signature —
+    //the diagnosis names the class and the arity mismatch (the
+    //owner-class-found arm, distinct from the Ghost class-miss arm).
+    {
+        CompiledModule libs = MakeUnit("lib");
+        libs.functions.push_back(MakeFunc("add", 1));   //lib.A.add(int)
+        libs.functions.push_back(MakeFunc("A", 0));     //lib.A ctor
+        CompiledClass a = MakeClass("lib.A");
+        a.methodIndices = {0};
+        a.constructorIdx = 1;
+        libs.classes.push_back(a);
+        CompiledModule app3 = MakeUnit("app3");
+        app3.functions.push_back(MakeFunc("app3.main", 0));
+        app3.functions.push_back(MakeFunc("add", 2));
+        app3.functionImports.push_back({"lib", "add", 2, "lib.A"});
+        std::vector<CompiledModule> u3;
+        u3.push_back(std::move(app3));
+        u3.push_back(std::move(libs));
+        std::string msg;
+        CHECK(LinkThrows(std::move(u3), "", &msg),
+              "owner-class signature miss throws");
+        CHECK(Contains(msg, "lib.A")
+              && Contains(msg, "provides no member"),
+              "diagnosis names the class and the signature miss");
+    }
+
     PASS();
 }
 

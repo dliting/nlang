@@ -427,11 +427,12 @@ void VmBackend::Access(SnSuperCallStmt& stmt) {
         if (!m_pCurrClass || !m_pCurrClass->SuperClass())
             return;  //resolver already reported; emit nothing
         auto* pParent = m_pCurrClass->SuperClass();
-        int parentClassIdx = m_compiledModule.FindClass(KeyOf(*pParent));
-        if (parentClassIdx < 0)
-            return;
-        uint16_t ctorIdx =
-            m_compiledModule.classes[parentClassIdx].constructorIdx;
+        //Per-unit: a cross-unit parent slots as an import placeholder
+        //(ClassSlotFor); its ctor is discovered in the AST (CtorSlotFor —
+        //placeholders carry no constructorIdx).
+        uint16_t parentClassIdx = static_cast<uint16_t>(
+            ClassSlotFor(*pParent));
+        uint16_t ctorIdx = CtorSlotFor(*pParent, parentClassIdx);
         if (ctorIdx == 0xFFFF)
             return;  //parent has no ctor; args were rejected by resolver
 

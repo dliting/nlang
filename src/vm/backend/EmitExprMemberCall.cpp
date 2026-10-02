@@ -49,13 +49,11 @@ void VmBackend::EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
         emitter.Emit(OpCode::OP_MakeVFunc);
         emitter.EmitUint16(nameIdx);
     } else {
-        auto it = m_funcIndexMap.find(method);
-        if (it == m_funcIndexMap.end())
-            throw std::runtime_error(
-                "NLang backend: method reference without a body: "
-                + method->Name());
+        //Per-unit: a cross-unit method binds an import-placeholder
+        //index; own methods keep the registration-order index.
         emitter.Emit(OpCode::OP_MakeBoundFunc);
-        emitter.EmitUint16(static_cast<uint16_t>(it->second));
+        emitter.EmitUint16(static_cast<uint16_t>(
+            FunctionSlotFor(*method)));
     }
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
@@ -96,13 +94,12 @@ bool VmBackend::EmitMemberEnumMethodCall(SnMemberExpr& member,
         throw std::runtime_error(
             "NLang backend: out argument on enum method "
             "call");
-    auto it = m_funcIndexMap.find(callee);
-    if (it == m_funcIndexMap.end())
-        throw std::runtime_error(
-            "NLang backend: call to enum method without "
-            "a body: " + callee->Name());
+    //Per-unit: a cross-unit enum method calls through an import
+    //placeholder; own ones keep the registration-order index (the own
+    //miss throws inside FunctionSlotFor — a body-less enum method
+    //declaration registers no record).
     emitter.Emit(OpCode::OP_CallMethodDirect);
-    emitter.EmitUint16(static_cast<uint16_t>(it->second));
+    emitter.EmitUint16(static_cast<uint16_t>(FunctionSlotFor(*callee)));
     emitter.EmitUint16(m_currFunc->callParamBase);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
@@ -380,26 +377,22 @@ void VmBackend::EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
 void VmBackend::EmitMemberDirectMethodCall(SnFunction* callee,
                                            const std::vector<OutSpill>& outSpills,
                                            BytecodeEmitter& emitter) {
-    //Round-12: a miss on the function map means the resolver
-    //bound a method that never got registered — today that is
-    //a body-less declaration (the backend skips functions with
-    //nothing to compile). Silently skipping the call made the
-    //expression read stale frame memory; fail the build
-    //instead so the user gets a real diagnostic.
-    auto it = m_funcIndexMap.find(callee);
-    if (it == m_funcIndexMap.end())
-        throw std::runtime_error(
-            "NLang backend: call to method without a body: "
-            + callee->Name());
+    //Per-unit: a cross-unit method calls through an import placeholder;
+    //own ones keep the registration-order index. The own-miss throw
+    //inside FunctionSlotFor covers the Round-12 case (a resolver-bound
+    //method with no body registers no record — emitting a stale-frame
+    //read would be silent wrong code).
+    const uint16_t funcIdx = static_cast<uint16_t>(
+        FunctionSlotFor(*callee));
     if (!outSpills.empty()) {
         emitter.Emit(OpCode::OP_CallMethodDirectOut);
-        emitter.EmitUint16(static_cast<uint16_t>(it->second));
+        emitter.EmitUint16(funcIdx);
         emitter.EmitUint16(m_currFunc->callParamBase);
         emitter.EmitInt32(static_cast<int32_t>(
             BuildOutMask(outSpills)));
     } else {
         emitter.Emit(OpCode::OP_CallMethodDirect);
-        emitter.EmitUint16(static_cast<uint16_t>(it->second));
+        emitter.EmitUint16(funcIdx);
         emitter.EmitUint16(m_currFunc->callParamBase);
     }
 }

@@ -181,6 +181,28 @@ target_compile_definitions(test_library_source
 )
 add_test(NAME library_source_tests COMMAND test_library_source)
 
+# Per-unit codegen + nlink integration tests (phase 6 Step 3/4): multi-file
+# programs compiled per translation unit, linked from the unit images, and
+# really executed — every cross-unit reference goes through a placeholder
+# slot resolved by NcuLinker.
+add_executable(test_perunit
+    test_vm/test_perunit.cpp
+)
+target_include_directories(test_perunit
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_perunit
+    PRIVATE
+        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+)
+target_compile_definitions(test_perunit
+    PRIVATE
+        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+)
+add_test(NAME perunit_tests COMMAND test_perunit)
+
 # ncc end-to-end test for a third-party native package: assemble a package
 # directory holding the declaration (mylib.n), an example program
 # (use_mylib.n) and the nlang_mylib.dll fixture, then compile and run through

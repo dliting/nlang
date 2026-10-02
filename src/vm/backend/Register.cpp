@@ -127,7 +127,6 @@ void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_entryKey.clear();
     m_funcIndexMap.clear();
     m_enumIndexMap.clear();
-    m_structFieldTypeNames.clear();
     m_structFieldTypes.clear();
     m_objectClassIdx = -1;
     m_listClassIdx = -1;
@@ -156,81 +155,6 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
     return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER;
 }
 
-//Phase 6 cross-unit reference slots (SymbolSlots.hpp supplies the table
-//mechanics). All four helpers discriminate by IsOwnUnit first and THROW
-//when an own declaration misses its table: a silent placeholder would
-//target the unit's own module path and could "link" to itself, hiding
-//the registration-order bug. Own-branch correctness in MERGED_MODE:
-//function stubs are bound by BindImportedFunctionStubs and class/struct
-//stubs resolve key-based through the merged tables, but imported ENUM
-//stubs never enter m_enumIndexMap — the Step 3/4 wiring must seed enum
-//stub indices (or finish the merge-mode deletion) before a merged-mode
-//emitter may call EnumSlotFor.
-uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
-    if (IsOwnUnit(callee)) {
-        auto it = m_funcIndexMap.find(&callee);
-        if (it == m_funcIndexMap.end())
-            throw std::runtime_error(
-                "NLang backend: own function missing from the unit table: "
-                + KeyOf(callee));
-        return static_cast<uint32_t>(it->second);
-    }
-    //Cross-unit methods/constructors carry the owning class's qualified
-    //key in the slot record: bare table keys cannot disambiguate two
-    //same-named same-arity methods of one unit (phase6 design section 2).
-    //Interface/enum members never reach here with a direct call (no
-    //function record of their own).
-    std::string ownerClassKey;
-    const SyntaxNode* pParent = callee.Parent();
-    if (pParent && pParent->Kind() == NK_ClassDecl)
-        ownerClassKey = KeyOf(static_cast<const SnClassDecl&>(*pParent));
-    return FunctionSymbolSlot(m_compiledModule,
-        SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
-        static_cast<uint32_t>(callee.Params().size()), ownerClassKey);
-}
-
-uint32_t VmBackend::ClassSlotFor(SnClassDecl& decl) {
-    if (IsOwnUnit(decl)) {
-        int idx = m_compiledModule.FindClass(KeyOf(decl));
-        if (idx < 0)
-            throw std::runtime_error(
-                "NLang backend: own class missing from the unit table: "
-                + KeyOf(decl));
-        return static_cast<uint32_t>(idx);
-    }
-    return ClassSymbolSlot(m_compiledModule,
-        SymbolSlotModulePath(*m_pRegistry, decl), KeyOf(decl));
-}
-
-uint32_t VmBackend::StructSlotFor(SnStructDecl& decl) {
-    if (IsOwnUnit(decl)) {
-        int idx = m_compiledModule.FindStruct(KeyOf(decl));
-        if (idx < 0)
-            throw std::runtime_error(
-                "NLang backend: own struct missing from the unit table: "
-                + KeyOf(decl));
-        return static_cast<uint32_t>(idx);
-    }
-    return StructSymbolSlot(m_compiledModule,
-        SymbolSlotModulePath(*m_pRegistry, decl), KeyOf(decl));
-}
-
-uint32_t VmBackend::EnumSlotFor(SnEnumDecl& decl) {
-    //Own enums: the registration order IS the enum table order
-    //(m_enumIndexMap). Cross-unit: named placeholder slot. The own-miss
-    //throw mirrors the other slot helpers (see FunctionSlotFor).
-    if (IsOwnUnit(decl)) {
-        auto it = m_enumIndexMap.find(&decl);
-        if (it == m_enumIndexMap.end())
-            throw std::runtime_error(
-                "NLang backend: own enum missing from the unit table: "
-                + KeyOf(decl));
-        return static_cast<uint32_t>(it->second);
-    }
-    return EnumSymbolSlot(m_compiledModule,
-        SymbolSlotModulePath(*m_pRegistry, decl), KeyOf(decl));
-}
-
 //Phase 6 D5, called at the FillNativeFunctionRecord call side: the host
 //DLL is the first-dot segment (nlang_<seg>.dll), so a native in a
 //multi-segment package cannot name one yet (phase 6 lifts the limit).
@@ -253,7 +177,6 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     //MergeImportedTypeTables in Import.cpp).
     cs.name = KeyOf(sn);
     cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
-    std::vector<std::string> typeNames;
     std::vector<SnField*> fieldTypes;
     for (auto& field : sn.Members()) {
         cs.fieldNames.push_back(field.Name());
@@ -266,33 +189,39 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
         cs.fieldTypeKinds.push_back(ftk);
         cs.fieldStructIndices.push_back(0xFFFF);
         cs.fieldClassIndices.push_back(0xFFFF);
-        if ((ftk == RTK_Struct || ftk == RTK_Class) && fieldType)
-            typeNames.push_back(KeyOf(*fieldType));
-        else
-            typeNames.push_back("");
         fieldTypes.push_back(fieldType);
     }
     m_compiledModule.structs.push_back(std::move(cs));
-    m_structFieldTypeNames.push_back(std::move(typeNames));
     m_structFieldTypes.push_back(std::move(fieldTypes));
 }
 
 void VmBackend::RegisterStructs(SnNamespace& root) {
     ForEachDeclNode(root, [&](SnField& node) {
-        if (node.Kind() == NK_StructDecl && !node.IsImported())
+        //Per-unit: foreign units' structs belong to their own images
+        //(IsOwnUnit; stubs were already skipped by IsImported).
+        if (node.Kind() == NK_StructDecl && !node.IsImported()
+            && IsOwnUnit(node))
             RegisterStructDecl(static_cast<SnStructDecl&>(node));
     });
     //Resolve fieldStructIndices now that all structs are registered.
     //fieldClassIndices are resolved later by ResolveStructClassRefs
     //(after RegisterClasses, since classes are not yet registered here).
-    for (size_t si = 0; si < m_compiledModule.structs.size(); ++si) {
-        auto& cs = m_compiledModule.structs[si];
-        auto& typeNames = m_structFieldTypeNames[si];
-        for (size_t i = 0; i < typeNames.size(); ++i) {
-            if (!typeNames[i].empty() && cs.fieldTypeKinds[i] == RTK_Struct) {
-                int idx = m_compiledModule.FindStruct(typeNames[i]);
-                if (idx >= 0)
-                    cs.fieldStructIndices[i] = static_cast<uint16_t>(idx);
+    //The node lists are parallel to the OWN struct entries only, so the
+    //loop is bounded by them: slot resolution below appends placeholder
+    //entries for cross-unit field types, growing structs past the list.
+    //Element access is by fresh indexing per statement — StructSlotFor
+    //can reallocate m_compiledModule.structs, and a held element
+    //reference would dangle across it.
+    for (size_t si = 0; si < m_structFieldTypes.size(); ++si) {
+        auto& fieldTypes = m_structFieldTypes[si];
+        for (size_t i = 0; i < fieldTypes.size(); ++i) {
+            auto* ft = fieldTypes[i];
+            if (m_compiledModule.structs[si].fieldTypeKinds[i]
+                    == RTK_Struct
+                && ft && ft->Kind() == NK_StructDecl) {
+                uint16_t slot = static_cast<uint16_t>(
+                    StructSlotFor(static_cast<SnStructDecl&>(*ft)));
+                m_compiledModule.structs[si].fieldStructIndices[i] = slot;
             }
         }
     }
@@ -300,25 +229,35 @@ void VmBackend::RegisterStructs(SnNamespace& root) {
 
 
 void VmBackend::ResolveStructClassRefs() {
-    for (size_t si = 0; si < m_compiledModule.structs.size(); ++si) {
-        auto& cs = m_compiledModule.structs[si];
-        auto& typeNames = m_structFieldTypeNames[si];
-        for (size_t i = 0; i < typeNames.size(); ++i) {
-            if (!typeNames[i].empty() && cs.fieldTypeKinds[i] == RTK_Class) {
-                int idx = m_compiledModule.FindClass(typeNames[i]);
-                if (idx >= 0)
-                    cs.fieldClassIndices[i] = static_cast<uint16_t>(idx);
+    //Own-struct entries only (the node lists are parallel to them);
+    //placeholder entries have no field data of their own. Fresh per-
+    //statement indexing for the same reallocation reason as
+    //RegisterStructs (ClassSlotFor appends to classes, and a struct
+    //leaf inside BuildTypeDesc appends to structs).
+    for (size_t si = 0; si < m_structFieldTypes.size(); ++si) {
+        auto& fieldTypes = m_structFieldTypes[si];
+        for (size_t i = 0; i < fieldTypes.size(); ++i) {
+            auto* ft = fieldTypes[i];
+            if (m_compiledModule.structs[si].fieldTypeKinds[i]
+                    == RTK_Class
+                && ft && ft->Kind() == NK_ClassDecl) {
+                uint16_t slot = static_cast<uint16_t>(
+                    ClassSlotFor(static_cast<SnClassDecl&>(*ft)));
+                m_compiledModule.structs[si].fieldClassIndices[i] = slot;
             }
         }
         //v1.12: field type descriptors — built here because both the
-        //struct and class tables are complete (BuildTypeDesc resolves
-        //names through them). Phase-A-merged imported structs have an
+        //struct and class tables are complete (BuildTypeDesc slots
+        //leaves through them). Phase-A-merged imported structs have an
         //empty parallel list, so they keep the copied+remapped
-        //descriptors untouched.
-        auto& fieldTypes = m_structFieldTypes[si];
-        for (size_t i = 0; i < fieldTypes.size(); ++i)
-            cs.fieldTypeDescs.push_back(
-                BuildTypeDesc(fieldTypes[i], m_compiledModule, *m_pRegistry));
+        //descriptors untouched. The desc is computed before the
+        //push_back statement: a struct leaf slots through
+        // LeafSlotResolvers, and the member call's receiver must not be
+        //a stale reference from before that append.
+        for (size_t i = 0; i < fieldTypes.size(); ++i) {
+            TypeDesc td = BuildTypeDesc(fieldTypes[i], LeafSlotResolvers());
+            m_compiledModule.structs[si].fieldTypeDescs.push_back(td);
+        }
     }
 }
 
@@ -360,7 +299,9 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
         m_enumIndexMap[&sn] = defIdx;
     };
     ForEachDeclNode(root, [&](SnField& node) {
-        if (node.Kind() == NK_EnumDecl && !node.IsImported())
+        //Per-unit: foreign units' enums belong to their own images.
+        if (node.Kind() == NK_EnumDecl && !node.IsImported()
+            && IsOwnUnit(node))
             registerEnum(static_cast<SnEnumDecl&>(node));
     });
 }
@@ -374,6 +315,11 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         if (node.Kind() != NK_Function)
             return;
         auto& func = static_cast<SnFunction&>(node);
+        //Per-unit: only this unit's functions register — cross-unit
+        //calls resolve through FunctionSlotFor placeholders. The
+        //body/native gate below already skips imported stubs.
+        if (!IsOwnUnit(func))
+            return;
         //Phase 9f: native declarations register like normal functions
         //(the record carries isNative + param signature); a body-less
         //non-native declaration gets no record.
@@ -389,12 +335,12 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
 //Entry = a root-level (non-method) `main` declared by a PROJECT unit.
 //Libraries never provide the entry; a module with zero candidates keeps
 //entryPoint = -1 and nvm reports "no entry point" instead of today's
-//"no 'main' function found". Two candidates is a build error, not a
-//first-wins tie-break: the keys are `a.main` and `b.main`, both legal,
-//so only the source paths can tell the user which file they meant.
-void VmBackend::ResolveEntryPoint(SnNamespace& root) {
-    m_compiledModule.entryPoint = -1;
-    m_entryKey.clear();
+//"no 'main' function found". Two candidates cannot reach codegen: the
+//merged-namespace front end rejects duplicate top-level names across
+//units at resolve time, so the >1 branch in FindEntryCandidate is an
+//invariant tripwire (keeping it beats silently picking a winner should
+//that rule change).
+SnFunction* VmBackend::FindEntryCandidate(SnNamespace& root) {
     std::vector<SnFunction*> candidates;
     for (auto& member : root.Members()) {
         if (member.Kind() != NK_Function)
@@ -412,10 +358,15 @@ void VmBackend::ResolveEntryPoint(SnNamespace& root) {
         if (owner == ModuleRegistry::NO_OWNER
             || m_pRegistry->IsLibraryModule(owner))
             continue;
+        //Per-unit: each unit's image resolves only its own entry
+        //candidate, so the entry lands in its owning unit's image and
+        //every other unit's image stays entry-less.
+        if (m_currentUnitIdx != MERGED_MODE && owner != m_currentUnitIdx)
+            continue;
         candidates.push_back(&func);
     }
     if (candidates.empty())
-        return;   //entryPoint stays -1: no entry point in this module
+        return nullptr;
     if (candidates.size() > 1) {
         std::string msg = "entry point is ambiguous:";
         for (auto* pFunc : candidates) {
@@ -424,10 +375,18 @@ void VmBackend::ResolveEntryPoint(SnNamespace& root) {
         }
         msg += " keep exactly one main() in the project.";
         m_pEnv->Log(CLL_Error, "%s", msg.c_str());
-        return;
+        return nullptr;
     }
-    SnFunction& entry = *candidates.front();
-    if (entry.ContainFlags(NF_Native) || !entry.Body()) {
+    return candidates.front();
+}
+
+void VmBackend::ResolveEntryPoint(SnNamespace& root) {
+    m_compiledModule.entryPoint = -1;
+    m_entryKey.clear();
+    SnFunction* pEntry = FindEntryCandidate(root);
+    if (!pEntry)
+        return;   //entryPoint stays -1: no entry point in this module
+    if (pEntry->ContainFlags(NF_Native) || !pEntry->Body()) {
         //The native record exists, but executing the entry must not
         //silently dispatch through the host table; a body-less non-native
         //main registers no function record, so its key would dangle —
@@ -435,10 +394,10 @@ void VmBackend::ResolveEntryPoint(SnNamespace& root) {
         m_pEnv->Log(CLL_Error,
             "entry point '%s' is not a compiled function: main must have"
             " a body and not be a host-table declaration.",
-            KeyOf(entry).c_str());
+            KeyOf(*pEntry).c_str());
         return;
     }
-    m_entryKey = KeyOf(entry);
+    m_entryKey = KeyOf(*pEntry);
     m_compiledModule.entryPoint = m_compiledModule.FindFunction(m_entryKey);
 }
 

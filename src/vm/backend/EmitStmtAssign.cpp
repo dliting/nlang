@@ -56,15 +56,13 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
 //(heap idx) copy.
 void VmBackend::EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
         SnField* varType, BytecodeEmitter& emitter) {
-    if (varType && RuntimeTypeKind(varType) == RTK_Struct) {
+    if (varType && RuntimeTypeKind(varType) == RTK_Struct
+        && varType->Kind() == NK_StructDecl) {
         //Struct assignment: evaluate right to temp, then deep-copy.
+        //Per-unit: cross-unit structs slot as import placeholders.
         EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
-        int structIdx = m_compiledModule.FindStruct(KeyOf(*varType));
-        emitter.Emit(OpCode::OP_CopyStruct);
-        emitter.EmitUint16(offset);
-        emitter.EmitUint16(m_currFunc->tempSlot2);
-        emitter.EmitUint16(structIdx >= 0
-            ? static_cast<uint16_t>(structIdx) : 0);
+        EmitStructDeepCopy(offset, m_currFunc->tempSlot2,
+            static_cast<SnStructDecl&>(*varType), emitter);
     } else {
         //Phase 10 audit round-7: stage the RHS in an EvalAreaClaim(1)
         //and copy to the destination — emitting straight into `offset`
@@ -308,15 +306,10 @@ void VmBackend::EmitAssignStructFieldDeepCopy(SnAssignStmt& assign,
     uint16_t objSlot = copySlot + VALUE_SIZE;
     uint16_t rhsSlot = objSlot + VALUE_SIZE;
     EmitExpression(*assign.Right(), emitter, rhsSlot);
-    //fieldType's name was stored by Register.cpp's KeyOf writer
-    //(m_structFieldTypeNames), so the lookup spells the same key.
-    int fieldStructIdx = m_compiledModule.FindStruct(
-        KeyOf(*fieldType));
-    emitter.Emit(OpCode::OP_CopyStruct);
-    emitter.EmitUint16(copySlot);
-    emitter.EmitUint16(rhsSlot);
-    emitter.EmitUint16(fieldStructIdx >= 0
-        ? static_cast<uint16_t>(fieldStructIdx) : 0);
+    //fieldType is the resolver-bound field-type node, so the slot
+    //helper spells the same key the registration writer stored.
+    EmitStructDeepCopy(copySlot, rhsSlot,
+        static_cast<SnStructDecl&>(*fieldType), emitter);
     //Evaluate outer (parent struct's heap index)
     EmitExpression(*memberExpr.Outer(), emitter, objSlot);
     //Store the new heap index into the parent's field

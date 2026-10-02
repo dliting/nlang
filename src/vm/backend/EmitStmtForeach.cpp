@@ -247,14 +247,12 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
         emitter.EmitUint16(slots.iterSlot);
         emitter.EmitUint16(slots.iSlot);
         //Struct element types need deep-copy on read (value semantics).
-        if (elemKind == RTK_Struct && pElemType) {
-            int structIdx = m_compiledModule.FindStruct(
-                KeyOf(*pElemType));
-            emitter.Emit(OpCode::OP_CopyStruct);
-            emitter.EmitUint16(slots.userVarSlot);
-            emitter.EmitUint16(slots.userVarSlot);
-            emitter.EmitUint16(structIdx >= 0
-                ? static_cast<uint16_t>(structIdx) : 0);
+        //Per-unit: a cross-unit element struct slots as an import
+        //placeholder (the old silent-0 fallback could not).
+        if (elemKind == RTK_Struct && pElemType
+            && pElemType->Kind() == NK_StructDecl) {
+            EmitStructDeepCopy(slots.userVarSlot, slots.userVarSlot,
+                static_cast<SnStructDecl&>(*pElemType), emitter);
         }
         return;
     }

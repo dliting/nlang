@@ -19,14 +19,18 @@ namespace nlang {
 uint16_t VmBackend::RegisterArrayType(SnField* pElemType) {
     uint8_t elemKind = RuntimeTypeKind(pElemType);
     uint16_t elemTypeIdx = 0xFFFF;
-    if (elemKind == RTK_Struct && pElemType) {
-        int idx = m_compiledModule.FindStruct(KeyOf(*pElemType));
-        if (idx >= 0)
-            elemTypeIdx = static_cast<uint16_t>(idx);
-    } else if (elemKind == RTK_Class && pElemType) {
-        int idx = m_compiledModule.FindClass(KeyOf(*pElemType));
-        if (idx >= 0)
-            elemTypeIdx = static_cast<uint16_t>(idx);
+    //Per-unit: named element types slot through the placeholder-aware
+    //helpers — a cross-unit element lands as an import slot for nlink
+    //to resolve. Kind-gated so the casts are safe; generic
+    //instantiations are ownerless and resolve to the built-in entry.
+    if (elemKind == RTK_Struct && pElemType
+        && pElemType->Kind() == NK_StructDecl) {
+        elemTypeIdx = static_cast<uint16_t>(
+            StructSlotFor(static_cast<SnStructDecl&>(*pElemType)));
+    } else if (elemKind == RTK_Class && pElemType
+        && pElemType->Kind() == NK_ClassDecl) {
+        elemTypeIdx = static_cast<uint16_t>(
+            ClassSlotFor(static_cast<SnClassDecl&>(*pElemType)));
     }
     int existing = m_compiledModule.FindArray(elemKind, elemTypeIdx);
     if (existing >= 0)
@@ -97,8 +101,11 @@ void VmBackend::WalkArrayTypeStmt(SnStatement& s) {
     }
 }
 
-void VmBackend::WalkArrayTypeNode(SyntaxNode& n) {
-    if (n.IsImported()) return;  //Phase 9c R3-F: skip stub trees
+void VmBackend::WalkArrayTypeNode(SnField& n) {
+    //Phase 9c R3-F: stub trees are skipped. Per-unit: a foreign unit's
+    //array types belong to its own image; a shared element type slots
+    //through StructSlotFor/ClassSlotFor at this unit's use sites.
+    if (n.IsImported() || !IsOwnUnit(n)) return;
     if (n.Kind() == NK_StructDecl) {
         for (auto& member : static_cast<SnStructDecl&>(n).Members())
             WalkArrayTypeField(member);

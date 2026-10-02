@@ -129,17 +129,14 @@ void VmBackend::EmitIdentifierEnumMemberRead(BytecodeEmitter& emitter,
 
 //Identifier arm: bound function reference in value position — emit a
 //static-bound handle (the pending-ref sweep rejects unbound references).
+//SlotFor keeps this unit-local: a cross-unit reference becomes an import
+//placeholder the load-time linker resolves.
 void VmBackend::EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
                                              uint16_t resultOffset,
                                              SnField* field) {
-    auto it = m_funcIndexMap.find(
-        static_cast<SnFunction*>(field));
-    if (it == m_funcIndexMap.end())
-        throw std::runtime_error(
-            "NLang backend: function reference without an index: "
-            + field->Name());
     emitter.Emit(OpCode::OP_MakeFunc);
-    emitter.EmitUint16(static_cast<uint16_t>(it->second));
+    emitter.EmitUint16(static_cast<uint16_t>(
+        FunctionSlotFor(static_cast<SnFunction&>(*field))));
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
 }
@@ -335,24 +332,23 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         }
 
         // Find function index
-        int funcIndex = -1;
-        if (callee) {
-            auto it = m_funcIndexMap.find(callee);
-            if (it != m_funcIndexMap.end())
-                funcIndex = static_cast<int>(it->second);
-        }
-        //Round-11: an invoke reaching here with no resolvable callee means
-        //the resolver marked it resolved without binding (the string
-        //equals() arg bug did exactly this — the arg's nested call was
-        //silently skipped and equals compared stale memory). Codegen only
-        //runs when the front-end saw no errors, so this is an internal
-        //inconsistency: fail the build instead of emitting wrong code.
-        if (funcIndex < 0) {
+        if (!callee) {
+            //Round-11: an invoke reaching here with no resolvable callee
+            //means the resolver marked it resolved without binding (the
+            //string equals() arg bug did exactly this — the arg's nested
+            //call was silently skipped and equals compared stale memory).
+            //Codegen only runs when the front-end saw no errors, so this
+            //is an internal inconsistency: fail the build instead of
+            //emitting wrong code.
             throw std::runtime_error(
                 "NLang backend: invoke reached codegen unresolved: "
                 + invoke.CalleeName());
         }
-        EmitFreeFunctionCall(funcIndex, emitter, resultOffset, outSpills);
+        //Per-unit: cross-unit callees slot as import placeholders
+        //(FunctionSlotFor); own ones resolve through m_funcIndexMap.
+        EmitFreeFunctionCall(
+            static_cast<int>(FunctionSlotFor(*callee)),
+            emitter, resultOffset, outSpills);
         emitter.Emit(OpCode::OP_ParaEnd);
         return;
 }

@@ -2,6 +2,7 @@
 #include <nlang/compiler/ICodeBackend.h>
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/StdLib.h"
+#include "nlang/vm/TypeDesc.h"
 #include "BytecodeEmitter.h"
 //Macro-generated per-node-kind Visit methods; VmBackend doubles as the
 //accessor (Access overloads below) for emission dispatch.
@@ -92,6 +93,28 @@ public:
     uint32_t ClassSlotFor(SnClassDecl& decl);
     uint32_t StructSlotFor(SnStructDecl& decl);
     uint32_t EnumSlotFor(SnEnumDecl& decl);
+
+    //Ctor slot for a class that already has its class slot: own/builtin
+    //records carry constructorIdx (PopulateClassMethods and the builtin
+    //writers); a cross-unit placeholder carries no metadata, so the ctor
+    //declaration is discovered in the AST (the Name()==class-name rule)
+    //and slotted through FunctionSlotFor. 0xFFFF = no ctor.
+    uint16_t CtorSlotFor(SnClassDecl& decl, uint16_t classSlot);
+
+    //Phase 6 per-unit build: one image per unit in unitIdxs (module
+    //identity = registry ModulePathOf). Every cross-unit reference in a
+    //unit's code lands as a placeholder slot + import record; nothing is
+    //baked in. entryKey is the program entry (empty = none) — at most
+    //one unit provides it (the merged-namespace front end rejects
+    //duplicate top-level names at resolve; the per-unit gate in
+    //FindEntryCandidate routes the entry to its owning unit's image).
+    struct UnitBuildResult
+    {
+        std::vector<CompiledModule> units;
+        std::string entryKey;
+    };
+    UnitBuildResult GenerateUnits(SnNamespace& root,
+                                  const std::vector<uint32_t>& unitIdxs);
 
     //Phase 9c cross-module import infrastructure: inject compiled modules
     //loaded from .ncu files. Must be called before GenerateStatements.
@@ -694,6 +717,13 @@ private:
                      uint16_t thisSlot,
                      uint16_t claimBase);
 
+    //Struct value-semantics tail shared by every deep-copy site: copy
+    //the heap subtree src → dst via OP_CopyStruct. Per-unit: a
+    //cross-unit struct slots as an import placeholder (StructSlotFor).
+    void EmitStructDeepCopy(uint16_t dst, uint16_t src,
+                            SnStructDecl& structDecl,
+                            BytecodeEmitter& emitter);
+
     //EmitCallArgs decomposition (2026-09-25): one arm/phase per helper.
     //applyBox flows through as std::function so the per-arg boxing
     //decision stays defined once in EmitCallArgs.
@@ -770,8 +800,15 @@ private:
     void AppendBuiltinExceptionFields(CompiledClass& cc);
     void CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc);
     void ResolveClassMetadata(std::unordered_map<std::string, SnClassDecl*>& declMap);
-    void ResolveClassFieldRefs(SnClassDecl* pDecl, CompiledClass& cc);
-    void BuildClassFieldTypeDescs(SnClassDecl* pDecl, CompiledClass& cc);
+    //classIdx (not a CompiledClass&) because slot resolution can append
+    //import placeholders to m_compiledModule.classes mid-call — a held
+    //element reference would dangle across the reallocation, so the
+    //helpers re-index per statement.
+    void ResolveClassFieldRefs(SnClassDecl* pDecl, size_t classIdx);
+    void BuildClassFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx);
+    //TypeLeafSlots wiring for BuildTypeDesc: leaves slot through
+    //StructSlotFor/ClassSlotFor (own entry or import placeholder).
+    TypeLeafSlots LeafSlotResolvers();
     void ApplyImplicitObjectInheritance();
     void ResolveStructClassRefs();
     void RegisterArrayTypes(SnNamespace& root);
@@ -780,7 +817,10 @@ private:
     void RegisterArrayTypeExpr(SnFieldExpr* pTypeExpr);
     void WalkArrayTypeField(SnField& f);
     void WalkArrayTypeStmt(SnStatement& s);
-    void WalkArrayTypeNode(SyntaxNode& n);
+    //Per-unit: only this unit's declarations contribute array types (a
+    //foreign unit's array entries belong to its own image; a shared
+    //element type slots through StructSlotFor/ClassSlotFor).
+    void WalkArrayTypeNode(SnField& n);
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
@@ -789,6 +829,11 @@ private:
     //and stamp m_compiledModule.entryPoint. Defined in Register.cpp (it
     //shares the registry spelling helpers with the key registration).
     void ResolveEntryPoint(SnNamespace& root);
+    //ResolveEntryPoint worker: this unit's entry candidate from the
+    //merged root — the unique project member function `main`. Methods,
+    //library units, and (in per-unit builds) other units' mains are
+    //not candidates. Null when the unit has none.
+    SnFunction* FindEntryCandidate(SnNamespace& root);
     //Phase 5 D5, run at the FillNativeFunctionRecord call side: returns
     //true (after logging) when a native's package is multi-segment — the
     //host DLL is chosen by the first dot segment (phase 6 lifts this).
@@ -979,13 +1024,15 @@ private:
     //SnInitListExpr arms: one per target shape (array / List<T> /
     //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the
     //OP_New + optional no-arg-ctor sequence shared by the class-shaped
-    //arms; the per-entry helpers stage values in evalArea claims.
+    //arms; classDecl feeds CtorSlotFor (placeholders have no table
+    //ctor). The per-entry helpers stage values in evalArea claims.
     void EmitInitListArray(SnInitListExpr& initList, SnField* pElemField,
                            BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitInitListArrayEntry(const InitEntry& entry, int32_t entryIndex,
                                 SnField* pElemField, BytecodeEmitter& emitter,
                                 uint16_t resultOffset, uint16_t valueSlot);
-    void EmitNewObjectAndNoArgCtor(uint16_t classIdx, BytecodeEmitter& emitter,
+    void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl, uint16_t classIdx,
+                                   BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
     void EmitInitListListForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
@@ -1066,10 +1113,10 @@ private:
     //unit, and cross-unit references become import slots.
     uint32_t m_currentUnitIdx = MERGED_MODE;
     std::unordered_map<SnEnumDecl*, size_t> m_enumIndexMap;  //Phase 8e-9b: AST enum decl → enumDefIdx (parallel to m_compiledModule.enumNames)
-    std::vector<std::vector<std::string>> m_structFieldTypeNames;
-    //v1.12: per-struct resolved field types (parallel to
-    //m_structFieldTypeNames) — captured at registration, descriptors
-    //built in ResolveStructClassRefs once all struct/class tables exist.
+    //v1.12: per-struct resolved field types (parallel to the own-struct
+    //entries) — captured at registration, descriptors and field
+    //struct/class indices built from the nodes once all tables exist
+    //(names alone cannot carry cross-unit provenance for the slots).
     std::vector<std::vector<SnField*>> m_structFieldTypes;
     int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
     int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)

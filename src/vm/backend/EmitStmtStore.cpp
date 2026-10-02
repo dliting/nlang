@@ -145,13 +145,12 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
     //For struct element types, deep-copy value before storing.
-    if (elemType && RuntimeTypeKind(elemType) == RTK_Struct) {
-        int structIdx = m_compiledModule.FindStruct(KeyOf(*elemType));
-        emitter.Emit(OpCode::OP_CopyStruct);
-        emitter.EmitUint16(valueSlot);
-        emitter.EmitUint16(valueSlot);
-        emitter.EmitUint16(structIdx >= 0
-            ? static_cast<uint16_t>(structIdx) : 0);
+    //Per-unit: a cross-unit element struct slots as an import
+    //placeholder (the old silent-0 fallback could not).
+    if (elemType && RuntimeTypeKind(elemType) == RTK_Struct
+        && elemType->Kind() == NK_StructDecl) {
+        EmitStructDeepCopy(valueSlot, valueSlot,
+            static_cast<SnStructDecl&>(*elemType), emitter);
     }
     emitter.Emit(OpCode::OP_StoreElement);
     emitter.EmitUint16(claimBase);

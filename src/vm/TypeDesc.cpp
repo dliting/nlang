@@ -6,10 +6,10 @@ and the reader (ModuleLoader parses + validates). Keep AppendTypeDescBytes
 and ParseOne in lockstep with the struct comment in TypeDesc.h.
 ---*/
 #include "nlang/vm/TypeDesc.h"
+//RTK_* kind constants (also the TypeDesc field-width contract).
 #include "nlang/vm/CompiledModule.h"
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnMisc.h>
-#include "builder/ModuleRegistry.h"
 #include <stdexcept>
 
 namespace nlang {
@@ -131,8 +131,8 @@ void RemapTypeDesc(TypeDesc& td,
 		RemapTypeDesc(elem, structMap, classMap);
 }
 
-TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
-	const ModuleRegistry& reg, size_t depth)
+TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
+	size_t depth)
 {
 	TypeDesc td;
 	if (!pType)
@@ -164,8 +164,8 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 		}
 		td.kind = RTK_Array;
 		td.elems.push_back(BuildTypeDesc(
-			static_cast<const SnArrayTypeToken*>(pType)->ElemTypeOf(), mod,
-			reg, depth + 1));
+			static_cast<SnArrayTypeToken*>(pType)->ElemTypeOf(), slots,
+			depth + 1));
 		return td;
 	}
 	switch (pType->Kind())
@@ -177,13 +177,9 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 			return td;
 		case NK_StructDecl:
 		{
-			//Table keys are package-qualified (phase 5); the registry
-			//spells the same key the registration side wrote.
-			int idx = mod.FindStruct(reg.QualifiedName(*pType));
-			if (idx < 0)
-				break;  //not registered — degrade
 			td.kind = RTK_Struct;
-			td.typeIdx = static_cast<uint16_t>(idx);
+			td.typeIdx = static_cast<uint16_t>(
+				slots.structSlotOf(*pType));
 			return td;
 		}
 		case NK_InterfaceDecl:
@@ -192,7 +188,7 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 			return td;
 		case NK_ClassDecl:
 		{
-			auto* pClass = static_cast<const SnClassDecl*>(pType);
+			auto* pClass = static_cast<SnClassDecl*>(pType);
 			if (pClass->IsFuncType())
 			{
 				//Func signatures are outside the v1.12 descriptor grammar
@@ -214,7 +210,7 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 						return td;
 					}
 					td.kind = RTK_List;
-					td.elems.push_back(BuildTypeDesc(args[0], mod, reg, depth + 1));
+					td.elems.push_back(BuildTypeDesc(args[0], slots, depth + 1));
 					return td;
 				}
 				if (pClass->BaseName() == "Dict" && args.size() == 2)
@@ -225,18 +221,16 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 						return td;
 					}
 					td.kind = RTK_Dict;
-					td.elems.push_back(BuildTypeDesc(args[0], mod, reg, depth + 1));
-					td.elems.push_back(BuildTypeDesc(args[1], mod, reg, depth + 1));
+					td.elems.push_back(BuildTypeDesc(args[0], slots, depth + 1));
+					td.elems.push_back(BuildTypeDesc(args[1], slots, depth + 1));
 					return td;
 				}
 				//Any other instantiation is unexpected (Func took the
 				//exit above) — fall through to the plain-class path.
 			}
-			int idx = mod.FindClass(reg.QualifiedName(*pClass));
-			if (idx < 0)
-				break;  //not registered — degrade
 			td.kind = RTK_Class;
-			td.typeIdx = static_cast<uint16_t>(idx);
+			td.typeIdx = static_cast<uint16_t>(
+				slots.classSlotOf(*pClass));
 			return td;
 		}
 		default:
@@ -255,7 +249,7 @@ TypeDesc BuildTypeDesc(const SnField* pType, const CompiledModule& mod,
 			return td;
 		}
 	}
-	td.kind = RTK_NonSerialized;
+	td.kind = RTK_NonSerialized;   //defensive tail: every arm returns
 	return td;
 }
 

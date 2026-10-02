@@ -35,6 +35,25 @@ public:
 	//Compile source files to a module file.
 	bool Build();
 
+	//Phase 6 per-unit build result: one CompiledModule image per
+	//translation unit (TU order = registry module index), the loaded
+	//external .ncu imports (NOT merged in — they ride along for the
+	//load-time linker), and the program entry's qualified key
+	//("" = none or ambiguous, already logged).
+	struct UnitImages
+	{
+		std::vector<CompiledModule> units;
+		std::vector<CompiledModule> external;
+		std::string entryKey;
+	};
+
+	//Phase 6: run the front end as Build() does, then generate code PER
+	//TRANSLATION UNIT (VmBackend::GenerateUnits) instead of one merged
+	//module. Every cross-unit reference is a placeholder slot + import
+	//record the caller's load-time linker resolves (NcuLinker::Link over
+	//units + external). Empty units = build errors (already logged).
+	UnitImages BuildUnitImages();
+
 	//Compile-time module registry; populated with one entry per
 	//translation unit (and per imported .ncu) during Build().
 	const ModuleRegistry& Registry() const;

@@ -260,12 +260,10 @@ void VmBackend::MergeImportedTypeTables() {
             }
             pm.structMap[i] = m_compiledModule.structs.size();
             m_compiledModule.structs.push_back(im.structs[i]);
-            //Push empty typeNames to keep m_structFieldTypeNames parallel
-            //with m_compiledModule.structs. ResolveStructClassRefs' inner
-            //loop iterates typeNames[i].size() so empty → no-op. The
-            //v1.12 m_structFieldTypes parallel list follows the same
-            //discipline (merged structs keep their copied descriptors).
-            m_structFieldTypeNames.push_back({});
+            //Push an empty node list to keep m_structFieldTypes parallel
+            //with m_compiledModule.structs. RegisterStructs' inner loop
+            //iterates the node list so empty → no-op (merged structs keep
+            //their copied fieldTypeKinds/fieldStructIndices descriptors).
             m_structFieldTypes.push_back({});
             pm.structWasPushed.insert(i);
         }

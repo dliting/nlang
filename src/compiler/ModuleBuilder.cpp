@@ -111,6 +111,45 @@ bool ModuleBuilder::Build()
 	return SaveModule();
 }
 
+//Phase 6 per-unit build (ModuleBuilder.h contract): the same front end as
+//Build(), then VmBackend::GenerateUnits instead of the merged single-pass
+//codegen. The external .ncu imports stay un-merged on purpose: they enter
+//the caller's link closure as peer images, so codegen never bakes their
+//table layout into the unit images.
+ModuleBuilder::UnitImages ModuleBuilder::BuildUnitImages()
+{
+	UnitImages none;
+	if (!PrepareUnits() || !ResolveAll())
+		return none;
+	SweepPendingFuncRefs();
+	if (m_upEnv->HasError())
+		return none;
+	auto* vmBackend = dynamic_cast<VmBackend*>(m_upEnv->Backend());
+	if (!vmBackend)
+	{
+		m_upEnv->Log(CLL_Fatal, "Per-unit builds need the VM backend.");
+		return none;
+	}
+	//Same injections as GenerateCodes minus SetImportedModules: the
+	//library index feeds stdlib signature types, the registry feeds
+	//table keys and unit paths.
+	vmBackend->SetLibraryIndex(&m_upEnv->LibraryIndex());
+	vmBackend->SetModuleRegistry(&m_upEnv->Registry(), m_upEnv.get());
+	//TU order == module index (ModuleRegistry registration contract).
+	std::vector<uint32_t> unitIdxs;
+	for (uint32_t i = 0; i < m_upTransUnits->size(); ++i)
+		unitIdxs.push_back(i);
+	UnitImages out;
+	VmBackend::UnitBuildResult built =
+		vmBackend->GenerateUnits(TreeRoot(), unitIdxs);
+	if (m_upEnv->HasError())
+		return none;
+	out.units = std::move(built.units);
+	out.entryKey = std::move(built.entryKey);
+	out.external = std::move(m_loadedImports);
+	return out;
+}
+
 //Phase 9c cross-module: built-in types must be available BEFORE parser
 //runs (parser resolves "int" / "float" / "string" to SnBuiltinDataType
 //singletons constructed by BuildFromRuntime). Clear first to drop any

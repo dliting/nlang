@@ -31,15 +31,21 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
         for (auto& local : decl.Decls()) {
             uint16_t offset = AllocLocal(local.name, VALUE_SIZE, typeKind, false);
             //For struct types, emit OP_AllocStruct to allocate on heap.
-            if (typeKind == RTK_Struct && evalType) {
-                int structIdx = m_compiledModule.FindStruct(KeyOf(*evalType));
-                if (structIdx >= 0) {
-                    auto& cs = m_compiledModule.structs[structIdx];
-                    emitter.Emit(OpCode::OP_AllocStruct);
-                    emitter.EmitUint16(offset);
-                    emitter.EmitUint16(static_cast<uint16_t>(structIdx));
-                    emitter.EmitUint16(cs.fieldCount);
-                }
+            //Per-unit: a cross-unit struct slots as an import placeholder
+            //(StructSlotFor). The fieldCount operand comes from the AST —
+            //a placeholder record carries no metadata (the executor
+            //allocates from the linked table; the operand is a
+            //disassembly aid, identical to the table for own entries).
+            if (typeKind == RTK_Struct && evalType
+                && evalType->Kind() == NK_StructDecl) {
+                auto& structDecl =
+                    static_cast<SnStructDecl&>(*evalType);
+                emitter.Emit(OpCode::OP_AllocStruct);
+                emitter.EmitUint16(offset);
+                emitter.EmitUint16(static_cast<uint16_t>(
+                    StructSlotFor(structDecl)));
+                emitter.EmitUint16(static_cast<uint16_t>(
+                    structDecl.FieldCount()));
             }
             //Class and array types start as null (0) — no allocation needed.
         }

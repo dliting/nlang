@@ -22,19 +22,22 @@ void VmBackend::Access(SnNewExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
     auto& newExpr = static_cast<SnNewExpr&>(expr);
-    int classIdx = ResolveNewExprClassIdx(newExpr);
-    uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
+    const int classIdxInt = ResolveNewExprClassIdx(newExpr);  //null-checked
+    auto& classDecl = *newExpr.ClassDecl();
+    const uint16_t classIdx = static_cast<uint16_t>(classIdxInt);
+    //Per-unit: own/builtin records carry the ctor index in the table;
+    //a cross-unit placeholder discovers its ctor in the AST (CtorSlotFor).
+    uint16_t ctorIdx = CtorSlotFor(classDecl, classIdx);
     uint16_t allocSlot = resultOffset;
     if (ctorIdx != 0xFFFF) {
-        EmitCtorInvocation(newExpr, emitter,
-                           static_cast<uint16_t>(classIdx), ctorIdx,
+        EmitCtorInvocation(newExpr, emitter, classIdx, ctorIdx,
                            resultOffset);
         return;
     }
 
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(allocSlot);
-    emitter.EmitUint16(static_cast<uint16_t>(classIdx));
+    emitter.EmitUint16(classIdx);
     return;
 }
 
@@ -49,23 +52,12 @@ int VmBackend::ResolveNewExprClassIdx(SnNewExpr& newExpr) {
         throw std::runtime_error(
             "NLang backend: new expression without a bound class declaration");
     }
-    //Phase 5: the table key, not BaseName() — a user class is keyed
-    //"<package>.<Name>". KeyOf keeps the erased builtin key ("List") for
-    //a generic instantiation and the bare name for ownerless builtins,
-    //so one rule covers every shape.
-    const std::string className = KeyOf(*pClassDecl);
-    int classIdx = m_compiledModule.FindClass(className);
-    if (classIdx < 0) {
-        //Round-12: the class was resolved by the front-end but never
-        //registered in the compiled module. This means the class has
-        //no compiled representation — fail the build instead of
-        //silently emitting zero (which would make `new Foo()` return
-        //null at runtime, a subtle wrong-code bug).
-        throw std::runtime_error(
-            "NLang backend: new expression for unregistered class: "
-            + className);
-    }
-    return classIdx;
+    //Per-unit: own/builtin classes resolve through the table lookup;
+    //a cross-unit class becomes an import placeholder slot (ClassSlotFor).
+    //KeyOf keeps the erased builtin key ("List") for a generic
+    //instantiation and the bare name for ownerless builtins, so the
+    //own branch of the slot helper covers every ownerless shape.
+    return static_cast<int>(ClassSlotFor(*pClassDecl));
 }
 
 //Count a new-expression's positional ctor args. Args() is a view over ALL

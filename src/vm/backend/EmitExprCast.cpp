@@ -275,10 +275,11 @@ void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                                  uint16_t resultOffset) {
     auto* targetType = asExpr.ResolvedTarget();
     uint16_t classIdx = 0;
-    if (targetType) {
-        int idx = m_compiledModule.FindClass(KeyOf(*targetType));
-        classIdx = (idx >= 0)
-            ? static_cast<uint16_t>(idx) : 0;
+    if (targetType && targetType->Kind() == NK_ClassDecl) {
+        //Per-unit: own/builtin classes resolve through the table lookup;
+        //a cross-unit class becomes an import placeholder slot.
+        classIdx = static_cast<uint16_t>(
+            ClassSlotFor(static_cast<SnClassDecl&>(*targetType)));
     }
     emitter.Emit(OpCode::OP_CheckCast);
     emitter.EmitUint16(classIdx);

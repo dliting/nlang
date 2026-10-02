@@ -106,22 +106,39 @@ void VmBackend::RegisterClassDecl(SnClassDecl& sn,
 }
 
 //Resolve each field's struct/class table index through the AST field's
-//resolved type.
-void VmBackend::ResolveClassFieldRefs(SnClassDecl* pDecl, CompiledClass& cc) {
-    for (size_t i = 0; i < cc.fieldNames.size(); ++i) {
-        auto* pField = pDecl->FindField(cc.fieldNames[i]);
+//resolved type. classIdx (not a CompiledClass&): slot resolution appends
+//import placeholders to m_compiledModule.classes mid-loop, and a held
+//element reference would dangle across the reallocation.
+void VmBackend::ResolveClassFieldRefs(SnClassDecl* pDecl, size_t classIdx) {
+    //SlotFor appends whole classes; an existing class's field lists are
+    //never touched, so the field bound is stable across the loop.
+    const size_t fieldCount =
+        m_compiledModule.classes[classIdx].fieldNames.size();
+    for (size_t i = 0; i < fieldCount; ++i) {
+        auto* pField = pDecl->FindField(
+            m_compiledModule.classes[classIdx].fieldNames[i]);
         if (pField && pField->Kind() == NK_ClassField) {
             auto* ft = pField->EvalDataType();
-            if (ft) {
-                if (cc.fieldTypeKinds[i] == RTK_Class) {
-                    int idx = m_compiledModule.FindClass(KeyOf(*ft));
-                    if (idx >= 0)
-                        cc.fieldClassIndices[i] = static_cast<uint16_t>(idx);
-                } else if (cc.fieldTypeKinds[i] == RTK_Struct) {
-                    int idx = m_compiledModule.FindStruct(KeyOf(*ft));
-                    if (idx >= 0)
-                        cc.fieldStructIndices[i] = static_cast<uint16_t>(idx);
-                }
+            //Per-unit: node-based slot resolution — a cross-unit field
+            //type lands as an import placeholder instead of a silent
+            //lookup miss. Kind-gated so the casts are safe; generic
+            //instantiations are ownerless and resolve through the own
+            //branch to the built-in entry. Slot computed before the
+            //write statement so no receiver predates the append.
+            if (m_compiledModule.classes[classIdx].fieldTypeKinds[i]
+                    == RTK_Class
+                && ft && ft->Kind() == NK_ClassDecl) {
+                uint16_t slot = static_cast<uint16_t>(
+                    ClassSlotFor(static_cast<SnClassDecl&>(*ft)));
+                m_compiledModule.classes[classIdx]
+                    .fieldClassIndices[i] = slot;
+            } else if (m_compiledModule.classes[classIdx]
+                    .fieldTypeKinds[i] == RTK_Struct
+                && ft && ft->Kind() == NK_StructDecl) {
+                uint16_t slot = static_cast<uint16_t>(
+                    StructSlotFor(static_cast<SnStructDecl&>(*ft)));
+                m_compiledModule.classes[classIdx]
+                    .fieldStructIndices[i] = slot;
             }
         }
     }
@@ -134,40 +151,66 @@ void VmBackend::ResolveClassFieldRefs(SnClassDecl* pDecl, CompiledClass& cc) {
 //backtrace) have no AST node and degrade from the recorded kind
 //byte + class index. Phase-A-merged imported classes never reach
 //here (absent from declMap) and keep their copied descriptors.
-void VmBackend::BuildClassFieldTypeDescs(SnClassDecl* pDecl, CompiledClass& cc) {
-    for (size_t i = 0; i < cc.fieldNames.size(); ++i) {
-        auto* pField = pDecl->FindField(cc.fieldNames[i]);
+//classIdx instead of CompiledClass& for the same reallocation
+//reason as ResolveClassFieldRefs.
+void VmBackend::BuildClassFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx) {
+    const size_t fieldCount =
+        m_compiledModule.classes[classIdx].fieldNames.size();
+    for (size_t i = 0; i < fieldCount; ++i) {
+        auto* pField = pDecl->FindField(
+            m_compiledModule.classes[classIdx].fieldNames[i]);
         if (pField && pField->Kind() == NK_ClassField) {
-            cc.fieldTypeDescs.push_back(
-                BuildTypeDesc(pField->EvalDataType(), m_compiledModule,
-                    *m_pRegistry));
+            //Desc computed before the push_back statement: a leaf slot
+            //inside BuildTypeDesc can append placeholders to classes,
+            //and a member-call receiver must not predate that append.
+            TypeDesc td = BuildTypeDesc(pField->EvalDataType(),
+                                        LeafSlotResolvers());
+            m_compiledModule.classes[classIdx].fieldTypeDescs.push_back(td);
             continue;
         }
         TypeDesc td;
-        if (cc.fieldTypeKinds[i] == RTK_String)
+        if (m_compiledModule.classes[classIdx].fieldTypeKinds[i]
+                == RTK_String)
             td.kind = RTK_String;
-        else if (cc.fieldTypeKinds[i] == RTK_Class
-            && cc.fieldClassIndices[i] != 0xFFFF) {
+        else if (m_compiledModule.classes[classIdx].fieldTypeKinds[i]
+                     == RTK_Class
+            && m_compiledModule.classes[classIdx]
+                     .fieldClassIndices[i] != 0xFFFF) {
             td.kind = RTK_Class;
-            td.typeIdx = cc.fieldClassIndices[i];
+            td.typeIdx = m_compiledModule.classes[classIdx]
+                .fieldClassIndices[i];
         }
-        cc.fieldTypeDescs.push_back(td);  //default = NonSerialized
+        m_compiledModule.classes[classIdx].fieldTypeDescs
+            .push_back(td);  //default = NonSerialized
     }
 }
 
 //Resolve superClassIdx and fieldClassIndices (requires all classes registered).
 void VmBackend::ResolveClassMetadata(
     std::unordered_map<std::string, SnClassDecl*>& declMap) {
-    for (auto& cc : m_compiledModule.classes) {
-        auto it = declMap.find(cc.name);
+    //Index loop bounded by the table size at entry: ClassSlotFor below
+    //appends import placeholders to m_compiledModule.classes, so a
+    //range-for's iterator would dangle and an unbounded index loop would
+    //descend into the appended placeholders' (empty) metadata. The
+    //snapshot bound also covers builtins and Phase-A-merged imports —
+    //both miss declMap and continue, unchanged semantics.
+    const size_t registeredCount = m_compiledModule.classes.size();
+    for (size_t ci = 0; ci < registeredCount; ++ci) {
+        auto it = declMap.find(m_compiledModule.classes[ci].name);
         if (it == declMap.end()) continue;
         auto* pDecl = it->second;
         if (pDecl->SuperClass()) {
-            int idx = m_compiledModule.FindClass(KeyOf(*pDecl->SuperClass()));
-            cc.superClassIdx = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
+            //Per-unit: a cross-unit parent slots as an import
+            //placeholder, keeping the subclass record's parent link
+            //unit-local for nlink to resolve. Ownerless parents
+            //(built-in Exception family, implicit Object) resolve
+            //through the own branch as before.
+            int16_t superIdx = static_cast<int16_t>(
+                ClassSlotFor(*pDecl->SuperClass()));
+            m_compiledModule.classes[ci].superClassIdx = superIdx;
         }
-        ResolveClassFieldRefs(pDecl, cc);
-        BuildClassFieldTypeDescs(pDecl, cc);
+        ResolveClassFieldRefs(pDecl, ci);
+        BuildClassFieldTypeDescs(pDecl, ci);
     }
 }
 
@@ -193,7 +236,10 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
     //Map from class name to SnClassDecl* for post-registration resolution.
     std::unordered_map<std::string, SnClassDecl*> declMap;
     ForEachDeclNode(root, [&](SnField& node) {
-        if (node.Kind() == NK_ClassDecl && !node.IsImported())
+        //Per-unit: foreign units' classes belong to their own images;
+        //a cross-unit reference slots as a placeholder at its use site.
+        if (node.Kind() == NK_ClassDecl && !node.IsImported()
+            && IsOwnUnit(node))
             RegisterClassDecl(static_cast<SnClassDecl&>(node), declMap);
     });
     ResolveClassMetadata(declMap);
@@ -204,8 +250,11 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
     ForEachDeclNode(root, [&](SnField& node) {
         if (node.Kind() != NK_ClassDecl)
             return;
-        if (node.IsImported())
-            return;  //Phase 9c R6-1: stub has no AST methods; merged cc.methodIndices from Phase B must be preserved
+        //Phase 9c R6-1: stub has no AST methods; merged
+        //cc.methodIndices from Phase B must be preserved. Per-unit:
+        //foreign units' classes keep their own image's method table.
+        if (node.IsImported() || !IsOwnUnit(node))
+            return;
         auto& sn = static_cast<SnClassDecl&>(node);
         int ccIdx = m_compiledModule.FindClass(KeyOf(sn));
         if (ccIdx < 0) return;

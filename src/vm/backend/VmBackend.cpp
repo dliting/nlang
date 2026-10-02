@@ -68,12 +68,6 @@ void VmBackend::GenerateStatements(SnNamespace& root) {
     GenerateAllBytecode(root);
 }
 
-void VmBackend::GenerateAllBytecode(SnNamespace& root) {
-    GenerateBytecodeRecursive(root);
-    //Phase 5: entryPoint write-side close-out (definition in Register.cpp).
-    ResolveEntryPoint(root);
-}
-
 void VmBackend::ForEachDeclNode(SnField& parent,
     const std::function<void(SnField&)>& fn) {
     //Enum: value members are not containers; visit its methods as functions.
@@ -131,38 +125,6 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
     m_pCurrClass = prevClass;
 }
 
-//Returns field offset in bytes, or -1 if not found.
-void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
-    CompiledFunction& compiledFunc = m_compiledModule.functions[funcIdx];
-
-    CollectSignatureTypeDescs(func, compiledFunc);
-
-    if (func.ContainFlags(NF_Native)) {
-        if (RejectMultiSegmentNativePackage(func))
-            return;
-        FillNativeFunctionRecord(func, compiledFunc);
-        return;
-    }
-
-    FuncContext ctx;
-    ctx.func = &compiledFunc;
-    ctx.nextOffset = 0;
-    m_currFunc = &ctx;
-
-    AllocParamsAndDefaults(func, ctx, compiledFunc);
-    CallSlotStats stats = ReserveReturnAndCallSlots(func, ctx, compiledFunc);
-
-    BytecodeEmitter emitter;
-    EmitBodyAndImplicitReturn(func, ctx, emitter);
-
-    compiledFunc.bytecode = emitter.TakeBytes();
-    compiledFunc.localsSize = ctx.nextOffset;
-
-    CheckEvalAreaWalkerDrift(func, ctx, stats);
-
-    m_currFunc = nullptr;
-}
-
 //v1.12 type descriptors: capture the true formal/return types for
 //cross-module stub reconstruction. Runs before the native branch so
 //body-less native declarations serialize their signature too. Methods
@@ -175,12 +137,12 @@ void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
         ParamTypeDesc ptd;
         if (param.ContainFlags(NF_Out))
             ptd.flags |= PTDF_Out;
-        ptd.type = BuildTypeDesc(param.EvalDataType(), m_compiledModule, *m_pRegistry);
+        ptd.type = BuildTypeDesc(param.EvalDataType(), LeafSlotResolvers());
         compiledFunc.paramTypeDescs.push_back(std::move(ptd));
     }
     if (func.HasReturn() && func.ReturnType())
         compiledFunc.returnTypeDesc = BuildTypeDesc(
-            func.ReturnType()->Field(), m_compiledModule, *m_pRegistry);
+            func.ReturnType()->Field(), LeafSlotResolvers());
 }
 
 //Phase 9f: native function declaration (`native int f(...);`). No

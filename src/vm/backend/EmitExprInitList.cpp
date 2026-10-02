@@ -126,14 +126,12 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
     //the subscript-store path: a bare store would alias
     //the source struct value (later mutation of the source
     //would change the stored element).
-    if (RuntimeTypeKind(pElemField) == RTK_Struct) {
-        int structIdx =
-            m_compiledModule.FindStruct(KeyOf(*pElemField));
-        emitter.Emit(OpCode::OP_CopyStruct);
-        emitter.EmitUint16(valueSlot);
-        emitter.EmitUint16(valueSlot);
-        emitter.EmitUint16(structIdx >= 0
-            ? static_cast<uint16_t>(structIdx) : 0);
+    if (RuntimeTypeKind(pElemField) == RTK_Struct && pElemField
+        && pElemField->Kind() == NK_StructDecl) {
+        //Per-unit: slot resolution covers cross-unit element structs
+        //too (the old silent-0 fallback could not).
+        EmitStructDeepCopy(valueSlot, valueSlot,
+            static_cast<SnStructDecl&>(*pElemField), emitter);
     }
     //Index constant to callParamBase (avoids tempSlot/valueSlot).
     emitter.Emit(OpCode::OP_ConstInt32);
@@ -147,14 +145,16 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
 }
 
 //Shared by the class-shaped init-list arms: OP_New into resultOffset,
-//then the no-arg ctor call when the class declares one.
-void VmBackend::EmitNewObjectAndNoArgCtor(uint16_t classIdx,
+//then the no-arg ctor call when the class declares one. classDecl feeds
+//CtorSlotFor — a cross-unit placeholder carries no table ctor.
+void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
+                                          uint16_t classIdx,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
-    uint16_t ctorIdx = m_compiledModule.classes[classIdx].constructorIdx;
+    uint16_t ctorIdx = CtorSlotFor(classDecl, classIdx);
     if (ctorIdx != 0xFFFF) {
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(resultOffset);
@@ -182,8 +182,8 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
         throw std::runtime_error(
             "NLang backend: List class not registered in module");
     }
-    EmitNewObjectAndNoArgCtor(static_cast<uint16_t>(classIdx), emitter,
-                              resultOffset);
+    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+                              emitter, resultOffset);
     //Boxing plan for primitive T. An array-typed T is the
     //interned token — BoxingTagFor's default (not primitive)
     //flows raw handles, no box.
@@ -237,8 +237,8 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
         throw std::runtime_error(
             "NLang backend: Dict class not registered in module");
     }
-    EmitNewObjectAndNoArgCtor(static_cast<uint16_t>(classIdx), emitter,
-                              resultOffset);
+    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+                              emitter, resultOffset);
     const auto& typeArgs = classDecl.GenericTypeArgs();
     //Array-typed K/V slots are interned tokens — raw handles,
     //no box (BoxingTagFor default).
@@ -304,18 +304,12 @@ void VmBackend::EmitInitListClassForm(SnInitListExpr& initList,
                                       SnClassDecl& classDecl,
                                       BytecodeEmitter& emitter,
                                       uint16_t resultOffset) {
-    //Table key via KeyOf (same rule as EmitExprNew: erased builtin key
-    //for instantiations, "<package>.<Name>" for user classes).
-    const std::string className = KeyOf(classDecl);
-    int classIdx = m_compiledModule.FindClass(className);
-    if (classIdx < 0) {
-        //Round-12: class was resolved but not registered.
-        throw std::runtime_error(
-            "NLang backend: init-list class not registered: "
-            + className);
-    }
-    EmitNewObjectAndNoArgCtor(static_cast<uint16_t>(classIdx), emitter,
-                              resultOffset);
+    //Per-unit: own/builtin classes resolve through the table lookup;
+    //a cross-unit class becomes an import placeholder slot.
+    const uint16_t classIdx = static_cast<uint16_t>(
+        ClassSlotFor(classDecl));
+    EmitNewObjectAndNoArgCtor(classDecl, classIdx,
+                              emitter, resultOffset);
     //Per-field store. Entry values stage in an evalArea claim,
     //never a temp — same clobber family as the array form
     //(binary LEFT operand parked in the staging slot vs. the
@@ -344,21 +338,17 @@ void VmBackend::EmitInitListStructForm(SnInitListExpr& initList,
                                        SnStructDecl& structDecl,
                                        BytecodeEmitter& emitter,
                                        uint16_t resultOffset) {
-    //The producer of the string this lookup consumes — the name is the
-    //table key, so it must go through KeyOf like every writer.
-    const std::string structName = KeyOf(structDecl);
-    int structIdx = m_compiledModule.FindStruct(structName);
-    if (structIdx < 0) {
-        //Round-12: struct was resolved but not registered.
-        throw std::runtime_error(
-            "NLang backend: init-list struct not registered: "
-            + structName);
-    }
-    auto& cs = m_compiledModule.structs[structIdx];
+    //Per-unit: a cross-unit struct slots as an import placeholder
+    //(StructSlotFor). The fieldCount operand comes from the AST — a
+    //placeholder record carries no metadata (the executor allocates
+    //from the linked table; the operand is a disassembly aid,
+    //identical to the table for own entries).
+    const uint16_t structIdx = static_cast<uint16_t>(
+        StructSlotFor(structDecl));
     emitter.Emit(OpCode::OP_AllocStruct);
     emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(static_cast<uint16_t>(structIdx));
-    emitter.EmitUint16(cs.fieldCount);
+    emitter.EmitUint16(structIdx);
+    emitter.EmitUint16(static_cast<uint16_t>(structDecl.FieldCount()));
     EmitInitListStructEntries(initList, structDecl, emitter, resultOffset);
 }
 

@@ -20,7 +20,9 @@ add_library(nlang_vm
     IntrinsicsByteStream.cpp
     IntrinsicsFileStream.cpp
     backend/VmBackend.cpp
+    backend/GenerateUnits.cpp
     backend/Register.cpp
+    backend/Slots.cpp
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
     backend/BuiltinClasses.cpp
