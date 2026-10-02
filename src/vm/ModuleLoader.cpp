@@ -7,17 +7,19 @@
 
 namespace nlang {
 
-CompiledModule ModuleLoader::Load(const std::string& filePath) {
+CompiledModule ModuleLoader::Load(const std::string& filePath,
+                                  std::string* entryKeyOut) {
     std::ifstream fs(filePath, std::ios::binary);
     if (!fs.is_open())
         throw std::runtime_error("Failed to open module file: " + filePath);
     std::stringstream buffer;
     buffer << fs.rdbuf();
-    return LoadFromBytes(filePath, buffer.str());
+    return LoadFromBytes(filePath, buffer.str(), entryKeyOut);
 }
 
 CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
-                                           const std::string& bytes) {
+                                           const std::string& bytes,
+                                           std::string* entryKeyOut) {
     std::istringstream fs(bytes);
 
     CompiledModule mod;
@@ -243,6 +245,8 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 + "' names no function in the module");
         mod.entryPoint = entryIdx;
     }
+    if (entryKeyOut)
+        *entryKeyOut = entryKey;
 
     return mod;
 }

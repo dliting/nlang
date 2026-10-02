@@ -40,6 +40,25 @@ target_link_libraries(test_nculinker
 )
 add_test(NAME nculinker_tests COMMAND test_nculinker)
 
+# nloader unit tests: synthetic .ncu images and .npkg archives drive the
+# runtime closure loader — entry selection, eager discovery from the
+# symbol-import tables, member location precedence and the one-shot
+# diagnostics contract. No codegen, no linking (nlink has its own suite).
+add_executable(test_nculoader
+    test_vm/test_nculoader.cpp
+)
+target_include_directories(test_nculoader
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_nculoader
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+add_test(NAME nculoader_tests COMMAND test_nculoader)
+
 # NativeHost ABI unit tests: mock host verifies the C ABI function table and
 # the header-only C++ wrappers. No VM/shared library needed.
 add_executable(test_native_abi
