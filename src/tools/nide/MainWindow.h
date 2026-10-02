@@ -402,6 +402,9 @@ private:
 
     //Menu/toolbar enablement from the current tree/editor selection.
     void updateMenuState();
+    //The File/Project menu share: enabled by the presence of an open
+    //editor / project / file selection.
+    void updateFileMenuState();
     //The debug-menu share of updateMenuState: F5/Stop/steps track the
     //session windows, the throw checkbox grays out while Running.
     //canBuild mirrors updateMenuState's target check.
