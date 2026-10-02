@@ -2,10 +2,12 @@
     NcuLinker.cpp — nlink 链接器主体：对等合并→占位槽解析→统一重映射。
     与 backend/Import.cpp 的 Phase A/B 内核同源，但语义是「N 个对等映像
     合并」（Import.cpp 是「并入既有目标」）；原件保留到 Step 3/4 切换
-    战役终点整链删除（设计 §5）。
+    战役终点整链删除（设计 §5）。Pass B（占位槽解析）在
+    NcuLinkerSlots.cpp（2026-10-02 尺寸守卫触发的拆分）。
 ---*/
 #include "NcuLinker.h"
 #include "NcuLinkerRemap.h"
+#include "NcuLinkerSlots.h"
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -192,173 +194,6 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
     }
 }
 
-// --- Pass B：占位槽解析（全部未解析项一次收集） ---
-
-//一条函数导入在目标单元内的解析结果。hit＝目标单元局部函数下标；
-//hits＝候选数（>1 即歧义）。
-struct FunctionSlotHit {
-    int hit = -1;
-    size_t hits = 0;
-};
-
-//空属主键分支：命名空间级函数，限定键在目标单元自有函数区定址；
-//多重同名同参命中即歧义（不猜）。
-static FunctionSlotHit ResolveNamespacedFunction(
-    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
-    FunctionSlotHit r;
-    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
-    for (uint32_t k = 0; k < tgtOwn; ++k) {
-        if (tgt.functions[k].name == imp.name
-            && tgt.functions[k].paramCount == imp.paramCount) {
-            if (r.hit < 0) r.hit = static_cast<int>(k);
-            ++r.hits;
-        }
-    }
-    return r;
-}
-
-//属主键分支（方法/构造器）：先按限定键在目标单元自有类区找属主类，
-//再类内消歧——名＝裸类名走 constructorIdx，否则 methodIndices 按裸名
-//（形参数为校验；类内无重载）。表键保持裸名，属主键只活在槽记录里。
-static FunctionSlotHit ResolveOwnerKeyedFunction(
-    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
-    FunctionSlotHit r;
-    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
-    const size_t tgtClsOwn = tgt.classes.size() - tgt.classImports.size();
-    int clsIdx = -1;
-    for (size_t k = 0; k < tgtClsOwn; ++k) {
-        if (tgt.classes[k].name == imp.ownerClassKey) {
-            clsIdx = static_cast<int>(k);
-            break;
-        }
-    }
-    if (clsIdx < 0)
-        return r;
-    const CompiledClass& tc = tgt.classes[clsIdx];
-    const size_t dot = imp.ownerClassKey.rfind('.');
-    const std::string bareClassName = imp.ownerClassKey.substr(
-        dot == std::string::npos ? 0 : dot + 1);
-    if (imp.name == bareClassName) {
-        //构造器：类自身的构造下标（形参数为校验）。
-        const uint16_t ci = tc.constructorIdx;
-        if (ci != 0xFFFF && ci < tgtOwn
-            && tgt.functions[ci].paramCount == imp.paramCount) {
-            r.hit = static_cast<int>(ci);
-            r.hits = 1;
-        }
-        return r;
-    }
-    for (uint16_t mi : tc.methodIndices) {
-        if (mi < tgtOwn && tgt.functions[mi].name == imp.name
-            && tgt.functions[mi].paramCount == imp.paramCount) {
-            if (r.hit < 0) r.hit = static_cast<int>(mi);
-            ++r.hits;
-        }
-    }
-    return r;
-}
-
-//函数槽解析（§4.4 两分支）：按属主键分派到上面两个命中函数，结果统一
-//落图；全部未解析项一次收集。
-static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
-    const std::unordered_map<std::string, size_t>& unitOf,
-    std::vector<NcuOperandMaps>& maps,
-    std::vector<std::string>& problems) {
-    for (size_t ui = 0; ui < units.size(); ++ui) {
-        const CompiledModule& u = units[ui];
-        const size_t ownCount = u.functions.size()
-                              - u.functionImports.size();
-        for (size_t j = 0; j < u.functionImports.size(); ++j) {
-            const auto& imp = u.functionImports[j];
-            const bool ownerKeyed = !imp.ownerClassKey.empty();
-            const std::string what = "function '" + imp.name
-                + "' (paramCount " + std::to_string(imp.paramCount) + ")"
-                + (ownerKeyed
-                       ? " of class '" + imp.ownerClassKey + "'"
-                       : std::string())
-                + " from module '" + imp.modulePath + "'";
-            auto owner = unitOf.find(imp.modulePath);
-            if (owner == unitOf.end()) {
-                problems.push_back("unit '" + u.modulePath + "': import of "
-                    + what + " fails: module '" + imp.modulePath
-                    + "' is not in the link closure");
-                continue;
-            }
-            const CompiledModule& tgt = units[owner->second];
-            const FunctionSlotHit r = ownerKeyed
-                ? ResolveOwnerKeyedFunction(tgt, imp)
-                : ResolveNamespacedFunction(tgt, imp);
-            const uint32_t slot = static_cast<uint32_t>(ownCount + j);
-            if (r.hits == 0) {
-                problems.push_back("unit '" + u.modulePath
-                    + "': imported " + what
-                    + " is not provided by any unit in the closure");
-            } else if (r.hits > 1) {
-                problems.push_back("unit '" + u.modulePath
-                    + "': imported " + what + " is ambiguous: "
-                    + std::to_string(r.hits) + " matching records in "
-                    + (ownerKeyed
-                           ? "class '" + imp.ownerClassKey + "'"
-                           : std::string("the owning unit")));
-            } else {
-                maps[ui].functions[slot] =
-                    maps[owner->second]
-                        .functions[static_cast<uint32_t>(r.hit)];
-            }
-        }
-    }
-}
-
-static std::string UnresolvedTypeLine(const CompiledModule& u,
-                                      const char* kind,
-                                      const CompiledModule::SymbolImport& imp) {
-    return "unit '" + u.modulePath + "': imported " + kind + " '"
-        + imp.name + "' from module '" + imp.modulePath
-        + "' is not provided by any unit in the closure";
-}
-
-//类型槽按限定键在合并表定址（键内嵌包前缀，闭包内全局唯一；无主
-//内建类各单元恒等，Pass A 已去重）。
-static void ResolveTypeSlots(const std::vector<CompiledModule>& units,
-                             const CompiledModule& merged,
-                             std::vector<NcuOperandMaps>& maps,
-                             std::vector<std::string>& problems) {
-    for (size_t ui = 0; ui < units.size(); ++ui) {
-        const CompiledModule& u = units[ui];
-        NcuOperandMaps& m = maps[ui];
-        const size_t clsOwn = u.classes.size() - u.classImports.size();
-        for (size_t j = 0; j < u.classImports.size(); ++j) {
-            const auto& imp = u.classImports[j];
-            int idx = merged.FindClass(imp.name);
-            if (idx < 0)
-                problems.push_back(UnresolvedTypeLine(u, "class", imp));
-            else
-                m.classes[static_cast<uint32_t>(clsOwn + j)] =
-                    static_cast<uint32_t>(idx);
-        }
-        const size_t stOwn = u.structs.size() - u.structImports.size();
-        for (size_t j = 0; j < u.structImports.size(); ++j) {
-            const auto& imp = u.structImports[j];
-            int idx = merged.FindStruct(imp.name);
-            if (idx < 0)
-                problems.push_back(UnresolvedTypeLine(u, "struct", imp));
-            else
-                m.structs[static_cast<uint32_t>(stOwn + j)] =
-                    static_cast<uint32_t>(idx);
-        }
-        const size_t enOwn = u.enumNames.size() - u.enumImports.size();
-        for (size_t j = 0; j < u.enumImports.size(); ++j) {
-            const auto& imp = u.enumImports[j];
-            int idx = merged.FindEnum(imp.name);
-            if (idx < 0)
-                problems.push_back(UnresolvedTypeLine(u, "enum", imp));
-            else
-                m.enums[static_cast<uint32_t>(enOwn + j)] =
-                    static_cast<uint32_t>(idx);
-        }
-    }
-}
-
 // --- Pass C：元数据与字节码统一重映射（槽解析后映射才完整） ---
 
 static void MergeArrayTypes(const CompiledModule& u, CompiledModule& merged,
@@ -481,12 +316,8 @@ CompiledModule NcuLinker::Link(std::vector<CompiledModule> units,
     std::vector<NcuOperandMaps> maps(units.size());
     std::vector<UnitPushes> pushes(units.size());
     MergeUnitTables(units, merged, maps, pushes);
-    std::unordered_map<std::string, size_t> unitOf;
-    for (size_t i = 0; i < units.size(); ++i)
-        unitOf.emplace(units[i].modulePath, i);
     std::vector<std::string> problems;
-    ResolveFunctionSlots(units, unitOf, maps, problems);
-    ResolveTypeSlots(units, merged, maps, problems);
+    NcuResolveSlots(units, merged, maps, problems);
     if (!problems.empty())
         throw std::runtime_error("nlink failed:\n  "
             + JoinProblems(problems));

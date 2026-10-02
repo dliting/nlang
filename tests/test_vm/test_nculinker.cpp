@@ -593,6 +593,25 @@ static void test_function_slot_keyed_by_module() {
               "slot/import correspondence");
     }
 
+    //The dedup key must also carry the owner-class key: the same bare
+    //method name and arity exported by TWO classes of ONE package must
+    //occupy two slots — collapsing them would bind the second caller
+    //to the first class's method.
+    {
+        CompiledModule meth = MakeUnit("app");
+        meth.functions.push_back(MakeFunc("app.main", 0));
+        const uint32_t aSlot = FunctionSymbolSlot(meth, "lib", "add", 1, "lib.A");
+        const uint32_t bSlot = FunctionSymbolSlot(meth, "lib", "add", 1, "lib.B");
+        const uint32_t aAgain = FunctionSymbolSlot(meth, "lib", "add", 1, "lib.A");
+        CHECK(aSlot != bSlot, "one package, two owner classes: two slots");
+        CHECK(aAgain == aSlot, "same owner-class key dedups to one slot");
+        CHECK(meth.functionImports.size() == 2,
+              "one import per distinct owner-class key");
+        CHECK(meth.functionImports[aSlot - 1].ownerClassKey == "lib.A"
+           && meth.functionImports[bSlot - 1].ownerClassKey == "lib.B",
+              "owner-class keys ride on their slot records");
+    }
+
     //Link-level: cross-package functions are referenced by qualified name;
     //each slot must resolve into its own owning unit's region.
     CompiledModule app = MakeUnit("app");
