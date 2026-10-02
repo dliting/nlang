@@ -248,7 +248,10 @@ void MainWindow::sendProgramInput() {
     if (text.isEmpty())
         return;
     if (debugSessionLive()) {
-        m_debugClient->sendStdin(text);
+        //Converged between the row's enablement and here: no delivery,
+        //so no echo either (the echo must never lie).
+        if (!m_debugClient->sendStdin(text))
+            return;
     } else if (m_executed.state() != QProcess::NotRunning) {
         m_executed.write((text + QLatin1Char('\n')).toUtf8());
     } else {

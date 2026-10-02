@@ -2232,18 +2232,24 @@ private slots:
         act(window, "actBuild")->trigger();
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
-        act(window, "actStartRunning")->trigger();
 
         QLineEdit* editStdin = window.findChild<QLineEdit*>("editStdin");
         QPushButton* btnStdinSend =
             window.findChild<QPushButton*>("btnStdinSend");
         QVERIFY(editStdin != nullptr);
         QVERIFY(btnStdinSend != nullptr);
+        //Nothing is live yet: the row must start disabled (the .ui
+        //default is enabled; the ctor's updateMenuState disables it).
+        QVERIFY(!editStdin->isEnabled());
+        QVERIFY(!btnStdinSend->isEnabled());
+
+        act(window, "actStartRunning")->trigger();
         QVERIFY(editStdin->isEnabled());   // live while the child runs
         QVERIFY(btnStdinSend->isEnabled());
 
+        //Deliver via Enter: the returnPressed auto-connect path.
         editStdin->setText("Alice");
-        btnStdinSend->click();
+        QTest::keyClick(editStdin, Qt::Key_Return);
 
         QTextBrowser* executeOut =
             window.findChild<QTextBrowser*>("txtExecuteOut");
