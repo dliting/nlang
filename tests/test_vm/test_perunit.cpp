@@ -523,6 +523,118 @@ void TestExternalNcuPeerImage() {
     CHECK(!bakedIn, "consumer unit contains no lib code");
 }
 
+// --- shape 10: foreign methods compile only into their owning unit ---
+//
+// Class/enum METHODS carry no owner tag (TagUnitMembers tags namespace
+// members), so a flat owner lookup saw NO_OWNER and IsOwnUnit's fallback
+// registered — and fully bytecode-compiled — every foreign method into
+// EVERY unit image (ghost registration). Calls then bound to the local
+// ghost, so nlink's owner-keyed import validation never ran for methods
+// or constructors. This shape pins the per-unit invariant: the consumer
+// image holds no foreign bodies, and the cross-unit ctor/method/enum-
+// method calls are real import records.
+void TestForeignMethodsNotGhostCompiled() {
+    const Files payload = {
+        { "alib.n",
+          "class Calc {\n"
+          "  public int base;\n"
+          "  public int Calc(int b) {\n"
+          "    base = b;\n"
+          "    return 0;\n"
+          "  }\n"
+          "  public int twice() {\n"
+          "    return base * 2;\n"
+          "  }\n"
+          "}\n"
+          "enum Color {\n"
+          "  Red,\n"
+          "  Green;\n"
+          "  public int rank() { return 7; }\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  alib.Calc c = new alib.Calc(21);\n"
+          "  alib.Color col = alib.Color.Red;\n"
+          "  return c.twice() + col.rank();\n"
+          "}\n" } };   //42 + 7 = 49
+    const auto dir = scenarioDir("no_ghost");
+    writeFiles(dir, payload);
+    const PerUnitBuild b = perUnitBuild(dir, { "main.n", "alib.n" });
+    CHECK(b.ok, "no-ghost scenario builds");
+    if (!b.ok) return;
+    bool ghostMethod = false, ghostEnumMethod = false;
+    for (const auto& fn : b.images.units[0].functions) {
+        if (fn.name == "twice" && !fn.bytecode.empty())
+            ghostMethod = true;
+        if (fn.name == "rank" && !fn.bytecode.empty())
+            ghostEnumMethod = true;
+    }
+    CHECK(!ghostMethod, "consumer image holds no foreign method body");
+    CHECK(!ghostEnumMethod,
+          "consumer image holds no foreign enum-method body");
+    bool ctorImport = false, methodImport = false, enumMethodImport = false;
+    for (const auto& imp : b.images.units[0].functionImports) {
+        if (imp.modulePath == "alib" && imp.name == "Calc"
+            && imp.paramCount == 2 && imp.ownerClassKey == "alib.Calc")
+            ctorImport = true;   //2 = formal + this, table convention
+        if (imp.modulePath == "alib" && imp.name == "twice"
+            && imp.paramCount == 1 && imp.ownerClassKey == "alib.Calc")
+            methodImport = true;
+        if (imp.modulePath == "alib" && imp.name == "alib.Color.rank"
+            && imp.paramCount == 1 && imp.ownerClassKey.empty())
+            enumMethodImport = true;
+    }
+    CHECK(ctorImport, "cross-unit ctor call is an import slot");
+    CHECK(methodImport, "cross-unit method call is an import slot");
+    CHECK(enumMethodImport,
+          "cross-unit enum-method call is an import slot");
+    //Fresh scenario for the run: the process-wide runtime ModuleManager
+    //keeps module names across builds, so a second build of the same
+    //module name would be rejected ("already exists").
+    const auto runDir = scenarioDir("no_ghost_run");
+    writeFiles(runDir, payload);
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(runDir, cap, { "main.n", "alib.n" });
+    CHECK(r.ok, "import-resolved methods link");
+    CHECK(r.rc == 49, "ctor/method/enum-method imports run (42+7)");
+}
+
+// --- shape 11: cross-unit enum -> string keeps the value name ---
+//
+// The three enum-to-string emit sites read m_enumIndexMap directly; a
+// foreign enum missed the map and the sites either degraded to the
+// numeric int->string spelling (cast site) or emitted nothing while
+// claiming success (member sites — raw int32 left where a string
+// handle belongs). Routing through EnumSlotFor leaves a placeholder
+// the linker resolves; toString then prints the value name ("Red").
+void TestCrossUnitEnumToString() {
+    const auto dir = scenarioDir("enum_tostring");
+    writeFiles(dir, {
+        { "alib.n",
+          "enum Color {\n"
+          "  Red,\n"
+          "  Green;\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  alib.Color c = alib.Color.Red;\n"
+          "  string s = c.toString();\n"
+          "  if (s != \"Red\") return 1;\n"
+          "  s = alib.Color.Green.toString();\n"
+          "  if (s != \"Green\") return 2;\n"
+          "  string t = \"v=\" + c;\n"
+          "  if (t != \"v=Red\") return 3;\n"
+          "  return 0;\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(dir, cap, { "main.n", "alib.n" });
+    CHECK(r.ok, "cross-unit enum toString builds and links");
+    CHECK(r.rc == 0,
+          "enum toString variable/literal/concat all keep value names");
+}
+
 } // namespace
 
 int main() {
@@ -537,6 +649,8 @@ int main() {
     TestTwoMainsPerUnitRejected();
     TestForeignTypedFieldsCrossUnit();
     TestExternalNcuPeerImage();
+    TestForeignMethodsNotGhostCompiled();
+    TestCrossUnitEnumToString();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

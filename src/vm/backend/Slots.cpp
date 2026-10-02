@@ -22,9 +22,10 @@ namespace nlang {
 //the registration-order bug. Own-branch correctness in MERGED_MODE:
 //function stubs are bound by BindImportedFunctionStubs and class/struct
 //stubs resolve key-based through the merged tables, but imported ENUM
-//stubs never enter m_enumIndexMap — the Step 3/4 wiring must seed enum
-//stub indices (or finish the merge-mode deletion) before a merged-mode
-//emitter may call EnumSlotFor.
+//stubs never enter m_enumIndexMap. That is safe now: only the parser
+//creates SnEnumDecl (a .ncu import builds no enum AST node), so in
+//merged mode every pEnumDecl reaching EnumSlotFor is a registered
+//source enum and the own-miss throw cannot fire.
 uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     if (IsOwnUnit(callee)) {
         auto it = m_funcIndexMap.find(&callee);
@@ -37,15 +38,25 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     //Cross-unit methods/constructors carry the owning class's qualified
     //key in the slot record: bare table keys cannot disambiguate two
     //same-named same-arity methods of one unit (phase6 design section 2).
-    //Interface/enum members never reach here with a direct call (no
-    //function record of their own).
+    //Enum methods DO reach here — KeyOf gives them the enclosure-
+    //qualified EnumMethodKey and they resolve through the namespace
+    //branch; interface members never do (no function record of their
+    //own). Arity follows the TABLE convention (formals + this for class
+    //and enum methods, mirroring AllocParamsAndDefaults): the import
+    //record must match the owning unit's registration or nlink's
+    //name+paramCount resolution reports a signature miss.
     std::string ownerClassKey;
     const SyntaxNode* pParent = callee.Parent();
+    const bool isMethod = pParent
+        && (pParent->Kind() == NK_ClassDecl
+            || pParent->Kind() == NK_EnumDecl);
     if (pParent && pParent->Kind() == NK_ClassDecl)
         ownerClassKey = KeyOf(static_cast<const SnClassDecl&>(*pParent));
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
-        static_cast<uint32_t>(callee.Params().size()), ownerClassKey);
+        static_cast<uint32_t>(
+            callee.Params().size() + (isMethod ? 1 : 0)),
+        ownerClassKey);
 }
 
 uint32_t VmBackend::ClassSlotFor(SnClassDecl& decl) {

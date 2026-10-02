@@ -71,14 +71,17 @@ bool VmBackend::EmitCastEnumToString(SnCastExpr& cast, NodeKind srcKind,
         }
     }
     if (pEnumDecl) {
-        auto it = m_enumIndexMap.find(pEnumDecl);
-        if (it != m_enumIndexMap.end()) {
-            emitter.Emit(OpCode::OP_Enum_to_str);
-            emitter.EmitUint16(static_cast<uint16_t>(it->second));
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(resultOffset);
-            return true;
-        }
+        //EnumSlotFor: own enums resolve through the table (a miss throws
+        //— the resolver bound an enum the registration never saw), a
+        //cross-unit enum lands as a placeholder the linker resolves.
+        //The old direct m_enumIndexMap probe degraded foreign enums to
+        //the numeric int->string spelling.
+        emitter.Emit(OpCode::OP_Enum_to_str);
+        emitter.EmitUint16(static_cast<uint16_t>(
+            EnumSlotFor(*pEnumDecl)));
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+        return true;
     }
     return false;
 }

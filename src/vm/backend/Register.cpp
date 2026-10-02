@@ -151,7 +151,14 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
         return true;
     if (member.ContainFlags(NF_Imported))
         return false;
-    const uint32_t owner = m_pRegistry->OwnerOf(member);
+    //Owner-of-CONTEXT (ancestor walk), never the flat owner tag: class
+    //and enum members carry no tag of their own, so a foreign unit's
+    //method would fall to the NO_OWNER fallback below and ghost-register
+    //— fully bytecode-compile — into every unit image, silently bypassing
+    //the nlink import path for methods and constructors. The contexts
+    //that still resolve NO_OWNER are exactly the built-ins and synthetic
+    //generic instantiations: own in every unit by design.
+    const uint32_t owner = m_pRegistry->OwnerOfContext(member);
     return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER;
 }
 

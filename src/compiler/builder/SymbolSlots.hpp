@@ -24,11 +24,14 @@ SymbolSlots.hpp — 跨单元引用的槽位解析（Phase 6 Task 3 核心）。
 namespace nlang
 {
 
-//目标的模块路径（OwnerOf → ModulePathOf）。仅跨单元引用需要。
+//目标的模块路径（OwnerOfContext → ModulePathOf）。仅跨单元引用需要。
+//Context（祖先链）而非扁平属主：类/enum 成员自身无标记，扁平查找会把
+//方法的属主单元降级成 NO_OWNER→空路径，链接器随即报「module '' is
+//not in the link closure」。
 inline std::string SymbolSlotModulePath(const ModuleRegistry &reg,
 	const SnField &decl)
 {
-	return reg.ModulePathOf(reg.OwnerOf(decl));
+	return reg.ModulePathOf(reg.OwnerOfContext(decl));
 }
 
 //函数槽：按 modulePath+属主类键+名+形参数去重后追加占位记录，返回局部

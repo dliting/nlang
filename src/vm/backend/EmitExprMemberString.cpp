@@ -88,22 +88,20 @@ bool VmBackend::EmitMemberArrayToString(SnMemberExpr& member,
 }
 
 //Typed enum variable arm (outerKind == NK_EnumDecl): OP_Enum_to_str with
-//the decl's enumDefIdx; the arm still consumes the call when the decl has
-//no table entry.
+//the decl's enumDefIdx. EnumSlotFor covers both own entries and
+//cross-unit placeholder slots — the old direct m_enumIndexMap probe
+//emitted NOTHING for a foreign enum yet still consumed the call,
+//leaving the raw int32 where a string handle belongs.
 bool VmBackend::EmitMemberEnumToString(SnMemberExpr& member,
                                        SnField* outerType,
                                        BytecodeEmitter& emitter,
                                        uint16_t resultOffset) {
     EmitExpression(*member.Outer(), emitter, resultOffset);
     auto* enumDecl = static_cast<SnEnumDecl*>(outerType);
-    auto it = m_enumIndexMap.find(enumDecl);
-    if (it != m_enumIndexMap.end())
-    {
-        emitter.Emit(OpCode::OP_Enum_to_str);
-        emitter.EmitUint16(static_cast<uint16_t>(it->second));
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    }
+    emitter.Emit(OpCode::OP_Enum_to_str);
+    emitter.EmitUint16(static_cast<uint16_t>(EnumSlotFor(*enumDecl)));
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
     return true;
 }
 
@@ -126,14 +124,11 @@ bool VmBackend::EmitMemberEnumLiteralToString(SnMemberExpr& member,
             EmitExpression(*member.Outer(), emitter, resultOffset);
             auto* enumDecl = static_cast<SnEnumDecl*>(
                 outerField->Parent());
-            auto it = m_enumIndexMap.find(enumDecl);
-            if (it != m_enumIndexMap.end())
-            {
-                emitter.Emit(OpCode::OP_Enum_to_str);
-                emitter.EmitUint16(static_cast<uint16_t>(it->second));
-                emitter.Emit(OpCode::OP_Assign);
-                emitter.EmitUint16(resultOffset);
-            }
+            emitter.Emit(OpCode::OP_Enum_to_str);
+            emitter.EmitUint16(static_cast<uint16_t>(
+                EnumSlotFor(*enumDecl)));
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
             return true;
         }
     }
