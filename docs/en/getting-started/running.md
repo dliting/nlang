@@ -12,6 +12,12 @@
    F5 instead starts a debug session — see
    [Debugging in nide](debugging.md).
 
+When the program needs standard input (`io.readLine`), the Run Output
+page has an input row at the bottom: while the program runs, type a
+line there and press Enter (or click Send) to write it to the running
+process's stdin; the input echoes into the output with a `>` prefix,
+and the row is grayed out while no program is running.
+
 ### Configuring nide
 
 Tools → Options opens the settings dialog with three settings:

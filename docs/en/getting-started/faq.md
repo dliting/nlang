@@ -74,15 +74,17 @@ spaces around the operator (`v + 1`).
 
 See also: [Language Specification / Expressions](../language-spec/expressions.md).
 
-### Debugging: `io.readLine` fails / `finally` doesn't run on stop / breakpoints drift?
+### Debugging: how do I feed `io.readLine` / `finally` doesn't run on stop / breakpoints drift?
 
-A debug session has no standard input — `io.readLine` throws an
-`IOException` (catch it with `try/catch`; it does not hang silently).
-Stopping a debug session is a hard stop: the process terminates
-directly and `finally` does not run. Line-number drift is not tracked
-inside a session — one session is one line-number snapshot, so editing
-or rebuilding mid-session is not supported; reopen the debug session.
-See the "Known v1 limitations" section of [Debugging in nide](debugging.md).
+Standard input for both running and debugging lives in the input row at
+the bottom of the Run Output page: while the session is running, type a
+line and press Enter, and it is delivered to the program's next read
+(see [Debugging in nide](debugging.md)). Stopping a debug session is a
+hard stop: the process terminates directly and `finally` does not run.
+Line-number drift is not tracked inside a session — one session is one
+line-number snapshot, so editing or rebuilding mid-session is not
+supported; reopen the debug session. See the "Known v1 limitations"
+section of [Debugging in nide](debugging.md).
 
 ### Cross-module reference gives `Module '...' is not imported`?
 

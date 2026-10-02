@@ -314,11 +314,15 @@ void MainWindow::updateMenuState() {
     m_ui->actBuild->setEnabled(canBuild && !debugLive);
 
     //Run lifecycle: Start needs a build target AND an idle process; Stop
-    //is live exactly while the process runs.
+    //is live exactly while the process runs. The input row follows the
+    //same two consumers: the run child's stdin pipe or the debug
+    //session's machine channel.
     const bool running =
         m_executed.state() != QProcess::NotRunning;
     m_ui->actStartRunning->setEnabled(canBuild && !running && !debugLive);
     m_ui->actStopRunning->setEnabled(running);
+    m_ui->editStdin->setEnabled(running || debugLive);
+    m_ui->btnStdinSend->setEnabled(running || debugLive);
 
     updateDebugMenuState(canBuild);
 

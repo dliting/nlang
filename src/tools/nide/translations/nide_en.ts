@@ -24,6 +24,21 @@
         <translation>Run Output</translation>
     </message>
     <message>
+        <location filename="../ui/MainWindow.ui" line="231"/>
+        <source>程序输入：运行或调试时，在此输入一行并回车发送给程序</source>
+        <translation>Program input: while running or debugging, type a line here and press Enter to send it to the program</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="234"/>
+        <source>程序输入（回车发送）</source>
+        <translation>Program input (Enter to send)</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="241"/>
+        <source>发送</source>
+        <translation>Send</translation>
+    </message>
+    <message>
         <location filename="../ui/MainWindow.ui" line="217"/>
         <source>调试</source>
         <translation>Debug</translation>

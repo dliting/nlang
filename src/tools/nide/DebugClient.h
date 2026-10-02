@@ -69,6 +69,11 @@ public:
     //signal (observable through the session behavior, not the wire).
     bool setBreakOnThrow(bool enabled);
     bool deleteBreakpoint(int id);
+    //Program stdin (0.7.7): one line to a parked io.readLine, as the
+    //stdin data command. Fire-and-forget — it never answers (the
+    //program's next output is the response). Valid while a session is
+    //live (Launching queues as type-ahead); Idle/Ended reject.
+    bool sendStdin(const QString& text);
     //Terminate unconditionally: kill(), no graceful handshake (an
     //infinite loop must stay terminable); finished() is the one
     //convergence point. No-op when not live.

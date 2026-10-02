@@ -151,7 +151,7 @@ function with >64 KiB of
 bytecode would wrap; a pre-existing VM bound, not a debugger limit); a
 shared `.nmod` may carry stale source paths (ndb falls back to the
 `.nmod`'s directory, then degrades `l` to numbers-only). The IDE
-session inherits these and adds user-facing ones — no stdin inside a
-debug session, per-session line-number snapshots (no mid-session
-edit/rebuild), hard-terminate stop — documented in the Getting Started
-guide, [debugging in nide](../getting-started/debugging.md).
+session inherits these and adds user-facing ones — per-session
+line-number snapshots (no mid-session edit/rebuild), hard-terminate
+stop — documented in the Getting Started guide,
+[debugging in nide](../getting-started/debugging.md).

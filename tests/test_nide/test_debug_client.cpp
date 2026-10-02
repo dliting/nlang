@@ -75,6 +75,19 @@ const char kPointSource[] =
     "    return p.manhattan();\n"           //18
     "}\n";                                  //19
 
+//echo.n: parks in io.readLine, so the session stays Running until a
+//stdin line arrives — then the reply proves the input reached the
+//program through the machine channel.
+const char kEchoSource[] =
+    "import io;\n"                          //1
+    "\n"                                    //2
+    "int main() {\n"                        //3
+    "    io.write(\"Name: \");\n"           //4
+    "    string n = io.readLine();\n"       //5
+    "    io.print(\"Hi \" + n);\n"          //6
+    "    return 0;\n"                       //7
+    "}\n";                                  //8
+
 } // namespace
 
 class TestDebugClient : public QObject {
@@ -83,6 +96,7 @@ class TestDebugClient : public QObject {
 private slots:
     void initTestCase();
     void fullSessionRunsToTheExitCode();
+    void stdinReachesReadLineWhileRunning();
     void breakpointAddedWhileStoppedHitsLater();
     void killGuaranteeOnAnInfiniteLoop();
     void loadFailureReportsErrorBeforeHello();
@@ -107,6 +121,7 @@ private:
     QString m_throwNmod;
     QString m_pointNmod;
     QString m_pointSource;
+    QString m_echoNmod;
 };
 
 void TestDebugClient::initTestCase() {
@@ -117,6 +132,7 @@ void TestDebugClient::initTestCase() {
     QVERIFY(buildModule("throw", kThrowSource, &m_throwNmod));
     m_pointSource = m_dir.filePath("point.n");
     QVERIFY(buildModule("point", kPointSource, &m_pointNmod));
+    QVERIFY(buildModule("echo", kEchoSource, &m_echoNmod));
 }
 
 //Write the source, compile with the real ncc, store the .nmod path.
@@ -231,6 +247,45 @@ void TestDebugClient::fullSessionRunsToTheExitCode() {
     QCOMPARE(exited.first().at(0).toInt(), 42);
     QCOMPARE(failed.count(), 0);
     QCOMPARE(abnormal.count(), 0);
+}
+
+//0.7.7: sendStdin delivers one program input line over the machine
+//channel. The program parks in io.readLine (session stays Running with
+//no stop), the line goes in, and the program's reply comes back as
+//ordinary output events. Also pins the state guard: Idle rejects.
+void TestDebugClient::stdinReachesReadLineWhileRunning() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
+    QSignalSpy output(&client, &DebugClient::outputReceived);
+    QSignalSpy exited(&client, &DebugClient::exited);
+
+    //No session yet: the input has nowhere to go.
+    QVERIFY(!client.sendStdin(QStringLiteral("no session")));
+
+    QVERIFY(client.launch(m_echoNmod));
+    QVERIFY(client.run());
+    //Running means past the auto-continued initial stop: the program
+    //is parked in io.readLine now.
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Running, kSessionTimeoutMs);
+
+    QVERIFY(client.sendStdin(QStringLiteral("Alice")));
+
+    QString joined;
+    QTRY_VERIFY_WITH_TIMEOUT([&] {
+        joined.clear();
+        for (const QList<QVariant>& o : output)
+            joined += o.at(0).toString();
+        return joined.contains(QLatin1String("Hi Alice"));
+    }(), kSessionTimeoutMs);
+    //The write prompt streamed too (io.write -> one output event).
+    QVERIFY(joined.contains(QLatin1String("Name: ")));
+
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
+    QCOMPARE(exited.first().at(0).toInt(), 0);
+    //The read never froze the session into a user-facing stop.
+    QCOMPARE(stoppedSpy.count(), 0);
 }
 
 void TestDebugClient::breakpointAddedWhileStoppedHitsLater() {

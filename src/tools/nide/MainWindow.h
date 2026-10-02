@@ -172,6 +172,10 @@ private slots:
     void on_tvwSolution_customContextMenuRequested(const QPoint& pos);
     void on_dckSolution_visibilityChanged(bool visible);
     void on_tvwDebugStack_itemClicked(QTreeWidgetItem* item, int column);
+    //Run-page input row (auto-connected): both deliver one line to
+    //sendProgramInput().
+    void on_btnStdinSend_clicked();
+    void on_editStdin_returnPressed();
 
     //--- non-widget signals (connected explicitly) ---
     void onEditorSaveStateChanged(FileEditor* editor);
@@ -378,6 +382,11 @@ private:
     //splits io.print into a text half and a newline half, so append()'s
     //implicit paragraph breaks would corrupt the output).
     void appendExecuteOutput(const QString& text);
+    //One program-input line from the run page's row: a debug session
+    //rides the machine channel (stdin data command), a running child
+    //gets it on its stdin pipe; the echo keeps the transcript readable
+    //(a pipe is not a terminal, so the child echoes nothing itself).
+    void sendProgramInput();
 
     //outputDir wins; else the global build output directory; else the
     //project directory + name + ".nmod". The same path is passed to

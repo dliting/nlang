@@ -85,6 +85,12 @@ Program output and the call-stack backtrace on error appear on the Run
 Output page. Breakpoints are remembered by file path, survive nide
 restarts, and follow a file automatically when it is renamed.
 
+The program's standard input lives on the same page: while the session
+is running, type a line into the input row at the bottom and press
+Enter (or click Send) — the line is delivered to the program's next
+`io.readLine` read, and it echoes into the output with a `>` prefix.
+The row is grayed out while no session is running.
+
 ### Stepping
 
 - Step Over (F10): finishes the current statement and stops at the next
@@ -99,8 +105,6 @@ round.
 
 ### Known v1 limitations
 
-- Debug sessions have no stdin: `io.readLine` throws an `IOException`
-  (catchable with try/catch) instead of hanging silently;
 - line-number drift is not tracked within a session: one session uses
   one line-number snapshot, and editing or rebuilding mid-session is
   unsupported; the next debug start re-resolves against the latest

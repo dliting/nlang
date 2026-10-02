@@ -30,6 +30,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
+#include <QPushButton>
 #include <QSplitter>
 #include <QSettings>
 #include <QStatusBar>
@@ -2208,6 +2209,94 @@ private slots:
                 .contains("Program exited with code 42");
         }, 15000));
         QVERIFY(executeOut->toPlainText().contains(QString(QChar(0x4E2D))));
+    }
+
+    //0.7.7: the run page's input row feeds a running program's stdin.
+    //The nvm child parks in io.readLine reading its stdin pipe; the
+    //typed line must reach it, echo into the transcript, and the row
+    //must gray out again once the child exits.
+    void testStdinRowFeedsRunningProgram() {
+        MainWindow window;
+        QTemporaryDir dir;
+        openFixtureProject(window, dir.path());
+
+        writeFile(QDir(dir.path()).filePath("App/main.n"),
+            "import io;\n"
+            "public int main() {\n"
+            "    io.write(\"Name: \");\n"
+            "    string n = io.readLine();\n"
+            "    io.print(\"Hi \" + n);\n"
+            "    return 7;\n"
+            "}\n");
+
+        act(window, "actBuild")->trigger();
+        QCOMPARE(window.statusBar()->currentMessage(),
+                 QString("Build succeeded"));
+        act(window, "actStartRunning")->trigger();
+
+        QLineEdit* editStdin = window.findChild<QLineEdit*>("editStdin");
+        QPushButton* btnStdinSend =
+            window.findChild<QPushButton*>("btnStdinSend");
+        QVERIFY(editStdin != nullptr);
+        QVERIFY(btnStdinSend != nullptr);
+        QVERIFY(editStdin->isEnabled());   // live while the child runs
+        QVERIFY(btnStdinSend->isEnabled());
+
+        editStdin->setText("Alice");
+        btnStdinSend->click();
+
+        QTextBrowser* executeOut =
+            window.findChild<QTextBrowser*>("txtExecuteOut");
+        QVERIFY(QTest::qWaitFor([&] {
+            return executeOut->toPlainText().contains("Hi Alice");
+        }, 15000));
+        QVERIFY(executeOut->toPlainText().contains("> Alice"));  // echo
+        QVERIFY(QTest::qWaitFor([&] {
+            return executeOut->toPlainText()
+                .contains("Program exited with code 7");
+        }, 15000));
+        QVERIFY(!editStdin->isEnabled());  // child gone: row disabled
+        QVERIFY(!btnStdinSend->isEnabled());
+    }
+
+    //0.7.7: the same row feeds a debug session — the line rides the
+    //machine channel (the stdin data command), not a child pipe, and
+    //the program's reply lands on the shared run page.
+    void testStdinRowFeedsDebugSession() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_echo.n");
+        writeFile(path,
+            "import io;\n"
+            "public int main() {\n"
+            "    io.write(\"Name: \");\n"
+            "    string n = io.readLine();\n"
+            "    io.print(\"Hi \" + n);\n"
+            "    return 0;\n"
+            "}\n");
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actStartDebug")->trigger();  // synchronous build
+        QVERIFY(!window.findChildren<DebugClient*>().isEmpty());
+
+        QLineEdit* editStdin = window.findChild<QLineEdit*>("editStdin");
+        QVERIFY(editStdin != nullptr);
+        QVERIFY(editStdin->isEnabled());   // live while the session runs
+
+        editStdin->setText("Bob");
+        window.findChild<QPushButton*>("btnStdinSend")->click();
+
+        QTextBrowser* executeOut =
+            window.findChild<QTextBrowser*>("txtExecuteOut");
+        QVERIFY(QTest::qWaitFor([&] {
+            return executeOut->toPlainText().contains("Hi Bob");
+        }, 30000));
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 0)"), 30000);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+        QVERIFY(!editStdin->isEnabled());  // session ended: row disabled
     }
 
     void testRunWithoutBuildWarns() {

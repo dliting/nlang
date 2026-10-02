@@ -4,6 +4,7 @@
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
+#include "DebugClient.h"
 #include "FileEditor.h"
 #include "ProjectModel.h"
 #include "SettingsStore.h"
@@ -230,6 +231,31 @@ void MainWindow::onExecFinished(int exitCode, QProcess::ExitStatus status) {
         m_ui->txtExecuteOut->append(
             tr("Program exited with code %1.").arg(exitCode));
     updateMenuState();  // NotRunning again: Stop off, Start per selection
+}
+
+//--- program stdin (run child / debug session) ---
+
+void MainWindow::on_btnStdinSend_clicked() {
+    sendProgramInput();
+}
+
+void MainWindow::on_editStdin_returnPressed() {
+    sendProgramInput();
+}
+
+void MainWindow::sendProgramInput() {
+    const QString text = m_ui->editStdin->text();
+    if (text.isEmpty())
+        return;
+    if (debugSessionLive()) {
+        m_debugClient->sendStdin(text);
+    } else if (m_executed.state() != QProcess::NotRunning) {
+        m_executed.write((text + QLatin1Char('\n')).toUtf8());
+    } else {
+        return;   //nothing live (the disabled row guards this)
+    }
+    appendExecuteOutput(QStringLiteral("> ") + text + QLatin1Char('\n'));
+    m_ui->editStdin->clear();
 }
 
 //--- compile-log navigation ---
