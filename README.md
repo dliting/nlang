@@ -2,12 +2,12 @@
 
 **English** | [中文](README.zh-CN.md)
 
-NLang is a statically-typed scripting language for embedding and automation —
+NLang is a type-safe language for embedding and automation —
 with a small C++ host API, native bindings and in-process debug hooks — and a
 testbed for AI-friendly language features. It ships its own compiler, bytecode
 VM, debugger and IDE, and is developed as an open teaching/research project.
 
-![NLang IDE (nide)](docs/images/nide-overview.png)
+![NLang IDE (nide)](docs/images/nide-overview-en.png)
 
 The NLang IDE: solution tree on the left (projects plus standalone `.n`
 files), editor in the middle, build and execution output below. The UI
