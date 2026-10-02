@@ -18,8 +18,9 @@ records, no host registration.
 per the conversion matrix — same-kind passes as-is, matrix-allowed implicit
 widening is applied automatically (integer-family and `float` arguments
 enter `double` parameters, e.g. `math.sqrt(4)`; narrowing is always an
-explicit `as` — `math.absi(1.5)` is a compile error). The single exception
-is `io.print`, which accepts string, arrays and all scalar primitives
+explicit `as` — `math.absi(1.5)` is a compile error). The exceptions are the
+io coercing trio (`write`/`print`/`eprint`), which accept string, arrays and
+all scalar primitives
 (converted at the call site); class and enum values need an explicit
 `.toString()` before printing (struct arguments are rejected outright —
 structs have no `toString`).
@@ -63,17 +64,25 @@ and not portable.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
+| write | (string\|array\|scalar primitive) → void | stdout, **no** newline, flush |
+| eprint | (string\|array\|scalar primitive) → void | stderr + '\n' + flush |
 | print | (string\|array\|scalar primitive) → void | stdout + '\n' + flush |
 | readLine | () → string | stdin line, trailing '\r' stripped |
 | readFile | (string) → string | whole file as bytes; failure → IOException |
 | writeFile | (string path, string s) → void | create/truncate; failure → IOException |
 | appendFile | (string path, string s) → void | create/append; failure → IOException |
 
+`write`, `print` and `eprint` share one argument policy (the coercing trio
+above): `write("Name: ")` emits a prompt without a newline so a typed reply
+lands on the same console line; `eprint` mirrors `print` on stderr for
+diagnostics that stay separable from normal output. Inside a debug session
+the two streams merge into the session's single output view.
+
 **EOF semantics of readLine**: EOF and an empty input line both return `""` —
 indistinguishable by design (same as C++ `std::getline`). Programs that must
 detect end of input should terminate on sentinel content, not on an empty
-line. `io.print` takes exactly one argument; print several values with
-several calls.
+line. Each of the coercing trio (`write`/`print`/`eprint`) takes exactly
+one argument; print several values with several calls.
 
 `readFile` enforces a 16 MiB cap (the same bound the deserializer applies to
 untrusted length prefixes); larger files raise IOException.

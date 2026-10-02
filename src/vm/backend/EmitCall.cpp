@@ -80,7 +80,7 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
             claimBase + paramIdx * kFrameSlotBytes);
-        //io.print coercion (see EmitStdLibArgToString).
+        //Coercing-trio conversion (see EmitStdLibArgToString).
         if (entry.coerceToString) {
             EmitStdLibArgToString(param, emitter,
                 claimBase + paramIdx * kFrameSlotBytes);
@@ -91,7 +91,7 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     emitter.Emit(OpCode::OP_CallIntrinsic);
     emitter.EmitUint16(entry.intrinsicId);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    //Void entries (io.print) have nothing to assign — the InvokeStmt
+    //Void entries (the coercing trio) have nothing to assign — the InvokeStmt
     //handler already staged a throwaway claim slot as resultOffset.
     if (static_cast<StdLibReturnType>(entry.returnType) != SLRT_Void) {
         emitter.Emit(OpCode::OP_Assign);
@@ -100,7 +100,7 @@ void VmBackend::EmitStdLibCall(const StdLibEntry& entry,
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
-//io.print coercion for one already-emitted stdlib argument: scalar
+//Coercing-trio conversion for one already-emitted stdlib argument: scalar
 //args convert to string in their claim slot right after being emitted
 //(registry-driven OP_Prim_to_str — every current and future scalar
 //rides the same instruction); arrays and func handles keep their

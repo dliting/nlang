@@ -244,7 +244,8 @@ static constexpr uint16_t INTR_IOException_Ctor              = 69;
 //              io moved to 115-119; no compat: ids are .nmod immediates
 //              and every module recompiles; existing Equals/GetHashCode
 //              keep their 8e-1 ids 42/43 — only the implementation moved)
-//  115-119     io, 5
+//  113-119     io, 7 (0.7.7 write/eprint backfilled the slots the
+//              0.7.5 char-bridge move left free)
 //  120-127     fs, 8 (prefix INTR_FileSystem_*: INTR_FS_* is FileStream)
 static constexpr uint16_t INTR_Math_Sqrt   = 70;
 static constexpr uint16_t INTR_Math_Sin    = 71;
@@ -284,14 +285,18 @@ static_assert(INTR_Math_Randomi
 
 //Phase 11 Step 2: io namespace intrinsics (content IO — console + text
 //files; see StdLib.h). Same executable-contiguity invariant as math.
+//write/eprint (0.7.7) take the 113/114 slots left free when the block
+//moved to 115 for the 0.7.5 char bridge — no existing id changes.
+static constexpr uint16_t INTR_Io_Write      = 113;
+static constexpr uint16_t INTR_Io_EPrint     = 114;
 static constexpr uint16_t INTR_Io_Print      = 115;
 static constexpr uint16_t INTR_Io_ReadLine   = 116;
 static constexpr uint16_t INTR_Io_ReadFile   = 117;
 static constexpr uint16_t INTR_Io_WriteFile  = 118;
 static constexpr uint16_t INTR_Io_AppendFile = 119;
-static constexpr uint16_t kIoIntrinsicFirst = 115;
-static constexpr uint16_t kIoIntrinsicCount = 5;
-static_assert(INTR_Io_Print == kIoIntrinsicFirst,
+static constexpr uint16_t kIoIntrinsicFirst = 113;
+static constexpr uint16_t kIoIntrinsicCount = 7;
+static_assert(INTR_Io_Write == kIoIntrinsicFirst,
     "io intrinsic block must start at kIoIntrinsicFirst");
 static_assert(INTR_Io_AppendFile
         == kIoIntrinsicFirst + kIoIntrinsicCount - 1,

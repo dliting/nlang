@@ -15,8 +15,9 @@ catch 变量是编译错误。调用只写限定名（`math.sin(x)`）；裸名�
 **参数类型**：与声明的 kind 按转换矩阵逐实参审查——同 kind 原样放行，
 矩阵允许的隐式加宽自动施加（整型家族与 float 实参进入 `double` 形参，
 如 `math.sqrt(4)`；收窄一律显式 `as`——`math.absi(1.5)` 是编译错误）。
-唯一的例外是 `io.print`，它接受 string、数组与全部标量基本类型（调用点
-转换）；class 与 enum 值打印前需要显式 `.toString()`（struct 实参直接
+唯一的例外是 io 的强制转换三函数（`write`/`print`/`eprint`），它们接受
+string、数组与全部标量基本类型（调用点转换）；class 与 enum 值打印前
+需要显式 `.toString()`（struct 实参直接
 拒绝——struct 没有 `toString`）。
 
 ### math——25 个函数
@@ -56,16 +57,23 @@ randomi(min,max) = min + (int32)(next() % (uint32)(max - min + 1))   // 存在�
 
 | 函数 | 签名 | 说明 |
 |----------|-----------|-------|
+| write | (string\|数组\|标量基本类型) → void | stdout，**不**换行，flush |
+| eprint | (string\|数组\|标量基本类型) → void | stderr + '\n' + flush |
 | print | (string\|数组\|标量基本类型) → void | stdout + '\n' + flush |
 | readLine | () → string | stdin 一行，去掉结尾 '\r' |
 | readFile | (string) → string | 整个文件按字节读取；失败 → IOException |
 | writeFile | (string path, string s) → void | 创建/截断；失败 → IOException |
 | appendFile | (string path, string s) → void | 创建/追加；失败 → IOException |
 
+`write`、`print` 与 `eprint` 共用同一实参策略（上表的强制转换三
+函数）：`write("Name: ")` 发出不带换行的提示，键入的回复落在同一
+控制台行上；`eprint` 镜像 `print` 但写到 stderr，让诊断输出与正常
+输出保持可分离。调试会话内两个流合并进会话的单一输出视图。
+
 **readLine 的 EOF 语义**：EOF 与空输入行都返回 `""`——设计上不可
 区分（与 C++ `std::getline` 相同）。必须检测输入结束的程序应当以
-哨兵内容终止，而不是以空行判断。`io.print` 恰好接受一个实参；打印
-多个值请多次调用。
+哨兵内容终止，而不是以空行判断。三个强制转换函数（`write`/`print`/
+`eprint`）恰好各接受一个实参；打印多个值请多次调用。
 
 `readFile` 强制 16 MiB 上限（与反序列化器对不可信长度前缀施加的
 同一界限）；更大的文件抛 IOException。

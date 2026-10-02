@@ -96,9 +96,12 @@ inline constexpr StdLibEntry kStdLibTable[] =
 	{"math", "random", {}, 0, 0, SLRT_Double, INTR_Math_Random, false},
 	{"math", "srand",  {RTK_Int32}, 1, 1, SLRT_Void, INTR_Math_Srand, false},
 	{"math", "randomi", {RTK_Int32, RTK_Int32}, 2, 2, SLRT_Int32, INTR_Math_Randomi, false},
-	//io — content IO (console + text files). print is the one coercing
-	//entry; the file trio is strictly (string, string) and readLine/readFile
-	//failures raise IOException at run time.
+	//io — content IO (console + text files). write/print/eprint are the
+	//coercing trio (stdout without newline / stdout with newline / stderr
+	//with newline); the file trio is strictly (string, string) and
+	//readLine/readFile failures raise IOException at run time.
+	{"io", "write",      {RTK_String}, 1, 1, SLRT_Void,   INTR_Io_Write,      true},
+	{"io", "eprint",     {RTK_String}, 1, 1, SLRT_Void,   INTR_Io_EPrint,     true},
 	{"io", "print",      {RTK_String}, 1, 1, SLRT_Void,   INTR_Io_Print,      true},
 	{"io", "readLine",   {},           0, 0, SLRT_String, INTR_Io_ReadLine,   false},
 	{"io", "readFile",   {RTK_String}, 1, 1, SLRT_String, INTR_Io_ReadFile,   false},

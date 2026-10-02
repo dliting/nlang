@@ -39,6 +39,44 @@ bool VmExecutor::ExecuteIntrinsicIo(uint16_t intrinsicId,
 {
     switch (intrinsicId)
     {
+    case INTR_Io_Write:
+    {
+        std::string s = ReadIoStringArg(*this, locals,
+            callParamBase, 0);
+        //No newline: the prompt-building counterpart of print. Both
+        //channels flush — a prompt must reach the reader before readLine
+        //blocks on it.
+        if (m_pHostIo)
+            m_pHostIo->OnOutput(s);
+        else
+        {
+            std::fwrite(s.data(), 1, s.size(), stdout);
+            std::fflush(stdout);
+        }
+        //Void return: leave pResult untouched.
+        return true;
+    }
+    case INTR_Io_EPrint:
+    {
+        std::string s = ReadIoStringArg(*this, locals,
+            callParamBase, 0);
+        //stderr with a newline, mirroring print's shape. Host mode has a
+        //single merged output channel, so it routes there (the debug
+        //session's output page interleaves both streams by design).
+        if (m_pHostIo)
+        {
+            m_pHostIo->OnOutput(s);
+            m_pHostIo->OnOutput("\n");
+        }
+        else
+        {
+            std::fwrite(s.data(), 1, s.size(), stderr);
+            std::fputc('\n', stderr);
+            std::fflush(stderr);
+        }
+        //Void return: leave pResult untouched.
+        return true;
+    }
     case INTR_Io_Print:
     {
         std::string s = ReadIoStringArg(*this, locals,

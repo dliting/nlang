@@ -1,0 +1,9 @@
+//e2e dbgm_io_eprint: io.eprint routes through the host output channel in
+//machine mode (a debug session has one merged output stream, like the
+//nide output page) — the manifest asserts the "boom" text arrives in the
+//session output.
+import io;
+int main() {
+    io.eprint("boom");
+    return 0;
+}

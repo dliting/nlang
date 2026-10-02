@@ -837,6 +837,9 @@ stdlib_math_randomi_range 0
 stdlib_math_randomi_minmax_throws 1
 stdlib_math_clamp_lo_gt_hi_throws 1
 stdlib_io_print 0 hello
+stdlib_io_write 0 AB
+stdlib_io_write_prompt 0 Name: Hi Alice
+stdlib_io_eprint 0
 stdlib_io_print_int 0 42
 stdlib_io_print_float 0 1.5
 stdlib_io_print_multi 0 secondline
@@ -1084,6 +1087,7 @@ dbgm_basic 42 local total int
 dbgm_breakthrow 0 stopped throw
 dbgm_frame_locals 7 this class Point{x=2, y=5}
 dbgm_readline_rejected 1 readLine
+dbgm_io_eprint 0 boom
 dbgm_locals_scope 2 local late int 2
 generic_key_cross_assign_reject compile_error Incompatible type
 func_generic_coexist 0 8

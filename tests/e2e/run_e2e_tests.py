@@ -17,6 +17,9 @@ contain; a leading '!' negates (must NOT contain). This exists because
 warnings are compile-time diagnostics invisible in the run's stdout —
 without it, warning tests cannot express their named contract.
 A <name>.stdin file next to the source is piped to the program's stdin.
+A <name>.run.stderr file likewise asserts on the RUN-phase stderr of a
+passing test (io.eprint's console target) — same substring and leading-'!'
+negation semantics as the compile-phase .stderr file.
 Also reads examples_manifest.txt (when present): entries resolve against
 ../../examples, their .nmod and scratch artifacts live under
 _examples_tmp/ (their run CWD), removed at end of run.
@@ -481,6 +484,25 @@ def main():
                         print(f"FAIL {name} (stdout missing {expected_stdout!r})")
                         failed += 1
                         errors.append(f"  {name}: stdout missing {expected_stdout!r}")
+                        continue
+                #0.7.7: <name>.run.stderr asserts on the run-phase stderr
+                #(io.eprint's console target — stdout assertions above
+                #cannot see it). Same shape and '!'-negation as the
+                #compile-phase .stderr file.
+                run_stderr_path = os.path.join(
+                    sources_dir, f"{name}.run.stderr")
+                if os.path.isfile(run_stderr_path):
+                    with open(run_stderr_path, encoding='utf-8') as sf:
+                        want = sf.read().strip()
+                    negate = want.startswith('!')
+                    want = want.lstrip('!').strip()
+                    if (want in stderr_text) == negate:
+                        print(f"FAIL {name} (run stderr expectation mismatch)")
+                        failed += 1
+                        errors.append(
+                            f"  {name}: expected run stderr "
+                            f"{'NOT containing' if negate else 'containing'} "
+                            f"{want!r}; stderr: {stderr_text[:300]}")
                         continue
                 print(f"PASS {name} (exit={actual})")
                 passed += 1

@@ -36,7 +36,8 @@ static bool MaybeLogVoidStdLibArg(BuildEnvironment &env,
 	return true;
 }
 
-//io.print (coerceToString) branch of the per-param gate: every param
+//coerceToString branch (the io write/print/eprint trio) of the
+//per-param gate: every param
 //accepts string|int|float|array — codegen branches on the arg's own
 //static kind and converts at the call site (OP_Array_to_str for
 //tokens). No widening wrap here; class/struct/enum must call
