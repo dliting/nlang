@@ -21,6 +21,7 @@ add_library(nlang_vm
     IntrinsicsFileStream.cpp
     backend/VmBackend.cpp
     backend/Register.cpp
+    backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
     backend/BuiltinClasses.cpp
     backend/Import.cpp

@@ -347,8 +347,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
 
     //v2.0 phase 6: cross-unit import slots, one section per table, in
     //slot order (own entries occupy 0..n-1, imports n..n+m). Per entry:
-    //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount.
-    auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>& imports)
+    //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
+    //function section additionally carries u16 ownerClassKeyLen + bytes
+    //(empty = namespace-level function; see SymbolImport).
+    auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>&
+                                  imports, bool withOwnerKey)
     {
         uint32_t count = static_cast<uint32_t>(imports.size());
         fs.write(reinterpret_cast<const char*>(&count), sizeof(count));
@@ -365,12 +368,20 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
             fs.write(imp.name.c_str(), nameLen);
             fs.write(reinterpret_cast<const char*>(&imp.paramCount),
                      sizeof(imp.paramCount));
+            if (withOwnerKey)
+            {
+                uint16_t ownerLen =
+                    static_cast<uint16_t>(imp.ownerClassKey.size());
+                fs.write(reinterpret_cast<const char*>(&ownerLen),
+                         sizeof(ownerLen));
+                fs.write(imp.ownerClassKey.c_str(), ownerLen);
+            }
         }
     };
-    writeImports(mod.functionImports);
-    writeImports(mod.classImports);
-    writeImports(mod.structImports);
-    writeImports(mod.enumImports);
+    writeImports(mod.functionImports, true);
+    writeImports(mod.classImports, false);
+    writeImports(mod.structImports, false);
+    writeImports(mod.enumImports, false);
 
     return fs.good();
 }

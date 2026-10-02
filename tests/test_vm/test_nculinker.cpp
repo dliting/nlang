@@ -634,6 +634,91 @@ static void test_function_slot_keyed_by_module() {
     PASS();
 }
 
+// --- owner-keyed method/ctor imports resolve inside the owning class ---
+
+static void test_link_owner_keyed_methods() {
+    TEST(link_owner_keyed_methods);
+    //Two classes in ONE unit each own add(int) — the same bare key and
+    //arity the namespace-level scan must refuse. Owner-class keys
+    //disambiguate; the ctor import (bare class name) resolves through
+    //constructorIdx.
+    CompiledModule lib = MakeUnit("lib");
+    lib.functions.push_back(MakeFunc("add", 1));   //own 0 (lib.A.add)
+    lib.functions.push_back(MakeFunc("A", 0));     //own 1 (lib.A ctor)
+    lib.functions.push_back(MakeFunc("add", 1));   //own 2 (lib.B.add)
+    lib.functions.push_back(MakeFunc("B", 0));     //own 3 (lib.B ctor)
+    lib.functions.push_back(MakeFunc("lib.f", 0)); //own 4
+    CompiledClass a = MakeClass("lib.A");
+    a.methodIndices = {0};
+    a.constructorIdx = 1;
+    lib.classes.push_back(a);
+    CompiledClass b = MakeClass("lib.B");
+    b.methodIndices = {2};
+    b.constructorIdx = 3;
+    lib.classes.push_back(b);
+
+    CompiledModule app = MakeUnit("app");
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(2); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(3); em.EmitUint16(0);
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));     //own 0
+    app.functions.push_back(MakeFunc("add", 1));   //slot 1
+    app.functionImports.push_back({"lib", "add", 1, "lib.A"});
+    app.functions.push_back(MakeFunc("add", 1));   //slot 2
+    app.functionImports.push_back({"lib", "add", 1, "lib.B"});
+    app.functions.push_back(MakeFunc("B", 0));     //slot 3 (ctor)
+    app.functionImports.push_back({"lib", "B", 0, "lib.B"});
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    //merged functions: app.main=0, addA=1, ctorA=2, addB=3, ctorB=4.
+    BytecodeReader r0(merged.functions[0].bytecode.data(),
+                      merged.functions[0].bytecode.size());
+    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 1,
+          "lib.A.add slot 1 -> merged 1");
+    r0.ReadUint16();
+    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 3,
+          "lib.B.add slot 2 -> merged 3");
+    r0.ReadUint16();
+    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 4,
+          "lib.B ctor slot 3 -> merged 4 (constructorIdx path)");
+    CHECK(merged.classes.size() == 2, "both classes merged");
+    CHECK(merged.classes[0].methodIndices.size() == 1
+       && merged.classes[0].methodIndices[0] == 1, "lib.A method remap");
+    CHECK(merged.classes[0].constructorIdx == 2, "lib.A ctor remap");
+    CHECK(merged.classes[1].methodIndices[0] == 3, "lib.B method remap");
+    CHECK(merged.classes[1].constructorIdx == 4, "lib.B ctor remap");
+
+    //An owner class missing from the owning unit is reported with the
+    //owner key named.
+    {
+        CompiledModule libg = MakeUnit("lib");
+        libg.functions.push_back(MakeFunc("lib.g", 0));
+        CompiledModule app2 = MakeUnit("app2");
+        app2.functions.push_back(MakeFunc("app2.main", 0));
+        app2.functions.push_back(MakeFunc("add", 1));
+        app2.functionImports.push_back({"lib", "add", 1, "lib.Ghost"});
+        std::vector<CompiledModule> u2;
+        u2.push_back(std::move(app2));
+        u2.push_back(std::move(libg));
+        std::string msg;
+        CHECK(LinkThrows(std::move(u2), "", &msg), "owner-class miss throws");
+        CHECK(Contains(msg, "lib.Ghost"),
+              "diagnostic names the owner class");
+    }
+
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -690,6 +775,11 @@ int main() {
         g_fail++;
     }
     try { test_function_slot_keyed_by_module(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_owner_keyed_methods(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

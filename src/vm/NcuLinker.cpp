@@ -194,8 +194,72 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
 
 // --- Pass B：占位槽解析（全部未解析项一次收集） ---
 
-//函数槽定址到「目标单元的自有条目区」：裸方法键跨类同名同参合法，
-//合并表无法消歧；目标单元内仍多重命中即拒绝（不猜）。
+//一条函数导入在目标单元内的解析结果。hit＝目标单元局部函数下标；
+//hits＝候选数（>1 即歧义）。
+struct FunctionSlotHit {
+    int hit = -1;
+    size_t hits = 0;
+};
+
+//空属主键分支：命名空间级函数，限定键在目标单元自有函数区定址；
+//多重同名同参命中即歧义（不猜）。
+static FunctionSlotHit ResolveNamespacedFunction(
+    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
+    FunctionSlotHit r;
+    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
+    for (uint32_t k = 0; k < tgtOwn; ++k) {
+        if (tgt.functions[k].name == imp.name
+            && tgt.functions[k].paramCount == imp.paramCount) {
+            if (r.hit < 0) r.hit = static_cast<int>(k);
+            ++r.hits;
+        }
+    }
+    return r;
+}
+
+//属主键分支（方法/构造器）：先按限定键在目标单元自有类区找属主类，
+//再类内消歧——名＝裸类名走 constructorIdx，否则 methodIndices 按裸名
+//（形参数为校验；类内无重载）。表键保持裸名，属主键只活在槽记录里。
+static FunctionSlotHit ResolveOwnerKeyedFunction(
+    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
+    FunctionSlotHit r;
+    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
+    const size_t tgtClsOwn = tgt.classes.size() - tgt.classImports.size();
+    int clsIdx = -1;
+    for (size_t k = 0; k < tgtClsOwn; ++k) {
+        if (tgt.classes[k].name == imp.ownerClassKey) {
+            clsIdx = static_cast<int>(k);
+            break;
+        }
+    }
+    if (clsIdx < 0)
+        return r;
+    const CompiledClass& tc = tgt.classes[clsIdx];
+    const size_t dot = imp.ownerClassKey.rfind('.');
+    const std::string bareClassName = imp.ownerClassKey.substr(
+        dot == std::string::npos ? 0 : dot + 1);
+    if (imp.name == bareClassName) {
+        //构造器：类自身的构造下标（形参数为校验）。
+        const uint16_t ci = tc.constructorIdx;
+        if (ci != 0xFFFF && ci < tgtOwn
+            && tgt.functions[ci].paramCount == imp.paramCount) {
+            r.hit = static_cast<int>(ci);
+            r.hits = 1;
+        }
+        return r;
+    }
+    for (uint16_t mi : tc.methodIndices) {
+        if (mi < tgtOwn && tgt.functions[mi].name == imp.name
+            && tgt.functions[mi].paramCount == imp.paramCount) {
+            if (r.hit < 0) r.hit = static_cast<int>(mi);
+            ++r.hits;
+        }
+    }
+    return r;
+}
+
+//函数槽解析（§4.4 两分支）：按属主键分派到上面两个命中函数，结果统一
+//落图；全部未解析项一次收集。
 static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
     const std::unordered_map<std::string, size_t>& unitOf,
     std::vector<NcuOperandMaps>& maps,
@@ -206,9 +270,13 @@ static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
                               - u.functionImports.size();
         for (size_t j = 0; j < u.functionImports.size(); ++j) {
             const auto& imp = u.functionImports[j];
+            const bool ownerKeyed = !imp.ownerClassKey.empty();
             const std::string what = "function '" + imp.name
-                + "' (paramCount " + std::to_string(imp.paramCount)
-                + ") from module '" + imp.modulePath + "'";
+                + "' (paramCount " + std::to_string(imp.paramCount) + ")"
+                + (ownerKeyed
+                       ? " of class '" + imp.ownerClassKey + "'"
+                       : std::string())
+                + " from module '" + imp.modulePath + "'";
             auto owner = unitOf.find(imp.modulePath);
             if (owner == unitOf.end()) {
                 problems.push_back("unit '" + u.modulePath + "': import of "
@@ -217,29 +285,25 @@ static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
                 continue;
             }
             const CompiledModule& tgt = units[owner->second];
-            const size_t tgtOwn = tgt.functions.size()
-                                - tgt.functionImports.size();
-            int hit = -1;
-            size_t hits = 0;
-            for (uint32_t k = 0; k < tgtOwn; ++k) {
-                if (tgt.functions[k].name == imp.name
-                    && tgt.functions[k].paramCount == imp.paramCount) {
-                    if (hit < 0) hit = static_cast<int>(k);
-                    ++hits;
-                }
-            }
-            if (hits == 0) {
+            const FunctionSlotHit r = ownerKeyed
+                ? ResolveOwnerKeyedFunction(tgt, imp)
+                : ResolveNamespacedFunction(tgt, imp);
+            const uint32_t slot = static_cast<uint32_t>(ownCount + j);
+            if (r.hits == 0) {
                 problems.push_back("unit '" + u.modulePath
                     + "': imported " + what
                     + " is not provided by any unit in the closure");
-            } else if (hits > 1) {
+            } else if (r.hits > 1) {
                 problems.push_back("unit '" + u.modulePath
                     + "': imported " + what + " is ambiguous: "
-                    + std::to_string(hits)
-                    + " matching records in the owning unit");
+                    + std::to_string(r.hits) + " matching records in "
+                    + (ownerKeyed
+                           ? "class '" + imp.ownerClassKey + "'"
+                           : std::string("the owning unit")));
             } else {
-                maps[ui].functions[static_cast<uint32_t>(ownCount + j)] =
-                    maps[owner->second].functions[static_cast<uint32_t>(hit)];
+                maps[ui].functions[slot] =
+                    maps[owner->second]
+                        .functions[static_cast<uint32_t>(r.hit)];
             }
         }
     }

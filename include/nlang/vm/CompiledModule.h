@@ -336,8 +336,15 @@ struct CompiledModule {
     //(functions share the qualified key across overloads).
     struct SymbolImport {
         std::string modulePath;   //target unit's dotted path
-        std::string name;         //target's qualified key
+        std::string name;         //qualified key; bare name when ownerClassKey is set
         uint32_t paramCount = 0;  //functions only
+        //Functions only (empty for the type tables): "" = namespace-level
+        //function (name is its qualified key); non-empty = a method or
+        //constructor of that class's qualified key (name is the bare name;
+        //the class's bare name for a constructor). Table keys stay bare —
+        //runtime dispatch is by name — the owner key lives in the slot
+        //record only (phase6 design section 2).
+        std::string ownerClassKey;
     };
     std::vector<SymbolImport> functionImports;   //slots after own functions
     std::vector<SymbolImport> classImports;      //slots after own classes

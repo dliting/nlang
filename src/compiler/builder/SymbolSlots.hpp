@@ -31,10 +31,13 @@ inline std::string SymbolSlotModulePath(const ModuleRegistry &reg,
 	return reg.ModulePathOf(reg.OwnerOf(decl));
 }
 
-//函数槽：按 modulePath+限定名+形参数去重后追加占位记录，返回局部槽位。
+//函数槽：按 modulePath+属主类键+名+形参数去重后追加占位记录，返回局部
+//槽位。ownerClassKey 空＝命名空间级函数（name 为限定键）；非空＝该类的
+//方法或构造器（name 为裸名，构造器＝裸类名）——裸方法键跨类同名同参
+//合法并存，属主键是槽记录里唯一的消歧来源（表键保持裸名，见设计 §2）。
 inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	const std::string &modulePath, const std::string &name,
-	uint32_t paramCount)
+	uint32_t paramCount, const std::string &ownerClassKey = "")
 {
 	const uint32_t ownCount = static_cast<uint32_t>(
 		mod.functions.size() - mod.functionImports.size());
@@ -42,7 +45,8 @@ inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	{
 		if (mod.functions[i].name == name
 			&& mod.functions[i].paramCount == paramCount
-			&& mod.functionImports[i - ownCount].modulePath == modulePath)
+			&& mod.functionImports[i - ownCount].modulePath == modulePath
+			&& mod.functionImports[i - ownCount].ownerClassKey == ownerClassKey)
 			return i;
 	}
 	CompiledFunction placeholder;
@@ -50,7 +54,7 @@ inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	placeholder.paramCount = paramCount;
 	const uint32_t slot = static_cast<uint32_t>(mod.functions.size());
 	mod.functions.push_back(std::move(placeholder));
-	mod.functionImports.push_back({modulePath, name, paramCount});
+	mod.functionImports.push_back({modulePath, name, paramCount, ownerClassKey});
 	return slot;
 }
 

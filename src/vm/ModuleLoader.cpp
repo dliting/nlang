@@ -177,8 +177,11 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
 
     //v2.0 phase 6: cross-unit import slots, one section per table (in
     //slot order — own entries occupy 0..n-1, imports n..n+m). Per entry:
-    //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount.
-    auto readImports = [&fs](std::vector<CompiledModule::SymbolImport>& imports)
+    //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
+    //function section additionally carries u16 ownerClassKeyLen + bytes
+    //(empty = namespace-level function; see SymbolImport).
+    auto readImports = [&fs](std::vector<CompiledModule::SymbolImport>& imports,
+                             bool withOwnerKey)
     {
         uint32_t count;
         fs.read(reinterpret_cast<char*>(&count), sizeof(count));
@@ -206,12 +209,22 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                     sizeof(imp.paramCount));
             if (!fs.good())
                 throw std::runtime_error("Invalid module: truncated imports");
+            if (withOwnerKey)
+            {
+                uint16_t ownerLen;
+                fs.read(reinterpret_cast<char*>(&ownerLen), sizeof(ownerLen));
+                if (!fs.good())
+                    throw std::runtime_error(
+                        "Invalid module: bad import owner key length");
+                imp.ownerClassKey.resize(ownerLen);
+                fs.read(imp.ownerClassKey.data(), ownerLen);
+            }
         }
     };
-    readImports(mod.functionImports);
-    readImports(mod.classImports);
-    readImports(mod.structImports);
-    readImports(mod.enumImports);
+    readImports(mod.functionImports, true);
+    readImports(mod.classImports, false);
+    readImports(mod.structImports, false);
+    readImports(mod.enumImports, false);
     if (!fs.good())
         throw std::runtime_error("Invalid module: truncated import sections");
 
