@@ -191,5 +191,9 @@ stub 机制保留但只承担**签名解析**职责，不再参与运行期表�
 3. 切换战役（**单一全绿边界**，产码切换与执行接线必须成对落地，否则
    中间态产物无法执行）：ncc 逐单元产码＋进程内执行接 nlink＋nloader
    ＋nvm/e2e runner 接线＋单文件切逐单元＋stdlib 包目标；战役终点删除
-   `Import.cpp` Phase A/B 整链与 VmBackend 合并模式。
+   `Import.cpp` Phase A/B 整链与 VmBackend 合并模式。战役内逐路径切换、
+   每步中间提交全绿：ncc 产物先以「链接后单模块」形态落 .ncu（nvm/
+   e2e/装载器零改动即全量对拍），终点再改为 .npkg 逐单元条目＋加载期
+   链接（**已落地至 ncc 全路径**：`ModuleBuilder::BuildLinked`＝逐单元
+   映像＋nlink 合并后写盘，e2e 977 全量经链接产物对拍通过）。
 4. 测试与门（§7）；全绿即提交。

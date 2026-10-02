@@ -443,6 +443,86 @@ void TestForeignTypedFieldsCrossUnit() {
     CHECK(r.rc == 42, "foreign-typed fields resolve and copy (4*10+2)");
 }
 
+// --- shape 9: external .ncu image joins the link closure as a peer ---
+//
+// The library is compiled FIRST through the production linked build
+// (ModuleBuilder::BuildLinked — its artifact is a linked, self-contained
+// module), then a second program imports it as an external .ncu. The
+// consumer unit leaves `lib.add` as an import slot; the loaded image
+// rides in UnitImages.external and resolves at link time. This is the
+// whole phase 6 story end to end: compile-time separation, load-time
+// closure.
+
+void TestExternalNcuPeerImage() {
+    //Stage 1: produce lib.ncu via the production path.
+    const auto libDir = scenarioDir("ext_lib");
+    writeFiles(libDir, {
+        { "lib.n",
+          "int add(int a, int b) {\n"
+          "  return a + b;\n"
+          "}\n" } });
+    {
+        BuildParams params;
+        params.m_SourceFiles.push_back((libDir / "lib.n").string());
+        params.m_sProjectDir = libDir.string();
+        params.m_sOutputModule = "lib";
+        params.m_sOutputDir = libDir.string();
+        params.m_sTempDir = libDir.string();
+        params.m_sStdLibDir = STDLIB_DIR;
+        params.m_ImportDirs = { STDLIB_DIR };
+        ListCompileLogger logger;
+        ModuleBuilder builder(params, logger);
+        CHECK(builder.BuildLinked(), "external library builds linked");
+    }
+    const fs::path libArtifact = libDir / "lib.ncu";
+    CHECK(fs::exists(libArtifact), "library artifact written");
+
+    //Stage 2: consumer imports it; closure = consumer units + lib image.
+    const auto appDir = scenarioDir("ext_app");
+    fs::copy_file(libArtifact, appDir / "lib.ncu");
+    writeFiles(appDir, {
+        { "main.n",
+          "import lib;\n"
+          "int main() {\n"
+          "  return lib.add(40, 2);\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(appDir, cap, { "main.n" });
+    CHECK(r.ok, "external .ncu consumer builds and links");
+    CHECK(r.rc == 42, "external function ran through the link (40+2)");
+
+    //Structural: the consumer records the cross-module call as an import
+    //slot naming the external module — nothing of lib is baked in, and
+    //the lib image rides along for the linker.
+    const auto shapeDir = scenarioDir("ext_shape");
+    fs::copy_file(libArtifact, shapeDir / "lib.ncu");
+    writeFiles(shapeDir, {
+        { "main.n",
+          "import lib;\n"
+          "int main() {\n"
+          "  return lib.add(1, 2);\n"
+          "}\n" } });
+    const PerUnitBuild b = perUnitBuild(shapeDir, { "main.n" });
+    CHECK(b.ok, "shape scenario builds");
+    if (!b.ok) return;
+    bool importRecorded = false;
+    for (const auto& imp : b.images.units[0].functionImports)
+        if (imp.modulePath == "lib" && imp.name == "lib.add"
+            && imp.paramCount == 2 && imp.ownerClassKey.empty())
+            importRecorded = true;
+    CHECK(importRecorded, "consumer records the lib.add import slot");
+    CHECK(!b.images.external.empty(),
+          "loaded lib image rides in external");
+    //The placeholder slot record itself is named "lib.add" (that is its
+    //job); "baked in" means a record with that name carries LIBRARY
+    //BYTECODE — which would mean codegen copied the body over.
+    bool bakedIn = false;
+    for (const auto& fn : b.images.units[0].functions)
+        if (fn.name == "lib.add" && !fn.bytecode.empty())
+            bakedIn = true;
+    CHECK(!bakedIn, "consumer unit contains no lib code");
+}
+
 } // namespace
 
 int main() {
@@ -456,6 +536,7 @@ int main() {
     TestUnitImageShape();
     TestTwoMainsPerUnitRejected();
     TestForeignTypedFieldsCrossUnit();
+    TestExternalNcuPeerImage();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

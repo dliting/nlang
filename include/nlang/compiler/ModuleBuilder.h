@@ -35,6 +35,15 @@ public:
 	//Compile source files to a module file.
 	bool Build();
 
+	//Phase 6 linked build (the production path): per-unit images
+	//(BuildUnitImages) closed under nlink into ONE runnable module,
+	//written as the single .ncu artifact. The linked artifact is a
+	//plain self-contained module — placeholders are resolved and the
+	//import tables empty — so today's loader/executor run it unchanged.
+	//Link diagnostics (unresolved symbols) are logged like compile
+	//errors. Returns false on any front-end, codegen, or link error.
+	bool BuildLinked();
+
 	//Phase 6 per-unit build result: one CompiledModule image per
 	//translation unit (TU order = registry module index), the loaded
 	//external .ncu imports (NOT merged in — they ride along for the

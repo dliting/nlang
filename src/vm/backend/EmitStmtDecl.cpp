@@ -81,10 +81,13 @@ void VmBackend::Access(SnAssertStmt& stmt) {
         //Fail block
         size_t failStart = emitter.CurrentOffset();
         emitter.Emit(OpCode::OP_AssertFail);
-        //Optional message: use the assertion's source location text.
-        //For Phase 9a we emit an empty message idx (0) — VmExecutor
-        //prints "assertion failed" alone when msg is empty.
-        emitter.EmitUint16(0);
+        //Message constant: intern the EMPTY string — VmExecutor prints
+        //"assertion failed" alone when the message is empty. The index
+        //must come from the pool: a unit with no other string constants
+        //has no slot 0 at all (nlink's operand bounds check rejected
+        //the historical hardcoded 0; in merged mode it silently named
+        //whatever string happened to be interned first).
+        emitter.EmitUint16(AddStringConstant(""));
         //End
         size_t endPos = emitter.CurrentOffset();
         emitter.PatchUint16(jumpToFail, static_cast<uint16_t>(failStart));

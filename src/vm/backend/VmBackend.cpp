@@ -423,6 +423,12 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
 }
 
 bool VmBackend::SaveModule(BuildEnvironment& env) {
+    return WriteModuleArtifact(env, m_compiledModule, m_entryKey);
+}
+
+bool VmBackend::WriteModuleArtifact(BuildEnvironment& env,
+                                    const CompiledModule& module,
+                                    const std::string& entryKey) {
     std::string sFilePath;
     namespace bf = std::filesystem;
     const BuildParams& setting = env.Params();
@@ -451,7 +457,7 @@ bool VmBackend::SaveModule(BuildEnvironment& env) {
     //Serialization lives in WriteCompiledModule (ModuleSaver.cpp) — the
     //single .ncu writer, shared with unit tests so hand-written byte
     //layouts cannot drift from the reader (ModuleLoader).
-    if (!WriteCompiledModule(fs, m_compiledModule, m_entryKey)) {
+    if (!WriteCompiledModule(fs, module, entryKey)) {
         env.Log(CLL_Fatal, "Failed to write module: %s.", sFilePath.c_str());
         return false;
     }

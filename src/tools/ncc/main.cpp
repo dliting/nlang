@@ -359,7 +359,10 @@ int main(int argc, char* argv[]) {
     //exception escapes main as an unhandled MSVC C++ exception — the process
     //aborts with exit code 3 and buffered diagnostics are lost silently.
     try {
-        if (!builder.Build()) {
+        //Phase 6: the production build is per-unit codegen closed under
+        //nlink — the artifact is the LINKED module (self-contained, no
+        //import slots), so the loader/executor paths below are unchanged.
+        if (!builder.BuildLinked()) {
             std::cerr << "Compilation failed.\n";
             return 1;
         }

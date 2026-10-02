@@ -74,6 +74,15 @@ public:
     void GenerateStatements(SnNamespace& root) override;
     bool SaveModule(BuildEnvironment& env) override;
 
+    //Write an arbitrary compiled module as this build's .ncu artifact
+    //(same output-path logic as SaveModule). Phase 6: ModuleBuilder's
+    //linked build saves the nlink-merged module through here — the
+    //backend's own m_compiledModule is moved-out husk after
+    //GenerateUnits.
+    bool WriteModuleArtifact(BuildEnvironment& env,
+                             const CompiledModule& module,
+                             const std::string& entryKey);
+
     //Phase 6 per-unit codegen: reset the per-unit tables and select the
     //unit whose members the registration walks will see. unitIdx ==
     //MERGED_MODE selects the legacy single-pass mode (whole tree, no
