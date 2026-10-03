@@ -61,7 +61,7 @@ Error: Module 'nosuch' not found. Check the project Sources list or -I import pa
 ```
 
 `import` only opens qualified names. Referencing a member of an
-unimported builtin package (or a known project module) without
+unimported standard library package (or a known project module) without
 importing it reports a "not imported" diagnostic — for example, calling
 `io.print` without `import io;` reports `Package 'io' is not imported.
 Add 'import io;' at the top of this file.`. See →

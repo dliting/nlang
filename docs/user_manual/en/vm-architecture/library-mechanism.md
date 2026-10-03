@@ -1,7 +1,7 @@
 # Library Mechanism: Search Paths, Source Inlining and Native Modules
 
 This page records the design of NLang's library system as it stands after
-the 0.7.4 rounds (phases 1–4c): how a library is found, parsed, compiled
+the evolution rounds (phases 1–6): how a library is found, parsed, compiled
 and executed, and why the mechanism takes this shape. It is a design note
 for maintainers; user-facing usage lives in
 [Standard Library](../language-spec/standard-library.md).
@@ -33,13 +33,14 @@ the file's path relative to the matched search root
 and the file carries no wrapper syntax. Functions come in two kinds,
 freely mixed (a *mixed library*):
 
-- **plain NLang functions** — have bodies; compiled from source into the
-  consumer's module and executed as bytecode;
+- **plain NLang functions** — have bodies; compiled into their own
+  package's unit image (a member of e.g. `stdlib.npkg`) and linked with
+  the consumer at run time, then executed as bytecode;
 - **`native` functions** — signature plus documentation comment only (no
   body); at run time dispatched through the host ABI into
-  `nlang_<name>.dll` (section 5; the DLL name splits at the first dot of
-  the package's last segment, so a `native` in a multi-segment package
-  is a compile-time diagnostic).
+  `nlang_<package>.dll` (section 5; the DLL is named by the package
+  segment before the first dot, so a `native` in a multi-segment
+  package is a compile-time diagnostic).
 
 The standard library follows the same shape: `stdlib/io.n`, `math.n`,
 `fs.n` are hand-written authoritative declaration files (the io/math/fs
@@ -66,8 +67,12 @@ units (`src/compiler/ModuleBuilderImports.cpp`,
    is already a project source is not re-inlined;
 3. register all TUs; library TUs carry an `isLibrary` flag and derive
    their package from the matched root;
-4. expand aliases, build import gates, load `.ncu` externals;
-5. merge everything, resolve, emit.
+4. expand aliases, build import gates, load external modules
+   (`.ncu`/`.npkg`);
+5. resolve and generate code **per unit** — library units do not
+   participate in codegen: the consumer's image only carries import
+   slots, and the library's code is provided by its own package at run
+   time.
 
 Consequences of one shared model:
 
@@ -113,10 +118,37 @@ Circular imports between libraries are allowed: all TUs merge before
 resolution, so declarations are mutually visible within one build, the
 same way several project files are.
 
+### Run time: closure loading and linking
+
+Generated code contains no library code, so execution begins by
+gathering the import closure and linking it into one runtime module
+(`src/vm/NcuLoader.cpp`, `src/vm/NcuLinker.cpp`):
+
+1. **Loading** (nloader) — starting from the entry artifact: members of
+   a `.npkg` resolve inside the package first; an import slot's target
+   module is located along the search path as a `<module path>.ncu`
+   file or as a member of a `.npkg` holding it, recursing until the
+   closure is complete. A member image's header module path must match
+   the target (a mismatch is refused), every step checks version and
+   checksum, and a missing dependency is reported in one shot listing
+   the searched directories.
+2. **Linking** (nlink) — a pure in-memory transformation: N unit images
+   are merged and deduplicated by qualified name, placeholder slots
+   resolve to global table indices, every operand is remapped
+   uniformly, and unresolved symbols / visibility violations are
+   reported in one shot. The entry resolves from the program package's
+   entry record or the bare unit's `<module path>.main` convention.
+
+`nvm`, `ncc run`, ncc's compile-and-execute, and ndb sessions all take
+this same path — there is no second load/link implementation among the
+tools. At run time the standard library is simply `stdlib.npkg` on the
+search path, no different from any other library package.
+
 ## 4. Search paths
 
-The same ordered directory list serves compile-time `.n` discovery and
-run-time native DLL loading — first match wins, duplicates normalize
+The same ordered directory list serves compile-time `.n` discovery,
+run-time closure-member loading (`.ncu`/`.npkg`) and native DLL loading
+— first match wins, duplicates normalize
 away (case-folded on Windows). Five layers, highest first
 (`include/nlang/common/LibrarySearchPath.h`):
 
@@ -177,13 +209,16 @@ argument-to-string codegen.
 
 ## 7. Decision records
 
-- **Inline the source instead of precompiling libraries to `.ncu`**
-  (the earlier plan's performance mitigation): inlining is what makes
-  bodies readable, modifiable and recompilable, keeps one resolution
-  path, and the per-build re-parse cost of a handful of `.n` files is
-  negligible until measured otherwise. `.ncu` remains the
-  distribute-without-source format; both forms dispatch per function,
-  so mixed native/managed libraries work in either.
+- **Inline the sources at compile time for signatures, load precompiled
+  library packages at run time** (phase 6's division of labor):
+  inlining keeps bodies readable, modifiable and recompilable, and
+  preserves one resolution path; the per-build re-parse cost of a
+  handful of `.n` files is negligible until measured otherwise.
+  Codegen emits only the consumer's own units; library units' images
+  ship with their packages (the standard library is `stdlib.npkg`),
+  and linking happens at load time — distribute-without-source and
+  source inlining thereby coexist, both dispatching per function, so
+  mixed native/managed libraries hold on either side.
 - **No transitional dual path** (stdlib via signatures, third-party via
   AST): the inlining mechanism is identical for both, so phase 4a
   switched all libraries at once and deleted the signature-driven
@@ -202,13 +237,15 @@ argument-to-string codegen.
   re-parsing every build; a cache is deferred until compile-time data
   justifies it.
 
-## 8. Remaining work (design status as of 2026-09-29)
+## 8. Remaining work (design status as of 2026-10-04)
 
 Mechanism landed: 4a unified inlining (commit `ab4546a`), the in-process
 mixed native + NLang library test (4b-1, `test_thirdparty.cpp`), the
 library type surface (4b-2, section 3), the retirement of the built-in
 standard library (4c, section 6), search paths (3d), native ABI and
-loader (3b/3c). Open items:
+loader (3b/3c), load-time closure loading and linking (phase 6 —
+nloader/nlink, per-unit artifacts, `stdlib.npkg`; section 3 "Run
+time"). Open items:
 
 1. **4d** — change-aware recompilation: nide's standalone staleness
    check must account for inlined library `.n` files, not only the main
@@ -217,8 +254,7 @@ loader (3b/3c). Open items:
    (paths + mtimes) into the `.ncu` (format bump, no backward
    compatibility required), or a `ncc deps` query mode that reports the
    discovered list. Plus: ndb verification of breaking into library
-   source, asynchronous `runNccBuild` in nide, documentation and
-   translations, VERSION/CHANGELOG entry.
+   source, asynchronous `runNccBuild` in nide.
 
 ## 9. Testing conventions
 

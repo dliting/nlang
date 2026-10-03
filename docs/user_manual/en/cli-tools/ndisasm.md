@@ -7,14 +7,19 @@ optimization results, and diagnose serialization or module-loading
 problems.
 
 ```text
-ndisasm <module.ncu>
-ndisasm -func <name> <module.ncu>
+ndisasm <module.ncu | package.npkg>
+ndisasm -func <name> <module.ncu | package.npkg>
 ```
 
 Two invocations: a full dump, or `-func <name>` keeping only one
 function section (the other sections remain). **`-func` must precede
 the module path** — after it, the flag is silently ignored and the
-output equals the full dump. The output sections come in a fixed order:
+output equals the full dump. The input may also be a `.npkg` package
+archive: a `package:` line comes first, then each member image is
+dumped in member-table order (every member carries its own full set of
+sections); a corrupt member reports an error without aborting the dump
+of its siblings, and the exit code reflects the failure. Within one
+image the output sections come in a fixed order:
 `module:` → `structs:` → `classes:` → `string constants:` → one
 section per function.
 

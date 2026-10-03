@@ -31,12 +31,17 @@ one build may contain only one package of each dotted name — two
 sources resolving to one package name are a compile error naming both
 source paths.
 
-## Compiled modules and qualified table keys
+## Compiled artifacts and qualified table keys
 
-A compiled module (`.ncu`, format v1.13) stores every
-struct/class/function table key **package-qualified**: `main.main`,
-`utils.helper.help`, `alib.Point`. Ownerless built-ins keep their bare
-keys (`Object`, `List`). The qualified key is also the debugger and
+Every package compiles into its own **unit image** (`.ncu`, format
+v2.0), and each struct/class/function table key in the image is
+**package-qualified**: `main.main`, `utils.helper.help`, `alib.Point`.
+Ownerless built-ins keep their bare keys (`Object`, `List`). References
+into other packages are recorded as **import slots** (target module
+path + qualified name); at run time the loader gathers the whole
+import closure along the search path and links it by qualified name
+into the one runtime module — a cross-package symbol has no body in
+the artifact, only a name. The qualified key is also the debugger and
 tool spelling everywhere:
 
 - breakpoints take the qualified name: `b main.main`,

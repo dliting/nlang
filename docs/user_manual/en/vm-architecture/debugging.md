@@ -1,7 +1,7 @@
 # Debugging Support
 
-NLang ships **ndb**, a CLI debugger (`ndb <module.ncu>`). It loads the
-module in-process, runs it on the standard `VmExecutor`, and drives the
+NLang ships **ndb**, a CLI debugger (`ndb <program.ncu|.npkg>`). It loads the
+program in-process, runs it on the standard `VmExecutor`, and drives the
 VM through two small interfaces — the same engine layer the nide
 debugger reuses over a line protocol (the debugpy/dlv "engine + thin
 front ends" model).
@@ -69,7 +69,7 @@ stop reports the shared id.
 
 ## Machine mode
 
-`ndb --machine <module.ncu>` speaks a line protocol on stdin/stdout
+`ndb --machine <program.ncu|.npkg>` speaks a line protocol on stdin/stdout
 (documented in full in src/tools/ndb/MachineFrontEnd.h): events are
 tab-joined lines with escaped fields
 (`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/`exited`/

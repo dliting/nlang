@@ -28,7 +28,8 @@ nide 把产物放在 `%TEMP%\nlang-nide\`，源码变化后运行会自动重新
     ncc build hello.n -o hello.ncu    # 编译
     nvm hello.ncu                     # 运行，退出码 0
 
-- `.ncu` 是编译后的字节码模块，由 nvm 直接执行——部署时不必携带源码。
+- `.ncu` 是编译后的字节码单元映像，由 nvm 直接执行——部署时不必携带
+  源码；它引用的库（如标准库）在运行期由工具链沿搜索路径自动定位。
 - 进程退出码就是 `main` 的返回值：cmd 用 `echo %ERRORLEVEL%`、
   PowerShell 用 `$LASTEXITCODE` 查看。
 - `ncc hello.n` 一步完成编译并立即执行；不带 `-o` 时 `.ncu` 写到

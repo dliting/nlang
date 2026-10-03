@@ -1,16 +1,16 @@
 # ndb —— 调试器
 
-ndb 是 NLang 的交互式调试器：加载模块后停在入口，按命令设断点、
+ndb 是 NLang 的交互式调试器：装载程序后停在入口，按命令设断点、
 单步、查看局部变量与调用栈。程序行为与预期不符时用它定位问题；
 跨文件项目调试（断点按 `文件:行` 或函数名设置）是主用例。同一
 会话也以行协议形式提供给嵌入前端（`--machine`），nide 的图形
 调试器就构建在其上。
 
 ```text
-ndb <module.ncu> [-I <dir>...]
+ndb <program.ncu|.npkg> [-I <dir>...]
 ```
 
-加载模块后**停在入口首条语句**（等价 gdb 的 `start`），给出提示符
+装载程序后**停在入口首条语句**（等价 gdb 的 `start`），给出提示符
 `(ndb) `，从 stdin 逐条读命令；stdin EOF 等同 `q`。
 
 ## 命令表
@@ -36,21 +36,21 @@ ndb <module.ncu> [-I <dir>...]
 
 短命令是规范形式（与 `help` 输出一致），等价的长别名同样接受。
 
-一个完整会话（调试 `examples/hello_project`，断点按函数名设在第二个
-文件里）：
+一个完整会话（调试 `examples/hello_project`，断点按限定函数名设在
+第二个文件里）：
 
 ```console
-$ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.ncu
-Compiled successfully: hello_project.ncu
-$ ndb hello_project.ncu
-Stopped: main (main.n:6)
-(ndb) b addBoth
-Breakpoint 1 at addBoth (utils.n:2)
+$ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.npkg
+Compiled successfully: hello_project.npkg
+$ ndb hello_project.npkg
+Stopped: main.main (main.n:6)
+(ndb) b utils.addBoth
+Breakpoint 1 at utils.addBoth (utils.n:2)
 (ndb) c
-Breakpoint 1, addBoth (utils.n:2)
+Breakpoint 1, utils.addBoth (utils.n:2)
 (ndb) bt
-#0  addBoth (utils.n:2)
-#1  main (main.n:6)
+#0  utils.addBoth (utils.n:2)
+#1  main.main (main.n:6)
 (ndb) info locals
 a = 40
 b = 2
@@ -60,16 +60,19 @@ a = 40
 Program exited with code 0.
 ```
 
+（函数名按模块路径限定——`b utils.addBoth`；拼写规则见语言规格的
+[包](../language-spec/packages.md)。）
+
 程序跑完时 ndb 打印 `Program exited with code N.` 并以同一个退出码
 退出；`q` 或 stdin EOF 则杀掉程序、ndb 自身退出码 0。
 
 ## 嵌入前端协议
 
-`ndb --machine <module.ncu> [-I <dir>...]` 在 stdin/stdout 上暴露同一会话的
+`ndb --machine <program.ncu|.npkg> [-I <dir>...]` 在 stdin/stdout 上暴露同一会话的
 tab 分隔行协议，供嵌入前端使用——nide 的图形调试器就构建在它之上。
 协议细节见[在 nide 中调试](../getting-started/debugging.md)与
 [调试器架构](../vm-architecture/debugging.md)。
 
 交互式与 `--machine` 两种形态都接受 `-I <dir>`（可多次指定），用于定位
-native 动态库；搜索目录的拼接顺序与 nvm 相同（`-I` → 模块目录 →
-`NLANG_PATH` → 可执行文件目录 / 当前目录）。
+闭包成员与 native 动态库；搜索目录的拼接顺序与 nvm 相同（`-I` → 模块
+目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录）。

@@ -1,16 +1,21 @@
 # Compilation Pipeline
 
 Once the compiler front end has produced the AST, `VmBackend` translates
-it into a `CompiledModule`: struct, class, and function registration
-come first, then bytecode generation for every function. This page lists
-the stages in order and explains why one of them
+it into independent unit images (`CompiledModule`), one per translation
+unit: struct, class, and function registration come first, then bytecode
+generation for every function. One image per source file; cross-unit
+references stay in import slots for the load-time linker to resolve.
+This page lists the stages in order and explains why one of them
 (`ResolveStructClassRefs`) has to run as its own pass.
 
 ```text
-AST → VmBackend → CompiledModule (.ncu)
+AST → VmBackend → unit image (.ncu), one per translation unit
                       ↓
               BytecodeEmitter → bytecode
               AllocLocal → LocalDescriptor[] + frame layout
+
+run time: loader discovers and loads the closure (.ncu / .npkg)
+          → linker merges by qualified name → the one runtime module
 ```
 
 ### Compilation Phases (GenerateStatements)

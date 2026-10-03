@@ -4,8 +4,8 @@
 ### Import Declaration
 
 ```nlang
-import io;                 // built-in package
-import lib;                // external lib.ncu
+import io;                 // standard library package
+import lib;                // external module lib.ncu / lib.npkg
 import utils.helper;       // project file utils/helper.n
 import utils.*;            // recursive wildcard
 ```
@@ -17,8 +17,8 @@ files. Three sources share one syntax:
 | Source | Module path | Example |
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` root: directory path + file stem | `utils/helper.n` → `utils.helper`; root `main.n` → `main` |
-| External `.ncu` | file stem (single segment) | `lib.ncu` → `lib` |
-| Built-in package | `io` / `math` / `fs` (preset modules) | `io` |
+| External module | file stem (single segment): a `.ncu` file, or a `.npkg` exposing exactly one module | `lib.ncu` / `lib.npkg` → `lib` |
+| Standard library package | `io` / `math` / `fs` (library sources shipped with the toolchain) | `io` |
 
 Visibility:
 
@@ -27,8 +27,8 @@ Visibility:
 | Same file | no | bare |
 | Same directory, other project files | no (implicit) | bare **or** qualified |
 | Cross-directory, same project | **yes** (`import utils.helper;` or `import utils.*;`) | qualified only: `utils.helper.f()` |
-| External `.ncu` | **yes** (`import lib;`) | qualified only: `lib.f()` |
-| Built-in `io`/`math`/`fs` | **yes** (`import io;`) | qualified: `io.print` |
+| External module | **yes** (`import lib;`) | qualified only: `lib.f()` |
+| Standard library `io`/`math`/`fs` | **yes** (`import io;`) | qualified: `io.print` |
 
 - Bare-name resolution covers only the own file plus same-directory
   files; everything else must be qualified by module path. Ownerless
@@ -44,15 +44,22 @@ Visibility:
 - Duplicate imports are idempotent; exact + wildcard overlap takes the
   union; importing the own module path or a same-directory file is a
   harmless redundancy.
-- Resolution order for an import target: built-in → project file →
-  external `.ncu` (via `-I`). No implicit fallback.
+- Resolution order for an import target: modules compiled into the build
+  (project files or library sources on a search root — the standard
+  library uses the same mechanism as a third-party source library) →
+  external modules (`.ncu`/`.npkg`, via `-I`). No implicit fallback.
 - Two units resolving to the same dotted package in one build are a
   compile error naming both source paths. A project directory named
   `io`/`math`/`fs` is an ordinary directory; only one package of each
   name may exist. Dotted imports resolve library sources under the
   matched search root (`-I <root>` + `<root>/a/b/c.n` addresses
-  `import a.b.c;`); precompiled dotted packages (`.ncu`) still search
+  `import a.b.c;`); precompiled dotted packages still search
   by their single last segment until a later phase.
+- An external module's code does not enter the artifact: the consumer
+  image only records import slots, and the loader relocates the module
+  at run time along the same search path (the mechanism is in
+  [Command-line Tools / ncc](../cli-tools/ncc.md), "Artifacts and
+  load-time linking").
 
 Diagnostics (examples):
 
@@ -131,10 +138,6 @@ rejected).
   explicitly when in doubt.
 - **Member/method name sharing is a conflict** (`enum E { f; int f() {...} }`
   is rejected). Access modifiers follow class-method rules.
-- **Cross-module enums are not supported.** An enum type declared in an
-  imported module is not visible to the importer (the `.ncu` format
-  serializes enum names only, not declarations) — this is a limitation
-  of the module format, not specific to methods.
 - Arrays of enums: methods cannot be called on the array itself — index
   an element first (`a[i].rank()`, not `a.rank()`).
 
@@ -419,7 +422,8 @@ int apply(BinOp f) { ... }   // parameters and returns
   a compile error.
 - An alias name must not collide with classes, functions, other
   aliases, built-in type names (`List`, `Dict`, `Func`, `int`, ...),
-  or a builtin package name (`math`, `io`, `fs`) in the same
+  or an indexed library package name (`math`, `io`, `fs`, or a
+  third-party package found on the search path) in the same
   translation unit.
 - The scope-opening form `using Foo;` (no `=`) is unchanged and
   unrelated.

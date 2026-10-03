@@ -28,7 +28,8 @@ NLang IDE：左侧解决方案树（项目与独立 `.n` 文件）、中部编�
    完整的文档站随包分发，完全离线可用。「入门」章节按主题逐页
    讲解语言、命令行与 IDE，并附可运行的示例程序。
 4. **跑点什么** —— 在 IDE 中打开自带的 `examples/` 并按运行
-   （先复制到可写目录——构建会在源文件旁写 `.nmod`）。
+   （先复制到可写目录——项目构建会把 `.npkg` 写在项目文件旁，而安装
+   目录只读；独立 `.n` 文件的产物落在每用户临时区）。
    `examples/README.md` 索引了全部示例。
 
 可执行文件动态链接 MSVC 运行时——若机器上没有 Visual Studio 2022，
@@ -99,29 +100,34 @@ cmake --build build
 ## 命令行工具
 
 ```text
-ncc <source.n> [-o out.nmod] [-I <dir>...]        编译并执行
-ncc build <source.n> [-o out.nmod] [-I <dir>...]  仅编译
-ncc -p <project.nproj> [-o out.nmod] [-I ...]     编译并执行一个项目
-ncc build -p <project.nproj> [-o out.nmod]        编译一个项目
-ncc run <module.nmod>                             仅执行
+ncc <source.n> [-o out.ncu] [-I <dir>...]         编译并执行
+ncc build <source.n> [-o out.ncu] [-I <dir>...]   仅编译
+ncc -p <project.nproj> [-o out.npkg] [-I ...]     编译并执行一个项目
+ncc build -p <project.nproj> [-o out.npkg]        编译一个项目
+ncc run <program.ncu|.npkg>                       仅执行
 ```
+
+单文件编译产出 `.ncu` 单元映像；项目编译打包 `.npkg` 程序包（每个
+源单元一个成员，外加一条入口记录）。产物不含库代码：执行时由加载器
+沿搜索路径发现整个引用闭包并链接成唯一的运行期模块（标准库即随
+工具链分发的 `stdlib.npkg`）。
 
 ### 调试
 
 ```text
-ndb <module.nmod>   调试已编译的模块（像 gdb `start` 一样在首条
-                    语句处初始停驻）
+ndb <program.ncu|.npkg>   调试已编译的程序（像 gdb `start` 一样在
+                          首条语句处初始停驻）
 ```
 
 命令：`b <file.n:LINE | LINE | funcName>` 设断点（裸 `LINE` 在
-当前帧的文件中解析），`i b` 列出断点，`d <id>` 删除，`c` 继续，
+当前帧的文件中解析；函数名按包限定，如 `utils.addBoth`），`i b` 列出断点，`d <id>` 删除，`c` 继续，
 `s`/`n`/`f` 单步进入/跳过/跳出，`bt` 回溯，`frame <n>` 选择帧，
 `info locals` 列出局部变量，`p <name>` 打印一个局部变量，
 `l [line]` 源码窗口，`x` 当前帧的反汇编，`catch on|off` 抛异常时
 中断（默认 off），`q` 退出——stdin EOF 等同 `q`。程序结束时 ndb
 打印 `Program exited with code N.` 并以同一退出码退出。
 
-面向嵌入场景，`ndb --machine <module.nmod>` 在 stdin/stdout 上以
+面向嵌入场景，`ndb --machine <program.ncu|.npkg>` 在 stdin/stdout 上以
 制表符分隔的行协议暴露同一会话——nide 调试器即构建于其上。引擎侧
 分层见 `docs/user_manual/zh/vm-architecture/debugging.md`。
 
@@ -132,7 +138,7 @@ IDE 在 帮助 → 关于 中显示，文档站在页脚显示。
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<Project name="hello_project" namespace="hello_project">
+<Project name="hello_project">
   <Sources>
     <File path="main.n"/>
     <File path="utils.n"/>
@@ -141,7 +147,7 @@ IDE 在 帮助 → 关于 中显示，文档站在页脚显示。
 ```
 
 `name` 是输出模块名（默认取文件名主干），`outputDir` 可选地重定向
-`.nmod`（相对项目文件），`File` 路径相对项目文件所在目录。
+`.npkg`（相对项目文件），`File` 路径相对项目文件所在目录。
 
 ## 模块与导入
 
@@ -152,16 +158,16 @@ import 来源共用一种语法：
 | 来源 | 模块路径 | 示例 |
 |---|---|---|
 | 项目文件 | 相对 `.nproj` 的点分路径 | `utils/helper.n` → `import utils.helper;` |
-| 外部 `.nmod` | 文件名主干（单段） | `lib.nmod` → `import lib;` |
-| 内建命名空间 | `io` / `math` / `fs` | `import io;` |
+| 外部模块 | 文件名主干（单段）：`.ncu` 文件，或恰好暴露一个模块的 `.npkg` | `lib.ncu` → `import lib;` |
+| 标准库包 | `io` / `math` / `fs`（随工具链分发） | `import io;` |
 
 | 引用目标 | 需要 import？ | 调用形式 |
 |---|---|---|
 | 同一文件 | 否 | 裸名 |
 | 同目录其他文件 | 否（隐式） | 裸名或限定名 |
 | 跨目录、同项目 | **是** | 仅限定名（`utils.helper.f()`） |
-| 外部 `.nmod` | **是** | 仅限定名（`lib.f()`） |
-| 内建 `io`/`math`/`fs` | **是** | 限定名（`io.print`） |
+| 外部模块 | **是** | 仅限定名（`lib.f()`） |
+| 标准库 `io`/`math`/`fs` | **是** | 限定名（`io.print`） |
 
 此矩阵覆盖根级函数。跨目录共享的命名空间成员是 v1 的唯一例外——
 任何形式都无法从另一目录访问（见「声明」章的 Import Declaration）。
@@ -175,15 +181,17 @@ import 来源共用一种语法：
 完整语义——解析顺序、保留路径段、单文件模式——见「声明」章
 （`docs/user_manual/zh/language-spec/declarations.md`，Import Declaration）。
 
-编译模块使用带版本的二进制格式，当前为 v1.11。加载器强制兼容性
-下限：下限提升后，较旧的 `.nmod` 会因过期被拒绝，必须用匹配的
+编译单元使用带版本的二进制格式，当前为 v2.0（导入槽与逐单元模块
+路径——加载期链接模型）。加载器强制兼容性
+下限：下限提升后，较旧的 `.ncu` 会因过期被拒绝，必须用匹配的
 `ncc` 重新编译。格式历史（每个版本新增或变更了什么）见
 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 标准库
 
-`math`、`io` 和 `fs` 是内建命名空间——保留名，限定调用前需要显式
-`import`。字符串自带内建方法：
+`math`、`io` 和 `fs` 是标准库的三个包——源码随工具链分发
+（`stdlib/*.n`），运行期由 `stdlib.npkg` 提供，与其他库包同一机制；
+限定调用前需要显式 `import`。字符串自带内建方法：
 
 ```n
 import io;
@@ -331,16 +339,18 @@ cd build-ide && cpack -C Release -B ../release
 这会产出 `release/NLang-<version>-win64.zip`（便携版）和
 `release/NLang-<version>-win64.exe`（NSIS 安装程序；需要 NSIS
 3.03+——在 `PATH` 上或经 `-DNLANG_NSIS_MAKENSIS` 传入）。两者包含
-相同布局：`bin/`（`nide`、`ncc`、`nvm`、`ndisasm`、`ndb` 与 Qt
-运行时），外加 `examples/`、生成的文档站（`docs/site/`）、
+相同布局：`bin/`（`nide`、`ncc`、`nvm`、`ndisasm`、`ndb`、Qt 运行时
+与标准库 native 动态库）、`stdlib/`（声明文件与编译好的
+`stdlib.npkg` 包），外加 `examples/`、生成的文档站（`docs/site/`）、
 `LICENSE`、`CHANGELOG.md` 与 `README.md`。安装程序默认装到
 `C:\Program Files\NLang` 并为 IDE 添加开始菜单快捷方式。
 
 注意：
 
 - 安装程序默认装到标准用户不可写的 `C:\Program Files\NLang`。在
-  IDE 中打开 `examples/` 前先复制到可写目录——构建会在项目文件旁
-  写 `.nmod`。
+  IDE 中打开 `examples/` 前先复制到可写目录——项目构建会把 `.npkg`
+  写在项目文件旁（独立 `.n` 文件的产物落在每用户临时区，但编辑示例
+  本身仍需要可写副本）。
 - 可执行文件动态链接 MSVC 运行时；目标机器需要
   [Visual Studio 的 VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
   （装有 Visual Studio 2022 的机器已具备）。
@@ -355,7 +365,7 @@ cd build-ide && cpack -C Release -B ../release
 ```
 include/nlang/runtime/     - 运行时公共头文件
 include/nlang/compiler/    - 编译器公共头文件
-include/nlang/vm/          - VM 公共头文件（.nmod 格式常量）
+include/nlang/vm/          - VM 公共头文件（.ncu/.npkg 格式常量）
 src/runtime/               - 运行时实现
 src/compiler/              - 编译器实现（文法、生成代码、构建器）
 src/vm/                    - VM 后端实现

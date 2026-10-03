@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.4] - Unreleased
+## [0.7.8] - Unreleased
 
 ### Added
 - Packages: a `.n` file's package is its path relative to the matched
@@ -21,10 +21,28 @@ All notable changes to NLang are documented here. The format follows
   compile time against the visible packages and are rewritten to the
   declaration's qualified table key; ambiguous literals are a compile
   error asking for the qualified spelling.
-- VM: `.ncu` format v1.13 — struct/class/function table keys and
-  stream type-name literals are package-qualified (ownerless built-ins
-  keep bare keys), and the module record carries an entry-point index.
-  The loader refuses older modules outright; recompile.
+- Artifacts: code generation is per translation unit. A single-source
+  build emits the entry unit's `.ncu` image and nothing else; a project
+  build (ncc and nide alike) packs a `.npkg` program archive — one
+  member per unit plus the entry record, FNV-1a checksums. Library code
+  is no longer baked into consumer artifacts: a program carries only
+  its own units.
+- Execution: every CLI runner resolves the import closure at load
+  time. `nvm`, `ncc` and `ndb` discover the referenced units along the
+  search path (a `.ncu` file or a `.npkg` member), verify version and
+  checksum, and link the closure in memory before execution. The
+  standard library ships as `stdlib.npkg` on the search path like any
+  other library package.
+- Native: free `native` functions are keyed `<package>.<name>` at run
+  time, and a missing key lazily loads `nlang_<package>.dll` from the
+  same search path (the standard library's io/math/fs are exactly such
+  DLLs). A native declaration in a multi-segment package is a
+  compile-time diagnostic — a dotted package cannot name a host DLL.
+- VM: `.ncu` format v2.0 — struct/class/function table keys and stream
+  type-name literals are package-qualified (ownerless built-ins keep
+  bare keys), per-category import-slot tables record the referenced
+  external symbols, and the entry point is stored by qualified name.
+  The loader refuses every v1.x image outright; recompile.
 
 ### Changed
 - Language: the `namespace` keyword is removed — the wrapper syntax,
@@ -39,9 +57,15 @@ All notable changes to NLang are documented here. The format follows
   object `toString()` render the qualified key. Cross-program object
   streams store the qualified class key (programs must agree on the
   package layout).
-- Native: a `native` declaration in a multi-segment package is a
-  compile-time diagnostic (host DLL names split at the first dot);
-  single-segment packages are unchanged.
+- Diagnostics: load-time failures surface as
+  `Runtime error: nloader failed: ...`, reporting the missing module
+  and every searched directory in one shot; link failures report in
+  one shot under `Runtime error: nlink failed: ...` (unresolved or
+  ambiguous imports in the closure).
+- Manual: both language trees rewritten for the artifact model — the
+  ncc/nvm/ndb/ndisasm references, the running guide and FAQ, module
+  serialization and the library-mechanism design note; README, examples
+  and the issue template follow the new artifact names.
 - Source-size regression guard (`tools/source_size_guard`): hand-written
   source files stay <= 500 lines and function definitions <= 50 lines,
   with any exception registered alongside its reason; enforced as the

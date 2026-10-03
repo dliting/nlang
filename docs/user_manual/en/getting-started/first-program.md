@@ -35,8 +35,10 @@ Run in the directory that holds the source (installer users use
     ncc build hello.n -o hello.ncu    # compile
     nvm hello.ncu                     # run, exit code 0
 
-- `.ncu` is the compiled bytecode module, executed directly by nvm —
-  deployment does not need to carry the sources.
+- `.ncu` is the compiled bytecode unit image, executed directly by nvm —
+  deployment does not need to carry the sources; the libraries it
+  references (the standard library, for one) are located automatically
+  by the toolchain along the search path at run time.
 - The process exit code is `main`'s return value: view it with
   `echo %ERRORLEVEL%` in cmd or `$LASTEXITCODE` in PowerShell.
 - `ncc hello.n` compiles and immediately executes in one step; without

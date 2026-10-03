@@ -1,22 +1,30 @@
-# nvm —— 运行模块
+# nvm —— 运行程序
 
-nvm 运行一个已编译的 `.ncu` 模块，不经过编译步骤。场景：部署或
-自动化环境中只执行不编译；反复运行同一模块省去重复编译；脚本与
-流水线中以退出码判定结果。
+nvm 运行一个已编译的产物——`.ncu` 单元映像或 `.npkg` 程序包，不经过
+编译步骤。场景：部署或自动化环境中只执行不编译；反复运行同一程序省去
+重复编译；脚本与流水线中以退出码判定结果。
 
 ```text
-nvm <module.ncu> [-I <dir>...] [--gc-stress=N]
+nvm <program.ncu|.npkg> [-I <dir>...] [--gc-stress=N]
 ```
 
-运行一个编译好的模块，进程退出码 = `main` 返回值（约定详见
-[退出码约定](../language-spec/exit-code-convention.md)）。模块打不开
-时报 `Runtime error: Failed to open module file: <路径>`。`--gc-stress=N`
+运行一个编译好的程序，进程退出码 = `main` 返回值（约定详见
+[退出码约定](../language-spec/exit-code-convention.md)）。产物文件打不
+开时报 `Runtime error: nloader failed:`（诊断正文逐行列出问题，如
+`'<路径>': Failed to open module file: <路径>`）。`--gc-stress=N`
 是测试旋钮：把两套 GC 阈值钳到极小值，任何漏追踪的引用会在几次分配
-内变悬垂——用于验证内存管理变更，日常使用不需要。该标志写在模块
+内变悬垂——用于验证内存管理变更，日常使用不需要。该标志写在程序
 路径之前或之后均可。
 
-`-I <dir>` 追加 native 库的搜索目录（可多次指定）。运行期按一组有序
-目录加载 native 动态库：`-I` 目录 → 模块所在目录 → 环境变量
+产物自身不含库代码：加载器先沿搜索路径发现全部依赖（标准库包、
+外部 `.ncu`/`.npkg`），再链接成唯一的运行期模块执行。缺包时报
+`Runtime error: nloader failed:`，正文形如
+`module '...' not found (searched: <目录>, ...)`，一次列出已搜索的
+全部目录——先检查 `-I` 与 `NLANG_PATH`（机制详见
+[ncc](ncc.md) 的「产物与加载期链接」）。
+
+`-I <dir>` 追加库搜索目录（可多次指定）。运行期按一组有序目录定位
+闭包成员与 native 动态库：`-I` 目录 → 模块所在目录 → 环境变量
 `NLANG_PATH`（Windows 以 `;`、POSIX 以 `:` 分隔）→ 可执行文件目录 /
 当前目录；前面的目录优先，重复目录只保留第一次出现。完整规则见语言
 规格的「库与搜索路径」。

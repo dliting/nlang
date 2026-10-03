@@ -27,8 +27,8 @@ namespace nlang {
 //  default to the project directory (the .nproj omits the
 //  attributes when empty);
 //  the "referenced packages" list is gone (the NLang project format
-//  has no such element); the namespace is optional (ncc does not read
-//  it) and editProject() actually applies it; the namespace label's
+//  has no such element), and so is the namespace field (module
+//  paths are derived from the project layout).
 class ProjectPropDialog : public QDialog {
     Q_OBJECT
 public:
@@ -42,7 +42,7 @@ public:
     //nullptr on cancel.
     ProjectNode* createProject(SolutionNode& solution);
 
-    //Modal edit of namespace/output/intermediate directories; false on
+    //Modal edit of output/intermediate directories; false on
     //cancel (the project is then untouched).
     bool editProject(ProjectNode& project);
 

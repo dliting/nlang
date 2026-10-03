@@ -258,3 +258,10 @@ def _snippet_audit_run(page, ncc, nvm, workdir):
     print("snippets: %d programs OK (%d skipped)"
           % (len(programs), len(skipped)))
     return 0
+
+
+#Direct module invocation (`python -m nlang_docs.cli ...`): without this
+#guard the module imports fine, runs nothing and exits 0 -- a silent
+#false-green of whatever audit the caller thought they ran.
+if __name__ == "__main__":
+    sys.exit(main())

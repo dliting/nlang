@@ -1,14 +1,19 @@
 # 编译管线
 
-编译器前端产出 AST 后，`VmBackend` 把它翻译为 `CompiledModule`：先
-注册 struct、class 与函数，再为所有函数生成字节码。本页按顺序列出
-各阶段，并解释其中一趟（`ResolveStructClassRefs`）为何必须单独执行。
+编译器前端产出 AST 后，`VmBackend` 按翻译单元把它翻译为独立的单元
+映像（`CompiledModule`）：先注册 struct、class 与函数，再为所有函数
+生成字节码。每个源文件一幅映像，跨单元引用留在导入槽里，由加载期
+链接器解析。本页按顺序列出各阶段，并解释其中一趟
+（`ResolveStructClassRefs`）为何必须单独执行。
 
 ```text
-AST → VmBackend → CompiledModule (.ncu)
+AST → VmBackend → 单元映像 (.ncu)，每个翻译单元一幅
                       ↓
               BytecodeEmitter → bytecode
               AllocLocal → LocalDescriptor[] + frame layout
+
+执行期：加载器发现并装载闭包（.ncu / .npkg）→ 链接器按限定名
+合并 → 唯一的运行期模块
 ```
 
 ### 编译阶段（GenerateStatements）

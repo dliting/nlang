@@ -24,7 +24,7 @@ The exact commands you ran and the output you got:
 
 ```text
 ncc build foo.n
-nvm foo.nmod
+nvm foo.ncu
 ```
 
 **Tool and version**

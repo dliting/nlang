@@ -58,24 +58,24 @@ See also: [Language Specification / Function Types and Delegates](../language-sp
 
 ### Native functions
 
-```nlang
-import io;
+`calc.n`:
 
-native int natAdd(int a, int b);
+```nlang calc.n
+native int natAdd(int a, int b);          // no body — the host implements it
 
-int main() {
-    int r = natAdd(20, 22);        // dispatched to the host
-    if (r == 42)
-        return 42;
-    return 1;
-}
+int quad(int x) { return natAdd(x, x); }  // a NLang function can wrap a native
 ```
 
-Output: none; exit code 42. A `native` function has no body — the host
-process supplies the implementation and registers it by name; the call
-is dispatched straight to it with no NLang frame. `ncc` and `nvm` ship a
-small built-in set of natives (`natAdd`, `natConst`, `natFAdd`, `natPing`)
-for testing, so the snippet above runs as-is.
+Output: none — this snippet shows the declaration side only (it must
+compile; actually calling the native needs a host-side implementation).
+A `native` function has no body — the host process supplies the
+implementation: a free native is keyed `<package>.<name>`, and the
+command-line tools locate `nlang_<package>.dll` on the search path by
+that package, while an embedding host registers implementations by name.
+The standard library's `io.print` is exactly such a native (declared
+`native void print(string)` in `stdlib/io.n`, implemented in
+`nlang_io.dll`). The call dispatches straight to the implementation with
+no NLang frame; NLang-side wrappers like `quad` are ordinary functions.
 
 See also: [Language Specification / Functions](../language-spec/functions.md).
 
@@ -83,7 +83,7 @@ See also: [Language Specification / Functions](../language-spec/functions.md).
 
 Multiple `.n` files in a project form modules by relative path: files in
 the same directory see each other naturally; other directories (or
-external `.ncu` files) require an explicit `import` and
+external `.ncu`/`.npkg` modules) require an explicit `import` and
 module-path-qualified calls.
 
 `main.n`:
@@ -114,12 +114,12 @@ int answer() { return 42; }
 ```
 
 After the project file lists the three sources under `Sources`, build
-and run:
+and run (the artifact is a `.npkg` program archive):
 
-    ncc build -p modules.nproj -o modules.ncu
-    nvm modules.ncu                 # output 42, 42; exit code 42
+    ncc build -p modules.nproj -o modules.npkg
+    nvm modules.npkg                # output 42, 42; exit code 42
 
-The built-in packages (`io`/`math`/`fs`) also require an `import`
+The standard library packages (`io`/`math`/`fs`) also require an `import`
 before use — that is the `import io;` at the top of every snippet on
 this page that calls `io.print`; omitting it produces the compile error
 `Package 'io' is not imported`.

@@ -55,30 +55,29 @@ int main() {
 
 ### 原生函数
 
-```nlang
-import io;
+`calc.n`：
 
-native int natAdd(int a, int b);
+```nlang calc.n
+native int natAdd(int a, int b);          // 无函数体：实现由宿主提供
 
-int main() {
-    int r = natAdd(20, 22);        // 分派到宿主
-    if (r == 42)
-        return 42;
-    return 1;
-}
+int quad(int x) { return natAdd(x, x); }  // NLang 函数可以包装原生函数
 ```
 
-输出：无；退出码 42。`native` 函数没有函数体——实现由宿主进程提供并按名
-注册；调用直接分派给它，不经过 NLang 栈帧。`ncc` 与 `nvm` 自带一小撮内建
-原生函数（`natAdd`、`natConst`、`natFAdd`、`natPing`）供测试用，因此上面
-的片段可直接运行。
+输出：无——本片段只展示声明侧（编译通过即收，真正调用需要宿主侧实现）。
+`native` 函数没有函数体，实现由宿主进程提供：自由函数以
+`<包名>.<函数名>` 为键，命令行工具按包名在搜索路径上定位
+`nlang_<包名>.dll`，嵌入宿主则按名注册实现。标准库的 `io.print` 就是
+这样一个原生函数（`stdlib/io.n` 中声明为 `native void print(string)`，
+实现随 `nlang_io.dll` 分发）。调用直接分派给实现，不经过 NLang 栈帧；
+NLang 侧的包装函数（如 `quad`）则是普通函数。
 
 详见 → [语言规格/函数](../language-spec/functions.md)。
 
 ### 模块
 
 一个工程里的多个 `.n` 文件按相对路径组成模块：同目录文件天然互见，
-其他目录（或外部 `.ncu`）需要显式 `import` 并以模块路径限定调用。
+其他目录（或外部 `.ncu`/`.npkg`）需要显式 `import` 并以模块路径限定
+调用。
 
 `main.n`：
 
@@ -107,12 +106,13 @@ int twice(int x) { return x * 2; }
 int answer() { return 42; }
 ```
 
-工程文件把三个源文件列进 `Sources` 后构建运行：
+工程文件把三个源文件列进 `Sources` 后构建运行（产物是 `.npkg`
+程序包）：
 
-    ncc build -p modules.nproj -o modules.ncu
-    nvm modules.ncu                 # 输出 42、42，退出码 42
+    ncc build -p modules.nproj -o modules.npkg
+    nvm modules.npkg                # 输出 42、42，退出码 42
 
-内建命名空间（`io`/`math`/`fs`）同样要先 `import` 才能调用——本页每个
+标准库包（`io`/`math`/`fs`）同样要先 `import` 才能调用——本页每个
 用到 `io.print` 的片段顶部的 `import io;` 就是它；漏写会得到编译错误
 「Package 'io' is not imported」。
 

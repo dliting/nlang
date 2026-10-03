@@ -31,8 +31,10 @@ no toolchain, no build:
    The *Getting Started* chapters walk the language, the CLI and the IDE one
    topic per page, with runnable example programs.
 4. **Run something** — open the bundled `examples/` in the IDE and press Run
-   (copy them to a writable folder first — a build writes its `.nmod` next to
-   the source). `examples/README.md` indexes every example.
+   (copy them to a writable folder first — project builds write their `.npkg`
+   next to the project file, and the installed folder is read-only; standalone
+   `.n` files build into a per-user temp area). `examples/README.md` indexes
+   every example.
 
 The executables link the MSVC runtime dynamically — install the
 [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) if
@@ -102,22 +104,29 @@ cmake --build build
 ## Command-line Tools
 
 ```text
-ncc <source.n> [-o out.nmod] [-I <dir>...]        Compile and execute
-ncc build <source.n> [-o out.nmod] [-I <dir>...]  Compile only
-ncc -p <project.nproj> [-o out.nmod] [-I ...]     Compile and execute a project
-ncc build -p <project.nproj> [-o out.nmod]        Compile a project
-ncc run <module.nmod>                             Execute only
+ncc <source.n> [-o out.ncu] [-I <dir>...]         Compile and execute
+ncc build <source.n> [-o out.ncu] [-I <dir>...]   Compile only
+ncc -p <project.nproj> [-o out.npkg] [-I ...]     Compile and execute a project
+ncc build -p <project.nproj> [-o out.npkg]        Compile a project
+ncc run <program.ncu|.npkg>                       Execute only
 ```
+
+Single-source builds produce a `.ncu` unit image; project builds pack a
+`.npkg` program archive (one member per source unit plus an entry record).
+Artifacts do not embed library code: at load time the executor discovers the
+whole import closure along the search path and links it into one runtime
+module (the standard library ships as `stdlib.npkg` beside the tools).
 
 ### Debugging
 
 ```text
-ndb <module.nmod>   Debug a compiled module (initial stop at the first
-                    statement, like gdb `start`)
+ndb <program.ncu|.npkg>   Debug a compiled program (initial stop at the
+                          first statement, like gdb `start`)
 ```
 
 Commands: `b <file.n:LINE | LINE | funcName>` set a breakpoint (a bare
-`LINE` resolves in the current frame's file), `i b` list breakpoints,
+`LINE` resolves in the current frame's file; function names are
+package-qualified, e.g. `utils.addBoth`), `i b` list breakpoints,
 `d <id>` delete, `c` continue, `s`/`n`/`f` step into/over/out, `bt`
 backtrace, `frame <n>` select a frame, `info locals`, `p <name>` print
 one local, `l [line]` source window, `x` disassembly of the selected
@@ -125,7 +134,7 @@ frame, `catch on|off` break on throw (default off), `q` quit — stdin EOF
 behaves like `q`. When the program finishes, ndb prints
 `Program exited with code N.` and exits with that same code.
 
-For embedding, `ndb --machine <module.nmod>` exposes the same session
+For embedding, `ndb --machine <program.ncu|.npkg>` exposes the same session
 over a tab-separated line protocol on stdin/stdout — the nide debugger
 is built on it. The engine-side layering is described in
 `docs/user_manual/en/vm-architecture/debugging.md`.
@@ -139,7 +148,7 @@ Multi-source projects are described by a `.nproj` XML file (see
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<Project name="hello_project" namespace="hello_project">
+<Project name="hello_project">
   <Sources>
     <File path="main.n"/>
     <File path="utils.n"/>
@@ -148,7 +157,7 @@ Multi-source projects are described by a `.nproj` XML file (see
 ```
 
 `name` is the output module name (defaults to the file stem), `outputDir`
-optionally redirects the `.nmod` (relative to the project file), and `File`
+optionally redirects the `.npkg` (relative to the project file), and `File`
 paths are relative to the project file's directory.
 
 ## Modules and Imports
@@ -161,16 +170,16 @@ import sources share one syntax:
 | Source | Module path | Example |
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` | `utils/helper.n` → `import utils.helper;` |
-| External `.nmod` | file stem (single segment) | `lib.nmod` → `import lib;` |
-| Built-in namespace | `io` / `math` / `fs` | `import io;` |
+| External module | file stem (single segment): a `.ncu` file, or a `.npkg` exposing exactly one module | `lib.ncu` → `import lib;` |
+| Standard library package | `io` / `math` / `fs` (shipped with the toolchain) | `import io;` |
 
 | Reference | Import needed? | Call form |
 |---|---|---|
 | Same file | no | bare |
 | Same directory, other files | no (implicit) | bare or qualified |
 | Cross-directory, same project | **yes** | qualified only (`utils.helper.f()`) |
-| External `.nmod` | **yes** | qualified only (`lib.f()`) |
-| Built-in `io`/`math`/`fs` | **yes** | qualified (`io.print`) |
+| External module | **yes** | qualified only (`lib.f()`) |
+| Standard library `io`/`math`/`fs` | **yes** | qualified (`io.print`) |
 
 This matrix covers root-level functions. Members of a namespace shared
 across directories are the one v1 exception — unreachable from another
@@ -187,16 +196,19 @@ Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
 (`docs/user_manual/en/language-spec/declarations.md`, Import Declaration).
 
-Compiled modules use a versioned binary format, currently v1.11. The
+Compiled units use a versioned binary format, currently v2.0 (import
+slots and per-unit module paths — the load-time linking model). The
 loader enforces a compatibility floor: after a floor bump, older
-`.nmod` files are rejected as outdated and must be recompiled with the
+`.ncu` files are rejected as outdated and must be recompiled with the
 matching `ncc`. The format history (what each version added or changed)
 is in `CHANGELOG.md`.
 
 ## Standard Library
 
-`math`, `io` and `fs` are built-in namespaces — reserved names that need
-an explicit `import` before their qualified calls. Strings carry built-in
+`math`, `io` and `fs` are the standard library's three packages — sources
+shipped with the toolchain (`stdlib/*.n`), provided at run time by
+`stdlib.npkg` through the same mechanism as any library package; their
+qualified calls still need an explicit `import`. Strings carry built-in
 methods:
 
 ```n
@@ -360,16 +372,20 @@ cd build-ide && cpack -C Release -B ../release
 This produces `release/NLang-<version>-win64.zip` (portable) and
 `release/NLang-<version>-win64.exe` (NSIS installer; requires NSIS 3.03+ —
 either on `PATH` or passed via `-DNLANG_NSIS_MAKENSIS`). Both contain the
-same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm`, `ndb` and the Qt runtime,
-plus `examples/`, the generated documentation site (`docs/site/`), `LICENSE`,
-`CHANGELOG.md` and `README.md`. The installer defaults to
+same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm`, `ndb`, the Qt runtime
+and the native stdlib libraries, `stdlib/` with the declarations and the
+compiled `stdlib.npkg` package, plus `examples/`, the generated documentation
+site (`docs/site/`), `LICENSE`, `CHANGELOG.md` and `README.md`. The installer
+defaults to
 `C:\Program Files\NLang` and adds a Start Menu shortcut for the IDE.
 
 Notes:
 
 - The installer defaults to `C:\Program Files\NLang`, which standard users
   cannot write to. Copy `examples/` to a writable folder before opening them
-  in the IDE — a build writes its `.nmod` next to the project file.
+  in the IDE — project builds write their `.npkg` next to the project file
+  (standalone `.n` files build into a per-user temp area, but editing the
+  examples still wants a writable copy).
 - The executables link the MSVC runtime dynamically; targets need the
   [VC++ Redistributable for Visual Studio](https://aka.ms/vs/17/release/vc_redist.x64.exe)
   (already present on machines with Visual Studio 2022).
@@ -385,7 +401,7 @@ Notes:
 ```
 include/nlang/runtime/     - Runtime public headers
 include/nlang/compiler/    - Compiler public headers
-include/nlang/vm/          - VM public headers (.nmod format constants)
+include/nlang/vm/          - VM public headers (.ncu/.npkg format constants)
 src/runtime/               - Runtime implementation
 src/compiler/              - Compiler implementation (grammar, generated, builder)
 src/vm/                    - VM backend implementation

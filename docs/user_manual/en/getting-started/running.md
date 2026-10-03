@@ -57,7 +57,7 @@ fields:
 - **Location**: the project root directory (the `.nproj` file's
   directory). Filled in when creating a project; a saved project
   cannot be moved.
-- **Output directory**: where the final `.ncu` goes; empty means
+- **Output directory**: where the final `.npkg` goes; empty means
   the project directory itself. Consumed by ncc; the precedence
   is the same as the global build output directory in "Configuring
   nide".
@@ -76,10 +76,10 @@ If PATH is not set up inside the installation, use
 `bin\ncc build ...` and `bin\nvm <name>.ncu`.
 
 Multi-file projects pass the .nproj with `-p` and the output location
-with `-o`:
+with `-o` (the artifact is a `.npkg` program archive):
 
-    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.ncu
-    nvm hello_project.ncu
+    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.npkg
+    nvm hello_project.npkg
 
 The complete reference (all flags, default output locations, the ndb
 debugger, and ndisasm) is in the

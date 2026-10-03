@@ -1,9 +1,10 @@
 # FAQ
 
-### Where did the `.ncu` go?
+### Where did the build artifact go?
 
-`ncc build hello.n` without `-o` writes the module file to the
-**current working directory**, not next to the source file — think of
+`ncc build hello.n` without `-o` writes the `.ncu` to the
+**current working directory**, not next to the source file; the `.npkg`
+of a `-p` project build lands **next to the .nproj** — think of
 this first when the build output is nowhere to be found. The default
 rules and precedence for every form are on the
 [ncc](../cli-tools/ncc.md) page.
@@ -16,6 +17,19 @@ On the nide side the location follows the output precedence (see
 - Standalone `.n` files: the global build output directory > the
   default location (a `nlang-nide` subdirectory of the user's temp
   directory).
+
+### Running reports `module '...' not found`?
+
+Artifacts do not embed library code: a `.ncu`/`.npkg` carries only its
+own units, and external modules are loaded and linked at **run time**
+along the library search path. The error looks like
+`Runtime error: nloader failed:` (body line
+`module 'lib' not found (searched: ...)`), with the parentheses listing
+every directory searched — add the dependency's directory to `-I` or
+`NLANG_PATH`, or place the dependency next to the artifact. The
+standard library ships with the toolchain (`stdlib\`) and needs no
+manual configuration. The mechanism is covered in
+[ncc](../cli-tools/ncc.md), "Artifacts and load-time linking".
 
 ### Exit code not what you expected?
 

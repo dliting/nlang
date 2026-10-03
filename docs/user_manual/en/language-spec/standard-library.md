@@ -1,8 +1,9 @@
 # Standard Library
 
 
-NLang ships four built-in libraries: `math`, `io`, `fs` (package-qualified
-free functions) and string methods (receiver-dispatched). A package is
+The standard library consists of three packages — `math`, `io`, `fs`
+(package-qualified free functions) — plus string methods
+(receiver-dispatched). A package is
 identified by its file's path — `stdlib/io.n` is the package `io` — and
 one build may contain only one package of each name (a duplicate is a
 compile error naming both sources; a project directory named `io` is an
@@ -138,13 +139,18 @@ NLang libraries are carried by **`.n` source files**: the standard
 `math.n`/`io.n`/`fs.n` ship with the toolchain, and a third-party library is
 just a directory of `.n` files (optionally alongside native dynamic
 libraries). A function implemented outside NLang is declared with the
-`native` keyword (`native void print(any s);`) — such a declaration carries
+`native` keyword (`native void print(string s);`) — such a declaration carries
 only the signature and documentation, with no body; an ordinary function
 without `native` is a readable, editable NLang implementation. A library may
 contain both (a hybrid library, as in Python/Java/C#).
+At compile time signatures are resolved by inlining the sources; at run
+time unit images are loaded from the compiled library packages — the
+standard library is the `stdlib.npkg` shipped with the toolchain (one
+member per library unit).
 
 The **search path** determines where the compiler looks for imported `.n`
-files and where native dynamic libraries are loaded at run time — the
+files and where the run time loads the `.ncu`/`.npkg` members an
+artifact depends on, plus the native dynamic libraries — the
 standard library and third-party libraries, compile-time discovery and
 run-time loading all use the **same set of directories**. Directories are
 assembled in the following order, earlier ones winning; duplicates keep only

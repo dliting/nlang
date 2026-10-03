@@ -1,6 +1,6 @@
 # 调试支持
 
-NLang 自带 **ndb**，一个命令行调试器（`ndb <module.ncu>`）。它在进
+NLang 自带 **ndb**，一个命令行调试器（`ndb <program.ncu|.npkg>`）。它在进
 程内加载模块，跑在标准 `VmExecutor` 上，通过两个小接口驱动 VM——
 nide 调试器经线路协议复用的正是同一引擎层（debugpy/dlv 式的
 「引擎 + 轻前端」模型）。
@@ -56,7 +56,7 @@ WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
 
 ## 机器模式
 
-`ndb --machine <module.ncu>` 在 stdin/stdout 上讲一套线路协议（完
+`ndb --machine <program.ncu|.npkg>` 在 stdin/stdout 上讲一套线路协议（完
 整文档见 src/tools/ndb/MachineFrontEnd.h）：事件是以制表符连接、字段
 转义的行（`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/
 `exited`/`error`/`err`），命令是空格分隔的裸记号（`b`/`bfunc`/`d`/

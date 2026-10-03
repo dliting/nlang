@@ -34,14 +34,13 @@
 
 ### 项目属性
 
-菜单 项目 → 项目属性 打开工程对话框，五个字段：
+菜单 项目 → 项目属性 打开工程对话框，四个字段：
 
 - **名称**：工程名，即 `.nproj` 文件名。须非空且不含路径分隔符
   （`/` 或 `\`）。新建时填写；已保存的工程不可改名。
-- **命名空间**：模块命名空间。面向 IDE 的预留字段，当前 ncc 不读取。
 - **位置**：工程根目录（`.nproj` 文件所在目录）。新建时填写；
   已保存的工程不可移动。
-- **输出目录**：最终 `.ncu` 的输出位置；留空 = 工程目录自身。
+- **输出目录**：最终 `.npkg` 的输出位置；留空 = 工程目录自身。
   ncc 消费，优先级同「配置 nide」的全局构建输出目录。
 - **中间目录**：预留字段，当前工具链（ncc）尚未消费，暂不使用。
 
@@ -54,10 +53,11 @@
 
 安装包内未设置 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.ncu`。
 
-多文件项目用 `-p` 指定 .nproj，`-o` 指定输出位置：
+多文件项目用 `-p` 指定 .nproj，`-o` 指定输出位置（产物是 `.npkg`
+程序包）：
 
-    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.ncu
-    nvm hello_project.ncu
+    ncc build -p examples/hello_project/hello_project.nproj -o hello_project.npkg
+    nvm hello_project.npkg
 
 完整参考（全部标志、默认输出位置、ndb 调试器与 ndisasm）见
 [命令行工具](../cli-tools/overview.md)一章。

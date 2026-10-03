@@ -5,12 +5,12 @@
 
 命令行方式（在仓库根目录；安装包用户在安装根目录运行，ncc/nvm 位于 `bin\` 下）：
 
-    ncc build examples/<name>.n -o <name>.nmod
-    nvm <name>.nmod
+    ncc build examples/<name>.n -o <name>.ncu
+    nvm <name>.ncu
 
-安装包内无 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.nmod`。
+安装包内无 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.ncu`。
 
-`stdlib_io` 需要一行 stdin：`nvm stdlib_io.nmod < examples/stdlib_io.stdin`。
+`stdlib_io` 需要一行 stdin：`nvm stdlib_io.ncu < examples/stdlib_io.stdin`。
 成功运行的退出码列在「退出码」列（Windows 限 0-255）。
 
 | 示例 | 演示 | 退出码 |
@@ -32,7 +32,7 @@
 | delegates_tour.n | 函数/方法代理 | 7 |
 | aliases_tour.n | 类型别名 | 0 |
 | stdlib_string.n | string 方法 | 0 |
-| stdlib_math.n | math 命名空间 | 0 |
+| stdlib_math.n | 标准库 math 包 | 0 |
 | stdlib_io.n | io 控制台与文件内容（需 stdin） | 0 |
 | stdlib_fs.n | fs 路径/目录/元数据 | 0 |
 | hello_project/ | 多文件项目（nide 打开 .nproj） | 0 |

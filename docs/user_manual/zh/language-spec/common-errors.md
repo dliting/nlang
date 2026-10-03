@@ -56,7 +56,7 @@ import nosuch;
 Error: Module 'nosuch' not found. Check the project Sources list or -I import path.
 ```
 
-`import` 只开放限定名。未 `import` 就引用内建命名空间的成员（以及已知
+`import` 只开放限定名。未 `import` 就引用标准库包的成员（以及已知
 工程模块的成员）会报「未导入」——例如未 `import io;` 就调用 `io.print`，
 报 `Package 'io' is not imported. Add 'import io;' at the top of this
 file.`。详见 → [声明](declarations.md)「import 声明」。完整形态见 e2e
