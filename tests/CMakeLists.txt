@@ -423,6 +423,14 @@ add_test(NAME library_index_tests COMMAND test_library_index)
 # streams.
 add_executable(test_debugger
     test_vm/test_debugger.cpp
+    test_vm/test_debugger_common.cpp
+    test_vm/test_debugger_format.cpp
+    test_vm/test_debugger_gc.cpp
+    test_vm/test_debugger_hooks.cpp
+    test_vm/test_debugger_linepc.cpp
+    test_vm/test_debugger_session.cpp
+    test_vm/test_debugger_controller.cpp
+    test_vm/test_debugger_machine.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSession.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/MachineFrontEnd.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/SourceCache.cpp
