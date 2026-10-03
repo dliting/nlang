@@ -394,7 +394,8 @@ struct CompiledModule {
 };
 
 //Serialize a CompiledModule to a stream in the current .ncu format.
-//Single writer shared by VmBackend::SaveModule (ncc) and unit tests, so
+//Single writer shared by the artifact writers (VmBackend::
+//WriteModuleArtifact / the .npkg packer) and unit tests, so
 //hand-written byte layouts can never drift from the reader again.
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                          const std::string& entryKey);

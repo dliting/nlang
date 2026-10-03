@@ -12,28 +12,18 @@ namespace nlang
 {
 
 class Module;
-class SnNamespace;
-class BuildEnvironment;
 
-//The interface of a code generation backend.
+//The interface of a code generation backend. Phase 6 narrowed it to the
+//module-creation hook: code generation itself is backend-specific
+//(VmBackend::BuildUnitImages drives the per-unit pipeline directly), so
+//the old GenerateTypes/GenerateData/GenerateStatements/SaveModule steps
+//are gone with the merged single-module path.
 struct NLANG_COMPILER_API ICodeBackend
 {
 	virtual ~ICodeBackend() = default;
 
 	//Called when a new module is created.
 	virtual void OnModuleCreate(Module& module) = 0;
-
-	//Generate the type fields of the AST.
-	virtual void GenerateTypes(SnNamespace& root) = 0;
-
-	//Generate the data fields of the AST.
-	virtual void GenerateData(SnNamespace& root) = 0;
-
-	//Generate the statement codes of the AST.
-	virtual void GenerateStatements(SnNamespace& root) = 0;
-
-	//Save the generated module to the output.
-	virtual bool SaveModule(BuildEnvironment& env) = 0;
 };
 
 } //namespace nlang

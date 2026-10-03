@@ -1,9 +1,9 @@
 /*---
     NcuLinkerRemap.cpp — 指令步长族＋操作数重映射游走（NcuLinkerRemap.h）。
-    步长 switch 与 backend/Import.cpp 逐字节一致（拷贝适配；战役终点随
-    Import.cpp 整链删除时本文件成为唯一真身）。操作数偏移以
-    BytecodeOps.h 的逐操作数注释为准：OP_New/OP_AllocStruct/OP_AllocArray
-    的表下标是第二个 u16（首操作数是 dst 帧偏移）——两份拷贝同步修正。
+    最初拷贝适配自 backend/Import.cpp（已随 d2 整链删除），现为该内核的
+    唯一真身。操作数偏移以 BytecodeOps.h 的逐操作数注释为准：
+    OP_New/OP_AllocStruct/OP_AllocArray 的表下标是第二个 u16（首操作数
+    是 dst 帧偏移）。
 ---*/
 #include "NcuLinkerRemap.h"
 #include <cassert>
@@ -162,10 +162,10 @@ static size_t NcuInstructionStride(OpCode op) {
     }
 }
 
-//Per-opcode operand rewrite: dispatch the 11 remap-relevant operand kinds
-//(see Import.cpp's Layer 4 table). Other operands (local offsets, jump
-//targets, intrinsic IDs, type tags, debug line numbers) are unit-local and
-//do not need remapping.
+//Per-opcode operand rewrite: dispatch the 11 remap-relevant operand
+//kinds. Other operands (local offsets, jump targets, intrinsic IDs,
+//type tags, debug line numbers) are unit-local and do not need
+//remapping.
 static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     const NcuOperandMaps& maps,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {

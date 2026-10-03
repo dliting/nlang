@@ -5,7 +5,7 @@
 // read-only view, the DebugSessionController session semantics (via a
 // scripted front end), the ndb CLI adapter's output formats, and the
 // IHostIo seam (output capture + readLine rejection).
-// MUST call Runtime::StaticInit() before any Build() (IdString tables).
+// MUST call Runtime::StaticInit() before any build (IdString tables).
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -16,6 +16,8 @@
 #include "IDebugHooks.h"
 #include "IHostIo.h"
 #include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 #include "Disassembler.h"
 #include "DebugSessionController.h"
 #include "DebugSession.h"
@@ -97,7 +99,10 @@ static BuildOutcome buildSource(const std::string& tag,
 
     BuildOutcome outcome;
     try {
-        outcome.ok = builder.Build()
+        //Plain import-free programs produce a complete entry-unit .ncu
+        //(BuildArtifacts; the merged Build path is gone), so the direct
+        //Load below stays valid.
+        outcome.ok = builder.BuildArtifacts()
             && std::filesystem::exists(modPath);
     } catch (const std::exception& e) {
         outcome.diagnostics += std::string("internal error: ") + e.what();
@@ -130,7 +135,7 @@ static BuildOutcome buildConsumer(const std::string& tag,
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);
     BuildOutcome outcome;
-    outcome.ok = builder.Build();
+    outcome.ok = builder.BuildArtifacts();
     for (auto it = logger.cbegin(); it != logger.cend(); ++it)
         outcome.diagnostics += (*it)->Message() + "\n";
     return outcome;
@@ -141,6 +146,19 @@ static CompiledModule loadBuilt(const std::string& tag)
 {
     return ModuleLoader::Load(
         (scratchDir() / (tag + ".ncu")).string());
+}
+
+//加载并链接一个带导入的刚构建产物：闭包从 scratch 目录与 stdlib 包
+//目录解析（外部 .ncu 与产物同目录；io/math/fs 单元在 stdlib.npkg 里），
+//nlink 合并为唯一运行期模块。加载期链接是导入形态的唯一执行路径
+//（产物自身不含库代码）。
+static CompiledModule loadLinked(const std::string& tag)
+{
+    NcuLoader::Options loaderOpts;
+    loaderOpts.searchDirs = {scratchDir().string(), STDLIB_DIR};
+    NcuLoader::Result loaded = NcuLoader::LoadClosure(
+        (scratchDir() / (tag + ".ncu")).string(), loaderOpts);
+    return NcuLinker::Link(std::move(loaded.units), loaded.entryKey);
 }
 
 void test_v19_sourcefile_single_tu()
@@ -169,9 +187,10 @@ void test_v19_sourcefile_single_tu()
 void test_v19_import_roundtrip()
 {
     TEST(v19_import_roundtrip);
-    //The import target must exist as a compiled .ncu — ModuleBuilder's
-    //FindModuleFile searches m_ImportDirs for <name>.ncu, never a .n
-    //source, so build the lib module first, then the consumer.
+    //The import target must exist as a compiled .ncu — compile-time
+    //resolution needs its signatures (source or image), and the load-time
+    //closure resolves the unit image from the search dir, so build the
+    //lib artifact first, then the consumer.
     BuildOutcome lib = buildSource("dbgutil_lib",
         "int triple(int v) { int t = v * 3; return t; }\n");
     CHECK(lib.ok, "lib build should succeed: " + lib.diagnostics);
@@ -180,9 +199,11 @@ void test_v19_import_roundtrip()
         "int main() { return dbgutil_lib.triple(14); }\n");
     CHECK(b.ok, "import build should succeed: " + b.diagnostics);
 
-    CompiledModule mod = loadBuilt("dbgutil_main");
+    //The consumer artifact carries import slots only — linking happens
+    //at load time; the merged shape lives in the LINKED module.
+    CompiledModule mod = loadLinked("dbgutil_main");
     int tripleIdx = mod.FindFunction("dbgutil_lib.triple");
-    CHECK(tripleIdx >= 0, "triple should be merged into the consumer");
+    CHECK(tripleIdx >= 0, "triple should be linked into the program");
     const auto& triple = mod.functions[static_cast<size_t>(tripleIdx)];
     CHECK(triple.sourceFile.find("dbgutil_lib.n") != std::string::npos,
         "imported function keeps producer source file, got: "
@@ -468,7 +489,8 @@ void test_v19_import_gc_roots()
     //final read observes 0 instead of 7. With the fix, keep is marked
     //at that GC and the drain cannot touch its slot.
     //Lib must be a compiled .ncu before the consumer can import it
-    //(same FindModuleFile contract as the roundtrip test above).
+    //(same contract as the roundtrip test above); the consumer executes
+    //through the load-time linked module.
     BuildOutcome lib = buildSource("gcutil_lib",
         "int churn() {\n"
         "    int i = 0;\n"
@@ -492,7 +514,7 @@ void test_v19_import_gc_roots()
         "import gcutil_lib;\n"
         "int main() { return gcutil_lib.churn(); }\n");
     CHECK(b.ok, "import build should succeed: " + b.diagnostics);
-    CompiledModule mod = loadBuilt("gcutil_main");
+    CompiledModule mod = loadLinked("gcutil_main");
     VmExecutor exec;
     CHECK(exec.Execute(mod) == 7,
         "imported-frame local 'keep' must survive GC (B.1 locals fix)");
@@ -1951,7 +1973,10 @@ void test_hostio_output_capture()
         "import io;\n"
         "int main() { io.print(\"hi\"); return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    CompiledModule mod = loadBuilt("hostio_print");
+    //io joins at load time: the entry-unit artifact carries only the
+    //import slot, so the closure (stdlib.npkg via STDLIB_DIR) must be
+    //linked before execution.
+    CompiledModule mod = loadLinked("hostio_print");
     VmExecutor exec;
     CapturingHostIo io;
     exec.SetHostIo(&io);
@@ -1970,7 +1995,9 @@ void test_hostio_readline_rejected()
         "import io;\n"
         "int main() { string s = io.readLine(); return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    CompiledModule mod = loadBuilt("hostio_readline");
+    //Same load-time closure as test_hostio_output_capture: io's unit
+    //rides in from stdlib.npkg, linked here.
+    CompiledModule mod = loadLinked("hostio_readline");
     VmExecutor exec;
     CapturingHostIo io;
     exec.SetHostIo(&io);
@@ -2104,7 +2131,9 @@ void test_machine_bfunc_and_output()
         "    return helper() + 4;\n"   //9
         "}\n");                        //10
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    CompiledModule mod = loadBuilt("mach_bfunc");
+    //io joins the closure at load time (stdlib.npkg via STDLIB_DIR), so
+    //the session runs the linked module, not the bare entry unit.
+    CompiledModule mod = loadLinked("mach_bfunc");
     const std::string src = (scratchDir() / "mach_bfunc.n").string();
     const std::string escaped = protocol::EncodeField(src);
     std::ostringstream events;
@@ -2288,8 +2317,8 @@ void test_loop_anchor_per_iteration()
 
 int main()
 {
-    //In-process host init: ModuleBuilder's Build() dereferences the
-    //IdString static tables — StaticInit must run first or Build()
+    //In-process host init: the ModuleBuilder build path dereferences the
+    //IdString static tables — StaticInit must run first or the build
     //segfaults (a crash try/catch cannot intercept).
     Runtime::StaticInit();
 

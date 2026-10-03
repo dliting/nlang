@@ -93,7 +93,7 @@ static CompileOutcome compileOne(const char* szBody)
     out.params->m_sTempDir = dir.string();
     out.logger = std::make_unique<MemLogger>();
     out.builder = std::make_unique<ModuleBuilder>(*out.params, *out.logger);
-    try { out.ok = out.builder->Build(); }
+    try { out.ok = !out.builder->BuildUnitImages().units.empty(); }
     catch (const std::exception&) { out.ok = false; }
     return out;
 }

@@ -204,8 +204,7 @@ void VmBackend::Access(SnIdentifierExpr& expr) {
             //resolver marked something resolved without binding it (the
             //string equals() arg bug did exactly this). Emitting ConstZero
             //here produced silent wrong code; fail the build instead —
-            //builder.Build() only reports resolver errors, so codegen runs
-            //only when the front-end saw none.
+            //the front end reports resolver errors before codegen runs.
             throw std::runtime_error(
                 "NLang backend: identifier reached codegen unresolved: "
                 + idExpr.Name());

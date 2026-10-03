@@ -26,7 +26,6 @@ add_library(nlang_vm
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
     backend/BuiltinClasses.cpp
-    backend/Import.cpp
     backend/Types.cpp
     backend/EmitCall.cpp
     backend/WalkersExpr.cpp

@@ -95,7 +95,7 @@ public:
 
 	//"utils.helper" / "main"; empty before RegisterUnit.
 	const std::string& ModulePathOf(uint32_t moduleIndex) const;
-	//Drop every entry and owner tag. A second Build() on the same
+	//Drop every entry and owner tag. A second build on the same
 	//builder must not append to the previous run's entries or keep
 	//owner keys pointing into its destroyed AST.
 	void Reset();

@@ -95,8 +95,8 @@ bool WritePackageFile(BuildEnvironment& env, NcuPackageWriter& packer,
 } //namespace
 
 //Phase 6 per-unit build (ModuleBuilder.h contract): the same front end as
-//Build(), then VmBackend::GenerateUnits instead of the merged single-pass
-//codegen. Library translation units (stdlib or third-party sources found
+//BuildArtifacts, then VmBackend::GenerateUnits per translation unit.
+//Library translation units (stdlib or third-party sources found
 //on the search path) are EXCLUDED from codegen — their sources stay
 //inlined for signature resolution, but their code ships in their own
 //packages and joins the closure at load time (design section 3). The
@@ -117,9 +117,8 @@ ModuleBuilder::UnitImages ModuleBuilder::BuildUnitImages()
 		m_upEnv->Log(CLL_Fatal, "Per-unit builds need the VM backend.");
 		return none;
 	}
-	//Same injections as GenerateCodes minus SetImportedModules: the
-	//library index feeds stdlib signature types, the registry feeds
-	//table keys and unit paths.
+	//Codegen injections: the library index feeds stdlib signature types,
+	//the registry feeds table keys and unit paths.
 	vmBackend->SetLibraryIndex(&m_upEnv->LibraryIndex());
 	vmBackend->SetModuleRegistry(&m_upEnv->Registry(), m_upEnv.get());
 	//TU order == module index (ModuleRegistry registration contract);

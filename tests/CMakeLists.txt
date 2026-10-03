@@ -1,3 +1,14 @@
+# Stdlib dir every STDLIB_DIR-defining test compiles and loads against:
+# the BUILD-TREE copy (root CMakeLists "Standard library package") — the
+# same dir the tools resolve via FindStdLibDir. It carries the library
+# sources for compile-time signature resolution AND stdlib.npkg for the
+# load-time closure (NcuLoader search dirs), so tests resolve stdlib
+# exactly like production instead of half source-tree, half nowhere.
+# The dependency block at the end of this file packs the package (and
+# refreshes the copy) before any of these targets build, so targeted
+# test builds work on a fresh build tree too.
+set(NLANG_TEST_STDLIB_DIR ${CMAKE_BINARY_DIR}/stdlib)
+
 add_executable(test_vm
     test_vm/test_vm.cpp
 )
@@ -130,7 +141,7 @@ target_link_libraries(test_native_host
 )
 target_compile_definitions(test_native_host
     PRIVATE
-        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
 )
 add_test(NAME native_host_tests COMMAND test_native_host)
 
@@ -164,7 +175,7 @@ target_link_libraries(test_thirdparty
 )
 target_compile_definitions(test_thirdparty
     PRIVATE
-        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
         FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_mylib>"
         MYLIB_DLL_NAME="$<TARGET_FILE_NAME:nlang_mylib>"
         MIXLIB_DLL_NAME="$<TARGET_FILE_NAME:nlang_mixlib>"
@@ -196,7 +207,7 @@ target_link_libraries(test_library_source
 )
 target_compile_definitions(test_library_source
     PRIVATE
-        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
 )
 add_test(NAME library_source_tests COMMAND test_library_source)
 
@@ -218,7 +229,7 @@ target_link_libraries(test_perunit
 )
 target_compile_definitions(test_perunit
     PRIVATE
-        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
 )
 add_test(NAME perunit_tests COMMAND test_perunit)
 
@@ -334,7 +345,7 @@ target_link_libraries(test_stdlib
 )
 target_compile_definitions(test_stdlib
     PRIVATE
-        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
 )
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
@@ -400,7 +411,7 @@ target_link_libraries(test_library_index
 )
 target_compile_definitions(test_library_index
     PRIVATE
-        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
 )
 add_test(NAME library_index_tests COMMAND test_library_index)
 
@@ -432,7 +443,7 @@ target_link_libraries(test_debugger
 )
 target_compile_definitions(test_debugger
     PRIVATE
-        STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
 )
 
 add_test(NAME debugger_tests COMMAND test_debugger)
@@ -537,7 +548,7 @@ if(NLANG_BUILD_IDE)
     )
     target_compile_definitions(test_import_parse
         PRIVATE
-            STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
     )
     if(WIN32)
         add_custom_command(TARGET test_import_parse POST_BUILD
@@ -572,7 +583,7 @@ if(NLANG_BUILD_IDE)
     )
     target_compile_definitions(test_module_import
         PRIVATE
-            STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
     )
     if(WIN32)
         add_custom_command(TARGET test_module_import POST_BUILD
@@ -982,7 +993,7 @@ if(Python3_FOUND)
     )
     target_compile_definitions(test_langservice
         PRIVATE
-            STDLIB_DIR="${PROJECT_SOURCE_DIR}/stdlib"
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
     )
     add_test(NAME langservice_tests COMMAND test_langservice)
     set_tests_properties(langservice_tests PROPERTIES TIMEOUT 60)
@@ -1211,4 +1222,17 @@ add_custom_target(nlang_stdlib_native_for_tests ALL
                 "${CMAKE_BINARY_DIR}/tests/$<CONFIG>"
     VERBATIM)
 add_dependencies(nlang_stdlib_native_for_tests nlang_math nlang_io nlang_fs)
+
+# STDLIB_DIR (NLANG_TEST_STDLIB_DIR, see the top of this file) is the
+# build-tree stdlib copy: its sources and stdlib.npkg are produced by
+# nlang_stdlib_package. Every test that compiles or loads against that
+# dir depends on the package target, so a targeted build of just these
+# tests still sees a populated dir (a missed entry here only bites
+# targeted builds on a fresh tree; full builds always pack first).
+foreach(t IN ITEMS
+        test_native_host test_thirdparty test_library_source test_perunit
+        test_stdlib test_library_index test_debugger test_import_parse
+        test_module_import test_langservice)
+    add_dependencies(${t} nlang_stdlib_package)
+endforeach()
 

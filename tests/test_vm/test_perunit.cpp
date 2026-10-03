@@ -6,8 +6,8 @@
 // really executed by VmExecutor. Nothing is baked in at compile time: every
 // cross-unit reference leaves a placeholder slot that only the linker
 // resolves, so each test pins one cross-unit shape end to end (one test,
-// one shape). The merged-mode equivalents live in test_library_source.cpp;
-// those keep guarding the legacy path until the campaign retires it.
+// one shape). Source-library scenarios (inlined library TUs, discovery
+// wording) live in test_library_source.cpp on the same per-unit path.
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -75,7 +75,7 @@ struct PerUnitRun {
 
 // Build sources as per-unit images, link the closure, execute the entry.
 // One build entry point for the whole file (unique output per scenario:
-// the process-wide module registry keeps names across Build() runs).
+// the process-wide module registry keeps names across build runs).
 PerUnitRun perUnitRun(const fs::path& dir, CapturingIo& cap,
                       const std::vector<std::string>& sources) {
     PerUnitRun out;
@@ -371,6 +371,36 @@ void TestTwoMainsPerUnitRejected() {
     //definition error, not a codegen ambiguity.
     CHECK(b.log.find("conflicted") != std::string::npos,
           "diagnosis names the duplicate definition");
+}
+
+// --- shape 7b: mains in different directories — the build-level gate ---
+//
+// Distinct directories are distinct package names (x/main.n is x.main,
+// y/main.n is y.main), so the merged-namespace front end sees no duplicate
+// and accepts both units. The per-unit owner gate in FindEntryCandidate
+// hides each sibling's candidate, so the whole unit set is judged by the
+// RejectAmbiguousUnitEntries pre-check before any image is built (the
+// d1 per-unit flip, before this pre-check, silently kept the last
+// unit's entry here).
+
+void TestTwoMainsDifferentDirsRejected() {
+    const auto dir = scenarioDir("two_mains_dirs");
+    writeFiles(dir, {
+        { "x/main.n",
+          "int main() {\n"
+          "  return 1;\n"
+          "}\n" },
+        { "y/main.n",
+          "int main() {\n"
+          "  return 2;\n"
+          "}\n" } });
+    const PerUnitBuild b = perUnitBuild(dir, { "x/main.n", "y/main.n" });
+    CHECK(!b.ok, "mains in different directories rejected");
+    CHECK(b.log.find("entry point is ambiguous") != std::string::npos,
+          "diagnosis names the ambiguity");
+    CHECK(b.log.find("x.main") != std::string::npos
+              && b.log.find("y.main") != std::string::npos,
+          "diagnosis names both candidate keys");
 }
 
 // --- shape 8: foreign-typed fields — placeholder appends mid-registration ---
@@ -725,6 +755,7 @@ int main() {
     TestEnumMethodCrossUnit();
     TestUnitImageShape();
     TestTwoMainsPerUnitRejected();
+    TestTwoMainsDifferentDirsRejected();
     TestForeignTypedFieldsCrossUnit();
     TestExternalNcuPeerImage();
     TestForeignMethodsNotGhostCompiled();

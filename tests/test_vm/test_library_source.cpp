@@ -1,6 +1,7 @@
 // Source-library integration tests. A third-party library shipped as a
-// single <name>.n file with ORDINARY NLang function bodies is compiled
-// inline into the consumer and really run by VmExecutor.
+// single <name>.n file with ORDINARY NLang function bodies is inlined
+// into the consumer's build for signature resolution and really run by
+// VmExecutor after the load-time link.
 //
 // Coverage (Phase 4a):
 //   * happy path  - ordinary bodies, same-library bare calls, recursion;
@@ -11,9 +12,13 @@
 //   * owner isolation - a project function and a library function sharing
 //     a name resolve independently.
 //
-// The library is really compiled by ModuleBuilder and really executed by
-// VmExecutor (no VM internals mocked); it resolves through the same
-// library-index + inline path as the standard library.
+// Execution contract (per-unit artifacts): the consumer's .ncu carries
+// import slots only, so every run scenario pre-builds each library
+// source into <package>.ncu, then loads the closure (NcuLoader over the
+// scenario dir + the stdlib package) and merges the images (NcuLinker)
+// before execution. The library is really compiled by ModuleBuilder and
+// really executed by VmExecutor (no VM internals mocked); it resolves
+// through the same library-index + inline path as the standard library.
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -23,7 +28,10 @@
 #include "VmExecutor.h"
 #include "IHostIo.h"
 #include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -65,12 +73,13 @@ void writeFiles(const fs::path& dir, const Files& files) {
     }
 }
 
-//One build entry point for the whole file: fills params, runs Build(),
-//and leaves the diagnostics in the caller's logger. Never a second copy.
+//One build entry point for the whole file: fills params, runs
+//BuildArtifacts (the production path; the merged Build() is gone), and
+//leaves the diagnostics in the caller's logger. Never a second copy.
 bool runBuild(const fs::path& dir, ListCompileLogger& logger,
               const std::vector<std::string>& vrSources = { "main.n" }) {
     BuildParams params;
-    //Unique output module per scenario: several Build() runs share the
+    //Unique output module per scenario: several builds share the
     //process-wide module registry, so a repeated name would collide.
     for (const auto& s : vrSources) params.m_SourceFiles.push_back((dir / s).string());
     //The scenario root IS the project root: without it DeriveModulePath
@@ -82,7 +91,17 @@ bool runBuild(const fs::path& dir, ListCompileLogger& logger,
     params.m_sTempDir = dir.string();
     params.m_sStdLibDir = STDLIB_DIR;
     params.m_ImportDirs = { dir.string(), STDLIB_DIR };
-    return ModuleBuilder(params, logger).Build();
+    //Single-file BuildArtifacts writes the entry-unit .ncu; the inlined
+    //library sources are excluded from it (import slots name them
+    //instead), which is exactly what compileRun consumes below.
+    try { return ModuleBuilder(params, logger).BuildArtifacts(); }
+    catch (const std::exception& e) {
+        //A codegen throw must reach the log: compileLog reads this
+        //logger, and a swallowed exception would read as a silent
+        //failure with an empty diagnosis.
+        logger.Log(CLL_Error, "internal error: %s", e.what());
+        return false;
+    }
 }
 
 //Text view: joins every logged item. ListCompileLogger only exposes
@@ -90,13 +109,8 @@ bool runBuild(const fs::path& dir, ListCompileLogger& logger,
 std::string compileLog(const fs::path& dir,
                        const std::vector<std::string>& vrSources = { "main.n" }) {
     ListCompileLogger logger;
+    runBuild(dir, logger, vrSources);   //the diagnostics are the point here
     std::string out;
-    try { runBuild(dir, logger, vrSources); }
-    catch (const std::exception& e) {      //kept because today's compileDir
-        out += " internal error: ";        //already has this catch
-        out += e.what();
-        return out;
-    }
     for (auto it = logger.cbegin(); it != logger.cend(); ++it)
         out += (*it)->Message() + "\n";
     return out;
@@ -107,8 +121,7 @@ std::string compileLog(const fs::path& dir,
 bool compileDir(const fs::path& dir,
                 const std::vector<std::string>& vrSources = { "main.n" }) {
     ListCompileLogger logger;
-    try { return runBuild(dir, logger, vrSources); }
-    catch (const std::exception&) { return false; }
+    return runBuild(dir, logger, vrSources);
 }
 
 struct CapturingIo : IHostIo {
@@ -116,26 +129,90 @@ struct CapturingIo : IHostIo {
     void OnOutput(std::string_view v) override { text += v; }
 };
 
+//Pre-build one library source into its compiled unit artifact: the
+//post-flip execution contract — the consumer's .ncu carries import
+//slots only, and the load-time closure resolves each library package
+//from the search path like a shipped third-party artifact. The file
+//must land as <package>.ncu (the loader's flat lookup), but
+//ModuleManager registers the OUTPUT name process-wide, so repeated
+//library names across scenarios build under a unique name and rename
+//the file afterwards.
+bool buildLibraryUnit(const fs::path& source, const fs::path& root) {
+    std::string dotted =
+        fs::relative(source, root).replace_extension().generic_string();
+    for (char& c : dotted)
+        if (c == '/')
+            c = '.';
+    //Unique output name from the FULL dotted path, not the file stem:
+    //the registry keeps module names process-wide, so same-stem library
+    //sources in different subdirectories of one scenario would collide.
+    std::string uniqueName = root.filename().string();
+    for (char& c : dotted)
+        uniqueName += (c == '.') ? '_' : c;
+    BuildParams params;
+    params.m_SourceFiles.push_back(source.string());
+    params.m_sProjectDir = root.string();
+    params.m_sOutputModule = uniqueName;
+    params.m_sOutputDir = root.string();
+    params.m_sTempDir = root.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    ListCompileLogger logger;
+    try {
+        if (!ModuleBuilder(params, logger).BuildArtifacts())
+            return false;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "library build failed (%s): %s\n",
+                     dotted.c_str(), e.what());
+        return false;
+    }
+    std::error_code ec;
+    fs::rename(root / (uniqueName + ".ncu"), root / (dotted + ".ncu"), ec);
+    return !ec;
+}
+
 // Compile then run main.n; returns the program code (-1 on build failure).
+// Every source that is not a compile entry is pre-built into its package
+// artifact first (libraries ship compiled); the program then loads its
+// closure (scenario dir + stdlib package) and nlink merges the images
+// before execution — the same shape nvm runs.
 int compileRun(const fs::path& dir, CapturingIo& cap,
                const std::vector<std::string>& vrSources = { "main.n" }) {
+    const std::string tag = dir.filename().string();
+    //Collect first, build after: the library builds drop new files into
+    //the same directory this walk enumerates.
+    std::vector<fs::path> libSources;
+    for (fs::recursive_directory_iterator it(dir), end; it != end; ++it) {
+        if (!it->is_regular_file() || it->path().extension() != ".n")
+            continue;
+        const std::string rel =
+            fs::relative(it->path(), dir).generic_string();
+        if (std::find(vrSources.begin(), vrSources.end(), rel)
+                != vrSources.end())
+            continue;
+        libSources.push_back(it->path());
+    }
+    for (const auto& src : libSources)
+        CHECK(buildLibraryUnit(src, dir),
+              "scenario library unit pre-builds");
     ListCompileLogger logger;
     if (!runBuild(dir, logger, vrSources))
         return -1;
-    const std::string modName = dir.filename().string();
-    //A keyed-layout symptom (or a VM-side table break) surfaces as an
+    //A keyed-layout symptom (or a load/link break) surfaces as an
     //exception, not a diagnostic; catch it so the scenario reports a
-    //failed CHECK instead of taking down the whole binary (compileDir
-    //protects its own call the same way).
+    //failed CHECK instead of taking down the whole binary.
     try {
-        CompiledModule mod = ModuleLoader::Load(
-            (dir / (modName + ".ncu")).string());
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+        NcuLoader::Result loaded = NcuLoader::LoadClosure(
+            (dir / (tag + ".ncu")).string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                             loaded.entryKey);
         VmExecutor exec;
         exec.AddNativeSearchDir(dir.string());
         exec.SetHostIo(&cap);
         return exec.Execute(mod);
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "internal error: %s\n", e.what());
+        std::fprintf(stderr, "load/link failed: %s\n", e.what());
         return -1;
     }
 }
@@ -764,9 +841,10 @@ static void TestEntryPointRoundTrip() {
     CHECK(compileDir(dir), "single-file program builds");
     CompiledModule mod = ModuleLoader::Load(
         (dir / (dir.filename().string() + ".ncu")).string());
-    //.ncu 2.0: the header carries the module's dotted path; the
-    //transitional producer spells it as the output module name.
-    CHECK(mod.modulePath == dir.filename().string(),
+    //.ncu 2.0: the header carries the unit's module path, derived from
+    //the source location (main.n at the scenario root -> "main"), not
+    //the output file name.
+    CHECK(mod.modulePath == "main",
           "the module path is recorded in the header");
     CHECK(mod.entryPoint >= 0, "entry point index recorded");
     CHECK(mod.entryPoint < static_cast<int32_t>(mod.functions.size()),
@@ -825,10 +903,11 @@ static void TestBuiltinAndUserTypeNameCoexist() {
     CapturingIo cap;
     CHECK(compileRun(dir, cap) == 0,
           "a library Object builds and runs beside the builtin one");
-    CompiledModule mod = ModuleLoader::Load(
-        (dir / (dir.filename().string() + ".ncu")).string());
+    //The library class ships in the LIBRARY artifact (its unit carries
+    //the builtin Object too — RegisterBuiltinClasses runs per unit).
+    CompiledModule lib = ModuleLoader::Load((dir / "alib.ncu").string());
     int nBare = 0, nLib = 0;
-    for (const auto& c : mod.classes) {
+    for (const auto& c : lib.classes) {
         if (c.name == "Object") ++nBare;       //builtin: NO_OWNER => bare key
         if (c.name == "alib.Object") ++nLib;   //library: path-derived key
     }
@@ -836,12 +915,29 @@ static void TestBuiltinAndUserTypeNameCoexist() {
     CHECK(nBare == 1, "the builtin keeps its bare Object key and nothing else shares it");
     //Keys apart, the layouts must point apart too: the builtin carries 0
     //fields, the library declaration 1 (CompiledClass::fieldCount).
-    for (const auto& c : mod.classes) {
+    for (const auto& c : lib.classes) {
         if (c.name == "Object")
             CHECK(c.fieldCount == 0, "the bare key is the field-less builtin");
         if (c.name == "alib.Object")
             CHECK(c.fieldCount == 1, "alib.Object carries the library field");
     }
+    //Flip pin: the consumer unit carries alib.Object only as a
+    //placeholder — an import slot plus a field-less stub record (the
+    //stub record itself is how the linker name-addresses the class).
+    //"Baked in" would mean the library layout — fieldCount 1 — arriving
+    //in the consumer image; linking is the loader's job at run time.
+    CompiledModule consumer = ModuleLoader::Load(
+        (dir / (dir.filename().string() + ".ncu")).string());
+    bool importSlot = false;
+    for (const auto& imp : consumer.classImports)
+        if (imp.modulePath == "alib" && imp.name == "alib.Object")
+            importSlot = true;
+    CHECK(importSlot, "the consumer records the alib.Object import slot");
+    bool baked = false;
+    for (const auto& c : consumer.classes)
+        if (c.name == "alib.Object" && c.fieldCount != 0)
+            baked = true;
+    CHECK(!baked, "the consumer artifact embeds no library class layout");
     //The old root-level user Object no longer coexists with a library
     //Object: both land on root under one name, and the duplicate-class
     //rule rejects the pair.
@@ -922,11 +1018,13 @@ void TestEnumMethodQualifiedKeys() {
     CapturingIo cap;
     CHECK(compileRun(dir, cap) == 79,
           "both same-named enum methods run (7*10+9)");
-    //The produced module's function table carries the qualified keys,
-    //and no bare "rank" record may survive them.
+    //The enum methods are compiled into the LIBRARY unit: its function
+    //table carries the qualified keys, and no bare "rank" record may
+    //survive them. (The consumer artifact references them through
+    //import slots instead.)
     try {
         CompiledModule mod = ModuleLoader::Load(
-            (dir / "enum_method_keys.ncu").string());
+            (dir / "alib.ncu").string());
         CHECK(mod.FindFunction("alib.Color.rank") >= 0,
               "Color.rank keyed by its enclosure path");
         CHECK(mod.FindFunction("alib.Shape.rank") >= 0,

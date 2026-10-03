@@ -31,41 +31,10 @@ VmBackend::~VmBackend() = default;
 
 void VmBackend::OnModuleCreate(Module& module) {
     m_compiledModule.name = module.Name().ToString();
-    //Transitional (phase 6): the module path is spelled as the output
-    //module name until per-unit compilation gives every unit its own
-    //dotted path (Task 3).
+    //The module path is spelled as the output module name here; the
+    //per-unit driver (GenerateUnits) restamps every unit image with its
+    //own registry ModulePathOf.
     m_compiledModule.modulePath = m_compiledModule.name;
-}
-
-void VmBackend::GenerateTypes(SnNamespace& root) {
-    //VmBackend uses multi-pass compilation in GenerateStatements (register types,
-    //then functions, then generate code). Type and data registration happen there,
-    //not in these separate phases. LLVM backend uses these phases differently
-    //because LLVM IR supports forward references.
-}
-
-void VmBackend::GenerateData(SnNamespace& root) {
-    //See GenerateTypes comment.
-}
-
-void VmBackend::GenerateStatements(SnNamespace& root) {
-    RegisterBuiltinClasses();
-    //Phase 9c cross-module: Phase A merges imported classes/structs/arrayTypes
-    //(and builds stringMap) BEFORE user RegisterStructs/Classes/ArrayTypes run,
-    //so their internal FindClass/FindStruct/FindArray queries find imported types.
-    MergeImportedClassesStructsArrays();
-    RegisterStructs(root);
-    RegisterClasses(root);
-    ResolveStructClassRefs();
-    RegisterArrayTypes(root);
-    RegisterEnums(root);
-    RegisterFunctions(root);
-    //Phase 9c cross-module: Phase B merges imported enums/functions/bytecode
-    //AFTER RegisterEnums/RegisterFunctions (their clear() would erase Phase B
-    //data if it ran earlier), and completes class metadata remap.
-    MergeImportedFinalize();
-    PopulateClassMethods(root);
-    GenerateAllBytecode(root);
 }
 
 void VmBackend::ForEachDeclNode(SnField& parent,
@@ -420,10 +389,6 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
         }
     }
     return t;
-}
-
-bool VmBackend::SaveModule(BuildEnvironment& env) {
-    return WriteModuleArtifact(env, m_compiledModule, m_entryKey);
 }
 
 bool VmBackend::WriteModuleArtifact(BuildEnvironment& env,

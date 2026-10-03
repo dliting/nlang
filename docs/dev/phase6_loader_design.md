@@ -187,7 +187,8 @@ stub 机制保留但只承担**签名解析**职责，不再参与运行期表�
 2. nlink 类：对等合并＋槽位重映射（**已实现**：`src/vm/NcuLinker.{h,cpp}`
    ＋`NcuLinkerRemap.{h,cpp}`，合成模块单元测试 `test_nculinker`；
    Phase A/B 内核复制适配——原语义「并入既有目标」改为「N 个对等
-   映像合并」，原件保留至切换完成后再删）。
+   映像合并」；原 backend/Import.cpp 内核已在 d2 删除，nlink 侧是该
+   内核的唯一存续副本）。
 3. 统一切换（**代码生成切换与执行接线必须成对提交**，否则中间态产物
    无法执行）：ncc 逐单元产码＋进程内执行接 nlink＋nloader＋nvm/e2e
    runner 接线＋单文件切逐单元＋stdlib 包目标；切换完成后删除
@@ -197,8 +198,9 @@ stub 机制保留但只承担**签名解析**职责，不再参与运行期表�
    改为逐单元产物＋加载期链接。**已实现**：
    - **nlink**：`src/vm/NcuLinker.{h,cpp}`＋`NcuLinkerRemap.{h,cpp}`，
      合成模块单元测试 `test_nculinker`——Phase A/B 内核复制适配为
-     「N 个对等映像合并」（原语义「并入既有目标」），原件保留至
-     切换完成后再删；
+     「N 个对等映像合并」（原语义「并入既有目标」）；原
+     backend/Import.cpp 内核已在 d2 删除，nlink 侧是该内核的唯一
+     存续副本；
    - **nloader**：`src/vm/NcuLoader.{h,cpp}`，闭包发现/定位优先级/
      一次报清诊断由合成 .ncu/.npkg 夹具单元测试 `test_nculoader`
      逐项固定——入口包自身成员表＞搜索目录（目录内 `.ncu` 文件＞
@@ -228,9 +230,12 @@ stub 机制保留但只承担**签名解析**职责，不再参与运行期表�
      指名成员数），不静默取首成员——半张签名面会把失败推迟到运行
      期。加载侧（nloader）本就按点分成员路径全量解析，缺口只在
      编译期。
-   剩余（d2）：删除 `Import.cpp` Phase A/B 整链、`MERGED_MODE` 哨兵
-   与合并产码路径（`Build()` 旧路径及 `SetImportedModules`/
-   `m_funcIndexMap` 的 stub 条目）。
+   - **合并产码整链已删除（d2）**：`Import.cpp` Phase A/B 整链、
+     `MERGED_MODE` 哨兵、`SetImportedModules`/`m_importedModules`/
+     `m_importedFuncSourceIdx` 侧表与 `ModuleBuilder::Build()` 旧
+     路径全部移除——nlink 是唯一的链接路径，占位槽＋导入槽模型
+     贯穿编译与加载两侧；全部测试调用方已迁至
+     `BuildUnitImages`/`BuildArtifacts`。
    后续决策项（非 d2）：多成员 .npkg 的编译期消费面——按成员铸造
    stub 需要点分外部路径的导入门语义（现行门规则：外部导入限
    单段），定案后解除 `LoadModuleArtifact` 的单成员拒绝。

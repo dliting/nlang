@@ -77,7 +77,9 @@ std::pair<bool, std::vector<std::string>> compileSource(
     bool ok = false;
     //Exception boundary (same contract as ncc main): codegen internal
     //errors throw; without the catch the abort would kill the test run.
-    try { ok = builder.Build(); }
+    //BuildArtifacts is the production path (Build is gone): the entry
+    //unit .ncu lands in the temp dir, stdlib sources stay inlined.
+    try { ok = builder.BuildArtifacts(); }
     catch (const std::exception&) { ok = false; }
     return {ok, logger.errorsText()};
 }
@@ -99,7 +101,7 @@ class TestImportParse : public QObject
 {
     Q_OBJECT
 private slots:
-    //Runtime tables (IdString etc.) must exist before any Build().
+    //Runtime tables (IdString etc.) must exist before any build.
     void initTestCase() { Runtime::StaticInit(); }
 
     void parseIdentifierImport()

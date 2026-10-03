@@ -85,8 +85,8 @@ void VmBackend::Access(SnAssertStmt& stmt) {
         //"assertion failed" alone when the message is empty. The index
         //must come from the pool: a unit with no other string constants
         //has no slot 0 at all (nlink's operand bounds check rejected
-        //the historical hardcoded 0; in merged mode it silently named
-        //whatever string happened to be interned first).
+        //the historical hardcoded 0, which silently named whatever
+        //string happened to be interned first).
         emitter.EmitUint16(AddStringConstant(""));
         //End
         size_t endPos = emitter.CurrentOffset();

@@ -32,9 +32,6 @@ public:
 
 	~ModuleBuilder();
 
-	//Compile source files to a module file.
-	bool Build();
-
 	//Phase 6 artifact build (the production path): write the per-unit
 	//images AS the artifacts — linking moved to load time (nloader +
 	//nlink; design section 3). Single-file mode writes the entry unit
@@ -60,15 +57,15 @@ public:
 		std::string entryKey;
 	};
 
-	//Phase 6: run the front end as Build() does, then generate code PER
-	//TRANSLATION UNIT (VmBackend::GenerateUnits) instead of one merged
-	//module. Every cross-unit reference is a placeholder slot + import
-	//record the caller's load-time linker resolves (NcuLinker::Link over
-	//units + external). Empty units = build errors (already logged).
+	//Phase 6: run the front end, then generate code PER TRANSLATION UNIT
+	//(VmBackend::GenerateUnits). Every cross-unit reference is a
+	//placeholder slot + import record the caller's load-time linker
+	//resolves (NcuLinker::Link over units + external). Empty units =
+	//build errors (already logged).
 	UnitImages BuildUnitImages();
 
 	//Compile-time module registry; populated with one entry per
-	//translation unit (and per imported .ncu) during Build().
+	//translation unit (and per imported .ncu) during the build.
 	const ModuleRegistry& Registry() const;
 
 	//Read-only view of the merged syntax-tree root (tests and tooling;
@@ -135,17 +132,13 @@ private:
 	//register their owners and keep the detached stubs alive. False
 	//after logging the failure.
 	bool LoadExternalModule(const std::string &name);
-	//Register a loaded module's stub functions in the VmBackend
-	//side-table and the registry's external entry; detached stubs
-	//(name clashes) stay owned by the builder.
+	//Register a loaded module's stub functions in the registry's
+	//external entry; detached stubs (name clashes) stay owned by the
+	//builder.
 	void RegisterExternalStubs(CompiledModuleNodeBuilder &builder,
-		uint32_t srcModIdx, const std::string &name);
+		const std::string &name);
 	//Find .ncu file for a module name in m_ImportDirs. Returns empty if not found.
 	std::string FindModuleFile(const std::string& name) const;
-	//Generated executable codes.
-	bool GenerateCodes();
-	//Save the current module to a file.
-	bool SaveModule();
 	//Pack every unit image as a member of the .npkg distribution
 	//archive (project-mode builds; BuildArtifacts). Member names are
 	//the units' own module paths; the entry record names the
@@ -195,12 +188,7 @@ private:
 	//for missing methods.
 	void CheckInterfaceImplementation();
 
-	//Build LLVM data types.
-	void GenerateTypeFields();
-
-	void GenerateStatements();
-
-	bool ResolveNameExpr(SnNameExpr &, SnField *pContext, 
+	bool ResolveNameExpr(SnNameExpr &, SnField *pContext,
 		const SnField &accessor);
 
 	bool ResolveIdentifierExpr(SnIdentifierExpr &, SnField *pContext, 
@@ -211,15 +199,14 @@ private:
 
 	SnField *FindFieldInAncestor(const std::string &sName, SyntaxNode &parent,
 		const SnField &accessor);
-	void GenerateDataFields();
 
 	std::unique_ptr<BuildEnvironment> m_upEnv;
 	std::unique_ptr<PtrList<TranslationUnit>> m_upTransUnits;
 	//Cross-module import infrastructure (Phase 9c follow-up): compiled
-	//modules loaded from .ncu files during LoadImports. Ownership is
-	//transferred to VmBackend at the start of GenerateCodes via
-	//SetImportedModules(); the backend then merges them into the user
-	//module during GenerateStatements.
+	//modules loaded from .ncu/.npkg files during LoadImports. Kept whole
+	//— never merged into the build's units; BuildUnitImages moves them
+	//into UnitImages.external so the load-time linker resolves them as
+	//peer images.
 	//Absolute paths of library .n files already parsed inline this build,
 	//so each is fully parsed at most once (independent of the signature
 	//index, which loads the standard library at construction).
@@ -234,9 +221,9 @@ private:
 	std::vector<CompiledModule> m_loadedImports;
 	//External function stubs whose name already existed in the root
 	//(e.g. two .ncu modules exporting the same function). They are
-	//registered in the VmBackend side-table and their module's registry
-	//stub table, but are NOT root members — the builder owns them so
-	//both tables stay valid until the build ends.
+	//registered in their module's registry stub table, but are NOT root
+	//members — the builder owns them so the table stays valid until the
+	//build ends.
 	std::vector<std::unique_ptr<SnFunction>> m_upDetachedImportStubs;
 };
 

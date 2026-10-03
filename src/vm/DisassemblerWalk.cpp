@@ -11,12 +11,11 @@
 
 namespace nlang {
 
-//Read-side twin of VmBackend.cpp's compiler-side emission walk (used by
-//RemapBytecode); two tables on purpose — they differ by failure policy
-//(the compiler side asserts on a bug in code it just emitted; here the
-//unknown-opcode arm throws so a debugger walking garbage bytecode
-//reports it instead of dying). Equivalence is pinned by
-//test_instruction_stride_exact_landing.
+//Read-side twin of the compiler-side emission stride table; two tables
+//on purpose — they differ by failure policy (the compiler side asserts
+//on a bug in code it just emitted; here the unknown-opcode arm throws
+//so a debugger walking garbage bytecode reports it instead of dying).
+//Equivalence is pinned by test_instruction_stride_exact_landing.
 size_t InstructionStride(OpCode op) {
     switch (op) {
         case OpCode::OP_Return:

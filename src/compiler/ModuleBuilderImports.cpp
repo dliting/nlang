@@ -13,7 +13,6 @@
 #include "ModuleLoader.h"
 #include "nlang/vm/NcuPackage.h"
 #include "ScriptParser.h"
-#include "VmBackend.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -300,11 +299,7 @@ bool ModuleBuilder::LoadExternalModule(const std::string &name)
 		return false;
 	}
 
-	//srcModIdx = current length of m_loadedImports (before push), which
-	//matches the index this module will occupy after the push below.
-	uint32_t srcModIdx = static_cast<uint32_t>(m_loadedImports.size());
-
-	CompiledModuleNodeBuilder builder(TheAST(), srcModIdx, name);
+	CompiledModuleNodeBuilder builder(TheAST(), name);
 	try
 	{
 		builder.BuildFromCompiledModule(cm);
@@ -315,7 +310,7 @@ bool ModuleBuilder::LoadExternalModule(const std::string &name)
 		return false;
 	}
 
-	RegisterExternalStubs(builder, srcModIdx, name);
+	RegisterExternalStubs(builder, name);
 
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
 		m_upEnv->Log(CLL_Info, "Loaded module '%s' from %s",
@@ -326,22 +321,8 @@ bool ModuleBuilder::LoadExternalModule(const std::string &name)
 }
 
 void ModuleBuilder::RegisterExternalStubs(
-	CompiledModuleNodeBuilder &builder, uint32_t srcModIdx,
-	const std::string &name)
+	CompiledModuleNodeBuilder &builder, const std::string &name)
 {
-	//Register stub→source-index entries into VmBackend side-table.
-	//Defer if backend isn't ready yet — but in current flow, CreateModule
-	//runs before LoadImports and sets up the backend, so it's available.
-	if (auto *backend = m_upEnv->Backend())
-	{
-		if (auto *vmBackend = dynamic_cast<VmBackend*>(backend))
-		{
-			for (const auto &entry : builder.ImportedFunctions())
-				vmBackend->RegisterImportedFunctionStub(entry.stub,
-					srcModIdx, entry.srcFuncIdx);
-		}
-	}
-
 	//Import visibility (C1): the module joins the registry as an
 	//EXTERNAL entry owning every free-function stub it contributed,
 	//tagged at the same point the stubs join the root — before
@@ -352,10 +333,10 @@ void ModuleBuilder::RegisterExternalStubs(
 	uint32_t extIdx = reg.AddExternalModule(name);
 	std::vector<SnFunction*> stubs;
 	stubs.reserve(builder.ImportedFunctions().size());
-	for (const auto &entry : builder.ImportedFunctions())
+	for (SnFunction* stub : builder.ImportedFunctions())
 	{
-		stubs.push_back(entry.stub);
-		reg.TagOwner(*entry.stub, extIdx);
+		stubs.push_back(stub);
+		reg.TagOwner(*stub, extIdx);
 	}
 	reg.SetExternalStubs(extIdx, std::move(stubs));
 

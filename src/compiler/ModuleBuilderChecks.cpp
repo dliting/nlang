@@ -1,7 +1,7 @@
 /*-----------------------------------------------------------------------------
 	ModuleBuilderChecks.cpp
 	Post-resolution validation (circular struct/class checks, interface
-	implementation) and the code-generation / save tail of ModuleBuilder.
+	implementation) of ModuleBuilder.
 	Split from ModuleBuilder.cpp (2026-09-27 maintainability refactor,
 	zero behavior change).
 -----------------------------------------------------------------------------*/
@@ -9,10 +9,7 @@
 #include "ModuleBuilder.h"
 #include "SyntaxTree.h"
 #include <nlang/compiler/SnMisc.h>
-#include <nlang/runtime/Module.h>
 #include <functional>
-#include <iomanip>
-#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -20,18 +17,6 @@
 
 namespace nlang
 {
-void DumpField(std::ostream &os, const SnField &sn, size_t nIndent)
-{
-	os << std::setw(nIndent) << ' ' <<
-		(sn.MetaName().empty() ? sn.Name() : sn.MetaName()) << '\n';
-	if (dynamic_cast<const SnFunctionParentField*>(&sn) != nullptr)
-	{
-		auto &ct = static_cast<const SnFunctionParentField&>(sn);
-		for (auto &member : ct.Members())
-			DumpField(os, member, nIndent + 4);
-	}
-}
-
 
 //Collect the struct declarations of the root namespace and of its
 //function-parent members (two-level scan, matching the historical
@@ -234,39 +219,6 @@ void ModuleBuilder::CheckInterfaceImplementation()
 			}
 		}
 	}
-}
-
-void ModuleBuilder::GenerateTypeFields()
-{
-	ICodeBackend* backend = m_upEnv->Backend();
-	if (backend)
-		backend->GenerateTypes(TreeRoot());
-	std::cout << "Field names after building meta types.\n";
-	DumpField(std::cout, TreeRoot(), 0);
-}
-
-void ModuleBuilder::GenerateDataFields()
-{
-	ICodeBackend* backend = m_upEnv->Backend();
-	if (backend)
-		backend->GenerateData(TreeRoot());
-	std::cout << "Field names after building meta data.\n";
-	DumpField(std::cout, TreeRoot(), 0);
-}
-
-void ModuleBuilder::GenerateStatements()
-{
-	ICodeBackend* backend = m_upEnv->Backend();
-	if (backend)
-		backend->GenerateStatements(TreeRoot());
-}
-
-bool ModuleBuilder::SaveModule()
-{
-	ICodeBackend* backend = m_upEnv->Backend();
-	if (backend)
-		return backend->SaveModule(*m_upEnv);
-	return false;
 }
 
 } //namespace nlang

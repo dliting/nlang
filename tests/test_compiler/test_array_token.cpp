@@ -9,8 +9,8 @@ bridge Auto), and the argument-binding accept/reject matrix through real
 in-process compiles. Console-style suite (same shape as
 test_array_flags).
 
-In-process host: Runtime::StaticInit() must run before any Build(),
-otherwise Build() segfaults unrecoverably.
+In-process host: Runtime::StaticInit() must run before any build,
+otherwise the build segfaults unrecoverably.
 ---*/
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -91,12 +91,12 @@ static CompileOutcome compileOne(const char* szBody)
     out.params->m_sTempDir = dir.string();
     out.logger = std::make_unique<MemLogger>();
     out.builder = std::make_unique<ModuleBuilder>(*out.params, *out.logger);
-    try { out.ok = out.builder->Build(); }
+    try { out.ok = !out.builder->BuildUnitImages().units.empty(); }
     catch (const std::exception&) { out.ok = false; }
     return out;
 }
 
-//One real build stays alive for the whole run: Build() mints the
+//One real build stays alive for the whole run: a build mints the
 //primitive type field singletons (SnInt32::Instance() and siblings,
 //bound to every `int`/`float`/`string` type expression in the tree)
 //and the builder owns their AST. Same ownership discipline as

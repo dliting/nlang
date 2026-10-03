@@ -69,36 +69,27 @@ public:
     ~VmBackend() override;
 
     void OnModuleCreate(Module& module) override;
-    void GenerateTypes(SnNamespace& root) override;
-    void GenerateData(SnNamespace& root) override;
-    void GenerateStatements(SnNamespace& root) override;
-    bool SaveModule(BuildEnvironment& env) override;
 
-    //Write an arbitrary compiled module as this build's .ncu artifact
-    //(same output-path logic as SaveModule). Phase 6: BuildArtifacts
-    //single-file mode saves the ENTRY UNIT IMAGE through here (project
-    //mode packs the .npkg instead and never calls this) — the backend's
-    //own m_compiledModule is a moved-out husk after GenerateUnits.
+    //Write an arbitrary compiled module as this build's .ncu artifact.
+    //Phase 6: BuildArtifacts single-file mode saves the ENTRY UNIT IMAGE
+    //through here (project mode packs the .npkg instead and never calls
+    //this) — the backend's own m_compiledModule is a moved-out husk
+    //after GenerateUnits.
     bool WriteModuleArtifact(BuildEnvironment& env,
                              const CompiledModule& module,
                              const std::string& entryKey);
 
     //Phase 6 per-unit codegen: reset the per-unit tables and select the
-    //unit whose members the registration walks will see. unitIdx ==
-    //MERGED_MODE selects the legacy single-pass mode (whole tree, no
-    //owner filtering) — it serves only the pre-flip ModuleBuilder::
-    //Build() merge path, whose deletion is the d2 step.
+    //unit whose members the registration walks will see.
     void BeginUnit(uint32_t unitIdx, const std::string& modulePath);
-    static constexpr uint32_t MERGED_MODE = 0xFFFFFFFFu;
 
-    //Own-unit test for the per-unit walks (Register.cpp). MERGED_MODE
-    //keeps everything own.
+    //Own-unit test for the per-unit walks (Register.cpp).
     bool IsOwnUnit(const SnField& member) const;
 
     //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
     //declaration to its unit-local table slot — own declarations via the
     //existing lookups, cross-unit ones via placeholder records + import
-    //entries. MERGED_MODE never creates slots (everything is local).
+    //entries.
     uint32_t FunctionSlotFor(SnFunction& callee);
     uint32_t ClassSlotFor(SnClassDecl& decl);
     uint32_t StructSlotFor(SnStructDecl& decl);
@@ -126,17 +117,8 @@ public:
     UnitBuildResult GenerateUnits(SnNamespace& root,
                                   const std::vector<uint32_t>& unitIdxs);
 
-    //Phase 9c cross-module import infrastructure: inject compiled modules
-    //loaded from .ncu files. Must be called before GenerateStatements.
-    //ModuleBuilder transfers ownership here so GenerateStatements can
-    //access the imported modules when merging them into the user module.
-    void SetImportedModules(std::vector<CompiledModule> mods)
-    {
-        m_importedModules = std::move(mods);
-    }
-
     //Inject the library declaration index (stdlib/*.n signatures) before
-    //GenerateStatements. Codegen reads param/return types from it; the
+    //GenerateUnits. Codegen reads param/return types from it; the
     //pointer is borrowed, not owned.
     void SetLibraryIndex(const langservice::SymbolIndex* pIndex)
     {
@@ -146,10 +128,9 @@ public:
     //Phase 5: the package/qualified-name seam lives on the compile-time
     //registry. Codegen must build the SAME string the resolver shows the
     //user, so it borrows the registry (never owns it; it outlives codegen
-    //inside one Build() call). The env pointer is the diagnostic channel:
-    //VmBackend has no m_Env member (env arrives by value in Build() and by
-    //reference in SaveModule()), so the entry-point scan and the D5 native
-    //package diagnostics need it injected.
+    //inside one build). The env pointer is the diagnostic channel:
+    //VmBackend has no env of its own, so the entry-point scan and the D5
+    //native-package diagnostics need it injected.
     void SetModuleRegistry(const ModuleRegistry* pRegistry,
         BuildEnvironment* pEnv)
     {
@@ -163,19 +144,6 @@ public:
     //cannot drift from what the resolver reports. Requires the registry
     //injected by ModuleBuilder. Defined in Register.cpp.
     std::string KeyOf(const SnField& field) const;
-
-    //Phase 9c cross-module: register an imported function stub to its
-    //source-module index pair. CompiledModuleNodeBuilder produces stubs;
-    //ModuleBuilder.LoadImports iterates the builder's ImportedFunctions()
-    //and registers each here. Later, MergeImportedFinalize looks up the
-    //merged func index via this side-table to fill m_funcIndexMap[stub].
-    void RegisterImportedFunctionStub(SnFunction *stub, uint32_t srcModIdx,
-                                       uint32_t srcFuncIdx)
-    {
-        m_importedFuncSourceIdx[stub] = {srcModIdx, srcFuncIdx};
-    }
-
-    const CompiledModule& Result() const { return m_compiledModule; }
 
     //--- Emission visitor (2026-09-25 maintainability refactor) ---
     //EmitExpression/EmitStatement are thin entries: they store the emitter
@@ -394,7 +362,7 @@ private:
     //GenerateFunction decomposition (2026-09-25): each phase stamps one
     //slice of the CompiledFunction record / frame layout, in call order.
     //FuncContext is defined below in the private section (forward-declared
-    //here so these declarations can refer to it, same as PerModuleRemap).
+    //here so these declarations can refer to it).
     struct FuncContext;
     //v1.12: stamp paramTypeDescs + returnTypeDesc from the AST signature.
     void CollectSignatureTypeDescs(SnFunction& func, CompiledFunction& compiledFunc);
@@ -794,7 +762,7 @@ private:
     void EmitCompoundOp(int op, BytecodeEmitter& emitter,
                         uint16_t dst, uint16_t src, SnField* lhsType);
 
-    //Compilation phases (called by GenerateStatements in order).
+    //Registration phases (run in order per unit inside GenerateUnits).
     //Each phase corresponds to a distinct compilation pass over the AST.
     //Future evolution: each phase can become an Accessor for multi-backend support.
     void RegisterBuiltinClasses();
@@ -844,10 +812,28 @@ private:
     //library units, and (in per-unit builds) other units' mains are
     //not candidates. Null when the unit has none.
     SnFunction* FindEntryCandidate(SnNamespace& root);
-    //Phase 5 D5, run at the FillNativeFunctionRecord call side: returns
-    //true (after logging) when a native's package is multi-segment — the
-    //host DLL is chosen by the first dot segment (phase 6 lifts this).
+    //Every entry candidate in the tree (no owner filter) — the shared
+    //collection behind FindEntryCandidate and the pre-check below.
+    std::vector<SnFunction*> CollectEntryCandidates(SnNamespace& root);
+    //Reporter shared by the two ambiguity gates: keys + source files.
+    void LogAmbiguousEntries(const std::vector<SnFunction*>& candidates);
+    //Phase 6 per-unit driver pre-check: two or more project units each
+    //owning an executable main is ambiguous — the per-unit owner gate in
+    //FindEntryCandidate hides each sibling unit's candidate, so the unit
+    //set is judged as a whole here. Returns true (after logging) when the
+    //build must fail.
+    bool RejectAmbiguousUnitEntries(SnNamespace& root);
+    //Phase 5 D5, per declaration: returns true (after logging) when a
+    //native's package is multi-segment — the host DLL is chosen by the
+    //first dot segment (phase 6 lifts this). The per-unit driver calls it
+    //through the whole-tree walk below.
     bool RejectMultiSegmentNativePackage(SnFunction& func);
+    //Phase 6 per-unit driver pre-check: RejectMultiSegmentNativePackage
+    //for every function in the tree. The walk (not per-function codegen)
+    //is the call site because library TUs never reach codegen — an
+    //inlined library declaring a dotted native must still be refused at
+    //compile time, not surface as a load-time failure.
+    bool RejectMultiSegmentNatives(SnNamespace& root);
 
     //Recursively visit every declaration node under a function-parent
     //(namespace/class/interface) at any depth; enum methods are visited as
@@ -859,44 +845,6 @@ private:
     //GenerateAllBytecode worker: recursive, maintaining m_pCurrClass as it
     //descends into a class so method bodies resolve the right receiver.
     void GenerateBytecodeRecursive(SnField& parent);
-
-    //Phase 9c cross-module: Phase A merges imported classes/structs/arrayTypes
-    //(and builds per-module stringMap + classMap/structMap/arrayTypeMap) right
-    //after RegisterBuiltinClasses. Partial class metadata remap (superClassIdx,
-    //fieldClassIndices, fieldStructIndices) and arrayType elemTypeIdx remap are
-    //done here; methodIndices/constructorIdx are deferred to Phase B because they
-    //need functionMap (which is built in Phase B since RegisterFunctions.clear()
-    //would wipe Phase A data).
-    void MergeImportedClassesStructsArrays();
-    //Phase 9c cross-module: Phase B runs after RegisterFunctions. Builds
-    //enumMap + functionMap, copies imported bytecode and patches indices via
-    //RemapBytecode, completes class metadata remap (methodIndices,
-    //constructorIdx), and fills m_funcIndexMap[stub] via side-table lookup.
-    void MergeImportedFinalize();
-    //Phase 9c cross-module: walk a bytecode buffer and patch cross-module
-    //index operands (string/func/class/struct/array/enum) using the
-    //per-module remap tables. Used by Phase B when copying each imported
-    //function's bytecode into the merged module.
-    //PerModuleRemap is defined below in the private section (forward-declared
-    //here so the declaration can refer to it).
-    struct PerModuleRemap;
-    void RemapBytecode(std::vector<uint8_t>& bc, const PerModuleRemap& pm);
-
-    //Phase A stages: per-module dedup/push of the type tables, then the
-    //partial metadata remap on the pushed copies (per kind, in order).
-    void MergeImportedTypeTables();
-    void RemapImportedTypeMetadata();
-    void RemapImportedClassMetadata(CompiledModule& im, PerModuleRemap& pm);
-    void RemapImportedStructMetadata(CompiledModule& im, PerModuleRemap& pm);
-    void RemapImportedArrayTypeMetadata(CompiledModule& im, PerModuleRemap& pm);
-    //Phase B stages (run in this order): placeholder push, bytecode copy,
-    //method-index remap, stub table fill.
-    void PushImportedEnumAndFunctionPlaceholders();
-    void PushImportedFunctionPlaceholder(CompiledModule& im, PerModuleRemap& pm,
-                                         uint32_t i);
-    void CopyImportedFunctionBytecode();
-    void RemapImportedMethodIndices();
-    void BindImportedFunctionStubs();
 
     //Register an array type from its element type field.
     //Returns the arrayTypeIdx in m_compiledModule.arrayTypes.
@@ -1118,10 +1066,16 @@ private:
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
 
-    //Phase 6 per-unit mode. MERGED_MODE (sentinel) = legacy single-pass;
-    //otherwise the registration walks only see members owned by this
-    //unit, and cross-unit references become import slots.
-    uint32_t m_currentUnitIdx = MERGED_MODE;
+    //Phase 6 per-unit mode: the registration walks only see members owned
+    //by the selected unit, and cross-unit references become import slots.
+    //NO_UNIT = no unit selected — every walk runs inside one BeginUnit
+    //scope, so the sentinel only marks the pre-BeginUnit construction
+    //state (a real unit index can never reach it). The value matches
+    //ModuleRegistry::NO_OWNER numerically; benign by construction:
+    //IsOwnUnit treats NO_OWNER as own by design, and the entry scan
+    //filters NO_OWNER owners before it ever compares to m_currentUnitIdx.
+    static constexpr uint32_t NO_UNIT = 0xFFFFFFFFu;
+    uint32_t m_currentUnitIdx = NO_UNIT;
     std::unordered_map<SnEnumDecl*, size_t> m_enumIndexMap;  //Phase 8e-9b: AST enum decl → enumDefIdx (parallel to m_compiledModule.enumNames)
     //v1.12: per-struct resolved field types (parallel to the own-struct
     //entries) — captured at registration, descriptors and field
@@ -1138,38 +1092,15 @@ private:
     int16_t m_assertExcClassIdx = -1;   //Phase 9d: AssertionException
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
 
-    //Phase 9c cross-module import infrastructure (R5-1 + R4-8 + R12-1).
-    //Injected by ModuleBuilder before GenerateStatements; consumed by
-    //MergeImportedClassesStructsArrays (Phase A) + MergeImportedFinalize
-    //(Phase B) during GenerateStatements.
-    std::vector<CompiledModule> m_importedModules;
     //Borrowed library declaration index (SetLibraryIndex); null until
     //ModuleBuilder injects it. Codegen reads stdlib signatures from it.
     const langservice::SymbolIndex* m_pLibraryIndex = nullptr;
     //Phase 5: borrowed compile-time registry + diagnostic channel
     //(SetModuleRegistry; one injection point carries both). The registry
-    //outlives codegen inside one Build() call; m_pEnv is where the entry
+    //outlives codegen inside one build; m_pEnv is where the entry
     //scan's ambiguity diagnostic goes (VmBackend has no env of its own).
     const ModuleRegistry* m_pRegistry = nullptr;
     BuildEnvironment* m_pEnv = nullptr;
-    //Side-table: imported function stub → (srcModIdx, srcFuncIdx). Filled
-    //by ModuleBuilder via RegisterImportedFunctionStub(); read by
-    //MergeImportedFinalize to fill m_funcIndexMap[stub] for user codegen.
-    std::unordered_map<SnFunction*, std::pair<uint32_t, uint32_t>> m_importedFuncSourceIdx;
-    //Per-module index remap tables (R12-1: persisted from Phase A to B).
-    //Cleared at the start of Phase A each GenerateStatements call.
-    struct PerModuleRemap {
-        std::unordered_map<uint32_t, uint32_t> stringMap;
-        std::unordered_map<uint32_t, uint32_t> functionMap;   //filled in Phase B
-        std::unordered_map<uint32_t, uint32_t> classMap;
-        std::unordered_map<uint32_t, uint32_t> structMap;
-        std::unordered_map<uint32_t, uint32_t> arrayTypeMap;
-        std::unordered_map<uint32_t, uint32_t> enumMap;       //filled in Phase B
-        //R8-1: track which source idx was push-new (vs dedup to existing).
-        std::unordered_set<uint32_t> classWasPushed;
-        std::unordered_set<uint32_t> structWasPushed;
-    };
-    std::vector<PerModuleRemap> m_importRemaps;
 
     //Functions whose default-parameter expressions are currently being
     //emitted (EmitCallArgs recursion guard — round-9, finding 3). Re-entry

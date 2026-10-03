@@ -1,11 +1,12 @@
 /*---
 ModuleSaver.cpp — .ncu serialization (write side).
 
-Extracted from VmBackend::SaveModule in the Phase 10 audit round-7 so the
-format has one writer shared by the compiler backend and unit tests: the
-old test_module_save_load hand-wrote a v1.0 byte layout that drifted from
-the reader and got rejected by the version floor. VmBackend::SaveModule
-now only resolves the output path and delegates here. The reader side is
+Extracted from the old VmBackend save step in the Phase 10 audit round-7
+so the format has one writer shared by the compiler backend and unit
+tests: the old test_module_save_load hand-wrote a v1.0 byte layout that
+drifted from the reader and got rejected by the version floor. The
+artifact writers (VmBackend::WriteModuleArtifact / the .npkg packer)
+resolve the output path and delegate here. The reader side is
 ModuleLoader.cpp — keep the two in lockstep via NCU_FORMAT_* in
 CompiledModule.h.
 ---*/

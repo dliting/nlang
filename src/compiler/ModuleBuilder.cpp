@@ -95,27 +95,10 @@ bool ModuleBuilder::ResolveAll()
 	return !m_upEnv->HasError();
 }
 
-bool ModuleBuilder::Build()
-{
-	if (!PrepareUnits())
-		return false;
-	if (!ResolveAll())
-		return false;
-	//Sweep function references still pending after every consumer ran —
-	//they never met an expected Func type.
-	SweepPendingFuncRefs();
-	if (m_upEnv->HasError())
-		return false;
-	if (!GenerateCodes())
-		return false;
-	return SaveModule();
-}
-
-
 //Phase 9c cross-module: built-in types must be available BEFORE parser
 //runs (parser resolves "int" / "float" / "string" to SnBuiltinDataType
 //singletons constructed by BuildFromRuntime). Clear first to drop any
-//stale state from a prior Build() on the same SyntaxTree singleton.
+//stale state from a prior build on the same SyntaxTree singleton.
 void ModuleBuilder::InitSyntaxTree()
 {
 	TheAST().Clear();
@@ -124,7 +107,7 @@ void ModuleBuilder::InitSyntaxTree()
 
 //Register every TU's module path (owner tagging happens in
 //MergeTransUnits; import gates in LoadImports — both later).
-//Reset first: a second Build() on the same builder must not append
+//Reset first: a second build on the same builder must not append
 //to the previous run's entries (whose owner tags point into its
 //destroyed AST).
 bool ModuleBuilder::RegisterUnits()
@@ -181,35 +164,6 @@ bool ModuleBuilder::CreateModule()
 }
 
 
-bool ModuleBuilder::GenerateCodes()
-{
-	ICodeBackend* backend = m_upEnv->Backend();
-	if (!backend) {
-		m_upEnv->Log(CLL_Fatal, "No code backend configured.");
-		return false;
-	}
-	//Phase 9c cross-module: transfer imported CompiledModules to backend
-	//before GenerateStatements runs. The backend owns them from here.
-	if (auto *vmBackend = dynamic_cast<VmBackend*>(backend))
-	{
-		vmBackend->SetImportedModules(std::move(m_loadedImports));
-		//Inject the library declaration index so codegen reads stdlib
-		//signatures (param/return types) from the .n declarations rather
-		//than from the runtime table.
-		vmBackend->SetLibraryIndex(&m_upEnv->LibraryIndex());
-		//Phase 5: codegen spells table keys through the compile-time
-		//registry (VmBackend::KeyOf) and reports entry-scan and native-
-		//package diagnostics through the env. Runs before GenerateStatements,
-		//so the injection precedes every spelling need (GenerateTypes is a
-		//documented no-op on this backend).
-		vmBackend->SetModuleRegistry(&m_upEnv->Registry(), m_upEnv.get());
-	}
-	backend->GenerateTypes(TreeRoot());
-	backend->GenerateData(TreeRoot());
-	backend->GenerateStatements(TreeRoot());
-	return !m_upEnv->HasError();
-}
-
 void ModuleBuilder::ParseTransUnits()
 {
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
@@ -238,7 +192,7 @@ void ModuleBuilder::ExpandTypeAliases()
 {
 	//Per unit: clash check first (needs the unit root and the built-in
 	//members of the tree root), then registration + use-site expansion.
-	//Errors abort Build() right after this step.
+	//Errors abort the build right after this step.
 	DuplicateFieldChecker checker(*m_upEnv);
 	AliasExpander expander(*m_upEnv);
 	for (auto pTransUnit : *m_upTransUnits)

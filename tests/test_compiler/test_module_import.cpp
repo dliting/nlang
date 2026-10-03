@@ -19,9 +19,11 @@ on every merged TU member (top-level and container members).
 #include "builder/ModuleRegistry.h"
 //Execute-level coverage (review C1): qualifying a call that returns a
 //Func<...> must not be emitted as a bound method reference, so the tests
-//below load and run the built .ncu (same pattern as test_stdlib).
+//below link and run the built package (same pattern as test_stdlib).
 #include <nlang/vm/CompiledModule.h>
 #include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 #include "VmExecutor.h"
 #include <cstdio>
 #include <cstdint>
@@ -110,8 +112,12 @@ CompileOutcome compile(const std::string& tag,
     CompileOutcome outcome;
     //Exception boundary (same contract as ncc main): codegen internal
     //errors throw; without the catch the abort would kill the test run.
-    try { outcome.ok = builder.Build(); }
-    catch (const std::exception&) { outcome.ok = false; }
+    //BuildUnitImages: the multi-source registry shape without writing an
+    //artifact — these tests assert on the registry and diagnostics only.
+    ModuleBuilder::UnitImages images;
+    try { images = builder.BuildUnitImages(); }
+    catch (const std::exception&) { }
+    outcome.ok = !images.units.empty();
     outcome.errors = logger.errorsText();
     const ModuleRegistry& reg = builder.Registry();
     for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
@@ -294,7 +300,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         MemLogger libLogger;
         ModuleBuilder libBuilder(libParams, libLogger);
         bool libOk = false;
-        try { libOk = libBuilder.Build(); }
+        try { libOk = libBuilder.BuildArtifacts(); }
         catch (const std::exception&) { libOk = false; }
         if (!libOk)
         {
@@ -305,9 +311,13 @@ GateResult buildGateProject(const GateProjectOptions& opts)
 
     //Stage 2: compile the main project with out/ importable. The output
     //module name must be unique per call (ModuleManager, see above).
+    //Project mode: the multi-source build packs one member per unit into
+    //out/<gate_test_N>.npkg (single-file mode would refuse a multi-unit
+    //image); runGateProject links that package at load time.
     static uint32_t gateRunCount = 0;
     GateResult res;
     res.params = std::make_unique<BuildParams>();
+    res.params->m_bProjectMode = true;
     res.params->m_sProjectDir = proj.string();
     for (const char* szRel : {"main.n", "utils/helper.n",
             "utils/sub/deep.n", "extra.n"})
@@ -330,7 +340,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     res.params->m_sStdLibDir = STDLIB_DIR;
     res.logger = std::make_unique<MemLogger>();
     res.builder = std::make_unique<ModuleBuilder>(*res.params, *res.logger);
-    try { res.ok = res.builder->Build(); }
+    try { res.ok = res.builder->BuildArtifacts(); }
     catch (const std::exception& e)
     {
         res.ok = false;
@@ -376,11 +386,14 @@ std::string runFailureText(const GateRunResult& run, const char* szWhat)
         + "; runtimeError: " + run.runtimeError;
 }
 
-//buildGateProject + load the produced .ncu and run its main(): the
-//review demanded executed (not compile-only) coverage for the qualified
-//paths, because the C1 bug compiled cleanly and only crashed at
-//runtime. VmExecutor::Execute throws on runtime errors, so the call is
-//wrapped and the message surfaced instead of aborting the test binary.
+//buildGateProject + resolve the produced .npkg's closure and run its
+//main(): the review demanded executed (not compile-only) coverage for
+//the qualified paths, because the C1 bug compiled cleanly and only
+//crashed at runtime. The load-time path mirrors nvm — NcuLoader over
+//the output dir (external libs) and the stdlib package, NcuLinker
+//merges the images. VmExecutor::Execute throws on runtime errors, so
+//the call is wrapped and the message surfaced instead of aborting the
+//test binary.
 GateRunResult runGateProject(const GateProjectOptions& opts)
 {
     GateRunResult run;
@@ -390,12 +403,17 @@ GateRunResult runGateProject(const GateProjectOptions& opts)
         run.errors = res.errors;
         return run;
     }
-    const std::filesystem::path ncu =
+    const std::filesystem::path pkg =
         std::filesystem::path(res.params->m_sOutputDir)
-        / (res.params->m_sOutputModule + ".ncu");
+        / (res.params->m_sOutputModule + ".npkg");
     try
     {
-        CompiledModule mod = ModuleLoader::Load(ncu.string());
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {res.params->m_sOutputDir, STDLIB_DIR};
+        NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(pkg.string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                             loaded.entryKey);
         VmExecutor executor;
         run.exitValue = executor.Execute(mod);
         run.ok = true;
@@ -413,7 +431,7 @@ class TestModuleImport : public QObject
 {
     Q_OBJECT
 private slots:
-    //Runtime tables (IdString etc.) must exist before any Build().
+    //Runtime tables (IdString etc.) must exist before any build.
     void initTestCase() { Runtime::StaticInit(); }
 
     //nproj layout: root/main.n, root/utils/helper.n,

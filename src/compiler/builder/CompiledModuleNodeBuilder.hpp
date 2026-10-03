@@ -61,15 +61,14 @@ private:
 //through the standard channels — cross-module call-site type checking is
 //real, not skipped.
 //
-//After BuildFromCompiledModule, the caller can query ImportedFunctions() to
-//register each (stub, srcFuncIdx) tuple into VmBackend's side-table
-//m_importedFuncSourceIdx (which maps stub → {srcModIdx, srcFuncIdx}).
-//Phase 5: table keys are package-qualified ("<pkg>.<name>"), but an
-//imported stub's AST NAME must be the leaf — the resolver looks stubs up
-//by the caller's bare callee/type name, while the stub's owner tag (the
-//external module) supplies the package. The qualified key stays in the
-//CompiledModule tables (merged and remapped through Find* by qualified
-//name on the VM side).
+//After BuildFromCompiledModule, the caller can query ImportedFunctions()
+//for the minted stubs (registry owner tagging in ModuleBuilder::
+//RegisterExternalStubs). Phase 5: table keys are package-qualified
+//("<pkg>.<name>"), but an imported stub's AST NAME must be the leaf —
+//the resolver looks stubs up by the caller's bare callee/type name,
+//while the stub's owner tag (the external module) supplies the package.
+//The qualified key stays in the CompiledModule tables, where the
+//load-time linker resolves it from the peer images.
 inline std::string LeafNameOfKey(const std::string &key)
 {
 	const size_t lastDot = key.find_last_of('.');
@@ -79,19 +78,10 @@ inline std::string LeafNameOfKey(const std::string &key)
 class CompiledModuleNodeBuilder
 {
 public:
-	struct ImportedFuncEntry
-	{
-		SnFunction *stub;
-		uint32_t    srcFuncIdx;   //index into source CompiledModule.functions
-	};
-
-public:
 	//Construct a builder for one source module.
-	//srcModIdx is the index of this module in VmBackend.m_importedModules;
-	//it's stamped into every ImportedFuncEntry for side-table registration.
-	CompiledModuleNodeBuilder(SyntaxTree &tree, uint32_t srcModIdx,
+	CompiledModuleNodeBuilder(SyntaxTree &tree,
 		const std::string &moduleName) :
-		m_Tree(tree), m_srcModIdx(srcModIdx), m_moduleName(moduleName)
+		m_Tree(tree), m_moduleName(moduleName)
 	{
 	}
 
@@ -101,7 +91,7 @@ public:
 	//
 	//R10-1 dedup: every compiled .ncu contains built-in functions/classes
 	//emitted by RegisterBuiltinClasses (ByteStream/Dict/List constructors,
-	//their methods, etc.) because SaveModule writes everything in
+	//their methods, etc.) because the serializer writes everything in
 	//m_compiledModule. The consumer's AST root already has these same
 	//built-ins injected by SyntaxTree::BuildFromRuntime before this method
 	//runs. Adding root entries for them would trigger DuplicateFieldChecker
@@ -169,11 +159,11 @@ public:
 				//resolve through the stub table, never the shared root.
 				//Ownership passes to the caller via TakeDetachedStubs().
 				m_detachedStubs.emplace_back(stub);
-				m_importedFuncs.push_back({stub, i});
+				m_importedFuncs.push_back(stub);
 				continue;
 			}
 			m_Tree.Root()->Members().push_back(stub);
-			m_importedFuncs.push_back({stub, i});
+			m_importedFuncs.push_back(stub);
 		}
 
 		//Structs.
@@ -196,10 +186,10 @@ public:
 	}
 
 	//Stubs built for each CompiledFunction entry, in source-module order.
-	//Caller (LoadImports) iterates this to populate VmBackend side-table.
-	//Complete: it also holds the detached stubs (names that already
-	//existed in root), which never became root members.
-	const std::vector<ImportedFuncEntry>& ImportedFunctions() const
+	//Caller (RegisterExternalStubs) tags each one with its module's
+	//registry entry. Complete: it also holds the detached stubs (names
+	//that already existed in root), which never became root members.
+	const std::vector<SnFunction*>& ImportedFunctions() const
 	{
 		return m_importedFuncs;
 	}
@@ -207,15 +197,11 @@ public:
 	//Take ownership of the detached stubs (names that already existed
 	//in root — R10-1 collisions). They are registered in
 	//ImportedFunctions() but are NOT root members; the caller keeps
-	//them alive so the side tables stay valid until the build ends.
+	//them alive so the registry stub table stays valid until the
+	//build ends.
 	std::vector<std::unique_ptr<SnFunction>> TakeDetachedStubs()
 	{
 		return std::move(m_detachedStubs);
-	}
-
-	uint32_t SourceModuleIndex() const
-	{
-		return m_srcModIdx;
 	}
 
 	const std::string& ModuleName() const
@@ -410,10 +396,10 @@ private:
 	SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 		const ISourceLocation &loc)
 	{
-		//Members intentionally empty — type/field info is held by the
-		//imported CompiledStruct in m_importedModules, which Phase A merges
-		//directly into m_compiledModule.structs. The AST stub only needs to
-		//exist as a name-resolution target.
+		//Members intentionally empty — type/field info stays in the
+		//loaded CompiledModule, which rides along to the load-time linker
+		//as a peer image. The AST stub only needs to exist as a
+		//name-resolution target.
 		//SnStructDecl takes UniquePtrList<SnStructField> by value; pass a
 		//raw PtrList* whose ownership is transferred via the implicit
 		//inner_collection* constructor.
@@ -431,9 +417,9 @@ private:
 		const ISourceLocation &loc)
 	{
 		//Super-class name not reconstructed — imported class metadata
-		//(superClassIdx etc.) is held by CompiledClass in m_importedModules
-		//and merged directly by Phase A. AST stub exists only for name
-		//resolution.
+		//(superClassIdx etc.) stays in the loaded CompiledModule and is
+		//resolved by the load-time linker from the peer images. AST stub
+		//exists only for name resolution.
 		auto pName = new std::string(LeafNameOfKey(cc.name));
 		auto *pMembers = new PtrList<SnField>();
 		auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
@@ -460,9 +446,8 @@ private:
 	}
 
 	SyntaxTree &m_Tree;
-	uint32_t m_srcModIdx;
 	std::string m_moduleName;
-	std::vector<ImportedFuncEntry> m_importedFuncs;
+	std::vector<SnFunction *> m_importedFuncs;
 	//Registered stubs that did NOT join the root (R10-1 collisions);
 	//owned here until the caller takes them via TakeDetachedStubs().
 	std::vector<std::unique_ptr<SnFunction>> m_detachedStubs;

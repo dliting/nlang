@@ -14,6 +14,8 @@
 #include "VmExecutor.h"
 #include "IHostIo.h"
 #include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -82,7 +84,7 @@ struct CapturingIo : IHostIo {
 };
 
 // One compile per scenario dir, returning the outcome AND the log: a
-// second Build() on the same dir name would be refused by
+// second compile on the same dir name would be refused by
 // ModuleManager::Create (process-wide, no unload API), and its log would
 // be about that collision instead of about the test. Negative cases share
 // this entry so they never compile the same scenario twice.
@@ -90,6 +92,47 @@ struct ScenarioBuild {
     bool ok = false;
     std::string log;   //every CLL_* message, concatenated
 };
+
+// Pre-build one library source into its compiled unit artifact — the
+// post-flip execution contract: the consumer's .ncu carries import slots
+// only, and the load-time closure resolves each library unit from the
+// search path like any third-party package. projectRoot anchors both the
+// dotted module path and the artifact file name (vendor/graphics.n under
+// root R is the package vendor.graphics; the loader's flat lookup spells
+// the dots out in the file name). The build itself runs under a
+// scenario-unique dot-FREE module name — ModuleManager rejects dotted
+// names and never unloads — and the artifact is renamed onto the dotted
+// file name afterwards.
+bool buildLibraryUnit(const fs::path& source, const fs::path& root) {
+    std::string dotted =
+        fs::relative(source, root).replace_extension().generic_string();
+    for (char& c : dotted)
+        if (c == '/')
+            c = '.';
+    std::string unique = root.filename().string();
+    for (char& c : dotted)
+        unique += (c == '.') ? '_' : c;
+    BuildParams params;
+    params.m_SourceFiles.push_back(source.string());
+    params.m_sProjectDir = root.string();
+    params.m_sOutputModule = unique;
+    params.m_sOutputDir = root.string();
+    params.m_sTempDir = root.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    try {
+        if (!builder.BuildArtifacts())
+            return false;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "library build failed (%s): %s\n",
+                     dotted.c_str(), e.what());
+        return false;
+    }
+    std::error_code ec;
+    fs::rename(root / (unique + ".ncu"), root / (dotted + ".ncu"), ec);
+    return !ec;
+}
 
 ScenarioBuild compileScenario(const fs::path& pkg,
                               const std::vector<std::string>& importDirs) {
@@ -109,7 +152,7 @@ ScenarioBuild compileScenario(const fs::path& pkg,
     ScenarioBuild out;
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);
-    try { out.ok = builder.Build(); }
+    try { out.ok = builder.BuildArtifacts(); }
     catch (const std::exception& e) {
         std::fprintf(stderr, "internal error: %s\n", e.what());
         out.ok = false;
@@ -125,20 +168,50 @@ ScenarioBuild compileScenario(const fs::path& pkg,
 // modules process-wide (no unload API), so names must be unique per
 // scenario within one test process. importDirs empty = the scenario dir
 // itself; multi-root scenarios pass their roots explicitly.
+// Every NON-program source under the scenario root is pre-built into its
+// unit artifact first (libraries ship compiled); the program then loads
+// its closure (own dir + stdlib package) and nlink merges the images
+// before execution — the same shape nvm runs.
 int buildAndRun(const fs::path& pkg, CapturingIo& ioCapture,
                 const std::vector<std::string>& importDirs = {}) {
+    //Collect first, build after: the library builds drop new files into
+    //the same directory this walk enumerates.
+    std::vector<fs::path> libSources;
+    for (fs::recursive_directory_iterator it(pkg), end; it != end; ++it) {
+        if (!it->is_regular_file() || it->path().extension() != ".n"
+            || it->path().stem() == "prog")
+            continue;
+        libSources.push_back(it->path());
+    }
+    for (const auto& src : libSources)
+        CHECK(buildLibraryUnit(src, pkg), "scenario library unit pre-builds");
     ScenarioBuild build = compileScenario(pkg, importDirs);
     if (!build.ok) {
         std::fprintf(stderr, "%s", build.log.c_str());
         return -1;
     }
     const std::string moduleName = pkg.filename().string();
-    CompiledModule mod = ModuleLoader::Load(
-        (pkg / (moduleName + ".ncu")).string());
-    VmExecutor exec;
-    exec.AddNativeSearchDir(pkg.string());
-    exec.SetHostIo(&ioCapture);
-    return exec.Execute(mod);
+    try {
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = importDirs.empty()
+            ? std::vector<std::string>{pkg.string(), STDLIB_DIR}
+            : [&] {
+                  std::vector<std::string> dirs(importDirs);
+                  dirs.push_back(STDLIB_DIR);
+                  return dirs;
+              }();
+        NcuLoader::Result loaded = NcuLoader::LoadClosure(
+            (pkg / (moduleName + ".ncu")).string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                             loaded.entryKey);
+        VmExecutor exec;
+        exec.AddNativeSearchDir(pkg.string());
+        exec.SetHostIo(&ioCapture);
+        return exec.Execute(mod);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "load/link failed: %s\n", e.what());
+        return -1;
+    }
 }
 
 void TestThirdPartyNativeLibrary() {
@@ -400,13 +473,10 @@ static void TestSameLastSegmentPackagesCoexist() {
 
 //(7) Phase 6 Task 3 Step 1: a third-party package ships as .npkg ONLY
 //(no source, no loose .ncu). The consumer's build consumes the package's
-//embedded compile unit for signatures. EXECUTION NOTE: this harness
-//drives the legacy merged build (compileScenario -> ModuleBuilder::
-//Build()) and executes the merged module directly, so "runs" here pins
-//the pre-flip flow; the per-unit artifact flow (entry unit image +
-//load-time closure) is pinned by test_perunit shape 9. Negative:
-//removing the package makes the consumer build fail with the
-//module-not-found diagnostic.
+//embedded compile unit for signatures, and the run resolves the unit
+//from the package at load time (the consumer artifact embeds no library
+//code — asserted below). Negative: removing the package makes the
+//consumer build fail with the module-not-found diagnostic.
 static void TestProgramPackageWithoutSources() {
     //One packageDir() call: every later call remove_all's the whole
     //shared root (established rule), so all scenario dirs derive from a
@@ -431,7 +501,7 @@ static void TestProgramPackageWithoutSources() {
         ListCompileLogger libLogger;
         ModuleBuilder libBuilder(libParams, libLogger);
         bool libOk = false;
-        try { libOk = libBuilder.Build(); }
+        try { libOk = libBuilder.BuildArtifacts(); }
         catch (const std::exception&) { libOk = false; }
         CHECK(libOk, "library package member builds");
     }
@@ -460,7 +530,9 @@ static void TestProgramPackageWithoutSources() {
           "only lib.npkg remains - no sources, no loose unit");
 
     //Consumer: imports lib; built with only the package on the import
-    //path, then run in-process.
+    //path, then run in-process through the load-time closure (the
+    //package dir is on the search path; nlink merges lib's unit into
+    //the runnable module).
     const fs::path app = root / "pkg_app";
     fs::create_directories(app);
     {
@@ -473,16 +545,43 @@ static void TestProgramPackageWithoutSources() {
         std::fprintf(stderr, "consumer build log: %s\n", build.log.c_str());
     CHECK(build.ok, "consumer builds against the .npkg signature surface");
     if (build.ok) {
-        CapturingIo io;
         const std::string moduleName = app.filename().string();
-        CompiledModule mod = ModuleLoader::Load(
-            (app / (moduleName + ".ncu")).string());
-        VmExecutor exec;
-        exec.AddNativeSearchDir(pkg.string());
-        exec.SetHostIo(&io);
-        //lib.f() returns 5; main returns it - the value IS the pin
-        //(merged-module execution; see the header note on this test).
-        CHECK(exec.Execute(mod) == 5, "merged program runs (rc 5)");
+        //Flip pin: the consumer artifact carries lib.f only as a
+        //placeholder — an import slot plus a body-less stub record.
+        //"Baked in" would mean library bytecode in the consumer image
+        //(linking is the loader's job at run time).
+        const CompiledModule raw =
+            ModuleLoader::Load((app / (moduleName + ".ncu")).string());
+        bool importSlot = false;
+        for (const auto& imp : raw.functionImports)
+            if (imp.modulePath == "lib" && imp.name == "lib.f"
+                && imp.paramCount == 0 && imp.ownerClassKey.empty())
+                importSlot = true;
+        CHECK(importSlot, "consumer artifact records the lib.f import slot");
+        bool bakedIn = false;
+        const int stubIdx = raw.FindFunction("lib.f");
+        if (stubIdx >= 0 && !raw.functions[stubIdx].bytecode.empty())
+            bakedIn = true;
+        CHECK(!bakedIn, "consumer artifact embeds no library code");
+
+        CapturingIo io;
+        try {
+            NcuLoader::Options loaderOpts;
+            loaderOpts.searchDirs = {pkg.string(), STDLIB_DIR};
+            NcuLoader::Result loaded = NcuLoader::LoadClosure(
+                (app / (moduleName + ".ncu")).string(), loaderOpts);
+            CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                                 loaded.entryKey);
+            VmExecutor exec;
+            exec.AddNativeSearchDir(pkg.string());
+            exec.SetHostIo(&io);
+            //lib.f() returns 5; main returns it - the value IS the pin
+            //(load-time linked execution).
+            CHECK(exec.Execute(mod) == 5, "linked program runs (rc 5)");
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "load/link failed: %s\n", e.what());
+            CHECK(false, "linked program runs (rc 5)");
+        }
     }
 
     //Negative: without the package the consumer build fails, naming the
@@ -526,7 +625,7 @@ static void TestProgramPackageWithoutSources() {
             ListCompileLogger libLogger;
             ModuleBuilder libBuilder(libParams, libLogger);
             bool unitOk = false;
-            try { unitOk = libBuilder.Build(); }
+            try { unitOk = libBuilder.BuildArtifacts(); }
             catch (const std::exception&) { unitOk = false; }
             CHECK(unitOk, "multi-member package unit builds");
             std::ifstream in(multi / (unit + ".ncu"), std::ios::binary);

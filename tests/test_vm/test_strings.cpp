@@ -59,7 +59,10 @@ static bool loadSource(const std::string& tag, const std::string& source,
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);
     try {
-        if (!builder.Build() || !std::filesystem::exists(modPath)) {
+        //Import-free single-file sources produce a complete entry-unit
+        //.ncu (BuildArtifacts; the merged Build path is gone), so the
+        //direct Load below stays valid.
+        if (!builder.BuildArtifacts() || !std::filesystem::exists(modPath)) {
             std::cerr << "build failed:\n";
             for (auto it = logger.cbegin(); it != logger.cend(); ++it)
                 std::cerr << "  " << (*it)->Message() << "\n";

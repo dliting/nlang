@@ -1,7 +1,8 @@
 // --- Phase 11 stdlib unit tests ---
 // In-process compile+run via the public ModuleBuilder API: write a temp
-// .n source, build it to a temp .ncu (Build() has no in-memory module
-// accessor), load it back with ModuleLoader, execute with VmExecutor.
+// .n source, build the entry-unit .ncu with BuildArtifacts, close the
+// import slots at load time (NcuLoader over the scratch dir + the
+// build-tree stdlib package, then NcuLinker), execute with VmExecutor.
 // Diagnostics come from ListCompileLogger. The e2e suite remains the
 // full-pipeline gate; these tests pin resolver/diagnostic behavior that
 // is awkward to assert from exit codes alone.
@@ -15,6 +16,8 @@
 #include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -90,10 +93,13 @@ static BuildOutcome buildSource(const std::string& tag,
 
     //Exception boundary (same contract as ncc main): codegen internal
     //errors throw std::runtime_error; without the catch the unhandled
-    //exception aborts the whole test binary.
+    //exception aborts the whole test binary. BuildArtifacts is the
+    //production path: single-file mode writes the entry-unit .ncu with
+    //import slots naming io/math/fs (the library code itself ships in
+    //stdlib.npkg and joins the closure at load time).
     bool built = false;
     try {
-        built = builder.Build();
+        built = builder.BuildArtifacts();
     } catch (const std::exception& e) {
         outcome.diagnostics += std::string("internal error: ") + e.what();
         return outcome;
@@ -107,16 +113,29 @@ static BuildOutcome buildSource(const std::string& tag,
 }
 
 //Compile + execute; returns the value main() returned, or -1 when the
-//build failed.
+//build failed. The load-time path mirrors nvm: NcuLoader discovers the
+//closure (own dir first, then the stdlib package), NcuLinker merges the
+//images into the runnable module.
 static int runSource(const std::string& tag, const std::string& source)
 {
-    const auto modPath = scratchDir() / (tag + ".ncu");
+    const auto dir = scratchDir();
+    const auto modPath = dir / (tag + ".ncu");
     BuildOutcome outcome = buildSource(tag, source);
     if (!outcome.ok)
         return -1;
-    CompiledModule mod = ModuleLoader::Load(modPath.string());
-    VmExecutor exec;
-    return exec.Execute(mod);
+    try {
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+        NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(modPath.string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                             loaded.entryKey);
+        VmExecutor exec;
+        return exec.Execute(mod);
+    } catch (const std::exception& e) {
+        std::cerr << "load/link failed: " << e.what() << "\n";
+        return -1;
+    }
 }
 
 void test_stdlib_sqrt_value()
@@ -533,7 +552,7 @@ int main()
     //Hidden host contract (same as ncc/nvm main): driving the compiler
     //requires Runtime::StaticInit() first — it sets up the IdString
     //interned-name table the resolver indexes fields by. Without it any
-    //Build() segfaults in IdString lookup rather than failing loudly.
+    //the build segfaults in IdString lookup rather than failing loudly.
     Runtime::StaticInit();
 
     std::cerr << "=== NLang StdLib Unit Tests ===\n\n";

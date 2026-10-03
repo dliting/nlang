@@ -11,7 +11,8 @@
 #include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
 #include "IHostIo.h"
-#include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 
 #include <cstdio>
 #include <cstring>
@@ -104,7 +105,10 @@ int runSource(const std::string& tag, const std::string& source,
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);
     bool built = false;
-    try { built = builder.Build(); }
+    //BuildArtifacts (production path): the entry-unit .ncu carries
+    //import slots for the built-in packages; the closure resolves at
+    //load time from the scratch dir and the stdlib package.
+    try { built = builder.BuildArtifacts(); }
     catch (const std::exception& e) {
         std::fprintf(stderr, "internal error: %s\n", e.what());
         return -1;
@@ -114,11 +118,20 @@ int runSource(const std::string& tag, const std::string& source,
             std::fprintf(stderr, "diag: %s\n", (*it)->Message().c_str());
         return -1;
     }
-    CompiledModule mod = ModuleLoader::Load(
-        (dir / (tag + ".ncu")).string());
-    VmExecutor exec;
-    configure(exec);
-    return exec.Execute(mod);
+    try {
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+        NcuLoader::Result loaded = NcuLoader::LoadClosure(
+            (dir / (tag + ".ncu")).string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                             loaded.entryKey);
+        VmExecutor exec;
+        configure(exec);
+        return exec.Execute(mod);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "load/link failed: %s\n", e.what());
+        return -1;
+    }
 }
 
 const std::string kDecls =

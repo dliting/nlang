@@ -1,6 +1,6 @@
 /*---
     GenerateUnits.cpp — 字节码产码驱动：单函数发射（GenerateFunction）、
-    合并单趟（GenerateAllBytecode）与 phase 6 逐单元产码（GenerateUnits）。
+    每单元的字节码游走（GenerateAllBytecode）与逐单元驱动（GenerateUnits）。
     从 VmBackend.cpp 拆出（phase 6 B1 产码切换战役）。
 ---*/
 #include "VmBackend.h"
@@ -30,11 +30,11 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CollectSignatureTypeDescs(func, compiledFunc);
 
     if (func.ContainFlags(NF_Native)) {
-        //Rejection keeps the signature descs in the record (the build
-        //fails on the logged error, but the vacated slot must not keep
-        //a moved-from husk either way).
-        if (!RejectMultiSegmentNativePackage(func))
-            FillNativeFunctionRecord(func, compiledFunc);
+        //Multi-segment refusal already happened in the whole-tree
+        //pre-check (RejectMultiSegmentNatives below) — every native the
+        //build accepted reaches the record with its signature
+        //descriptors.
+        FillNativeFunctionRecord(func, compiledFunc);
         m_compiledModule.functions[funcIdx] = std::move(compiledFunc);
         return;
     }
@@ -60,12 +60,17 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
 }
 
 //Phase 6 per-unit build (VmBackend.h contract): one image per unit, every
-//cross-unit reference left as a placeholder slot + import record. The
-//registration phases mirror GenerateStatements minus both MergeImported
-//passes — nothing external is merged in; the load-time linker resolves
-//the placeholders from the peer images.
+//cross-unit reference left as a placeholder slot + import record — nothing
+//external is merged in; the load-time linker resolves the placeholders
+//from the peer images.
 VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     SnNamespace& root, const std::vector<uint32_t>& unitIdxs) {
+    //Whole-tree pre-checks, before any image is built: both concerns
+    //span units, so neither is judgeable from inside the per-unit loop
+    //(library TUs never reach codegen, and each unit's entry scan only
+    //sees its own candidates). Either refusal logs and fails the build.
+    if (RejectAmbiguousUnitEntries(root) || RejectMultiSegmentNatives(root))
+        return {};
     UnitBuildResult out;
     for (uint32_t unitIdx : unitIdxs) {
         BeginUnit(unitIdx, m_pRegistry->ModulePathOf(unitIdx));
@@ -78,18 +83,18 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         RegisterFunctions(root);
         PopulateClassMethods(root);
         GenerateAllBytecode(root);
-        //Entry collection: the merged-namespace front end rejects
-        //duplicate top-level names across units at resolve time, so at
-        //most one unit owns a main and first-wins needs no tie-break —
-        //the per-unit gate in ResolveEntryPoint routes the entry to its
-        //owning unit's image only.
+        //Entry collection: the pre-check above already refused a unit
+        //set with two executable mains, so at most one unit owns an
+        //entry and first-wins needs no tie-break — the per-unit gate in
+        //ResolveEntryPoint routes the entry to its owning unit's image
+        //only.
         if (!m_entryKey.empty())
             out.entryKey = m_entryKey;
         out.units.push_back(std::move(m_compiledModule));
     }
-    //Leave the backend in the default mode: a reused instance must not
-    //keep filtering walks to the last generated unit.
-    m_currentUnitIdx = MERGED_MODE;
+    //Drop the unit selection so a reused instance cannot leak the last
+    //unit's filter into a later walk.
+    m_currentUnitIdx = NO_UNIT;
     return out;
 }
 

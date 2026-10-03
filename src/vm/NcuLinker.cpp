@@ -1,9 +1,9 @@
 /*---
     NcuLinker.cpp — nlink 链接器主体：对等合并→占位槽解析→统一重映射。
-    与 backend/Import.cpp 的 Phase A/B 内核同源，但语义是「N 个对等映像
-    合并」（Import.cpp 是「并入既有目标」）；原件保留到 Step 3/4 切换
-    战役终点整链删除（设计 §5）。Pass B（占位槽解析）在
-    NcuLinkerSlots.cpp（2026-10-02 尺寸守卫触发的拆分）。
+    内核同源于已删除的 backend/Import.cpp Phase A/B（编译期合并路径，
+    d2 整链移除），但语义改为「N 个对等映像合并」（原为「并入既有
+    目标」，设计 §5）。Pass B（占位槽解析）在 NcuLinkerSlots.cpp
+    （2026-10-02 尺寸守卫触发的拆分）。
 ---*/
 #include "NcuLinker.h"
 #include "NcuLinkerRemap.h"

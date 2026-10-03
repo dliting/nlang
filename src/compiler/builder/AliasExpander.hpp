@@ -39,7 +39,7 @@ public:
 	Registration runs in text order: an alias whose target references an
 	alias that appears later in the file (or forms a cycle) is diagnosed
 	here with the regular unknown-type message and the unit's expansion
-	is skipped — Build() aborts on the pending error anyway.
+	is skipped — the build aborts on the pending error anyway.
 	*/
 	void ProcessUnit(TranslationUnit &unit)
 	{
@@ -68,7 +68,7 @@ public:
 				continue;
 			CheckRegistrationOrder(*pUsing, roster, unit, bErrored);
 			//Register even after a cycle diagnostic: the visited-set of the
-			//expansion walk is the actual recursion guard, and Build()
+			//expansion walk is the actual recursion guard, and the build
 			//aborts on the logged error regardless.
 			unit.SetAlias(pUsing->AliasName(), pUsing->AliasType());
 		}

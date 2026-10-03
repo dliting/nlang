@@ -19,13 +19,11 @@ namespace nlang {
 //mechanics). All four helpers discriminate by IsOwnUnit first and THROW
 //when an own declaration misses its table: a silent placeholder would
 //target the unit's own module path and could "link" to itself, hiding
-//the registration-order bug. Own-branch correctness in MERGED_MODE:
-//function stubs are bound by BindImportedFunctionStubs and class/struct
-//stubs resolve key-based through the merged tables, but imported ENUM
-//stubs never enter m_enumIndexMap. That is safe now: only the parser
-//creates SnEnumDecl (a .ncu import builds no enum AST node), so in
-//merged mode every pEnumDecl reaching EnumSlotFor is a registered
-//source enum and the own-miss throw cannot fire.
+//the registration-order bug. Imported ENUM stubs never enter
+//m_enumIndexMap — safe, because only the parser creates SnEnumDecl
+//(a .ncu import builds no enum AST node), so every pEnumDecl reaching
+//EnumSlotFor is a registered source enum and the own-miss throw
+//cannot fire.
 uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     if (IsOwnUnit(callee)) {
         auto it = m_funcIndexMap.find(&callee);

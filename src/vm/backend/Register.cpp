@@ -117,8 +117,7 @@ std::string VmBackend::KeyOf(const SnField& field) const {
 }
 
 //Phase 6 per-unit codegen: reset the per-unit tables and select the unit
-//the registration walks will see. MERGED_MODE keeps the legacy behavior
-//(single pass over the whole tree — single-file builds).
+//the registration walks will see.
 void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_currentUnitIdx = unitIdx;
     m_compiledModule = CompiledModule{};
@@ -137,18 +136,12 @@ void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_oobExcClassIdx = -1;
     m_assertExcClassIdx = -1;
     m_ioExcClassIdx = -1;
-    m_importRemaps.clear();
-    m_importedModules.clear();
-    m_importedFuncSourceIdx.clear();
     m_defaultEmitting.clear();
 }
 
 //Own-unit test for the registration walks and the slot helpers. Stubs
-//(NF_Imported) are never own — they resolve to placeholder slots. The
-//MERGED_MODE sentinel keeps every node own (legacy behavior).
+//(NF_Imported) are never own — they resolve to placeholder slots.
 bool VmBackend::IsOwnUnit(const SnField& member) const {
-    if (m_currentUnitIdx == MERGED_MODE)
-        return true;
     if (member.ContainFlags(NF_Imported))
         return false;
     //Owner-of-CONTEXT (ancestor walk), never the flat owner tag: class
@@ -162,10 +155,10 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
     return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER;
 }
 
-//Phase 6 D5, called at the FillNativeFunctionRecord call side: the host
-//DLL is the first-dot segment (nlang_<seg>.dll), so a native in a
-//multi-segment package cannot name one yet (phase 6 lifts the limit).
-//Returns true (after logging) when the declaration must be refused.
+//Phase 6 D5, per declaration: the host DLL is the first-dot segment
+//(nlang_<seg>.dll), so a native in a multi-segment package cannot name
+//one yet (phase 6 lifts the limit). Returns true (after logging) when
+//the declaration must be refused.
 bool VmBackend::RejectMultiSegmentNativePackage(SnFunction& func) {
     const std::string pkg = m_pRegistry->PackageOf(func);
     if (pkg.find('.') == std::string::npos)
@@ -176,12 +169,29 @@ bool VmBackend::RejectMultiSegmentNativePackage(SnFunction& func) {
     return true;
 }
 
+//Phase 6 per-unit driver pre-check (VmBackend.h contract): the refusal
+//above for every function in the tree. The whole-tree walk — not
+//per-function codegen — is the call site because library TUs are
+//excluded from codegen: an inlined library declaring a dotted native
+//must be refused at the consumer's compile time, not surface as a
+//load-time failure nobody diagnostically owns.
+bool VmBackend::RejectMultiSegmentNatives(SnNamespace& root) {
+    bool refused = false;
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() != NK_Function || !node.ContainFlags(NF_Native))
+            return;
+        if (RejectMultiSegmentNativePackage(static_cast<SnFunction&>(node)))
+            refused = true;
+    });
+    return refused;
+}
+
 void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     CompiledStruct cs;
     //Same-package duplicates are stopped by the compiler's
     //DuplicateFieldChecker before codegen runs, so the type tables keep
-    //no second gate here; a cross-module same key IS the same type (see
-    //MergeImportedTypeTables in Import.cpp).
+    //no second gate here; a cross-module same key IS the same type (the
+    //load-time linker dedups peer images by qualified name).
     cs.name = KeyOf(sn);
     cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
     std::vector<SnField*> fieldTypes;
@@ -255,9 +265,7 @@ void VmBackend::ResolveStructClassRefs() {
         }
         //v1.12: field type descriptors — built here because both the
         //struct and class tables are complete (BuildTypeDesc slots
-        //leaves through them). Phase-A-merged imported structs have an
-        //empty parallel list, so they keep the copied+remapped
-        //descriptors untouched. The desc is computed before the
+        //leaves through them). The desc is computed before the
         //push_back statement: a struct leaf slots through
         // LeafSlotResolvers, and the member call's receiver must not be
         //a stale reference from before that append.
@@ -339,15 +347,12 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
     });
 }
-//Entry = a root-level (non-method) `main` declared by a PROJECT unit.
-//Libraries never provide the entry; a module with zero candidates keeps
-//entryPoint = -1 and nvm reports "no entry point" instead of today's
-//"no 'main' function found". Two candidates cannot reach codegen: the
-//merged-namespace front end rejects duplicate top-level names across
-//units at resolve time, so the >1 branch in FindEntryCandidate is an
-//invariant tripwire (keeping it beats silently picking a winner should
-//that rule change).
-SnFunction* VmBackend::FindEntryCandidate(SnNamespace& root) {
+//Entry-candidate collection shared by the per-unit scan and the unit-set
+//ambiguity pre-check: every root-level (non-method) `main` declared by a
+//PROJECT unit, regardless of which unit owns it. Libraries never provide
+//the entry; an untagged node has no unit to be a project member of.
+std::vector<SnFunction*> VmBackend::CollectEntryCandidates(
+    SnNamespace& root) {
     std::vector<SnFunction*> candidates;
     for (auto& member : root.Members()) {
         if (member.Kind() != NK_Function)
@@ -359,32 +364,65 @@ SnFunction* VmBackend::FindEntryCandidate(SnNamespace& root) {
         //through their receiver (IsTypeMember).
         if (IsTypeMember(func))
             continue;
-        //Libraries never provide the entry; an untagged node has no unit
-        //to be a project member of.
         const uint32_t owner = m_pRegistry->OwnerOf(func);
         if (owner == ModuleRegistry::NO_OWNER
             || m_pRegistry->IsLibraryModule(owner))
             continue;
+        candidates.push_back(&func);
+    }
+    return candidates;
+}
+
+//Shared reporter for the two ambiguity gates (the unit-set pre-check
+//RejectAmbiguousUnitEntries and the invariant tripwire in
+//FindEntryCandidate): every candidate is named by key and source file.
+void VmBackend::LogAmbiguousEntries(
+    const std::vector<SnFunction*>& candidates) {
+    std::string msg = "entry point is ambiguous:";
+    for (auto* pFunc : candidates) {
+        msg += " '" + KeyOf(*pFunc) + "' ("
+            + SourceFilePathOf(*pFunc) + ");";
+    }
+    msg += " keep exactly one main() in the project.";
+    m_pEnv->Log(CLL_Error, "%s", msg.c_str());
+}
+
+//Entry = a root-level (non-method) `main` declared by a PROJECT unit.
+//Libraries never provide the entry; a module with zero candidates keeps
+//entryPoint = -1 and nvm reports "no entry point" instead of today's
+//"no 'main' function found". Same-directory duplicates are rejected by
+//the merged-namespace front end at resolve time, and different-directory
+//mains by the RejectAmbiguousUnitEntries pre-check, so the >1 branch
+//below is an invariant tripwire.
+SnFunction* VmBackend::FindEntryCandidate(SnNamespace& root) {
+    std::vector<SnFunction*> own;
+    for (SnFunction* pFunc : CollectEntryCandidates(root)) {
         //Per-unit: each unit's image resolves only its own entry
         //candidate, so the entry lands in its owning unit's image and
         //every other unit's image stays entry-less.
-        if (m_currentUnitIdx != MERGED_MODE && owner != m_currentUnitIdx)
+        const uint32_t owner = m_pRegistry->OwnerOf(*pFunc);
+        if (owner != m_currentUnitIdx)
             continue;
-        candidates.push_back(&func);
+        own.push_back(pFunc);
     }
-    if (candidates.empty())
+    if (own.empty())
         return nullptr;
-    if (candidates.size() > 1) {
-        std::string msg = "entry point is ambiguous:";
-        for (auto* pFunc : candidates) {
-            msg += " '" + KeyOf(*pFunc) + "' ("
-                + SourceFilePathOf(*pFunc) + ");";
-        }
-        msg += " keep exactly one main() in the project.";
-        m_pEnv->Log(CLL_Error, "%s", msg.c_str());
+    if (own.size() > 1) {
+        LogAmbiguousEntries(own);
         return nullptr;
     }
-    return candidates.front();
+    return own.front();
+}
+
+//Phase 6 per-unit driver pre-check (VmBackend.h contract): the per-unit
+//owner gate in FindEntryCandidate cannot see sibling units' candidates,
+//so the whole unit set is judged here before any image is built.
+bool VmBackend::RejectAmbiguousUnitEntries(SnNamespace& root) {
+    std::vector<SnFunction*> candidates = CollectEntryCandidates(root);
+    if (candidates.size() < 2)
+        return false;
+    LogAmbiguousEntries(candidates);
+    return true;
 }
 
 void VmBackend::ResolveEntryPoint(SnNamespace& root) {

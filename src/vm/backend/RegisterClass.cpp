@@ -94,8 +94,8 @@ void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     CompiledClass cc;
     //Same-package duplicates are stopped by the compiler's
     //DuplicateFieldChecker before codegen runs, so the type tables keep
-    //no second gate here; a cross-module same key IS the same type (see
-    //MergeImportedTypeTables in Import.cpp).
+    //no second gate here; a cross-module same key IS the same type (the
+    //load-time linker dedups peer images by qualified name).
     cc.name = KeyOf(sn);
     cc.superClassIdx = -1;
     CollectInheritedClassFields(sn, cc);
@@ -149,8 +149,9 @@ void VmBackend::ResolveClassFieldRefs(SnClassDecl* pDecl, size_t classIdx) {
 //succeed). Inherited fields resolve through pDecl's ancestor
 //chain; the synthesized Exception-family fields (message /
 //backtrace) have no AST node and degrade from the recorded kind
-//byte + class index. Phase-A-merged imported classes never reach
-//here (absent from declMap) and keep their copied descriptors.
+//byte + class index. Cross-unit classes are placeholder records
+//absent from declMap — they never reach here; their descriptors
+//live in their own unit's image.
 //classIdx instead of CompiledClass& for the same reallocation
 //reason as ResolveClassFieldRefs.
 void VmBackend::BuildClassFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx) {
@@ -192,8 +193,8 @@ void VmBackend::ResolveClassMetadata(
     //appends import placeholders to m_compiledModule.classes, so a
     //range-for's iterator would dangle and an unbounded index loop would
     //descend into the appended placeholders' (empty) metadata. The
-    //snapshot bound also covers builtins and Phase-A-merged imports —
-    //both miss declMap and continue, unchanged semantics.
+    //snapshot bound also covers builtins — they miss declMap and
+    //continue, unchanged semantics.
     const size_t registeredCount = m_compiledModule.classes.size();
     for (size_t ci = 0; ci < registeredCount; ++ci) {
         auto it = declMap.find(m_compiledModule.classes[ci].name);
@@ -250,9 +251,9 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
     ForEachDeclNode(root, [&](SnField& node) {
         if (node.Kind() != NK_ClassDecl)
             return;
-        //Phase 9c R6-1: stub has no AST methods; merged
-        //cc.methodIndices from Phase B must be preserved. Per-unit:
-        //foreign units' classes keep their own image's method table.
+        //Per-unit: a class stub has no AST methods, and foreign units'
+        //classes keep their own image's method table — neither
+        //contributes here.
         if (node.IsImported() || !IsOwnUnit(node))
             return;
         auto& sn = static_cast<SnClassDecl&>(node);

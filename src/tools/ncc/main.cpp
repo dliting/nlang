@@ -358,10 +358,10 @@ int main(int argc, char* argv[]) {
     outputFile = saved.string();
 
     //Create the output directory up front (nested -o paths and multi-level
-    //.nproj outputDir): SaveModule only creates a single level. The
-    //non-throwing overload keeps a bad path (an existing file in the chain,
-    //a read-only parent) a clean CLI error — this runs before the exception
-    //boundary below.
+    //.nproj outputDir): the artifact writers only create a single level.
+    //The non-throwing overload keeps a bad path (an existing file in the
+    //chain, a read-only parent) a clean CLI error — this runs before the
+    //exception boundary below.
     fs::path outParent = fs::path(outputFile).parent_path();
     if (!outParent.empty()) {
         std::error_code dirErr;
