@@ -193,23 +193,45 @@ stub 机制保留但只承担**签名解析**职责，不再参与运行期表�
    runner 接线＋单文件切逐单元＋stdlib 包目标；切换完成后删除
    `Import.cpp` Phase A/B 整链与 VmBackend 合并模式。切换按路径分步、
    每步中间提交全部测试通过：ncc 产物先以「链接后单模块」形态写 .ncu
-   （nvm/e2e/装载器零改动即可全量对拍），终点再改为 .npkg 逐单元条目＋
-   加载期链接（**已实现至 ncc 全路径**：`ModuleBuilder::BuildLinked`＝
-   逐单元映像＋nlink 合并后写盘，e2e 977 全量经链接产物对拍通过；
-   **nloader 亦已实现**：`src/vm/NcuLoader.{h,cpp}`，闭包发现/定位
-   优先级/一次报清诊断由合成 .ncu/.npkg 夹具单元测试 `test_nculoader`
-   逐项固定——入口包自身成员表＞搜索目录（目录内 `.ncu` 文件＞按
-   文件名序 `.npkg` 成员）；**nvm 与 ncc 的执行入口已接入 nloader→nlink**
-   （nvm 装载执行、ncc 的 run 与编译即执行两路）：现行产物是链接后的
-   自包含模块，闭包恒为入口单元一个，该接线是恒等变换，e2e 977 经此
-   路径对拍逐字不变；产物切逐单元形态后装载与链接调用序列不变。
-   ndb 与 ndisasm 仍走模块直装（自包含产物下行为等价），在产物形态
-   切换步骤一并接入加载链接路径。**项目包同一性规则已
-   实现**：项目模式构建（`ncc -p`，`BuildParams.m_bProjectMode`）由
-   `ModuleBuilder::WritePackageArtifact` 一并写 .npkg（单文件构建不打包）——
-   成员名、链接产物头部模块路径、入口点记录三者必须是同一
-   身份（装载器对身份不符的成员一律拒绝）；单元映像按「入口单元在
-   首」排序（BuildUnitImages），使 .nproj 中任意源文件顺序下头部与
-   记录都指向真实入口单元，`test_perunit` 项目包用例经 nloader→nlink
-   真实执行固定该契约。
+   （nvm/e2e/装载器零改动即可全量对拍，e2e 977 全量对拍通过），终点
+   改为逐单元产物＋加载期链接。**已实现**：
+   - **nlink**：`src/vm/NcuLinker.{h,cpp}`＋`NcuLinkerRemap.{h,cpp}`，
+     合成模块单元测试 `test_nculinker`——Phase A/B 内核复制适配为
+     「N 个对等映像合并」（原语义「并入既有目标」），原件保留至
+     切换完成后再删；
+   - **nloader**：`src/vm/NcuLoader.{h,cpp}`，闭包发现/定位优先级/
+     一次报清诊断由合成 .ncu/.npkg 夹具单元测试 `test_nculoader`
+     逐项固定——入口包自身成员表＞搜索目录（目录内 `.ncu` 文件＞
+     按文件名序 `.npkg` 成员）；
+   - **执行入口全数接入 nloader→nlink**：nvm 装载执行、ncc 的 run
+     与编译即执行、ndb 两处装载点（调试器运行链接后的闭包，与 nvm
+     同一搜索路径组装）；
+   - **产物形态切换**：`ModuleBuilder::BuildArtifacts` 产码排除库
+     翻译单元（`ModuleRegistry::IsLibraryModule`——stdlib 与第三方
+     源仍内联，但只供签名解析，其代码不再进入消费方产物）；单文件
+     模式写入口单元 .ncu（导入槽随行）；项目模式（`ncc -p`，
+     `BuildParams.m_bProjectMode`）打包逐单元 .npkg——成员名＝单元
+     自身模块路径（装载器同一性规则：拒绝头注名与成员名不符的
+     成员），入口点记录指名入口单元与函数，**不再写链接后 .ncu**；
+     nide 项目产物路径同步（.npkg）；ndisasm 对 .npkg 逐成员原样
+     视图（不链接）；
+   - **stdlib 引导目标**：bootstrap ncc 把 `stdlib/{io,math,fs}.n`
+     编成单元打包 `stdlib.npkg`，落在构建树 stdlib 目录（兼作
+     编译期 stdlib 源目录，`FindStdLibDir` 走查优先命中），安装
+     规则随包分发到 `<prefix>/stdlib`；
+   - **外部 .ncu 导入的 stub 铸造限定自有条目**：单元映像表尾的
+     占位槽不铸 stub（`CompiledModuleNodeBuilder` 以
+     ownCount＝size−imports 界定函数/struct/class 三张表遍历）；
+   - **可导入 .npkg 契约（单成员）**：编译期消费的第三方 `.npkg`
+     仅暴露单成员（程序包＝入口记录成员；库包＝唯一成员）；多成员
+     无入口记录的包（项目模式库分发形态）在编译期明确拒绝（诊断
+     指名成员数），不静默取首成员——半张签名面会把失败推迟到运行
+     期。加载侧（nloader）本就按点分成员路径全量解析，缺口只在
+     编译期。
+   剩余（d2）：删除 `Import.cpp` Phase A/B 整链、`MERGED_MODE` 哨兵
+   与合并产码路径（`Build()` 旧路径及 `SetImportedModules`/
+   `m_funcIndexMap` 的 stub 条目）。
+   后续决策项（非 d2）：多成员 .npkg 的编译期消费面——按成员铸造
+   stub 需要点分外部路径的导入门语义（现行门规则：外部导入限
+   单段），定案后解除 `LoadModuleArtifact` 的单成员拒绝。
 4. 测试与门（§7）；全部通过即提交。

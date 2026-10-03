@@ -5,4 +5,4 @@ add_executable(ndb
     SourceCache.cpp
 )
 target_include_directories(ndb PRIVATE ${PROJECT_SOURCE_DIR}/src/vm)
-target_link_libraries(ndb PRIVATE nlang_vm nlang_version)
+target_link_libraries(ndb PRIVATE nlang_vm nlang_langservice nlang_version)

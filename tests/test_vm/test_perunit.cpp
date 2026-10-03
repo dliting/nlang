@@ -446,10 +446,10 @@ void TestForeignTypedFieldsCrossUnit() {
 
 // --- shape 9: external .ncu image joins the link closure as a peer ---
 //
-// The library is compiled FIRST through the production linked build
-// (ModuleBuilder::BuildLinked — its artifact is a linked, self-contained
-// module), then a second program imports it as an external .ncu. The
-// consumer unit leaves `lib.add` as an import slot; the loaded image
+// The library is compiled FIRST through the production artifact build
+// (ModuleBuilder::BuildArtifacts — its artifact is the library's own
+// unit image), then a second program imports it as an external .ncu.
+// The consumer unit leaves `lib.add` as an import slot; the loaded image
 // rides in UnitImages.external and resolves at link time. This is the
 // whole phase 6 story end to end: compile-time separation, load-time
 // closure.
@@ -473,7 +473,7 @@ void TestExternalNcuPeerImage() {
         params.m_ImportDirs = { STDLIB_DIR };
         ListCompileLogger logger;
         ModuleBuilder builder(params, logger);
-        CHECK(builder.BuildLinked(), "external library builds linked");
+        CHECK(builder.BuildArtifacts(), "external library unit image built");
     }
     const fs::path libArtifact = libDir / "lib.ncu";
     CHECK(fs::exists(libArtifact), "library artifact written");
@@ -643,15 +643,16 @@ void TestCrossUnitEnumToString() {
 
 // --- shape 12: project package artifact — identity and entry naming ---
 //
-// A multi-unit build also packs the .npkg beside the .ncu. The package
-// member, the artifact header, and the entry record must be ONE
-// identity naming the REAL entry: the runtime loader's identity rule
-// refuses a member whose header names anything else, and the record's
-// <module>.<function> override must hit a function the artifact owns.
-// Pinned with the entry unit listed SECOND — a library unit leading
-// the source list must not claim the merged header — by driving the
-// package through NcuLoader + nlink + execution, exactly as nvm runs
-// a program package from the command line.
+// A multi-unit project build packs the .npkg as its ONLY artifact (no
+// linked .ncu). Every member is a unit image named by its own module
+// path, and the entry record must name the REAL entry unit: the
+// runtime loader's identity rule refuses a member whose header names
+// anything else, and the record's <module>.<function> override must
+// hit a function that unit owns. Pinned with the entry unit listed
+// SECOND — a library unit leading the source list must not claim the
+// entry — by driving the package through NcuLoader + nlink +
+// execution, exactly as nvm runs a program package from the command
+// line.
 void TestProjectPackageArtifactIdentity() {
     const auto dir = scenarioDir("pkg_artifact");
     writeFiles(dir, {
@@ -676,9 +677,13 @@ void TestProjectPackageArtifactIdentity() {
     params.m_ImportDirs = { dir.string(), STDLIB_DIR };
     ListCompileLogger logger;
     ModuleBuilder builder(params, logger);
-    CHECK(builder.BuildLinked(), "project builds linked");
+    CHECK(builder.BuildArtifacts(), "project packs the package");
     const fs::path pkg = dir / "prog.npkg";
-    CHECK(fs::exists(pkg), "package artifact written beside the module");
+    CHECK(fs::exists(pkg), "package artifact written");
+    //Project mode writes ONLY the package — linking is the loader's job
+    //at run time (design section 3: no linked .ncu beside it).
+    CHECK(!fs::exists(dir / "prog.ncu"),
+          "project builds write no linked .ncu");
 
     NcuLoader::Options loaderOpts;
     NcuLoader::Result loaded;
@@ -688,9 +693,11 @@ void TestProjectPackageArtifactIdentity() {
         CHECK(false, (std::string("package load failed: ") + e.what()).c_str());
         return;
     }
-    CHECK(loaded.units.size() == 1, "linked member is one unit");
+    CHECK(loaded.units.size() == 2, "one member per unit, both loaded");
     CHECK(loaded.units[0].modulePath == "main",
-          "member and header carry the entry unit's identity");
+          "entry record selects the entry unit first");
+    CHECK(loaded.units[1].modulePath == "helper",
+          "own member table yields the library unit");
     CHECK(loaded.entryKey == "main.main",
           "entry record names the real entry function");
     CompiledModule linked;

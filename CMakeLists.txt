@@ -167,6 +167,55 @@ endif()
 # deploy each module into every host tool's output directory.
 add_subdirectory(src/native)
 
+# --- Standard library package (phase 6) --------------------------------------
+# Bootstrap the stdlib package with the just-built ncc: the library sources
+# are copied into the build tree's stdlib dir — which doubles as the
+# compile-time stdlib source dir every tool resolves via FindStdLibDir
+# (walk-up from the executable directory finds this copy first in every
+# build-tree layout) — and the generated .nproj builds them project-mode,
+# so stdlib.npkg carries one member per unit. Executors resolve stdlib
+# symbol imports from that package at load time (nloader -> nlink; design
+# section 5). The target is ALWAYS-run on purpose: no stamp means no
+# staleness hole when only ncc changed (the pack is cheap and
+# byte-deterministic). Targeted builds of a single tool skip it — run a
+# full build (or this target) before running anything that imports the
+# standard library.
+set(NLANG_STDLIB_BUILD_DIR ${CMAKE_BINARY_DIR}/stdlib)
+file(MAKE_DIRECTORY ${NLANG_STDLIB_BUILD_DIR})
+# ONE source list drives every consumer of the file set (the generated
+# .nproj and the copy below; the install rule ships the whole stdlib/
+# directory and is list-free by construction). A new stdlib/<name>.n
+# must not depend on remembering to edit each site — a missed copy also
+# misses the package member, because the build-tree copy shadows the
+# source tree for compile-time resolution. CONFIGURE_DEPENDS: cmake
+# re-runs (and the list refreshes) whenever the glob result changes, so
+# adding or removing a stdlib source needs no manual reconfigure.
+# copy_if_different never DELETES: removing a stdlib source leaves its
+# stale copy in the build-tree dir, still shadowing the source tree
+# (consumers compile against a signature the package no longer ships)
+# — delete the stale copy from the build-tree stdlib dir by hand after
+# a source removal.
+file(GLOB NLANG_STDLIB_SOURCES CONFIGURE_DEPENDS
+    ${PROJECT_SOURCE_DIR}/stdlib/*.n)
+set(NLANG_STDLIB_NPROJ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    "<Project name=\"stdlib\">\n  <Sources>\n")
+foreach(src IN LISTS NLANG_STDLIB_SOURCES)
+    get_filename_component(name "${src}" NAME)
+    string(APPEND NLANG_STDLIB_NPROJ "    <File path=\"${name}\"/>\n")
+endforeach()
+string(APPEND NLANG_STDLIB_NPROJ "  </Sources>\n</Project>\n")
+file(WRITE ${NLANG_STDLIB_BUILD_DIR}/stdlib.nproj "${NLANG_STDLIB_NPROJ}")
+add_custom_target(nlang_stdlib_package ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${NLANG_STDLIB_SOURCES}
+        ${NLANG_STDLIB_BUILD_DIR}
+    COMMAND $<TARGET_FILE:ncc> build -p
+        ${NLANG_STDLIB_BUILD_DIR}/stdlib.nproj
+        -o ${NLANG_STDLIB_BUILD_DIR}/stdlib.npkg
+    DEPENDS ncc
+    COMMENT "Packing stdlib.npkg (per-unit members)"
+    VERBATIM)
+
 # --- Documentation site (nlang-docs subproject) -----------------------------
 # Defined BEFORE add_subdirectory(tests): test targets hook a dependency on
 # nlang_docs via if(TARGET nlang_docs), which only sees targets defined at
@@ -278,6 +327,10 @@ install(TARGETS ncc nvm ndisasm ndb RUNTIME DESTINATION bin)
 # in the installed layout: prefix/bin/ncc -> prefix/stdlib.
 install(DIRECTORY stdlib/ DESTINATION stdlib
     FILES_MATCHING PATTERN "*.n")
+# The packed standard library (built into the build tree's stdlib dir by
+# the nlang_stdlib_package bootstrap) ships beside the .n declarations —
+# executors resolve stdlib unit imports from it at load time (phase 6).
+install(FILES ${CMAKE_BINARY_DIR}/stdlib/stdlib.npkg DESTINATION stdlib)
 
 if(NLANG_BUILD_IDE)
     install(TARGETS nide RUNTIME DESTINATION bin)

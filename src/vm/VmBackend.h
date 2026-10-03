@@ -75,10 +75,10 @@ public:
     bool SaveModule(BuildEnvironment& env) override;
 
     //Write an arbitrary compiled module as this build's .ncu artifact
-    //(same output-path logic as SaveModule). Phase 6: ModuleBuilder's
-    //linked build saves the nlink-merged module through here — the
-    //backend's own m_compiledModule is moved-out husk after
-    //GenerateUnits.
+    //(same output-path logic as SaveModule). Phase 6: BuildArtifacts
+    //single-file mode saves the ENTRY UNIT IMAGE through here (project
+    //mode packs the .npkg instead and never calls this) — the backend's
+    //own m_compiledModule is a moved-out husk after GenerateUnits.
     bool WriteModuleArtifact(BuildEnvironment& env,
                              const CompiledModule& module,
                              const std::string& entryKey);
@@ -86,7 +86,8 @@ public:
     //Phase 6 per-unit codegen: reset the per-unit tables and select the
     //unit whose members the registration walks will see. unitIdx ==
     //MERGED_MODE selects the legacy single-pass mode (whole tree, no
-    //owner filtering — single-file builds keep the merged model).
+    //owner filtering) — it serves only the pre-flip ModuleBuilder::
+    //Build() merge path, whose deletion is the d2 step.
     void BeginUnit(uint32_t unitIdx, const std::string& modulePath);
     static constexpr uint32_t MERGED_MODE = 0xFFFFFFFFu;
 

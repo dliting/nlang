@@ -53,10 +53,15 @@ void AddFunc(CompiledModule& u, const std::string& qualifiedName,
     u.functions.push_back(std::move(f));
 }
 
-// One cross-unit function import slot (the discovery input).
+// One cross-unit function import slot (the discovery input). Mirrors the
+// producer's table layout: the import record rides WITH a placeholder
+// tail entry in the function table (own entries 0..n-1, imports n..n+m),
+// so the image stays structurally well-formed for every ownCount
+// consumer (the loader refuses an import count above the table size).
 void AddFuncImport(CompiledModule& u, const std::string& targetModule,
                    const std::string& qualifiedName, uint32_t paramCount) {
     u.functionImports.push_back({targetModule, qualifiedName, paramCount, ""});
+    AddFunc(u, qualifiedName, paramCount);
 }
 
 // Serialize a unit as <dir>/<modulePath>.ncu (the location convention the
@@ -424,16 +429,12 @@ void TestDuplicateTargetLoadedOnce() {
     CompiledModule a = MakeUnit("a");
     AddFunc(a, "a.main", 0);
     AddFuncImport(a, "c", "c.f", 0);
+    AddFuncImport(a, "b", "b.g", 0);
     WriteUnit(dir, a, "a.main");
     CompiledModule b = MakeUnit("b");
     AddFunc(b, "b.g", 0);
     AddFuncImport(b, "c", "c.f", 0);
     WriteUnit(dir, b);
-    a.functionImports.push_back({"b", "b.g", 0, ""});
-    {
-        std::ofstream out(dir / "a.ncu", std::ios::binary | std::ios::trunc);
-        WriteCompiledModule(out, a, "a.main");
-    }
     CompiledModule c = MakeUnit("c");
     AddFunc(c, "c.f", 0);
     WriteUnit(dir, c);

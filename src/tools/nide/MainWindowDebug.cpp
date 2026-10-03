@@ -50,17 +50,24 @@ QString MainWindow::prepareDebugTarget() {
     if (!buildStandaloneFile(standalone))
         return QString();
     m_debugBaseDir = QFileInfo(standalone).absolutePath();
-    return standaloneNmodPath(standalone);
+    return standaloneNcuPath(standalone);
 }
 
 QStringList MainWindow::debugSearchPaths() const {
-    //Project paths first, then global (standalone sessions get global only).
+    //Both flows append the target's implicit base dir (the compile
+    //side's own search root): the artifact embeds no library code, so a
+    //same-dir library unit must resolve at load time like it resolved
+    //at compile time — the debug session's CWD is the ARTIFACT dir, so
+    //a redirected output would otherwise hide the project dir.
     const QStringList globalPaths =
         SettingsStore::persisted().librarySearchPaths();
     if (ProjectNode* project = currentProject())
-        return buildSearchDirs(projectImportPathList(*project),
-                               project->projectDir(), globalPaths);
-    return buildSearchDirs({}, QString(), globalPaths);
+        return projectSearchDirs(projectImportPathList(*project),
+                                 project->projectDir(), globalPaths);
+    const QString standalone = currentStandaloneTarget();
+    if (standalone.isEmpty())
+        return buildSearchDirs({}, QString(), globalPaths);
+    return standaloneSearchDirs(standalone, globalPaths);
 }
 
 void MainWindow::sendDebugPrelude() {

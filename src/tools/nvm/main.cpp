@@ -27,7 +27,8 @@ using namespace nlang;
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: nvm <module.ncu> [-I <dir>...] [--gc-stress=N]\n"
+        std::cerr << "Usage: nvm <program.ncu|.npkg> [-I <dir>...] "
+                     "[--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -91,7 +92,8 @@ int main(int argc, char* argv[]) {
         }
     }
     if (moduleArg < 0) {
-        std::cerr << "Usage: nvm <module.ncu> [-I <dir>...] [--gc-stress=N]\n"
+        std::cerr << "Usage: nvm <program.ncu|.npkg> [-I <dir>...] "
+                     "[--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -102,10 +104,10 @@ int main(int argc, char* argv[]) {
     int result = 1;
     try {
         //Phase 6: every artifact executes through the closure loader and
-        //the load-time linker (nloader -> nlink). Artifacts are linked,
-        //self-contained modules today, so the closure is the single entry
-        //unit; the per-unit package form (design section 9.3) changes what
-        //the loader finds, not this call sequence.
+        //the load-time linker (nloader -> nlink). Artifacts are per-unit
+        //images (a .ncu unit, or a .npkg whose members are its units) —
+        //the loader walks the import slots to the whole closure and nlink
+        //merges the peers; this call sequence never sees the difference.
         fs::path modPath(argv[moduleArg]);
         SearchPathInput search;
         search.explicitDirs = importDirs;
@@ -117,18 +119,20 @@ int main(int argc, char* argv[]) {
         };
         //Unified library search: CLI -I > module dir > NLANG_PATH >
         //exe dir/cwd (native DLLs may ship beside the module or in -I
-        //dirs); packages resolve from the same dirs, plus the system
-        //stdlib directory (where stdlib.npkg lives) last.
+        //dirs), plus the system stdlib directory (where stdlib.npkg
+        // lives) last. ONE list serves both the native search dirs and
+        //the closure loader (ndb composes the same way).
         const std::vector<std::string> searchPath =
             BuildLibrarySearchPath(search);
-        for (const auto& d : searchPath)
-            executor.AddNativeSearchDir(d);
-        NcuLoader::Options loaderOpts;
-        loaderOpts.searchDirs = searchPath;
         const std::string stdlibDir = langservice::FindStdLibDir(
             NativeLibraryLoader::ExecutableDir());
+        std::vector<std::string> allDirs = searchPath;
         if (!stdlibDir.empty())
-            loaderOpts.searchDirs.push_back(stdlibDir);
+            allDirs.push_back(stdlibDir);
+        for (const auto& d : allDirs)
+            executor.AddNativeSearchDir(d);
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = std::move(allDirs);
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(argv[moduleArg], loaderOpts);
         module = NcuLinker::Link(loaded.units, loaded.entryKey);

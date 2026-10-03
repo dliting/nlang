@@ -34,11 +34,16 @@ def main() -> int:
     assert run_i.returncode == 0, run_i.stdout + run_i.stderr
     assert "hello, world" in run_i.stdout, run_i.stdout
 
-    # 2. Default module-dir: DLL beside the module, no -I.
+    # 2. Default module-dir: DLL and library unit beside the module, no -I.
+    #Phase 6: the consumer .ncu no longer bakes the library in — its import
+    #slot resolves mylib at load time, so the library unit file (built into
+    #the package dir by the nlang_mylib_pkg fixture target) must sit on the
+    #module-dir search path next to the DLL.
     nmod_d = os.path.join(work, "via_default.ncu")
     subprocess.run([ncc, "build", src, "-I", pkg, "-o", nmod_d],
                    check=True)
     shutil.copy2(dll[0], work)
+    shutil.copy2(os.path.join(pkg, "mylib.ncu"), work)
     run_d = subprocess.run([nvm, nmod_d], capture_output=True, text=True)
     assert run_d.returncode == 0, run_d.stdout + run_d.stderr
     assert "hello, world" in run_d.stdout, run_d.stdout

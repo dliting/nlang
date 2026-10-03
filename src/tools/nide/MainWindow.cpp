@@ -232,18 +232,19 @@ void MainWindow::showOutputPage(QWidget* page) {
 QString MainWindow::outputFilePath(const ProjectNode& project) const {
     //Explicit .nproj outputDir wins; the global build output directory
     //(Tools > Options) applies when unset; the project directory
-    //remains the default (the .nproj default).
-    return SettingsStore::resolveProjectNmodPath(
+    //remains the default (the .nproj default). The artifact is the
+    //.npkg package (phase 6).
+    return SettingsStore::resolveProjectPackagePath(
         project.outputDir(), project.projectDir(),
         SettingsStore::persisted().buildOutputDir(), project.name());
 }
 
-QString MainWindow::standaloneNmodPath(const QString& filePath) const {
+QString MainWindow::standaloneNcuPath(const QString& filePath) const {
     //The global build output directory redirects the per-stem slot;
     //unset keeps the per-user temp area (the examples dir may be
     //read-only in the installed layout, and we never write next to
     //the source).
-    const QString path = SettingsStore::resolveStandaloneNmodPath(
+    const QString path = SettingsStore::resolveStandaloneNcuPath(
         SettingsStore::persisted().buildOutputDir(), filePath);
     QDir().mkpath(QFileInfo(path).absolutePath());
     return path;
@@ -311,9 +312,9 @@ void MainWindow::updateMenuState() {
     m_ui->actProjectProp->setEnabled(hasProject);
     //A project OR a standalone .n target can be built. While a debug
     //session is live, Build/Run stay off: a mid-session rebuild would
-    //rewrite the very .ncu the debugger is executing (bytecode offsets
-    //shift under the session) and a Run child would interleave its
-    //output on the shared run page.
+    //rewrite the very artifact the debugger is executing (bytecode
+    //offsets shift under the session) and a Run child would interleave
+    //its output on the shared run page.
     const bool hasStandaloneTarget = !currentStandaloneTarget().isEmpty();
     const bool canBuild = hasProject || hasStandaloneTarget;
     const bool debugLive = debugSessionLive();

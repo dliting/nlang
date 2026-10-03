@@ -10,8 +10,8 @@ SymbolSlots.hpp — 跨单元引用的槽位解析（Phase 6 Task 3 核心）。
 1. 同一单元内同一目标只占一个槽（按目标去重＝限定名＋所属模块路径，
    函数另加形参数——裸方法键跨包同名同参合法，缺模块路径会误并槽）；
 2. 自有条目永远占据 0..n-1，占位槽从 n 开始、与导入节按序对应；
-3. 合并模式（VmBackend::MERGED_MODE，单文件模式）不产生占位槽——
-   own 判定与查表走 VmBackend::IsOwnUnit 的既有路径。
+3. 合并模式（VmBackend::MERGED_MODE，仅服务 Build() 旧合并产码路径）
+   不产生占位槽——own 判定与查表走 VmBackend::IsOwnUnit 的既有路径。
 ---*/
 #pragma once
 #include "ModuleRegistry.h"

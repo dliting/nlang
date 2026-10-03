@@ -112,6 +112,17 @@ public:
 	{
 		CheckNoMainFunction(cm);
 
+		//Own entries only: a unit image's tables carry placeholder tail
+		//slots after the own entries (one per import record, in order).
+		//Placeholders target OTHER modules — stubbing them into this
+		//consumer's tree would mis-attribute their ownership.
+		const size_t ownFuncs =
+			cm.functions.size() - cm.functionImports.size();
+		const size_t ownStructs =
+			cm.structs.size() - cm.structImports.size();
+		const size_t ownClasses =
+			cm.classes.size() - cm.classImports.size();
+
 		auto loc = CompiledModuleNodeLocation(cm.name);
 
 		//Helper: is there already a top-level field with this name in root?
@@ -133,19 +144,19 @@ public:
 		//then be wrongly deduped against the imported List.add (R10-1
 		//collision).
 		std::unordered_set<uint32_t> methodOrCtorIndices;
-		for (const auto &cc : cm.classes)
+		for (size_t ci = 0; ci < ownClasses; ++ci)
 		{
-			for (uint16_t mi : cc.methodIndices)
+			for (uint16_t mi : cm.classes[ci].methodIndices)
 				methodOrCtorIndices.insert(mi);
-			if (cc.constructorIdx != 0xFFFF)
-				methodOrCtorIndices.insert(cc.constructorIdx);
+			if (cm.classes[ci].constructorIdx != 0xFFFF)
+				methodOrCtorIndices.insert(cm.classes[ci].constructorIdx);
 		}
 
 		//Functions first so that subsequent class/struct stub members can
 		//reference them by name if needed (resolver does name-based lookup
 		//later, so physical order among siblings doesn't matter — but having
 		//functions first matches the typical parser emission order).
-		for (uint32_t i = 0; i < cm.functions.size(); ++i)
+		for (uint32_t i = 0; i < ownFuncs; ++i)
 		{
 			if (methodOrCtorIndices.count(i))
 				continue;  //class method/ctor — owned by its class, not free
@@ -166,20 +177,20 @@ public:
 		}
 
 		//Structs.
-		for (const auto &cs : cm.structs)
+		for (size_t si = 0; si < ownStructs; ++si)
 		{
-			if (nameExistsInRoot(LeafNameOfKey(cs.name)))
+			if (nameExistsInRoot(LeafNameOfKey(cm.structs[si].name)))
 				continue;  //R10-1
-			SnStructDecl *stub = CreateStructStub(cs, loc);
+			SnStructDecl *stub = CreateStructStub(cm.structs[si], loc);
 			m_Tree.Root()->Members().push_back(stub);
 		}
 
 		//Classes.
-		for (const auto &cc : cm.classes)
+		for (size_t ci = 0; ci < ownClasses; ++ci)
 		{
-			if (nameExistsInRoot(LeafNameOfKey(cc.name)))
+			if (nameExistsInRoot(LeafNameOfKey(cm.classes[ci].name)))
 				continue;  //R10-1
-			SnClassDecl *stub = CreateClassStub(cc, loc);
+			SnClassDecl *stub = CreateClassStub(cm.classes[ci], loc);
 			m_Tree.Root()->Members().push_back(stub);
 		}
 	}

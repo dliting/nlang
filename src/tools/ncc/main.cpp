@@ -35,10 +35,10 @@ static void PrintUsage() {
     std::cerr << "Usage:\n"
               << "  ncc <source.n> [-o out.ncu] [-I <dir>...]  Compile and execute\n"
               << "  ncc build <source.n> [-o out.ncu] [-I <dir>...]  Compile only\n"
-              << "  ncc -p <project.nproj> [-o out.ncu] [-I <dir>...]  Compile and execute a project\n"
-              << "  ncc build -p <project.nproj> [-o out.ncu]  Compile a project\n"
-              << "  ncc run <module.ncu>       Execute only\n"
-              << "  -I <dir>                    Add directory to .ncu import search path\n"
+              << "  ncc -p <project.nproj> [-o out.npkg] [-I <dir>...]  Compile and execute a project\n"
+              << "  ncc build -p <project.nproj> [-o out.npkg]  Compile a project\n"
+              << "  ncc run <program.ncu|.npkg>  Execute only\n"
+              << "  -I <dir>                    Add directory to import search path\n"
               << "  ncc --version               Print the compiler version\n";
 }
 
@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
 
     std::string command = argv[1];
 
-    // ncc run <module.ncu> [-I <dir>...]
+    // ncc run <program.ncu|.npkg> [-I <dir>...]
     if (command == "run") {
         if (argc < 3) {
             std::cerr << "Error: 'run' requires a module file path.\n";
@@ -145,14 +145,15 @@ int main(int argc, char* argv[]) {
             };
             const std::vector<std::string> searchPath =
                 BuildLibrarySearchPath(search);
-            for (const auto& d : searchPath)
-                executor.AddNativeSearchDir(d);
-            NcuLoader::Options loaderOpts;
-            loaderOpts.searchDirs = searchPath;
             const std::string stdlibDir = langservice::FindStdLibDir(
                 NativeLibraryLoader::ExecutableDir());
+            std::vector<std::string> allDirs = searchPath;
             if (!stdlibDir.empty())
-                loaderOpts.searchDirs.push_back(stdlibDir);
+                allDirs.push_back(stdlibDir);
+            for (const auto& d : allDirs)
+                executor.AddNativeSearchDir(d);
+            NcuLoader::Options loaderOpts;
+            loaderOpts.searchDirs = std::move(allDirs);
             const NcuLoader::Result loaded =
                 NcuLoader::LoadClosure(argv[2], loaderOpts);
             mod = NcuLinker::Link(loaded.units, loaded.entryKey);
@@ -172,7 +173,7 @@ int main(int argc, char* argv[]) {
     }
 
     // ncc build <source.n> [-o out.ncu] [-I <dir>...]
-    // ncc build -p <project.nproj> [-o out.ncu] [-I <dir>...]
+    // ncc build -p <project.nproj> [-o out.npkg] [-I <dir>...]
     // ncc <source.n> [-I <dir>...] (compile + run)
     // ncc -p <project.nproj> [-I <dir>...] (compile + run)
     bool compileOnly = (command == "build");
@@ -274,17 +275,20 @@ int main(int argc, char* argv[]) {
             moduleName = moduleName.substr(slashPos + 1);
     }
 
-    //Default output: <name>.ncu beside the sources (project mode honors
-    //the .nproj's outputDir; fs::path composition so an absolute outputDir
-    //replaces the project dir instead of concatenating onto it).
+    //Default output beside the sources: the .npkg in project mode, the
+    //.ncu otherwise (project mode honors the .nproj's outputDir;
+    //fs::path composition so an absolute outputDir replaces the project
+    //dir instead of concatenating onto it).
     if (outputFile.empty()) {
+        const char* defaultExt = projectFile.empty()
+            ? NCU_EXTENSION : NPKG_EXTENSION;
         if (!projectFile.empty()) {
             fs::path dir(project.projectDir);
             if (!project.outputDir.empty())
                 dir /= project.outputDir;
-            outputFile = (dir / (moduleName + NCU_EXTENSION)).string();
+            outputFile = (dir / (moduleName + defaultExt)).string();
         } else {
-            outputFile = moduleName + NCU_EXTENSION;
+            outputFile = moduleName + defaultExt;
         }
     }
 
@@ -330,18 +334,25 @@ int main(int argc, char* argv[]) {
     if (!outPath.parent_path().empty())
         params.m_sOutputDir = outPath.parent_path().string();
     std::string outName = outPath.filename().string();
-    //Length-agnostic strip: fs::path::extension() compares the suffix
-    //itself, so renaming the artifact cannot desynchronize a count.
-    if (outPath.extension() == NCU_EXTENSION)
+    //Length-agnostic strip of either artifact extension: fs::path::
+    //extension() compares the suffix itself, so renaming an artifact
+    //cannot desynchronize a count. `-o app.npkg` in project mode must
+    //not wrap into "app.npkg.npkg".
+    if (outPath.extension() == NCU_EXTENSION
+        || outPath.extension() == NPKG_EXTENSION)
         outName = outPath.stem().string();
     if (!outName.empty())
         params.m_sOutputModule = outName;
 
-    //Recompute outputFile from the derived parts: ModuleSaver always writes
-    //<m_sOutputDir>/<module>.ncu, so the success message and the run-mode
-    //Load must target that composed path — not the raw -o value (which may
-    //lack the extension or name only a directory).
-    fs::path saved = fs::path(params.m_sOutputModule + NCU_EXTENSION);
+    //Recompute outputFile from the derived parts: the artifact writer
+    //always writes <m_sOutputDir>/<module>.<ext>, so the success message
+    //and the run-mode Load must target that composed path — not the raw
+    //-o value (which may lack the extension or name only a directory).
+    //The extension is the mode's artifact form: project mode packs the
+    //.npkg archive; single-file mode writes the entry unit .ncu.
+    const char* artifactExt = params.m_bProjectMode
+        ? NPKG_EXTENSION : NCU_EXTENSION;
+    fs::path saved = fs::path(params.m_sOutputModule + artifactExt);
     if (!params.m_sOutputDir.empty())
         saved = fs::path(params.m_sOutputDir) / saved;
     outputFile = saved.string();
@@ -371,10 +382,11 @@ int main(int argc, char* argv[]) {
     //exception escapes main as an unhandled MSVC C++ exception — the process
     //aborts with exit code 3 and buffered diagnostics are lost silently.
     try {
-        //Phase 6: the production build is per-unit codegen closed under
-        //nlink — the artifact is the LINKED module (self-contained, no
-        //import slots), so the loader/executor paths below are unchanged.
-        if (!builder.BuildLinked()) {
+        //Phase 6: per-unit codegen writes the unit images as the
+        //artifacts (single-file .ncu / project .npkg); cross-unit
+        //references stay as import slots resolved by the load-time
+        //linker in every executor below.
+        if (!builder.BuildArtifacts()) {
             std::cerr << "Compilation failed.\n";
             return 1;
         }
@@ -404,9 +416,17 @@ int main(int argc, char* argv[]) {
     //addition to the executable directory, so a third-party package ships
     //its DLL beside its .n source. The just-built artifact executes
     //through the same closure loader + load-time linker as nvm (phase 6).
-    for (const auto& dir : params.m_ImportDirs)
-        executor.AddNativeSearchDir(dir);
     try {
+        //One ordered list feeds both consumers (native search dirs and
+        //the closure loader — the shape nvm/ndb use). The ORDER is the
+        //compile-time list (m_ImportDirs: CLI -I, project import paths,
+        //source/project dir, NLANG_PATH, stdlib, exe, cwd) with the
+        //artifact's own directory appended — run-time resolution here
+        //reuses the compile-time order so a unit resolves where it
+        //compiled from; nvm/ndb instead start from the module dir. The
+        //trailing stdlib entry repeats the one inside m_ImportDirs — a
+        //harmless re-probe that keeps the run path explicit about the
+        //stdlib package even if the compile-time composition changes.
         NcuLoader::Options loaderOpts;
         loaderOpts.searchDirs.assign(params.m_ImportDirs.begin(),
                                      params.m_ImportDirs.end());
@@ -416,6 +436,9 @@ int main(int argc, char* argv[]) {
             NativeLibraryLoader::ExecutableDir());
         if (!stdlibDir.empty())
             loaderOpts.searchDirs.push_back(stdlibDir);
+        for (const auto& dir : loaderOpts.searchDirs)
+            if (!dir.empty())
+                executor.AddNativeSearchDir(dir);
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(outputFile, loaderOpts);
         mod = NcuLinker::Link(loaded.units, loaded.entryKey);

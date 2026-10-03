@@ -62,14 +62,16 @@ public:
     static QString defaultStandaloneBuildDir();
     //One .ncu slot per source stem: in the global build output
     //directory when set, else the per-user temp area (today's layout).
-    static QString resolveStandaloneNmodPath(const QString& buildOutputDir,
+    static QString resolveStandaloneNcuPath(const QString& buildOutputDir,
                                              const QString& sourcePath);
-    //Explicit .nproj outputDir wins, then the global build output
-    //directory, then the project directory.
-    static QString resolveProjectNmodPath(const QString& projectOutputDir,
-                                          const QString& projectDir,
-                                          const QString& buildOutputDir,
-                                          const QString& projectName);
+    //The project artifact's path: explicit .nproj outputDir wins, then
+    //the global build output directory, then the project directory.
+    //The artifact is the .npkg package (project builds pack one member
+    //per unit; phase 6).
+    static QString resolveProjectPackagePath(const QString& projectOutputDir,
+                                             const QString& projectDir,
+                                             const QString& buildOutputDir,
+                                             const QString& projectName);
 
 private:
     QString m_language = LANGUAGE_SYSTEM;

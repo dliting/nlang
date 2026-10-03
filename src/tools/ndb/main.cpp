@@ -1,4 +1,5 @@
-#include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 #include "VmExecutor.h"
 #include "NativeLibraryLoader.h"
 #include "DebugSession.h"
@@ -7,6 +8,7 @@
 #include "TestNatives.h"
 #include "CrashReporter.h"
 #include "nlang/common/LibrarySearchPath.h"
+#include "nlang/langservice/SymbolIndex.h"
 #ifdef _WIN32
 #include <windows.h>  //SetErrorMode/ExitProcess (was transitive via CrashReporter.h)
 #endif
@@ -25,11 +27,14 @@ namespace fs = std::filesystem;
 
 using namespace nlang;
 
-//Apply the unified library search path to an executor: CLI -I > module dir
-//> NLANG_PATH > exe dir/cwd (native DLLs may ship beside the module).
-static void ApplyLibrarySearch(VmExecutor& executor,
-                               const std::string& modulePath,
-                               const std::vector<std::string>& cliDirs) {
+//Assemble the unified, ordered search path for a debug run: CLI -I >
+//module dir > NLANG_PATH > exe dir/cwd (native DLLs may ship beside the
+//module or in -I dirs), plus the system stdlib directory last — package
+//members and stdlib units resolve from the same dirs (phase 6 mirrors
+//nvm's composition). One path serves both the native search dirs and
+//the closure loader's options.
+static std::vector<std::string> BuildDebugSearchPath(
+    const std::string& modulePath, const std::vector<std::string>& cliDirs) {
     fs::path modPath(modulePath);
     SearchPathInput search;
     search.explicitDirs = cliDirs;
@@ -39,8 +44,31 @@ static void ApplyLibrarySearch(VmExecutor& executor,
     search.systemDirs = {
         NativeLibraryLoader::ExecutableDir(), "."
     };
-    for (const auto& d : BuildLibrarySearchPath(search))
+    std::vector<std::string> dirs = BuildLibrarySearchPath(search);
+    const std::string stdlibDir = langservice::FindStdLibDir(
+        NativeLibraryLoader::ExecutableDir());
+    if (!stdlibDir.empty())
+        dirs.push_back(stdlibDir);
+    return dirs;
+}
+
+//Load a program through the closure loader and the load-time linker
+//(nloader -> nlink, the same call sequence as nvm): unit-image
+//artifacts carry import slots, and the debugger runs the linked
+//closure, not a single self-contained module. The same search path
+//feeds the executor's native-DLL dirs.
+static CompiledModule LoadLinkedProgram(VmExecutor& executor,
+    const std::string& modulePath,
+    const std::vector<std::string>& cliDirs) {
+    const std::vector<std::string> searchDirs =
+        BuildDebugSearchPath(modulePath, cliDirs);
+    for (const auto& d : searchDirs)
         executor.AddNativeSearchDir(d);
+    NcuLoader::Options loaderOpts;
+    loaderOpts.searchDirs = searchDirs;
+    const NcuLoader::Result loaded =
+        NcuLoader::LoadClosure(modulePath, loaderOpts);
+    return NcuLinker::Link(loaded.units, loaded.entryKey);
 }
 
 //Machine mode run: wire the protocol front end + controller, take
@@ -56,8 +84,7 @@ static int RunMachine(const char* modulePath,
     RegisterTestNatives(executor);
     MachineFrontEnd front(module, std::cin, std::cout);
     try {
-        module = ModuleLoader::Load(modulePath);
-        ApplyLibrarySearch(executor, modulePath, cliDirs);
+        module = LoadLinkedProgram(executor, modulePath, cliDirs);
         DebugSessionController controller(module, front);
         front.SetController(&controller);
         executor.SetDebugHooks(&controller);
@@ -68,7 +95,7 @@ static int RunMachine(const char* modulePath,
         front.OnExited(code);
         return code;
     } catch (const std::exception& e) {
-        //Two failure classes land here: a failed ModuleLoader::Load —
+        //Two failure classes land here: a failed closure load or link —
         //thrown before PumpUntilRun, so the error event PRECEDES hello,
         //and machine clients must tolerate that ordering — and an
         //uncaught NLang throw during Execute. Both report message +
@@ -108,8 +135,8 @@ static bool ParseDebugArgs(int argc, char* argv[], bool machine,
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: ndb <module.ncu> [-I <dir>...]\n"
-                  << "       ndb --machine <module.ncu> [-I <dir>...]\n"
+        std::cerr << "Usage: ndb <program.ncu|.npkg> [-I <dir>...]\n"
+                  << "       ndb --machine <program.ncu|.npkg> [-I <dir>...]\n"
                   << "       ndb --version\n";
         return 1;
     }
@@ -129,8 +156,8 @@ int main(int argc, char* argv[]) {
     int moduleIndex = -1;
     if (!ParseDebugArgs(argc, argv, machine, cliDirs, moduleIndex)) {
         std::cerr << (machine
-            ? "Usage: ndb --machine <module.ncu> [-I <dir>...]\n"
-            : "Usage: ndb <module.ncu> [-I <dir>...]\n");
+            ? "Usage: ndb --machine <program.ncu|.npkg> [-I <dir>...]\n"
+            : "Usage: ndb <program.ncu|.npkg> [-I <dir>...]\n");
         return 1;
     }
 
@@ -159,8 +186,7 @@ int main(int argc, char* argv[]) {
     RegisterTestNatives(executor);
     int result = 1;
     try {
-        module = ModuleLoader::Load(argv[moduleIndex]);
-        ApplyLibrarySearch(executor, argv[moduleIndex], cliDirs);
+        module = LoadLinkedProgram(executor, argv[moduleIndex], cliDirs);
         //Debug session: the controller owns breakpoints/step state; the
         //CLI session is its terminal adapter. Initial stop at the first
         //statement (gdb `start` behavior); the interactive loop runs

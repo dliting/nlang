@@ -78,6 +78,45 @@ inline QStringList buildImportArgs(const QStringList& projectPaths,
         buildSearchDirs(projectPaths, projectDir, globalPaths));
 }
 
+//Append baseDir — the target's implicit search root — to a composed
+//list unless its normalized key is already present.
+inline void appendBaseSearchDir(QStringList& dirs, const QString& baseDir) {
+    QSet<QString> seen;
+    for (const QString& d : dirs)
+        seen.insert(dedupKey(d));
+    appendSearchDirOnce(dirs, seen, baseDir);
+}
+
+//Project flow: project import paths, then global paths, then the
+//project dir itself. The project dir is the compile side's implicit
+//base dir (ncc -p resolves an unlisted same-dir unit from it); making
+//it an explicit entry keeps Run/Debug resolvable at load time whatever
+//the process CWD is (a debug session runs from the artifact dir when
+//output is redirected). Appended last so configured dirs keep
+//precedence, mirroring ncc's explicit-before-implicit compile order.
+inline QStringList projectSearchDirs(const QStringList& projectPaths,
+                                     const QString& projectDir,
+                                     const QStringList& globalPaths) {
+    QStringList dirs = buildSearchDirs(projectPaths, projectDir,
+                                       globalPaths);
+    appendBaseSearchDir(dirs, projectDir);
+    return dirs;
+}
+
+//Standalone files have no project: their source dir is the implicit
+//search root (the compile side adds it as a base dir, so a same-dir
+//library resolves at compile time). Run/Debug must mirror it — the
+//artifact embeds no library code, so the library unit joins the closure
+//at load time from THIS list; without the source dir a program can
+//compile yet fail to run. Appended AFTER the global paths so a
+//configured dir overrides an incidental same-dir library.
+inline QStringList standaloneSearchDirs(const QString& sourceFile,
+                                        const QStringList& globalPaths) {
+    QStringList dirs = buildSearchDirs({}, QString(), globalPaths);
+    appendBaseSearchDir(dirs, QFileInfo(sourceFile).absolutePath());
+    return dirs;
+}
+
 //Convenience: a ProjectNode's configured import dirs in order.
 inline QStringList projectImportPathList(const ProjectNode& project) {
     QStringList paths;

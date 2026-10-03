@@ -284,6 +284,27 @@ void test_module_import_slots_roundtrip() {
         CHECK(noEntry.entryPoint == -1, "empty entry key => -1");
     }
 
+    //Corrupt-image guard: import slots are table TAILS (own 0..n-1,
+    //imports n..n+m), so an import count above the table size would
+    //underflow every ownCount consumer (stub minting, linker slot
+    //walks) into out-of-bounds reads. The reader must refuse the image.
+    {
+        mod.functionImports.push_back({"lib", "lib.g", 1});
+        mod.functionImports.push_back({"lib", "lib.h", 1});
+        std::ofstream fs(tmpPath, std::ios::binary);
+        CHECK(WriteCompiledModule(fs, mod, "app.main"),
+              "write over-imported module");
+        fs.close();
+        bool refused = false;
+        try {
+            (void)ModuleLoader::Load(tmpPath);
+        } catch (const std::exception& e) {
+            refused = std::string(e.what()).find(
+                "import count exceeds") != std::string::npos;
+        }
+        CHECK(refused, "loader refuses imports above the table size");
+    }
+
     std::filesystem::remove(tmpPath);
     PASS();
 }

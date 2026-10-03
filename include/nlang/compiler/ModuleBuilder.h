@@ -35,24 +35,24 @@ public:
 	//Compile source files to a module file.
 	bool Build();
 
-	//Phase 6 linked build (the production path): per-unit images
-	//(BuildUnitImages) closed under nlink into ONE runnable module,
-	//written as the single .ncu artifact. The linked artifact is a
-	//plain self-contained module — placeholders are resolved and the
-	//import tables empty — so today's loader/executor run it unchanged.
-	//Project-mode builds (BuildParams.m_bProjectMode, ncc -p)
-	//additionally write the .npkg distribution archive beside the
-	//.ncu (member and entry record carry the artifact's own identity);
-	//single-file builds stop at the .ncu. Link diagnostics (unresolved
-	//symbols) are logged like compile errors. Returns false on any
-	//front-end, codegen, link, or artifact-write error.
-	bool BuildLinked();
+	//Phase 6 artifact build (the production path): write the per-unit
+	//images AS the artifacts — linking moved to load time (nloader +
+	//nlink; design section 3). Single-file mode writes the entry unit
+	//image as the .ncu (its import slots ride along; library code joins
+	//the closure at run time); project mode (BuildParams.
+	//m_bProjectMode, ncc -p) packs every unit image as a member of the
+	//.npkg distribution archive and writes no .ncu. Loaded external
+	//imports are not written — the consumer's import slots name them
+	//and the run-time search path locates them. Returns false on any
+	//front-end, codegen, or artifact-write error.
+	bool BuildArtifacts();
 
 	//Phase 6 per-unit build result: one CompiledModule image per
-	//translation unit (entry-owning unit first, then TU order), the
-	//loaded external .ncu imports (NOT merged in — they ride along for
-	//the load-time linker), and the program entry's qualified key
-	//("" = none or ambiguous, already logged).
+	//NON-LIBRARY translation unit (library TUs are signature-only and
+	//ship in their own packages; entry-owning unit first, then TU
+	//order), the loaded external .ncu/.npkg imports (NOT merged in —
+	//they ride along for the load-time linker), and the program entry's
+	//qualified key ("" = none or ambiguous, already logged).
 	struct UnitImages
 	{
 		std::vector<CompiledModule> units;
@@ -146,10 +146,12 @@ private:
 	bool GenerateCodes();
 	//Save the current module to a file.
 	bool SaveModule();
-	//Pack the linked module as the .npkg distribution archive beside
-	//the .ncu (project-mode builds; BuildLinked).
-	bool WritePackageArtifact(const CompiledModule& linked,
-		const std::string& entryKey);
+	//Pack every unit image as a member of the .npkg distribution
+	//archive (project-mode builds; BuildArtifacts). Member names are
+	//the units' own module paths; the entry record names the
+	//entry-owning unit and function.
+	bool WritePackageArtifact(const std::vector<CompiledModule>& units,
+		const std::string& entryKey) const;
 	//Roughly parse the source files as translation units.
 	void ParseTransUnits();
 	//Phase 13: register `using N = T;` aliases and expand them at use

@@ -400,9 +400,13 @@ static void TestSameLastSegmentPackagesCoexist() {
 
 //(7) Phase 6 Task 3 Step 1: a third-party package ships as .npkg ONLY
 //(no source, no loose .ncu). The consumer's build consumes the package's
-//embedded compile unit for signatures, and the built program runs
-//self-contained. Negative: removing the package makes the consumer build
-//fail with the module-not-found diagnostic.
+//embedded compile unit for signatures. EXECUTION NOTE: this harness
+//drives the legacy merged build (compileScenario -> ModuleBuilder::
+//Build()) and executes the merged module directly, so "runs" here pins
+//the pre-flip flow; the per-unit artifact flow (entry unit image +
+//load-time closure) is pinned by test_perunit shape 9. Negative:
+//removing the package makes the consumer build fail with the
+//module-not-found diagnostic.
 static void TestProgramPackageWithoutSources() {
     //One packageDir() call: every later call remove_all's the whole
     //shared root (established rule), so all scenario dirs derive from a
@@ -476,8 +480,9 @@ static void TestProgramPackageWithoutSources() {
         VmExecutor exec;
         exec.AddNativeSearchDir(pkg.string());
         exec.SetHostIo(&io);
-        //lib.f() returns 5; main returns it - the value IS the pin.
-        CHECK(exec.Execute(mod) == 5, "program runs self-contained (rc 5)");
+        //lib.f() returns 5; main returns it - the value IS the pin
+        //(merged-module execution; see the header note on this test).
+        CHECK(exec.Execute(mod) == 5, "merged program runs (rc 5)");
     }
 
     //Negative: without the package the consumer build fails, naming the
@@ -493,6 +498,60 @@ static void TestProgramPackageWithoutSources() {
     CHECK(!missing.ok, "without the package the build fails");
     CHECK(missing.log.find("'lib'") != std::string::npos,
           "the diagnostic names the missing module");
+
+    //Phase 6 flip guard: a multi-member package without an entry record
+    //(the project-mode library distribution form) must be REFUSED for
+    //import. Silently taking the alphabetically-first member would let
+    //the consumer compile against half a surface and defer the failure
+    //to run time; single-member library packages stay the import
+    //contract (per-member surfaces need dotted-path import gates —
+    //deferred design decision, phase6_loader_design.md section 9).
+    const fs::path multi = root / "pkg_multi";
+    fs::create_directories(multi);
+    {
+        NcuPackageWriter packer;
+        for (const char* unitName : { "mma", "mmb" }) {
+            const std::string unit(unitName);
+            {
+                std::ofstream out(multi / (unit + ".n"), std::ios::binary);
+                out << "int " << unit << "() { return 1; }\n";
+            }
+            BuildParams libParams;
+            libParams.m_SourceFiles.push_back(
+                (multi / (unit + ".n")).string());
+            libParams.m_sOutputModule = unit;
+            libParams.m_sOutputDir = multi.string();
+            libParams.m_sTempDir = multi.string();
+            libParams.m_sStdLibDir = STDLIB_DIR;
+            ListCompileLogger libLogger;
+            ModuleBuilder libBuilder(libParams, libLogger);
+            bool unitOk = false;
+            try { unitOk = libBuilder.Build(); }
+            catch (const std::exception&) { unitOk = false; }
+            CHECK(unitOk, "multi-member package unit builds");
+            std::ifstream in(multi / (unit + ".ncu"), std::ios::binary);
+            std::string bytes;
+            bytes.assign(std::istreambuf_iterator<char>(in),
+                         std::istreambuf_iterator<char>());
+            CHECK(packer.AddMember({unit, bytes}),
+                  "multi-member package unit packs");
+        }
+        std::string packError;
+        CHECK(packer.Write((multi / "multi.npkg").string(), "multi",
+                           nullptr, &packError),
+              "two-member package written without an entry record");
+    }
+    const fs::path multiApp = root / "pkg_multi_app";
+    fs::create_directories(multiApp);
+    {
+        std::ofstream out(multiApp / "prog.n", std::ios::binary);
+        out << "import multi;\n"
+               "int main() { return 0; }\n";
+    }
+    ScenarioBuild refused = compileScenario(multiApp, { multi.string() });
+    CHECK(!refused.ok, "multi-member import is refused at compile time");
+    CHECK(refused.log.find("no entry record") != std::string::npos,
+          "the diagnostic names the multi-member refusal");
 }
 
 int main() {

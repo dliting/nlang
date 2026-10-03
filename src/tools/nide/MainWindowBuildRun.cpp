@@ -116,9 +116,12 @@ void MainWindow::runProject(ProjectNode& project) {
     showOutputPage(m_ui->tabExecuteOut);
     m_executed.setWorkingDirectory(project.projectDir());
     QStringList runArgs{output};
-    runArgs += buildImportArgs(projectImportPathList(project),
-                               project.projectDir(),
-                               SettingsStore::persisted().librarySearchPaths());
+    //The project dir rides in the search list explicitly: the closure
+    //loader resolves unlisted same-dir library units from it (the
+    //compile side's base dir), independent of the process CWD.
+    runArgs += appendImportArgs(projectSearchDirs(
+        projectImportPathList(project), project.projectDir(),
+        SettingsStore::persisted().librarySearchPaths()));
     m_executed.start(toolPath("nvm"), runArgs);
     if (!m_executed.waitForStarted(-1)) {
         m_ui->txtExecuteOut->append(
@@ -163,7 +166,7 @@ bool MainWindow::buildStandaloneFile(const QString& filePath) {
     if (editor != nullptr && editor->dirty() && !saveEditor(editor))
         return false;
 
-    const QString output = standaloneNmodPath(filePath);
+    const QString output = standaloneNcuPath(filePath);
     if (!prepareBuildOutput(nullptr, output))
         return false;
     QStringList args = {"build", filePath, "-o", output};
@@ -185,7 +188,7 @@ void MainWindow::runStandaloneFile(const QString& filePath) {
     FileEditor* editor = m_editors.find(filePath);
     if (editor != nullptr && editor->dirty() && !saveEditor(editor))
         return;
-    const QString output = standaloneNmodPath(filePath);
+    const QString output = standaloneNcuPath(filePath);
     //D2: unlike the project Run (which asks for a manual build first),
     //a missing/outdated module is rebuilt here automatically.
     if (!QFileInfo::exists(output) ||
@@ -201,8 +204,11 @@ void MainWindow::runStandaloneFile(const QString& filePath) {
     //source dir as CWD (the e2e suite proves that).
     m_executed.setWorkingDirectory(QFileInfo(output).absolutePath());
     QStringList runArgs{output};
-    runArgs += buildImportArgs({}, QString(),
-        SettingsStore::persisted().librarySearchPaths());
+    //The source's dir mirrors ncc's compile-time base dir: the artifact
+    //embeds no library code, so a same-dir library unit must resolve
+    //from the run search path exactly like it resolved at compile time.
+    runArgs += appendImportArgs(standaloneSearchDirs(
+        filePath, SettingsStore::persisted().librarySearchPaths()));
     m_executed.start(toolPath("nvm"), runArgs);
     if (!m_executed.waitForStarted(-1)) {
         m_ui->txtExecuteOut->append(

@@ -229,6 +229,11 @@ add_test(NAME perunit_tests COMMAND test_perunit)
 # above drives ModuleBuilder/VmExecutor directly; this one covers the CLI's
 # native search wiring in main.cpp.
 set(mylib_pkg_dir ${CMAKE_BINARY_DIR}/e2e_out/mylib_pkg)
+#Phase 6: the library ships as a compiled unit beside its source — consumer
+#builds keep inlining mylib.n for signatures, but its code joins the
+#consumer's run-time closure from mylib.ncu (nothing is baked into the
+#consumer artifact anymore). One build step here feeds every ncc/nvm/ndb
+#entry below that consumes the package dir.
 add_custom_target(nlang_mylib_pkg ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory ${mylib_pkg_dir}
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -238,8 +243,15 @@ add_custom_target(nlang_mylib_pkg ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:nlang_mylib>
         ${mylib_pkg_dir}
+    COMMAND $<TARGET_FILE:ncc> build ${mylib_pkg_dir}/mylib.n
+        -o ${mylib_pkg_dir}/mylib.ncu
+    DEPENDS ncc nlang_mylib
     VERBATIM)
-add_dependencies(nlang_mylib_pkg nlang_mylib)
+#Parallel-build ordering: the stdlib bootstrap populates the build-tree
+#stdlib dir this build resolves first (FindStdLibDir). Harmless today
+#(mylib.n imports nothing), but a future fixture library importing the
+#stdlib would race the bootstrap without this edge.
+add_dependencies(nlang_mylib_pkg nlang_stdlib_package)
 
 add_test(NAME ncc_thirdparty_run
     COMMAND ncc
@@ -988,10 +1000,11 @@ add_test(NAME e2e_compile
     COMMAND ncc build ${PROJECT_SOURCE_DIR}/examples/hello.n)
 
 # Project-mode compile: multi-source .nproj via -p (output redirected into
-# the build tree so the source tree stays clean).
+# the build tree so the source tree stays clean). Project mode packs the
+# .npkg; no .ncu is written (phase 6 artifact flip).
 add_test(NAME project_compile
     COMMAND ncc build -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
-    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project.ncu)
+    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project.npkg)
 
 # CLI guardrails: a trailing option without a value and -p combined with a
 # positional source must fail with the exact diagnostic (PASS_REGULAR_
@@ -1005,11 +1018,12 @@ set_tests_properties(ncc_p_conflict PROPERTIES
     PASS_REGULAR_EXPRESSION "cannot be combined with")
 
 # Project-mode compile+run: exercises the full -p path including loading
-# the redirected output. main() maps the cross-file result to 0/1, so a
-# clean pass means utils.n's addBoth(40, 2) really returned 42.
+# the redirected output (the .npkg through the closure loader + link).
+# main() maps the cross-file result to 0/1, so a clean pass means
+# utils.n's addBoth(40, 2) really returned 42.
 add_test(NAME project_run
     COMMAND ncc -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
-    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project_run.ncu)
+    -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project_run.npkg)
 
 #--- Module import visibility matrix (module import visibility Task 10) --
 #Project-mode fixtures in tests/e2e/proj_*: the e2e runner gates only
@@ -1027,9 +1041,9 @@ file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/e2e_out)
 add_test(NAME proj_import_visibility_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_import_visibility/proj_import_visibility.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.ncu)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.npkg)
 add_test(NAME proj_import_visibility_run
-    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.ncu)
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_import_visibility.npkg)
 set_tests_properties(proj_import_visibility_run PROPERTIES
     DEPENDS proj_import_visibility_compile
     PASS_REGULAR_EXPRESSION "3")
@@ -1039,9 +1053,9 @@ set_tests_properties(proj_import_visibility_run PROPERTIES
 add_test(NAME proj_same_dir_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_same_dir/proj_same_dir.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.ncu)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.npkg)
 add_test(NAME proj_same_dir_run
-    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.ncu)
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.npkg)
 set_tests_properties(proj_same_dir_run PROPERTIES
     DEPENDS proj_same_dir_compile
     PASS_REGULAR_EXPRESSION "7")
@@ -1051,11 +1065,12 @@ set_tests_properties(proj_same_dir_run PROPERTIES
 #"extra.f". Before the key change this printed nothing (bare "f" no
 #longer exists); the output assertion (not the exit code: -func misses
 #exit 0) is what makes the spelling change loud. The trailing space
-#separates the key from a hypothetical "extra.fx". Consumes the merged
-#proj_same_dir.ncu produced above (no new fixture, no new artifact).
+#separates the key from a hypothetical "extra.fx". Consumes the
+#per-unit proj_same_dir.npkg produced above (ndisasm iterates package
+#members in the raw view; no new fixture, no new artifact).
 add_test(NAME ndisasm_qualified_func_name
     COMMAND $<TARGET_FILE:ndisasm> -func extra.f
-        ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.ncu)
+        ${CMAKE_BINARY_DIR}/e2e_out/proj_same_dir.npkg)
 set_tests_properties(ndisasm_qualified_func_name PROPERTIES
     DEPENDS proj_same_dir_compile
     PASS_REGULAR_EXPRESSION "function extra\\.f ")
@@ -1065,7 +1080,7 @@ set_tests_properties(ndisasm_qualified_func_name PROPERTIES
 add_test(NAME proj_dup_import_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_dup_import/proj_dup_import.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_dup_import.ncu)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_dup_import.npkg)
 
 #D11 executed: the wildcard's union reaches the EXACT root module
 #(utils.f, main lives in app/ so D7 cannot mask it) and the recursive
@@ -1074,23 +1089,24 @@ add_test(NAME proj_dup_import_compile
 add_test(NAME proj_wildcard_exact_union_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_wildcard_exact_union/proj_wildcard_exact_union.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.ncu)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.npkg)
 add_test(NAME proj_wildcard_exact_union_run
-    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.ncu)
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_wildcard_exact_union.npkg)
 set_tests_properties(proj_wildcard_exact_union_run PROPERTIES
     DEPENDS proj_wildcard_exact_union_compile
     PASS_REGULAR_EXPRESSION "6")
 
-#Phase 6 B2b: project-mode builds pack the .npkg beside the .ncu, and
-#the package runs under nvm as a first-class artifact — member,
-#header, and entry record name ONE identity even when a library unit
-#(helper.n) leads the source list. Tool-chain coverage only (the
-#in-process pin is test_perunit shape 12): ncc and nvm as real
-#subprocesses, exactly how users build and run program packages.
+#Phase 6: project-mode builds pack the .npkg (one member per unit, the
+#entry record naming the entry unit and function) even when a library
+#unit (helper.n) leads the source list, and the package runs under nvm
+#as a first-class artifact through the closure loader + load-time link.
+#Tool-chain coverage only (the in-process pin is test_perunit shape 12):
+#ncc and nvm as real subprocesses, exactly how users build and run
+#program packages.
 add_test(NAME proj_pkg_run_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_pkg_run/proj_pkg_run.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_pkg_run.ncu)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_pkg_run.npkg)
 add_test(NAME proj_pkg_run_run
     COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_pkg_run.npkg)
 set_tests_properties(proj_pkg_run_run PROPERTIES
@@ -1101,7 +1117,7 @@ set_tests_properties(proj_pkg_run_run PROPERTIES
 add_test(NAME proj_not_imported_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_not_imported/proj_not_imported.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_not_imported.ncu)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_not_imported.npkg)
 set_tests_properties(proj_not_imported_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "is not imported")
 
@@ -1109,7 +1125,7 @@ set_tests_properties(proj_not_imported_compile PROPERTIES
 add_test(NAME proj_bare_cross_dir_compile
     COMMAND ncc build -p
         ${PROJECT_SOURCE_DIR}/tests/e2e/proj_bare_cross_dir/proj_bare_cross_dir.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_cross_dir.ncu)
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_cross_dir.npkg)
 set_tests_properties(proj_bare_cross_dir_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "is not visible here")
 

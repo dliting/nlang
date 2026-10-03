@@ -66,7 +66,7 @@ QString SettingsStore::defaultStandaloneBuildDir() {
     return QDir(QDir::temp()).filePath(QStringLiteral("nlang-nide"));
 }
 
-QString SettingsStore::resolveStandaloneNmodPath(
+QString SettingsStore::resolveStandaloneNcuPath(
     const QString& buildOutputDir, const QString& sourcePath) {
     const QString fileName =
         QFileInfo(sourcePath).completeBaseName()
@@ -76,7 +76,7 @@ QString SettingsStore::resolveStandaloneNmodPath(
     return QDir(buildOutputDir).filePath(fileName);
 }
 
-QString SettingsStore::resolveProjectNmodPath(
+QString SettingsStore::resolveProjectPackagePath(
     const QString& projectOutputDir, const QString& projectDir,
     const QString& buildOutputDir, const QString& projectName) {
     QString dir;
@@ -89,7 +89,9 @@ QString SettingsStore::resolveProjectNmodPath(
         dir = buildOutputDir;
     else
         dir = projectDir;
-    return QDir(dir).filePath(projectName + QStringLiteral(".ncu"));
+    //Project builds pack the .npkg package (one member per unit);
+    //linking happens at load time (phase 6).
+    return QDir(dir).filePath(projectName + QStringLiteral(".npkg"));
 }
 
 } // namespace nlang

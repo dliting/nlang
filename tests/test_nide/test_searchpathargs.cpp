@@ -47,6 +47,41 @@ private slots:
         QCOMPARE(appendImportArgs({"a", "b"}),
                  QStringList({"-I", "a", "-I", "b"}));
     }
+
+    void testStandaloneAppendsSourceDirAfterGlobals() {
+        //Globals are user-configured: they keep precedence over the
+        //incidental same-dir library.
+        QStringList dirs = standaloneSearchDirs(
+            "D:/src/use_lib.n", {"D:/global/lib"});
+        QCOMPARE(dirs, QStringList({"D:/global/lib", "D:/src"}));
+    }
+
+    void testStandaloneDedupsGlobalEqualToSourceDir() {
+        QStringList dirs = standaloneSearchDirs(
+            "D:/src/use_lib.n", {"D:/src"});
+        QCOMPARE(dirs, QStringList({"D:/src"}));
+    }
+
+    void testStandaloneWithoutGlobalsIsSourceDirOnly() {
+        QStringList dirs = standaloneSearchDirs("D:/src/use_lib.n", {});
+        QCOMPARE(dirs, QStringList({"D:/src"}));
+    }
+
+    void testProjectAppendsProjectDirAfterGlobals() {
+        //The project dir is the compile side's implicit base dir; it
+        //rides last so configured dirs keep precedence.
+        QStringList dirs = projectSearchDirs(
+            {"D:/proj/lib"}, "D:/proj", {"D:/global/lib"});
+        QCOMPARE(dirs, QStringList(
+            {"D:/proj/lib", "D:/global/lib", "D:/proj"}));
+    }
+
+    void testProjectDedupsProjectDirEqualToEntry() {
+        //An import path that resolves to the project dir itself must
+        //not duplicate the appended base entry.
+        QStringList dirs = projectSearchDirs({ "." }, "D:/proj", {});
+        QCOMPARE(dirs, QStringList({"D:/proj"}));
+    }
 };
 
 //GUILESS: the nide support lib pulls in Qt5::Gui; a plain QTEST_MAIN

@@ -76,38 +76,40 @@ private slots:
                  QDir(QDir::temp()).filePath("nlang-nide"));
     }
 
-    void testResolveStandaloneNmodPath() {
+    void testResolveStandaloneNcuPath() {
         //Empty setting keeps today's per-user temp layout (one slot
         //per source stem, completeBaseName semantics preserved).
-        QCOMPARE(SettingsStore::resolveStandaloneNmodPath(
+        QCOMPARE(SettingsStore::resolveStandaloneNcuPath(
                      "", "D:/src/main.n"),
                  QDir(QDir::temp()).filePath("nlang-nide/main.ncu"));
-        QCOMPARE(SettingsStore::resolveStandaloneNmodPath(
+        QCOMPARE(SettingsStore::resolveStandaloneNcuPath(
                      "", "D:/src/a.b.n"),
                  QDir(QDir::temp()).filePath("nlang-nide/a.b.ncu"));
         //A set directory redirects the slot there.
-        QCOMPARE(SettingsStore::resolveStandaloneNmodPath(
+        QCOMPARE(SettingsStore::resolveStandaloneNcuPath(
                      "D:/dev/out", "D:/src/main.n"),
                  QString("D:/dev/out/main.ncu"));
     }
 
-    void testResolveProjectNmodPath() {
-        //Explicit .nproj outputDir wins (absolute spelling kept).
-        QCOMPARE(SettingsStore::resolveProjectNmodPath(
+    void testResolveProjectPackagePath() {
+        //Explicit .nproj outputDir wins (absolute spelling kept). The
+        //project artifact is the .npkg package (phase 6: one member per
+        //unit, linked at load time).
+        QCOMPARE(SettingsStore::resolveProjectPackagePath(
                      "D:/explicit", "D:/proj", "D:/global", "App"),
-                 QString("D:/explicit/App.ncu"));
+                 QString("D:/explicit/App.npkg"));
         //A relative .nproj outputDir anchors at the project dir.
-        QCOMPARE(SettingsStore::resolveProjectNmodPath(
+        QCOMPARE(SettingsStore::resolveProjectPackagePath(
                      "out", "D:/proj", "D:/global", "App"),
-                 QString("D:/proj/out/App.ncu"));
+                 QString("D:/proj/out/App.npkg"));
         //Unset .nproj + global setting: the global directory.
-        QCOMPARE(SettingsStore::resolveProjectNmodPath(
+        QCOMPARE(SettingsStore::resolveProjectPackagePath(
                      "", "D:/proj", "D:/global", "App"),
-                 QString("D:/global/App.ncu"));
+                 QString("D:/global/App.npkg"));
         //Everything unset: the project directory (today's behavior).
-        QCOMPARE(SettingsStore::resolveProjectNmodPath(
+        QCOMPARE(SettingsStore::resolveProjectPackagePath(
                      "", "D:/proj", "", "App"),
-                 QString("D:/proj/App.ncu"));
+                 QString("D:/proj/App.npkg"));
     }
 
 private:

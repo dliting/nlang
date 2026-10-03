@@ -30,6 +30,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
+#include <QProcess>
 #include <QSplitter>
 #include <QSettings>
 #include <QStatusBar>
@@ -1383,7 +1384,7 @@ private slots:
         QVERIFY(!act(window, "actStartRunning")->isEnabled());
     }
 
-    void testBuildStandaloneFileWritesTempNmod() {
+    void testBuildStandaloneFileWritesTempNcu() {
         MainWindow window;
         QTemporaryDir dir;
         const QString path = QDir(dir.path()).filePath("solo_build.n");
@@ -1434,11 +1435,11 @@ private slots:
         act(window, "actBuild")->trigger();
 
         //Unset .nproj outputDir falls back to the global directory.
-        const QString ncu = QDir(outDir.path()).filePath("App.ncu");
-        QVERIFY(QFileInfo::exists(ncu));
+        const QString pkg = QDir(outDir.path()).filePath("App.npkg");
+        QVERIFY(QFileInfo::exists(pkg));
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
-        QFile::remove(ncu);
+        QFile::remove(pkg);
         QFile::remove(QDir(dir.path()).filePath("App.nproj"));
         settings.remove("ide/buildOutputDir");
     }
@@ -1511,6 +1512,93 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(
             out->toPlainText().contains("exited with code 42"), 30000);
         QFile::remove(ncu);
+    }
+
+    void testRunStandaloneResolvesSameDirLibrary() {
+        //Phase 6 flip: a standalone artifact embeds no library code — the
+        //library unit joins the closure at load time from the search
+        //path. The compile side resolves a same-dir library implicitly
+        //(ncc's source-dir base dir), so Run must mirror that dir or the
+        //program compiles yet cannot run. Here the library ships as a
+        //compiled unit beside its source, like a user's own package dir.
+        QTemporaryDir dir;
+        const QString libSrc = QDir(dir.path()).filePath("sidelib.n");
+        const QString libNcu = QDir(dir.path()).filePath("sidelib.ncu");
+        writeFile(libSrc, "int triple(int v) { return v * 3; }\n");
+        QProcess ncc;
+        ncc.setProcessChannelMode(QProcess::MergedChannels);
+        ncc.start(QDir(QCoreApplication::applicationDirPath())
+                      .filePath("ncc"),
+                  {"build", libSrc, "-o", libNcu});
+        QVERIFY(ncc.waitForFinished(30000));
+        QVERIFY2(ncc.exitCode() == 0,
+                 ncc.readAll().constData());
+        QVERIFY(QFileInfo::exists(libNcu));
+
+        MainWindow window;
+        const QString path = QDir(dir.path()).filePath("use_sidelib.n");
+        writeFile(path,
+                  "import sidelib;\n"
+                  "int main() { return sidelib.triple(14); }\n");
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actStartRunning")->trigger();  // auto-builds + runs
+
+        QTextEdit* out = window.findChild<QTextEdit*>("txtExecuteOut");
+        QVERIFY(out != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            out->toPlainText().contains("exited with code 42"), 30000);
+        QFile::remove(QDir(QDir::temp())
+                          .filePath("nlang-nide/use_sidelib.ncu"));
+    }
+
+    void testDebugProjectResolvesUnlistedSameDirLibrary() {
+        //Project debug with redirected output: the artifact lands in the
+        //global build output dir while the library unit sits UNLISTED in
+        //the project dir (ncc resolves it from the projectDir base dir
+        //at compile time). The debug session's CWD is the ARTIFACT dir,
+        //so the project dir must ride in the search list explicitly or
+        //the program compiles yet the debug run fails to resolve the
+        //library at load time.
+        QTemporaryDir projDir;
+        QTemporaryDir outDir;
+        QSettings settings;
+        settings.setValue("ide/buildOutputDir", outDir.path());
+
+        //The library unit, compiled beside the project (not a source of
+        //it): mylib.ncu in the project dir.
+        const QString libSrc = QDir(projDir.path()).filePath("mylib.n");
+        const QString libNcu = QDir(projDir.path()).filePath("mylib.ncu");
+        writeFile(libSrc, "int f() { return 42; }\n");
+        QProcess ncc;
+        ncc.setProcessChannelMode(QProcess::MergedChannels);
+        ncc.start(QDir(QCoreApplication::applicationDirPath())
+                      .filePath("ncc"),
+                  {"build", libSrc, "-o", libNcu});
+        QVERIFY(ncc.waitForFinished(30000));
+        QVERIFY2(ncc.exitCode() == 0, ncc.readAll().constData());
+        QVERIFY(QFileInfo::exists(libNcu));
+
+        clearBreakpointStore();  //no stops: the session runs to its exit
+        MainWindow window;
+        inExec([&] { acceptProjectDialog("App", projDir.path()); });
+        act(window, "actNewProject")->trigger();
+        inExec([] { acceptNewFileDialog("main.n"); });
+        act(window, "actAddNewFile")->trigger();
+        currentCode(window)->setPlainText(
+            "import mylib;\n"
+            "int main() { return mylib.f(); }\n");
+        act(window, "actSaveFile")->trigger();
+        act(window, "actStartDebug")->trigger();  // synchronous build
+
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            status->text(), MainWindow::tr("Exited (code %1)").arg(42),
+            30000);
+        QVERIFY(QFileInfo::exists(
+            QDir(outDir.path()).filePath("App.npkg")));
+        settings.remove("ide/buildOutputDir");
     }
 
     void testTreeSelectedStandaloneRowWinsOverActiveEditor() {
@@ -1973,7 +2061,7 @@ private slots:
         //missing file).
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
-        const QString nmodPath = QDir(dir.path()).filePath("App.ncu");
+        const QString nmodPath = QDir(dir.path()).filePath("App.npkg");
         QVERIFY(QFileInfo::exists(nmodPath));
 
         //Run the built module: nvm propagates main's return value.
@@ -1991,7 +2079,7 @@ private slots:
     void testRunWithoutBuildWarns() {
         MainWindow window;
         QTemporaryDir dir;
-        openFixtureProject(window, dir.path());  // no .ncu on disk
+        openFixtureProject(window, dir.path());  // no .npkg on disk
 
         inExec([&] { answerMessageBox(QMessageBox::Ok); });
         act(window, "actStartRunning")->trigger();
@@ -2025,7 +2113,7 @@ private slots:
                     ->toPlainText()
                     .contains("Error"));
         QVERIFY(!QFileInfo::exists(
-            QDir(dir.path()).filePath("App.ncu")));
+            QDir(dir.path()).filePath("App.npkg")));
     }
 
     void testStopRunningKillsProcess() {
@@ -2044,7 +2132,7 @@ private slots:
             "    return 0;\n"
             "}\n");
         act(window, "actBuild")->trigger();
-        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.ncu")));
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.npkg")));
 
         //runProject's waitForStarted is synchronous: past the trigger,
         //the process is either running or was never started.
@@ -3016,11 +3104,11 @@ private slots:
         QCOMPARE(colorAt(returnBlock, 4), QColor(Qt::blue));      // "return"
         QCOMPARE(colorAt(returnBlock, 11), QColor(Qt::darkCyan)); // "42"
 
-        //Build: ncc really ran (module on disk).
+        //Build: ncc really ran (package on disk).
         act(window, "actBuild")->trigger();
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
-        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.ncu")));
+        QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.npkg")));
 
         //Run: nvm propagates main's exit code to the output page.
         act(window, "actStartRunning")->trigger();

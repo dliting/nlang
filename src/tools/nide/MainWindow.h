@@ -53,8 +53,8 @@ namespace nlang {
 //    debug output page.
 //  - The output panes are direct tabOutput pages (not reparented
 //    QDockWidgets).
-//  - Build runs `ncc build -p <nproj> -o <ncu>`, run launches
-//    `nvm <ncu>`.
+//  - Build runs `ncc build -p <nproj> -o <npkg>` (a standalone .n
+//    target builds to its .ncu), run launches `nvm` on that artifact.
 //  - Unsaved-work prompts key on solution-level state (the solution is
 //    dirty after add/remove), never on per-project isDirty() alone: a
 //    project created with all-default properties is not project-dirty.
@@ -328,7 +328,7 @@ private:
     void runStandaloneFile(const QString& filePath);
     //The global build output directory when set, else
     //%TEMP%/nlang-nide/<stem>.ncu -- one slot per file stem.
-    QString standaloneNmodPath(const QString& filePath) const;
+    QString standaloneNcuPath(const QString& filePath) const;
     //Bring the output pane up (it may be toggled off) and switch to the
     //given page.
     void showOutputPage(QWidget* page);
@@ -378,8 +378,9 @@ private:
     void appendExecuteOutput(const QString& text);
 
     //outputDir wins; else the global build output directory; else the
-    //project directory + name + ".ncu". The same path is passed to
-    //ncc -o, so build output and run target agree.
+    //project directory + name + ".npkg" (the project package artifact).
+    //The same path is passed to ncc -o, so build output and run target
+    //agree.
     QString outputFilePath(const ProjectNode& project) const;
     //ncc.exe/nvm.exe/ndb.exe live next to nide.exe.
     QString toolPath(const QString& toolName) const;

@@ -230,6 +230,28 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     if (!fs.good())
         throw std::runtime_error("Invalid module: truncated import sections");
 
+    //Import slots are table TAILS (own entries 0..n-1, imports n..n+m),
+    //so an import count above its table's size is a corrupt or hostile
+    //image: every ownCount consumer (stub minting, linker slot walks)
+    //computes size - imports.size() and would underflow into out-of-
+    //bounds walks. The per-count read bound above only caps the vector
+    //allocation — this cross-check is the structural one, in the single
+    //reader every loader path shares.
+    auto checkImportBounds =
+        [&mod](const std::vector<CompiledModule::SymbolImport>& imports,
+               size_t tableSize, const char* tableName)
+    {
+        if (imports.size() > tableSize)
+            throw std::runtime_error(std::string(
+                "Invalid module: ") + tableName
+                + " import count exceeds the table size");
+    };
+    checkImportBounds(mod.functionImports, mod.functions.size(),
+                      "function");
+    checkImportBounds(mod.classImports, mod.classes.size(), "class");
+    checkImportBounds(mod.structImports, mod.structs.size(), "struct");
+    checkImportBounds(mod.enumImports, mod.enumNames.size(), "enum");
+
     //Resolve the serialized entry key to an index. An empty key is the
     //"no entry" contract (libraries); a NON-empty key that names no
     //function is a corrupt or hostile module — the producer wrote it

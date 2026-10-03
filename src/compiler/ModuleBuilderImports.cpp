@@ -239,12 +239,20 @@ void ModuleBuilder::DiscoverLibraryUnits()
 //Load one external .ncu candidate end to end: locate, parse, mint
 //stubs, register owners, keep detached stubs alive, then take ownership
 //of the compiled module.
-//Package form (`.npkg`): extract the embedded compile unit (entry
-//member, or the first member) and parse from memory.
+//Package form (`.npkg`): extract the embedded compile unit. Importable
+//packages currently expose exactly ONE member — the entry-recorded one
+//for program packages, the only member for library packages. A
+//multi-member package without an entry record (a project-mode library
+//distribution) is REFUSED rather than silently reduced to its
+//alphabetically-first member: the consumer would compile against half
+//a surface and miss the invisible members until run time. Per-member
+//stub minting needs import-gate semantics for dotted external paths
+//(external imports are single-segment today); deferred design
+//decision, phase6_loader_design.md section 9.
 static CompiledModule LoadModuleArtifact(const std::string &path)
 {
 	//Package form: extract the embedded compile unit (the entry member,
-	//or the first member) and parse from memory.
+	//or the single member of a library package) and parse from memory.
 	if (std::filesystem::path(path).extension() == NPKG_EXTENSION)
 	{
 		NcuPackageReader pkg;
@@ -254,8 +262,14 @@ static CompiledModule LoadModuleArtifact(const std::string &path)
 		std::string memberPath;
 		if (const NcuEntryRecord *entry = pkg.EntryRecord())
 			memberPath = entry->modulePath;
-		else if (!pkg.MemberPaths().empty())
+		else if (pkg.MemberPaths().size() == 1)
 			memberPath = pkg.MemberPaths().front();
+		else
+			throw std::runtime_error(
+				"package '" + path + "' carries "
+				+ std::to_string(pkg.MemberPaths().size())
+				+ " members and no entry record; importable packages "
+				"currently expose exactly one module");
 		std::string memberBytes;
 		if (!pkg.ExtractMember(memberPath, &memberBytes, &pkgError))
 			throw std::runtime_error(pkgError);
