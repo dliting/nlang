@@ -1,0 +1,20 @@
+// 0.7.5: double declarations, the f-suffix/unsuffixed literal split,
+// constant-fit of an in-range double literal to float, float->double
+// widening and the explicit narrowing back.
+import io;
+int main() {
+    double d = 1.5;
+    float f = 1.5f;
+    float g = 1.5;            // constant-fit: double literal fits float
+    assert(d == 1.5);
+    assert(f == 1.5f);
+    assert(g == 1.5f);
+    d = f;                    // float -> double widening
+    assert(d == 1.5);
+    f = d as float;           // narrowing stays explicit
+    assert(f == 1.5f);
+    double big = 1e50;        // exponent form is a double literal
+    assert(big > 1e49);
+    io.print(d);
+    return 0;
+}

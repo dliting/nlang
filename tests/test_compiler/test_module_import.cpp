@@ -13,6 +13,7 @@ on every merged TU member (top-level and container members).
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 //Internal header: the registry is an opaque type in the public API, so
 //the test adds src/compiler to its include path (same pattern as
 //test_vm reaching into src/vm).
@@ -431,8 +432,11 @@ class TestModuleImport : public QObject
 {
     Q_OBJECT
 private slots:
-    //Runtime tables (IdString etc.) must exist before any build.
-    void initTestCase() { Runtime::StaticInit(); }
+    //Runtime tables (IdString etc.) must exist before any Build().
+    void initTestCase() {
+        Runtime::StaticInit();
+        TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
+    }
 
     //nproj layout: root/main.n, root/utils/helper.n,
     //root/utils/sub/deep.n -> module paths main / utils.helper /

@@ -13,7 +13,7 @@ Compiled unit images are saved as `.ncu` files with this layout:
 ```text
 "NLANGCU "    magic (8 bytes, NUL-padded)
 uint16 majorVer = 2
-uint16 minorVer = 0
+uint16 minorVer = 1
 string modulePath        v2.0: this unit's dotted module path (package identity)
 string moduleName
 string entryKey          v2.0: the entry function's qualified name; empty = no entry
@@ -37,7 +37,13 @@ serialized as an index: the program package's entry record (in the
 `.npkg` header) or the bare unit's `<modulePath>.main` convention
 resolves it to a table index by qualified name at load time.
 
-**Version history**: v2.0 (load-time linking) — a layout change: the
+**Version history**: v2.1 (merged development lines) — no layout
+change: the content-level changes from the parallel line — the
+12-primitive scalar-kind table and the per-local declaration-scope
+field — ride on the v2.0 layout. The loader refuses any older image
+outright: every v1.x module and every pre-merge 2.0 module must be
+recompiled.
+v2.0 (load-time linking) — a layout change: the
 header gains the module's dotted path and the entry qualified name, and
 drops v1.13's `int32 entryPoint`; the enum qualified-key table and the
 four import-slot tables arrive with the per-unit artifacts. Artifacts
@@ -82,7 +88,7 @@ carries the old meaning, so the loader refuses minor < 10 outright —
 older modules must be recompiled.
 v1.9 (debugger) — each function record ends with a
 `sourceFile` string (the TU path it was compiled from, after the locals
-block); the import merge also copies `func.locals`, so imported frames
+block); merged-in functions keep their `locals`, so imported frames
 have a complete GC root set.
 v1.8 — first-class function values:
 `RTK_Func` kind byte plus the eight function-value opcodes above; older

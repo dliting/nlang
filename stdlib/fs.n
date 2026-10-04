@@ -2,12 +2,12 @@
 // declarations, indexed by langservice::SymbolIndex and inlined into every
 // build. The native functions are implemented in the host (nlang_fs.dll);
 // any plain NLang function would compile from this file. Edit freely.
-// Whether path exists (0/1). Never raises.
-native int exists(string path);
-// Whether path is a regular file (0/1). Never raises.
-native int isFile(string path);
-// Whether path is a directory (0/1). Never raises.
-native int isDirectory(string path);
+// Whether path exists. Never raises.
+native bool exists(string path);
+// Whether path is a regular file. Never raises.
+native bool isFile(string path);
+// Whether path is a directory. Never raises.
+native bool isDirectory(string path);
 // Size of a regular file in bytes.
 // Raises IOException for a directory or special file.
 native int size(string path);

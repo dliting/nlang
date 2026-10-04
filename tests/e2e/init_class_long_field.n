@@ -1,0 +1,13 @@
+//0.7.5: class init entries wrap against the field's declared type,
+//including INHERITED fields (the lookup walks the SuperClass chain
+//root-first, the same field the store slot resolves to).
+long helper(long a, long b) { return a + b; }
+class Base { public long id; }
+class Derived : Base { public int x; }
+int main() {
+    long r = helper(4294967295, 4294967295);
+    Derived d = new Derived{id:1, x:2};
+    if (d.id != 1) return 1;
+    if (d.x != 2) return 2;
+    return 0;
+}

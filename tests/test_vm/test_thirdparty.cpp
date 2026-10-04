@@ -6,6 +6,7 @@
 // standard library.
 
 #include "nlang/compiler/ModuleBuilder.h"
+#include "nlang/compiler/CastInfo.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
@@ -655,6 +656,7 @@ static void TestProgramPackageWithoutSources() {
 
 int main() {
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     std::fprintf(stderr, "=== Third-party Library Integration Tests ===\n");
     TestThirdPartyNativeLibrary();
     TestMixedLibraryFromFixture();

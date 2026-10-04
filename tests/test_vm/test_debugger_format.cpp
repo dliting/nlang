@@ -115,10 +115,10 @@ void test_loader_rejects_v1_9()
     CHECK(bytes.size() >= 12, "module file should have a full header");
     //Guard the patch anchor: if a future header change moves the version
     //fields, the patch below would silently hit another field — fail
-    //loudly on layout drift instead (fresh build must be stamped 2.0).
+    //loudly on layout drift instead (fresh build must be stamped 2.1).
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x00,
-        "fresh module should be stamped format 2.0");
+        && static_cast<uint8_t>(bytes[10]) == 0x01,
+        "fresh module should be stamped format 2.1");
     //v2.0: the downgrade is a MAJOR step (1.x predates package identity).
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -164,8 +164,8 @@ void test_loader_rejects_v1_10()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x00,
-        "fresh module should be stamped format 2.0");
+        && static_cast<uint8_t>(bytes[10]) == 0x01,
+        "fresh module should be stamped format 2.1");
     //v2.0: the downgrade is a MAJOR step.
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -213,8 +213,8 @@ void test_loader_rejects_v1_11()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x00,
-        "fresh module should be stamped format 2.0");
+        && static_cast<uint8_t>(bytes[10]) == 0x01,
+        "fresh module should be stamped format 2.1");
     //v2.0: the downgrade is a MAJOR step.
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -232,6 +232,53 @@ void test_loader_rejects_v1_11()
         what = e.what();
     }
     CHECK(threw, "loader must reject a v1.11 module (floor is 12)");
+    CHECK(what.find("outdated") != std::string::npos,
+        "rejection should hit the floor path, got: " + what);
+    PASS();
+}
+
+//The minor-floor arm (ported from the pre-2.0 v1.12/v1.13 pins): keep
+//the major at 2 and patch the minorVer field (header offset 10,
+//little-endian u16) down to 0 -- below the 2.1 floor. The 2.1 minor
+//carries the debugger declPc layout (two bytes of declaration PC per
+//local in every locals block); a 2.0 record would read every local
+//name length from the wrong offset. No migration path by design.
+void test_loader_rejects_minor_below_floor()
+{
+    TEST(loader_rejects_minor_below_floor);
+    //Distinct build tag: ModuleManager::Create keys the process-global
+    //loaded map by module name, so reusing the other floor tests' tags
+    //would fail the build with "already exists".
+    BuildOutcome b = buildSource("oldvermin",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "oldvermin.ncu";
+
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
+        && static_cast<uint8_t>(bytes[10]) == 0x01,
+        "fresh module should be stamped format 2.1");
+    bytes[10] = 0x00;
+    bytes[11] = 0x00;
+    const auto oldPath = scratchDir() / "oldver_v200.ncu";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must reject a 2.0 module (minor floor is 1)");
     CHECK(what.find("outdated") != std::string::npos,
         "rejection should hit the floor path, got: " + what);
     PASS();
@@ -261,8 +308,8 @@ void test_loader_accepts_ceiling_and_floor()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x00,
-        "fresh module should be stamped format 2.0");
+        && static_cast<uint8_t>(bytes[10]) == 0x01,
+        "fresh module should be stamped format 2.1");
 
     //Above the ceiling: a v3.0 module — the reader must refuse it (it
     //would misparse every record after the first layout change).
@@ -371,6 +418,7 @@ void run_debugger_format_tests()
     test_loader_rejects_v1_9();
     test_loader_rejects_v1_10();
     test_loader_rejects_v1_11();
+    test_loader_rejects_minor_below_floor();
     test_loader_accepts_ceiling_and_floor();
     test_v19_import_gc_roots();
 }

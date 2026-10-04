@@ -31,12 +31,13 @@ public:
     //Seed the form (call before exec()).
     void init(const QString& language, const QString& buildOutputDir,
               const QString& toolbarIconSize,
-              const QStringList& libraryPaths = QStringList());
+              const QStringList& libraryPaths, bool noWarn);
     //Current values for the caller to persist on accept.
     QString language() const;
     QString buildOutputDir() const;  // trimmed; "" = disabled
     QString toolbarIconSize() const;  // TOOLBAR_ICON_SMALL | TOOLBAR_ICON_LARGE
     QStringList librarySearchPaths() const;  // editor contents, in order
+    bool noWarn() const;  // compiler-options group
 
 private slots:
     void onBrowseDirectory();

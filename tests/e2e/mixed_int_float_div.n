@@ -3,7 +3,7 @@ int main() {
     //promotes int to float, performs float division, result is float 2.0.
     //Verifies the resolver's symmetric promotion path also covers OP_Div
     //(not just OP_Add / OP_Mul tested by existing mixed_* tests).
-    float r = 5 / 2.5;
+    float r = 5 / 2.5f;
     if (r > 1.9 && r < 2.1) {
         return 7;
     }

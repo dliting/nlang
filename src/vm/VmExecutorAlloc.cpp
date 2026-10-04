@@ -13,16 +13,20 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
     if (structIdx >= m_currModule->structs.size())
         throw std::runtime_error("NLang VM: invalid struct index in AllocStruct");
     const auto& cs = m_currModule->structs[structIdx];
+    //0.7.5 Step A2: uniform 2-cell field slots — struct field i lives at
+    //cell 2i, so the record is 2*fieldCount cells.
+    const size_t recordCells = static_cast<size_t>(cs.fieldCount)
+        * (kHeapFieldStrideBytes / kHeapCellBytes);
     int32_t heapIdx;
     if (!m_freeList.empty()) {
         heapIdx = m_freeList.back();
         m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(cs.fieldCount, 0);
+        m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
         m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Struct;
         m_slotStructIdx[static_cast<size_t>(heapIdx)] = structIdx;
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(cs.fieldCount, 0);
+        m_structHeap.emplace_back(recordCells, 0);
         m_slotKinds.push_back(RTK_Struct);
         m_slotStructIdx.push_back(structIdx);
     }
@@ -30,7 +34,7 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
         if (cs.fieldTypeKinds[i] == RTK_Struct
             && cs.fieldStructIndices[i] != 0xFFFF) {
             int32_t innerIdx = AllocStructOnHeap(cs.fieldStructIndices[i]);
-            m_structHeap[static_cast<size_t>(heapIdx)][i] = innerIdx;
+            m_structHeap[static_cast<size_t>(heapIdx)][i * 2] = innerIdx;
         }
     }
     return heapIdx;
@@ -40,16 +44,20 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
     if (classIdx >= m_currModule->classes.size())
         throw std::runtime_error("NLang VM: invalid class index in AllocClassOnHeap");
     const auto& cc = m_currModule->classes[classIdx];
+    //0.7.5 Step A2: cell 0 = classIdx (1 cell), then 2 cells per data
+    //field — field i lives at cell 1 + 2i.
+    const size_t recordCells = 1 + static_cast<size_t>(cc.fieldCount)
+        * (kHeapFieldStrideBytes / kHeapCellBytes);
     int32_t heapIdx;
     if (!m_freeList.empty()) {
         heapIdx = m_freeList.back();
         m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(cc.fieldCount + 1, 0);
+        m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
         m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Class;
         m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(cc.fieldCount + 1, 0);
+        m_structHeap.emplace_back(recordCells, 0);
         m_slotKinds.push_back(RTK_Class);
         m_slotStructIdx.push_back(0);
     }
@@ -58,7 +66,7 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
         if (cc.fieldTypeKinds[i] == RTK_Struct
             && cc.fieldStructIndices[i] != 0xFFFF) {
             int32_t innerIdx = AllocStructOnHeap(cc.fieldStructIndices[i]);
-            m_structHeap[static_cast<size_t>(heapIdx)][i + 1] = innerIdx;
+            m_structHeap[static_cast<size_t>(heapIdx)][i * 2 + 1] = innerIdx;
         }
     }
     return heapIdx;
@@ -67,7 +75,11 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
 int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error("NLang VM: invalid array type index");
-    int32_t totalSlots = 3 + size;
+    const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
+    //0.7.5: 8-byte scalar elements occupy two cells each (registry-
+    //driven stride — see ArrayElemCells).
+    const int cells = ArrayElemCells(at.elemKind);
+    int32_t totalSlots = 3 + size * cells;
     int32_t heapIdx;
     if (!m_freeList.empty()) {
         heapIdx = m_freeList.back();
@@ -90,11 +102,10 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     //RTK_Struct array elements, so the materialized structs stay reachable.
     //Write elements by index (AllocStructOnHeap may grow m_structHeap and
     //reallocate the outer vector; no reference is held across the call).
-    const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     if (at.elemKind == RTK_Struct && at.elemTypeIdx != 0xFFFF) {
         for (int32_t i = 0; i < size; ++i) {
             int32_t elemIdx = AllocStructOnHeap(at.elemTypeIdx);
-            m_structHeap[static_cast<size_t>(heapIdx)][3 + i] = elemIdx;
+            m_structHeap[static_cast<size_t>(heapIdx)][3 + i * cells] = elemIdx;
         }
     }
     return heapIdx;
@@ -120,15 +131,16 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
         m_slotKinds.push_back(RTK_Struct);
         m_slotStructIdx.push_back(structIdx);
     }
-    //Deep-copy struct-typed fields. Class-typed fields are shallow-copied
-    //(reference semantics — the index value is copied as-is).
+    //Deep-copy struct-typed fields (field i at cell 2i under the uniform
+    //stride). Class-typed fields are shallow-copied (reference semantics
+    //— the index value is copied as-is).
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         if (cs.fieldTypeKinds[i] == RTK_Struct
             && cs.fieldStructIndices[i] != 0xFFFF) {
-            int32_t innerSrcIdx = srcSlotCopy[i];
+            int32_t innerSrcIdx = srcSlotCopy[i * 2];
             int32_t innerNewIdx = DeepCopyStruct(innerSrcIdx,
                 cs.fieldStructIndices[i]);
-            m_structHeap[static_cast<size_t>(newHeapIdx)][i] = innerNewIdx;
+            m_structHeap[static_cast<size_t>(newHeapIdx)][i * 2] = innerNewIdx;
         }
     }
     //Task 2 gap fix: a pure deep-copy loop allocates records without ever

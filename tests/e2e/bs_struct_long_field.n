@@ -1,0 +1,22 @@
+// 0.7.5: registry-driven scalar field serialization — a long struct
+// field survives the writeStruct/readStruct round-trip (stage-2 review:
+// new scalar kinds fell through the field switch silently and read back
+// as 0).
+import io;
+struct P { long id; int x; }
+
+int main() {
+    P p;
+    p.id = 5000000000;
+    p.x = 42;
+    ByteStream bs = new ByteStream();
+    bs.writeStruct(p);
+    bs.reset();
+    P q = bs.readStruct("P");
+    io.print(q.id);
+    if (q.id == 5000000000 && q.x == 42) {
+        io.print("ok");
+        return 0;
+    }
+    return 1;
+}

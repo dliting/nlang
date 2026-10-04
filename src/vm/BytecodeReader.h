@@ -48,6 +48,28 @@ public:
         return v;
     }
 
+    //0.7.5: n raw immediate bytes (OP_ConstInt64/OP_ConstDouble read
+    //their 8-byte payloads in one go; caller memcpys into the carrier).
+    const uint8_t* ReadBytes(size_t n) {
+        const uint8_t* p = m_data + m_offset;
+        m_offset += n;
+        return p;
+    }
+
+    int64_t ReadInt64() {
+        int64_t v = 0;
+        for (size_t i = 0; i < sizeof(int64_t); ++i)
+            v |= static_cast<int64_t>(m_data[m_offset++]) << (i * 8);
+        return v;
+    }
+
+    double ReadDouble() {
+        const uint8_t* p = ReadBytes(sizeof(double));
+        double v;
+        std::memcpy(&v, p, sizeof(v));
+        return v;
+    }
+
     size_t CurrentOffset() const { return m_offset; }
     void Seek(size_t offset) { m_offset = offset; }
     bool Eof() const { return m_offset >= m_size; }

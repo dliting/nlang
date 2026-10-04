@@ -1,0 +1,10 @@
+//e2e dbgm_readline_eof: EOF on the command channel while the program is
+//parked in io.readline ends the whole session (exit 0) — the channel is
+//the session's lifeline, the same rule as EOF while frozen. main returns
+//7 so the exit code discriminates: only the hard exit produces 0, a
+//regression that fed an empty line instead would finish main and exit 7.
+import io;
+int main() {
+    string s = io.readLine();
+    return 7;
+}

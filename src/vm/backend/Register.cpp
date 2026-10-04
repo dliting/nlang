@@ -301,8 +301,12 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
                 //Enum values are sequential starting at 0; if user provides
                 //explicit values that skip numbers, the corresponding slots
                 //are filled with empty strings (OP_Enum_to_str will throw
-                //"enum value out of range" at runtime if hit). NLang grammar
-                //currently only supports implicit sequential values.
+                //"enum value out of range" at runtime if hit). Negative
+                //values are rejected at resolve time; the guard keeps a
+                //slipped-through negative from wrapping to SIZE_MAX and
+                //hanging the table fill (defense, not a semantic path).
+                if (em.Value() < 0)
+                    continue;
                 while (names.size() <= static_cast<size_t>(em.Value()))
                     names.push_back(std::string());
                 names[static_cast<size_t>(em.Value())] = em.Name();

@@ -12,6 +12,7 @@ int main()
     //IdString static tables — StaticInit must run first or the build
     //segfaults (a crash try/catch cannot intercept).
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
 
     run_debugger_format_tests();
     run_debugger_gc_tests();

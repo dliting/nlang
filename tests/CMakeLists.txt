@@ -415,6 +415,56 @@ target_compile_definitions(test_library_index
 )
 add_test(NAME library_index_tests COMMAND test_library_index)
 
+# 0.7.5 basic types: scalar primitive registry unit tests (console
+# suite). Pins the registry as the single source of truth — row order,
+# slot widths, RTK allocation (0/1 + 10..19), kind/rtk round-trips, Rn
+# singleton wiring, derived predicates and the post-expansion NK layout.
+add_executable(test_primitivetypes
+    test_compiler/test_primitivetypes.cpp
+)
+
+target_include_directories(test_primitivetypes
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_primitivetypes
+    PRIVATE
+        nlang_runtime
+        nlang_compiler
+        nlang_vm
+)
+
+add_test(NAME primitivetypes_tests COMMAND test_primitivetypes)
+
+# 0.7.5 kind-immediate opcode family unit tests (console suite). Three
+# layers: dispatch-table drives (kAddTable etc. on byte buffers — ops x
+# all 12 registry kinds), the Rn formatters OP_Prim_to_str calls, and
+# real compiled .n sources for handler guards (div/mod-zero messages,
+# scalar+string concat end-to-end).
+add_executable(test_primops
+    test_vm/test_primops.cpp
+)
+
+target_include_directories(test_primops
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_primops
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+target_compile_definitions(test_primops
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME primops_tests COMMAND test_primops)
+
 # ndb debugger unit tests: .ncu v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,
@@ -507,11 +557,16 @@ add_test(NAME ast_containment_tests COMMAND test_ast_containment)
 add_executable(test_projectfile
     test_ncc/test_projectfile.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ncc/ProjectFile.cpp
+    #ProjectFile.cpp validates bytes via Utf8ContentCheck (public
+    #header nlang/compiler/Utf8.h); ncc itself reaches both by linking
+    #nlang_compiler, which this standalone target stays out of.
+    ${PROJECT_SOURCE_DIR}/src/compiler/Utf8.cpp
 )
 
 target_include_directories(test_projectfile
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/tools/ncc
+        ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_projectfile
@@ -1005,6 +1060,25 @@ if(Python3_FOUND)
     )
     add_test(NAME langservice_tests COMMAND test_langservice)
     set_tests_properties(langservice_tests PROPERTIES TIMEOUT 60)
+    # UTF-8 path guard: the CLI executables' UTF-8 active code page
+    # (manifest) must survive argv ingestion, file I/O, and echo — a
+    # mixed CJK+emoji directory covers both the mojibake and the
+    # '?'-destruction layer.
+    add_test(NAME cli_utf8_paths
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_cli_utf8_paths.py
+            $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
+            $<TARGET_FILE:ndisasm> $<TARGET_FILE:ndb>
+            ${CMAKE_BINARY_DIR})
+    set_tests_properties(cli_utf8_paths PROPERTIES TIMEOUT 120)
+    # .nproj UTF-8 contract guard: legacy-encoded project files are
+    # rejected with a named UTF-8 error (UTF-8 BOM accepted and
+    # skipped; UTF-16 gets a dedicated hint).
+    add_test(NAME nproj_utf8
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_nproj_utf8.py
+            $<TARGET_FILE:ncc> ${CMAKE_BINARY_DIR})
+    set_tests_properties(nproj_utf8 PROPERTIES TIMEOUT 120)
     # Source-size guard: hand-written sources stay <=500 lines per file
     # and <=50 lines per function; registered exceptions live in
     # tools/source_size_guard/allowlist.json, each with a reason.
@@ -1240,7 +1314,7 @@ add_dependencies(nlang_stdlib_native_for_tests nlang_math nlang_io nlang_fs)
 foreach(t IN ITEMS
         test_native_host test_thirdparty test_library_source test_perunit
         test_stdlib test_library_index test_debugger test_import_parse
-        test_module_import test_langservice)
+        test_module_import test_langservice test_primops)
     add_dependencies(${t} nlang_stdlib_package)
 endforeach()
 

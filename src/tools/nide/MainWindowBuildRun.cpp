@@ -4,6 +4,7 @@
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
+#include "DebugClient.h"
 #include "FileEditor.h"
 #include "ProjectModel.h"
 #include "SearchPathArgs.h"
@@ -72,7 +73,10 @@ bool MainWindow::runNccBuild(const QStringList& args,
         return false;
     }
     ncc.waitForFinished(-1);
-    *log = QString::fromLocal8Bit(ncc.readAll());
+    //ncc emits UTF-8 bytes verbatim (source snippets inside diagnostics
+    //carry the source encoding) — decode as UTF-8, not the local code
+    //page, matching the debug page's wire decoding.
+    *log = QString::fromUtf8(ncc.readAll());
     //Read the exit state only after a real run: start() resets it, so the
     //failed-start path would fake success sharing this expression.
     return ncc.exitStatus() == QProcess::NormalExit
@@ -93,6 +97,10 @@ bool MainWindow::buildProject(ProjectNode& project) {
     args += buildImportArgs(projectImportPathList(project),
                             project.projectDir(),
                             SettingsStore::persisted().librarySearchPaths());
+    //0.7.5: warning suppression is two-level -- the project's opt-in
+    //adds on top of the global Tools > Options setting.
+    if (project.noWarn() || SettingsStore::persisted().noWarn())
+        args << "--no-warn";
     QString log;
     const bool succeeded = runNccBuild(
         args, project.projectDir(), &log);
@@ -172,6 +180,10 @@ bool MainWindow::buildStandaloneFile(const QString& filePath) {
     QStringList args = {"build", filePath, "-o", output};
     args += buildImportArgs({}, QString(),
         SettingsStore::persisted().librarySearchPaths());
+    //Standalone files have no project half: only the global setting
+    //decides whether --no-warn rides along.
+    if (SettingsStore::persisted().noWarn())
+        args << "--no-warn";
     QString log;
     const bool succeeded = runNccBuild(
         args, QFileInfo(filePath).absolutePath(), &log);
@@ -229,8 +241,10 @@ void MainWindow::on_actClearBuild_triggered() {
 }
 
 void MainWindow::onExecOutput() {
+    //Program output is verbatim UTF-8 (io.print writes UTF-8 bytes);
+    //decoding as the local code page mojibaked non-ASCII output.
     m_ui->txtExecuteOut->append(
-        QString::fromLocal8Bit(m_executed.readAllStandardOutput()));
+        QString::fromUtf8(m_executed.readAllStandardOutput()));
 }
 
 void MainWindow::onExecFinished(int exitCode, QProcess::ExitStatus status) {
@@ -240,6 +254,34 @@ void MainWindow::onExecFinished(int exitCode, QProcess::ExitStatus status) {
         m_ui->txtExecuteOut->append(
             tr("Program exited with code %1.").arg(exitCode));
     updateMenuState();  // NotRunning again: Stop off, Start per selection
+}
+
+//--- program stdin (run child / debug session) ---
+
+void MainWindow::on_btnStdinSend_clicked() {
+    sendProgramInput();
+}
+
+void MainWindow::on_editStdin_returnPressed() {
+    sendProgramInput();
+}
+
+void MainWindow::sendProgramInput() {
+    const QString text = m_ui->editStdin->text();
+    if (text.isEmpty())
+        return;
+    if (debugSessionLive()) {
+        //Converged between the row's enablement and here: no delivery,
+        //so no echo either (the echo must never lie).
+        if (!m_debugClient->sendStdin(text))
+            return;
+    } else if (m_executed.state() != QProcess::NotRunning) {
+        m_executed.write((text + QLatin1Char('\n')).toUtf8());
+    } else {
+        return;   //nothing live (the disabled row guards this)
+    }
+    appendExecuteOutput(QStringLiteral("> ") + text + QLatin1Char('\n'));
+    m_ui->editStdin->clear();
 }
 
 //--- compile-log navigation ---

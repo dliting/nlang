@@ -23,6 +23,9 @@ private slots:
         QVERIFY(store.buildOutputDir().isEmpty());
         QCOMPARE(store.toolbarIconSize(), QString("small"));
         QVERIFY(store.librarySearchPaths().isEmpty());
+        //0.7.5: the compiler-options group starts with warning
+        //suppression, off by default.
+        QVERIFY(!store.noWarn());
     }
 
     void testRoundTrip() {
@@ -33,7 +36,10 @@ private slots:
         store.setBuildOutputDir("D:/dev/out");
         store.setToolbarIconSize("large");
         store.setLibrarySearchPaths({"D:/libs/acme", "D:/vendor/x"});
+        store.setNoWarn(true);
         store.save(settings);
+        //Pin the persisted key spelling (the whole suite's convention).
+        QVERIFY(settings.value("compiler/noWarn").toBool());
 
         SettingsStore reloaded;
         QSettings reloadedSettings(iniPath(), QSettings::IniFormat);
@@ -43,6 +49,7 @@ private slots:
         QCOMPARE(reloaded.toolbarIconSize(), QString("large"));
         QCOMPARE(reloaded.librarySearchPaths(),
                  QStringList({"D:/libs/acme", "D:/vendor/x"}));
+        QVERIFY(reloaded.noWarn());
     }
 
     void testLocaleForLanguage() {

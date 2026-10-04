@@ -84,7 +84,10 @@ private slots:
         QCOMPARE(proj.projectDir(), m_tmpDir.path());
         QCOMPARE(proj.outputDir(), QString());
         QCOMPARE(proj.intermediateDir(), QString());
-        QVERIFY(!proj.isDirty());
+        //Born unsaved: until load()/save() grounds it on disk, all of a
+        //project's state lives only in memory (a dialog-created project
+        //writes no .nproj at creation).
+        QVERIFY(proj.isDirty());
     }
 
     void testProjectNodeSetProperties() {
@@ -330,6 +333,77 @@ private slots:
         }
     }
 
+    void testProjectNodeNoWarnRoundTrip() {
+        //0.7.5: the per-project compiler override persists as
+        //<CompilerOptions noWarn="1"/>; the element is written only
+        //for the explicit opt-in and its absence loads as false.
+        const QString projPath = m_tmpDir.path() + "/nowarn.nproj";
+        {
+            ProjectNode proj("App", m_tmpDir.path());
+            QVERIFY(!proj.noWarn());
+            proj.setNoWarn(true);
+            QVERIFY(proj.isDirty());  // property setters mark dirty
+            proj.addFile("main.n");
+            QString error;
+            QVERIFY(proj.save(projPath, &error));
+        }
+        {
+            QFile f(projPath);
+            QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+            const QString content = QTextStream(&f).readAll();
+            QVERIFY(content.contains("<CompilerOptions noWarn=\"1\"/>"));
+        }
+        {
+            ProjectNode proj("", m_tmpDir.path());
+            QString error;
+            QVERIFY(proj.load(projPath, &error));
+            QVERIFY(proj.noWarn());
+        }
+        //Unchecked saves leave the element out entirely.
+        const QString plainPath = m_tmpDir.path() + "/plain.nproj";
+        ProjectNode plain("Plain", m_tmpDir.path());
+        plain.setNoWarn(false);
+        plain.addFile("main.n");
+        QString error;
+        QVERIFY(plain.save(plainPath, &error));
+        QFile f(plainPath);
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString content = QTextStream(&f).readAll();
+        QVERIFY(!content.contains("CompilerOptions"));
+    }
+
+    void testProjectNodeNoWarnLoadNonOptInValue() {
+        //A hand-written noWarn="0" (or any non-"1" value) is simply
+        //"not opted in" -- the write side only ever emits "1".
+        const QString projPath = writeFixture("nowarn0.nproj",
+            "<?xml version=\"1.0\"?>\n"
+            "<Project name=\"Zero\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <CompilerOptions noWarn=\"0\"/>\n"
+            "</Project>\n");
+        ProjectNode proj("", m_tmpDir.path());
+        QString error;
+        QVERIFY(proj.load(projPath, &error));
+        QVERIFY(!proj.noWarn());
+    }
+
+    void testProjectNodeLoadDuplicateCompilerOptions() {
+        //A second <CompilerOptions> block's options would be silently
+        //dropped -- rejected under the same rule as <Sources>.
+        const QString projPath = writeFixture("dupopts.nproj",
+            "<?xml version=\"1.0\"?>\n"
+            "<Project name=\"Dup\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <CompilerOptions noWarn=\"1\"/>\n"
+            "  <CompilerOptions noWarn=\"1\"/>\n"
+            "</Project>\n");
+        ProjectNode proj("", m_tmpDir.path());
+        QString error;
+        QVERIFY(!proj.load(projPath, &error));
+        QVERIFY2(error.contains("more than one <CompilerOptions>"),
+                 qPrintable(error));
+    }
+
     void testProjectNodeLoadMissingFile() {
         ProjectNode proj("", m_tmpDir.path());
         QString error;
@@ -389,6 +463,9 @@ private slots:
 
     void testProjectNodeDirtyTracking() {
         ProjectNode proj("Hello", m_tmpDir.path());
+        QVERIFY(proj.isDirty());  // born unsaved, nothing on disk yet
+
+        proj.clearDirty();  // simulate the grounded state
         QVERIFY(!proj.isDirty());
 
         proj.setOutputDir("bin");
@@ -575,6 +652,98 @@ private slots:
 
         sol.setName("NewName");
         QVERIFY(sol.isDirty());
+    }
+
+    // --- SolutionNode ephemeral wrapper ---
+
+    //An ephemeral solution is IDE scaffolding (auto-created around an
+    //opened project, the user never decided to manage a .nsln): its own
+    //membership bookkeeping is not user work, so on its own it never
+    //reads as unsaved. A project OPENED into it was grounded on disk by
+    //load(), so the wrapper reads clean. hasUnsavedChanges is the
+    //single authority.
+    void testSolutionNodeEphemeralGroundedProjectNotUnsaved() {
+        writeFixture("app/app.nproj", projectXml("App"));
+        SolutionNode sol("Solution1", /*ephemeral=*/true);
+        QVERIFY(sol.isEphemeral());
+
+        ProjectNode* p = sol.addProject(m_tmpDir.path() + "/app/app.nproj");
+        QString error;
+        QVERIFY(p->load(m_tmpDir.path() + "/app/app.nproj", &error));
+        QVERIFY(sol.isDirty());  // bookkeeping dirt may exist ...
+        QVERIFY(!sol.hasUnsavedChanges());  // ... but it is not user work
+    }
+
+    //A project AUTHORED into an ephemeral wrapper (New Project dialog)
+    //exists only in memory -- born dirty, never grounded -- so it is
+    //user work the close prompt must guard.
+    void testSolutionNodeEphemeralAuthoredProjectIsUnsaved() {
+        SolutionNode sol("Solution1", /*ephemeral=*/true);
+        sol.addProject("app/app.nproj");  // created, never loaded/saved
+        QVERIFY(sol.hasUnsavedChanges());
+    }
+
+    //A first-class solution (explicit New Solution, or one the user
+    //named and saved): membership changes ARE user work.
+    void testSolutionNodeFirstClassAddProjectIsUnsaved() {
+        SolutionNode sol("MySolution");
+        QVERIFY(!sol.isEphemeral());
+
+        sol.addProject("app/app.nproj");
+        QVERIFY(sol.hasUnsavedChanges());
+    }
+
+    //Real project edits inside an ephemeral wrapper are user work even
+    //though the wrapper itself is scaffolding.
+    void testSolutionNodeEphemeralDirtyProjectIsUnsaved() {
+        writeFixture("app/app.nproj", projectXml("App"));
+        SolutionNode sol("Solution1", /*ephemeral=*/true);
+        ProjectNode* p = sol.addProject(m_tmpDir.path() + "/app/app.nproj");
+        QString error;
+        QVERIFY(p->load(m_tmpDir.path() + "/app/app.nproj", &error));
+        p->clearDirty();
+
+        p->setImportPaths(QStringList{"app/libs"});
+        QVERIFY(sol.hasUnsavedChanges());
+    }
+
+    //A deep load adopts the loaded state wholesale, including
+    //first-classness: even a live ephemeral wrapper becomes first-class
+    //and clean (the production path when a .nsln loads into a model
+    //that still holds a wrapper).
+    void testSolutionNodeLoadedIsFirstClassClean() {
+        QString solPath = m_tmpDir.path() + "/loaded.nsln";
+        writeFixture("app/app.nproj", projectXml("App"));
+        {
+            SolutionNode sol("S");
+            sol.addProject("app/app.nproj");
+            QString error;
+            QVERIFY(sol.save(solPath, &error));
+        }
+        SolutionNode loaded("Solution1", /*ephemeral=*/true);
+        QString error;
+        QVERIFY(loaded.loadWithProjects(solPath, &error));
+        QVERIFY(!loaded.isEphemeral());
+        QVERIFY(!loaded.hasUnsavedChanges());
+    }
+
+    //Saving an ephemeral wrapper gives it a persisted identity: it is
+    //promoted to first-class, and later changes count as user work.
+    void testSolutionNodeSavePromotesEphemeral() {
+        QString solPath = m_tmpDir.path() + "/promote.nsln";
+        writeFixture("app/app.nproj", projectXml("App"));
+
+        SolutionNode sol("Solution1", /*ephemeral=*/true);
+        ProjectNode* p = sol.addProject(m_tmpDir.path() + "/app/app.nproj");
+        QString error;
+        QVERIFY(p->load(m_tmpDir.path() + "/app/app.nproj", &error));
+        QVERIFY(sol.save(solPath, &error));
+
+        QVERIFY(!sol.isEphemeral());
+        QVERIFY(!sol.hasUnsavedChanges());
+
+        sol.addProject("lib/lib.nproj");
+        QVERIFY(sol.hasUnsavedChanges());
     }
 
     void testSolutionNodeSetName() {

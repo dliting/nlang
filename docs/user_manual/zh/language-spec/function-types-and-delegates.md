@@ -76,8 +76,8 @@ int main() {
   **null 接收者**上绑定引用（`Counter c = null; foobar(c.tw);`）在
   绑定时刻抛错。
 - `f.toString()`、`f as string`、`"" + f`、`io.print(f)` 与容器格式
-  化渲染 `"func <name>"`（静态句柄——含绑定的非虚方法引用）或
-  `"method <name>"`（虚分派句柄）。
+  化产生的字符串形式为 `"func <name>"`（静态句柄——含绑定的非虚方法
+  引用）或 `"method <name>"`（虚分派句柄）。
 - **已知不一致**：`List<Func>.contains` / `indexOf` 按**恒等**比较
   元素（每个引用都是独立的堆记录），不按 `==` 的内容相等。
 

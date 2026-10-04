@@ -34,6 +34,7 @@ struct MockHost {
     std::vector<std::string> listItems;
     int32_t listHandle = -1;
     std::string output;
+    std::string errorOutput;
     std::string nextLine;
     bool raised = false;
     int raisedKind = -1;
@@ -70,6 +71,11 @@ void MockWriteOutput(NativeHost* self, const char* text) {
     if (text) m->output += text;
 }
 
+void MockWriteError(NativeHost* self, const char* text) {
+    auto* m = reinterpret_cast<MockHost*>(self);
+    if (text) m->errorOutput += text;
+}
+
 const char* MockReadLine(NativeHost* self) {
     auto* m = reinterpret_cast<MockHost*>(self);
     return m->nextLine.c_str();
@@ -100,6 +106,7 @@ MockHost MakeMock() {
     m.table.newString = &MockNewString;
     m.table.newListString = &MockNewListString;
     m.table.writeOutput = &MockWriteOutput;
+    m.table.writeError = &MockWriteError;
     m.table.readLine = &MockReadLine;
     m.table.raiseException = &MockRaiseRecord;
     m.table.nextRandom = &MockNextRandom;
@@ -108,7 +115,7 @@ MockHost MakeMock() {
 }
 
 void TestConstants() {
-    CHECK(NLANG_VALUE_SIZE == 4, "value slot must be 4 bytes");
+    CHECK(NLANG_VALUE_SIZE == 8, "value slot must be 8 bytes");
     CHECK(NLANG_HOST_ABI_VERSION >= 1u, "abi version defined");
 }
 
@@ -136,6 +143,33 @@ void TestFloatRoundTrip() {
         float back = native::ArgFloat(args, 0);
         CHECK(std::memcmp(&back, &v, sizeof(float)) == 0,
               "float bit-exact round trip");
+    }
+}
+
+void TestDoubleRoundTrip() {
+    const double values[] = {3.5, -1.25, 0.0, 1.4142135623730951,
+                             1.0e300};
+    for (double v : values) {
+        uint8_t ret[NLANG_VALUE_SIZE] = {};
+        native::ReturnDouble(ret, v);
+        uint8_t args[NLANG_VALUE_SIZE] = {};
+        std::memcpy(args, ret, NLANG_VALUE_SIZE);
+        double back = native::ArgDouble(args, 0);
+        CHECK(std::memcmp(&back, &v, sizeof(double)) == 0,
+              "double bit-exact round trip");
+    }
+}
+
+void TestLongRoundTrip() {
+    const int64_t values[] = {0, -1, 42,
+                              INT64_C(9223372036854775807),
+                              INT64_C(-9223372036854775807) - 1};
+    for (int64_t v : values) {
+        uint8_t ret[NLANG_VALUE_SIZE] = {};
+        native::ReturnLong(ret, v);
+        uint8_t args[NLANG_VALUE_SIZE] = {};
+        std::memcpy(args, ret, NLANG_VALUE_SIZE);
+        CHECK(native::ArgLong(args, 0) == v, "long round trip");
     }
 }
 
@@ -180,6 +214,9 @@ void TestIoCallbacks() {
     m.table.writeOutput(&m.table, "line\n");
     CHECK(m.output == "line\n", "writeOutput records text");
 
+    m.table.writeError(&m.table, "boom\n");
+    CHECK(m.errorOutput == "boom\n", "writeError records diagnostics");
+
     m.nextLine = "typed text";
     const char* line = m.table.readLine(&m.table);
     std::string copied = line ? line : "";   // copy immediately, as documented
@@ -208,6 +245,8 @@ int main() {
     TestConstants();
     TestIntRoundTrip();
     TestFloatRoundTrip();
+    TestDoubleRoundTrip();
+    TestLongRoundTrip();
     TestStringArg();
     TestReturnString();
     TestListCallback();

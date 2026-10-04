@@ -1,0 +1,25 @@
+// 0.7.5: literal signs retired from the lexer — '-' is the unary
+// operator; the constant consumers fold OP_Neg (switch labels, enum
+// member values, constant-fit, the 2^63 long fold).
+import io;
+enum E { A = 5 }
+
+int main() {
+    double d = -1.5;
+    io.print(d);
+    int i = -5;
+    assert(i == -5);
+    long m = -9223372036854775808;  // negated 2^63 folds to long min
+    assert(m < 0);
+    int x = -1;
+    switch (x) {
+    case -1:
+        io.print("hit");
+        break;
+    default:
+        io.print("wrong");
+    }
+    E e = E.A;
+    assert((e as int) == 5);
+    return 0;
+}

@@ -1,6 +1,7 @@
 int main() {
-    //1e30 = 10^30 exceeds int32 — the lexer must reject the literal
-    //instead of silently truncating the exponent away ("1e30" -> 1).
+    //0.7.5: 1e30 is a double literal (scientific notation is always
+    //double); an integer target never accepts a floating constant
+    //implicitly, so the assignment is rejected instead of truncating.
     int x = 1e30;
     return x;
 }

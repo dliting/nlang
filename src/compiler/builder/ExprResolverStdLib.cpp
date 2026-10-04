@@ -12,6 +12,8 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include <nlang/langservice/SymbolIndex.h>
+#include <nlang/runtime/PrimitiveTypes.h>
+#include "CastInfo.h"
 #include <algorithm>
 #include <map>
 #include <set>
@@ -126,60 +128,6 @@ bool ExprResolveAccessor::TryResolveModuleQualifiedArgs(
 	return true;
 }
 
-//Candidate matching and binding of the module-qualified call, shared
-//close-out discipline of the bare path. True = fully resolved (the
-//member carries callee and result type; the caller only finishes the
-//resolved flags); false = a failure was diagnosed and the member
-//consumed (match failure, out-argument reject, or a function-reference
-//argument that failed to bind).
-bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
-	SnMemberExpr &snMember, SnInvokeExpr &invoke,
-	const std::string &modulePath)
-{
-	auto &reg = m_Env.Registry();
-	std::vector<SnFunction*> candidates =
-		reg.ModuleFunctions(modulePath, invoke.CalleeName());
-	SnFunction *pCallee = nullptr;
-	std::vector<FormalBinding> bindings;
-	bool bAmbiguous = false;
-	auto res = MatchInvokeAgainst(invoke, candidates, pCallee, bindings,
-		bAmbiguous);
-	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
-	{
-		//Same contract as the bare path (FindFuncByInvoke): the imported
-		//flag is only consulted for an unambiguous Incompatible — an
-		//ambiguity report is complete on its own, and a plain NotFound has
-		//no name-matched candidates to speak of.
-		bool bNameMatchedImported = false;
-		if (res == FFR_Incompatible && !bAmbiguous)
-		{
-			for (auto *pCandidate : candidates)
-				if (pCandidate->ContainFlags(NF_Imported))
-					bNameMatchedImported = true;
-		}
-		LogInvokeFailure(invoke, res, pCallee, bNameMatchedImported,
-			candidates);
-		FinishModuleQualifiedMember(snMember);
-		return false;
-	}
-	if (OutArgOnDispatchedCalleeRejected(invoke, *pCallee, bindings))
-	{
-		FinishModuleQualifiedMember(snMember);
-		return false;
-	}
-	if (!ResolveInvokeWithFunc(invoke, *pCallee, res, bindings))
-	{
-		FinishModuleQualifiedMember(snMember);
-		return false;
-	}
-	//Codegen contract (VmBackend's MemberExpr handler): the resolved inner
-	//invoke is emitted as the bare call; the member carries its result
-	//type and the callee for chained access.
-	snMember.m_pField = pCallee;
-	if (invoke.EvalDataType())
-		snMember.EvalDataType(invoke.EvalDataType());
-	return true;
-}
 
 //Module import visibility (spec §6.2 rule 5): the module-table fallback
 //for dotted call chains. Runs BEFORE the outer identifier resolves, so a

@@ -110,7 +110,7 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 //Phase 13: out-flag side table of a Func instantiation (parallel to
 //GetGenericTypeArgs; map access semantics, default-empty on miss).
-//Definition in ExprResolverTypes.cpp.
+//Definition in ExprResolverGenerics.cpp.
 const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
 
 //Reference-only use below; definition in ScriptLocation.h.
@@ -125,6 +125,9 @@ std::string JoinDots(const std::vector<std::string>& segs);
 std::vector<std::string> OuterIdentifierChain(
 	const SnMemberExpr& snMember);
 const char* StdLibKindName(uint8_t rtk);
+//True for the recognized built-in generic base names (List/Dict/Func).
+//Definition in ExprResolverGenerics.cpp.
+bool IsBuiltinGenericClassName(const std::string& name);
 bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
@@ -327,6 +330,19 @@ private:
 		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const std::string &name, NodeKind retKind,
 		SyntaxNode *pSavedContext);
+	void CheckStreamMethodSignature(SnInvokeExpr &invoke,
+		const std::string &name);
+	//0.7.5 Task 9: writeLong/writeDouble value-argument admission —
+	//cast-matrix verdict with a widening wrap (see the TU for rationale).
+	void AdmitWideStreamWriterArg(SnInvokeExpr &invoke,
+		const std::string &name);
+	//One scalar argument vs its declared runtime kind (0.7.5
+	//scalar-matrix policy): TCK_Same admits as-is, a widening TCK_Auto
+	//admits wrapped in a cast expr in place, narrowing stays
+	//explicit-only. String keeps the exact-kind policy (the scalar
+	//registry does not know NK_String).
+	bool ScalarArgAdmitted(NodeIterator &it, SnField* pArgType,
+		uint8_t want);
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
@@ -346,9 +362,9 @@ private:
 	bool BindContainerArgPositions(SnInvokeExpr &invoke,
 		const std::vector<SnField*> &typeArgs,
 		const std::string &baseName, const std::string &name,
-		int elemSlot, size_t valArg, bool isStoreValue,
+		int elemSlot, size_t valArg,
 		SnExpression *&rpWrapValue, SnExpression *&rpWrapKey);
-	void WrapContainerStoreArgs(SnInvokeExpr &invoke,
+	void WrapContainerElemArgs(SnInvokeExpr &invoke,
 		const std::vector<SnField*> &typeArgs, int elemSlot,
 		SnExpression *pWrapKey, SnExpression *pWrapValue);
 	SnField *ComputeContainerMethodResult(SnMemberExpr &snMember,
@@ -609,8 +625,10 @@ private:
 	Calculate the type "distance" from source type to target type.
 	\return
 	1) If the source type can be implicitly covert to target type:
-	1.1)If the source type and the target type are primitive types, it returns
-	abs(source.Kind() - Target.Kind()).
+	1.1)If both are scalar primitives (0.7.5): the registry ladder — same
+	row 0, in-category/cross-sign containment widening the rank delta,
+	integer→float a fixed rung above every widening, any scalar→string
+	one rung above that (see ExprResolverCast.cpp).
 	1.2)If the source type is primitive type, the target type is Object, it
 	returns PRIMITIVE_TYPE_COUNT.
 	1.3)If the source type and the target type are classes or interfaces, it
@@ -618,7 +636,8 @@ private:
 	1.4)If the source type is enumerator and the target type is not enumerator,
 	the source type will be convert to it primitive type firstly, and use the
 	above rules to calculate the distance.
-	2) If the source type can not be implicitly covert to target type, it
+	2) If the source type can not be implicitly covert to target type
+	(including the 0.7.5 explicit-only narrowings, TCK_Explicit), it
 	returns	-1.
 	*/
 	int CalcTypeDistance(const SnField &source,
@@ -640,10 +659,24 @@ private:
 	2026-09-27 decomposition of the cast/binding resolution family
 	(ExprResolverCast.cpp) — the reject/skip gates of FixupExprType, the
 	named-arg arm of FixupParamTypesWithBindings and the named array
-	diagnostic arm of ComputeBindingDistance.
+	diagnostic arm of ComputeBindingDistance. ConstantFitGate (0.7.5)
+	runs the Java/C# constant-fit rule inside RejectIncompatibleCast;
+	its verdicts leave the cast info untouched (NotApplicable), promote
+	an in-range constant narrowing to TCK_Auto (Promoted) or log the
+	out-of-range error (Rejected). The fit/lossy predicates themselves
+	live in ExprResolverCastFit.hpp (pure functions, no resolver state).
 	*/
+	enum ConstantFitGateResult
+	{
+		CFG_NotApplicable,
+		CFG_Promoted,
+		CFG_Rejected
+	};
+
 	bool RejectIncompatibleCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool RejectArrayTokenCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
+	ConstantFitGateResult ConstantFitGate(SnExpression &srcExpr,
+		TypeCastInfo &castInfo);
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
 		TypeCastInfo &castInfo);
@@ -663,31 +696,60 @@ private:
 		SnField *L, SnField *R, bool lNull, bool rNull);
 	bool RejectArrayIdentityMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		NodeKind lk, NodeKind rk, bool lNull, bool rNull);
-	void PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
+	bool RejectBoolMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		NodeKind lk, NodeKind rk);
+	//0.7.5 char gates: arithmetic on char is rejected (string concat
+	//exempt); char compares only with char (code-point order).
+	bool RejectCharArithmetic(SnBinaryExpr &sn, NodeKind lk, NodeKind rk);
+	bool RejectCharMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		NodeKind lk, NodeKind rk);
+	//0.7.5: registry-derived numeric promotion (spec §2.2). Returns the
+	//smallest type that can implicitly receive BOTH operands, or null
+	//when no implicit common type exists (int/long + ulong). Shared by
+	//arithmetic result selection and compare-operand promotion.
+	SnField *CommonNumericType(NodeKind lk, NodeKind rk);
+	bool PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
 		bool lNull, bool rNull);
-	bool CheckLogicalIntOperands(SnBinaryExpr &sn);
+	bool CheckLogicalBoolOperands(SnBinaryExpr &sn);
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
 		SnBinaryExpr::Operator op);
 
 	/*
-	2026-09-27 decomposition of the allocation/value resolution family
-	(ExprResolverNew.cpp / ExprResolverValues.cpp) — the ctor-arity check
-	of Access(SnNewExpr&), the four phases of Access(SnInitListExpr&)
-	and the string-base reject / container sugar of
-	Access(SnSubscriptExpr&).
+	2026-09-27 decomposition of the allocation resolution family
+	(ExprResolverNew.cpp) — the ctor-arity check of Access(SnNewExpr&)
+	and the allocation binding of Access(SnNewArrayExpr&).
 	*/
 	size_t CountPositionalCtorArgs(SnNewExpr &sn);
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
 	bool FindCtorArity(SnClassDecl *pClassDecl, size_t &ctorArity);
 	void CheckNewExprCtorArity(SnNewExpr &sn, SnClassDecl *pClassDecl);
+
+	/*
+	2026-09-29 split of the collection-initializer resolution family
+	(ExprResolverInitList.cpp, out of ExprResolverNew.cpp at the
+	source-size guard) — the phases of Access(SnInitListExpr&): target
+	determination, the class-form checks, the 0.7.5 Dict key-form gate
+	and the element/field cast wraps.
+	*/
 	bool ResolveInitListTarget(SnInitListExpr &sn,
 		SnField* &pTargetField, bool &bIsArray);
 	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
 	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
 	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);
 	void ApplyInitListElemCasts(SnInitListExpr &sn, SnField *pElemType);
-	bool RejectStringSubscriptBase(SnSubscriptExpr &sn, SnField *pBaseType);
+	void ApplyInitListFieldCasts(SnInitListExpr &sn, SnField *pTargetField);
+	SnField *InitListEntryFieldType(SnField &targetDecl,
+		const SnInitListExpr &sn, size_t entryIdx);
+	bool RejectNonStringDictInitKeys(SnInitListExpr &sn,
+		SnField *pTargetField);
+
+	/*
+	2026-09-27 decomposition of the value resolution family
+	(ExprResolverValues.cpp) — the string subscript (0.7.5 byte read) /
+	container sugar of Access(SnSubscriptExpr&).
+	*/
+	bool ResolveStringSubscript(SnSubscriptExpr &sn, SnField *pBaseType);
 	bool TryResolveContainerSubscript(SnSubscriptExpr &sn,
 		SnField *pBaseType);
 
@@ -723,6 +785,27 @@ private:
 		SnInvokeExpr &invoke);
 	bool ResolveModuleQualifiedCallee(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::string &modulePath);
+	//Post-match close-out half of ResolveModuleQualifiedCallee
+	//(out-argument veto, invoke binding, member callee/result wiring);
+	//split out of it for the 50-line function budget.
+	bool BindQualifiedInvoke(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, SnFunction &callee, FindFuncResult res,
+		std::vector<FormalBinding> &bindings);
+	//Package-call admission policy: the module-qualified path is a
+	//binding-policy domain of its own — library formals admit per the
+	//conversion matrix only (the generic binder's scalar/array→string
+	//coercion candidacy is a user-function rule), with the io coercing
+	//trio (print/write/eprint) as the documented exception accepting
+	//string, scalars, arrays and function values. AdmitCoercingTrioArgs
+	//wraps coercing non-string args in the implicit to-string conversion
+	//in place (pre-match) and rejects class/interface/enum/struct
+	//values; RejectPackageStringCoercion vetoes →string bindings
+	//post-match on every other package call.
+	bool AdmitCoercingTrioArgs(SnInvokeExpr &invoke,
+		const std::string &modulePath);
+	bool RejectPackageStringCoercion(SnInvokeExpr &invoke,
+		const std::vector<FormalBinding> &bindings,
+		const std::string &modulePath);
 	void FinishModuleQualifiedMember(SnMemberExpr &snMember);
 
 	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the
@@ -775,6 +858,12 @@ public:
 	\param castInfo The cast information.
 	\return Return false if the source expression can not be automatically cast
 	to the target type, else return true.
+	\note The replacement erases the source's list node, invalidating exactly
+	that iterator. A caller looping over the same child list must NOT advance
+	its own stale iterator afterwards — re-find the next target fresh (the
+	TryFixupNamedArgBinding discipline) or resume from the replaced iterator
+	(the binary-promotion callers). Advancing a stale std::list iterator walks
+	into nodes other lists reuse and silently scrambles the tree.
 	*/
 	bool FixupExprType(NodeIterator &iSrcExpr, TypeCastInfo &castInfo)
 	{

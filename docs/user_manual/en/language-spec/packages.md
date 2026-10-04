@@ -42,16 +42,21 @@ path + qualified name); at run time the loader gathers the whole
 import closure along the search path and links it by qualified name
 into the one runtime module — a cross-package symbol has no body in
 the artifact, only a name. The qualified key is also the debugger and
-tool spelling everywhere:
+tool spelling wherever a symbol is named:
 
 - breakpoints take the qualified name: `b main.main`,
   `b mathutil.triple`;
 - backtraces and stop lines print it: `#0 main.main (main.n:6)`,
   `Stopped: utils.helper.inner`;
 - `ndisasm -func main.main` filters by the same spelling;
-- a value of function type renders with its key: `func alib.twice`, and
-  an object's default `toString()` renders the qualified class key
-  (`alib.Point@1a2b`).
+- a value of function type renders with its key: `func alib.twice`.
+
+Value renders that name a type for the reader — an object's default
+`toString()` (`Point@1a2b`) and the debugger's value display
+(`Point{x=2, y=5}`) — use the **leaf**: the last segment of the
+qualified key, the name as source wrote it. The qualified key remains
+the spelling of linkage (linking, streams, disassembly); a value
+render shows the type, not its linkage identity.
 
 ## Streams and literals
 

@@ -226,6 +226,124 @@ void test_machine_bfunc_and_output()
     PASS();
 }
 
+//stdin data commands reach the program's io.readLine from all three
+//read sites: queued as type-ahead in the prelude (before run), queued
+//without breaking a frozen stop, and pumped live while the program is
+//parked in readLine. Payload recognition is on the RAW wire line —
+//leading/trailing spaces survive (only framing tabs separate fields),
+//and an escaped tab decodes into the payload. EOF paths are NOT driven
+//here: EOF quits the whole session by contract, so dbg_quit_eof-style
+//coverage must run in a subprocess (e2e).
+void test_machine_stdin_roundtrip()
+{
+    TEST(machine_stdin_roundtrip);
+    BuildOutcome b = buildSource("mach_stdin",
+        "import io;\n"                          //1
+        "\n"                                    //2
+        "int main() {\n"                        //3
+        "    io.write(\"a\");\n"                //4
+        "    string x = io.readLine();\n"       //5
+        "    io.write(\"b\");\n"                //6
+        "    string y = io.readLine();\n"       //7
+        "    string z = io.readLine();\n"       //8
+        "    io.print(\"[\" + x + \"|\" + y + \"|\" + z + \"]\");\n" //9
+        "    return 0;\n"                       //10
+        "}\n");                                 //11
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+        //io joins the closure at load time (stdlib.npkg via STDLIB_DIR):
+    //the entry-unit artifact carries only the import slot.
+    CompiledModule mod = loadLinked("mach_stdin");
+
+    std::ostringstream events;
+    std::istringstream in(
+        "stdin\t  padded \n"   //type-ahead in the prelude; spaces verbatim
+        "run\n"                //initial stop at main's first statement
+        "stdin\tin\\tband\n"   //frozen-window arrival: queued, stop holds
+        "c\n"                  //resume: readLine #1/#2 pop the two queued
+        "stdin\tlive\n");      //readLine #3: queue dry, pumped live
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);
+    front.PumpUntilRun();
+    //Embedder contract (RunMachine): an uncaught NLang throw escapes
+    //Execute — the embedder reports it as an error event and yields 1.
+    int code = 1;
+    try {
+        code = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        front.OnRuntimeError(e.what());
+    }
+    front.OnExited(code);
+
+    const std::string wire = events.str();
+    CHECK(wire.find("stopped\tinitial") != std::string::npos,
+        "the initial stop still freezes (stdin did not break it)");
+    CHECK(wire.find("unknown command 'stdin'") == std::string::npos,
+        "stdin lines are data commands, never unknown-command errs");
+    CHECK(wire.find("output\ta\n") != std::string::npos,
+        "io.write prompt streams as one output event");
+    CHECK(wire.find("output\t[  padded |in\\tband|live]\n")
+            != std::string::npos,
+        "all three readLine results arrive verbatim (spaces kept, tab "
+        "decoded)");
+    CHECK(wire.find("exited\t0\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
+//A non-stdin command seen while the program is parked in readLine is
+//dispatched live (the machine is running, so window-bound commands err)
+//without losing the input line that follows it.
+void test_machine_stdin_dispatch_while_parked()
+{
+    TEST(machine_stdin_dispatch_while_parked);
+    BuildOutcome b = buildSource("mach_stdin_disp",
+        "import io;\n"                          //1
+        "\n"                                    //2
+        "int main() {\n"                        //3
+        "    string s = io.readLine();\n"       //4
+        "    io.print(\"got \" + s);\n"         //5
+        "    return 0;\n"                       //6
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+        //Same load-time closure as the roundtrip test above.
+    CompiledModule mod = loadLinked("mach_stdin_disp");
+
+    std::ostringstream events;
+    std::istringstream in(
+        "run\n"         //initial stop
+        "c\n"           //resume; the program parks in readLine
+        "locals\n"      //dispatched while parked: running, so View errs
+        "stdin\tok\n"); //the input line, still delivered after the err
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);
+    front.PumpUntilRun();
+    //Same embedder contract as the roundtrip test above.
+    int code = 1;
+    try {
+        code = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        front.OnRuntimeError(e.what());
+    }
+    front.OnExited(code);
+
+    const std::string wire = events.str();
+    CHECK(wire.find("err\tView outside the frozen window") != std::string::npos,
+        "window-bound commands dispatched mid-read err, not hang");
+    CHECK(wire.find("output\tgot ok\n") != std::string::npos,
+        "the stdin line after the dispatched command still arrives");
+    CHECK(wire.find("exited\t0\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
 //Session discipline over a two-frame freeze: frame selection routes
 //locals, a deleted breakpoint's id is not reused, stepping reports the
 //step reason, and a mis-timed `run` errs without derailing the session.
@@ -273,9 +391,15 @@ void test_machine_frame_and_discipline()
     CHECK(wire.find("stopped\tbreakpoint\t1\tmach_frame.helper\t" + escaped
             + "\t2\t2\t2\n") != std::string::npos,
         "the bfunc bp freezes inside helper (depth == frameCount == 2)");
+    //Selection answers done only -- frame events belong exclusively to
+    //bt responses. An echo here appends phantom rows to an IDE stack
+    //view on every click (nide duplicated the whole backtrace per
+    //`frame <n>` before this contract was pinned).
+    CHECK(wire.find("done\tframe\n") != std::string::npos,
+        "frame selection confirms with done");
     CHECK(wire.find("frame\t1\tmach_frame.main\t" + escaped + "\t7\n")
-            != std::string::npos,
-        "frame 1 is main, still at the call line");
+            == std::string::npos,
+        "frame selection must not echo a frame event (bt-only grammar)");
     CHECK(wire.find("local\ta\tint\t5\n") != std::string::npos,
         "locals follow the frame selection (main's a)");
     CHECK(wire.find("local\tv\t") == std::string::npos,
@@ -298,6 +422,65 @@ void test_machine_frame_and_discipline()
         "session ends with the program's exit code");
     PASS();
 }
+//A method frame's only slot is the receiver `__this`. Hiding it left
+//the locals query of every method frame empty (an IDE variables pane
+//showing nothing at all); the receiver is user-visible state, so
+//locals shows it under its display name `this`, one level deep like
+//any class local. Other synthesized `__`/`$` names stay hidden.
+void test_machine_method_locals_show_this()
+{
+    TEST(machine_method_locals_show_this);
+    BuildOutcome b = buildSource("mach_this",
+        "class Point {\n"                      //1
+        "    int x;\n"                         //2
+        "    int y;\n"                         //3
+        "\n"                                   //4
+        "    public int Point(int a, int b) {\n"//5
+        "        this.x = a;\n"                //6
+        "        this.y = b;\n"                //7
+        "        return 0;\n"                  //8
+        "    }\n"                              //9
+        "\n"                                   //10
+        "    public int manhattan() {\n"       //11
+        "        return x + y;\n"              //12
+        "    }\n"                              //13
+        "}\n"                                  //14
+        "\n"                                   //15
+        "int main() {\n"                       //16
+        "    Point p = new Point(2, 5);\n"     //17
+        "    return p.manhattan();\n"          //18
+        "}\n");                                //19
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("mach_this");
+    const std::string src = (scratchDir() / "mach_this.n").string();
+    std::ostringstream events;
+    std::istringstream in(
+        "b mach_this.n 12\n"   //manhattan's return: method frame freezes
+        "run\n"                //initial stop at main line 17
+        "c\n"                  //the bp hits inside manhattan
+        "frame 0\n"            //select the method frame (the default)
+        "locals\n"
+        "c\n");                //resume to completion
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetHostIo(&front);
+    front.PumpUntilRun();
+    front.OnExited(exec.Execute(mod));
+
+    const std::string wire = events.str();
+    CHECK(wire.find("local\tthis\tclass\tPoint{x=2, y=5}\n")
+            != std::string::npos,
+        "the method frame's locals show the receiver as `this`");
+    CHECK(wire.find("local\t__this\t") == std::string::npos,
+        "the internal slot name stays out of the wire");
+    CHECK(wire.find("exited\t7\n") != std::string::npos,
+        "session ends with the program's exit code");
+    PASS();
+}
+
 // --- Loop per-iteration anchors (VmBackend) ---
 
 //Loop anchors must fire every iteration (the back edge has to land on
@@ -330,7 +513,7 @@ void test_loop_anchor_per_iteration()
     TEST(loop_anchor_per_iteration);
     BuildOutcome b = buildSource("loop_anchor",
         "int spin() {\n"        //1
-        "    while (1) {}\n"    //2
+        "    while (true) {}\n" //2
         "    return 0;\n"       //3
         "}\n"                   //4
         "int main() {\n"        //5
@@ -375,7 +558,10 @@ void run_debugger_machine_tests()
     test_protocol_escape_roundtrip();
     test_machine_session_roundtrip();
     test_machine_bfunc_and_output();
+    test_machine_stdin_roundtrip();
+    test_machine_stdin_dispatch_while_parked();
     test_machine_frame_and_discipline();
+    test_machine_method_locals_show_this();
 }
 
 void run_debugger_loop_tests()

@@ -36,6 +36,26 @@ void IoPrint(NativeHost* h, uint8_t*, const uint8_t* a, int) {
     h->writeOutput(h, "\n");
 }
 
+// write: print's prompt-building counterpart — same bytes, no newline.
+// The host flushes each write, so the prompt reaches the reader before
+// readLine blocks on it.
+void IoWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    (void)ret;
+    const std::string text = ArgString(h, a, 0);
+    h->writeOutput(h, text.c_str());
+}
+
+// eprint: print's diagnostic twin. The host routes the bytes to stderr
+// in console mode and to the session's merged output view under a host;
+// the newline mirrors print's shape.
+void IoEprint(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    (void)ret;
+    const std::string text = ArgString(h, a, 0);
+    //Two calls, not one concatenation: same bytes, no temp alloc.
+    h->writeError(h, text.c_str());
+    h->writeError(h, "\n");
+}
+
 // readLine: delegate to the host (it owns stdin and the session policy).
 void IoReadLine(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
     const char* line = h->readLine(h);
@@ -99,6 +119,8 @@ void IoAppendFile(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 // Module entry point.
 NLANG_DEFINE_NATIVE_INIT {
     reg(registry, "io", "print",      &IoPrint);
+    reg(registry, "io", "write",      &IoWrite);
+    reg(registry, "io", "eprint",     &IoEprint);
     reg(registry, "io", "readLine",   &IoReadLine);
     reg(registry, "io", "readFile",   &IoReadFile);
     reg(registry, "io", "writeFile",  &IoWriteFile);

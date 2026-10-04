@@ -1,0 +1,6 @@
+//0.7.5 char escapes: a lone surrogate is not a Unicode scalar value —
+//the lexer rejects '\ud800' outright.
+int main() {
+    char c = '\ud800';
+    return 0;
+}

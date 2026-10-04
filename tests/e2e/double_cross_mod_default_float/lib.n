@@ -1,0 +1,9 @@
+//0.7.5: a promoted constant default crosses the module boundary — the
+//double literal 0.5 rides the DefaultValueDesc double channel, and the
+//consumer's fill normalizes the staged slot to the float formal's kind
+//(EmitScalarSlotCast in EmitBinding). Before the normalize the double's
+//low bytes reached the callee as the float's bits.
+int probe(float x = 0.5) {
+    if (x == 0.5f) { return 33; }
+    return 0;
+}

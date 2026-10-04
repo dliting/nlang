@@ -264,6 +264,7 @@ static void test_param_binding_matrix()
 int main()
 {
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();
     if (!primitiveHost().ok)
     {
         std::cerr << "FAIL: primitive host build did not succeed\n";

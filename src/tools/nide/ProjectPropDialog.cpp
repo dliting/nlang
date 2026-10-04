@@ -60,10 +60,14 @@ QString ProjectPropDialog::validateProjectInput(
     return QString();
 }
 
-void ProjectPropDialog::applyProjectFields(ProjectNode* project) {
-    project->setOutputDir(m_ui->edtOutputDir->text());
-    project->setIntermediateDir(m_ui->edtIntermediateDir->text());
-    project->setImportPaths(m_pathEditor->paths());
+//The form's mutable properties, shared by create and edit (the
+//identity fields name/dir are create-only). 0.7.5 adds the project's
+//warning-suppression opt-in to the family.
+void ProjectPropDialog::applyProjectFields(ProjectNode& project) const {
+    project.setOutputDir(m_ui->edtOutputDir->text());
+    project.setIntermediateDir(m_ui->edtIntermediateDir->text());
+    project.setImportPaths(m_pathEditor->paths());
+    project.setNoWarn(m_ui->chkNoWarn->isChecked());
 }
 
 ProjectNode* ProjectPropDialog::tryCreateProject(SolutionNode& solution) {
@@ -98,7 +102,7 @@ ProjectNode* ProjectPropDialog::tryCreateProject(SolutionNode& solution) {
         return nullptr;
     }
 
-    applyProjectFields(project);
+    applyProjectFields(*project);
     return project;
 }
 
@@ -107,9 +111,7 @@ bool ProjectPropDialog::editProject(ProjectNode& project) {
     if (exec() != QDialog::Accepted)
         return false;
 
-    project.setOutputDir(m_ui->edtOutputDir->text());
-    project.setIntermediateDir(m_ui->edtIntermediateDir->text());
-    project.setImportPaths(m_pathEditor->paths());
+    applyProjectFields(project);
     return true;
 }
 
@@ -154,6 +156,7 @@ void ProjectPropDialog::initForCreate() {
     m_ui->edtOutputDir->setText("");
     m_ui->edtIntermediateDir->setText("");
     m_pathEditor->setPaths({});
+    m_ui->chkNoWarn->setChecked(false);
 }
 
 void ProjectPropDialog::initForEdit(const ProjectNode& project) {
@@ -168,6 +171,7 @@ void ProjectPropDialog::initForEdit(const ProjectNode& project) {
         importPaths.append(project.importPathAt(i));
     m_pathEditor->setPaths(importPaths);
 
+    m_ui->chkNoWarn->setChecked(project.noWarn());
     //A saved project cannot be renamed or relocated from here -- the
     //solution reference and the file location belong together.
     m_ui->edtProjectName->setReadOnly(true);

@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -17,20 +18,17 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Cast arm: primitive → Object implicit boxing — OP_Box with the source's
 //type tag so the VM knows what to wrap.
 void VmBackend::EmitCastBoxOp(SnCastExpr& cast, BytecodeEmitter& emitter,
                               uint16_t resultOffset) {
+    //0.7.5: registry-driven tag (string/enum/int32-carrier/scalar rows).
+    //0xFF would mean a non-boxable kind reached boxing — the executor
+    //raises a named error on it rather than boxing garbage.
     auto* sourceType = cast.Source()->EvalDataType();
-    uint8_t typeTag = RTK_Int32;
-    if (sourceType) {
-        NodeKind srcKind = sourceType->Kind();
-        if (srcKind == NK_Float) typeTag = RTK_Float;
-        else if (srcKind == NK_String) typeTag = RTK_String;
-        else typeTag = RTK_Int32;
-    }
+    uint8_t typeTag = sourceType ? BoxTypeTagOfKind(sourceType->Kind())
+                                 : RTK_Int32;
     EmitPResultRefresh(emitter, resultOffset);
     emitter.Emit(OpCode::OP_Box);
     emitter.EmitByte(typeTag);
@@ -131,7 +129,7 @@ bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset) {
     //Enum → string MUST be checked before collapsing enum to int below,
-    //otherwise OP_Int32_to_str would fire and produce a numeric string
+    //otherwise OP_Prim_to_str would fire and produce a numeric string
     //instead of the value name.
     if (dstKind == NK_String) {
         if (EmitCastEnumToString(cast, srcKind, sourceType, emitter,
@@ -169,30 +167,25 @@ bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
 }
 
 //Cast arm: numeric and primitive→string conversions after the enum
-//kinds have collapsed to int (Phase 8e-9a: int/float → string coercion).
+//kinds have collapsed to int. 0.7.5: both shapes ride the
+//kind-immediate family — OP_PrimCast for EVERY scalar pair the
+//resolver lets through implicitly (the int32↔float special case
+//generalized: CommonNumericType widenings like int32→long and
+//constant-fit narrowings like int32→byte land here too), OP_Prim_to_str
+//for the →string coercion.
 void VmBackend::EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
-    if (srcKind == NK_Int32 && dstKind == NK_Float) {
+    if (dstKind == NK_String) {
+        //Phase 8e-9a: scalar → string coercion for `int + string` etc.
         EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_CastIntToFloat);
+        EmitPrimToStr(emitter, srcKind);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
-    } else if (srcKind == NK_Float && dstKind == NK_Int32) {
+    } else if (ScalarPrimIndexOf(srcKind) >= 0
+        && ScalarPrimIndexOf(dstKind) >= 0) {
         EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_CastFloatToInt);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    } else if (srcKind == NK_Int32 && dstKind == NK_String) {
-        //Phase 8e-9a: int → string coercion for `int + string` etc.
-        EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_Int32_to_str);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    } else if (srcKind == NK_Float && dstKind == NK_String) {
-        //Phase 8e-9a: float → string coercion.
-        EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_Float_to_str);
+        EmitPrimCast(emitter, srcKind, dstKind);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
     }
@@ -240,14 +233,10 @@ void VmBackend::EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                             uint16_t resultOffset) {
     if (asExpr.ContainFlags(NF_NullLiteral))
         return;
+    //0.7.5: registry-driven tag (see EmitCastBoxOp).
     auto* sourceType = asExpr.Operand()->EvalDataType();
-    uint8_t typeTag = RTK_Int32;
-    if (sourceType) {
-        NodeKind srcKind = sourceType->Kind();
-        if (srcKind == NK_Float) typeTag = RTK_Float;
-        else if (srcKind == NK_String) typeTag = RTK_String;
-        else typeTag = RTK_Int32;
-    }
+    uint8_t typeTag = sourceType ? BoxTypeTagOfKind(sourceType->Kind())
+                                 : RTK_Int32;
     EmitPResultRefresh(emitter, resultOffset);
     emitter.Emit(OpCode::OP_Box);
     emitter.EmitByte(typeTag);
@@ -258,14 +247,10 @@ void VmBackend::EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
 //As arm: TCK_Unbox — target type is primitive, derive RTK_* from target.
 void VmBackend::EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                               uint16_t resultOffset) {
+    //0.7.5: registry-driven tag (see EmitCastBoxOp).
     auto* targetType = asExpr.ResolvedTarget();
-    uint8_t typeTag = RTK_Int32;
-    if (targetType) {
-        NodeKind tgtKind = targetType->Kind();
-        if (tgtKind == NK_Float) typeTag = RTK_Float;
-        else if (tgtKind == NK_String) typeTag = RTK_String;
-        else typeTag = RTK_Int32;
-    }
+    uint8_t typeTag = targetType ? BoxTypeTagOfKind(targetType->Kind())
+                                 : RTK_Int32;
     EmitPResultRefresh(emitter, resultOffset);
     emitter.Emit(OpCode::OP_Unbox);
     emitter.EmitByte(typeTag);
@@ -290,6 +275,29 @@ void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
+//As arm: TCK_Explicit — 0.7.5 narrowing scalar conversion via the
+//kind-immediate OP_PrimCast (C# unchecked semantics: truncation for
+//float→int, wrap for wide→narrow integers). Only scalar pairs whose
+//cast-table cell is non-null reach codegen; bool is excluded by the
+//table itself. False = operand/target are not both scalars (the
+//caller falls through to the invariant throw).
+bool VmBackend::EmitAsExplicitNarrowOp(SnAsExpr& asExpr,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset) {
+    auto* srcType = asExpr.Operand()->EvalDataType();
+    auto* tgtType = asExpr.ResolvedTarget();
+    if (!srcType || !tgtType
+        || ScalarPrimIndexOf(srcType->Kind()) < 0
+        || ScalarPrimIndexOf(tgtType->Kind()) < 0) {
+        return false;
+    }
+    EmitPResultRefresh(emitter, resultOffset);
+    EmitPrimCast(emitter, srcType->Kind(), tgtType->Kind());
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    return true;
+}
+
 //As arm: `f as string` — the one resolver-approved TCK_Auto form.
 //Returns true when OP_Func_to_str was emitted.
 bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
@@ -308,7 +316,8 @@ bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
 
     //Phase 8e-1.5: `expr as T` runtime-checked cast.
     //Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
-    //(Object→primitive), TCK_Downcast (ancestor→subclass).
+    //(Object→primitive), TCK_Downcast (ancestor→subclass), TCK_Explicit
+    //(0.7.5 narrowing scalar conversion, e.g. float→int).
 void VmBackend::Access(SnAsExpr& expr) {
     //No `NodeKind kind` snapshot: this body's only `kind` is its own
     //TypeCastKind local below (the pre-refactor branch shadowed the chain
@@ -337,13 +346,19 @@ void VmBackend::Access(SnAsExpr& expr) {
             EmitAsDowncastOp(asExpr, emitter, resultOffset);
             return;
         }
+        if (kind == TCK_Explicit) {
+            if (EmitAsExplicitNarrowOp(asExpr, emitter, resultOffset))
+                return;
+            //Uncovered kind pair — fall through to the invariant throw.
+        }
         //Phase 13: `f as string` is the one resolver-approved TCK_Auto
         //`as` form — function handles render as "func <name>".
         if (kind == TCK_Auto) {
             if (EmitAsFuncToString(asExpr, emitter, resultOffset))
                 return;
         }
-        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None) are rejected by
+        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None, and TCK_Explicit
+        //pairs outside the transitional opcode coverage) are rejected by
         //ExprResolver.Access(SnAsExpr&) before codegen — reaching here is
         //an internal invariant break. Round-13: this used to silently
         //return, leaving resultOffset unwritten (stale/garbage value).
@@ -398,7 +413,7 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
     //arg0 = index (box primitive Dict keys).
-    uint16_t keyOffset = claimBase + VALUE_SIZE;
+    uint16_t keyOffset = claimBase + kFrameSlotBytes;
     EmitExpression(*sub.Index(), emitter, keyOffset);
     if (keyBox.isPrimitive) {
         EmitPResultRefresh(emitter, keyOffset);
@@ -411,10 +426,10 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
     //preserve tagged representations).
     for (uint16_t i = 0; i < 2; ++i) {
         emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(
-            m_currFunc->callParamBase + i * VALUE_SIZE);
+            m_currFunc->callParamBase + i * kFrameSlotBytes);
     }
     uint16_t nameIdx = AddStringConstant("get");
     emitter.Emit(OpCode::OP_CallMethod);
@@ -434,6 +449,12 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
+        //0.7.5 string subscript: byte read on a string base.
+        if (sub.Array()->IsResolved() && sub.Array()->EvalDataType()
+            && sub.Array()->EvalDataType()->Kind() == NK_String) {
+            EmitStringByteAt(sub, emitter, resultOffset);
+            return;
+        }
         //List<T>/Dict<K,V> subscript sugar: li[i] == li.get(i),
         //d[k] == d.get(k). Dispatch on the base's resolved type being a
         //generic instantiation (arrays take the OP_LoadElement path below).
@@ -455,7 +476,7 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
         EmitExpression(*sub.Array(), emitter, claimBase);
         emitter.Emit(OpCode::OP_NullCheck);
         emitter.EmitUint16(claimBase);
-        uint16_t indexSlot = claimBase + VALUE_SIZE;
+        uint16_t indexSlot = claimBase + kFrameSlotBytes;
         EmitExpression(*sub.Index(), emitter, indexSlot);
         emitter.Emit(OpCode::OP_LoadElement);
         emitter.EmitUint16(resultOffset);

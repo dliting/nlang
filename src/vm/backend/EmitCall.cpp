@@ -4,16 +4,16 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/langservice/SymbolIndex.h>
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Several opcodes read the pResult accumulator (OP_Box/OP_Unbox,
-//OP_CastIntToFloat/OP_CastFloatToInt, OP_Int32_to_str/OP_Float_to_str).
+//OP_PrimCast/OP_Prim_to_str).
 //EmitExpression only leaves the value in pResult when the source's final
 //opcode writes the accumulator (var_local, consts, calls); locals-writing
 //sources (binary arithmetic, field/element loads) leave it stale — the
@@ -32,7 +32,6 @@ void VmBackend::EmitCompoundOp(int opInt,
         BytecodeEmitter& emitter, uint16_t dst, uint16_t src,
         SnField* lhsType) {
     auto op = static_cast<SnBinaryExpr::Operator>(opInt);
-    bool isFloat = lhsType && lhsType->Kind() == NK_Float;
     bool isString = lhsType && lhsType->Kind() == NK_String;
 
     //String only supports += (concat). All other ops are invalid.
@@ -48,30 +47,34 @@ void VmBackend::EmitCompoundOp(int opInt,
 
     OpCode opc;
     switch (op) {
-    case SnBinaryExpr::OP_Add: opc = isFloat ? OpCode::OP_Add_f32 : OpCode::OP_Add_i32; break;
-    case SnBinaryExpr::OP_Sub: opc = isFloat ? OpCode::OP_Sub_f32 : OpCode::OP_Sub_i32; break;
-    case SnBinaryExpr::OP_Mul: opc = isFloat ? OpCode::OP_Mul_f32 : OpCode::OP_Mul_i32; break;
-    case SnBinaryExpr::OP_Div: opc = isFloat ? OpCode::OP_Div_f32 : OpCode::OP_Div_i32; break;
-    case SnBinaryExpr::OP_Mod: opc = OpCode::OP_Mod_i32; break;
+    case SnBinaryExpr::OP_Add: opc = OpCode::OP_Add; break;
+    case SnBinaryExpr::OP_Sub: opc = OpCode::OP_Sub; break;
+    case SnBinaryExpr::OP_Mul: opc = OpCode::OP_Mul; break;
+    case SnBinaryExpr::OP_Div: opc = OpCode::OP_Div; break;
+    case SnBinaryExpr::OP_Mod: opc = OpCode::OP_Mod; break;
     default: return;  //not an arithmetic op
     }
-    emitter.Emit(opc);
-    emitter.EmitUint16(dst);
-    emitter.EmitUint16(src);
+    //0.7.5: kind-immediate family — compound assigns carry the LHS
+    //type's kind (enum≡int32 normalized). Every numeric kind rides the
+    //same tables as the binary operator, % included (ModInt template
+    //covers the 8/16/64-bit integer rows, ModFloat is fmod).
+    NodeKind numKind = BinNumericKindOf(
+        lhsType ? lhsType->Kind() : NK_Int32);
+    EmitBinOp(emitter, opc, numKind, dst, src);
 }
 
-//Bulk-copy evalArea claim → callParamBase just before the call.
-//OP_VarLocal reads from claimBase+i*4, OP_Assign writes to
-//callParamBase+i*4. This preserves any tagged Value representation
-//(boxed heap idx, string handle, etc.) since both opcodes copy
-//4 raw bytes. Used by EmitCallArgs.
+//Bulk-copy evalArea claim to callParamBase just before the call.
+//OP_VarLocal reads from claimBase+i*kFrameSlotBytes, OP_Assign writes
+//to callParamBase+i*kFrameSlotBytes. This preserves any tagged Value
+//representation (boxed heap idx, string handle, etc.) since both
+//opcodes copy the whole uniform frame cell. Used by EmitCallArgs.
 void VmBackend::CopyClaimToCallParams(uint16_t claimBase, uint16_t slotCount,
                                       BytecodeEmitter& emitter) {
     for (uint16_t i = 0; i < slotCount; ++i) {
         emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
         emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+        emitter.EmitUint16(m_currFunc->callParamBase + i * kFrameSlotBytes);
     }
 }
 
@@ -86,6 +89,39 @@ void VmBackend::EmitStructDeepCopy(uint16_t dst, uint16_t src,
     emitter.EmitUint16(static_cast<uint16_t>(StructSlotFor(structDecl)));
 }
 
+//B_Default arm of EmitBinding: emit the default expression under the
+//earlier-formals override scope, then normalize the staged slot. The
+//default expression carries its own literal kind (an unsuffixed float
+//default is double since the 0.7.5 literal tiering; `float x = 0.5`
+//passed the declaration gate via constant-fit) — the in-place
+//PrimCast re-stages it at the FORMAL's kind so the callee reads the
+//declared width. Caller-expr args never land here — they convert via
+//FixupParamTypesWithBindings at the call site.
+void VmBackend::EmitDefaultBinding(const FormalBinding* pBindings,
+                                     size_t bindingIdx, uint16_t slotIdx,
+                                     size_t slotBase, uint16_t base,
+                                     uint16_t paramOffset,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t thisSlot)
+{
+    const auto& b = pBindings[bindingIdx];
+    assert(b.pFormal && b.pFormal->Value());
+    OverrideScope scope(*this);
+    for (size_t j = 0; j < bindingIdx; ++j) {
+        scope.Add(pBindings[j].pFormal->Name(),
+                  base + (static_cast<uint16_t>(j + slotBase)) * kFrameSlotBytes);
+    }
+    if (thisSlot != UINT16_MAX) {
+        scope.BindThis(thisSlot);
+    }
+    EmitExpression(*b.pFormal->Value(), emitter, paramOffset);
+    auto* pFormalType = b.pFormal->EvalDataType();
+    auto* pDefaultType = b.pFormal->Value()->EvalDataType();
+    if (pFormalType && pDefaultType)
+        EmitScalarSlotCast(pDefaultType->Kind(), pFormalType->Kind(),
+                           paramOffset, emitter);
+}
+
 void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                               uint16_t slotIdx, size_t slotBase,
                               BytecodeEmitter& emitter, uint16_t thisSlot,
@@ -96,19 +132,12 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     //EmitCallArgs (the only caller). Bindings emit into the claim slice;
     //a bulk-copy loop in EmitCallArgs then moves them to callParamBase.
     uint16_t base = claimBase;
-    uint16_t paramOffset = base + slotIdx * VALUE_SIZE;
+    uint16_t paramOffset = base + slotIdx * kFrameSlotBytes;
+    auto* pFormalType = b.pFormal->EvalDataType();
 
     if (b.kind == FormalBinding::B_Default) {
-        assert(b.pFormal && b.pFormal->Value());
-        OverrideScope scope(*this);
-        for (size_t j = 0; j < bindingIdx; ++j) {
-            scope.Add(pBindings[j].pFormal->Name(),
-                      base + (static_cast<uint16_t>(j + slotBase)) * VALUE_SIZE);
-        }
-        if (thisSlot != UINT16_MAX) {
-            scope.BindThis(thisSlot);
-        }
-        EmitExpression(*b.pFormal->Value(), emitter, paramOffset);
+        EmitDefaultBinding(pBindings, bindingIdx, slotIdx, slotBase, base,
+                           paramOffset, emitter, thisSlot);
     } else {
         assert(b.pCallerExpr);
         EmitExpression(*b.pCallerExpr, emitter, paramOffset);
@@ -120,7 +149,6 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     //RuntimeTypeKind files as RTK_Array — so arrays pass by reference
     //regardless of element kind, with no separate IsArrayType guard
     //(Phase 9d-3 dispatch invariant, now derived from the token).
-    auto* pFormalType = b.pFormal->EvalDataType();
     if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct
         && pFormalType->Kind() == NK_StructDecl) {
         EmitStructDeepCopy(m_currFunc->tempSlot, paramOffset,
@@ -138,7 +166,7 @@ void VmBackend::EmitOutSpills(const std::vector<OutSpill>& spills,
     for (const auto& s : spills) {
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(m_currFunc->callParamBase
-                           + s.slotIdx * VALUE_SIZE);
+                           + s.slotIdx * kFrameSlotBytes);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(s.localOffset);
     }
@@ -164,7 +192,7 @@ void VmBackend::ApplyArgBoxPlan(uint16_t slotIdx, uint16_t claimBase,
     if (!pArgPlans) return;
     auto it = pArgPlans->find(slotIdx);
     if (it == pArgPlans->end() || !it->second.needsBox) return;
-    uint16_t paramOffset = claimBase + slotIdx * VALUE_SIZE;
+    uint16_t paramOffset = claimBase + slotIdx * kFrameSlotBytes;
     EmitPResultRefresh(emitter, paramOffset);
     emitter.Emit(OpCode::OP_Box);
     emitter.EmitByte(it->second.tag);
@@ -214,7 +242,7 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
                     "NLang backend: out argument is not a local variable");
             pOutSpills->push_back({paramIdx, target.localOffset});
         } else {
-            uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+            uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
             EmitExpression(param, emitter, paramOffset);
             applyBox(paramIdx);
         }
@@ -229,7 +257,7 @@ void VmBackend::EmitLegacyPositionalArgs(const SnInvokeExpr& invoke,
     //Legacy path: caller didn't go through Phase 9c resolver.
     uint16_t paramIdx = static_cast<uint16_t>(slotBase);
     for (auto& param : invoke.Params()) {
-        uint16_t paramOffset = claimBase + paramIdx * VALUE_SIZE;
+        uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
         EmitExpression(param, emitter, paramOffset);
         applyBox(paramIdx);
         ++paramIdx;

@@ -29,7 +29,7 @@ reads commands from stdin one per line; stdin EOF behaves like `q`.
 | `f` | finish | Step out of the current function |
 | `bt` | backtrace | Call stack |
 | `frame <n>` | — | Select a frame |
-| `info locals` | info | Locals of the selected frame (hidden names filtered) |
+| `info locals` | info | Locals of the selected frame (synthesized names filtered; the receiver shows as `this`) |
 | `p <name>` | print | Print one local |
 | `l [line]` | list | Source window (current line marked `->`) |
 | `x` | — | Disassembly of the selected frame (current instruction marked `>>`) |

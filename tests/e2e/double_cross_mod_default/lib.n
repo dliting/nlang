@@ -1,0 +1,5 @@
+// 0.7.5: cross-module double default parameter — the DefaultValueDesc
+// double channel carries the value through .nmod serialization.
+double scale(double base, double factor = 2.5) {
+    return base * factor;
+}

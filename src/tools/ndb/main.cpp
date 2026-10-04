@@ -9,6 +9,7 @@
 #include "CrashReporter.h"
 #include "nlang/common/LibrarySearchPath.h"
 #include "nlang/langservice/SymbolIndex.h"
+#include <nlang/runtime/Runtime.h>
 #ifdef _WIN32
 #include <windows.h>  //SetErrorMode/ExitProcess (was transitive via CrashReporter.h)
 #endif
@@ -169,7 +170,17 @@ int main(int argc, char* argv[]) {
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     nlang::InstallCrashReporter("ndb");
+    //Console UTF-8 — see ncc's main for the rationale (manifest code
+    //page + console rendering companion). In --machine mode stdin/
+    //stdout are pipes, so these are no-ops there.
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 #endif
+
+    //0.7.5: OP_Prim_to_str formats scalars through the Rn builtin type
+    //singletons, whose construction needs the IdString tables — same
+    //Runtime::StaticInit requirement nvm gained this release.
+    Runtime::StaticInit();
 
     if (machine) {
         const int code = RunMachine(argv[moduleIndex], cliDirs);

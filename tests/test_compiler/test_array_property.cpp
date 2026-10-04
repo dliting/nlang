@@ -13,6 +13,7 @@ the old shape-inference predicate computed post hoc.
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SyntaxNode.h>
 #include <nlang/vm/CompiledModule.h>
@@ -87,7 +88,10 @@ CompileOutcome compileOne(const char* szBody)
     out.params->m_sTempDir = dir.string();
     out.logger = std::make_unique<MemLogger>();
     out.builder = std::make_unique<ModuleBuilder>(*out.params, *out.logger);
-    try { out.ok = !out.builder->BuildUnitImages().units.empty(); }
+    //BuildArtifacts (production path): writes the entry-unit .ncu the
+    //execute paths below load — BuildUnitImages writes nothing, so a
+    //load-after-build would silently pick up a stale temp-dir module.
+    try { out.ok = out.builder->BuildArtifacts(); }
     catch (const std::exception&) { out.ok = false; }
     return out;
 }
@@ -127,8 +131,11 @@ class TestArrayProperty : public QObject
 {
     Q_OBJECT
 private slots:
-    //Runtime tables (IdString etc.) must exist before any build.
-    void initTestCase() { Runtime::StaticInit(); }
+    //Runtime tables (IdString etc.) must exist before any Build().
+    void initTestCase() {
+        Runtime::StaticInit();
+        TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
+    }
 
     void identifierAndMemberShapes();
     void valueShapes();

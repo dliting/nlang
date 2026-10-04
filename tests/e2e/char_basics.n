@@ -1,0 +1,16 @@
+//0.7.5 char: literals (multi-byte UTF-8 in quotes), char x char
+//relational compare by code point, ==/!= between chars. Prints "true"
+//('a' < 'b'); exit 0 pins every gate.
+import io;
+int main() {
+    char c = '中';
+    char a = 'a';
+    char b = 'b';
+    if (!(a < b)) { return 1; }        // code-point order
+    if (b <= a) { return 2; }
+    if (a != 'a') { return 3; }
+    if (c != '中') { return 4; }
+    if (!('a' < '中')) { return 5; }   // U+0061 < U+4E2D
+    io.print(a < b);                   // true
+    return 0;
+}

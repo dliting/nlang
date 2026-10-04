@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.8] - Unreleased
+## [0.7.9] - Unreleased
 
 ### Added
 - Packages: a `.n` file's package is its path relative to the matched
@@ -43,6 +43,29 @@ All notable changes to NLang are documented here. The format follows
   bare keys), per-category import-slot tables record the referenced
   external symbols, and the entry point is stored by qualified name.
   The loader refuses every v1.x image outright; recompile.
+- io: `io.write` — prints to stdout without a trailing newline (the
+  prompt half of interactive programs), and `io.eprint` — prints to
+  stderr. `io.print` is unchanged.
+- VM: `IHostIo::ReadInputLine` — the host I/O seam now carries program
+  input, not just output: an installed host can supply whole lines to
+  `io.readLine` (blocking is allowed); a host that does not override
+  it still answers no-input, which makes readLine raise a catchable
+  IOException (unchanged since 0.7.5). With no host installed (nvm,
+  ncc, the CLI front ends) the console behavior is unchanged.
+- ndb `--machine` mode: a `stdin<TAB><payload>` data command delivers
+  one program input line over the protocol channel. It is recognized
+  on the raw wire (payload spaces survive), accepted at every read
+  site — queued as type-ahead before `run`, queued without breaking a
+  frozen stop, consumed live while the program is parked in
+  `io.readLine` — and never answers; the program's next read is the
+  response. EOF on the channel still ends the session.
+- nide: the Run Output page gains a program-input row. While a run
+  child or a debug session is live, a typed line (Enter or the Send
+  button) is delivered to the program's next `io.readLine` — to the
+  child's stdin for Run, over the machine channel for a debug session
+  — and echoes into the output with a `>` prefix. The row is grayed
+  out when nothing is live. Debug sessions no longer reject
+  interactive input programs.
 
 ### Changed
 - Language: the `namespace` keyword is removed — the wrapper syntax,
@@ -53,10 +76,12 @@ All notable changes to NLang are documented here. The format follows
   never-read namespace field along with the `.nproj` attribute.
 - Debugger/tooling spelling: function keys are qualified everywhere —
   breakpoints take `b main.main`, backtraces print `at main.main`,
-  `ndisasm -func` filters by the qualified key, and function values /
-  object `toString()` render the qualified key. Cross-program object
-  streams store the qualified class key (programs must agree on the
-  package layout).
+  `ndisasm -func` filters by the qualified key, and function values
+  render the qualified key. Type names inside value renders — an
+  object's default `toString()` (`Point@1a2b`) and the debugger's value
+  display (`Point{x=2, y=5}`) — use the leaf of the qualified key, the
+  name as source wrote it. Cross-program object streams store the
+  qualified class key (programs must agree on the package layout).
 - Diagnostics: load-time failures surface as
   `Runtime error: nloader failed: ...`, reporting the missing module
   and every searched directory in one shot; link failures report in
@@ -66,6 +91,163 @@ All notable changes to NLang are documented here. The format follows
   ncc/nvm/ndb/ndisasm references, the running guide and FAQ, module
   serialization and the library-mechanism design note; README, examples
   and the issue template follow the new artifact names.
+
+
+## [0.7.6] - 2026-10-02
+
+### Fixed
+- nide debugger: clicking a row of the call-stack tree no longer
+  appends a duplicate frame to the list (the machine protocol's
+  `frame <n>` selection command echoed a `frame` event on every
+  variables-pane refresh; frame events now belong exclusively to `bt`
+  responses).
+- ndb `locals` now shows the receiver of a method frame as `this`
+  (expanded one level); before, a method frame's locals query came
+  back empty, which left nide's variables pane blank for those frames.
+- nide: the run-output and compile-output pages now decode program
+  and compiler output as UTF-8 (matching the debug page); they were
+  decoded with the local code page, which mojibaked every non-ASCII
+  output on a non-UTF-8 system locale.
+- Debugger locals now honor declaration scope: a local joins the
+  variables display only once the paused statement has reached its
+  declaration line — on the declaration line itself it shows the
+  default zero value (the gdb/IDE convention), and locals declared on
+  later lines stay hidden. Before, the whole flat frame was dumped,
+  so a local declared below the paused line showed up as a zero value
+  (a string read as `""`). Applies to ndb `info locals`, the machine
+  protocol, and nide's variables pane alike.
+- The four command-line tools (ncc/nvm/ndisasm/ndb) now run with
+  UTF-8 as the process active code page (declared in an embedded
+  manifest, Windows 10 1903+): non-ASCII command-line arguments and
+  paths work end to end. Before, a path character outside the system
+  code page (an emoji directory name on a GBK-locale system, say) was
+  destroyed during argv ingestion and the tool failed hard, and even
+  representable paths echoed as mojibake for UTF-8 readers (nide's
+  output pages).
+- `.n` source files and `.nproj` project files are now validated as
+  strict UTF-8 before tokenizing: invalid bytes are rejected with a
+  named error carrying the first invalid byte's line, and a UTF-16
+  save gets a dedicated hint. Before, a legacy-encoded source passed
+  silently (the wrong bytes ended up inside string constants), a
+  legacy-encoded `.nproj` passed silently or failed with mojibake
+  diagnostics (an `outputDir` in the wrong encoding even created a
+  mojibake-named directory), and a leading UTF-8 BOM corrupted the
+  first token — a BOM-prefixed `int main()...` even "compiled
+  successfully" to a module with no main function. The UTF-8 BOM is
+  now accepted and skipped, so the editors' "UTF-8 with BOM" save
+  form works, and line endings normalize to LF (CRLF pairs, and lone
+  CRs, alike).
+- nide: quitting (or closing the solution) no longer claims unsaved
+  changes when the user only opened a project. Opening a project with
+  no solution open auto-creates a solution wrapper, and the wrapper's
+  own bookkeeping used to count as "the solution or its projects have
+  unsaved changes" — a phantom save prompt at exit with zero user
+  modifications. The wrapper is now ephemeral scaffolding: it never
+  prompts on its own, saving it (Save Solution) promotes it to a
+  first-class solution whose changes prompt as before, and at close
+  or Save All only genuinely dirty projects are persisted, each to
+  its own `.nproj` — no `.nsln` name is demanded for scaffolding the
+  user never created. A project authored through the New Project
+  dialog still counts as unsaved from its creation (nothing reaches
+  the disk until it is saved), so closing keeps prompting for it.
+
+### Added
+- Manual: the char representation chain is documented end to end in
+  both trees (source files must be strict UTF-8, a leading UTF-8 BOM
+  accepted and skipped; a compiled char is
+  its plain 32-bit code point in a 4-byte slot — neither UTF-8 nor
+  UTF-16; UTF-8 appears on the string side and on the console, which
+  receives verbatim UTF-8 bytes — the tools switch the attached
+  console to UTF-8, so the default console renders it).
+
+### Changed
+- The four command-line tools switch the attached console to the
+  UTF-8 code page at startup (companion to the manifest above):
+  non-ASCII program output
+  renders in a default console without `chcp 65001`, and non-ASCII
+  `fs`/`io` paths and file names round-trip inside running programs.
+  Redirected output stays verbatim bytes.
+- `.nmod` format floor raised to v1.14 (a layout change): each local
+  descriptor in a function's locals block gains a two-byte declaration
+  PC, which the debug views use for the scope visibility above.
+  Modules from older toolchains are rejected and must be recompiled.
+
+## [0.7.5] - 2026-09-30
+
+### Added
+- The scalar primitive family is complete: twelve types — `byte`
+  `ubyte` `short` `ushort` `int` `uint` `long` `ulong` `float` `double`
+  `bool` `char` — over a single registry (RTK 10..19). Integer literals
+  tier by value range across the family (`5000000000` is a long),
+  constants must fit their declared target (`byte b = 1000` is a compile
+  error, `byte b = 5` is not), and mixed integer arithmetic promotes to
+  the minimal type that implicitly holds both operands (`int` + `uint`
+  is a long; `int` + `ulong` has no implicit common type and is a
+  compile error).
+- `char`: a Unicode scalar value with `'\uXXXX'` literals (BMP only;
+  adjacent surrogate escapes combine into one code point inside string
+  literals, and char literals reject the surrogate range). The string
+  bridge: byte access `s[i]` returning `ubyte`, code-point iteration
+  `foreach (char c in s)`, and the `charAt`/`charCount`/`toChar` method
+  family.
+- Strict bool: comparisons and library predicates return `bool`; the
+  five condition positions (`if`/`while`/`do-while`/`for`/`assert`) and
+  the operands of `&&`/`||`/`!` accept bool only (`if (count)` must
+  become `if (count != 0)`). `equals` deliberately stays int 0/1 as a
+  user-overridable protocol, so its result needs `!= 0` in conditions.
+- Lossy implicit conversions now warn (`implicit conversion from 'Long'
+  to 'Float' loses precision`), with constants that are exactly
+  representable exempt; `ncc --no-warn` suppresses warnings, and an
+  explicit `as` never warns.
+- Streams: 64-bit primitives `writeLong`/`readLong` and
+  `writeDouble`/`readDouble` on `ByteStream` and `FileStream`, with
+  scalar arguments checked per the conversion matrix (narrower integers
+  and `float` widen implicitly; `ulong` needs `as long`).
+- `io.print` accepts every scalar primitive (in addition to string and
+  arrays); to-string rendering for all scalars goes through one
+  generalized `OP_Prim_to_str <kind>`, with doubles printed in
+  shortest round-trip form.
+- nide: two-level compiler options — warning suppression globally under
+  Tools → Options, with a per-project override in the project
+  properties.
+- ndb: locals render in type-aware form (char as `'中' (U+4E2D)`, bool
+  as `true`/`false`, narrow and 64-bit integers decimally); ndisasm and
+  the shared disassembler name scalar wire kinds
+  (`i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/char`).
+
+### Changed
+- Breaking: `long`, `ulong` and `double` are reserved words (they were
+  valid identifiers before).
+- Unsuffixed decimal literals are `double` (`1.5f` stays `float`), and
+  exponent literals are double; integer targets never accept float
+  constants (`int x = 2e5` is a compile error).
+- Numeric literals no longer carry a leading sign: `-5` is unary minus
+  applied to the literal `5` (constant-fit still covers negated
+  literals).
+- Narrowing assignments (`float`→`int`, `double`→`float`, wider→narrower
+  integers) are compile errors unless written with `as`; `as` performs
+  exactly the conversions the implicit matrix does not admit.
+- The math floating-point family runs at double precision (`floor`/
+  `ceil`/`round` return `long`; integer and `float` arguments widen
+  implicitly).
+- Overload resolution ranks scalar conversion distance by type category
+  and rank: a narrow integer argument now prefers an `int` formal over a
+  `float` or `string` formal.
+- The 0.7.3 string-subscript compile-time rejection is rescinded: `s[i]`
+  is byte access returning `ubyte`; out of range throws at runtime.
+- `.nmod` format v1.13: the scalar kind code space expands in local and
+  field kind bytes, type descriptors, and boxing tags; numeric
+  instructions emit as kind-immediate generic families dispatched
+  through function-pointer tables. The loader rejects minor < 13 —
+  older modules must be recompiled.
+
+### Fixed
+- Negative enum member values (`enum E { A = -1 }`) are an explicit
+  compile rejection; they hung the compiler outright before.
+
+## [0.7.4] - 2026-09-27
+
+### Added
 - Source-size regression guard (`tools/source_size_guard`): hand-written
   source files stay <= 500 lines and function definitions <= 50 lines,
   with any exception registered alongside its reason; enforced as the
@@ -82,6 +264,10 @@ All notable changes to NLang are documented here. The format follows
   toolbar icon size and the project-properties dialog; the language
   overview page was renamed to match the project name
   (what-is-nlang).
+- Manual: the language-spec reference was decomposed into per-construct
+  pages — each type, statement, expression, and function feature now has
+  its own focused page, and the overview pages retain shared semantics and
+  link out to the per-construct pages.
 
 ### Changed
 - Internal: the oversized core sources were split into per-concern
@@ -115,6 +301,7 @@ All notable changes to NLang are documented here. The format follows
 - Manual: the Object virtual-method documentation now matches the
   implementation (`equals`/`getHashCode`), and a stray reference to a
   separate bool type was corrected.
+
 
 ## [0.7.3] - 2026-09-25
 

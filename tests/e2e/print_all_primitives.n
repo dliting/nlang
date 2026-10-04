@@ -1,0 +1,48 @@
+//0.7.5 Task 9: io.print accepts every primitive kind (registry-driven
+//admission + OP_Prim_to_str). One print per scalar family member; the
+//in-program toString assertions pin each FORM (print and toString
+//share the registry ValueToString path), and the manifest's third
+//column asserts the printed "true".
+import io;
+
+int main() {
+    bool          b  = true;
+    byte          by = -5;
+    ubyte         ub = 200;
+    short         sh = -300;
+    ushort        us = 60000;
+    int           i  = -42;
+    uint          ui = 4000000000;
+    long          l  = 5000000000;
+    ulong         ul = 18446744073709551615;
+    float         f  = 1.5f;
+    double        d  = 0.125;
+    char          c  = 'Z';
+    //Unsigned members must print as unsigned (not sign-flipped) and
+    //bool as the words, not 0/1.
+    if (b.toString()  != "true")                        { return 1; }
+    if (ub.toString() != "200")                         { return 2; }
+    if (us.toString() != "60000")                       { return 3; }
+    if (ui.toString() != "4000000000")                  { return 4; }
+    if (ul.toString() != "18446744073709551615")        { return 5; }
+    if (l.toString()  != "5000000000")                  { return 6; }
+    if (f.toString()  != "1.5")                         { return 7; }
+    if (d.toString()  != "0.125")                       { return 8; }
+    if (c.toString()  != "Z")                           { return 9; }
+    if (by.toString() != "-5")                          { return 10; }
+    if (sh.toString() != "-300")                        { return 11; }
+    if (i.toString()  != "-42")                         { return 12; }
+    io.print(b);
+    io.print(by);
+    io.print(ub);
+    io.print(sh);
+    io.print(us);
+    io.print(i);
+    io.print(ui);
+    io.print(l);
+    io.print(ul);
+    io.print(f);
+    io.print(d);
+    io.print(c);
+    return 0;
+}

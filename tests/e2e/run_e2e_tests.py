@@ -10,7 +10,16 @@ For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
 the stderr of the module compile that failed).
+A <name>.stderr file next to the source asserts on the compile-phase
+stderr of a SUCCESSFULLY compiled single-file test (warning-behavior
+tests): the file's content is a substring ncc's diagnostics must
+contain; a leading '!' negates (must NOT contain). This exists because
+warnings are compile-time diagnostics invisible in the run's stdout —
+without it, warning tests cannot express their named contract.
 A <name>.stdin file next to the source is piped to the program's stdin.
+A <name>.run.stderr file likewise asserts on the RUN-phase stderr of a
+passing test (io.eprint's console target) — same substring and leading-'!'
+negation semantics as the compile-phase .stderr file.
 Also reads examples_manifest.txt (when present): entries resolve against
 ../../examples, their .ncu and scratch artifacts live under
 _examples_tmp/ (their run CWD), removed at end of run.
@@ -31,6 +40,9 @@ MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 TIMEOUT_SEC = 30
 PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
 PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
+#Per-test artifact dir for multi-module imports (see the directory-form
+#compile block): holds ONLY the earlier modules' .ncu files.
+IMPORTS_TMP = os.path.join(SCRIPT_DIR, '_imports_tmp')
 
 #Shipped examples (examples/) run through the same compile+run gate.
 #Entries resolve against EXAMPLES_DIR; their .ncu/stdin/scratch all
@@ -54,7 +66,8 @@ def _manifest_configs():
 def _needs_script_cwd(name):
     return (name.startswith('file_stream_') or name.startswith('fs_struct_')
             or name.startswith('fs_object_') or name.startswith('stdlib_io_')
-            or name.startswith('stdlib_fs_'))
+            or name.startswith('stdlib_fs_')
+            or name.startswith('stream_long_'))
 
 #Test name suffixes that mark intentional throw-tests. Tests ending in
 #these suffixes are excluded from the P3.7 hidden-throw detector: their
@@ -200,17 +213,35 @@ def main():
                     errors.append(f"  {name}: empty order.txt")
                     continue
 
-                #Compile each module in order. Each gets its own .ncu
-                #output into the test dir; -I points at the test dir so
-                #later modules can import earlier ones.
+                #Compile each module in order. Sealed layout: each
+                #module's source is staged into its own private dir
+                #and -I points at a per-test scratch dir holding ONLY
+                #the earlier modules' .ncu artifacts — imports resolve
+                #against compiled artifacts (the external-stub path),
+                #never against the sibling .n sources. Compiling from
+                #the test dir itself would let ncc's library source
+                #discovery inline the siblings, silently exercising
+                #source inlining instead of the package import model
+                #the cross-module tests exist to pin. Runtime is
+                #unaffected: nvm/ndb default their package search to
+                #the entry .ncu's own directory, where the sibling
+                #.ncu files still live.
+                imports_dir = os.path.join(IMPORTS_TMP, name)
+                if os.path.isdir(imports_dir):
+                    shutil.rmtree(imports_dir)
+                os.makedirs(imports_dir, exist_ok=True)
                 compile_ok = True
                 reject_stderr = ''  #diagnostics of the failed compile
                 for mod_name in modules:
-                    src = os.path.join(test_dir, f"{mod_name}.n")
-                    out = os.path.join(test_dir, f"{mod_name}.ncu")
+                    mod_dir = os.path.join(imports_dir, mod_name)
+                    os.makedirs(mod_dir, exist_ok=True)
+                    src = os.path.join(mod_dir, f"{mod_name}.n")
+                    shutil.copyfile(
+                        os.path.join(test_dir, f"{mod_name}.n"), src)
+                    out = os.path.join(imports_dir, f"{mod_name}.ncu")
                     try:
                         r = subprocess.run(
-                            [ncc, 'build', src, '-o', out, '-I', test_dir],
+                            [ncc, 'build', src, '-o', out, '-I', imports_dir],
                             capture_output=True, timeout=TIMEOUT_SEC)
                     except Exception as e:
                         print(f"FAIL {name} (compile error: {e})")
@@ -244,11 +275,6 @@ def main():
                             continue
                         print(f"PASS {name} (compile error as expected)")
                         passed += 1
-                        #Clean partial .ncu files
-                        for mn in modules:
-                            p = os.path.join(test_dir, f"{mn}.ncu")
-                            if os.path.isfile(p):
-                                os.remove(p)
                         continue
                     print(f"FAIL {name} (compilation failed)")
                     failed += 1
@@ -259,14 +285,11 @@ def main():
                     print(f"FAIL {name} (expected compile_error but compiled ok)")
                     failed += 1
                     errors.append(f"  {name}: expected compile_error, compiled")
-                    for mn in modules:
-                        p = os.path.join(test_dir, f"{mn}.ncu")
-                        if os.path.isfile(p):
-                            os.remove(p)
                     continue
 
-                #Run the last module
-                main_nmod = os.path.join(test_dir, f"{modules[-1]}.ncu")
+                #Run the last module (the artifacts dir's sibling .ncu
+                #files are found via the entry-dir search default)
+                main_nmod = os.path.join(imports_dir, f"{modules[-1]}.ncu")
                 #dbg_/dbgm_ prefixes: run under ndb instead of nvm,
                 #driving it with the <name>.stdin command script (ndb
                 #stops at the first statement, so it always needs input).
@@ -286,17 +309,7 @@ def main():
                     print(f"FAIL {name} (runtime error: {e})")
                     failed += 1
                     errors.append(f"  {name}: runtime error: {e}")
-                    for mn in modules:
-                        p = os.path.join(test_dir, f"{mn}.ncu")
-                        if os.path.isfile(p):
-                            os.remove(p)
                     continue
-
-                #Clean up .ncu files
-                for mn in modules:
-                    p = os.path.join(test_dir, f"{mn}.ncu")
-                    if os.path.isfile(p):
-                        os.remove(p)
 
                 if actual == expected:
                     #dbg_/dbgm_ tests: optional stdout-substring
@@ -335,10 +348,19 @@ def main():
                 os.makedirs(PHASE11_TMP, exist_ok=True)
 
             # Compile
+            #0.7.5: <name>.ncc.flags (if present) supplies extra ncc CLI
+            #flags (e.g. --no-warn) — same sibling-file discovery shape
+            #as .stdin/.flags.
+            ncc_flags_path = os.path.join(sources_dir, f"{name}.ncc.flags")
+            ncc_extra = []
+            if os.path.isfile(ncc_flags_path):
+                with open(ncc_flags_path, encoding='utf-8') as ff:
+                    ncc_extra = shlex.split(ff.read().strip(),
+                                            comments=True)
             nmod_file = os.path.join(out_dir, f"{name}.ncu")
             try:
                 compile_result = subprocess.run(
-                    [ncc, 'build', test_file, '-o', nmod_file],
+                    [ncc, 'build', test_file, '-o', nmod_file] + ncc_extra,
                     capture_output=True, timeout=TIMEOUT_SEC)
             except Exception as e:
                 print(f"FAIL {name} (compile error: {e})")
@@ -385,6 +407,30 @@ def main():
                 if os.path.isfile(nmod_file):
                     os.remove(nmod_file)
                 continue
+
+            #0.7.5: <name>.stderr asserts on the compile-phase stderr of a
+            #successfully compiled test (warning-behavior contract — see
+            #the module docstring). Applied AFTER the compile_error gates
+            #so rejection pinning (manifest column 3) keeps its own path.
+            stderr_expect_path = os.path.join(sources_dir, f"{name}.stderr")
+            if os.path.isfile(stderr_expect_path):
+                with open(stderr_expect_path, encoding='utf-8') as sf:
+                    want = sf.read().strip()
+                negate = want.startswith('!')
+                want = want.lstrip('!').strip()
+                got_stderr = (compile_result.stderr.decode(
+                    'utf-8', errors='replace')
+                    if compile_result.stderr else '')
+                if (want in got_stderr) == negate:
+                    print(f"FAIL {name} (stderr expectation mismatch)")
+                    failed += 1
+                    errors.append(
+                        f"  {name}: expected stderr "
+                        f"{'NOT containing' if negate else 'containing'} "
+                        f"{want!r}; stderr: {got_stderr[:300]}")
+                    if os.path.isfile(nmod_file):
+                        os.remove(nmod_file)
+                    continue
 
             # Run
             #Phase 8/11: file-path tests need CWD = tests/e2e/ so their
@@ -442,6 +488,25 @@ def main():
                         failed += 1
                         errors.append(f"  {name}: stdout missing {expected_stdout!r}")
                         continue
+                #0.7.7: <name>.run.stderr asserts on the run-phase stderr
+                #(io.eprint's console target — stdout assertions above
+                #cannot see it). Same shape and '!'-negation as the
+                #compile-phase .stderr file.
+                run_stderr_path = os.path.join(
+                    sources_dir, f"{name}.run.stderr")
+                if os.path.isfile(run_stderr_path):
+                    with open(run_stderr_path, encoding='utf-8') as sf:
+                        want = sf.read().strip()
+                    negate = want.startswith('!')
+                    want = want.lstrip('!').strip()
+                    if (want in stderr_text) == negate:
+                        print(f"FAIL {name} (run stderr expectation mismatch)")
+                        failed += 1
+                        errors.append(
+                            f"  {name}: expected run stderr "
+                            f"{'NOT containing' if negate else 'containing'} "
+                            f"{want!r}; stderr: {stderr_text[:300]}")
+                        continue
                 print(f"PASS {name} (exit={actual})")
                 passed += 1
                 #P3.7 hidden-throw detector: a test that "passes" only
@@ -467,6 +532,8 @@ def main():
         shutil.rmtree(PHASE8_TMP)
     if os.path.isdir(PHASE11_TMP):
         shutil.rmtree(PHASE11_TMP)
+    if os.path.isdir(IMPORTS_TMP):
+        shutil.rmtree(IMPORTS_TMP)
     if os.path.isdir(EXAMPLES_TMP):
         shutil.rmtree(EXAMPLES_TMP)
 

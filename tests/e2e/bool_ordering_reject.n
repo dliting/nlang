@@ -1,0 +1,6 @@
+// 0.7.5 strict bool: relational ordering on bool values has no
+// semantics and must be rejected at compile time.
+int main() {
+    if (true < false) { }
+    return 0;
+}

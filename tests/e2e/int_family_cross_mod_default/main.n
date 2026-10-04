@@ -1,0 +1,8 @@
+// 0.7.5 consumer: imported long default parameter round-trips.
+import io;
+import lib;
+
+int main() {
+    io.print(lib.dist(5));
+    return 0;
+}

@@ -31,7 +31,7 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 | `length`            | `int length()`     | int     | 当前元素数              |
 | `removeAt`          | `void removeAt(int i)` | —   | 擦除；后继元素前移  |
 | `indexOf`           | `int indexOf(T item)` | int | `item` 的首个索引，无则 -1       |
-| `contains`          | `int contains(T item)` | int | 存在为 1，否则 0               |
+| `contains`          | `bool contains(T item)` | bool | 存在为 true，否则 false               |
 | `clear`             | `void clear()`     | —       | 移除全部元素                |
 
 **类型检查**：编译器把 `List<int>`、`List<string>`、`List<Point>` 等
@@ -39,8 +39,8 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 `nums : List<int>` 时 `nums.add("wrong")` 是编译错误。
 
 **擦除运行期模型**：`List<int>` 与 `List<Point>` 在运行期共享同一个
-后备 class。元素统一以堆索引形式存入侧表；基本类型
-元素在调用点经 `OP_Box` 装箱。GC 把列表元素作为附加根追踪。
+后备 class。元素统一以堆索引形式存入侧表；标量基本类型元素（全部 12 个）
+在调用点经 `OP_Box` 装箱。GC 把列表元素作为附加根追踪。
 
 **数组类型实参**：`T` 可以是数组类型——`List<int[]>` 把 `int[]` 值
 作为裸的、GC 可追踪的句柄存储；上文的基本类型装箱规则不适用于
@@ -84,7 +84,7 @@ Dict<string,int> scores = new Dict<string,int>();
 scores.set("alice", 90);
 scores.set("bob",   85);
 int a = scores.get("alice");          // 90
-int hasBob = scores.containsKey("bob"); // 1
+bool hasBob = scores.containsKey("bob"); // true
 int n = scores.count();                 // 2
 
 Dict<int,int> squares = new Dict<int,int>();
@@ -101,7 +101,7 @@ int removed = squares.remove(4);        // 1
 |------------------|----------------------------|---------|------------------------------------------------|
 | `set`            | `void set(K key, V value)` | —       | 插入或替换（无重复键错误）     |
 | `get`            | `V get(K key)`             | V       | 查找；键不存在时**抛错**               |
-| `containsKey`    | `int containsKey(K key)`   | int     | 存在为 1，否则 0                      |
+| `containsKey`    | `bool containsKey(K key)`  | bool    | 存在为 true，否则 false                      |
 | `remove`         | `int remove(K key)`        | int     | 删除为 1，键未找到为 0               |
 | `clear`          | `void clear()`             | —       | 移除全部条目                             |
 | `count`          | `int count()`              | int     | 当前条目数                            |
@@ -115,8 +115,8 @@ class。条目以 `(K 堆索引, V 堆索引)` 对的形式存入侧表；基本
 条目的 K 与 V 作为附加根追踪。
 
 **键相等**是 kind 感知的：
-- 基本类型键（装箱 `int`、`float`）：比较值位（IEEE 754——
-  `NaN != NaN`，已记录在案的行为）。
+- 标量基本类型键（装箱整型家族、`float`/`double`、`bool`、`char`）：
+  比较值位（IEEE 754——`NaN != NaN`，已记录在案的行为）。
 - `string` 键：比较字符串内容（值相等）。
 - `class` / `struct` 键：比较堆索引（恒等），与 Java 的
   `IdentityHashMap`、C# 默认的 `object.Equals` 一致。用户的 `equals`

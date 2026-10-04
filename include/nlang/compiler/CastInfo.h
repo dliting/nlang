@@ -24,7 +24,12 @@ enum TypeCastKind
 	TCK_Unbox,
 	//Phase 8e-1.5: ancestor → subclass explicit downcast via `o as Point`.
 	//Emitted as OP_CheckCast classIdx in VmBackend.
-	TCK_Downcast
+	TCK_Downcast,
+	//0.7.5: narrowing scalar conversion (e.g. float→int, long→int,
+	//double→float, int→char) — legal ONLY through the explicit `as`
+	//operator; every implicit flow (FixupExprType and friends) rejects it.
+	//Emitted as OP_PrimCast <srcKind> <dstKind>.
+	TCK_Explicit
 };
 
 class NLANG_COMPILER_API TypeCastInfo
@@ -41,6 +46,15 @@ public:
 		return m_Kind;
 	}
 
+	//0.7.5 constant-fit: promote the verdict at the decision site (an
+	//explicit-only narrowing whose source is a constant that fits the
+	//target converts implicitly — Java/C# rule). The one reclassification
+	//that exists; every other flow constructs and reads only.
+	void Kind(TypeCastKind k)
+	{
+		m_Kind = k;
+	}
+
 	SnField *Source() const
 	{
 		return m_pSource;
@@ -52,6 +66,16 @@ public:
 	}
 
 	static void StaticInit();
+
+	//Primitive-kind verdict without node pointers: the pure table
+	//lookup the full CalcCastKind reduces to when both kinds are
+	//builtin data types. Callers that only hold const refs (overload
+	//distance) use this instead of constructing a TypeCastInfo.
+	static TypeCastKind PrimitiveVerdict(NodeKind src, NodeKind tgt)
+	{
+		assert(src < NK_DT_COUNT && tgt < NK_DT_COUNT);
+		return s_CastTable[src][tgt];
+	}
 private:
 	void CalcCastKind();
 

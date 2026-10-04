@@ -1,0 +1,12 @@
+// 0.7.5: --no-warn (ncc_no_warn.ncc.flags next to this file) suppresses
+// the lossy-conversion warning — ncc_no_warn.stderr ('!loses precision')
+// pins the suppression through the real CLI; this program pins the
+// unchanged semantics (%g printing cannot show the rounded low bit, so
+// the == comparison observes it instead).
+import io;
+int main() {
+    float f = 16777217;
+    if (f == 16777216) { io.print("rounded"); }
+    else { io.print("exact"); }
+    return 0;
+}

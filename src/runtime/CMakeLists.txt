@@ -9,6 +9,7 @@ add_library(nlang_runtime
     RnMisc.cpp
     RnTypes.cpp
     RuntimeNode.cpp
+    PrimitiveTypes.cpp
     Log.cpp
     Utils.cpp
 )

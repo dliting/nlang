@@ -126,6 +126,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                      sizeof(dv.floatValue));
             fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
                      sizeof(dv.stringIdx));
+            //0.7.5 v1.13: 8-byte scalar channels (RTK_Long/RTK_ULong/
+            //RTK_Double payloads). Unconditional — the v1.13 floor
+            //readers expect the extended record.
+            fs.write(reinterpret_cast<const char*>(&dv.longValue),
+                     sizeof(dv.longValue));
+            fs.write(reinterpret_cast<const char*>(&dv.doubleValue),
+                     sizeof(dv.doubleValue));
         }
 
         uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());
@@ -157,6 +164,8 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         //table the loaded module's root set is empty and every collection
         //sweeps live objects. Always emit count first so readers can skip
         //when empty. Names are kept for runtime diagnostics.
+        //v1.14: declPc (debugger scope visibility) between the kind byte
+        //and the name length.
         uint16_t localCount = static_cast<uint16_t>(func.locals.size());
         fs.write(reinterpret_cast<const char*>(&localCount),
                  sizeof(localCount));
@@ -169,6 +178,8 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                      sizeof(ld.isParam));
             fs.write(reinterpret_cast<const char*>(&ld.typeKind),
                      sizeof(ld.typeKind));
+            fs.write(reinterpret_cast<const char*>(&ld.declPc),
+                     sizeof(ld.declPc));
             uint32_t lnameLen = static_cast<uint32_t>(ld.name.size());
             fs.write(reinterpret_cast<const char*>(&lnameLen),
                      sizeof(lnameLen));

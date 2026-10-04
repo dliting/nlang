@@ -124,33 +124,29 @@ private:
     void OpEq_str(BytecodeReader& reader, uint8_t* locals);
     void OpNe_str(BytecodeReader& reader, uint8_t* locals);
     void OpStrLen(BytecodeReader& reader, uint8_t* locals);
-    void OpCastIntToFloat(uint8_t* pResult);
-    void OpCastFloatToInt(uint8_t* pResult);
-    void OpInt32_to_str(uint8_t* pResult);
-    void OpFloat_to_str(uint8_t* pResult);
-    void OpAdd_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpSub_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpMul_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpDiv_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpMod_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpNeg_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpAdd_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpSub_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpMul_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpDiv_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpNeg_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpLess_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpLessEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreater_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreaterEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpNotEqual_i32(BytecodeReader& reader, uint8_t* locals);
-    void OpLess_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpLessEqual_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreater_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpGreaterEqual_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpEqual_f32(BytecodeReader& reader, uint8_t* locals);
-    void OpNotEqual_f32(BytecodeReader& reader, uint8_t* locals);
+    //0.7.5 char bridge: s[i] byte read and the code-point iteration step
+    //(operand contracts in BytecodeOps.h).
+    void OpStrByteAt(BytecodeReader& reader, uint8_t* locals);
+    void OpStrForeachStep(BytecodeReader& reader, uint8_t* locals);
+    //0.7.5 generalized numeric family (VmExecutorOpsPrim.cpp): handlers
+    //read the kind immediate, resolve the registry row, and dispatch
+    //through the function-pointer tables in VmPrimOps.h — no per-kind
+    //switches in the executor.
+    void OpAdd(BytecodeReader& reader, uint8_t* locals);
+    void OpSub(BytecodeReader& reader, uint8_t* locals);
+    void OpMul(BytecodeReader& reader, uint8_t* locals);
+    void OpDiv(BytecodeReader& reader, uint8_t* locals);
+    void OpMod(BytecodeReader& reader, uint8_t* locals);
+    void OpNeg(BytecodeReader& reader, uint8_t* locals);
+    void OpCmp(BytecodeReader& reader, uint8_t* locals);
+    void OpPrimCast(BytecodeReader& reader, uint8_t* pResult);
+    void OpPrimToStr(BytecodeReader& reader, uint8_t* pResult);
+    void OpConstInt64(BytecodeReader& reader, uint8_t* pResult);
+    void OpConstDouble(BytecodeReader& reader, uint8_t* pResult);
+    //Registry-driven slot read: sign-extends signed rows by width,
+    //zero-extends unsigned rows, truncates float rows first. Used by
+    //OpPrimCast's numeric->char code-point validation.
+    int64_t ReadScalarAsInt64(int row, const uint8_t* p) const;
     void OpLogicalNot(BytecodeReader& reader, uint8_t* locals);
     void OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);
@@ -228,6 +224,19 @@ private:
     //Returns the formatted result; throws on depth overflow.
     std::string QuoteString(const std::string& s) const;
     std::string FormatHeapValue(int32_t heapIdx, int depth);
+    //0.7.5: canonical scalar renderer — one value in little-endian cell
+    //form (lo cell + hi cell; narrow rows ignore hi), formatted through
+    //the registry's RnBuiltinDataType row, the same single source
+    //OP_Prim_to_str uses. Every boxed payload, array element, heap field
+    //and debug-view rendering delegates here — one format decision per
+    //kind, family-wide (uint renders unsigned; narrow/long tags no
+    //longer fall to "<unknown>").
+    std::string FormatScalarValue(uint8_t rtk, int32_t lo, int32_t hi) const;
+    std::string FormatArrayElemScalar(int32_t elemVal, uint8_t elemKind,
+        int depth);
+    void FormatArrayElement(std::string& result,
+        const std::vector<int32_t>& slot, size_t off, uint8_t elemKind,
+        int cells, int depth);
     std::string FormatArray(int32_t heapIdx, int depth);
     std::string FormatList(int32_t handle, int depth);
     std::string FormatDict(int32_t handle, int depth);
@@ -267,7 +276,7 @@ private:
     //  1. Safepoint-triggered, not allocation-point-triggered.
     //     Why: avoids tracking tempSlot/tempSlot2 references in MarkPhase.
     //  2. Precise scan via LocalDescriptor, not conservative byte scan.
-    //     Why: decouples GC from stack frame physical layout (VALUE_SIZE, alignment).
+    //     Why: decouples GC from stack frame physical layout (slot stride, alignment).
     //  3. m_slotStructIdx parallel array for struct type identification.
     //     Why: struct objects have no type header; smaller change than adding one.
     //  4. Iterative mark with worklist, not recursive.
@@ -326,7 +335,7 @@ private:
     //Phase 11 Step 3: allocate one boxed-value heap slot (layout per
     //OP_Box: slot[0]=tag, slot[1]=value bits). Shared by OP_Box and the
     //string split / fs.listFiles intrinsics.
-    int32_t AllocBoxedValue(uint8_t typeTag, int32_t val);
+    int32_t AllocBoxedValue(uint8_t typeTag, int64_t val);
 
     //Phase 13: allocate one function-handle heap record (3 slots:
     //[0]=target, [1]=this, [2]=form; m_slotKinds=RTK_Func). Always
@@ -398,6 +407,7 @@ private:
     static int32_t NativeNewListString(NativeHost* self,
         const char* const* items, int count);
     static void NativeWriteOutput(NativeHost* self, const char* text);
+    static void NativeWriteError(NativeHost* self, const char* text);
     static const char* NativeReadLine(NativeHost* self);
     static void NativeRaiseException(NativeHost* self, int exceptionKind,
         const char* message);
@@ -421,11 +431,18 @@ private:
         const char* methodName);
     //Phase 8e-4: kind-aware key equality. Branches on m_slotKinds[k]:
     //  RTK_Class/RTK_Struct → heap-idx identity
-    //  RTK_Boxed + tag RTK_Int32  → value-bit equality
-    //  RTK_Boxed + tag RTK_Float  → IEEE 754 value-bit equality (NaN≠NaN)
-    //  RTK_Boxed + tag RTK_String → string content equality
+    //  RTK_Boxed            → BoxedValuesEqual (below)
     //Returns false when either idx is out of bounds or kind mismatch.
     bool DictKeysEqual(int32_t k1, int32_t k2) const;
+
+    //0.7.5: full-payload equality for two RTK_Boxed records. Shared by
+    //DictKeysEqual and FindListElement — both previously read only the
+    //low value cell, which made 4294967295 == -1 true once 8-byte rows
+    //(long/ulong) boxed into 3-cell records {tag, lo, hi}. Strings
+    //compare by content (StrValCopy, the frozen-view equality path);
+    //float keeps IEEE value-bit equality (NaN≠NaN) via the lo cell;
+    //8-byte rows compare both cells.
+    bool BoxedValuesEqual(int32_t a, int32_t b) const;
 
     //Phase 8c: clear per-stream object-ID tables. Called from BS_Reset,
     //BS_Close, and FS_Close so subsequent operations start with a fresh
@@ -507,10 +524,16 @@ private:
     std::string FormatDebugArray(int32_t heapIdx) const;
     std::string FormatDebugList(int32_t handle) const;
     std::string FormatDebugDict(int32_t handle) const;
-    std::string FormatDebugField(int32_t raw, uint16_t declaredKind) const;
+    //One field/element cell by declared kind, registry stride aware:
+    //8-byte scalar kinds (long/ulong; double with Task 7) read cells
+    //[cellIdx, cellIdx+1]. Single renderer for class/struct fields,
+    //array elements and boxed payloads (the tag doubles as the
+    //declared kind there).
+    std::string FormatDebugField(const std::vector<int32_t>& slot,
+        size_t cellIdx, uint16_t declaredKind) const;
     std::string FormatDebugElementHeap(int32_t heapIdx) const;
     std::string FormatDebugRefShort(int32_t heapIdx) const;
-    std::string FormatDebugBoxed(int32_t tag, int32_t val) const;
+    std::string FormatDebugBoxed(const std::vector<int32_t>& slot) const;
     std::string FormatDebugStringIdx(int32_t idx) const;
 
     //String object store (definitions in VmExecutorStrings.cpp).
@@ -679,8 +702,10 @@ private:
     //slot[0] of a List instance heap entry holds classIdx; slot[1] holds __handle.
     //Used by GC trace/sweep and ReadListHandle.
     static constexpr int kListHandleFieldOffset = 1;
-    //A RTK_Boxed heap slot has layout [typeTag, valueBits]. Used by List
-    //IndexOf/Contains to compare primitive elements by value (C2 fix).
+    //A RTK_Boxed heap record has layout [typeTag, valueLo, valueHi]
+    //(0.7.5: 3 cells; the hi cell carries the upper half of 8-byte rows
+    //and is ignored for narrower ones). Used by boxing/unboxing, GC
+    //trace, and the shared BoxedValuesEqual comparator.
     static constexpr int kBoxedValueSlot = 1;
 };
 

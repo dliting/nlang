@@ -21,6 +21,7 @@
 // through the same library-index + inline path as the standard library.
 
 #include "nlang/compiler/ModuleBuilder.h"
+#include "nlang/compiler/CastInfo.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
@@ -1043,6 +1044,7 @@ void TestEnumMethodQualifiedKeys() {
 
 int main() {
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     std::fprintf(stderr, "=== Source Library Integration Tests ===\n");
     TestHappyPath();
     TestUnimportedRejected();

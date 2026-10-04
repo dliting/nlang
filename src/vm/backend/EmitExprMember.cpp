@@ -17,36 +17,37 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
-
+//Heap field addressing (0.7.5 Task 6 Step A2): every struct/class data
+//field occupies a uniform 2-cell slot (kHeapFieldStrideBytes = 8) so
+//64-bit scalars fit without per-field width logic. Struct field i sits
+//at cell 2i; class data starts after the classIdx cell (field i at
+//cell 1+2i). Compile-time offsets here must match runtime
+//AllocStructOnHeap/AllocClassOnHeap in VmExecutor.
 int VmBackend::FindFieldOffset(SnStructDecl& structDecl, const std::string& fieldName) {
     uint16_t off = 0;
     for (auto& sf : structDecl.Members()) {
         if (sf.Name() == fieldName)
             return off;
-        off += VALUE_SIZE;
+        off += kHeapFieldStrideBytes;
     }
     return -1;
 }
 
 //Returns class field offset in bytes (including +4 for classIdx slot), or -1.
 //Object layout: [classIdx, root_ancestor_fields..., parent_fields..., own_fields...]
-//Slot[0] = classIdx (4 bytes, used for runtime virtual dispatch via OP_CallMethod).
-//Slot[1..N] = data fields (4 bytes each, offset starts at VALUE_SIZE=4).
-//Compile-time offset here must match runtime AllocClassOnHeap in VmExecutor.
+//Cell[0] = classIdx (1 cell, used for runtime virtual dispatch via OP_CallMethod).
+//Data fields occupy cells 1, 3, 5, ... (2 cells each).
 int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& fieldName) {
     //Phase 9d: built-in Exception classes expose message/backtrace fields
     //that aren't materialized as SnClassDecl members (the synthetic class
     //decl has empty Members()). Runtime layout (VmBackend::RegisterBuiltinClasses):
-    //  slot[1] = message  → offset 4
-    //  slot[2] = backtrace → offset 8
+    //  cell[1] = message   → offset kHeapCellBytes (4)
+    //  cell[3] = backtrace → offset kHeapCellBytes + kHeapFieldStrideBytes (12)
     //Walk SuperClass chain so user subclasses of Exception also resolve.
     if (classDecl.IsBuiltinClass()
         && IsBuiltinExceptionName(classDecl.Name())) {
-        //Phase 9d: direct built-in Exception class — synthetic decl has no
-        //Members(); the 2 runtime fields are fixed at slot[1]/slot[2].
-        if (fieldName == "message")  return VALUE_SIZE;
-        if (fieldName == "backtrace") return 2 * VALUE_SIZE;
+        if (fieldName == "message")  return kHeapCellBytes;
+        if (fieldName == "backtrace") return kHeapCellBytes + kHeapFieldStrideBytes;
         return -1;
     }
     //Collect ancestor chain from root to direct parent
@@ -57,7 +58,7 @@ int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& f
         pSuper = pSuper->SuperClass();
     }
     //Search from root ancestor to direct parent (reversed order)
-    uint16_t off = VALUE_SIZE; //skip classIdx slot
+    uint16_t off = kHeapCellBytes; //skip the classIdx cell
     for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
         int found = ClassAncestorFieldOffset(**it, fieldName, off);
         if (found >= 0)
@@ -68,7 +69,7 @@ int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& f
         if (member.Kind() == NK_ClassField && member.Name() == fieldName)
             return off;
         if (member.Kind() == NK_ClassField)
-            off += VALUE_SIZE;
+            off += kHeapFieldStrideBytes;
     }
     return -1;
 }
@@ -86,15 +87,15 @@ int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
     if (ancestor.IsBuiltinClass()
         && IsBuiltinExceptionName(ancestor.Name())) {
         if (fieldName == "message")  return off;
-        if (fieldName == "backtrace") return off + VALUE_SIZE;
-        off += 2 * VALUE_SIZE;
+        if (fieldName == "backtrace") return off + kHeapFieldStrideBytes;
+        off += 2 * kHeapFieldStrideBytes;
         return -1;
     }
     for (auto& member : ancestor.Members()) {
         if (member.Kind() == NK_ClassField && member.Name() == fieldName)
             return off;
         if (member.Kind() == NK_ClassField)
-            off += VALUE_SIZE;
+            off += kHeapFieldStrideBytes;
     }
     return -1;
 }

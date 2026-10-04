@@ -340,6 +340,13 @@ void ModuleBuilder::RegisterExternalStubs(
 	}
 	reg.SetExternalStubs(extIdx, std::move(stubs));
 
+	//Type stubs (struct/class) are root members, never detached — tag
+	//them with the same external index so FindModuleType's owner-
+	//filtered root scan binds "<pkg>.<Type>" for qualified type
+	//references synthesized from serialized signatures.
+	for (SnField* typeStub : builder.ImportedTypes())
+		reg.TagOwner(*typeStub, extIdx);
+
 	//Detached stubs (names already in root) joined the tables above
 	//but not the root — keep them alive for the duration of the build.
 	for (auto &upStub : builder.TakeDetachedStubs())

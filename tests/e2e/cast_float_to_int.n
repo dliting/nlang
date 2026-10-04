@@ -1,5 +1,5 @@
 int main() {
     float f = 3.5;
-    int x = f;
+    int x = f as int;
     return x;
 }

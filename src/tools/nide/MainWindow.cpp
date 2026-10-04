@@ -286,14 +286,11 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 //--- menu state ---
 
-void MainWindow::updateMenuState() {
-    //First line on purpose: the group must mirror the editors BEFORE
-    //the enablement reads below consult the (possibly just-mutated)
-    //tree selection. Every editor/solution mutation converges here.
-    refreshStandaloneFiles();
+//The File/Project menu share of updateMenuState: every action there
+//turns on the presence of an open editor / project / file selection.
+void MainWindow::updateFileMenuState() {
     const bool hasEditor = currentEditor() != nullptr;
-    const ProjectNode* project = currentProject();
-    const FileNode* file = currentFile();
+    const bool hasProject = currentProject() != nullptr;
 
     m_ui->actNewFile->setEnabled(true);
     m_ui->actOpenFile->setEnabled(true);
@@ -301,31 +298,43 @@ void MainWindow::updateMenuState() {
     m_ui->actSaveFileAs->setEnabled(hasEditor);
     m_ui->actCloseFile->setEnabled(hasEditor);
 
-    const bool hasProject = project != nullptr;
     m_ui->actNewProject->setEnabled(true);
     m_ui->actOpenProject->setEnabled(true);
     m_ui->actSaveProject->setEnabled(hasProject);
     m_ui->actCloseProject->setEnabled(hasProject);
     m_ui->actAddExistFile->setEnabled(hasProject);
     m_ui->actAddNewFile->setEnabled(hasProject);
-    m_ui->actRemoveFile->setEnabled(file != nullptr);
+    m_ui->actRemoveFile->setEnabled(currentFile() != nullptr);
     m_ui->actProjectProp->setEnabled(hasProject);
+}
+
+void MainWindow::updateMenuState() {
+    //First line on purpose: the group must mirror the editors BEFORE
+    //the enablement reads below consult the (possibly just-mutated)
+    //tree selection. Every editor/solution mutation converges here.
+    refreshStandaloneFiles();
+    updateFileMenuState();
+
     //A project OR a standalone .n target can be built. While a debug
     //session is live, Build/Run stay off: a mid-session rebuild would
     //rewrite the very artifact the debugger is executing (bytecode
     //offsets shift under the session) and a Run child would interleave
     //its output on the shared run page.
     const bool hasStandaloneTarget = !currentStandaloneTarget().isEmpty();
-    const bool canBuild = hasProject || hasStandaloneTarget;
+    const bool canBuild = currentProject() != nullptr || hasStandaloneTarget;
     const bool debugLive = debugSessionLive();
     m_ui->actBuild->setEnabled(canBuild && !debugLive);
 
     //Run lifecycle: Start needs a build target AND an idle process; Stop
-    //is live exactly while the process runs.
+    //is live exactly while the process runs. The input row follows the
+    //same two consumers: the run child's stdin pipe or the debug
+    //session's machine channel.
     const bool running =
         m_executed.state() != QProcess::NotRunning;
     m_ui->actStartRunning->setEnabled(canBuild && !running && !debugLive);
     m_ui->actStopRunning->setEnabled(running);
+    m_ui->editStdin->setEnabled(running || debugLive);
+    m_ui->btnStdinSend->setEnabled(running || debugLive);
 
     updateDebugMenuState(canBuild);
 

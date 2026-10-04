@@ -1,0 +1,8 @@
+//0.7.5 Task 9: writeLong admits only cast-matrix-widenable integers —
+//a char argument is neither (char never implicitly converts to a
+//numeric kind).
+int main() {
+    ByteStream bs = new ByteStream();
+    bs.writeLong('a');
+    return 0;
+}

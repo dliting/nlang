@@ -1,0 +1,8 @@
+//e2e stdlib_io_eprint: io.eprint writes to stderr in console (nvm) mode.
+//Pinned by stdlib_io_eprint.run.stderr — the host-mode routing (debug
+//sessions) is pinned separately by dbgm_io_eprint.
+import io;
+int main() {
+    io.eprint("boom");
+    return 0;
+}

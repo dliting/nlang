@@ -1,0 +1,8 @@
+//0.7.5: the read sugar d[k] checks its key against K like the write
+//sugar — a string key in an int-keyed dict is rejected instead of
+//boxing the string handle with an int tag.
+int main() {
+    Dict<int, int> d = new Dict<int, int>();
+    if (d["x"] == 1) return 1;
+    return 0;
+}

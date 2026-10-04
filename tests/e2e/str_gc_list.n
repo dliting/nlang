@@ -16,7 +16,7 @@ int main() {
     if (d.get("k") != "v-important") return 4;
     //Boxed strings survive stress GC and the Object protocol methods
     //stay content-correct afterwards.
-    if (!l.get(0).equals("first")) return 5;
+    if (l.get(0).equals("first") == 0) return 5;
     if (l.get(0).getHashCode() != "first".getHashCode()) return 6;
     return 0;
 }

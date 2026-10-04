@@ -18,7 +18,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
     //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
     //Dispatches on resolved EvalDataType:
     //  - Array (target->IsArrayType()): OP_AllocArray + per-element OP_StoreElement
@@ -211,7 +210,7 @@ void VmBackend::EmitInitListEntryAdd(const InitEntry& entry,
     //case must track the matching claimSize=2.
     EvalAreaClaim claim(*this, 2);  // this, value
     uint16_t claimBase = claim.base();
-    uint16_t valOff = claimBase + 1 * VALUE_SIZE;
+    uint16_t valOff = claimBase + 1 * kFrameSlotBytes;
     EmitExpression(*entry.pValue, emitter, valOff);
     if (tBox.isPrimitive) {
         EmitPResultRefresh(emitter, valOff);
@@ -272,8 +271,8 @@ void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
     //bulk-copy to callParamBase[0..2], clobbering the key at [1].
     EvalAreaClaim claim(*this, 3);  // this, key, value
     uint16_t claimBase = claim.base();
-    uint16_t keyOff = claimBase + 1 * VALUE_SIZE;
-    uint16_t valOff = claimBase + 2 * VALUE_SIZE;
+    uint16_t keyOff = claimBase + 1 * kFrameSlotBytes;
+    uint16_t valOff = claimBase + 2 * kFrameSlotBytes;
     uint16_t keyPoolIdx = AddStringConstant(entry.keyStr);
     emitter.Emit(OpCode::OP_ConstString);
     emitter.EmitUint16(keyPoolIdx);
@@ -378,7 +377,10 @@ void VmBackend::EmitInitListStructEntries(SnInitListExpr& initList,
         if (entry.keyKind == InitEntry::KeyKind::Identifier) {
             off = FindFieldOffset(structDecl, entry.keyStr);
         } else if (ordinal < structDecl.Members().size()) {
-            off = static_cast<int>(ordinal * VALUE_SIZE);
+            //Declaration-order positional entry: field ordinal i sits at
+            //byte offset i * kHeapFieldStrideBytes under the uniform
+            //2-cell heap field stride (Step A2).
+            off = static_cast<int>(ordinal * kHeapFieldStrideBytes);
         }
         ++ordinal;
         if (off < 0) continue;
@@ -406,9 +408,9 @@ void VmBackend::EmitInitListMethodCallTail(uint16_t claimBase,
     //Bulk-copy claim → callParamBase
     for (uint16_t i = 0; i < slotCount; ++i) {
         emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
         emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->callParamBase + i * VALUE_SIZE);
+        emitter.EmitUint16(m_currFunc->callParamBase + i * kFrameSlotBytes);
     }
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(methodNameIdx);

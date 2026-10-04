@@ -1,0 +1,21 @@
+//0.7.5: % and %= on every numeric kind ride the kind-immediate tables
+//(ModInt for 8/16/64-bit integer rows, ModFloat = fmod for float/
+//double). Pins the shapes the old compound-assign guard silently
+//no-opped (long/byte/float/double %=) and the float binary form that
+//mis-dispatched garbage before 0.7.5.
+int main() {
+	double a = 7.5 % 2.0;      // fmod -> 1.5
+	double b = 7.5;
+	b %= 2.0;                  // compound double -> 1.5
+	float c = 7.5f % 2.0f;     // float carrier, exact operands -> 1.5
+	float d = 7.5f;
+	d %= 2.0f;                 // compound float -> 1.5
+	long e = 7;
+	e %= 3;                    // compound long -> 1 (old guard no-op)
+	byte f = 7;
+	f %= 3;                    // compound byte -> 1 (old guard no-op)
+	if (a == 1.5 && b == 1.5 && c == 1.5f && d == 1.5f
+		&& e == 1 && f == 1)
+		return 21;
+	return 1;
+}

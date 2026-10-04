@@ -11,7 +11,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Helper: read this.__handle from callParamBase[0].
 //Returns the 1-based handle. Throws if invalid or closed.
@@ -32,16 +31,17 @@ static int32_t ReadStreamHandle(uint16_t callParamBase, uint8_t* locals,
 bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
-    //FileStream intrinsics (20-33): 20-29 primitives, 30-31 struct, 32-33 object.
-    if (intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadObject) {
+    //FileStream intrinsics (20-37): 20-29 primitives (4-byte), 30-31
+    //struct, 32-33 object, 34-37 the 8-byte scalar quartet.
+    if (intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadDouble) {
         switch (intrinsicId) {
         case INTR_FS_Ctor: {
             //this at callParamBase[0], path string idx at [1], mode string idx at [2].
             int32_t thisHeapIdx;
             std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
             int32_t pathIdx, modeIdx;
-            std::memcpy(&pathIdx, locals + callParamBase + VALUE_SIZE, sizeof(pathIdx));
-            std::memcpy(&modeIdx, locals + callParamBase + 2 * VALUE_SIZE, sizeof(modeIdx));
+            std::memcpy(&pathIdx, locals + callParamBase + kFrameSlotBytes, sizeof(pathIdx));
+            std::memcpy(&modeIdx, locals + callParamBase + 2 * kFrameSlotBytes, sizeof(modeIdx));
             const std::string& path = StrVal(pathIdx);
             const std::string& mode = StrVal(modeIdx);
             if (mode != "r" && mode != "w" && mode != "a")
@@ -70,7 +70,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (!st->writable)
                 throw std::runtime_error("NLang VM: FileStream not opened for writing");
             int32_t val;
-            std::memcpy(&val, locals + callParamBase + VALUE_SIZE, sizeof(val));
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
             st->fs->write(reinterpret_cast<const char*>(&val), 4);
             break;
         }
@@ -98,7 +98,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (!st->writable)
                 throw std::runtime_error("NLang VM: FileStream not opened for writing");
             float val;
-            std::memcpy(&val, locals + callParamBase + VALUE_SIZE, sizeof(val));
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
             st->fs->write(reinterpret_cast<const char*>(&val), 4);
             break;
         }
@@ -117,6 +117,62 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             std::memcpy(pResult, &val, sizeof(val));
             break;
         }
+        case INTR_FS_WriteLong: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "writeLong");
+            auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
+            if (!st || st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (!st->writable)
+                throw std::runtime_error("NLang VM: FileStream not opened for writing");
+            int64_t val;
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
+            st->fs->write(reinterpret_cast<const char*>(&val), 8);
+            break;
+        }
+        case INTR_FS_ReadLong: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "readLong");
+            auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
+            if (!st || st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (!st->readable)
+                throw std::runtime_error("NLang VM: FileStream not opened for reading");
+            int64_t val;
+            st->fs->read(reinterpret_cast<char*>(&val), 8);
+            if (st->fs->gcount() < 8)
+                throw std::runtime_error("NLang VM: ReadLong past end of stream");
+            std::memcpy(pResult, &val, sizeof(val));
+            break;
+        }
+        case INTR_FS_WriteDouble: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "writeDouble");
+            auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
+            if (!st || st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (!st->writable)
+                throw std::runtime_error("NLang VM: FileStream not opened for writing");
+            double val;
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
+            st->fs->write(reinterpret_cast<const char*>(&val), 8);
+            break;
+        }
+        case INTR_FS_ReadDouble: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "readDouble");
+            auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
+            if (!st || st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (!st->readable)
+                throw std::runtime_error("NLang VM: FileStream not opened for reading");
+            double val;
+            st->fs->read(reinterpret_cast<char*>(&val), 8);
+            if (st->fs->gcount() < 8)
+                throw std::runtime_error("NLang VM: ReadDouble past end of stream");
+            std::memcpy(pResult, &val, sizeof(val));
+            break;
+        }
         case INTR_FS_WriteString: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
                 m_structHeap, "writeString");
@@ -126,7 +182,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (!st->writable)
                 throw std::runtime_error("NLang VM: FileStream not opened for writing");
             int32_t strIdx;
-            std::memcpy(&strIdx, locals + callParamBase + VALUE_SIZE, sizeof(strIdx));
+            std::memcpy(&strIdx, locals + callParamBase + kFrameSlotBytes, sizeof(strIdx));
             const std::string& s = StrVal(strIdx);
             int32_t len = static_cast<int32_t>(s.size());
             st->fs->write(reinterpret_cast<const char*>(&len), 4);
@@ -192,7 +248,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (!st->writable)
                 throw std::runtime_error("NLang VM: FileStream not opened for writing");
             int32_t structHeapIdx;
-            std::memcpy(&structHeapIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&structHeapIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(structHeapIdx));
             if (structHeapIdx <= 0
                 || static_cast<size_t>(structHeapIdx) >= m_structHeap.size())
@@ -214,7 +270,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (!st->readable)
                 throw std::runtime_error("NLang VM: FileStream not opened for reading");
             int32_t typeNameIdx;
-            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&typeNameIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(typeNameIdx));
             const std::string& typeName = StrVal(typeNameIdx);
             //Write/read same-source: the literal was rewritten at compile
@@ -246,7 +302,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (!st->writable)
                 throw std::runtime_error("NLang VM: FileStream not opened for writing");
             int32_t heapIdx;
-            std::memcpy(&heapIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&heapIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(heapIdx));
             if (heapIdx < 0
                 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
@@ -267,7 +323,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (!st->readable)
                 throw std::runtime_error("NLang VM: FileStream not opened for reading");
             int32_t typeNameIdx;
-            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&typeNameIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(typeNameIdx));
             const std::string& declaredName = StrVal(typeNameIdx);
             //Write/read same-source: the literal carries the table key

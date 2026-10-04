@@ -1,0 +1,7 @@
+//Calls lib.probe() with no argument → the default 0.5 fills as a
+//double then casts in place to float → x == 0.5f → 33.
+import lib;
+
+int main() {
+    return lib.probe();
+}

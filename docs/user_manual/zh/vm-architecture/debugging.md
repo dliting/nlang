@@ -60,22 +60,33 @@ WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
 整文档见 src/tools/ndb/MachineFrontEnd.h）：事件是以制表符连接、字段
 转义的行（`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/
 `exited`/`error`/`err`），命令是空格分隔的裸记号（`b`/`bfunc`/`d`/
-`breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/`n`/`f`）。会话以
+`breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/`n`/`f`）。一条数据
+命令走同一通道：`stdin<TAB><payload>`（payload 与任何字段同样转义）
+送达一行程序输入——识别发生在原始线路文本上，因此 payload 的首尾
+空格得以保留；它在所有读取位置都被接受（`run` 之前作为提前输入排
+队、冻结停止期间排队而不打断停止、程序停在 `io.readLine` 时被实时
+消费），且从不应答；程序的下一次读取就是应答。会话以
 一段前奏开场，断点在此时预置；`run` 结束前奏并开始执行——在此之前，
 窗口绑定命令一律应答 `err`（还没有任何东西被冻结）。恢复命令应答下
-一次停止或退出事件；其余命令原地应答。帧编号：`stopped` 的深度从 1
+一次停止或退出事件；其余命令原地应答。应答形状遵循同一文法：查询
+命令先流出数据事件再 `done`（`bt` → `frame`* + `done`、`locals` →
+`local`* + `done`）；设断点命令以 `bp` 回执应答，其余选择与变更命令
+只应答 `done`——`frame` 事件绝不出
+现在 `bt` 应答之外，消费方因此可以每条 `frame` 事件追加一行栈帧而不
+会重复。帧编号：`stopped` 的深度从 1
 计起且恒等于帧数（一次停止冻结最内层帧），而 `bt`/`frame` 从 0 计
 起，最内层为 0。
 
 ## 宿主 I/O 接缝
 
 `IHostIo`（src/vm/IHostIo.h）把执行器的 I/O 与进程控制台解耦：输出
-字节经 `OnOutput` 原样送出；输入是可选的——已安装的宿主若不覆写
-`IsInputAvailable()`，`io.readLine` 会抛出可捕获的 IOException，而
-不是静默消费嵌入方的流。机器模式实现这条接缝，把程序输出导进
-`output` 事件、把 stdin 留作协议通道；没有安装宿主时（nvm、ncc、
-CLI 前端）行为不变。`OnOutput` 不得抛错：它跑在执行线程上，受与钩子
-相同的冻结期纪律约束。
+字节经 `OnOutput` 原样送出；输入是可选的——程序停在 `io.readLine`
+时由 `ReadInputLine` 逐行供给（允许阻塞）；已安装的宿主若不覆写
+它，就回答「无输入」，`io.readLine` 会抛出可捕获的 IOException，
+而不是静默消费嵌入方的流。机器模式实现这条接缝，把程序输出导进
+`output` 事件、用 `stdin` 数据命令供给 `readLine`；没有安装宿主时
+（nvm、ncc、CLI 前端）行为不变。两个回调都不得抛错：它们跑在执行
+线程上，受与钩子相同的冻结期纪律约束。
 
 ## 冻结期纪律
 
@@ -92,15 +103,16 @@ CLI 前端）行为不变。`OnOutput` 不得抛错：它跑在执行线程上�
 在 `.ncu` 里携带声明侧的 `RTK_Array`，因此声明
 kind 是可靠的数组探测器，运行期槽位 kind 起佐证作用。只有
 Class/Struct/Func 声明 kind 才落到运行期槽位 kind；Int32/Float/
-String/Array 直接按声明 kind 渲染，普通 int 永远不会走到引用标签路
+String/Array 直接按声明 kind 显示，普通 int 永远不会走到引用标签路
 径。
 
 ## 断点寻址
 
 每个函数记录编译所在翻译单元的路径（`CompiledFunction::sourceFile`）。
 `b file.n:LINE` 对记录路径做后缀匹配；`b LINE` 在所选帧的文件里解
-析；`b funcName` 停在函数第一条语句。导入合并会拷贝 `sourceFile` 与
-`locals`，因此被导入函数可以按断点寻址、其帧可以检查。
+析；`b funcName` 停在函数第一条语句。加载期链接器把每个单元连同它的
+`sourceFile` 与 `locals` 记录一起合并，因此被导入函数可以按断点寻址、
+其帧可以检查。
 
 ## 已知限制
 
@@ -111,6 +123,6 @@ pc 值是 16 位字节码偏移（执行器既有的 `uint16_t opPc`——超过
 64 KiB 字节码的函数会回绕；这是既有的 VM 上限，不是调试
 器限制）；共享 `.ncu` 可能携带过期的源码路径（ndb 回退到 `.ncu`
 所在目录，再退化为 `l` 只显示行号）。IDE 会话继承这些限制并另加若干
-面向用户的限制——调试会话内没有标准输入、每会话一份行号快照（不支
-持会话中编辑/重建）、停止即硬终止——记录在入门手册的调试指南：
+面向用户的限制——每会话一份行号快照（不支持会话中编辑/重建）、
+停止即硬终止——记录在入门手册的调试指南：
 [在 nide 中调试](../getting-started/debugging.md)。

@@ -32,8 +32,18 @@ public:
 
 	~ScriptScanner();
 
-	//Open a script file to scan.
+	//Open a script file to scan. The file must satisfy the UTF-8 input
+	//contract (a leading UTF-8 BOM is accepted and skipped; invalid
+	//bytes and UTF-16 saves are rejected) — on failure the diagnosis
+	//is available through OpenError().
 	bool OpenFile(const std::string& FilePath);
+
+	//Why the last OpenFile() failed, empty when it succeeded (or was
+	//never called). The sentence names the file and the remedy.
+	const std::string& OpenError() const
+	{
+		return m_sOpenError;
+	}
 
 	//Close the file that has opened by \a OpenFile().
 	void CloseFile();
@@ -150,6 +160,9 @@ private:
 
 	//The current token location.
 	ScriptLocation m_Location;
+
+	//Diagnosis of the last OpenFile() failure (see OpenError()).
+	std::string m_sOpenError;
 
 	ContextType m_ContextType;
 

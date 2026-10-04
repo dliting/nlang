@@ -1,5 +1,6 @@
 //Phase 13 Step 1: io.print accepts a function value via the direct
-//conversion path — "func " + the function's name.
+//conversion path. The rendering carries the function's module-qualified
+//name — the same identity backtraces and debugger frames show.
 import io;
 int bar(int x) { return x; }
 

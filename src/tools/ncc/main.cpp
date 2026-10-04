@@ -1,6 +1,7 @@
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/langservice/SymbolIndex.h>
@@ -39,6 +40,7 @@ static void PrintUsage() {
               << "  ncc build -p <project.nproj> [-o out.npkg]  Compile a project\n"
               << "  ncc run <program.ncu|.npkg>  Execute only\n"
               << "  -I <dir>                    Add directory to import search path\n"
+              << "  --no-warn                   Suppress compile warnings (e.g. lossy conversion)\n"
               << "  ncc --version               Print the compiler version\n";
 }
 
@@ -95,9 +97,19 @@ int main(int argc, char* argv[]) {
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     nlang::InstallCrashReporter("ncc");
+    //Console UTF-8: the process active code page is UTF-8 (the
+    //nlang-utf8.manifest), so argv, file paths, and this tool's own
+    //diagnostics are all UTF-8 bytes — switch the attached console to
+    //UTF-8 too so default consoles render them instead of mojibake.
+    //No-op when stdout/stdin are redirected.
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 #endif
 
     Runtime::StaticInit();
+    //Compiler-side cast table (0.7.5: Runtime::StaticInit no longer
+    //calls this — runtime must stay compiler-free for nvm/ndb links).
+    TypeCastInfo::StaticInit();
 
     std::string command = argv[1];
 
@@ -177,6 +189,7 @@ int main(int argc, char* argv[]) {
     // ncc <source.n> [-I <dir>...] (compile + run)
     // ncc -p <project.nproj> [-I <dir>...] (compile + run)
     bool compileOnly = (command == "build");
+    bool noWarn = false;
     std::string sourceFile;
     std::string projectFile;
     std::string outputFile;
@@ -220,6 +233,8 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg.size() > 2 && arg.compare(0, 2, "-I") == 0)
             importDirs.push_back(arg.substr(2));
+        else if (arg == "--no-warn")
+            noWarn = true;   // 0.7.5: suppress precision-loss warnings
         else if (sourceFile.empty()) {
             //A .nproj fed positionally would reach the NLang parser and
             //die with a bare syntax error — point at -p instead.
@@ -306,6 +321,9 @@ int main(int argc, char* argv[]) {
         params.m_SourceFiles.push_back(sourceFile);
     }
     params.m_sOutputModule = moduleName;
+
+    //0.7.5: --no-warn — suppress the precision-loss warning family.
+    params.m_bNoWarn = noWarn;
 
     //Locate the standard library declarations (stdlib/*.n) relative to this
     //executable; they are the authority for stdlib function signatures.

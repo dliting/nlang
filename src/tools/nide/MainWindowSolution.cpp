@@ -125,22 +125,23 @@ bool MainWindow::saveSolution() {
     return true;
 }
 
-bool MainWindow::isSolutionModified() const {
-    const SolutionNode* solution = m_solutionTree->solutionNode();
+bool MainWindow::saveUnsavedChanges() {
+    SolutionNode* solution = m_solutionTree->solutionNode();
     if (solution == nullptr)
         return false;
-    if (solution->isDirty())
-        return true;
-    for (const auto& project : solution->projects())
-        if (project->isDirty())
-            return true;
-    return false;
+    if (!solution->isEphemeral())
+        return saveSolution();
+    for (const auto& project : solution->projects()) {
+        if (project->isDirty() && !saveProject(*project))
+            return false;
+    }
+    return true;
 }
 
 bool MainWindow::closeSolution() {
     if (!m_solutionTree->hasSolution())
         return true;
-    if (isSolutionModified()) {
+    if (m_solutionTree->solutionNode()->hasUnsavedChanges()) {
         const auto answer = QMessageBox::question(
             this, tr("Close Solution"),
             tr("The solution or its projects have unsaved changes. "
@@ -148,7 +149,7 @@ bool MainWindow::closeSolution() {
             QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
         if (answer == QMessageBox::Cancel)
             return false;
-        if (answer == QMessageBox::Save && !saveSolution())
+        if (answer == QMessageBox::Save && !saveUnsavedChanges())
             return false;
     }
     m_solutionTree->closeSolution();
@@ -163,7 +164,10 @@ bool MainWindow::closeSolution() {
 void MainWindow::ensureSolution() {
     if (m_solutionTree->hasSolution())
         return;
-    m_solutionTree->newSolution(tr("Solution1"));
+    //Ephemeral scaffolding around what the user is opening: same tree
+    //shape, but the wrapper never reads as unsaved user work on its own
+    //(SolutionNode::hasUnsavedChanges). Saving it promotes to first-class.
+    m_solutionTree->newEphemeralSolution(tr("Solution1"));
     m_ui->tvwSolution->expandAll();
 }
 

@@ -1,0 +1,11 @@
+//0.7.5: probe positions (contains/indexOf/containsKey/get/remove) take
+//the element-type cast wrap, symmetric with stores — a mismatched probe
+//is a compile error, not a silently-never-matching (or garbage-reading)
+//comparison.
+int main() {
+    List<long> a = new List<long>();
+    a.add(1);
+    if (a.contains("x"))
+        return 1;
+    return 0;
+}

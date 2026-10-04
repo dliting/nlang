@@ -2,7 +2,7 @@
 
 **中文** | [English](README.md)
 
-NLang 是一门面向嵌入与自动化场景的静态类型脚本语言——提供精简的
+NLang 是一门面向嵌入与自动化场景的类型安全语言——提供精简的
 C++ 宿主 API、原生绑定与进程内调试钩子——同时也是 AI 友好语言特性的
 试验台。它自带编译器、字节码虚拟机、调试器与 IDE，作为一个开放的
 教学/研究项目开发。
@@ -181,7 +181,7 @@ import 来源共用一种语法：
 完整语义——解析顺序、保留路径段、单文件模式——见「声明」章
 （`docs/user_manual/zh/language-spec/declarations.md`，Import Declaration）。
 
-编译单元使用带版本的二进制格式，当前为 v2.0（导入槽与逐单元模块
+编译单元使用带版本的二进制格式，当前为 v2.1（导入槽与逐单元模块
 路径——加载期链接模型）。加载器强制兼容性
 下限：下限提升后，较旧的 `.ncu` 会因过期被拒绝，必须用匹配的
 `ncc` 重新编译。格式历史（每个版本新增或变更了什么）见
@@ -199,7 +199,7 @@ import math;
 import fs;
 
 int main() {
-    io.print(math.sqrt(2.0));                   // 1.41421
+    io.print(math.sqrt(2.0));                   // 1.4142135623730951（double 精度）
     string s = "hello world".substring(0, 5);   // "hello"（字节偏移）
     List<string> words = "a,b,c".split(",");    // 3 个元素
     fs.makeDirs("out");

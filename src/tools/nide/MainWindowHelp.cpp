@@ -28,14 +28,16 @@ void MainWindow::on_actToolsOptions_triggered() {
     const SettingsStore stored = SettingsStore::persisted();
     SettingsDialog dialog(this);
     dialog.init(stored.language(), stored.buildOutputDir(),
-                stored.toolbarIconSize(), stored.librarySearchPaths());
+                stored.toolbarIconSize(), stored.librarySearchPaths(),
+                stored.noWarn());
     if (dialog.exec() != QDialog::Accepted)
         return;
     SettingsStore updated = stored;
     updated.setLanguage(dialog.language());
     updated.setBuildOutputDir(dialog.buildOutputDir());
     updated.setToolbarIconSize(dialog.toolbarIconSize());
-    updated.setLibrarySearchPaths(dialog.librarySearchPaths());
+   updated.setLibrarySearchPaths(dialog.librarySearchPaths());
+    updated.setNoWarn(dialog.noWarn());
     updated.persist();
     applyToolbarIconSize(updated.toolbarIconSize());
     //Library dirs changed: rebuild the code-assistance index immediately.

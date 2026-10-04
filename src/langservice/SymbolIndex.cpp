@@ -158,7 +158,9 @@ TypeKind TypeKindFromName(const std::string& name) {
     std::string n = Trim(name);
     if (n == "void") return TypeKind::Void;
     if (n == "int") return TypeKind::Int;
+    if (n == "long") return TypeKind::Long;
     if (n == "float") return TypeKind::Float;
+    if (n == "double") return TypeKind::Double;
     if (n == "string") return TypeKind::String;
     if (n == "List<string>") return TypeKind::ListString;
     return TypeKind::Unknown;
@@ -168,7 +170,9 @@ std::string NameOfTypeKind(TypeKind kind) {
     switch (kind) {
     case TypeKind::Void: return "void";
     case TypeKind::Int: return "int";
+    case TypeKind::Long: return "long";
     case TypeKind::Float: return "float";
+    case TypeKind::Double: return "double";
     case TypeKind::String: return "string";
     case TypeKind::ListString: return "List<string>";
     default: return "unknown";

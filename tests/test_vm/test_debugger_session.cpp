@@ -127,6 +127,37 @@ void test_session_bt_and_locals()
     PASS();
 }
 
+//info locals honors declaration scope at the session level. The
+//session's initial stop lands on main's first statement (line 2,
+//before late's declaration): the first query — bounded by the line-4
+//breakpoint reports — must not mention late, while the query after
+//continuing past the declaration shows the computed value.
+void test_session_locals_decl_scope()
+{
+    TEST(session_locals_decl_scope);
+    std::string out = RunSession("sess_scope",
+        "int main() {\n"               //1
+        "    int early = 1;\n"         //2
+        "    int late = early + 1;\n"  //3
+        "    return late;\n"           //4
+        "}\n",
+        "info locals\nb 4\nc\ninfo locals\nc\n");
+    const size_t pos2 = out.find("Stopped: sess_scope.main (sess_scope.n:2)");
+    const size_t pos4 = out.find("sess_scope.n:4");  // b 4 set report
+    REQUIRE(pos2 != std::string::npos && pos4 != std::string::npos
+        && pos2 < pos4);
+    const std::string firstQuery = out.substr(pos2, pos4 - pos2);
+    CHECK(firstQuery.find("early = 0") != std::string::npos,
+        "declared local shows its zero value on the decl line");
+    CHECK(firstQuery.find("late = ") == std::string::npos,
+        "not-yet-declared local stays out of info locals");
+    CHECK(out.find("early = 1") != std::string::npos,
+        "computed value shows once the initializer has run");
+    CHECK(out.find("late = 2") != std::string::npos,
+        "late joins the display after execution passes its decl");
+    PASS();
+}
+
 void test_session_frame_select()
 {
     TEST(session_frame_select);
@@ -258,6 +289,33 @@ void test_session_disasm_marker()
     PASS();
 }
 
+//0.7.5 Task 11: the descriptor surfaces (ndisasm struct/class field
+//types, function return kinds) name every scalar registry row in wire
+//style; the legacy kinds keep their existing names, and a corrupt wide
+//kind must not alias a real RTK through its low byte.
+void test_disasm_type_kind_names()
+{
+    TEST(disasm_type_kind_names);
+    struct Row { uint16_t kind; const char* name; };
+    const Row rows[] = {
+        {RTK_Int32, "i32"},   {RTK_Float, "f32"},
+        {RTK_Byte, "i8"},     {RTK_UByte, "u8"},
+        {RTK_Short, "i16"},   {RTK_UShort, "u16"},
+        {RTK_UInt32, "u32"},
+        {RTK_Long, "i64"},    {RTK_ULong, "u64"},
+        {RTK_Double, "f64"},
+        {RTK_Bool, "bool"},   {RTK_Char, "char"},
+        {RTK_String, "str"},  {RTK_Struct, "struct"},
+        {RTK_Class, "class"}, {RTK_Array, "array"},
+        {RTK_Boxed, "boxed"}, {RTK_Func, "func"},
+        {300, "unknown"},     {0x102, "unknown"},
+    };
+    for (const auto& r : rows)
+        CHECK(std::string(DisasmTypeKindName(r.kind)) == r.name,
+            std::string("wire name for kind ") + r.name);
+    PASS();
+}
+
 void test_session_catch_throw()
 {
     TEST(session_catch_throw);
@@ -287,6 +345,7 @@ void run_debugger_session_tests()
     test_session_step_semantics();
     test_session_breakpoint_hit();
     test_session_bt_and_locals();
+    test_session_locals_decl_scope();
     test_session_frame_select();
     test_session_break_by_func();
 }
@@ -296,5 +355,6 @@ void run_debugger_sourcecache_tests()
     test_sourcecache_resolution();
     test_session_source_list();
     test_session_disasm_marker();
+    test_disasm_type_kind_names();
     test_session_catch_throw();
 }

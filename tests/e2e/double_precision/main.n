@@ -1,0 +1,10 @@
+// 0.7.5: shortest round-trip rendering — double keeps its full
+// distinctness, float collapses to its 24-bit mantissa.
+import io;
+int main() {
+    double d = 0.1 + 0.2;
+    float f = 0.1f + 0.2f;
+    io.print(d);
+    io.print(f);
+    return 0;
+}

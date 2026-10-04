@@ -35,12 +35,27 @@ nide 侧由输出位置优先级决定（详见
 
 ### 中文输出乱码？
 
-程序输出是 UTF-8 字节。Windows 控制台默认代码页（如中文系统的 GBK）
-会把它们显示成乱码；先执行 `chcp 65001` 切换到 UTF-8 代码页再运行程序。
-注意 `fs` 与 `io` 的文件路径、文件名经由系统活动代码页转换，
-非 ASCII 文件名不一定能按 UTF-8 往返。
+程序输出是 UTF-8 字节。工具链把进程活动代码页设为 UTF-8（工具内嵌
+清单声明，Windows 10 1903+ 生效），并在启动时把所在控制台切换到
+UTF-8 代码页，默认控制台即可正常显示中文输出，无需手动 `chcp 65001`。
+`fs` 与 `io` 的非 ASCII 路径、文件名同样按 UTF-8 往返。重定向到文件
+的输出字节不受影响——用非 UTF-8 编码打开它的编辑器仍会显示乱码。
+该代码页切换在工具退出后仍对同一控制台窗口生效，之后其中按旧编码
+输出的程序可能显示为乱码。
 
 详见 → [语言规格/标准库](../language-spec/standard-library.md)。
+
+### 编译报 `not valid UTF-8`？
+
+源文件与 `.nproj` 项目文件必须保存为 UTF-8：ncc 在词法前对
+整个文件做严格校验，无效字节被具名拒绝（`Source file is not
+valid UTF-8 ... (first invalid byte at line N). Save the file as
+UTF-8.`），UTF-16 保存的文件得到专门提示（改用 UTF-8 重新保存
+即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide
+的构建经由 ncc，同样受此门控。文件
+开头的 UTF-8 BOM 被接受并跳过，编辑器的「UTF-8 with BOM」保存
+形式无需处理。详见 →
+[语言规格/基本类型](../language-spec/primitives.md)。
 
 ### 帮助文档与搜索在哪？
 
@@ -58,10 +73,11 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 
 详见 → [语言规格/表达式](../language-spec/expressions.md)。
 
-### 调试时 `io.readLine` 报错 / 停止后 `finally` 不执行 / 断点错位？
+### 调试时怎么给 `io.readLine` 输入 / 停止后 `finally` 不执行 / 断点错位？
 
-调试会话没有标准输入——`io.readLine` 会抛 `IOException`（可以用
-`try/catch` 捕获），不会静默挂起；停止调试是硬终止，进程直接结束
+运行与调试的标准输入都在「运行输出」页底部的输入行：会话运行期间
+输入一行并回车，该行就送达程序的下一次读取（详见
+[在 nide 中调试](debugging.md)）；停止调试是硬终止，进程直接结束
 （`finally` 不执行）；会话内不跟踪行号漂移，一次会话对应一份行号
 快照，会话中编辑或重新构建不受支持，须重新打开调试会话。详见
 [在 nide 中调试](debugging.md) 的「v1 已知限制」一节。
@@ -101,12 +117,14 @@ nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令
 实参」条。完整错误消息见 →
 [常见错误消息](../language-spec/common-errors.md)。
 
-### 条件 / `&&` / `||` / `!` 报「必须 int」？参数超 64？
+### 条件 / `&&` / `||` / `!` 报「必须 bool」？参数超 64？
 
 `if` / `while` / `do-while` / `for` / `assert` 的条件与 `&&` / `||` /
-`!` 的操作数都必须是 `int`（比较产生 `int`）；string、float、class、
-struct、array 都是编译期具名拒绝（`if condition must be int, got
-"String"`、`operator '&&' requires int operands, got "String"`）。另
+`!` 的操作数都必须是 `bool`（比较与谓词已经产生 bool——没有 C 式的
+「非零即真」）；int、string、float、char、class、
+struct、array 都是编译期具名拒绝（`if condition must be bool, not
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数
+判断请写 `if (count != 0)`。另
 外函数参数数有合理性上限 64，超出触发编译期错误
 （`function "f" has 65 parameters; limit is 64.`）。条件类型的机制
 见 [语言规格/语句](../language-spec/statements.md) 的「条件类型」，

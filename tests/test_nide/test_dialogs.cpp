@@ -172,6 +172,27 @@ private slots:
         QVERIFY(project->isDirty());
     }
 
+    //A project created with all-default properties is still authored
+    //work: it exists only in memory (no .nproj is written at creation),
+    // so it must read as unsaved from birth.
+    void testCreateAcceptDefaultsProjectIsDirty() {
+        QTemporaryDir dir;
+        SolutionNode solution("Sln");
+        ProjectPropDialog dialog;
+        inExec([&] {
+            edit(&dialog, "edtProjectName")->setText("App");
+            edit(&dialog, "edtProjectDir")->setText(dir.path());
+            //namespace/outputDir/intermediateDir/noWarn keep defaults
+            dialog.accept();
+        });
+
+        ProjectNode* project = dialog.createProject(solution);
+        QVERIFY(project != nullptr);
+        QVERIFY(!QFileInfo::exists(
+            QDir(dir.path()).filePath("App.nproj")));  // memory-only
+        QVERIFY(project->isDirty());
+    }
+
     void testCreateRejectReturnsNull() {
         SolutionNode solution("Sln");
         ProjectPropDialog dialog;
@@ -354,13 +375,15 @@ private slots:
 
     void testSettingsDialogSeedsAndEchoes() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL);
+        dialog.init("system", "", TOOLBAR_ICON_SMALL,
+                    QStringList(), false);
         QComboBox* combo =
             dialog.findChild<QComboBox*>("cmbLanguage");
         QVERIFY(combo != nullptr);
         QCOMPARE(combo->count(), 3);
         QCOMPARE(dialog.language(), QString("system"));
         QVERIFY(dialog.buildOutputDir().isEmpty());
+        QVERIFY(!dialog.noWarn());
         //The icon-size combo seeds and echoes like the others.
         QComboBox* iconCombo =
             dialog.findChild<QComboBox*>("cmbIconSize");
@@ -371,15 +394,18 @@ private slots:
         iconCombo->setCurrentIndex(largeIdx);
         QCOMPARE(dialog.toolbarIconSize(), TOOLBAR_ICON_LARGE);
         //Unknown seeds fall back to system/small, never an unset combo.
-        dialog.init("klingon", "D:/out", "huge");
+        dialog.init("klingon", "D:/out", "huge",
+                    QStringList(), true);
         QCOMPARE(dialog.language(), QString("system"));
         QCOMPARE(dialog.buildOutputDir(), QString("D:/out"));
         QCOMPARE(dialog.toolbarIconSize(), TOOLBAR_ICON_SMALL);
+        QVERIFY(dialog.noWarn());
     }
 
     void testSettingsDialogReturnsSelectedValues() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL);
+        dialog.init("system", "", TOOLBAR_ICON_SMALL,
+                    QStringList(), false);
         dialog.findChild<QComboBox*>("cmbLanguage")->setCurrentIndex(1);
         dialog.findChild<QLineEdit*>("edtBuildOutputDir")
             ->setText("  D:/out  ");
@@ -389,7 +415,8 @@ private slots:
 
     void testSettingsDialogShowsDefaultWhenUnset() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL);
+        dialog.init("system", "", TOOLBAR_ICON_SMALL,
+                    QStringList(), false);
         QLineEdit* edit =
             dialog.findChild<QLineEdit*>("edtBuildOutputDir");
         QVERIFY(edit != nullptr);
@@ -401,14 +428,15 @@ private slots:
         QCOMPARE(edit->placeholderText(),
                  SettingsStore::defaultStandaloneBuildDir());
         //A set directory seeds the real text; the placeholder is gone.
-        dialog.init("system", "D:/out", TOOLBAR_ICON_LARGE);
+        dialog.init("system", "D:/out", TOOLBAR_ICON_LARGE,
+                    QStringList(), false);
         QCOMPARE(edit->text(), QString("D:/out"));
     }
 
     void testSettingsDialogLibraryPathsSeedAndEcho() {
         SettingsDialog dialog;
         dialog.init("system", "", TOOLBAR_ICON_SMALL,
-                    {"D:/libs/acme", "D:/vendor/x"});
+                    {"D:/libs/acme", "D:/vendor/x"}, false);
         PathListEditor* editor = dialog.findChild<PathListEditor*>();
         QVERIFY(editor != nullptr);
         QCOMPARE(editor->paths(),
@@ -418,7 +446,7 @@ private slots:
 
     void testSettingsDialogLibraryPathAddDedupRemoveReorder() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL, {});
+        dialog.init("system", "", TOOLBAR_ICON_SMALL, {}, false);
         PathListEditor* editor = dialog.findChild<PathListEditor*>();
         QVERIFY(editor != nullptr);
         editor->addPath("D:/a");

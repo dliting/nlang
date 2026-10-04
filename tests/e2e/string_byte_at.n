@@ -1,0 +1,14 @@
+//0.7.5 string indexing: s[i] reads the i-th BYTE as ubyte ('中' is
+//E4 B8 AD in UTF-8). Prints 99 ("abc"[2]).
+import io;
+int main() {
+    string s = "中";
+    ubyte b0 = s[0];
+    ubyte b1 = s[1];
+    ubyte b2 = s[2];
+    if (b0 != 228 || b1 != 184 || b2 != 173) { return 1; }
+    if ("abc"[1] != 98) { return 2; }  // literal base, ubyte vs int
+    ubyte n = "abc"[2];
+    io.print(n);
+    return 0;
+}

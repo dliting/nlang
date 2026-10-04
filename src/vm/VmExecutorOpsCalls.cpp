@@ -24,7 +24,7 @@ void VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pR
         return;
     }
     std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > 0 && paramBytes <= callee.localsSize)
         std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
     ExecuteFunction(callee, pResult, calleeLocals.data());
@@ -134,18 +134,18 @@ void VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t*
             "NLang VM: intrinsic function does not support out parameters: "
             + callee.name);
     std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > 0 && paramBytes <= callee.localsSize)
         std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
     ExecuteFunction(callee, pResult, calleeLocals.data());
     for (uint32_t slot = 0; slot < 32; ++slot) {
         if (!(outMask & (1u << slot)))
             continue;
-        uint16_t off = static_cast<uint16_t>(slot * sizeof(int32_t));
-        if (off + sizeof(int32_t) > callee.localsSize)
+        uint16_t off = static_cast<uint16_t>(slot * kFrameSlotBytes);
+        if (off + kFrameSlotBytes > callee.localsSize)
             throw std::runtime_error("NLang VM: out parameter slot out of bounds");
         std::memcpy(locals + callParamBase + off,
-                    calleeLocals.data() + off, sizeof(int32_t));
+                    calleeLocals.data() + off, kFrameSlotBytes);
     }
 }
 
@@ -166,7 +166,7 @@ void VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
         return;
     }
     std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > 0 && paramBytes <= callee.localsSize)
         std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
     ExecuteFunction(callee, pResult, calleeLocals.data());
@@ -196,18 +196,18 @@ void VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
             "NLang VM: native function does not support out parameters: "
             + callee.name);
     std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > 0 && paramBytes <= callee.localsSize)
         std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
     ExecuteFunction(callee, pResult, calleeLocals.data());
     for (uint32_t slot = 0; slot < 32; ++slot) {
         if (!(outMask & (1u << slot)))
             continue;
-        uint16_t off = static_cast<uint16_t>(slot * sizeof(int32_t));
-        if (off + sizeof(int32_t) > callee.localsSize)
+        uint16_t off = static_cast<uint16_t>(slot * kFrameSlotBytes);
+        if (off + kFrameSlotBytes > callee.localsSize)
             throw std::runtime_error("NLang VM: out parameter slot out of bounds");
         std::memcpy(locals + callParamBase + off,
-                    calleeLocals.data() + off, sizeof(int32_t));
+                    calleeLocals.data() + off, kFrameSlotBytes);
     }
 }
 
@@ -253,7 +253,7 @@ void VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
         return;
     }
     std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > 0 && paramBytes <= callee.localsSize)
         std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
     ExecuteFunction(callee, pResult, calleeLocals.data());
@@ -372,7 +372,7 @@ void VmExecutor::CallDelegateFree(const CompiledFunction& callee,
         return;
     }
     std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > callee.localsSize)
         throw std::runtime_error(
             "NLang VM: callee locals smaller than the parameter "
@@ -383,12 +383,12 @@ void VmExecutor::CallDelegateFree(const CompiledFunction& callee,
     for (uint32_t i = 0; i < 32; ++i) {
         if (!(outMask & (1u << i)))
             continue;
-        uint16_t off = static_cast<uint16_t>(i * sizeof(int32_t));
-        if (off + sizeof(int32_t) > callee.localsSize)
+        uint16_t off = static_cast<uint16_t>(i * kFrameSlotBytes);
+        if (off + kFrameSlotBytes > callee.localsSize)
             throw std::runtime_error(
                 "NLang VM: out parameter slot out of bounds");
         std::memcpy(locals + callParamBase + off,
-                    calleeLocals.data() + off, sizeof(int32_t));
+                    calleeLocals.data() + off, kFrameSlotBytes);
     }
 }
 
@@ -412,27 +412,27 @@ void VmExecutor::CallDelegateBound(const CompiledFunction& callee,
     std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
     //paramCount includes `this` for methods, matching the
     //OP_CallMethodDirect frame layout.
-    uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > callee.localsSize)
         throw std::runtime_error(
             "NLang VM: callee locals smaller than the parameter "
             "block in CallDelegate");
     std::memcpy(calleeLocals.data(), &thisIdx, sizeof(thisIdx));
-    uint16_t argBytes = paramBytes - sizeof(int32_t);
+    uint16_t argBytes = paramBytes - kFrameSlotBytes;
     if (argBytes > 0)
-        std::memcpy(calleeLocals.data() + sizeof(int32_t),
+        std::memcpy(calleeLocals.data() + kFrameSlotBytes,
                     locals + callParamBase, argBytes);
     ExecuteFunction(callee, pResult, calleeLocals.data());
     for (uint32_t i = 0; i < 32; ++i) {
         if (!(outMask & (1u << i)))
             continue;
-        uint16_t srcOff = static_cast<uint16_t>((i + 1) * sizeof(int32_t));
-        uint16_t dstOff = static_cast<uint16_t>(i * sizeof(int32_t));
-        if (srcOff + sizeof(int32_t) > callee.localsSize)
+        uint16_t srcOff = static_cast<uint16_t>((i + 1) * kFrameSlotBytes);
+        uint16_t dstOff = static_cast<uint16_t>(i * kFrameSlotBytes);
+        if (srcOff + kFrameSlotBytes > callee.localsSize)
             throw std::runtime_error(
                 "NLang VM: out parameter slot out of bounds");
         std::memcpy(locals + callParamBase + dstOff,
-                    calleeLocals.data() + srcOff, sizeof(int32_t));
+                    calleeLocals.data() + srcOff, kFrameSlotBytes);
     }
 }
 

@@ -1,0 +1,6 @@
+b dbgm_locals_scope.n 5
+run
+locals
+c
+locals
+c

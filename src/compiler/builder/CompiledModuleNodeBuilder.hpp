@@ -1,4 +1,5 @@
 #pragma once
+#include "CompiledModuleStubSupport.hpp"
 #include "SyntaxTree.h"
 #include "SnMisc.h"
 #include "SnData.h"
@@ -14,39 +15,6 @@
 
 namespace nlang
 {
-
-//Source location for stubs constructed from a CompiledModule.
-//Distinct from ImportedNodeLocation (which is backed by a RuntimeNode);
-//here we have no RuntimeNode — the stub is minted directly from .ncu data.
-class CompiledModuleNodeLocation : public ISourceLocation
-{
-public:
-	explicit CompiledModuleNodeLocation(const std::string& moduleName) :
-		m_moduleName(moduleName)
-	{
-	}
-
-	~CompiledModuleNodeLocation() override
-	{
-	}
-
-	std::unique_ptr<ISourceLocation> Clone() const override
-	{
-		return std::make_unique<CompiledModuleNodeLocation>(m_moduleName);
-	}
-
-	std::string ToString() const override
-	{
-		return "imported from module '" + m_moduleName + "'";
-	}
-
-	TranslationUnit *TransUnit() const override
-	{
-		return nullptr;
-	}
-private:
-	std::string m_moduleName;
-};
 
 //Builds Sn* AST stubs directly from a CompiledModule (the in-memory form of
 //a .ncu file), bypassing the legacy RnFunction / RuntimeNode pipeline.
@@ -69,12 +37,6 @@ private:
 //while the stub's owner tag (the external module) supplies the package.
 //The qualified key stays in the CompiledModule tables, where the
 //load-time linker resolves it from the peer images.
-inline std::string LeafNameOfKey(const std::string &key)
-{
-	const size_t lastDot = key.find_last_of('.');
-	return lastDot == std::string::npos ? key : key.substr(lastDot + 1);
-}
-
 class CompiledModuleNodeBuilder
 {
 public:
@@ -173,6 +135,7 @@ public:
 				continue;  //R10-1
 			SnStructDecl *stub = CreateStructStub(cm.structs[si], loc);
 			m_Tree.Root()->Members().push_back(stub);
+			m_importedTypes.push_back(stub);
 		}
 
 		//Classes.
@@ -182,6 +145,7 @@ public:
 				continue;  //R10-1
 			SnClassDecl *stub = CreateClassStub(cm.classes[ci], loc);
 			m_Tree.Root()->Members().push_back(stub);
+			m_importedTypes.push_back(stub);
 		}
 	}
 
@@ -204,6 +168,16 @@ public:
 		return std::move(m_detachedStubs);
 	}
 
+	//Struct/class stubs minted into root, in source-module order.
+	//Caller (RegisterExternalStubs) tags each with its module's
+	//registry entry so FindModuleType can bind "<pkg>.<Type>" through
+	//the owner-filtered root scan. Unlike ImportedFunctions there are
+	//no detached type stubs: a collision means no stub was minted.
+	const std::vector<SnField*>& ImportedTypes() const
+	{
+		return m_importedTypes;
+	}
+
 	const std::string& ModuleName() const
 	{
 		return m_moduleName;
@@ -222,21 +196,27 @@ private:
 	SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 		const CompiledModule &cm, const ISourceLocation &loc)
 	{
+		//0.7.5: scalar kinds (legacy RTK_Int32/RTK_Float and the
+		//RTK_Byte..RTK_Char family) resolve through the registry — the
+		//old switch handled only RTK_Float, silently degrading every
+		//other scalar to the int32 placeholder (an imported `long`
+		//formal/return truncated its 8-byte values at consumer call
+		//sites before this arm existed).
+		if (int pi = ScalarPrimIndexOfRtk(td.kind); pi >= 0)
+			return new SnIdentifierExpr(kScalarPrims[pi].kind, loc);
 		switch (td.kind)
 		{
-			case RTK_Float:
-				return new SnIdentifierExpr(NK_Float, loc);
 			case RTK_String:
 				return new SnIdentifierExpr(NK_String, loc);
 			case RTK_Struct:
 				if (td.typeIdx < cm.structs.size())
-					return new SnIdentifierExpr(
-						new std::string(cm.structs[td.typeIdx].name), loc);
+					return NamedTypeExprFromKey(
+						cm.structs[td.typeIdx].name, loc);
 				break;  //out-of-range index — int32 placeholder below
 			case RTK_Class:
 				if (td.typeIdx < cm.classes.size())
-					return new SnIdentifierExpr(
-						new std::string(cm.classes[td.typeIdx].name), loc);
+					return NamedTypeExprFromKey(
+						cm.classes[td.typeIdx].name, loc);
 				break;
 			case RTK_Array:
 				if (!td.elems.empty())
@@ -294,6 +274,15 @@ private:
 			case RTK_Int32:
 				return new SnLiteralExpr(*RnInt32::Instance(),
 					static_cast<int32_t>(dv.intValue), loc);
+			case RTK_Long:
+				return new SnLiteralExpr(*RnLong::Instance(),
+					static_cast<int64>(dv.longValue), loc);
+			case RTK_ULong:
+				return new SnLiteralExpr(*RnULong::Instance(),
+					static_cast<uint64>(dv.longValue), loc);
+			case RTK_Double:
+				return new SnLiteralExpr(*RnDouble::Instance(),
+					dv.doubleValue, loc);
 			case RTK_Float:
 				return new SnLiteralExpr(*RnFloat::Instance(),
 					dv.floatValue, loc);
@@ -448,6 +437,7 @@ private:
 	SyntaxTree &m_Tree;
 	std::string m_moduleName;
 	std::vector<SnFunction *> m_importedFuncs;
+	std::vector<SnField *> m_importedTypes;
 	//Registered stubs that did NOT join the root (R10-1 collisions);
 	//owned here until the caller takes them via TakeDetachedStubs().
 	std::vector<std::unique_ptr<SnFunction>> m_detachedStubs;

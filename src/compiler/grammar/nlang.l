@@ -17,8 +17,11 @@
 #include "nlang.tab.h"
 #include "ScriptScanner.h"
 #include <cassert>
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <nlang/runtime/PrimitiveTypes.h>  // Utf8EncodeCodePoint (0.7.5)
 
 /* handle locations */
 #define YY_USER_ACTION														\
@@ -81,44 +84,105 @@ do {																		\
 } while(0)
 
 
-#define DEAL_INT_TOKEN(n)													\
-do {																		\
-    if (n >= -128)															\
-    {																		\
-        yylval->v_Byte = n;													\
-        return TT_Byte;														\
-    }																		\
-    else if (n >= -65536)													\
-    {																		\
-        yylval->v_Short = n;												\
-        return TT_Short;													\
-    }																		\
-    else																	\
-    {																		\
-        yylval->v_Int = n;													\
-        return TT_Int;														\
-    }																		\
-} while(0)																	
-
-
+/*0.7.5 value-range tiering: <=INT32_MAX stays int, then long, then
+  ulong — the five narrow tokens retired (constant-fit at the cast
+  site replaces lexical tiering into byte/short). Unsigned-only:
+  literal signs are retired ('-'/'+' are unary operators), so the
+  signed DEAL tier is dead and removed with them.*/
 #define DEAL_UINT_TOKEN(n)													\
 do {																		\
-    if (n < 128)															\
+    if (n <= INT32_MAX)														\
     {																		\
-        yylval->v_UByte = n;												\
-        return TT_UByte;													\
+        yylval->v_Int = (nlang::int32)n;									\
+        return TT_Int;														\
     }																		\
-    else if (n < 65536)														\
+    if (n <= INT64_MAX)														\
     {																		\
-        yylval->v_UShort = n;												\
-        return TT_UShort;													\
+        yylval->v_Long = (nlang::int64)n;									\
+        return TT_Long;														\
     }																		\
-    else																	\
-    {																		\
-        yylval->v_UInt = n;													\
-        return TT_UInt;														\
-    }																		\
-} while(0)																	
+    yylval->v_ULong = n;													\
+    return TT_ULong;														\
+} while(0)
+
+
+/*0.7.5 char/string \uXXXX support. Hex value of exactly 4
+  digits; the pattern side has already bounded the shape. */
+static unsigned ParseHex4(const char* p)
+{
+    unsigned v = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        const char c = p[i];
+        v <<= 4;
+        if (c >= '0' && c <= '9')
+            v |= unsigned(c - '0');
+        else if (c >= 'a' && c <= 'f')
+            v |= unsigned(c - 'a' + 10);
+        else
+            v |= unsigned(c - 'A' + 10);
+    }
+    return v;
+}
+
+/*Decode one char-literal body (the bytes between the quotes) into a
+  Unicode scalar value. The flex pattern bounds the byte span; this
+  action enforces the semantics: a bare segment must decode to exactly
+  one UTF-8 code point (minimal length, non-surrogate, <= 0x10FFFF),
+  escapes resolve by table, \uXXXX is BMP non-surrogate only. */
+static bool DecodeCharLiteral(const char* p, int len, nlang::nchar& out)
+{
+    if (len >= 2 && p[0] == '\\')
+    {
+        if (len == 2)
+        {
+            switch (p[1])
+            {
+            case 'n':   out = 0x0A; return true;
+            case 'r':   out = 0x0D; return true;
+            case 't':   out = 0x09; return true;
+            case '\'':   out = 0x27; return true;
+            case '\\':  out = 0x5C; return true;
+            default:    return false;
+            }
+        }
+        if (len == 6 && p[1] == 'u')
+        {
+            const unsigned v = ParseHex4(p + 2);
+            if (v >= 0xD800 && v <= 0xDFFF)
+                return false;
+            out = nlang::nchar(v);
+            return true;
+        }
+        return false;
+    }
+    if (len < 1 || len > 4)
+        return false;
+    const unsigned char b0 = (unsigned char)p[0];
+    unsigned cp;
+    int n;
+    if (b0 < 0x80)                   { cp = b0;          n = 1; }
+    else if ((b0 & 0xE0) == 0xC0)    { cp = b0 & 0x1F;   n = 2; }
+    else if ((b0 & 0xF0) == 0xE0)    { cp = b0 & 0x0F;   n = 3; }
+    else if ((b0 & 0xF8) == 0xF0)    { cp = b0 & 0x07;   n = 4; }
+    else                             { return false; }
+    if (len != n)
+        return false;
+    for (int i = 1; i < n; ++i)
+    {
+        const unsigned char bi = (unsigned char)p[i];
+        if ((bi & 0xC0) != 0x80)
+            return false;
+        cp = (cp << 6) | (bi & 0x3F);
+    }
+    static const unsigned kMinCp[5] = { 0, 0, 0x80, 0x800, 0x10000 };
+    if (cp < kMinCp[n] || cp > 0x10FFFF)
+        return false;
+    if (cp >= 0xD800 && cp <= 0xDFFF)
+        return false;
+    out = nlang::nchar(cp);
+    return true;
+}
 
 %}
 %option extra-type="nlang::ScriptScanner*"
@@ -129,10 +193,10 @@ do {																		\
 Blanks  	[ \t]+
 Alpha		[_A-Za-z]
 DecDigit	[0-9]
-HexDigit    {DecDigit}[a-fA-F]
-DecInt      [-+]?{DecDigit}+([eE][-+]?{DecDigit}+)?
-HexInt      [-+]?(0x|0X){HexDigit}+
-Float       [-+]?{DecDigit}*"."{DecDigit}+([eE][-+]?{DecDigit}+)?
+HexDigit    ({DecDigit}|[a-fA-F])
+DecInt      {DecDigit}+
+HexInt      (0x|0X){HexDigit}+
+Float       {DecDigit}*"."{DecDigit}+([eE][-+]?{DecDigit}+)?[fF]?|{DecDigit}+[eE][-+]?{DecDigit}+[fF]?
 Name		{Alpha}({Alpha}|{DecDigit})*
 LineComment	\/\/[^\n]*
 
@@ -157,6 +221,7 @@ LineComment	\/\/[^\n]*
 "continue"  { return KT_Continue; }
 "do"        { return KT_Do; }
 "default"   { return KT_Default; }
+"double"    { return KT_Double; }
 "else"      { return KT_Else; }
 "elseif"    { return KT_Elseif; }
 "enum"      { return KT_Enum; }
@@ -171,6 +236,7 @@ LineComment	\/\/[^\n]*
 "in"        { return KT_In; }
 "int"       { return KT_Int; }
 "interface" { return KT_Interface; }
+"long"      { return KT_Long; }
 "native"    { return KT_Native; }
 "new"       { return KT_New; }
 "null"      { return KT_Null; }
@@ -192,6 +258,7 @@ LineComment	\/\/[^\n]*
 "try"       { return KT_Try; }
 "ubyte"     { return KT_Ubyte; }
 "uint"      { return KT_Uint; }
+"ulong"     { return KT_ULong; }
 "ushort"    { return KT_Ushort; }
 "using"     { return KT_Using; }
 "virtual"   { return KT_Virtual; }
@@ -270,79 +337,52 @@ LineComment	\/\/[^\n]*
             }
 
 {Float}     {
-                yylval->v_Float = static_cast<float>(atof(yytext));
-                return TT_Float;
+                /*0.7.5: an f/F suffix selects the float carrier, an
+                 *unsuffixed literal (dot or exponent form) is double.
+                 *The pattern validated the shape, so pEnd lands on
+                 *the suffix or the NUL. */
+                char* pEnd = NULL;
+                double full = strtod(yytext, &pEnd);
+                if (*pEnd == 'f' || *pEnd == 'F')
+                {
+                    yylval->v_Float = static_cast<float>(full);
+                    return TT_Float;
+                }
+                yylval->v_Double = full;
+                return TT_Double;
             }
 
 {DecInt}    {
-                /*Full-value parse. The pattern admits exponent forms
-                 *("2e5"), and sscanf("%d") silently stops at 'e' (the
-                 *whole literal would read as 2). atof applies the
-                 *exponent; values that are not integral or fall outside
-                 *the 32-bit token range (int32 signed / uint32 unsigned)
-                 *are rejected as TT_Error — same channel as the unknown
-                 *string-escape rejection. */
-                double full = atof(yytext);
-                if (yytext[0] == '-')
-                {
-                    if (full < INT32_MIN || full != std::floor(full))
-                        return TT_Error;
-                    nlang::int32 n;
-                    n = (nlang::int32)full;
-                    DEAL_INT_TOKEN(n);
-                }
-                else
-                {
-                    if (full > UINT32_MAX || full != std::floor(full))
-                        return TT_Error;
-                    nlang::uint32 n;
-                    n = (nlang::uint32)full;
-                    DEAL_UINT_TOKEN(n);
-                }
+                /*Full-value 64-bit parse (0.7.5): literals are
+                 *unsigned (signs are unary operators), exponent forms
+                 *live in {Float}; beyond UINT64_MAX is a lexical
+                 *error. */
+                errno = 0;
+                nlang::uint64 n = strtoull(yytext, NULL, 10);
+                if (errno == ERANGE) return TT_Error;
+                DEAL_UINT_TOKEN(n);
             }
 
 {HexInt}    {
-                if (yytext[0] == '-')
-                {
-                    nlang::int32 n;
-                    sscanf(yytext, "%x", &n);
-                    DEAL_INT_TOKEN(n);
-                }
-                else
-                {
-                    nlang::uint32 n;
-                    sscanf(yytext, "%x", &n);
-                    DEAL_UINT_TOKEN(n);
-                }
+                /*Full-value 64-bit parse (0.7.5), unsigned-only like
+                 *DecInt. */
+                errno = 0;
+                nlang::uint64 n = strtoull(yytext, NULL, 16);
+                if (errno == ERANGE) return TT_Error;
+                DEAL_UINT_TOKEN(n);
             }
 
-'[^'\n\r\t\\]'   {
-                yylval->v_Char = yytext[1];
-                return TT_Char;
-            }
-
-'\''       {
-                yylval->v_Char = '\'';
-                return TT_Char;
-            }
-
-'\\n'       {
-                yylval->v_Char = '\n';
-                return TT_Char;
-            }
-
-'\\r'       {
-                yylval->v_Char = '\r';
-                return TT_Char;
-            }
-
-'\\t'       {
-                yylval->v_Char = '\t';
-                return TT_Char;
-            }
-
-'\\\\'       {
-                yylval->v_Char = '\\';
+'([^'\n\r\t\\]{1,4}|\\u[0-9a-fA-F]{4}|\\[nrt'\\])'   {
+                //0.7.5: one rule for the whole char-literal family.
+                //Flex bracket classes match BYTES, so {1,4} covers
+                //any single UTF-8 code point (1-4 bytes) without
+                //scanner state; this action then enforces "exactly
+                //one Unicode scalar value" (rejects multi-point
+                //spans, truncated sequences, surrogate \uXXXX).
+                nlang::nchar cp;
+                if (!DecodeCharLiteral(yytext + 1, yyleng - 2, cp))
+                    return TT_Error;
+                yylval->v_Char = cp;
                 return TT_Char;
             }
 
@@ -448,6 +488,31 @@ LineComment	\/\/[^\n]*
 
 <STRING_S>"\\v"	{
                 APPEND_TEXT(std::string(1, '\v'));
+            }
+
+<STRING_S>"\\u"[dD][89aAbB][0-9a-fA-F]{2}"\\u"[dD][cdefCDEF][0-9a-fA-F]{2}	{
+                //0.7.5: adjacent surrogate pair (Java-style) combines
+                //into one non-BMP code point (4 UTF-8 bytes). Longer
+                //than the singleton rule, so longest-match picks it.
+                const unsigned hi = ParseHex4(yytext + 2);
+                const unsigned lo = ParseHex4(yytext + 8);
+                const unsigned cp = 0x10000u
+                    + ((hi - 0xD800u) << 10) + (lo - 0xDC00u);
+                APPEND_TEXT(nlang::Utf8EncodeCodePoint(cp));
+            }
+
+<STRING_S>"\\u"[0-9a-fA-F]{4}	{
+                //0.7.5: \uXXXX - BMP only; a lone surrogate is an
+                //error (pairing requires adjacency, matched above).
+                const unsigned cp = ParseHex4(yytext + 2);
+                if (cp >= 0xD800 && cp <= 0xDFFF)
+                {
+                    FREE_TEXT();
+                    bConcatToken = false;
+                    BEGIN_STATE(INITIAL);
+                    return TT_Error;
+                }
+                APPEND_TEXT(nlang::Utf8EncodeCodePoint(cp));
             }
 
 <STRING_S>"\\".    {

@@ -8,6 +8,7 @@
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
+#include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
@@ -287,6 +288,7 @@ void test_deep_chain_append_bounded_time()
 int main()
 {
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     test_deep_chain_append_bounded_time();
     test_intern_reuse_short_strings();
     test_intern_sweep_purifies_table();

@@ -17,7 +17,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 void VmBackend::Access(SnSubscriptAssignStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -59,10 +58,10 @@ void VmBackend::EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
         : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
     auto valBox = BoxingTagFor(pElem);
     //arg0 = index → claim[1]
-    EmitBoxedOperand(*sub.Index(), claimBase + VALUE_SIZE, keyBox,
+    EmitBoxedOperand(*sub.Index(), claimBase + kFrameSlotBytes, keyBox,
                      emitter);
     //arg1 = value → claim[2]
-    EmitBoxedOperand(*sub.Value(), claimBase + 2 * VALUE_SIZE, valBox,
+    EmitBoxedOperand(*sub.Value(), claimBase + 2 * kFrameSlotBytes, valBox,
                      emitter);
     //this = receiver → claim[0], null-checked.
     EmitExpression(*sub.Array(), emitter, claimBase);
@@ -71,10 +70,10 @@ void VmBackend::EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
     //Bulk-copy claim → callParamBase, then set().
     for (uint16_t i = 0; i < 3; ++i) {
         emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * VALUE_SIZE);
+        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(
-            m_currFunc->callParamBase + i * VALUE_SIZE);
+            m_currFunc->callParamBase + i * kFrameSlotBytes);
     }
     uint16_t nameIdx = AddStringConstant("set");
     emitter.Emit(OpCode::OP_CallMethod);
@@ -130,8 +129,8 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
     SnField* elemType = ArrayElementStoreType(sub);
     EvalAreaClaim claim(*this, 3);
     uint16_t claimBase = claim.base();
-    uint16_t indexSlot = claimBase + VALUE_SIZE;
-    uint16_t valueSlot = claimBase + 2 * VALUE_SIZE;
+    uint16_t indexSlot = claimBase + kFrameSlotBytes;
+    uint16_t valueSlot = claimBase + 2 * kFrameSlotBytes;
     //Object[] element stores arrive pre-boxed: the resolver's
     //element-type gate (Access(SnSubscriptAssignStmt)) wraps
     //primitive values in a TCK_Box cast, so this emit includes the

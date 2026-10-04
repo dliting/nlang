@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--Shared by the four CLI executables (ncc/nvm/ndisasm/ndb): declared
+    as a manifest source in each tool's CMakeLists. Sets the process
+    active code page to UTF-8 (honored on Windows 10 1903+; older
+    systems ignore it and keep the system code page). Effect: argv
+    reaches narrow main() as UTF-8, the narrow file APIs and narrow
+    std::filesystem paths accept full-Unicode paths, and the tools'
+    diagnostics echo paths as UTF-8 bytes — the console contract the
+    language's own output (io.print) already documents. The tools pair
+    this with SetConsoleOutputCP(CP_UTF8) at startup so default
+    consoles render those bytes.
+    The SMI namespace goes on the activeCodePage element itself (the
+    shape documented by Microsoft for fusion manifests) — the SxS
+    parser does not honor namespace inheritance from the container.-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>

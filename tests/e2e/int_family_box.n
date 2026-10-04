@@ -1,0 +1,10 @@
+// 0.7.5: long boxes into Object (tag + 8-byte value record) and
+// unboxes back through `as long`.
+import io;
+int main() {
+    Object o = 5000000000;
+    long back = o as long;
+    io.print(back);
+    if (o == null) { return 1; }
+    return 0;
+}

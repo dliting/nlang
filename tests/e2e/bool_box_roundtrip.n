@@ -1,0 +1,12 @@
+// 0.7.5: bool boxes into Object (registry-driven TCK_Box) and unboxes
+// back through `as bool`, preserving the value both ways.
+int main() {
+    Object o = true;
+    bool b = o as bool;
+    Object f = false;
+    bool c = f as bool;
+    if (!b) { return 1; }
+    if (c) { return 2; }
+    if (o == null) { return 3; }
+    return 0;
+}

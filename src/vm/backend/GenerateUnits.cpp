@@ -43,6 +43,12 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     ctx.func = &compiledFunc;
     ctx.nextOffset = 0;
     m_currFunc = &ctx;
+    //The emitter pointer only ever points at this function's stack
+    //emitter (set by EmitStatement/EmitExpression). Null it here so
+    //AllocLocal — which runs for params before body emission — reads a
+    //defined null instead of the previous function's destroyed emitter
+    //and records declPc 0 ("live from entry") for params/__this.
+    m_pCurrEmitter = nullptr;
 
     AllocParamsAndDefaults(func, ctx, compiledFunc);
     CallSlotStats stats = ReserveReturnAndCallSlots(func, ctx, compiledFunc);

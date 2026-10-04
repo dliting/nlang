@@ -10,6 +10,7 @@
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
+#include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/StdLib.h"
@@ -143,8 +144,8 @@ void test_stdlib_sqrt_value()
     TEST(stdlib_sqrt_value);
     const int rc = runSource("sqrt_value",
         "int main() {\n"
-        "    float a = math.sqrt(4.0);\n"
-        "    float b = math.sqrt(4);\n"
+        "    double a = math.sqrt(4.0);\n"
+        "    double b = math.sqrt(4);\n"
         "    if (a == 2.0 && b == 2.0) return 0;\n"
         "    return 1;\n"
         "}\n");
@@ -280,6 +281,12 @@ void test_stdlib_native_full_dispatch()
         case langservice::TypeKind::Float:
             src = "int main() { float r = " + call + "; return 0; }\n";
             break;
+        case langservice::TypeKind::Double:
+            src = "int main() { double r = " + call + "; return 0; }\n";
+            break;
+        case langservice::TypeKind::Long:
+            src = "int main() { long r = " + call + "; return 0; }\n";
+            break;
         case langservice::TypeKind::String:
             src = "int main() { string r = " + call + "; return 0; }\n";
             break;
@@ -410,7 +417,11 @@ void test_string_table_full_dispatch()
             args += (i ? ", " : "")
                 + std::string(entry.paramKinds[i] == RTK_Int32
                     ? "1" : "\"x\"");
-        std::string call = std::string("\"12\".") + entry.name
+        //toBool needs a parseable receiver — the walk's default "12"
+        //would raise at run time (strict "true"/"false" parse).
+        const std::string recv = (std::string(entry.name) == "toBool")
+            ? "\"true\"" : "\"12\"";
+        std::string call = recv + "." + entry.name
             + "(" + args + ")";
         std::string src;
         switch ((StdLibReturnType)entry.returnType)
@@ -423,6 +434,18 @@ void test_string_table_full_dispatch()
             break;
         case SLRT_Float:
             src = "int main() { float r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Bool:   //0.7.5: startsWith/endsWith/contains
+            src = "int main() { bool r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Char:   //0.7.5 Task 8: charAt/toChar
+            src = "int main() { char r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Long:   //0.7.5 Task 8: toLong
+            src = "int main() { long r = " + call + "; return 0; }\n";
+            break;
+        case SLRT_Double: //0.7.5 Task 8: toDouble
+            src = "int main() { double r = " + call + "; return 0; }\n";
             break;
         case SLRT_ListString:
             src = "int main() { List<string> r = " + call
@@ -449,8 +472,8 @@ void test_string_equals_gethashcode_migrated()
     //ids 42/43 unchanged, value semantics unchanged.
     const int rc = runSource("str_proto",
         "int main() {\n"
-        "    if (!(\"a\".equals(\"a\"))) return 1;\n"
-        "    if (\"a\".equals(\"b\")) return 2;\n"
+        "    if (\"a\".equals(\"a\") == 0) return 1;\n"
+        "    if (\"a\".equals(\"b\") != 0) return 2;\n"
         "    if (\"a\".getHashCode() != \"a\".getHashCode()) return 3;\n"
         "    return 0;\n"
         "}\n");
@@ -554,6 +577,7 @@ int main()
     //interned-name table the resolver indexes fields by. Without it any
     //the build segfaults in IdString lookup rather than failing loudly.
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
 
     std::cerr << "=== NLang StdLib Unit Tests ===\n\n";
 

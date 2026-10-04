@@ -1,0 +1,7 @@
+//0.7.5 Task 9: writeDouble admits doubles and lossless float widening
+//only — a string argument is rejected by name like the 4-byte writers.
+int main() {
+    ByteStream bs = new ByteStream();
+    bs.writeDouble("x");
+    return 0;
+}

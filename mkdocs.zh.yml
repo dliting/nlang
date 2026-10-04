@@ -15,11 +15,12 @@ nav:
       - NLang 是什么: getting-started/what-is-nlang.md
       - 安装与布局: getting-started/install-layout.md
       - 五分钟上手: getting-started/first-program.md
-      - "速览: 类型与变量": getting-started/types-and-variables.md
-      - "速览: 容器": getting-started/containers.md
-      - "速览: 控制流": getting-started/control-flow.md
-      - "速览: 类与继承": getting-started/classes-and-inheritance.md
-      - "速览: 函数与模块": getting-started/function-features.md
+      - 速览:
+          - 类型与变量: getting-started/types-and-variables.md
+          - 容器: getting-started/containers.md
+          - 控制流: getting-started/control-flow.md
+          - 类与继承: getting-started/classes-and-inheritance.md
+          - 函数与模块: getting-started/function-features.md
       - 三种运行方式: getting-started/running.md
       - 在 nide 中调试: getting-started/debugging.md
       - 常见问题: getting-started/faq.md
@@ -33,35 +34,66 @@ nav:
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
-      - 类型: language-spec/types.md
-      - 类型语义: language-spec/type-semantics.md
-      - 声明: language-spec/declarations.md
-      - 包: language-spec/packages.md
-      - 内建泛型类: language-spec/builtin-generic-classes.md
-      - 表达式: language-spec/expressions.md
-      - 语句: language-spec/statements.md
-      - 函数: language-spec/functions.md
-      - 函数类型与委托: language-spec/function-types-and-delegates.md
+      - 类型:
+          - 类型: language-spec/types.md
+          - 基本类型: language-spec/primitives.md
+          - 字符串: language-spec/string.md
+          - 枚举: language-spec/enum.md
+          - 结构体: language-spec/struct.md
+          - 类: language-spec/class.md
+          - 接口: language-spec/interface.md
+          - 数组: language-spec/array.md
+          - Object 与装箱: language-spec/object.md
+          - 类型强制转换: language-spec/type-casts.md
+          - 类型语义: language-spec/type-semantics.md
+          - 声明: language-spec/declarations.md
+          - 包: language-spec/packages.md
+          - 内建泛型类: language-spec/builtin-generic-classes.md
+      - 表达式与语句:
+          - 表达式: language-spec/expressions.md
+          - 运算符: language-spec/operators.md
+          - 集合初始化器: language-spec/collection-initializers.md
+          - 语句: language-spec/statements.md
+          - If: language-spec/if.md
+          - 循环: language-spec/loops.md
+          - Foreach: language-spec/foreach.md
+          - Switch: language-spec/switch.md
+          - 异常: language-spec/exception.md
+          - Assert: language-spec/assert.md
+          - 复合赋值: language-spec/compound-assignment.md
+          - Const 局部: language-spec/const-local.md
+      - 函数:
+          - 函数: language-spec/functions.md
+          - 默认参数: language-spec/default-parameters.md
+          - 命名实参: language-spec/named-arguments.md
+          - 重载解析: language-spec/overload-resolution.md
+          - out 参数: language-spec/out-parameters.md
+          - native 函数: language-spec/native-functions.md
+          - 函数类型与委托: language-spec/function-types-and-delegates.md
       - 标准库: language-spec/standard-library.md
-      - 内存管理: language-spec/memory-management.md
-      - 退出码约定: language-spec/exit-code-convention.md
-      - 已知限制: language-spec/known-limitations.md
-      - 常见错误消息: language-spec/common-errors.md
+      - 运行时:
+          - 内存管理: language-spec/memory-management.md
+          - 退出码约定: language-spec/exit-code-convention.md
+      - 参考:
+          - 已知限制: language-spec/known-limitations.md
+          - 常见错误消息: language-spec/common-errors.md
   - VM 架构:
       - 概览: vm-architecture/overview.md
-      - 编译管线: vm-architecture/compilation-pipeline.md
-      - 栈帧布局: vm-architecture/stack-frame-layout.md
-      - 堆架构: vm-architecture/heap-architecture.md
-      - 字节码指令: vm-architecture/bytecode-instructions.md
-      - 垃圾回收设计: vm-architecture/garbage-collection-design.md
+      - 核心:
+          - 编译管线: vm-architecture/compilation-pipeline.md
+          - 栈帧布局: vm-architecture/stack-frame-layout.md
+          - 堆架构: vm-architecture/heap-architecture.md
+          - 字节码指令: vm-architecture/bytecode-instructions.md
+          - 垃圾回收设计: vm-architecture/garbage-collection-design.md
       - 调试支持: vm-architecture/debugging.md
       - 模块序列化: vm-architecture/module-serialization.md
-      - foreach 降级: vm-architecture/foreach-statement-lowering.md
-      - 初始化列表降级: vm-architecture/init-list-lowering.md
-      - 二元表达式提升: vm-architecture/binary-expression-promotion.md
-      - 标准库内建函数: vm-architecture/standard-library-intrinsics.md
       - 库机制: vm-architecture/library-mechanism.md
-      - 一等函数值: vm-architecture/first-class-function-values.md
+      - 代码生成:
+          - foreach 降级: vm-architecture/foreach-statement-lowering.md
+          - 初始化列表降级: vm-architecture/init-list-lowering.md
+          - 二元表达式提升: vm-architecture/binary-expression-promotion.md
+          - 标准库内建函数: vm-architecture/standard-library-intrinsics.md
+          - 一等函数值: vm-architecture/first-class-function-values.md
       - 已知限制: vm-architecture/known-limitations.md
 #The per-tree header link to the other tree's home page (rendered by
 #theme_override main.html; its guard keeps absent keys inert).

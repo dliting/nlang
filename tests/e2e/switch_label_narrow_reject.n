@@ -1,0 +1,10 @@
+int main() {
+    //compile_error: 300 exceeds the byte domain [-128, 127]. The runtime
+    //compare reads the byte discriminant sign-extended, so the clause
+    //could never match honestly.
+    byte b = 5;
+    switch (b) {
+        case 300: return 1;
+        default: return 0;
+    }
+}

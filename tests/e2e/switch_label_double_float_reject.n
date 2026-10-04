@@ -1,0 +1,9 @@
+int main() {
+    //compile_error: 0.1 at double precision is not representable as a
+    //float — the same rule as `float f = 0.1;`. Write `case 0.1f:`.
+    float f = 0.1f;
+    switch (f) {
+        case 0.1: return 1;
+        default: return 0;
+    }
+}

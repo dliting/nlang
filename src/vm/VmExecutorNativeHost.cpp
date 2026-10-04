@@ -35,6 +35,7 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.newString = &VmExecutor::NativeNewString;
     host.c.newListString = &VmExecutor::NativeNewListString;
     host.c.writeOutput = &VmExecutor::NativeWriteOutput;
+    host.c.writeError = &VmExecutor::NativeWriteError;
     host.c.readLine = &VmExecutor::NativeReadLine;
     host.c.raiseException = &VmExecutor::NativeRaiseException;
     host.c.nextRandom = &VmExecutor::NativeNextRandom;
@@ -70,17 +71,41 @@ void VmExecutor::NativeWriteOutput(NativeHost* self, const char* text) {
     }
 }
 
+void VmExecutor::NativeWriteError(NativeHost* self, const char* text) {
+    VmExecutor* e = Wrap(self)->executor;
+    const char* out = text ? text : "";
+    if (e->m_pHostIo) {
+        //A debug session has one merged output view — diagnostics
+        //interleave with stdout there by design.
+        e->m_pHostIo->OnOutput(out);
+    } else {
+        std::fwrite(out, 1, std::strlen(out), stderr);
+        std::fflush(stderr);
+    }
+}
+
 const char* VmExecutor::NativeReadLine(NativeHost* self) {
     VmNativeHost* h = Wrap(self);
     VmExecutor* e = h->executor;
-    //An installed host without input must fail loudly (machine mode keeps
-    //stdin as its protocol channel); no host keeps console getline.
-    if (e->m_pHostIo && !e->m_pHostIo->IsInputAvailable())
-        e->RaiseNlangException(e->m_ioExcClassIdx,
-            "io.readLine: stdin is not available in this session.");
+    //An installed host IS the input channel: it supplies whole lines
+    //(blocking allowed — the program is parked here) and a host with no
+    //input returns false, so readLine fails loudly instead of silently
+    //consuming the embedder's stream (machine mode keeps stdin as its
+    //protocol channel). No host at all keeps console getline (nvm/CLI).
     std::string line;
-    if (!std::getline(std::cin, line))
+    if (e->m_pHostIo) {
+        if (!e->m_pHostIo->ReadInputLine(line))
+            e->RaiseNlangException(e->m_ioExcClassIdx,
+                "io.readLine: stdin is not available in this session.");
+    }
+    else if (!std::getline(std::cin, line)) {
+        //getline fails (and leaves line empty) at EOF with no chars
+        //read, so an empty final line and EOF are indistinguishable —
+        //documented semantics rather than a defect.
         line.clear();
+    }
+    //Strip a trailing '\r' from either source: console CRLF framing
+    //and a host that passes "\r\n"-shaped lines both normalize here.
     if (!line.empty() && line.back() == '\r')
         line.pop_back();
     h->lineScratch = std::move(line);

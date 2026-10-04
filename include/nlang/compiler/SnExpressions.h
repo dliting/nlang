@@ -817,6 +817,10 @@ public:
 
 	SnExpression *Array() const { return m_pArray; }
 	SnExpression *Index() const { return m_pIndex; }
+	//0.7.5: resolver wrap hook — FixupExprType replaces the index child
+	//in the children list; the cached slot must follow it (same splice
+	//discipline ReplaceChildNode routes through ResetChild).
+	void Index(SnExpression *pIndex) { m_pIndex = pIndex; }
 
 	bool IsDataExpr() const override { return true; }
 	void Accept(ISyntaxNodeVisitor &) override;

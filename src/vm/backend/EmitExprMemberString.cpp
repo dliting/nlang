@@ -3,6 +3,7 @@
     从 EmitExprMemberCall.cpp 拆出（2026-09-25 可维护性重构，零行为变化；源出 EmitExprMember.cpp，再上溯 VmBackend.cpp）。
 ---*/
 #include "VmBackend.h"
+#include "EmitPrimOps.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -17,15 +18,35 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
+//Subscript arm: 0.7.5 string byte read — s[i] lowers to OP_StrByteAt on
+//a 2-slot claim (receiver, index), mirroring the container-get shape so
+//nested subscripts cannot clobber an outer parked value. The resolver
+//already typed the result ubyte and gated the index to an integer kind.
+//(Emitted from EmitExprCast.cpp's Access(SnSubscriptExpr); defined here
+//with the other string-family expression emitters.)
+void VmBackend::EmitStringByteAt(SnSubscriptExpr& sub,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset) {
+    EvalAreaClaim claim(*this, 2);
+    uint16_t claimBase = claim.base();
+    EmitExpression(*sub.Array(), emitter, claimBase);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(claimBase);
+    uint16_t indexSlot = claimBase + kFrameSlotBytes;
+    EmitExpression(*sub.Index(), emitter, indexSlot);
+    emitter.Emit(OpCode::OP_StrByteAt);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(claimBase);
+    emitter.EmitUint16(indexSlot);
+}
+
 
 //Phase 8e-9b: non-class receiver toString() dispatch.
 //For enum/int/float receivers, the resolver accepted the call
 //(EvalDataType=String, NF_Resolved) without setting m_pField.
 //Codegen dispatches based on outer->EvalDataType():
 // - enum (NK_EnumDecl or NK_EnumMember Field()) → OP_Enum_to_str
-// - int (NK_Int32) → OP_Int32_to_str
-// - float (NK_Float) → OP_Float_to_str
+// - any scalar → OP_Prim_to_str (0.7.5 kind-immediate)
 // - string (NK_String) → identity (no opcode)
 //This mirrors the SnCastExpr handler's dispatch but for the
 //MemberExpr+InvokeExpr AST shape that `x.toString()` produces.
@@ -135,9 +156,12 @@ bool VmBackend::EmitMemberEnumLiteralToString(SnMemberExpr& member,
     return false;
 }
 
-//int/float receiver arms: refresh pResult, then OP_Int32_to_str /
-//OP_Float_to_str. Returns false for any other receiver kind (the call
-//falls through to the class-receiver paths).
+//Scalar receiver arm (0.7.5): refresh pResult, then the registry-driven
+//OP_Prim_to_str keyed on the receiver's kind — every scalar rides the
+//same instruction. int32 first disambiguates enum literals (Color.Green
+//stringifies via its value name, not the numeric string).
+//Returns false for any non-scalar receiver kind (the call falls through
+//to the class-receiver paths).
 bool VmBackend::EmitMemberNumericToString(SnMemberExpr& member,
                                           NodeKind outerKind,
                                           BytecodeEmitter& emitter,
@@ -147,24 +171,15 @@ bool VmBackend::EmitMemberNumericToString(SnMemberExpr& member,
         //Check if outer is an enum literal (Field() == NK_EnumMember)
         if (EmitMemberEnumLiteralToString(member, emitter, resultOffset))
             return true;
-        //Plain int receiver
-        EmitExpression(*member.Outer(), emitter, resultOffset);
-        EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_Int32_to_str);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        return true;
     }
-    if (outerKind == NK_Float)
-    {
-        EmitExpression(*member.Outer(), emitter, resultOffset);
-        EmitPResultRefresh(emitter, resultOffset);
-        emitter.Emit(OpCode::OP_Float_to_str);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        return true;
-    }
-    return false;
+    if (ScalarPrimIndexOf(outerKind) < 0)
+        return false;
+    EmitExpression(*member.Outer(), emitter, resultOffset);
+    EmitPResultRefresh(emitter, resultOffset);
+    EmitPrimToStr(emitter, outerKind);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    return true;
 }
 
 //Invoke-shaped tail after every other phase: string builtin methods on a
@@ -263,7 +278,7 @@ void VmBackend::EmitMemberStringEquals(SnInvokeExpr& invoke,
     uint16_t paramIdx = 1;
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
-            claimBase + paramIdx * VALUE_SIZE);
+            claimBase + paramIdx * kFrameSlotBytes);
         ++paramIdx;
     }
     CopyClaimToCallParams(claimBase, n, emitter);
@@ -318,14 +333,14 @@ bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
     uint16_t paramIdx = 1;
     for (auto& param : invoke.Params()) {
         EmitExpression(param, emitter,
-            claimBase + paramIdx * VALUE_SIZE);
+            claimBase + paramIdx * kFrameSlotBytes);
         ++paramIdx;
     }
     if (stagedArgs > argCount) {
         //dst = StrLen(receiver copy at claim slot 0)
         emitter.Emit(OpCode::OP_StrLen);
         emitter.EmitUint16(static_cast<uint16_t>(
-            claimBase + stagedArgs * VALUE_SIZE));
+            claimBase + stagedArgs * kFrameSlotBytes));
         emitter.EmitUint16(claimBase);
     }
     CopyClaimToCallParams(claimBase, n, emitter);

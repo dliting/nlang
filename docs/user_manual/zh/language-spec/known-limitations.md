@@ -3,6 +3,11 @@
 
 - **用户自定义泛型**：不支持 `class Foo<T> { ... }`。编译器只识别
   内建泛型类（`List<T>`、`Dict<K,V>`）。
+- **string → 数值的 `as` 被禁止**：`"5" as int` 是编译错误
+  （`Invalid cast: `String as Int32` is not allowed`）。等价功能由
+  string 方法族覆盖（`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/
+  `toChar`，见 [标准库](standard-library.md)）；本条是有意的规格
+  缩窄，不是缺陷。
 - **标量上下文中的数组值**：数组值只有两类合法去向——自身数组类型
   （驻留令牌恒等：声明处与值侧共享每元素类型一枚令牌），与**全部**
   位置上的 `string` 目标，整值位置与元素槽一视同仁：string 局部

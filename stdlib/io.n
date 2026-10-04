@@ -5,10 +5,19 @@
 // (nlang_io.dll); any plain NLang function would compile from this file.
 // Edit freely.
 // Print a value to stdout followed by a newline and flush.
-// The parameter is a string: int, float and array values convert
+// The parameter is a string: array and scalar primitive values convert
 // implicitly (an array renders as e.g. [1, 2]); a class, interface
 // or enum value must call .toString() first, and null is rejected.
 native void print(string s);
+// Write a value to stdout with NO newline, flush included — print's
+// prompt-building counterpart, so a typed reply lands on the same line.
+// Same implicit conversion as print.
+native void write(string s);
+// Print a value to stderr followed by a newline and flush — print's
+// diagnostic twin, keeping diagnostics separable from normal output.
+// Inside a debug session the two streams merge into the session's
+// single output view. Same implicit conversion as print.
+native void eprint(string s);
 // Read one line from stdin; trailing '\r' is stripped.
 // EOF and an empty input line both return "".
 native string readLine();

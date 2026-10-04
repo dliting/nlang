@@ -6,7 +6,7 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-%expect 16
+%expect 26
 
 %code requires {
 
@@ -137,7 +137,7 @@ static SnExpression* BuildStringExpr(
 
 	//If first part is an identifier (not string literal), prepend empty
 	//string literal "" to force string context. Otherwise two int
-	//identifiers would produce arithmetic OP_Add_i32 instead of concat.
+	//identifiers would produce arithmetic OP_Add instead of concat.
 	//   "${a}${b}" with a,b both int -> Add(Add("", a), b) -> string ctx.
 	if (parts[0]->Kind() != NK_LiteralExpr) {
 		auto* pEmpty = new SnLiteralExpr(*RnString::Instance(),
@@ -188,13 +188,11 @@ static bool CollectQualifiedSegments(
 /*data value union */
 %union {
     nlang::nchar           					v_Char;
-    nlang::int8         					v_Byte;
-    nlang::uint8        					v_UByte;
-    nlang::int16        					v_Short;
-    nlang::uint16       					v_UShort;
     nlang::int32        					v_Int;
-    nlang::uint32       					v_UInt;
+    nlang::int64        					v_Long;
+    nlang::uint64      					v_ULong;
     float               					v_Float;
+    double             					v_Double;
     std::string *           				v_pStr;
     nlang::SnUsing *						v_pUsing;
     nlang::PtrList<nlang::SnUsing> *		v_pUsingList;
@@ -255,13 +253,17 @@ static bool CollectQualifiedSegments(
 	nlang::InitEntry*						v_pInitEntry;
 }
 
-%destructor { } <v_Char> <v_Byte> <v_UByte> <v_Short> <v_UShort> <v_Int> <v_UInt> <v_Float>
+%destructor { } <v_Char> <v_Int> <v_Long> <v_ULong> <v_Float> <v_Double>
 %destructor { } <v_NodeFlags> <v_AccessType>
 %destructor { delete $$; } <*>
 
-%printer { fprintf (yyoutput, "%d", $$); } <v_Byte> <v_Short> <v_Int>
+%printer { fprintf (yyoutput, "%d", $$); } <v_Int>
+%printer { fprintf (yyoutput, "%lld", (long long)$$); } <v_Long>
+%printer { fprintf (yyoutput, "%llu", (unsigned long long)$$); } <v_ULong>
 %printer { fprintf (yyoutput, "%g", $$); } <v_Float>
-%printer { fprintf (yyoutput, "%u", $$); } <v_UByte> <v_UShort> <v_UInt> <v_NodeFlags> <v_AccessType>
+%printer { fprintf (yyoutput, "%g", $$); } <v_Double>
+%printer { fprintf (yyoutput, "%u", $$); } <v_AccessType>
+%printer { fprintf (yyoutput, "%llu", (unsigned long long)$$); } <v_NodeFlags>
 %printer { fprintf (yyoutput, "\"%s\"", $$->c_str()); } <v_pStr>
 %printer { fprintf (yyoutput, "&%p", (void*)$$); } <*>
 
@@ -326,13 +328,11 @@ static bool CollectQualifiedSegments(
 %token <v_Char>		TT_Char
 %token <v_pStr>		TT_Identifier
 %token <v_pStr>		TT_String /*Note: TT_String is not KT_String */
-%token <v_Byte>		TT_Byte
-%token <v_UByte>	TT_UByte
-%token <v_Short>	TT_Short
-%token <v_UShort>	TT_UShort
 %token <v_Int>		TT_Int
-%token <v_UInt>		TT_UInt
+%token <v_Long>		TT_Long
+%token <v_ULong>	TT_ULong
 %token <v_Float>	TT_Float
+%token <v_Double>	TT_Double
 %token TT_Comment	TT_Error
 
 /*keyword type */
@@ -352,6 +352,7 @@ static bool CollectQualifiedSegments(
 %token KT_Continue
 %token KT_Do
 %token KT_Default
+%token KT_Double
 %token KT_Else
 %token KT_Elseif
 %token KT_Enum
@@ -366,6 +367,7 @@ static bool CollectQualifiedSegments(
 %token KT_In
 %token KT_Int
 %token KT_Interface
+%token KT_Long
 %token KT_Native
 %token KT_New
 %token KT_Null
@@ -387,6 +389,7 @@ static bool CollectQualifiedSegments(
 %token KT_Try
 %token KT_Ubyte
 %token KT_Uint
+%token KT_ULong
 %token KT_Ushort
 %token KT_Using
 %token KT_Virtual
@@ -1235,23 +1238,25 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-09-30, bison 3.8.2): 16
+//Accepted-conflict ledger (re-measured 2026-10-04, bison 3.8.2): 26
 //shift/reduce, 0 reduce/reduce, in four families, every one resolved by
 //bison's default to the intended reading. The count is pinned by the
-//`%expect 16` in the prologue, so bison is SILENT on a clean tree — any
+//`%expect 26` in the prologue, so bison is SILENT on a clean tree — any
 //grammar edit that moves the count now fails the build with
-//`error: shift/reduce conflicts: N found, 16 expected` instead of
+//`error: shift/reduce conflicts: N found, 26 expected` instead of
 //leaving a notice in a log nobody reads. Bump `%expect` in the same
 //commit as the edit, never in a commit of its own.
-//- states 150/187/193 (1 each): the '<' shapes — an explicit generic
+//- states 157/193/199 (1 each): the '<' shapes — an explicit generic
 //  type head (`List<int> l;`), `new C<T>(...)`, and the void-return
 //  Func spellings. Reduce-first keeps the declaration reading.
-//- state 256 (9): ClassMember's NodeFlag-singular vs NodeFlags-plural
+//- state 263 (19): ClassMember's NodeFlag-singular vs NodeFlags-plural
 //  productions overlap on the flag/type first tokens — both derivations
-//  parse the same member; shift keeps reading flags.
-//- state 292 (2): catch/finally after a nested `try` statement — the
+//  parse the same member; shift keeps reading flags. The family spans
+//  every type keyword, so the 0.7.5 primitive set (bool/char/byte/
+//  short/long, the unsigned variants, double) widened it from 9 to 19.
+//- state 299 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- states 76/77 (1 each, added with TypeName): ':' / `as` followed by a
+//- states 82/83 (1 each, added with TypeName): ':' / `as` followed by a
 //  dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
@@ -1409,6 +1414,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				Expression OT_AND Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1); } |
 				Expression OT_OR Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalOr, $1, $3, @1); } |
 				'-' Expression %prec P_Minus	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1); } |
+				'+' Expression %prec P_Minus	{ $$ = $2; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
 				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } ;
 
@@ -1422,12 +1428,13 @@ MemberExpr:	Expression '.' InvokeExpr		{
 				} ;
 
 LiteralExpr:	TT_Int		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	$1,	@1);	} |
-					TT_UInt		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_Short	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_UShort	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_Byte		{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
-					TT_UByte	{ $$ = new SnLiteralExpr(*RnInt32::Instance(),	static_cast<int32>($1),	@1);	} |
+					TT_Long		{ $$ = new SnLiteralExpr(*RnLong::Instance(),	$1,	@1);	} |
+					TT_ULong	{ $$ = new SnLiteralExpr(*RnULong::Instance(),	$1,	@1);	} |
 					TT_Float	{ $$ = new SnLiteralExpr(*RnFloat::Instance(),	$1,	@1);	} |
+					TT_Double	{ $$ = new SnLiteralExpr(*RnDouble::Instance(),	$1,	@1);	} |
+					TT_Char		{ $$ = new SnLiteralExpr(*RnChar::Instance(),	$1,	@1);	} |
+					KT_True		{ $$ = new SnLiteralExpr(*RnBool::Instance(),	1,	@1);	} |
+					KT_False	{ $$ = new SnLiteralExpr(*RnBool::Instance(),	0,	@1);	} |
 					TT_String 	{ $$ = BuildStringExpr($1, @1, parser);	} ;
 
 InvokeExpr:	TT_Identifier '(' ConcreteParamList ')' {
@@ -1436,8 +1443,18 @@ InvokeExpr:	TT_Identifier '(' ConcreteParamList ')' {
 
 IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 					KT_Int   		{ $$ = new SnIdentifierExpr(NK_Int32, @1);	} |
+					KT_Byte		{ $$ = new SnIdentifierExpr(NK_Byte, @1);	} | 
+					KT_Ubyte	{ $$ = new SnIdentifierExpr(NK_UByte, @1);	} | 
+					KT_Short	{ $$ = new SnIdentifierExpr(NK_Short, @1);	} | 
+					KT_Ushort	{ $$ = new SnIdentifierExpr(NK_UShort, @1);	} | 
+					KT_Uint		{ $$ = new SnIdentifierExpr(NK_UInt32, @1);	} | 
+					KT_Long		{ $$ = new SnIdentifierExpr(NK_Long, @1);	} | 
+					KT_ULong	{ $$ = new SnIdentifierExpr(NK_ULong, @1);	} | 
 					KT_Float		{ $$ = new SnIdentifierExpr(NK_Float, @1);	} |
-					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} ;
+					KT_Double	{ $$ = new SnIdentifierExpr(NK_Double, @1);	} |
+					KT_String		{ $$ = new SnIdentifierExpr(NK_String, @1);	} |
+					KT_Bool		{ $$ = new SnIdentifierExpr(NK_Bool, @1);	} |
+					KT_Char		{ $$ = new SnIdentifierExpr(NK_Char, @1);	} ;
 
 NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 					auto* pId = new SnIdentifierExpr($2, @2);

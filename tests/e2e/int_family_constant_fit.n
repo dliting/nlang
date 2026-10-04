@@ -1,0 +1,14 @@
+// 0.7.5: constant-fit (Java/C# rule) — an in-range constant converts
+// implicitly into a narrower or cross-sign target.
+import io;
+int main() {
+    byte b = 5;
+    ushort us = 5000;
+    uint u = 3000000000;
+    ulong ul = 7;
+    io.print(b);
+    io.print(us);
+    io.print(u);
+    io.print(ul);
+    return 0;
+}

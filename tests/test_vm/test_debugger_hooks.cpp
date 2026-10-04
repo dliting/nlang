@@ -138,11 +138,149 @@ void test_view_frames_and_locals()
     CHECK(visible.size() == 2, "exactly two visible locals (param p, s)");
     bool sawP = false, sawS = false;
     for (const auto& l : visible) {
-        if (l == "p=view_locals.Point{x=6, y=7}") sawP = true;
+        if (l == "p=Point{x=6, y=7}") sawP = true;
         if (l == "s=13") sawS = true;
     }
     CHECK(sawP, "class local renders one-level fields (got lines mismatch)");
     CHECK(sawS, "int local renders value");
+    PASS();
+}
+
+//Scope visibility of locals in the debug view. The frame is flat and
+//static — every slot exists from function entry — but a local must join
+//the display only once execution reaches its declaration line. On the
+//decl line itself it shows the zero slot (gdb/Visual Studio convention:
+//in scope at the declaration, uninitialized until the initializer
+//runs); while paused on earlier lines it stays hidden. This pins the
+//reported bug: pausing on line N showed line N+2's not-yet-declared
+//string local as "".
+void test_view_locals_decl_scope()
+{
+    TEST(view_locals_decl_scope);
+    BuildOutcome b = buildSource("decl_scope",
+        "int main() {\n"                     //1
+        "    int early = 1;\n"               //2
+        "    int mid = early + 1;\n"         //3
+        "    string late = \"v\";\n"         //4
+        "    return mid;\n"                  //5
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("decl_scope");
+    //Fresh run per stop line; stops fire BEFORE the statement runs, so
+    //a stop on line N has executed exactly lines < N.
+    auto visibleAt = [&](uint16_t stopLine) {
+        VmExecutor exec;
+        InspectHooks hooks;
+        hooks.target = "decl_scope.main";
+        hooks.stopLine = stopLine;
+        exec.SetDebugHooks(&hooks);
+        exec.Execute(mod);
+        if (!hooks.captured)
+            return std::vector<std::string>{"<no capture>"};
+        return hooks.localLines;
+    };
+    auto hasRow = [](const std::vector<std::string>& rows,
+                     const char* row) {
+        for (const auto& r : rows)
+            if (r == row) return true;
+        return false;
+    };
+    auto hasName = [](const std::vector<std::string>& rows,
+                      const char* name) {
+        const std::string prefix = std::string(name) + "=";
+        for (const auto& r : rows)
+            if (r.compare(0, prefix.size(), prefix) == 0) return true;
+        return false;
+    };
+    const auto at2 = visibleAt(2);
+    CHECK(hasRow(at2, "early=0"),
+        "paused on its own decl line: early in scope, zero value");
+    CHECK(!hasName(at2, "mid"), "mid hidden while paused on line 2");
+    CHECK(!hasName(at2, "late"), "late hidden while paused on line 2");
+    const auto at3 = visibleAt(3);
+    CHECK(hasRow(at3, "early=1"), "early keeps its computed value");
+    CHECK(hasRow(at3, "mid=0"), "mid joins on its own decl line (zero)");
+    CHECK(!hasName(at3, "late"), "late hidden while paused on line 3");
+    const auto at4 = visibleAt(4);
+    CHECK(hasRow(at4, "late=\"\""),
+        "string local on its decl line renders the zero slot as \"\"");
+    const auto at5 = visibleAt(5);
+    CHECK(hasRow(at5, "mid=2") && hasRow(at5, "late=\"v\""),
+        "computed values show after their initializers run");
+    PASS();
+}
+
+//Captures "name:kindName=display" rows for main() at the return line —
+//the 0.7.5 scalar-family display contract (one row per declared local,
+//kindName straight from the registry).
+class FamilyHooks : public IDebugHooks {
+public:
+    std::vector<std::string> rows;
+    uint16_t stopLine = 0;
+    bool captured = false;
+    void OnStatement(const DebugStopInfo& s, IVmDebugView& view) override {
+        if (captured || s.line != stopLine
+            || view.FrameInfo(0).funcName != "family_locals.main") return;
+        captured = true;
+        for (const auto& l : view.FrameLocals(0))
+            rows.push_back(l.name + ":" + l.kindName + "=" + l.display);
+    }
+    void OnThrow(const DebugStopInfo&, IVmDebugView&) override {}
+};
+
+static std::string FamilyRow(const std::vector<std::string>& rows,
+                             const char* name) {
+    const std::string prefix = std::string(name) + ":";
+    for (const auto& r : rows)
+        if (r.compare(0, prefix.size(), prefix) == 0)
+            return r.substr(prefix.size());
+    return "<missing " + std::string(name) + ">";
+}
+
+void test_view_scalar_family_display()
+{
+    TEST(view_scalar_family_display);
+    BuildOutcome b = buildSource("family_locals",
+        "int main() {\n"                          //1
+        "    bool flag = 1 < 2;\n"                //2
+        "    bool off = 2 < 1;\n"                 //3
+        "    char c = '中';\n"                    //4
+        "    char nl = '\\n';\n"                  //5
+        "    char a = '\\u0041';\n"               //6
+        "    byte b = 42;\n"                      //7
+        "    ushort us = 65535;\n"                //8
+        "    uint u = 4000000000;\n"              //9
+        "    long l = 5000000000;\n"              //10
+        "    double d = 0.5;\n"                   //11
+        "    float f = 1.25f;\n"                  //12
+        "    ulong ul = 18446744073709551615;\n"  //13
+        "    return 0;\n"                         //14
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("family_locals");
+    VmExecutor exec;
+    FamilyHooks hooks;
+    hooks.stopLine = 14;
+    exec.SetDebugHooks(&hooks);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    CHECK(hooks.captured, "should stop at main's return");
+    CHECK(hooks.rows.size() == 12, "one row per declared local");
+    CHECK(FamilyRow(hooks.rows, "flag") == "bool=true", "bool true");
+    CHECK(FamilyRow(hooks.rows, "off") == "bool=false", "bool false");
+    CHECK(FamilyRow(hooks.rows, "c") == "char='中' (U+4E2D)",
+        "char: quoted code point + identity tag");
+    CHECK(FamilyRow(hooks.rows, "nl") == "char=(U+000A)",
+        "non-printable char keeps the tag, drops the quotes");
+    CHECK(FamilyRow(hooks.rows, "a") == "char='A' (U+0041)",
+        "\\uXXXX literal round-trips");
+    CHECK(FamilyRow(hooks.rows, "b") == "byte=42", "byte decimal");
+    CHECK(FamilyRow(hooks.rows, "us") == "ushort=65535", "ushort decimal");
+    CHECK(FamilyRow(hooks.rows, "u") == "uint=4000000000", "uint decimal");
+    CHECK(FamilyRow(hooks.rows, "l") == "long=5000000000", "long direct");
+    CHECK(FamilyRow(hooks.rows, "d") == "double=0.5", "double direct");
+    CHECK(FamilyRow(hooks.rows, "f") == "float=1.25", "float direct");
+    CHECK(FamilyRow(hooks.rows, "ul") == "ulong=18446744073709551615",
+        "ulong direct");
     PASS();
 }
 
@@ -199,7 +337,7 @@ void test_view_value_kinds()
     bool sawS = false, sawP = false, sawA = false;
     for (const auto& l : hooks.localLines) {
         if (l == "s=\"hi\"") sawS = true;
-        if (l == "p=view_kinds.P{x=1, y=2}") sawP = true;
+        if (l == "p=P{x=1, y=2}") sawP = true;
         if (l == "a=int[2]{7, 8}") sawA = true;
     }
     CHECK(sawS, "string local renders quoted");
@@ -235,7 +373,7 @@ void test_view_struct_array_field_local()
     REQUIRE(hooks.captured);
     bool sawBox = false;
     for (const auto& l : hooks.localLines)
-        if (l == "b=view_struct_arr_field.Box{a=int[2]{7, 8}}") sawBox = true;
+        if (l == "b=Box{a=int[2]{7, 8}}") sawBox = true;
     CHECK(sawBox, "struct local's array field renders via array formatter");
     PASS();
 }
@@ -282,6 +420,8 @@ void run_debugger_hooks_tests()
     test_hooks_line_sequence();
     test_hooks_call_depths();
     test_view_frames_and_locals();
+    test_view_locals_decl_scope();
+    test_view_scalar_family_display();
     test_hooks_on_throw();
     test_view_value_kinds();
     test_view_struct_array_field_local();

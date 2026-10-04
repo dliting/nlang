@@ -21,13 +21,15 @@ from pygments.token import (Comment, Keyword, Name, Number, Operator,
 #are imported directly by the hook's consumers (never via import *).
 __all__ = ["NLangLexer"]
 
-#Full nlang.l keyword table (2026-09-30): 39 keywords + 11 builtin-type
-#words (NLANG_TYPES below) + 3 constants (NLANG_CONSTANTS below) = the
-#scanner's 53 reserved words. "state" has no parser production
-#(%token only) but stays so lexer == scanner; test_highlight
-#anchors all three sets to the scanner source directly.
+#Full nlang.l keyword table (post-merge, 0.7.9): 39 keywords +
+#17 builtin-type words (NLANG_TYPES below: the scanner's 14 type
+#keywords plus the docs-side generic names Dict/Func/List) + 3 constants
+#(NLANG_CONSTANTS below) = the scanner's 56 reserved words. "state" has
+#no parser production (%token only) but stays so lexer == scanner;
+#test_highlight anchors all three sets to the scanner source directly.
 #(Phase 5 removed the 40th keyword: "namespace" is an ordinary
-#identifier now.)
+#identifier now; the 0.7.5 double family added "double"/"long" to the
+#type words.)
 NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "
     "elseif enum finally for foreach if implements import in interface "
@@ -35,8 +37,8 @@ NLANG_KEYWORDS = frozenset(
     "static struct super switch this throw try using virtual "
     "while".split())
 NLANG_TYPES = frozenset(
-    "bool byte char float int short string ubyte uint ushort void "
-    "Dict Func List".split())
+    "bool byte char double float int long short string ubyte uint "
+    "ulong ushort void Dict Func List".split())
 NLANG_CONSTANTS = frozenset("true false null".split())
 
 

@@ -6,6 +6,7 @@
 #include "TestNatives.h"
 #include "CrashReporter.h"
 #include "nlang/common/LibrarySearchPath.h"
+#include <nlang/runtime/Runtime.h>
 #ifdef _WIN32
 #include <windows.h>  //SetErrorMode/ExitProcess (was transitive via CrashReporter.h)
 #endif
@@ -49,7 +50,17 @@ int main(int argc, char* argv[]) {
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     nlang::InstallCrashReporter("nvm");
+    //Console UTF-8 — see ncc's main for the rationale (manifest code
+    //page + console rendering companion).
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 #endif
+
+    //0.7.5: OP_Prim_to_str formats scalars through the Rn builtin
+    //type singletons; their construction interns names via IdString,
+    //whose tables only exist after Runtime::StaticInit (a nullptr
+    //s_pIndexMap dereference was the 0xC0000005 on the first to-string).
+    Runtime::StaticInit();
 
     CompiledModule module;
     VmExecutor executor;

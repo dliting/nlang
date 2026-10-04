@@ -41,7 +41,8 @@ SettingsDialog::~SettingsDialog() = default;
 void SettingsDialog::init(const QString& language,
                           const QString& buildOutputDir,
                           const QString& toolbarIconSize,
-                          const QStringList& libraryPaths) {
+                          const QStringList& libraryPaths,
+                          bool noWarn) {
     const int index = m_ui->cmbLanguage->findData(language);
     m_ui->cmbLanguage->setCurrentIndex(index < 0 ? 0 : index);
     m_ui->edtBuildOutputDir->setText(buildOutputDir);
@@ -54,6 +55,7 @@ void SettingsDialog::init(const QString& language,
     m_ui->cmbIconSize->setCurrentIndex(iconIdx < 0 ? 0 : iconIdx);
 
     m_pathEditor->setPaths(libraryPaths);
+    m_ui->chkNoWarn->setChecked(noWarn);
 }
 
 QString SettingsDialog::language() const {
@@ -72,6 +74,10 @@ QString SettingsDialog::toolbarIconSize() const {
 
 QStringList SettingsDialog::librarySearchPaths() const {
     return m_pathEditor->paths();
+}
+
+bool SettingsDialog::noWarn() const {
+    return m_ui->chkNoWarn->isChecked();
 }
 
 void SettingsDialog::onBrowseDirectory() {

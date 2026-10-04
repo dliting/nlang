@@ -1,0 +1,6 @@
+﻿import io;
+
+int main() {
+    io.print("bom ok");
+    return 5;
+}

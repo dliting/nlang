@@ -6,9 +6,10 @@
 //
 //ABI (nlang/vm/NativeHost.h): every native receives a NativeHost function
 //table (for all VM access), the return cell, the argument cells and the
-//declared parameter count. args[i] is the i-th 4-byte cell — raw int32 /
-//float bits or a heap handle. The return value is written into ret (left
-//untouched for void natives).
+//declared parameter count. args[i] is the i-th uniform frame cell
+//(kFrameSlotBytes = 8 bytes; a 4-byte argument's value is in the low
+//half) — exactly the bytes the caller staged at callParamBase. The
+//return value is memcpy'd into ret (may be null for void natives).
 //
 //Production note: ncc and nvm are test hosts — they always register these
 //natives so the e2e suite can exercise the binding path. A production
@@ -28,7 +29,7 @@ inline void NatAdd(NativeHost* host, uint8_t* ret, const uint8_t* args,
     (void)host; (void)argc;
     int32_t a, b;
     std::memcpy(&a, args, sizeof(a));
-    std::memcpy(&b, args + NLANG_VALUE_SIZE, sizeof(b));
+    std::memcpy(&b, args + kFrameSlotBytes, sizeof(b));
     int32_t r = a + b;
     std::memcpy(ret, &r, sizeof(r));
 }
@@ -47,7 +48,7 @@ inline void NatFAdd(NativeHost* host, uint8_t* ret, const uint8_t* args,
     (void)host; (void)argc;
     float a, b;
     std::memcpy(&a, args, sizeof(a));
-    std::memcpy(&b, args + NLANG_VALUE_SIZE, sizeof(b));
+    std::memcpy(&b, args + kFrameSlotBytes, sizeof(b));
     float r = a + b;
     std::memcpy(ret, &r, sizeof(r));
 }

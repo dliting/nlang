@@ -55,9 +55,10 @@ namespace nlang {
 //    QDockWidgets).
 //  - Build runs `ncc build -p <nproj> -o <npkg>` (a standalone .n
 //    target builds to its .ncu), run launches `nvm` on that artifact.
-//  - Unsaved-work prompts key on solution-level state (the solution is
-//    dirty after add/remove), never on per-project isDirty() alone: a
-//    project created with all-default properties is not project-dirty.
+//  - Unsaved-work prompts key on SolutionNode::hasUnsavedChanges (any
+//    dirty project, or the solution's own state when first-class -- the
+//    ephemeral wrapper created around an opened project never counts:
+//    scaffolding is not user work; saving it promotes it).
 //  - removeFile never prompts for a dirty editor of that file (the
 //    editor stays open, so no edits are lost).
 //  - addExistingFile does not open the added file in an editor.
@@ -172,6 +173,10 @@ private slots:
     void on_tvwSolution_customContextMenuRequested(const QPoint& pos);
     void on_dckSolution_visibilityChanged(bool visible);
     void on_tvwDebugStack_itemClicked(QTreeWidgetItem* item, int column);
+    //Run-page input row (auto-connected): both deliver one line to
+    //sendProgramInput().
+    void on_btnStdinSend_clicked();
+    void on_editStdin_returnPressed();
 
     //--- non-widget signals (connected explicitly) ---
     void onEditorSaveStateChanged(FileEditor* editor);
@@ -260,11 +265,17 @@ private:
     //Save the .nsln (asking for the path when unnamed) plus every
     //dirty project (via saveWithProjects); false on failure or cancel.
     bool saveSolution();
-    //Any unsaved work in the solution graph?
-    bool isSolutionModified() const;
-    //Prompt for unsaved work; false vetoes the close.
+    //Persist what the unsaved-work prompt guards: a first-class solution
+    //goes out in one write (saveSolution); an ephemeral wrapper has no
+    //file of its own, so only its dirty projects are written to their
+    //own homes -- demanding a .nsln name here would resurrect the
+    //phantom prompt the wrapper exemption removes.
+    bool saveUnsavedChanges();
+    //Prompt for unsaved work (SolutionNode::hasUnsavedChanges is the
+    //authority); false vetoes the close.
     bool closeSolution();
-    //No solution open -> create an empty one.
+    //No solution open -> create an ephemeral wrapper (never counts as
+    //user work on its own; promoted on save).
     void ensureSolution();
     //Open a .nsln from a path. The unsaved-work gate (closeSolution)
     //lives INSIDE, not only in the menu handler: loadSolution replaces
@@ -376,6 +387,11 @@ private:
     //splits io.print into a text half and a newline half, so append()'s
     //implicit paragraph breaks would corrupt the output).
     void appendExecuteOutput(const QString& text);
+    //One program-input line from the run page's row: a debug session
+    //rides the machine channel (stdin data command), a running child
+    //gets it on its stdin pipe; the echo keeps the transcript readable
+    //(a pipe is not a terminal, so the child echoes nothing itself).
+    void sendProgramInput();
 
     //outputDir wins; else the global build output directory; else the
     //project directory + name + ".npkg" (the project package artifact).
@@ -399,6 +415,9 @@ private:
 
     //Menu/toolbar enablement from the current tree/editor selection.
     void updateMenuState();
+    //The File/Project menu share: enabled by the presence of an open
+    //editor / project / file selection.
+    void updateFileMenuState();
     //The debug-menu share of updateMenuState: F5/Stop/steps track the
     //session windows, the throw checkbox grays out while Running.
     //canBuild mirrors updateMenuState's target check.

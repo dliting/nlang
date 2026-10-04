@@ -60,6 +60,9 @@ struct BuildParams
 	//langservice::FindStdLibDir) and passed in; empty means no
 	//library index is loaded.
 	std::string m_sStdLibDir;
+	//0.7.5: suppress precision-loss warnings (--no-warn). Errors are
+	//never suppressed — only the lossy-conversion warning family.
+	bool m_bNoWarn = false;
 };
 
 //Enumerate flags of module building.

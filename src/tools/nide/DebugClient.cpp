@@ -17,6 +17,7 @@ constexpr int kDtorReapWaitMs = 1000;
 } // namespace
 
 using DebugProtocolCodec::encodeCommand;
+using DebugProtocolCodec::encodeField;
 using DebugProtocolCodec::parseEvent;
 
 DebugClient::DebugClient(const QString& ndbPath, QObject* parent)
@@ -157,6 +158,20 @@ bool DebugClient::deleteBreakpoint(int id)
         return false;
     writeLine(encodeCommand(QStringLiteral("d"),
         {QString::number(id)}));
+    return true;
+}
+
+//One program input line over the machine channel: `stdin\t<payload>`
+//with the payload field-escaped (a pasted tab must not split fields).
+//Unlike every other command it never answers — the program's next
+//output IS the response — so no receipt bookkeeping. Launching queues
+//it as type-ahead server-side, Running parks it in io.readLine's
+//self-pump, Stopped holds it for the next read.
+bool DebugClient::sendStdin(const QString& text)
+{
+    if (m_state == State::Idle || m_state == State::Ended)
+        return false;
+    writeLine(QStringLiteral("stdin\t") + encodeField(text));
     return true;
 }
 

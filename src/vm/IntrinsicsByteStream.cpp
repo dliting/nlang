@@ -11,7 +11,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 
 //Helper: read this.__handle from callParamBase[0].
 //Returns the 1-based handle. Throws if invalid or closed.
@@ -32,8 +31,9 @@ static int32_t ReadStreamHandle(uint16_t callParamBase, uint8_t* locals,
 bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
-    //ByteStream intrinsics (0-14): 0-10 primitives, 11-12 struct, 13-14 object.
-    if (intrinsicId <= INTR_BS_ReadObject) {
+    //ByteStream intrinsics (0-18): 0-10 primitives (4-byte), 11-12
+    //struct, 13-14 object, 15-18 the 8-byte scalar quartet.
+    if (intrinsicId <= INTR_BS_ReadDouble) {
         switch (intrinsicId) {
         case INTR_BS_Ctor: {
             //this is at callParamBase[0] (heapIdx). Allocate handle, store in __handle.
@@ -50,7 +50,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t val;
-            std::memcpy(&val, locals + callParamBase + VALUE_SIZE, sizeof(val));
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
             uint8_t bytes[4];
             std::memcpy(bytes, &val, 4);
             st->buf.insert(st->buf.end(), bytes, bytes + 4);
@@ -78,7 +78,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             float val;
-            std::memcpy(&val, locals + callParamBase + VALUE_SIZE, sizeof(val));
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
             uint8_t bytes[4];
             std::memcpy(bytes, &val, 4);
             st->buf.insert(st->buf.end(), bytes, bytes + 4);
@@ -99,6 +99,62 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             std::memcpy(pResult, &val, sizeof(val));
             break;
         }
+        case INTR_BS_WriteLong: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "writeLong");
+            auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
+            if (st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            int64_t val;
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
+            uint8_t bytes[8];
+            std::memcpy(bytes, &val, 8);
+            st->buf.insert(st->buf.end(), bytes, bytes + 8);
+            st->pos += 8;
+            break;
+        }
+        case INTR_BS_ReadLong: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "readLong");
+            auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
+            if (st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (st->pos + 8 > st->buf.size())
+                throw std::runtime_error("NLang VM: ReadLong past end of stream");
+            int64_t val;
+            std::memcpy(&val, st->buf.data() + st->pos, 8);
+            st->pos += 8;
+            std::memcpy(pResult, &val, sizeof(val));
+            break;
+        }
+        case INTR_BS_WriteDouble: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "writeDouble");
+            auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
+            if (st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            double val;
+            std::memcpy(&val, locals + callParamBase + kFrameSlotBytes, sizeof(val));
+            uint8_t bytes[8];
+            std::memcpy(bytes, &val, 8);
+            st->buf.insert(st->buf.end(), bytes, bytes + 8);
+            st->pos += 8;
+            break;
+        }
+        case INTR_BS_ReadDouble: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "readDouble");
+            auto& st = m_byteStreams[static_cast<size_t>(handle) - 1];
+            if (st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (st->pos + 8 > st->buf.size())
+                throw std::runtime_error("NLang VM: ReadDouble past end of stream");
+            double val;
+            std::memcpy(&val, st->buf.data() + st->pos, 8);
+            st->pos += 8;
+            std::memcpy(pResult, &val, sizeof(val));
+            break;
+        }
         case INTR_BS_WriteString: {
             int32_t handle = ReadStreamHandle(callParamBase, locals,
                 m_structHeap, "writeString");
@@ -106,7 +162,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t strIdx;
-            std::memcpy(&strIdx, locals + callParamBase + VALUE_SIZE, sizeof(strIdx));
+            std::memcpy(&strIdx, locals + callParamBase + kFrameSlotBytes, sizeof(strIdx));
             const std::string& s = StrVal(strIdx);
             int32_t len = static_cast<int32_t>(s.size());
             uint8_t lenBytes[4];
@@ -180,7 +236,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t structHeapIdx;
-            std::memcpy(&structHeapIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&structHeapIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(structHeapIdx));
             if (structHeapIdx <= 0
                 || static_cast<size_t>(structHeapIdx) >= m_structHeap.size())
@@ -202,7 +258,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t typeNameIdx;
-            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&typeNameIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(typeNameIdx));
             const std::string& typeName = StrVal(typeNameIdx);
             //Write/read same-source: the literal was rewritten at compile
@@ -233,7 +289,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t heapIdx;
-            std::memcpy(&heapIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&heapIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(heapIdx));
             if (heapIdx < 0
                 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
@@ -253,7 +309,7 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
             if (st->closed)
                 throw std::runtime_error("NLang VM: stream handle is invalid or closed");
             int32_t typeNameIdx;
-            std::memcpy(&typeNameIdx, locals + callParamBase + VALUE_SIZE,
+            std::memcpy(&typeNameIdx, locals + callParamBase + kFrameSlotBytes,
                 sizeof(typeNameIdx));
             const std::string& declaredName = StrVal(typeNameIdx);
             //Write/read same-source: the literal carries the table key

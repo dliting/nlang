@@ -1,0 +1,9 @@
+//0.7.5: init-list entries wrap against the element kind — an int
+//entry into List<float> converts instead of boxing raw int bits
+//(which read back as denormals, 1.4013e-45).
+int main() {
+    List<float> a = new List<float>{1, 2};
+    if (a.get(0) != 1.0) return 1;
+    if (a.get(1) != 2.0) return 2;
+    return 0;
+}

@@ -596,33 +596,57 @@ private:
     //patching, LoopContext pop.
     void EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
                              BytecodeEmitter& emitter);
+    //0.7.5 string arm: code-point iteration — OP_StrForeachStep at the
+    //loop head decodes+advances; continue targets the step (the head),
+    //break the loop end. Hidden locals mirror the index-based expansion
+    //(iter handle / byte offset / continue flag).
+    void EmitStringForeach(SnForeachStmt& fe, BytecodeEmitter& emitter);
 
-    //Switch (EmitStmtSwitchTry.cpp): per-clause emission and the
+    //Switch (EmitStmtSwitch.cpp): per-clause emission and the
     //clause-exit fixup. EmitSwitchCaseClause appends to clauseExits the
     //jumps the fixup must patch (OP_Case placeholder + last label's
     //miss) and reports the implicit no-fallthrough exit via
     //bodyExitJump. EmitSwitchOneLabelCompare returns the label's
-    //miss-jump offset (caller picks next-label vs clause-exit target).
+    //miss-jump offset (caller picks next-label vs clause-exit target);
+    //EmitSwitchLabelNormalize applies its 0.7.5 cross-width PrimCast
+    //wrap. 0.7.5: the per-switch compare descriptor — string
+    //discriminants keep the dedicated OP_Eq_str; scalar discriminants
+    //ride the kind-immediate OP_Cmp Equal (enum ≡ int32, never the raw
+    //NK_EnumDecl kind — RtkOfKind would reject it).
+    struct SwitchCompare {
+        NodeKind kind = NK_Int32;
+        bool isString = false;
+    };
+    static SwitchCompare SwitchCompareOf(SnSwitchStmt& switchStmt);
     void EmitSwitchCaseClause(SnCaseClause& clause, uint16_t switchSlot,
-                              OpCode compareOp,
+                              const SwitchCompare& compare,
                               std::vector<size_t>& clauseExits,
                               size_t& bodyExitJump,
                               BytecodeEmitter& emitter);
     void EmitSwitchLabelCompares(SnCaseClause& clause,
-                                 uint16_t switchSlot, OpCode compareOp,
+                                 uint16_t switchSlot,
+                                 const SwitchCompare& compare,
                                  std::vector<size_t>& clauseExits,
                                  BytecodeEmitter& emitter);
     size_t EmitSwitchOneLabelCompare(SnExpression& label,
                                      uint16_t switchSlot,
-                                     OpCode compareOp,
+                                     const SwitchCompare& compare,
                                      BytecodeEmitter& emitter);
+    void EmitSwitchLabelNormalize(SnExpression& label,
+                                  const SwitchCompare& compare,
+                                  uint16_t condSlot,
+                                  BytecodeEmitter& emitter);
+    //0.7.5: in-place PrimCast of a staged scalar slot — shared by the
+    //switch-label normalize and the default-argument fill (EmitBinding).
+    void EmitScalarSlotCast(NodeKind from, NodeKind to, uint16_t slot,
+                            BytecodeEmitter& emitter);
     void EmitSwitchClauseExits(
         const std::vector<size_t>& caseStartOffsets,
         const std::vector<std::vector<size_t>>& exitJumps,
         bool hasDefault, size_t locCaseEnd, size_t locEnd,
         BytecodeEmitter& emitter);
 
-    //Try/catch/finally (EmitStmtSwitchTry.cpp). EmitTryCatchClauses
+    //Try/catch/finally (EmitStmtTry.cpp). EmitTryCatchClauses
     //registers each handler's tryBlocks entry, emits its body and the
     //completion jump; the returned patch offsets target postTry (or
     //finallyNormal when a finally clause exists). EmitTryFinallyTail
@@ -647,7 +671,8 @@ private:
     struct OutSpill { uint16_t slotIdx; uint16_t localOffset; };
 
     //Phase 9e: emit the post-call spill code for out arguments:
-    //per spill, `OP_VarLocal callParamBase+slotIdx*4; OP_Assign localOffset`.
+    //per spill, `OP_VarLocal callParamBase+slotIdx*kFrameSlotBytes;
+    //OP_Assign localOffset`.
     void EmitOutSpills(const std::vector<OutSpill>& spills,
                        BytecodeEmitter& emitter);
 
@@ -694,6 +719,13 @@ private:
                      BytecodeEmitter& emitter,
                      uint16_t thisSlot,
                      uint16_t claimBase);
+    //B_Default arm of EmitBinding: the override scope, the default
+    //expression, and the 0.7.5 in-place kind normalize to the formal.
+    void EmitDefaultBinding(const FormalBinding* pBindings,
+                            size_t bindingIdx, uint16_t slotIdx,
+                            size_t slotBase, uint16_t base,
+                            uint16_t paramOffset,
+                            BytecodeEmitter& emitter, uint16_t thisSlot);
 
     //Struct value-semantics tail shared by every deep-copy site: copy
     //the heap subtree src → dst via OP_CopyStruct. Per-unit: a
@@ -897,6 +929,11 @@ private:
     void EmitIdentifierFieldRead(BytecodeEmitter& emitter,
                                  uint16_t resultOffset, SnField* field);
 
+    //SnLiteralExpr arm: registry-driven scalar const emission (the
+    //caller has already verified typeKind is a registry row).
+    void EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
+                           BytecodeEmitter& emitter, uint16_t resultOffset);
+
     //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
     //the free-function OP_CallFunc/OP_CallFuncOut tail.
     void EmitDelegateInvoke(const SnInvokeExpr& invoke,
@@ -925,24 +962,30 @@ private:
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
 
-    //SnAsExpr arms: box / unbox / downcast, and the `f as string` render.
+    //SnAsExpr arms: box / unbox / downcast / explicit narrowing, and
+    //the `f as string` render.
     void EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                      uint16_t resultOffset);
     void EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                        uint16_t resultOffset);
     void EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                           uint16_t resultOffset);
+    bool EmitAsExplicitNarrowOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                                uint16_t resultOffset);
     bool EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                             uint16_t resultOffset);
 
     //SnSubscriptExpr arms: List/Dict get() sugar — classification, then
-    //the claimed receive/index/call emission.
+    //the claimed receive/index/call emission. EmitStringByteAt is the
+    //0.7.5 string s[i] byte-read arm (OP_StrByteAt on a 2-slot claim).
     void EmitContainerSubscriptGet(SnSubscriptExpr& sub,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
     void EmitContainerGetCall(SnSubscriptExpr& sub, BoxingTagResult keyBox,
                               BoxingTagResult valBox,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
+    void EmitStringByteAt(SnSubscriptExpr& sub, BytecodeEmitter& emitter,
+                          uint16_t resultOffset);
 
     //SnBinaryExpr arms: unary, short-circuit And/Or, and the binary tail
     //(operand staging + opcode dispatch into the arithmetic/relational/
@@ -957,17 +1000,19 @@ private:
                             BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                       uint16_t resultOffset);
-    void EmitBinaryOpCode(SnBinaryExpr& bin, bool isFloat, bool isString,
+    void EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind, bool isString,
                           bool isFunc, BytecodeEmitter& emitter,
                           uint16_t resultOffset, uint16_t rightSlot);
-    void EmitBinaryArithmeticOp(SnBinaryExpr& bin, bool isFloat, bool isString,
+    void EmitBinaryArithmeticOp(SnBinaryExpr& bin, NodeKind numKind,
+                                bool isString,
                                 BytecodeEmitter& emitter, uint16_t resultOffset,
                                 uint16_t rightSlot);
-    void EmitBinaryRelationalOp(SnBinaryExpr& bin, bool isFloat, bool isString,
+    void EmitBinaryRelationalOp(SnBinaryExpr& bin, NodeKind numKind,
+                                bool isString,
                                 BytecodeEmitter& emitter, uint16_t resultOffset,
                                 uint16_t rightSlot);
-    void EmitBinaryEqualityOp(SnBinaryExpr& bin, bool isFloat, bool isString,
-                              bool isFunc, BytecodeEmitter& emitter,
+    void EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
+                              bool isString, bool isFunc, BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
 
     //SnNewExpr arms: Round-12 class-resolution guards, positional ctor-arg
@@ -1150,7 +1195,8 @@ private:
     }
 
     //Per-function code generation context.
-    //Layout of the local variable frame (all slots are VALUE_SIZE=4 bytes):
+    //Layout of the local variable frame (all slots are uniform
+    //kFrameSlotBytes = 8-byte cells):
     //  [params...] [returnSlot] [tempSlot..tempSlot4] [callParamBase(N)] [evalArea(peakDepth)] [user locals...]
     //N = max callee formal count seen in this function's body (min 1).
     //peakDepth = max simultaneous evalArea slot need across all call sites.
@@ -1250,16 +1296,16 @@ private:
         EvalAreaClaim(VmBackend& b, uint16_t slots) : m_B(b), m_slots(slots)
         {
             auto& ctx = *m_B.m_currFunc;
-            ctx.evalAreaCursor += m_slots * 4;
+            ctx.evalAreaCursor += m_slots * kFrameSlotBytes;
             if (ctx.evalAreaCursor > ctx.observedPeakCursor)
                 ctx.observedPeakCursor = ctx.evalAreaCursor;
         }
         ~EvalAreaClaim()
-        { m_B.m_currFunc->evalAreaCursor -= m_slots * 4; }
+        { m_B.m_currFunc->evalAreaCursor -= m_slots * kFrameSlotBytes; }
         uint16_t base() const
         { return m_B.m_currFunc->evalAreaBase
               + m_B.m_currFunc->evalAreaCursor
-              - m_slots * 4; }
+              - m_slots * kFrameSlotBytes; }
     };
 
     //Returns {true, slot} if `name` is bound in any active override scope

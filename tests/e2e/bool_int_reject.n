@@ -1,0 +1,6 @@
+// 0.7.5 strict bool: comparisons return bool; assigning one to int is
+// a type error (bool<->int is not in the cast matrix).
+int main() {
+    int y = 1 > 0;
+    return y;
+}

@@ -103,6 +103,11 @@ void SolutionTreeModel::newSolution(const QString& name) {
     refresh();
 }
 
+void SolutionTreeModel::newEphemeralSolution(const QString& name) {
+    m_solution = std::make_unique<SolutionNode>(name, /*ephemeral=*/true);
+    refresh();
+}
+
 bool SolutionTreeModel::loadSolution(const QString& filePath, QString* error) {
     if (error)
         error->clear();

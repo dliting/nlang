@@ -38,6 +38,7 @@ add_library(nlang_compiler
     ScriptParser.cpp
     ScriptScanner.cpp
     ScriptLocation.cpp
+    Utf8.cpp
     BuildEnvironment.cpp
     ModuleBuilder.cpp
     ModuleBuilderImports.cpp
@@ -58,21 +59,26 @@ add_library(nlang_compiler
     Utils.cpp
     builder/ExprResolver.cpp
     builder/ExprResolverStdLib.cpp
+    builder/ExprResolverPackageAdmission.cpp
     builder/ExprResolverMember.cpp
     builder/ExprResolverMemberBuiltins.cpp
+    builder/ExprResolverStreamBuiltins.cpp
     builder/ExprResolverMemberProtocol.cpp
     builder/ExprResolverMemberContainer.cpp
     builder/ExprResolverMemberFields.cpp
     builder/ExprResolverTypes.cpp
+    builder/ExprResolverGenerics.cpp
     builder/ExprResolverBuiltinClasses.cpp
     builder/ExprResolverFuncRef.cpp
     builder/ExprResolverValues.cpp
     builder/ExprResolverBinary.cpp
     builder/ExprResolverNew.cpp
+    builder/ExprResolverInitList.cpp
     builder/ExprResolverInvoke.cpp
     builder/ExprResolverInvokeDiag.cpp
     builder/ExprResolverDelegate.cpp
     builder/ExprResolverCast.cpp
+    builder/ExprResolverCastFit.cpp
     builder/StatementResolver.cpp
     builder/StatementResolverDecls.cpp
     builder/StatementResolverTypes.cpp

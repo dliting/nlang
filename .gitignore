@@ -5,6 +5,9 @@ build-dev/
 build-ide/
 out/
 
+# ctest scratch (created when ctest runs from the repo root)
+Testing/
+
 # Release packages (cpack output)
 release/
 
@@ -12,6 +15,7 @@ release/
 temp/
 scratch/
 tests/e2e/_examples_tmp/
+tests/e2e/_imports_tmp/
 
 # IDE files
 .vs/

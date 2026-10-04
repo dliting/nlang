@@ -1,0 +1,6 @@
+//0.7.5: init-list entries go through the constant-fit gate — 300 does
+//not fit byte and must be rejected, not silently truncated to 44.
+int main() {
+    List<byte> a = new List<byte>{300};
+    return 0;
+}

@@ -1,0 +1,14 @@
+//0.7.5: the Dict read sugar `d[k]` wraps its key against K (same as
+//the write sugar and the method form) — the key stages at K's width
+//before the box read, instead of boxing 4 defined bytes of an int
+//slot with a long tag.
+long helper(long a, long b) { return a + b; }
+int main() {
+    Dict<long, int> d = new Dict<long, int>();
+    d.set(5, 7);
+    long r = helper(4294967295, 4294967295);
+    int k = 5;
+    if (d[k] != 7) return 1;
+    if (r <= 0) return 2;
+    return 0;
+}

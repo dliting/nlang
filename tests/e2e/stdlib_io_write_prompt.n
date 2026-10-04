@@ -1,0 +1,11 @@
+// stdlib_io_write_prompt — the interactive read loop shape: write() emits
+// the prompt without a newline, readLine() consumes the typed line from
+// the runner-piped stdin, and the reply lands on the same console line.
+// The manifest asserts the stdout substring "Name: Hi Alice".
+import io;
+int main() {
+    io.write("Name: ");
+    string n = io.readLine();
+    io.print("Hi " + n);
+    return 0;
+}

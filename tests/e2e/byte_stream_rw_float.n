@@ -1,11 +1,11 @@
 int main() {
     ByteStream bs = new ByteStream();
-    bs.writeFloat(1.0);
-    bs.writeFloat(3.0);
+    bs.writeFloat(1.0f);
+    bs.writeFloat(3.0f);
     bs.reset();
     float a = bs.readFloat();
     float b = bs.readFloat();
-    int ra = a;
-    int rb = b;
+    int ra = a as int;
+    int rb = b as int;
     return ra + rb;
 }

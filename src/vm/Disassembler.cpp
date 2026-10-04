@@ -8,6 +8,7 @@
 
 #include "Disassembler.h"
 #include "BytecodeReader.h"
+#include "DisassemblerPrim.h"
 #include <cstdio>
 #include <sstream>
 #include <stdexcept>
@@ -31,25 +32,18 @@ static void EmitU16(BytecodeReader &r, std::ostringstream &out,
     out << head << buf << "\n";
 }
 
-static void EmitU16x2(BytecodeReader &r, std::ostringstream &out,
+//Print `n` uint16 operands (n = 2..4; the format consumes at most four).
+//Reads into a named array BEFORE the format call: argument evaluation
+//order is unspecified, so in-argument reads would emit the operands in
+//reverse on right-to-left evaluators (MSVC). Unused array slots stay
+//zeroed — snprintf ignores extra arguments.
+static void EmitU16xN(int n, BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const char *fmt) {
-    //Read operands into named locals BEFORE the format call: argument
-    //evaluation order is unspecified, so in-argument reads would emit
-    //the operands in reverse on right-to-left evaluators (MSVC).
-    uint16_t a = r.ReadUint16();
-    uint16_t b = r.ReadUint16();
+    uint16_t v[4] = {0, 0, 0, 0};
+    for (int i = 0; i < n; ++i)
+        v[i] = r.ReadUint16();
     char buf[96];
-    snprintf(buf, sizeof(buf), fmt, a, b);
-    out << head << buf << "\n";
-}
-
-static void EmitU16x3(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const char *fmt) {
-    uint16_t a = r.ReadUint16();
-    uint16_t b = r.ReadUint16();
-    uint16_t c = r.ReadUint16();
-    char buf[96];
-    snprintf(buf, sizeof(buf), fmt, a, b, c);
+    snprintf(buf, sizeof(buf), fmt, v[0], v[1], v[2], v[3]);
     out << head << buf << "\n";
 }
 
@@ -234,8 +228,6 @@ static bool DisasmConstOps(OpCode op, BytecodeReader &r,
     const CompiledModule &module) {
     switch (op) {
         case OpCode::OP_ConstZero:
-        case OpCode::OP_CastIntToFloat:
-        case OpCode::OP_CastFloatToInt:
             EmitPlain(out, head);
             return true;
         case OpCode::OP_ConstInt32:
@@ -244,6 +236,19 @@ static bool DisasmConstOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_ConstFloat:
             EmitF32(r, out, head);
             return true;
+        case OpCode::OP_ConstInt64: {
+            char buf[48];
+            snprintf(buf, sizeof(buf), " %lld",
+                     static_cast<long long>(r.ReadInt64()));
+            out << head << buf << "\n";
+            return true;
+        }
+        case OpCode::OP_ConstDouble: {
+            char buf[48];
+            snprintf(buf, sizeof(buf), " %.17g", r.ReadDouble());
+            out << head << buf << "\n";
+            return true;
+        }
         case OpCode::OP_ConstString:
             EmitConstString(r, out, head, module);
             return true;
@@ -256,37 +261,28 @@ static bool DisasmConstOps(OpCode op, BytecodeReader &r,
     }
 }
 
+//--- 0.7.5 kind-immediate family printers live in DisassemblerPrim.cpp
+//(file-size guard split); the call sites below route through them.
+
 static bool DisasmArithOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head) {
     switch (op) {
-        //dst, src (binary arithmetic)
-        case OpCode::OP_Add_i32:
-        case OpCode::OP_Sub_i32:
-        case OpCode::OP_Mul_i32:
-        case OpCode::OP_Div_i32:
-        case OpCode::OP_Mod_i32:
-        case OpCode::OP_Add_f32:
-        case OpCode::OP_Sub_f32:
-        case OpCode::OP_Mul_f32:
-        case OpCode::OP_Div_f32:
-        //lhs, rhs (comparison)
-        case OpCode::OP_Less_i32:
-        case OpCode::OP_LessEqual_i32:
-        case OpCode::OP_Greater_i32:
-        case OpCode::OP_GreaterEqual_i32:
-        case OpCode::OP_Equal_i32:
-        case OpCode::OP_NotEqual_i32:
-        case OpCode::OP_Less_f32:
-        case OpCode::OP_LessEqual_f32:
-        case OpCode::OP_Greater_f32:
-        case OpCode::OP_GreaterEqual_f32:
-        case OpCode::OP_Equal_f32:
-        case OpCode::OP_NotEqual_f32:
-            EmitU16x2(r, out, head, " %u %u");
+        //kind, dst, src (binary arithmetic)
+        case OpCode::OP_Add:
+        case OpCode::OP_Sub:
+        case OpCode::OP_Mul:
+        case OpCode::OP_Div:
+        case OpCode::OP_Mod:
+            DisasmPrimBinOp(r, out, head);
             return true;
-        //dst (unary)
-        case OpCode::OP_Neg_i32:
-        case OpCode::OP_Neg_f32:
+        //kind, cmpOp, lhs, rhs (comparison)
+        case OpCode::OP_Cmp:
+            DisasmPrimCmp(r, out, head);
+            return true;
+        //kind, dst (unary)
+        case OpCode::OP_Neg:
+            DisasmPrimNeg(r, out, head);
+            return true;
         case OpCode::OP_LogicalNot:
             EmitU16(r, out, head, " %u");
             return true;
@@ -308,10 +304,21 @@ static bool DisasmStringOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_Greater_str:
         case OpCode::OP_GreaterEqual_str:
         case OpCode::OP_StrLen:
-            EmitU16x2(r, out, head, " %u %u");
+            EmitU16xN(2, r, out, head, " %u %u");
             return true;
-        case OpCode::OP_Int32_to_str:
-        case OpCode::OP_Float_to_str:
+        //0.7.5 char bridge
+        case OpCode::OP_StrByteAt:
+            EmitU16xN(3, r, out, head, " dst=%u str=%u idx=%u");
+            return true;
+        case OpCode::OP_StrForeachStep:
+            EmitU16xN(4, r, out, head, " str=%u off=%u cond=%u ch=%u");
+            return true;
+        case OpCode::OP_Prim_to_str:
+            DisasmPrimToStr(r, out, head);
+            return true;
+        case OpCode::OP_PrimCast:
+            DisasmPrimCast(r, out, head);
+            return true;
         case OpCode::OP_Array_to_str:
             EmitPlain(out, head);
             return true;
@@ -339,10 +346,10 @@ static bool DisasmCallOps(OpCode op, BytecodeReader &r,
             EmitCallByName(r, out, head, module);
             return true;
         case OpCode::OP_CallIntrinsic:
-            EmitU16x2(r, out, head, " id=%u base=%u");
+            EmitU16xN(2, r, out, head, " id=%u base=%u");
             return true;
         case OpCode::OP_CallDelegate:
-            EmitU16x2(r, out, head, " callee=%u base=%u");
+            EmitU16xN(2, r, out, head, " callee=%u base=%u");
             return true;
         case OpCode::OP_CallDelegateOut: {
             uint16_t callee = r.ReadUint16();
@@ -363,16 +370,16 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
     const CompiledModule &module) {
     switch (op) {
         case OpCode::OP_AllocStruct:
-            EmitU16x3(r, out, head, " %u struct=%u fields=%u");
+            EmitU16xN(3, r, out, head, " %u struct=%u fields=%u");
             return true;
         case OpCode::OP_LoadField:
-            EmitU16x3(r, out, head, " %u obj=%u off=%u");
+            EmitU16xN(3, r, out, head, " %u obj=%u off=%u");
             return true;
         case OpCode::OP_StoreField:
-            EmitU16x3(r, out, head, " obj=%u off=%u %u");
+            EmitU16xN(3, r, out, head, " obj=%u off=%u %u");
             return true;
         case OpCode::OP_CopyStruct:
-            EmitU16x3(r, out, head, " %u %u struct=%u");
+            EmitU16xN(3, r, out, head, " %u %u struct=%u");
             return true;
         case OpCode::OP_New:
             EmitNew(r, out, head, module);
@@ -384,16 +391,16 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
             EmitU16(r, out, head, " classIdx=%u");
             return true;
         case OpCode::OP_AllocArray:
-            EmitU16x3(r, out, head, " dst=%u type=%u sizeSlot=%u");
+            EmitU16xN(3, r, out, head, " dst=%u type=%u sizeSlot=%u");
             return true;
         case OpCode::OP_LoadElement:
-            EmitU16x3(r, out, head, " dst=%u arr=%u idx=%u");
+            EmitU16xN(3, r, out, head, " dst=%u arr=%u idx=%u");
             return true;
         case OpCode::OP_StoreElement:
-            EmitU16x3(r, out, head, " arr=%u idx=%u src=%u");
+            EmitU16xN(3, r, out, head, " arr=%u idx=%u src=%u");
             return true;
         case OpCode::OP_ArrayLength:
-            EmitU16x2(r, out, head, " dst=%u arr=%u");
+            EmitU16xN(2, r, out, head, " dst=%u arr=%u");
             return true;
         case OpCode::OP_Box:
         case OpCode::OP_Unbox:
@@ -417,7 +424,7 @@ static bool DisasmFuncValueOps(OpCode op, BytecodeReader &r,
             return true;
         case OpCode::OP_Eq_func:
         case OpCode::OP_Ne_func:
-            EmitU16x2(r, out, head, " lhs=%u rhs=%u");
+            EmitU16xN(2, r, out, head, " lhs=%u rhs=%u");
             return true;
         case OpCode::OP_Func_to_str:
             EmitPlain(out, head);

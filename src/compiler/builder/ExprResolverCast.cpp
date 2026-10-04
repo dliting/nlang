@@ -3,6 +3,7 @@
     从 ExprResolver.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "ExprResolverCastFit.hpp"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnArrayTypeToken.h"
@@ -11,7 +12,9 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <set>
 #include <vector>
@@ -229,6 +232,45 @@ static int ClassInterfaceDistance(const SnClassDecl &source,
 	return -1;
 }
 
+//0.7.5 overload-distance rungs for implicit primitive conversions.
+//In-category and cross-sign containment widenings cost the registry
+//rank delta (max 3); the integer→float hop and the →string coercion
+//sit on fixed rungs above every widening, so byte→int < byte→float <
+//byte→string — the direction the old abs(NK delta) scheme lost once
+//the kind values were reshuffled. string coercion sits above the
+//float hop (numeric formal beats string formal for a numeric arg).
+static const int kDistToFloat = 4;   // > max in-category rank delta (3)
+static const int kDistToString = 5;  // > kDistToFloat
+
+//The primitive×primitive ladder (0.7.5 registry derivation). Verdicts
+//come from the cast table: TCK_None and the explicit-only narrowings
+//carry no candidacy for implicit binding flows (`as` never consults
+//distance); Same is 0; the Auto verdicts cost their rung.
+static int PrimitiveDistance(NodeKind srcKind, NodeKind tgtKind)
+{
+	const auto verdict = TypeCastInfo::PrimitiveVerdict(srcKind, tgtKind);
+	if (verdict == TCK_None || verdict == TCK_Explicit)
+		return -1;
+	if (verdict == TCK_Same)
+		return 0;
+	if (tgtKind == NK_String)
+		return kDistToString;
+	const int si = ScalarPrimIndexOf(srcKind);
+	const int ti = ScalarPrimIndexOf(tgtKind);
+	if (si >= 0 && ti >= 0)
+	{
+		const auto &s = kScalarPrims[si];
+		const auto &t = kScalarPrims[ti];
+		if (s.category != PC_Float && t.category == PC_Float)
+			return kDistToFloat;               // integer → float hop
+		//Same-category chains and the cross-sign containments share
+		//the rank-delta ladder (ubyte→short, ushort→int, uint→long
+		//are all 1, like a one-step widening).
+		return std::abs(int(s.rank) - int(t.rank));
+	}
+	return kDistToFloat;
+}
+
 int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	const SnField &target) const
 {
@@ -261,20 +303,18 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 		return -1;
 	//0.7.3 B D5: an array argument coerces to a string formal through the
 	//cast table's TCK_Auto (runtime toString). Grant candidacy a finite
-	//distance — the same magnitude as the cheapest scalar-to-string
-	//widening. Everything else array-token-shaped stays -1: same-token
-	//pairs already returned 0 at the pointer check above, cross-token
-	//and token-vs-scalar pairs have no conversion.
+	//distance — the same rung as every scalar→string coercion (0.7.5:
+	//the hardcoded 1 became this rung). Everything else array-token-
+	//shaped stays -1: same-token pairs already returned 0 at the pointer
+	//check above, cross-token and token-vs-scalar pairs have no
+	//conversion.
 	if (srcKind == NK_ArrayTypeToken && tgtKind == NK_String)
-		return 1;
+		return kDistToString;
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
 	{
-		//A string only binds another string (or converts via toString);
-		//string->int/float has no implicit conversion (the cast table
-		//verdicts None), so it must not pick up the raw kind distance.
-		if (srcKind == NK_String && tgtKind != NK_String)
-			return -1;
-		return std::abs(srcKind - tgtKind);
+		//0.7.5: distances derive from the registry ladder above (the
+		//NK reshuffle made kind arithmetic meaningless).
+		return PrimitiveDistance(srcKind, tgtKind);
 	}
 	return -1;
 }
@@ -304,6 +344,35 @@ bool ExprResolveAccessor::RejectArrayTokenCast(SnExpression &srcExpr,
 	return false;
 }
 
+//0.7.5 constant-fit gate (Java/C# rule, spec §2.2): an explicit-only
+//narrowing from a constant that fits the target converts implicitly; a
+//domain-matching constant that does not fit gets the specific
+//out-of-range diagnostic. Runs BEFORE the generic accept-set gate so
+//`byte b = 5` passes as TCK_Auto (the wrap then emits the PrimCast).
+ExprResolveAccessor::ConstantFitGateResult
+	ExprResolveAccessor::ConstantFitGate(SnExpression &srcExpr,
+		TypeCastInfo &castInfo)
+{
+	if (castInfo.Kind() != TCK_Explicit)
+		return CFG_NotApplicable;
+	auto *pTgt = castInfo.Target();
+	int ti = pTgt ? ScalarPrimIndexOf(pTgt->Kind()) : -1;
+	if (ti < 0)
+		return CFG_NotApplicable;
+	ConstantFitOutcome fit = TryConstantFit(srcExpr, kScalarPrims[ti]);
+	if (fit.verdict == CF_NotApplicable)
+		return CFG_NotApplicable;
+	if (fit.verdict == CF_Fits)
+	{
+		castInfo.Kind(TCK_Auto);
+		return CFG_Promoted;
+	}
+	m_Env.Log(CLL_Error, srcExpr.Location(),
+		"constant %s out of range for '%s'",
+		fit.constantText, kScalarPrims[ti].name);
+	return CFG_Rejected;
+}
+
 //The three incompatibility gates of FixupExprType, in their required
 //order. True = a diagnostic was logged and the caller must stop.
 bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
@@ -311,7 +380,13 @@ bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 {
 	if (RejectArrayTokenCast(srcExpr, castInfo))
 		return true;
+	if (ConstantFitGate(srcExpr, castInfo) == CFG_Rejected)
+		return true;
 
+	//0.7.5: this accept set (Same/Auto/Box) is the implicit-flow gate —
+	//the new TCK_Explicit narrowing verdicts (float→int and friends)
+	//are rejected here by construction, keeping every implicit path
+	//assignment/argument/return free of silent narrowing.
 	if (castInfo.Kind() != TCK_Auto && castInfo.Kind() != TCK_Box)
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
@@ -343,7 +418,7 @@ bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 
 //Null literal (KT_Null is Int32-typed) must reach the slot as the raw
 //sentinel 0. Wrapping it destroys the null identity downstream:
-//Int32→String emits OP_Int32_to_str ("0"), TCK_Box to Object allocates
+//Int32→String emits OP_Prim_to_str ("0"), TCK_Box to Object allocates
 //a boxed 0. Class/interface targets already treat TCK_Auto as a
 //runtime no-op, so skipping the wrap uniformly is safe there too.
 //Null operands in binary arithmetic/concat are rejected outright by
@@ -371,6 +446,23 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 		return false;
 	if (SkipNullIdentityWrap(srcExpr, castInfo))
 		return false;
+
+	//0.7.5: precision-loss warning on the implicitly accepted
+	//int-family → float conversions (spec §2.2) — suppressed by
+	//--no-warn and exempt for constants the target represents exactly.
+	//Runs after the gates so constant-fit promotions (byte b = 5) are
+	//already Auto — IsLossyImplicitPair's float-target test excludes
+	//them.
+	if (castInfo.Kind() == TCK_Auto && !m_Env.Params().m_bNoWarn)
+	{
+		auto *pSrcT = castInfo.Source();
+		auto *pTgtT = castInfo.Target();
+		if (pSrcT && pTgtT && IsLossyImplicitPair(pSrcT->Kind(), pTgtT->Kind())
+			&& !ConstantExactlyRepresentable(&srcExpr, pTgtT->Kind()))
+			m_Env.Log(CLL_Warn, srcExpr.Location(),
+				"implicit conversion from '%s' to '%s' loses precision",
+				pSrcT->ToString().c_str(), pTgtT->ToString().c_str());
+	}
 
 	auto pSrcParent = srcExpr.Parent();
 	assert(pSrcParent);

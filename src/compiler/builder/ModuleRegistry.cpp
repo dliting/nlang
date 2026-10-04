@@ -317,14 +317,16 @@ bool IsBindableTypeDecl(const SnField& member)
 SnField* ModuleRegistry::FindModuleType(const std::string& path,
 	const std::string& typeName) const
 {
-	//Find the registered unit for path (project or inline library).
-	//External .ncu stubs carry no source-level type declarations in v1.
+	//Find the registered unit for path — project, inline library, or
+	//external .ncu. External entries own the type stubs minted by
+	//CompiledModuleNodeBuilder and tagged in RegisterExternalStubs, so
+	//the same owner-filtered scan serves all three: `path.Type` binds
+	//the declaration that unit owns, never a same-name type another
+	//unit merged into the same container.
 	for (uint32_t i = 0; i < m_modules.size(); ++i)
 	{
 		if (m_modules[i].path != path)
 			continue;
-		if (m_modules[i].isExternal)
-			return nullptr;
 
 		//Every member sits on root (phase 5 removed the shell syntax); the
 		//unit's identity is the owner tag, not any container.
@@ -332,9 +334,7 @@ SnField* ModuleRegistry::FindModuleType(const std::string& path,
 		if (pRoot == nullptr)
 			return nullptr;
 
-		//Owner-filtered scan, like the function side: `path.Type` must bind a
-		//declaration the unit itself owns, never a same-name type another TU
-		//merged into the same container.
+		//Owner-filtered scan, like the function side.
 		auto range = pRoot->Members().NameDict().equal_range(typeName);
 		for (auto iField = range.first; iField != range.second; ++iField)
 			if (IsBindableTypeDecl(*iField->second)

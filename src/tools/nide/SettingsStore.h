@@ -41,11 +41,16 @@ public:
     //"small" (default, 32px) | "large" (48px) toolbar icons.
     QString toolbarIconSize() const { return m_toolbarIconSize; }
     void setToolbarIconSize(const QString& v) { m_toolbarIconSize = v; }
-    //Global library search dirs (Tools > Options): passed as -I to the
+   //Global library search dirs (Tools > Options): passed as -I to the
     //tools and indexed for code assistance. Project paths take precedence.
     QStringList librarySearchPaths() const { return m_librarySearchPaths; }
     void setLibrarySearchPaths(const QStringList& dirs)
         { m_librarySearchPaths = dirs; }
+    //0.7.5: the compiler-options group's first member -- pass --no-warn
+    //to ncc. Global level; a project's own opt-in adds on top (see
+    //ProjectNode::noWarn).
+    bool noWarn() const { return m_noWarn; }
+    void setNoWarn(bool v) { m_noWarn = v; }
 
     //Locale handed to installTranslations.
     QLocale languageLocale() const
@@ -77,7 +82,8 @@ private:
     QString m_language = LANGUAGE_SYSTEM;
     QString m_buildOutputDir;
     QString m_toolbarIconSize = TOOLBAR_ICON_SMALL;
-    QStringList m_librarySearchPaths;
+   QStringList m_librarySearchPaths;
+    bool m_noWarn = false;
 };
 
 } // namespace nlang

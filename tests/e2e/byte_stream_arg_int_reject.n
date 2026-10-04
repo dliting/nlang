@@ -1,0 +1,7 @@
+int main() {
+    //compile_error: writeInt writes exactly 4 bytes; a float argument's
+    //bit pattern would land in the stream as a bogus integer.
+    ByteStream bs = new ByteStream();
+    bs.writeInt(1.5f);
+    return 0;
+}

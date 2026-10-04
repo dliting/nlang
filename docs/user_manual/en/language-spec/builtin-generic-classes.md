@@ -32,7 +32,7 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 | `length`            | `int length()`     | int     | Current element count              |
 | `removeAt`          | `void removeAt(int i)` | —   | Erase; shifts later elements down  |
 | `indexOf`           | `int indexOf(T item)` | int | First index of `item`, or -1       |
-| `contains`          | `int contains(T item)` | int | 1 if present else 0               |
+| `contains`          | `bool contains(T item)` | bool | true if present, else false     |
 | `clear`             | `void clear()`     | —       | Remove all elements                |
 
 **Type checking**: the compiler recognizes `List<int>`, `List<string>`,
@@ -42,7 +42,7 @@ error when `nums : List<int>`.
 
 **Erasure runtime model**: `List<int>` and `List<Point>` share the same
 backing class at runtime. Elements are stored uniformly as heap indices
-in a side table; primitive elements are boxed via
+in a side table; scalar primitive elements (all 12) are boxed via
 `OP_Box` at the call site. GC traces list elements as additional roots.
 
 **Array type arguments**: `T` may be an array type — `List<int[]>`
@@ -94,7 +94,7 @@ Dict<string,int> scores = new Dict<string,int>();
 scores.set("alice", 90);
 scores.set("bob",   85);
 int a = scores.get("alice");          // 90
-int hasBob = scores.containsKey("bob"); // 1
+bool hasBob = scores.containsKey("bob"); // true
 int n = scores.count();                 // 2
 
 Dict<int,int> squares = new Dict<int,int>();
@@ -111,7 +111,7 @@ int removed = squares.remove(4);        // 1
 |------------------|----------------------------|---------|------------------------------------------------|
 | `set`            | `void set(K key, V value)` | —       | Insert-or-replace (no duplicate-key error)     |
 | `get`            | `V get(K key)`             | V       | Lookup; **throws** if key absent               |
-| `containsKey`    | `int containsKey(K key)`   | int     | 1 if present, 0 otherwise                      |
+| `containsKey`    | `bool containsKey(K key)`  | bool    | true if present, else false                   |
 | `remove`         | `int remove(K key)`        | int     | 1 if removed, 0 if key not found               |
 | `clear`          | `void clear()`             | —       | Remove all entries                             |
 | `count`          | `int count()`              | int     | Current entry count                            |
@@ -128,8 +128,9 @@ boxed via `OP_Box` at the call site. GC traces every entry's K and V as
 additional roots.
 
 **Key equality** is kind-aware:
-- Primitive keys (boxed `int`, `float`): compare value bits (IEEE 754 —
-  `NaN != NaN`, documented behavior).
+- Scalar primitive keys (boxed integer family, `float`/`double`, `bool`,
+  `char`): compare value bits (IEEE 754 — `NaN != NaN`, documented
+  behavior).
 - `string` keys: compare string content (value equality).
 - `class` / `struct` keys: compare heap idx (identity), matching Java's
   `IdentityHashMap` and C#'s default `object.Equals`. A user `equals`

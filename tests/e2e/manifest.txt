@@ -71,6 +71,43 @@ while_with_local 15
 # --- type coercion ---
 cast_float_to_int 3
 cast_int_to_float 7
+implicit_float_to_int_reject compile_error Incompatible type
+
+# --- bool (0.7.5 strict) ---
+bool_basics 0 false
+bool_strict_reject compile_error condition must be bool
+bool_int_reject compile_error Incompatible type
+bool_predicates 0 false
+bool_ordering_reject compile_error bool values cannot be ordered
+bool_mixed_reject compile_error a bool value can only be compared with a bool value
+bool_box_roundtrip 0
+
+# --- integer family (0.7.5) ---
+int_family_basic 0 9007199254740993
+int_family_as_wrap 0 -128
+int_family_promote 0 2147483648
+int_family_promote_reject compile_error no implicit common type
+int_family_overflow 0 -2147483648
+int_family_literal_tier 0 18446744073709551615
+int_family_literal_overflow_reject compile_error
+int_family_constant_fit 0 3000000000
+int_family_constant_fit_reject compile_error out of range
+int_family_lossy_warn 0 rounded
+ncc_no_warn 0 rounded
+int_family_box 0 5000000000
+int_family_tostring 0 [9223372036854775807, -1]
+int_family_boxed_eq 0 ok
+container_probe_type_reject compile_error Incompatible type
+init_list_int_to_float 0
+init_list_long_after_call 0
+init_list_constant_fit_reject compile_error out of range
+init_struct_long_field 0
+init_class_long_field 0
+dict_init_nonstring_key_reject compile_error string keys
+dict_subscript_read_key 0
+dict_subscript_read_key_type_reject compile_error Incompatible type
+int_family_switch 0 hit
+int_family_cross_mod_default 0 5000000005
 
 # --- for loop ---
 for_loop 45
@@ -102,6 +139,7 @@ enum_mixed 22
 enum_default 3
 enum_param 1
 enum_to_int 2
+enum_neg_reject compile_error non-negative
 
 # --- string ---
 string_length 5
@@ -228,6 +266,10 @@ debug_class_method_throws 1
 # --- ByteStream ---
 byte_stream_rw_int 6
 byte_stream_rw_float 4
+# --- 0.7.5: stream methods gate argument kind and arity by name ---
+byte_stream_arg_float_reject compile_error expects a float argument
+byte_stream_arg_int_reject compile_error an integer of at most 32 bits
+byte_stream_arity_reject compile_error takes no arguments
 byte_stream_rw_string 1
 byte_stream_length_position 1
 byte_stream_eos 1
@@ -243,6 +285,7 @@ file_stream_missing_read_throws 1
 # --- Phase 8b: struct serialization ---
 bs_struct_simple 30
 bs_struct_string 1
+bs_struct_long_field 0 ok
 bs_struct_nested 13
 bs_struct_float_field 4
 bs_struct_class_field 0
@@ -451,9 +494,9 @@ logical_short_circuit_values 42
 logical_short_circuit_side_effect 42
 logical_short_circuit_nested 7
 # --- 2026-08-31: logical/! operands must be int (aligns with if/while condition gate) ---
-logical_operand_float compile_error operator '&&' requires int operands
-logical_operand_string compile_error operator '||' requires int operands
-not_operand_float compile_error operator '!' requires an int operand
+logical_operand_float compile_error operator '&&' requires bool operands
+logical_operand_string compile_error operator '||' requires bool operands
+not_operand_float compile_error operator '!' requires a bool operand
 # --- P3.8: lock array negative-index throws (mirrors list_negative_index_throws) ---
 array_negative_index_throws 1
 # --- Phase 8e-9b: Object.toString() protocol (class/enum/string/int/float) ---
@@ -595,6 +638,11 @@ cross_mod_default_override 28
 # Option B Step 5: cross-module non-foldable defaults are rejected
 cross_mod_default_call_error compile_error
 cross_mod_default_ident_error compile_error
+# --- 0.7.5: defaults clear the assignment-side constant-fit bar;
+# the fill emits an in-place PrimCast to the formal's kind ---
+default_fit_cast 115
+default_nofit_float_reject compile_error out of range for 'float'
+default_double_int_reject compile_error requires an explicit conversion
 
 # --- Phase 9d: Exception handling ---
 exception_basic_throw_catch 7
@@ -789,6 +837,9 @@ stdlib_math_randomi_range 0
 stdlib_math_randomi_minmax_throws 1
 stdlib_math_clamp_lo_gt_hi_throws 1
 stdlib_io_print 0 hello
+stdlib_io_write 0 AB
+stdlib_io_write_prompt 0 Name: Hi Alice
+stdlib_io_eprint 0
 stdlib_io_print_int 0 42
 stdlib_io_print_float 0 1.5
 stdlib_io_print_multi 0 secondline
@@ -861,6 +912,12 @@ switch_dup_not_rejected_calls 0
 switch_fwd_enum_ok 0
 switch_dup_not_rejected_enum 0
 switch_float_nan 0
+# --- 0.7.5: switch labels must fit the discriminant's value range ---
+switch_label_long_range_reject compile_error out of range
+switch_label_ulong_signed_reject compile_error out of range
+switch_label_narrow_reject compile_error out of range
+switch_label_enum_narrow_reject compile_error out of range
+switch_label_double_float_reject compile_error out of range
 int_sci_literal 0
 int_sci_overflow compile_error
 int_sci_fractional compile_error
@@ -917,7 +974,7 @@ func_ref_store 0
 func_ref_native 77
 func_ref_eq 0
 func_ref_null 1
-func_ref_tostring 0 func bar
+func_ref_tostring 0 func func_ref_tostring.bar
 func_tostring_member 0
 func_tostring_cast 0
 func_ref_void_return 41
@@ -1001,8 +1058,7 @@ foreach_src_this_member 5
 foreach_src_member_invoke_reject 60
 foreach_src_single_eval 1
 foreach_src_dict_sub_reject 30
-foreach_noncontainer_reject compile_error the foreach source must be an array, List, or Dict
-foreach_string_reject compile_error the foreach source must be an array, List, or Dict
+foreach_noncontainer_reject compile_error the foreach source must be an array, List, Dict, or string
 
 # Module import visibility (Task 10): single-file error matrix. Column 3
 # pins the exact rejection sentence from spec section 7; the project-mode
@@ -1029,7 +1085,11 @@ dbg_disasm 0 >>  00
 dbg_catch_throw 3 Throw: dbg_catch_throw.main (dbg_catch_throw.n:4)
 dbgm_basic 42 local total int
 dbgm_breakthrow 0 stopped throw
-dbgm_readline_rejected 1 readLine
+dbgm_frame_locals 7 this class Point{x=2, y=5}
+dbgm_stdin_roundtrip 0 Hi Alice
+dbgm_readline_eof 0
+dbgm_io_eprint 0 boom
+dbgm_locals_scope 2 local late int 2
 generic_key_cross_assign_reject compile_error Incompatible type
 func_generic_coexist 0 8
 func_bind_array_mismatch_reject compile_error does not match the signature
@@ -1117,7 +1177,6 @@ array_tostring_return 7
 as_cast_array_box_reject compile_error the cast operand is an array
 as_cast_array_same_reject compile_error the cast operand is an array
 stringelem_array_coercion 5
-string_subscript_read_reject compile_error string does not support subscript access
 string_subscript_write_reject compile_error string does not support subscript access
 container_stringelem_subscript_coercion 6
 container_stringelem_add_coercion 6
@@ -1154,7 +1213,7 @@ array_eq_identity 4
 array_eq_null 6
 array_relational_reject compile_error identity comparison only
 array_eq_scalar_reject compile_error identity comparison only
-condition_array_reject compile_error condition must be int
+condition_array_reject compile_error condition must be bool
 delegate_arg_upcast 2
 delegate_arg_array_exact 9
 delegate_arg_array_reject compile_error incompatible
@@ -1162,3 +1221,44 @@ delegate_arg_widen_reject compile_error incompatible
 qhead_call compile_error Malformed qualified type reference
 qhead_deep compile_error Malformed qualified type reference
 qhead_index compile_error Malformed qualified type reference
+double_basics 0 1.5
+double_precision 0 0.30000000000000004
+double_math 0 1.4142135623730951
+double_mod 21
+double_neg_literal 0 -1.5
+double_cross_mod_default 0 10
+double_cross_mod_default_float 33
+double_float_fit_reject compile_error out of range
+
+# 0.7.5 char (Unicode scalar values) + string bridge: literals and
+# escapes, comparisons, casts, switch, s[i] byte indexing, code-point
+# foreach, and the extended string method table.
+char_basics 0 true
+char_string_bridge 0 xy
+char_foreach 5
+string_byte_at 0 99
+string_byte_at_oob 0 oob
+char_escape 0
+char_escape_reject compile_error
+string_charat 0 3
+char_numeric_reject compile_error do not support arithmetic
+char_numeric_cmp_reject compile_error only be compared with a char
+char_cast 0 97
+char_cast_invalid 0 invalid
+char_switch 12
+char_foreach_var_reject compile_error does not match the element type
+char_foreach_break 0
+char_foreach_nested 0
+char_switch_cross 0
+
+# 0.7.5 Task 9: 64-bit stream primitives + all-primitive printing.
+stream_long_double 0
+print_all_primitives 0 true
+stream_long_arg_char_reject compile_error expects a long argument
+stream_long_arg_ulong_reject compile_error expects a long argument
+stream_double_arg_string_reject compile_error expects a double argument
+
+# 0.7.6: source files must be UTF-8 (invalid bytes rejected with a named
+# error; a leading UTF-8 BOM is accepted and skipped).
+src_utf8_bom 5
+src_not_utf8 compile_error not valid UTF-8

@@ -4,8 +4,8 @@
 // ~0) and the program exited 0 instead of 42. With the descriptor the
 // argument widens int->float at the call site and the callee reads 21.0.
 int fp(float x) {
-    // float expression assigned to an int return slot truncates (the
-    // manual's implicit narrowing rule) — 21.0 * 2 truncates to 42.
-    int r = x * 2;
+    // float expression narrowed into an int return slot via `as`
+    // (explicit-only since 0.7.5) — 21.0 * 2 truncates to 42.
+    int r = (x * 2) as int;
     return r;
 }

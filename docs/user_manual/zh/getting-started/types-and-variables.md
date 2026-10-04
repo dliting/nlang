@@ -10,18 +10,24 @@ import io;
 
 int main() {
     int level = 3;              // 每个变量都声明类型，没有类型推断
-    float scale = 1.5;
+    double scale = 1.5;         // 无后缀小数是 double；float 要写 1.5f
+    long total = 5000000000;    // 64 位整型
+    char grade = 'A';
+    bool ok = level * 10 == 30; // 比较产生 bool
     string title = "demo";
     const int MAX = 100;        // const：初始化后再赋值是编译错误
     io.print(title + ": " + level * 10 + " / " + scale);
-    if (level * 10 == 30)
+    io.print(grade + " " + ok + " " + total);
+    if (ok)
         return 30;              // 退出码 30
     return 1;
 }
 ```
 
-输出 `demo: 30 / 1.5`。基本类型 `int`（32 位整型）、`float`（32 位浮点）、
-`string`（UTF-8 字节串，引用语义）。复合类型 enum、struct、class 在下面的
+输出 `demo: 30 / 1.5`、`A true 5000000000`。标量基本类型共 12 个：整型
+家族（`byte` `ubyte` `short` `ushort` `int` `uint` `long` `ulong`）、
+`float`/`double`、`bool` 与 `char`（Unicode 码点）；`string` 是第 13 个
+基本类型（UTF-8 字节串，引用语义）。复合类型 enum、struct、class 在下面的
 章节与声明章节中有介绍。
 
 详见 → [语言规格/类型](../language-spec/types.md)、
@@ -121,7 +127,8 @@ int main() {
 ```
 
 输出 `hello, NLang`、`year: 2026`，退出码 9。字符串是 UTF-8 字节序列，
-`length()`/`substring()`/`indexOf()` 都按字节计。
+`length()`/`substring()`/`indexOf()` 都按字节计；按码点访问（`charAt`、
+`charCount`、`foreach (char c in s)`）见字符串页的「char 桥接」。
 
 详见 → [语言规格/类型](../language-spec/types.md)、
 [标准库](../language-spec/standard-library.md)。

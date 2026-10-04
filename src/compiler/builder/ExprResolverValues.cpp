@@ -11,6 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -110,8 +111,10 @@ void ExprResolveAccessor::Access(SnCastExpr &sn)
 }
 
 //Phase 8e-1.5: resolve `expr as T` runtime-checked cast.
-//Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox (Object→primitive),
-//TCK_Downcast (ancestor→subclass). Other kinds → compile error.
+//Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
+//(Object→primitive), TCK_Downcast (ancestor→subclass), TCK_Explicit
+//(0.7.5 narrowing scalar conversion, e.g. float→int). Other kinds →
+//compile error.
 void ExprResolveAccessor::Access(SnAsExpr &sn)
 {
 	assert(!sn.IsResolved());
@@ -207,8 +210,11 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 	}
 
 	//TCK_Auto (e.g. int→float) is not allowed via `as` — use primitive cast syntax.
-	//TCK_Dynamic similarly. Only TCK_Same/Box/Unbox/Downcast are valid.
-	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox && kind != TCK_Downcast)
+	//TCK_Dynamic similarly. Valid: TCK_Same/Box/Unbox/Downcast, plus
+	//TCK_Explicit (0.7.5) — narrowing scalar conversions are exactly what
+	//the operator exists for.
+	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox
+		&& kind != TCK_Downcast && kind != TCK_Explicit)
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
 			"`as` cannot perform implicit conversion `%s` → `%s`.",
@@ -219,21 +225,37 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 	return false;
 }
 
-//0.7.3 B D3: a string base has no subscript semantics (NLang has
-//no char type — the substring methods are the char-access surface).
-//Before this arm the subscript silently resolved to the string
-//itself and codegen read the index as an array handle, failing
-//only at runtime ("null array access"). True = rejected.
-bool ExprResolveAccessor::RejectStringSubscriptBase(SnSubscriptExpr &sn,
+//0.7.5 char bridge: s[i] resolves as a BYTE read (ubyte result) —
+//byte semantics stay consistent with length/substring/indexOf; the
+//code-point surfaces are string foreach and charAt. 0.7.3 B D3
+//rejected the shape outright; the byte read replaces that reject.
+//The index must be an integer kind (a char index would silently
+//misread as a byte offset — code-point access is foreach/charAt);
+//write access stays rejected in StatementResolverAssign (strings
+//are immutable). True = consumed (resolved or diagnosed).
+bool ExprResolveAccessor::ResolveStringSubscript(SnSubscriptExpr &sn,
 	SnField *pBaseType)
 {
-	if (pBaseType && pBaseType->Kind() == NK_String)
+	if (!pBaseType || pBaseType->Kind() != NK_String)
+		return false;
+	auto* pIdxType = sn.Index()->IsResolved()
+		? sn.Index()->EvalDataType() : nullptr;
+	if (pIdxType)
 	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"string does not support subscript access.");
-		return true;
+		int pi = ScalarPrimIndexOf(pIdxType->Kind());
+		const bool isInteger = pi >= 0
+			&& (kScalarPrims[pi].category == PC_SInt
+				|| kScalarPrims[pi].category == PC_UInt);
+		if (!isInteger)
+		{
+			m_Env.Log(CLL_Error, sn.Index()->Location(),
+				"the string index must be an integer.");
+			return true;
+		}
 	}
-	return false;
+	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_UByte));
+	sn.AddFlags(NF_Resolved);
+	return true;
 }
 
 //List<T>/Dict<K,V> subscript (li[i] / d[k]): sugar over get().
@@ -263,7 +285,24 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 	if (baseName == "List" && !typeArgs.empty())
 		elem = typeArgs[0];
 	else if (baseName == "Dict" && typeArgs.size() > 1)
+	{
 		elem = typeArgs[1];
+		//0.7.5: the read sugar `d[k]` lowers to get(k), whose boxing
+		//plan stages the key with K's tag — wrap the key against K like
+		//the store sugar (ApplyContainerStoreCasts) and the method form
+		//so the slot holds K's width before the box read. List indexes
+		//stay unchecked (a plain int position, runtime-bounds-checked).
+		if (sn.Index() && sn.Index()->IsResolved()
+			&& sn.Index()->EvalDataType())
+		{
+			auto keyCast = GetCastInfo(
+				sn.Index()->EvalDataType(), typeArgs[0]);
+			auto iKey = sn.Children().find(sn.Index());
+			if (iKey != sn.Children().end()
+				&& FixupExprType(iKey, keyCast))
+				sn.Index(static_cast<SnExpression*>(&*iKey));
+		}
+	}
 	if (!elem)
 		return false;
 	sn.EvalDataType(elem);
@@ -291,7 +330,7 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	//Look up arr.length-style access is handled by MemberExpr.
 	//For now, the result type of subscript is the element type.
 	auto* arrayType = arrayExpr.EvalDataType();
-	if (RejectStringSubscriptBase(sn, arrayType))
+	if (ResolveStringSubscript(sn, arrayType))
 		return;
 	if (TryResolveContainerSubscript(sn, arrayType))
 		return;

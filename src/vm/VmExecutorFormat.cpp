@@ -3,6 +3,8 @@
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "VmExecutor.h"
+#include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/RnTypes.h>
 #include <cstring>
 #include <cstdio>
 #include <exception>
@@ -114,20 +116,13 @@ std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     switch (kind) {
     case RTK_Boxed: {
-        int32_t tag = slot[0];
-        int32_t val = slot[1];
-        if (tag == RTK_Int32) {
-            return std::to_string(val);
-        } else if (tag == RTK_Float) {
-            float fv;
-            std::memcpy(&fv, &val, sizeof(fv));
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), "%g", fv);
-            return buf;
-        } else if (tag == RTK_String) {
-            return QuoteString(StrVal(val));
-        }
-        return "<unknown>";
+        //0.7.5: boxed records are {tag, lo, hi} — the whole scalar
+        //family renders through the canonical registry renderer; only
+        //the string tag keeps its own (quoting) arm.
+        if (slot[0] == RTK_String)
+            return QuoteString(StrVal(slot[1]));
+        return FormatScalarValue(static_cast<uint8_t>(slot[0]),
+            slot[1], slot[2]);
     }
     case RTK_Class: {
         int32_t classIdx = slot[0];
@@ -154,6 +149,59 @@ std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
     }
 }
 
+//0.7.5: the family's single scalar format decision. Carriers read
+//their own width from the little-endian staging buffer (narrow rows
+//find the value-extended low bytes; 8-byte rows read lo|hi combined),
+//so uint renders unsigned and long/ulong/double render their full
+//width — whatever the registry's per-category ValueToString decides.
+std::string VmExecutor::FormatScalarValue(uint8_t rtk, int32_t lo,
+    int32_t hi) const {
+    int i = ScalarPrimIndexOfRtk(rtk);
+    if (i < 0)
+        return "<unknown>";
+    //Registry singletons intern names through IdString — the host has
+    //run Runtime::StaticInit() long before any formatting (same
+    //contract as OP_Prim_to_str).
+    uint8_t value[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    std::memcpy(value, &lo, sizeof(lo));
+    std::memcpy(value + 4, &hi, sizeof(hi));
+    return RnBuiltinDataType::InstanceOf(kScalarPrims[i].kind)
+        ->ValueToString(value);
+}
+
+//One 1-cell array element by kind. Scalars delegate to the canonical
+//renderer (which reads the carrier's own width from the low bytes);
+//reference kinds delegate to the heap renderer.
+std::string VmExecutor::FormatArrayElemScalar(int32_t elemVal,
+    uint8_t elemKind, int depth) {
+    switch (elemKind) {
+    case RTK_String:
+        return QuoteString(StrVal(elemVal));
+    case RTK_Struct:
+        return "<struct>";
+    case RTK_Class:
+    case RTK_Boxed:
+    case RTK_Array:
+        return FormatHeapValue(elemVal, depth);
+    default:
+        return FormatScalarValue(elemKind, elemVal, 0);
+    }
+}
+
+//One array element's toString contribution. 0.7.5: element stride is
+//registry-driven — 8-byte scalars occupy two cells (off..off+1) and
+//render through the canonical scalar renderer like everyone else;
+//every other kind is 1-cell.
+void VmExecutor::FormatArrayElement(std::string& result,
+    const std::vector<int32_t>& slot, size_t off, uint8_t elemKind,
+    int cells, int depth) {
+    if (cells == 2) {
+        result += FormatScalarValue(elemKind, slot[off], slot[off + 1]);
+        return;
+    }
+    result += FormatArrayElemScalar(slot[off], elemKind, depth);
+}
+
 std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(
@@ -166,36 +214,11 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
         elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
     if (length <= 0) return "[]";
     std::string result = "[";
+    const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < length; ++i) {
         if (i > 0) result += ", ";
-        int32_t elemVal = slot[3 + static_cast<size_t>(i)];
-        switch (elemKind) {
-        case RTK_Int32:
-            result += std::to_string(elemVal);
-            break;
-        case RTK_Float: {
-            float fv;
-            std::memcpy(&fv, &elemVal, sizeof(fv));
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), "%g", fv);
-            result += buf;
-            break;
-        }
-        case RTK_String:
-            result += QuoteString(StrVal(elemVal));
-            break;
-        case RTK_Struct:
-            result += "<struct>";
-            break;
-        case RTK_Class:
-        case RTK_Boxed:
-        case RTK_Array:
-            result += FormatHeapValue(elemVal, depth);
-            break;
-        default:
-            result += "<unknown>";
-            break;
-        }
+        FormatArrayElement(result, slot, 3 + static_cast<size_t>(i) * cells,
+            elemKind, cells, depth);
     }
     result += "]";
     return result;
@@ -241,10 +264,13 @@ std::string VmExecutor::FormatDict(int32_t handle, int depth) {
 
 std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
     int32_t thisHeapIdx, int32_t classIdx) {
-    //Synthetic 4-byte locals frame: just thisHeapIdx at offset 0.
-    alignas(int32_t) uint8_t paramFrame[4] = {0};
+    //Synthetic one-slot locals frame: just thisHeapIdx at offset 0.
+    //Both buffers must be full uniform frame cells — ExecuteFunction's
+    //final OP_VarLocal return copy and the param-block memcpy both
+    //move kFrameSlotBytes.
+    alignas(int64_t) uint8_t paramFrame[kFrameSlotBytes] = {0};
     std::memcpy(paramFrame, &thisHeapIdx, sizeof(thisHeapIdx));
-    alignas(int32_t) uint8_t resultBuf[4] = {0};
+    alignas(int64_t) uint8_t resultBuf[kFrameSlotBytes] = {0};
     if (callee.intrinsicId != INTR_None) {
         ExecuteIntrinsic(callee.intrinsicId, 0, paramFrame, resultBuf);
     } else if (callee.isNative) {
@@ -255,10 +281,11 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
         //intern a string anyway — refuse until 9f-2 marshalling exists.
         throw std::runtime_error(
             "NLang VM: native toString cannot serve implicit formatting: "
-            + m_currModule->classes[static_cast<size_t>(classIdx)].name);
+            + LeafNameOfKey(
+                m_currModule->classes[static_cast<size_t>(classIdx)].name));
     } else {
         std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-        uint16_t paramBytes = callee.paramCount * sizeof(int32_t);
+        uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
         if (paramBytes > 0 && paramBytes <= callee.localsSize)
             std::memcpy(calleeLocals.data(), paramFrame, paramBytes);
         ExecuteFunction(callee, resultBuf, calleeLocals.data());
@@ -289,8 +316,9 @@ std::string VmExecutor::InvokeVirtualToString(int32_t thisHeapIdx) {
     //the "toString" lookup below replaced a local copy of the loop.
     int funcIndex = FindMethodByName(classIdx, "toString");
     if (funcIndex < 0)
-        return std::string("<") +
-            m_currModule->classes[static_cast<size_t>(classIdx)].name + ">";
+        return std::string("<") + LeafNameOfKey(
+            m_currModule->classes[static_cast<size_t>(classIdx)].name)
+            + ">";
     return CallToStringOverride(
         m_currModule->functions[static_cast<size_t>(funcIndex)],
         thisHeapIdx, classIdx);

@@ -5,16 +5,16 @@
 import math;
 int main() {
     math.srand(42);
-    float a1 = math.random();
-    float a2 = math.random();
-    float a3 = math.random();
+    double a1 = math.random();
+    double a2 = math.random();
+    double a3 = math.random();
     int ai1 = math.randomi(0, 1000);
     int ai2 = math.randomi(0, 1000);
 
     math.srand(42);
-    float b1 = math.random();
-    float b2 = math.random();
-    float b3 = math.random();
+    double b1 = math.random();
+    double b2 = math.random();
+    double b3 = math.random();
     int bi1 = math.randomi(0, 1000);
     int bi2 = math.randomi(0, 1000);
 
@@ -23,7 +23,7 @@ int main() {
 
     // Range check over a decent sample.
     for (int i = 0; i < 200; i = i + 1) {
-        float x = math.random();
+        double x = math.random();
         if (x < 0.0 || x >= 1.0) return 3;
     }
     return 0;

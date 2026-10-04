@@ -29,10 +29,15 @@ enum StdLibReturnType : uint8_t
 	SLRT_Void = 0,
 	SLRT_Int32,
 	SLRT_Float,
+	SLRT_Bool,   //0.7.5: predicates
 	SLRT_String,
 	SLRT_ListString,  //s.split
+	//0.7.5 basic types: the string bridge needs the wider primitives
+	//among the method return types (s.toLong / s.toDouble / s.charAt).
+	SLRT_Long,
+	SLRT_Double,
+	SLRT_Char,        //s.charAt / s.toChar — code point at a byte offset
 };
-
 //Built-in string methods (Step 3): receiver-dispatched, NOT namespace
 //calls — s.substring(1) resolves in the string-method branch of
 //Access(SnMemberExpr) and emits with the receiver at callParamBase[0]
@@ -52,8 +57,9 @@ enum StringTrailingDefault : uint8_t
 struct StringMethodEntry
 {
 	const char* name;
-	//Expected RTK_* of each parameter in order (substring takes byte
-	//offsets; everything else takes strings). Exact kind match only.
+	//Expected RTK_* of each parameter in order (substring and charAt
+	//take byte offsets; everything else takes strings). Exact kind
+	//match only.
 	//Fixed size 2 — the method surface is frozen by decision #6, so no
 	//entry may take a 3rd param; a zero-init slot would read as
 	//RTK_Int32, so keep maxArgs <= 2 when extending the table.
@@ -72,9 +78,9 @@ inline constexpr StringMethodEntry kStringMethodTable[] =
 {
 	{"substring",  {RTK_Int32, RTK_Int32}, 1, 2, SLRT_String,     INTR_String_Substring,  STD_ReceiverLength},
 	{"indexOf",    {RTK_String},           1, 1, SLRT_Int32,      INTR_String_IndexOf,    STD_None},
-	{"startsWith", {RTK_String},           1, 1, SLRT_Int32,      INTR_String_StartsWith, STD_None},
-	{"endsWith",   {RTK_String},           1, 1, SLRT_Int32,      INTR_String_EndsWith,   STD_None},
-	{"contains",   {RTK_String},           1, 1, SLRT_Int32,      INTR_String_Contains,   STD_None},
+	{"startsWith", {RTK_String},           1, 1, SLRT_Bool,      INTR_String_StartsWith, STD_None},
+	{"endsWith",   {RTK_String},           1, 1, SLRT_Bool,      INTR_String_EndsWith,   STD_None},
+	{"contains",   {RTK_String},           1, 1, SLRT_Bool,      INTR_String_Contains,   STD_None},
 	{"toUpper",    {},                     0, 0, SLRT_String,     INTR_String_ToUpper,    STD_None},
 	{"toLower",    {},                     0, 0, SLRT_String,     INTR_String_ToLower,    STD_None},
 	{"trim",       {},                     0, 0, SLRT_String,     INTR_String_Trim,       STD_None},
@@ -82,6 +88,18 @@ inline constexpr StringMethodEntry kStringMethodTable[] =
 	{"replace",    {RTK_String, RTK_String}, 2, 2, SLRT_String,   INTR_String_Replace,    STD_None},
 	{"toInt",      {},                     0, 0, SLRT_Int32,      INTR_String_ToInt,      STD_None},
 	{"toFloat",    {},                     0, 0, SLRT_Float,      INTR_String_ToFloat,    STD_None},
+	//0.7.5 char bridge: code-point surfaces over the byte-semantics
+	//core. charAt(byteIndex) decodes the code point STARTING at that
+	//byte (a continuation byte is an invalid sequence — raise);
+	//charCount counts code points; to* are strict whole-string parses
+	//(toChar parses the decimal code point and validates the scalar
+	//range; toBool accepts exactly "true"/"false").
+	{"charAt",     {RTK_Int32},            1, 1, SLRT_Char,       INTR_String_CharAt,     STD_None},
+	{"charCount",  {},                     0, 0, SLRT_Int32,      INTR_String_CharCount,  STD_None},
+	{"toChar",     {},                     0, 0, SLRT_Char,       INTR_String_ToChar,     STD_None},
+	{"toLong",     {},                     0, 0, SLRT_Long,       INTR_String_ToLong,     STD_None},
+	{"toDouble",   {},                     0, 0, SLRT_Double,     INTR_String_ToDouble,   STD_None},
+	{"toBool",     {},                     0, 0, SLRT_Bool,       INTR_String_ToBool,     STD_None},
 };
 
 //Table <-> id-block binding for the string-method family.

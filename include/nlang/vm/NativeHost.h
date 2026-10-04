@@ -26,13 +26,18 @@ extern "C" {
 
 // Bump on any incompatible change to NativeHost, NativeFn or the value
 // layout. A module's nlang_native_init returns this; the host rejects a
-// mismatch.
-#define NLANG_HOST_ABI_VERSION 1u
+// mismatch. Version 2: the value slot widened from 4 to 8 bytes (the
+// 0.7.5 slot-width ABI — one uniform frame cell per value). Version 3:
+// the writeError callback added (io.eprint's stderr channel — only the
+// host knows whether a session owns the streams).
+#define NLANG_HOST_ABI_VERSION 3u
 
-// Every NLang runtime value occupies one 32-bit slot. Integers and the
-// bit-pattern of floats are stored inline; strings/objects/lists carry a
-// 32-bit heap handle.
-#define NLANG_VALUE_SIZE 4
+// Every NLang runtime value occupies one 8-byte frame cell (see
+// kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
+// in the LOW half of the cell (integers inline, floats as their bit
+// pattern); the 8-byte family (long/double) uses all 8 bytes;
+// strings/objects/lists carry a 32-bit heap handle in the low half.
+#define NLANG_VALUE_SIZE 8
 
 struct NativeHost;
 typedef struct NativeHost NativeHost;
@@ -69,6 +74,11 @@ struct NativeHost {
 
     // Write text verbatim to the program's standard output.
     void (*writeOutput)(NativeHost* self, const char* text);
+
+    // Write text verbatim to the program's diagnostic channel: stderr in
+    // console mode, the session's single merged output view when a host
+    // owns the streams (io.eprint's route).
+    void (*writeError)(NativeHost* self, const char* text);
 
     // Read one line from standard input (trailing CR/LF stripped). The
     // returned pointer is valid only until the next host callback.
@@ -131,8 +141,8 @@ namespace native {
 
 inline int32_t ArgInt(const uint8_t* args, int slot) {
     int32_t value = 0;
-    std::memcpy(&value, args + slot * NLANG_VALUE_SIZE,
-                NLANG_VALUE_SIZE);
+    //4-byte kinds live in the low half of the 8-byte cell.
+    std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
     return value;
 }
 
@@ -140,6 +150,19 @@ inline float ArgFloat(const uint8_t* args, int slot) {
     int32_t bits = ArgInt(args, slot);
     float value = 0.0f;
     std::memcpy(&value, &bits, sizeof(float));
+    return value;
+}
+
+inline double ArgDouble(const uint8_t* args, int slot) {
+    double value = 0.0;
+    //The 8-byte kinds fill the whole cell.
+    std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
+    return value;
+}
+
+inline int64_t ArgLong(const uint8_t* args, int slot) {
+    int64_t value = 0;
+    std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
     return value;
 }
 
@@ -151,13 +174,23 @@ inline std::string ArgString(NativeHost* host, const uint8_t* args,
 }
 
 inline void ReturnInt(uint8_t* ret, int32_t value) {
-    std::memcpy(ret, &value, NLANG_VALUE_SIZE);
+    //Low-half write: no kind-correct consumer reads the upper half of
+    //the return cell.
+    std::memcpy(ret, &value, sizeof(value));
 }
 
 inline void ReturnFloat(uint8_t* ret, float value) {
     int32_t bits = 0;
     std::memcpy(&bits, &value, sizeof(float));
-    std::memcpy(ret, &bits, NLANG_VALUE_SIZE);
+    std::memcpy(ret, &bits, sizeof(bits));
+}
+
+inline void ReturnDouble(uint8_t* ret, double value) {
+    std::memcpy(ret, &value, sizeof(value));
+}
+
+inline void ReturnLong(uint8_t* ret, int64_t value) {
+    std::memcpy(ret, &value, sizeof(value));
 }
 
 inline void ReturnString(NativeHost* host, uint8_t* ret,

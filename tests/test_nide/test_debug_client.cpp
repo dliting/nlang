@@ -36,13 +36,13 @@ const char kProgSource[] =
 
 //spin.n: never terminates, so only kill() can end the session.
 const char kSpinSource[] =
-    "int main() {\n"          //1
-    "    int i = 0;\n"        //2
-    "    while (1) {\n"       //3
-    "        i = i + 1;\n"    //4
-    "    }\n"                 //5
-    "    return i;\n"         //6
-    "}\n";                    //7
+    "int main() {\n"            //1
+    "    int i = 0;\n"          //2
+    "    while (true) {\n"      //3
+    "        i = i + 1;\n"      //4
+    "    }\n"                   //5
+    "    return i;\n"           //6
+    "}\n";                      //7
 
 //throw.n: an uncaught NLang exception ends the session via the error
 //event (ndb exits 1, no exited event).
@@ -50,6 +50,43 @@ const char kThrowSource[] =
     "int main() {\n"                       //1
     "    throw new Exception(\"boom\");\n" //2
     "}\n";                                 //3
+
+//point.n: a class with a method, so a stop freezes a method frame
+//(whose only slot is the receiver `this`) over a main frame holding a
+//real local p.
+const char kPointSource[] =
+    "class Point {\n"                       //1
+    "    int x;\n"                          //2
+    "    int y;\n"                          //3
+    "\n"                                    //4
+    "    public int Point(int a, int b) {\n" //5
+    "        this.x = a;\n"                 //6
+    "        this.y = b;\n"                 //7
+    "        return 0;\n"                   //8
+    "    }\n"                               //9
+    "\n"                                    //10
+    "    public int manhattan() {\n"        //11
+    "        return x + y;\n"               //12
+    "    }\n"                               //13
+    "}\n"                                   //14
+    "\n"                                    //15
+    "int main() {\n"                        //16
+    "    Point p = new Point(2, 5);\n"      //17
+    "    return p.manhattan();\n"           //18
+    "}\n";                                  //19
+
+//echo.n: parks in io.readLine, so the session stays Running until a
+//stdin line arrives — then the reply proves the input reached the
+//program through the machine channel.
+const char kEchoSource[] =
+    "import io;\n"                          //1
+    "\n"                                    //2
+    "int main() {\n"                        //3
+    "    io.write(\"Name: \");\n"           //4
+    "    string n = io.readLine();\n"       //5
+    "    io.print(\"Hi \" + n);\n"          //6
+    "    return 0;\n"                       //7
+    "}\n";                                  //8
 
 } // namespace
 
@@ -59,6 +96,7 @@ class TestDebugClient : public QObject {
 private slots:
     void initTestCase();
     void fullSessionRunsToTheExitCode();
+    void stdinReachesReadLineWhileRunning();
     void breakpointAddedWhileStoppedHitsLater();
     void killGuaranteeOnAnInfiniteLoop();
     void loadFailureReportsErrorBeforeHello();
@@ -68,6 +106,7 @@ private slots:
     void breakOnThrowStopsAtTheThrowSite();
     void deleteBreakpointRemovesTheHit();
     void launchPassesLibraryDirsAsIArgs();
+    void stackQueriesDoNotDuplicateFramesAndShowThis();
 
 private:
     //Void-on-purpose: QVERIFY/QFAIL expand to `return;`, so helpers
@@ -81,6 +120,9 @@ private:
     QString m_progSource;
     QString m_spinNmod;
     QString m_throwNmod;
+    QString m_pointNmod;
+    QString m_pointSource;
+    QString m_echoNmod;
 };
 
 void TestDebugClient::initTestCase() {
@@ -89,6 +131,9 @@ void TestDebugClient::initTestCase() {
     QVERIFY(buildModule("prog", kProgSource, &m_progNmod));
     QVERIFY(buildModule("spin", kSpinSource, &m_spinNmod));
     QVERIFY(buildModule("throw", kThrowSource, &m_throwNmod));
+    m_pointSource = m_dir.filePath("point.n");
+    QVERIFY(buildModule("point", kPointSource, &m_pointNmod));
+    QVERIFY(buildModule("echo", kEchoSource, &m_echoNmod));
 }
 
 //Write the source, compile with the real ncc, store the .ncu path.
@@ -203,6 +248,45 @@ void TestDebugClient::fullSessionRunsToTheExitCode() {
     QCOMPARE(exited.first().at(0).toInt(), 42);
     QCOMPARE(failed.count(), 0);
     QCOMPARE(abnormal.count(), 0);
+}
+
+//0.7.7: sendStdin delivers one program input line over the machine
+//channel. The program parks in io.readLine (session stays Running with
+//no stop), the line goes in, and the program's reply comes back as
+//ordinary output events. Also pins the state guard: Idle rejects.
+void TestDebugClient::stdinReachesReadLineWhileRunning() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
+    QSignalSpy output(&client, &DebugClient::outputReceived);
+    QSignalSpy exited(&client, &DebugClient::exited);
+
+    //No session yet: the input has nowhere to go.
+    QVERIFY(!client.sendStdin(QStringLiteral("no session")));
+
+    QVERIFY(client.launch(m_echoNmod));
+    QVERIFY(client.run());
+    //Running means past the auto-continued initial stop: the program
+    //is parked in io.readLine now.
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Running, kSessionTimeoutMs);
+
+    QVERIFY(client.sendStdin(QStringLiteral("Alice")));
+
+    QString joined;
+    QTRY_VERIFY_WITH_TIMEOUT([&] {
+        joined.clear();
+        for (const QList<QVariant>& o : output)
+            joined += o.at(0).toString();
+        return joined.contains(QLatin1String("Hi Alice"));
+    }(), kSessionTimeoutMs);
+    //The write prompt streamed too (io.write -> one output event).
+    QVERIFY(joined.contains(QLatin1String("Name: ")));
+
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
+    QCOMPARE(exited.first().at(0).toInt(), 0);
+    //The read never froze the session into a user-facing stop.
+    QCOMPARE(stoppedSpy.count(), 0);
 }
 
 void TestDebugClient::breakpointAddedWhileStoppedHitsLater() {
@@ -388,6 +472,67 @@ void TestDebugClient::deleteBreakpointRemovesTheHit() {
     QVERIFY(!secondFailed.first().at(0).toString().isEmpty());
     QCOMPARE(secondAbnormal.count(), 0);
     second.stop();
+}
+
+//The IDE stack view appends every frameReceived, so the wire contract
+//is: frame events belong exclusively to bt responses. requestLocals
+//issues `frame <n>` per stack-row click -- that selection command must
+//stay data-silent (done only), or every click appends a phantom
+//duplicate row (the 0.7.6 nide bug). And the method frame's only slot
+//is the receiver, so locals must surface `this` -- otherwise the
+//variables pane of every method frame is empty.
+void TestDebugClient::stackQueriesDoNotDuplicateFramesAndShowThis() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
+    QSignalSpy frames(&client, &DebugClient::frameReceived);
+    QSignalSpy btReady(&client, &DebugClient::backtraceReady);
+    QSignalSpy localsReady(&client, &DebugClient::localsReady);
+    QSignalSpy locals(&client, &DebugClient::localReceived);
+    QSignalSpy exited(&client, &DebugClient::exited);
+
+    QVERIFY(client.launch(m_pointNmod));
+    QVERIFY(client.addBreakpoint(m_pointSource, 12));   //manhattan body
+    QVERIFY(client.run());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Stopped, kSessionTimeoutMs);
+    QCOMPARE(stoppedSpy.count(), 1);
+    QCOMPARE(stoppedSpy.first().at(2).toString(),
+        QStringLiteral("manhattan"));
+
+    QVERIFY(client.requestBacktrace());
+    QTRY_COMPARE_WITH_TIMEOUT(btReady.count(), 1, kSessionTimeoutMs);
+    QCOMPARE(frames.count(), 2);   //manhattan + main, exactly once
+
+    //Click-equivalent: select each stack row in turn.
+    QVERIFY(client.requestLocals(0));
+    QTRY_COMPARE_WITH_TIMEOUT(localsReady.count(), 1, kSessionTimeoutMs);
+    QCOMPARE(frames.count(), 2);   //RED before the fix: 3
+    bool sawThis = false;
+    for (const QList<QVariant>& l : locals) {
+        if (l.at(0).toString() == QLatin1String("this")
+            && l.at(1).toString() == QLatin1String("class")
+            && l.at(2).toString().contains(
+                QLatin1String("Point{x=2, y=5}")))
+            sawThis = true;
+    }
+    QVERIFY(sawThis);   //RED before the fix: no local events at all
+
+    QVERIFY(client.requestLocals(1));
+    QTRY_COMPARE_WITH_TIMEOUT(localsReady.count(), 2, kSessionTimeoutMs);
+    QCOMPARE(frames.count(), 2);   //RED before the fix: 4
+    bool sawP = false;
+    for (const QList<QVariant>& l : locals) {
+        if (l.at(0).toString() == QLatin1String("p")
+            && l.at(2).toString().contains(
+                QLatin1String("Point{x=2, y=5}")))
+            sawP = true;
+    }
+    QVERIFY(sawP);
+
+    QVERIFY(client.continueRun());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
+    QCOMPARE(exited.first().at(0).toInt(), 7);
 }
 
 void TestDebugClient::failedToLaunchWhenNdbIsMissing() {

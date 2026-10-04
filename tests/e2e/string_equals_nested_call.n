@@ -10,6 +10,6 @@ int main() {
     // pick(helper(5,3)) should be "yes"; equals("yes") should return 1.
     string s = pick(helper(5, 3));
     int ok = s.equals("yes");
-    if (ok) { return 7; }
+    if (ok != 0) { return 7; }
     return 1;
 }

@@ -8,6 +8,7 @@
 
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -21,9 +22,12 @@ namespace {
 const int kMaxElementsShown = 5;
 
 const char* DebugKindName(uint8_t kind) {
+    //0.7.5: scalars name themselves through the registry (bool today,
+    //the P4-P6 family later) — no per-kind arm to forget.
+    int i = ScalarPrimIndexOfRtk(kind);
+    if (i >= 0)
+        return kScalarPrims[i].name;
     switch (kind) {
-    case RTK_Int32:  return "int";
-    case RTK_Float:  return "float";
     case RTK_String: return "string";
     case RTK_Struct: return "struct";
     case RTK_Class:  return "class";
@@ -34,12 +38,24 @@ const char* DebugKindName(uint8_t kind) {
     }
 }
 
-std::string FormatFloatBits(int32_t raw) {
-    float f;
-    std::memcpy(&f, &raw, sizeof(f));
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%g", f);
-    return buf;
+//0.7.5 Task 11: debugger-only char rendering. The registry renderer
+//gives toString semantics (the bare UTF-8 code point — right for
+//printing and string building); a debugger local wants the value
+//self-describing, so it carries an identity tag: the quoted code point
+//plus the U+ hex form ('中' (U+4E2D)). Control characters and
+//out-of-scalar values drop the quotes (no raw newlines in the display)
+//but keep the tag.
+std::string DebugCharDisplay(uint32_t cp) {
+    const bool printable =
+        (cp >= 0x20 && cp < 0x7F)
+        || (cp >= 0xA0 && cp < 0xD800)
+        || (cp >= 0xE000 && cp <= 0x10FFFF);
+    char tag[16];
+    std::snprintf(tag, sizeof(tag), "(U+%04llX)",
+                  static_cast<unsigned long long>(cp));
+    if (!printable)
+        return tag;
+    return "'" + Utf8EncodeCodePoint(cp) + "' " + tag;
 }
 
 } // namespace
@@ -96,6 +112,18 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(size_t depth) const {
     const auto& frame = m_callStack[m_callStack.size() - 1 - depth];
     if (!frame.func) return out;
     for (const auto& ld : frame.func->locals) {
+        //Scope visibility: the frame is flat (slots exist from entry),
+        //but a local joins the display only once the paused statement
+        //PC reaches its declaration — declPc equals the anchor of the
+        //declaring statement, and currentPc is the last executed
+        //anchor, so pausing ON the decl line still shows the local with
+        //its zero value (gdb/VS convention). The zero slot itself is
+        //meaningful and must stay allocated: the GC root scan walks the
+        //whole table from function entry. Same-name redeclarations
+        //reuse the first declaration's position (over-approximation:
+        //strictly fewer false leaks than no filter).
+        if (ld.declPc > frame.currentPc)
+            continue;
         DebugLocalValue v;
         v.name = ld.name;
         v.kindName = DebugKindName(ld.typeKind);
@@ -107,20 +135,30 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(size_t depth) const {
 
 // --- formatters ---
 
+//Frame slots are uniform kFrameSlotBytes cells: the low 4 bytes carry
+//every narrow kind (value extension), 8-byte kinds fill the whole
+//slot. Scalar rendering delegates to the canonical registry renderer;
+//only string and reference locals keep their own arms.
 std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     const uint8_t* frameLocals) const {
-    int32_t raw = 0;
-    std::memcpy(&raw, frameLocals + ld.offset, sizeof(raw));
+    int32_t lo = 0, hi = 0;
+    std::memcpy(&lo, frameLocals + ld.offset, sizeof(lo));
+    std::memcpy(&hi, frameLocals + ld.offset + sizeof(hi), sizeof(hi));
     switch (ld.typeKind) {
-    case RTK_Int32:  return std::to_string(raw);
-    case RTK_Float:  return FormatFloatBits(raw);
-    case RTK_String: return FormatDebugStringIdx(raw);
+    case RTK_String:
+        return FormatDebugStringIdx(lo);
+    case RTK_Char:
+        //Locals get the debugger identity tag, not the toString form —
+        //char elements inside arrays/boxes keep the plain renderer.
+        return DebugCharDisplay(static_cast<uint32_t>(lo));
     case RTK_Struct:
     case RTK_Class:
     case RTK_Array:
     case RTK_Func:
-        return FormatDebugHeapValue(raw);
+        return FormatDebugHeapValue(lo);
     default:
+        if (ScalarPrimIndexOfRtk(ld.typeKind) >= 0)
+            return FormatScalarValue(ld.typeKind, lo, hi);
         return "<unknown>";
     }
 }
@@ -132,11 +170,12 @@ std::string VmExecutor::FormatDebugStringIdx(int32_t idx) const {
     return QuoteString(StrValCopy(idx));
 }
 
-std::string VmExecutor::FormatDebugBoxed(int32_t tag, int32_t val) const {
-    if (tag == RTK_Int32) return std::to_string(val);
-    if (tag == RTK_Float) return FormatFloatBits(val);
-    if (tag == RTK_String) return FormatDebugStringIdx(val);
-    return "<unknown>";
+//Boxed payload cells [1, 2] carry the value at the tag's registry
+//width — the tag doubles as the declared kind, so the stride-aware
+//field renderer reads it directly (0.7.5: boxed long/ulong render the
+//combined 8 bytes instead of the old "<unknown>").
+std::string VmExecutor::FormatDebugBoxed(const std::vector<int32_t>& slot) const {
+    return FormatDebugField(slot, 1, static_cast<uint16_t>(slot[0]));
 }
 
 //Entry point for a reference-typed slot: renders ONE level (fields or
@@ -148,7 +187,7 @@ std::string VmExecutor::FormatDebugHeapValue(int32_t heapIdx) const {
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     switch (m_slotKinds[static_cast<size_t>(heapIdx)]) {
     case RTK_Boxed:
-        return FormatDebugBoxed(slot[0], slot[1]);
+        return FormatDebugBoxed(slot);
     case RTK_Class: {
         int32_t classIdx = slot[0];
         if (classIdx == m_listClassIdx)
@@ -176,13 +215,16 @@ std::string VmExecutor::FormatDebugClassInstance(int32_t heapIdx) const {
         || static_cast<size_t>(classIdx) >= m_currModule->classes.size())
         return "<object>";
     const auto& cc = m_currModule->classes[static_cast<size_t>(classIdx)];
-    std::string result = cc.name + "{";
+    //Leaf name: the table key is package-qualified linkage identity; the
+    //debugger value display names the type as source wrote it.
+    std::string result = LeafNameOfKey(cc.name) + "{";
     int shown = 0;
     for (uint16_t i = 0; i < cc.fieldCount; ++i) {
         if (shown == kMaxElementsShown) { result += ", ..."; break; }
         if (shown > 0) result += ", ";
         result += cc.fieldNames[i] + "="
-            + FormatDebugField(slot[1 + i], cc.fieldTypeKinds[i]);
+            + FormatDebugField(slot, 1 + static_cast<size_t>(i) * 2,
+                cc.fieldTypeKinds[i]);
         ++shown;
     }
     result += "}";
@@ -198,43 +240,52 @@ std::string VmExecutor::FormatDebugStructInstance(int32_t heapIdx) const {
         || structIdx >= m_currModule->structs.size())
         return "<struct>";
     const auto& cs = m_currModule->structs[structIdx];
-    std::string result = cs.name + "{";
+    std::string result = LeafNameOfKey(cs.name) + "{";
     int shown = 0;
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         if (shown == kMaxElementsShown) { result += ", ..."; break; }
         if (shown > 0) result += ", ";
         result += cs.fieldNames[i] + "="
-            + FormatDebugField(slot[i], cs.fieldTypeKinds[i]);
+            + FormatDebugField(slot, static_cast<size_t>(i) * 2,
+                cs.fieldTypeKinds[i]);
         ++shown;
     }
     result += "}";
     return result;
 }
 
-//One field/element cell by declared kind. Dual discriminators (mirror
-//MarkPhase): declared kind prunes primitives; array fields carry the
-//declaration-side RTK_Array in .ncu (array redesign B) and render via
-//the array formatter. Only Class/Struct/Func declared kinds fall
-//through to the runtime slotKind — primitives early-return above, so
-//no int value can reach the ref-tag path.
-std::string VmExecutor::FormatDebugField(int32_t raw,
-    uint16_t declaredKind) const {
-    switch (declaredKind) {
-    case RTK_Int32:  return std::to_string(raw);
-    case RTK_Float:  return FormatFloatBits(raw);
-    case RTK_String: return FormatDebugStringIdx(raw);
-    case RTK_Array:
+//One field/element cell by declared kind, registry stride aware:
+//8-byte scalar kinds (long/ulong; double with Task 7) read the cell
+//pair [cellIdx, cellIdx+1], everything else the single cell. Scalars
+//delegate to the canonical registry renderer. Dual discriminators
+//(mirror MarkPhase): array fields carry the declaration-side RTK_Array
+//in .ncu (array redesign B) and render via the array formatter; only
+//Class/Struct/Func declared kinds fall through to the runtime
+//slotKind — primitives early-return above, so no int value can reach
+//the ref-tag path.
+std::string VmExecutor::FormatDebugField(const std::vector<int32_t>& slot,
+    size_t cellIdx, uint16_t declaredKind) const {
+    if (declaredKind == RTK_String)
+        return FormatDebugStringIdx(slot[cellIdx]);
+    if (declaredKind == RTK_Array) {
+        int32_t raw = slot[cellIdx];
         if (raw > 0 && static_cast<size_t>(raw) < m_slotKinds.size())
             return FormatDebugArray(raw);
         return "null";
-    default: break;
     }
+    if (ScalarPrimIndexOfRtk(static_cast<uint8_t>(declaredKind)) >= 0) {
+        //Bounds-guard the hi cell: boxed records and well-formed field
+        //tables always carry it; a malformed short slot reads 0.
+        int32_t hi = cellIdx + 1 < slot.size() ? slot[cellIdx + 1] : 0;
+        return FormatScalarValue(static_cast<uint8_t>(declaredKind),
+            slot[cellIdx], hi);
+    }
+    int32_t raw = slot[cellIdx];
     if (raw <= 0 || static_cast<size_t>(raw) >= m_slotKinds.size())
         return "null";
     uint8_t runtime = m_slotKinds[static_cast<size_t>(raw)];
     if (runtime == RTK_Boxed) {
-        const auto& slot = m_structHeap[static_cast<size_t>(raw)];
-        return FormatDebugBoxed(slot[0], slot[1]);
+        return FormatDebugBoxed(m_structHeap[static_cast<size_t>(raw)]);
     }
     return FormatDebugRefShort(raw);
 }
@@ -244,10 +295,8 @@ std::string VmExecutor::FormatDebugElementHeap(int32_t heapIdx) const {
     if (heapIdx <= 0
         || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         return "null";
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Boxed) {
-        const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-        return FormatDebugBoxed(slot[0], slot[1]);
-    }
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Boxed)
+        return FormatDebugBoxed(m_structHeap[static_cast<size_t>(heapIdx)]);
     return FormatDebugRefShort(heapIdx);
 }
 
@@ -265,15 +314,16 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
         if (m_currModule
             && classIdx >= 0
             && static_cast<size_t>(classIdx) < m_currModule->classes.size())
-            return "<" + m_currModule->classes[
-                static_cast<size_t>(classIdx)].name + ">";
+            return "<" + LeafNameOfKey(m_currModule->classes[
+                static_cast<size_t>(classIdx)].name) + ">";
         return "<object>";
     }
     case RTK_Struct: {
         uint16_t structIdx = m_slotStructIdx[static_cast<size_t>(heapIdx)];
         if (m_currModule
             && structIdx < m_currModule->structs.size())
-            return "<" + m_currModule->structs[structIdx].name + ">";
+            return "<" + LeafNameOfKey(
+                m_currModule->structs[structIdx].name) + ">";
         return "<struct>";
     }
     case RTK_Array: {
@@ -287,7 +337,7 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
             + std::to_string(length) + "]>";
     }
     case RTK_Boxed:
-        return FormatDebugBoxed(slot[0], slot[1]);
+        return FormatDebugBoxed(slot);
     case RTK_Func:
         return "Func";
     default:
@@ -306,10 +356,14 @@ std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
     std::string result = std::string(DebugKindName(elemKind)) + "["
         + std::to_string(length) + "]{";
     int bound = length < kMaxElementsShown ? length : kMaxElementsShown;
+    //0.7.5: registry stride — 8-byte scalar elements read the cell
+    //pair through the same stride-aware field renderer as everyone
+    //else; 1-cell kinds read their single cell.
+    const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < bound; ++i) {
         if (i > 0) result += ", ";
-        result += FormatDebugField(
-            slot[3 + static_cast<size_t>(i)], elemKind);
+        result += FormatDebugField(slot, 3 + static_cast<size_t>(i) * cells,
+            elemKind);
     }
     if (length > bound) result += ", ...";
     result += "}";

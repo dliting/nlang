@@ -17,7 +17,6 @@
 
 namespace nlang {
 
-static const uint16_t VALUE_SIZE = 4; // int32 and float are both 4 bytes
 void VmBackend::Access(SnLocalDeclStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& decl = static_cast<SnLocalDeclStmt&>(stmt);
@@ -29,7 +28,7 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
         SnField* evalType = decl.Type()->Field();
         uint8_t typeKind = RuntimeTypeKind(evalType);
         for (auto& local : decl.Decls()) {
-            uint16_t offset = AllocLocal(local.name, VALUE_SIZE, typeKind, false);
+            uint16_t offset = AllocLocal(local.name, kFrameSlotBytes, typeKind, false);
             //For struct types, emit OP_AllocStruct to allocate on heap.
             //Per-unit: a cross-unit struct slots as an import placeholder
             //(StructSlotFor). The fieldCount operand comes from the AST —

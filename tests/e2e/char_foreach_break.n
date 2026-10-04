@@ -1,0 +1,13 @@
+//0.7.5 string foreach control flow: continue re-enters at the step
+//(advancing the byte offset) and break exits via the miss-jump slot.
+//"abcbd": skip both 'b's, stop at 'd' — 'a' + 'c' = 2.
+int main() {
+    int count = 0;
+    foreach (char ch in "abcbd") {
+        if (ch == 'b') { continue; }
+        if (ch == 'd') { break; }
+        count += 1;
+    }
+    if (count != 2) { return 1; }
+    return 0;
+}

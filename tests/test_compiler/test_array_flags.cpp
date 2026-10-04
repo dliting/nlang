@@ -14,6 +14,7 @@ test_stdlib); the e2e suite pins the end-to-end compile/run behavior.
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SyntaxNode.h>
@@ -93,7 +94,10 @@ static CompileOutcome compileOne(const char* szBody)
     out.params->m_sTempDir = dir.string();
     out.logger = std::make_unique<MemLogger>();
     out.builder = std::make_unique<ModuleBuilder>(*out.params, *out.logger);
-    try { out.ok = !out.builder->BuildUnitImages().units.empty(); }
+    //BuildArtifacts (production path): writes the entry-unit .ncu the
+    //execute paths below load — BuildUnitImages writes nothing, so a
+    //load-after-build would silently pick up a stale temp-dir module.
+    try { out.ok = out.builder->BuildArtifacts(); }
     catch (const std::exception&) { out.ok = false; }
     return out;
 }
@@ -331,6 +335,7 @@ static void test_dict_keys_recast_carries_token()
 int main()
 {
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     test_generic_array_flags_split_keys();
     test_dict_keys_recast_carries_token();
     test_gc_list_arm_traces_array();

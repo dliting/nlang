@@ -3,6 +3,11 @@ add_executable(ncc
     ProjectFile.cpp
 )
 
+#UTF-8 active code page (full-Unicode argv and paths; see the manifest).
+if(MSVC)
+    target_sources(ncc PRIVATE ${PROJECT_SOURCE_DIR}/cmake/nlang-utf8.manifest)
+endif()
+
 target_include_directories(ncc
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm

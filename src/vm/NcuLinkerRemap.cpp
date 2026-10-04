@@ -17,10 +17,6 @@ size_t NoOperandStride(OpCode op) {
         case OpCode::OP_Return:
         case OpCode::OP_Stop:
         case OpCode::OP_ConstZero:
-        case OpCode::OP_CastIntToFloat:
-        case OpCode::OP_CastFloatToInt:
-        case OpCode::OP_Int32_to_str:
-        case OpCode::OP_Float_to_str:
         case OpCode::OP_Array_to_str:
         case OpCode::OP_Func_to_str:
         case OpCode::OP_ParaEnd:
@@ -40,8 +36,6 @@ size_t SingleU16OperandStride(OpCode op) {
         case OpCode::OP_VarLocal:
         case OpCode::OP_Assign:
         case OpCode::OP_Enum_to_str:
-        case OpCode::OP_Neg_i32:
-        case OpCode::OP_Neg_f32:
         case OpCode::OP_LogicalNot:
         case OpCode::OP_Switch:
         case OpCode::OP_DebugInfo:
@@ -61,27 +55,6 @@ size_t SingleU16OperandStride(OpCode op) {
 size_t DoubleU16OperandStride(OpCode op) {
     switch (op) {
         case OpCode::OP_JumpIfNot:
-        case OpCode::OP_Add_i32:
-        case OpCode::OP_Sub_i32:
-        case OpCode::OP_Mul_i32:
-        case OpCode::OP_Div_i32:
-        case OpCode::OP_Mod_i32:
-        case OpCode::OP_Add_f32:
-        case OpCode::OP_Sub_f32:
-        case OpCode::OP_Mul_f32:
-        case OpCode::OP_Div_f32:
-        case OpCode::OP_Less_i32:
-        case OpCode::OP_LessEqual_i32:
-        case OpCode::OP_Greater_i32:
-        case OpCode::OP_GreaterEqual_i32:
-        case OpCode::OP_Equal_i32:
-        case OpCode::OP_NotEqual_i32:
-        case OpCode::OP_Less_f32:
-        case OpCode::OP_LessEqual_f32:
-        case OpCode::OP_Greater_f32:
-        case OpCode::OP_GreaterEqual_f32:
-        case OpCode::OP_Equal_f32:
-        case OpCode::OP_NotEqual_f32:
         case OpCode::OP_Concat_str:
         case OpCode::OP_Eq_str:
         case OpCode::OP_Ne_str:
@@ -100,6 +73,48 @@ size_t DoubleU16OperandStride(OpCode op) {
         case OpCode::OP_New:
         case OpCode::OP_ArrayLength:
             return 1 + 2 + 2;  // two uint16 operands
+        default:
+            return 0;
+    }
+}
+
+//Stride of the three-uint16-operand opcode family; 0 when op is not in it.
+size_t TripleU16OperandStride(OpCode op) {
+    switch (op) {
+        case OpCode::OP_AllocStruct:
+        case OpCode::OP_LoadField:
+        case OpCode::OP_StoreField:
+        case OpCode::OP_CopyStruct:
+        case OpCode::OP_AllocArray:
+        case OpCode::OP_LoadElement:
+        case OpCode::OP_StoreElement:
+        case OpCode::OP_StrByteAt:
+            return 1 + 2 + 2 + 2;  // three uint16 operands
+        default:
+            return 0;
+    }
+}
+
+//Stride of the kind-operand family (0.7.5): the opcode carries a uint8
+//runtime-kind tag followed by its operands; 0 when op is not in it.
+size_t KindOperandStride(OpCode op) {
+    switch (op) {
+        case OpCode::OP_Prim_to_str:  // uint8 kind
+        case OpCode::OP_Box:
+        case OpCode::OP_Unbox:        // uint8 tag
+            return 1 + 1;
+        case OpCode::OP_PrimCast:
+            return 1 + 1 + 1;  // uint8 srcKind + uint8 dstKind
+        case OpCode::OP_Neg:
+            return 1 + 1 + 2;  // uint8 kind + uint16 dst
+        case OpCode::OP_Cmp:
+            return 1 + 1 + 1 + 2 + 2;  // kind + cmpOp + two uint16
+        case OpCode::OP_Add:
+        case OpCode::OP_Sub:
+        case OpCode::OP_Mul:
+        case OpCode::OP_Div:
+        case OpCode::OP_Mod:
+            return 1 + 1 + 2 + 2;  // uint8 kind + two uint16
         default:
             return 0;
     }
@@ -132,28 +147,26 @@ static size_t NcuInstructionStride(OpCode op) {
         return stride;
     if (size_t stride = DoubleU16OperandStride(op))
         return stride;
+    if (size_t stride = TripleU16OperandStride(op))
+        return stride;
+    if (size_t stride = KindOperandStride(op))
+        return stride;
     switch (op) {
-        case OpCode::OP_Box:
-        case OpCode::OP_Unbox:
-            return 1 + 1;  // uint8 tag
         case OpCode::OP_Jump:
         case OpCode::OP_Case:
             return 1 + 2;  // int16 / uint16
         case OpCode::OP_ConstInt32:
         case OpCode::OP_ConstFloat:
             return 1 + 4;
+        case OpCode::OP_ConstInt64:
+        case OpCode::OP_ConstDouble:
+            return 1 + 8;  // 8-byte immediate (0.7.5)
         case OpCode::OP_CallFuncOut:
         case OpCode::OP_CallMethodDirectOut:
         case OpCode::OP_CallDelegateOut:
             return 1 + 2 + 2 + 4;  // uint16 + uint16 + uint32 outMask
-        case OpCode::OP_AllocStruct:
-        case OpCode::OP_LoadField:
-        case OpCode::OP_StoreField:
-        case OpCode::OP_CopyStruct:
-        case OpCode::OP_AllocArray:
-        case OpCode::OP_LoadElement:
-        case OpCode::OP_StoreElement:
-            return 1 + 2 + 2 + 2;  // three uint16 operands
+        case OpCode::OP_StrForeachStep:
+            return 1 + 2 + 2 + 2 + 2;  // four uint16 operands (0.7.5)
         default:
             //Unknown opcode — should never happen. Returning 1 lets the
             //walker make progress; the module will fail at runtime.

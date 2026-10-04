@@ -11,6 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -105,23 +106,78 @@ bool ExprResolveAccessor::RejectArrayIdentityMisuse(SnBinaryExpr &sn,
 	return false;
 }
 
-//Symmetric int/float promotion (Phase 8e-8 mechanism) extended to
+//0.7.5 numeric promotion (spec §2.2), registry-derived. Narrower-than-
+//int integer operands promote to int FIRST (byte+byte = int, the C#
+//rule); then the result is the smallest type that can implicitly
+//receive BOTH operands. bool/char never arrive here (their categories
+//are not numeric — callers gate). Returns null when no implicit common
+//type exists (int/long + ulong).
+SnField* ExprResolveAccessor::CommonNumericType(NodeKind lk, NodeKind rk)
+{
+	int li = ScalarPrimIndexOf(lk), ri = ScalarPrimIndexOf(rk);
+	if (li < 0 || ri < 0)
+		return nullptr;
+	const auto &lRow = kScalarPrims[li], &rRow = kScalarPrims[ri];
+	if (!PrimCategoryIsNumeric(lRow.category)
+		|| !PrimCategoryIsNumeric(rRow.category))
+		return nullptr;
+	//float involved → the wider float rank wins; any float beats any
+	//integer (C# rule): float+float stays float, byte+double is double.
+	if (lRow.category == PC_Float || rRow.category == PC_Float)
+	{
+		bool anyDouble = (lRow.category == PC_Float && lRow.rank == 2)
+			|| (rRow.category == PC_Float && rRow.rank == 2);
+		return SnBuiltinDataType::InstanceOf(
+			anyDouble ? NK_Double : NK_Float);
+	}
+	//both integers: widen narrower-than-int rows to int first
+	//(registry rank <3 = narrower than the int/uint rank 3)
+	if (lRow.rank < 3) { lk = NK_Int32; li = ScalarPrimIndexOf(lk); }
+	if (rRow.rank < 3) { rk = NK_Int32; ri = ScalarPrimIndexOf(rk); }
+	if (lk == rk)
+		return SnBuiltinDataType::InstanceOf(lk);
+	//smallest implicit receiver of both: the first registry integer row
+	//both operands are domain-contained in (registry order is
+	//int,..,uint,..,long,ulong — int+uint→long, long+uint→long,
+	//uint+ulong→ulong; int+ulong finds no row → null).
+	for (size_t i = 0; i < kScalarPrimCount; ++i)
+	{
+		const auto &p = kScalarPrims[i];
+		if (!PrimCategoryIsNumeric(p.category) || p.category == PC_Float)
+			continue;
+		if (PrimDomainContained(kScalarPrims[li].category,
+				kScalarPrims[li].rank, p.category, p.rank)
+			&& PrimDomainContained(kScalarPrims[ri].category,
+				kScalarPrims[ri].rank, p.category, p.rank))
+			return SnBuiltinDataType::InstanceOf(p.kind);
+	}
+	return nullptr;  // e.g. int + ulong
+}
+
+//Symmetric numeric promotion (Phase 8e-8 mechanism) extended to
 //comparisons. Prerequisite the arithmetic branch does not have: BOTH
 //operands numeric and neither a null literal — class/enum/null pairs
 //stay on their existing identity or sentinel paths, and wrapping them
 //(as the arithmetic branch would) would break e.g. class identity
-//equality.
-void ExprResolveAccessor::PromoteCompareOperands(SnBinaryExpr &sn,
+//equality. 0.7.5: the promotion type comes from CommonNumericType; a
+//null common type (int vs ulong) is a compile error — codegen would
+//otherwise compare mismatched widths. False = rejected.
+bool ExprResolveAccessor::PromoteCompareOperands(SnBinaryExpr &sn,
 	NodeKind lk, NodeKind rk, bool lNull, bool rNull)
 {
-	bool lNum = lk == NK_Int32 || lk == NK_Float;
-	bool rNum = rk == NK_Int32 || rk == NK_Float;
-	if (!(lNum && rNum && !lNull && !rNull && lk != rk))
-		return;
-	SnField* T_promote =
-		(lk == NK_Float || rk == NK_Float)
-		? SnBuiltinDataType::InstanceOf(NK_Float)
-		: SnBuiltinDataType::InstanceOf(NK_Int32);
+	if (lNull || rNull || lk == rk)
+		return true;
+	if (!PrimKindIsNumeric(lk) || !PrimKindIsNumeric(rk))
+		return true;
+	SnField* T_promote = CommonNumericType(lk, rk);
+	if (!T_promote)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"no implicit common type for \"%s\" and \"%s\".",
+			sn.Left()->EvalDataType()->ToString().c_str(),
+			sn.Right()->EvalDataType()->ToString().c_str());
+		return false;
+	}
 	auto it = sn.Children().begin();
 	auto& leftExpr = static_cast<SnExpression&>(*it);
 	TypeCastInfo leftCI(leftExpr.EvalDataType(), T_promote);
@@ -130,6 +186,7 @@ void ExprResolveAccessor::PromoteCompareOperands(SnBinaryExpr &sn,
 	auto& rightExpr = static_cast<SnExpression&>(*it);
 	TypeCastInfo rightCI(rightExpr.EvalDataType(), T_promote);
 	FixupExprType(it, rightCI);
+	return true;
 }
 
 //Phase 11 Q4: relational operands get type checks here — the old
@@ -151,25 +208,30 @@ bool ExprResolveAccessor::CheckCompareOperands(SnBinaryExpr &sn,
 		return false;
 	if (RejectArrayIdentityMisuse(sn, op, lk, rk, lNull, rNull))
 		return false;
-	PromoteCompareOperands(sn, lk, rk, lNull, rNull);
+	if (RejectBoolMisuse(sn, op, lk, rk))
+		return false;
+	if (RejectCharMisuse(sn, op, lk, rk))
+		return false;
+	if (!PromoteCompareOperands(sn, lk, rk, lNull, rNull))
+		return false;
 	return true;
 }
 
-//Short-circuit hardening (2026-08-31): logical operands feed
-//OP_JumpIfNot, which reads one int32 — the same policy as statement
-//conditions (CheckIntCondition in StatementResolverFlow.cpp; widen both
-//together). Without this gate a float/string operand is read as raw
-//bits, giving garbage truthiness. False = rejected.
-bool ExprResolveAccessor::CheckLogicalIntOperands(SnBinaryExpr &sn)
+//0.7.5 strict bool: logical operands feed OP_JumpIfNot and now must be
+//bool — the same policy as statement conditions (CheckBoolCondition in
+//StatementResolverFlow.cpp; widened together). Comparisons produce
+//bool, so `a > 0 && b > 0` keeps working; raw int truthiness is a
+//compile error. False = rejected.
+bool ExprResolveAccessor::CheckLogicalBoolOperands(SnBinaryExpr &sn)
 {
 	auto bop = sn.Op();
 	const char* szOp = bop == SnBinaryExpr::OP_LogicalAnd
 		? "&&" : bop == SnBinaryExpr::OP_LogicalOr
 		? "||" : "!";
 	const char* szShape = sn.Right()
-		? "int operands" : "an int operand";
+		? "bool operands" : "a bool operand";
 	auto* pLT = sn.Left()->EvalDataType();
-	if (pLT && pLT->Kind() != NK_Int32)
+	if (pLT && pLT->Kind() != NK_Bool)
 	{
 		m_Env.Log(CLL_Error, sn.Left()->Location(),
 			"operator '%s' requires %s, got \"%s\".",
@@ -179,7 +241,7 @@ bool ExprResolveAccessor::CheckLogicalIntOperands(SnBinaryExpr &sn)
 	if (sn.Right())
 	{
 		auto* pRT = sn.Right()->EvalDataType();
-		if (pRT && pRT->Kind() != NK_Int32)
+		if (pRT && pRT->Kind() != NK_Bool)
 		{
 			m_Env.Log(CLL_Error, sn.Right()->Location(),
 				"operator '%s' requires %s, got \"%s\".",
@@ -190,9 +252,79 @@ bool ExprResolveAccessor::CheckLogicalIntOperands(SnBinaryExpr &sn)
 	return true;
 }
 
+//0.7.5 strict bool: ==/!= between two bools is the only comparison
+//bools support. Relational ordering on bool (< <= > >=) has no
+//semantics, and mixed bool/non-bool (true == 1, b == null) must not
+//silently compare the raw 0/1 carrier against an int — reject both.
+//True = rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectBoolMisuse(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op, NodeKind lk, NodeKind rk)
+{
+	bool lBool = lk == NK_Bool;
+	bool rBool = rk == NK_Bool;
+	if (!lBool && !rBool)
+		return false;
+	bool bEq = op == SnBinaryExpr::OP_Equal
+		|| op == SnBinaryExpr::OP_NotEqual;
+	if (!bEq)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"bool values cannot be ordered; only == and != are "
+			"supported.");
+		return true;
+	}
+	if (!(lBool && rBool))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"a bool value can only be compared with a bool value.");
+		return true;
+	}
+	return false;
+}
+
+//0.7.5 char: a char is a Unicode scalar value, not a number — 'a'+1 has
+//no semantics and must not fall into the numeric ladder (whose legacy
+//int fallback would emit a misleading cast diagnostic). Comparing with
+//a number is equally rejected: convert explicitly with 'as int' first.
+//String operands are exempt ("x" + 'y' is a legal concat). True =
+//rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectCharArithmetic(SnBinaryExpr &sn,
+	NodeKind lk, NodeKind rk)
+{
+	if (lk != NK_Char && rk != NK_Char)
+		return false;
+	if (lk == NK_String || rk == NK_String)
+		return false;
+	m_Env.Log(CLL_Error, sn.Location(),
+		"char values do not support arithmetic; convert with 'as int'.");
+	return true;
+}
+
+//0.7.5 char: char×char supports all six comparisons in code-point
+//order; a char mixed with anything else (number, bool, string, null)
+//is rejected — the comparison dispatch would otherwise silently pick a
+//numeric kind and mis-compare. Mirrors the bool gate shape. True =
+//rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectCharMisuse(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op, NodeKind lk, NodeKind rk)
+{
+	bool lChar = lk == NK_Char;
+	bool rChar = rk == NK_Char;
+	if (!lChar && !rChar)
+		return false;
+	if (!(lChar && rChar))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"a char value can only be compared with a char value.");
+		return true;
+	}
+	return false;
+}
+
 //T_result selection for the arithmetic branch: string + OP_Add
-//(concat; Phase 8e-9a) beats float beats int. Null = op not supported
-//on a string operand (diagnostic logged).
+//(concat; Phase 8e-9a) beats the numeric family beats int. Null = op
+//not supported on a string operand, or no implicit common numeric type
+//(both diagnosed).
 SnField* ExprResolveAccessor::SelectArithmeticResultType(SnBinaryExpr &sn,
 	SnBinaryExpr::Operator op)
 {
@@ -209,13 +341,36 @@ SnField* ExprResolveAccessor::SelectArithmeticResultType(SnBinaryExpr &sn,
 			return nullptr;
 		}
 		//Phase 8e-9a: allow mixed (e.g. int + string). The non-string
-		//operand is wrapped in SnCastExpr below; VmBackend.cpp:951
-		//emits OP_Int32_to_str / OP_Float_to_str for the conversion.
+		//operand is wrapped in SnCastExpr below; the backend emits the
+		//kind-immediate OP_Prim_to_str for the conversion.
 		//Then OP_Concat_str concatenates the two string indices.
 		return SnBuiltinDataType::InstanceOf(NK_String);
 	}
-	if (lk == NK_Float || rk == NK_Float)
-		return SnBuiltinDataType::InstanceOf(NK_Float);
+	//Unary negation keys on the operand alone — it never mixes two
+	//operand types, so the common-type ladder below (whose int/ulong
+	//pair has no implicit common) must not apply. `-9223372036854775808`
+	//is the negated 2^63 ulong literal (the only lexical form of long
+	//min since the 0.7.5 sign retirement); it resolves ulong-typed and
+	//the assignment-side constant-fit gate folds it to long INT64_MIN.
+	if (!R && PrimKindIsNumeric(lk))
+		return L;
+	//0.7.5: both operands numeric → the registry-derived common type;
+	//a null common type (int + ulong) is a compile error, not a silent
+	//int truncation. Non-numeric leftovers (enum arithmetic, void)
+	//keep the legacy int result.
+	if (PrimKindIsNumeric(lk) && PrimKindIsNumeric(rk))
+	{
+		SnField* T_common = CommonNumericType(lk, rk);
+		if (!T_common)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"no implicit common type for \"%s\" and \"%s\".",
+				L->ToString().c_str(),
+				R->ToString().c_str());
+			return nullptr;
+		}
+		return T_common;
+	}
 	return SnBuiltinDataType::InstanceOf(NK_Int32);
 }
 
@@ -237,6 +392,14 @@ bool ExprResolveAccessor::ResolveArithmeticBinary(SnBinaryExpr &sn,
 		m_Env.Log(CLL_Error, sn.Location(),
 			"null is not a valid arithmetic operand.");
 		return false;
+	}
+	{
+		auto* L = sn.Left()->EvalDataType();
+		auto* R = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+		if (RejectCharArithmetic(sn,
+			L ? L->Kind() : NK_Int32,
+			R ? R->Kind() : NK_Int32))
+			return false;
 	}
 	SnField* T_result = SelectArithmeticResultType(sn, op);
 	if (!T_result)
@@ -285,10 +448,12 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 			if (!CheckCompareOperands(sn, op))
 				return;
 		}
-		else if (!CheckLogicalIntOperands(sn))
+		else if (!CheckLogicalBoolOperands(sn))
 			return;
-		auto* intType = SnBuiltinDataType::InstanceOf(NK_Int32);
-		sn.EvalDataType(intType);
+		//0.7.5: comparisons and logical ops produce bool (carrier
+		//int32 0/1 — OP_Cmp/OP_Eq_str/JumpIfNot bit patterns unchanged).
+		auto* boolType = SnBuiltinDataType::InstanceOf(NK_Bool);
+		sn.EvalDataType(boolType);
 	}
 	else if (!ResolveArithmeticBinary(sn, op))
 		return;

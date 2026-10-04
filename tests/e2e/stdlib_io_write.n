@@ -1,0 +1,10 @@
+// stdlib_io_write — io.write emits the string to stdout with NO trailing
+// newline (the prompt-building counterpart of io.print). The manifest's
+// third column asserts "AB": write("A") + print("B") must concatenate on
+// one line.
+import io;
+int main() {
+    io.write("A");
+    io.print("B");
+    return 0;
+}

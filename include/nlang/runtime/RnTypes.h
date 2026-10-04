@@ -5,6 +5,7 @@
 
 #pragma once
 #include "RuntimeNode.h"
+#include "PrimitiveTypes.h"
 #include <string>
 #include <list>
 
@@ -99,6 +100,13 @@ template<NodeKind KIND, class CPP_T>
 const char* RnBuiltinDataTypeT<KIND, CPP_T>::s_szName =
 	RnBuiltinDataType::NameOf(KIND);
 
+//Shortest round-trip rendering of a floating-point value (Python-repr
+//style): the fewest significant digits that parse back to the same bit
+//pattern, fixed-point form inside [1e-4, 1e16), scientific outside.
+//isFloat selects the 4-byte round-trip target. Single choke point for
+//both float-category ValueToString rows.
+std::string FormatFloatShortest(double v, bool isFloat);
+
 //The 32-bit signed integer type.
 class NLANG_RUNTIME_API RnInt32 : public RnBuiltinDataTypeT<NK_Int32, int32>
 {
@@ -152,6 +160,28 @@ public:
 
 	void Accept(IRuntimeNodeVisitor &v) override;
 };
+
+//Scalar primitive types generated from the registry (all rows but the
+//pre-existing hand-written RnInt32/RnFloat). CopyValue / InitValue /
+//DestroyValue come from the carrier assignment template in
+//RnBuiltinDataTypeT; ValueToString is per-category (integers decimal,
+//floats %g / %.17g, bool true/false, char the encoded character).
+#define DECL_SCALAR_RN_TYPE(CLASS, KW, WIDTH, CARRIER, CAT, RANK)          \
+class NLANG_RUNTIME_API Rn##CLASS                                         \
+    : public RnBuiltinDataTypeT<NK_##CLASS, CARRIER>                      \
+{                                                                         \
+    typedef RnBuiltinDataTypeT<NK_##CLASS, CARRIER> Super_;               \
+public:                                                                   \
+    static Rn##CLASS *Instance()                                          \
+    {                                                                     \
+        static Rn##CLASS s_Instance;                                      \
+        return &s_Instance;                                               \
+    }                                                                     \
+    std::string ValueToString(const void *pValue) const override;         \
+    void Accept(IRuntimeNodeVisitor &v) override;                         \
+};
+
+SCALAR_PRIMITIVE_NEW_DECL(DECL_SCALAR_RN_TYPE)
 
 /*
 The type information of a type.

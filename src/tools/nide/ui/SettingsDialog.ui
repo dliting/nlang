@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>SettingsDialog</class>
  <widget class="QDialog" name="SettingsDialog">
@@ -59,6 +59,25 @@
     <widget class="QWidget" name="wgtLibraryPaths"/>
    </item>
    <item row="4" column="0" colspan="2">
+    <widget class="QGroupBox" name="grpCompiler">
+     <property name="title">
+      <string>Compiler options</string>
+     </property>
+     <layout class="QVBoxLayout" name="layCompiler">
+      <item>
+       <widget class="QCheckBox" name="chkNoWarn">
+        <property name="toolTip">
+         <string>Currently the lossy-conversion warnings; future compiler options extend this group.</string>
+        </property>
+        <property name="text">
+         <string>Suppress compile warnings</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item row="5" column="0" colspan="2">
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

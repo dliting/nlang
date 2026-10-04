@@ -68,7 +68,7 @@ void StatementResolveAccessor::Access(SnAssertStmt &sn)
 		return;
 	assert(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
-	CheckIntCondition(*sn.Cond(), "assert");
+	CheckBoolCondition(*sn.Cond(), "assert");
 	sn.AddFlags(NF_Resolved);
 }
 

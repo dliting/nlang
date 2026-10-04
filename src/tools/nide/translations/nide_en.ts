@@ -24,7 +24,22 @@
         <translation>Run Output</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="215"/>
+        <location filename="../ui/MainWindow.ui" line="231"/>
+        <source>程序输入：运行或调试时，在此输入一行并回车发送给程序</source>
+        <translation>Program input: while running or debugging, type a line here and press Enter to send it to the program</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="234"/>
+        <source>程序输入（回车发送）</source>
+        <translation>Program input (Enter to send)</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="241"/>
+        <source>发送</source>
+        <translation>Send</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="217"/>
         <source>调试</source>
         <translation>Debug</translation>
     </message>
@@ -578,6 +593,16 @@
         <source>Esc</source>
         <translation>Esc</translation>
     </message>
+    <message>
+        <location filename="../ui/ProjectPropDialog.ui" line="228"/>
+        <source>当前为有损类型转换警告；勾选后本项目在全局设置之外再抑制它们</source>
+        <translation>Currently the lossy-conversion warnings; opting in suppresses them for this project on top of the global setting.</translation>
+    </message>
+    <message>
+        <location filename="../ui/ProjectPropDialog.ui" line="231"/>
+        <source>抑制编译警告(&amp;W)</source>
+        <translation>&amp;Suppress compile warnings</translation>
+    </message>
 </context>
 <context>
     <name>QObject</name>
@@ -613,6 +638,21 @@
         <location filename="../ui/SettingsDialog.ui" line="51"/>
         <source>Toolbar icon size:</source>
         <translation>Toolbar icon size:</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="61"/>
+        <source>Compiler options</source>
+        <translation>Compiler options</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="67"/>
+        <source>Currently the lossy-conversion warnings; future compiler options extend this group.</source>
+        <translation>Currently the lossy-conversion warnings; future compiler options extend this group.</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="70"/>
+        <source>Suppress compile warnings</source>
+        <translation>Suppress compile warnings</translation>
     </message>
 </context>
 <context>

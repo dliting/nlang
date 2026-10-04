@@ -84,6 +84,21 @@ public:
 	void Accept(ISyntaxNodeVisitor &) override;
 };
 
+//Compiler-side mirror of the ten registry-generated scalar carriers.
+//Required by: ImportedNodeBuilder's Access(RnBuiltinDataType&) switch
+//(new Sn##T() walks BUILTIN_TYPE_NODE_DECL — a missing class is a hard
+//compile break), SnIdentifierExpr(builtinKind) -> SnBuiltinDataType::
+//InstanceOf and SnLiteralExpr::EvalByRTTI -> TheAST().FindNode.
+#define DECL_SCALAR_SN_TYPE(CLASS, KW, WIDTH, CARRIER, CAT, RANK)            \
+class NLANG_COMPILER_API Sn##CLASS                                           \
+    : public SnBuiltinDataTypeT<Rn##CLASS, Sn##CLASS>                        \
+{                                                                            \
+public:                                                                      \
+    void Accept(ISyntaxNodeVisitor &) override;                              \
+};
+
+SCALAR_PRIMITIVE_NEW_DECL(DECL_SCALAR_SN_TYPE)
+
 class NLANG_COMPILER_API SnType : public SnBuiltinDataTypeT<RnType, SnType>
 {
 public:

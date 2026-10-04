@@ -102,20 +102,25 @@ int VmExecutor::Execute(const CompiledModule& module) {
 
     const CompiledFunction& mainFunc = module.functions[mainIdx];
     std::vector<uint8_t> locals(mainFunc.localsSize, 0);
-    int32_t result = 0;
+    //pResult contract is a full uniform frame cell (kFrameSlotBytes): the
+    //callee's final OP_VarLocal return copy writes 8 bytes, so a narrow
+    //host-side int would be overflowed (ASan-confirmed stack corruption).
+    //The 4-byte main return value sits in the low half.
+    alignas(int64_t) uint8_t resultCell[kFrameSlotBytes] = {0};
     try {
         //Phase 9f: a pathological `native int main();` still dispatches
         //through the host table — executing the declaration's empty
         //bytecode would silently return 0.
         if (mainFunc.isNative)
-            CallNative(mainFunc, 0, locals.data(),
-                reinterpret_cast<uint8_t*>(&result));
+            CallNative(mainFunc, 0, locals.data(), resultCell);
         else
-            ExecuteFunction(mainFunc, reinterpret_cast<uint8_t*>(&result), locals.data());
+            ExecuteFunction(mainFunc, resultCell, locals.data());
     } catch (const std::exception&) {
         m_lastBacktrace = FormatBacktrace();
         throw;
     }
+    int32_t result;
+    std::memcpy(&result, resultCell, sizeof(result));
     return result;
 }
 
@@ -146,15 +151,16 @@ std::string VmExecutor::FormatBacktrace() const {
         throw std::runtime_error("NLang VM: exception class not registered");
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
 
-    //slot[1] = message. Mint a string object, store its handle.
+    //cell[1] = message. Mint a string object, store its handle.
     //Do NOT hold a reference to m_structHeap[heapIdx] across the List
     //allocation below — AllocClassOnHeap may push_back to m_structHeap and
     //invalidate the reference (vector resize).
     int32_t msgHandle = MintNewString(msg);
     m_structHeap[static_cast<size_t>(heapIdx)][1] = msgHandle;
 
-    //slot[2] = backtrace. Allocate a List<string> and push one entry per
-    //active call frame, innermost-first.
+    //cell[3] = backtrace (field 1 under the uniform 2-cell stride).
+    //Allocate a List<string> and push one entry per active call frame,
+    //innermost-first.
     int32_t listHeapIdx = -1;
     if (m_listClassIdx >= 0) {
         listHeapIdx = AllocClassOnHeap(static_cast<uint16_t>(m_listClassIdx));
@@ -186,10 +192,10 @@ std::string VmExecutor::FormatBacktrace() const {
             m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
         }
     }
-    //Now write listHeapIdx to slot[2] of the Exception. Safe because no
+    //Now write listHeapIdx to cell[3] of the Exception. Safe because no
     //further allocations happen before the throw.
     if (listHeapIdx > 0)
-        m_structHeap[static_cast<size_t>(heapIdx)][2] = listHeapIdx;
+        m_structHeap[static_cast<size_t>(heapIdx)][3] = listHeapIdx;
     //Debugger checkpoint at the throw site, before unwinding starts
     //(the full NLang stack is still alive).
     FireOnThrow();

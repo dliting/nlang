@@ -44,14 +44,30 @@ See also: [Language Specification / Exit Code Convention](../language-spec/exit-
 
 ### Garbled output in the console?
 
-Program output is UTF-8 bytes. A Windows console's default code page
-(e.g. GBK on Chinese-locale systems) renders them as mojibake; run
-`chcp 65001` first to switch the console to the UTF-8 code page, then
-run the program. Note that `fs` and `io` file paths and file names go
-through the system active code page — non-ASCII file names do not
-necessarily round-trip as UTF-8.
+Program output is UTF-8 bytes. The tools set the process active code
+page to UTF-8 (declared in the tools' embedded manifest, Windows 10
+1903+) and switch the attached console to the UTF-8 code page at
+startup, so the default console renders Chinese output correctly — no
+manual `chcp 65001` needed. `fs` and `io` non-ASCII paths and file
+names round-trip as UTF-8 as well. Redirected output is untouched
+bytes — an editor opening it with a non-UTF-8 encoding still shows
+mojibake. The console switch outlives the tool: a program emitting a
+legacy encoding in the same window afterwards may show as mojibake.
 
 See also: [Language Specification / Standard Library](../language-spec/standard-library.md).
+
+### Compile says `not valid UTF-8`?
+
+Source files and `.nproj` project files must be saved as UTF-8: ncc
+validates the whole file before tokenizing, and invalid bytes are
+rejected with a named error (`Source file is not valid UTF-8 ...
+(first invalid byte at line N). Save the file as UTF-8.`);
+a UTF-16 save gets a dedicated hint (re-save the file as UTF-8). This
+stops legacy encoding bytes from slipping silently into string
+constants. nide's build invokes ncc, so building there is gated the
+same way. A leading UTF-8 BOM is accepted and skipped — the editor
+"UTF-8 with BOM" save form needs no handling. See also:
+[Language Specification / Primitives](../language-spec/primitives.md).
 
 ### Where are the docs and search?
 
@@ -72,15 +88,17 @@ spaces around the operator (`v + 1`).
 
 See also: [Language Specification / Expressions](../language-spec/expressions.md).
 
-### Debugging: `io.readLine` fails / `finally` doesn't run on stop / breakpoints drift?
+### Debugging: how do I feed `io.readLine` / `finally` doesn't run on stop / breakpoints drift?
 
-A debug session has no standard input — `io.readLine` throws an
-`IOException` (catch it with `try/catch`; it does not hang silently).
-Stopping a debug session is a hard stop: the process terminates
-directly and `finally` does not run. Line-number drift is not tracked
-inside a session — one session is one line-number snapshot, so editing
-or rebuilding mid-session is not supported; reopen the debug session.
-See the "Known v1 limitations" section of [Debugging in nide](debugging.md).
+Standard input for both running and debugging lives in the input row at
+the bottom of the Run Output page: while the session is running, type a
+line and press Enter, and it is delivered to the program's next read
+(see [Debugging in nide](debugging.md)). Stopping a debug session is a
+hard stop: the process terminates directly and `finally` does not run.
+Line-number drift is not tracked inside a session — one session is one
+line-number snapshot, so editing or rebuilding mid-session is not
+supported; reopen the debug session. See the "Known v1 limitations"
+section of [Debugging in nide](debugging.md).
 
 ### Cross-module reference gives `Module '...' is not imported`?
 
@@ -126,13 +144,15 @@ the "Cross-module function values are rejected, not transported"
 imported functions" items. See [Common Error
 Messages](../language-spec/common-errors.md) for the full error text.
 
-### Condition / `&&` / `||` / `!` says "must be int"? More than 64 parameters?
+### Condition / `&&` / `||` / `!` says "must be bool"? More than 64 parameters?
 
 The condition of `if` / `while` / `do-while` / `for` / `assert` and the
-operands of `&&` / `||` / `!` must all be `int` (comparisons produce
-`int`); string, float, class, struct, and array are named compile-time
-rejections (`if condition must be int, got "String"`, `operator '&&'
-requires int operands, got "String"`). Separately, the parameter count
+operands of `&&` / `||` / `!` must all be `bool` (comparisons and
+predicates already produce bool — there is no C-style "non-zero is
+true"); int, string, float, char, class, struct, and array are named
+compile-time rejections (`if condition must be bool, not "Int32"`,
+`operator '&&' requires bool operands, got "Int32"`). Count tests
+should be written `if (count != 0)`. Separately, the parameter count
 of a function has a sanity ceiling of 64; exceeding it is a compile
 error (`function "f" has 65 parameters; limit is 64.`). The condition
 typing is on [Language Specification / Statements](../language-spec/statements.md)

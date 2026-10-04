@@ -63,6 +63,16 @@ void SnString::Accept(ISyntaxNodeVisitor &v)
 	v.Visit(*this);
 }
 
+//Accept one-liners for the ten registry-generated scalar type nodes
+//(same shape as the hand-written SnInt32/SnFloat above).
+#define IMPL_SCALAR_SN_ACCEPT(CLASS, KW, WIDTH, CARRIER, CAT, RANK)          \
+void Sn##CLASS::Accept(ISyntaxNodeVisitor &v)                                \
+{                                                                            \
+	v.Visit(*this);                                                          \
+}
+SCALAR_PRIMITIVE_NEW_DECL(IMPL_SCALAR_SN_ACCEPT)
+#undef IMPL_SCALAR_SN_ACCEPT
+
 void SnType::Accept(ISyntaxNodeVisitor &v)
 {
 	v.Visit(*this);

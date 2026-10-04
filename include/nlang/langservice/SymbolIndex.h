@@ -26,7 +26,9 @@ enum class TypeKind : uint8_t {
     Unknown,
     Void,         // no return value
     Int,
+    Long,
     Float,
+    Double,
     String,
     ListString,
 };

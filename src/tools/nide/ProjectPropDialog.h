@@ -69,8 +69,10 @@ private:
     //Validate name/location; return the problem text ("" if OK).
     QString validateProjectInput(const QString& name,
                                  const QString& projectDirText) const;
-    //Write the optional fields onto a freshly added project.
-    void applyProjectFields(ProjectNode* project);
+    //Apply the form's mutable properties (output/intermediate
+    //directories, library search paths, warning suppression) to the
+    //project; shared by create and edit.
+    void applyProjectFields(ProjectNode& project) const;
 
     std::unique_ptr<Ui::ProjectPropDialog> m_ui;
     PathListEditor* m_pathEditor = nullptr;

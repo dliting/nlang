@@ -1,7 +1,8 @@
 // Phase 9b-pre: List<class> toString — class elements use Object.toString default.
-// Object.toString returns "ClassName@hexaddr" (Phase 5 D13: ClassName is
-// the qualified table key). Heap layout is deterministic for this simple
-// program: List at heap 1, Foo at heap 2.
+// Object.toString returns "ClassName@hexaddr" — ClassName is the leaf after
+// the last dot of the package-qualified table key (user-visible renders
+// name the type as source wrote it). Heap layout is deterministic for this
+// simple program: List at heap 1, Foo at heap 2.
 class Foo {
     public int n;
     public int Foo(int v) { this.n = v; return 0; }
@@ -11,6 +12,6 @@ int main() {
     Foo a = new Foo(1);
     lst.add(a);
     string s = lst.toString();
-    if (s == "[list_tostring_class.Foo@2]") return 7;
+    if (s == "[Foo@2]") return 7;
     return 1;
 }

@@ -73,6 +73,12 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
                     sizeof(dv.floatValue));
             fs.read(reinterpret_cast<char*>(&dv.stringIdx),
                     sizeof(dv.stringIdx));
+            //0.7.5 v1.13: 8-byte scalar channels (matches the saver's
+            //extended record; the loader floor is already 13).
+            fs.read(reinterpret_cast<char*>(&dv.longValue),
+                    sizeof(dv.longValue));
+            fs.read(reinterpret_cast<char*>(&dv.doubleValue),
+                    sizeof(dv.doubleValue));
         }
 
         uint32_t bcSize;
@@ -119,6 +125,11 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
                         sizeof(ld.isParam));
                 fs.read(reinterpret_cast<char*>(&ld.typeKind),
                         sizeof(ld.typeKind));
+                //v1.14: declaration PC for debugger scope visibility
+                //(the loader floor is already 14 — read unconditionally
+                //like the v1.13 default-value channels above).
+                fs.read(reinterpret_cast<char*>(&ld.declPc),
+                        sizeof(ld.declPc));
                 uint32_t lnameLen = 0;
                 fs.read(reinterpret_cast<char*>(&lnameLen),
                         sizeof(lnameLen));

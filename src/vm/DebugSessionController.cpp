@@ -76,6 +76,13 @@ std::string DebugSessionController::LocationLabel(
 // --- display filter ---
 
 bool DebugSessionController::IsHiddenLocalName(const std::string& name) {
+    //The receiver slot is user-visible state: a method frame often has
+    //NO other local, and hiding `__this` left such frames' locals query
+    //empty (an IDE variables pane showing nothing at all). DisplayName
+    //renders it as `this`; every other synthesized `__`/`$` local stays
+    //internal.
+    if (name == "__this")
+        return false;
     if (name.size() >= 2 && name[0] == '_' && name[1] == '_')
         return true;
     if (!name.empty() && name[0] == '$')

@@ -2,12 +2,12 @@
 
 **English** | [中文](README.zh-CN.md)
 
-NLang is a statically-typed scripting language for embedding and automation —
+NLang is a type-safe language for embedding and automation —
 with a small C++ host API, native bindings and in-process debug hooks — and a
 testbed for AI-friendly language features. It ships its own compiler, bytecode
 VM, debugger and IDE, and is developed as an open teaching/research project.
 
-![NLang IDE (nide)](docs/images/nide-overview.png)
+![NLang IDE (nide)](docs/images/nide-overview-en.png)
 
 The NLang IDE: solution tree on the left (projects plus standalone `.n`
 files), editor in the middle, build and execution output below. The UI
@@ -196,7 +196,7 @@ Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
 (`docs/user_manual/en/language-spec/declarations.md`, Import Declaration).
 
-Compiled units use a versioned binary format, currently v2.0 (import
+Compiled units use a versioned binary format, currently v2.1 (import
 slots and per-unit module paths — the load-time linking model). The
 loader enforces a compatibility floor: after a floor bump, older
 `.ncu` files are rejected as outdated and must be recompiled with the
@@ -217,7 +217,7 @@ import math;
 import fs;
 
 int main() {
-    io.print(math.sqrt(2.0));                     // 1.41421
+    io.print(math.sqrt(2.0));                     // 1.4142135623730951 (double precision)
     string s = "hello world".substring(0, 5);     // "hello" (byte offsets)
     List<string> words = "a,b,c".split(",");      // 3 elements
     fs.makeDirs("out");

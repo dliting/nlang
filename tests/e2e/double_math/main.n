@@ -1,0 +1,21 @@
+// 0.7.5: the math family runs at double precision; floor/ceil/round
+// return long; int/float arguments widen to the double parameters.
+import io;
+import math;
+int main() {
+    double root = math.sqrt(2.0);
+    io.print(root);
+    long low = math.floor(2.7);
+    assert(low == 2);
+    long up = math.ceil(2.1);
+    assert(up == 3);
+    long near = math.round(2.5);
+    assert(near == 3);
+    double p = math.pow(2, 10);      // int args widen to double
+    assert(p == 1024.0);
+    double r = math.sqrt(4.0f);      // float arg widens to double
+    assert(r == 2.0);
+    double neg = math.absf(-1.5);
+    assert(neg == 1.5);
+    return 0;
+}

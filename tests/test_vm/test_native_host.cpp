@@ -4,6 +4,7 @@
 // input, exceptions and the PRNG). No VM internals are mocked.
 
 #include "nlang/compiler/ModuleBuilder.h"
+#include "nlang/compiler/CastInfo.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
@@ -115,7 +116,7 @@ int runSource(const std::string& tag, const std::string& source,
     }
     if (!built) {
         for (auto it = logger.cbegin(); it != logger.cend(); ++it)
-            std::fprintf(stderr, "diag: %s\n", (*it)->Message().c_str());
+            std::fprintf(stderr, "diag: %s\n", (*it)->FullMessage().c_str());
         return -1;
     }
     try {
@@ -154,18 +155,18 @@ void TestMintEchoListRandomRaise() {
         "  if (l.get(0) != \"x\" || l.get(1) != \"y\") return 4;\n"
         "  if (hsRawRandom() == hsRawRandom()) return 5;\n"
         "  if (hsSeededRandom(42) != hsSeededRandom(42)) return 6;\n"
-        "  int caughtIo = 0;\n"
+        "  bool caughtIo = false;\n"
         "  try {\n"
         "    hsRaiseIo();\n"
         "  } catch (IOException e) {\n"
-        "    caughtIo = 1;\n"
+        "    caughtIo = true;\n"
         "  }\n"
         "  if (!caughtIo) return 7;\n"
-        "  int caughtBase = 0;\n"
+        "  bool caughtBase = false;\n"
         "  try {\n"
         "    hsRaiseBase();\n"
         "  } catch (Exception e) {\n"
-        "    caughtBase = 1;\n"
+        "    caughtBase = true;\n"
         "  }\n"
         "  if (!caughtBase) return 8;\n"
         "  return 0;\n"
@@ -215,6 +216,7 @@ void TestWriteOutput() {
 
 int main() {
     Runtime::StaticInit();
+    TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     std::fprintf(stderr, "=== NativeHost Callback Integration Tests ===\n");
     TestMintEchoListRandomRaise();
     TestReadLine();

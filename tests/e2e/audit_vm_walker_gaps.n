@@ -25,7 +25,7 @@ int gh() {
 }
 
 int eq() {
-    if (!pick(1).equals("abcd")) return 2;
+    if (pick(1).equals("abcd") == 0) return 2;
     return 0;
 }
 

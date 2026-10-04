@@ -1,0 +1,13 @@
+//0.7.5 char x string bridge: implicit char -> string (Auto) in concat
+//and assignment; '中' encodes to exactly 3 UTF-8 bytes. Prints "xy".
+import io;
+int main() {
+    string s = "x" + 'y';
+    if (s != "xy") { return 1; }
+    string t = '中';                   // implicit char -> string
+    if (t.length() != 3) { return 2; }
+    string u = "" + 'a';             // concat is the explicit bridge
+    if (u != "a") { return 3; }
+    io.print(s);
+    return 0;
+}

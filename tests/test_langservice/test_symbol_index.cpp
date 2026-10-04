@@ -27,8 +27,8 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 38 functions: io 5, math 25, fs 8.
-    CHECK(index.size() == 38);
+    // 40 functions: io 7, math 25, fs 8.
+    CHECK(index.size() == 40);
 }
 
 static void TestResolvePrint() {
@@ -165,7 +165,9 @@ static void TestFindStdLibDir() {
 
 static void TestTypeKinds() {
     CHECK(TypeKindFromName("int") == TypeKind::Int);
+    CHECK(TypeKindFromName("long") == TypeKind::Long);
     CHECK(TypeKindFromName("float") == TypeKind::Float);
+    CHECK(TypeKindFromName("double") == TypeKind::Double);
     CHECK(TypeKindFromName("string") == TypeKind::String);
     CHECK(TypeKindFromName("List<string>") == TypeKind::ListString);
     //"any" is no longer a type kind: print takes a string, so an unknown
@@ -174,6 +176,8 @@ static void TestTypeKinds() {
     CHECK(TypeKindFromName("void") == TypeKind::Void);
     CHECK(TypeKindFromName("widget") == TypeKind::Unknown);
     CHECK(NameOfTypeKind(TypeKind::Int) == "int");
+    CHECK(NameOfTypeKind(TypeKind::Long) == "long");
+    CHECK(NameOfTypeKind(TypeKind::Double) == "double");
     CHECK(NameOfTypeKind(TypeKind::ListString) == "List<string>");
     CHECK(NameOfTypeKind(TypeKind::Void) == "void");
 
@@ -191,9 +195,9 @@ static void TestTypeKinds() {
     const SymbolInfo* sqrt = index.Resolve("math", "sqrt");
     CHECK(sqrt != nullptr);
     if (sqrt) {
-        CHECK(sqrt->returnKind == TypeKind::Float);
+        CHECK(sqrt->returnKind == TypeKind::Double);
         CHECK(sqrt->params.size() == 1
-              && sqrt->params[0].kind == TypeKind::Float);
+              && sqrt->params[0].kind == TypeKind::Double);
     }
 
     const SymbolInfo* absi = index.Resolve("math", "absi");
@@ -210,14 +214,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 38);
+    CHECK(index.size() == 40);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 38);
+    CHECK(index.size() == 40);
 }
 
 int main() {

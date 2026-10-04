@@ -10,6 +10,10 @@
 #include <cassert>
 #include <sstream>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
+#include <type_traits>
 
 namespace nlang
 {
@@ -93,13 +97,59 @@ void RnFloat::Accept(IRuntimeNodeVisitor &v)
 	v.Visit(*this);
 }
 
+std::string FormatFloatShortest(double v, bool isFloat)
+{
+	//Non-finite and zero sentinels first — the digit search below only
+	//applies to ordinary magnitudes.
+	if (v != v)
+		return "nan";
+	if (v == HUGE_VAL)
+		return "inf";
+	if (v == -HUGE_VAL)
+		return "-inf";
+	if (v == 0.0)
+		return std::signbit(v) ? "-0" : "0";
+
+	//Step 1: the fewest significant digits that still round-trip at
+	//the target width. "%.*e" with p-1 decimals renders exactly p
+	//significant digits in scientific form.
+	const int maxPrec = isFloat ? 9 : 17;
+	char sci[48];
+	int prec = maxPrec;
+	for (int p = 1; p <= maxPrec; ++p)
+	{
+		std::snprintf(sci, sizeof(sci), "%.*e", p - 1, v);
+		const bool roundTrips = isFloat
+			? std::strtof(sci, nullptr) == static_cast<float>(v)
+			: std::strtod(sci, nullptr) == v;
+		if (roundTrips)
+		{
+			prec = p;
+			break;
+		}
+	}
+
+	//Step 2: exponent decides the form. Python repr keeps fixed-point
+	//only inside [1e-4, 1e16); outside that the scientific rendering
+	//is already the shortest form.
+	const char* pE = std::strchr(sci, 'e');
+	const int exp10 = pE != nullptr ? std::atoi(pE + 1) : 0;
+	if (exp10 < -4 || exp10 >= 16)
+		return sci;
+
+	char fixed[48];
+	int decimals = prec - 1 - exp10;
+	if (decimals < 0)
+		decimals = 0;
+	std::snprintf(fixed, sizeof(fixed), "%.*f", decimals, v);
+	return fixed;
+}
+
 std::string RnFloat::ValueToString(const void *pValue) const
 {
-	char szBuf[32];
 	assert(pValue);
 	const CppType v = *static_cast<const CppType*>(pValue);
-	sprintf(szBuf, "%g", v);
-	return szBuf;
+	return FormatFloatShortest(v, true);
 }
 
 void RnString::Accept(IRuntimeNodeVisitor &v)
@@ -137,6 +187,52 @@ void RnString::DestroyValue(void *pValue) const
 	delete *ppStr;
 	*ppStr = nullptr;
 }
+
+//Per-category ValueToString + Accept for the ten registry-generated
+//scalar types (the two pre-existing hand-written RnInt32/RnFloat
+//versions above stay untouched). Format strings pair strictly with
+//argument types: %g takes the double promotion, %llu takes unsigned
+//long long, %lld takes long long — narrow integers promote with the
+//value unchanged. Each branch keeps its own buffer (unused-variable
+//warnings stay branch-local under if constexpr).
+#define IMPL_SCALAR_RN_TYPE(CLASS, KW, WIDTH, CARRIER, CAT, RANK)            \
+void Rn##CLASS::Accept(IRuntimeNodeVisitor &v)                               \
+{                                                                            \
+	v.Visit(*this);                                                          \
+}                                                                            \
+std::string Rn##CLASS::ValueToString(const void *pValue) const               \
+{                                                                            \
+	assert(pValue);                                                          \
+	if constexpr (CAT == PC_Bool)                                             \
+		return *static_cast<const int32*>(pValue) ? "true" : "false";         \
+	else if constexpr (CAT == PC_Char)                                        \
+		return Utf8EncodeCodePoint(*static_cast<const uint32*>(pValue));      \
+	else if constexpr (CAT == PC_Float)                                       \
+	{                                                                        \
+		return FormatFloatShortest(                                          \
+			static_cast<double>(                                             \
+				*static_cast<const CARRIER*>(pValue)),                       \
+			WIDTH == 4);                                                     \
+	}                                                                        \
+	else if constexpr (std::is_same<CARRIER, uint64>::value)                  \
+	{                                                                        \
+		char buf[32];                                                        \
+		std::snprintf(buf, sizeof(buf), "%llu",                              \
+			static_cast<unsigned long long>(                                 \
+				*static_cast<const CARRIER*>(pValue)));                      \
+		return buf;                                                          \
+	}                                                                        \
+	else                                                                     \
+	{                                                                        \
+		char buf[32];                                                        \
+		std::snprintf(buf, sizeof(buf), "%lld",                              \
+			static_cast<long long>(                                          \
+				*static_cast<const CARRIER*>(pValue)));                      \
+		return buf;                                                          \
+	}                                                                        \
+}
+SCALAR_PRIMITIVE_NEW_DECL(IMPL_SCALAR_RN_TYPE)
+#undef IMPL_SCALAR_RN_TYPE
 
 void RnType::Accept(IRuntimeNodeVisitor &v)
 {
