@@ -100,8 +100,7 @@ static bool TrioWrapTarget(SnExpression &child, SnExpression *&rpArg,
 //are rejected here with the manual's .toString() wording — an enum left
 //to the binder would slip through on its Int32 mapping and print the
 //numeric value. True = the call may proceed to matching.
-bool ExprResolveAccessor::AdmitCoercingTrioArgs(SnInvokeExpr &invoke,
-	const std::string &modulePath)
+bool ExprResolveAccessor::AdmitCoercingTrioArgs(SnInvokeExpr &invoke)
 {
 	//Scan first, wrap after: FixupExprType erases the argument's list
 	//node, so wrapping while iterating invoke.Children() would advance a
@@ -238,7 +237,7 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 	//matching so coercing values land as exact string matches.
 	const bool bCoercingTrio =
 		IsIoCoercingTrioCall(modulePath, invoke.CalleeName());
-	if (bCoercingTrio && !AdmitCoercingTrioArgs(invoke, modulePath))
+	if (bCoercingTrio && !AdmitCoercingTrioArgs(invoke))
 	{
 		FinishModuleQualifiedMember(snMember);
 		return false;

@@ -286,9 +286,13 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
             static_cast<size_t>(targetClassIdx)];
         const auto& act = m_currModule->classes[
             static_cast<size_t>(actualClassIdx)];
+        //User-visible failure message: leaf names. The class table keys
+        //are package-qualified link identities; the leaf-name spelling
+        //for user-facing rendering is the shared rule (CompiledModule.h).
         throw std::runtime_error(std::string(
-            "NLang VM: invalid cast - expected `") + tgt.name +
-            "`, got `" + act.name + "`");
+            "NLang VM: invalid cast - expected `")
+            + LeafNameOfKey(tgt.name) + "`, got `"
+            + LeafNameOfKey(act.name) + "`");
     }
     //Result: same heap idx, unchanged.
 }

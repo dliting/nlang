@@ -801,8 +801,7 @@ private:
 	//in place (pre-match) and rejects class/interface/enum/struct
 	//values; RejectPackageStringCoercion vetoes →string bindings
 	//post-match on every other package call.
-	bool AdmitCoercingTrioArgs(SnInvokeExpr &invoke,
-		const std::string &modulePath);
+	bool AdmitCoercingTrioArgs(SnInvokeExpr &invoke);
 	bool RejectPackageStringCoercion(SnInvokeExpr &invoke,
 		const std::vector<FormalBinding> &bindings,
 		const std::string &modulePath);
