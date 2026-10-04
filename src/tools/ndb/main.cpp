@@ -33,8 +33,9 @@ using namespace nlang;
 //module or in -I dirs), plus the system stdlib directory last — package
 //members and stdlib units resolve from the same dirs (phase 6 mirrors
 //nvm's composition). One path serves both the native search dirs and
-//the closure loader's options.
-static std::vector<std::string> BuildDebugSearchPath(
+//the closure loader's options; the layered build keeps per-directory
+//attribution for --verbose.
+static std::vector<SearchDirEntry> BuildDebugSearchPath(
     const std::string& modulePath, const std::vector<std::string>& cliDirs) {
     fs::path modPath(modulePath);
     SearchPathInput search;
@@ -45,11 +46,12 @@ static std::vector<std::string> BuildDebugSearchPath(
     search.systemDirs = {
         NativeLibraryLoader::ExecutableDir(), "."
     };
-    std::vector<std::string> dirs = BuildLibrarySearchPath(search);
+    std::vector<SearchDirEntry> dirs =
+        BuildLibrarySearchPathLayered(search);
     const std::string stdlibDir = langservice::FindStdLibDir(
         NativeLibraryLoader::ExecutableDir());
     if (!stdlibDir.empty())
-        dirs.push_back(stdlibDir);
+        dirs.push_back({stdlibDir, SearchLayer::System});
     return dirs;
 }
 
@@ -57,16 +59,23 @@ static std::vector<std::string> BuildDebugSearchPath(
 //(nloader -> nlink, the same call sequence as nvm): unit-image
 //artifacts carry import slots, and the debugger runs the linked
 //closure, not a single self-contained module. The same search path
-//feeds the executor's native-DLL dirs.
+//feeds the executor's native-DLL dirs. A non-null verboseOut receives
+//the resolved search listing (--verbose; stderr in machine mode, where
+//stdout is the protocol channel).
 static CompiledModule LoadLinkedProgram(VmExecutor& executor,
     const std::string& modulePath,
-    const std::vector<std::string>& cliDirs) {
-    const std::vector<std::string> searchDirs =
+    const std::vector<std::string>& cliDirs,
+    std::ostream* verboseOut) {
+    const std::vector<SearchDirEntry> searchDirs =
         BuildDebugSearchPath(modulePath, cliDirs);
-    for (const auto& d : searchDirs)
-        executor.AddNativeSearchDir(d);
+    if (verboseOut)
+        *verboseOut << FormatSearchDirs(searchDirs) << "\n";
+    for (const auto& e : searchDirs)
+        executor.AddNativeSearchDir(e.dir);
     NcuLoader::Options loaderOpts;
-    loaderOpts.searchDirs = searchDirs;
+    loaderOpts.searchDirs.reserve(searchDirs.size());
+    for (const auto& e : searchDirs)
+        loaderOpts.searchDirs.push_back(e.dir);
     const NcuLoader::Result loaded =
         NcuLoader::LoadClosure(modulePath, loaderOpts);
     return NcuLinker::Link(loaded.units, loaded.entryKey);
@@ -78,14 +87,18 @@ static CompiledModule LoadLinkedProgram(VmExecutor& executor,
 //exception reports as an error event and yields 1 (stderr stays
 //untouched — the CrashReporter's diagnostic channel).
 static int RunMachine(const char* modulePath,
-                      const std::vector<std::string>& cliDirs) {
+                      const std::vector<std::string>& cliDirs,
+                      bool verbose) {
     CompiledModule module;
     VmExecutor executor;
     //Phase 9f: host-provided natives (e2e test surface) — CLI parity.
     RegisterTestNatives(executor);
     MachineFrontEnd front(module, std::cin, std::cout);
     try {
-        module = LoadLinkedProgram(executor, modulePath, cliDirs);
+        //Machine mode: stdout is the protocol channel, so --verbose
+        //reports on stderr (the diagnostics channel).
+        module = LoadLinkedProgram(executor, modulePath, cliDirs,
+            verbose ? &std::cerr : nullptr);
         DebugSessionController controller(module, front);
         front.SetController(&controller);
         executor.SetDebugHooks(&controller);
@@ -112,12 +125,14 @@ static int RunMachine(const char* modulePath,
 }
 
 //Parse the command line: skip an optional leading "--machine", locate the
-//module (first non-flag) and collect "-I <dir>" / "-I<dir>" library dirs.
-//False on a trailing -I with no value or no module.
+//module (first non-flag) and collect "-I <dir>" / "-I<dir>" library dirs
+//and the "--verbose"/-v modifier. False on a trailing -I with no value or
+//no module.
 static bool ParseDebugArgs(int argc, char* argv[], bool machine,
                            std::vector<std::string>& dirs,
-                           int& moduleIndex) {
+                           int& moduleIndex, bool& verbose) {
     moduleIndex = -1;
+    verbose = false;
     const int first = machine ? 2 : 1;
     for (int i = first; i < argc; ++i) {
         const std::string a = argv[i];
@@ -127,6 +142,9 @@ static bool ParseDebugArgs(int argc, char* argv[], bool machine,
             dirs.push_back(argv[++i]);
         } else if (a.size() > 2 && a.compare(0, 2, "-I") == 0) {
             dirs.push_back(a.substr(2));
+        } else if (a == "--verbose" || a == "-v") {
+            //Print the resolved import search path, then run normally.
+            verbose = true;
         } else if (moduleIndex < 0) {
             moduleIndex = i;
         }
@@ -136,8 +154,10 @@ static bool ParseDebugArgs(int argc, char* argv[], bool machine,
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: ndb <program.ncu|.npkg> [-I <dir>...]\n"
-                  << "       ndb --machine <program.ncu|.npkg> [-I <dir>...]\n"
+        std::cerr << "Usage: ndb <program.ncu|.npkg> [-I <dir>...] "
+                     "[--verbose | -v]\n"
+                  << "       ndb --machine <program.ncu|.npkg> "
+                     "[-I <dir>...] [--verbose | -v]\n"
                   << "       ndb --version\n";
         return 1;
     }
@@ -155,10 +175,14 @@ int main(int argc, char* argv[]) {
     const bool machine = std::string(argv[1]) == "--machine";
     std::vector<std::string> cliDirs;
     int moduleIndex = -1;
-    if (!ParseDebugArgs(argc, argv, machine, cliDirs, moduleIndex)) {
+    bool verbose = false;
+    if (!ParseDebugArgs(argc, argv, machine, cliDirs, moduleIndex,
+            verbose)) {
         std::cerr << (machine
-            ? "Usage: ndb --machine <program.ncu|.npkg> [-I <dir>...]\n"
-            : "Usage: ndb <program.ncu|.npkg> [-I <dir>...]\n");
+            ? "Usage: ndb --machine <program.ncu|.npkg> [-I <dir>...] "
+              "[--verbose | -v]\n"
+            : "Usage: ndb <program.ncu|.npkg> [-I <dir>...] "
+              "[--verbose | -v]\n");
         return 1;
     }
 
@@ -183,7 +207,7 @@ int main(int argc, char* argv[]) {
     Runtime::StaticInit();
 
     if (machine) {
-        const int code = RunMachine(argv[moduleIndex], cliDirs);
+        const int code = RunMachine(argv[moduleIndex], cliDirs, verbose);
 #ifdef _WIN32
         ExitProcess(static_cast<UINT>(code));
 #else
@@ -197,7 +221,8 @@ int main(int argc, char* argv[]) {
     RegisterTestNatives(executor);
     int result = 1;
     try {
-        module = LoadLinkedProgram(executor, argv[moduleIndex], cliDirs);
+        module = LoadLinkedProgram(executor, argv[moduleIndex], cliDirs,
+            verbose ? &std::cout : nullptr);
         //Debug session: the controller owns breakpoints/step state; the
         //CLI session is its terminal adapter. Initial stop at the first
         //statement (gdb `start` behavior); the interactive loop runs

@@ -1,0 +1,6 @@
+//nvm --verbose (flag in the .flags sibling): stdout must carry the
+//import search listing with (-I) attribution, then the program still
+//runs — the exit code below is the proof it executed.
+int main() {
+    return 7;
+}

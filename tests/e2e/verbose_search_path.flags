@@ -1,0 +1,1 @@
+--verbose -I vsp_lib # listing printed before the run; the dir need not exist (lexical resolution)

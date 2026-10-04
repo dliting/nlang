@@ -1,0 +1,6 @@
+//ndb --verbose (flag in the .flags sibling, session driven by .stdin):
+//the import search listing goes to stdout before the session banners;
+//the continue command runs the program to completion.
+int main() {
+    return 7;
+}

@@ -304,6 +304,63 @@ set_tests_properties(ncc_thirdparty_env_run PROPERTIES
     DEPENDS nlang_mylib_env_src
     TIMEOUT 180)
 
+# --- --verbose search-path observability (compile and run forms) ---
+# The (-I) attribution line proves the resolved search listing was
+# printed; the run itself still completes normally (the no-flag
+# companion ncc_thirdparty_run pins the run outcome, and the e2e
+# verbose_search_path entry pins print-then-proceed for the family).
+add_test(NAME ncc_verbose_search_path
+    COMMAND ncc
+        ${mylib_pkg_dir}/use_mylib.n
+        -I ${mylib_pkg_dir}
+        --verbose
+        -o ${CMAKE_BINARY_DIR}/e2e_out/verbose_run.ncu)
+set_tests_properties(ncc_verbose_search_path PROPERTIES
+    PASS_REGULAR_EXPRESSION "\\(-I\\)"
+    DEPENDS nlang_mylib_pkg
+    TIMEOUT 180)
+
+# The `ncc run` form composes its own search path (module dir base).
+add_test(NAME ncc_run_verbose_search_path
+    COMMAND ncc
+        run
+        ${CMAKE_BINARY_DIR}/e2e_out/use_mylib.ncu
+        -I ${mylib_pkg_dir}
+        --verbose)
+set_tests_properties(ncc_run_verbose_search_path PROPERTIES
+    PASS_REGULAR_EXPRESSION "\\(-I\\)"
+    DEPENDS ncc_thirdparty_run
+    TIMEOUT 180)
+
+# -v is the short form of --verbose; each tool parses its own command
+# line, so each parse site gets one pin: the e2e verbose_short_flag and
+# dbg_verbose_short entries cover nvm and ndb's shared CLI/machine
+# parse, and these two cover ncc's separate main and `run` loops (run
+# outcomes are pinned by the no-flag companions).
+add_test(NAME ncc_run_verbose_short
+    COMMAND ncc
+        run
+        ${CMAKE_BINARY_DIR}/e2e_out/use_mylib.ncu
+        -I ${mylib_pkg_dir}
+        -v)
+set_tests_properties(ncc_run_verbose_short PROPERTIES
+    PASS_REGULAR_EXPRESSION "\\(-I\\)"
+    DEPENDS ncc_thirdparty_run
+    TIMEOUT 180)
+
+# The compile form parses -v in ncc's main loop (the e2e verbose_short_flag
+# entry pins nvm's parse and dbg_verbose_short pins ndb's shared one).
+add_test(NAME ncc_verbose_short
+    COMMAND ncc
+        ${mylib_pkg_dir}/use_mylib.n
+        -I ${mylib_pkg_dir}
+        -v
+        -o ${CMAKE_BINARY_DIR}/e2e_out/verbose_short.ncu)
+set_tests_properties(ncc_verbose_short PROPERTIES
+    PASS_REGULAR_EXPRESSION "\\(-I\\)"
+    DEPENDS nlang_mylib_pkg
+    TIMEOUT 180)
+
 # nvm native search: -I (DLL off-module) and the default module-dir search.
 # A Python harness builds the module first (ctest regexes cannot sequence
 # steps or copy the DLL beside the module).

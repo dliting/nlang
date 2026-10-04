@@ -16,7 +16,7 @@ use it too. Artifacts come in two forms: single-source builds produce a
 | Compile only | `ncc build <source.n> [-o out.ncu] [-I <dir>...]` | Produces a .ncu |
 | Project: compile and execute | `ncc -p <project.nproj> [-o out.npkg] [-I <dir>...]` | Compiles the whole project, then runs |
 | Project: compile only | `ncc build -p <project.nproj> [-o out.npkg]` | Produces a .npkg |
-| Execute only | `ncc run <program.ncu\|.npkg>` | Same as nvm; extra arguments besides `-I` are an error |
+| Execute only | `ncc run <program.ncu\|.npkg>` | Same as nvm; extra arguments besides `-I` and `--verbose`/`-v` are an error |
 
 ## Flags
 
@@ -25,6 +25,7 @@ use it too. Artifacts come in two forms: single-source builds produce a
 | `-o <path>` | 1-4 | Output path — a `.ncu` for single-source forms, a `.npkg` for project forms; giving it twice is an error |
 | `-p <nproj>` | project forms | Cannot be combined with a source positional; giving it twice is an error |
 | `-I <dir>` (or `-I<dir>` glued) | 1-5 | Library search path, may be given repeatedly: at compile time it locates imported `.n` files and external `.ncu`/`.npkg`; at run time it locates closure members and native dynamic libraries |
+| `--verbose` / `-v` | 1-5 | Prints the resolved import search path — one directory per line, annotated with the layer it came from — then proceeds normally (the listing shape is the same as nvm's) |
 
 Errors and diagnostics go to stderr; the `Compiled successfully:` line
 goes to stdout. Common error forms:
@@ -115,7 +116,10 @@ Windows, `:` on POSIX), and finally system defaults such as the
 standard-library directory. Earlier directories win; duplicates keep only
 the first occurrence. The same directory set keeps serving the run time:
 closure loading (`.ncu`/`.npkg` member lookup) and native dynamic
-library loading.
+library loading. `--verbose` (short form `-v`) makes ncc print this
+resolved ordering (each line annotated with its layer, e.g. `(-I)`,
+`(project import paths)`, `(local directory)`, `(NLANG_PATH)`,
+`(system)`) before compiling.
 
 A `.nproj` can persist search dirs under `<ImportPaths>` (paths stored
 relative to the project file):

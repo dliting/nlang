@@ -1,0 +1,6 @@
+//ndb -v (short form of --verbose; flag in the .flags sibling, session
+//driven by .stdin): same listing on stdout as the long form, then the
+//continue command runs the program to completion.
+int main() {
+    return 7;
+}

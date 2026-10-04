@@ -5,7 +5,7 @@ nvm 运行一个已编译的产物——`.ncu` 单元映像或 `.npkg` 程序包
 重复编译；脚本与流水线中以退出码判定结果。
 
 ```text
-nvm <program.ncu|.npkg> [-I <dir>...] [--gc-stress=N]
+nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N]
 ```
 
 运行一个编译好的程序，进程退出码 = `main` 返回值（约定详见
@@ -28,3 +28,10 @@ nvm <program.ncu|.npkg> [-I <dir>...] [--gc-stress=N]
 `NLANG_PATH`（Windows 以 `;`、POSIX 以 `:` 分隔）→ 可执行文件目录 /
 当前目录；前面的目录优先，重复目录只保留第一次出现。完整规则见语言
 规格的「库与搜索路径」。
+
+`--verbose`（短写法 `-v`）在程序运行前打印解析后的搜索路径——每行
+一个目录、按搜索
+顺序排列，行尾括注其来源层（`(-I)`、`(local directory)`、
+`(NLANG_PATH)`、`(system)`）——随后照常执行。它是上面「缺包」诊断的
+可观测性对应物：给失败的调用加上 `--verbose` 重跑一遍，即可看到将要
+搜索的全部目录。

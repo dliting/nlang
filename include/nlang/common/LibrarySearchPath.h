@@ -33,6 +33,23 @@ struct SearchPathInput {
     std::vector<std::string> systemDirs;
 };
 
+//Attribution for a resolved directory: the input layer that contributed
+//its first (winning) occurrence. The layer names mirror the fields of
+//SearchPathInput in priority order.
+enum class SearchLayer {
+    CommandLine,  //-I
+    Project,      //.nproj <ImportPaths>
+    Local,        //source / project / module directory
+    Environment,  //NLANG_PATH
+    System        //standard library, executable dir, working dir
+};
+
+//One resolved search-path directory with its layer attribution.
+struct SearchDirEntry {
+    std::string dir;
+    SearchLayer layer = SearchLayer::System;
+};
+
 namespace searchpath_detail {
 
 // Platform PATH-list separator (';' on Windows, ':' elsewhere).
@@ -83,32 +100,75 @@ inline std::vector<std::string> SplitSearchPathEnv(
     return out;
 }
 
-// Build the ordered, normalized, de-duplicated library search path.
-inline std::vector<std::string> BuildLibrarySearchPath(
+// Build the ordered, normalized, de-duplicated library search path, each
+// surviving entry tagged with the layer of its first occurrence. This is
+// the single ordering/dedup implementation; the flat variant below and
+// the --verbose listing both derive from it.
+inline std::vector<SearchDirEntry> BuildLibrarySearchPathLayered(
     const SearchPathInput& input) {
-    std::vector<std::string> layers;
-    auto appendLayer = [&layers](const std::vector<std::string>& dirs) {
+    std::vector<std::pair<const std::string*, SearchLayer>> layers;
+    auto appendLayer = [&layers](const std::vector<std::string>& dirs,
+                                 SearchLayer layer) {
         for (const auto& d : dirs)
             if (!d.empty())
-                layers.push_back(d);
+                layers.emplace_back(&d, layer);
     };
-    appendLayer(input.explicitDirs);
-    appendLayer(input.configuredDirs);
-    appendLayer(input.baseDirs);
-    appendLayer(SplitSearchPathEnv(input.pathEnv));
-    appendLayer(input.systemDirs);
+    appendLayer(input.explicitDirs, SearchLayer::CommandLine);
+    appendLayer(input.configuredDirs, SearchLayer::Project);
+    appendLayer(input.baseDirs, SearchLayer::Local);
+    //envDirs must stay a named local, not an inline temporary in the
+    //appendLayer call: layers stores const std::string* pointers into it,
+    //and a temporary would dangle before the normalization loop below.
+    const std::vector<std::string> envDirs =
+        SplitSearchPathEnv(input.pathEnv);
+    appendLayer(envDirs, SearchLayer::Environment);
+    appendLayer(input.systemDirs, SearchLayer::System);
 
-    std::vector<std::string> result;
+    std::vector<SearchDirEntry> result;
     std::vector<std::string> seen;
-    for (const auto& d : layers) {
-        const std::string normalized = searchpath_detail::Normalized(d);
+    for (const auto& entry : layers) {
+        const std::string normalized = searchpath_detail::Normalized(
+            *entry.first);
         const std::string key = searchpath_detail::DedupKey(normalized);
         if (std::find(seen.begin(), seen.end(), key) != seen.end())
             continue;  // first occurrence wins
         seen.push_back(key);
-        result.push_back(normalized);
+        result.push_back({normalized, entry.second});
     }
     return result;
+}
+
+// Build the ordered, normalized, de-duplicated library search path.
+inline std::vector<std::string> BuildLibrarySearchPath(
+    const SearchPathInput& input) {
+    const std::vector<SearchDirEntry> traced =
+        BuildLibrarySearchPathLayered(input);
+    std::vector<std::string> result;
+    result.reserve(traced.size());
+    for (const auto& e : traced)
+        result.push_back(e.dir);
+    return result;
+}
+
+// Display name of a layer (the parenthesized attribution in --verbose).
+inline const char* SearchLayerLabel(SearchLayer layer) {
+    switch (layer) {
+    case SearchLayer::CommandLine: return "-I";
+    case SearchLayer::Project: return "project import paths";
+    case SearchLayer::Local: return "local directory";
+    case SearchLayer::Environment: return "NLANG_PATH";
+    case SearchLayer::System: return "system";
+    }
+    return "system";
+}
+
+// The --verbose listing: a header line, then one "dir (layer)" line per
+// entry in search order.
+inline std::string FormatSearchDirs(const std::vector<SearchDirEntry>& entries) {
+    std::string text = "import search path (first match wins):\n";
+    for (const auto& e : entries)
+        text += e.dir + " (" + SearchLayerLabel(e.layer) + ")\n";
+    return text;
 }
 
 } // namespace nlang

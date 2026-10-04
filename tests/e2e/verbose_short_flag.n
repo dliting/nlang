@@ -1,0 +1,7 @@
+//nvm -v, the short form of --verbose (flag in the .flags sibling):
+//the listing must behave exactly like the long form — stdout carries
+//the import search path with (-I) attribution, then the program still
+//runs (the exit code is the proof).
+int main() {
+    return 7;
+}

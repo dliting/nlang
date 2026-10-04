@@ -7,7 +7,7 @@ program repeatedly, and as the execution step in scripts and pipelines
 where the exit code decides the outcome.
 
 ```text
-nvm <program.ncu|.npkg> [-I <dir>...] [--gc-stress=N]
+nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N]
 ```
 
 Runs a compiled program; the process exit code is `main`'s return value
@@ -36,3 +36,12 @@ environment variable (`;` on Windows, `:` on POSIX) → the executable
 directory / current directory; earlier dirs win and duplicates keep only
 the first. See "Libraries and search paths" in the language specification
 for the full rules.
+
+`--verbose` (short form `-v`) prints the resolved search path before
+the program runs —
+one directory per line, in search order, each line annotated with the
+layer it came from (`(-I)`, `(local directory)`, `(NLANG_PATH)`,
+`(system)`) — then executes normally. It is the observability
+counterpart of the not-found diagnostic above: rerun the failing
+invocation with `--verbose` to see every directory that will be
+searched.

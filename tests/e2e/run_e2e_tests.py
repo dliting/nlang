@@ -488,6 +488,28 @@ def main():
                         failed += 1
                         errors.append(f"  {name}: stdout missing {expected_stdout!r}")
                         continue
+                #<name>.run.stdout asserts on the run-phase stdout with
+                #the same '!'-negation as the file below. Negation is
+                #the point: a dbgm_ --machine test pins that the
+                #--verbose listing stays OFF the protocol channel
+                #(stdout), not just that it appears on stderr.
+                run_stdout_path = os.path.join(
+                    sources_dir, f"{name}.run.stdout")
+                if os.path.isfile(run_stdout_path):
+                    with open(run_stdout_path, encoding='utf-8') as sf:
+                        want = sf.read().strip()
+                    negate = want.startswith('!')
+                    want = want.lstrip('!').strip()
+                    got_stdout = _matchable_stdout(name, result.stdout)
+                    if (want in got_stdout) == negate:
+                        print(f"FAIL {name} (run stdout expectation "
+                              f"mismatch)")
+                        failed += 1
+                        errors.append(
+                            f"  {name}: expected run stdout "
+                            f"{'NOT containing' if negate else 'containing'} "
+                            f"{want!r}")
+                        continue
                 #0.7.7: <name>.run.stderr asserts on the run-phase stderr
                 #(io.eprint's console target — stdout assertions above
                 #cannot see it). Same shape and '!'-negation as the

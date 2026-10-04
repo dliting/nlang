@@ -1090,6 +1090,11 @@ dbgm_stdin_roundtrip 0 Hi Alice
 dbgm_readline_eof 0
 dbgm_io_eprint 0 boom
 dbgm_locals_scope 2 local late int 2
+verbose_search_path 7 (-I)
+dbg_verbose_search 7 (-I)
+dbgm_verbose_search 7 exited 7
+verbose_short_flag 7 (-I)
+dbg_verbose_short 7 (-I)
 generic_key_cross_assign_reject compile_error Incompatible type
 func_generic_coexist 0 8
 func_bind_array_mismatch_reject compile_error does not match the signature

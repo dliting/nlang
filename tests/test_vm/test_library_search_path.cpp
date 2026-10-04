@@ -14,6 +14,10 @@ namespace fs = std::filesystem;
 using nlang::SearchPathInput;
 using nlang::SplitSearchPathEnv;
 using nlang::BuildLibrarySearchPath;
+using nlang::BuildLibrarySearchPathLayered;
+using nlang::FormatSearchDirs;
+using nlang::SearchDirEntry;
+using nlang::SearchLayer;
 
 static int g_pass = 0, g_fail = 0;
 
@@ -120,6 +124,61 @@ static void TestCaseFold() {
 }
 #endif
 
+static void TestLayeredAttribution() {
+    // The layered variant tags each surviving entry with the layer that
+    // contributed it, in the canonical order.
+    SearchPathInput in;
+    in.explicitDirs = {"ed"};
+    in.configuredDirs = {"cd"};
+    in.baseDirs = {"bd"};
+    in.pathEnv = std::string("pd") + kSep;
+    in.systemDirs = {"sd"};
+    auto traced = BuildLibrarySearchPathLayered(in);
+    CHECK(traced.size() == 5, "layered: all five entries survive");
+    CHECK(traced[0].layer == SearchLayer::CommandLine,
+          "layered: -I first");
+    CHECK(traced[1].layer == SearchLayer::Project,
+          "layered: project second");
+    CHECK(traced[2].layer == SearchLayer::Local, "layered: local third");
+    CHECK(traced[3].layer == SearchLayer::Environment,
+          "layered: NLANG_PATH fourth");
+    CHECK(traced[4].layer == SearchLayer::System, "layered: system last");
+    // Parity with the flat build: same directories in the same order.
+    auto flat = BuildLibrarySearchPath(in);
+    CHECK(flat.size() == traced.size(), "layered: size parity with flat");
+    bool same = flat.size() == traced.size();
+    for (size_t i = 0; same && i < traced.size(); ++i)
+        same = flat[i] == traced[i].dir;
+    CHECK(same, "layered: directory order parity with flat");
+}
+
+static void TestLayeredDedupKeepsFirstLayer() {
+    // A directory appearing in two layers survives once, attributed to
+    // the FIRST (higher-priority) layer — the layer that actually wins.
+    SearchPathInput in;
+    in.explicitDirs = {"dup"};
+    in.systemDirs = {"dup", "sd"};
+    auto traced = BuildLibrarySearchPathLayered(in);
+    CHECK(traced.size() == 2, "layered dedup: one entry for the duplicate");
+    CHECK(traced[0].layer == SearchLayer::CommandLine,
+          "layered dedup: first layer wins the attribution");
+    CHECK(traced[1].dir == Key("sd"), "layered dedup: survivor keeps order");
+}
+
+static void TestFormat() {
+    // The --verbose listing: a header line, then one "dir (layer)" line
+    // per entry in search order.
+    std::vector<SearchDirEntry> entries = {
+        {Key("ed"), SearchLayer::CommandLine},
+        {Key("sd"), SearchLayer::System},
+    };
+    const std::string text = FormatSearchDirs(entries);
+    const std::string want =
+        "import search path (first match wins):\n"
+        + Key("ed") + " (-I)\n" + Key("sd") + " (system)\n";
+    CHECK(text == want, "format: header + 'dir (layer)' lines");
+}
+
 int main() {
     std::printf("=== LibrarySearchPath Unit Tests ===\n");
     TestSplit();
@@ -129,6 +188,9 @@ int main() {
 #ifdef _WIN32
     TestCaseFold();
 #endif
+    TestLayeredAttribution();
+    TestLayeredDedupKeepsFirstLayer();
+    TestFormat();
     std::printf("\n=== Results: %s (%d pass, %d fail) ===\n",
         g_fail == 0 ? "all passed" : "FAILURES", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

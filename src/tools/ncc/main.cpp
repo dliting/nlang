@@ -27,6 +27,7 @@
 #include <vector>
 #include "nlang/common/LibrarySearchPath.h"
 #include "nlang/vm/CompiledModule.h"
+#include "SearchPathArgs.h"
 
 namespace fs = std::filesystem;
 
@@ -40,36 +41,9 @@ static void PrintUsage() {
               << "  ncc build -p <project.nproj> [-o out.npkg]  Compile a project\n"
               << "  ncc run <program.ncu|.npkg>  Execute only\n"
               << "  -I <dir>                    Add directory to import search path\n"
+              << "  --verbose, -v               Print the import search path, then proceed\n"
               << "  --no-warn                   Suppress compile warnings (e.g. lossy conversion)\n"
               << "  ncc --version               Print the compiler version\n";
-}
-
-//Assemble the unified, ordered library search path for a compile/build
-//invocation: CLI -I > project <ImportPaths> > local source/project dir >
-//NLANG_PATH > stdlib/exe/cwd. The same dirs drive .n source discovery and
-//native DLL loading. Pure (the resolver does no existence checks).
-static std::vector<std::string> ResolveCompileImportDirs(
-    const std::vector<std::string>& cliDirs,
-    const ProjectFile& project,
-    const std::string& sourceFile,
-    const std::string& stdlibDir,
-    const fs::path& exePath) {
-    SearchPathInput search;
-    search.explicitDirs = cliDirs;
-    if (!project.projectDir.empty()) {
-        search.configuredDirs = project.importPaths;
-        search.baseDirs.push_back(project.projectDir);
-    } else {
-        const fs::path parent = fs::path(sourceFile).parent_path();
-        if (!parent.empty())
-            search.baseDirs.push_back(parent.string());
-    }
-    if (const char* env = std::getenv("NLANG_PATH"))
-        search.pathEnv = env;
-    search.systemDirs = {
-        stdlibDir, exePath.parent_path().string(), "."
-    };
-    return BuildLibrarySearchPath(search);
 }
 
 int main(int argc, char* argv[]) {
@@ -113,15 +87,17 @@ int main(int argc, char* argv[]) {
 
     std::string command = argv[1];
 
-    // ncc run <program.ncu|.npkg> [-I <dir>...]
+    // ncc run <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
     if (command == "run") {
         if (argc < 3) {
             std::cerr << "Error: 'run' requires a module file path.\n";
             return 1;
         }
-        //Optional -I dirs (a native package may live off-module); any other
-        //extra argument is a command-line mistake.
+        //Optional -I dirs (a native package may live off-module) and the
+        //--verbose/-v modifier; any other extra argument is a command-line
+        //mistake.
         std::vector<std::string> runDirs;
+        bool runVerbose = false;
         for (int i = 3; i < argc; ++i) {
             const std::string a = argv[i];
             if (a == "-I") {
@@ -132,6 +108,9 @@ int main(int argc, char* argv[]) {
                 runDirs.push_back(argv[++i]);
             } else if (a.size() > 2 && a.compare(0, 2, "-I") == 0) {
                 runDirs.push_back(a.substr(2));
+            } else if (a == "--verbose" || a == "-v") {
+                //Print the resolved import search path, then run normally.
+                runVerbose = true;
             } else {
                 std::cerr << "Error: unexpected extra argument '" << a
                           << "'.\n";
@@ -145,7 +124,8 @@ int main(int argc, char* argv[]) {
         try {
             //Phase 6: run the artifact through the closure loader and the
             //load-time linker (same call sequence as nvm; see the note
-            //there).
+            //there). The layered build keeps per-directory attribution
+            //for --verbose.
             fs::path modPath(argv[2]);
             SearchPathInput search;
             search.explicitDirs = runDirs;
@@ -155,13 +135,18 @@ int main(int argc, char* argv[]) {
             search.systemDirs = {
                 NativeLibraryLoader::ExecutableDir(), "."
             };
-            const std::vector<std::string> searchPath =
-                BuildLibrarySearchPath(search);
+            std::vector<SearchDirEntry> tracedDirs =
+                BuildLibrarySearchPathLayered(search);
             const std::string stdlibDir = langservice::FindStdLibDir(
                 NativeLibraryLoader::ExecutableDir());
-            std::vector<std::string> allDirs = searchPath;
             if (!stdlibDir.empty())
-                allDirs.push_back(stdlibDir);
+                tracedDirs.push_back({stdlibDir, SearchLayer::System});
+            if (runVerbose)
+                std::cout << FormatSearchDirs(tracedDirs) << "\n";
+            std::vector<std::string> allDirs;
+            allDirs.reserve(tracedDirs.size());
+            for (const auto& e : tracedDirs)
+                allDirs.push_back(e.dir);
             for (const auto& d : allDirs)
                 executor.AddNativeSearchDir(d);
             NcuLoader::Options loaderOpts;
@@ -190,6 +175,7 @@ int main(int argc, char* argv[]) {
     // ncc -p <project.nproj> [-I <dir>...] (compile + run)
     bool compileOnly = (command == "build");
     bool noWarn = false;
+    bool verbose = false;
     std::string sourceFile;
     std::string projectFile;
     std::string outputFile;
@@ -235,6 +221,9 @@ int main(int argc, char* argv[]) {
             importDirs.push_back(arg.substr(2));
         else if (arg == "--no-warn")
             noWarn = true;   // 0.7.5: suppress precision-loss warnings
+        else if (arg == "--verbose" || arg == "-v")
+            //Print the resolved import search path, then proceed.
+            verbose = true;
         else if (sourceFile.empty()) {
             //A .nproj fed positionally would reach the NLang parser and
             //die with a bare syntax error — point at -p instead.
@@ -339,9 +328,20 @@ int main(int argc, char* argv[]) {
 
     //Unified library search path (CLI -I > project <ImportPaths> > local dir
     //> NLANG_PATH > stdlib/exe/cwd); drives both .n discovery and DLL loading.
-    const auto resolvedDirs = ResolveCompileImportDirs(importDirs, project,
-        sourceFile, params.m_sStdLibDir, exePath);
-    params.m_ImportDirs.assign(resolvedDirs.begin(), resolvedDirs.end());
+    const std::vector<SearchDirEntry> resolvedDirs =
+        nccsearch::ResolveCompileImportDirs(importDirs, project, sourceFile,
+            params.m_sStdLibDir, exePath);
+    if (verbose)
+        std::cout << FormatSearchDirs(resolvedDirs) << "\n";
+    //Replace, not append: BuildParams' constructor seeds a literal "." and
+    //the resolved list already carries the normalized working dir (deduped
+    //against the base dir). Appending would leave the same directory in
+    //the list under two spellings, and the duplicate-package check would
+    //reject a same-dir source library whenever the CWD is the source dir
+    //('.' and the absolute spelling both probe to the same file).
+    params.m_ImportDirs.clear();
+    for (const auto& e : resolvedDirs)
+        params.m_ImportDirs.push_back(e.dir);
 
     //Derive the save path parts from the whole outputFile via fs::path
     //(find_last_of/substr drops the separator of a root-only path like

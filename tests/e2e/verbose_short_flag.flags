@@ -1,0 +1,1 @@
+-v -I vsp_lib # short form of --verbose; same listing, then the run proceeds

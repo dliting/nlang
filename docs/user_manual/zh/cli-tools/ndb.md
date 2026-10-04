@@ -7,7 +7,7 @@ ndb 是 NLang 的交互式调试器：装载程序后停在入口，按命令设
 调试器就构建在其上。
 
 ```text
-ndb <program.ncu|.npkg> [-I <dir>...]
+ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 ```
 
 装载程序后**停在入口首条语句**（等价 gdb 的 `start`），给出提示符
@@ -68,7 +68,8 @@ Program exited with code 0.
 
 ## 嵌入前端协议
 
-`ndb --machine <program.ncu|.npkg> [-I <dir>...]` 在 stdin/stdout 上暴露同一会话的
+`ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]` 在
+stdin/stdout 上暴露同一会话的
 tab 分隔行协议，供嵌入前端使用——nide 的图形调试器就构建在它之上。
 协议细节见[在 nide 中调试](../getting-started/debugging.md)与
 [调试器架构](../vm-architecture/debugging.md)。
@@ -76,3 +77,8 @@ tab 分隔行协议，供嵌入前端使用——nide 的图形调试器就构�
 交互式与 `--machine` 两种形态都接受 `-I <dir>`（可多次指定），用于定位
 闭包成员与 native 动态库；搜索目录的拼接顺序与 nvm 相同（`-I` → 模块
 目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录）。
+
+`--verbose`（短写法 `-v`）在会话开始前打印解析后的搜索路径（每行
+一个目录并括注来源
+层，同 nvm），随后照常进行。`--machine` 形态下这份列表输出到
+**stderr**——stdout 是协议通道，不得混入非协议行。

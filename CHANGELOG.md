@@ -66,6 +66,14 @@ All notable changes to NLang are documented here. The format follows
   — and echoes into the output with a `>` prefix. The row is grayed
   out when nothing is live. Debug sessions no longer reject
   interactive input programs.
+- Tools: `--verbose` (short form `-v`) on ncc, nvm and ndb prints the
+  resolved import search path before proceeding normally — one directory
+  per line in search order, each annotated with the layer it came from
+  (`(-I)`, `(project import paths)`, `(local directory)`, `(NLANG_PATH)`,
+  `(system)`). It is the observability counterpart of the not-found
+  diagnostic (rerun a failing invocation with `--verbose` to see every
+  directory that will be searched); in `ndb --machine` mode the listing
+  goes to stderr because stdout is the protocol channel.
 
 ### Changed
 - Language: the `namespace` keyword is removed — the wrapper syntax,

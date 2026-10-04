@@ -1,0 +1,7 @@
+//ndb --machine --verbose (flag in the .flags sibling): stdout is the
+//protocol channel, so the import search listing MUST land on stderr
+//(pinned by the .run.stderr sibling); the protocol itself stays clean
+//and the program completes (exited event carries the code below).
+int main() {
+    return 7;
+}

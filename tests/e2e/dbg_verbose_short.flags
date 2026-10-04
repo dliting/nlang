@@ -1,0 +1,1 @@
+-v -I dbg_vs_lib # short form of --verbose (CLI mode shares the parse with --machine)

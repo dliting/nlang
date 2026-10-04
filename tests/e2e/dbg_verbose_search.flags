@@ -1,0 +1,1 @@
+--verbose -I dbg_vs_lib # listing on stdout (CLI mode), then the session proceeds

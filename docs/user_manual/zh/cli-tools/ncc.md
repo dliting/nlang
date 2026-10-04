@@ -15,7 +15,7 @@ nvm 运行或 ndb 调试的模块，用 `build` 形态；多文件项目交给 `
 | 仅编译 | `ncc build <source.n> [-o out.ncu] [-I <dir>...]` | 产出 .ncu |
 | 项目：编译并执行 | `ncc -p <project.nproj> [-o out.npkg] [-I <dir>...]` | 整项目编译后运行 |
 | 项目：仅编译 | `ncc build -p <project.nproj> [-o out.npkg]` | 产出 .npkg |
-| 仅执行 | `ncc run <program.ncu\|.npkg>` | 等价 nvm；除 `-I` 外的多余参数报错 |
+| 仅执行 | `ncc run <program.ncu\|.npkg>` | 等价 nvm；除 `-I` 与 `--verbose`/`-v` 外的多余参数报错 |
 
 ## 标志
 
@@ -24,6 +24,7 @@ nvm 运行或 ndb 调试的模块，用 `build` 形态；多文件项目交给 `
 | `-o <path>` | 形态 1-4 | 输出路径——单文件形态给 `.ncu`、项目形态给 `.npkg`；重复给报错 |
 | `-p <nproj>` | 项目形态 | 不可与源文件位置参数同用；重复给报错 |
 | `-I <dir>`（或 `-I<dir>` 连写） | 形态 1-5 | 库搜索路径，可多次给：编译期查找被 import 的 `.n` 与外部 `.ncu`/`.npkg`，运行期定位闭包成员与 native 动态库 |
+| `--verbose` / `-v` | 形态 1-5 | 打印解析后的导入搜索路径——每行一个目录，括注来源层——随后照常执行（列表形态与 nvm 相同） |
 
 错误与诊断信息打到 stderr，`Compiled successfully:` 成功行打到
 stdout。常见错误形态：
@@ -99,7 +100,9 @@ Runtime error: nloader failed:
 `NLANG_PATH`（Windows 以 `;`、POSIX 以 `:` 分隔），最后是标准库目录
 等系统缺省。前面的目录优先，重复目录只保留第一次出现。同一组目录在
 运行期继续服务闭包装载（`.ncu`/`.npkg` 成员定位）与 native 动态库
-加载。
+加载。`--verbose`（短写法 `-v`）让 ncc 在开始编译之前打印这份解析后的顺序（每行
+括注来源层，如 `(-I)`、`(project import paths)`、`(local
+directory)`、`(NLANG_PATH)`、`(system)`）。
 
 `.nproj` 可用 `<ImportPaths>` 持久化搜索目录（路径相对项目文件存储）：
 

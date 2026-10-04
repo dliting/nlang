@@ -29,7 +29,7 @@ using namespace nlang;
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: nvm <program.ncu|.npkg> [-I <dir>...] "
-                     "[--gc-stress=N]\n"
+                     "[--verbose | -v] [--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -71,6 +71,7 @@ int main(int argc, char* argv[]) {
     //argument is the module.
     size_t gcStress = 0;
     std::vector<std::string> importDirs;
+    bool verbose = false;
     int moduleArg = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -98,13 +99,16 @@ int main(int argc, char* argv[]) {
             importDirs.push_back(argv[++i]);
         } else if (a.size() > 2 && a.compare(0, 2, "-I") == 0) {
             importDirs.push_back(a.substr(2));
+        } else if (a == "--verbose" || a == "-v") {
+            //Print the resolved import search path, then run normally.
+            verbose = true;
         } else if (moduleArg < 0) {
             moduleArg = i;
         }
     }
     if (moduleArg < 0) {
         std::cerr << "Usage: nvm <program.ncu|.npkg> [-I <dir>...] "
-                     "[--gc-stress=N]\n"
+                     "[--verbose | -v] [--gc-stress=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -132,14 +136,20 @@ int main(int argc, char* argv[]) {
         //exe dir/cwd (native DLLs may ship beside the module or in -I
         //dirs), plus the system stdlib directory (where stdlib.npkg
         // lives) last. ONE list serves both the native search dirs and
-        //the closure loader (ndb composes the same way).
-        const std::vector<std::string> searchPath =
-            BuildLibrarySearchPath(search);
+        //the closure loader (ndb composes the same way). The layered
+        //build keeps per-directory attribution for --verbose.
+        std::vector<SearchDirEntry> tracedDirs =
+            BuildLibrarySearchPathLayered(search);
         const std::string stdlibDir = langservice::FindStdLibDir(
             NativeLibraryLoader::ExecutableDir());
-        std::vector<std::string> allDirs = searchPath;
         if (!stdlibDir.empty())
-            allDirs.push_back(stdlibDir);
+            tracedDirs.push_back({stdlibDir, SearchLayer::System});
+        if (verbose)
+            std::cout << FormatSearchDirs(tracedDirs) << "\n";
+        std::vector<std::string> allDirs;
+        allDirs.reserve(tracedDirs.size());
+        for (const auto& e : tracedDirs)
+            allDirs.push_back(e.dir);
         for (const auto& d : allDirs)
             executor.AddNativeSearchDir(d);
         NcuLoader::Options loaderOpts;
