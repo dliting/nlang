@@ -86,6 +86,7 @@
 - 内部实现文件放 `src/` 下对应模块目录。
 - 文档统一放 `docs/`（2026-08-21 起：原规则写 `doc/`，但现存文档一直全在 `docs/`，按既成事实修正，`doc/ci_design.md` 已迁入）。用户手册双树在 `docs/user_manual/{zh,en}`（2026-09-30 自 `docs/{zh,en}` 迁入）；开发向设计文档在 `docs/dev/`。
 - 示例 NLang 程序放 `examples/`。
+- 标准库的 NLang 源码放 `stdlib/`（与安装布局对齐，构建期 bootstrap 编译为 `stdlib.npkg` 随包分发）。
 - Flex/Bison 文法文件放 `src/compiler/grammar/`。
 - 临时文件和脚本，请放到 `temp/`。
 - 手册双树的编辑政策与术语表见 docs/user-manual-style-guide.md（紧凑空格与缩略语共现两项守卫在 docs 测试套件内强制）。
