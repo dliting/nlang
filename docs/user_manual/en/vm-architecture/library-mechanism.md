@@ -1,10 +1,11 @@
 # Library Mechanism: Search Paths, Source Inlining and Native Modules
 
-This page records the design of NLang's library system as it stands after
-the evolution rounds (phases 1–6): how a library is found, parsed, compiled
-and executed, and why the mechanism takes this shape. It is a design note
-for maintainers; user-facing usage lives in
-[Standard Library](../language-spec/standard-library.md).
+This page describes the design of NLang's library system: how a library
+is found, parsed, compiled and executed, and why the mechanism takes
+this shape. It is a design note for runtime maintainers; the
+author-oriented guide lives in
+[Developing Libraries](../libraries/developing-libraries.md), and
+user-facing usage in [Standard Library](../language-spec/standard-library.md).
 
 ## 1. Guiding principle
 
@@ -103,8 +104,7 @@ Consequences of one shared model:
 
 A library TU is compiled in but is deliberately *not* a project module:
 
-- it does not join the same-directory auto-visibility pool (the D7 rule
-  is project-only), and it does not inject its directory's other files;
+- it does not join the same-directory auto-visibility pool (that rule applies to project files only), and it does not inject its directory's other files;
 - wildcards never pull library TUs in as project modules;
 - a library never sees the consuming project's modules; it only sees
   what it itself imports;
@@ -207,23 +207,21 @@ the general string formal, while class/enum/func require an explicit
 `.toString()`. There is no `TypeKind::Any` and no print-specific
 argument-to-string codegen.
 
-## 7. Decision records
+## 7. Design trade-offs
 
 - **Inline the sources at compile time for signatures, load precompiled
-  library packages at run time** (phase 6's division of labor):
-  inlining keeps bodies readable, modifiable and recompilable, and
-  preserves one resolution path; the per-build re-parse cost of a
-  handful of `.n` files is negligible until measured otherwise.
-  Codegen emits only the consumer's own units; library units' images
-  ship with their packages (the standard library is `stdlib.npkg`),
-  and linking happens at load time — distribute-without-source and
-  source inlining thereby coexist, both dispatching per function, so
-  mixed native/managed libraries hold on either side.
-- **No transitional dual path** (stdlib via signatures, third-party via
-  AST): the inlining mechanism is identical for both, so phase 4a
-  switched all libraries at once and deleted the signature-driven
-  codegen outright. Behavior-preservation was carried by the full
-  regression suite.
+  library packages at run time**: inlining keeps bodies readable,
+  modifiable and recompilable, and preserves one resolution path; the
+  per-build re-parse cost of a handful of `.n` files is negligible until
+  measured otherwise. Codegen emits only the consumer's own units;
+  library units' images ship with their packages (the standard library
+  is `stdlib.npkg`), and linking happens at load time —
+  distribute-without-source and source inlining thereby coexist, both
+  dispatching per function, so mixed native/managed libraries hold on
+  either side.
+- **One inlining path for the standard library and third-party libraries
+  alike**: the mechanism is identical for both; there is no second
+  code-generation path that branches on a library's origin.
 - **Generic `any` dropped rather than implemented**: implicit
   string-coercion for string formals already covered int/float/array,
   matching the rest of the language; a top type would be a second,
@@ -237,26 +235,7 @@ argument-to-string codegen.
   re-parsing every build; a cache is deferred until compile-time data
   justifies it.
 
-## 8. Remaining work (design status as of 2026-10-04)
-
-Mechanism landed: 4a unified inlining (commit `ab4546a`), the in-process
-mixed native + NLang library test (4b-1, `test_thirdparty.cpp`), the
-library type surface (4b-2, section 3), the retirement of the built-in
-standard library (4c, section 6), search paths (3d), native ABI and
-loader (3b/3c), load-time closure loading and linking (phase 6 —
-nloader/nlink, per-unit artifacts, `stdlib.npkg`; section 3 "Run
-time"). Open items:
-
-1. **4d** — change-aware recompilation: nide's standalone staleness
-   check must account for inlined library `.n` files, not only the main
-   source. Two candidate designs, both keeping library-discovery rules
-   in the compiler alone: serialize the participating library sources
-   (paths + mtimes) into the `.ncu` (format bump, no backward
-   compatibility required), or a `ncc deps` query mode that reports the
-   discovered list. Plus: ndb verification of breaking into library
-   source, asynchronous `runNccBuild` in nide.
-
-## 9. Testing conventions
+## 8. Testing conventions
 
 Per the repository rules: real compilation of `.n` sources and real
 execution on `VmExecutor` (no mocked internals) — see
