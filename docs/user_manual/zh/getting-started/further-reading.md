@@ -25,3 +25,5 @@
 
 想看能跑的完整程序：`examples/README.md`按主题列出全部示例与预期退出码，
 本页速览片段也大多能在其中找到对应示例。
+
+想扩展或嵌入：[开发第三方库](../libraries/developing-libraries.md)讲怎么把可复用代码做成库（含native混合形态），[集成NLang](../libraries/integrating-nlang.md)讲怎么在自己的程序里以子进程驱动NLang——依赖清单、部署与调试。

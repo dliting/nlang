@@ -24,6 +24,8 @@ nav:
       - 三种运行方式: getting-started/running.md
       - 在nide中调试: getting-started/debugging.md
       - 常见问题: getting-started/faq.md
+      - 扩展NLang: getting-started/extending-nlang.md
+      - 将NLang嵌入到其他程序中: getting-started/embedding-nlang.md
       - 下一步阅读: getting-started/further-reading.md
   - 命令行工具:
       - 概览: cli-tools/overview.md
@@ -77,6 +79,9 @@ nav:
       - 参考:
           - 已知限制: language-spec/known-limitations.md
           - 常见错误消息: language-spec/common-errors.md
+  - 库与集成:
+      - 开发第三方库: libraries/developing-libraries.md
+      - 集成NLang: libraries/integrating-nlang.md
   - VM架构:
       - 概览: vm-architecture/overview.md
       - 核心:

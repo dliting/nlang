@@ -32,3 +32,5 @@ inside the integrated development environment (IDE) see [Debugging in nide](debu
 For complete runnable programs: `examples/README.md` lists every example
 by topic with its expected exit code, and most of this crash course's
 snippets have a corresponding example there.
+
+To extend or embed: [Developing Libraries](../libraries/developing-libraries.md) shows how to package reusable code as a library (including native implementations), and [Integrating NLang](../libraries/integrating-nlang.md) how to drive NLang from your own program via subprocesses — dependencies, deployment and debugging.

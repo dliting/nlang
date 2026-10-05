@@ -24,6 +24,8 @@ nav:
       - Three Ways to Run: getting-started/running.md
       - Debugging in nide: getting-started/debugging.md
       - FAQ: getting-started/faq.md
+      - Extending NLang: getting-started/extending-nlang.md
+      - Embedding NLang in Other Programs: getting-started/embedding-nlang.md
       - Further Reading: getting-started/further-reading.md
   - Command-line Tools:
       - Overview: cli-tools/overview.md
@@ -77,6 +79,9 @@ nav:
       - Reference:
           - Known Limitations: language-spec/known-limitations.md
           - Common Error Messages: language-spec/common-errors.md
+  - Libraries and Integration:
+      - Developing Libraries: libraries/developing-libraries.md
+      - Integrating NLang: libraries/integrating-nlang.md
   - VM Architecture:
       - Overview: vm-architecture/overview.md
       - Core:
