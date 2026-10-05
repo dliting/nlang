@@ -145,6 +145,22 @@ target_compile_definitions(test_native_host
 )
 add_test(NAME native_host_tests COMMAND test_native_host)
 
+# Input-side unit tests: InputLineSource (injected FILE*) and TokenView
+# (scripted line source) — slicing logic and EOF semantics, no executor.
+add_executable(test_io_input
+    test_vm/test_io_input.cpp
+)
+target_include_directories(test_io_input
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_io_input
+    PRIVATE nlang_vm nlang_runtime
+)
+add_test(NAME io_input_tests COMMAND test_io_input)
+set_tests_properties(io_input_tests PROPERTIES TIMEOUT 180)
+
 # Third-party native library fixture (a real DLL shipped inside a package).
 add_library(nlang_mylib SHARED
     fixtures/native/mylib/mylib_native.cpp
