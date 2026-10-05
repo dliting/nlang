@@ -56,10 +56,32 @@ void IoEprint(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     h->writeError(h, "\n");
 }
 
-// readLine: delegate to the host (it owns stdin and the session policy).
+// readLine: delegate to the host (it owns stdin and the session
+// policy). null = end of input folds to the "" sentinel — the NLang
+// level cannot distinguish them without hasInput.
 void IoReadLine(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
     const char* line = h->readLine(h);
     ReturnInt(ret, h->newString(h, line ? line : ""));
+}
+
+// readToken/readChar/hasInput: thin delegations — the host owns the
+// cursor state (only it can keep mixed reads coherent). End of input
+// is raised host-side, so the folds below only defend against a host
+// that somehow returns without raising.
+void IoReadToken(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
+    const char* token = h->readToken(h);
+    ReturnInt(ret, h->newString(h, token ? token : ""));
+}
+
+void IoReadChar(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
+    uint32_t codePoint = 0;
+    if (h->readChar(h, &codePoint) != 0)
+        codePoint = 0;   //end of input raised host-side; fold only
+    ReturnInt(ret, static_cast<int32_t>(codePoint));
+}
+
+void IoHasInput(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
+    ReturnInt(ret, h->hasInput(h) ? 1 : 0);
 }
 
 // readFile: whole binary file, with an open check, a size cap and a short-read
@@ -122,6 +144,9 @@ NLANG_DEFINE_NATIVE_INIT {
     reg(registry, "io", "write",      &IoWrite);
     reg(registry, "io", "eprint",     &IoEprint);
     reg(registry, "io", "readLine",   &IoReadLine);
+    reg(registry, "io", "hasInput",   &IoHasInput);
+    reg(registry, "io", "readToken",  &IoReadToken);
+    reg(registry, "io", "readChar",   &IoReadChar);
     reg(registry, "io", "readFile",   &IoReadFile);
     reg(registry, "io", "writeFile",  &IoWriteFile);
     reg(registry, "io", "appendFile", &IoAppendFile);

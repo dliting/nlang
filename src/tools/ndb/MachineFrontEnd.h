@@ -147,9 +147,10 @@ public:
     void WaitUntilResume() override;
 
     //IHostIo — program output becomes output events; ReadInputLine is
-    //io.readLine's input channel, fed from stdin data commands.
+    //the input reads' channel, fed from stdin data commands.
     void OnOutput(std::string_view text) override;
-    bool ReadInputLine(std::string& line) override;
+    HostInputStatus ReadInputLine(std::string& line) override;
+    bool HasInputLine() override;
 
 private:
     //Command dispatch; returns true when the current pump ends (`run`

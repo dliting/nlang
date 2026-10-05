@@ -29,8 +29,10 @@ extern "C" {
 // mismatch. Version 2: the value slot widened from 4 to 8 bytes (the
 // 0.7.5 slot-width ABI — one uniform frame cell per value). Version 3:
 // the writeError callback added (io.eprint's stderr channel — only the
-// host knows whether a session owns the streams).
-#define NLANG_HOST_ABI_VERSION 3u
+// host knows whether a session owns the streams). Version 4: the input
+// side — readToken/readChar/hasInput added and readLine's null-at-end-
+// of-input contract made explicit.
+#define NLANG_HOST_ABI_VERSION 4u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -80,9 +82,20 @@ struct NativeHost {
     // owns the streams (io.eprint's route).
     void (*writeError)(NativeHost* self, const char* text);
 
-    // Read one line from standard input (trailing CR/LF stripped). The
-    // returned pointer is valid only until the next host callback.
+    // Read one line from standard input (trailing CR/LF stripped).
+    // Returns null at end of input — an empty input line returns "".
+    // The returned pointer is valid only until the next host callback.
     const char* (*readLine)(NativeHost* self);
+
+    // v4 input side. readToken skips whitespace (across lines) and
+    // returns the next token, or null at end of input — the host raises
+    // before returning null, so natives treat null as defensive only.
+    // readChar decodes one full UTF-8 scalar; 0 = ok, 1 = end of input
+    // (host raised). hasInput never raises: 1 = a readLine would still
+    // produce a line.
+    const char* (*readToken)(NativeHost* self);
+    int (*readChar)(NativeHost* self, uint32_t* outChar);
+    int (*hasInput)(NativeHost* self);
 
     // Raise an NLang exception and never return.
     void (*raiseException)(NativeHost* self, int exceptionKind,

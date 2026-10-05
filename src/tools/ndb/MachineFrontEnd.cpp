@@ -282,7 +282,7 @@ void MachineFrontEnd::OnOutput(std::string_view text)
     EmitLine(protocol::MakeEvent("output", {std::string(text)}));
 }
 
-bool MachineFrontEnd::ReadInputLine(std::string& line)
+HostInputStatus MachineFrontEnd::ReadInputLine(std::string& line)
 {
     //io.readLine's input channel. The queue drains first (type-ahead);
     //when it runs dry the program is parked HERE, so pump the command
@@ -295,7 +295,7 @@ bool MachineFrontEnd::ReadInputLine(std::string& line)
         if (!m_inputQueue.empty()) {
             line = std::move(m_inputQueue.front());
             m_inputQueue.pop_front();
-            return true;
+            return HostInputStatus::Line;
         }
         std::string raw;
         if (!std::getline(m_in, raw))
@@ -311,6 +311,16 @@ bool MachineFrontEnd::ReadInputLine(std::string& line)
             continue;   //blank line: same silent skip as the other pumps
         Dispatch(command);
     }
+}
+
+bool MachineFrontEnd::HasInputLine()
+{
+    //Parked (already delivered) lines only: a non-blocking probe must
+    //not pump the command channel or run protocol commands. A batch-
+    //style hasInput loop in a debug session exits when the queue runs
+    //dry — documented limitation; the embedded-terminal subproject
+    //will rebuild this.
+    return !m_inputQueue.empty();
 }
 
 // --- emission ---

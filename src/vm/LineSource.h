@@ -1,12 +1,13 @@
 /*---
-LineSource.h — abstract blocking line source for io's input side.
+LineSource.h — abstract blocking line source plus the host-IO adapter.
 TokenView (the readToken/readChar state machine) sits on this interface
 so the console/file path (InputLineSource) and the embedded-host path
-(HostIoLineSource, appended once IHostIo grows its tri-state input
-seam) share one slicing implementation.
+(HostIoLineSource) share one slicing implementation.
 ---*/
 #pragma once
 #include <string>
+
+#include "IHostIo.h"
 
 namespace nlang {
 
@@ -28,6 +29,40 @@ public:
     //(already-buffered content counts). Exactness is source-dependent —
     //see InputLineSource and HostIoLineSource.
     virtual bool HasMore() = 0;
+};
+
+//Adapter over the embedding host's input seam. Latches terminal
+//states: IHostIo::HasInputLine's default (true) must not keep promising
+//input after the host itself reported Eof/NoChannel, or a hasInput-
+//driven loop would never exit.
+class HostIoLineSource : public LineSource {
+public:
+    explicit HostIoLineSource(IHostIo& host) : m_host(host) {}
+
+    InputReadStatus PullLine(std::string& line) override {
+        if (m_terminal != InputReadStatus::Ok) return m_terminal;
+        switch (m_host.ReadInputLine(line)) {
+        case HostInputStatus::Line:
+            //Hosts may hand "\r\n"-shaped lines; normalize here so both
+            //line sources answer the byte-identical contract.
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            return InputReadStatus::Ok;
+        case HostInputStatus::Eof:
+            return m_terminal = InputReadStatus::Eof;
+        case HostInputStatus::NoChannel:
+            return m_terminal = InputReadStatus::NoChannel;
+        }
+        return InputReadStatus::NoChannel;   //unreachable
+    }
+
+    bool HasMore() override {
+        return m_terminal == InputReadStatus::Ok && m_host.HasInputLine();
+    }
+
+private:
+    IHostIo& m_host;
+    InputReadStatus m_terminal = InputReadStatus::Ok;
 };
 
 } // namespace nlang

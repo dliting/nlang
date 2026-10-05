@@ -8,12 +8,15 @@ only through these callbacks; the mutable state (PRNG, string/list stores)
 stays here, in the executor.
 ---*/
 #include "VmExecutor.h"
+#include "InputLineSource.h"
+#include "LineSource.h"
+#include "TokenView.h"
 #include "VmExecutorSer.h"
 #include "NativeLibraryLoader.h"
 
 #include <cstdio>
 #include <cstring>
-#include <iostream>
+#include <memory>
 #include <string>
 
 namespace nlang {
@@ -37,6 +40,9 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.writeOutput = &VmExecutor::NativeWriteOutput;
     host.c.writeError = &VmExecutor::NativeWriteError;
     host.c.readLine = &VmExecutor::NativeReadLine;
+    host.c.readToken = &VmExecutor::NativeReadToken;
+    host.c.readChar = &VmExecutor::NativeReadChar;
+    host.c.hasInput = &VmExecutor::NativeHasInput;
     host.c.raiseException = &VmExecutor::NativeRaiseException;
     host.c.nextRandom = &VmExecutor::NativeNextRandom;
     host.c.seedRandom = &VmExecutor::NativeSeedRandom;
@@ -84,32 +90,73 @@ void VmExecutor::NativeWriteError(NativeHost* self, const char* text) {
     }
 }
 
+TokenView& VmExecutor::EnsureInputView() {
+    if (!m_upInputView) {
+        m_upInputSource = m_pHostIo
+            ? std::unique_ptr<LineSource>(
+                std::make_unique<HostIoLineSource>(*m_pHostIo))
+            : std::unique_ptr<LineSource>(
+                std::make_unique<InputLineSource>());
+        m_upInputView = std::make_unique<TokenView>(*m_upInputSource);
+    }
+    return *m_upInputView;
+}
+
 const char* VmExecutor::NativeReadLine(NativeHost* self) {
     VmNativeHost* h = Wrap(self);
     VmExecutor* e = h->executor;
-    //An installed host IS the input channel: it supplies whole lines
-    //(blocking allowed — the program is parked here) and a host with no
-    //input returns false, so readLine fails loudly instead of silently
-    //consuming the embedder's stream (machine mode keeps stdin as its
-    //protocol channel). No host at all keeps console getline (nvm/CLI).
     std::string line;
-    if (e->m_pHostIo) {
-        if (!e->m_pHostIo->ReadInputLine(line))
-            e->RaiseNlangException(e->m_ioExcClassIdx,
-                "io.readLine: stdin is not available in this session.");
-    }
-    else if (!std::getline(std::cin, line)) {
-        //getline fails (and leaves line empty) at EOF with no chars
-        //read, so an empty final line and EOF are indistinguishable —
-        //documented semantics rather than a defect.
-        line.clear();
-    }
-    //Strip a trailing '\r' from either source: console CRLF framing
-    //and a host that passes "\r\n"-shaped lines both normalize here.
-    if (!line.empty() && line.back() == '\r')
-        line.pop_back();
+    const InputReadStatus st = e->EnsureInputView().ReadLine(line);
+    if (st == InputReadStatus::NoChannel)
+        e->RaiseNlangException(e->m_ioExcClassIdx,
+            "io.readLine: stdin is not available in this session.");
+    if (st == InputReadStatus::Eof)
+        return nullptr;   //end of input: io_native folds null into the
+                          //"" sentinel — line-level reads never raise
+    //Trailing '\r' was already stripped by the line source.
     h->lineScratch = std::move(line);
     return h->lineScratch.c_str();
+}
+
+const char* VmExecutor::NativeReadToken(NativeHost* self) {
+    VmNativeHost* h = Wrap(self);
+    VmExecutor* e = h->executor;
+    std::string token;
+    const InputReadStatus st = e->EnsureInputView().ReadToken(token);
+    if (st == InputReadStatus::NoChannel)
+        e->RaiseNlangException(e->m_ioExcClassIdx,
+            "io.readToken: stdin is not available in this session.");
+    if (st == InputReadStatus::Eof)
+        e->RaiseNlangException(e->m_ioExcClassIdx,
+            "io.readToken: input ended.");
+    h->lineScratch = std::move(token);
+    return h->lineScratch.c_str();
+}
+
+int VmExecutor::NativeReadChar(NativeHost* self, uint32_t* outChar) {
+    VmExecutor* e = Wrap(self)->executor;
+    uint32_t codePoint = 0;
+    bool invalidUtf8 = false;
+    const InputReadStatus st = e->EnsureInputView().ReadChar(
+        codePoint, invalidUtf8);
+    if (st == InputReadStatus::NoChannel)
+        e->RaiseNlangException(e->m_ioExcClassIdx,
+            "io.readChar: stdin is not available in this session.");
+    if (st == InputReadStatus::Eof)
+        e->RaiseNlangException(e->m_ioExcClassIdx,
+            "io.readChar: input ended.");
+    if (invalidUtf8)
+        e->RaiseNlangExceptionBase("io.readChar: input is not valid UTF-8.");
+    *outChar = codePoint;
+    return 0;   //contract: 0 = ok (end of input raised above)
+}
+
+int VmExecutor::NativeHasInput(NativeHost* self) {
+    VmExecutor* e = Wrap(self)->executor;
+    //Predicate contract: never raises. A no-channel host latches
+    //HasMore false on its first read (which raises); until then the
+    //default host probe answers true — documented in io.n's comment.
+    return e->EnsureInputView().HasInput() ? 1 : 0;
 }
 
 void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,

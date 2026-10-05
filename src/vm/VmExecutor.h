@@ -4,6 +4,7 @@
 #include "BytecodeReader.h"
 #include "IDebugHooks.h"
 #include "IHostIo.h"
+#include "TokenView.h"
 #include "VmExecutorNativeHost.h"
 #include "NativeLibraryLoader.h"
 #include <cstdint>
@@ -409,6 +410,14 @@ private:
     static void NativeWriteOutput(NativeHost* self, const char* text);
     static void NativeWriteError(NativeHost* self, const char* text);
     static const char* NativeReadLine(NativeHost* self);
+    static const char* NativeReadToken(NativeHost* self);
+    static int NativeReadChar(NativeHost* self, uint32_t* outChar);
+    static int NativeHasInput(NativeHost* self);
+
+    //Lazily built on the first input native call (stdin's first touch —
+    //the unbuffered switch must precede any I/O). One executor runs one
+    //program once, so the lazily-built view is never rebuilt.
+    TokenView& EnsureInputView();
     static void NativeRaiseException(NativeHost* self, int exceptionKind,
         const char* message);
     static uint32_t NativeNextRandom(NativeHost* self);
@@ -499,6 +508,11 @@ private:
 
     //Host I/O sink (null = write stdout / read stdin as before).
     IHostIo* m_pHostIo = nullptr;
+
+    //Input side: the source is the host seam when a host is installed,
+    //else the portable stdin reader; TokenView owns the shared cursor.
+    std::unique_ptr<LineSource> m_upInputSource;
+    std::unique_ptr<TokenView> m_upInputView;
 
     //ndb: functions[] index of the innermost frame. Module functions
     //vector is stable after load (no reallocation), so pointer

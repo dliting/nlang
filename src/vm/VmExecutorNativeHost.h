@@ -20,7 +20,7 @@ struct VmNativeHost {
     NativeHost c;                 // public C ABI function table (first)
     VmExecutor* executor = nullptr;
     std::string stringScratch;    // backs getString returned pointers
-    std::string lineScratch;      // backs readLine returned pointers
+    std::string lineScratch;      // backs readLine/readToken pointers
 };
 
 } // namespace nlang

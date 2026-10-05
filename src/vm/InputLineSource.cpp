@@ -1,6 +1,6 @@
 /*---
 InputLineSource.cpp — byte-stream line assembly plus the platform
-probe seam (see the header for the buffering rationale).
+probe seam (see the header for the read mechanism rationale).
 ---*/
 #include "InputLineSource.h"
 
@@ -20,21 +20,30 @@ namespace {
 constexpr size_t kReadChunkBytes = 4096;
 } // namespace
 
-InputLineSource::InputLineSource(std::FILE* stream) : m_stream(stream) {
-    std::setvbuf(m_stream, nullptr, _IONBF, 0);
-}
+InputLineSource::InputLineSource(std::FILE* stream) : m_stream(stream) {}
 
 bool InputLineSource::FillBuffer() {
     if (m_streamEof) return false;
     const size_t start = m_buffer.size();
     m_buffer.resize(start + kReadChunkBytes);
-    const size_t got = std::fread(&m_buffer[start], 1, kReadChunkBytes,
-                                  m_stream);
-    m_buffer.resize(start + got);
-    if (got == 0) {
-        m_streamEof = true;
+    //read()/_read answer with the bytes available RIGHT NOW (a pipe
+    //delivers one line; a disk fills the whole chunk). fread is
+    //unusable here: it blocks until the full request is satisfied, so
+    //an interactive writer that keeps the pipe open (an IDE's stdin
+    //row, a console user) would deadlock the program mid-read.
+#if defined(_WIN32)
+    const int got = _read(_fileno(m_stream), &m_buffer[start],
+                          static_cast<unsigned int>(kReadChunkBytes));
+#else
+    const ssize_t got = ::read(fileno(m_stream), &m_buffer[start],
+                               kReadChunkBytes);
+#endif
+    if (got <= 0) {
+        m_buffer.resize(start);
+        m_streamEof = true;   //EOF and error both: no more bytes ever
         return false;
     }
+    m_buffer.resize(start + static_cast<size_t>(got));
     return true;
 }
 

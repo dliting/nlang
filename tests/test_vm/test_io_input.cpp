@@ -11,6 +11,13 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 using namespace nlang;
 
 static int g_pass = 0, g_fail = 0;
@@ -109,6 +116,43 @@ void TestHasInputEmptyStream() {
     CHECK(!src.HasMore(), "empty stream: no input");
     std::string line;
     CHECK(Pull(src, line) == InputReadStatus::Eof, "empty stream: eof pull");
+}
+
+void TestOpenPipeDeliversLinesImmediately() {
+    //The nide regression pin: a line written to a STILL-OPEN pipe must
+    //be deliverable right away. A fill-until-full read (fread) blocks
+    //here until the write end closes — exactly the deadlock the nide
+    //stdin row hit.
+#if defined(_WIN32)
+    int fds[2];
+    if (_pipe(fds, 4096, _O_BINARY) != 0) {
+        CHECK(false, "pipe create failed");
+        return;
+    }
+    std::FILE* readEnd = _fdopen(fds[0], "rb");
+    std::FILE* writeEnd = _fdopen(fds[1], "wb");
+#else
+    int fds[2];
+    if (pipe(fds) != 0) {
+        CHECK(false, "pipe create failed");
+        return;
+    }
+    std::FILE* readEnd = fdopen(fds[0], "rb");
+    std::FILE* writeEnd = fdopen(fds[1], "wb");
+#endif
+    std::fputs("Alice\n", writeEnd);
+    std::fflush(writeEnd);   //line is in the pipe; write end STAYS OPEN
+    {
+        InputLineSource src(readEnd);
+        std::string line;
+        CHECK(Pull(src, line) == InputReadStatus::Ok && line == "Alice",
+              "line delivered while pipe is open");
+        CHECK(!src.HasMore(), "open pipe with no pending line: no input");
+        std::fclose(writeEnd);
+        CHECK(Pull(src, line) == InputReadStatus::Eof,
+              "eof once the write end closes");
+    }
+    std::fclose(readEnd);
 }
 
 //--- TokenView ---------------------------------------------------------------
@@ -223,6 +267,7 @@ int main() {
     TestEmptyLineIsALine();
     TestHasMoreSeesUnslicedBufferedBytes();
     TestHasInputEmptyStream();
+    TestOpenPipeDeliversLinesImmediately();
     TestTokensSliceAndCrossLines();
     TestMixedReadRemainderKeepsLeadingSpace();
     TestSpecExampleFullSequence();
