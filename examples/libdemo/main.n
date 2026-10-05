@@ -1,8 +1,11 @@
+// Consumer example: imports mylib (same directory) and verifies it.
+// After building mylib.ncu, compile and run in one step:
+//   ncc examples/libdemo/main.n -I <dir holding mylib.ncu> -o main_run.ncu
+// Exit 0 only when the assertions hold.
 import io;
 import mylib;
 
-int main()
-{
+int main() {
     assert(mylib.square(6) == 36);
     int[] values = [1, 2, 3, 4];
     assert(mylib.sum(values) == 10);

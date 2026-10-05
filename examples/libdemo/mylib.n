@@ -1,13 +1,13 @@
-int square(int x)
-{
+// Library example: two math helpers forming their own compilation unit.
+// A library has no entry point, so compile it with the build form first:
+//   ncc build examples/libdemo/mylib.n -o mylib.ncu
+int square(int x) {
     return x * x;
 }
 
-int sum(int[] values)
-{
+int sum(int[] values) {
     int total = 0;
-    foreach (int v in values)
-    {
+    foreach (int v in values) {
         total += v;
     }
     return total;
