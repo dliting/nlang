@@ -113,9 +113,6 @@ All notable changes to NLang are documented here. The format follows
   serialization and the library-mechanism design note; README, examples
   and the issue template follow the new artifact names.
 
-
-## [0.7.6] - 2026-10-02
-
 ### Fixed
 - Compiler: assigning to a method call result (`obj.f() = v`,
   `obj.f() += v`) is now a compile error (`cannot assign to the result
@@ -123,6 +120,11 @@ All notable changes to NLang are documented here. The format follows
   cleanly and then silently emit no code — the call was not even
   evaluated. Field stores keep working; the receiver expression of a
   member left value is still evaluated exactly once.
+
+
+## [0.7.6] - 2026-10-02
+
+### Fixed
 - nide debugger: clicking a row of the call-stack tree no longer
   appends a duplicate frame to the list (the machine protocol's
   `frame <n>` selection command echoed a `frame` event on every
