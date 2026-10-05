@@ -29,7 +29,7 @@ dispatch path with a garbage frame.
 branches on `slot[1]`:
 
 - **Free function** — args are copied verbatim from `callParamBase`
-  (the OP_CallFunc ABI). Native targets read the caller's cells directly.
+  (the OP_CallFunc application binary interface (ABI)). Native targets read the caller's cells directly.
 - **Bound method** — the captured receiver occupies callee frame slot 0
   and the caller's args are staged WITHOUT this, landing in slots 1+
   (`callee.paramCount` includes this for methods).

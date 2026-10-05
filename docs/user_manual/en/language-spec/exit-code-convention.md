@@ -14,7 +14,7 @@ in practice):
 | Observer | Value seen |
 |--------|----------|
 | Python `subprocess` (the e2e runner), cmd's `%ERRORLEVEL%`, PowerShell's `$LASTEXITCODE` | 300 |
-| POSIX shell (bash `$?`, Git-Bash, CI bash steps) | 44 (300 mod 256, i.e. the low 8 bits) |
+| POSIX shell (bash `$?`, Git-Bash, continuous integration (CI) bash steps) | 44 (300 mod 256, i.e. the low 8 bits) |
 
 Negative return values are not recommended: Windows interprets the value
 as unsigned 32-bit (`return -1` is observed as 4294967295 in

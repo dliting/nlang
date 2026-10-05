@@ -16,12 +16,12 @@
 模块局部的——`RemapBytecode` 从不改动它们——因此跨模块导入不存在
 id 问题。
 
-**实参 ABI**：接收者占据 `callParamBase[0]`，实参从槽 1 起，即
+**实参 应用二进制接口（ABI，application binary interface）**：接收者占据 `callParamBase[0]`，实参从槽 1 起，即
 `string.equals` 的形状。`OP_CallIntrinsic` 不带实参个数，因此短于
 表项允许长度的调用会合成缺失的尾部实参（`StringTrailingDefault`）。
 
 **VM 分派链**：`ExecuteIntrinsic`（VmExecutorIntrinsics.cpp）委托给
-每个家族 TU 的一个成员函数；id 不归其管时返回 `false`，链条继续穿
+每个家族 编译单元（TU，translation unit） 的一个成员函数；id 不归其管时返回 `false`，链条继续穿
 透——ByteStream → FileStream → 内联的 Object/List/Dict 协议臂 →
 string → 未知 id 抛错。每个家族在自己的 TU 里独立扩展。
 
@@ -43,7 +43,7 @@ StdLib.h 的表静态绑定（每个条目的 id 都落在自己块内，条目�
 部 id）不会再被发放。
 
 **关系比较指令**：`OP_Less_str` / `OP_LessEqual_str` /
-`OP_Greater_str` / `OP_GreaterEqual_str`——按字节的关系比较（UTF-8
+`OP_Greater_str` / `OP_GreaterEqual_str`——按字节的关系比较（Unicode转换格式（UTF-8，Unicode Transformation Format）
 字节序 == 码点序），与 `OP_Eq_str` 呼应。变体分派以左操作数的
 `EvalDataType` 为键，与所有二元指令一致。
 

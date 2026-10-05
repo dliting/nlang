@@ -72,7 +72,7 @@ are on [Primitives](primitives.md) and [Type Casts](type-casts.md).
   narrow integers (byte..ushort) → `float/double`; `int/uint` and
   narrower → `double`.
 - Float widening: `float→double`.
-- `char→string` (encoded as that code point's UTF-8 bytes);
+- `char→string` (encoded as that code point's Unicode Transformation Format (UTF-8) bytes);
   `enum→int` (its backing type).
 
 **Implicit with a lossy warning** — when the target's range cannot hold

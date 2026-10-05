@@ -13,7 +13,7 @@ Supported iterables:
 | `T[N]` (array) | elements `arr[0]..arr[N-1]` | `OP_LoadElement` |
 | `List<T>` | elements in insertion order | `List<T>.get(i)` |
 | `Dict<K,V>` | **keys** (Python style) | inline `dict.keys()` then `List<K>.get(i)` |
-| `string` | **code points** (`char`) | UTF-8 decode advance |
+| `string` | **code points** (`char`) | Unicode Transformation Format (UTF-8) decode advance |
 
 **Source constraint**: the source expression must be an array, `List`,
 `Dict`, or `string` — any shape works: an lvalue, a container- or
@@ -87,7 +87,7 @@ inside an Array foreach body is fine (no structural change).
 `p` is a fresh deep copy per iteration (consistent with C#, where foreach
 over value-type elements also yields copies). See [Struct](struct.md).
 
-**Null iterable** throws NPE on the first `length()` call (consistent with all
+**Null iterable** throws null pointer exception (NPE) on the first `length()` call (consistent with all
 other class-typed calls). See [Exceptions](exception.md).
 
 **`List<int>` with value 0**: due to the `OP_Box` optimization (literal `0`

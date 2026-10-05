@@ -17,7 +17,7 @@ command-line tools. If PATH is not set up, prefix commands with
 | nvm | Run a compiled module | [nvm](nvm.md) |
 | ndb | Debug a compiled module | [ndb](ndb.md) |
 | ndisasm | Bytecode disassembly | [ndisasm](ndisasm.md) |
-| nide | The graphical IDE (build, run, and debug) | [Three Ways to Run](../getting-started/running.md), [Debugging in nide](../getting-started/debugging.md) |
+| nide | The graphical integrated development environment (IDE) (build, run, and debug) | [Three Ways to Run](../getting-started/running.md), [Debugging in nide](../getting-started/debugging.md) |
 
 Each tool page is the complete reference for its invocation forms,
 flags, and behavior.
@@ -30,15 +30,15 @@ the documentation site in its footer.
 
 ## Encoding Conventions
 
-The four command-line tools use UTF-8 as the process encoding
+The four command-line tools use Unicode Transformation Format (UTF-8) as the process encoding
 (declared in the tools' embedded manifest, Windows 10 1903+):
 command-line arguments and file paths accept full Unicode,
 diagnostics are UTF-8 bytes, and at startup the attached console is
 switched to the UTF-8 code page so the default console displays
-non-ASCII text. Output redirected to a file or pipe is not altered.
+non-American Standard Code for Information Interchange (ASCII) text. Output redirected to a file or pipe is not altered.
 
 Inputs are UTF-8 too: `.n` source files and `.nproj` project files
 are validated before tokenizing — invalid bytes are rejected with a
 named error (`not valid UTF-8 (first invalid byte at line N)`), a
-UTF-16 save gets a dedicated hint, and a leading UTF-8 BOM is
+UTF-16 save gets a dedicated hint, and a leading UTF-8 byte order mark (BOM) is
 accepted and skipped.

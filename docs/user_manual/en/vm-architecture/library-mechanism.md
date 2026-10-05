@@ -12,8 +12,8 @@ for maintainers; user-facing usage lives in
 standard library is a `stdlib/*.n` file on the search path like any other
 library; the compiler and the VM do not distinguish them. This mirrors
 Python, where the standard library is ordinary source on `sys.path`, and
-Java/C#, where managed source and native (JNI/P-Invoke) implementations
-coexist inside one package. Nothing in the compiler or the VM hardcodes a
+Java/C#, where managed source and Java Native Interface (JNI)/P-Invoke
+native implementations coexist inside one package. Nothing in the compiler or the VM hardcodes a
 standard-library signature: the declaration files and the native DLLs are
 the only implementation.
 
@@ -37,8 +37,8 @@ freely mixed (a *mixed library*):
   package's unit image (a member of e.g. `stdlib.npkg`) and linked with
   the consumer at run time, then executed as bytecode;
 - **`native` functions** — signature plus documentation comment only (no
-  body); at run time dispatched through the host ABI into
-  `nlang_<package>.dll` (section 5; the DLL is named by the package
+  body); at run time dispatched through the host application binary interface (ABI) into
+  `nlang_<package>.dll` (section 5; the dynamic-link library (DLL) is named by the package
   segment before the first dot, so a `native` in a multi-segment
   package is a compile-time diagnostic).
 
@@ -51,7 +51,7 @@ packages are pure native today), built as `nlang_math.dll`,
 
 Library `.n` files reached through an `import` — single-segment or
 dotted — are parsed **completely** — bodies included — as *library
-translation units* and merged into the same AST root as the project's
+translation units* and merged into the same abstract syntax tree (AST) root as the project's
 units (`src/compiler/ModuleBuilderImports.cpp`,
 `src/compiler/builder/ModuleRegistry*`). Build order:
 
@@ -178,8 +178,8 @@ contract (`include/nlang/vm/NativeHost.h`):
   through a macro that also pins the host ABI version
   (`NLANG_HOST_ABI_VERSION`); a version mismatch fails the load with a
   readable error, and a module without the entry is rejected;
-- native functions receive a small **host interface** (callbacks for IO,
-  PRNG and string access) instead of linking the VM — the third-party
+- native functions receive a small **host interface** (callbacks for input/output (IO),
+  pseudorandom number generator (PRNG) and string access) instead of linking the VM — the third-party
   source needs only the one header;
 - loading is lazy: the first call into a package triggers the module
   load, so unused libraries cost nothing.

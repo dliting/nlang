@@ -45,7 +45,7 @@ DebugSessionController.h，与钩子一样是 PRIVATE 包含）：与前端无�
 会话状态——断点表、函数断点、源码路径匹配与单步深度的状态机。执行
 器经 `IDebugHooks` 调用它；前端实现 `IDebugFrontEnd`（OnStopped /
 WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
-动。随包发行两个适配器：ndb 的交互式 CLI 与 `--machine`。冻结窗口在
+动。随包发行两个适配器：ndb 的交互式 命令行界面（CLI，command-line interface） 与 `--machine`。冻结窗口在
 `OnStopped` 打开，在 `WaitUntilResume` 返回时关闭；窗口之外调用恢复
 命令或调试视图属于前端编程错误（`std::logic_error`）。
 
@@ -99,7 +99,7 @@ WaitUntilResume / OnExited / OnRuntimeError），经 `StopInfo` 载荷驱
 - 绝不让 C++ 异常逃逸进 VM（它们会跨越 NLang 的 try/catch 边界）
   ——ndb 的命令循环捕获一切。
 
-引用类型值的判别与 GC 标记器相同：声明 kind 剪掉基本类型；数组类型字段
+引用类型值的判别与 垃圾回收（GC，garbage collection） 标记器相同：声明 kind 剪掉基本类型；数组类型字段
 在 `.ncu` 里携带声明侧的 `RTK_Array`，因此声明
 kind 是可靠的数组探测器，运行期槽位 kind 起佐证作用。只有
 Class/Struct/Func 声明 kind 才落到运行期槽位 kind；Int32/Float/
@@ -122,7 +122,7 @@ String/Array 直接按声明 kind 显示，普通 int 永远不会走到引用�
 pc 值是 16 位字节码偏移（执行器既有的 `uint16_t opPc`——超过
 64 KiB 字节码的函数会回绕；这是既有的 VM 上限，不是调试
 器限制）；共享 `.ncu` 可能携带过期的源码路径（ndb 回退到 `.ncu`
-所在目录，再退化为 `l` 只显示行号）。IDE 会话继承这些限制并另加若干
+所在目录，再退化为 `l` 只显示行号）。集成开发环境（IDE，integrated development environment） 会话继承这些限制并另加若干
 面向用户的限制——每会话一份行号快照（不支持会话中编辑/重建）、
 停止即硬终止——记录在入门手册的调试指南：
 [在 nide 中调试](../getting-started/debugging.md)。

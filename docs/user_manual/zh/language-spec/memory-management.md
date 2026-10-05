@@ -8,7 +8,7 @@
 
 - **struct 槽位**：`[field0, field1, ...]`（没有类型头）
 - **class 槽位**：`[类型ID, field0, field1, ...]`（首格存运行期
-  类型 ID）
+  类型 标识符（ID，identifier））
 
 堆索引 0 是哨兵（null/无效）。有效索引从 1 开始。
 

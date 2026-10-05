@@ -29,7 +29,7 @@ int main() {
 Output `demo: 30 / 1.5` and `A true 5000000000`. There are 12 scalar
 primitives: the integer family (`byte` `ubyte` `short` `ushort` `int`
 `uint` `long` `ulong`), `float`/`double`, `bool`, and `char` (a Unicode
-code point); `string` is the 13th primitive (UTF-8 bytes, reference
+code point); `string` is the 13th primitive (Unicode Transformation Format (UTF-8) bytes, reference
 semantics). The compound types enum, struct, and class are covered in the
 sections below and in the declarations chapter.
 

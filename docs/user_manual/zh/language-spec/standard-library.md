@@ -13,7 +13,7 @@ string 方法（经接收者分派）组成。包由其文件路径标识——`
 的 `stdlib/*.n` 声明中，经语言服务的符号索引提供给编译器与编辑器
 （代码补全、悬停、转到定义）。标准库的形状与第三方库一致：
 `stdlib/*.n` 声明接口，其中的 `native` 成员由 `nlang_<ns>.dll` 实
-现，运行期经宿主 ABI 到达。限定调用按声明做类型检查后发射
+现，运行期经宿主 应用二进制接口（ABI，application binary interface） 到达。限定调用按声明做类型检查后发射
 `OP_CallFunc`；内建 string 方法经接收者分派，发射
 `OP_CallIntrinsic`。查找 `.n` 与加载 native 库的目录规则见下方「库
 与搜索路径」。
@@ -46,7 +46,7 @@ class 与 enum 值打印前
 | mini maxi / minf maxf | (T, T) → T | int 对 / double 对 |
 | clampi / clampf | (v, lo, hi) → T | lo > hi → Exception |
 | floor ceil round | (double) → long | 超 int64 或 NaN → Exception |
-| random | () → double | [0,1)，PRNG 见下 |
+| random | () → double | [0,1)，伪随机数生成器（PRNG，pseudorandom number generator） 见下 |
 | srand | (int) → void | 重新播种 |
 | randomi | (int min, int max) → int | 闭区间；min > max → Exception |
 
@@ -78,7 +78,7 @@ randomi(min,max) = min + (int32)(next() % (uint32)(max - min + 1))   // 存在�
 控制台行上；`eprint` 镜像 `print` 但写到 stderr，让诊断输出与正常
 输出保持可分离。调试会话内两个流合并进会话的单一输出视图。
 
-**readLine 的 EOF 语义**：EOF 与空输入行都返回 `""`——设计上不可
+**readLine 的 文件结束（EOF，end of file） 语义**：EOF 与空输入行都返回 `""`——设计上不可
 区分（与 C++ `std::getline` 相同）。必须检测输入结束的程序应当以
 哨兵内容终止，而不是以空行判断。三个强制转换函数（`write`/`print`/
 `eprint`）恰好各接受一个实参；打印多个值请多次调用。
@@ -112,8 +112,8 @@ io = 全部内容（控制台 + 磁盘文本，将来的流类），fs =
 本身。
 
 **Windows 编码约定**：路径与文件名经进程活动代码页转换
-（`generic_string`、文件打开）。命令行工具以 UTF-8 为进程活动
-代码页运行（内嵌清单声明，Windows 10 1903+ 生效），非 ASCII 路径
+（`generic_string`、文件打开）。命令行工具以 Unicode转换格式（UTF-8，Unicode Transformation Format） 为进程活动
+代码页运行（内嵌清单声明，Windows 10 1903+ 生效），非 美国信息交换标准代码（ASCII，American Standard Code for Information Interchange） 路径
 与文件名按 UTF-8 往返，`io.readFile`/`writeFile`/`appendFile` 同样
 适用；以系统代码页运行 VM 的嵌入宿主仍受该代码页限制。
 
@@ -181,7 +181,7 @@ double d = bs.readDouble();
 实参超出 long 值域，须显式 `as long`；`char` 与 string 实参对数值
 方法是编译错误。
 
-**EOS 语义**：在游标已到末尾的流上读取抛运行期错误（不是返回 0）。
+**流结束（EOS，end of stream） 语义**：在游标已到末尾的流上读取抛运行期错误（不是返回 0）。
 
 ### 库与搜索路径
 

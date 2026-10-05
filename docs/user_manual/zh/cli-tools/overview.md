@@ -15,7 +15,7 @@
 | nvm | 运行一个编译好的模块 | [nvm](nvm.md) |
 | ndb | 调试编译后的模块 | [ndb](ndb.md) |
 | ndisasm | 字节码反汇编 | [ndisasm](ndisasm.md) |
-| nide | 图形 IDE（构建、运行与调试） | [三种运行方式](../getting-started/running.md)、[在 nide 中调试](../getting-started/debugging.md) |
+| nide | 图形 集成开发环境（IDE，integrated development environment）（构建、运行与调试） | [三种运行方式](../getting-started/running.md)、[在 nide 中调试](../getting-started/debugging.md) |
 
 各工具页是调用形态、标志与行为的完整参考。
 
@@ -26,13 +26,13 @@ nide 在 帮助 → 关于 中显示，文档站在页脚显示。
 
 ## 编码约定
 
-四个命令行工具以 UTF-8 为进程编码（工具内嵌清单声明，
+四个命令行工具以 Unicode转换格式（UTF-8，Unicode Transformation Format） 为进程编码（工具内嵌清单声明，
 Windows 10 1903+ 生效）：命令行参数与文件路径接受完整 Unicode，
 诊断输出为 UTF-8 字节，启动时顺带把所在控制台切换到 UTF-8
-代码页，默认控制台可直接显示非 ASCII 文本。重定向到文件或
+代码页，默认控制台可直接显示非 美国信息交换标准代码（ASCII，American Standard Code for Information Interchange） 文本。重定向到文件或
 管道时不改动输出字节。
 
 输入侧同样是 UTF-8：`.n` 源文件与 `.nproj` 项目文件在词法前
 先做校验——无效字节被具名拒绝（`not valid UTF-8 (first
 invalid byte at line N)`），UTF-16 保存的文件得到专门提示，
-文件开头的 UTF-8 BOM 被接受并跳过。
+文件开头的 UTF-8 字节顺序标记（BOM，byte order mark） 被接受并跳过。

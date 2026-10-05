@@ -119,6 +119,6 @@ delegate invocations are rejected.
   function reference **to** an imported function (parameter signatures
   are not serialized in `.ncu`).
 - Function values as `switch` discriminants (no case family matches).
-- Function values cannot cross the serialization API — `writeStruct` /
+- Function values cannot cross the serialization application programming interface (API) — `writeStruct` /
   `writeObject` on a struct/class holding a Func field is a run-time
   error.

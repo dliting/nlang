@@ -52,8 +52,8 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
   转换，先 `c as int` 取码点（`a char value can only be compared with
   a char value`）。
 - **字符串相等**按内容比较；字符串关系序用 C `strcmp` 式的逐字节比较（例如
-  `"Z" < "a"` 为真，因为 `'Z'`(90) < `'a'`(97)）。因为字符串是 UTF-8 且
-  UTF-8 字节序等于码点序，对非 ASCII 文本排序也正确：`"é" > "z"` 为真。见
+  `"Z" < "a"` 为真，因为 `'Z'`(90) < `'a'`(97)）。因为字符串是 Unicode转换格式（UTF-8，Unicode Transformation Format） 且
+  UTF-8 字节序等于码点序，对非 美国信息交换标准代码（ASCII，American Standard Code for Information Interchange） 文本排序也正确：`"é" > "z"` 为真。见
   [字符串](string.md)「比较」。
 - **class/引用相等**（`==`、`!=`）是同一性（同一堆对象）。见 [类](class.md)。
 - **带 null 操作数的算术/拼接**是编译错误——null 只有通过上面的比较同一性

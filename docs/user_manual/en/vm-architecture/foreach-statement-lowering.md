@@ -26,7 +26,7 @@ function entry.
 ### Codegen 3-way branch
 
 The kind of iterable is detected at codegen time (not resolver time),
-preserving the user-visible AST:
+preserving the user-visible abstract syntax tree (AST):
 
 - **Array** (`T[N]`): iterable is `SnIdentifierExpr` whose `Field` has
   `IsArrayType()`. Length via `OP_ArrayLength`; element via
@@ -42,7 +42,7 @@ preserving the user-visible AST:
   `List<K>` into `iterSlot` first (step 2b), then the rest mirrors the
   List path with element type K.
 
-The `typeKind` of each hidden local is what GC uses at safepoints to
+The `typeKind` of each hidden local is what garbage collection (GC) uses at safepoints to
 identify reference roots, so `iterSlot` must be `RTK_Array` for the
 Array path and `RTK_Class` for List/Dict — incorrect tags would cause
 either leaked references (root missed) or spurious tracing of integer

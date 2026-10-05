@@ -65,7 +65,7 @@ string s6 = "n=" + 5000000000;   // "n=5000000000" — long 直显
 string s7 = "a" + 1 + "b" + 2.5 + "c";  // "a1b2.5c"
 ```
 
-**格式化规则**：bool → `true`/`false`；char → 该码点的 UTF-8 字节（1–4
+**格式化规则**：bool → `true`/`false`；char → 该码点的 Unicode转换格式（UTF-8，Unicode Transformation Format） 字节（1–4
 字节）；整型家族按十进制直显（窄整型与 long/ulong 同样直接）；float 与
 double 用**最短往返**格式化——生成最短的可使 `parse(format(x)) == x` 成立
 的十进制表示（`0.5` 而非 `0.500000`；`0.1` 打印为 `0.1` 而非内部的

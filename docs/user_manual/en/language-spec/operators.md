@@ -65,8 +65,8 @@ Comparison results are always **`bool`** (`true` / `false`).
   with a char value`).
 - **String equality** compares content; string relational order is a
   C `strcmp`-style byte-wise comparison (e.g. `"Z" < "a"` is true because
-  `'Z'`(90) < `'a'`(97)). Since strings are UTF-8 and UTF-8 byte order
-  equals code-point order, the ordering is also correct for non-ASCII
+  `'Z'`(90) < `'a'`(97)). Since strings are Unicode Transformation Format (UTF-8) and UTF-8 byte order
+  equals code-point order, the ordering is also correct for non-American Standard Code for Information Interchange (ASCII)
   text: `"é" > "z"` is true. See [String](string.md) "Comparison".
 - **Class/reference equality** (`==`, `!=`) is identity (same heap
   object). See [Class](class.md).

@@ -23,7 +23,7 @@
 ### 代码生成三分支
 
 可迭代对象的 kind 在代码生成期（而非 resolver 期）检测，保持用户可
-见的 AST 不变：
+见的 抽象语法树（AST，abstract syntax tree） 不变：
 
 - **数组**（`T[N]`）：可迭代对象是 `Field` 带 `IsArrayType()` 的
   `SnIdentifierExpr`。长度走 `OP_ArrayLength`；元素走
@@ -39,7 +39,7 @@
   一个新 `List<K>` 物化进 `iterSlot`（步骤 2b），其余照搬 List 路
   径、元素类型为 K。
 
-每个隐藏局部变量的 `typeKind` 正是 GC 在安全点识别引用根的依据，因
+每个隐藏局部变量的 `typeKind` 正是 垃圾回收（GC，garbage collection） 在安全点识别引用根的依据，因
 此数组路径的 `iterSlot` 必须是 `RTK_Array`、List/Dict 必须是
 `RTK_Class`——标签打错要么泄漏引用（漏掉根），要么把整数槽位当堆索
 引误追踪。用户可见的循环变量同理：数组类型的循环变量

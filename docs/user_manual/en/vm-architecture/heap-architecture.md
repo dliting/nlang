@@ -48,17 +48,17 @@ in `RegisterClasses`. Object is the only class with `superClassIdx == -1`.
 Object has three virtual methods (`equals(Object)→int`, `getHashCode()→int`,
 `toString()→string`), all dispatched via intrinsics:
 
-| Intrinsic ID           | Behavior                                       |
+| Intrinsic identifier (ID)           | Behavior                                       |
 |------------------------|------------------------------------------------|
 | INTR_Object_Equals    | Identity: same heap idx → 1, else 0 (null==null→1) |
 | INTR_Object_GetHashCode | Identity: heap idx of `this` (null→0)         |
-| INTR_Object_toString  | `"ClassName@hex(heapIdx)"` (null→NPE)          |
+| INTR_Object_toString  | `"ClassName@hex(heapIdx)"` (null→null pointer exception (NPE))          |
 | INTR_String_Equals    | Value: content equality                        |
 | INTR_String_GetHashCode | Value: `std::hash<std::string>` over content  |
 
 The existing `OP_CallMethod` name-walk finds the most-derived implementation
 first — there is no separate dispatch machinery for Object methods. When
-the runtime reaches Object's intrinsic stub (no AST override exists), it
+the runtime reaches Object's intrinsic stub (no abstract syntax tree (AST) override exists), it
 short-circuits to `ExecuteIntrinsic`.
 
 **Two intrinsic dispatch paths**: most intrinsics are reached

@@ -8,7 +8,7 @@ slot is a sequence of 32-bit integers:
 
 - **Struct slot**: `[field0, field1, ...]` (no type header)
 - **Class slot**: `[typeId, field0, field1, ...]` (first cell holds the
-  runtime type ID)
+  runtime type identifier (ID))
 
 Heap index 0 is a sentinel (null/invalid). Valid indices start at 1.
 
@@ -19,7 +19,7 @@ struct, array, and function values) and for string objects. String
 objects live in a separate string object store (outside that heap)
 but share the same mark-sweep cycle:
 
-1. **Trigger**: GC runs at safepoints when a collection request is
+1. **Trigger**: garbage collection (GC) runs at safepoints when a collection request is
    pending and either the heap size exceeds its threshold or the string
    object store size exceeds its own threshold (the string object
    store's threshold backs off to 2x the surviving population after each

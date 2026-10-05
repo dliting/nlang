@@ -19,13 +19,13 @@ against that table and `src/vm/backend/EmitExprMemberString.cpp` emits the
 call. Intrinsic ids are module-local — `RemapBytecode` never touches them —
 so cross-module imports have no id problems.
 
-**Argument ABI**: the receiver occupies `callParamBase[0]` and arguments
+**Argument application binary interface (ABI)**: the receiver occupies `callParamBase[0]` and arguments
 start at slot 1, the `string.equals` shape. `OP_CallIntrinsic` carries no
 argument count, so a call shorter than a table entry allows stages the
 missing trailing value synthetically (`StringTrailingDefault`).
 
 **VM dispatch chain**: `ExecuteIntrinsic` (VmExecutorIntrinsics.cpp)
-delegates to one member function per family TU; each returns `false` when
+delegates to one member function per family translation unit (TU); each returns `false` when
 the id is not its own and the chain falls through — ByteStream →
 FileStream → inline Object/List/Dict-protocol arms → string → unknown-id
 throw. Each family is independently extensible in its own TU.
@@ -50,7 +50,7 @@ every id at or above 107) are never handed out again.
 
 **Relational string opcodes**: `OP_Less_str` / `OP_LessEqual_str` /
 `OP_Greater_str` / `OP_GreaterEqual_str` — bytewise relational comparison
-(UTF-8 byte order == code point order), mirroring `OP_Eq_str`. The variant
+(Unicode Transformation Format (UTF-8) byte order == code point order), mirroring `OP_Eq_str`. The variant
 dispatch keys on the LEFT operand's `EvalDataType`, same as every binary
 opcode.
 

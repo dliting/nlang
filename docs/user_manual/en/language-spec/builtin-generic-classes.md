@@ -43,7 +43,7 @@ error when `nums : List<int>`.
 **Erasure runtime model**: `List<int>` and `List<Point>` share the same
 backing class at runtime. Elements are stored uniformly as heap indices
 in a side table; scalar primitive elements (all 12) are boxed via
-`OP_Box` at the call site. GC traces list elements as additional roots.
+`OP_Box` at the call site. garbage collection (GC) traces list elements as additional roots.
 
 **Array type arguments**: `T` may be an array type — `List<int[]>`
 stores `int[]` values as raw, GC-traced handles; the primitive-boxing
@@ -55,7 +55,7 @@ and `foreach (int[] row in grid)` iterates them directly. `indexOf`/
 
 **Null List reference**: a `List<T>` field or variable that has not been
 assigned `new List<T>()` holds null. Calling any method on null throws
-`null reference in CallMethod` (same NPE semantics as other class refs).
+`null reference in CallMethod` (same null pointer exception (NPE) semantics as other class refs).
 
 **Collection initializer**: the `[1, 2, 3]` literal syntax is supported
 (bare bracket form for arrays and `List<T>`). See the

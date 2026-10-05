@@ -48,7 +48,7 @@ bool 不与任何其他类型相互转换，也不参与算术。
 ### char
 
 `char` 持有一个 Unicode 标量值（码点，排除 U+D800..U+DFFF 代理区）。
-字面量用单引号：普通字符 `'a'`、非 ASCII 字符 `'中'`、转义
+字面量用单引号：普通字符 `'a'`、非 美国信息交换标准代码（ASCII，American Standard Code for Information Interchange） 字符 `'中'`、转义
 （`'\n'`、`'\r'`、`'\t'`、`'\''`、`'\\'` 五个）、`\uXXXX` 转义
 `'\u0041'`（即 `'A'`）。char 字面量里的代理区转义是编译
 错误；string 字面量里相邻的代理区转义按码点组合（`"😀"` 即
@@ -70,13 +70,13 @@ char 与 string 的桥接（`"x" + 'y'` 拼接、`foreach (char c in s)` 码点�
 一个表示问题贯穿整条链路——char 在源文件里、编译后、控制台上
 各是什么形式：
 
-- **源文件必须是 UTF-8。** 词法器把字符字面量的 1-4 字节 UTF-8
+- **源文件必须是 Unicode转换格式（UTF-8，Unicode Transformation Format）。** 词法器把字符字面量的 1-4 字节 UTF-8
   序列解码为一个码点（`'中'` 是 3 个字节 `E4 B8 AD`，解码为
   U+4E2D）。整个文件在词法前经过严格 UTF-8 校验：无效字节被
   具名拒绝（`Source file is not valid UTF-8 ... (first invalid
   byte at line N)`），UTF-16 保存的文件得到专门提示——旧编码
   字节不会再静默混入字符串常量。文件开头的 UTF-8 字节序标记
-  （BOM）被接受并跳过（编辑器的「UTF-8 with BOM」保存形式可用）；
+  字节顺序标记（BOM，byte order mark）被接受并跳过（编辑器的「UTF-8 with BOM」保存形式可用）；
   UTF-16 等其他编码得到上述专门提示。
 - **编译后 char 就是它的 32 位码点——既不是 UTF-8 也不是
   UTF-16。** 每个 char 存于 4 字节槽位，内容即原始码点：帧槽、

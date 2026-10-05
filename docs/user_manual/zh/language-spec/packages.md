@@ -57,7 +57,7 @@ struct/class/函数表键都**带包名限定**：`main.main`、
 
 ## native 声明
 
-`native` 声明的宿主 DLL 按包的**首段**命名
+`native` 声明的宿主 动态链接库（DLL，dynamic-link library） 按包的**首段**命名
 （`nlang_<段>.dll`），因此多段包（`gfx.color.deep`）里的 `native`
 无法命名宿主库，会在编译期得到诊断。单段包里的 `native` 声明
 行为不变。

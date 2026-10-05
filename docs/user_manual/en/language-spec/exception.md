@@ -92,7 +92,7 @@ e.code = 42;
 
 ### VM errors are catchable
 
-Runtime errors (NPE, division by zero, array/list index out of bounds,
+Runtime errors (null pointer exception (NPE), division by zero, array/list index out of bounds,
 assertion failure) throw the corresponding Exception subclass and can be
 caught by `try/catch`:
 

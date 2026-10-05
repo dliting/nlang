@@ -34,7 +34,7 @@ manual configuration. The mechanism is covered in
 ### Exit code not what you expected?
 
 The process exit code is `main`'s return value, and Windows preserves
-the full 32-bit value; but POSIX shells (bash, Git-Bash, CI bash steps)
+the full 32-bit value; but POSIX shells (bash, Git-Bash, continuous integration (CI) bash steps)
 keep only the low 8 bits by convention — `return 300` is seen as 300 in
 Python/cmd/PowerShell and as 44 in bash (300 mod 256). The testing
 convention is expected values in 0–255 so every observer sees the same
@@ -44,11 +44,11 @@ See also: [Language Specification / Exit Code Convention](../language-spec/exit-
 
 ### Garbled output in the console?
 
-Program output is UTF-8 bytes. The tools set the process active code
+Program output is Unicode Transformation Format (UTF-8) bytes. The tools set the process active code
 page to UTF-8 (declared in the tools' embedded manifest, Windows 10
 1903+) and switch the attached console to the UTF-8 code page at
 startup, so the default console renders Chinese output correctly — no
-manual `chcp 65001` needed. `fs` and `io` non-ASCII paths and file
+manual `chcp 65001` needed. `fs` and `io` non-American Standard Code for Information Interchange (ASCII) paths and file
 names round-trip as UTF-8 as well. Redirected output is untouched
 bytes — an editor opening it with a non-UTF-8 encoding still shows
 mojibake. The console switch outlives the tool: a program emitting a
@@ -65,7 +65,7 @@ rejected with a named error (`Source file is not valid UTF-8 ...
 a UTF-16 save gets a dedicated hint (re-save the file as UTF-8). This
 stops legacy encoding bytes from slipping silently into string
 constants. nide's build invokes ncc, so building there is gated the
-same way. A leading UTF-8 BOM is accepted and skipped — the editor
+same way. A leading UTF-8 byte order mark (BOM) is accepted and skipped — the editor
 "UTF-8 with BOM" save form needs no handling. See also:
 [Language Specification / Primitives](../language-spec/primitives.md).
 
@@ -73,7 +73,7 @@ same way. A leading UTF-8 BOM is accepted and skipped — the editor
 
 The nide Help menu entries NLang Getting Started, Language
 Specification, VM Architecture, and Command-line Tools all open in
-the IDE's embedded help window (its content is the documentation site
+the integrated development environment (IDE)'s embedded help window (its content is the documentation site
 under the installation's `docs\site\`), with the navigation tree on
 the left. The search box is in the window's top-left corner (next to
 the site title) and supports full-text search.

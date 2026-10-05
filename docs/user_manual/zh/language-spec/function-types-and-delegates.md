@@ -101,5 +101,5 @@ int main() {
 - **跨模块**：引用被导入的函数，或把函数引用传**给**被导入的函数
   （`.ncu` 不序列化参数签名）。
 - 函数值作 `switch` 判别式（没有 case 家族能匹配）。
-- 函数值不能穿过序列化 API——对持有 Func 字段的 struct/class 调
+- 函数值不能穿过序列化 应用程序编程接口（API，application programming interface）——对持有 Func 字段的 struct/class 调
   `writeStruct` / `writeObject` 是运行期错误。

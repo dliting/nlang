@@ -27,7 +27,7 @@ the compilation pipeline, stack frame layout, bytecode instructions, and
 the other chapters as needed. The four command-line tools (ncc, nvm, ndb,
 ndisasm) are documented in the
 [Command-line Tools](../cli-tools/overview.md) chapter. For debugging
-inside the IDE see [Debugging in nide](debugging.md).
+inside the integrated development environment (IDE) see [Debugging in nide](debugging.md).
 
 For complete runnable programs: `examples/README.md` lists every example
 by topic with its expected exit code, and most of this crash course's

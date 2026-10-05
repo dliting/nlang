@@ -1,7 +1,7 @@
 # Debugging in nide
 
 nide has a built-in debugger: breakpoints, stepping, and inspecting the
-call stack and locals all happen inside the IDE. A debug session is
+call stack and locals all happen inside the integrated development environment (IDE). A debug session is
 driven behind the scenes by `ndb --machine`, with the same semantics
 as the [command-line ndb](../cli-tools/ndb.md); for the engine-side
 layering see

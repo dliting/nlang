@@ -1,6 +1,6 @@
 # Debugging Support
 
-NLang ships **ndb**, a CLI debugger (`ndb <program.ncu|.npkg>`). It loads the
+NLang ships **ndb**, a command-line interface (CLI) debugger (`ndb <program.ncu|.npkg>`). It loads the
 program in-process, runs it on the standard `VmExecutor`, and drives the
 VM through two small interfaces — the same engine layer the nide
 debugger reuses over a line protocol (the debugpy/dlv "engine + thin
@@ -122,7 +122,7 @@ Inside a callback:
 - never let C++ exceptions escape into the VM (they would cross the
   NLang try/catch boundary) — ndb's command loop catches everything.
 
-Reference-typed values are discriminated like the GC marker does:
+Reference-typed values are discriminated like the garbage collection (GC) marker does:
 declared kind prunes primitives; array-typed fields carry the
 declaration-side `RTK_Array` in `.ncu`, so the
 declared kind is the reliable array detector and the runtime slot kind
@@ -151,7 +151,7 @@ throw stops anchor at the statement's pc approximation; pc values are
 function with >64 KiB of
 bytecode would wrap; a pre-existing VM bound, not a debugger limit); a
 shared `.ncu` may carry stale source paths (ndb falls back to the
-`.ncu`'s directory, then degrades `l` to numbers-only). The IDE
+`.ncu`'s directory, then degrades `l` to numbers-only). The integrated development environment (IDE)
 session inherits these and adds user-facing ones — per-session
 line-number snapshots (no mid-session edit/rebuild), hard-terminate
 stop — documented in the Getting Started guide,

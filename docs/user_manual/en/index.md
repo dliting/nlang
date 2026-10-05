@@ -1,8 +1,8 @@
 # NLang Documentation
 
 NLang is a statically-typed scripting language for embedding and
-automation — and a testbed for AI-friendly language features. It ships
-with its own compiler, bytecode VM, debugger, and IDE, developed as an
+automation — and a testbed for artificial intelligence (AI)-friendly language features. It ships
+with its own compiler, bytecode VM, debugger, and integrated development environment (IDE), developed as an
 open-source teaching/research project. This site is the offline
 documentation distributed with the IDE.
 

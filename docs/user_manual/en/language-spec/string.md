@@ -18,7 +18,7 @@ harmless — two names to the same string can never diverge. (Contrast with
 
 ### Encoding and length
 
-String literals are stored as their UTF-8 byte sequence in the module string
+String literals are stored as their Unicode Transformation Format (UTF-8) byte sequence in the module string
 constant table. `string.length()` returns the **byte count**, not the Unicode
 code-point count — `"héllo".length()` is 6 (5 code points, but `é` is 2 bytes
 in UTF-8); the code-point count is `charCount()`. Byte access and code-point
@@ -65,7 +65,7 @@ means null and **reads as the empty string** `""`.
 `==` / `!=` compare **content**. Relational ordering (`<`, `>`, `<=`, `>=`)
 uses C `strcmp`-style byte-by-byte comparison (e.g. `"Z" < "a"` is true because
 `'Z'` (90) < `'a'` (97)). Because strings are UTF-8 and UTF-8 byte order
-equals code-point order, ordering is also correct for non-ASCII text:
+equals code-point order, ordering is also correct for non-American Standard Code for Information Interchange (ASCII) text:
 `"é" > "z"` is true. Mixed string/non-string comparison is a compile error
 except against the null literal — `s == null` reads the null side as the empty
 string, so `"" == null` is true and any non-empty string compares unequal. The
@@ -82,7 +82,7 @@ Inside double-quoted literals:
 | `\0` `\a` `\b` `\f` `\v` | NUL, bell, backspace, form feed, vertical tab |
 | `\uXXXX`          | the UTF-8 encoding of that code point (4 hex digits) |
 
-`\uXXXX` covers 4-hex-digit BMP code points only. **Adjacent surrogate-range
+`\uXXXX` covers 4-hex-digit Basic Multilingual Plane (BMP) code points only. **Adjacent surrogate-range
 escapes combine into one code point**: `"\ud83d\ude00"` is U+1F600 😀
 (as in Java); a surrogate-range escape appearing alone is a compile error.
 char literals support the same `\uXXXX` form but **never accept the

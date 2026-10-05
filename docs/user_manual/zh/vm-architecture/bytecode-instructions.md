@@ -1,6 +1,6 @@
 # 字节码指令
 
-本页是 NLang 字节码指令集的参考表：编译器（`VmBackend`）把 AST 翻译
+本页是 NLang 字节码指令集的参考表：编译器（`VmBackend`）把 抽象语法树（AST，abstract syntax tree） 翻译
 成这些指令，执行器（`VmExecutor`）逐条解释。多数指令围绕结果寄存器
 `pResult` 与局部变量槽位读写。`OP_*` 名称是源码中的真实标识符，可作
 为检索起点。
@@ -95,7 +95,7 @@
 | OP_Concat_str | dst, src  | 拼接字符串               |
 | OP_Eq_str   | lhs, rhs    | 字符串相等               |
 | OP_Ne_str   | lhs, rhs    | 字符串不等               |
-| OP_Less_str | lhs, rhs    | 按字节关系比较（UTF-8 字节顺序 == 码点序） |
+| OP_Less_str | lhs, rhs    | 按字节关系比较（Unicode转换格式（UTF-8，Unicode Transformation Format） 字节顺序 == 码点序） |
 | OP_LessEqual_str | lhs, rhs | 按字节 `<=`              |
 | OP_Greater_str | lhs, rhs | 按字节 `>`               |
 | OP_GreaterEqual_str | lhs, rhs | 按字节 `>=`          |
@@ -175,7 +175,7 @@ switch 编译为逐标签比较与条件跳转组成的链——没有跳转表�
 - 调用在接收者表达式求值进求值认领区（claim area）的槽 0 之后（接收者
   优先的形状，与 `s.equals` 相同）发射 `OP_CallMethodDirect funcIdx callParamBase`。
 - 被调帧的 `this` 局部变量以 typeKind `RTK_Int32` 分配（类方法用
-  `RTK_Class`）。这一点很关键：GC 根扫描按 typeKind 遍历局部变量——
+  `RTK_Class`）。这一点很关键：垃圾回收（GC，garbage collection） 根扫描按 typeKind 遍历局部变量——
   枚举的 `this` 若按 class 建档，就会被当作堆索引追踪并破坏堆。
 - 表示决策：枚举在运行期保持 nominal int32——`==`、
   `switch`、实参传递与 `.ncu` 序列化全部不受影响。Java 式的堆单例

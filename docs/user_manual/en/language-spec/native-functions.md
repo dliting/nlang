@@ -24,7 +24,7 @@ path and lets it register (lazy: the load triggers on the first call);
 only a further miss throws. On a hit the native is invoked directly with
 the caller's staged argument cells:
 
-- ABI: argument `i` is the raw 4-byte cell at `args[i*4]` — little-endian
+- application binary interface (ABI): argument `i` is the raw 4-byte cell at `args[i*4]` — little-endian
   `int32`/`float` bits or a heap index, identical to the intrinsic ABI.
   The native writes its 4-byte return value into `ret` (may be null for
   `void` natives).
@@ -50,7 +50,7 @@ the caller's staged argument cells:
   `native string` over an int native) yields garbage output, not a type
   error.
 - **A multi-segment package (containing `.`) may not declare natives** —
-  the host DLL is named by the package segment before the first dot, so a
+  the host dynamic-link library (DLL) is named by the package segment before the first dot, so a
   dotted package cannot name one; compile error.
 - Cross-module: a module importing a `.ncu` containing natives calls
   them through the same table (the native flag survives the module merge).

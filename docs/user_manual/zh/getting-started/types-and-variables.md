@@ -27,7 +27,7 @@ int main() {
 输出 `demo: 30 / 1.5`、`A true 5000000000`。标量基本类型共 12 个：整型
 家族（`byte` `ubyte` `short` `ushort` `int` `uint` `long` `ulong`）、
 `float`/`double`、`bool` 与 `char`（Unicode 码点）；`string` 是第 13 个
-基本类型（UTF-8 字节串，引用语义）。复合类型 enum、struct、class 在下面的
+基本类型（Unicode转换格式（UTF-8，Unicode Transformation Format） 字节串，引用语义）。复合类型 enum、struct、class 在下面的
 章节与声明章节中有介绍。
 
 详见 → [语言规格/类型](../language-spec/types.md)、

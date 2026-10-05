@@ -1,6 +1,6 @@
 # Garbage Collection Design
 
-NLang's heap is managed automatically by the garbage collector (GC):
+NLang's heap is managed automatically by the garbage collector (garbage collection (GC)):
 developers create objects without freeing them by hand. This page
 records the four core design decisions — safepoint triggering, precise
 scanning, the parallel array, iterative marking — plus the full

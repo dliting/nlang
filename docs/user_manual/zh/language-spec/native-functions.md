@@ -20,13 +20,13 @@ int main() {
 才触发装载）；仍未命中才抛错。命中后直接以调用方暂存的实参单元调用原生
 实现：
 
-- ABI：实参 `i` 是 `args[i*4]` 处的裸 4 字节单元——小端
+- 应用二进制接口（ABI，application binary interface）：实参 `i` 是 `args[i*4]` 处的裸 4 字节单元——小端
   `int32`/`float` 位或堆索引，与内建函数 ABI 相同。原生实现把 4 字节
   返回值写入 `ret`（`void` 原生函数可为 null）。
 - 解析失败在调用点抛错，绝不静默产生垃圾：包名对应的
   `nlang_<包名>.dll` 不存在时报
   `cannot find native module 'nlang_<包名>.dll' for package '<包名>'`
-  （后随已搜索目录列表）；DLL 装载后仍未注册该名字时报
+  （后随已搜索目录列表）；动态链接库（DLL，dynamic-link library） 装载后仍未注册该名字时报
   `native function not registered: <name>`。
 - 默认参数可用（分派前在调用点填充），跨模块导入亦然（默认值随
   native 标志一起序列化进模块文件）。

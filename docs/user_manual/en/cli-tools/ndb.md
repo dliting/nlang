@@ -14,7 +14,7 @@ ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 
 After loading the program it **stops at the first statement of the
 entry point** (like gdb's `start`), prints the `(ndb) ` prompt, and
-reads commands from stdin one per line; stdin EOF behaves like `q`.
+reads commands from stdin one per line; stdin end of file (EOF) behaves like `q`.
 
 ## Command table
 

@@ -11,7 +11,7 @@ ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 ```
 
 装载程序后**停在入口首条语句**（等价 gdb 的 `start`），给出提示符
-`(ndb) `，从 stdin 逐条读命令；stdin EOF 等同 `q`。
+`(ndb) `，从 stdin 逐条读命令；stdin 文件结束（EOF，end of file） 等同 `q`。
 
 ## 命令表
 

@@ -1,7 +1,7 @@
 # Bytecode Instructions
 
 This page is the reference table for the NLang instruction set: the
-compiler (`VmBackend`) translates the AST into these opcodes, and the
+compiler (`VmBackend`) translates the abstract syntax tree (AST) into these opcodes, and the
 executor (`VmExecutor`) interprets them one at a time. Most opcodes read
 and write the result register `pResult` and local variable slots. The
 `OP_*` names are real source identifiers you can use as search anchors.
@@ -97,7 +97,7 @@ for the handle layout and dispatch semantics.
 | OP_Concat_str | dst, src  | Concatenate strings      |
 | OP_Eq_str   | lhs, rhs    | String equality          |
 | OP_Ne_str   | lhs, rhs    | String inequality        |
-| OP_Less_str | lhs, rhs    | Bytewise relational (UTF-8 byte order == code point order) |
+| OP_Less_str | lhs, rhs    | Bytewise relational (Unicode Transformation Format (UTF-8) byte order == code point order) |
 | OP_LessEqual_str | lhs, rhs | Bytewise `<=`            |
 | OP_Greater_str | lhs, rhs | Bytewise `>`             |
 | OP_GreaterEqual_str | lhs, rhs | Bytewise `>=`       |
@@ -184,7 +184,7 @@ Enum methods reuse the class-method call path with one convention:
   receiver expression is evaluated into the claim area's slot 0
   (receiver-first shape, same as `s.equals`).
 - The callee frame's `this` local is allocated with typeKind
-  `RTK_Int32` (class methods use `RTK_Class`). This matters: the GC
+  `RTK_Int32` (class methods use `RTK_Class`). This matters: the garbage collection (GC)
   root scan walks locals by typeKind — an enum `this` typed as a class
   would be traced as a heap index and corrupt the heap.
 - Representation decision: enums stay nominal-int32 at runtime —

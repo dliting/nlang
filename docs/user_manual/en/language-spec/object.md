@@ -72,7 +72,7 @@ int x = TakesObject(42); // 42 boxed at the call site
 
 The runtime representation is a tagged boxed slot (slot[0] = type tag,
 slot[1] = value bits). Boxed slots hold no references and are explicitly
-skipped by the GC mark phase.
+skipped by the garbage collection (GC) mark phase.
 
 **`null` literal boxing preservation**: the literal `0` (used for `null`)
 short-circuits `OP_Box` — no heap slot is allocated, and the value `0` remains

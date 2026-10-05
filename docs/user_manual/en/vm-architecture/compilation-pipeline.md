@@ -1,6 +1,6 @@
 # Compilation Pipeline
 
-Once the compiler front end has produced the AST, `VmBackend` translates
+Once the compiler front end has produced the abstract syntax tree (AST), `VmBackend` translates
 it into independent unit images (`CompiledModule`), one per translation
 unit: struct, class, and function registration come first, then bytecode
 generation for every function. One image per source file; cross-unit

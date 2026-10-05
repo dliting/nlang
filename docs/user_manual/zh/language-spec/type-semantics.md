@@ -61,7 +61,7 @@ NLang 中每种类型都对四个操作定义了语义：**赋值**（`a = b`）
 - 整型→浮点且目标能精确表示该值域：窄整型（byte..ushort）→ `float/double`、
   `int/uint` 及更窄 → `double`。
 - 浮点加宽：`float→double`。
-- `char→string`（编码为该码点的 UTF-8 串）；`enum→int`（底座）。
+- `char→string`（编码为该码点的 Unicode转换格式（UTF-8，Unicode Transformation Format） 串）；`enum→int`（底座）。
 
 **隐式但有损警告**——目标类型装不下源值域时，编译器发出
 `implicit conversion from 'X' to 'Y' loses precision`（`ncc --no-warn` 可

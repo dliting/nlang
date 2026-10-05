@@ -58,7 +58,7 @@ from no other type and takes no part in arithmetic.
 
 `char` holds one Unicode scalar value (a code point, excluding the
 surrogate range U+D800..U+DFFF). Literals use single quotes: ordinary
-characters `'a'`, non-ASCII characters `'中'`, escapes (the five `'\n'`,
+characters `'a'`, non-American Standard Code for Information Interchange (ASCII) characters `'中'`, escapes (the five `'\n'`,
 `'\r'`, `'\t'`, `'\''`, `'\\'`), and the `\uXXXX` escape
 `'\u0041'` (i.e. `'A'`). A surrogate-range escape inside a char literal is a compile
 error; inside a string literal, adjacent surrogate escapes combine into
@@ -83,7 +83,7 @@ code-point iteration, the `charAt`/`charCount` methods) is on
 One representation question spans the whole chain — what a char is in
 the source file, after compilation, and on the console:
 
-- **Source files must be UTF-8.** The scanner decodes a character
+- **Source files must be Unicode Transformation Format (UTF-8).** The scanner decodes a character
   literal's 1-4 byte UTF-8 span into one code point (`'中'` is the 3
   bytes `E4 B8 AD`, decoded to U+4E2D). The whole file passes strict
   UTF-8 validation before tokenizing: invalid bytes are rejected with a
@@ -91,7 +91,7 @@ the source file, after compilation, and on the console:
   byte at line N)`) and a UTF-16 save gets a dedicated hint — legacy
   encoding bytes no longer slip silently into string constants. A
   leading UTF-8 byte-order mark is accepted and skipped (the editor
-  "UTF-8 with BOM" save form works); other encodings get the hints
+  "UTF-8 with byte order mark (BOM)" save form works); other encodings get the hints
   above.
 - **After compilation a char is its 32-bit code point — neither UTF-8
   nor UTF-16.** Every char lives in a 4-byte slot holding the raw code

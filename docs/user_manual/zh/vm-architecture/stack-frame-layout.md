@@ -9,7 +9,7 @@
 
 所有槽位均为 4 字节（VALUE_SIZE）。栈帧是一块按偏移寻址的扁平字节
 数组；`LocalDescriptor` 记录每个变量的偏移、大小与 typeKind，供垃圾
-回收（GC）根扫描使用。
+回收（GC，garbage collection）根扫描使用。
 
 ### 临时槽位
 

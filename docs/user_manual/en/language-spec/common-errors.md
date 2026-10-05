@@ -326,14 +326,14 @@ int main() {
 Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line 2). Save the file as UTF-8.
 ```
 
-`.n` sources and `.nproj` project files pass strict UTF-8 validation
+`.n` sources and `.nproj` project files pass strict Unicode Transformation Format (UTF-8) validation
 before tokenizing (the enforcement point is ncc; nide's build invokes
 ncc, so building there is gated the same way): invalid bytes are
 rejected with a named error (the
 line of the first invalid byte included) and a UTF-16 save gets a
 dedicated hint (`Source file ... is UTF-16, not UTF-8.`) — legacy
 encoding bytes no longer slip silently into string constants. A
-leading UTF-8 BOM is accepted and skipped. See →
+leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
 [Primitives](primitives.md) "Representation: from source to console".
 Full forms: e2e case `src_not_utf8` (sources) and the ctest guard
 `nproj_utf8` (project files).

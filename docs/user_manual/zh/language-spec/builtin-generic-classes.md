@@ -40,7 +40,7 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 
 **擦除运行期模型**：`List<int>` 与 `List<Point>` 在运行期共享同一个
 后备 class。元素统一以堆索引形式存入侧表；标量基本类型元素（全部 12 个）
-在调用点经 `OP_Box` 装箱。GC 把列表元素作为附加根追踪。
+在调用点经 `OP_Box` 装箱。垃圾回收（GC，garbage collection） 把列表元素作为附加根追踪。
 
 **数组类型实参**：`T` 可以是数组类型——`List<int[]>` 把 `int[]` 值
 作为裸的、GC 可追踪的句柄存储；上文的基本类型装箱规则不适用于
@@ -51,7 +51,7 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 
 **null List 引用**：未赋值 `new List<T>()` 的 `List<T>` 字段或变量
 持有 null。对 null 调用任何方法抛出 `null reference in CallMethod`
-（与其他 class 引用相同的 NPE 语义）。
+（与其他 class 引用相同的 空指针异常（NPE，null pointer exception） 语义）。
 
 **集合初始化器**：支持 `[1, 2, 3]` 字面量语法（数组
 与 `List<T>` 的裸方括号形式）。见上文「集合初始化器」一节。

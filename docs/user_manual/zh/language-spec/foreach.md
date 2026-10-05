@@ -12,7 +12,7 @@ foreach (Type var in iterable) { body }
 | `T[N]`（数组）  | 元素 `arr[0]..arr[N-1]`   | `OP_LoadElement` |
 | `List<T>`      | 按插入顺序的元素          | `List<T>.get(i)` |
 | `Dict<K,V>`    | **键**（Python 风格）      | 内联 `dict.keys()` 然后 `List<K>.get(i)` |
-| `string`       | **码点**（`char`）        | UTF-8 解码推进 |
+| `string`       | **码点**（`char`）        | Unicode转换格式（UTF-8，Unicode Transformation Format） 解码推进 |
 
 **源约束**：源表达式必须是数组、`List`、`Dict` 或 `string`——任何形态均可：lvalue、
 容器或数组值的调用结果（`List<int[]>` 上的 `li.get(0)`）、成员访问、
@@ -77,7 +77,7 @@ foreach (string name in ages) {
 { p.x = 99; }` 不修改 `arr` 的元素——`p` 每轮都是新深拷贝（与 C# 一致，对
 值类型元素做 foreach 也产生拷贝）。见 [结构体](struct.md)。
 
-**null 迭代源**在第一次 `length()` 调用时抛 NPE（与所有其他 class 类型调用
+**null 迭代源**在第一次 `length()` 调用时抛 空指针异常（NPE，null pointer exception）（与所有其他 class 类型调用
 一致）。见 [异常](exception.md)。
 
 **含值 0 的 `List<int>`**：由于 `OP_Box` 优化（字面 `0` 被视为 null 哨兵），

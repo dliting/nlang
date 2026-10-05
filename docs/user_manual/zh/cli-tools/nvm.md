@@ -12,7 +12,7 @@ nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N]
 [退出码约定](../language-spec/exit-code-convention.md)）。产物文件打不
 开时报 `Runtime error: nloader failed:`（诊断正文逐行列出问题，如
 `'<路径>': Failed to open module file: <路径>`）。`--gc-stress=N`
-是测试旋钮：把两套 GC 阈值钳到极小值，任何漏追踪的引用会在几次分配
+是测试旋钮：把两套 垃圾回收（GC，garbage collection） 阈值钳到极小值，任何漏追踪的引用会在几次分配
 内变悬垂——用于验证内存管理变更，日常使用不需要。该标志写在程序
 路径之前或之后均可。
 

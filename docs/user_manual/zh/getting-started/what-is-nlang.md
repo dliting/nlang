@@ -1,7 +1,7 @@
 # NLang 是什么
 
-NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，也是探索 AI 友好
-语言特性的试验台，自带编译器（ncc）、字节码虚拟机（nvm）与 IDE（nide），
+NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，也是探索 人工智能（AI，artificial intelligence） 友好
+语言特性的试验台，自带编译器（ncc）、字节码虚拟机（nvm）与 集成开发环境（IDE，integrated development environment）（nide），
 作为教学/研究开源项目开发。
 
 本页带你完成安装、跑通第一个程序，并用可运行的片段快速过一遍语言核心特性。

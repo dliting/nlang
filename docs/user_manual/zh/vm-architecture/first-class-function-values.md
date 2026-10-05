@@ -25,7 +25,7 @@ OP_MakeVFunc 绑定时的空接收者守卫（接收者槽位读到 ≤ 0 时抛
 `slot[1]` 分支：
 
 - **自由函数**——实参从 `callParamBase` 原样拷贝（OP_CallFunc 的
-  ABI）。原生目标直接读取调用方的槽位单元。
+  应用二进制接口（ABI，application binary interface））。原生目标直接读取调用方的槽位单元。
 - **绑定方法**——被捕获的接收者占据被调帧的槽 0，调用方的实参
   *不带* this 依次落位，从槽 1 开始（`callee.paramCount` 对方法而言
   包含 this）。

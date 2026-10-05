@@ -27,7 +27,7 @@ nide 侧由输出位置优先级决定（详见
 ### 退出码不是想要的值？
 
 进程退出码就是 `main` 的返回值，Windows 保留 32 位原值；但 POSIX shell
-（bash、Git-Bash、CI 的 bash 步骤）按惯例只保留低 8 位——`return 300`
+（bash、Git-Bash、持续集成（CI，continuous integration） 的 bash 步骤）按惯例只保留低 8 位——`return 300`
 在 Python/cmd/PowerShell 里看到 300，在 bash 里看到 44（对 256 取模）。
 测试约定预期值 0–255，让所有观察者的视图一致。
 
@@ -35,10 +35,10 @@ nide 侧由输出位置优先级决定（详见
 
 ### 中文输出乱码？
 
-程序输出是 UTF-8 字节。工具链把进程活动代码页设为 UTF-8（工具内嵌
+程序输出是 Unicode转换格式（UTF-8，Unicode Transformation Format） 字节。工具链把进程活动代码页设为 UTF-8（工具内嵌
 清单声明，Windows 10 1903+ 生效），并在启动时把所在控制台切换到
 UTF-8 代码页，默认控制台即可正常显示中文输出，无需手动 `chcp 65001`。
-`fs` 与 `io` 的非 ASCII 路径、文件名同样按 UTF-8 往返。重定向到文件
+`fs` 与 `io` 的非 美国信息交换标准代码（ASCII，American Standard Code for Information Interchange） 路径、文件名同样按 UTF-8 往返。重定向到文件
 的输出字节不受影响——用非 UTF-8 编码打开它的编辑器仍会显示乱码。
 该代码页切换在工具退出后仍对同一控制台窗口生效，之后其中按旧编码
 输出的程序可能显示为乱码。
@@ -53,14 +53,14 @@ valid UTF-8 ... (first invalid byte at line N). Save the file as
 UTF-8.`），UTF-16 保存的文件得到专门提示（改用 UTF-8 重新保存
 即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide
 的构建经由 ncc，同样受此门控。文件
-开头的 UTF-8 BOM 被接受并跳过，编辑器的「UTF-8 with BOM」保存
+开头的 UTF-8 字节顺序标记（BOM，byte order mark） 被接受并跳过，编辑器的「UTF-8 with BOM」保存
 形式无需处理。详见 →
 [语言规格/基本类型](../language-spec/primitives.md)。
 
 ### 帮助文档与搜索在哪？
 
 nide 帮助菜单的「NLang 入门」「语言规格」「VM 架构」「命令行工具」
-都在 IDE 内嵌的帮助窗口中打开（内容即安装目录 `docs\site\` 下的
+都在 集成开发环境（IDE，integrated development environment） 内嵌的帮助窗口中打开（内容即安装目录 `docs\site\` 下的
 文档站），左侧是导航目录。搜索框在窗口左上角（站点标题旁），支持
 全文检索。
 

@@ -45,17 +45,17 @@ MarkStruct 在追踪引用时无从得知该查询哪个 CompiledStruct 的字�
 Object 有三个虚方法（`equals(Object)→int`、`getHashCode()→int`、
 `toString()→string`），全部经由内建函数（intrinsic）分派：
 
-| 内建函数 ID            | 行为                                           |
+| 内建函数 标识符（ID，identifier）            | 行为                                           |
 |------------------------|------------------------------------------------|
 | INTR_Object_Equals    | 恒等比较：同一堆索引 → 1，否则 0（null==null→1） |
 | INTR_Object_GetHashCode | 恒等：`this` 的堆索引（null→0）               |
-| INTR_Object_toString  | `"ClassName@hex(heapIdx)"`（null→NPE）         |
+| INTR_Object_toString  | `"ClassName@hex(heapIdx)"`（null→空指针异常（NPE，null pointer exception））         |
 | INTR_String_Equals    | 值比较：内容相等                               |
 | INTR_String_GetHashCode | 值：对内容做 `std::hash<std::string>`        |
 
 既有的 `OP_CallMethod` 按名查找会先命中最派生的实现——Object 方法
-没有单独的分派机制。当运行期走到 Object 的内建函数桩（不存在 AST
-覆写）时，直接短路进入 `ExecuteIntrinsic`。
+没有单独的分派机制。当运行期走到不存在抽象语法树（AST，abstract syntax tree）
+覆写的 Object 内建函数桩时，直接短路进入 `ExecuteIntrinsic`。
 
 **两条内建函数分派路径**：大多数内建函数经由
 `OP_CallMethod` / `OP_CallMethodDirect` 到达，二者检查 VmBackend 盖在

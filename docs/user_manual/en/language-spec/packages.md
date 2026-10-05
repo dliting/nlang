@@ -73,7 +73,7 @@ directly.
 
 ## Native declarations
 
-A `native` declaration's host DLL is named from the package's **first
+A `native` declaration's host dynamic-link library (DLL) is named from the package's **first
 segment** (`nlang_<segment>.dll`), so `native` inside a multi-segment
 package (`gfx.color.deep`) cannot name a host library and is a
 compile-time diagnostic. Native declarations in single-segment

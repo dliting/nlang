@@ -80,7 +80,7 @@ string s6 = "n=" + 5000000000;   // "n=5000000000" — long printed directly
 string s7 = "a" + 1 + "b" + 2.5 + "c";  // "a1b2.5c"
 ```
 
-**Rendering rules**: bool → `true`/`false`; char → the UTF-8 bytes of its
+**Rendering rules**: bool → `true`/`false`; char → the Unicode Transformation Format (UTF-8) bytes of its
 code point (1–4 bytes); the integer family prints in decimal as-is
 (narrow integers and long/ulong alike); float and double use
 **shortest round-trip** rendering — the shortest decimal representation

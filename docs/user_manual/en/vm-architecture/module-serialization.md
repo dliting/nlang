@@ -75,7 +75,7 @@ v1.11 (generic array type arguments) — a semantic
 floor, not a layout change: no new serialized fields, but array-typed
 elements of generic containers (`List<T[]>`, `Dict` keys/values) now
 flow as raw array handles with no boxing, and `foreach` loop variables
-over them occupy `RTK_Array` local slots the GC traces. A v1.10 module
+over them occupy `RTK_Array` local slots the garbage collection (GC) traces. A v1.10 module
 from an older ncc boxes those elements into primitive slots the GC
 never traces, so the loader refuses minor < 11 outright — older
 modules must be recompiled.
@@ -87,7 +87,7 @@ streaming dispatch on that kind. A v1.9 module compiled by an older ncc
 carries the old meaning, so the loader refuses minor < 10 outright —
 older modules must be recompiled.
 v1.9 (debugger) — each function record ends with a
-`sourceFile` string (the TU path it was compiled from, after the locals
+`sourceFile` string (the translation unit (TU) path it was compiled from, after the locals
 block); merged-in functions keep their `locals`, so imported frames
 have a complete GC root set.
 v1.8 — first-class function values:

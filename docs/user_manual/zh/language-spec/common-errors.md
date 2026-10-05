@@ -307,11 +307,11 @@ int main() {
 Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line 2). Save the file as UTF-8.
 ```
 
-`.n` 源文件与 `.nproj` 项目文件在词法前做严格 UTF-8 校验（执行
+`.n` 源文件与 `.nproj` 项目文件在词法前做严格 Unicode转换格式（UTF-8，Unicode Transformation Format） 校验（执行
 点是 ncc；nide 的构建经由 ncc，同样受此门控）：无效
 字节被具名拒绝（报错带第一个无效字节所在行号），UTF-16 保存的
 文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧
-编码字节不会再静默混入字符串常量。文件开头的 UTF-8 BOM 被接受
+编码字节不会再静默混入字符串常量。文件开头的 UTF-8 字节顺序标记（BOM，byte order mark） 被接受
 并跳过。详见 →
 [基本类型](primitives.md)「表示链：从源码到控制台」。完整形态见
 e2e 用例 `src_not_utf8`（源文件）与 ctest 守卫 `nproj_utf8`

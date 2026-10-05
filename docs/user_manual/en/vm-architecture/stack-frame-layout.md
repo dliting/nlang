@@ -9,7 +9,7 @@ Each function invocation has a local variable frame:
 
 All slots are 4 bytes (VALUE_SIZE). The frame is a flat byte array indexed
 by offset. `LocalDescriptor` records each variable's offset, size, and
-typeKind for GC root scanning.
+typeKind for garbage collection (GC) root scanning.
 
 ### Temp Slots
 

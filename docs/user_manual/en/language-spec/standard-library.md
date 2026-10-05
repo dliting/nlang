@@ -17,7 +17,7 @@ The **signatures** (parameter kinds, arity, return type) live in the
 and editor (completion, hover, go-to-definition) through the language
 service's symbol index. The shape is the one a third-party library uses:
 `stdlib/*.n` declares the surface, the `native` members are implemented in
-`nlang_<ns>.dll` and reached through the host ABI at run time. A qualified
+`nlang_<ns>.dll` and reached through the host application binary interface (ABI) at run time. A qualified
 call type-checks against the declaration and emits `OP_CallFunc`; the
 built-in string methods are receiver-dispatched and emit
 `OP_CallIntrinsic`. See "Libraries and search paths" below for the
@@ -55,7 +55,7 @@ parameters and return values are `double`; integer and
 | mini maxi / minf maxf | (T, T) → T | int pair / double pair |
 | clampi / clampf | (v, lo, hi) → T | lo > hi → Exception |
 | floor ceil round | (double) → long | out-of-int64 or NaN → Exception |
-| random | () → double | [0,1), PRNG below |
+| random | () → double | [0,1), pseudorandom number generator (PRNG) below |
 | srand | (int) → void | reseeds |
 | randomi | (int min, int max) → int | inclusive bounds; min > max → Exception |
 
@@ -89,7 +89,7 @@ lands on the same console line; `eprint` mirrors `print` on stderr for
 diagnostics that stay separable from normal output. Inside a debug session
 the two streams merge into the session's single output view.
 
-**EOF semantics of readLine**: EOF and an empty input line both return `""` —
+**end of file (EOF) semantics of readLine**: EOF and an empty input line both return `""` —
 indistinguishable by design (same as C++ `std::getline`). Programs that must
 detect end of input should terminate on sentinel content, not on an empty
 line. Each of the coercing trio (`write`/`print`/`eprint`) takes exactly
@@ -126,8 +126,8 @@ empty left side yields the right side alone.
 
 **Windows encoding note**: paths and filenames convert through the
 process active code page (`generic_string`, file opens). The
-command-line tools run with UTF-8 as the active code page (declared
-in the tools' embedded manifest, Windows 10 1903+), so non-ASCII
+command-line tools run with Unicode Transformation Format (UTF-8) as the active code page (declared
+in the tools' embedded manifest, Windows 10 1903+), so non-American Standard Code for Information Interchange (ASCII)
 paths and filenames round-trip as UTF-8 —
 `io.readFile`/`writeFile`/`appendFile` included. Embedding hosts
 that run the VM under the system code page are still bound by that
@@ -201,7 +201,7 @@ into the 8-byte slots (the same rule as `math.sqrt` arguments); a `ulong`
 argument exceeds the long range and needs an explicit `as long`; `char`
 and string arguments are compile errors for the numeric methods.
 
-**EOS semantics**: reading from a stream whose cursor is already at the end
+**end of stream (EOS) semantics**: reading from a stream whose cursor is already at the end
 throws a runtime error (it does not return 0).
 
 ### Libraries and search paths

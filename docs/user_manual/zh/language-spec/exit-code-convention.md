@@ -12,7 +12,7 @@ Windows 保留 32 位完整退出码，但**不同观察者的视图不同**。
 | 观察者 | 看到的值 |
 |--------|----------|
 | Python `subprocess`（e2e runner）、cmd 的 `%ERRORLEVEL%`、PowerShell 的 `$LASTEXITCODE` | 300 |
-| POSIX shell（bash 的 `$?`、Git-Bash、CI 的 bash 步骤） | 44（300 对 256 取模，即低 8 位） |
+| POSIX shell（bash 的 `$?`、Git-Bash、持续集成（CI，continuous integration） 的 bash 步骤） | 44（300 对 256 取模，即低 8 位） |
 
 负返回值不建议使用：Windows 侧按 32 位无符号解释（`return -1` 在
 Python/PowerShell/cmd 中观察到 4294967295），POSIX shell 再截断，

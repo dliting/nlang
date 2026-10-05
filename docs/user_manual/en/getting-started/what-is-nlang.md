@@ -1,8 +1,8 @@
 # What is NLang?
 
 NLang is a statically-typed scripting language for embedding and
-automation — and a testbed for exploring AI-friendly language features.
-It ships with its own compiler (ncc), bytecode VM (nvm), and IDE (nide),
+automation — and a testbed for exploring artificial intelligence (AI)-friendly language features.
+It ships with its own compiler (ncc), bytecode VM (nvm), and integrated development environment (IDE) (nide),
 developed as an open-source teaching/research project.
 
 This page walks you through installation, running your first program,

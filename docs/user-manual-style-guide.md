@@ -14,7 +14,7 @@
 - 中文格式：`伪随机数生成器（PRNG，Pseudo Random Number Generator）`；英文格式：`pseudorandom number generator (PRNG)`。
 - 豁免：行内代码（反引号）、代码块、命令行、文件名、格式扩展名（`.n`/`.ncu`/`.npkg`）。
 - 标题（含nav标题）用短形，正文首现处展开。
-- 专有产品/项目名不展开：NLang、Qt、Python、Windows、Linux、LLVM、Flex、Bison、mkdocs、Material、NSIS、CPack、Unicode、VM、Visual C++（写作VC++/MSVC）。
+- 专有产品/项目名不展开：NLang、Qt、Python、Windows、Linux、LLVM、Flex、Bison、mkdocs、Material、NSIS、CPack、Unicode、VM、Visual C++（写作VC++/MSVC）、IEEE 754、POSIX、JavaScript（写作JS）、FNV-1a。
 - 双语译名以第2节术语表为单一源。
 
 ### P3 行文风格
@@ -60,6 +60,16 @@ nav路径两树有序一致（tree parity守卫）；两树同一事实同一语
 | CLI | 命令行界面 | command-line interface |
 | EXE | 可执行文件 | executable |
 | JNI | Java本地接口 | Java Native Interface |
+| AI | 人工智能 | artificial intelligence |
+| BMP | 基本多文种平面 | Basic Multilingual Plane |
+| CI | 持续集成 | continuous integration |
+| EOF | 文件结束 | end of file |
+| EOS | 流结束 | end of stream |
+| ID | 标识符 | identifier |
+| IO | 输入输出 | input/output |
+| NPE | 空指针异常 | null pointer exception |
+| TU | 编译单元 | translation unit |
+| UTF-16 | Unicode转换格式 | Unicode Transformation Format |
 
 ## 3. 政策与执行映射
 

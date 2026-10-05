@@ -90,7 +90,7 @@ e.code = 42;
 
 ### VM 错误可被捕获
 
-运行期错误（NPE、除以零、数组/列表索引越界、断言失败）抛出对应的
+运行期错误（空指针异常（NPE，null pointer exception）、除以零、数组/列表索引越界、断言失败）抛出对应的
 Exception 子类，可被 `try/catch` 捕获：
 
 ```nlang

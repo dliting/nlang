@@ -8,9 +8,8 @@
 
 **标准库与第三方库是同一套机制。** 标准库就是搜索路径上的
 `stdlib/*.n`，和其他库没有任何区别；编译器与 VM 不区分二者。这对应
-Python（标准库就是 `sys.path` 上的普通源码）与 Java/C#（托管源码与
-native 实现（JNI/P-Invoke）共存于同一个包）。编译器和 VM 里没有任何
-硬编码的标准库签名：声明文件与 native DLL 就是全部实现。
+Python（标准库就是 `sys.path` 上的普通源码）与 Java/C#（托管源码与Java本地接口（JNI）、P-Invoke这类native实现共存于同一个包）。编译器和 VM 里没有任何
+硬编码的标准库签名：声明文件与 native 动态链接库（DLL，dynamic-link library） 就是全部实现。
 
 ## 2. 库的形态
 
@@ -29,7 +28,7 @@ mylib/
 - **普通 NLang 函数**——有函数体；编译进自己所在包的单元映像
   （如 `stdlib.npkg` 的成员），运行期与消费方链接后按字节码执行；
 - **`native` 函数**——只有签名与文档注释（无函数体）；运行时经宿主
-  ABI 分派到 `nlang_<包名>.dll`（第 5 节；DLL 按包名第一个点之前的段
+  应用二进制接口（ABI，application binary interface） 分派到 `nlang_<包名>.dll`（第 5 节；DLL 按包名第一个点之前的段
   命名，因此多段包里的 `native` 声明是编译期诊断）。
 
 标准库同形：`stdlib/io.n`、`math.n`、`fs.n` 是手写的权威声明文件
@@ -39,7 +38,7 @@ mylib/
 ## 3. 编译模型：源码完整内联
 
 单段 `import` 在搜索路径上找到的库 `.n` 会被**完整解析**（含函数体），
-成为*库翻译单元*，与项目翻译单元合并进同一个 AST 根
+成为*库翻译单元*，与项目翻译单元合并进同一个 抽象语法树（AST，abstract syntax tree） 根
 （`src/compiler/ModuleBuilderImports.cpp`、
 `src/compiler/builder/ModuleRegistry*`）。构建顺序：
 
@@ -48,7 +47,7 @@ mylib/
    `a.b.c` 在第一个持有它的搜索根下定位 `<根>/a/b/c.n`（多个根提供
    同一个包是重复包错误，指名两条路径），每个定位到的文件依次
    (a) 做签名索引（`langservice::SymbolIndex`，按匹配根的包名）、
-   (b) 完整解析为库 TU，其自身的 import 再加入 worklist——第三方
+   (b) 完整解析为库 编译单元（TU，translation unit），其自身的 import 再加入 worklist——第三方
    库因此可以依赖其他库。命中项目已有源文件的包不重复内联；
 3. 注册全部 TU，库 TU 带 `isLibrary` 标志，包名取自匹配的搜索根；
 4. 展开别名、构建 import 门、加载外部模块（`.ncu`/`.npkg`）；
@@ -136,7 +135,7 @@ native 实现是普通动态库，背后只有一个稳定契约
 - 仅一个导出入口 `nlang_native_init`，经宏注册并同时钉住宿主 ABI 版本
   （`NLANG_HOST_ABI_VERSION`）；版本不符则加载失败并给出可读错误，
   无入口的模块直接拒绝；
-- native 函数拿到一个小**宿主接口**（IO、PRNG、字符串访问的回调），
+- native 函数拿到一个小**宿主接口**：输入输出（IO，input/output）、伪随机数生成器（PRNG，pseudorandom number generator）与字符串访问的回调，
   而不是链接 VM——第三方源码只需要这一个头文件；
 - 懒加载：首次调用某命名空间才触发模块加载，未用到的库零成本。
 
