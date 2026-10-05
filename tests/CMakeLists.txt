@@ -1175,6 +1175,23 @@ add_test(NAME project_run
     COMMAND ncc -p ${PROJECT_SOURCE_DIR}/examples/hello_project/hello_project.nproj
     -o ${CMAKE_CURRENT_BINARY_DIR}/hello_project_run.npkg)
 
+# Library demo (per-unit artifacts): the library unit compiles on its
+# own first (build form -- a library has no entry point); the consumer
+# then resolves signatures from the source directory at compile time
+# and loads mylib.ncu from -I at run time. All artifacts stay in the
+# build tree; ncc's compile+run form doubles as the run gate.
+add_test(NAME libdemo_compile
+    COMMAND ncc build ${PROJECT_SOURCE_DIR}/examples/libdemo/mylib.n
+        -o ${CMAKE_CURRENT_BINARY_DIR}/mylib.ncu)
+set_tests_properties(libdemo_compile PROPERTIES TIMEOUT 180)
+add_test(NAME libdemo_run
+    COMMAND ncc ${PROJECT_SOURCE_DIR}/examples/libdemo/main.n
+        -I ${CMAKE_CURRENT_BINARY_DIR}
+        -I ${PROJECT_SOURCE_DIR}/examples/libdemo
+        -o ${CMAKE_CURRENT_BINARY_DIR}/main_run.ncu)
+set_tests_properties(libdemo_run
+    PROPERTIES DEPENDS libdemo_compile TIMEOUT 180)
+
 #--- Module import visibility matrix (module import visibility Task 10) --
 #Project-mode fixtures in tests/e2e/proj_*: the e2e runner gates only
 #single-file and order.txt layouts, so .nproj projects are ctest-only.

@@ -1,0 +1,11 @@
+import io;
+import mylib;
+
+int main()
+{
+    assert(mylib.square(6) == 36);
+    int[] values = [1, 2, 3, 4];
+    assert(mylib.sum(values) == 10);
+    io.print("mylib ready: " + mylib.sum(values));
+    return 0;
+}

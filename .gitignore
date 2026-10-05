@@ -36,6 +36,7 @@ src/compiler/generated/nlang.output
 # Compiled module artifacts
 *.nmod
 *.npkg
+*.ncu
 
 # Python (tools/nlang-docs subproject)
 __pycache__/

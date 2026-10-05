@@ -36,3 +36,4 @@
 | stdlib_io.n | io 控制台与文件内容（需 stdin） | 0 |
 | stdlib_fs.n | fs 路径/目录/元数据 | 0 |
 | hello_project/ | 多文件项目（nide 打开 .nproj） | 0 |
+| libdemo/ | 平面搜索路径库（先编库单元，消费方import后运行期装载） | 0 |

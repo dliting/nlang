@@ -1,0 +1,14 @@
+int square(int x)
+{
+    return x * x;
+}
+
+int sum(int[] values)
+{
+    int total = 0;
+    foreach (int v in values)
+    {
+        total += v;
+    }
+    return total;
+}
