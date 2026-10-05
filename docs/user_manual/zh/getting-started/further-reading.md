@@ -7,7 +7,7 @@
 3. [类型](../language-spec/types.md) → [类型语义](../language-spec/type-semantics.md) →
    [声明](../language-spec/declarations.md) →
    [内建泛型类](../language-spec/builtin-generic-classes.md)
-   ——类型系统、声明与 List/Dict
+   ——类型系统、声明与List/Dict
 4. [表达式](../language-spec/expressions.md) → [语句](../language-spec/statements.md)
    ——运算符、控制流、异常
 5. [函数](../language-spec/functions.md) →
@@ -17,11 +17,11 @@
    [退出码约定](../language-spec/exit-code-convention.md)、
    [已知限制](../language-spec/known-limitations.md)
 
-想了解执行引擎：[VM 架构/概览](../vm-architecture/overview.md)，
+想了解执行引擎：[VM架构/概览](../vm-architecture/overview.md)，
 再按需读编译管线、栈帧布局、字节码指令等章节。
 四个命令行工具（ncc/nvm/ndb/ndisasm）的用法见
 [命令行工具](../cli-tools/overview.md)一章。
-在 集成开发环境（IDE，integrated development environment） 里调试程序见 [在 nide 中调试](debugging.md)。
+在集成开发环境（IDE，integrated development environment）里调试程序见[在nide中调试](debugging.md)。
 
-想看能跑的完整程序：`examples/README.md` 按主题列出全部示例与预期退出码，
+想看能跑的完整程序：`examples/README.md`按主题列出全部示例与预期退出码，
 本页速览片段也大多能在其中找到对应示例。

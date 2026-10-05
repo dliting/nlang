@@ -4,15 +4,15 @@
 # mode: any new page must land in both trees and both navs in the same
 # change.
 INHERIT: mkdocs.base.yml
-site_name: NLang 中文文档
+site_name: NLang中文文档
 docs_dir: docs/user_manual/zh
 theme:
   language: zh
   custom_dir: tools/nlang-docs/theme_override
 nav:
   - 主页: index.md
-  - NLang 入门:
-      - NLang 是什么: getting-started/what-is-nlang.md
+  - NLang入门:
+      - NLang是什么: getting-started/what-is-nlang.md
       - 安装与布局: getting-started/install-layout.md
       - 五分钟上手: getting-started/first-program.md
       - 速览:
@@ -22,7 +22,7 @@ nav:
           - 类与继承: getting-started/classes-and-inheritance.md
           - 函数与模块: getting-started/function-features.md
       - 三种运行方式: getting-started/running.md
-      - 在 nide 中调试: getting-started/debugging.md
+      - 在nide中调试: getting-started/debugging.md
       - 常见问题: getting-started/faq.md
       - 下一步阅读: getting-started/further-reading.md
   - 命令行工具:
@@ -43,7 +43,7 @@ nav:
           - 类: language-spec/class.md
           - 接口: language-spec/interface.md
           - 数组: language-spec/array.md
-          - Object 与装箱: language-spec/object.md
+          - Object与装箱: language-spec/object.md
           - 类型强制转换: language-spec/type-casts.md
           - 类型语义: language-spec/type-semantics.md
           - 声明: language-spec/declarations.md
@@ -61,14 +61,14 @@ nav:
           - 异常: language-spec/exception.md
           - Assert: language-spec/assert.md
           - 复合赋值: language-spec/compound-assignment.md
-          - Const 局部: language-spec/const-local.md
+          - Const局部: language-spec/const-local.md
       - 函数:
           - 函数: language-spec/functions.md
           - 默认参数: language-spec/default-parameters.md
           - 命名实参: language-spec/named-arguments.md
           - 重载解析: language-spec/overload-resolution.md
-          - out 参数: language-spec/out-parameters.md
-          - native 函数: language-spec/native-functions.md
+          - out参数: language-spec/out-parameters.md
+          - native函数: language-spec/native-functions.md
           - 函数类型与委托: language-spec/function-types-and-delegates.md
       - 标准库: language-spec/standard-library.md
       - 运行时:
@@ -77,7 +77,7 @@ nav:
       - 参考:
           - 已知限制: language-spec/known-limitations.md
           - 常见错误消息: language-spec/common-errors.md
-  - VM 架构:
+  - VM架构:
       - 概览: vm-architecture/overview.md
       - 核心:
           - 编译管线: vm-architecture/compilation-pipeline.md
@@ -89,7 +89,7 @@ nav:
       - 模块序列化: vm-architecture/module-serialization.md
       - 库机制: vm-architecture/library-mechanism.md
       - 代码生成:
-          - foreach 降级: vm-architecture/foreach-statement-lowering.md
+          - foreach降级: vm-architecture/foreach-statement-lowering.md
           - 初始化列表降级: vm-architecture/init-list-lowering.md
           - 二元表达式提升: vm-architecture/binary-expression-promotion.md
           - 标准库内建函数: vm-architecture/standard-library-intrinsics.md

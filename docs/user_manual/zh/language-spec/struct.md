@@ -1,8 +1,8 @@
 # 结构体
 
 
-`struct` 是值类型聚合，由字段组成。它只持有数据——没有方法体、没有
-`this`。需要行为请用 `class`。
+`struct`是值类型聚合，由字段组成。它只持有数据——没有方法体、没有
+`this`。需要行为请用`class`。
 
 ```nlang
 struct Point {
@@ -13,24 +13,24 @@ struct Point {
 
 ### 值语义
 
-struct 是具**深拷贝**语义的**值类型**，贯穿整个语言：
+struct是具**深拷贝**语义的**值类型**，贯穿整个语言：
 
 - **声明**（`Point p;`）会把每个字段零初始化。
-- **赋值 / 拷贝**（`Point q = p;`）按值复制整个结构体，包括嵌套 struct
+- **赋值 / 拷贝**（`Point q = p;`）按值复制整个结构体，包括嵌套struct
   字段，因此源与拷贝相互独立。
 - **参数传递 / 返回**：深拷贝进被调方的局部栈帧，再深拷贝回调用方的结果
   槽位。被调方操作的是自己那份副本。
-- **作为 class 字段**：class 持有一份独立的深拷贝。`obj.s = s1` 会把 `s1`
-  深拷贝进该 class 的字段槽位。
-- **作为数组元素**：`new Point[n]` 会急切地为每个元素物化一个全新、独立
-  的 struct 实例（含嵌套 struct 字段，递归进行）。把元素读入 struct 变量
+- **作为class字段**：class持有一份独立的深拷贝。`obj.s = s1`会把`s1`
+  深拷贝进该class的字段槽位。
+- **作为数组元素**：`new Point[n]`会急切地为每个元素物化一个全新、独立
+  的struct实例（含嵌套struct字段，递归进行）。把元素读入struct变量
   （`Point p = arr[i]`）时深拷贝；经下标写入（`arr[i].x = v`、`arr[i] = p`）
-  则存入数组自己的元素。零长度 struct 数组（`new Point[0]`）合法——`.length`
-  为 0，不物化任何元素。
+  则存入数组自己的元素。零长度struct数组（`new Point[0]`）合法——`.length`
+  为0，不物化任何元素。
 
-**struct 内 class 引用的浅拷贝**：struct 含 class 类型字段时，struct 拷贝
-会原样复制该 class 引用（堆索引）。原件与副本指向堆上同一个 class 对象。
-这与 C# 对引用类型 struct 字段的行为一致。
+**struct内class引用的浅拷贝**：struct含class类型字段时，struct拷贝
+会原样复制该class引用（堆索引）。原件与副本指向堆上同一个class对象。
+这与C# 对引用类型struct字段的行为一致。
 
 ```nlang
 class Inner { public int x; }
@@ -49,21 +49,21 @@ int main() {
 
 ### 字段
 
-字段通过成员表达式 `p.x` 读写；struct 没有方法体，因此没有可绑定的 `this`。
+字段通过成员表达式`p.x`读写；struct没有方法体，因此没有可绑定的`this`。
 具名初始化（`new Point{x: 1, y: 2}`）设置具名字段；未列出的字段保持零值。
-完整初始化列表规则见 [集合初始化器](collection-initializers.md)。
+完整初始化列表规则见[集合初始化器](collection-initializers.md)。
 
-### struct 可以包含
+### struct可以包含
 
-- 基本类型字段（int、float、string 等）
-- enum 字段（按 int32 存储）
-- struct 字段（深拷贝，由外层 struct 持有）
-- class 字段（引用，浅拷贝）
+- 基本类型字段（int、float、string等）
+- enum字段（按int32存储）
+- struct字段（深拷贝，由外层struct持有）
+- class字段（引用，浅拷贝）
 
-struct 不能包含方法。需要行为请用 class。
+struct不能包含方法。需要行为请用class。
 
 ### 输出
 
-struct 没有 `toString`，且**永久排除**于字符串强制转换——
-`"x" + structInstance` 是编译错误（struct 在 NLang 中是纯数据类型）。
-见 [类型强制转换](type-casts.md)「Object.toString() 协议」。
+struct没有`toString`，且**永久排除**于字符串强制转换——
+`"x" + structInstance`是编译错误（struct在NLang中是纯数据类型）。
+见[类型强制转换](type-casts.md)「Object.toString()协议」。

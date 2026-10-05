@@ -1,33 +1,33 @@
-# NLang 是什么
+# NLang是什么
 
-NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，也是探索 人工智能（AI，artificial intelligence） 友好
-语言特性的试验台，自带编译器（ncc）、字节码虚拟机（nvm）与 集成开发环境（IDE，integrated development environment）（nide），
+NLang是一门面向嵌入与自动化场景的静态类型脚本语言，也是探索人工智能（AI，artificial intelligence）友好
+语言特性的试验台，自带编译器（ncc）、字节码虚拟机（nvm）与集成开发环境（IDE，integrated development environment）（nide），
 作为教学/研究开源项目开发。
 
 本页带你完成安装、跑通第一个程序，并用可运行的片段快速过一遍语言核心特性。
-本文也是 nide 帮助菜单「NLang 入门」的落地页。
+本文也是nide帮助菜单「NLang入门」的落地页。
 
-源码（`.n`）先编译为字节码产物——单文件是 `.ncu` 单元映像，多文件项目
-是 `.npkg` 程序包——执行时由虚拟机把产物与其依赖（标准库包、外部模块）
+源码（`.n`）先编译为字节码产物——单文件是`.ncu`单元映像，多文件项目
+是`.npkg`程序包——执行时由虚拟机把产物与其依赖（标准库包、外部模块）
 装载链接成运行期模块。语言本身：
 
 - **静态类型**——变量、参数、返回值都显式声明类型，没有类型推断；
-- **面向对象**——`class`/`extends`/接口/虚分派，另有 struct（值类型）与 enum；
+- **面向对象**——`class`/`extends`/接口/虚分派，另有struct（值类型）与enum；
 - **内建泛型集合**——`List<T>`/`Dict<K,V>`，带初始化器语法；
-- **现代脚本语言标配**——异常处理、字符串插值、`out` 参数、默认参数、
-  `math`/`io`/`fs` 标准库。
+- **现代脚本语言标配**——异常处理、字符串插值、`out`参数、默认参数、
+  `math`/`io`/`fs`标准库。
 
 随包分发的五个工具：
 
 | 工具 | 角色 |
 |---|---|
-| ncc | 命令行编译器：把 `.n` 源文件编译成 `.ncu`、把 `.nproj` 项目编译成 `.npkg`，也可编译后立即执行 |
-| nvm | VM 执行器：运行 `.ncu` 与 `.npkg` |
-| ndb | 命令行调试器：断点、单步、调用栈（nide 里的图形调试也由它驱动） |
-| ndisasm | 字节码反汇编器：查看 `.ncu`/`.npkg` 里的指令 |
+| ncc | 命令行编译器：把`.n`源文件编译成`.ncu`、把`.nproj`项目编译成`.npkg`，也可编译后立即执行 |
+| nvm | VM执行器：运行`.ncu`与`.npkg` |
+| ndb | 命令行调试器：断点、单步、调用栈（nide里的图形调试也由它驱动） |
+| ndisasm | 字节码反汇编器：查看`.ncu`/`.npkg`里的指令 |
 | nide | IDE：编辑、构建、运行，内嵌本帮助站 |
 
 五个工具的完整用法见[命令行工具](../cli-tools/overview.md)一章；
-nide 的图形界面用法见[三种运行方式](running.md)与
-[在 nide 中调试](debugging.md)。
+nide的图形界面用法见[三种运行方式](running.md)与
+[在nide中调试](debugging.md)。
 

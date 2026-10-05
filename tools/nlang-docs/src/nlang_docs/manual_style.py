@@ -165,3 +165,30 @@ def find_abbreviation_violations(terms: dict):
         for lineno, msg in abbreviation_violations_in_text(text, terms, lang):
             out.append((str(path), lineno, msg))
     return out
+
+
+# Rule A of the style guide: no ASCII space at a CJK/fullwidth <->
+# Latin/digit boundary in prose. (Rule B -- boundaries against inline
+# code spans, bracket links and emphasis -- is sweep-only, not guarded.)
+_CJK = "一-鿿　-〿！-～"
+SPACING_RE = re.compile(
+    rf"(?<=[{_CJK}]) +(?=[A-Za-z0-9])|(?<=[A-Za-z0-9]) +(?=[{_CJK}])"
+)
+
+
+def spacing_violations_in_text(text: str):
+    hits = []
+    for lineno, line in prose_lines(text, drop_headings=False):
+        m = SPACING_RE.search(line)
+        if m:
+            hits.append((lineno, line.strip()))
+    return hits
+
+
+def find_spacing_violations():
+    out = []
+    for path, _lang in iter_manual_pages():
+        text = path.read_text(encoding="utf-8")
+        for lineno, excerpt in spacing_violations_in_text(text):
+            out.append((str(path), lineno, excerpt))
+    return out

@@ -69,3 +69,24 @@ def test_unknown_candidates_tree_report():
             path.read_text(encoding="utf-8"), terms)
         if cands:
             print(f"[unknown-{lang}] {path.name}: {', '.join(cands)}")
+
+
+def test_spacing_flags_cjk_latin_boundary():
+    text = "在 NLang 中使用 42 个模块。\n"
+    assert ms.spacing_violations_in_text(text) != []
+
+
+def test_spacing_allows_compact_code_links_urls():
+    text = (
+        "# 标题native说明\n"
+        "调用`ncc build`编译，见[标准库](../language-spec/standard-library.md)"
+        "与https://example.com/a即可。\n"
+        "```nlang\n"
+        "int x = 1; // 赋值 42\n"
+        "```\n"
+    )
+    assert ms.spacing_violations_in_text(text) == []
+
+
+def test_manual_tree_compact_spacing():
+    assert ms.find_spacing_violations() == []

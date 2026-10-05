@@ -1,23 +1,23 @@
 # ndb —— 调试器
 
-ndb 是 NLang 的交互式调试器：装载程序后停在入口，按命令设断点、
+ndb是NLang的交互式调试器：装载程序后停在入口，按命令设断点、
 单步、查看局部变量与调用栈。程序行为与预期不符时用它定位问题；
-跨文件项目调试（断点按 `文件:行` 或函数名设置）是主用例。同一
-会话也以行协议形式提供给嵌入前端（`--machine`），nide 的图形
+跨文件项目调试（断点按`文件:行`或函数名设置）是主用例。同一
+会话也以行协议形式提供给嵌入前端（`--machine`），nide的图形
 调试器就构建在其上。
 
 ```text
 ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 ```
 
-装载程序后**停在入口首条语句**（等价 gdb 的 `start`），给出提示符
-`(ndb) `，从 stdin 逐条读命令；stdin 文件结束（EOF，end of file） 等同 `q`。
+装载程序后**停在入口首条语句**（等价gdb的`start`），给出提示符
+`(ndb) `，从stdin逐条读命令；stdin文件结束（EOF，end of file）等同`q`。
 
 ## 命令表
 
 | 命令 | 长别名 | 说明 |
 |---|---|---|
-| `b <file.n:LINE \| LINE \| funcName>` | break | 设断点；裸 `LINE` 在当前帧的文件里解析；同名函数全部命中 |
+| `b <file.n:LINE \| LINE \| funcName>` | break | 设断点；裸`LINE`在当前帧的文件里解析；同名函数全部命中 |
 | `i b` | info | 断点清单（含命中数） |
 | `d <id>` | delete | 删除断点 |
 | `c` | continue | 继续运行 |
@@ -26,17 +26,17 @@ ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 | `f` | finish | 步出当前函数 |
 | `bt` | backtrace | 调用栈 |
 | `frame <n>` | — | 选择帧 |
-| `info locals` | info | 所选帧的局部变量（合成名过滤；接收者以 `this` 显示） |
+| `info locals` | info | 所选帧的局部变量（合成名过滤；接收者以`this`显示） |
 | `p <name>` | print | 打印一个局部变量 |
-| `l [行号]` | list | 源码窗口（当前行 `->` 标记） |
-| `x` | — | 所选帧反汇编（当前指令 `>>` 标记） |
-| `catch on\|off` | — | throw 时中断（默认 off） |
+| `l [行号]` | list | 源码窗口（当前行`->`标记） |
+| `x` | — | 所选帧反汇编（当前指令`>>`标记） |
+| `catch on\|off` | — | throw时中断（默认off） |
 | `help` | — | 命令帮助 |
 | `q` | quit | 退出（杀掉被调试程序） |
 
-短命令是规范形式（与 `help` 输出一致），等价的长别名同样接受。
+短命令是规范形式（与`help`输出一致），等价的长别名同样接受。
 
-一个完整会话（调试 `examples/hello_project`，断点按限定函数名设在
+一个完整会话（调试`examples/hello_project`，断点按限定函数名设在
 第二个文件里）：
 
 ```console
@@ -63,22 +63,22 @@ Program exited with code 0.
 （函数名按模块路径限定——`b utils.addBoth`；拼写规则见语言规格的
 [包](../language-spec/packages.md)。）
 
-程序跑完时 ndb 打印 `Program exited with code N.` 并以同一个退出码
-退出；`q` 或 stdin EOF 则杀掉程序、ndb 自身退出码 0。
+程序跑完时ndb打印`Program exited with code N.`并以同一个退出码
+退出；`q`或stdin EOF则杀掉程序、ndb自身退出码0。
 
 ## 嵌入前端协议
 
-`ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]` 在
-stdin/stdout 上暴露同一会话的
-tab 分隔行协议，供嵌入前端使用——nide 的图形调试器就构建在它之上。
-协议细节见[在 nide 中调试](../getting-started/debugging.md)与
+`ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]`在
+stdin/stdout上暴露同一会话的
+tab分隔行协议，供嵌入前端使用——nide的图形调试器就构建在它之上。
+协议细节见[在nide中调试](../getting-started/debugging.md)与
 [调试器架构](../vm-architecture/debugging.md)。
 
-交互式与 `--machine` 两种形态都接受 `-I <dir>`（可多次指定），用于定位
-闭包成员与 native 动态库；搜索目录的拼接顺序与 nvm 相同（`-I` → 模块
+交互式与`--machine`两种形态都接受`-I <dir>`（可多次指定），用于定位
+闭包成员与native动态库；搜索目录的拼接顺序与nvm相同（`-I` → 模块
 目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录）。
 
-`--verbose`（短写法 `-v`）在会话开始前打印解析后的搜索路径（每行
+`--verbose`（短写法`-v`）在会话开始前打印解析后的搜索路径（每行
 一个目录并括注来源
-层，同 nvm），随后照常进行。`--machine` 形态下这份列表输出到
-**stderr**——stdout 是协议通道，不得混入非协议行。
+层，同nvm），随后照常进行。`--machine`形态下这份列表输出到
+**stderr**——stdout是协议通道，不得混入非协议行。
