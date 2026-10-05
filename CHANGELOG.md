@@ -74,6 +74,19 @@ All notable changes to NLang are documented here. The format follows
   diagnostic (rerun a failing invocation with `--verbose` to see every
   directory that will be searched); in `ndb --machine` mode the listing
   goes to stderr because stdout is the protocol channel.
+- Examples: `examples/libdemo` — a flat search-path library demo. The
+  library unit compiles first (`ncc build mylib.n`); the consumer
+  imports it and the loader links both units at load time.
+- User manual: new "Libraries and Integration" chapter (developing
+  libraries, integrating NLang) and two getting-started introductions
+  (extending NLang, embedding NLang in other programs).
+- User manual: every abbreviation is expanded on its first occurrence
+  per page (PRNG, ABI and friends); typography normalized to compact
+  spacing (no space at CJK/Latin boundaries), navigation labels
+  included.
+- Docs: added `docs/user-manual-style-guide.md` as the single source
+  for manual editing policies and the abbreviation glossary, enforced
+  by two new automated guards in the docs test suite.
 
 ### Changed
 - Language: the `namespace` keyword is removed — the wrapper syntax,
