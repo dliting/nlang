@@ -57,8 +57,9 @@ means null and **reads as the empty string** `""`.
   errors.
 - **Interpolation**: `${identifier}` inside a literal — see below.
 - **Escape sequences**: see below.
-- **Explicit construction from a primitive**: `ToString()` / the primitive →
-  string coercion — see [Type Casts](type-casts.md).
+- **Explicit construction from a primitive**: a scalar primitive's
+  `.toString()` / the primitive → string coercion — see
+  [Type Casts](type-casts.md).
 
 ### Comparison
 
@@ -77,7 +78,7 @@ Inside double-quoted literals:
 
 | Escape          | Produces                                              |
 |-----------------|------------------------------------------------------|
-| `\n` `\r` `\t`  | newline, CR, tab                                      |
+| `\n` `\r` `\t`  | newline, carriage return (CR), tab                   |
 | `\\` `\"` `\'`  | backslash, double quote, apostrophe                   |
 | `\0` `\a` `\b` `\f` `\v` | NUL, bell, backspace, form feed, vertical tab |
 | `\uXXXX`          | the UTF-8 encoding of that code point (4 hex digits) |

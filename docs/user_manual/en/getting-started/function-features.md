@@ -1,4 +1,7 @@
 # Crash Course: Functions and Modules
+
+This page tours functions and modules through runnable snippets; each section's prose gives the actual output and exit code, ending with a link into the language specification.
+
 ### Functions
 
 ```nlang

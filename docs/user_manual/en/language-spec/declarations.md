@@ -58,8 +58,8 @@ Visibility:
   `io`/`math`/`fs` is an ordinary directory; only one package of each
   name may exist. Dotted imports resolve library sources under the
   matched search root (`-I <root>` + `<root>/a/b/c.n` addresses
-  `import a.b.c;`); precompiled dotted packages still search
-  by their single last segment until a later phase.
+  `import a.b.c;`); precompiled dotted packages are currently searched
+  by their single last segment.
 - An external module's code does not enter the artifact: the consumer
   image only records import slots, and the loader relocates the module
   at run time along the same search path (the mechanism is in

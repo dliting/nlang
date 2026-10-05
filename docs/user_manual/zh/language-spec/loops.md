@@ -1,8 +1,7 @@
 # 循环
 
 
-NLang有三种循环形式：`for`、`while`、`do-while`。它们共享`bool`条件规则与
-`break`/`continue`语义（见[语句](statements.md)「条件类型」）。
+NLang有三种循环形式：`for`、`while`、`do-while`。它们共享`bool`条件规则与`break`/`continue`语义（见[语句](statements.md)「条件类型」）。
 
 ### `for`
 
@@ -16,10 +15,7 @@ for (init; cond; fini) { body }
 - **条件段在每轮循环前求值**（包括第一轮）；仅当它为`true`时执行语句体；
 - **步进段在每次语句体执行后运行**（包括循环自然结束前的最后一轮）。
 
-`break`立即退出循环（**跳过步进段**）；`continue`跳到下一轮（**先执行步进
-段**，然后重新求值条件）。在初始化段声明的变量是**函数作用域**——与
-`foreach`循环变量一样，两者都不受块作用域限制（见[Foreach](foreach.md)）；
-语句体内其他声明仅在该体内可见（块作用域）。
+`break`立即退出循环（**跳过步进段**）；`continue`跳到下一轮（**先执行步进段**，然后重新求值条件）。在初始化段声明的变量是**函数作用域**——与`foreach`循环变量一样，两者都不受块作用域限制（见[Foreach](foreach.md)）；语句体内其他声明仅在该体内可见（块作用域）。
 
 ```nlang
 int sum = 0;
@@ -45,9 +41,7 @@ for (int j = 0; j < 20; j = j + 1) {
 while (cond) { body }
 ```
 
-`while` **先判断后执行**——如果条件从一开始就是`false`，语句体可能从不执行。
-`break`退出循环；`continue`跳到下一轮（回到条件判断）；在语句体内声明的变
-量仅在该体内可见（块作用域）。
+`while` **先判断后执行**——如果条件从一开始就是`false`，语句体可能从不执行。`break`退出循环；`continue`跳到下一轮（回到条件判断）；在语句体内声明的变量仅在该体内可见（块作用域）。
 
 ```nlang
 int steps = 0;
@@ -63,8 +57,7 @@ while (steps < 3) {
 do { body } while (cond);
 ```
 
-`do-while` **先执行语句体后判断**——即使条件恒为`false`，语句体也至少执行一次。
-`break`和`continue`行为同`while`。
+`do-while` **先执行语句体后判断**——即使条件恒为`false`，语句体也至少执行一次。`break`和`continue`行为同`while`。
 
 ```nlang
 int n = 0;

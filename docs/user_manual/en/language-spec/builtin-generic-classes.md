@@ -4,9 +4,8 @@
 ### `List<T>`
 
 `List<T>` is a growable, ordered, index-addressable collection. It is
-a **built-in generic class** — only `List` (and future `Dict`) are
-recognized by the compiler; user-defined `class Foo<T>` is not (yet)
-supported.
+a **built-in generic class** — only `List` and `Dict` are recognized
+by the compiler; user-defined `class Foo<T>` is not supported.
 
 ```nlang
 List<int> nums = new List<int>();
@@ -43,26 +42,28 @@ error when `nums : List<int>`.
 **Erasure runtime model**: `List<int>` and `List<Point>` share the same
 backing class at runtime. Elements are stored uniformly as heap indices
 in a side table; scalar primitive elements (all 12) are boxed via
-`OP_Box` at the call site. garbage collection (GC) traces list elements as additional roots.
+`OP_Box` at the call site. Garbage collection (GC) traces list
+elements as additional roots.
 
 **Array type arguments**: `T` may be an array type — `List<int[]>`
 stores `int[]` values as raw, GC-traced handles; the primitive-boxing
 rule above does not apply to array-typed elements. Elements pulled out
-with `get`/subscript keep their array-ness for the compiler's gates,
-and `foreach (int[] row in grid)` iterates them directly. `indexOf`/
+with `get`/subscript keep their array type, and
+`foreach (int[] row in grid)` iterates them directly. `indexOf`/
 `contains` compare by handle identity. Jagged arguments
 (`List<int[][]>`) are rejected like other jagged declarations.
 
 **Null List reference**: a `List<T>` field or variable that has not been
 assigned `new List<T>()` holds null. Calling any method on null throws
-`null reference in CallMethod` (same null pointer exception (NPE) semantics as other class refs).
+`null reference in CallMethod` — the same null pointer exception (NPE)
+semantics as other class refs.
 
 **Collection initializer**: the `[1, 2, 3]` literal syntax is supported
-(bare bracket form for arrays and `List<T>`). See the
-Collection Initializers section above.
+(bare bracket form for arrays and `List<T>`). See
+[Collection Initializers](collection-initializers.md).
 
 **`foreach`**: the `foreach (Type var in iterable)` construct is
-supported. See the Foreach Statement section below.
+supported. See [Foreach](foreach.md).
 
 **Nested generics** (`List<List<int>>`): supported. The lexer tracks
 type-argument nesting depth (`<` right after the built-in generic names
@@ -76,7 +77,7 @@ shadowing the type name (`List < 3`, only blanks/comments between name
 and `<`) is misread as a generic open.
 
 **Cross-module**: container generic signatures cross `.ncu` import
-boundaries — since the v1.12 type descriptors, imported functions carry
+boundaries — imported functions carry
 their true formal and return types recursively (`List<int[]>`, `Dict`
 instantiations, nested arrays), so call-site type checking matches
 same-module calls. Function (`Func`) signatures remain outside the
@@ -87,7 +88,7 @@ descriptor grammar (see Known Limitations).
 `Dict<K,V>` is an associative array mapping keys of type `K` to values
 of type `V`. Like `List<T>`, it is a **built-in generic class** — only
 `List` and `Dict` are recognized by the compiler; user-defined generics
-are not (yet) supported.
+are not supported.
 
 ```nlang
 Dict<string,int> scores = new Dict<string,int>();
@@ -152,7 +153,7 @@ provided.
 iterates the keys of the dict, Python/JavaScript style. Inside the body,
 call `dict.get(k)` to access the value. Implementation: the compiler
 emits an inline `dict.keys()` call to materialize a fresh `List<K>`, then
-iterates that list. See the Foreach Statement section below.
+iterates that list. See [Foreach](foreach.md).
 
 **`Dict.keys()`**: returns a new `List<K>` populated with all keys
 (no defined ordering). Useful independently of `foreach` for snapshotting
@@ -160,7 +161,7 @@ keys for enumeration, set-style membership checks via `contains`, etc.
 The returned `List<K>` is a *copy* — subsequent `set`/`remove` on the
 source dict do not affect it.
 
-**`values()`**: not yet provided. Iterate keys and call `get` to obtain
+**`values()`**: not provided. Iterate keys and call `get` to obtain
 values.
 
 ### Subscript Sugar — `li[i]` / `d[k]`

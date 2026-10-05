@@ -36,9 +36,9 @@ manual configuration. The mechanism is covered in
 The process exit code is `main`'s return value, and Windows preserves
 the full 32-bit value; but POSIX shells (bash, Git-Bash, continuous integration (CI) bash steps)
 keep only the low 8 bits by convention — `return 300` is seen as 300 in
-Python/cmd/PowerShell and as 44 in bash (300 mod 256). The testing
-convention is expected values in 0–255 so every observer sees the same
-thing.
+Python/cmd/PowerShell and as 44 in bash (300 mod 256). When writing
+tests or scripts, keep expected exit codes within 0–255 so every
+observer sees the same value.
 
 See also: [Language Specification / Exit Code Convention](../language-spec/exit-code-convention.md).
 
@@ -48,8 +48,9 @@ Program output is Unicode Transformation Format (UTF-8) bytes. The tools set the
 page to UTF-8 (declared in the tools' embedded manifest, Windows 10
 1903+) and switch the attached console to the UTF-8 code page at
 startup, so the default console renders Chinese output correctly — no
-manual `chcp 65001` needed. `fs` and `io` non-American Standard Code for Information Interchange (ASCII) paths and file
-names round-trip as UTF-8 as well. Redirected output is untouched
+manual `chcp 65001` needed. `fs` and `io` accept paths and file
+names beyond the American Standard Code for Information Interchange
+(ASCII) set, and they round-trip as UTF-8 as well. Redirected output is untouched
 bytes — an editor opening it with a non-UTF-8 encoding still shows
 mojibake. The console switch outlives the tool: a program emitting a
 legacy encoding in the same window afterwards may show as mojibake.
@@ -60,12 +61,12 @@ See also: [Language Specification / Standard Library](../language-spec/standard-
 
 Source files and `.nproj` project files must be saved as UTF-8: ncc
 validates the whole file before tokenizing, and invalid bytes are
-rejected with a named error (`Source file is not valid UTF-8 ...
+rejected with an explicit error message (`Source file is not valid UTF-8 ...
 (first invalid byte at line N). Save the file as UTF-8.`);
 a UTF-16 save gets a dedicated hint (re-save the file as UTF-8). This
 stops legacy encoding bytes from slipping silently into string
-constants. nide's build invokes ncc, so building there is gated the
-same way. A leading UTF-8 byte order mark (BOM) is accepted and skipped — the editor
+constants. nide's build invokes ncc, so the same validation applies
+there. A leading UTF-8 byte order mark (BOM) is accepted and skipped — the editor
 "UTF-8 with BOM" save form needs no handling. See also:
 [Language Specification / Primitives](../language-spec/primitives.md).
 
@@ -82,7 +83,7 @@ the site title) and supports full-text search.
 
 The lexer eats the digits immediately after a binary `+` as a signed
 literal — `v+1` is read as the identifier `v` followed by the literal
-`+1`, and two expressions in a row is not a valid statement, so you
+`+1`, and two expressions in a row are not a valid statement, so you
 get `syntax error` (`Invalid statement.`). Work around it by putting
 spaces around the operator (`v + 1`).
 
@@ -97,7 +98,7 @@ line and press Enter, and it is delivered to the program's next read
 hard stop: the process terminates directly and `finally` does not run.
 Line-number drift is not tracked inside a session — one session is one
 line-number snapshot, so editing or rebuilding mid-session is not
-supported; reopen the debug session. See the "Known v1 limitations"
+supported; reopen the debug session. See the "Known limitations"
 section of [Debugging in nide](debugging.md).
 
 ### Cross-module reference gives `Module '...' is not imported`?
@@ -113,7 +114,8 @@ for the full error text.
 
 An array value has only two legal destinations — its own array type
 and every `string` target (`toString`, etc.); every other scalar
-context is a named compile-time rejection (`Incompatible type "a"`).
+context is rejected at compile time with an explicit error
+(`Incompatible type "a"`).
 The full rule is on [Language Specification / Known
 Limitations](../language-spec/known-limitations.md), the "Array values
 in scalar contexts" item. See [Common Error
@@ -121,13 +123,13 @@ Messages](../language-spec/common-errors.md) for the full error text.
 
 ### `.ncu` version outdated, telling you to recompile?
 
-The `.ncu` format floor only ever rises: a module produced by an
+The `.ncu` minimum format version only ever rises: a module produced by an
 older ncc is refused as outdated
 (`Module version ... is outdated; recompile with current ncc`) and
-must be recompiled with the current toolchain. Each floor bump and its
+must be recompiled with the current toolchain. Each version bump and its
 semantic change are on [VM Architecture / Module
 Serialization](../vm-architecture/module-serialization.md), the
-"Version history" section; the rationale for each bump is in the
+"Version history" section; the rationale for each rise is in the
 corresponding CHANGELOG release section.
 
 ### Cross-module function values / complex defaults / named arguments rejected?
@@ -139,7 +141,7 @@ function as a function value, passing a function reference to an
 imported function, a non-constant-foldable default parameter, and a
 named argument to an imported function (use positional arguments only).
 See [Language Specification / Known Limitations](../language-spec/known-limitations.md),
-the "Cross-module function values are rejected, not transported"
+the "Cross-module function values are rejected, not transported",
 "Default parameters on imported functions" and "Named arguments on
 imported functions" items. See [Common Error
 Messages](../language-spec/common-errors.md) for the full error text.
@@ -149,11 +151,12 @@ Messages](../language-spec/common-errors.md) for the full error text.
 The condition of `if` / `while` / `do-while` / `for` / `assert` and the
 operands of `&&` / `||` / `!` must all be `bool` (comparisons and
 predicates already produce bool — there is no C-style "non-zero is
-true"); int, string, float, char, class, struct, and array are named
-compile-time rejections (`if condition must be bool, not "Int32"`,
+true"); int, string, float, char, class, struct, and array are
+rejected at compile time with explicit errors
+(`if condition must be bool, not "Int32"`,
 `operator '&&' requires bool operands, got "Int32"`). Count tests
 should be written `if (count != 0)`. Separately, the parameter count
-of a function has a sanity ceiling of 64; exceeding it is a compile
+of a function is capped at 64; exceeding it is a compile
 error (`function "f" has 65 parameters; limit is 64.`). The condition
 typing is on [Language Specification / Statements](../language-spec/statements.md)
 ("Condition typing"); the parameter ceiling is on [Language
@@ -166,14 +169,15 @@ Messages](../language-spec/common-errors.md) for the full error text.
 This is a **known compiler defect** (the current ncc still reproduces
 `ncc: internal crash (code 0xC0000005)`) — a chained member call such
 as `s.length().toString()` on a `string` chain (a member access on a
-method-call result) crashes the compiler at compile time instead of
-giving a named diagnostic. Work around it with an intermediate local
+method-call result) crashes the compiler at compile time rather than
+reporting an error. Work around it with an intermediate local
 (`int n = s.length(); string t = n.toString();`).
 
 ### The help window says "document not found"?
 
-The help window locates the matching `.html` in the `docs\site\`
-adjacent directory for the current language tree; when it cannot find
+The help window locates the matching `.html` next to the IDE
+installation (the directory containing `docs\site\`) for the current
+language tree; when it cannot find
 one it reports "The document '...' was not found next to the IDE
 installation." This usually means the documentation site was not
 deployed to `docs\site\` with the package, or the installation

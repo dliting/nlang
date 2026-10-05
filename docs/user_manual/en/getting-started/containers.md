@@ -1,4 +1,7 @@
 # Crash Course: Containers
+
+This page tours containers through runnable snippets; each section's prose gives the actual output and exit code, ending with a link into the language specification.
+
 ### Collections
 
 ```nlang

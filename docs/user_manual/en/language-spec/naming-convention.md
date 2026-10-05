@@ -10,7 +10,7 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
 |----------|-------|----------|
 | Types (class / struct / enum / interface) | PascalCase | `MyClass`, `List<T>`, `Color` |
 | Methods — action / command (side effects or multi-arg) | camelCase, bare verb | `add(x)`, `clear()`, `readInt()`, `run()` |
-| Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` (reserved for future property feature) |
+| Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` |
 | Methods — predicate (returns `bool`) | camelCase, bare word | `contains(x)`, `startsWith(s)`, `fs.exists(p)` |
 | Free functions | camelCase | `print(s)`, `assert(c)` |
 | Variables / parameters / locals | camelCase | `firstName`, `itemCount` |
@@ -24,11 +24,9 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
   type-vs-method distinction immediate; `MyClass.MyMethod()` is ambiguous.
 - Covers Java + JS + C++ conventions (the largest common denominator).
 - `main` exception preserves the universal C/C++/Java entry-point convention.
-- `getXxx` / `setXxx` prefix retained on accessors: reserves namespace for a
-  future property feature (`obj.hashCode` desugaring to `getHashCode()` /
-  `setHashCode(v)`). Only `getHashCode` currently uses this form; other
-  accessors (`length`, `count`, `position`, `keys`) use bare camelCase and
-  may be upgraded to `getXxx` when properties land.
+- `getXxx` / `setXxx` prefix retained on accessors (C# style): only
+  `getHashCode` currently uses this form; other accessors (`length`,
+  `count`, `position`, `keys`) use bare camelCase.
 - Predicates do not use `isXxx` / `hasXxx` prefixes — `contains` and
   `startsWith` are clear on their own. (Exception: `equals` follows the
   Object virtual method protocol and returns int 0/1 — see

@@ -79,21 +79,21 @@ Consequences of one shared model:
 
 - **Package-qualified calls compile as ordinary calls.** A call
   `mylib.f(...)` emits `OP_CallFunc` with the fully-qualified name
-  `pkg.f`; run time dispatches on the callee's own nature — a bytecode
+  `<package>.<name>`; run time dispatches on the callee's own nature — a bytecode
   body, or `isNative` → the DLL. There is no signature-table call path
   and no per-library codegen branch anymore.
 - **Top-level function names in the function table are fully
   qualified** for packaged functions (including library natives), so
-  the runtime lookup `m_natives["pkg.f"]` matches the DLL's exported
+  the runtime lookup `m_natives["<package>.<name>"]` matches the DLL's exported
   registrations.
 - **Types defined by a library are usable**: library members merge into
   the root with their owner tags, so a library's class/struct/enum/
   interface resolve at the consumer side like project types (inheritance,
   virtual dispatch and enum methods included). A type position writes
-  the reference as `pkg.Type`; the resolver looks the declaration up in
+  the reference as `package.Type`; the resolver looks the declaration up in
   the compiled-in unit (`ModuleRegistry::FindModuleType`) and binds it,
   and an unimported package is diagnosed rather than silently bound. An
-  external `.ncu` exposes no source-level types, so `pkg.Type` resolves
+  external `.ncu` exposes no source-level types, so `package.Type` resolves
   only for inlined library sources.
 - **Deduplication** is tracked per *fully-parsed library file*, separate
   from the symbol index's already-indexed set: standard-library
@@ -160,7 +160,7 @@ away (case-folded on Windows). Five layers, highest first
    directory.
 
 `ncc`, `nvm` and `ndb` all consume this one header (pure STL, no VM
-dependency, so a future standalone language service reuses it at zero
+dependency, so a standalone tool can reuse it at zero
 coupling). nide layers it as global settings (Tools → Options) plus
 per-project settings (Project → Properties), project entries first, and
 passes the resulting `-I` list to build, run and debug alike. Editing a
@@ -172,7 +172,7 @@ re-parses it from disk.
 Native implementations are ordinary shared libraries behind one stable
 contract (`include/nlang/vm/NativeHost.h`):
 
-- file name `nlang_<ns>.dll` (`libnlang_<ns>.so`/`.dylib`), located on
+- file name `nlang_<package>.dll` (`libnlang_<package>.so`/`.dylib`), located on
   the section-4 search path;
 - exactly one exported entry point, `nlang_native_init`, registered
   through a macro that also pins the host ABI version
@@ -185,7 +185,7 @@ contract (`include/nlang/vm/NativeHost.h`):
   load, so unused libraries cost nothing.
 
 Plain C++ functions in a DLL can be wrapped and combined by NLang
-bodies in the same `.n` (a NLang `quad` calling a native `dbl` twice),
+bodies in the same `.n` (an NLang `quad` calling a native `dbl` twice),
 which is how the stdlib and `tests/fixtures/native/mylib/` work.
 
 ## 6. What the standard library is made of
@@ -200,7 +200,7 @@ carries no standard-library knowledge.
 | `src/native/{math,io,fs}/` | the native implementations, built as `nlang_math.dll`, `nlang_io.dll`, `nlang_fs.dll` |
 | duplicate-package check (`ModuleRegistry::RegisterUnit` + discovery) | one build may contain only one package of each dotted name; the error names both source paths |
 | `kStringMethodTable` (`include/nlang/vm/StdLib.h`) | string methods only — receiver-dispatched built-ins, still intrinsics; a library package is not implemented this way |
-| ctest `no_builtin_stdlib` | fails if a hardcoded table, a math/io/fs intrinsic family or their ids return, or if `stdlib/*.n` is deleted instead |
+| ctest `no_builtin_stdlib` | fails if a hardcoded table, a math/io/fs intrinsic family or their ids return, or if `stdlib/*.n` is deleted while the table remains |
 
 `io.print` is `native void print(string)`: int/float/array coerce through
 the general string formal, while class/enum/func require an explicit
@@ -232,8 +232,7 @@ argument-to-string codegen.
   native build command would require compiler-toolchain discovery and
   cross-platform flags for little user benefit today.
 - **No incremental cache for library sources**: correctness comes from
-  re-parsing every build; a cache is deferred until compile-time data
-  justifies it.
+  re-parsing every build.
 
 ## 8. Testing conventions
 
@@ -242,4 +241,4 @@ execution on `VmExecutor` (no mocked internals) — see
 `test_library_source.cpp`, `test_thirdparty.cpp`,
 `test_native_loader.cpp`/`test_native_abi.cpp`, fixtures under
 `tests/fixtures/native/`, and the `check_nvm_native.py`/`check_ndb_native.py`
-e2e scripts.
+end-to-end (e2e) scripts.

@@ -1,17 +1,12 @@
 # ndb —— 调试器
 
-ndb是NLang的交互式调试器：装载程序后停在入口，按命令设断点、
-单步、查看局部变量与调用栈。程序行为与预期不符时用它定位问题；
-跨文件项目调试（断点按`文件:行`或函数名设置）是主用例。同一
-会话也以行协议形式提供给嵌入前端（`--machine`），nide的图形
-调试器就构建在其上。
+ndb是NLang的交互式调试器：装载程序后停在入口，按命令设断点、单步、查看局部变量与调用栈。程序行为与预期不符时用它定位问题；跨文件项目调试（断点按`文件:行`或函数名设置）是主用例。同一会话也以行协议形式提供给嵌入前端（`--machine`），nide的图形调试器就构建在其上。
 
 ```text
 ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 ```
 
-装载程序后**停在入口首条语句**（等价gdb的`start`），给出提示符
-`(ndb) `，从stdin逐条读命令；stdin文件结束（EOF，end of file）等同`q`。
+装载程序后**停在入口首条语句**（等价gdb的`start`），给出提示符`(ndb) `，从stdin逐条读命令；stdin文件结束（EOF，end of file）等同`q`。
 
 ## 命令表
 
@@ -36,8 +31,7 @@ ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 
 短命令是规范形式（与`help`输出一致），等价的长别名同样接受。
 
-一个完整会话（调试`examples/hello_project`，断点按限定函数名设在
-第二个文件里）：
+一个完整会话（调试`examples/hello_project`，断点按限定函数名设在第二个文件里）：
 
 ```console
 $ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.npkg
@@ -60,25 +54,14 @@ a = 40
 Program exited with code 0.
 ```
 
-（函数名按模块路径限定——`b utils.addBoth`；拼写规则见语言规格的
-[包](../language-spec/packages.md)。）
+（函数名按模块路径限定——`b utils.addBoth`；拼写规则见语言规格的[包](../language-spec/packages.md)。）
 
-程序跑完时ndb打印`Program exited with code N.`并以同一个退出码
-退出；`q`或stdin EOF则杀掉程序、ndb自身退出码0。
+程序跑完时ndb打印`Program exited with code N.`并以同一个退出码退出；`q`或stdin EOF则杀掉程序、ndb自身退出码0。
 
 ## 嵌入前端协议
 
-`ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]`在
-stdin/stdout上暴露同一会话的
-tab分隔行协议，供嵌入前端使用——nide的图形调试器就构建在它之上。
-协议细节见[在nide中调试](../getting-started/debugging.md)与
-[调试器架构](../vm-architecture/debugging.md)。
+`ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]`在stdin/stdout上暴露同一会话的tab分隔行协议，供嵌入前端使用——nide的图形调试器就构建在它之上。协议细节见[在nide中调试](../getting-started/debugging.md)与[调试器架构](../vm-architecture/debugging.md)。
 
-交互式与`--machine`两种形态都接受`-I <dir>`（可多次指定），用于定位
-闭包成员与native动态库；搜索目录的拼接顺序与nvm相同（`-I` → 模块
-目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录）。
+交互式与`--machine`两种形态都接受`-I <dir>`（可多次指定），用于定位闭包成员与native动态库；搜索目录的拼接顺序与nvm相同：`-I` → 模块目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录 → 标准库目录（`stdlib.npkg`所在处）。
 
-`--verbose`（短写法`-v`）在会话开始前打印解析后的搜索路径（每行
-一个目录并括注来源
-层，同nvm），随后照常进行。`--machine`形态下这份列表输出到
-**stderr**——stdout是协议通道，不得混入非协议行。
+`--verbose`（短写法`-v`）在会话开始前打印解析后的搜索路径（每行一个目录并括注来源层，同nvm），随后照常进行。`--machine`形态下这份列表输出到**stderr**——stdout是协议通道，不得混入非协议行。

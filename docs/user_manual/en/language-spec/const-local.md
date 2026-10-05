@@ -24,5 +24,4 @@ p.x = 5;            // OK — only p's binding is const
 ```
 
 For class fields and array elements this means: a `const` reference still
-permits writing through it. Deep/immutability-style const is not supported and
-may be revisited later.
+permits writing through it. Deep/immutability-style const is not supported.

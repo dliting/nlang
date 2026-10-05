@@ -97,7 +97,7 @@ equals the frame count (a stop freezes the innermost frame), while
 
 ## Host I/O seam
 
-`IHostIo` (src/vm/IHostIo.h) decouples the executor's I/O from the
+`IHostIo` (src/vm/IHostIo.h) decouples the executor's input/output (I/O) from the
 process console: output bytes arrive verbatim through `OnOutput`, and
 input is opt-in — `ReadInputLine` supplies whole program-input lines
 while the program is parked in `io.readLine` (blocking is allowed); a

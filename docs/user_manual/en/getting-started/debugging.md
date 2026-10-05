@@ -74,7 +74,7 @@ The Debug page of the output window concentrates the session state:
   selects it, the editor jumps to the matching line, and the locals
   refresh;
 - the locals tree (name / type / value): shows every local of the
-  selected frame whose declaration execution has reached — a local
+  selected frame whose declaration has been reached — a local
   joins the display once the paused statement is at or past its
   declaration line (on the declaration line itself it shows the default
   zero value until the initializer runs), and locals declared on later
@@ -103,7 +103,7 @@ The anchor lines of `while`/`for`/`do-while` hit breakpoints and steps
 on every iteration, so even an empty loop body can be observed round by
 round.
 
-### Known v1 limitations
+### Known limitations
 
 - line-number drift is not tracked within a session: one session uses
   one line-number snapshot, and editing or rebuilding mid-session is

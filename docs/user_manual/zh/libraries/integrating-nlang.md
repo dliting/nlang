@@ -19,7 +19,7 @@ int main()
 | 形态 | 状态 | 说明 |
 |---|---|---|
 | 子进程驱动 | 现支持 | 宿主程序起`ncc`/`nvm`子进程，以退出码与标准流通信 |
-| 进程内宿主应用程序编程接口（API，application programming interface） | 后续开发内容 | 以C/C++库形式链接VM，当前不提供 |
+| 进程内宿主应用程序编程接口（API，application programming interface） | 当前不提供 | 以C/C++库形式链接VM |
 
 ## 2. 依赖清单
 
@@ -32,7 +32,7 @@ int main()
 | `bin\ndb.exe` | 调试器 | 调试集成 |
 | `bin\ndisasm.exe` | 字节码反汇编 | 深度诊断 |
 | `bin\nide.exe`与Qt运行时 | 集成开发环境（IDE，integrated development environment）及其依赖 | 仅图形界面开发 |
-| `nlang_{io,math,fs}.dll` | 标准库的native实现 | 程序用到对应命名空间 |
+| `bin\nlang_{io,math,fs}.dll` | 标准库的native实现 | 程序用到对应命名空间 |
 | `stdlib\` | 标准库 | io/math/fs任意一项 |
 | `docs\site\` | 手册站点 | 可选 |
 
@@ -45,7 +45,7 @@ int main()
 ## 4. 部署配方
 
 - 推荐布局：应用目录旁放一个完整的NLang安装目录，用绝对路径或`NLANG_PATH`环境变量指过去。
-- 编译产物默认写在工程文件旁：不要把用户工程放进`Program Files`这类只读位置，`.npkg`/`.ncu`会写不进去。
+- 项目构建把`.npkg`写在工程文件旁：不要把用户工程放进`Program Files`这类只读位置，`.npkg`会写不进去。
 - 库查找排障：`--verbose`（或`-v`）按层打印解析后的导入搜索路径，见[ncc](../cli-tools/ncc.md)、[nvm](../cli-tools/nvm.md)；`-I`临时加目录。
 
 ## 5. 子进程驱动细节
@@ -56,8 +56,8 @@ int main()
 
 ## 6. 调试集成
 
-无人值守调试用`ndb --machine`行协议：协议事件走stdout，诊断走stderr，宿主逐行解析即可驱动断点与单步。协议细节见[调试](../getting-started/debugging.md)与[ndb](../cli-tools/ndb.md)。
+无人值守调试用`ndb --machine`行协议：协议事件（含`error`错误事件）走stdout，stderr只承载崩溃报告与`--verbose`搜索路径列表，宿主逐行解析即可驱动断点与单步。协议细节见[调试](../getting-started/debugging.md)与[ndb](../cli-tools/ndb.md)。
 
 ## 7. 展望
 
-以C/C++库形式在进程内链接nlang_vm属于后续开发内容；在那之前，集成一律走子进程驱动。
+以C/C++库形式在进程内链接VM属于后续开发内容；在那之前，集成一律走子进程驱动。

@@ -63,7 +63,7 @@ Object o = 5;            // int boxed
 Object f = 3.14;         // double boxed
 Object l = 5000000000;   // long boxed
 Object b = true;         // bool boxed
-Object c = '中';          // char boxed
+Object c = 'é';           // char boxed
 Object s = "hi";         // string boxed
 
 int TakesObject(Object o) { return o.getHashCode(); }

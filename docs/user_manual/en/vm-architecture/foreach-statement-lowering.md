@@ -39,7 +39,7 @@ preserving the user-visible abstract syntax tree (AST):
   boxing plan, array-argument exception).
 - **Dict<K,V>**: iterable's `EvalDataType()` is `SnClassDecl` with
   `BaseName()=="Dict"`. **Inline `keys()` call** materializes a fresh
-  `List<K>` into `iterSlot` first (step 2b), then the rest mirrors the
+  `List<K>` into `iterSlot` first, then the rest mirrors the
   List path with element type K.
 
 The `typeKind` of each hidden local is what garbage collection (GC) uses at safepoints to

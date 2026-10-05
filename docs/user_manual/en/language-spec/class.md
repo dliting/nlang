@@ -10,8 +10,9 @@ class Node {
     public int value;
     public Node next;
 
-    Node(int v) {
+    public int Node(int v) {
         this.value = v;
+        return 0;
     }
 
     public int getValue() {

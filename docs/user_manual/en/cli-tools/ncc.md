@@ -24,9 +24,12 @@ use it too. Artifacts come in two forms: single-source builds produce a
 |---|---|---|
 | `-o <path>` | 1-4 | Output path — a `.ncu` for single-source forms, a `.npkg` for project forms; giving it twice is an error |
 | `-p <nproj>` | project forms | Cannot be combined with a source positional; giving it twice is an error |
+| `--no-warn` | 1-4 | Suppresses compile warnings (e.g. the implicit int→float precision-loss warning) |
 | `-I <dir>` (or `-I<dir>` glued) | 1-5 | Library search path, may be given repeatedly: at compile time it locates imported `.n` files and external `.ncu`/`.npkg`; at run time it locates closure members and native dynamic libraries |
 | `--verbose` / `-v` | 1-5 | Prints the resolved import search path — one directory per line, annotated with the layer it came from — then proceeds normally (the listing shape is the same as nvm's) |
 
+Form 5 (`ncc run`) does not take `--no-warn`; like `-o` and `-p`, it is
+rejected as an unexpected extra argument.
 Errors and diagnostics go to stderr; the `Compiled successfully:` line
 goes to stdout. Common error forms:
 
@@ -132,5 +135,6 @@ relative to the project file):
 ```
 
 For the full five-level order, `native` libraries and graphical
-configuration in nide, see "Libraries and search paths" in the language
-specification.
+configuration in nide, see
+["Libraries and search paths"](../language-spec/standard-library.md) in
+the language specification.

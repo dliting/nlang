@@ -23,8 +23,8 @@ run time: loader discovers and loads the closure (.ncu / .npkg)
 1. **RegisterStructs** — register struct types, resolve fieldStructIndices
 2. **RegisterClasses** — register class types, resolve superClassIdx,
    fieldClassIndices, fieldStructIndices
-3. **ResolveStructClassRefs** — resolve struct fieldClassIndices (deferred
-   because classes aren't registered during RegisterStructs)
+3. **ResolveStructClassRefs** — resolve struct fieldClassIndices (classes
+   are not yet registered during RegisterStructs, so the resolution runs here)
 4. **RegisterFunctions** — register function signatures
 5. **PopulateClassMethods** — map class methods to function indices
 6. **GenerateAllBytecode** — emit bytecode for all functions

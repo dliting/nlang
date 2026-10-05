@@ -4,4 +4,4 @@
 
 native扩展的宿主契约（`nlang_<命名空间>.dll`与单一导出入口）也在这条集成线上复用，详见[开发第三方库](../libraries/developing-libraries.md)。
 
-集成面很小：宿主不需要链接任何NLang库，带上安装目录里的几个可执行文件与标准库，用管道和退出码打交道即可；最小文件清单见[集成NLang](../libraries/integrating-nlang.md)。
+集成面很小：宿主不需要链接任何NLang库，带上安装目录里的几个可执行文件与标准库，用管道和退出码打交道即可。

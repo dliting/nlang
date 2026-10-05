@@ -119,9 +119,9 @@ NLANG_DEFINE_NATIVE_INIT
 |---|---|
 | DLL名 | `nlang_<命名空间>.dll`，如`nlang_num.dll` |
 | 导出 | 仅`nlang_native_init`一个入口，由`NLANG_DEFINE_NATIVE_INIT`宏生成 |
-| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名派发 |
+| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发 |
 | ABI版本 | 初始化函数返回`NLANG_HOST_ABI_VERSION`，与VM不匹配即拒载 |
-| 头文件 | `include/nlang/vm/NativeHost.h`随包提供，不需要链接VM库 |
+| 头文件 | 随源码仓库提供（`include/nlang/vm/NativeHost.h`），无需链接VM库 |
 | 参数助手 | `ArgInt`/`ArgString`/`ReturnInt`/`ReturnString`等 |
 
 用任意C++编译器把实现编成`nlang_num.dll`（头文件路径指向仓库`include/`），与`num.n`放在同一目录。分发时库单元与DLL一起交付（见下节）。`native`声明的类型规则见[native函数](../language-spec/native-functions.md)。

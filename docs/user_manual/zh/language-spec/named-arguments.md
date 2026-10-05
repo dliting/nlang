@@ -1,7 +1,7 @@
 # 命名实参
 
 
-实参可以用`name = expr`语法按名传递。位置实参必须出现在命名实参之前。
+实参可以用`name = expr`语法按参数名传递。位置实参必须出现在命名实参之前。
 
 ```nlang
 int foo(int a, int b) { return a * 10 + b; }

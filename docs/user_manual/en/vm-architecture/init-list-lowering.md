@@ -26,7 +26,7 @@ variable returns the element type — the array-ness would otherwise be
 lost).
 
 The resolver does not propagate expected types to child init lists
-(recursive type inference for `[[1,2],[3]]` is not yet supported).
+(recursive type inference for `[[1,2],[3]]` is not supported).
 Children must use the explicit `new Type{...}` form to carry their
 own type.
 
@@ -51,13 +51,15 @@ a raw handle with no boxing, the same exception as hand-written
 `lst.add(x)` calls. This keeps initialization consistent with
 `lst.add(x)` and `d.set(k, v)` calls written by hand.
 
-### Temp slot allocation
+### Staging of entry values
 
 The handler writes the collection to `resultOffset` (provided by the
 caller, e.g. `tempSlot2` for struct-assignment codegen). Each entry's
-value is evaluated to a distinct slot chosen by `PickTempSlot(resultOffset)`
-so that nested init lists (which recursively enter this handler) do not
-clobber the parent's value slot.
+value is evaluated into a staging slot of the evaluation scratch area:
+one `EvalAreaClaim` spans the entry loop, each entry is consumed
+immediately after it is evaluated, and nested init lists (which
+recursively enter this handler) claim fresh slots above it, so they do
+not clobber the parent's value slot.
 
 ### Reuse of existing opcodes
 

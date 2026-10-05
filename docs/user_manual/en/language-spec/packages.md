@@ -3,8 +3,7 @@
 A **package** is NLang's unit of code identity. Every `.n` file is one
 package, and the package name comes from exactly one source: the file's
 path relative to the search root it was found under. There is no
-in-file syntax that names a package — the wrapper keyword that older
-versions carried was removed.
+in-file syntax that names a package.
 
 ```nlang
 // stdlib/io.n            -> package "io"
@@ -51,9 +50,9 @@ tool spelling wherever a symbol is named:
 - `ndisasm -func main.main` filters by the same spelling;
 - a value of function type renders with its key: `func alib.twice`.
 
-Value renders that name a type for the reader — an object's default
+Where a value render names a type for the reader — an object's default
 `toString()` (`Point@1a2b`) and the debugger's value display
-(`Point{x=2, y=5}`) — use the **leaf**: the last segment of the
+(`Point{x=2, y=5}`) — the **leaf** is used: the last segment of the
 qualified key, the name as source wrote it. The qualified key remains
 the spelling of linkage (linking, streams, disassembly); a value
 render shows the type, not its linkage identity.
@@ -76,13 +75,12 @@ directly.
 A `native` declaration's host dynamic-link library (DLL) is named from the package's **first
 segment** (`nlang_<segment>.dll`), so `native` inside a multi-segment
 package (`gfx.color.deep`) cannot name a host library and is a
-compile-time diagnostic. Native declarations in single-segment
-packages work as before.
+compile-time diagnostic. Native declarations in single-segment packages
+name the host library by the rule above.
 
 ## Generics on qualified types
 
 Type arguments are supported on the built-in generic containers
 (`List<int>`, `Dict<string, int>`). A qualified **user** type with
-type arguments (`alib.Box<int>`) is not part of the language yet: the
-parser rejects the shape with a syntax error. (A dedicated diagnostic
-naming the limitation is planned for a later phase.)
+type arguments (`alib.Box<int>`) is not part of the language: the
+parser rejects the shape with a syntax error.

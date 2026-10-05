@@ -12,18 +12,10 @@
    ——运算符、控制流、异常
 5. [函数](../language-spec/functions.md) →
    [函数类型与委托](../language-spec/function-types-and-delegates.md)
-6. [标准库](../language-spec/standard-library.md)、
-   [内存管理](../language-spec/memory-management.md)、
-   [退出码约定](../language-spec/exit-code-convention.md)、
-   [已知限制](../language-spec/known-limitations.md)
+6. [标准库](../language-spec/standard-library.md)、[内存管理](../language-spec/memory-management.md)、[退出码约定](../language-spec/exit-code-convention.md)、[已知限制](../language-spec/known-limitations.md)
 
-想了解执行引擎：[VM架构/概览](../vm-architecture/overview.md)，
-再按需读编译管线、栈帧布局、字节码指令等章节。
-四个命令行工具（ncc/nvm/ndb/ndisasm）的用法见
-[命令行工具](../cli-tools/overview.md)一章。
-在集成开发环境（IDE，integrated development environment）里调试程序见[在nide中调试](debugging.md)。
+想了解执行引擎：[VM架构/概览](../vm-architecture/overview.md)，再按需读编译管线、栈帧布局、字节码指令等章节。四个命令行工具（ncc/nvm/ndb/ndisasm）的用法见[命令行工具](../cli-tools/overview.md)一章。在集成开发环境（IDE，integrated development environment）里调试程序见[在nide中调试](debugging.md)。
 
-想看能跑的完整程序：`examples/README.md`按主题列出全部示例与预期退出码，
-本页速览片段也大多能在其中找到对应示例。
+想看能跑的完整程序：`examples/README.md`按主题列出全部示例与预期退出码，本页速览片段也大多能在其中找到对应示例。
 
 想扩展或嵌入：[开发第三方库](../libraries/developing-libraries.md)讲怎么把可复用代码做成库（含native混合形态），[集成NLang](../libraries/integrating-nlang.md)讲怎么在自己的程序里以子进程驱动NLang——依赖清单、部署与调试。

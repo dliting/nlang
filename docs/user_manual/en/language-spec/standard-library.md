@@ -8,9 +8,8 @@ identified by its file's path — `stdlib/io.n` is the package `io` — and
 one build may contain only one package of each name (a duplicate is a
 compile error naming both sources; a project directory named `io` is an
 ordinary directory). Calls use the qualified name only (`math.sin(x)`);
-bare names are not in scope (a future `using`-style keyword may lift
-this). A package name used as a value (`int x = math;`) fails to resolve
-— packages are not values.
+bare names are not in scope. A package name used as a value
+(`int x = math;`) fails to resolve — packages are not values.
 
 The **signatures** (parameter kinds, arity, return type) live in the
 `stdlib/*.n` declarations shipped with the toolchain and reach the compiler
@@ -31,7 +30,7 @@ explicit `as` — `math.absi(1.5)` is a compile error). The exceptions are the
 io coercing trio (`write`/`print`/`eprint`), which accept string, arrays,
 all scalar primitives and function values
 (converted at the call site; a function value renders as `func <name>`,
-see [function types and delegates](function-types-and-delegates.md));
+see [Function Types and Delegates](function-types-and-delegates.md));
 class and enum values need an explicit
 `.toString()` before printing (struct arguments are rejected outright —
 structs have no `toString`).
@@ -51,7 +50,7 @@ parameters and return values are `double`; integer and
 | sin cos tan asin acos atan | (double) → double | radians |
 | atan2 | (double y, double x) → double | C/C++ argument order |
 | sqrt pow exp log | (double[,double]) → double | pow(x,y); log = ln |
-| absi / absf | (int)→int / (double)→double | absi(INT_MIN) throws |
+| absi / absf | (int)→int / (double)→double | absi(int minimum) throws |
 | mini maxi / minf maxf | (T, T) → T | int pair / double pair |
 | clampi / clampf | (v, lo, hi) → T | lo > hi → Exception |
 | floor ceil round | (double) → long | out-of-int64 or NaN → Exception |
@@ -101,8 +100,7 @@ untrusted length prefixes); larger files raise IOException.
 ### fs — names, directories, metadata
 
 `fs` never reads or writes content — content belongs to `io`. The split is an
-operation principle: io = all content (console + disk text, later stream
-classes), fs = names/directories/metadata.
+operation principle: io = all content (console + disk text), fs = names/directories/metadata.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
@@ -136,8 +134,8 @@ code page.
 ### string methods — 18 built-ins
 
 Methods on the string receiver (`s.substring(1)`; literal receivers work:
-`"abc".toUpper()`). The method surface is frozen as the future string class's
-method list. **Byte semantics** (Go/Lua model): length, substring
+`"abc".toUpper()`). The string method list is as follows. **Byte
+semantics** (Go/Lua model): length, substring
 and indexOf are byte offsets; UTF-8 byte order equals code point order (so
 relational comparison is well-defined); case conversion is ASCII-only.
 Code-point access (`charAt`/`charCount`/`foreach char`) is a code-point layer
@@ -273,14 +271,5 @@ rebuild after editing to pick up the change.
   `toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar` malformed input,
   `charAt`/`charCount` invalid UTF-8 sequence, `floor`/`ceil`/`round`/`absi`
   overflow. There is no
-  `IllegalArgumentException` built-in; narrowing these to a dedicated
-  subclass later is source-compatible for `catch (Exception)` callers.
-
-### Future directions
-
-- hybrid (native + NLang) third-party libraries with automatic recompilation
-  after edits
-- `using`-style keyword to open up unqualified names
-- string class-ification (method surface frozen above)
-- `IllegalArgumentException` built-in subclass
-- package manager
+  `IllegalArgumentException` built-in; these sites report the base
+  Exception.

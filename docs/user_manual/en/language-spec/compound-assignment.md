@@ -6,11 +6,15 @@ x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;
 ```
 
 Read-modify-write shorthand for `x = x op y`. Supported left-values: local
-variables, class fields (`this.f += y`), struct fields (`pt.x += y`). The left
-value is evaluated **only once** (so `obj.something() += 1` would not
-double-invoke `something()`).
+variables, class fields (`this.f += y`), struct fields (`pt.x += y`). The
+receiver expression of a member left-value is evaluated **only once**:
+`make().x += 5` calls `make()` once, and the read and the write land on the
+same object (the expansion `make().x = make().x + 5` would call `make()`
+twice and store into a different object).
 
-Not supported: subscript left-value (`arr[i] += 1`). The bytecode frame layout
-doesn't have enough scratch slots for single-evaluation of subscript
-read-modify-write. Use the explicit form `arr[i] = arr[i] + 1`. See
-[Array](array.md) "Subscript read/write".
+Not supported: a method call result (`obj.something() += 1`, rejected with
+`cannot assign to the result of a method call`, see
+[Common Errors](common-errors.md) "Assignment targets") and subscript
+left-values (`arr[i] += 1`, a syntax error). Use the explicit form
+`arr[i] = arr[i] + 1`. See [Array](array.md)
+"Subscript read/write".

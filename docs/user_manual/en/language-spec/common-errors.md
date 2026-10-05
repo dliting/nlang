@@ -1,12 +1,10 @@
 # Common Error Messages
 
-The NLang compiler's named diagnostics, grouped by error family. Each
+The NLang compiler's error messages, grouped by error family. Each
 family shows the trigger shape, the error text, a one-line cause, and a
 pointer to the full rule. Systematic limits (what you *can* do, rather
 than how it errors) are on [Known Limitations](known-limitations.md);
 quick answers to high-frequency questions are on the [FAQ](../getting-started/faq.md).
-Each family's full set of rejections is covered by the corresponding
-e2e `compile_error` cases.
 
 ### Array values (scalar contexts)
 
@@ -24,9 +22,8 @@ Error: Incompatible type "arr".
 
 An array value has only two legal destinations — its own array type and
 every `string` target (`toString`, etc.); every other scalar context is
-a named rejection. See → [Known Limitations](known-limitations.md), the
-"Array values in scalar contexts" item. Full forms: e2e cases
-`assign_array_to_int_reject` and the `*_array_*_reject` family.
+rejected with an explicit error. See → [Known Limitations](known-limitations.md), the
+"Array values in scalar contexts" item.
 
 ### Conditions and logic
 
@@ -45,12 +42,11 @@ Error: if condition must be bool, not "String".
 The condition of `if`/`while`/`do-while`/`for`/`assert` and the operands
 of `&&`/`||`/`!` must all be `bool` (comparisons and predicates already
 produce bool) — int, string, float, char, class, struct, and array are
-named rejections (`if condition must be bool, not "Int32"`,
+all rejected with explicit errors (`if condition must be bool, not "Int32"`,
 `operator '&&' requires bool operands, got "Int32"`). Rewrite as an
 explicit comparison: `if (s != "")`, `if (count != 0)`. See →
 [Statements](statements.md) "Condition typing" and
-[Expressions](expressions.md) "Logical". Full forms: e2e cases `cond_*`,
-`condition_array_reject`, `logical_operand_*`, `not_operand_*`.
+[Operators](operators.md) "Logical".
 
 ### import and visibility
 
@@ -67,9 +63,7 @@ unimported standard library package (or a known project module) without
 importing it reports a "not imported" diagnostic — for example, calling
 `io.print` without `import io;` reports `Package 'io' is not imported.
 Add 'import io;' at the top of this file.`. See →
-[Declarations](declarations.md) "Import Declaration". Full forms: e2e
-cases `import_not_found`, `import_io_missing`, `import_dotted_singlefile`,
-`import_string_form`, `unresolved_import_call` (no common prefix).
+[Declarations](declarations.md) "Import Declaration".
 
 ### Default parameters and function values
 
@@ -92,13 +86,13 @@ Error: imported function 'g' has a non-constant-foldable default for parameter 0
 The `.ncu` type descriptor carries only data types — an imported
 function's non-constant-foldable default, and a cross-module function
 value reference (a `Func` signature is beyond the descriptor syntax),
-are both rejected on the consumer side
-(`function "pick" does not match the signature of "Func<Int32, Int32>"`).
-See → [Functions](functions.md) "Default Parameters" and [Known
+are both rejected on the consumer side; the function-value
+form reports `function "pick" does not match the signature of
+"Func<Int32, Int32>"`.
+See → [Default Parameters](default-parameters.md) and [Known
 Limitations](known-limitations.md), the "Default parameters on imported
 functions" and "Cross-module function values are rejected, not
-transported" items. Full forms: e2e cases `cross_mod_default_*`,
-`func_*`.
+transported" items.
 
 ### Declarations and control flow
 
@@ -118,9 +112,32 @@ A control-flow statement's unbraced (bare) body cannot be a declaration
 — use a braced body. When calling a function with an `out` parameter,
 the call site must carry the `out` marker, otherwise you get `The
 function invoke "foo(y)" is not compatible with the declaration.`. See
-→ [Statements](statements.md) "Control Flow" and [Functions](functions.md)
-"Out Parameters". Full forms: e2e cases `local_decl_unbraced_reject`,
-`out_*`.
+→ [Statements](statements.md) "Unbraced body" and
+[Out Parameters](out-parameters.md).
+
+### Assignment targets
+
+```nlang
+class Counter {
+    public int n;
+    public int step() { n = n + 1; return n; }
+}
+
+int main() {
+    Counter c = new Counter();
+    c.step() += 1;
+    return c.n;
+}
+```
+
+```text
+Error: cannot assign to the result of a method call.
+```
+
+A method call yields a value, not a location — both `c.step() = v` and
+`c.step() += v` are rejected with this error. To write a field, use `c.n`
+as the left value; the full set of supported left values is in
+[Compound Assignment](compound-assignment.md).
 
 ### switch and enum
 
@@ -144,9 +161,7 @@ A switch discriminant may be an integer-family value (including char),
 `float`/`double`, `string`, or enum; bool, class, struct, `List`,
 `Dict`, and array values are rejected — use `if`/`else` + `equals()`
 for class values, and expand bool discrimination into `if`/`else`. See
-→ [Statements](statements.md) "Switch". Full forms: e2e cases
-`switch_*`, `array_elem_switch*`, `array_elem_dict_value_switch_reject`,
-`enum_*`.
+→ [Switch](switch.md).
 
 ### Literal and constant fit
 
@@ -189,9 +204,7 @@ unsuffixed decimal and exponent forms are `double` literals, and integer
 targets never accept float constants (`int x = 2e5` likewise reports
 Incompatible type); string interpolation only supports `${name}` named
 variables, not expressions. See → [Primitives](primitives.md) "Numeric
-literals" and [Expressions](expressions.md) "String interpolation".
-Full forms: e2e cases `int_sci_*`, `string_escape_*`, `interp_*`,
-`int_family_literal_tier`, `int_family_constant_fit*`.
+literals" and [String](string.md) "String interpolation".
 
 ### Numeric type mixing
 
@@ -240,9 +253,7 @@ assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
 suppresses all warnings; an explicit `as` never warns). See →
 [Type Semantics](type-semantics.md) "Numeric conversion matrix" and
-[Operators](operators.md) "Arithmetic". Full forms: e2e cases
-`int_family_promote*`, `int_family_lossy_warn`, `ncc_no_warn`,
-`char_numeric_cmp_reject`.
+[Operators](operators.md) "Arithmetic".
 
 ### `as` casts
 
@@ -274,8 +285,7 @@ Error: Invalid cast: `String as Int32` is not allowed.
 writing `as` for a widening that is already implicitly legal is
 redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
 numeric type is forbidden — use the `s.toInt()`/`toLong()`/
-`toDouble()` method family. See → [Type Casts](type-casts.md). Full
-forms: e2e cases `cast_*` (including `char_cast`, `char_cast_invalid`).
+`toDouble()` method family. See → [Type Casts](type-casts.md).
 
 ### Dict initializer keys
 
@@ -294,8 +304,7 @@ The collection initializer emits dict keys as string constants and boxes
 them by K's tag — this is only correct for `K = string`. Construct a
 non-string-keyed `Dict<K,V>` with the empty initializer, then fill
 entries with `set()`. See →
-[Collection Initializers](collection-initializers.md). Full forms: e2e
-case `dict_init_nonstring_key_reject`.
+[Collection Initializers](collection-initializers.md).
 
 ### Type aliases
 
@@ -310,8 +319,7 @@ Error: The type alias "A" is defined more than once in this translation unit.
 
 The same alias name may not be defined twice in one translation unit; a
 circular alias (`using A = B; using B = A;`) is rejected. See →
-[Declarations](declarations.md) "Type Aliases". Full forms: e2e cases
-`alias_*`.
+[Declarations](declarations.md) "Type Aliases".
 
 ### Source file encoding
 
@@ -328,12 +336,10 @@ Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line
 
 `.n` sources and `.nproj` project files pass strict Unicode Transformation Format (UTF-8) validation
 before tokenizing (the enforcement point is ncc; nide's build invokes
-ncc, so building there is gated the same way): invalid bytes are
-rejected with a named error (the
+ncc, so building there is subject to the same validation): invalid bytes are
+rejected with an explicit error (the
 line of the first invalid byte included) and a UTF-16 save gets a
 dedicated hint (`Source file ... is UTF-16, not UTF-8.`) — legacy
-encoding bytes no longer slip silently into string constants. A
+encoding bytes never reach string constants. A
 leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
 [Primitives](primitives.md) "Representation: from source to console".
-Full forms: e2e case `src_not_utf8` (sources) and the ctest guard
-`nproj_utf8` (project files).

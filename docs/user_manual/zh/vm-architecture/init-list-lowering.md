@@ -1,28 +1,14 @@
 # 初始化列表降级
 
-集合初始化器让开发者用一条字面量表达式直接给数组或容器填初值，例如
-`[1,2,3]`或`new Type{...}`。这些字面量没有专门的运行期形态：编译
-器把它们降级为普通的分配与存储指令。本页说明降级路径、目标类型的推
-断方式，以及容器分支的装箱处理。
+集合初始化器让开发者用一条字面量表达式直接给数组或容器填初值，例如`[1,2,3]`或`new Type{...}`。这些字面量没有专门的运行期形态：编译器把它们降级为普通的分配与存储指令。本页说明降级路径、目标类型的推断方式，以及容器分支的装箱处理。
 
-集合初始化器（`[1,2,3]`、`new Type{...}`）经
-`VmBackend::EmitExpression`中单一的`NK_InitListExpr`处理器降级。
-该处理器按解析出的`EvalDataType`加上resolver设置的
-`TargetIsArray`标志分派。
+集合初始化器（`[1,2,3]`、`new Type{...}`）经`VmBackend::EmitExpression`中单一的`NK_InitListExpr`处理器降级。该处理器按解析出的`EvalDataType`加上resolver设置的`TargetIsArray`标志分派。
 
 ### resolver数据流
 
-`StatementResolver::Access(SnAssignStmt&)`在解析右值之前先做前瞻
-（peek）。若右值是不带`ExplicitType`的裸`SnInitListExpr`且没有
-`InferredTarget`，就把左值变量经`InferredTarget(pLeftField)`记录
-到该初始化列表上。随后resolver访问右值；
-`ExprResolveAccessor::Access(SnInitListExpr&)`读取显式的
-`ExplicitType()`或`InferredTarget()`，把`EvalDataType`设为解析
-出的目标字段，并把数组性拷贝进`TargetIsArray`（这一步必不可少：数
-组变量上的`EvalDataType`返回的是元素类型，否则数组性会丢失）。
+`StatementResolver::Access(SnAssignStmt&)`在解析右值之前先做前瞻（peek）。若右值是不带`ExplicitType`的裸`SnInitListExpr`且没有`InferredTarget`，就把左值变量经`InferredTarget(pLeftField)`记录到该初始化列表上。随后resolver访问右值；`ExprResolveAccessor::Access(SnInitListExpr&)`读取显式的`ExplicitType()`或`InferredTarget()`，把`EvalDataType`设为解析出的目标字段，并把数组性拷贝进`TargetIsArray`（这一步必不可少：数组变量上的`EvalDataType`返回的是元素类型，否则数组性会丢失）。
 
-resolver不向子初始化列表传播期望类型（`[[1,2],[3]]`的递归类型推断
-暂不支持）。子列表必须使用显式的`new Type{...}`形式自带类型。
+resolver不向子初始化列表传播期望类型（`[[1,2],[3]]`的递归类型推断不支持）。子列表必须使用显式的`new Type{...}`形式自带类型。
 
 ### 代码生成分派表
 
@@ -36,22 +22,12 @@ resolver不向子初始化列表传播期望类型（`[[1,2],[3]]`的递归类�
 
 ### 逐方法装箱计划复用
 
-`List<T>`与`Dict<K,V>`分支复用容器调用的逐方法装箱基础
-设施：`BoxingTagFor(typeArg)`返回`{tag, isPrimitive}`，只有当元素
-类型为基本类型**且不是数组类型**时才在`add`/`set`之前发射`OP_Box`
-——数组类型的类型实参（`List<int[]>`、`Dict`的值`V[]`）以裸句柄
-流动、不做装箱，与手写`lst.add(x)`调用的例外一致。这保证初始化与
-手写的`lst.add(x)`、`d.set(k, v)`调用行为一致。
+`List<T>`与`Dict<K,V>`分支复用容器调用的逐方法装箱基础设施：`BoxingTagFor(typeArg)`返回`{tag, isPrimitive}`，只有当元素类型为基本类型**且不是数组类型**时才在`add`/`set`之前发射`OP_Box`——数组类型的类型实参（`List<int[]>`、`Dict`的值`V[]`）以裸句柄流动、不做装箱，与手写`lst.add(x)`调用的例外一致。这保证初始化与手写的`lst.add(x)`、`d.set(k, v)`调用行为一致。
 
-### 临时槽位分配
+### 条目值的暂存
 
-处理器把集合写入`resultOffset`（由调用方提供，例如struct赋值代
-码生成里的`tempSlot2`）。每个条目的值都求值到
-`PickTempSlot(resultOffset)`挑出的独立槽位，嵌套初始化列表（会递归
-进入本处理器）因此不会覆写父级的值槽位。
+处理器把集合写入`resultOffset`（由调用方提供，例如struct赋值代码生成里的`tempSlot2`）。每个条目的值都求值到求值暂存区的暂存槽位：一次`EvalAreaClaim`贯穿整个条目循环，条目求值后立即被消费；嵌套初始化列表（会递归进入本处理器）在其上认领新槽位，因此不会覆写父级的值槽位。
 
 ### 复用既有指令
 
-初始化列表降级没有新增任何指令。分配、元素存储、方法调用与字段存储
-全部复用既有的原语指令。初始化列表处理器纯粹是编排：先
-分配一次，再用既有存储指令填充。
+初始化列表降级没有新增任何指令。分配、元素存储、方法调用与字段存储全部复用既有的原语指令。初始化列表处理器纯粹是编排：先分配一次，再用既有存储指令填充。

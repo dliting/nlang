@@ -81,7 +81,7 @@ root (ncc/nvm live under `bin\`):
 If PATH is not set up inside the installation, use
 `bin\ncc build ...` and `bin\nvm <name>.ncu`.
 
-Multi-file projects pass the .nproj with `-p` and the output location
+Multi-file projects pass the `.nproj` with `-p` and the output location
 with `-o` (the artifact is a `.npkg` program archive):
 
     ncc build -p examples/hello_project/hello_project.nproj -o hello_project.npkg

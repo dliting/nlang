@@ -1,6 +1,6 @@
 # Garbage Collection Design
 
-NLang's heap is managed automatically by the garbage collector (garbage collection (GC)):
+NLang's heap is managed automatically by garbage collection (GC):
 developers create objects without freeing them by hand. This page
 records the four core design decisions — safepoint triggering, precise
 scanning, the parallel array, iterative marking — plus the full
@@ -114,7 +114,7 @@ SweepStrings():
 ```
 
 **Independent sweep for the string object store.** String objects live
-in a separate store (see the heap architecture page) with its own mark
+in a separate store (see the [Heap Architecture](heap-architecture.md) page) with its own mark
 bit vector, free list, and collection threshold, but they reuse the
 same `CollectGarbage`: one mark phase fills both bit vectors, and the
 string sweep runs right after the heap sweep. Constant-materialized
@@ -127,8 +127,8 @@ collection.
 vector never shrinks (dead slots recycle in place), so the size trigger
 is level-triggered — past the first crossing every safepoint collects,
 and each collection marks the entire live concatenation chain, degrading
-total append cost to O(n^2) (measured: 5x10^4-node chain 6.6s, 10^5-node
-chain 26.7s). Backing the threshold off to 2x the surviving population
+total append cost to O(n^2) (benchmark: 5x10^4-node chain 6.6s,
+10^5-node chain 26.7s). Backing the threshold off to 2x the surviving population
 after each sweep (`strThreshold = max(strThreshold, 2 * survivorCount)`)
 makes triggers advance geometrically with the live set: appends amortize to
 O(1), with memory bounded at 2x the live set.
@@ -137,7 +137,7 @@ O(1), with memory bounded at 2x the live set.
 
 - **Array-typed fields are declared, not inferred**: array struct/class
   fields store `RTK_Array` as their `fieldTypeKinds` entry in the
-  `.ncu` (semantic floor v1.11). MarkPhase routes class and struct
+  `.ncu`. MarkPhase routes class and struct
   field references with an explicit declared-kind + runtime-slot-kind
   double condition — `fieldTypeKinds[i] == RTK_Array` paired with the
   slot actually holding an array record — alongside the existing
@@ -150,8 +150,8 @@ O(1), with memory bounded at 2x the live set.
 - **Defensive RTK_Array element arm**: the array branch traces elements
   whose declared `elemKind` is `RTK_Array` (same double condition as
   the field arms). The arm is unreachable from compilable source (jagged
-  declarations are rejected) — it is the correctness base for future
-  or externally produced `.ncu` paths. Array-typed *container*
+  declarations are rejected) — it is the correctness base for
+  externally produced `.ncu` paths. Array-typed *container*
   elements (`List<int[]>`, `Dict` keys/values) are traced by the
   container branch instead: the List/Dict arm marks and pushes
   reference-kind entries, so an array element reaches the worklist's

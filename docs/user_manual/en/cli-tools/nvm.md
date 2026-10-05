@@ -33,9 +33,11 @@ in [ncc](ncc.md), "Artifacts and load-time linking").
 closure members and native dynamic libraries are located across ordered
 directories: `-I` dirs → the program's directory → the `NLANG_PATH`
 environment variable (`;` on Windows, `:` on POSIX) → the executable
-directory / current directory; earlier dirs win and duplicates keep only
-the first. See "Libraries and search paths" in the language specification
-for the full rules.
+directory / current directory → the standard-library directory (where
+`stdlib.npkg` lives); earlier dirs win and duplicates keep only the
+first. See
+["Libraries and search paths"](../language-spec/standard-library.md) in
+the language specification for the full rules.
 
 `--verbose` (short form `-v`) prints the resolved search path before
 the program runs —

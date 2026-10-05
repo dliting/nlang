@@ -4,7 +4,7 @@
 - **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
   built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
 - **`as` from string to a numeric type is forbidden**: `"5" as int` is a
-  compile error (`Invalid cast: `String as Int32` is not allowed`). The
+  compile error (``Invalid cast: `String as Int32` is not allowed``). The
   equivalent capability is covered by the string method family
   (`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar`, see
   [Standard Library](standard-library.md)); this is a deliberate scope
@@ -19,7 +19,7 @@
   subscript and `.add`) — all via runtime toString coercion
   (`"[1, 2]"`). `null` always converts to an array target. Comparison
   positions are identity-only: `==` / `!=` against another array or
-  `null`. Every other use is a compile-time rejection with a named
+  `null`. Every other use is rejected at compile time with an explicit
   error — scalar, class, interface, or `Object` targets, `as` casts
   (`ia as int`), non-array parameters, numeric binary operands
   (`arr + 1`), relational or cross-type comparisons (`arr < arr2`,
@@ -32,7 +32,7 @@
   `List<T[]>` / `Dict<K,T[]>` follow the same rule; their array-ness
   is visible to the compiler — method-receiver and
   `switch`-discriminant uses (`li[0].rank()`, `switch (li.get(0))`)
-  are rejected by name, `foreach` can iterate them into an array-typed
+  are rejected with an explicit error, `foreach` can iterate them into an array-typed
   loop variable (array-valued sources may be used directly and are
   evaluated once), and `Dict` keyed on array types uses handle
   identity.
@@ -44,14 +44,15 @@
   `List<List<T>>`-style containers instead.
 - **Bare `{...}` collection init**: dict/struct/class init requires the
   explicit `new Type{...}` form (the bare `{...}` form conflicts with
-  block-statement grammar). See Collection Initializers above.
+  block-statement grammar). See [Collection Initializers](collection-initializers.md).
 - **Bare `[]` empty init**: use `new List<T>{}`, `new Dict<K,V>{}`, or
   `new int[0]` instead. The lexer tokenizes `[]` as a single token used
   by the array-type suffix rule.
 - **Right-shift operator (`>>`, `<<`)**: not implemented (no grammar
   production, no opcode). `>>` outside generic context is a compile
   error; inside generic closing position it is split into `'>'` tokens
-  (see Nested generics under `List<T>`).
+  (see Nested generics under `List<T>` in
+  [Built-in Generic Classes](builtin-generic-classes.md)).
 - **Bare init list as function argument**: requires the `new Type{...}`
   explicit form.
 - **`List<struct>` value semantics**: adding the same struct variable
@@ -106,8 +107,7 @@
   at allocation sites are discarded when the class declares no ctor.
 - **No lambda expressions / closures**: only references
   to named functions and methods exist. Bound method references carry
-  receiver state and cover the common callback scenarios; lambdas with
-  captures are a future direction.
+  receiver state and cover the common callback scenarios.
 - **`List<Func>.contains` / `indexOf` use identity comparison**: two
   references to the same function are distinct heap records, so a
   freshly created reference never `contains`-matches a stored one.

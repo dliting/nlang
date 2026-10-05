@@ -38,7 +38,8 @@ foreach (char c in s) {
 ```
 
 **Loop variable typing**: the declared type must match the element type
-**exactly** — same underlying field and same arrayness. The variable may be
+**exactly** — the element's base type and array dimensions must match
+exactly. The variable may be
 array-typed: `foreach (int[] row in grid)` where `grid : List<int[]>` binds
 each element as an array. Mismatches in either dimension are compile errors:
 `foreach (int r in grid)` (element is an array, the variable is not) and
@@ -87,10 +88,6 @@ inside an Array foreach body is fine (no structural change).
 `p` is a fresh deep copy per iteration (consistent with C#, where foreach
 over value-type elements also yields copies). See [Struct](struct.md).
 
-**Null iterable** throws null pointer exception (NPE) on the first `length()` call (consistent with all
-other class-typed calls). See [Exceptions](exception.md).
-
-**`List<int>` with value 0**: due to the `OP_Box` optimization (literal `0`
-is treated as the null sentinel), `foreach` over a `List<int>` containing
-literal-zero elements throws `unbox on null/invalid reference`. This is a
-boxing-layer limitation — work around by avoiding 0 as a list element value.
+**Null iterable** throws null pointer exception (NPE) on the first
+`length()` call — consistent with all other class-typed calls. See
+[Exceptions](exception.md).

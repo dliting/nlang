@@ -1,4 +1,7 @@
 # Crash Course: Control Flow
+
+This page tours control flow through runnable snippets; each section's prose gives the actual output and exit code, ending with a link into the language specification.
+
 ### Control Flow
 
 ```nlang
@@ -8,9 +11,9 @@ int classify(int n) {
     int result = 0;
     switch (n) {
         case 0:
-            result = 100;       // only this arm runs on a hit
+            result = 100;       // only this case body runs on a hit
         case 1, 2:              // multi-value label
-            result = 200;       // arms exit automatically; no fall-through into default
+            result = 200;       // case bodies exit automatically; no fall-through into default
         default:
             result = 300;
     }

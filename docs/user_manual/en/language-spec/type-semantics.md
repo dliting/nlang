@@ -69,8 +69,8 @@ are on [Primitives](primitives.md) and [Type Casts](type-casts.md).
 - Cross-sign range containment: `ubyte→short/int/long`;
   `ushort→int/long`; `uint→long`.
 - Integer→float where the target represents the source range exactly:
-  narrow integers (byte..ushort) → `float/double`; `int/uint` and
-  narrower → `double`.
+  narrow integers (byte..ushort) → `float/double`; `int/uint` →
+  `double` only.
 - Float widening: `float→double`.
 - `char→string` (encoded as that code point's Unicode Transformation Format (UTF-8) bytes);
   `enum→int` (its backing type).

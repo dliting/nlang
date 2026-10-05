@@ -8,12 +8,11 @@ phase of `ncc run` and `ncc <file>`) ends the process by calling
 executes; on success its exit code is always 0.
 
 Windows preserves the full 32-bit exit code, but **different observers
-see different values**. Take `return 300;` as an example (all verified
-in practice):
+see different values**. Take `return 300;` as an example:
 
 | Observer | Value seen |
 |--------|----------|
-| Python `subprocess` (the e2e runner), cmd's `%ERRORLEVEL%`, PowerShell's `$LASTEXITCODE` | 300 |
+| Python `subprocess`, cmd's `%ERRORLEVEL%`, PowerShell's `$LASTEXITCODE` | 300 |
 | POSIX shell (bash `$?`, Git-Bash, continuous integration (CI) bash steps) | 44 (300 mod 256, i.e. the low 8 bits) |
 
 Negative return values are not recommended: Windows interprets the value
@@ -36,15 +35,14 @@ program exit codes:
 
 The idioms follow from this: 0 means success; use `return 1;` for a
 failed self-check (the Getting Started snippets' `if (condition) return
-<sentinel value>; return 1;` guard has exactly this shape); use distinct
+<sentinel value>; return 1;` uses this pattern); use distinct
 small positive values to tell multiple failures apart.
 
 ## Test discipline
 
 - Test expectations always use exit codes in **0–255**: only then does
   the same program present the same value to every observer
-  (Python/cmd/PowerShell/bash). The second column of the e2e manifest
-  (`tests/e2e/manifest.txt`) is exactly that expected exit code.
+  (Python/cmd/PowerShell/bash).
 - When a large number is needed, use modular arithmetic or a derived
   value and encode "self-check passed" into a small exit code — for
   example, after summing a loop, `if (total == 25) return 25; return 1;`.

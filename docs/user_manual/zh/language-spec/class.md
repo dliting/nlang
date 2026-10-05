@@ -1,16 +1,16 @@
 # 类
 
 
-`class`是引用类型对象：它住在堆上，经引用（堆索引）访问。它携带字段、构造
-函数、方法，以及单条继承线。
+`class`是引用类型对象：它住在堆上，经引用（堆索引）访问。它携带字段、构造函数、方法，以及单条继承线。
 
 ```nlang
 class Node {
     public int value;
     public Node next;
 
-    Node(int v) {
+    public int Node(int v) {
         this.value = v;
+        return 0;
     }
 
     public int getValue() {
@@ -28,35 +28,25 @@ class SpecialNode : Node {
 class在整个语言中遵循**引用语义**：
 
 - **赋值**（`obj2 = obj1`）复制引用（堆索引）。两个变量指向同一对象。
-- **参数传递**：class实参传递引用。被调方可以修改对象字段，调用方能看到
-  改动。
+- **参数传递**：class实参传递引用。被调方可以修改对象字段，调用方能看到改动。
 - **返回值**：返回引用，不做拷贝。
-- **作为struct字段**：struct存的是引用（堆索引）；struct拷贝会浅拷贝
-  该引用。见[结构体](struct.md)。
+- **作为struct字段**：struct存的是引用（堆索引）；struct拷贝会浅拷贝该引用。见[结构体](struct.md)。
 
 完整的值vs引用摘要见[类型语义](type-semantics.md)。
 
 ### 字段与访问修饰符
 
-字段带访问修饰符`public` / `private` / `protected`。NLang的默认访问
-修饰符是`private`。
+字段带访问修饰符`public` / `private` / `protected`。NLang的默认访问修饰符是`private`。
 
 ### 继承布局
 
-对象内存布局是`[类型ID, 祖先字段..., 父类字段..., 自身字段...]`。首格
-的类型ID标识运行期类，供虚分派使用。
+对象内存布局是`[类型ID, 祖先字段..., 父类字段..., 自身字段...]`。首格的类型ID标识运行期类，供虚分派使用。
 
 ### 构造函数
 
-构造函数可选，与类同名。只调用本类自己的构造函数；祖先构造函数不会被
-自动调用。子类构造函数可用`super(args);`转发到直接父类的构造函数
-（见下文「super()——构造函数链」）。没有显式`super()`时，从祖先继承
-的字段零初始化。
+构造函数可选，与类同名。只调用本类自己的构造函数；祖先构造函数不会被自动调用。子类构造函数可用`super(args);`转发到直接父类的构造函数（见下文「super()——构造函数链」）。没有显式`super()`时，从祖先继承的字段零初始化。
 
-**隐式`this.field`（裸成员访问）**：在方法或构造函数内，解析到外层类
-字段（含继承字段）的裸标识符是隐式`this.field`访问。读、赋值、复合
-赋值（`v += 1`）与默认参数表达式（`int add(int x, int y = v)`）都适用。
-同名局部变量或参数会遮蔽字段，与Java/C# 语义一致。
+**隐式`this.field`（裸成员访问）**：在方法或构造函数内，解析到外层类字段（含继承字段）的裸标识符是隐式`this.field`访问。读、赋值、复合赋值（`v += 1`）与默认参数表达式（`int add(int x, int y = v)`）都适用。同名局部变量或参数会遮蔽字段，与Java/C#语义一致。
 
 ### 虚方法与覆写
 
@@ -73,18 +63,11 @@ class Dog : Animal {
 }
 ```
 
-`virtual`关键字把方法标记为**虚方法**：经引用调用该方法时，运行期VM
-从对象的实际类型出发沿类层次上溯，**最派生实现优先**（动态分派）。对象
-布局首格的类型ID即供虚分派使用。
+`virtual`关键字把方法标记为**虚方法**：经引用调用该方法时，运行期VM从对象的实际类型出发沿类层次上溯，**最派生实现优先**（动态分派）。对象布局首格的类型ID即供虚分派使用。
 
-**覆写**：子类声明与父类虚方法**同名同签名**的方法即构成覆写——没有
-`override`关键字（不同于C++ 的`override`或Java的`@Override`），
-按名与签名匹配由编译器判定。
+**覆写**：子类声明与父类虚方法**同名同签名**的方法即构成覆写——没有`override`关键字（不同于C++的`override`或Java的`@Override`），名称与签名的匹配由编译器判定。
 
-`Object`的两个虚方法（`equals`/`getHashCode`）同样以子类声明同名方法的
-方式覆写（见[Object与装箱](object.md)）。接口的虚分派同机制
-（见[接口](interface.md)）。速览：
-[类与继承](../getting-started/classes-and-inheritance.md)。
+`Object`的两个虚方法（`equals`/`getHashCode`）同样以子类声明同名方法的方式覆写（见[Object与装箱](object.md)）。接口的虚分派同机制（见[接口](interface.md)）。速览：[类与继承](../getting-started/classes-and-inheritance.md)。
 
 ### super()——构造函数链
 
@@ -101,17 +84,12 @@ class Kid : Base {
 }
 ```
 
-- `super(args);`在同一个`this`对象上调用**直接父类的构造函数**。只在
-  有父类的类（`Object`无父类）的构造函数内有效。
+- `super(args);`在同一个`this`对象上调用**直接父类的构造函数**。只在有父类的类（`Object`无父类）的构造函数内有效。
 - 可出现在ctor的**任意语句位置**（不限第一条）。
-- 实参个数必须与父类构造函数的形参个数匹配。对内建Exception家族的
-  父类，构造函数恰好接收一个`message`实参。
+- 实参个数必须与父类构造函数的形参个数匹配。对内建Exception家族的父类，构造函数恰好接收一个`message`实参。
 - 具名实参（`super(x = 1)`）不支持（编译错误）。
 - 对无构造函数的父类，`super()`无参是合法无操作；此时传参是编译错误。
 
 ### Null检查
 
-class类型变量可为null（表示为堆索引0）。对null class引用访问字段或
-方法会抛出`NullPointerException`，可被`try/catch`块捕获。未捕获时程序
-以退出码1终止。见[异常](exception.md)。string句柄的null读作空串
-而非抛错——见[字符串](string.md)。
+class类型变量可为null（表示为堆索引0）。对null class引用访问字段或方法会抛出`NullPointerException`，可被`try/catch`块捕获。未捕获时程序以退出码1终止。见[异常](exception.md)。string句柄的null读作空串而非抛错——见[字符串](string.md)。

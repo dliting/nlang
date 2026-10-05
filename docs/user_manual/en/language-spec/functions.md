@@ -14,7 +14,7 @@ int add(int a, int b) {
 - Parameters: int/float/string/enum passed by value, struct passed by value
   (deep copy), class passed by reference — see [Type Semantics](type-semantics.md).
 - Return type: int, float, string, enum, struct (deep copy), class (reference).
-- Recursion: supported, with a depth limit (default 1000).
+- Recursion: supported, with a depth limit of 1000.
 
 ### Function feature pages
 
@@ -58,25 +58,8 @@ class Counter {
 
 ### Frame layout
 
-Each function's local frame is sized dynamically based on its body:
-
-```text
-[this?][params][return slot][temps 1-4][call-argument staging area(N)][evaluation scratch area(peak depth)][user locals...]
-```
-
-- **N** = max callee formal count (plus slot 0 for `this` on methods) observed
-  in this function's body. The call-argument staging area is the final landing
-  zone consumed by `OP_CallFunc`/`OP_CallMethod`.
-- **Peak depth** = max simultaneous evaluation-scratch-area slot need across
-  all call sites, including nested calls (e.g. `foo(helper(5), helper(10))`
-  needs 4 slots: 2 for `foo`'s args + 2 for the inner `helper` calls).
-
-The evaluation scratch area is a disjoint, stack-disciplined staging area.
-Each call's argument generation claims a slice with stack discipline on entry
-and releases it on exit. Bindings are written to the claimed slice; a
-bulk-copy loop then moves them into the call-argument staging area just before
-the call. This means inner calls' bindings never overwrite outer calls'
-already-written bindings.
-
-A sanity ceiling of 64 formals prevents unreasonably large frames; exceeding
-it is a declaration-time error.
+Each function's local frame is sized dynamically from its body — frames
+grow with the call's actual needs, and deep recursion is bounded by the
+recursion depth limit (1000). A sanity ceiling of 64 formals
+prevents unreasonably large frames; exceeding it is a declaration-time
+error.

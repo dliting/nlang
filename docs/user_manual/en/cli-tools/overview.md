@@ -38,7 +38,7 @@ switched to the UTF-8 code page so the default console displays
 non-American Standard Code for Information Interchange (ASCII) text. Output redirected to a file or pipe is not altered.
 
 Inputs are UTF-8 too: `.n` source files and `.nproj` project files
-are validated before tokenizing — invalid bytes are rejected with a
-named error (`not valid UTF-8 (first invalid byte at line N)`), a
+are validated before tokenizing — invalid bytes are rejected with an
+error (`not valid UTF-8 (first invalid byte at line N)`), a
 UTF-16 save gets a dedicated hint, and a leading UTF-8 byte order mark (BOM) is
 accepted and skipped.

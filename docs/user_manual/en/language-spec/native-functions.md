@@ -62,14 +62,13 @@ the caller's staged argument cells:
   a free function. Registering one implementation under both shapes is a
   signature mismatch (see above).
 - String/struct/class argument marshalling beyond the raw 4-byte ABI is
-  not supported yet.
+  not supported.
 - **Test host note**: the `ncc`, `nvm` and `ndb` binaries are test hosts —
   they register a small set of test natives (`natAdd`, `natConst`,
-  `natFAdd`, `natPing`) keyed by the e2e fixtures' package names, so the
-  suite can exercise the binding path. Those registrations are keyed to
-  the fixture packages: a same-named declaration in your own project
-  resolves through the `nlang_<your package>.dll` lookup and never hits
-  them. A production embedder's host registers none of these test names;
-  calling an unregistered name against such a host gets
+  `natFAdd`, `natPing`) keyed to specific package names; a same-named
+  declaration in your own project resolves through the
+  `nlang_<your package>.dll` lookup and never hits them. A production
+  embedder's host registers none of these test names; calling an
+  unregistered name against such a host gets
   `"native function not registered"` at runtime.
 

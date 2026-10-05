@@ -181,8 +181,8 @@ Enum methods reuse the class-method call path with one convention:
 **`this` is the enum's int32 value, not a heap reference**.
 
 - Calls emit `OP_CallMethodDirect funcIdx callParamBase` after the
-  receiver expression is evaluated into the claim area's slot 0
-  (receiver-first shape, same as `s.equals`).
+  receiver expression is evaluated into the evaluation scratch area's
+  slot 0 (receiver-first shape, same as `s.equals`).
 - The callee frame's `this` local is allocated with typeKind
   `RTK_Int32` (class methods use `RTK_Class`). This matters: the garbage collection (GC)
   root scan walks locals by typeKind — an enum `this` typed as a class
@@ -191,7 +191,7 @@ Enum methods reuse the class-method call path with one convention:
   `==`, `switch`, argument passing, and `.ncu` serialization are all
   untouched. Java-style heap-singleton enums would need a module-level
   instance-init subsystem (init function execution order + GC roots)
-  and are deliberately deferred.
+  and are not supported.
 
 ### Misc
 

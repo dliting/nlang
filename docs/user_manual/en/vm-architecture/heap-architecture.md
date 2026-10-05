@@ -6,7 +6,7 @@ one heap array (`m_structHeap`); string objects live in a separate store
 describes the heap's physical layout — slot structure, parallel arrays,
 the string object store — and how the built-in generic containers
 `List<T>`/`Dict<K,V>` are stored; it is the prerequisite for the
-garbage-collection design page.
+[Garbage Collection Design](garbage-collection-design.md) page.
 
 ### Single Heap Design
 
@@ -93,7 +93,7 @@ Strings are GC-managed immutable objects at run time, held in a separate
 store `m_stringObjs`. The first five record kinds (class/struct/boxed/
 func/array) share `m_structHeap`; strings are the sixth storage class,
 with their own mark bit vector, free list, and collection threshold
-(collection semantics on the garbage collection design page).
+(collection semantics on the [Garbage Collection Design](garbage-collection-design.md) page).
 
 - **Handle semantics**: an `RTK_String` slot holds a 1-based handle
   (0 = null, reads as the empty string — the same sentinel convention
@@ -246,8 +246,7 @@ int16_t                 m_dictClassIdx;    // cached at module load
 
 Both K and V are heap indices uniformly — primitive K/V values are
 boxed at the call site (`OP_Box typeKind` before `OP_CallMethod`).
-Lookup is **linear scan** O(n); an open-addressing hashtable is a
-possible future optimization.
+Lookup is a **linear scan**, O(n).
 
 **Intrinsics (IDs 53-59, 7 total).**
 

@@ -29,7 +29,7 @@ arrays and containers, passed around, and invoked later:
   object travels with the handle and its **state persists across
   calls**.
 - **Virtual / interface method reference** (`c.tw`, `ifaceVar.run`) — a
-  by-name handle that resolves the override chain on the receiver's
+  handle that stores the method name and resolves the override chain on the receiver's
   **runtime class at each call** (late binding).
 
 ```nlang
@@ -84,7 +84,7 @@ delegate invocations are rejected.
   comparisons with non-Func operands are compile errors.
 - `f = null` stores the empty handle; **invoking it throws a null-
   pointer exception** at run time. Binding a reference on a **null
-  receiver** (`Counter c = null; foobar(c.tw);`) throws at bind time.
+  receiver** (`Counter c = null; register(c.tw);`) throws at bind time.
 - `f.toString()`, `f as string`, `"" + f`, `io.print(f)`, and container
   formatting render `"func <name>"` (static handles — including bound
   non-virtual method references) or `"method <name>"` (virtual-dispatch
@@ -93,7 +93,7 @@ delegate invocations are rejected.
   elements by **identity** (each reference is a distinct heap record),
   not by `==` content equality.
 
-### Restrictions (compile-time, named diagnostics)
+### Restrictions (compile-time)
 
 - Referencing a function/method whose signature does not exactly match
   the expected Func type.
@@ -106,9 +106,9 @@ delegate invocations are rejected.
 - **Virtual/interface references whose Func type has `out` parameters**
   — runtime dispatch could disagree with the compiled out mask.
 - **`out` in the return position** (`Func<out int, ...>`) — rejected
-  with the named diagnostic "out is only allowed on Func<...>
+  with the compile error "out is only allowed on Func<...>
   parameters.".
-- **`new Func<...>(...)`** — construction by name is not supported;
+- **`new Func<...>(...)`** — constructing from a name is not supported;
   bind a reference instead.
 - **`Dict<Func<...>, V>`** — Func as a Dict key (see identity note above).
 - **Boxing into `Object`** (`Object o = f`) — via the generic

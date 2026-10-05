@@ -4,4 +4,4 @@ The main extension point in NLang is the library: put reusable functions and typ
 
 One tip: a library does not have to be installed system-wide — `-I` adds any directory to the import search path, see [ncc](../cli-tools/ncc.md).
 
-Choose between the two shapes as needed: a pure NLang library is source only, ready to modify on arrival; a mixed library adds a native implementation, suited to wrapping existing C++ code or calling the operating system directly.
+Choose between the two shapes as needed: a pure NLang library is source only, ready to modify on arrival; a mixed library adds a native implementation alongside the source.

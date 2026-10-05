@@ -19,7 +19,7 @@ int main()
 | Shape | Status | Notes |
 |---|---|---|
 | Subprocess driving | supported today | the host spawns `ncc`/`nvm` and communicates via exit codes and standard streams |
-| In-process host application programming interface (API) | future work | linking the VM as a C/C++ library; not provided today |
+| In-process host application programming interface (API) | not provided today | linking the VM as a C/C++ library |
 
 ## 2. What to ship
 
@@ -32,7 +32,7 @@ Based on the install layout in [Installation and Layout](../getting-started/inst
 | `bin\ndb.exe` | the debugger | debug integration |
 | `bin\ndisasm.exe` | the bytecode disassembler | deep diagnostics |
 | `bin\nide.exe` and the Qt runtime | the integrated development environment (IDE) and its dependencies | GUI development only |
-| `nlang_{io,math,fs}.dll` | native implementations of the standard library | programs using the matching namespace |
+| `bin\nlang_{io,math,fs}.dll` | native implementations of the standard library | programs using the matching namespace |
 | `stdlib\` | the standard library | any of io/math/fs |
 | `docs\site\` | the manual site | optional |
 
@@ -45,7 +45,7 @@ The minimum is `nvm.exe`, `stdlib\stdlib.npkg` and `nlang_io.dll`, plus the prog
 ## 4. Deployment recipe
 
 - Recommended layout: ship a full NLang install directory next to your application and reference it by absolute path or the `NLANG_PATH` environment variable.
-- Compiled artifacts are written next to the project file: do not put user projects under read-only locations such as `Program Files` — the `.npkg`/`.ncu` writes will fail.
+- Project builds write the `.npkg` next to the project file: do not put user projects under read-only locations such as `Program Files` — the `.npkg` write fails.
 - Search-path troubleshooting: `--verbose` (or `-v`) prints the resolved import search path per layer, see [ncc](../cli-tools/ncc.md) and [nvm](../cli-tools/nvm.md); `-I` adds a directory.
 
 ## 5. Subprocess details
@@ -56,8 +56,8 @@ The minimum is `nvm.exe`, `stdlib\stdlib.npkg` and `nlang_io.dll`, plus the prog
 
 ## 6. Debug integration
 
-Unattended debugging uses the `ndb --machine` line protocol: protocol events on stdout, diagnostics on stderr; the host parses line by line to drive breakpoints and stepping. Details in [Debugging](../getting-started/debugging.md) and [ndb](../cli-tools/ndb.md).
+Unattended debugging uses the `ndb --machine` line protocol: protocol events (including the `error` event) go to stdout, while stderr carries only crash reports and the `--verbose` search-path listing; the host parses line by line to drive breakpoints and stepping. Details in [Debugging](../getting-started/debugging.md) and [ndb](../cli-tools/ndb.md).
 
 ## 7. Outlook
 
-Linking nlang_vm in-process as a C/C++ library is future work; until it lands, integration goes through subprocesses.
+Linking the VM in-process as a C/C++ library is future work; until it lands, integration goes through subprocesses.

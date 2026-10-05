@@ -92,9 +92,9 @@ e.code = 42;
 
 ### VM errors are catchable
 
-Runtime errors (null pointer exception (NPE), division by zero, array/list index out of bounds,
-assertion failure) throw the corresponding Exception subclass and can be
-caught by `try/catch`:
+Runtime errors — null pointer exception (NPE), division by zero,
+array/list index out of bounds, assertion failure — throw the
+corresponding Exception subclass and can be caught by `try/catch`:
 
 ```nlang
 try {
@@ -145,8 +145,8 @@ surrounding catch (if any) sees the exception. Each finally body executes
 exactly once per control-flow pass — the normal-path and exception-path copies
 are disjoint code regions.
 
-`try { } finally { }` without any catch clause is legal (the finally entry is
-the only handler).
+`try { } finally { }` without any catch clause is legal (the finally
+clause is the only handler).
 
 **Restriction**: `break`, `continue`, `return`, and `throw` are not allowed
 *inside a finally body* (compile error). A finally body must not swallow the

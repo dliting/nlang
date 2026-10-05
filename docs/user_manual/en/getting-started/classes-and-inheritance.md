@@ -1,4 +1,7 @@
 # Crash Course: Classes and Inheritance
+
+This page tours classes and inheritance through runnable snippets; each section's prose gives the actual output and exit code, ending with a link into the language specification.
+
 ### Classes and Constructors
 
 ```nlang

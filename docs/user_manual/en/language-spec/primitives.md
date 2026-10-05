@@ -14,14 +14,15 @@ its own page: [String](string.md).
 | `float` | 4 bytes | IEEE 754 single precision | `1.5f` (the `f` suffix is required) |
 | `double` | 8 bytes | IEEE 754 double precision | `1.5`, `2.5e-3` |
 | `bool` | 4 bytes | truth value | `true` / `false` |
-| `char` | 4 bytes | Unicode scalar value (surrogates excluded) | `'a'`, `'中'`, `'\n'`, `'\u0041'` |
+| `char` | 4 bytes | Unicode scalar value (surrogates excluded) | `'a'`, `'é'`, `'\n'`, `'\u0041'` |
 
 ### Numeric literals
 
 **Integer literals tier by value range**: an unsuffixed decimal integer
 literal has the narrowest type that holds it — within int32 it is `int`;
 above int32 but within int64 it is `long`; positive values above INT64_MAX
-are `ulong`; beyond that, a compile error. Hexadecimal literals follow the
+are `ulong` (INT64_MAX is C notation; NLang has no such constant);
+beyond that, a compile error. Hexadecimal literals follow the
 same rule (`0xFF` is the `int` 255). Literals **carry no leading sign** —
 `-5` is unary minus applied to the literal `5`, which is why
 `-9223372036854775808` is legal (negated as a ulong literal, folding back
@@ -58,11 +59,11 @@ from no other type and takes no part in arithmetic.
 
 `char` holds one Unicode scalar value (a code point, excluding the
 surrogate range U+D800..U+DFFF). Literals use single quotes: ordinary
-characters `'a'`, non-American Standard Code for Information Interchange (ASCII) characters `'中'`, escapes (the five `'\n'`,
+characters `'a'`, non-American Standard Code for Information Interchange (ASCII) characters `'é'`, escapes (the five `'\n'`,
 `'\r'`, `'\t'`, `'\''`, `'\\'`), and the `\uXXXX` escape
 `'\u0041'` (i.e. `'A'`). A surrogate-range escape inside a char literal is a compile
 error; inside a string literal, adjacent surrogate escapes combine into
-one code point (`"😀"` is U+1F600 😀, as in Java).
+one code point (`"\ud83d\ude00"` is U+1F600, as in Java).
 
 There is **no implicit conversion** between char and the numeric types:
 
@@ -84,12 +85,12 @@ One representation question spans the whole chain — what a char is in
 the source file, after compilation, and on the console:
 
 - **Source files must be Unicode Transformation Format (UTF-8).** The scanner decodes a character
-  literal's 1-4 byte UTF-8 span into one code point (`'中'` is the 3
-  bytes `E4 B8 AD`, decoded to U+4E2D). The whole file passes strict
-  UTF-8 validation before tokenizing: invalid bytes are rejected with a
-  named error (`Source file is not valid UTF-8 ... (first invalid
-  byte at line N)`) and a UTF-16 save gets a dedicated hint — legacy
-  encoding bytes no longer slip silently into string constants. A
+  literal's 1-4 byte UTF-8 span into one code point (`'é'` is the 2
+  bytes `C3 A9`, decoded to U+00E9). The whole file passes strict
+  UTF-8 validation before tokenizing: invalid bytes are rejected with an
+  explicit error (`Source file is not valid UTF-8 ... (first invalid
+  byte at line N)`) and a UTF-16 save gets a dedicated hint — invalid
+  encoding bytes never reach string constants. A
   leading UTF-8 byte-order mark is accepted and skipped (the editor
   "UTF-8 with byte order mark (BOM)" save form works); other encodings get the hints
   above.
@@ -125,8 +126,7 @@ C/C++/Java here). `%` on floating-point operands takes the fmod remainder
 (`7.5 % 2.0` = 1.5).
 
 **Integer overflow** wraps silently in two's complement (C-style):
-`INT_MAX + 1 == INT_MIN`. There is no SafeInt-style checking. Lock-in test:
-`tests/e2e/int_overflow_wrap.n`.
+INT_MAX + 1 == INT_MIN. There is no SafeInt-style checking.
 
 **Numeric promotion**: integer operands narrower than int are first
 promoted to int (`byte + byte` has type `int`); the result type is then

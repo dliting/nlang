@@ -2,7 +2,7 @@
 
 
 Parameters declared with `out` are writeback slots: the caller's local
-variable is seeded into the callee's frame slot, and after the call
+variable is copy-initialized into the callee's frame slot, and after the call
 returns, the callee's value is copied back to the caller's variable.
 
 ```nlang
