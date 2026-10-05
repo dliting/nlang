@@ -2,65 +2,91 @@
 // declarations, indexed by langservice::SymbolIndex and inlined into every
 // build. The native functions are implemented in the host (nlang_math.dll);
 // any plain NLang function would compile from this file. Edit freely.
+
 // The float-typed family runs at double precision: int and float arguments
 // widen implicitly, and a double result narrows to float only through an
 // explicit `as float`.
+
 // Square root of x.
 native double sqrt(double x);
+
 // Sine of x; x is in radians.
 native double sin(double x);
+
 // Cosine of x; x is in radians.
 native double cos(double x);
+
 // Tangent of x; x is in radians.
 native double tan(double x);
+
 // Arc sine; result is in radians.
 native double asin(double x);
+
 // Arc cosine; result is in radians.
 native double acos(double x);
+
 // Arc tangent; result is in radians.
 native double atan(double x);
+
 // Two-argument arc tangent of (y, x);
 // same argument order as C/C++ atan2.
 native double atan2(double y, double x);
+
 // x raised to the power y.
 native double pow(double x, double y);
+
 // e raised to the power x.
 native double exp(double x);
+
 // Natural logarithm (ln) of x.
 native double log(double x);
+
 // Absolute value of an int.
 // Raises Exception for INT_MIN.
 native int absi(int x);
+
 // Absolute value of a double.
 native double absf(double x);
+
 // Smaller of two ints.
 native int mini(int a, int b);
+
 // Larger of two ints.
 native int maxi(int a, int b);
+
 // Smaller of two doubles.
 native double minf(double a, double b);
+
 // Larger of two doubles.
 native double maxf(double a, double b);
+
 // Clamp value into the closed range [lo, hi].
 // Raises Exception when lo > hi.
 native int clampi(int value, int lo, int hi);
+
 // Clamp value into the closed range [lo, hi].
 // Raises Exception when lo > hi.
 native double clampf(double value, double lo, double hi);
+
 // Round down toward negative infinity; returns long.
 // Raises Exception on overflow or NaN.
 native long floor(double x);
+
 // Round up toward positive infinity; returns long.
 // Raises Exception on overflow or NaN.
 native long ceil(double x);
+
 // Round half away from zero; returns long.
 // Raises Exception on overflow or NaN.
 native long round(double x);
+
 // Next PRNG value in [0, 1).
 native double random();
+
 // Re-seed the PRNG with an explicit seed;
 // the sequence is then deterministic.
 native void srand(int x);
+
 // Random int in the closed range [min, max].
 // Raises Exception when min > max.
 native int randomi(int min, int max);

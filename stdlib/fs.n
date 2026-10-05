@@ -4,21 +4,28 @@
 // any plain NLang function would compile from this file. Edit freely.
 // Whether path exists. Never raises.
 native bool exists(string path);
+
 // Whether path is a regular file. Never raises.
 native bool isFile(string path);
+
 // Whether path is a directory. Never raises.
 native bool isDirectory(string path);
+
 // Size of a regular file in bytes.
 // Raises IOException for a directory or special file.
 native int size(string path);
+
 // List regular-file names in a directory.
 // Non-recursive, names only, sorted lexicographically.
 native List<string> listFiles(string path);
+
 // Create directories recursively (mkdir -p); idempotent.
 native void makeDirs(string path);
+
 // Remove a file or an empty directory.
 // A missing path is a silent no-op.
 native void remove(string path);
+
 // Join two path segments; always uses forward slashes.
 // A rooted right segment replaces the left (std::filesystem).
 native string join(string a, string b);
