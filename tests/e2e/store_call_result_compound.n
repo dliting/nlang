@@ -1,0 +1,10 @@
+class Counter {
+    public int n;
+    public int step() { n = n + 1; return n; }
+}
+
+int main() {
+    Counter c = new Counter();
+    c.step() += 1;
+    return c.n;
+}

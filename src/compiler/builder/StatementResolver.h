@@ -82,6 +82,8 @@ private:
 		SnField *pTargetType, SnField* &pSourceType);
 	void RejectConstStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
+	void RejectMethodCallStoreTarget(SnExpression &left,
+		const ISourceLocation *pLoc);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);

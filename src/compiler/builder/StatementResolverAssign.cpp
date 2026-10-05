@@ -70,6 +70,7 @@ void StatementResolveAccessor::Access(SnAssignStmt &sn)
 	//NF_Const AFTER resolving the initializer AssignStmt, so this
 	//check correctly skips the init assignment.)
 	RejectConstStoreTarget(*sn.Left(), sn.Location());
+	RejectMethodCallStoreTarget(*sn.Left(), sn.Location());
 	PropagateInitListTarget(sn);
 
 	sn.Right()->Accept(*m_pVisitor);
@@ -115,6 +116,7 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 	sn.Left()->Accept(*m_pVisitor);
 	//Phase 9a: reject compound assignment to a const local.
 	RejectConstStoreTarget(*sn.Left(), sn.Location());
+	RejectMethodCallStoreTarget(*sn.Left(), sn.Location());
 	sn.Right()->Accept(*m_pVisitor);
 
 	//Type check: RHS must be compatible with LHS type.
@@ -251,6 +253,24 @@ void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 		m_Env.Log(CLL_Error, pLoc,
 			"cannot assign to const local \"%s\".",
 			pLeftField->Name().c_str());
+}
+
+//A method call LHS (`obj.f() = v`, `obj.f() += v`) parses as a store
+//statement — the grammar's MemberExpr admits `Expression '.' InvokeExpr`
+//because that is also how every method call is spelled — but the call
+//result is a value, not a location. Without this gate the statement
+//resolves quietly (the method's return type reads as the target type)
+//and codegen's field-store paths silently emit nothing for it.
+void StatementResolveAccessor::RejectMethodCallStoreTarget(
+	SnExpression &left, const ISourceLocation *pLoc)
+{
+	if (left.Kind() != NK_MemberExpr)
+		return;
+	if (static_cast<SnMemberExpr&>(left).Inner()->Kind()
+		== NK_IdentifierExpr)
+		return;
+	m_Env.Log(CLL_Error, pLoc,
+		"cannot assign to the result of a method call.");
 }
 
 //Init lists set their own EvalDataType and don't go through the
