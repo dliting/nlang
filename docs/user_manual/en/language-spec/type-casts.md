@@ -50,7 +50,7 @@ redundant — plain `int x = b;` works. The implicit matrix is on
 - `string → numeric`: `"5" as int` is a compile error (`` Invalid cast:
   `String as Int32` is not allowed ``) — use the standard library's
   `s.toInt()` / `s.toFloat()` / `s.toLong()` / `s.toDouble()` family (see
-  [Standard Library](standard-library.md)).
+  [string methods](stdlib-string.md)).
 - `bool ↔ anything`: bool takes part in no conversion.
 - Array operands are rejected outright (`ia as int`, `ia as Object` —
   "the cast operand is an array"): an array value's legal conversions are

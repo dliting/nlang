@@ -7,7 +7,7 @@
   compile error (``Invalid cast: `String as Int32` is not allowed``). The
   equivalent capability is covered by the string method family
   (`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar`, see
-  [Standard Library](standard-library.md)); this is a deliberate scope
+  [string methods](stdlib-string.md)); this is a deliberate scope
   narrowing, not a defect.
 - **Array values in scalar contexts**: an array value has exactly two
   legal destinations — its own array type (interned token identity:

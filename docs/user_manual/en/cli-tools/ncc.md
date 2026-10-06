@@ -136,5 +136,4 @@ relative to the project file):
 
 For the full five-level order, `native` libraries and graphical
 configuration in nide, see
-["Libraries and search paths"](../language-spec/standard-library.md) in
-the language specification.
+["Libraries and search paths"](../language-spec/stdlib-search-paths.md).

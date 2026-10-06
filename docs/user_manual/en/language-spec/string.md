@@ -169,4 +169,4 @@ A string slot may hold the null handle (0). Unlike a null class reference
 ### String methods
 
 The standard library provides string methods (substring, search, case,
-splitting, `toInt`/`toFloat`, …). See [Standard Library](standard-library.md).
+splitting, `toInt`/`toFloat`, …). See [string methods](stdlib-string.md).

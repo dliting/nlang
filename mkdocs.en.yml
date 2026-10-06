@@ -72,7 +72,15 @@ nav:
           - Out Parameters: language-spec/out-parameters.md
           - Native Functions: language-spec/native-functions.md
           - Function Types & Delegates: language-spec/function-types-and-delegates.md
-      - Standard Library: language-spec/standard-library.md
+      - Standard Library:
+          - Standard Library: language-spec/standard-library.md
+          - math: language-spec/stdlib-math.md
+          - io: language-spec/stdlib-io.md
+          - fs: language-spec/stdlib-fs.md
+          - string methods: language-spec/stdlib-string.md
+          - Streams: language-spec/stdlib-streams.md
+          - Libraries and search paths: language-spec/stdlib-search-paths.md
+          - Exception mapping: language-spec/stdlib-exceptions.md
       - Runtime:
           - Memory Management: language-spec/memory-management.md
           - Exit Code Convention: language-spec/exit-code-convention.md

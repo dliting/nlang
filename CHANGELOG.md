@@ -103,6 +103,10 @@ All notable changes to NLang are documented here. The format follows
   handles redirected to a file or a pipe are unaffected.
 
 ### Changed
+- Manual: the Standard Library chapter is now a two-level section with
+  one page per topic (math, io, fs, string methods, streams, libraries
+  and search paths, exception mapping); the chapter page keeps the
+  package model and the argument-type rules.
 - Language: the `namespace` keyword is removed — the wrapper syntax,
   the cross-unit container merge and the reserved-name table went with
   it; every package identity is the path. User-visible diagnostics now

@@ -98,4 +98,4 @@ string槽位可持有null句柄（0）。与null class引用（成员访问时�
 
 ### 字符串方法
 
-标准库提供字符串方法（截取、查找、大小写、拆分、`toInt`/`toFloat`等）。见[标准库](standard-library.md)。
+标准库提供字符串方法（截取、查找、大小写、拆分、`toInt`/`toFloat`等）。见[string方法](stdlib-string.md)。

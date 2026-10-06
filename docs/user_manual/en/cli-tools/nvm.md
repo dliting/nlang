@@ -36,8 +36,8 @@ environment variable (`;` on Windows, `:` on POSIX) → the executable
 directory / current directory → the standard-library directory (where
 `stdlib.npkg` lives); earlier dirs win and duplicates keep only the
 first. See
-["Libraries and search paths"](../language-spec/standard-library.md) in
-the language specification for the full rules.
+["Libraries and search paths"](../language-spec/stdlib-search-paths.md)
+for the full rules.
 
 `--verbose` (short form `-v`) prints the resolved search path before
 the program runs —

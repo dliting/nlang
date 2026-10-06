@@ -72,7 +72,15 @@ nav:
           - out参数: language-spec/out-parameters.md
           - native函数: language-spec/native-functions.md
           - 函数类型与委托: language-spec/function-types-and-delegates.md
-      - 标准库: language-spec/standard-library.md
+      - 标准库:
+          - 标准库: language-spec/standard-library.md
+          - math: language-spec/stdlib-math.md
+          - io: language-spec/stdlib-io.md
+          - fs: language-spec/stdlib-fs.md
+          - string方法: language-spec/stdlib-string.md
+          - 流: language-spec/stdlib-streams.md
+          - 库与搜索路径: language-spec/stdlib-search-paths.md
+          - 异常映射: language-spec/stdlib-exceptions.md
       - 运行时:
           - 内存管理: language-spec/memory-management.md
           - 退出码约定: language-spec/exit-code-convention.md

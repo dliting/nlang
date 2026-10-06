@@ -3,7 +3,7 @@
 
 - **用户自定义泛型**：不支持`class Foo<T> { ... }`。编译器只识别内建泛型类（`List<T>`、`Dict<K,V>`）。
 - **string → 数值的`as`被禁止**：`"5" as int`是编译错误（``Invalid cast: `String as Int32` is not allowed``）。等价功能由string方法族覆盖（`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/
-  `toChar`，见[标准库](standard-library.md)）；本条是有意的规格缩窄，不是缺陷。
+  `toChar`，见[string方法](stdlib-string.md)）；本条是有意的规格缩窄，不是缺陷。
 - **标量上下文中的数组值**：数组值只有两类合法去向——自身数组类型（驻留令牌恒等：声明处与值侧共享每元素类型一枚令牌），与**全部**位置上的`string`目标，整值位置与元素槽一视同仁：string局部变量与字段、返回、拼接、string形参（`f(arr)`）、`io.print(arr)`、数组下标（`string[] sa; sa[0] = arr`）与容器存储（`List<string>`下标与`.add`）——都经运行期toString强制转换（得`"[1, 2]"`）。`null`恒可转换到数组目标。比较位置恒为恒等比较：只对另一个数组或`null`做`==` / `!=`。其余用法一律在编译期被明确拒绝——标量、class、interface、`Object`目标，`as`强制转换（`ia as int`），非数组形参，数值二元操作数（`arr + 1`），关系或跨类型比较（`arr < arr2`、`arr == 5`），条件位置（`if (arr)`），`switch`判别式，方法接收者。跨元素与表示互通的数组转换同样拒绝：`string[] b = ia`、协变上转型`Base[] ba = da`、`enum[]`与`int[]`互转都以 "an array value only converts to the same array
   type" 失败。从`List<T[]>` / `Dict<K,T[]>`取出的元素遵循同一规则；其数组性对编译器可见——作方法接收者或`switch`判别式（`li[0].rank()`、`switch (li.get(0))`）会被明确拒绝，`foreach`可以把它们迭代进数组类型的循环变量（数组值源可直接使用且只求值一次），以数组类型为键的`Dict`按句柄恒等比较。
 - **锯齿数组（`T[][]`）**：多维数组声明在编译期被拒绝（"jagged arrays (T[][]) are not supported"）——局部变量、字段、参数、返回类型、`for`/`foreach`循环变量以及泛型类型实参位置都是如此。VM没有多维数组布局；请声明扁平数组，或改用`List<List<T>>`式容器。
