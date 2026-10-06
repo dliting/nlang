@@ -38,7 +38,7 @@ WaitUntilResume / OnExited / OnRuntimeError），经`StopInfo`载荷驱动。随
 
 ## 宿主I/O接缝
 
-`IHostIo`（src/vm/IHostIo.h）把执行器的输入输出（I/O，input/output）与进程控制台解耦：输出字节经`OnOutput`原样送出；输入是可选的——程序停在`io.readLine`时由`ReadInputLine`逐行供给（允许阻塞）；已安装的宿主若不覆写它，就回答「无输入」，`io.readLine`会抛出可捕获的IOException，而不是静默消费嵌入方的流。机器模式实现这条接缝，把程序输出导进`output`事件、用`stdin`数据命令供给`readLine`；没有安装宿主时（nvm、ncc、CLI前端）行为不变。两个回调都不得抛错：它们跑在执行线程上，受与钩子相同的冻结期纪律约束。
+`IHostIo`（src/vm/IHostIo.h）把执行器的输入输出（I/O，input/output）与进程控制台解耦：输出字节经`OnOutput`原样送出；输入是可选且三态的——程序停在输入读取时由`ReadInputLine`回答行、输入结束或无通道（允许阻塞）；已安装的宿主若不覆写它，就回答「无通道」，输入读取会抛出可捕获的IOException，而不是静默消费嵌入方的流。`HasInputLine`是`io.hasInput`背后的非阻塞探询（无探询能力的宿主保持默认「可能还有输入」）。机器模式实现这条接缝，把程序输出导进`output`事件、用`stdin`数据命令供给输入读取（其探询只报告已停驻行）；没有安装宿主时（nvm、ncc、CLI前端）行为不变。三个回调都不得抛错：它们跑在执行线程上，受与钩子相同的冻结期纪律约束。
 
 ## 冻结期纪律
 

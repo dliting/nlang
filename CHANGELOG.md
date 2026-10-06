@@ -49,8 +49,8 @@ All notable changes to NLang are documented here. The format follows
 - VM: `IHostIo::ReadInputLine` — the host I/O seam now carries program
   input, not just output: an installed host can supply whole lines to
   `io.readLine` (blocking is allowed); a host that does not override
-  it still answers no-input, which makes readLine raise a catchable
-  IOException (unchanged since 0.7.5). With no host installed (nvm,
+  it still answers NoChannel, which makes the input reads raise a
+  catchable IOException (unchanged since 0.7.5). With no host installed (nvm,
   ncc, the CLI front ends) the console behavior is unchanged.
 - ndb `--machine` mode: a `stdin<TAB><payload>` data command delivers
   one program input line over the protocol channel. It is recognized
@@ -87,6 +87,13 @@ All notable changes to NLang are documented here. The format follows
 - Docs: added `docs/user-manual-style-guide.md` as the single source
   for manual editing policies and the abbreviation glossary, enforced
   by two new automated guards in the docs test suite.
+- io input symmetry: `hasInput()`, `readToken()` and `readChar()` natives
+  plus `readInt`/`readLong`/`readFloat`/`readDouble`/`readBool` wrappers
+  in the standard library. End-of-input follows C/C++/Java: line reads
+  return the `""` sentinel, token/value reads raise `IOException`, and
+  `hasInput()` tells a final empty line from end of input. Token reads
+  mix with `readLine()` using the C++ `cin>>`/`getline` remainder
+  semantics.
 
 ### Changed
 - Language: the `namespace` keyword is removed — the wrapper syntax,

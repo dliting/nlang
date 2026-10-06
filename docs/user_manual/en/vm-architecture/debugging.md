@@ -99,15 +99,18 @@ equals the frame count (a stop freezes the innermost frame), while
 
 `IHostIo` (src/vm/IHostIo.h) decouples the executor's input/output (I/O) from the
 process console: output bytes arrive verbatim through `OnOutput`, and
-input is opt-in — `ReadInputLine` supplies whole program-input lines
-while the program is parked in `io.readLine` (blocking is allowed); a
-host that does not override it answers no-input, which makes readLine
-raise a catchable IOException instead of silently consuming the
-embedder's stream. Machine mode implements the seam to route program
-output into `output` events and to feed `readLine` from `stdin` data
-commands; with no host installed (nvm, ncc, the CLI front ends)
-behavior is unchanged. Both callbacks must not throw: they run on the
-execution thread, inside the same freeze-time discipline as the hooks.
+input is opt-in and tri-state — `ReadInputLine` answers Line, Eof or
+NoChannel while the program is parked in an input read (blocking is
+allowed); a host that does not override it answers NoChannel, which
+makes the input reads raise a catchable IOException instead of silently
+consuming the embedder's stream. `HasInputLine` is the non-blocking
+probe behind `io.hasInput` (a host without a probe keeps the default
+"input may exist"). Machine mode implements the seam to route program
+output into `output` events and to feed the input reads from `stdin`
+data commands (its probe reports parked lines only); with no host
+installed (nvm, ncc, the CLI front ends) behavior is unchanged. All
+three callbacks must not throw: they run on the execution thread, inside
+the same freeze-time discipline as the hooks.
 
 ## Freeze-time discipline
 

@@ -37,7 +37,7 @@
   符那一半）；`io.eprint` —— 输出到标准错误。`io.print` 不变。
 - VM：`IHostIo::ReadInputLine` —— 宿主 I/O 接缝从只携带输出扩展为
   也携带程序输入：已安装的宿主可向 `io.readLine` 逐行供给输入（允许
-  阻塞）；不覆写它的宿主仍回答「无输入」，readLine 抛出可捕获的
+  阻塞）；不覆写它的宿主仍回答「无通道」，输入读取抛出可捕获的
   IOException（与 0.7.5 起的行为一致）。未安装宿主时（nvm、ncc、
   CLI 前端）控制台行为不变。
 - ndb `--machine` 模式：新增 `stdin<TAB><payload>` 数据命令，经协议
@@ -65,6 +65,11 @@
   统一为紧凑风格（汉字与拉丁字符之间不加空格，含导航标签）。
 - 文档：新增 `docs/user-manual-style-guide.md` 作为手册编辑政策与
   术语表的单一权威源，docs 测试套件新增两项自动化守卫强制执行。
+- io 输入对称化：标准库新增 `hasInput()`、`readToken()`、`readChar()`
+  与 `readInt`/`readLong`/`readFloat`/`readDouble`/`readBool` 包装。输入
+  结束行为与 C/C++/Java 对齐：行级读取返回空串哨兵，取词/取值读取抛出
+  IOException，`hasInput()` 区分尾空行与输入结束。取词读取与
+  `readLine()` 混用时遵循 C++ 的 `cin>>`/`getline` 行剩余语义。
 
 ### 变更
 - 语言：`namespace` 关键字删除——包装语法、跨单元容器合并与

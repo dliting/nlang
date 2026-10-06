@@ -101,6 +101,16 @@ line-number snapshot, so editing or rebuilding mid-session is not
 supported; reopen the debug session. See the "Known limitations"
 section of [Debugging in nide](debugging.md).
 
+### Why is `io.hasInput()` imprecise on an interactive console?
+
+`hasInput()` must look into the stream's future without blocking, which
+only file and pipe redirection allow. An interactive console delivers a
+line per Enter, so the probe sees only what is already buffered — the
+same position C is in on a console. Console programs usually do not
+need `hasInput()`: following the C convention, treat `readLine()`'s
+empty-string return as the loop's end. In a debug session (nide)
+`hasInput()` reports only already-delivered parked lines.
+
 ### Cross-module reference gives `Module '...' is not imported`?
 
 `import` only opens **qualified names** — after `import lib;` you must
