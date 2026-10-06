@@ -70,6 +70,9 @@ nav路径两树有序一致（tree parity守卫）；两树同一事实同一语
 | NPE | 空指针异常 | null pointer exception |
 | TU | 编译单元 | translation unit |
 | UTF-16 | Unicode转换格式 | Unicode Transformation Format |
+| PTY | 伪终端 | pseudo terminal |
+| ConPTY | 伪控制台 | Windows pseudo console |
+| IME | 输入法 | input method |
 
 ## 3. 政策与执行映射
 

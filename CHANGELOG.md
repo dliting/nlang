@@ -59,13 +59,17 @@ All notable changes to NLang are documented here. The format follows
   frozen stop, consumed live while the program is parked in
   `io.readLine` — and never answers; the program's next read is the
   response. EOF on the channel still ends the session.
-- nide: the Run Output page gains a program-input row. While a run
-  child or a debug session is live, a typed line (Enter or the Send
-  button) is delivered to the program's next `io.readLine` — to the
-  child's stdin for Run, over the machine channel for a debug session
-  — and echoes into the output with a `>` prefix. The row is grayed
-  out when nothing is live. Debug sessions no longer reject
-  interactive input programs.
+- nide: the Run Output page is replaced by an embedded system terminal
+  (the vendored libvterm emulator behind a pseudo terminal (PTY) —
+  ConPTY on Windows). Run and debug share it: while a run is live,
+  typing interacts with the program directly (Ctrl+C sends the
+  interrupt when no text is selected, Ctrl+V pastes, drag selects,
+  the wheel scrolls back through history); while a debug session is
+  live, the terminal switches to local line editing — Enter delivers
+  the whole line over the machine channel to the program's next
+  `io.readLine`, with an in-session history of 50. Chinese input and
+  output are first-class UTF-8. Debug sessions no longer reject
+  interactive-input programs.
 - Tools: `--verbose` (short form `-v`) on ncc, nvm and ndb prints the
   resolved import search path before proceeding normally — one directory
   per line in search order, each annotated with the layer it came from
@@ -94,6 +98,9 @@ All notable changes to NLang are documented here. The format follows
   `hasInput()` tells a final empty line from end of input. Token reads
   mix with `readLine()` using the C++ `cin>>`/`getline` remainder
   semantics.
+- nvm: the console code page is UTF-8 throughout — Chinese output no
+  longer turns to mojibake when running directly in a terminal;
+  handles redirected to a file or a pipe are unaffected.
 
 ### Changed
 - Language: the `namespace` keyword is removed — the wrapper syntax,

@@ -91,9 +91,10 @@ See also: [Language Specification / Expressions](../language-spec/expressions.md
 
 ### Debugging: how do I feed `io.readLine` / `finally` doesn't run on stop / breakpoints drift?
 
-Standard input for both running and debugging lives in the input row at
-the bottom of the Run Output page: while the session is running, type a
-line and press Enter, and it is delivered to the program's next read
+Standard input for both running and debugging lives in the Run Output
+page's terminal: while a run is live, just type to interact; while a
+debug session is live, type a line and press Enter, and it is
+delivered to the program's next read
 (see [Debugging in nide](debugging.md)). Stopping a debug session is a
 hard stop: the process terminates directly and `finally` does not run.
 Line-number drift is not tracked inside a session — one session is one
@@ -109,7 +110,8 @@ line per Enter, so the probe sees only what is already buffered — the
 same position C is in on a console. Console programs usually do not
 need `hasInput()`: following the C convention, treat `readLine()`'s
 empty-string return as the loop's end. In a debug session (nide)
-`hasInput()` reports only already-delivered parked lines.
+`hasInput()` reports only already-delivered parked lines; the
+terminal's scrollback and copy work as usual.
 
 ### Cross-module reference gives `Module '...' is not imported`?
 

@@ -8,15 +8,22 @@
 2. Double-click main.n in the Solution tree on the left to open it in
    the editor.
 3. Choose Build → Build Project, then Run → Start (Ctrl+F5); the
-   program output appears on the Run Output page of the output window.
-   F5 instead starts a debug session — see
-   [Debugging in nide](debugging.md).
+   program runs directly in the embedded system terminal on the Run
+   Output page of the output window. F5 instead starts a debug
+   session — see [Debugging in nide](debugging.md).
 
-When the program needs standard input (`io.readLine`), the Run Output
-page has an input row at the bottom: while the program runs, type a
-line there and press Enter (or click Send) to write it to the running
-process's stdin; the input echoes into the output with a `>` prefix,
-and the row is grayed out while no program is running.
+The Run Output page is an embedded system terminal: the program runs
+in it directly over a pseudo terminal (PTY) — on Windows, a ConPTY
+(Windows pseudo console) — so what you see matches running it in a
+system terminal by hand, colors and other terminal escape sequences
+included. While the program runs, just type to interact: keystrokes
+go to the program verbatim and the program side does the echoing;
+after it exits, the keyboard is no longer sent. In the terminal:
+Ctrl+C copies when a selection exists, otherwise sends the interrupt
+signal to the program; Ctrl+V pastes (multi-line text is flattened to
+one line); drag selects, and a selection copies; the wheel scrolls
+back through the history. Known limits: the scrollback keeps at most
+10000 lines, and ligature fonts do not get their ligatures.
 
 ### Configuring nide
 

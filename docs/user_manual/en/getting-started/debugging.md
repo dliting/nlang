@@ -85,11 +85,15 @@ Program output and the call-stack backtrace on error appear on the Run
 Output page. Breakpoints are remembered by file path, survive nide
 restarts, and follow a file automatically when it is renamed.
 
-The program's standard input lives on the same page: while the session
-is running, type a line into the input row at the bottom and press
-Enter (or click Send) — the line is delivered to the program's next
-`io.readLine` read, and it echoes into the output with a `>` prefix.
-The row is grayed out while no session is running.
+The program's standard input lives in the same page's terminal: while
+a session is live, the terminal switches to local line editing — a
+typed line is handed to the debugged process only when you press
+Enter; the echo and the line editing are synthesized locally by the
+IDE, not system-console semantics (Ctrl+C is never injected as an
+interrupt; with a selection it still copies), and the up/down arrows
+recall recently typed lines (up to 50 within the session). Chinese
+input goes through an input method (IME), with the pre-edit string
+following the terminal cursor.
 
 ### Stepping
 
