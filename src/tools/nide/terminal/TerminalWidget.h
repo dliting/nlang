@@ -1,9 +1,10 @@
 /*---
 TerminalWidget.h — the terminal viewport: a monospace cell grid drawn
-with QPainter over the TerminalEmulator state. This task's scope:
-rendering, cell-granular selection, wheel scrollback, cursor blink and
-grid relayout. The input modes (character passthrough / line editing)
-and IME handling join in a later task by editing this header.
+with QPainter over the TerminalEmulator state. Rendering, selection,
+wheel scrollback, cursor blink, grid relayout, plus the dual input
+modes: Character (keys encoded straight through to the child) and Line
+(local line editing with history; Enter commits and echoes). IME
+preedit/commit is handled per mode.
 ---*/
 #pragma once
 #include <QWidget>
@@ -12,8 +13,11 @@ and IME handling join in a later task by editing this header.
 #include <QPoint>
 #include <QRect>
 
+#include "LineEditor.h"
 #include "TerminalEmulator.h"
 
+class QInputMethodEvent;
+class QKeyEvent;
 class QPainter;
 class QTimer;
 
@@ -47,6 +51,10 @@ class TerminalWidget : public QWidget {
     Q_OBJECT
 
 public:
+    //Idle: no input consumed. Character: passthrough to the child.
+    //Line: local editing; Enter commits (lineCommitted) and echoes.
+    enum class Mode { Idle, Character, Line };
+
     explicit TerminalWidget(QWidget* parent = nullptr);
 
     //Program output in (VT bytes): feed the emulator, repaint damage.
@@ -54,6 +62,12 @@ public:
     void feedUtf8(const QString& text);
     //Fresh session: clear screen + scrollback + selection.
     void resetTerminal();
+
+    Mode mode() const { return m_mode; }
+    void setMode(Mode mode);
+    //The line-mode pending line with the IME preedit at the caret —
+    //the local editing state, before any echo.
+    QString pendingLine() const;
 
     int columns() const { return m_emulator.columns(); }
     int rows() const { return m_emulator.rows(); }
@@ -74,16 +88,27 @@ public:
 
     QSize sizeHint() const override;
 
+    //Mode-aware paste dispatch (pasteClipboard without the clipboard):
+    //Character sends upstream with CRLF collapsed, Line flattens
+    //newlines to spaces and edits them in.
+    void pasteText(const QString& text);
+
 public slots:
     void copySelection();
+    void pasteClipboard();
 
 signals:
     //Grid geometry changed after a relayout (columns, rows).
     void sizeChanged(int columns, int rows);
+    //Line mode: Enter on a non-empty pending line.
+    void lineCommitted(const QString& line);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void inputMethodEvent(QInputMethodEvent* event) override;
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
@@ -97,6 +122,14 @@ private:
     void drawCell(QPainter& painter, int displayRow, int column,
                   const TermCell& cell);
     void drawCursorBlock(QPainter& painter);
+    void drawPendingLine(QPainter& painter);
+    bool drawPendingRun(QPainter& painter, const QString& run,
+                        int& row, int& column, bool preedit);
+    //Defined in TerminalWidgetInput.cpp.
+    void characterKey(QKeyEvent* event);
+    void lineModeKey(QKeyEvent* event);
+    void commitLine();
+    void restartCursorBlink();
     //Defined in TerminalWidget.cpp.
     void relayoutGrid();
     void repaintDamaged();
@@ -114,6 +147,9 @@ private:
     int m_lastCursorRow = 0;
     int m_lastCursorColumn = 0;
     int m_scrollOffset = 0;   //scrollback lines shown above the screen
+    Mode m_mode = Mode::Idle;
+    LineEditor m_editor;      //Line-mode editing state
+    QString m_preedit;        //IME composition text at the caret
     //Selection, display coordinates; dropped when output scrolls the
     //screen (full-damage feed) — MVP limitation, static-screen use only.
     bool m_selecting = false;

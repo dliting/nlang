@@ -169,6 +169,8 @@ add_library(nide_mainwindow
     terminal/TerminalEmulator.cpp
     terminal/TerminalWidget.cpp
     terminal/TerminalWidgetPaint.cpp
+    terminal/TerminalWidgetInput.cpp
+    terminal/LineEditor.cpp
     ui/MainWindow.ui
 )
 

@@ -29,6 +29,65 @@ QRect CellRect(int column, int row, int cellWidth, int cellHeight) {
 
 } // namespace
 
+void TerminalWidget::drawPendingLine(QPainter& painter) {
+    if (m_mode != Mode::Line || m_scrollOffset != 0) return;
+    const std::string& line = m_editor.line();
+    const std::size_t cursorByte = m_editor.cursorByte();
+    const QString left = QString::fromUtf8(line.data(),
+                                           int(cursorByte));
+    const QString right =
+        QString::fromUtf8(line.data() + cursorByte,
+                          int(line.size() - cursorByte));
+    //Drawing starts at the live cursor cell (where output would go).
+    int row = m_emulator.cursorRow();
+    int column = m_emulator.cursorColumn();
+    if (!drawPendingRun(painter, left, row, column, false)) return;
+    //Caret: a 2px vertical bar at the edit position.
+    if (row < rows() && column < columns()) {
+        QRect caret = CellRect(column, row, m_cellWidth, m_cellHeight);
+        caret.setWidth(2);
+        painter.fillRect(caret, ToColor(kDefaultForeground));
+    }
+    if (!drawPendingRun(painter, m_preedit, row, column, true)) return;
+    drawPendingRun(painter, right, row, column, false);
+}
+
+bool TerminalWidget::drawPendingRun(QPainter& painter, const QString& run,
+                                    int& row, int& column, bool preedit) {
+    //One scalar per step; wide scalars advance two cells (the same
+    //skip strategy as the grid pass). False once past the bottom.
+    const QFontMetrics metrics = painter.fontMetrics();
+    for (int i = 0; i < run.size();) {
+        QString scalar;
+        const QChar lead = run.at(i);
+        if (lead.isHighSurrogate() && i + 1 < run.size()) {
+            scalar = run.mid(i, 2);
+            i += 2;
+        } else {
+            scalar = QString(lead);
+            i += 1;
+        }
+        if (row >= rows()) return false;      //bottom truncation
+        if (column >= columns()) {            //wrap at line full
+            column = 0;
+            ++row;
+            if (row >= rows()) return false;
+        }
+        const QRect cellRect =
+            CellRect(column, row, m_cellWidth, m_cellHeight);
+        painter.setPen(ToColor(kDefaultForeground));
+        painter.drawText(cellRect, Qt::AlignLeft | Qt::AlignVCenter,
+                         scalar);
+        if (preedit) {   //composition text is underlined
+            const int y = cellRect.bottom() - 2;
+            painter.drawLine(cellRect.left(), y, cellRect.right(), y);
+        }
+        column += metrics.horizontalAdvance(scalar) > m_cellWidth
+                      ? 2 : 1;
+    }
+    return true;
+}
+
 void TerminalWidget::paintEvent(QPaintEvent*) {
     QPainter painter(this);
     painter.fillRect(rect(), ToColor(kDefaultBackground));
@@ -45,6 +104,7 @@ void TerminalWidget::paintEvent(QPaintEvent*) {
         }
     }
     drawCursorBlock(painter);
+    drawPendingLine(painter);
 }
 
 void TerminalWidget::drawCell(QPainter& painter, int displayRow,
@@ -70,7 +130,11 @@ void TerminalWidget::drawCell(QPainter& painter, int displayRow,
 }
 
 void TerminalWidget::drawCursorBlock(QPainter& painter) {
-    if (m_scrollOffset != 0 || !m_cursorVisible) return;
+    //Line mode shows its own caret inside the pending line; the block
+    //cursor belongs to Character mode only.
+    if (m_mode != Mode::Character || m_scrollOffset != 0
+        || !m_cursorVisible)
+        return;
     const int row = m_emulator.cursorRow();
     const int column = m_emulator.cursorColumn();
     if (row < 0 || row >= rows() || column < 0 || column >= columns())

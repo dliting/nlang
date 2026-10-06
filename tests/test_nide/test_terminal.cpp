@@ -6,8 +6,11 @@
 
 #include "terminal/TerminalEmulator.h"
 #include "terminal/TerminalWidget.h"
+#include "terminal/LineEditor.h"
 
 #include <QApplication>
+#include <QInputMethodEvent>
+#include <QSignalSpy>
 #include <cstdio>
 #include <string>
 
@@ -43,6 +46,20 @@ private slots:
     void TestResetTerminal();
     void TestColumnsRowsFromSize();
     void TestSelectionAndCopy();
+
+    //--- input modes / IME ---
+    void TestLineEditorScalars();
+    void TestCharacterModeKeyPassthrough();
+    void TestEnterEncodesCr();
+    void TestBackspaceDel();
+    void TestArrowCsi();
+    void TestCtrlCWithoutSelection();
+    void TestLineModeEchoAndCommit();
+    void TestLineModeHistory();
+    void TestLineModeBackspaceEditing();
+    void TestEmptyLineEchoOnly();
+    void TestPaste();
+    void TestImeCommit();
 };
 
 //--- emulator ----------------------------------------------------------------
@@ -210,6 +227,181 @@ void TestTerminal::TestSelectionAndCopy() {
     //the read-back assertion fail for reasons outside this code.
     QCOMPARE(widget.selectedText(), QString("hello"));
     widget.copySelection();   //smoke: must not assert/crash
+}
+
+//--- input modes / IME -------------------------------------------------------
+
+void TestTerminal::TestLineEditorScalars() {
+    LineEditor editor;
+    editor.insertText("a\xE4\xB8\xAD""b");   //a 中 b
+    QCOMPARE(editor.cursorScalarPosition(), 3);
+    editor.moveCursor(-1);
+    QCOMPARE(editor.cursorScalarPosition(), 2);
+    //Backspace removes the whole previous scalar (中), never a half.
+    editor.backspace();
+    QCOMPARE(editor.line(), std::string("ab"));
+    QCOMPARE(editor.cursorScalarPosition(), 1);
+    editor.insertText("X");
+    QCOMPARE(editor.line(), std::string("aXb"));
+}
+
+void TestTerminal::TestCharacterModeKeyPassthrough() {
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Character);
+    QTest::keyClicks(&widget, "abc");
+    QCOMPARE(sink.bytes, std::string("abc"));
+}
+
+void TestTerminal::TestEnterEncodesCr() {
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Character);
+    QTest::keyClick(&widget, Qt::Key_Return);
+    QCOMPARE(sink.bytes, std::string("\r"));
+}
+
+void TestTerminal::TestBackspaceDel() {
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Character);
+    QTest::keyClick(&widget, Qt::Key_Backspace);
+    QCOMPARE(sink.bytes, std::string("\x7f"));
+}
+
+void TestTerminal::TestArrowCsi() {
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Character);
+    QTest::keyClick(&widget, Qt::Key_Up);
+    QCOMPARE(sink.bytes, std::string("\x1b[A"));
+}
+
+void TestTerminal::TestCtrlCWithoutSelection() {
+    //Without a selection Ctrl+C sends the interrupt (0x03) upstream.
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Character);
+    QTest::keyClick(&widget, Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(sink.bytes, std::string("\x03"));
+
+    //With a selection Ctrl+C copies instead — nothing is sent upstream.
+    TerminalWidget selectWidget;
+    CaptureSink selectSink;
+    selectWidget.setByteSink(selectSink.sink());
+    selectWidget.setMode(TerminalWidget::Mode::Character);
+    selectWidget.feedBytes("hello world");
+    QTest::mousePress(&selectWidget, Qt::LeftButton, Qt::NoModifier,
+                      selectWidget.cellCenter(0, 0));
+    QTest::mouseRelease(&selectWidget, Qt::LeftButton, Qt::NoModifier,
+                        selectWidget.cellCenter(4, 0));
+    QVERIFY(selectWidget.hasSelection());
+    QTest::keyClick(&selectWidget, Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(selectSink.bytes, std::string(""));
+    QCOMPARE(selectWidget.selectedText(), QString("hello"));
+}
+
+void TestTerminal::TestLineModeEchoAndCommit() {
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Line);
+    QSignalSpy spy(&widget, &TerminalWidget::lineCommitted);
+    QTest::keyClicks(&widget, "Bob");
+    //The pending line is local: nothing on screen, nothing upstream.
+    QCOMPARE(widget.pendingLine(), QString("Bob"));
+    QVERIFY(widget.screenText().find("Bob") == std::string::npos);
+    QCOMPARE(sink.bytes, std::string(""));
+    QCOMPARE(spy.count(), 0);
+    QTest::keyClick(&widget, Qt::Key_Return);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0).toString(), QString("Bob"));
+    QVERIFY(widget.screenText().find("Bob") != std::string::npos);
+    QCOMPARE(widget.pendingLine(), QString(""));
+}
+
+void TestTerminal::TestLineModeHistory() {
+    TerminalWidget widget;
+    widget.setMode(TerminalWidget::Mode::Line);
+    QSignalSpy spy(&widget, &TerminalWidget::lineCommitted);
+    QTest::keyClicks(&widget, "one");
+    QTest::keyClick(&widget, Qt::Key_Return);
+    QTest::keyClicks(&widget, "two");
+    QTest::keyClick(&widget, Qt::Key_Return);
+    QCOMPARE(spy.count(), 2);
+    QTest::keyClick(&widget, Qt::Key_Up);
+    QCOMPARE(widget.pendingLine(), QString("two"));
+    QTest::keyClick(&widget, Qt::Key_Up);
+    QCOMPARE(widget.pendingLine(), QString("one"));
+    QTest::keyClick(&widget, Qt::Key_Down);
+    QCOMPARE(widget.pendingLine(), QString("two"));
+    QTest::keyClick(&widget, Qt::Key_Down);
+    QCOMPARE(widget.pendingLine(), QString(""));   //draft restore
+    QTest::keyClicks(&widget, "th");
+    QCOMPARE(widget.pendingLine(), QString("th"));
+}
+
+void TestTerminal::TestLineModeBackspaceEditing() {
+    TerminalWidget widget;
+    widget.setMode(TerminalWidget::Mode::Line);
+    QTest::keyClicks(&widget, "ab");
+    QTest::keyClick(&widget, Qt::Key_Backspace);
+    QCOMPARE(widget.pendingLine(), QString("a"));
+    QTest::keyClick(&widget, Qt::Key_Left);
+    QTest::keyClicks(&widget, "X");
+    QCOMPARE(widget.pendingLine(), QString("Xa"));
+}
+
+void TestTerminal::TestEmptyLineEchoOnly() {
+    TerminalWidget widget;
+    widget.setMode(TerminalWidget::Mode::Line);
+    QSignalSpy spy(&widget, &TerminalWidget::lineCommitted);
+    QTest::keyClick(&widget, Qt::Key_Return);
+    //Empty line: echo only — no commit.
+    QCOMPARE(spy.count(), 0);
+    QCOMPARE(widget.screenText(), std::string(""));
+}
+
+void TestTerminal::TestPaste() {
+    //Character mode: paste goes upstream with CRLF collapsed to CR.
+    TerminalWidget character;
+    CaptureSink sink;
+    character.setByteSink(sink.sink());
+    character.setMode(TerminalWidget::Mode::Character);
+    character.pasteText("hi");
+    QCOMPARE(sink.bytes, std::string("hi"));
+    character.pasteText("a\r\nb");
+    QCOMPARE(sink.bytes, std::string("hia\rb"));
+    //Line mode: newlines flatten to spaces (the editor holds one line).
+    TerminalWidget line;
+    line.setMode(TerminalWidget::Mode::Line);
+    line.pasteText("a\r\nb");
+    QCOMPARE(line.pendingLine(), QString("a b"));
+}
+
+void TestTerminal::TestImeCommit() {
+    //Line mode: the commit string lands in the editor.
+    TerminalWidget lineWidget;
+    lineWidget.setMode(TerminalWidget::Mode::Line);
+    QInputMethodEvent lineCommit;
+    lineCommit.setCommitString(QStringLiteral("中"));
+    QApplication::sendEvent(&lineWidget, &lineCommit);
+    QVERIFY(lineWidget.pendingLine().contains(QStringLiteral("中")));
+
+    //Character mode: the commit string is typed text upstream.
+    TerminalWidget characterWidget;
+    CaptureSink sink;
+    characterWidget.setByteSink(sink.sink());
+    characterWidget.setMode(TerminalWidget::Mode::Character);
+    QInputMethodEvent characterCommit;
+    characterCommit.setCommitString(QStringLiteral("中"));
+    QApplication::sendEvent(&characterWidget, &characterCommit);
+    QCOMPARE(sink.bytes, std::string("\xE4\xB8\xAD"));
 }
 
 QTEST_MAIN(TestTerminal)
