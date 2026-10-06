@@ -26,6 +26,38 @@ namespace fs = std::filesystem;
 
 using namespace nlang;
 
+#ifdef _WIN32
+namespace {
+//Per-stream console UTF-8 setup. GetConsoleMode is the is-a-console
+//test, not GetFileType: GetFileType misclassifies the NUL device as a
+//character device, so `nvm x > NUL` would otherwise rewrite the code
+//page of the user's interactive console from a redirected run. Each
+//half is judged independently, so a half-redirected invocation only
+//switches the half that is a real console. Originals are restored at
+//exit (std::atexit); a crash skips that, which is acceptable.
+UINT g_originalInputCp = 0;
+UINT g_originalOutputCp = 0;
+
+void RestoreConsoleCodePages() {
+    if (g_originalInputCp != 0) SetConsoleCP(g_originalInputCp);
+    if (g_originalOutputCp != 0) SetConsoleOutputCP(g_originalOutputCp);
+}
+
+void SetupConsoleUtf8() {
+    DWORD mode = 0;
+    if (GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode)) {
+        g_originalInputCp = GetConsoleCP();
+        SetConsoleCP(CP_UTF8);
+    }
+    if (GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &mode)) {
+        g_originalOutputCp = GetConsoleOutputCP();
+        SetConsoleOutputCP(CP_UTF8);
+    }
+    std::atexit(RestoreConsoleCodePages);
+}
+} // namespace
+#endif
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: nvm <program.ncu|.npkg> [-I <dir>...] "
@@ -50,10 +82,10 @@ int main(int argc, char* argv[]) {
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     nlang::InstallCrashReporter("nvm");
-    //Console UTF-8 — see ncc's main for the rationale (manifest code
-    //page + console rendering companion).
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
+    //Console UTF-8 — per-stream, console handles only (rationale in
+    //SetupConsoleUtf8 above); see ncc's main for the manifest code
+    //page companion.
+    SetupConsoleUtf8();
 #endif
 
     //0.7.5: OP_Prim_to_str formats scalars through the Rn builtin
