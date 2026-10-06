@@ -10,6 +10,7 @@ probe seam (see the header for the read mechanism rationale).
 #include <io.h>
 #include <windows.h>
 #else
+#include <cerrno>
 #include <poll.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -35,8 +36,13 @@ bool InputLineSource::FillBuffer() {
     const int got = _read(_fileno(m_stream), &m_buffer[start],
                           static_cast<unsigned int>(kReadChunkBytes));
 #else
-    const ssize_t got = ::read(fileno(m_stream), &m_buffer[start],
-                               kReadChunkBytes);
+    //Retry an interrupted read: on POSIX a signal may break read()
+    //before any byte arrives; treating that as end of input would
+    //silently truncate the stream.
+    ssize_t got;
+    do {
+        got = ::read(fileno(m_stream), &m_buffer[start], kReadChunkBytes);
+    } while (got < 0 && errno == EINTR);
 #endif
     if (got <= 0) {
         m_buffer.resize(start);

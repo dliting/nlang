@@ -30,8 +30,9 @@ public:
     bool HasMore() override;
 
 private:
-    //fread one chunk into m_buffer; false = stream exhausted (EOF and
-    //error both mean "no more bytes will ever come").
+    //Read one chunk from the file descriptor into m_buffer; false =
+    //stream exhausted (EOF, or an error other than an interrupted
+    //read — both mean "no more bytes will ever come").
     bool FillBuffer();
     //Buffer-empty probe. Disk: read ahead into our buffer (a blocking
     //read is fine — disks answer immediately). Pipe: non-blocking peek

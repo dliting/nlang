@@ -16,8 +16,10 @@ namespace nlang {
 //end while NoChannel stays an error.
 enum class InputReadStatus { Ok, Eof, NoChannel };
 
-//One sticky rule: after HasMore() answers false (or PullLine reports
-//Eof/NoChannel) the source must never produce a line again.
+//One sticky rule: after PullLine reports Eof/NoChannel the source must
+//never produce a line again. A false HasMore() is a "nothing buffered
+//now" answer — on a console, a later blocking pull may still deliver
+//newly typed input.
 class LineSource {
 public:
     virtual ~LineSource() = default;

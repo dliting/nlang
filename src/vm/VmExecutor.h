@@ -414,9 +414,9 @@ private:
     static int NativeReadChar(NativeHost* self, uint32_t* outChar);
     static int NativeHasInput(NativeHost* self);
 
-    //Lazily built on the first input native call (stdin's first touch —
-    //the unbuffered switch must precede any I/O). One executor runs one
-    //program once, so the lazily-built view is never rebuilt.
+    //Lazily built on the first input native call (stdin's first touch).
+    //One executor runs one program once, so the lazily-built view is
+    //never rebuilt.
     TokenView& EnsureInputView();
     static void NativeRaiseException(NativeHost* self, int exceptionKind,
         const char* message);

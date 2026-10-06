@@ -38,6 +38,7 @@ public:
     //ReadInputLine would supply a line right now. Hosts without a
     //probe keep the default true ("a channel exists"); the first
     //Eof/NoChannel latches the executor-side answer to false.
+    //Must not throw (same thread rule).
     virtual bool HasInputLine() { return true; }
 };
 
