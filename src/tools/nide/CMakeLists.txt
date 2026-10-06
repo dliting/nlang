@@ -171,6 +171,7 @@ add_library(nide_mainwindow
     terminal/TerminalWidgetPaint.cpp
     terminal/TerminalWidgetInput.cpp
     terminal/LineEditor.cpp
+    terminal/PtyProcess.cpp
     ui/MainWindow.ui
 )
 

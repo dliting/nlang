@@ -7,6 +7,7 @@
 #include "terminal/TerminalEmulator.h"
 #include "terminal/TerminalWidget.h"
 #include "terminal/LineEditor.h"
+#include "terminal/PtyProcess.h"
 
 #include <QApplication>
 #include <QInputMethodEvent>
@@ -60,6 +61,12 @@ private slots:
     void TestEmptyLineEchoOnly();
     void TestPaste();
     void TestImeCommit();
+
+    //--- pty (real child processes) ---
+    void TestPtyEchoHello();
+    void TestPtyExitCode();
+    void TestPtyKill();
+    void TestPtyWriteRoundTrip();
 };
 
 //--- emulator ----------------------------------------------------------------
@@ -402,6 +409,58 @@ void TestTerminal::TestImeCommit() {
     characterCommit.setCommitString(QStringLiteral("中"));
     QApplication::sendEvent(&characterWidget, &characterCommit);
     QCOMPARE(sink.bytes, std::string("\xE4\xB8\xAD"));
+}
+
+//--- pty (real child processes) ------------------------------------------------
+
+void TestTerminal::TestPtyEchoHello() {
+    PtyProcess pty;
+    QSignalSpy outputSpy(&pty, &PtyProcess::OutputReady);
+    QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
+    //"echo" is a cmd internal that never resets errorlevel: on hosts
+    //whose AutoRun registry entry fails, `cmd /c echo hello` inherits
+    //that errorlevel (observed exit 1). Pin the exit code explicitly.
+    QVERIFY(pty.Start("cmd", {"/c", "echo hello&exit 0"}, "", 80, 24));
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
+    QCOMPARE(finishedSpy.at(0).at(0).toInt(), 0);
+    QCOMPARE(finishedSpy.at(0).at(1).toBool(), false);
+    QByteArray allOutput;
+    for (const QVariantList& chunk : outputSpy)
+        allOutput += chunk.at(0).toByteArray();
+    QVERIFY(allOutput.contains("hello"));
+}
+
+void TestTerminal::TestPtyExitCode() {
+    PtyProcess pty;
+    QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
+    QVERIFY(pty.Start("cmd", {"/c", "exit", "3"}, "", 80, 24));
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
+    QCOMPARE(finishedSpy.at(0).at(0).toInt(), 3);
+    QCOMPARE(finishedSpy.at(0).at(1).toBool(), false);
+}
+
+void TestTerminal::TestPtyKill() {
+    PtyProcess pty;
+    QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
+    QVERIFY(pty.Start("cmd", {}, "", 80, 24));   //interactive: stays up
+    QVERIFY(pty.IsRunning());
+    pty.Kill();
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
+    QCOMPARE(finishedSpy.at(0).at(1).toBool(), true);
+    QVERIFY(!pty.IsRunning());
+    //Finished arrives exactly once: nothing more after the dust settles.
+    QTest::qWait(500);
+    QCOMPARE(finishedSpy.count(), 1);
+}
+
+void TestTerminal::TestPtyWriteRoundTrip() {
+    PtyProcess pty;
+    QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
+    QVERIFY(pty.Start("cmd", {}, "", 80, 24));
+    pty.Write("exit 7\r");
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
+    QCOMPARE(finishedSpy.at(0).at(0).toInt(), 7);
+    QCOMPARE(finishedSpy.at(0).at(1).toBool(), false);
 }
 
 QTEST_MAIN(TestTerminal)
