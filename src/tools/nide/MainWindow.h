@@ -3,13 +3,13 @@
 #define NLANG_TOOLS_NIDE_MAIN_WINDOW_H
 
 #include <QPointer>
-#include <QProcess>
 #include <QMainWindow>
 
 #include "BreakpointStore.h"  // BreakpointStore is a value member
 #include "FileEditor.h"  // EditorManager is a value member
 #include "nlang/langservice/SymbolIndex.h"  // library symbol index
 #include "RecentStore.h"  // RecentStore is a value member
+#include "terminal/PtyProcess.h"  // PtyProcess is a value member
 
 #include <QStringList>
 #include <map>
@@ -35,11 +35,18 @@ class ProjectNode;
 class SolutionNode;
 class SolutionTreeModel;
 
+namespace terminal {
+class TerminalWidget;
+}
+
 } // namespace nlang
 
 namespace Ui {
 class MainWindow;
 }
+
+//White-box IDE tests (defined in tests/test_nide/test_mainwindow.cpp).
+class TestMainWindow;
 
 namespace nlang {
 
@@ -76,6 +83,10 @@ namespace nlang {
 //    defaults on garbage or a collapsed pane.
 class MainWindow : public QMainWindow {
     Q_OBJECT
+
+    //White-box IDE tests read the pty members (the drain-latency pin
+    //must observe the child's exit without event processing).
+    friend class ::TestMainWindow;
 
 public:
     explicit MainWindow(QWidget* parent = nullptr);
@@ -173,10 +184,12 @@ private slots:
     void on_tvwSolution_customContextMenuRequested(const QPoint& pos);
     void on_dckSolution_visibilityChanged(bool visible);
     void on_tvwDebugStack_itemClicked(QTreeWidgetItem* item, int column);
-    //Run-page input row (auto-connected): both deliver one line to
-    //sendProgramInput().
-    void on_btnStdinSend_clicked();
-    void on_editStdin_returnPressed();
+
+    //--- embedded terminal (PtyProcess + TerminalWidget) ---
+    void onPtyOutput(const QByteArray& bytes);
+    void onPtyFinished(int exitCode, bool crashed);
+    void onTerminalLineCommitted(const QString& line);
+    void onTerminalSizeChanged(int columns, int rows);
 
     //--- non-widget signals (connected explicitly) ---
     void onEditorSaveStateChanged(FileEditor* editor);
@@ -184,8 +197,6 @@ private slots:
     void onSolutionSelectionChanged();
     void onFileRenameRequested(FileNode* file, const QString& newName);
     void onCompileLogItemSelected(const CompileLogItemInfo& info);
-    void onExecOutput();
-    void onExecFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void onBreakpointGutterClicked(int line);
 
     //--- debug session (DebugClient signals, connected per session) ---
@@ -337,6 +348,16 @@ private:
     //Auto-build first when the ncu is missing or older than the source,
     //then run it with nvm from the temp dir.
     void runStandaloneFile(const QString& filePath);
+    //One launch path for both run entries: reset the terminal, switch
+    //to Character mode and start the child on the pseudo console. False
+    //reports the failure on the terminal itself (unsupported ConPTY /
+    //spawn failure) and leaves the window idle.
+    bool beginTerminalRun(const QString& program,
+                          const QStringList& arguments,
+                          const QString& workingDirectory);
+    //Kill the live pty session and synchronously drain its Finished
+    //signal (see the definition for why the drain must be in-line).
+    void killPtySync();
     //The global build output directory when set, else
     //%TEMP%/nlang-nide/<stem>.ncu -- one slot per file stem.
     QString standaloneNcuPath(const QString& filePath) const;
@@ -383,15 +404,6 @@ private:
     void setDebugStatus(const QString& text);
     void clearDebugViews();
     void clearStoppedMarker();
-    //Insert text verbatim at the end of the run-output page (the wire
-    //splits io.print into a text half and a newline half, so append()'s
-    //implicit paragraph breaks would corrupt the output).
-    void appendExecuteOutput(const QString& text);
-    //One program-input line from the run page's row: a debug session
-    //rides the machine channel (stdin data command), a running child
-    //gets it on its stdin pipe; the echo keeps the transcript readable
-    //(a pipe is not a terminal, so the child echoes nothing itself).
-    void sendProgramInput();
 
     //outputDir wins; else the global build output directory; else the
     //project directory + name + ".npkg" (the project package artifact).
@@ -440,7 +452,15 @@ private:
     RecentStore m_recent;
     BreakpointStore m_breakpoints;
     QString m_solutionFilePath;  // empty = unsaved new solution
-    QProcess m_executed;         // the program under Run (nvm child)
+    terminal::PtyProcess m_pty;  // the program under Run (pseudo console)
+    //True from a successful Start until onPtyFinished DELIVERS: the
+    //waiter clears IsRunning() before its Finished post reaches the
+    //event queue consumer, so this flag is the only window-side witness
+    //that a Finished is still in flight (killPtySync drains it).
+    bool m_ptyFinishPending = false;
+    //The run page's viewport, created inside the terminalHost
+    //container (.ui keeps only the plain QWidget placeholder).
+    terminal::TerminalWidget* m_pTerminal = nullptr;
 
     //--- debug session state (all of it per-session) ---
     //One DebugClient per session: Ended is terminal on the client, so

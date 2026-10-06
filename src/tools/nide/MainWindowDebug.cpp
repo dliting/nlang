@@ -9,6 +9,8 @@
 #include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 
+#include "terminal/TerminalWidget.h"
+
 #include "ui_MainWindow.h"
 
 #include <QDir>
@@ -82,13 +84,22 @@ void MainWindow::sendDebugPrelude() {
 }
 
 bool MainWindow::startDebugSession() {
+    //Run/debug mutual exclusion: the run child owns the terminal in
+    //Character mode; a debug session needs it in Line mode, so a live
+    //run is torn down synchronously first (the menu enablement already
+    //steers the user away; this is the stale-state backstop).
+    killPtySync();
     const QString modulePath = prepareDebugTarget();
     if (modulePath.isEmpty() || !QFileInfo::exists(modulePath))
         return false;
 
     createDebugClient();
     clearDebugViews();
-    m_ui->txtExecuteOut->clear();
+    //Fresh screen; Line mode: Enter hands the edited line to the
+    //debugged program through the machine channel (local echo and
+    //editing, not a system console).
+    m_pTerminal->resetTerminal();
+    m_pTerminal->setMode(terminal::TerminalWidget::Mode::Line);
     showOutputPage(m_ui->tabDebug);
     //Same CWD policy as Run: an example writing files stays inside its
     //module's directory.
@@ -261,13 +272,13 @@ void MainWindow::onDebugLocalReceived(const QString& name,
 }
 
 void MainWindow::onDebugOutput(const QString& text) {
-    //Program output shares the Run page; the wire splits io.print into
-    //a text half plus a newline half, so insert verbatim.
-    appendExecuteOutput(text);
+    //Program output shares the run page's terminal; the wire splits
+    //io.print into a text half plus a newline half, so insert verbatim.
+    m_pTerminal->feedUtf8(text);
 }
 
 void MainWindow::onDebugError(const QString& report) {
-    appendExecuteOutput(report + QLatin1Char('\n'));
+    m_pTerminal->feedUtf8(report + QLatin1Char('\n'));
     setDebugStatus(tr("Runtime error"));
     endDebugSession();
     updateMenuState();
@@ -286,21 +297,21 @@ void MainWindow::onDebugAbnormallyExited(const QString& diagnostic) {
         setDebugStatus(tr("Debug stopped"));
     } else {
         setDebugStatus(tr("Debug process exited abnormally"));
-        appendExecuteOutput(diagnostic + QLatin1Char('\n'));
+        m_pTerminal->feedUtf8(diagnostic + QLatin1Char('\n'));
     }
     endDebugSession();   // also clears the stop marker
     updateMenuState();
 }
 
 void MainWindow::onDebugCommandFailed(const QString& message) {
-    //Per-command protocol failures are transient; surface them in the
-    //output page instead of a modal.
-    appendExecuteOutput(tr("ndb: %1").arg(message) + QLatin1Char('\n'));
+    //Per-command protocol failures are transient; surface them on the
+    //terminal instead of a modal.
+    m_pTerminal->feedUtf8(tr("ndb: %1").arg(message) + QLatin1Char('\n'));
 }
 
 void MainWindow::onDebugFailedToLaunch(const QString& error) {
     setDebugStatus(tr("Debug process exited abnormally"));
-    appendExecuteOutput(error + QLatin1Char('\n'));
+    m_pTerminal->feedUtf8(error + QLatin1Char('\n'));
     endDebugSession();
     updateMenuState();
 }
@@ -325,6 +336,7 @@ void MainWindow::endDebugSession() {
     //not survive the session (exit, error, user stop, window close).
     clearStoppedMarker();
     refreshBreakpointMarkers();   // the dots go hollow
+    m_pTerminal->setMode(terminal::TerminalWidget::Mode::Idle);
     updateMenuState();
 }
 
@@ -451,13 +463,6 @@ QString MainWindow::resolveDebugPath(const QString& file) const {
     if (file.isEmpty() || QFileInfo(file).isAbsolute())
         return file;
     return QDir(m_debugBaseDir).filePath(file);
-}
-
-void MainWindow::appendExecuteOutput(const QString& text) {
-    QTextCursor cursor = m_ui->txtExecuteOut->textCursor();
-    cursor.movePosition(QTextCursor::End);
-    cursor.insertText(text);
-    m_ui->txtExecuteOut->setTextCursor(cursor);
 }
 
 } // namespace nlang

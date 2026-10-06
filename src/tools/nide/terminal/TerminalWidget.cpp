@@ -12,6 +12,7 @@ TerminalWidgetPaint.cpp.
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QTimer>
 #include <QWheelEvent>
 
@@ -23,8 +24,6 @@ namespace {
 
 constexpr int kCursorBlinkIntervalMs = 530;
 constexpr int kWheelLinesPerNotch = 3;
-constexpr int kDefaultColumns = 80;   //initial sizeHint grid
-constexpr int kDefaultRows = 24;
 
 } // namespace
 
@@ -42,12 +41,15 @@ TerminalWidget::TerminalWidget(QWidget* parent) : QWidget(parent) {
     connect(m_pBlinkTimer, &QTimer::timeout, this,
             &TerminalWidget::blinkCursor);
     m_pBlinkTimer->start();
-    relayoutGrid();
+    updateCellMetrics();   //metrics only: the grid keeps the emulator's
+                           //default until real on-screen geometry arrives
 }
 
 QSize TerminalWidget::sizeHint() const {
-    return QSize(kCellPadding * 2 + kDefaultColumns * m_cellWidth,
-                 kCellPadding * 2 + kDefaultRows * m_cellHeight);
+    //Derived from the CURRENT grid (pre-show: the emulator's default,
+    //wherever a future setting moves it — never a second hardcoded copy).
+    return QSize(kCellPadding * 2 + m_emulator.columns() * m_cellWidth,
+                 kCellPadding * 2 + m_emulator.rows() * m_cellHeight);
 }
 
 void TerminalWidget::feedBytes(const QByteArray& vtBytes) {
@@ -67,12 +69,16 @@ void TerminalWidget::resetTerminal() {
     repaintDamaged();   //Reset() reports full damage + cursor move
 }
 
-void TerminalWidget::relayoutGrid() {
+void TerminalWidget::updateCellMetrics() {
     const QFontMetrics metrics(font());
     m_cellWidth = std::max(1, metrics.horizontalAdvance(QLatin1Char('M')));
     m_cellHeight = std::max(1, metrics.lineSpacing());
     m_boldFont = font();
     m_boldFont.setBold(true);
+}
+
+void TerminalWidget::relayoutGrid() {
+    updateCellMetrics();
     const int newColumns = std::max(
         kMinColumns, (width() - 2 * kCellPadding) / m_cellWidth);
     const int newRows = std::max(
@@ -84,9 +90,21 @@ void TerminalWidget::relayoutGrid() {
     }
 }
 
+void TerminalWidget::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    //First real geometry: the emulator grid tracks the widget only from
+    //here on (see m_hasShown).
+    m_hasShown = true;
+    relayoutGrid();
+}
+
 void TerminalWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
-    relayoutGrid();
+    //Pre-show resizes carry the layout's placeholder size, which says
+    //nothing about the terminal the user will see — keep the default
+    //grid instead of clamping to the relayout floors.
+    if (m_hasShown)
+        relayoutGrid();
 }
 
 void TerminalWidget::repaintDamaged() {

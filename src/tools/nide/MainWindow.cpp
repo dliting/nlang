@@ -13,6 +13,7 @@
 #include "SearchPathArgs.h"
 #include "SettingsStore.h"
 #include "SolutionTreeModel.h"
+#include "terminal/TerminalWidget.h"
 
 #include "ui_MainWindow.h"
 
@@ -22,11 +23,11 @@
 #include <QFileInfo>
 #include <QItemSelectionModel>
 #include <QMenu>
-#include <QProcess>
 #include <QSettings>
 #include <QSet>
 #include <QSplitter>
 #include <QTabBar>
+#include <QVBoxLayout>
 
 namespace nlang {
 
@@ -37,6 +38,21 @@ MainWindow::MainWindow(QWidget* parent)
     , m_editors(this)
 {
     m_ui->setupUi(this);
+    //The run page's viewport: the .ui keeps only the terminalHost
+    //placeholder, the terminal itself is a code-created child (it must
+    //exist before wireSignals connects to it).
+    QVBoxLayout* terminalLayout = new QVBoxLayout(m_ui->terminalHost);
+    terminalLayout->setContentsMargins(0, 0, 0, 0);
+    m_pTerminal = new terminal::TerminalWidget(m_ui->terminalHost);
+    terminalLayout->addWidget(m_pTerminal);
+    //Terminal replies (keystrokes encoded by the emulator) go straight
+    //to the pty child. The sink captures `this` raw: the widget is a
+    //direct child destroyed with the window, and feedBytes is only ever
+    //invoked from the GUI thread (PtyProcess delivers via queued
+    //signals).
+    m_pTerminal->setByteSink([this](const std::string& bytes) {
+        m_pty.Write(QByteArray(bytes.data(), int(bytes.size())));
+    });
     wireSignals();
 
     m_ui->statusBar->showMessage(tr("Ready"));
@@ -81,14 +97,18 @@ void MainWindow::wireSignals() {
     connect(m_ui->txtCompileOut, &CompileLogBrowser::lineSelected, this,
             &MainWindow::onCompileLogItemSelected);
 
-    //One merged channel: nvm/ncc output (and our own exit lines) all
-    //arrive through readyReadStandardOutput.
-    m_executed.setProcessChannelMode(QProcess::MergedChannels);
-    connect(&m_executed, &QProcess::readyReadStandardOutput, this,
-            &MainWindow::onExecOutput);
-    connect(&m_executed,
-            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &MainWindow::onExecFinished);
+    //Embedded terminal: pty output feeds the emulator (queued from the
+    //reader thread), Finished drives the exit line + menu state, the
+    //widget's committed lines reach the debug session's stdin channel,
+    //and grid relayouts resize the live pseudo console.
+    connect(&m_pty, &terminal::PtyProcess::OutputReady, this,
+            &MainWindow::onPtyOutput);
+    connect(&m_pty, &terminal::PtyProcess::Finished, this,
+            &MainWindow::onPtyFinished);
+    connect(m_pTerminal, &terminal::TerminalWidget::lineCommitted, this,
+            &MainWindow::onTerminalLineCommitted);
+    connect(m_pTerminal, &terminal::TerminalWidget::sizeChanged, this,
+            &MainWindow::onTerminalSizeChanged);
 }
 
 void MainWindow::applyToolbarIconSize(const QString& size) {
@@ -266,6 +286,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         m_debugClient->stop();
         endDebugSession();
     }
+    //The pty run child symmetrically: killed and drained HERE, while the
+    //window is still alive to deliver Finished — the destructor's Kill()
+    //would terminate the child but can no longer run the drain.
+    killPtySync();
     if (!closeSolution()) {
         event->ignore();
         return;
@@ -326,15 +350,10 @@ void MainWindow::updateMenuState() {
     m_ui->actBuild->setEnabled(canBuild && !debugLive);
 
     //Run lifecycle: Start needs a build target AND an idle process; Stop
-    //is live exactly while the process runs. The input row follows the
-    //same two consumers: the run child's stdin pipe or the debug
-    //session's machine channel.
-    const bool running =
-        m_executed.state() != QProcess::NotRunning;
+    //is live exactly while the pty child runs.
+    const bool running = m_pty.IsRunning();
     m_ui->actStartRunning->setEnabled(canBuild && !running && !debugLive);
     m_ui->actStopRunning->setEnabled(running);
-    m_ui->editStdin->setEnabled(running || debugLive);
-    m_ui->btnStdinSend->setEnabled(running || debugLive);
 
     updateDebugMenuState(canBuild);
 

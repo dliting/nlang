@@ -199,50 +199,7 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
               <number>0</number>
              </property>
              <item>
-              <widget class="QTextBrowser" name="txtExecuteOut">
-               <property name="frameShape">
-                <enum>QFrame::NoFrame</enum>
-               </property>
-               <property name="lineWrapMode">
-                <enum>QTextEdit::NoWrap</enum>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <layout class="QHBoxLayout" name="layoutStdin">
-               <property name="spacing">
-                <number>4</number>
-               </property>
-               <property name="leftMargin">
-                <number>0</number>
-               </property>
-               <property name="topMargin">
-                <number>2</number>
-               </property>
-               <property name="rightMargin">
-                <number>0</number>
-               </property>
-               <property name="bottomMargin">
-                <number>0</number>
-               </property>
-               <item>
-                <widget class="QLineEdit" name="editStdin">
-                 <property name="toolTip">
-                  <string>程序输入：运行或调试时，在此输入一行并回车发送给程序</string>
-                 </property>
-                 <property name="placeholderText">
-                  <string>程序输入（回车发送）</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="btnStdinSend">
-                 <property name="text">
-                  <string>发送</string>
-                 </property>
-                </widget>
-               </item>
-              </layout>
+              <widget class="QWidget" name="terminalHost" native="true"/>
              </item>
             </layout>
            </widget>

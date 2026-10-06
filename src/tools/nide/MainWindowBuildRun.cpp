@@ -1,6 +1,6 @@
 /*--- MainWindowBuildRun.cpp - build and run pipeline of the NLang IDE
-    main window: project/standalone builds, process run, compile-log
-    navigation. ---*/
+    main window: project/standalone builds, the embedded-terminal run
+    lifecycle, compile-log navigation. ---*/
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
@@ -11,10 +11,15 @@
 #include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 
+#include "terminal/TerminalWidget.h"
+
 #include "ui_MainWindow.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QMessageBox>
@@ -23,6 +28,13 @@
 #include <QTextCursor>
 
 namespace nlang {
+
+namespace {
+//killPtySync's drain backstop: far above the real Kill-join-teardown
+//(milliseconds), only there so a pathological waiter can't wedge the
+//GUI thread forever.
+constexpr int kKillDrainTimeoutMs = 3000;
+} // namespace
 
 //--- build / run ---
 
@@ -111,7 +123,7 @@ bool MainWindow::buildProject(ProjectNode& project) {
 }
 
 void MainWindow::runProject(ProjectNode& project) {
-    if (m_executed.state() != QProcess::NotRunning)
+    if (m_pty.IsRunning())
         return;
     const QString output = outputFilePath(project);
     if (!QFileInfo::exists(output)) {
@@ -120,9 +132,6 @@ void MainWindow::runProject(ProjectNode& project) {
             tr("'%1' does not exist. Build the project first.").arg(output));
         return;
     }
-    m_ui->txtExecuteOut->clear();
-    showOutputPage(m_ui->tabExecuteOut);
-    m_executed.setWorkingDirectory(project.projectDir());
     QStringList runArgs{output};
     //The project dir rides in the search list explicitly: the closure
     //loader resolves unlisted same-dir library units from it (the
@@ -130,13 +139,7 @@ void MainWindow::runProject(ProjectNode& project) {
     runArgs += appendImportArgs(projectSearchDirs(
         projectImportPathList(project), project.projectDir(),
         SettingsStore::persisted().librarySearchPaths()));
-    m_executed.start(toolPath("nvm"), runArgs);
-    if (!m_executed.waitForStarted(-1)) {
-        m_ui->txtExecuteOut->append(
-            tr("Failed to start '%1'.").arg(toolPath("nvm")));
-        return;
-    }
-    updateMenuState();  // Running now: Start off, Stop on
+    beginTerminalRun(toolPath("nvm"), runArgs, project.projectDir());
 }
 
 void MainWindow::on_actStartRunning_triggered() {
@@ -194,7 +197,7 @@ bool MainWindow::buildStandaloneFile(const QString& filePath) {
 }
 
 void MainWindow::runStandaloneFile(const QString& filePath) {
-    if (m_executed.state() != QProcess::NotRunning)
+    if (m_pty.IsRunning())
         return;
     //A dirty editor must not run as the stale on-disk build.
     FileEditor* editor = m_editors.find(filePath);
@@ -209,79 +212,126 @@ void MainWindow::runStandaloneFile(const QString& filePath) {
         if (!buildStandaloneFile(filePath))
             return;
     }
-    m_ui->txtExecuteOut->clear();
-    showOutputPage(m_ui->tabExecuteOut);
     //Run from the module's dir: an example writing files stays inside
     //the temp area (never the install dir); no example needs the
     //source dir as CWD (the e2e suite proves that).
-    m_executed.setWorkingDirectory(QFileInfo(output).absolutePath());
     QStringList runArgs{output};
     //The source's dir mirrors ncc's compile-time base dir: the artifact
     //embeds no library code, so a same-dir library unit must resolve
     //from the run search path exactly like it resolved at compile time.
     runArgs += appendImportArgs(standaloneSearchDirs(
         filePath, SettingsStore::persisted().librarySearchPaths()));
-    m_executed.start(toolPath("nvm"), runArgs);
-    if (!m_executed.waitForStarted(-1)) {
-        m_ui->txtExecuteOut->append(
-            tr("Failed to start '%1'.").arg(toolPath("nvm")));
-        return;
-    }
-    updateMenuState();  // Running now: Start off, Stop on
+    beginTerminalRun(toolPath("nvm"), runArgs,
+                     QFileInfo(output).absolutePath());
 }
 
 void MainWindow::on_actStopRunning_triggered() {
-    if (m_executed.state() != QProcess::NotRunning)
-        m_executed.kill();
+    if (m_pty.IsRunning())
+        m_pty.Kill();
 }
 
 void MainWindow::on_actClearBuild_triggered() {
     m_ui->txtCompileOut->clear();
-    m_ui->txtExecuteOut->clear();
+    m_pTerminal->resetTerminal();
 }
 
-void MainWindow::onExecOutput() {
-    //Program output is verbatim UTF-8 (io.print writes UTF-8 bytes);
-    //decoding as the local code page mojibaked non-ASCII output.
-    m_ui->txtExecuteOut->append(
-        QString::fromUtf8(m_executed.readAllStandardOutput()));
-}
+//--- embedded terminal lifecycle ---
 
-void MainWindow::onExecFinished(int exitCode, QProcess::ExitStatus status) {
-    if (status == QProcess::CrashExit)
-        m_ui->txtExecuteOut->append(tr("The process crashed."));
-    else
-        m_ui->txtExecuteOut->append(
-            tr("Program exited with code %1.").arg(exitCode));
-    updateMenuState();  // NotRunning again: Stop off, Start per selection
-}
-
-//--- program stdin (run child / debug session) ---
-
-void MainWindow::on_btnStdinSend_clicked() {
-    sendProgramInput();
-}
-
-void MainWindow::on_editStdin_returnPressed() {
-    sendProgramInput();
-}
-
-void MainWindow::sendProgramInput() {
-    const QString text = m_ui->editStdin->text();
-    if (text.isEmpty())
-        return;
-    if (debugSessionLive()) {
-        //Converged between the row's enablement and here: no delivery,
-        //so no echo either (the echo must never lie).
-        if (!m_debugClient->sendStdin(text))
-            return;
-    } else if (m_executed.state() != QProcess::NotRunning) {
-        m_executed.write((text + QLatin1Char('\n')).toUtf8());
-    } else {
-        return;   //nothing live (the disabled row guards this)
+bool MainWindow::beginTerminalRun(const QString& program,
+                                  const QStringList& arguments,
+                                  const QString& workingDirectory) {
+    //Stale-state backstop: actStartRunning's enablement already keeps
+    //Start idle while a child runs, but anything that still holds the
+    //pty — including a natural exit whose Finished post is still queued
+    //— must be torn down and drained synchronously here, or the old
+    //child's tail output (or its onPtyFinished mode stomp) would leak
+    //into the fresh session's screen.
+    killPtySync();
+    m_pTerminal->resetTerminal();
+    //Character mode: keystrokes pass through to the child's console
+    //(echo comes from the child's conhost, not from us).
+    m_pTerminal->setMode(terminal::TerminalWidget::Mode::Character);
+    showOutputPage(m_ui->tabExecuteOut);
+    terminal::PtyProcess::StartError error =
+        terminal::PtyProcess::StartError::None;
+    if (!m_pty.Start(program, arguments, workingDirectory,
+                     m_pTerminal->columns(), m_pTerminal->rows(), &error)) {
+        m_pTerminal->feedUtf8(
+            (error == terminal::PtyProcess::StartError::Unsupported
+                 ? tr("Pseudo console is not supported on this system "
+                      "(Windows 10 1809 or newer is required).")
+                 : tr("Failed to start '%1'.").arg(program))
+            + QLatin1Char('\n'));
+        m_pTerminal->setMode(terminal::TerminalWidget::Mode::Idle);
+        updateMenuState();
+        return false;
     }
-    appendExecuteOutput(QStringLiteral("> ") + text + QLatin1Char('\n'));
-    m_ui->editStdin->clear();
+    m_ptyFinishPending = true;  //a Finished is owed until delivered
+    updateMenuState();  // Running now: Start off, Stop on
+    return true;
+}
+
+void MainWindow::killPtySync() {
+    //Two reasons to drain, not one: a LIVE child (IsRunning), or a
+    //finished one whose Finished post is still queued — the waiter
+    //clears running BEFORE its post reaches the queue consumer, so
+    //IsRunning alone leaves that window uncovered (m_ptyFinishPending
+    //is the window-side witness).
+    if (!m_pty.IsRunning() && !m_ptyFinishPending)
+        return;
+    if (m_pty.IsRunning()) {
+        //Kill() joins the waiter thread, which emits Finished cross-
+        //thread before that join returns — the post is made by here.
+        m_pty.Kill();  //live child: terminate + teardown
+    }
+    //Pending-only: a natural exit with Finished queued — nothing to
+    //kill. Calling Kill() here would race its killed=true into the
+    //waiter's not-yet-evaluated verdict and relabel the exit as a
+    //crash; leftover handles are collected by Start()/the destructor,
+    //both of which call Kill().
+    //
+    //Delivery, not emission, is what we wait for — and the emission
+    //has (almost) always happened before this point, so a connect-
+    //based quit can never observe it. Poll the delivery witness in
+    //sliced processEvents instead; the deadline stays the backstop
+    //for a pathological waiter only. Leaving the post undelivered
+    //would let onPtyFinished's setMode(Idle) land AFTER the next
+    //phase (a debug session or a new run) has already set its own
+    //mode, stomping it.
+    QElapsedTimer budget;
+    budget.start();
+    while (m_ptyFinishPending && budget.elapsed() < kKillDrainTimeoutMs)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+}
+
+void MainWindow::onPtyOutput(const QByteArray& bytes) {
+    m_pTerminal->feedBytes(bytes);
+}
+
+void MainWindow::onPtyFinished(int exitCode, bool crashed) {
+    m_ptyFinishPending = false;   //delivered: no drain is owed anymore
+    m_pTerminal->feedUtf8(
+        (crashed ? tr("The process crashed.")
+                 : tr("Program exited with code %1.").arg(exitCode))
+        + QLatin1Char('\n'));
+    m_pTerminal->setMode(terminal::TerminalWidget::Mode::Idle);
+    updateMenuState();  // Idle again: Stop off, Start per selection
+}
+
+void MainWindow::onTerminalLineCommitted(const QString& line) {
+    //Line mode exists only for a debug session; a run child receives
+    //its keystrokes through the pty directly, never through here.
+    //Known limitation: the terminal's synthetic echo (spec §4) is
+    //already on screen even when the client is in its Ended window and
+    //silently drops this line — suppressing it would need the widget to
+    //know delivery succeeded; accepted MVP trade-off.
+    if (debugSessionLive())
+        m_debugClient->sendStdin(line);
+}
+
+void MainWindow::onTerminalSizeChanged(int columns, int rows) {
+    if (m_pty.IsRunning())
+        m_pty.Resize(columns, rows);
 }
 
 //--- compile-log navigation ---

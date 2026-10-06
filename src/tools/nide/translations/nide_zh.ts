@@ -24,21 +24,6 @@
         <translation>运行输出</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="231"/>
-        <source>程序输入：运行或调试时，在此输入一行并回车发送给程序</source>
-        <translation>程序输入：运行或调试时，在此输入一行并回车发送给程序</translation>
-    </message>
-    <message>
-        <location filename="../ui/MainWindow.ui" line="234"/>
-        <source>程序输入（回车发送）</source>
-        <translation>程序输入（回车发送）</translation>
-    </message>
-    <message>
-        <location filename="../ui/MainWindow.ui" line="241"/>
-        <source>发送</source>
-        <translation>发送</translation>
-    </message>
-    <message>
         <location filename="../ui/MainWindow.ui" line="217"/>
         <source>调试</source>
         <translation>调试</translation>
@@ -926,6 +911,11 @@
         <location filename="../MainWindowBuildRun.cpp" line="232"/>
         <source>The process crashed.</source>
         <translation>进程已崩溃。</translation>
+    </message>
+    <message>
+        <location filename="../MainWindowBuildRun.cpp" line="239"/>
+        <source>Pseudo console is not supported on this system (Windows 10 1809 or newer is required).</source>
+        <translation>本系统不支持伪控制台（需要 Windows 10 1809 或更新版本）。</translation>
     </message>
     <message>
         <location filename="../MainWindowBuildRun.cpp" line="235"/>

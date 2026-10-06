@@ -7,6 +7,7 @@
 #include "HelpBrowser.h"
 #include "ProjectModel.h"
 #include "TranslationLoader.h"
+#include "terminal/TerminalWidget.h"
 
 #include <nlang_version.h>  // generated from the repo VERSION file
 
@@ -39,9 +40,11 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QTextBlock>
 #include <QTextBrowser>
 #include <functional>
+#include <string>
 #include <QTextEdit>
 #include <QTextLayout>
 #include <QTimer>
@@ -271,6 +274,12 @@ QTabWidget* tabCodes(MainWindow& window) {
 
 QTreeView* solutionView(MainWindow& window) {
     return window.findChild<QTreeView*>("tvwSolution");
+}
+
+//The run page's embedded terminal (the successor of the legacy
+//txtExecuteOut reader these tests used to findChild).
+terminal::TerminalWidget* runTerminal(MainWindow& window) {
+    return window.findChild<terminal::TerminalWidget*>("terminalWidget");
 }
 
 CodeEditor* currentCode(MainWindow& window) {
@@ -1741,10 +1750,59 @@ private slots:
         QFile::remove(ncu);  // force the auto-build path (D2)
         act(window, "actStartRunning")->trigger();
 
-        QTextEdit* out = window.findChild<QTextEdit*>("txtExecuteOut");
+        terminal::TerminalWidget* out = runTerminal(window);
         QVERIFY(out != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(
-            out->toPlainText().contains("exited with code 42"), 30000);
+            out->screenText().find("exited with code 42")
+                != std::string::npos, 30000);
+        QFile::remove(ncu);
+    }
+
+    void testRunRestartAfterNaturalExitIsPrompt() {
+        //Regression pin for the pending-Finished drain: the pty waiter
+        //clears IsRunning() before its Finished post reaches the queue
+        //consumer, so a restart inside that window must drain the
+        //stale delivery promptly (poll the witness — a connect-based
+        //quit cannot observe an already-emitted signal and would burn
+        //the 3s fallback), and the stale exit line must be wiped off
+        //the fresh session's screen.
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("prompt_run.n");
+        writeFile(path, kMainSource);  // exit code 42
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        act(window, "actStartRunning")->trigger();  // auto-builds + runs
+
+        //Observe the child's exit WITHOUT event processing: processing
+        //here would also deliver Finished and close the window under
+        //test. Friend access stands in for a public run-state probe.
+        for (int i = 0; i < 3000 && window.m_pty.IsRunning(); ++i)
+            QThread::msleep(10);
+        QVERIFY(!window.m_pty.IsRunning());
+        QThread::msleep(100);  //the Finished post is queued, undelivered
+
+        QElapsedTimer restart;
+        restart.start();
+        act(window, "actStartRunning")->trigger();
+        //The 3-second fallback path fails this; the witness poll lands
+        //in one 20 ms slice.
+        QVERIFY(restart.elapsed() < 1000);
+
+        terminal::TerminalWidget* out = runTerminal(window);
+        QVERIFY(out != nullptr);
+        QVERIFY(out->mode() == terminal::TerminalWidget::Mode::Character);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            out->screenText().find("exited with code 42")
+                != std::string::npos, 30000);
+        //Exactly one exit line: the first session's was wiped by the
+        //fresh session's reset, not left to land on the new screen.
+        const std::string screen = out->screenText();
+        QVERIFY(screen.find("exited with code 42")
+                == screen.rfind("exited with code 42"));
+
+        const QString ncu =
+            QDir(QDir::temp()).filePath("nlang-nide/prompt_run.ncu");
         QFile::remove(ncu);
     }
 
@@ -1778,10 +1836,11 @@ private slots:
         act(window, "actOpenFile")->trigger();
         act(window, "actStartRunning")->trigger();  // auto-builds + runs
 
-        QTextEdit* out = window.findChild<QTextEdit*>("txtExecuteOut");
+        terminal::TerminalWidget* out = runTerminal(window);
         QVERIFY(out != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(
-            out->toPlainText().contains("exited with code 42"), 30000);
+            out->screenText().find("exited with code 42")
+                != std::string::npos, 30000);
         QFile::remove(QDir(QDir::temp())
                           .filePath("nlang-nide/use_sidelib.ncu"));
     }
@@ -2333,11 +2392,10 @@ private slots:
 
         //Run the built module: nvm propagates main's return value.
         act(window, "actStartRunning")->trigger();
-        QTextBrowser* executeOut =
-            window.findChild<QTextBrowser*>("txtExecuteOut");
+        terminal::TerminalWidget* executeTerminal = runTerminal(window);
         QVERIFY(QTest::qWaitFor([&] {
-            return executeOut->toPlainText()
-                .contains("Program exited with code 42");
+            return executeTerminal->screenText()
+                .find("Program exited with code 42") != std::string::npos;
         }, 15000));
         QVERIFY(act(window, "actStartRunning")->isEnabled());
         QVERIFY(!act(window, "actStopRunning")->isEnabled());
@@ -2365,19 +2423,22 @@ private slots:
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
         act(window, "actStartRunning")->trigger();
-        QTextBrowser* executeOut =
-            window.findChild<QTextBrowser*>("txtExecuteOut");
+        terminal::TerminalWidget* executeTerminal = runTerminal(window);
         QVERIFY(QTest::qWaitFor([&] {
-            return executeOut->toPlainText()
-                .contains("Program exited with code 42");
+            return executeTerminal->screenText()
+                .find("Program exited with code 42") != std::string::npos;
         }, 15000));
-        QVERIFY(executeOut->toPlainText().contains(QString(QChar(0x4E2D))));
+        //The emulator stores code points and re-encodes UTF-8 on
+        //readout, so '中' comes back as its three UTF-8 bytes.
+        QVERIFY(executeTerminal->screenText().find("\xE4\xB8\xAD")
+                    != std::string::npos);
     }
 
-    //0.7.7: the run page's input row feeds a running program's stdin.
-    //The nvm child parks in io.readLine reading its stdin pipe; the
-    //typed line must reach it, echo into the transcript, and the row
-    //must gray out again once the child exits.
+    //0.7.7: the run page's terminal feeds a running program's stdin.
+    //The nvm child parks in io.readline reading its console; the typed
+    //keys must pass through the pseudo console to the child (echo is
+    //the child console host's doing) and the terminal must return to
+    //Idle once the child exits.
     void testStdinRowFeedsRunningProgram() {
         MainWindow window;
         QTemporaryDir dir;
@@ -2396,41 +2457,32 @@ private slots:
         QCOMPARE(window.statusBar()->currentMessage(),
                  QString("Build succeeded"));
 
-        QLineEdit* editStdin = window.findChild<QLineEdit*>("editStdin");
-        QPushButton* btnStdinSend =
-            window.findChild<QPushButton*>("btnStdinSend");
-        QVERIFY(editStdin != nullptr);
-        QVERIFY(btnStdinSend != nullptr);
-        //Nothing is live yet: the row must start disabled (the .ui
-        //default is enabled; the ctor's updateMenuState disables it).
-        QVERIFY(!editStdin->isEnabled());
-        QVERIFY(!btnStdinSend->isEnabled());
+        terminal::TerminalWidget* term = runTerminal(window);
+        QVERIFY(term != nullptr);
+        //Nothing is live yet: Idle drops keys instead of buffering them.
+        QVERIFY(term->mode() == terminal::TerminalWidget::Mode::Idle);
 
         act(window, "actStartRunning")->trigger();
-        QVERIFY(editStdin->isEnabled());   // live while the child runs
-        QVERIFY(btnStdinSend->isEnabled());
+        QVERIFY(term->mode() == terminal::TerminalWidget::Mode::Character);
 
-        //Deliver via Enter: the returnPressed auto-connect path.
-        editStdin->setText("Alice");
-        QTest::keyClick(editStdin, Qt::Key_Return);
+        //Character mode: keys encode straight to the child's console.
+        QTest::keyClicks(term, "Alice");
+        QTest::keyClick(term, Qt::Key_Return);
 
-        QTextBrowser* executeOut =
-            window.findChild<QTextBrowser*>("txtExecuteOut");
         QVERIFY(QTest::qWaitFor([&] {
-            return executeOut->toPlainText().contains("Hi Alice");
+            return term->screenText().find("Hi Alice") != std::string::npos;
         }, 15000));
-        QVERIFY(executeOut->toPlainText().contains("> Alice"));  // echo
         QVERIFY(QTest::qWaitFor([&] {
-            return executeOut->toPlainText()
-                .contains("Program exited with code 7");
+            return term->screenText()
+                .find("Program exited with code 7") != std::string::npos;
         }, 15000));
-        QVERIFY(!editStdin->isEnabled());  // child gone: row disabled
-        QVERIFY(!btnStdinSend->isEnabled());
+        QVERIFY(term->mode() == terminal::TerminalWidget::Mode::Idle);
     }
 
-    //0.7.7: the same row feeds a debug session — the line rides the
-    //machine channel (the stdin data command), not a child pipe, and
-    //the program's reply lands on the shared run page.
+    //0.7.7: the terminal also feeds a debug session — in Line mode the
+    //edited line rides the machine channel (the stdin data command),
+    //not a child pipe; the IDE synthesizes the echo locally and the
+    //program's reply lands on the same terminal.
     void testStdinRowFeedsDebugSession() {
         clearBreakpointStore();  //before the ctor, which loads the store
         MainWindow window;
@@ -2449,23 +2501,25 @@ private slots:
         act(window, "actStartDebug")->trigger();  // synchronous build
         QVERIFY(!window.findChildren<DebugClient*>().isEmpty());
 
-        QLineEdit* editStdin = window.findChild<QLineEdit*>("editStdin");
-        QVERIFY(editStdin != nullptr);
-        QVERIFY(editStdin->isEnabled());   // live while the session runs
+        terminal::TerminalWidget* term = runTerminal(window);
+        QVERIFY(term != nullptr);
+        QVERIFY(term->mode() == terminal::TerminalWidget::Mode::Line);
 
-        editStdin->setText("Bob");
-        window.findChild<QPushButton*>("btnStdinSend")->click();
+        QTest::keyClicks(term, "Bob");
+        QTest::keyClick(term, Qt::Key_Return);
+        //The synthetic echo feeds the emulator inside the commit; the
+        //pending line is gone either way.
+        QVERIFY(term->screenText().find("Bob") != std::string::npos);
+        QVERIFY(term->pendingLine().isEmpty());
 
-        QTextBrowser* executeOut =
-            window.findChild<QTextBrowser*>("txtExecuteOut");
         QVERIFY(QTest::qWaitFor([&] {
-            return executeOut->toPlainText().contains("Hi Bob");
+            return term->screenText().find("Hi Bob") != std::string::npos;
         }, 30000));
         QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
         QTRY_VERIFY_WITH_TIMEOUT(
             status->text() == MainWindow::tr("Exited (code 0)"), 30000);
         QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
-        QVERIFY(!editStdin->isEnabled());  // session ended: row disabled
+        QVERIFY(term->mode() == terminal::TerminalWidget::Mode::Idle);
     }
 
     void testRunWithoutBuildWarns() {
@@ -2477,9 +2531,7 @@ private slots:
         act(window, "actStartRunning")->trigger();
 
         //The warning aborted the run before anything was touched.
-        QCOMPARE(window.findChild<QTextBrowser*>("txtExecuteOut")
-                     ->toPlainText(),
-                 QString());
+        QCOMPARE(runTerminal(window)->screenText(), std::string());
     }
 
     void testBuildFailingSource() {
@@ -2526,20 +2578,19 @@ private slots:
         act(window, "actBuild")->trigger();
         QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.npkg")));
 
-        //runProject's waitForStarted is synchronous: past the trigger,
-        //the process is either running or was never started.
+        //beginTerminalRun's Start is synchronous: past the trigger, the
+        //child is either running or was never spawned.
         act(window, "actStartRunning")->trigger();
         QVERIFY(act(window, "actStopRunning")->isEnabled());
         QVERIFY(!act(window, "actStartRunning")->isEnabled());
 
         act(window, "actStopRunning")->trigger();
-        //kill() ends the process asynchronously; finished() then
-        //reports the crash and updateMenuState restores Start.
-        QTextBrowser* executeOut =
-            window.findChild<QTextBrowser*>("txtExecuteOut");
+        //Kill terminates the child; the Finished signal then reports
+        //the crash on the terminal and updateMenuState restores Start.
+        terminal::TerminalWidget* executeTerminal = runTerminal(window);
         QVERIFY(QTest::qWaitFor([&] {
-            return executeOut->toPlainText()
-                .contains("The process crashed.");
+            return executeTerminal->screenText()
+                .find("The process crashed.") != std::string::npos;
         }, 15000));
         QVERIFY(act(window, "actStartRunning")->isEnabled());
         QVERIFY(!act(window, "actStopRunning")->isEnabled());
@@ -2552,17 +2603,14 @@ private slots:
 
         window.findChild<CompileLogBrowser*>("txtCompileOut")
             ->append("stale build output");
-        window.findChild<QTextBrowser*>("txtExecuteOut")
-            ->append("stale run output");
+        runTerminal(window)->feedUtf8("stale run output");
 
         act(window, "actClearBuild")->trigger();
 
         QCOMPARE(window.findChild<CompileLogBrowser*>("txtCompileOut")
                      ->toPlainText(),
                  QString());
-        QCOMPARE(window.findChild<QTextBrowser*>("txtExecuteOut")
-                     ->toPlainText(),
-                 QString());
+        QCOMPARE(runTerminal(window)->screenText(), std::string());
     }
 
     //--- debugging (real ncc + ndb) ---
@@ -2775,13 +2823,11 @@ private slots:
             return false;
         };
         QTRY_VERIFY_WITH_TIMEOUT(hasTotalRow(), 10000);
-        //Program output landed on the run page before the pause --
+        //Program output landed on the terminal before the pause --
         //verbatim: io.print rides in as a text half plus a newline half,
-        //so the cleared page holds exactly "hi\n" (append()'s paragraph
-        //breaks would inflate it to "hi\n\n").
-        QCOMPARE(window.findChild<QTextBrowser*>("txtExecuteOut")
-                     ->toPlainText(),
-                 QStringLiteral("hi\n"));
+        //so the reset screen holds exactly "hi" (ScreenText drops
+        //trailing blank rows; the newline only moved the cursor).
+        QCOMPARE(runTerminal(window)->screenText(), std::string("hi"));
         //Paused session: F5 doubles as Continue, the steps are live.
         QVERIFY(act(window, "actStartDebug")->isEnabled());
         QVERIFY(act(window, "actStopDebug")->isEnabled());
@@ -3524,13 +3570,12 @@ private slots:
                  QString("Build succeeded"));
         QVERIFY(QFileInfo::exists(QDir(dir.path()).filePath("App.npkg")));
 
-        //Run: nvm propagates main's exit code to the output page.
+        //Run: nvm propagates main's exit code to the terminal.
         act(window, "actStartRunning")->trigger();
-        QTextBrowser* executeOut =
-            window.findChild<QTextBrowser*>("txtExecuteOut");
+        terminal::TerminalWidget* executeTerminal = runTerminal(window);
         QVERIFY(QTest::qWaitFor([&] {
-            return executeOut->toPlainText()
-                .contains("Program exited with code 42");
+            return executeTerminal->screenText()
+                .find("Program exited with code 42") != std::string::npos;
         }, 15000));
 
         //Break the source and rebuild: the diagnostic lands in the log

@@ -106,6 +106,7 @@ signals:
 protected:
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void inputMethodEvent(QInputMethodEvent* event) override;
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
@@ -132,6 +133,7 @@ private:
     void restartCursorBlink();
     //Defined in TerminalWidget.cpp.
     void relayoutGrid();
+    void updateCellMetrics();
     void repaintDamaged();
     void clearSelection();
     bool isSelected(int displayRow, int column) const;
@@ -147,6 +149,10 @@ private:
     int m_lastCursorRow = 0;
     int m_lastCursorColumn = 0;
     int m_scrollOffset = 0;   //scrollback lines shown above the screen
+    //False until the first showEvent: pre-show widget geometry is the
+    //layout's placeholder (not a real terminal size), so the emulator
+    //keeps its own default grid until the widget is on screen.
+    bool m_hasShown = false;
     Mode m_mode = Mode::Idle;
     LineEditor m_editor;      //Line-mode editing state
     QString m_preedit;        //IME composition text at the caret
