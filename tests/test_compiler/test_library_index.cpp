@@ -43,10 +43,10 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 40 functions: io 7, math 25, fs 8. The index counts declaration
-    // lines; each symbol's package comes from the file's path (the stem),
-    // not from any in-file head.
-    CHECK(env.LibraryIndex().size() == 40);
+    // 48 functions: io 15 (10 natives + 5 typed-reader wrappers), math 25,
+    // fs 8. The index counts declaration lines; each symbol's package
+    // comes from the file's path (the stem), not from any in-file head.
+    CHECK(env.LibraryIndex().size() == 48);
 
     //The "io" in this lookup now comes from the file's PATH (the stem of
     //io.n), not from any in-file head — same string, new source of truth.

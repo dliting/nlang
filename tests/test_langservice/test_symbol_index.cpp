@@ -27,8 +27,8 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 40 functions: io 7, math 25, fs 8.
-    CHECK(index.size() == 40);
+    // 48 functions: io 15 (10 natives + 5 typed-reader wrappers), math 25, fs 8.
+    CHECK(index.size() == 48);
 }
 
 static void TestResolvePrint() {
@@ -214,14 +214,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 40);
+    CHECK(index.size() == 48);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 40);
+    CHECK(index.size() == 48);
 }
 
 int main() {

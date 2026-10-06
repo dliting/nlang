@@ -48,7 +48,7 @@ for gone in ("src/vm/IntrinsicsMath.cpp", "src/vm/IntrinsicsIo.cpp",
 
 # 3. Positive control: the mechanism the deletion leans on is still there.
 NATIVE_DECL = re.compile(r"^\s*native\s+\S", re.MULTILINE)
-for ns, expected in (("math", 25), ("io", 7), ("fs", 8)):
+for ns, expected in (("math", 25), ("io", 10), ("fs", 8)):
     source = (ROOT / "stdlib" / f"{ns}.n").read_text(encoding="utf-8")
     found = len(NATIVE_DECL.findall(source))
     check(found == expected,

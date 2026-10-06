@@ -212,6 +212,64 @@ void TestWriteOutput() {
     CHECK(io.text == "write-check\n", "writeOutput routes through host IO");
 }
 
+void TestInputReadersOverStdin() {
+    const fs::path dir = scratchDir();
+    const fs::path inFile = dir / "stdin_tokens.txt";
+    {
+        std::ofstream out(inFile, std::ios::binary);
+        out << "10 20\n30\n";
+    }
+    if (!std::freopen(inFile.string().c_str(), "r", stdin)) {
+        ++g_fail;
+        std::fprintf(stderr, "FAIL: could not redirect stdin\n");
+        return;
+    }
+    //The manual's mixing example, end to end through the real io
+    //package: hasInput, two tokens, empty remainder, next line, EOF,
+    //and the demanding-read raise.
+    const std::string source =
+        "int main() {\n"
+        "  if (!io.hasInput()) return 1;\n"
+        "  if (io.readInt() != 10) return 2;\n"
+        "  if (io.readInt() != 20) return 3;\n"
+        "  if (io.readLine() != \"\") return 4;\n"
+        "  if (io.readLine() != \"30\") return 5;\n"
+        "  if (io.hasInput()) return 6;\n"
+        "  bool caught = false;\n"
+        "  try { io.readToken(); } catch (IOException e) { caught = true; }\n"
+        "  if (!caught) return 7;\n"
+        "  return 0;\n"
+        "}\n";
+    int rc = runSource("host_tokens", source, [](VmExecutor&) {});
+    CHECK(rc == 0, "token/line readers over redirected stdin (rc)");
+}
+
+void TestReadCharScalars() {
+    const fs::path dir = scratchDir();
+    const fs::path inFile = dir / "stdin_chars.txt";
+    {
+        std::ofstream out(inFile, std::ios::binary);
+        out << "x \xe4\xb8\xad y\n";   // 'x', ' ', U+4E2D, ' ', 'y'
+    }
+    if (!std::freopen(inFile.string().c_str(), "r", stdin)) {
+        ++g_fail;
+        std::fprintf(stderr, "FAIL: could not redirect stdin\n");
+        return;
+    }
+    const std::string source =
+        "int main() {\n"
+        "  if (io.readChar() != 'x') return 1;\n"
+        "  if (io.readChar() != '中') return 2;\n"
+        "  if (io.readChar() != 'y') return 3;\n"
+        "  bool caught = false;\n"
+        "  try { io.readChar(); } catch (IOException e) { caught = true; }\n"
+        "  if (!caught) return 4;\n"
+        "  return 0;\n"
+        "}\n";
+    int rc = runSource("host_chars", source, [](VmExecutor&) {});
+    CHECK(rc == 0, "readChar full-code-point scalars (rc)");
+}
+
 } // namespace
 
 int main() {
@@ -221,6 +279,8 @@ int main() {
     TestMintEchoListRandomRaise();
     TestReadLine();
     TestWriteOutput();
+    TestInputReadersOverStdin();
+    TestReadCharScalars();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -22,9 +22,55 @@ native void write(string s);
 // single output view. Same implicit conversion as print.
 native void eprint(string s);
 
+// Probe whether more input is available (never raises): true means the
+// next readLine() returns a line (possibly "") rather than the
+// end-of-input sentinel. Exact for file/pipe redirection; a console
+// reports only already-buffered input; a debug session reports only
+// parked (already delivered) lines. A host without an input channel
+// answers false once its first read raised IOException (a bare probe
+// before any read cannot tell and still answers true).
+native bool hasInput();
+
 // Read one line from stdin; trailing '\r' is stripped.
-// EOF and an empty input line both return "".
+// EOF and an empty input line both return "" — tell them apart with
+// hasInput(). After a token read, the REMAINDER of that line comes
+// back first (C++ cin>>/getline semantics).
 native string readLine();
+
+// Read the next whitespace-delimited token, skipping whitespace across
+// lines. Raises IOException when the input ended before a token.
+native string readToken();
+
+// Read the next non-whitespace character as a full Unicode code point
+// (the literal-character semantics — string.toChar's numeric parse is
+// different). Raises IOException at end of input; an invalid UTF-8
+// sequence raises Exception.
+native char readChar();
+
+// Typed readers: one token parsed by the matching string method. End
+// of input raises IOException (from readToken); a malformed value
+// raises exactly like that string method. The brace sits on the
+// declaration line so the language-service index (and IDE completion)
+// sees them — a one-line body is invisible to it.
+int readInt() {
+    return readToken().toInt();
+}
+
+long readLong() {
+    return readToken().toLong();
+}
+
+float readFloat() {
+    return readToken().toFloat();
+}
+
+double readDouble() {
+    return readToken().toDouble();
+}
+
+bool readBool() {
+    return readToken().toBool();
+}
 
 // Read a whole text file as bytes.
 // Raises IOException on failure; capped at 16 MiB.
