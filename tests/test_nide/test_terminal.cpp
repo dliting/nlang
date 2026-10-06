@@ -5,6 +5,7 @@
 #include <QtTest>
 
 #include "terminal/TerminalEmulator.h"
+#include "terminal/TerminalWidget.h"
 
 #include <QApplication>
 #include <cstdio>
@@ -36,6 +37,12 @@ private slots:
     void TestResize();
     void TestSendCharEncodes();
     void TestSendKeyEncodes();
+
+    //--- widget render ---
+    void TestFeedAndScreenText();
+    void TestResetTerminal();
+    void TestColumnsRowsFromSize();
+    void TestSelectionAndCopy();
 };
 
 //--- emulator ----------------------------------------------------------------
@@ -148,6 +155,61 @@ void TestTerminal::TestSendKeyEncodes() {
     emulator.Feed("\x1b[?1h");    // DECCKM: application cursor mode
     emulator.SendKey(VTERM_KEY_UP, VTERM_MOD_NONE);
     QCOMPARE(sink.bytes, std::string("\x1bOA"));
+}
+
+//--- widget render -----------------------------------------------------------
+
+void TestTerminal::TestFeedAndScreenText() {
+    TerminalWidget widget;
+    widget.feedBytes("hello world");
+    QVERIFY(widget.screenText().find("hello world") != std::string::npos);
+}
+
+void TestTerminal::TestResetTerminal() {
+    TerminalWidget widget;
+    widget.feedBytes("junk\nmore junk");
+    for (int i = 0; i < 30; ++i)
+        widget.feedBytes("scroll\n");
+    //"junk" has already scrolled into the scrollback (30 more lines
+    //followed it); the screen itself shows the "scroll" fill lines.
+    QVERIFY(widget.screenText().find("scroll") != std::string::npos);
+    widget.resetTerminal();
+    QCOMPARE(widget.screenText(), std::string(""));
+}
+
+void TestTerminal::TestColumnsRowsFromSize() {
+    TerminalWidget widget;
+    //A hidden widget's resize() defers QResizeEvent until show (Qt
+    //documented semantics; the project has been bitten by lazy layout
+    //before), and the relayout rides on resizeEvent — so expose the
+    //window first; after that, resize delivers the event synchronously.
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    widget.resize(400, 300);
+    const int smallColumns = widget.columns();
+    QVERIFY(smallColumns >= 20);   //kMinColumns floor
+    widget.resize(1200, 800);
+    QVERIFY(widget.columns() > smallColumns);   //grid grows with the size
+}
+
+void TestTerminal::TestSelectionAndCopy() {
+    TerminalWidget widget;
+    widget.feedBytes("hello world");
+    //Press at cell (0,0), release at cell (4,0): the selection spans the
+    //first five cells ("hell" plus one). QTest sends the events straight
+    //to the widget, so no window exposure is needed.
+    QTest::mousePress(&widget, Qt::LeftButton, Qt::NoModifier,
+                      widget.cellCenter(0, 0));
+    QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier,
+                        widget.cellCenter(4, 0));
+    QVERIFY(widget.hasSelection());
+    //The selection spans cells 0..4 — exactly "hello". Asserting our
+    //own extraction is stronger than the clipboard text: the system
+    //clipboard is Qt/OS territory and this machine's clipboard manager
+    //keeps it locked (OleSetClipboard CLIPBRD_E_CANT_OPEN), which made
+    //the read-back assertion fail for reasons outside this code.
+    QCOMPARE(widget.selectedText(), QString("hello"));
+    widget.copySelection();   //smoke: must not assert/crash
 }
 
 QTEST_MAIN(TestTerminal)

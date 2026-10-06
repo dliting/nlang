@@ -167,6 +167,8 @@ add_library(nide_mainwindow
     HelpBrowser.cpp
     MainStatusBar.cpp
     terminal/TerminalEmulator.cpp
+    terminal/TerminalWidget.cpp
+    terminal/TerminalWidgetPaint.cpp
     ui/MainWindow.ui
 )
 
