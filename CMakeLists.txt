@@ -16,7 +16,8 @@ if(NOT NLANG_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
         "found: '${NLANG_VERSION}'")
 endif()
 
-project(NLang VERSION ${NLANG_VERSION} LANGUAGES CXX)
+# C is enabled for the vendored libvterm (pure C99 static library).
+project(NLang VERSION ${NLANG_VERSION} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -161,6 +162,9 @@ add_subdirectory(src/tools/ndisasm)
 add_subdirectory(src/tools/ndb)
 
 if(NLANG_BUILD_IDE)
+    #libvterm is only consumed by nide (terminal emulation), so it sits
+    #inside the IDE gate and costs nothing in tool-only builds.
+    add_subdirectory(src/3rdparty/libvterm)
     add_subdirectory(src/tools/nide)
 endif()
 # Native stdlib modules are added after the tools so their POST_BUILD step can
