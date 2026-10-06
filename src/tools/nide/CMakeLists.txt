@@ -33,6 +33,7 @@ target_include_directories(nide_projectmodel
 add_library(nide_editor
     FileEditor.cpp
     CodeEditor.cpp
+    CodeEditorAssist.cpp
     CodeFileEditor.cpp
     SyntaxHighlighter.cpp
     BreakpointStore.cpp

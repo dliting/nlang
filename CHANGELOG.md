@@ -128,6 +128,10 @@ All notable changes to NLang are documented here. The format follows
   and the issue template follow the new artifact names.
 
 ### Fixed
+- nide editor: the package completion popup now dismisses like a menu
+  — a click elsewhere in the editor or focus moving to another panel
+  closes it. It used to float on top of the window until Escape or a
+  keystroke.
 - Compiler: assigning to a method call result (`obj.f() = v`,
   `obj.f() += v`) is now a compile error (`cannot assign to the result
   of a method call`). Both statements used to parse and compile

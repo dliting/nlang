@@ -825,6 +825,56 @@ private slots:
             first->text()));
     }
 
+    void testCompletionDismissesOnOutsideInteraction() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("snippet.n");
+        writeFile(srcPath, "public int main() {\n    return 0;\n}\n");
+
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+        window.show();
+        QTest::qWaitForWindowExposed(&window);
+
+        // Open the package completion popup ("io" + '.').
+        auto openPopup = [src] {
+            src->setPlainText("io");
+            QTextCursor cursor = src->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            src->setTextCursor(cursor);
+            QTest::keyClick(src, Qt::Key_Period);
+        };
+        // Visible completion popups of the editor (hidden-but-pending-
+        // delete ones from a previous round are excluded).
+        auto visiblePopups = [src] {
+            QList<QListWidget*> visible;
+            for (QListWidget* list : src->findChildren<QListWidget*>())
+                if (list->isVisible())
+                    visible.append(list);
+            return visible;
+        };
+
+        // A click elsewhere in the editor repositions the cursor and
+        // must close the popup like a menu.
+        src->setFocus();
+        openPopup();
+        QVERIFY(!visiblePopups().isEmpty());
+        QTest::mouseClick(src->viewport(), Qt::LeftButton);
+        QVERIFY2(visiblePopups().isEmpty(),
+                 "a click in the editor must close the completion popup");
+
+        // Focus moving to another panel/window must close it too.
+        src->setFocus();
+        openPopup();
+        QVERIFY(!visiblePopups().isEmpty());
+        src->clearFocus();
+        QVERIFY2(visiblePopups().isEmpty(),
+                 "losing focus must close the completion popup");
+    }
+
     //--- projects ---
 
     void testNewProjectViaDialog() {
