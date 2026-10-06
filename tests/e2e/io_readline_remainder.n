@@ -1,0 +1,12 @@
+// After a token read, readLine returns the remainder of that line
+// (leading space included) — the C++ cin>>/getline mirror.
+import io;
+int main() {
+    if (io.readInt() != 10) return 1;
+    string rest = io.readLine();
+    if (rest != " 20") return 2;
+    if (io.readLine() != "") return 3;   //end-of-input sentinel
+    if (io.hasInput()) return 4;
+    io.print("ok");
+    return 0;
+}

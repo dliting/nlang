@@ -1,0 +1,13 @@
+// "a\n\n" is TWO lines ("a" and ""): hasInput distinguishes the final
+// empty line from end of input — the distinction readLine's "" sentinel
+// alone cannot make.
+import io;
+int main() {
+    if (!io.hasInput()) return 1;
+    if (io.readLine() != "a") return 2;
+    if (!io.hasInput()) return 3;
+    if (io.readLine() != "") return 4;
+    if (io.hasInput()) return 5;
+    io.print("ok");
+    return 0;
+}

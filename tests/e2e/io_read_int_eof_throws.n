@@ -1,0 +1,8 @@
+// End of input through the typed wrapper: readToken raises underneath,
+// so the message is readToken's.
+import io;
+int main() {
+    if (io.readInt() != 10) return 1;
+    io.readInt();   //raises
+    return 0;
+}

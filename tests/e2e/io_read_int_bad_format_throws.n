@@ -1,0 +1,7 @@
+// A malformed value raises exactly like the string method does (the
+// wrapper is readToken().toInt() by construction).
+import io;
+int main() {
+    io.readInt();   //"abc" token: toInt's strict parse raises
+    return 0;
+}

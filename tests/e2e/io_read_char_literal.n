@@ -1,0 +1,14 @@
+// readChar yields literal characters as full code points (UTF-8
+// decoded, whitespace skipped) — '中' is U+4E2D as a char literal,
+// distinct from string.toChar's numeric parse of "120".
+import io;
+int main() {
+    if (io.readChar() != 'x') return 1;
+    if (io.readChar() != '中') return 2;
+    if (io.readChar() != 'y') return 3;
+    bool caught = false;
+    try { io.readChar(); } catch (IOException e) { caught = true; }
+    if (!caught) return 4;
+    io.print("ok");
+    return 0;
+}

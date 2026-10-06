@@ -1,0 +1,12 @@
+// The canonical hasInput/readLine loop: every line echoes, the loop
+// exits cleanly at end of input.
+import io;
+int main() {
+    string echo;
+    while (io.hasInput()) {
+        echo += io.readLine() + ";";
+    }
+    if (echo != "a;b;") return 1;
+    io.print("done");
+    return 0;
+}

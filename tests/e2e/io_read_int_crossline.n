@@ -1,0 +1,15 @@
+// Token reads cross lines: whitespace skipping includes the newline.
+// The consumed line stays live afterwards (the §3.3 remainder carrier):
+// hasInput is true and readLine returns the (empty) remainder once —
+// only then does input end.
+import io;
+int main() {
+    int a = io.readInt();
+    int b = io.readInt();
+    if (a + b != 30) return 1;
+    if (!io.hasInput()) return 2;
+    if (io.readLine() != "") return 3;
+    if (io.hasInput()) return 4;
+    io.print("ok");
+    return 0;
+}

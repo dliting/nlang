@@ -1,0 +1,10 @@
+// Two tokens from one line: readInt slices whitespace-delimited words.
+import io;
+int main() {
+    int a = io.readInt();
+    int b = io.readInt();
+    if (a != 10 || b != 20) return 1;
+    if (a + b != 30) return 2;
+    io.print("ok");
+    return 0;
+}

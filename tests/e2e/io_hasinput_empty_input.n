@@ -1,0 +1,11 @@
+// Empty input: the canonical loop body never runs; readLine answers the
+// end-of-input sentinel.
+import io;
+int main() {
+    while (io.hasInput()) {
+        return 1;
+    }
+    if (io.readLine() != "") return 2;
+    io.print("empty");
+    return 0;
+}

@@ -1,0 +1,9 @@
+// A token demanded past end of input raises IOException (C/C++/Java
+// parity: line reads treat end of input as normal, value reads do not).
+import io;
+int main() {
+    if (io.readToken() != "one") return 1;
+    io.print("before");
+    io.readToken();   //raises
+    return 0;
+}

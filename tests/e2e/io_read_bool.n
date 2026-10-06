@@ -1,0 +1,9 @@
+// readBool reads one token and applies string.toBool's strict
+// "true"/"false" parse.
+import io;
+int main() {
+    if (!io.readBool()) return 1;
+    if (io.readBool()) return 2;
+    io.print("ok");
+    return 0;
+}

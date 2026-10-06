@@ -1,0 +1,10 @@
+// A final line without its newline is still a line: "abc<EOF>" reads
+// "abc" once, then the end-of-input sentinel.
+import io;
+int main() {
+    if (io.readLine() != "abc") return 1;
+    if (io.readLine() != "") return 2;
+    if (io.hasInput()) return 3;
+    io.print("ok");
+    return 0;
+}
