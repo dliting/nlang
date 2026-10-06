@@ -1072,6 +1072,29 @@ if(NLANG_BUILD_IDE)
     nlang_add_qtest(searchpath_integration_tests test_searchpath_integration)
     set_tests_properties(searchpath_integration_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+
+    # Embedded terminal unit tests: emulator over vendored libvterm,
+    # widget input/render model, pty backend with real child processes.
+    add_executable(test_terminal
+        test_nide/test_terminal.cpp
+    )
+    target_link_libraries(test_terminal
+        PRIVATE
+            nide_mainwindow
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_terminal POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_terminal>)
+    endif()
+    nlang_add_qtest(terminal_tests test_terminal)
+    #nlang_add_qtest already applies the house 180s TIMEOUT; only the
+    #platform plugin path is specific to this test.
+    set_tests_properties(terminal_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
 endif()
 
 # Version single-source guard: each tool's --version must echo the

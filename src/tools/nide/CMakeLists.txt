@@ -166,6 +166,7 @@ add_library(nide_mainwindow
     MainWindowHelp.cpp
     HelpBrowser.cpp
     MainStatusBar.cpp
+    terminal/TerminalEmulator.cpp
     ui/MainWindow.ui
 )
 
@@ -186,6 +187,7 @@ target_link_libraries(nide_mainwindow
         nide_settings
         nide_debug  # DebugClient: the ndb --machine session driver
         nlang_version   # generated NLANG_VERSION macros (VERSION file)
+        vterm_static   # terminal emulation core (vendored libvterm)
 )
 
 #--- translations ---
