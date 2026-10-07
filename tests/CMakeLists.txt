@@ -1028,13 +1028,21 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(mainwindow_tests test_mainwindow)
     set_tests_properties(mainwindow_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}"
+        # House rule is a 3-minute ceiling, but this suite is the one
+        # entry that drives dozens of real ncc/nvm/ndb child sessions;
+        # on a loaded machine (e.g. right after a full rebuild, when
+        # every child spawn is AV-rescanned) it needs well over 3
+        # minutes. 5 minutes still catches a hang.
+        TIMEOUT 300)
 
-    # Deployment self-containment check (Phase 10 Step 9). Runs the
-    # main-window test suite from a scratch copy of the nide build
-    # output with the plugin path cleared (empty env entry: no extra
-    # search path) and a qt.conf pinning Qt to the copy -- everything
-    # (Qt DLLs, platform plugin, ncc/nvm) must resolve from the copy.
+    # Deployment self-containment check (Phase 10 Step 9). Runs a
+    # curated five-test probe subset from a scratch copy of the nide
+    # build output with the plugin path cleared (empty env entry: no
+    # extra search path) and a qt.conf pinning Qt to the copy -- one
+    # test per resolution class (Qt stack, stdlib, ncc/nvm, PTY, ndb)
+    # must resolve purely from the copy. See nide_deploy_check.cmake
+    # for the division of concerns vs the full in-tree suite.
     add_test(NAME nide_deploy_check
         COMMAND ${CMAKE_COMMAND}
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
@@ -1044,6 +1052,8 @@ if(NLANG_BUILD_IDE)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
+        # 150 s inner bound (see nide_deploy_check.cmake) + the
+        # scratch-copy script overhead.
         TIMEOUT 180)
 
     # Library search-path end-to-end tests: a global library dir is indexed

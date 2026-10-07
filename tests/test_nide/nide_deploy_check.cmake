@@ -1,19 +1,41 @@
 #--- nide deployment self-containment check (Phase 10 Step 9) ---
 #Copies the assembled nide output (nide.exe + Qt DLLs + platforms/ +
 #ncc/nvm/ndb, placed there by the POST_BUILD steps) to a scratch
-#directory and runs the full main-window test suite from there with the
-#QPA plugin path cleared. The test exe must resolve the Qt DLLs
-#(app-dir first), the platform plugin and ncc/nvm/ndb purely from the
-#copied layout, and pass the whole suite. A console test exe is used
-#because the GUI nide.exe never exits on its own, and both kinds hang
-#in the CRT-abort/WER path instead of exiting when platform init fails
-#-- so the only trustworthy signal is "exit code 0 within the bound".
+#directory and runs a curated subset of the main-window test suite
+#from there with the QPA plugin path cleared. The test exe must
+#resolve the Qt DLLs (app-dir first), the platform plugin, the
+#stdlib package and ncc/nvm/ndb purely from the copied layout.
+#
+#Division of concerns: business behavior is the in-tree
+#mainwindow_tests run's job (the full 115-test suite runs there).
+#This check owns ONE property -- self-containment of the copied
+#layout -- so it runs one test per resolution class instead of
+#re-running the whole suite. Re-running everything couples this
+#layout gate to the business suite's runtime (which varies 2x+ with
+#machine load) and adds no coverage: a test that passes in-tree
+#only fails here for layout reasons, and those reasons fall into
+#the classes below.
+#
+#A console test exe is used because the GUI nide.exe never exits on
+#its own, and both kinds hang in the CRT-abort/WER path instead of
+#exiting when platform init fails -- so the only trustworthy signal
+#is "exit code 0 within the bound".
+#
+#Resolution classes and their one probe each:
+#  testOpenStandaloneFileJoinsTree   Qt DLLs, platform plugin, widgets
+#  testF12OpensStdLibDefinition      stdlib package + symbol index files
+#  testBuildAndRun                   ncc + nvm spawn, ConPTY terminal run
+#  testStdinRowFeedsRunningProgram   live PTY interaction (deep terminal)
+#  testDebugPagePopulatesOnStop      ndb spawn + machine debug protocol
+#When a new resolution class joins the deployment (a new shipped DLL
+#family, a new tool), add its probe here -- do not fall back to the
+#full-suite rerun.
 
 if(NOT EXISTS "${DEPLOY_DIR}/nide.exe")
     message(FATAL_ERROR
         "nide.exe not found in ${DEPLOY_DIR} -- build target nide first")
 endif()
-#The debug tests drive ndb from the app directory, so a missing copy
+#The debug probe drives ndb from the app directory, so a missing copy
 #must fail here as a layout defect, not inside a test.
 if(NOT EXISTS "${DEPLOY_DIR}/ndb.exe")
     message(FATAL_ERROR
@@ -37,12 +59,19 @@ file(COPY "${TEST_EXE}" "${QT_TEST_DLL}" DESTINATION "${CHECK_DIR}")
 #dir the only search root -- the deployment property under test.
 file(WRITE "${CHECK_DIR}/qt.conf" "[Paths]\nPrefix=.\n")
 
-#Healthy run: tens of seconds (the debug tests drive real ncc/ndb
-#sessions). A broken layout hangs in abort (see header) and gets killed
-#at the bound, which fails the exit-code check below.
+#Healthy run: well under a minute (five tests, a handful of real
+#ncc/nvm/ndb child sessions). A broken layout hangs in abort (see
+#header) and gets killed at the bound, which fails the exit-code
+#check below.
 set(RESULT_FILE "${CHECK_DIR}/deploy_check_result.txt")
 execute_process(
-    COMMAND "${CHECK_DIR}/test_mainwindow.exe" -o "${RESULT_FILE},txt"
+    COMMAND "${CHECK_DIR}/test_mainwindow.exe"
+        testOpenStandaloneFileJoinsTree
+        testF12OpensStdLibDefinition
+        testBuildAndRun
+        testStdinRowFeedsRunningProgram
+        testDebugPagePopulatesOnStop
+        -o "${RESULT_FILE},txt"
     WORKING_DIRECTORY "${CHECK_DIR}"
     TIMEOUT 150
     RESULT_VARIABLE result)
@@ -53,6 +82,6 @@ if(NOT result EQUAL 0)
         message("test output:\n${tail}")
     endif()
     message(FATAL_ERROR
-        "the main-window suite did not pass from the scratch deployment "
-        "(result: ${result})")
+        "the deployment probe suite did not pass from the scratch "
+        "deployment (result: ${result})")
 endif()
