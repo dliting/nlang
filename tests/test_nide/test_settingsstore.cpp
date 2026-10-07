@@ -26,6 +26,7 @@ private slots:
         //0.7.5: the compiler-options group starts with warning
         //suppression, off by default.
         QVERIFY(!store.noWarn());
+        QCOMPARE(store.editorFontPt(), 10);
     }
 
     void testRoundTrip() {
@@ -37,9 +38,11 @@ private slots:
         store.setToolbarIconSize("large");
         store.setLibrarySearchPaths({"D:/libs/acme", "D:/vendor/x"});
         store.setNoWarn(true);
+        store.setEditorFontPt(14);
         store.save(settings);
         //Pin the persisted key spelling (the whole suite's convention).
         QVERIFY(settings.value("compiler/noWarn").toBool());
+        QCOMPARE(settings.value("ide/editorFontPt").toInt(), 14);
 
         SettingsStore reloaded;
         QSettings reloadedSettings(iniPath(), QSettings::IniFormat);
@@ -50,6 +53,18 @@ private slots:
         QCOMPARE(reloaded.librarySearchPaths(),
                  QStringList({"D:/libs/acme", "D:/vendor/x"}));
         QVERIFY(reloaded.noWarn());
+        QCOMPARE(reloaded.editorFontPt(), 14);
+    }
+
+    void testEditorFontClamped() {
+        SettingsStore store;
+        store.setEditorFontPt(0);
+        QCOMPARE(store.editorFontPt(), 6);
+        store.setEditorFontPt(9999);
+        QCOMPARE(store.editorFontPt(), 48);
+        //In-range values pass through untouched.
+        store.setEditorFontPt(13);
+        QCOMPARE(store.editorFontPt(), 13);
     }
 
     void testLocaleForLanguage() {

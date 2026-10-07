@@ -92,6 +92,8 @@ bool MainWindow::openSolutionAtPath(const QString& path) {
     m_ui->tvwSolution->expandAll();
     updateMenuState();
     noteRecent(path);
+    //The loaded projects' source and import dirs join the index.
+    reindexConfiguredLibraries();
     return true;
 }
 
@@ -158,6 +160,8 @@ bool MainWindow::closeSolution() {
     //dangling ProjectNode pointers.
     m_ui->txtCompileOut->setProject(nullptr);
     updateMenuState();
+    //Their source and import dirs leave the index with them.
+    reindexConfiguredLibraries();
     return true;
 }
 
@@ -211,6 +215,8 @@ ProjectNode* MainWindow::openProjectAtPath(const QString& path) {
     m_ui->tvwSolution->expandAll();
     updateMenuState();
     noteRecent(path);
+    //The project's source and import dirs join the index.
+    reindexConfiguredLibraries();
     return project;
 }
 
@@ -243,6 +249,9 @@ void MainWindow::on_actCloseProject_triggered() {
     if (m_ui->txtCompileOut->project() == project)
         m_ui->txtCompileOut->setProject(nullptr);
     updateMenuState();
+    //The project's source and import dirs leave the index with it
+    //(its still-open editors' dirs stay via indexOpenEditorDirs).
+    reindexConfiguredLibraries();
 }
 
 QString MainWindow::projectFilePath(const ProjectNode* project) const {

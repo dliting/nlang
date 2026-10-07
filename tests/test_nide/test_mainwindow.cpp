@@ -36,6 +36,7 @@
 #include <QPushButton>
 #include <QSplitter>
 #include <QSettings>
+#include <QSpinBox>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTabWidget>
@@ -43,6 +44,7 @@
 #include <QThread>
 #include <QTextBlock>
 #include <QTextBrowser>
+#include <QWheelEvent>
 #include <functional>
 #include <string>
 #include <QTextEdit>
@@ -284,6 +286,16 @@ terminal::TerminalWidget* runTerminal(MainWindow& window) {
 
 CodeEditor* currentCode(MainWindow& window) {
     return qobject_cast<CodeEditor*>(tabCodes(window)->currentWidget());
+}
+
+//Deliver one Ctrl+wheel notch to the editor's viewport (QTest has no
+//wheel helper; the qt4-style ctor carries the +/-120 delta that
+//angleDelta() reports).
+void sendCtrlWheel(CodeEditor* editor, int notches) {
+    QWheelEvent event(editor->viewport()->rect().center(),
+        QPointF(), 120 * notches, Qt::NoButton, Qt::ControlModifier,
+        Qt::Vertical);
+    QCoreApplication::sendEvent(editor->viewport(), &event);
 }
 
 //Park the editor caret on the 1-based line (F9 places breakpoints at
@@ -788,6 +800,125 @@ private slots:
         QVERIFY(lib->toPlainText().contains("native void print"));
         // The cursor landed on the print declaration line.
         QVERIFY(lib->textCursor().block().text().contains("print"));
+    }
+
+    void testF6OpensStdLibDefinition() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("app.n");
+        writeFile(srcPath,
+            "import io;\n"
+            "public int main() {\n"
+            "    io.print(\"hi\");\n"
+            "    return 0;\n"
+            "}\n");
+
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        QTextBlock block = src->document()->findBlockByNumber(2);
+        const int nameCol = block.text().indexOf("print");
+        QTextCursor atName(block);
+        atName.setPosition(block.position() + nameCol + 2);
+        src->setTextCursor(atName);
+
+        const int tabsBefore = tabCodes(window)->count();
+        QTest::keyClick(src, Qt::Key_F6);
+
+        QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
+        CodeEditor* lib = currentCode(window);
+        QVERIFY(lib != nullptr && lib != src);
+        QVERIFY(lib->textCursor().block().text().contains("print"));
+    }
+
+    void testCtrlClickOpensStdLibDefinition() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("app.n");
+        writeFile(srcPath,
+            "import io;\n"
+            "public int main() {\n"
+            "    io.print(\"hi\");\n"
+            "    return 0;\n"
+            "}\n");
+
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        //Click the middle of "print" with Ctrl held.
+        QTextBlock block = src->document()->findBlockByNumber(2);
+        const int nameCol = block.text().indexOf("print");
+        QTextCursor atName(block);
+        atName.setPosition(block.position() + nameCol + 2);
+        src->setTextCursor(atName);
+        const QPoint clickPoint = src->cursorRect(atName).center();
+
+        const int tabsBefore = tabCodes(window)->count();
+        QTest::mouseClick(src->viewport(), Qt::LeftButton,
+            Qt::ControlModifier, clickPoint);
+
+        QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
+        CodeEditor* lib = currentCode(window);
+        QVERIFY(lib != nullptr && lib != src);
+        QVERIFY(lib->textCursor().block().text().contains("print"));
+    }
+
+    void testGoToDefinitionOpensProjectFile() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QDir appDir(QDir(dir.path()).filePath("App"));
+        QVERIFY(appDir.mkpath("."));
+        writeFile(QDir(dir.path()).filePath("App/App.nproj"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Project name=\"App\">\n"
+            "  <Sources>\n"
+            "    <File path=\"main.n\"/>\n"
+            "  </Sources>\n"
+            "</Project>\n");
+        //A sibling package: util.n next to the .nproj is the package
+        //"util" (the flat local-directory layer the compiler searches).
+        writeFile(appDir.filePath("util.n"),
+            "public string greet(string who) {\n"
+            "    return \"hi \" + who;\n"
+            "}\n");
+        writeFile(appDir.filePath("main.n"),
+            "import util;\n"
+            "public int main() {\n"
+            "    util.greet(\"world\");\n"
+            "    return 0;\n"
+            "}\n");
+
+        inExec([&] {
+            acceptFileDialog(QDir(dir.path()).filePath("App/App.nproj"));
+        });
+        act(window, "actOpenProject")->trigger();
+        inExec([&] { acceptFileDialog(appDir.filePath("main.n")); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        QTextBlock block = src->document()->findBlockByNumber(2);
+        const int nameCol = block.text().indexOf("greet");
+        QTextCursor atName(block);
+        atName.setPosition(block.position() + nameCol + 2);
+        src->setTextCursor(atName);
+
+        const int tabsBefore = tabCodes(window)->count();
+        QTest::keyClick(src, Qt::Key_F6);
+
+        //The jump opened util.n at the greet declaration.
+        QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
+        CodeEditor* util = currentCode(window);
+        QVERIFY(util != nullptr && util != src);
+        QVERIFY(util->toPlainText().contains("string greet"));
+        QVERIFY(util->textCursor().block().text().contains("greet"));
     }
 
     void testCompletionAfterPackageDot() {
@@ -1769,6 +1900,85 @@ private slots:
         });
         act(window, "actToolsOptions")->trigger();
         QVERIFY(!settings.contains("ide/language"));
+        settings.remove("ide");
+    }
+
+    //--- editor font size (Tools > Options + Ctrl+wheel) ---
+
+    void testCtrlWheelZoomsEditorFont() {
+        MainWindow window;
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("ide");
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("a.n");
+        writeFile(srcPath, "public int main() {\n    return 0;\n}\n");
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        const int before = src->font().pointSize();
+        sendCtrlWheel(src, +1);
+        QCOMPARE(src->font().pointSize(), before + 1);
+        QCOMPARE(QSettings().value("ide/editorFontPt").toInt(),
+                 before + 1);
+
+        //A fresh editor opens with the zoomed size.
+        const QString nextPath = QDir(dir.path()).filePath("b.n");
+        writeFile(nextPath, "public int helper() {\n    return 1;\n}\n");
+        inExec([&] { acceptFileDialog(nextPath); });
+        act(window, "actOpenFile")->trigger();
+        QCOMPARE(currentCode(window)->font().pointSize(), before + 1);
+        settings.remove("ide");
+    }
+
+    void testCtrlWheelClampsEditorFont() {
+        MainWindow window;
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("ide");
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("a.n");
+        writeFile(srcPath, "public int main() {\n    return 0;\n}\n");
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        for (int i = 0; i != 100; ++i)
+            sendCtrlWheel(src, -1);
+        QCOMPARE(src->font().pointSize(), 6);  // EDITOR_FONT_MIN_PT
+        settings.remove("ide");
+    }
+
+    void testToolsOptionsSetsEditorFont() {
+        MainWindow window;
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("ide");
+        QTemporaryDir dir;
+        const QString aPath = QDir(dir.path()).filePath("a.n");
+        const QString bPath = QDir(dir.path()).filePath("b.n");
+        writeFile(aPath, "public int main() {\n    return 0;\n}\n");
+        writeFile(bPath, "public int helper() {\n    return 1;\n}\n");
+        inExec([&] { acceptFileDialog(aPath); });
+        act(window, "actOpenFile")->trigger();
+        inExec([&] { acceptFileDialog(bPath); });
+        act(window, "actOpenFile")->trigger();
+        //The tab behind the current one also holds a CodeEditor.
+        CodeEditor* back = qobject_cast<CodeEditor*>(
+            tabCodes(window)->widget(0));
+        QVERIFY(back != nullptr);
+
+        inExec([&] {
+            QDialog* dialog = qobject_cast<QDialog*>(
+                QApplication::activeModalWidget());
+            dialog->findChild<QSpinBox*>("spnEditorFont")->setValue(14);
+            acceptDialog(dialog);
+        });
+        act(window, "actToolsOptions")->trigger();
+
+        QCOMPARE(QSettings().value("ide/editorFontPt").toInt(), 14);
+        QCOMPARE(currentCode(window)->font().pointSize(), 14);
+        QCOMPARE(back->font().pointSize(), 14);
         settings.remove("ide");
     }
 

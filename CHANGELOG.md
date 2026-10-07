@@ -101,6 +101,20 @@ All notable changes to NLang are documented here. The format follows
 - nvm: the console code page is UTF-8 throughout — Chinese output no
   longer turns to mojibake when running directly in a terminal;
   handles redirected to a file or a pipe are unaffected.
+- nide editor: go-to-definition accepts Ctrl+click and F6 alongside
+  F12 — a pointing-hand cursor marks the jump targets while Ctrl is
+  held — and multi-segment packages (`vendor.graphics.hue`) now
+  resolve instead of only two-segment names. The symbol index also
+  covers each open project's own directory and every open file's
+  directory, so project-local packages are jump and completion targets
+  too, and it rebuilds when a solution or project opens or closes (a
+  project opened after startup previously missed its import paths in
+  completion and go-to-definition until its properties dialog was
+  touched).
+- nide editor: the font size (6–48 pt) is a setting — set it under
+  Tools → Options, or zoom with Ctrl+wheel inside an editor (one
+  point per notch). Every code editor shares the one size, and it
+  persists across sessions.
 
 ### Changed
 - Manual: the Standard Library chapter is now a two-level section with

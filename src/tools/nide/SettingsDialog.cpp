@@ -26,6 +26,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
                                LANGUAGE_EN);
     m_ui->cmbIconSize->addItem(tr("Small (32x32)"), TOOLBAR_ICON_SMALL);
     m_ui->cmbIconSize->addItem(tr("Large (48x48)"), TOOLBAR_ICON_LARGE);
+    m_ui->spnEditorFont->setRange(EDITOR_FONT_MIN_PT, EDITOR_FONT_MAX_PT);
     connect(m_ui->btnBrowse, &QPushButton::clicked, this,
             &SettingsDialog::onBrowseDirectory);
 
@@ -38,24 +39,22 @@ SettingsDialog::SettingsDialog(QWidget* parent)
 
 SettingsDialog::~SettingsDialog() = default;
 
-void SettingsDialog::init(const QString& language,
-                          const QString& buildOutputDir,
-                          const QString& toolbarIconSize,
-                          const QStringList& libraryPaths,
-                          bool noWarn) {
-    const int index = m_ui->cmbLanguage->findData(language);
+void SettingsDialog::init(const SettingsStore& settings) {
+    const int index = m_ui->cmbLanguage->findData(settings.language());
     m_ui->cmbLanguage->setCurrentIndex(index < 0 ? 0 : index);
-    m_ui->edtBuildOutputDir->setText(buildOutputDir);
+    m_ui->edtBuildOutputDir->setText(settings.buildOutputDir());
     //Empty stays "unset" (projects fall back to the project
     //directory), but the box shows where standalone builds land by
     //default instead of a blank field.
     m_ui->edtBuildOutputDir->setPlaceholderText(
         SettingsStore::defaultStandaloneBuildDir());
-    const int iconIdx = m_ui->cmbIconSize->findData(toolbarIconSize);
+    const int iconIdx =
+        m_ui->cmbIconSize->findData(settings.toolbarIconSize());
     m_ui->cmbIconSize->setCurrentIndex(iconIdx < 0 ? 0 : iconIdx);
 
-    m_pathEditor->setPaths(libraryPaths);
-    m_ui->chkNoWarn->setChecked(noWarn);
+    m_pathEditor->setPaths(settings.librarySearchPaths());
+    m_ui->chkNoWarn->setChecked(settings.noWarn());
+    m_ui->spnEditorFont->setValue(settings.editorFontPt());
 }
 
 QString SettingsDialog::language() const {
@@ -78,6 +77,10 @@ QStringList SettingsDialog::librarySearchPaths() const {
 
 bool SettingsDialog::noWarn() const {
     return m_ui->chkNoWarn->isChecked();
+}
+
+int SettingsDialog::editorFontPt() const {
+    return m_ui->spnEditorFont->value();
 }
 
 void SettingsDialog::onBrowseDirectory() {

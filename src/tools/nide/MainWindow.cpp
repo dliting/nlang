@@ -386,40 +386,59 @@ void MainWindow::updateDebugMenuState(bool canBuild) {
 //--- library symbol indexing ---
 
 void MainWindow::reindexConfiguredLibraries() {
+    //Clear drops the loaded-dir markers too, so every dir re-parses
+    //with fresh content.
     m_symbolIndex.Clear();
     indexStdLib();
     indexConfiguredDirs();
+    indexOpenEditorDirs();
 }
 
 void MainWindow::indexStdLib() {
     const std::string stdlibDir = langservice::FindStdLibDir(
         QCoreApplication::applicationDirPath().toStdString());
     if (!stdlibDir.empty())
-        m_symbolIndex.LoadLibraryDir(stdlibDir);
+        m_symbolIndex.LoadLibraryDirOnce(stdlibDir);
 }
 
 void MainWindow::indexConfiguredDirs() {
-    QSet<QString> seen;
-    //De-dupe by the same key the resolver uses, then index one dir once.
-    auto indexOne = [&](const QString& dir) {
-        const QString trimmed = dir.trimmed();
-        const QString key = dedupKey(trimmed);
-        if (trimmed.isEmpty() || seen.contains(key))
-            return;
-        seen.insert(key);
-        m_symbolIndex.LoadLibraryDir(trimmed.toStdString());
-    };
     //Global dirs first (relative entries anchor at the user's home).
+    //Empty entries are skipped like the compiler's search-path builder
+    //skips them — a "" would otherwise anchor at the home dir and pull
+    //its .n files into every completion list.
     for (const QString& dir :
-            SettingsStore::persisted().librarySearchPaths())
-        indexOne(resolvedPath(dir, globalPathBase()));
+            SettingsStore::persisted().librarySearchPaths()) {
+        if (dir.trimmed().isEmpty())
+            continue;
+        m_symbolIndex.LoadLibraryDirOnce(
+            resolvedPath(dir, globalPathBase()).toStdString());
+    }
     SolutionNode* solution = m_solutionTree->solutionNode();
     if (solution == nullptr)
         return;
-    //Then each open project's dirs (stored absolute).
-    for (const auto& project : solution->projects())
+    //Then each open project: import paths first, the project's own
+    //directory last — mirroring the compiler's search order for those
+    //layers (SearchPathArgs puts the project dir after the import
+    //paths). Resolve returns the first-indexed symbol, so the index
+    //then agrees with the compiler's first-match-wins search. (One
+    //package declared in two effective build dirs is a duplicate-
+    //package compile error, not a build of either copy; the ordering
+    //still matters for layers a given build never consults — another
+    //project's dir, an editor's file dir.)
+    for (const auto& project : solution->projects()) {
         for (int i = 0; i < project->importPathCount(); ++i)
-            indexOne(project->importPathAt(i));
+            m_symbolIndex.LoadLibraryDirOnce(
+                project->importPathAt(i).toStdString());
+        m_symbolIndex.LoadLibraryDirOnce(project->projectDir().toStdString());
+    }
+}
+
+void MainWindow::indexOpenEditorDirs() {
+    for (const FileEditor* editor : m_editors.editors()) {
+        const QString dir =
+            QFileInfo(editor->filePath()).absolutePath();
+        m_symbolIndex.LoadLibraryDirOnce(dir.toStdString());
+    }
 }
 
 } // namespace nlang

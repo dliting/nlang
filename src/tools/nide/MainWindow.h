@@ -194,6 +194,7 @@ private slots:
     //--- non-widget signals (connected explicitly) ---
     void onEditorSaveStateChanged(FileEditor* editor);
     void onEditorPositionChanged();
+    void onEditorFontZoom(int direction);  //notch: clamp+persist+apply
     void onSolutionSelectionChanged();
     void onFileRenameRequested(FileNode* file, const QString& newName);
     void onCompileLogItemSelected(const CompileLogItemInfo& info);
@@ -241,9 +242,11 @@ private:
     //--- editors ---
     //New tab, focus, and the per-editor signal wiring.
     void addEditorTab(FileEditor* editor);
+    //Apply a font size to every open code editor (Options / zoom path).
+    void applyEditorFontPt(int pointSize);
     //Open (or focus) an existing file in an editor tab.
     void editExistingFile(const QString& filePath);
-    //F12: open a library source file (stdlib / third-party) at a line.
+    //Go-to-definition target: open the symbol's source file at a line.
     void openLibraryDefinition(const QString& filePath, int line);
     //Create a new file on disk and edit it; false when creation fails
     //(the failure is shown to the user here).
@@ -415,12 +418,14 @@ private:
     //Apply persisted toolbar icon size (32 or 48).
     void applyToolbarIconSize(const QString& size);
 
-    //Rebuild the symbol index from the stdlib plus every configured
-    //library dir (global settings + each open project); called at startup
-    //and after the search paths change in Options/Project Properties.
+    //Rebuild the symbol index: stdlib + configured library dirs (global
+    //settings + per-project import paths) + each open project's directory
+    //+ every open editor's file directory; rebuilt at startup, after
+    //search-path changes, and when the solution/project/editor set changes.
     void reindexConfiguredLibraries();
     void indexStdLib();
     void indexConfiguredDirs();
+    void indexOpenEditorDirs();
 
     //Open filePath at line/column (1-based), opening an editor if needed.
     void locateSource(const QString& filePath, int line, int column);

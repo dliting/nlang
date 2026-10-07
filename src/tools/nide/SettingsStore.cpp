@@ -13,6 +13,7 @@ const char* const BUILD_OUTPUT_DIR_KEY = "ide/buildOutputDir";
 const char* const TOOLBAR_ICON_SIZE_KEY = "ide/toolbarIconSize";
 const char* const LIBRARY_SEARCH_PATHS_KEY = "ide/librarySearchPaths";
 const char* const NO_WARN_KEY = "compiler/noWarn";
+const char* const EDITOR_FONT_PT_KEY = "ide/editorFontPt";
 } // namespace
 
 void SettingsStore::load(QSettings& settings) {
@@ -24,6 +25,12 @@ void SettingsStore::load(QSettings& settings) {
     m_librarySearchPaths =
         settings.value(LIBRARY_SEARCH_PATHS_KEY).toStringList();
     m_noWarn = settings.value(NO_WARN_KEY, false).toBool();
+    //A stale or hand-edited stored value must land in range: every
+    //editor seeds its font straight from here.
+    m_editorFontPt = qBound(EDITOR_FONT_MIN_PT,
+        settings.value(EDITOR_FONT_PT_KEY, EDITOR_FONT_DEFAULT_PT)
+            .toInt(),
+        EDITOR_FONT_MAX_PT);
 }
 
 void SettingsStore::save(QSettings& settings) const {
@@ -32,6 +39,11 @@ void SettingsStore::save(QSettings& settings) const {
     settings.setValue(TOOLBAR_ICON_SIZE_KEY, m_toolbarIconSize);
     settings.setValue(LIBRARY_SEARCH_PATHS_KEY, m_librarySearchPaths);
     settings.setValue(NO_WARN_KEY, m_noWarn);
+    settings.setValue(EDITOR_FONT_PT_KEY, m_editorFontPt);
+}
+
+void SettingsStore::setEditorFontPt(int pt) {
+    m_editorFontPt = qBound(EDITOR_FONT_MIN_PT, pt, EDITOR_FONT_MAX_PT);
 }
 
 SettingsStore SettingsStore::persisted() {

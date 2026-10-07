@@ -27,19 +27,19 @@ namespace nlang {
 void MainWindow::on_actToolsOptions_triggered() {
     const SettingsStore stored = SettingsStore::persisted();
     SettingsDialog dialog(this);
-    dialog.init(stored.language(), stored.buildOutputDir(),
-                stored.toolbarIconSize(), stored.librarySearchPaths(),
-                stored.noWarn());
+    dialog.init(stored);
     if (dialog.exec() != QDialog::Accepted)
         return;
     SettingsStore updated = stored;
     updated.setLanguage(dialog.language());
     updated.setBuildOutputDir(dialog.buildOutputDir());
     updated.setToolbarIconSize(dialog.toolbarIconSize());
-   updated.setLibrarySearchPaths(dialog.librarySearchPaths());
+    updated.setLibrarySearchPaths(dialog.librarySearchPaths());
     updated.setNoWarn(dialog.noWarn());
+    updated.setEditorFontPt(dialog.editorFontPt());
     updated.persist();
     applyToolbarIconSize(updated.toolbarIconSize());
+    applyEditorFontPt(updated.editorFontPt());
     //Library dirs changed: rebuild the code-assistance index immediately.
     reindexConfiguredLibraries();
     //The catalogs install once at startup, so a language change needs

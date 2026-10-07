@@ -625,6 +625,16 @@
         <translation>Toolbar icon size:</translation>
     </message>
     <message>
+        <location filename="../ui/SettingsDialog.ui" line="59"/>
+        <source>Editor font size:</source>
+        <translation>Editor font size:</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="63"/>
+        <source> pt</source>
+        <translation> pt</translation>
+    </message>
+    <message>
         <location filename="../ui/SettingsDialog.ui" line="61"/>
         <source>Compiler options</source>
         <translation>Compiler options</translation>

@@ -17,6 +17,13 @@ inline const QString LANGUAGE_EN = QStringLiteral("en");
 inline const QString TOOLBAR_ICON_SMALL = QStringLiteral("small");
 inline const QString TOOLBAR_ICON_LARGE = QStringLiteral("large");
 
+//Editor font size bounds and default, in points. One shared size for
+//every code editor (Tools > Options and Ctrl+wheel in an editor both
+//write the same setting).
+inline constexpr int EDITOR_FONT_MIN_PT = 6;
+inline constexpr int EDITOR_FONT_MAX_PT = 48;
+inline constexpr int EDITOR_FONT_DEFAULT_PT = 10;
+
 //The Tools > Options values. No UI: SettingsDialog edits the form,
 //this persists (QSettings org/app from main.cpp). The value surface is
 //deliberately two strings -- every derived decision (translator
@@ -51,6 +58,10 @@ public:
     //ProjectNode::noWarn).
     bool noWarn() const { return m_noWarn; }
     void setNoWarn(bool v) { m_noWarn = v; }
+    //Editor font size in points, clamped to the EDITOR_FONT_*_PT
+    //bounds.
+    int editorFontPt() const { return m_editorFontPt; }
+    void setEditorFontPt(int pt);
 
     //Locale handed to installTranslations.
     QLocale languageLocale() const
@@ -84,6 +95,7 @@ private:
     QString m_toolbarIconSize = TOOLBAR_ICON_SMALL;
    QStringList m_librarySearchPaths;
     bool m_noWarn = false;
+    int m_editorFontPt = EDITOR_FONT_DEFAULT_PT;
 };
 
 } // namespace nlang

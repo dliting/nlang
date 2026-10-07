@@ -1,6 +1,7 @@
 /*--- CodeEditorAssist.cpp - library-backed code assistance of the NLang IDE
     code editor: symbol-index wiring, hover help, the completion popup
-    (including its menu-like dismissal) and F12 navigation. ---*/
+    (including its menu-like dismissal) and go-to-definition (F12, F6 and
+    Ctrl+click, with the pointing-hand hover preview). ---*/
 #include "CodeEditor.h"
 
 #include "nlang/langservice/SymbolIndex.h"
@@ -118,35 +119,74 @@ bool CodeEditor::event(QEvent* event) {
     return QPlainTextEdit::event(event);
 }
 
+const langservice::SymbolInfo* CodeEditor::resolveAt(
+    const QTextCursor& cursor) const {
+    if (m_symbolIndex == nullptr)
+        return nullptr;
+    const QString qualified = qualifiedNameAt(
+        cursor.block().text(), cursor.positionInBlock());
+    //The package is the whole dotted prefix, the name the last segment
+    //(multi-segment packages: "vendor.graphics.hue").
+    const int lastDot = qualified.lastIndexOf(QLatin1Char('.'));
+    if (lastDot <= 0 || lastDot + 1 >= qualified.length())
+        return nullptr;
+    return m_symbolIndex->Resolve(qualified.left(lastDot).toStdString(),
+                                  qualified.mid(lastDot + 1).toStdString());
+}
+
+bool CodeEditor::goToDefinitionAt(const QTextCursor& cursor) {
+    const langservice::SymbolInfo* symbol = resolveAt(cursor);
+    if (symbol == nullptr)
+        return false;
+    emit goToDefinitionRequested(
+        QString::fromStdString(symbol->filePath), symbol->line);
+    return true;
+}
+
 bool CodeEditor::handleToolTip(QHelpEvent* helpEvent) {
     if (!m_symbolIndex) {
         QToolTip::hideText();
         return false;
     }
-    const QTextCursor cursor = cursorForPosition(helpEvent->pos());
-    const QString qualified =
-        qualifiedNameAt(cursor.block().text(), cursor.positionInBlock());
-    if (qualified.contains(QLatin1Char('.'))) {
-        const QStringList parts = qualified.split(QLatin1Char('.'));
-        const langservice::SymbolInfo* symbol =
-            m_symbolIndex->Resolve(parts[0].toStdString(),
-                                   parts[1].toStdString());
-        if (symbol) {
-            QToolTip::showText(helpEvent->globalPos(),
-                               formatSymbol(*symbol), this);
-            return true;
-        }
+    const langservice::SymbolInfo* symbol =
+        resolveAt(cursorForPosition(helpEvent->pos()));
+    if (symbol) {
+        QToolTip::showText(helpEvent->globalPos(),
+                           formatSymbol(*symbol), this);
+        return true;
     }
     QToolTip::hideText();
     return false;
 }
 
 void CodeEditor::mousePressEvent(QMouseEvent* event) {
+    //Ctrl+click on a resolvable name goes to its definition (the
+    //standard code-editor shortcut); the click is consumed so the
+    //cursor stays where it was.
+    if ((event->modifiers() & Qt::ControlModifier)
+        && event->button() == Qt::LeftButton
+        && goToDefinitionAt(cursorForPosition(event->pos()))) {
+        return;
+    }
     //A click in the editor repositions the cursor; the completion
     //popup would stay anchored at a stale position — close it. Focus
     //stays on the editor here, so focusOutEvent alone misses this path.
     closeCompletion();
     QPlainTextEdit::mousePressEvent(event);
+}
+
+void CodeEditor::mouseMoveEvent(QMouseEvent* event) {
+    //While Ctrl is held, a pointing hand marks the names a Ctrl+click
+    //would jump to (the affordance that makes the shortcut visible).
+    if (event->modifiers() & Qt::ControlModifier) {
+        const bool jumpTarget =
+            resolveAt(cursorForPosition(event->pos())) != nullptr;
+        viewport()->setCursor(jumpTarget ? Qt::PointingHandCursor
+                                         : Qt::IBeamCursor);
+    } else {
+        viewport()->setCursor(Qt::IBeamCursor);
+    }
+    QPlainTextEdit::mouseMoveEvent(event);
 }
 
 void CodeEditor::focusOutEvent(QFocusEvent* event) {
@@ -176,21 +216,11 @@ void CodeEditor::keyPressEvent(QKeyEvent* event) {
         }
     }
 
-    if (event->key() == Qt::Key_F12 && m_symbolIndex) {
-        const QTextBlock block = textCursor().block();
-        const QString qualified =
-            qualifiedNameAt(block.text(), textCursor().positionInBlock());
-        if (qualified.contains(QLatin1Char('.'))) {
-            const QStringList parts = qualified.split(QLatin1Char('.'));
-            const langservice::SymbolInfo* symbol =
-                m_symbolIndex->Resolve(parts[0].toStdString(),
-                                       parts[1].toStdString());
-            if (symbol) {
-                emit goToDefinitionRequested(
-                    QString::fromStdString(symbol->filePath), symbol->line);
-                return;
-            }
-        }
+    //F12 and F6 both go to the definition at the cursor.
+    if ((event->key() == Qt::Key_F12 || event->key() == Qt::Key_F6)
+        && m_symbolIndex
+        && goToDefinitionAt(textCursor())) {
+        return;
     }
 
     QPlainTextEdit::keyPressEvent(event);

@@ -99,22 +99,33 @@ std::string PackageFromFilePath(const fs::path& file, const fs::path& root) {
     return file.stem().string();
 }
 
-// Net '{' minus '}' on a line, ignoring braces inside string/char literals
-// and after a '//' comment, so a '}' written in text or a comment does not
-// change the function-body depth.
-int NetBraces(const std::string& line) {
+// Net '{' minus '}' on a line, ignoring braces inside string/char
+// literals, after a '//' comment and inside /* ... */ block comments
+// (the block state carries across lines through inBlockComment), so a
+// '}' written in text or a comment does not change the body depth.
+int NetBraces(const std::string& line, bool& inBlockComment) {
     int net = 0;
     bool inLiteral = false;
     char quote = 0;
     for (size_t i = 0; i < line.size(); ++i) {
         const char ch = line[i];
+        if (inBlockComment) {
+            if (ch == '*' && i + 1 < line.size() && line[i + 1] == '/') {
+                inBlockComment = false;
+                ++i;  // consume the closing '/'
+            }
+            continue;
+        }
         if (inLiteral) {
             if (ch == '\\' && i + 1 < line.size()) { ++i; continue; }
             if (ch == quote) inLiteral = false;
             continue;
         }
         if (ch == '"' || ch == '\'') { inLiteral = true; quote = ch; continue; }
-        if (ch == '/' && i + 1 < line.size() && line[i + 1] == '/') break;
+        if (ch == '/' && i + 1 < line.size()) {
+            if (line[i + 1] == '/') break;
+            if (line[i + 1] == '*') { inBlockComment = true; ++i; continue; }
+        }
         if (ch == '{') ++net;
         else if (ch == '}') --net;
     }
@@ -127,11 +138,19 @@ int NetBraces(const std::string& line) {
 //file's path-derived package; there is no in-file scope syntax anymore.
 bool ConsumeIndexLine(const std::string& line, const std::string& trimmed,
     const std::string& package, std::vector<std::string>& pendingDoc,
-    int& bodyDepth, const std::string& path, int lineNo,
-    std::vector<SymbolInfo>& symbols) {
+    int& bodyDepth, bool& inBlockComment, const std::string& path,
+    int lineNo, std::vector<SymbolInfo>& symbols) {
     if (bodyDepth > 0) {
-        bodyDepth += NetBraces(line);
+        bodyDepth += NetBraces(line, inBlockComment);
         if (bodyDepth < 0) bodyDepth = 0;
+        return false;
+    }
+    if (inBlockComment) {
+        //The line starts inside a block comment: no declaration can
+        //live before its closing '*/'. Code after a same-line close is
+        //rare; only its braces are honored (a '*/ class C {' line
+        //still enters the body-skip state below).
+        bodyDepth = std::max(0, NetBraces(line, inBlockComment));
         return false;
     }
     if (trimmed.substr(0, 2) == "//") {
@@ -145,11 +164,31 @@ bool ConsumeIndexLine(const std::string& line, const std::string& trimmed,
         symbols.push_back(
             BuildSymbol(m, package, pendingDoc, path, lineNo));
         pendingDoc.clear();
-        bodyDepth = std::max(0, NetBraces(line));
     } else if (!trimmed.empty()) {
         pendingDoc.clear();
     }
+    //Any other top-level line that opens braces (a class/struct/enum
+    //head, a legacy wrapper block) starts a scope the index skips:
+    //only file-level declarations are indexed — a method inside a
+    //class body is not a package function.
+    bodyDepth = std::max(0, NetBraces(line, inBlockComment));
     return false;
+}
+
+//Key of a library dir for the parsed-once guard: folded "." / ".."
+//segments, one separator form, ASCII case folded on Windows (drive
+//letters and Latin segments — the common spelling variants). The
+//IDE's dedupKey (QString::toLower) folds non-ASCII letters as well;
+//a spelling pair differing only there slips past this guard, at
+//worst re-parsing one directory. langservice stays Qt-free, so no
+//Unicode case tables here.
+std::string DirKey(const std::string& dir) {
+    std::string key = fs::path(dir).lexically_normal().generic_string();
+#ifdef _WIN32
+    std::transform(key.begin(), key.end(), key.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+#endif
+    return key;
 }
 
 } // namespace
@@ -182,6 +221,7 @@ std::string NameOfTypeKind(TypeKind kind) {
 void SymbolIndex::Clear() {
     m_symbols.clear();
     m_loadedFiles.clear();
+    m_loadedDirs.clear();
 }
 
 void SymbolIndex::LoadFile(const std::string& path) {
@@ -220,6 +260,12 @@ void SymbolIndex::LoadLibraryDir(const std::string& dir) {
             PackageFromFilePath(f, p));
 }
 
+void SymbolIndex::LoadLibraryDirOnce(const std::string& dir) {
+    if (!m_loadedDirs.insert(DirKey(dir)).second)
+        return;
+    LoadLibraryDir(dir);
+}
+
 void SymbolIndex::LoadFileWithPackage(const std::string& path,
     const std::string& package) {
     std::ifstream in(path);
@@ -230,12 +276,14 @@ void SymbolIndex::LoadFileWithPackage(const std::string& path,
     int lineNo = 0;
     //Brace depth inside the function body currently being scanned, so a
     //body's '}' is not mistaken for a declaration boundary. 0 = top level,
-    //where declarations are recognized.
+    //where declarations are recognized. inBlockComment carries the
+    //unterminated /* state across lines of one file.
     int bodyDepth = 0;
+    bool inBlockComment = false;
     while (std::getline(in, line)) {
         ++lineNo;
         ConsumeIndexLine(line, Trim(line), package, pendingDoc, bodyDepth,
-            path, lineNo, m_symbols);
+            inBlockComment, path, lineNo, m_symbols);
     }
 }
 

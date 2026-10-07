@@ -15,6 +15,7 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtTest>
@@ -375,8 +376,7 @@ private slots:
 
     void testSettingsDialogSeedsAndEchoes() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL,
-                    QStringList(), false);
+        dialog.init(SettingsStore());
         QComboBox* combo =
             dialog.findChild<QComboBox*>("cmbLanguage");
         QVERIFY(combo != nullptr);
@@ -393,9 +393,21 @@ private slots:
         QVERIFY(largeIdx >= 0);
         iconCombo->setCurrentIndex(largeIdx);
         QCOMPARE(dialog.toolbarIconSize(), TOOLBAR_ICON_LARGE);
+        //The font spin seeds from the settings and echoes back.
+        QSpinBox* fontSpin =
+            dialog.findChild<QSpinBox*>("spnEditorFont");
+        QVERIFY(fontSpin != nullptr);
+        QCOMPARE(dialog.editorFontPt(), EDITOR_FONT_DEFAULT_PT);
+        fontSpin->setValue(EDITOR_FONT_DEFAULT_PT + 4);
+        QCOMPARE(dialog.editorFontPt(), EDITOR_FONT_DEFAULT_PT + 4);
         //Unknown seeds fall back to system/small, never an unset combo.
-        dialog.init("klingon", "D:/out", "huge",
-                    QStringList(), true);
+        SettingsStore alien;  // raw setters keep invalid values in the
+                              // store; the dialog does the normalizing
+        alien.setLanguage("klingon");
+        alien.setBuildOutputDir("D:/out");
+        alien.setToolbarIconSize("huge");
+        alien.setNoWarn(true);
+        dialog.init(alien);
         QCOMPARE(dialog.language(), QString("system"));
         QCOMPARE(dialog.buildOutputDir(), QString("D:/out"));
         QCOMPARE(dialog.toolbarIconSize(), TOOLBAR_ICON_SMALL);
@@ -404,8 +416,7 @@ private slots:
 
     void testSettingsDialogReturnsSelectedValues() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL,
-                    QStringList(), false);
+        dialog.init(SettingsStore());
         dialog.findChild<QComboBox*>("cmbLanguage")->setCurrentIndex(1);
         dialog.findChild<QLineEdit*>("edtBuildOutputDir")
             ->setText("  D:/out  ");
@@ -415,8 +426,7 @@ private slots:
 
     void testSettingsDialogShowsDefaultWhenUnset() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL,
-                    QStringList(), false);
+        dialog.init(SettingsStore());
         QLineEdit* edit =
             dialog.findChild<QLineEdit*>("edtBuildOutputDir");
         QVERIFY(edit != nullptr);
@@ -428,15 +438,18 @@ private slots:
         QCOMPARE(edit->placeholderText(),
                  SettingsStore::defaultStandaloneBuildDir());
         //A set directory seeds the real text; the placeholder is gone.
-        dialog.init("system", "D:/out", TOOLBAR_ICON_LARGE,
-                    QStringList(), false);
+        SettingsStore withDir;
+        withDir.setBuildOutputDir("D:/out");
+        withDir.setToolbarIconSize(TOOLBAR_ICON_LARGE);
+        dialog.init(withDir);
         QCOMPARE(edit->text(), QString("D:/out"));
     }
 
     void testSettingsDialogLibraryPathsSeedAndEcho() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL,
-                    {"D:/libs/acme", "D:/vendor/x"}, false);
+        SettingsStore withPaths;
+        withPaths.setLibrarySearchPaths({"D:/libs/acme", "D:/vendor/x"});
+        dialog.init(withPaths);
         PathListEditor* editor = dialog.findChild<PathListEditor*>();
         QVERIFY(editor != nullptr);
         QCOMPARE(editor->paths(),
@@ -446,7 +459,7 @@ private slots:
 
     void testSettingsDialogLibraryPathAddDedupRemoveReorder() {
         SettingsDialog dialog;
-        dialog.init("system", "", TOOLBAR_ICON_SMALL, {}, false);
+        dialog.init(SettingsStore());
         PathListEditor* editor = dialog.findChild<PathListEditor*>();
         QVERIFY(editor != nullptr);
         editor->addPath("D:/a");

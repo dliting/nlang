@@ -7,8 +7,9 @@
  * The index is deliberately self-contained: it parses the small, regular
  * declaration surface (top-level native / nlang function decls with leading
  * '//' doc comments; each file's package comes from its path) and depends
- * only on the C++ standard library. Full semantic analysis of user source
- * is a later phase.
+ * only on the C++ standard library. IDE-side it is fed the stdlib, the
+ * configured library dirs and the open projects'/editors' source dirs;
+ * full semantic analysis of user source is a later phase.
  */
 #pragma once
 
@@ -56,12 +57,19 @@ struct SymbolInfo {
 
 class SymbolIndex {
 public:
-    // Drop every indexed symbol and loaded-file marker so the index can be
-    // rebuilt from scratch (after the configured library dirs change).
+    // Drop every indexed symbol and loaded-file/dir marker so the index
+    // can be rebuilt from scratch (after the configured library dirs
+    // change).
     void Clear();
 
     // Index every *.n file directly under dir (non-recursive).
     void LoadLibraryDir(const std::string& dir);
+
+    // Same, but parse each dir at most once per generation (Clear resets
+    // the guard). Two spellings of one dir (separators, case on Windows,
+    // "." / ".." segments) count as the same dir. For callers that feed
+    // dirs from several sources (config, projects, open editors).
+    void LoadLibraryDirOnce(const std::string& dir);
 
     // Index one .n file.
     void LoadFile(const std::string& path);
@@ -104,6 +112,7 @@ private:
 
     std::vector<SymbolInfo> m_symbols;
     std::unordered_set<std::string> m_loadedFiles;
+    std::unordered_set<std::string> m_loadedDirs;
 };
 
 // Find the stdlib directory starting from the directory that holds the

@@ -625,6 +625,16 @@
         <translation>工具栏图标尺寸：</translation>
     </message>
     <message>
+        <location filename="../ui/SettingsDialog.ui" line="59"/>
+        <source>Editor font size:</source>
+        <translation>编辑器字体大小：</translation>
+    </message>
+    <message>
+        <location filename="../ui/SettingsDialog.ui" line="63"/>
+        <source> pt</source>
+        <translation> pt</translation>
+    </message>
+    <message>
         <location filename="../ui/SettingsDialog.ui" line="61"/>
         <source>Compiler options</source>
         <translation>编译选项</translation>

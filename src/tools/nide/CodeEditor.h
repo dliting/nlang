@@ -78,6 +78,10 @@ public:
     //    be null (assistance then stays dormant).
     void setSymbolIndex(const langservice::SymbolIndex* index);
 
+    //--- Font: one shared size for every code editor, owned by the
+    //    MainWindow's settings (Tools > Options and Ctrl+wheel write it).
+    void setEditorFontPt(int pointSize);
+
     //Pure text helpers, exposed for unit testing:
     // Extract the qualified name ("ns.name") under a 0-based column of a
     // single line, or "" when the cursor is not on ns.name.
@@ -88,8 +92,15 @@ public:
 protected:
     void resizeEvent(QResizeEvent* event) override;
     //Menu-like dismissal for the completion popup: any cursor-replacing
-    //click in the editor and any focus loss close it.
+    //click in the editor and any focus loss close it. A Ctrl+click on a
+    //resolvable name goes to the definition instead.
     void mousePressEvent(QMouseEvent* event) override;
+    //Pointing-hand affordance over resolvable names while Ctrl is held
+    //(the Ctrl+click jump preview).
+    void mouseMoveEvent(QMouseEvent* event) override;
+    //Ctrl+wheel zooms the editor font (the size lives in the global
+    //settings; the owner applies it to every editor and persists it).
+    void wheelEvent(QWheelEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
     bool event(QEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -105,9 +116,20 @@ private:
     //the paused-line arrow (drawn over the dot when both mark the same
     //line).
     void paintBlockGutter(QPainter& painter, int blockNumber, int top);
+    //Re-place the gutter widget over the viewport's left margin (resize
+    //and font-size changes both reflow it).
+    void layoutLineArea();
 
     //Signature help tooltip at the cursor under the mouse.
     bool handleToolTip(QHelpEvent* helpEvent);
+    //Resolve the qualified name ("pkg.name" / "vendor.pkg.name") at the
+    //cursor against the symbol index; null when nothing resolves. The
+    //package is the whole dotted prefix, the name its last segment.
+    const langservice::SymbolInfo* resolveAt(
+        const QTextCursor& cursor) const;
+    //Go to the definition at the cursor (F12/F6/Ctrl+click); true when
+    //a symbol resolved and the request was emitted.
+    bool goToDefinitionAt(const QTextCursor& cursor);
     //Open a completion popup right after a typed '.' when the token to
     //the left is a known namespace.
     void triggerPackageCompletion();
@@ -123,6 +145,9 @@ private:
     QSet<int> m_breakpointLines;
     QSet<int> m_boundBreakpointLines;
     int m_stoppedLine = 0;
+    //Ctrl+wheel zoom accumulator: high-resolution wheels report
+    //fractions of a notch; only a full ±120 zooms one point.
+    int m_wheelZoomDelta = 0;
 
     const langservice::SymbolIndex* m_symbolIndex = nullptr;
     QListWidget* m_completionPopup = nullptr;
@@ -131,8 +156,12 @@ signals:
     //A gutter click toggled the breakpoint of this 1-based line; the
     //owner resolves the file (the editor itself stays path-free).
     void breakpointToggled(int line);
-    //F12 on a library symbol: the owner opens filePath at line.
+    //Go-to-definition (F12, F6 or Ctrl+click) hit a symbol: the owner
+    //opens filePath at line.
     void goToDefinitionRequested(const QString& filePath, int line);
+    //One Ctrl+wheel notch: +1 zooms in, -1 zooms out. The owner applies
+    //the new size to every editor and persists it.
+    void fontSizeZoomRequested(int direction);
 };
 
 //--- CodeFileEditor: a source file bound to a CodeEditor.

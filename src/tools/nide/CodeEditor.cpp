@@ -10,6 +10,7 @@
 #include <QSaveFile>
 #include <QTextBlock>
 #include <QTextStream>
+#include <QWheelEvent>
 
 namespace nlang {
 
@@ -53,6 +54,9 @@ CodeEditor::CodeEditor(QWidget* parent)
     setFrameShape(QFrame::NoFrame);
     setTabStopDistance(kTabStopWidthChars * fontMetrics().horizontalAdvance(QLatin1Char(' ')));
     setLineWrapMode(QPlainTextEdit::NoWrap);
+    //Hover events without a held button: the Ctrl+click jump preview
+    //(pointing-hand cursor) needs mouse moves while no button is down.
+    setMouseTracking(true);
 
     connect(this, &QPlainTextEdit::blockCountChanged, this, &CodeEditor::updateLineAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &CodeEditor::updateLineArea);
@@ -151,6 +155,39 @@ void CodeEditor::setStoppedLine(int line) {
     highlightCurrentLine();
 }
 
+void CodeEditor::setEditorFontPt(int pointSize) {
+    QFont sized = font();
+    if (sized.pointSize() == pointSize)
+        return;
+    sized.setPointSize(pointSize);
+    setFont(sized);
+    //Font-derived geometry follows: tab stops, gutter width, gutter
+    //layout.
+    setTabStopDistance(kTabStopWidthChars
+        * fontMetrics().horizontalAdvance(QLatin1Char(' ')));
+    updateLineAreaWidth(0);
+    layoutLineArea();
+}
+
+void CodeEditor::wheelEvent(QWheelEvent* event) {
+    //Ctrl+wheel zooms the font. The size lives in the global settings,
+    //so the editor only reports the notch direction; the owner applies
+    //and persists the new size for every open editor.
+    if (event->modifiers() & Qt::ControlModifier) {
+        //High-resolution wheels report sub-notch deltas: accumulate
+        //and emit one zoom point only per full ±120 notch (a zero
+        //vertical delta adds nothing and no-ops).
+        m_wheelZoomDelta += event->angleDelta().y();
+        while (m_wheelZoomDelta >= 120 || m_wheelZoomDelta <= -120) {
+            emit fontSizeZoomRequested(m_wheelZoomDelta > 0 ? 1 : -1);
+            m_wheelZoomDelta += (m_wheelZoomDelta > 0) ? -120 : 120;
+        }
+        event->accept();
+        return;
+    }
+    QPlainTextEdit::wheelEvent(event);
+}
+
 void CodeEditor::handleGutterPress(const QPoint& pos) {
     //Only the breakpoint column toggles; presses on the line numbers
     //are ignored. Rejects clicks below the last line: cursorForPosition
@@ -173,8 +210,13 @@ void CodeEditor::handleGutterPress(const QPoint& pos) {
 void CodeEditor::resizeEvent(QResizeEvent* event) {
     QPlainTextEdit::resizeEvent(event);
 
-    QRect cr = contentsRect();
-    m_lineArea->setGeometry(QRect(cr.left(), cr.top(), lineAreaWidth(), cr.height()));
+    layoutLineArea();
+}
+
+void CodeEditor::layoutLineArea() {
+    const QRect cr = contentsRect();
+    m_lineArea->setGeometry(
+        QRect(cr.left(), cr.top(), lineAreaWidth(), cr.height()));
 }
 
 void CodeEditor::updateLineArea(const QRect& rect, int dy) {

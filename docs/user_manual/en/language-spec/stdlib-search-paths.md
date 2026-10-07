@@ -52,7 +52,11 @@ Library search paths; both support add, remove, move up/down and browse,
 with project paths taking precedence over global ones. A change rebuilds the
 symbol index, refreshing completion and go-to-definition.
 
-**Viewing and jumping to source**: use Go to Definition (F12) on a library
-symbol to open its `.n` — a `native` declaration shows the signature and
-documentation, an ordinary function shows an editable implementation;
-rebuild after editing to pick up the change.
+**Viewing and jumping to source**: use Go to Definition on a
+package-qualified symbol — F12, F6 or Ctrl+click (a pointing-hand cursor
+marks the jump targets while Ctrl is held) — to open its `.n` at the
+declaration: a `native` declaration shows the signature and
+documentation, an ordinary function shows an editable implementation.
+The packages visible to jumps and completion cover the standard library,
+the configured library directories, the open projects' directories and
+each open file's directory; rebuild after editing to pick up the change.

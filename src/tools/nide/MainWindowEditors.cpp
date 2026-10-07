@@ -9,6 +9,7 @@
 #include "ProjectModel.h"
 #include "ProjectPropDialog.h"
 #include "RecentStore.h"
+#include "SettingsStore.h"
 #include "SolutionTreeModel.h"
 
 #include "ui_MainWindow.h"
@@ -115,11 +116,38 @@ void MainWindow::addEditorTab(FileEditor* editor) {
     //editor's dots.
     if (CodeEditor* code = qobject_cast<CodeEditor*>(widget)) {
         code->setSymbolIndex(&m_symbolIndex);
+        //One shared font size for every editor (Tools > Options and
+        //Ctrl+wheel both write the same persisted setting).
+        code->setEditorFontPt(SettingsStore::persisted().editorFontPt());
         connect(code, &CodeEditor::goToDefinitionRequested, this,
                 &MainWindow::openLibraryDefinition);
+        connect(code, &CodeEditor::fontSizeZoomRequested, this,
+                &MainWindow::onEditorFontZoom);
         connect(code, &CodeEditor::breakpointToggled, this,
                 &MainWindow::onBreakpointGutterClicked);
         refreshBreakpointMarkers();
+    }
+    //The new editor's file directory joins the index through a full
+    //rebuild (LoadLibraryDirOnce would skip the dir when it was parsed
+    //earlier with different content, and a once-per-dir guard cannot
+    //see later edits). The rebuild is a light regex pass over the
+    //tens of files the index covers; sibling packages in the same
+    //directory are jump targets through the local-directory layer.
+    reindexConfiguredLibraries();
+}
+
+void MainWindow::onEditorFontZoom(int direction) {
+    SettingsStore settings = SettingsStore::persisted();
+    settings.setEditorFontPt(settings.editorFontPt() + direction);
+    settings.persist();
+    applyEditorFontPt(settings.editorFontPt());
+}
+
+void MainWindow::applyEditorFontPt(int pointSize) {
+    for (int i = 0; i < m_ui->tabCodes->count(); ++i) {
+        if (CodeEditor* code =
+                qobject_cast<CodeEditor*>(m_ui->tabCodes->widget(i)))
+            code->setEditorFontPt(pointSize);
     }
 }
 
@@ -169,6 +197,10 @@ bool MainWindow::saveEditor(FileEditor* editor) {
         QMessageBox::warning(this, tr("Error"), editor->lastError());
         return false;
     }
+    //Saved content may declare new symbols: completion and go-to-
+    //definition read the index, so refresh it (same light full
+    //rebuild as addEditorTab — a once-per-dir guard never re-parses).
+    reindexConfiguredLibraries();
     return true;
 }
 

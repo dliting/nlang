@@ -27,7 +27,7 @@ back through the history. Known limits: the scrollback keeps at most
 
 ### Configuring nide
 
-Tools → Options opens the settings dialog with three settings:
+Tools → Options opens the settings dialog with four settings:
 
 - **Language**: follow the system language / 中文 / English. A change
   **takes effect after restarting nide** (a restart notice pops up
@@ -45,6 +45,10 @@ Tools → Options opens the settings dialog with three settings:
   directory directly.
 - **Toolbar icon size**: small (32×32) / large (48×48). A change
   takes effect immediately — no restart needed.
+- **Editor font size**: the font size in points (6–48) shared by every
+  code editor. Applies immediately on OK; Ctrl+wheel inside an editor
+  zooms the same setting (one point per notch), and the size persists
+  across sessions.
 
 ### Recent
 
