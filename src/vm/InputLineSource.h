@@ -12,6 +12,7 @@ code is confined to StreamHasMore; everything else is plain read/memchr.
 ---*/
 #pragma once
 #include <cstdio>
+#include <functional>
 #include <string>
 
 #include "LineSource.h"
@@ -25,6 +26,17 @@ public:
     //executor the first input native constructs this lazily, which is
     //stdin's first touch.
     explicit InputLineSource(std::FILE* stream = stdin);
+
+    //The "about to wait" cue: invoked when a PullLine is about to block
+    //on the stream — nothing buffered, nothing ready, stream not at
+    //EOF. The executor installs its interactive "> " prompt here; tests
+    //install scripted feeds. Exactly the pulls that may block fire it:
+    //data-ready pulls and EOF-bound pulls stay silent (the e2e
+    //byte-exactness contract depends on that). A partial line already
+    //in the buffer counts as "buffered" and stays silent too: the
+    //remaining read of that same line must not draw a second prompt.
+    using InputWaitCue = std::function<void()>;
+    void SetOnInputWait(InputWaitCue cue) { m_onInputWait = std::move(cue); }
 
     InputReadStatus PullLine(std::string& line) override;
     bool HasMore() override;
@@ -43,6 +55,7 @@ private:
     std::string m_buffer;      //read bytes not yet sliced into lines
     size_t m_bufferPos = 0;    //start of unconsumed data in m_buffer
     bool m_streamEof = false;  //FillBuffer already saw end of stream
+    InputWaitCue m_onInputWait;
 };
 
 } // namespace nlang

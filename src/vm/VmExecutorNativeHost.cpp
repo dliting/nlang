@@ -19,6 +19,13 @@ stays here, in the executor.
 #include <memory>
 #include <string>
 
+#if defined(_WIN32)
+#include <io.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace nlang {
 
 namespace {
@@ -26,6 +33,42 @@ namespace {
 //member); restore the wrapper.
 VmNativeHost* Wrap(NativeHost* self) {
     return reinterpret_cast<VmNativeHost*>(self);
+}
+
+//True for a real console — including a ConPTY-attached process, whose
+//std handles are console handles by design. Pipes and files are not
+//consoles. Windows asks GetConsoleMode rather than _isatty: _isatty
+//answers "character device", which is also true for NUL, and
+//`nvm x < NUL` at a console would then flash a prompt for input that
+//can never arrive. POSIX isatty already draws the line correctly
+//(/dev/null is a character device but not a tty).
+bool IsConsoleStream(std::FILE* stream) {
+#if defined(_WIN32)
+    const HANDLE handle = reinterpret_cast<HANDLE>(
+        _get_osfhandle(_fileno(stream)));
+    if (handle == INVALID_HANDLE_VALUE)
+        return false;
+    DWORD mode = 0;
+    return GetConsoleMode(handle, &mode) != 0;
+#else
+    return isatty(fileno(stream)) != 0;
+#endif
+}
+
+//The interactive input prompt, same token nide's terminal draws in Line
+//mode (TerminalWidget kLinePrompt). Precedent: REPLs (python, sqlite3)
+//print their prompt from the runtime's stdio layer because that layer
+//is the only one that knows a read is about to block; nide's run page
+//is a passthrough ConPTY, so this write is what puts the prompt on its
+//screen. Gated to two consoles: any pipe or redirection (scripted
+//stdin, `nvm x > out.txt`) keeps both streams byte-exact for e2e.
+constexpr const char* kInputPrompt = "> ";
+
+void EmitInteractivePrompt() {
+    if (!IsConsoleStream(stdin) || !IsConsoleStream(stdout))
+        return;
+    std::fputs(kInputPrompt, stdout);
+    std::fflush(stdout);
 }
 } // namespace
 
@@ -92,11 +135,21 @@ void VmExecutor::NativeWriteError(NativeHost* self, const char* text) {
 
 TokenView& VmExecutor::EnsureInputView() {
     if (!m_upInputView) {
-        m_upInputSource = m_pHostIo
-            ? std::unique_ptr<LineSource>(
-                std::make_unique<HostIoLineSource>(*m_pHostIo))
-            : std::unique_ptr<LineSource>(
-                std::make_unique<InputLineSource>());
+        if (m_pHostIo) {
+            //Embedder seam: the host owns the input conversation and
+            //its prompt (nide's debug terminal draws one), so the
+            //console cue stays uninstalled here — one prompt, one owner.
+            m_upInputSource =
+                std::make_unique<HostIoLineSource>(*m_pHostIo);
+        } else {
+            auto consoleSource = std::make_unique<InputLineSource>();
+            //This is the one place the executor learns "the program is
+            //about to wait for input": the line source cues exactly the
+            //pulls that may block; interactive consoles answer with the
+            //prompt, everything else stays silent (EmitInteractivePrompt).
+            consoleSource->SetOnInputWait(&EmitInteractivePrompt);
+            m_upInputSource = std::move(consoleSource);
+        }
         m_upInputView = std::make_unique<TokenView>(*m_upInputSource);
     }
     return *m_upInputView;

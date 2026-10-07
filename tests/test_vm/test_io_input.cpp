@@ -155,6 +155,112 @@ void TestOpenPipeDeliversLinesImmediately() {
     std::fclose(readEnd);
 }
 
+// An open pipe pair as FILE* ends (the interactive-stdin stand-in).
+struct PipePair {
+    std::FILE* readEnd = nullptr;
+    std::FILE* writeEnd = nullptr;
+    PipePair() {
+#if defined(_WIN32)
+        int fds[2];
+        if (_pipe(fds, 4096, _O_BINARY) != 0) return;
+        readEnd = _fdopen(fds[0], "rb");
+        writeEnd = _fdopen(fds[1], "wb");
+#else
+        int fds[2];
+        if (pipe(fds) != 0) return;
+        readEnd = fdopen(fds[0], "rb");
+        writeEnd = fdopen(fds[1], "wb");
+#endif
+    }
+    ~PipePair() {
+        if (readEnd) std::fclose(readEnd);
+        if (writeEnd) std::fclose(writeEnd);
+    }
+    bool valid() const { return readEnd && writeEnd; }
+};
+
+void TestInputWaitCueFiresBeforeBlockingRead() {
+    //Empty pipe, write end open: the pull must WAIT for input. The cue
+    //fires first; acting as the typing user, its write then unblocks
+    //the read — proving cue-before-block ordering without a console.
+    PipePair pipe;
+    if (!pipe.valid()) {
+        CHECK(false, "pipe create failed");
+        return;
+    }
+    InputLineSource src(pipe.readEnd);
+    int fired = 0;
+    src.SetOnInputWait([&] {
+        ++fired;
+        std::fputs("Alice\n", pipe.writeEnd);
+        std::fflush(pipe.writeEnd);
+    });
+    std::string line;
+    CHECK(Pull(src, line) == InputReadStatus::Ok && line == "Alice",
+          "line delivered after the cue's write");
+    CHECK(fired == 1, "cue fired exactly once before the wait");
+}
+
+void TestInputWaitCueSilentWhenInputReady() {
+    //A pre-fed line needs no wait: the cue must stay silent for it,
+    //then fire for the follow-up pull on the drained pipe.
+    PipePair pipe;
+    if (!pipe.valid()) {
+        CHECK(false, "pipe create failed");
+        return;
+    }
+    std::fputs("Alice\n", pipe.writeEnd);
+    std::fflush(pipe.writeEnd);
+    InputLineSource src(pipe.readEnd);
+    int fired = 0;
+    src.SetOnInputWait([&] {
+        ++fired;
+        std::fputs("Bob\n", pipe.writeEnd);
+        std::fflush(pipe.writeEnd);
+    });
+    std::string line;
+    CHECK(Pull(src, line) == InputReadStatus::Ok && line == "Alice",
+          "pre-fed line");
+    CHECK(fired == 0, "no cue while input is ready");
+    CHECK(Pull(src, line) == InputReadStatus::Ok && line == "Bob",
+          "second pull waits and is fed by the cue");
+    CHECK(fired == 1, "cue fired for the waiting pull only");
+}
+
+void TestInputWaitCueSilentAtEof() {
+    //EOF never waits: disk pulls that discover or re-report EOF must
+    //not cue (nothing will block, and a program ending its input must
+    //not see a last phantom prompt).
+    TempStream ts("a\n");
+    InputLineSource src(ts.file);
+    int fired = 0;
+    src.SetOnInputWait([&] { ++fired; });
+    std::string line;
+    CHECK(Pull(src, line) == InputReadStatus::Ok && line == "a", "line");
+    CHECK(Pull(src, line) == InputReadStatus::Eof, "eof pull");
+    CHECK(Pull(src, line) == InputReadStatus::Eof, "eof sticky");
+    CHECK(fired == 0, "no cue around eof");
+}
+
+void TestInputWaitCueSilentAtClosedPipe() {
+    //A pipe whose write end is already closed never blocks: the pull
+    //answers EOF immediately and must not cue (the phantom trailing
+    //prompt a program would otherwise flash before exiting).
+    PipePair pipe;
+    if (!pipe.valid()) {
+        CHECK(false, "pipe create failed");
+        return;
+    }
+    std::fclose(pipe.writeEnd);
+    pipe.writeEnd = nullptr;
+    InputLineSource src(pipe.readEnd);
+    int fired = 0;
+    src.SetOnInputWait([&] { ++fired; });
+    std::string line;
+    CHECK(Pull(src, line) == InputReadStatus::Eof, "eof on closed pipe");
+    CHECK(fired == 0, "no cue for an eof-bound pull");
+}
+
 //--- TokenView ---------------------------------------------------------------
 
 void TestTokensSliceAndCrossLines() {
@@ -268,6 +374,10 @@ int main() {
     TestHasMoreSeesUnslicedBufferedBytes();
     TestHasInputEmptyStream();
     TestOpenPipeDeliversLinesImmediately();
+    TestInputWaitCueFiresBeforeBlockingRead();
+    TestInputWaitCueSilentWhenInputReady();
+    TestInputWaitCueSilentAtEof();
+    TestInputWaitCueSilentAtClosedPipe();
     TestTokensSliceAndCrossLines();
     TestMixedReadRemainderKeepsLeadingSpace();
     TestSpecExampleFullSequence();

@@ -70,6 +70,21 @@ InputReadStatus InputLineSource::PullLine(std::string& line) {
         //No newline yet: drop the consumed prefix and read more.
         m_buffer.erase(0, m_bufferPos);
         m_bufferPos = 0;
+        //About to read from the stream. Two probe facts decide: it may
+        //latch EOF (a disk read-ahead that comes up empty) and it may
+        //read data in (a disk read-ahead that succeeds). Cue only when
+        //the coming read may BLOCK; when the probe buffered bytes
+        //instead, re-scan — the newline may already be here and the
+        //blocking FillBuffer below would misread the buffer as a
+        //trailing partial line.
+        if (m_onInputWait) {
+            if (!HasMore() && !m_streamEof)
+                m_onInputWait();
+            if (!m_buffer.empty()
+                && std::memchr(m_buffer.data(), '\n', m_buffer.size())
+                    != nullptr)
+                continue;   //slice the probed-in line at the top
+        }
         if (!FillBuffer()) {
             if (!m_buffer.empty()) {
                 //Trailing partial line: "abc<EOF>" yields "abc" once
@@ -106,8 +121,13 @@ bool InputLineSource::StreamHasMore() {
     if (fileType == FILE_TYPE_PIPE) {
         DWORD available = 0;
         if (!PeekNamedPipe(handle, nullptr, 0, nullptr, &available,
-                           nullptr))
-            return false;   //broken pipe = no more bytes ever
+                           nullptr)) {
+            //Broken pipe = no more bytes ever. Latch it here (not just
+            //answer false) so an already-EOF pipe never trips the
+            //wait-cue: a read that cannot block must stay silent.
+            m_streamEof = true;
+            return false;
+        }
         return available > 0;
     }
     return false;   //console/char device: only our buffer is visible

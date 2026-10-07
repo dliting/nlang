@@ -115,6 +115,12 @@ All notable changes to NLang are documented here. The format follows
   Tools → Options, or zoom with Ctrl+wheel inside an editor (one
   point per notch). Every code editor shares the one size, and it
   persists across sessions.
+- nvm: an interactive console prints the runtime's `> ` prompt when
+  the program is about to block on an input read — the REPL convention
+  (Python, sqlite3). It is gated to consoles: both stdin and stdout
+  must be consoles, so a direct run, `ncc` running a program and the
+  nide run page get it, while any pipe or redirection keeps both
+  streams byte-exact for scripted input.
 
 ### Changed
 - Manual: the Standard Library chapter is now a two-level section with

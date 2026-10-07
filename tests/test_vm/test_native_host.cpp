@@ -21,8 +21,24 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <string_view>
+
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#define TEST_DUP _dup
+#define TEST_DUP2 _dup2
+#define TEST_CLOSE _close
+#define TEST_BINARY_OUT(fd) _setmode(fd, _O_BINARY)
+#else
+#include <unistd.h>
+#define TEST_DUP dup
+#define TEST_DUP2 dup2
+#define TEST_CLOSE close
+#define TEST_BINARY_OUT(fd) ((void)(fd))
+#endif
 
 #ifndef STDLIB_DIR
 #define STDLIB_DIR ""
@@ -270,6 +286,55 @@ void TestReadCharScalars() {
     CHECK(rc == 0, "readChar full-code-point scalars (rc)");
 }
 
+//The interactive prompt must never reach a redirected stdout. stdin is
+//pointed at the null DEVICE — a character device, so the line source's
+//probe cannot see ready data and the wait cue (the prompt hook)
+//genuinely fires — while stdout goes to a file. The read then answers
+//EOF without blocking, and the captured stdout must hold exactly the
+//program's own bytes: any "> " here is the prompt leaking into a
+//pipeline (the byte-exactness contract the e2e runs rely on).
+void TestInputPromptSilentOnRedirectedStdout() {
+    const fs::path dir = scratchDir();
+    const fs::path outFile = dir / "stdout_prompt.txt";
+#if defined(_WIN32)
+    const char* const nullDevice = "NUL";
+#else
+    const char* const nullDevice = "/dev/null";
+#endif
+
+    const int savedStdout = TEST_DUP(_fileno(stdout));
+    if (!std::freopen(outFile.string().c_str(), "w", stdout)
+        || !std::freopen(nullDevice, "r", stdin)
+        || savedStdout < 0) {
+        ++g_fail;
+        std::fprintf(stderr, "FAIL: could not redirect the streams\n");
+        return;
+    }
+    //Byte-exact comparison: no CRLF translation of the program's output.
+    TEST_BINARY_OUT(_fileno(stdout));
+
+    const std::string source =
+        "int main() {\n"
+        "  io.print(\"out\");\n"
+        "  if (io.readLine() != \"\") return 1;\n"
+        "  return 0;\n"
+        "}\n";
+    const int rc = runSource("host_prompt", source, [](VmExecutor&) {});
+    std::fflush(stdout);
+    std::string captured;
+    {
+        std::ifstream in(outFile, std::ios::binary);
+        captured.assign(std::istreambuf_iterator<char>(in),
+                        std::istreambuf_iterator<char>());
+    }
+    std::fflush(stdout);
+    TEST_DUP2(savedStdout, _fileno(stdout));   //restore the real stdout
+    TEST_CLOSE(savedStdout);
+
+    CHECK(rc == 0, "program over null-device stdin runs to exit 0");
+    CHECK(captured == "out\n", "redirected stdout stays byte-exact");
+}
+
 } // namespace
 
 int main() {
@@ -281,6 +346,7 @@ int main() {
     TestWriteOutput();
     TestInputReadersOverStdin();
     TestReadCharScalars();
+    TestInputPromptSilentOnRedirectedStdout();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

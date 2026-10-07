@@ -25,6 +25,14 @@ lands on the same console line; `eprint` mirrors `print` on stderr for
 diagnostics that stay separable from normal output. Inside a debug session
 the two streams merge into the session's single output view.
 
+**input prompt on an interactive console**: when the program is about to
+block on an input read and both stdin and stdout are consoles, the runtime
+prints a `"> "` prompt before waiting — the REPL convention (Python,
+sqlite3), for both a direct `nvm` run and ncc's in-process run. Whenever
+either end is a pipe or a redirection (scripted input, `nvm x > out.txt`)
+both streams stay byte-exact; the nide debug terminal draws the same token
+itself in line mode.
+
 **end of file (EOF) semantics of readLine**: EOF and an empty input line both
 return `""` (same as C++ `std::getline`); the empty-string sentinel cannot
 tell them apart — that is `hasInput()`'s job (see the next section). Each of
