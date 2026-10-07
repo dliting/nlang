@@ -334,6 +334,17 @@ void MainWindow::onTerminalSizeChanged(int columns, int rows) {
         m_pty.Resize(columns, rows);
 }
 
+void MainWindow::onTerminalFontZoom(int direction) {
+    SettingsStore settings = SettingsStore::persisted();
+    settings.setTerminalFontPt(settings.terminalFontPt() + direction);
+    settings.persist();
+    applyTerminalFontPt(settings.terminalFontPt());
+}
+
+void MainWindow::applyTerminalFontPt(int pointSize) {
+    m_pTerminal->setTerminalFontPt(pointSize);
+}
+
 //--- compile-log navigation ---
 
 void MainWindow::onCompileLogItemSelected(const CompileLogItemInfo& info) {

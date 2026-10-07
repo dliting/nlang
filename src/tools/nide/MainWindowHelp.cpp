@@ -38,9 +38,11 @@ void MainWindow::on_actToolsOptions_triggered() {
     updated.setLibrarySearchPaths(dialog.librarySearchPaths());
     updated.setNoWarn(dialog.noWarn());
     updated.setEditorFontPt(dialog.editorFontPt());
+    updated.setTerminalFontPt(dialog.terminalFontPt());
     updated.persist();
     applyToolbarIconSize(updated.toolbarIconSize());
     applyEditorFontPt(updated.editorFontPt());
+    applyTerminalFontPt(updated.terminalFontPt());
     //Library dirs changed: rebuild the code-assistance index immediately.
     reindexConfiguredLibraries();
     //The catalogs install once at startup, so a language change needs

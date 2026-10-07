@@ -101,6 +101,10 @@ public:
         m_emulator.SetByteSink(std::move(sink));
     }
 
+    //Set the font size in points: cell metrics and the grid adopt it;
+    //an unchanged size is a no-op.
+    void setTerminalFontPt(int pointSize);
+
     QSize sizeHint() const override;
 
     //Mode-aware paste dispatch (pasteClipboard without the clipboard):
@@ -120,6 +124,9 @@ public slots:
 signals:
     //Grid geometry changed after a relayout (columns, rows).
     void sizeChanged(int columns, int rows);
+    //Ctrl+wheel zoom: one point per full notch; the owner clamps,
+    //persists and applies the size.
+    void fontSizeZoomRequested(int direction);
     //Line mode: Enter on a non-empty pending line.
     void lineCommitted(const QString& line);
 
@@ -187,6 +194,7 @@ private:
     int m_lastCursorRow = 0;
     int m_lastCursorColumn = 0;
     int m_scrollOffset = 0;   //scrollback lines shown above the screen
+    int m_wheelZoomDelta = 0;   //sub-notch Ctrl+wheel accumulator
     Mode m_mode = Mode::Idle;
     LineEditor m_editor;      //Line-mode editing state
     QString m_preedit;        //IME composition text at the caret

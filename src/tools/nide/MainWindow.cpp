@@ -54,6 +54,10 @@ MainWindow::MainWindow(QWidget* parent)
     m_pTerminal->setByteSink([this](const std::string& bytes) {
         m_pty.Write(QByteArray(bytes.data(), int(bytes.size())));
     });
+    //The terminal font is its own persisted setting, seeded once here
+    //(a single widget — unlike editors, which seed per tab).
+    m_pTerminal->setTerminalFontPt(
+        SettingsStore::persisted().terminalFontPt());
     wireSignals();
 
     m_ui->statusBar->showMessage(tr("Ready"));
@@ -110,6 +114,9 @@ void MainWindow::wireSignals() {
             &MainWindow::onTerminalLineCommitted);
     connect(m_pTerminal, &terminal::TerminalWidget::sizeChanged, this,
             &MainWindow::onTerminalSizeChanged);
+    connect(m_pTerminal,
+            &terminal::TerminalWidget::fontSizeZoomRequested, this,
+            &MainWindow::onTerminalFontZoom);
 }
 
 void MainWindow::applyToolbarIconSize(const QString& size) {

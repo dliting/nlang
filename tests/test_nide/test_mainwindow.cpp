@@ -300,6 +300,15 @@ void sendCtrlWheel(CodeEditor* editor, int notches) {
     QCoreApplication::sendEvent(editor->viewport(), &event);
 }
 
+//Deliver one Ctrl+wheel notch straight to the terminal widget (a
+//plain QWidget — no viewport indirection like the editor).
+void sendTerminalWheel(terminal::TerminalWidget* term, int notches) {
+    QWheelEvent event(term->rect().center(), QPointF(),
+        120 * notches, Qt::NoButton, Qt::ControlModifier,
+        Qt::Vertical);
+    QCoreApplication::sendEvent(term, &event);
+}
+
 //Park the editor caret on the 1-based line (F9 places breakpoints at
 //the cursor line).
 void moveCursorToLine(CodeEditor* code, int line) {
@@ -2107,6 +2116,53 @@ private slots:
         QCOMPARE(QSettings().value("ide/editorFontPt").toInt(), 14);
         QCOMPARE(currentCode(window)->font().pointSize(), 14);
         QCOMPARE(back->font().pointSize(), 14);
+        settings.remove("ide");
+    }
+
+    //--- terminal font size (Tools > Options + Ctrl+wheel) ---
+
+    void testCtrlWheelZoomsTerminalFont() {
+        MainWindow window;
+        QSettings settings;  // org/app pinned: NLang/nide-test
+        settings.remove("ide");
+        terminal::TerminalWidget* term = runTerminal(window);
+        QVERIFY(term != nullptr);
+
+        const int before = term->font().pointSize();
+        sendTerminalWheel(term, +1);
+        QCOMPARE(term->font().pointSize(), before + 1);
+        QCOMPARE(QSettings().value("ide/terminalFontPt").toInt(),
+                 before + 1);
+        settings.remove("ide");
+    }
+
+    void testCtrlWheelClampsTerminalFont() {
+        MainWindow window;
+        QSettings settings;
+        settings.remove("ide");
+        terminal::TerminalWidget* term = runTerminal(window);
+        QVERIFY(term != nullptr);
+        for (int i = 0; i != 100; ++i)
+            sendTerminalWheel(term, -1);
+        QCOMPARE(term->font().pointSize(), 6);  // TERMINAL_FONT_MIN_PT
+        settings.remove("ide");
+    }
+
+    void testToolsOptionsSetsTerminalFont() {
+        MainWindow window;
+        QSettings settings;
+        settings.remove("ide");
+        terminal::TerminalWidget* term = runTerminal(window);
+        QVERIFY(term != nullptr);
+        inExec([&] {
+            QDialog* dialog = qobject_cast<QDialog*>(
+                QApplication::activeModalWidget());
+            dialog->findChild<QSpinBox*>("spnTerminalFont")->setValue(14);
+            acceptDialog(dialog);
+        });
+        act(window, "actToolsOptions")->trigger();
+        QCOMPARE(QSettings().value("ide/terminalFontPt").toInt(), 14);
+        QCOMPARE(term->font().pointSize(), 14);
         settings.remove("ide");
     }
 

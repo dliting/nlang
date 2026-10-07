@@ -182,6 +182,22 @@ void TerminalWidget::syncHiddenPageGeometry() {
     }
 }
 
+void TerminalWidget::setTerminalFontPt(int pointSize) {
+    QFont sized = font();
+    if (sized.pointSize() == pointSize)
+        return;
+    sized.setPointSize(pointSize);
+    setFont(sized);
+    //updateCellMetrics is required on the hidden-window path:
+    //relayoutGrid early-returns before its own copy would run, and the
+    //cell metrics feed sizeHint/columnAt immediately. With the window
+    //visible the second call inside relayoutGrid is a harmless
+    //recompute.
+    updateCellMetrics();
+    relayoutGrid();   //grid dims recompute; Resize emits sizeChanged
+    update();         //no damage event repaints the whole grid
+}
+
 void TerminalWidget::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     //First show: the grid adopts the real geometry (hidden pages adopt
@@ -388,6 +404,19 @@ void TerminalWidget::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void TerminalWidget::wheelEvent(QWheelEvent* event) {
+    if (event->modifiers() & Qt::ControlModifier) {
+        //Ctrl+wheel zooms the font; the size lives in the global
+        //settings, so only the notch direction is reported (the owner
+        //clamps, persists and applies). High-resolution wheels report
+        //sub-notch deltas: accumulate and emit one point per ±120.
+        m_wheelZoomDelta += event->angleDelta().y();
+        while (m_wheelZoomDelta >= 120 || m_wheelZoomDelta <= -120) {
+            emit fontSizeZoomRequested(m_wheelZoomDelta > 0 ? 1 : -1);
+            m_wheelZoomDelta += (m_wheelZoomDelta > 0) ? -120 : 120;
+        }
+        event->accept();
+        return;
+    }
     const int notches = event->angleDelta().y() / 120;
     if (notches == 0) {
         event->ignore();

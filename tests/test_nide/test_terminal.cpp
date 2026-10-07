@@ -85,6 +85,8 @@ private slots:
     void TestShiftInsertIntercepted();
     void TestContextMenuActions();
     void TestSelectAllViewport();
+    void TestCtrlWheelZoomSignal();
+    void TestSetTerminalFontPtRelayouts();
 
     //--- pty (real child processes) ---
     void TestPtyEchoHello();
@@ -789,6 +791,42 @@ void TestTerminal::TestSelectAllViewport() {
     scrolled.selectAll();
     QVERIFY(scrolled.selectedText().contains(QString("L39")));
     QVERIFY(!scrolled.selectedText().contains(QString("L00")));
+}
+
+void TestTerminal::TestCtrlWheelZoomSignal() {
+    TerminalWidget widget;
+    QSignalSpy spy(&widget, &TerminalWidget::fontSizeZoomRequested);
+    QWheelEvent zoomIn(widget.rect().center(), QPointF(), 120,
+                      Qt::NoButton, Qt::ControlModifier, Qt::Vertical);
+    QCoreApplication::sendEvent(&widget, &zoomIn);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0).toInt(), 1);
+    QWheelEvent zoomOut(widget.rect().center(), QPointF(), -120,
+                        Qt::NoButton, Qt::ControlModifier, Qt::Vertical);
+    QCoreApplication::sendEvent(&widget, &zoomOut);
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(spy.at(1).at(0).toInt(), -1);
+    //A plain wheel never zooms (it scrolls the view instead).
+    QWheelEvent plain(widget.rect().center(), QPointF(), 120,
+                      Qt::NoButton, Qt::NoModifier, Qt::Vertical);
+    QCoreApplication::sendEvent(&widget, &plain);
+    QCOMPARE(spy.count(), 2);
+}
+
+void TestTerminal::TestSetTerminalFontPtRelayouts() {
+    TerminalWidget widget;
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    widget.resize(400, 300);
+    const int narrowCell = widget.cellWidth();
+    const int narrowColumns = widget.columns();
+    widget.setTerminalFontPt(20);
+    QVERIFY(widget.cellWidth() > narrowCell);
+    QVERIFY(widget.columns() < narrowColumns);
+    //Same size again is a no-op: the early return keeps metrics.
+    const int wideCell = widget.cellWidth();
+    widget.setTerminalFontPt(20);
+    QCOMPARE(widget.cellWidth(), wideCell);
 }
 
 //--- pty (real child processes) ------------------------------------------------

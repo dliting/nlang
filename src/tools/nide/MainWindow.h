@@ -171,6 +171,7 @@ private slots:
     void onPtyFinished(int exitCode, bool crashed);
     void onTerminalLineCommitted(const QString& line);
     void onTerminalSizeChanged(int columns, int rows);
+    void onTerminalFontZoom(int direction);  //notch: clamp+persist+apply
 
     //--- non-widget signals (connected explicitly) ---
     void onEditorSaveStateChanged(FileEditor* editor);
@@ -230,6 +231,8 @@ private:
     void addEditorTab(FileEditor* editor);
     //Apply a font size to every open code editor (Options / zoom path).
     void applyEditorFontPt(int pointSize);
+    //Apply the terminal's font size (Options / zoom path).
+    void applyTerminalFontPt(int pointSize);
     //Open (or focus) an existing file in an editor tab.
     void editExistingFile(const QString& filePath);
     //Go-to-definition target: open the symbol's source file at a line.
