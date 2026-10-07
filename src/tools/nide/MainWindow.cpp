@@ -54,10 +54,8 @@ MainWindow::MainWindow(QWidget* parent)
     m_pTerminal->setByteSink([this](const std::string& bytes) {
         m_pty.Write(QByteArray(bytes.data(), int(bytes.size())));
     });
-    //The terminal font is its own persisted setting, seeded once here
-    //(a single widget — unlike editors, which seed per tab).
-    m_pTerminal->setTerminalFontPt(
-        SettingsStore::persisted().terminalFontPt());
+    //The terminal font is its own setting, seeded once (a single widget).
+    applyTerminalFontPt(SettingsStore::persisted().terminalFontPt());
     wireSignals();
 
     m_ui->statusBar->showMessage(tr("Ready"));
