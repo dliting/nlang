@@ -377,6 +377,12 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
     <addaction name="separator"/>
     <addaction name="actProjectProp"/>
    </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>编辑(&amp;E)</string>
+    </property>
+    <addaction name="actGotoDefinition"/>
+   </widget>
    <widget class="QMenu" name="menuBuild">
     <property name="title">
      <string>构建(&amp;B)</string>
@@ -429,6 +435,7 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
     <addaction name="actHelpAbout"/>
    </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
    <addaction name="menuView"/>
    <addaction name="menuProject"/>
    <addaction name="menuBuild"/>
@@ -842,6 +849,17 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    </property>
    <property name="shortcut">
     <string>F9</string>
+   </property>
+  </action>
+  <action name="actGotoDefinition">
+   <property name="text">
+    <string>转到定义</string>
+   </property>
+   <property name="toolTip">
+    <string>转到定义</string>
+   </property>
+   <property name="shortcut">
+    <string>F12</string>
    </property>
   </action>
   <action name="actViewSolution">

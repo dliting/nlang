@@ -20,8 +20,18 @@
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="183"/>
-        <source>运行输出</source>
-        <translation>运行输出</translation>
+        <source>输入输出</source>
+        <translation>输入输出</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="380"/>
+        <source>编辑(&amp;E)</source>
+        <translation>编辑(&amp;E)</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="385"/>
+        <source>转到定义</source>
+        <translation>转到定义</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="217"/>
@@ -385,6 +395,11 @@
         <location filename="../ui/MainWindow.ui" line="851"/>
         <source>F9</source>
         <translation>F9</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="862"/>
+        <source>F12</source>
+        <translation>F12</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="862"/>
@@ -1098,6 +1113,14 @@
         <location filename="../SolutionTreeModel.cpp" line="357"/>
         <source>Standalone Files</source>
         <translation>独立文件</translation>
+    </message>
+</context>
+<context>
+    <name>nlang::CodeEditor</name>
+    <message>
+        <location filename="../CodeEditorAssist.cpp" line="260"/>
+        <source>Go to Definition</source>
+        <translation>转到定义</translation>
     </message>
 </context>
 </TS>

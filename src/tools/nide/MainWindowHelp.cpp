@@ -2,6 +2,7 @@
     the NLang IDE main window. ---*/
 #include "MainWindow.h"
 #include "HelpBrowser.h"
+#include "HelpPagePath.h"
 #include "RecentStore.h"
 #include "SettingsDialog.h"
 #include "SettingsStore.h"
@@ -91,40 +92,6 @@ void MainWindow::on_actHelpAbout_triggered() {
            "https://github.com/dliting/nlang</a>")
             .arg(QLatin1String(NLANG_VERSION)));
     box.exec();
-}
-
-namespace {
-//How far above the executable to search for the docs site. The
-//installed layout resolves at hop 1 (bin/../docs/site); the dev nide
-//exe (build-ide/src/tools/nide/Release) and the test exes
-//(<build>/tests/Release) sit deeper -- cap covers both.
-const int MAX_DOC_SITE_HOPS = 6;
-} // namespace
-
-QString MainWindow::locateHelpPage(const QString& documentPagePath) {
-    //Tree order: the language setting's tree first, the other
-    //language as a fallback (translations land per section, and even
-    //a fully shipped tree can miss a brand-new page).
-    const QString primary = SettingsStore::persisted().helpTree();
-    const QStringList trees = primary == LANGUAGE_ZH
-        ? QStringList{LANGUAGE_ZH, LANGUAGE_EN}
-        : QStringList{LANGUAGE_EN, LANGUAGE_ZH};
-    for (const QString& tree : trees) {
-        QDir dir = QCoreApplication::applicationDirPath();
-        for (int hop = 0; hop < MAX_DOC_SITE_HOPS; ++hop) {
-            //use_directory_urls:false output: flat .html files under
-            //the tree root (e.g. "zh/language-spec/overview.html").
-            const QString candidate = dir.absoluteFilePath(
-                QStringLiteral("docs/site/") + tree
-                + QLatin1Char('/') + documentPagePath
-                + QStringLiteral(".html"));
-            if (QFileInfo::exists(candidate))
-                return candidate;
-            if (!dir.cdUp())
-                break;
-        }
-    }
-    return QString();
 }
 
 void MainWindow::on_actHelpGettingStarted_triggered() {

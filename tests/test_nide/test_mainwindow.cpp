@@ -5,8 +5,10 @@
 #include "DebugClient.h"
 #include "FileEditor.h"
 #include "HelpBrowser.h"
+#include "HelpPagePath.h"
 #include "ProjectModel.h"
 #include "TranslationLoader.h"
+#include "WindowLayout.h"
 #include "terminal/TerminalWidget.h"
 
 #include <nlang_version.h>  // generated from the repo VERSION file
@@ -573,6 +575,7 @@ private slots:
         //running process. Neither holds initially.
         QVERIFY(!act(window, "actStartRunning")->isEnabled());
         QVERIFY(!act(window, "actStopRunning")->isEnabled());
+        QVERIFY(!act(window, "actGotoDefinition")->isEnabled());
         QCOMPARE(tabCodes(window)->count(), 0);
         QCOMPARE(solutionView(window)->model()->rowCount(), 0);
     }
@@ -919,6 +922,131 @@ private slots:
         QVERIFY(util != nullptr && util != src);
         QVERIFY(util->toPlainText().contains("string greet"));
         QVERIFY(util->textCursor().block().text().contains("greet"));
+    }
+
+    void testGoToDefinitionFromImportOpensStdLibModule() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("app.n");
+        writeFile(srcPath,
+            "import io;\n"
+            "public int main() {\n"
+            "    return 0;\n"
+            "}\n");
+
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        //The cursor inside the "io" of the import statement: the
+        //package chain itself is the jump target.
+        QTextBlock block = src->document()->findBlockByNumber(0);
+        const int importCol = block.text().indexOf("io");
+        QVERIFY(importCol >= 0);
+        QTextCursor atName(block);
+        atName.setPosition(block.position() + importCol + 1);
+        src->setTextCursor(atName);
+
+        const int tabsBefore = tabCodes(window)->count();
+        QTest::keyClick(src, Qt::Key_F12);
+
+        QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
+        CodeEditor* lib = currentCode(window);
+        QVERIFY(lib != nullptr && lib != src);
+        QVERIFY(lib->toPlainText().contains("native void print"));
+    }
+
+    void testCtrlClickOnImportOpensProjectFile() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QDir appDir(QDir(dir.path()).filePath("App"));
+        QVERIFY(appDir.mkpath("."));
+        writeFile(QDir(dir.path()).filePath("App/App.nproj"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Project name=\"App\">\n"
+            "  <Sources>\n"
+            "    <File path=\"main.n\"/>\n"
+            "  </Sources>\n"
+            "</Project>\n");
+        writeFile(appDir.filePath("util.n"),
+            "public string greet(string who) {\n"
+            "    return \"hi \" + who;\n"
+            "}\n");
+        writeFile(appDir.filePath("main.n"),
+            "import util;\n"
+            "public int main() {\n"
+            "    return 0;\n"
+            "}\n");
+
+        inExec([&] {
+            acceptFileDialog(QDir(dir.path()).filePath("App/App.nproj"));
+        });
+        act(window, "actOpenProject")->trigger();
+        inExec([&] { acceptFileDialog(appDir.filePath("main.n")); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+
+        QTextBlock block = src->document()->findBlockByNumber(0);
+        const int importCol = block.text().indexOf("util");
+        QVERIFY(importCol >= 0);
+        QTextCursor atImport(block);
+        atImport.setPosition(block.position() + importCol + 2);
+        src->setTextCursor(atImport);
+        const QPoint clickPoint = src->cursorRect(atImport).center();
+
+        const int tabsBefore = tabCodes(window)->count();
+        QTest::mouseClick(src->viewport(), Qt::LeftButton,
+            Qt::ControlModifier, clickPoint);
+
+        QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
+        CodeEditor* util = currentCode(window);
+        QVERIFY(util != nullptr && util != src);
+        QVERIFY(util->toPlainText().contains("string greet"));
+    }
+
+    void testGotoDefinitionMenuAction() {
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString srcPath = QDir(dir.path()).filePath("app.n");
+        writeFile(srcPath,
+            "import io;\n"
+            "public int main() {\n"
+            "    return 0;\n"
+            "}\n");
+
+        inExec([&] { acceptFileDialog(srcPath); });
+        act(window, "actOpenFile")->trigger();
+
+        CodeEditor* src = currentCode(window);
+        QVERIFY(src != nullptr);
+        QAction* gotoAction = act(window, "actGotoDefinition");
+        QVERIFY(gotoAction != nullptr);
+
+        //Cursor on the import package: the menu action is live and jumps.
+        QTextBlock block = src->document()->firstBlock();
+        const int importCol = block.text().indexOf("io");
+        QTextCursor atImport(block);
+        atImport.setPosition(block.position() + importCol + 1);
+        src->setTextCursor(atImport);
+        QVERIFY(gotoAction->isEnabled());
+
+        const int tabsBefore = tabCodes(window)->count();
+        gotoAction->trigger();
+        QCOMPARE(tabCodes(window)->count(), tabsBefore + 1);
+        CodeEditor* lib = currentCode(window);
+        QVERIFY(lib != nullptr && lib != src);
+        QVERIFY(lib->toPlainText().contains("native void print"));
+
+        //Cursor away from any jump target: the action grays out (the
+        //now-current editor drives it).
+        QTextCursor atEnd(lib->document());
+        atEnd.movePosition(QTextCursor::End);
+        lib->setTextCursor(atEnd);
+        QVERIFY(!gotoAction->isEnabled());
     }
 
     void testCompletionAfterPackageDot() {
@@ -2486,7 +2614,7 @@ private slots:
 
     void testDefaultLayoutFavorsEditor() {
         MainWindow window;
-        MainWindow::applyDefaultLayout(window);
+        applyDefaultLayout(window);
         window.resize(1000, 700);
         window.show();
 
@@ -2518,12 +2646,12 @@ private slots:
         QSplitter* solutionSplitter =
             window1.findChild<QSplitter*>("splitter");
         solutionSplitter->setSizes({300, 700});
-        MainWindow::saveLayout(window1, writer);
+        saveLayout(window1, writer);
 
         MainWindow window2;
         window2.resize(1000, 700);
         window2.show();
-        QVERIFY(MainWindow::restoreLayout(window2, reader));
+        QVERIFY(restoreLayout(window2, reader));
         QCOMPARE(window2.findChild<QSplitter*>("splitter")->sizes(),
                  solutionSplitter->sizes());
     }
@@ -2540,7 +2668,7 @@ private slots:
         //test).
         window.resize(1000, 700);
         window.show();
-        QVERIFY(!MainWindow::restoreLayout(window, settings));
+        QVERIFY(!restoreLayout(window, settings));
         //The fallback is the editor-favoring default proportions.
         QSplitter* solutionSplitter =
             window.findChild<QSplitter*>("splitter");
@@ -2724,6 +2852,19 @@ private slots:
 
         act(window, "actStartRunning")->trigger();
         QVERIFY(term->mode() == terminal::TerminalWidget::Mode::Character);
+
+        //The runtime prints its interactive "> " prompt when the program
+        //blocks on input; the run page is a ConPTY, i.e. both of the
+        //child's console gates hold — this is the pinned positive side
+        //of that gate (its redirection-silence side is pinned in
+        //test_native_host).
+        //The program's own "Name: " has a ConPTY gap cell before the
+        //prompt (conhost steps over it with CUF); read-back synthesizes
+        //the space, so the needle is the exact screen content.
+        QVERIFY(QTest::qWaitFor([&] {
+            return term->screenText().find("Name: >")
+                != std::string::npos;
+        }, 15000));
 
         //Character mode: keys encode straight to the child's console.
         QTest::keyClicks(term, "Alice");
@@ -3614,31 +3755,31 @@ private slots:
         // trees two hops up. The language setting picks the primary
         // tree; the other language is the fallback for pages whose
         // translation has not landed yet (pending-list state).
-        if (MainWindow::locateHelpPage("language-spec/overview").isEmpty())
+        if (locateHelpPage("language-spec/overview").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         QSettings settings;
         settings.setValue("ide/language", "zh");
-        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nlang")
+        QVERIFY(locateHelpPage("getting-started/what-is-nlang")
                      .endsWith("/zh/getting-started/what-is-nlang.html"));
-        QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
+        QVERIFY(locateHelpPage("language-spec/overview")
                      .endsWith("/zh/language-spec/overview.html"));
-        QVERIFY(MainWindow::locateHelpPage("vm-architecture/overview")
+        QVERIFY(locateHelpPage("vm-architecture/overview")
                      .endsWith("/zh/vm-architecture/overview.html"));
-        QVERIFY(MainWindow::locateHelpPage("cli-tools/overview")
+        QVERIFY(locateHelpPage("cli-tools/overview")
                      .endsWith("/zh/cli-tools/overview.html"));
         settings.setValue("ide/language", "en");
-        QVERIFY(MainWindow::locateHelpPage("language-spec/overview")
+        QVERIFY(locateHelpPage("language-spec/overview")
                      .endsWith("/en/language-spec/overview.html"));
-        QVERIFY(MainWindow::locateHelpPage("cli-tools/overview")
+        QVERIFY(locateHelpPage("cli-tools/overview")
                      .endsWith("/en/cli-tools/overview.html"));
-        QVERIFY(MainWindow::locateHelpPage("getting-started/what-is-nlang")
+        QVERIFY(locateHelpPage("getting-started/what-is-nlang")
                      .endsWith("/en/getting-started/what-is-nlang.html"));
-        QVERIFY(MainWindow::locateHelpPage("no-such-document").isEmpty());
+        QVERIFY(locateHelpPage("no-such-document").isEmpty());
         settings.remove("ide");
     }
 
     void testHelpOpensEmbeddedBrowser() {
-        const QString page = MainWindow::locateHelpPage("language-spec/overview");
+        const QString page = locateHelpPage("language-spec/overview");
         if (page.isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
@@ -3660,7 +3801,7 @@ private slots:
         act(window, "actHelpGettingStarted")->trigger();
         QCOMPARE(window.findChildren<HelpBrowser*>().size(), 1);
         const QString gettingStarted =
-            MainWindow::locateHelpPage("getting-started/what-is-nlang");
+            locateHelpPage("getting-started/what-is-nlang");
         QVERIFY(gettingStarted.endsWith("/getting-started/what-is-nlang.html"));
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(gettingStarted));
         //The Command-line Tools entry mirrors the chapter entries.
@@ -3668,7 +3809,7 @@ private slots:
         act(window, "actHelpCliTools")->trigger();
         QCOMPARE(window.findChildren<HelpBrowser*>().size(), 1);
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(
-                         MainWindow::locateHelpPage("cli-tools/overview")));
+                         locateHelpPage("cli-tools/overview")));
     }
 
     void testHelpSearchFindsResults() {
@@ -3677,7 +3818,7 @@ private slots:
         //which the docs pipeline must therefore generate (the mkdocs
         //search plugin emits only the .json). A real query must surface
         //real results, covering index load and the search run in one go.
-        if (MainWindow::locateHelpPage("language-spec/overview").isEmpty())
+        if (locateHelpPage("language-spec/overview").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
         act(window, "actHelpLanguageSpec")->trigger();
@@ -3744,7 +3885,7 @@ private slots:
     void testHelpLinksNavigateToHtmlPages() {
         //Regression for the directory-listing bug: every internal link in
         //the site must land on a .html page, never a directory index.
-        if (MainWindow::locateHelpPage("language-spec/overview").isEmpty())
+        if (locateHelpPage("language-spec/overview").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
         act(window, "actHelpLanguageSpec")->trigger();

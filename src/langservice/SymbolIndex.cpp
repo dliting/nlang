@@ -89,10 +89,17 @@ std::string PackageFromFilePath(const fs::path& file, const fs::path& root) {
     if (!root.empty()) {
         std::error_code fsError;
         const fs::path rel = fs::relative(file, root, fsError);
-        if (!fsError && !rel.empty()) {
-            std::string dotted = rel.stem().string();
-            for (const fs::path& part : rel.parent_path())
-                dotted = part.string() + "." + dotted;
+        //A path escaping the root ("../lib.n") is not inside it: it
+        //degenerates to the stem, as in the compiler's DeriveModulePath.
+        if (!fsError && !rel.empty() && *rel.begin() != "..") {
+            //Dotify exactly like the compiler: drop the ".n" suffix and
+            //turn every separator into a dot — the components must stay
+            //in path order ("vendor/deep/shapes.n" -> "vendor.deep.shapes").
+            fs::path relStem = rel;
+            relStem.replace_extension();
+            std::string dotted = relStem.generic_string();
+            std::replace(dotted.begin(), dotted.end(), '\\', '.');
+            std::replace(dotted.begin(), dotted.end(), '/', '.');
             return dotted;
         }
     }
@@ -220,6 +227,7 @@ std::string NameOfTypeKind(TypeKind kind) {
 
 void SymbolIndex::Clear() {
     m_symbols.clear();
+    m_packageFiles.clear();
     m_loadedFiles.clear();
     m_loadedDirs.clear();
 }
@@ -246,18 +254,38 @@ void SymbolIndex::LoadFileOnce(const std::string& path,
 }
 
 void SymbolIndex::LoadLibraryDir(const std::string& dir) {
-    fs::path p(dir);
-    if (!fs::is_directory(p))
+    fs::path root(dir);
+    if (!fs::is_directory(root))
         return;
     std::vector<fs::path> files;
-    for (const auto& entry : fs::directory_iterator(p)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".n")
-            files.push_back(entry.path());
+    //Nested directories are package segments ("vendor/graphics.n" is
+    //package "vendor.graphics"), so the walk descends. Dot directories
+    //are pruned: a package segment is an identifier, so nothing under
+    //them can ever be imported. Permission-denied subtrees are skipped
+    //rather than aborting the whole load.
+    const auto walkOptions = fs::directory_options::skip_permission_denied;
+    for (fs::recursive_directory_iterator it(root, walkOptions), end;
+         it != end; ++it) {
+        const fs::directory_entry& entry = *it;
+        if (entry.is_directory()) {
+            if (entry.path().filename().string().rfind(".", 0) == 0)
+                it.disable_recursion_pending();
+            continue;
+        }
+        if (!entry.is_regular_file() || entry.path().extension() != ".n")
+            continue;
+        //Mirror the compiler's source rule: a stem with a dot stands for
+        //a directory and is rejected as a unit, so indexing it would
+        //offer symbols no build can ever resolve (and it excludes
+        //dot-files such as ".foo.n" all the same).
+        if (entry.path().stem().string().find('.') != std::string::npos)
+            continue;
+        files.push_back(entry.path());
     }
     std::sort(files.begin(), files.end());
     for (const fs::path& f : files)
         LoadFileWithPackage(f.string(),
-            PackageFromFilePath(f, p));
+            PackageFromFilePath(f, root));
 }
 
 void SymbolIndex::LoadLibraryDirOnce(const std::string& dir) {
@@ -271,6 +299,10 @@ void SymbolIndex::LoadFileWithPackage(const std::string& path,
     std::ifstream in(path);
     if (!in)
         return;
+    //File-based package truth: recorded on first load only (emplace
+    //keeps the winner), so it cannot disagree with Resolve's
+    //first-match rule when two layers declare one package.
+    m_packageFiles.emplace(package, path);
     std::vector<std::string> pendingDoc;
     std::string line;
     int lineNo = 0;
@@ -294,6 +326,11 @@ const SymbolInfo* SymbolIndex::Resolve(const std::string& ns,
             return &s;
     }
     return nullptr;
+}
+
+std::string SymbolIndex::PackageFilePath(const std::string& ns) const {
+    const auto found = m_packageFiles.find(ns);
+    return found != m_packageFiles.end() ? found->second : std::string();
 }
 
 std::vector<const SymbolInfo*> SymbolIndex::CompletePackage(

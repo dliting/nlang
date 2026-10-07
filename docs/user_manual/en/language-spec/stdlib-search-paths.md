@@ -56,7 +56,12 @@ symbol index, refreshing completion and go-to-definition.
 package-qualified symbol — F12, F6 or Ctrl+click (a pointing-hand cursor
 marks the jump targets while Ctrl is held) — to open its `.n` at the
 declaration: a `native` declaration shows the signature and
-documentation, an ordinary function shows an editable implementation.
+documentation, an ordinary function shows an editable implementation. An
+`import` statement's package name is itself a jump target: Go to
+Definition on it opens the file that declares the package. While Ctrl is
+held, a jumpable name renders as a blue underlined hyperlink, and with the
+cursor on a jump target the Edit menu and the editor's context menu enable
+their Go to Definition (F12) entries too.
 The packages visible to jumps and completion cover the standard library,
 the configured library directories, the open projects' directories and
 each open file's directory; rebuild after editing to pick up the change.

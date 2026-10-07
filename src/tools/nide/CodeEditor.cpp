@@ -61,6 +61,11 @@ CodeEditor::CodeEditor(QWidget* parent)
     connect(this, &QPlainTextEdit::blockCountChanged, this, &CodeEditor::updateLineAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &CodeEditor::updateLineArea);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::highlightCurrentLine);
+    //The main menu's Go to Definition mirrors the cursor's target; a
+    //pure move emits too (cheap probe, keeps the menu state fresh).
+    connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this] {
+        emit jumpTargetAvailable(jumpTargetAt(textCursor()).has_value());
+    });
 
     updateLineAreaWidth(0);
     highlightCurrentLine();
@@ -263,6 +268,25 @@ void CodeEditor::highlightCurrentLine() {
         selection.cursor = textCursor();
         selection.cursor.clearSelection();
         selections.append(selection);
+    }
+
+    //The Ctrl+hover link decoration: the jumpable token under the
+    //pointer renders like a hyperlink (blue + underline). Rebuilt here
+    //so it survives cursor moves (which re-enter this slot).
+    if (m_linkPos >= 0 && m_linkLength > 0) {
+        const QTextBlock block = document()->findBlock(m_linkPos);
+        if (block.isValid()
+            && m_linkPos + m_linkLength
+                <= block.position() + block.length() - 1) {
+            QTextEdit::ExtraSelection selection;
+            selection.format.setForeground(QColor(Qt::blue));
+            selection.format.setFontUnderline(true);
+            selection.cursor = QTextCursor(document());
+            selection.cursor.setPosition(m_linkPos);
+            selection.cursor.setPosition(m_linkPos + m_linkLength,
+                                         QTextCursor::KeepAnchor);
+            selections.append(selection);
+        }
     }
 
     setExtraSelections(selections);

@@ -364,6 +364,75 @@ static void TestResolveDottedPackage() {
     fs::remove_all(tmp);
 }
 
+static void TestNestedPackagesFromLibraryDir() {
+    // A library tree holds nested package paths: "vendor/graphics.n" is
+    // package "vendor.graphics" (the compiler's path-to-package rule).
+    // The walk must descend — a flat walk never sees the file at all.
+    fs::path tmp = fs::temp_directory_path() / "nlang_ls_nested";
+    fs::remove_all(tmp);
+    fs::create_directories(tmp / "vendor" / "deep");
+    fs::create_directories(tmp / ".hidden");
+    std::ofstream(tmp / "vendor" / "graphics.n")
+        << "native int draw(int shape);\n";
+    std::ofstream(tmp / "vendor" / "deep" / "shapes.n")
+        << "native int area(int radius);\n";
+    std::ofstream(tmp / ".hidden" / "secret.n")
+        << "native int hide();\n";
+    std::ofstream(tmp / "bad.stem.n")
+        << "native int dotted();\n";
+
+    SymbolIndex index;
+    index.LoadLibraryDir(tmp.string());
+    CHECK(index.Resolve("vendor.graphics", "draw") != nullptr);
+    CHECK(index.Resolve("vendor.deep.shapes", "area") != nullptr);
+    CHECK(index.PackageFilePath("vendor.graphics")
+        == (tmp / "vendor" / "graphics.n").string());
+    // Nothing under a dot directory can be imported (a package segment
+    // is an identifier), and a dotted stem is a source shape the
+    // compiler rejects — neither may surface in completion.
+    CHECK(!index.HasPackage(".hidden.secret"));
+    CHECK(!index.HasPackage("bad.stem"));
+    fs::remove_all(tmp);
+}
+
+static void TestPackageFilePath() {
+    // PackageFilePath answers "which file declares this package" for
+    // import go-to-definition. It is FILE-based truth, not symbol-based:
+    // a classes-only file indexes no symbols yet still answers — and the
+    // first indexed file wins, mirroring Resolve's first-match rule.
+    SymbolIndex index;
+    index.LoadLibraryDir(STDLIB_DIR);
+    const std::string ioPath = index.PackageFilePath("io");
+    CHECK(ioPath.find("io.n") != std::string::npos);
+    CHECK(index.PackageFilePath("no.such.pkg").empty());
+    //Clear drops the map together with the symbols.
+    index.Clear();
+    CHECK(index.PackageFilePath("io").empty());
+
+    fs::path dirA = fs::temp_directory_path() / "nlang_ls_pkgfile_a";
+    fs::path dirB = fs::temp_directory_path() / "nlang_ls_pkgfile_b";
+    fs::remove_all(dirA);
+    fs::remove_all(dirB);
+    fs::create_directories(dirA);
+    fs::create_directories(dirB);
+    std::ofstream(dirA / "classes_only.n")
+        << "// no package-level functions at all\n"
+        << "class Point {\n"
+        << "    int x;\n"
+        << "}\n";
+    std::ofstream(dirA / "dup.n") << "int f(int a) {\n    return a;\n}\n";
+    std::ofstream(dirB / "dup.n") << "int f(int a) {\n    return a;\n}\n";
+
+    SymbolIndex two;
+    two.LoadLibraryDir(dirA.string());
+    two.LoadLibraryDir(dirB.string());
+    CHECK(two.PackageFilePath("classes_only")
+        == (dirA / "classes_only.n").string());
+    CHECK(two.PackageFilePath("dup") == (dirA / "dup.n").string());
+    fs::remove_all(dirA);
+    fs::remove_all(dirB);
+}
+
 int main() {
     TestLoadsRealStdLib();
     TestResolvePrint();
@@ -379,6 +448,8 @@ int main() {
     TestLoadLibraryDirOnce();
     TestResolveFirstInsertWins();
     TestResolveDottedPackage();
+    TestNestedPackagesFromLibraryDir();
+    TestPackageFilePath();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

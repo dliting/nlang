@@ -121,6 +121,8 @@ void MainWindow::addEditorTab(FileEditor* editor) {
         code->setEditorFontPt(SettingsStore::persisted().editorFontPt());
         connect(code, &CodeEditor::goToDefinitionRequested, this,
                 &MainWindow::openLibraryDefinition);
+        connect(code, &CodeEditor::jumpTargetAvailable, this,
+                &MainWindow::onEditorJumpTargetChanged);
         connect(code, &CodeEditor::fontSizeZoomRequested, this,
                 &MainWindow::onEditorFontZoom);
         connect(code, &CodeEditor::breakpointToggled, this,
@@ -141,6 +143,20 @@ void MainWindow::onEditorFontZoom(int direction) {
     settings.setEditorFontPt(settings.editorFontPt() + direction);
     settings.persist();
     applyEditorFontPt(settings.editorFontPt());
+}
+
+void MainWindow::on_actGotoDefinition_triggered() {
+    //The action's enablement already gated on a target; the probe rerun
+    //is the harmless no-op safety net.
+    if (CodeEditor* code = currentCodeEditor())
+        code->goToDefinitionAtCursor();
+}
+
+void MainWindow::onEditorJumpTargetChanged(bool available) {
+    //Only the CURRENT editor drives the menu; background editors keep
+    //their own availability for when their tab comes forward.
+    if (qobject_cast<CodeEditor*>(sender()) == currentCodeEditor())
+        m_ui->actGotoDefinition->setEnabled(available);
 }
 
 void MainWindow::applyEditorFontPt(int pointSize) {

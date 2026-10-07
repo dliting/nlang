@@ -5,12 +5,19 @@ unit tests ---*/
 #include "../../../src/tools/nide/FileEditor.h"
 #include "nlang/langservice/SymbolIndex.h"
 
+#include <QAction>
+#include <QApplication>
+#include <QContextMenuEvent>
 #include <QDir>
 #include <QFile>
+#include <QMenu>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QTextBlock>
 #include <QTextStream>
+#include <QTimer>
 #include <QtTest>
 
 using namespace nlang;
@@ -475,6 +482,305 @@ private slots:
                  QStringLiteral("a.b.c"));
         // Whitespace / punctuation column away from an identifier.
         QCOMPARE(CodeEditor::qualifiedNameAt("io. print", 3), QString());
+    }
+
+    // --- import package extraction (import go-to-definition target) ---
+
+    void testImportPackageAt() {
+        // "import io;": 0-5 keyword, 6 space, 7-8 ident, 9 ';'.
+        QCOMPARE(CodeEditor::importPackageAt("import io;", 7),
+                 QStringLiteral("io"));
+        QCOMPARE(CodeEditor::importPackageAt("import io;", 8),
+                 QStringLiteral("io"));
+        // Boundary right after the ident still jumps; ';' and the
+        // keyword itself do not.
+        QCOMPARE(CodeEditor::importPackageAt("import io;", 9),
+                 QStringLiteral("io"));
+        QCOMPARE(CodeEditor::importPackageAt("import io;", 10), QString());
+        QCOMPARE(CodeEditor::importPackageAt("import io;", 3), QString());
+        // Dotted chain: any segment's column yields the whole chain
+        // (the package, not a member call).
+        QCOMPARE(CodeEditor::importPackageAt("import vendor.graphics;", 8),
+                 QStringLiteral("vendor.graphics"));
+        QCOMPARE(CodeEditor::importPackageAt("import vendor.graphics;", 15),
+                 QStringLiteral("vendor.graphics"));
+        // Leading whitespace and a missing semicolon are both fine.
+        QCOMPARE(CodeEditor::importPackageAt("    import gfx.color", 15),
+                 QStringLiteral("gfx.color"));
+        // Not an import line / keyword-prefixed word / empty chain.
+        QCOMPARE(CodeEditor::importPackageAt("io.print(1)", 4), QString());
+        QCOMPARE(CodeEditor::importPackageAt("imports io;", 9), QString());
+        QCOMPARE(CodeEditor::importPackageAt("import ;", 7), QString());
+        // The ".*" wildcard is not part of the chain: the name is the
+        // package ("utils", never "utils."), and a column on a chain
+        // segment still resolves it.
+        QCOMPARE(CodeEditor::importPackageAt("import utils.*;", 8),
+                 QStringLiteral("utils"));
+        int start = -1;
+        int length = -1;
+        QCOMPARE(CodeEditor::importPackageAt("import vendor.gfx.*;", 15,
+                                             &start, &length),
+                 QStringLiteral("vendor.gfx"));
+        QCOMPARE(start, 7);
+        QCOMPARE(length, 10);
+    }
+
+    // --- Ctrl+hover link decoration / context menu (go-to-definition) ---
+
+    //Index fixture shared by the assist tests: io.n beside the temp dir
+    //is the package "io" (three members so completion filtering has a
+    //list to narrow).
+    void writeIoPackage() {
+        QFile f(abs("io.n"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("native void print(string s);\n"
+                "native void println(string s);\n"
+                "native void readInt();\n");
+    }
+
+    void testCtrlHoverLinkDecoration() {
+        writeIoPackage();
+        langservice::SymbolIndex index;
+        index.LoadFile(abs("io.n").toStdString());
+
+        CodeEditor editor;
+        editor.setSymbolIndex(&index);
+        editor.setPlainText("import io;\npublic int main() { return 0; }\n");
+
+        //Ctrl+hover over "io": the token gains a blue-underlined
+        //hyperlink selection covering exactly the package name.
+        const QTextBlock importBlock = editor.document()->firstBlock();
+        const int ioStart = importBlock.text().indexOf("io");
+        QTextCursor atIo(importBlock);
+        atIo.setPosition(importBlock.position() + ioStart + 1);
+        const QPointF hoverPos(editor.cursorRect(atIo).center());
+
+        auto moveEvent = [&editor, &hoverPos](Qt::KeyboardModifiers mods) {
+            QMouseEvent move(QEvent::MouseMove, hoverPos, hoverPos,
+                             hoverPos, Qt::NoButton, Qt::NoButton, mods);
+            QCoreApplication::sendEvent(editor.viewport(), &move);
+        };
+        auto ctrlEvent = [&editor](QEvent::Type type,
+                                   Qt::KeyboardModifiers mods) {
+            QKeyEvent key(type, Qt::Key_Control, mods);
+            QCoreApplication::sendEvent(&editor, &key);
+        };
+        //The blue-underlined link span, or a null cursor when plain.
+        auto linkSpan = [&editor]() {
+            for (const QTextEdit::ExtraSelection& sel :
+                 editor.extraSelections()) {
+                if (sel.format.fontUnderline()
+                    && sel.format.foreground().color() == QColor(Qt::blue)
+                    && sel.cursor.hasSelection())
+                    return sel.cursor;
+            }
+            return QTextCursor();
+        };
+
+        //Moving with Ctrl held decorates the token as a link.
+        moveEvent(Qt::ControlModifier);
+        QVERIFY2(linkSpan().hasSelection(),
+                 "Ctrl+hover must decorate the token as a link");
+        QCOMPARE(linkSpan().selectionStart(),
+                 importBlock.position() + ioStart);
+        QCOMPARE(linkSpan().selectionEnd(),
+                 importBlock.position() + ioStart + 2);
+        QCOMPARE(editor.viewport()->cursor().shape(),
+                 Qt::PointingHandCursor);
+
+        //A move without Ctrl clears the decoration.
+        moveEvent(Qt::NoModifier);
+        QVERIFY(!linkSpan().hasSelection());
+
+        //Pressing Ctrl while the pointer sits still must show the
+        //affordance too (the modifier change alone refreshes it)...
+        ctrlEvent(QEvent::KeyPress, Qt::ControlModifier);
+        QVERIFY2(linkSpan().hasSelection(),
+                 "Ctrl press alone must decorate the hovered token");
+        QCOMPARE(editor.viewport()->cursor().shape(),
+                 Qt::PointingHandCursor);
+
+        //...and releasing it (still no mouse move) must revert at once.
+        ctrlEvent(QEvent::KeyRelease, Qt::NoModifier);
+        QVERIFY(!linkSpan().hasSelection());
+        QCOMPARE(editor.viewport()->cursor().shape(),
+                 Qt::IBeamCursor);
+    }
+
+    void testContextMenuOffersGoToDefinition() {
+        writeIoPackage();
+        langservice::SymbolIndex index;
+        index.LoadFile(abs("io.n").toStdString());
+
+        CodeEditor editor;
+        editor.setSymbolIndex(&index);
+        editor.setPlainText("import io;\npublic int main() { return 0; }\n");
+
+        //A synthetic QMenu::exec may register as neither active popup
+        //nor active modal (see test_mainwindow's activeMenu): scan the
+        //visible top-level menus as the fallback.
+        auto activeMenu = []() -> QMenu* {
+            if (QMenu* menu =
+                    qobject_cast<QMenu*>(QApplication::activePopupWidget()))
+                return menu;
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                if (QMenu* menu = qobject_cast<QMenu*>(widget)) {
+                    if (menu->isVisible())
+                        return menu;
+                }
+            }
+            return nullptr;
+        };
+        //Open the context menu, snapshot its actions (the handler deletes
+        //the menu on return) and close it inside the exec loop. The event
+        //goes to the viewport: that is the widget under the mouse in a
+        //real right-click, and QAbstractScrollArea's viewport filter
+        //routes it back into the editor's contextMenuEvent.
+        auto menuTexts = [&]() {
+            QStringList texts;
+            QTimer::singleShot(0, [&texts, &activeMenu]() {
+                if (QMenu* menu = activeMenu()) {
+                    for (QAction* action : menu->actions())
+                        texts << action->text();
+                    menu->close();
+                }
+            });
+            QContextMenuEvent open(QContextMenuEvent::Mouse, QPoint(5, 5),
+                                   QPoint(100, 100));
+            QCoreApplication::sendEvent(editor.viewport(), &open);
+            return texts;
+        };
+
+        //Cursor on the import package: the menu heads with the jump.
+        QTextCursor atImport(editor.document()->firstBlock());
+        atImport.setPosition(atImport.block().position()
+                             + atImport.block().text().indexOf("io") + 1);
+        editor.setTextCursor(atImport);
+        const QStringList withTarget = menuTexts();
+        QVERIFY2(withTarget.contains(CodeEditor::tr("Go to Definition")),
+                 qPrintable(withTarget.join(QStringLiteral(" | "))));
+
+        //Cursor on plain text: no jump entry.
+        QTextCursor atEnd(editor.document());
+        atEnd.movePosition(QTextCursor::End);
+        editor.setTextCursor(atEnd);
+        QVERIFY(!menuTexts().contains(CodeEditor::tr("Go to Definition")));
+    }
+
+    // --- completion popup: mouse select, type-to-filter ---
+
+    //The visible completion popup of the editor (hidden-but-pending-
+    //delete ones from a previous round are excluded), null when none.
+    QListWidget* visibleCompletionPopup(CodeEditor* editor) {
+        for (QListWidget* list : editor->findChildren<QListWidget*>())
+            if (list->isVisible())
+                return list;
+        return nullptr;
+    }
+
+    void testCompletionPopupMouseSelect() {
+        writeIoPackage();
+        langservice::SymbolIndex index;
+        index.LoadFile(abs("io.n").toStdString());
+
+        CodeEditor editor;
+        editor.setSymbolIndex(&index);
+        editor.resize(400, 300);
+        editor.show();
+        QTest::qWaitForWindowExposed(&editor);
+
+        // "io" + '.' opens the package completion popup.
+        editor.setPlainText("io");
+        QTextCursor cursor = editor.textCursor();
+        cursor.movePosition(QTextCursor::End);
+        editor.setTextCursor(cursor);
+        QTest::keyClick(&editor, Qt::Key_Period);
+        QListWidget* popup = visibleCompletionPopup(&editor);
+        QVERIFY2(popup != nullptr, "'.' after a known package opens the popup");
+        QCOMPARE(popup->count(), 3);
+
+        //Two invariants make the list clickable at all: it lives inside
+        //the editor as a child of the viewport (a top-level window such
+        //as Qt::ToolTip would swallow the press) and it never takes the
+        //keyboard focus (typing must keep filtering, not go to the list).
+        QVERIFY2(!popup->isWindow(), "the popup must not be a top-level");
+        QCOMPARE(popup->parentWidget(), editor.viewport());
+        QCOMPARE(popup->focusPolicy(), Qt::NoFocus);
+
+        //Clicking the first candidate inserts it after "io." and closes
+        //the popup like a menu (visualItemRect is in the list's viewport
+        //coordinates, so the click goes to that viewport).
+        const QRect itemRect = popup->visualItemRect(popup->item(0));
+        QTest::mouseClick(popup->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          itemRect.center());
+        QVERIFY2(editor.toPlainText().contains(QStringLiteral("io.print")),
+                 "clicking a candidate must insert its name");
+        QVERIFY2(visibleCompletionPopup(&editor) == nullptr,
+                 "applying a candidate must close the popup");
+    }
+
+    void testCompletionPopupFiltersAsTyped() {
+        writeIoPackage();
+        langservice::SymbolIndex index;
+        index.LoadFile(abs("io.n").toStdString());
+
+        CodeEditor editor;
+        editor.setSymbolIndex(&index);
+        editor.resize(400, 300);
+        editor.show();
+        QTest::qWaitForWindowExposed(&editor);
+
+        auto openPopup = [&editor] {
+            editor.setPlainText("io");
+            QTextCursor cursor = editor.textCursor();
+            cursor.movePosition(QTextCursor::End);
+            editor.setTextCursor(cursor);
+            QTest::keyClick(&editor, Qt::Key_Period);
+        };
+
+        //Typing narrows the list live; the typed text stays in the
+        //document ("io.p" after 'p', "io.pr" after 'r').
+        openPopup();
+        QListWidget* popup = visibleCompletionPopup(&editor);
+        QVERIFY(popup != nullptr);
+        QCOMPARE(popup->count(), 3);
+        QTest::keyClick(&editor, Qt::Key_P);
+        popup = visibleCompletionPopup(&editor);
+        QVERIFY2(popup != nullptr,
+                 "typing an identifier character must keep the popup");
+        QCOMPARE(popup->count(), 2);  // print, println
+        QCOMPARE(editor.toPlainText(), QString("io.p"));
+        QTest::keyClick(&editor, Qt::Key_R);
+        QCOMPARE(editor.toPlainText(), QString("io.pr"));
+
+        //Backspace widens the list again (the filter shrinks), and
+        //another letter narrows it to a single candidate.
+        QTest::keyClick(&editor, Qt::Key_Backspace);
+        popup = visibleCompletionPopup(&editor);
+        QVERIFY(popup != nullptr);
+        QCOMPARE(popup->count(), 2);
+        QTest::keyClick(&editor, Qt::Key_Backspace);
+        popup = visibleCompletionPopup(&editor);
+        QVERIFY(popup != nullptr);
+        QCOMPARE(popup->count(), 3);  // empty filter: the full list
+        QTest::keyClick(&editor, Qt::Key_R);
+        popup = visibleCompletionPopup(&editor);
+        QVERIFY(popup != nullptr);
+        QCOMPARE(popup->count(), 1);  // readInt
+
+        //Enter applies the current candidate, replacing the typed filter.
+        QTest::keyClick(&editor, Qt::Key_Return);
+        QVERIFY(editor.toPlainText().contains(QStringLiteral("io.readInt")));
+        QVERIFY(visibleCompletionPopup(&editor) == nullptr);
+
+        //A non-identifier key (space) dismisses the popup and reaches
+        //the document normally.
+        openPopup();
+        QVERIFY(visibleCompletionPopup(&editor) != nullptr);
+        QTest::keyClick(&editor, Qt::Key_Space);
+        QVERIFY2(visibleCompletionPopup(&editor) == nullptr,
+                 "a non-identifier key must dismiss the popup");
+        QCOMPARE(editor.toPlainText(), QString("io. "));
     }
 
     // --- hover text formatting ---

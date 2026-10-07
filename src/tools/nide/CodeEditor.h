@@ -4,11 +4,13 @@
 
 #include "FileEditor.h"
 
+#include <QContextMenuEvent>
 #include <QHelpEvent>
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QSet>
 
+#include <optional>
 #include <vector>
 
 namespace nlang {
@@ -44,6 +46,11 @@ class CodeEditor : public QPlainTextEdit {
 public:
     //Width of the leading breakpoint column of the gutter.
     static const int kBreakpointColumnWidth = 16;
+    //Completion popup geometry: fixed width, one row per candidate and
+    //the height cap that turns it into a scrolling list.
+    static const int kCompletionPopupWidth = 260;
+    static const int kCompletionItemHeight = 18;
+    static const int kCompletionPopupMaxHeight = 180;
 
     explicit CodeEditor(QWidget* parent = nullptr);
     ~CodeEditor() override;
@@ -84,10 +91,27 @@ public:
 
     //Pure text helpers, exposed for unit testing:
     // Extract the qualified name ("ns.name") under a 0-based column of a
-    // single line, or "" when the cursor is not on ns.name.
-    static QString qualifiedNameAt(const QString& lineText, int column);
+    // single line, or "" when the cursor is not on ns.name. On success,
+    // the token's 0-based start column and length (optional out).
+    static QString qualifiedNameAt(const QString& lineText, int column,
+                                   int* start = nullptr,
+                                   int* length = nullptr);
+    // The package chain of an "import pkg(.pkg)*;" statement under a
+    // 0-based column of a single line, or "" when the column is outside
+    // the chain or the line is not an import. A trailing ".*" wildcard
+    // is not part of the chain. On success, the chain's start column and
+    // length (optional out).
+    static QString importPackageAt(const QString& lineText, int column,
+                                   int* start = nullptr,
+                                   int* length = nullptr);
     // Build the hover text for a library symbol.
     static QString formatSymbol(const langservice::SymbolInfo& symbol);
+    //Whether the cursor sits on a jump target (drives the main menu's
+    //Go to Definition enablement).
+    bool hasJumpTargetAtCursor() const;
+    //F12 / menu entry point: jump from the cursor; true when a target
+    //resolved and the request was emitted.
+    bool goToDefinitionAtCursor();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -95,15 +119,23 @@ protected:
     //click in the editor and any focus loss close it. A Ctrl+click on a
     //resolvable name goes to the definition instead.
     void mousePressEvent(QMouseEvent* event) override;
-    //Pointing-hand affordance over resolvable names while Ctrl is held
-    //(the Ctrl+click jump preview).
+    //Pointing-hand affordance and hyperlink decoration over resolvable
+    //names while Ctrl is held (the Ctrl+click jump preview).
     void mouseMoveEvent(QMouseEvent* event) override;
+    //Clears the Ctrl+hover link decoration when the pointer leaves.
+    void leaveEvent(QEvent* event) override;
+    //The editor context menu with Go to Definition at its head when the
+    //cursor sits on a jump target.
+    void contextMenuEvent(QContextMenuEvent* event) override;
     //Ctrl+wheel zooms the editor font (the size lives in the global
     //settings; the owner applies it to every editor and persists it).
     void wheelEvent(QWheelEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
     bool event(QEvent* event) override;
+    //Ctrl press/release refresh the hover affordance immediately: the
+    //modifier can change while the mouse sits still.
     void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
 
 private slots:
     void updateLineArea(const QRect& rect, int dy);
@@ -127,9 +159,28 @@ private:
     //package is the whole dotted prefix, the name its last segment.
     const langservice::SymbolInfo* resolveAt(
         const QTextCursor& cursor) const;
+    //A Ctrl+click / F12 jump target: the destination file and 1-based
+    //line, plus the token span (document position + length) the
+    //hyperlink-style hover decoration covers. Single source for
+    //F12/Ctrl+click, the pointing-hand preview and the link decoration.
+    struct JumpTarget {
+        QString filePath;
+        int line = 0;
+        int tokenPos = 0;
+        int tokenLength = 0;
+    };
+    std::optional<JumpTarget> jumpTargetAt(const QTextCursor& cursor) const;
     //Go to the definition at the cursor (F12/F6/Ctrl+click); true when
-    //a symbol resolved and the request was emitted.
+    //a target resolved and the request was emitted.
     bool goToDefinitionAt(const QTextCursor& cursor);
+    //Show (-1 clears) the blue-underlined hyperlink decoration over the
+    //given token span while Ctrl is held; rebuilds the extra selections.
+    void setLinkHighlight(int tokenPos, int tokenLength);
+    //Apply the Ctrl+hover affordance for a viewport position: pointing-hand
+    //cursor and link decoration over a jump target while ctrlHeld, plain
+    //I-beam and no decoration otherwise. Shared by mouse moves and Ctrl
+    //press/release (the modifier can change while the pointer sits still).
+    void updateLinkAffordance(const QPoint& viewportPos, bool ctrlHeld);
     //Open a completion popup right after a typed '.' when the token to
     //the left is a known namespace.
     void triggerPackageCompletion();
@@ -138,6 +189,14 @@ private:
     //Build, fill and position the completion popup for candidates.
     void showCompletionPopup(
         const std::vector<const langservice::SymbolInfo*>& candidates);
+    //Route a key press to the open completion popup: true when the popup
+    //consumed it (navigation, acceptance, filtering, dismissal). False
+    //means the popup either closed on this key or was never open, so the
+    //caller continues with the normal key handling.
+    bool consumeCompletionPopupKey(QKeyEvent* event);
+    //Narrow the open popup to the candidates whose name starts with the
+    //typed filter; closes it when nothing matches.
+    void refilterCompletion();
     void applyCompletion(QListWidgetItem* item);
     void closeCompletion();
 
@@ -151,6 +210,21 @@ private:
 
     const langservice::SymbolIndex* m_symbolIndex = nullptr;
     QListWidget* m_completionPopup = nullptr;
+    //Completion state while the popup is open: the full candidate list,
+    //the identifier characters typed since the trigger '.' (the live
+    //filter) and the document position right after that '.' (applying a
+    //candidate replaces everything typed between it and the cursor).
+    std::vector<const langservice::SymbolInfo*> m_completionCandidates;
+    QString m_completionFilter;
+    int m_completionAnchor = -1;
+    //Ctrl+hover link decoration: document position (-1 = none) and
+    //length of the token currently rendered as a hyperlink.
+    int m_linkPos = -1;
+    int m_linkLength = 0;
+    //Last pointer position over the viewport (viewport coordinates),
+    //(-1,-1) while the pointer is elsewhere. A Ctrl press or release
+    //re-evaluates the link affordance at this resting position.
+    QPoint m_lastHoverPos{-1, -1};
 
 signals:
     //A gutter click toggled the breakpoint of this 1-based line; the
@@ -162,6 +236,10 @@ signals:
     //One Ctrl+wheel notch: +1 zooms in, -1 zooms out. The owner applies
     //the new size to every editor and persists it.
     void fontSizeZoomRequested(int direction);
+    //The cursor moved (or the symbol index changed): whether a jump
+    //target is at the cursor now. The owner mirrors this in the main
+    //menu's Go to Definition enablement.
+    void jumpTargetAvailable(bool available);
 };
 
 //--- CodeFileEditor: a source file bound to a CodeEditor.

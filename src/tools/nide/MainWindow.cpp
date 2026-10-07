@@ -1,10 +1,11 @@
 /*--- MainWindow.cpp - main window of the NLang IDE: construction,
-    layout persistence, context accessors, menu state and tool paths.
+    context accessors, menu state and tool paths.
     The domain TU family: MainWindowSolution.cpp (solution/project),
     MainWindowEditors.cpp (files/editors/rename), MainWindowBuildRun.cpp,
     MainWindowDebug.cpp, MainWindowHelp.cpp (tools/view/help/recent). ---*/
 #include "MainWindow.h"
 #include "BreakpointStore.h"
+#include "CodeEditor.h"
 #include "CompileLogBrowser.h"
 #include "DebugClient.h"
 #include "FileEditor.h"
@@ -13,6 +14,7 @@
 #include "SearchPathArgs.h"
 #include "SettingsStore.h"
 #include "SolutionTreeModel.h"
+#include "WindowLayout.h"
 #include "terminal/TerminalWidget.h"
 
 #include "ui_MainWindow.h"
@@ -25,7 +27,6 @@
 #include <QMenu>
 #include <QSettings>
 #include <QSet>
-#include <QSplitter>
 #include <QTabBar>
 #include <QVBoxLayout>
 
@@ -122,89 +123,15 @@ MainWindow::~MainWindow() {
     clearEditors();
 }
 
-namespace {
-
-//Default splitter proportions. QSplitter::setSizes reads them as
-//RELATIVE shares, so these are not pixels: the solution column keeps a
-//narrow fifth, the output pane a quarter of the vertical space.
-const int DEFAULT_SOLUTION_TREE_SHARE = 20;
-const int DEFAULT_EDITOR_SHARE = 80;
-const int DEFAULT_CODE_SHARE = 75;
-const int DEFAULT_OUTPUT_SHARE = 25;
-
-//QSettings keys for the two splitter states.
-const char* const LAYOUT_SOLUTION_SPLITTER_KEY =
-    "layout/solutionSplitter";
-const char* const LAYOUT_EDITOR_SPLITTER_KEY = "layout/editorSplitter";
-
-} // namespace
-
-//--- layout ---
-
-void MainWindow::applyDefaultLayout(MainWindow& window) {
-    //The tree column must not grab horizontal space (stretch 0/1);
-    //inside the right column the editor pane wins (stretch 1/0).
-    QSplitter* solutionSplitter =
-        window.findChild<QSplitter*>(QStringLiteral("splitter"));
-    if (solutionSplitter != nullptr) {
-        solutionSplitter->setStretchFactor(0, 0);
-        solutionSplitter->setStretchFactor(1, 1);
-        solutionSplitter->setSizes({DEFAULT_SOLUTION_TREE_SHARE,
-                                     DEFAULT_EDITOR_SHARE});
-    }
-    QSplitter* editorSplitter =
-        window.findChild<QSplitter*>(QStringLiteral("splitter_2"));
-    if (editorSplitter != nullptr) {
-        editorSplitter->setStretchFactor(0, 1);
-        editorSplitter->setStretchFactor(1, 0);
-        editorSplitter->setSizes({DEFAULT_CODE_SHARE,
-                                  DEFAULT_OUTPUT_SHARE});
-    }
-}
-
-void MainWindow::saveLayout(const MainWindow& window,
-                            QSettings& settings) {
-    if (QSplitter* splitter =
-            window.findChild<QSplitter*>(QStringLiteral("splitter")))
-        settings.setValue(LAYOUT_SOLUTION_SPLITTER_KEY,
-                          splitter->saveState());
-    if (QSplitter* splitter =
-            window.findChild<QSplitter*>(QStringLiteral("splitter_2")))
-        settings.setValue(LAYOUT_EDITOR_SPLITTER_KEY,
-                          splitter->saveState());
-}
-
-bool MainWindow::restoreLayout(MainWindow& window, QSettings& settings) {
-    QSplitter* solutionSplitter =
-        window.findChild<QSplitter*>(QStringLiteral("splitter"));
-    QSplitter* editorSplitter =
-        window.findChild<QSplitter*>(QStringLiteral("splitter_2"));
-    if (solutionSplitter == nullptr || editorSplitter == nullptr)
-        return false;
-
-    const bool restored =
-        solutionSplitter->restoreState(
-            settings.value(LAYOUT_SOLUTION_SPLITTER_KEY).toByteArray())
-        && editorSplitter->restoreState(
-            settings.value(LAYOUT_EDITOR_SPLITTER_KEY).toByteArray());
-    //A state with a collapsed pane is as useless as no state at all.
-    const bool panesVisible =
-        solutionSplitter->sizes().at(0) > 0
-        && solutionSplitter->sizes().at(1) > 0
-        && editorSplitter->sizes().at(0) > 0
-        && editorSplitter->sizes().at(1) > 0;
-    if (!restored || !panesVisible) {
-        applyDefaultLayout(window);
-        return false;
-    }
-    return true;
-}
-
 //--- context accessors ---
 
 FileEditor* MainWindow::currentEditor() const {
     QWidget* widget = m_ui->tabCodes->currentWidget();
     return widget != nullptr ? m_editors.findEditor(widget) : nullptr;
+}
+
+CodeEditor* MainWindow::currentCodeEditor() const {
+    return qobject_cast<CodeEditor*>(m_ui->tabCodes->currentWidget());
 }
 
 ProjectNode* MainWindow::currentProject() const {
@@ -362,6 +289,12 @@ void MainWindow::updateMenuState() {
     m_ui->actCloseSolution->setEnabled(hasSolution);
     m_ui->actNewSolution->setEnabled(true);
     m_ui->actOpenSolution->setEnabled(true);
+
+    //Go to Definition tracks the current editor's cursor target.
+    if (const CodeEditor* code = currentCodeEditor())
+        m_ui->actGotoDefinition->setEnabled(code->hasJumpTargetAtCursor());
+    else
+        m_ui->actGotoDefinition->setEnabled(false);
 }
 
 void MainWindow::updateDebugMenuState(bool canBuild) {

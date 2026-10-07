@@ -34,6 +34,7 @@ add_library(nide_editor
     FileEditor.cpp
     CodeEditor.cpp
     CodeEditorAssist.cpp
+    CodeEditorCompletion.cpp
     CodeFileEditor.cpp
     SyntaxHighlighter.cpp
     BreakpointStore.cpp

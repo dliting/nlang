@@ -14,6 +14,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -62,7 +63,8 @@ public:
     // change).
     void Clear();
 
-    // Index every *.n file directly under dir (non-recursive).
+    // Index every *.n file under dir, at any depth: a nested path is a
+    // package path ("vendor/graphics.n" is package "vendor.graphics").
     void LoadLibraryDir(const std::string& dir);
 
     // Same, but parse each dir at most once per generation (Clear resets
@@ -89,6 +91,11 @@ public:
     const SymbolInfo* Resolve(const std::string& ns,
                               const std::string& name) const;
 
+    // The first-indexed file that declares a package ("" when unknown).
+    // File-based truth, independent of the symbol scan: a classes-only
+    // file answers too. Feeds import go-to-definition.
+    std::string PackageFilePath(const std::string& ns) const;
+
     // All symbols declared in a namespace (completion after "io.").
     std::vector<const SymbolInfo*> CompletePackage(
         const std::string& ns) const;
@@ -111,6 +118,8 @@ private:
                              const std::string& package);
 
     std::vector<SymbolInfo> m_symbols;
+    //Package -> declaring file, first load wins (Resolve's rule).
+    std::unordered_map<std::string, std::string> m_packageFiles;
     std::unordered_set<std::string> m_loadedFiles;
     std::unordered_set<std::string> m_loadedDirs;
 };

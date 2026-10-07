@@ -21,7 +21,6 @@ class QCloseEvent;
 class QFileInfo;
 class QIcon;
 class QModelIndex;
-class QSettings;
 class QTreeWidgetItem;
 
 namespace nlang {
@@ -94,30 +93,9 @@ public:
     //otherwise.
     ~MainWindow() override;
 
-    //--- layout (default proportions + QSettings persistence) ---
-    //Splitter proportions favoring the code editor: narrow solution
-    //column, editor-dominant right side. Static on purpose: restore
-    //logic and tests apply it to any window.
-    static void applyDefaultLayout(MainWindow& window);
-
-    //Persist/restore both splitter states (QMainWindow::saveState does
-    //NOT cover central-widget splitters). Tests inject a temporary ini;
-    //restore falls back to the default layout and returns false on
-    //garbage or a collapsed pane.
-    static void saveLayout(const MainWindow& window, QSettings& settings);
-    static bool restoreLayout(MainWindow& window, QSettings& settings);
-
-    //--- help (docs site in the embedded viewer) ---
-    //First ancestor dir whose docs/site/<tree> holds the page, where
-    //<tree> follows the language setting ("zh"/"en") with the other
-    //language as fallback. The search is tree-major: the primary tree
-    //is walked across all ancestor hops before the fallback tree
-    //starts, so a primary hit at hop 5 beats a fallback hit at hop 1.
-    //Empty when no tree holds the page (installed layout:
-    //bin/../docs/site one hop up; dev tree resolves a few hops
-    //deeper). documentPagePath is relative to docs/site/<tree>
-    //without the .html suffix. Tests call it directly.
-    static QString locateHelpPage(const QString& documentPagePath);
+    //Layout persistence and docs-site page location are window-shell
+    //helpers: free functions in WindowLayout.h / HelpPagePath.h (they
+    //never touch MainWindow state, so tests drive them directly).
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -149,6 +127,9 @@ private slots:
     void on_actAddNewFile_triggered();
     void on_actRemoveFile_triggered();
     void on_actProjectProp_triggered();
+
+    //--- 编辑 ---
+    void on_actGotoDefinition_triggered();
 
     //--- 构建 / 运行 / 调试 ---
     void on_actBuild_triggered();
@@ -195,6 +176,9 @@ private slots:
     void onEditorSaveStateChanged(FileEditor* editor);
     void onEditorPositionChanged();
     void onEditorFontZoom(int direction);  //notch: clamp+persist+apply
+    //A code editor's cursor target flipped; mirrors the CURRENT editor
+    //into the main menu's Go to Definition enablement.
+    void onEditorJumpTargetChanged(bool available);
     void onSolutionSelectionChanged();
     void onFileRenameRequested(FileNode* file, const QString& newName);
     void onCompileLogItemSelected(const CompileLogItemInfo& info);
@@ -233,6 +217,8 @@ private:
 
     //--- context accessors (null when nothing applicable is selected) ---
     FileEditor* currentEditor() const;
+    //The current tab's CodeEditor (null for non-code tabs / no tab).
+    CodeEditor* currentCodeEditor() const;
     ProjectNode* currentProject() const;
     FileNode* currentFile() const;
     //The project a File->New file joins: the tree selection, else the

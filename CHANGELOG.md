@@ -124,6 +124,19 @@ All notable changes to NLang are documented here. The format follows
 - nide: the debug terminal's line mode heads the pending input line
   with the same `> ` prompt, and the committed line is echoed to the
   history with the prompt included.
+- nide editor: an `import` statement's package name is itself a jump
+  target — Go to Definition (F12, F6 or Ctrl+click) opens the file
+  that declares the package. Multi-segment packages resolve through
+  nested library directories: the index walk descends into
+  subdirectories (dot directories are pruned), and the path-to-package
+  rule now mirrors the compiler's, so the index offers only symbols a
+  build can resolve.
+- nide editor: while Ctrl is held, a jumpable name renders as a blue
+  underlined hyperlink; the decoration clears when the pointer leaves
+  the editor or the key is released.
+- nide editor: the editor's context menu, and a new Edit menu, carry
+  Go to Definition (F12); both entries are enabled only while the
+  cursor sits on a jump target and follow the cursor as it moves.
 
 ### Changed
 - Manual: the Standard Library chapter is now a two-level section with
@@ -176,6 +189,11 @@ All notable changes to NLang are documented here. The format follows
   writing a space, so "Name: > " read back as "Name:>", and copying
   such a line lost the spaces; a blank cell now reads back as one
   space per column it spans.
+- nide editor: the package completion popup is a child of the editor
+  viewport now, so a candidate can be picked with the mouse — as a
+  tool-tip top-level window it swallowed the press, and the list could
+  only be dismissed. Typing an identifier narrows the list to the
+  names starting with what was typed instead of closing the popup.
 
 
 ## [0.7.6] - 2026-10-02
