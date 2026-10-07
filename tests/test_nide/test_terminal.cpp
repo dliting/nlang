@@ -38,13 +38,16 @@ private slots:
     void TestScrollIntoScrollback();
     void TestChineseWideChars();
     void TestResetClears();
+    void TestResetHomesCursor();
     void TestResize();
+    void TestResizeTracksCursor();
     void TestSendCharEncodes();
     void TestSendKeyEncodes();
 
     //--- widget render ---
     void TestFeedAndScreenText();
     void TestResetTerminal();
+    void TestFeedUtf8NormalizesNewline();
     void TestColumnsRowsFromSize();
     void TestSelectionAndCopy();
     void TestBlankCellReadsAsSpace();
@@ -156,6 +159,21 @@ void TestTerminal::TestResetClears() {
     QCOMPARE(emulator.CellAt(0, 0).foreground, 0xC50F1Fu);
 }
 
+//vterm_state_reset homes the real cursor to (0,0) WITHOUT a movecursor
+//callback (only the CSI 'c' dispatcher emits one, and vterm_screen_reset
+//bypasses it), so a callback-mirrored cursor stays at the previous
+//session's last position and the line-mode prompt drew mid-screen over
+//the freshly blanked grid. The tracked cursor must follow the reset.
+void TestTerminal::TestResetHomesCursor() {
+    TerminalEmulator emulator;
+    emulator.Feed("abc\r\ndef\r\nxy");
+    QCOMPARE(emulator.cursorRow(), 2);
+    QCOMPARE(emulator.cursorColumn(), 2);
+    emulator.Reset();
+    QCOMPARE(emulator.cursorRow(), 0);
+    QCOMPARE(emulator.cursorColumn(), 0);
+}
+
 void TestTerminal::TestResize() {
     TerminalEmulator emulator;
     emulator.Resize(100, 40);
@@ -163,6 +181,27 @@ void TestTerminal::TestResize() {
     QCOMPARE(emulator.rows(), 40);
     emulator.Feed("\x1b[40;100H" "x");   // bottom-right corner
     QCOMPARE(emulator.CellAt(39, 99).chars[0], uint32_t('x'));
+}
+
+//Growing the grid backfills from the scrollback and shifts the cursor
+//down one row per restored line (on_resize ends in updatecursor, so the
+//move does arrive as a callback). Pins that the reported cursor lands
+//on the reflowed position — bottom row, one past the restored content
+//— which the line-mode prompt position rides on.
+void TestTerminal::TestResizeTracksCursor() {
+    TerminalEmulator emulator;     // 24 rows
+    for (int i = 0; i < 30; ++i) {
+        char line[16];
+        std::snprintf(line, sizeof(line), "L%02d\r\n", i);
+        emulator.Feed(line);
+    }
+    QCOMPARE(emulator.cursorRow(), 23);   //bottom row after the scrolls
+    emulator.Resize(80, 30);   //grow: 6 scrollback lines return
+    QCOMPARE(int(emulator.scrollback().size()), 1);   //L00 stays out
+    QCOMPARE(emulator.cursorRow(), 29);   //pushed down by 6 restorations
+    QCOMPARE(emulator.cursorColumn(), 0);
+    QVERIFY(emulator.ScreenText().find("L01") != std::string::npos);
+    QVERIFY(emulator.ScreenText().find("L00") == std::string::npos);
 }
 
 void TestTerminal::TestSendCharEncodes() {
@@ -206,6 +245,26 @@ void TestTerminal::TestResetTerminal() {
     QVERIFY(widget.screenText().find("scroll") != std::string::npos);
     widget.resetTerminal();
     QCOMPARE(widget.screenText(), std::string(""));
+}
+
+//feedUtf8 carries cooked text (debug-channel output and lifecycle
+//diagnostics), where a lone '\n' means "this line is done" — but a
+//terminal newline is CRLF, and libvterm's bare LF only moves down, so
+//the column survives every newline and program output staircases to
+//the right (the wire even splits io.print into a text half plus a
+//literal-\n half). feedUtf8 must normalize every bare LF to CRLF, and
+//an explicit CRLF passes through as ONE line break.
+void TestTerminal::TestFeedUtf8NormalizesNewline() {
+    TerminalWidget widget;
+    widget.feedUtf8("line one");
+    widget.feedUtf8("\n");          //the wire's newline half
+    widget.feedUtf8("line two");
+    widget.feedUtf8("\n");
+    QCOMPARE(widget.screenText(), std::string("line one\nline two"));
+
+    TerminalWidget embedded;
+    embedded.feedUtf8("a\nb\r\nc");
+    QCOMPARE(embedded.screenText(), std::string("a\nb\nc"));
 }
 
 void TestTerminal::TestColumnsRowsFromSize() {

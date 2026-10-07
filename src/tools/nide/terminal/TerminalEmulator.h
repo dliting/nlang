@@ -58,8 +58,13 @@ public:
 
     int columns() const { return m_columns; }
     int rows() const { return m_rows; }
-    int cursorColumn() const { return m_cursorColumn; }
-    int cursorRow() const { return m_cursorRow; }
+    //Cursor position is queried from the state on demand, NOT mirrored
+    //from the movecursor callback: vterm_state_reset (behind Reset for
+    //every fresh session) homes the real cursor without emitting one,
+    //so a mirror goes stale exactly when the next session's prompt
+    //needs the homed position.
+    int cursorColumn() const;
+    int cursorRow() const;
 
     //Visible-screen readout. Column iteration everywhere skips by
     //cell.width (a wide char's right half is never read individually).
@@ -89,8 +94,7 @@ public:
 
 private:
     static int OnDamage(VTermRect rect, void* user);
-    static int OnMoveCursor(VTermPos pos, VTermPos oldPos,
-                            int visible, void* user);
+    static int OnMoveCursor(VTermPos, VTermPos, int, void* user);
     static int OnPushLine(int cols, const VTermScreenCell* cells, void* user);
     static int OnPopLine(int cols, VTermScreenCell* cells, void* user);
 
@@ -101,10 +105,9 @@ private:
 
     VTerm* m_vt = nullptr;
     VTermScreen* m_screen = nullptr;
+    VTermState* m_state = nullptr;   //for cursor queries (cursorRow())
     int m_columns = 0;
     int m_rows = 0;
-    int m_cursorColumn = 0;
-    int m_cursorRow = 0;
     int m_firstDamaged = -1;
     int m_lastDamaged = -1;
     bool m_cursorMoved = false;

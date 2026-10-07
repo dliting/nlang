@@ -69,6 +69,9 @@ public:
 
     //Program output in (VT bytes): feed the emulator, repaint damage.
     void feedBytes(const QByteArray& vtBytes);
+    //Cooked text (debug-channel output, lifecycle diagnostics): every
+    //bare '\n' is normalized to CRLF — LF alone would leave the column
+    //put and the text would staircase to the right.
     void feedUtf8(const QString& text);
     //Fresh session: clear screen + scrollback + selection.
     void resetTerminal();

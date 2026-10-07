@@ -105,6 +105,7 @@ TerminalEmulator::TerminalEmulator() {
                 self->m_byteSink(std::string(bytes, len));
         }, this);
     m_screen = vterm_obtain_screen(m_vt);
+    m_state = vterm_obtain_state(m_vt);
     vterm_screen_set_callbacks(m_screen, &kScreenCallbacks, this);
     vterm_screen_set_damage_merge(m_screen, VTERM_DAMAGE_ROW);
     vterm_screen_enable_altscreen(m_screen, 1);
@@ -147,6 +148,18 @@ void TerminalEmulator::Reset() {
     m_firstDamaged = 0;
     m_lastDamaged = m_rows - 1;
     m_cursorMoved = true;
+}
+
+int TerminalEmulator::cursorRow() const {
+    VTermPos pos;
+    vterm_state_get_cursorpos(m_state, &pos);
+    return pos.row;
+}
+
+int TerminalEmulator::cursorColumn() const {
+    VTermPos pos;
+    vterm_state_get_cursorpos(m_state, &pos);
+    return pos.col;
 }
 
 TermCell TerminalEmulator::CellAt(int row, int column) const {
@@ -300,11 +313,11 @@ int TerminalEmulator::OnDamage(VTermRect rect, void* user) {
     return 1;
 }
 
-int TerminalEmulator::OnMoveCursor(VTermPos pos, VTermPos,
+int TerminalEmulator::OnMoveCursor(VTermPos, VTermPos,
                                    int, void* user) {
+    //The cursor is queried, not mirrored (see cursorRow()); this
+    //callback only flags the repaint.
     TerminalEmulator* self = static_cast<TerminalEmulator*>(user);
-    self->m_cursorColumn = pos.col;
-    self->m_cursorRow = pos.row;
     self->m_cursorMoved = true;
     return 1;
 }

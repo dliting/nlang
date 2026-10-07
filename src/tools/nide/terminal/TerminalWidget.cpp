@@ -59,7 +59,25 @@ void TerminalWidget::feedBytes(const QByteArray& vtBytes) {
 }
 
 void TerminalWidget::feedUtf8(const QString& text) {
-    feedBytes(text.toUtf8());
+    //Cooked-text channel: its '\n' means "this line is done" (the debug
+    //wire even delivers io.print's newline as its own event), but a
+    //terminal newline is CRLF — libvterm's bare LF only moves down and
+    //the column survives every newline, so the text staircases right.
+    //Normalize every bare LF to CRLF; an explicit CRLF passes through as
+    //one break. Raw pty bytes use feedBytes and stay untouched.
+    QString cooked;
+    cooked.reserve(text.size() + text.count(QLatin1Char('\n')));
+    for (int i = 0; i < text.size(); ++i) {
+        const QChar c = text.at(i);
+        if (c == QLatin1Char('\n')
+                && (i == 0 || text.at(i - 1) != QLatin1Char('\r'))) {
+            cooked += QLatin1Char('\r');
+            cooked += QLatin1Char('\n');
+        } else {
+            cooked += c;
+        }
+    }
+    feedBytes(cooked.toUtf8());
 }
 
 void TerminalWidget::resetTerminal() {
