@@ -400,6 +400,13 @@ private slots:
         QCOMPARE(dialog.editorFontPt(), EDITOR_FONT_DEFAULT_PT);
         fontSpin->setValue(EDITOR_FONT_DEFAULT_PT + 4);
         QCOMPARE(dialog.editorFontPt(), EDITOR_FONT_DEFAULT_PT + 4);
+        //The terminal font spin seeds and echoes like the editor's.
+        QSpinBox* terminalSpin =
+            dialog.findChild<QSpinBox*>("spnTerminalFont");
+        QVERIFY(terminalSpin != nullptr);
+        QCOMPARE(dialog.terminalFontPt(), TERMINAL_FONT_DEFAULT_PT);
+        terminalSpin->setValue(TERMINAL_FONT_DEFAULT_PT + 4);
+        QCOMPARE(dialog.terminalFontPt(), TERMINAL_FONT_DEFAULT_PT + 4);
         //Unknown seeds fall back to system/small, never an unset combo.
         SettingsStore alien;  // raw setters keep invalid values in the
                               // store; the dialog does the normalizing

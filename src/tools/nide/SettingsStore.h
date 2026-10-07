@@ -24,6 +24,12 @@ inline constexpr int EDITOR_FONT_MIN_PT = 6;
 inline constexpr int EDITOR_FONT_MAX_PT = 48;
 inline constexpr int EDITOR_FONT_DEFAULT_PT = 10;
 
+//Terminal font size bounds and default, in points — its own setting,
+//independent of the editor font size (and vice versa).
+inline constexpr int TERMINAL_FONT_MIN_PT = 6;
+inline constexpr int TERMINAL_FONT_MAX_PT = 48;
+inline constexpr int TERMINAL_FONT_DEFAULT_PT = 10;
+
 //The Tools > Options values. No UI: SettingsDialog edits the form,
 //this persists (QSettings org/app from main.cpp). The value surface is
 //deliberately two strings -- every derived decision (translator
@@ -62,6 +68,10 @@ public:
     //bounds.
     int editorFontPt() const { return m_editorFontPt; }
     void setEditorFontPt(int pt);
+    //Terminal font size in points, clamped to the TERMINAL_FONT_*_PT
+    //bounds.
+    int terminalFontPt() const { return m_terminalFontPt; }
+    void setTerminalFontPt(int pt);
 
     //Locale handed to installTranslations.
     QLocale languageLocale() const
@@ -96,6 +106,7 @@ private:
    QStringList m_librarySearchPaths;
     bool m_noWarn = false;
     int m_editorFontPt = EDITOR_FONT_DEFAULT_PT;
+    int m_terminalFontPt = TERMINAL_FONT_DEFAULT_PT;
 };
 
 } // namespace nlang

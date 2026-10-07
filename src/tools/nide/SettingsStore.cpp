@@ -14,6 +14,7 @@ const char* const TOOLBAR_ICON_SIZE_KEY = "ide/toolbarIconSize";
 const char* const LIBRARY_SEARCH_PATHS_KEY = "ide/librarySearchPaths";
 const char* const NO_WARN_KEY = "compiler/noWarn";
 const char* const EDITOR_FONT_PT_KEY = "ide/editorFontPt";
+const char* const TERMINAL_FONT_PT_KEY = "ide/terminalFontPt";
 } // namespace
 
 void SettingsStore::load(QSettings& settings) {
@@ -31,6 +32,12 @@ void SettingsStore::load(QSettings& settings) {
         settings.value(EDITOR_FONT_PT_KEY, EDITOR_FONT_DEFAULT_PT)
             .toInt(),
         EDITOR_FONT_MAX_PT);
+    //Same clamp as the editor font: the terminal seeds straight from
+    //here at startup.
+    m_terminalFontPt = qBound(TERMINAL_FONT_MIN_PT,
+        settings.value(TERMINAL_FONT_PT_KEY, TERMINAL_FONT_DEFAULT_PT)
+            .toInt(),
+        TERMINAL_FONT_MAX_PT);
 }
 
 void SettingsStore::save(QSettings& settings) const {
@@ -40,10 +47,16 @@ void SettingsStore::save(QSettings& settings) const {
     settings.setValue(LIBRARY_SEARCH_PATHS_KEY, m_librarySearchPaths);
     settings.setValue(NO_WARN_KEY, m_noWarn);
     settings.setValue(EDITOR_FONT_PT_KEY, m_editorFontPt);
+    settings.setValue(TERMINAL_FONT_PT_KEY, m_terminalFontPt);
 }
 
 void SettingsStore::setEditorFontPt(int pt) {
     m_editorFontPt = qBound(EDITOR_FONT_MIN_PT, pt, EDITOR_FONT_MAX_PT);
+}
+
+void SettingsStore::setTerminalFontPt(int pt) {
+    m_terminalFontPt =
+        qBound(TERMINAL_FONT_MIN_PT, pt, TERMINAL_FONT_MAX_PT);
 }
 
 SettingsStore SettingsStore::persisted() {

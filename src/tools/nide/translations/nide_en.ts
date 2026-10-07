@@ -645,6 +645,11 @@
         <translation>Editor font size:</translation>
     </message>
     <message>
+        <location filename="../ui/SettingsDialog.ui" line="74"/>
+        <source>Terminal font size:</source>
+        <translation>Terminal font size:</translation>
+    </message>
+    <message>
         <location filename="../ui/SettingsDialog.ui" line="63"/>
         <source> pt</source>
         <translation> pt</translation>

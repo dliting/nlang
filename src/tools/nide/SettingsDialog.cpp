@@ -27,6 +27,8 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     m_ui->cmbIconSize->addItem(tr("Small (32x32)"), TOOLBAR_ICON_SMALL);
     m_ui->cmbIconSize->addItem(tr("Large (48x48)"), TOOLBAR_ICON_LARGE);
     m_ui->spnEditorFont->setRange(EDITOR_FONT_MIN_PT, EDITOR_FONT_MAX_PT);
+    m_ui->spnTerminalFont->setRange(TERMINAL_FONT_MIN_PT,
+                                    TERMINAL_FONT_MAX_PT);
     connect(m_ui->btnBrowse, &QPushButton::clicked, this,
             &SettingsDialog::onBrowseDirectory);
 
@@ -55,6 +57,7 @@ void SettingsDialog::init(const SettingsStore& settings) {
     m_pathEditor->setPaths(settings.librarySearchPaths());
     m_ui->chkNoWarn->setChecked(settings.noWarn());
     m_ui->spnEditorFont->setValue(settings.editorFontPt());
+    m_ui->spnTerminalFont->setValue(settings.terminalFontPt());
 }
 
 QString SettingsDialog::language() const {
@@ -81,6 +84,10 @@ bool SettingsDialog::noWarn() const {
 
 int SettingsDialog::editorFontPt() const {
     return m_ui->spnEditorFont->value();
+}
+
+int SettingsDialog::terminalFontPt() const {
+    return m_ui->spnTerminalFont->value();
 }
 
 void SettingsDialog::onBrowseDirectory() {

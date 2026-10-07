@@ -27,6 +27,7 @@ private slots:
         //suppression, off by default.
         QVERIFY(!store.noWarn());
         QCOMPARE(store.editorFontPt(), 10);
+        QCOMPARE(store.terminalFontPt(), 10);
     }
 
     void testRoundTrip() {
@@ -39,10 +40,12 @@ private slots:
         store.setLibrarySearchPaths({"D:/libs/acme", "D:/vendor/x"});
         store.setNoWarn(true);
         store.setEditorFontPt(14);
+        store.setTerminalFontPt(11);
         store.save(settings);
         //Pin the persisted key spelling (the whole suite's convention).
         QVERIFY(settings.value("compiler/noWarn").toBool());
         QCOMPARE(settings.value("ide/editorFontPt").toInt(), 14);
+        QCOMPARE(settings.value("ide/terminalFontPt").toInt(), 11);
 
         SettingsStore reloaded;
         QSettings reloadedSettings(iniPath(), QSettings::IniFormat);
@@ -54,6 +57,7 @@ private slots:
                  QStringList({"D:/libs/acme", "D:/vendor/x"}));
         QVERIFY(reloaded.noWarn());
         QCOMPARE(reloaded.editorFontPt(), 14);
+        QCOMPARE(reloaded.terminalFontPt(), 11);
     }
 
     void testEditorFontClamped() {
@@ -65,6 +69,17 @@ private slots:
         //In-range values pass through untouched.
         store.setEditorFontPt(13);
         QCOMPARE(store.editorFontPt(), 13);
+    }
+
+    void testTerminalFontClamped() {
+        SettingsStore store;
+        store.setTerminalFontPt(0);
+        QCOMPARE(store.terminalFontPt(), 6);
+        store.setTerminalFontPt(9999);
+        QCOMPARE(store.terminalFontPt(), 48);
+        //In-range values pass through untouched.
+        store.setTerminalFontPt(13);
+        QCOMPARE(store.terminalFontPt(), 13);
     }
 
     void testLocaleForLanguage() {

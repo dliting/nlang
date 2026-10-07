@@ -645,6 +645,11 @@
         <translation>编辑器字体大小：</translation>
     </message>
     <message>
+        <location filename="../ui/SettingsDialog.ui" line="74"/>
+        <source>Terminal font size:</source>
+        <translation>终端字体大小：</translation>
+    </message>
+    <message>
         <location filename="../ui/SettingsDialog.ui" line="63"/>
         <source> pt</source>
         <translation> pt</translation>

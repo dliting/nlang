@@ -69,10 +69,24 @@
      </property>
     </widget>
    </item>
-   <item row="4" column="0" colspan="2">
-    <widget class="QWidget" name="wgtLibraryPaths"/>
+   <item row="4" column="0">
+    <widget class="QLabel" name="lblTerminalFont">
+     <property name="text">
+      <string>Terminal font size:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="4" column="1">
+    <widget class="QSpinBox" name="spnTerminalFont">
+     <property name="suffix">
+      <string> pt</string>
+     </property>
+    </widget>
    </item>
    <item row="5" column="0" colspan="2">
+    <widget class="QWidget" name="wgtLibraryPaths"/>
+   </item>
+   <item row="6" column="0" colspan="2">
     <widget class="QGroupBox" name="grpCompiler">
      <property name="title">
       <string>Compiler options</string>
@@ -91,7 +105,7 @@
      </layout>
     </widget>
    </item>
-   <item row="6" column="0" colspan="2">
+   <item row="7" column="0" colspan="2">
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

@@ -38,6 +38,7 @@ public:
     QStringList librarySearchPaths() const;  // editor contents, in order
     bool noWarn() const;  // compiler-options group
     int editorFontPt() const;  // points, within the EDITOR_FONT_*_PT bounds
+    int terminalFontPt() const;  // points, within the TERMINAL_FONT_*_PT bounds
 
 private slots:
     void onBrowseDirectory();
