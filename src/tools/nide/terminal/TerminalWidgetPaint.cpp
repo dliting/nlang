@@ -21,12 +21,6 @@ QColor ToColor(unsigned int rgb) {
 
 constexpr unsigned int kSelectionBackground = 0x264F78;
 
-QRect CellRect(int column, int row, int cellWidth, int cellHeight) {
-    return QRect(kCellPadding + column * cellWidth,
-                 kCellPadding + row * cellHeight,
-                 cellWidth, cellHeight);
-}
-
 } // namespace
 
 void TerminalWidget::drawPendingLine(QPainter& painter) {
@@ -41,10 +35,17 @@ void TerminalWidget::drawPendingLine(QPainter& painter) {
     //Drawing starts at the live cursor cell (where output would go).
     int row = m_emulator.cursorRow();
     int column = m_emulator.cursorColumn();
+    //The '>' prompt heads the input line even while it is still empty.
+    if (row < rows() && column + kLinePromptColumns <= columns()) {
+        painter.setPen(ToColor(kDefaultForeground));
+        painter.drawText(cellRunRect(column, row, kLinePromptColumns),
+                         Qt::AlignLeft | Qt::AlignVCenter, kLinePrompt);
+        column += kLinePromptColumns;
+    }
     if (!drawPendingRun(painter, left, row, column, false)) return;
     //Caret: a 2px vertical bar at the edit position.
     if (row < rows() && column < columns()) {
-        QRect caret = CellRect(column, row, m_cellWidth, m_cellHeight);
+        QRect caret = cellRunRect(column, row);
         caret.setWidth(2);
         painter.fillRect(caret, ToColor(kDefaultForeground));
     }
@@ -73,8 +74,10 @@ bool TerminalWidget::drawPendingRun(QPainter& painter, const QString& run,
             ++row;
             if (row >= rows()) return false;
         }
-        const QRect cellRect =
-            CellRect(column, row, m_cellWidth, m_cellHeight);
+        //The draw rect spans the same cells the advance skips: a wide
+        //scalar clipped to one cell would render sheared in half.
+        const bool wide = metrics.horizontalAdvance(scalar) > m_cellWidth;
+        const QRect cellRect = cellRunRect(column, row, wide ? 2 : 1);
         painter.setPen(ToColor(kDefaultForeground));
         painter.drawText(cellRect, Qt::AlignLeft | Qt::AlignVCenter,
                          scalar);
@@ -82,8 +85,7 @@ bool TerminalWidget::drawPendingRun(QPainter& painter, const QString& run,
             const int y = cellRect.bottom() - 2;
             painter.drawLine(cellRect.left(), y, cellRect.right(), y);
         }
-        column += metrics.horizontalAdvance(scalar) > m_cellWidth
-                      ? 2 : 1;
+        column += wide ? 2 : 1;
     }
     return true;
 }
@@ -109,8 +111,10 @@ void TerminalWidget::paintEvent(QPaintEvent*) {
 
 void TerminalWidget::drawCell(QPainter& painter, int displayRow,
                               int column, const TermCell& cell) {
-    const QRect cellRect =
-        CellRect(column, displayRow, m_cellWidth, m_cellHeight);
+    //A wide cell draws across its full span: clipping the run to the
+    //single left cell shears CJK glyphs in half.
+    const int span = cell.width > 1 ? cell.width : 1;
+    const QRect cellRect = cellRunRect(column, displayRow, span);
     unsigned int foreground = cell.foreground;
     unsigned int background = cell.background;
     if (cell.reverse) std::swap(foreground, background);
@@ -137,15 +141,13 @@ void TerminalWidget::drawCursorBlock(QPainter& painter) {
         return;
     const int row = m_emulator.cursorRow();
     const int column = m_emulator.cursorColumn();
-    if (row < 0 || row >= rows() || column < 0 || column >= columns())
+    //A wide char's cursor (and its inverted glyph) spans both cells;
+    //cursorBlockRect is the one authority on that rect (see its comment).
+    const QRect cellRect = cursorBlockRect(column, row);
+    if (cellRect.isNull())
         return;
     const TermCell cell = m_emulator.CellAt(row, column);
-    const QRect cellRect =
-        CellRect(column, row, m_cellWidth, m_cellHeight);
-    //A wide char's cursor spans its two cells.
-    const int span = m_cellWidth * (cell.width > 0 ? cell.width : 1);
-    painter.fillRect(cellRect.adjusted(0, 0, span - m_cellWidth, 0),
-                     ToColor(kDefaultForeground));
+    painter.fillRect(cellRect, ToColor(kDefaultForeground));
     if (cell.charCount > 0) {
         painter.setPen(ToColor(kDefaultBackground));
         painter.setFont(cell.bold ? m_boldFont : font());

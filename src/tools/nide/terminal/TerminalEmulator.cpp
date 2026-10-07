@@ -179,12 +179,24 @@ std::string TerminalEmulator::LineText(int row) const {
         if (!vterm_screen_get_cell(
                 m_screen, VTermPos{row, column}, &cell))
             break;
-        for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL
-                        && cell.chars[i] != 0; ++i)
-            AppendUtf8(out, cell.chars[i]);
+        if (cell.chars[0] == 0) {
+            //A cell holding no glyph is blank screen space: read it back
+            //as one space per column it spans (a half-erased wide pair
+            //reports width 2 with no glyph left, and both columns are
+            //blank). conhost advances over a gap with CUF (ESC [1C)
+            //instead of writing ' ', so without this a line loses its
+            //interior blanks ("Name: >" -> "Name:>").
+            const int blankColumns = cell.width > 0 ? cell.width : 1;
+            out.append(static_cast<std::size_t>(blankColumns), ' ');
+        } else {
+            for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL
+                            && cell.chars[i] != 0; ++i)
+                AppendUtf8(out, cell.chars[i]);
+        }
         column += cell.width > 0 ? cell.width : 1;
     }
-    //Trailing blank cells are not part of the line's content.
+    //Trailing blank cells are not part of the line's content, whether
+    //written as spaces or synthesized above.
     while (!out.empty() && out.back() == ' ') out.pop_back();
     return out;
 }

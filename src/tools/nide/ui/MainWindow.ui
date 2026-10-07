@@ -180,7 +180,7 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
            </widget>
            <widget class="QWidget" name="tabExecuteOut">
             <attribute name="title">
-             <string>运行输出</string>
+             <string>输入输出</string>
             </attribute>
             <layout class="QVBoxLayout" name="verticalLayout_4">
              <property name="spacing">

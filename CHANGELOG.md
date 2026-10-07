@@ -121,6 +121,9 @@ All notable changes to NLang are documented here. The format follows
   must be consoles, so a direct run, `ncc` running a program and the
   nide run page get it, while any pipe or redirection keeps both
   streams byte-exact for scripted input.
+- nide: the debug terminal's line mode heads the pending input line
+  with the same `> ` prompt, and the committed line is echoed to the
+  history with the prompt included.
 
 ### Changed
 - Manual: the Standard Library chapter is now a two-level section with
@@ -150,6 +153,8 @@ All notable changes to NLang are documented here. The format follows
   ncc/nvm/ndb/ndisasm references, the running guide and FAQ, module
   serialization and the library-mechanism design note; README, examples
   and the issue template follow the new artifact names.
+- nide: the bottom panel tab "Run Output" is renamed "Input & Output" —
+  it carries program input as well as output.
 
 ### Fixed
 - nide editor: the package completion popup now dismisses like a menu
@@ -162,6 +167,15 @@ All notable changes to NLang are documented here. The format follows
   cleanly and then silently emit no code — the call was not even
   evaluated. Field stores keep working; the receiver expression of a
   member left value is still evaluated exactly once.
+- nide terminal: a wide glyph (CJK) at a non-zero column was clipped to
+  its left grid cell — the draw rect now spans the glyph's columns, and
+  the caret block and the repaint damage follow the same span; line
+  mode's pending line got the same treatment.
+- nide terminal: reading a line back dropped its interior blank cells.
+  conhost steps over a gap with a cursor-forward escape instead of
+  writing a space, so "Name: > " read back as "Name:>", and copying
+  such a line lost the spaces; a blank cell now reads back as one
+  space per column it spans.
 
 
 ## [0.7.6] - 2026-10-02

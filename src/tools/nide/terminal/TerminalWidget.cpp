@@ -134,10 +134,8 @@ void TerminalWidget::repaintDamaged() {
                            (lastRow - firstRow + 1) * m_cellHeight);
     if (cursorMoved) {
         //Repaint the cursor's old cell too, not just the new one.
-        updateRect = updateRect.united(cursorRect()).united(QRect(
-            kCellPadding + m_lastCursorColumn * m_cellWidth,
-            kCellPadding + m_lastCursorRow * m_cellHeight,
-            m_cellWidth, m_cellHeight));
+        updateRect = updateRect.united(cursorRect()).united(
+            cursorBlockRect(m_lastCursorColumn, m_lastCursorRow));
         m_lastCursorRow = m_emulator.cursorRow();
         m_lastCursorColumn = m_emulator.cursorColumn();
     }
@@ -277,15 +275,37 @@ QPoint TerminalWidget::cellCenter(int column, int row) const {
                       + m_cellHeight / 2);
 }
 
-QRect TerminalWidget::cursorRect() const {
-    if (m_scrollOffset != 0) return QRect();   //scrolled back: no cursor
-    const int row = m_emulator.cursorRow();
-    const int column = m_emulator.cursorColumn();
-    if (row < 0 || row >= rows() || column < 0 || column >= columns())
-        return QRect();
+//The single grid-geometry primitive for painting: the rect of a run
+//whose first cell is (column, row), spanning `spanCells` cells. The
+//origin stride is ALWAYS one cell — only the width widens for a span
+//(wide glyph, line prompt). Two defects follow from violating that
+//invariant, and the signature makes both unrepresentable: multiplying
+//the stride by the span shifts every run not at column 0 to the right
+//(the wide-glyph offset bug), and ignoring the span clips a wide glyph
+//to one cell (the wide-glyph clip bug).
+QRect TerminalWidget::cellRunRect(int column, int row,
+                                  int spanCells) const {
     return QRect(kCellPadding + column * m_cellWidth,
                  kCellPadding + row * m_cellHeight,
-                 m_cellWidth, m_cellHeight);
+                 m_cellWidth * spanCells, m_cellHeight);
+}
+
+//The block the cursor inverts: the cell under (column, row) widened to
+//that cell's own span, so a wide glyph's block covers both grid cells.
+//The paint pass, the blink repaint and the damage rect of the previous
+//cursor position must all use this rect — a one-cell rect leaves the
+//right half of a wide block on screen after the blink-off pass, and the
+//same residue behind when the cursor moves off a wide cell.
+QRect TerminalWidget::cursorBlockRect(int column, int row) const {
+    if (row < 0 || row >= rows() || column < 0 || column >= columns())
+        return QRect();
+    const TermCell cell = m_emulator.CellAt(row, column);
+    return cellRunRect(column, row, cell.width > 0 ? cell.width : 1);
+}
+
+QRect TerminalWidget::cursorRect() const {
+    if (m_scrollOffset != 0) return QRect();   //scrolled back: no cursor
+    return cursorBlockRect(m_emulator.cursorColumn(), m_emulator.cursorRow());
 }
 
 int TerminalWidget::columnAt(int x) const {

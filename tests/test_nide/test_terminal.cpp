@@ -47,6 +47,13 @@ private slots:
     void TestResetTerminal();
     void TestColumnsRowsFromSize();
     void TestSelectionAndCopy();
+    void TestBlankCellReadsAsSpace();
+    void TestWideCharPaintsBothCells();
+    void TestWideCharPaintsAtOffset();
+    void TestWideCharPendingLinePaints();
+    void TestWideCharCursorBlockSpansCell();
+    void TestLineModePromptPainted();
+    void TestLineModePromptEcho();
 
     //--- input modes / IME ---
     void TestLineEditorScalars();
@@ -234,6 +241,134 @@ void TestTerminal::TestSelectionAndCopy() {
     //the read-back assertion fail for reasons outside this code.
     QCOMPARE(widget.selectedText(), QString("hello"));
     widget.copySelection();   //smoke: must not assert/crash
+}
+
+//conhost steps over a gap in a line with CUF (ESC [1C) instead of
+//writing a space — every interactive prompt under ConPTY ("Name: > ")
+//arrives this way. The blank cell it leaves behind is screen space, so
+//both read-back paths must synthesize a space; before that, a line lost
+//its interior blanks ("Name: >" read back as "Name:>").
+void TestTerminal::TestBlankCellReadsAsSpace() {
+    TerminalEmulator emulator;
+    emulator.Feed("Name:\x1b[1C>");
+    QCOMPARE(emulator.LineText(0), std::string("Name: >"));
+    QCOMPARE(emulator.CellAt(0, 5).charCount, 0);   //the gap cell itself
+
+    //One space per blank column, and a trailing gap trims like any
+    //other trailing blank.
+    TerminalEmulator gapEmulator;
+    gapEmulator.Feed("a\x1b[2Cb");
+    QCOMPARE(gapEmulator.LineText(0), std::string("a  b"));
+    TerminalEmulator trailingEmulator;
+    trailingEmulator.Feed("abc\x1b[2C");
+    QCOMPARE(trailingEmulator.LineText(0), std::string("abc"));
+
+    //A wide glyph half-erased by ECH: the erased left column is blank
+    //but still spans the pair, so both of its columns read back blank.
+    TerminalEmulator wideEmulator;
+    wideEmulator.Feed("\xe4\xb8\xadZ\x1b[3D\x1b[1X");
+    QCOMPARE(wideEmulator.CellAt(0, 0).charCount, 0);
+    QCOMPARE(wideEmulator.LineText(0), std::string("  Z"));
+
+    TerminalWidget widget;
+    widget.feedBytes("Name:\x1b[1C>");
+    QTest::mousePress(&widget, Qt::LeftButton, Qt::NoModifier,
+                      widget.cellCenter(0, 0));
+    QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier,
+                        widget.cellCenter(6, 0));
+    QCOMPARE(widget.selectedText(), QString("Name: >"));
+}
+
+//Counts non-background pixels in a small window around a cell centre:
+//the ink probe for the wide-glyph tests (the fixed background makes an
+//exact compare reliable; antialiased glyph edges count as ink).
+static int InkAroundCentre(const QImage& shot, const TerminalWidget& widget,
+                           int column, int row) {
+    const QPoint centre = widget.cellCenter(column, row);
+    const QColor background(0x0C, 0x0C, 0x0C);   //kDefaultBackground
+    const int halfBandW = widget.cellWidth() / 4;
+    const int halfBandH = widget.cellHeight() / 4;
+    int ink = 0;
+    for (int x = centre.x() - halfBandW; x <= centre.x() + halfBandW; ++x)
+        for (int y = centre.y() - halfBandH; y <= centre.y() + halfBandH; ++y)
+            if (shot.pixelColor(x, y) != background)
+                ++ink;
+    return ink;
+}
+
+void TestTerminal::TestWideCharPaintsBothCells() {
+    TerminalWidget widget;
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    widget.feedBytes("\xE4\xB8\xAD");   // 中: one glyph spanning two cells
+    const QImage shot = widget.grab().toImage();
+    //The glyph's ink must reach the SECOND cell (a single-cell clip
+    //blanked the right half — the wide-char display bug).
+    QVERIFY2(InkAroundCentre(shot, widget, 1, 0) > 3,
+             "the wide glyph must paint into its second grid cell");
+}
+
+void TestTerminal::TestWideCharPaintsAtOffset() {
+    TerminalWidget widget;
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    widget.feedBytes("a\xE4\xB8\xAD");   //a then 中 (columns 1-2)
+    const QImage shot = widget.grab().toImage();
+    //The wide glyph occupies columns 1-2: ink must sit in column 1. (A
+    //rect that multiplies the column by the SPAN would shift the glyph
+    //to columns 2-3 and leave column 1 blank.)
+    QVERIFY2(InkAroundCentre(shot, widget, 1, 0) > 3,
+             "a wide glyph after a narrow one must paint at its own cell");
+}
+
+void TestTerminal::TestWideCharPendingLinePaints() {
+    TerminalWidget widget;
+    widget.setMode(TerminalWidget::Mode::Line);
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    widget.pasteText(QStringLiteral("中"));   //into the pending edit line
+    QCOMPARE(widget.pendingLine(), QStringLiteral("中"));
+    const QImage shot = widget.grab().toImage();
+    //The line prompt occupies columns 0-1, so the wide glyph starts at
+    //column 2; its second cell is column 3.
+    QVERIFY2(InkAroundCentre(shot, widget, 3, 0) > 3,
+             "the wide pending glyph must paint into its second cell");
+}
+
+void TestTerminal::TestWideCharCursorBlockSpansCell() {
+    TerminalWidget widget;
+    widget.setMode(TerminalWidget::Mode::Character);   //block cursor mode
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    widget.feedBytes("\xE4\xB8\xAD");   // 中: columns 0-1
+    widget.feedBytes("\x1b[1;1H");      // cursor back onto the wide cell
+    //The block must cover the cell's full span: a one-cell rect (the
+    //blink repaint and the damage rect of the old position both went
+    //through that) left the right half of the inverted block on screen.
+    QCOMPARE(widget.cursorRect().width(), widget.cellWidth() * 2);
+}
+
+void TestTerminal::TestLineModePromptPainted() {
+    TerminalWidget widget;
+    widget.setMode(TerminalWidget::Mode::Line);
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    //The '>' prompt heads the input line even before anything is typed.
+    const QImage shot = widget.grab().toImage();
+    QVERIFY2(InkAroundCentre(shot, widget, 0, 0) > 3,
+             "line mode must paint the '>' prompt before the caret");
+}
+
+void TestTerminal::TestLineModePromptEcho() {
+    TerminalWidget widget;
+    widget.setMode(TerminalWidget::Mode::Line);
+    QSignalSpy spy(&widget, &TerminalWidget::lineCommitted);
+    QTest::keyClicks(&widget, "Bob");
+    QTest::keyClick(&widget, Qt::Key_Return);
+    //The echo (and thus the scrollback history) carries the prompt.
+    QVERIFY(widget.screenText().find("> Bob") != std::string::npos);
+    //The committed content itself stays prompt-free.
+    QCOMPARE(spy.at(0).at(0).toString(), QString("Bob"));
 }
 
 //--- input modes / IME -------------------------------------------------------

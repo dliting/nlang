@@ -28,9 +28,19 @@ inline constexpr int kCellPadding = 2;   //grid margin, pixels
 inline constexpr int kMinColumns = 20;   //relayout floors
 inline constexpr int kMinRows = 5;
 
+//The line-mode input prompt: drawn before the pending line and echoed
+//with the committed text (its 2-column advance is kLinePromptColumns).
+inline constexpr const char* kLinePrompt = "> ";
+inline constexpr int kLinePromptColumns = 2;
+
 //One cell's text as a QString (surrogate pairs for non-BMP scalars).
-//Shared by the paint pass and selection-text extraction.
+//Shared by the paint pass and selection-text extraction. A cell with
+//no glyph is blank screen space and reads as one space (conhost steps
+//over a gap with CUF instead of writing ' '); the paint pass asks
+//charCount when it needs "has a glyph", never "" from this function.
 inline QString CellText(const TermCell& cell) {
+    if (cell.charCount == 0)
+        return QStringLiteral(" ");
     QString text;
     for (int i = 0; i < cell.charCount; ++i) {
         const uint32_t codePoint = cell.chars[i];
@@ -139,6 +149,15 @@ private:
     bool isSelected(int displayRow, int column) const;
     int columnAt(int x) const;
     int rowAt(int y) const;
+    //Rect of a run starting at cell (column, row) and spanning
+    //`spanCells` cells — the one place that maps grid coordinates to
+    //pixels (span widens the rect only; the origin stride stays one
+    //cell). All paint geometry must go through it.
+    QRect cellRunRect(int column, int row, int spanCells = 1) const;
+    //The cursor's block at (column, row), widened to the cell's span
+    //(empty outside the grid). Shared by the paint pass, the blink
+    //repaint and the previous-position damage rect.
+    QRect cursorBlockRect(int column, int row) const;
 
     TerminalEmulator m_emulator;
     int m_cellWidth = 1;

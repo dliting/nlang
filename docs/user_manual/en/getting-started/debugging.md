@@ -81,16 +81,18 @@ The Debug page of the output window concentrates the session state:
   lines stay hidden; in a method frame the receiver shows as `this`,
   expanded one level (its fields).
 
-Program output and the call-stack backtrace on error appear on the Run
-Output page. Breakpoints are remembered by file path, survive nide
-restarts, and follow a file automatically when it is renamed.
+Program output and the call-stack backtrace on error appear on the
+Input & Output page. Breakpoints are remembered by file path, survive
+nide restarts, and follow a file automatically when it is renamed.
 
 The program's standard input lives in the same page's terminal: while
-a session is live, the terminal switches to local line editing — a
-typed line is handed to the debugged process only when you press
-Enter; the echo and the line editing are synthesized locally by the
-IDE, not system-console semantics (Ctrl+C is never injected as an
-interrupt; with a selection it still copies), and the up/down arrows
+a session is live, the terminal switches to local line editing — `> `
+heads the pending input line (drawn locally by the IDE), and a typed
+line, prompt included, is echoed to the terminal history and handed
+to the debugged process only when you press Enter; the echo and the
+line editing are synthesized locally by the IDE, not system-console
+semantics (Ctrl+C is never injected as an interrupt; with a selection
+it still copies), and the up/down arrows
 recall recently typed lines (up to 50 within the session). Chinese
 input goes through an input method (IME), with the pre-edit string
 following the terminal cursor.

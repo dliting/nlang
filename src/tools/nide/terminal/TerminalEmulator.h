@@ -64,7 +64,9 @@ public:
     //Visible-screen readout. Column iteration everywhere skips by
     //cell.width (a wide char's right half is never read individually).
     TermCell CellAt(int row, int column) const;
-    std::string LineText(int row) const;   //one row, trailing blanks trimmed
+    //One row's text; a cell with no glyph reads back as spaces (one per
+    //column it spans), trailing blanks are trimmed.
+    std::string LineText(int row) const;
     std::string ScreenText() const;        //rows joined with '\n'
 
     const std::deque<TermLine>& scrollback() const { return m_scrollback; }

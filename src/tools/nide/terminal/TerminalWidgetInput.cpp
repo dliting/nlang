@@ -164,8 +164,12 @@ void TerminalWidget::commitLine() {
     }
     m_editor.clear();
     //Synthetic echo: the committed line enters the screen (and thus
-    //the scrollback history) only at Enter — spec §4.
-    m_emulator.Feed(line + "\r\n");
+    //the scrollback history) only at Enter — spec §4. Non-empty lines
+    //carry the prompt, so history reads like live input; an empty
+    //line stays empty (a lone newline echo).
+    m_emulator.Feed(line.empty()
+                        ? std::string("\r\n")
+                        : std::string(kLinePrompt) + line + "\r\n");
     repaintDamaged();
 }
 
