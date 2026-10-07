@@ -25,13 +25,13 @@ right-click menu offers Copy, Paste, and Select All (Select All
 covers the visible screen, not the scrollback); Copy — Ctrl+C when a
 selection exists / Ctrl+Shift+C / Ctrl+Insert, where Ctrl+C with no
 selection sends the interrupt signal to the program; Paste — Ctrl+V /
-Ctrl+Shift+V / Shift+Insert (multi-line text is flattened to one
-line); drag selects, and a selection copies; the wheel scrolls back
-through the history; Ctrl+wheel zooms the terminal font (one point
-per notch, independent of the editor font size, persisted across
-sessions, also settable in Tools → Options). Known limits: the
-scrollback keeps at most 10000 lines, and ligature fonts do not get
-their ligatures.
+Ctrl+Shift+V / Shift+Insert (multi-line text is delivered line by
+line, each break acting as Enter); drag selects, and a selection
+copies; the wheel scrolls back through the history; Ctrl+wheel zooms
+the terminal font (one point per notch, independent of the editor
+font size, persisted across sessions, also settable in Tools →
+Options). Known limits: the scrollback keeps at most 10000 lines, and
+ligature fonts do not get their ligatures.
 
 ### Configuring nide
 

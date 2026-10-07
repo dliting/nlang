@@ -728,13 +728,15 @@ void TestTerminal::TestShiftInsertIntercepted() {
     widget.setByteSink(sink.sink());
     widget.setMode(TerminalWidget::Mode::Character);
     QTest::keyClick(&widget, Qt::Key_Insert, Qt::ShiftModifier);
+    //The reference encoding must be non-empty for the assertion to
+    //mean anything — a silently empty reference would vacuously pass.
     TerminalEmulator reference;
     CaptureSink referenceSink;
     reference.SetByteSink(referenceSink.sink());
     reference.SendKey(VTERM_KEY_INS, VTERM_MOD_NONE);
-    if (!referenceSink.bytes.empty())
-        QVERIFY(sink.bytes.find(referenceSink.bytes)
-                == std::string::npos);
+    QVERIFY(!referenceSink.bytes.empty());
+    QVERIFY(sink.bytes.find(referenceSink.bytes)
+            == std::string::npos);
 }
 
 void TestTerminal::TestContextMenuActions() {

@@ -645,12 +645,13 @@
         <translation>Editor font size:</translation>
     </message>
     <message>
-        <location filename="../ui/SettingsDialog.ui" line="74"/>
+        <location filename="../ui/SettingsDialog.ui" line="75"/>
         <source>Terminal font size:</source>
         <translation>Terminal font size:</translation>
     </message>
     <message>
-        <location filename="../ui/SettingsDialog.ui" line="63"/>
+        <location filename="../ui/SettingsDialog.ui" line="68"/>
+        <location filename="../ui/SettingsDialog.ui" line="82"/>
         <source> pt</source>
         <translation> pt</translation>
     </message>
@@ -1131,17 +1132,17 @@
 <context>
     <name>nlang::terminal::TerminalWidget</name>
     <message>
-        <location filename="../terminal/TerminalWidget.cpp" line="285"/>
+        <location filename="../terminal/TerminalWidget.cpp" line="301"/>
         <source>&amp;Copy</source>
         <translation>&amp;Copy</translation>
     </message>
     <message>
-        <location filename="../terminal/TerminalWidget.cpp" line="288"/>
+        <location filename="../terminal/TerminalWidget.cpp" line="304"/>
         <source>&amp;Paste</source>
         <translation>&amp;Paste</translation>
     </message>
     <message>
-        <location filename="../terminal/TerminalWidget.cpp" line="296"/>
+        <location filename="../terminal/TerminalWidget.cpp" line="312"/>
         <source>Select &amp;All</source>
         <translation>Select &amp;All</translation>
     </message>
