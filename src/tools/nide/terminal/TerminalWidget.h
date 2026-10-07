@@ -146,6 +146,11 @@ private:
     void restartCursorBlink();
     //Defined in TerminalWidget.cpp.
     void relayoutGrid();
+    //Give a hidden stacked page the geometry the stack already assigned
+    //to the current page (StackOne never assigns one to hidden pages)
+    //and push it down the container layouts to the terminal, so the
+    //grid can adopt the geometry it will show in.
+    void syncHiddenPageGeometry();
     void updateCellMetrics();
     void repaintDamaged();
     void clearSelection();
@@ -171,10 +176,6 @@ private:
     int m_lastCursorRow = 0;
     int m_lastCursorColumn = 0;
     int m_scrollOffset = 0;   //scrollback lines shown above the screen
-    //False until the first showEvent: pre-show widget geometry is the
-    //layout's placeholder (not a real terminal size), so the emulator
-    //keeps its own default grid until the widget is on screen.
-    bool m_hasShown = false;
     Mode m_mode = Mode::Idle;
     LineEditor m_editor;      //Line-mode editing state
     QString m_preedit;        //IME composition text at the caret

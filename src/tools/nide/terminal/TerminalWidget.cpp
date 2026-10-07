@@ -9,14 +9,17 @@ TerminalWidgetPaint.cpp.
 #include <QApplication>
 #include <QClipboard>
 #include <QFontMetrics>
+#include <QLayout>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
 #include <QShowEvent>
+#include <QStackedWidget>
 #include <QTimer>
 #include <QWheelEvent>
 
 #include <algorithm>
+#include <vector>
 
 namespace nlang {
 namespace terminal {
@@ -53,6 +56,13 @@ QSize TerminalWidget::sizeHint() const {
 }
 
 void TerminalWidget::feedBytes(const QByteArray& vtBytes) {
+    //Output can arrive while this page is hidden (a debug session feeds
+    //the shared terminal from the debug tab) and no resize event will
+    //follow — the page's geometry was fixed long before. Adopt it now,
+    //before the text lands: fed on a stale grid, the text rides the
+    //first-show relayout into the scrollback. relayoutGrid itself gates
+    //on real geometry, so this is a no-op while the window is hidden.
+    relayoutGrid();
     m_emulator.Feed(std::string(vtBytes.constData(),
                                 static_cast<std::size_t>(vtBytes.size())));
     repaintDamaged();
@@ -96,6 +106,16 @@ void TerminalWidget::updateCellMetrics() {
 }
 
 void TerminalWidget::relayoutGrid() {
+    //Adopt geometry only once it is real: while the window is hidden,
+    //resizes carry the layout's placeholder size, which says nothing
+    //about the terminal the user will see. Once the window is visible,
+    //a hidden page must be synced to the rect its stack assigns before
+    //its size is trusted (see syncHiddenPageGeometry).
+    const QWidget* root = window();
+    if (root == nullptr || !root->isVisible())
+        return;
+    if (!isVisible())
+        syncHiddenPageGeometry();
     updateCellMetrics();
     const int newColumns = std::max(
         kMinColumns, (width() - 2 * kCellPadding) / m_cellWidth);
@@ -108,21 +128,68 @@ void TerminalWidget::relayoutGrid() {
     }
 }
 
+void TerminalWidget::syncHiddenPageGeometry() {
+    //QStackedLayout (StackOne) assigns geometry to the CURRENT page
+    //only; a page that was never current keeps its constructed
+    //placeholder size (typically 640x480), and output fed on that
+    //placeholder rides the first-show relayout into the scrollback.
+    //The current page's geometry IS the rect the stack hands to every
+    //page: QStackedLayout::setGeometry passes the stack's client rect
+    //straight to currentWidget() and never stores it in the QLayout
+    //geometry channel, so layout->contentsRect() is PERMANENTLY
+    //meaningless for a stack — the assigned widget rect is the only
+    //truth (Qt's own setStackingMode reads it the same way).
+    std::vector<QWidget*> chain{this};   //this … up to the page
+    QStackedWidget* stack = nullptr;
+    for (QWidget* ancestor = parentWidget(); ancestor != nullptr;
+         ancestor = ancestor->parentWidget()) {
+        if (auto* found = qobject_cast<QStackedWidget*>(ancestor)) {
+            stack = found;
+            break;
+        }
+        chain.push_back(ancestor);
+    }
+    QWidget* const page = chain.back();
+    const QWidget* const current =
+        stack == nullptr ? nullptr : stack->currentWidget();
+    if (current == nullptr)
+        return;   //no stacked container: size() is all we have
+    if (current == page)
+        return;   //our page is current: it already holds the rect
+    const QRect pageRect = current->geometry();
+    //An empty rect means the stack has not laid anything out yet: the
+    //placeholder is a better guess than zero, and the next feed re-syncs.
+    if (!pageRect.isValid() || pageRect.isEmpty())
+        return;
+    if (page->geometry() == pageRect)
+        return;
+    //A hidden widget receives no resize event, so its layout never
+    //runs on its own: push the rect down one container level at a
+    //time, invalidating before each activate so revisits (window
+    //resized while this page stayed hidden) defeat activate()'s
+    //already-activated short-circuit. activate() computes from each
+    //widget's CURRENT size, so the order is outermost first.
+    page->setGeometry(pageRect);
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        QLayout* layout = (*it)->layout();
+        if (layout == nullptr)
+            continue;   //the terminal itself (leaf) or a bare container
+        layout->invalidate();
+        layout->activate();
+    }
+}
+
 void TerminalWidget::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
-    //First real geometry: the emulator grid tracks the widget only from
-    //here on (see m_hasShown).
-    m_hasShown = true;
+    //First show: the grid adopts the real geometry (hidden pages adopt
+    //it lazily at feed time — see feedBytes).
     relayoutGrid();
 }
 
 void TerminalWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
-    //Pre-show resizes carry the layout's placeholder size, which says
-    //nothing about the terminal the user will see — keep the default
-    //grid instead of clamping to the relayout floors.
-    if (m_hasShown)
-        relayoutGrid();
+    //The real-geometry gate lives inside relayoutGrid.
+    relayoutGrid();
 }
 
 void TerminalWidget::repaintDamaged() {

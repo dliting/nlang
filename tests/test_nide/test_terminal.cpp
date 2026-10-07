@@ -12,6 +12,8 @@
 #include <QApplication>
 #include <QInputMethodEvent>
 #include <QSignalSpy>
+#include <QTabWidget>
+#include <QVBoxLayout>
 #include <cstdio>
 #include <string>
 
@@ -48,6 +50,8 @@ private slots:
     void TestFeedAndScreenText();
     void TestResetTerminal();
     void TestFeedUtf8NormalizesNewline();
+    void TestHiddenPageFeedKeepsOutput();
+    void TestHiddenPageNestedHostKeepsOutput();
     void TestColumnsRowsFromSize();
     void TestSelectionAndCopy();
     void TestBlankCellReadsAsSpace();
@@ -265,6 +269,77 @@ void TestTerminal::TestFeedUtf8NormalizesNewline() {
     TerminalWidget embedded;
     embedded.feedUtf8("a\nb\r\nc");
     QCOMPARE(embedded.screenText(), std::string("a\nb\nc"));
+}
+
+//Output can arrive while the terminal's page is hidden (a debug session
+//feeds the shared terminal from the debug tab), and no resize event
+//will follow: QStackedLayout (StackOne) assigns geometry to the
+//current page only, so a never-current page keeps its constructed
+//placeholder size (640x480 here — bigger than the real page, which is
+//the worst case: fed there, the output rides the first-show
+//relayout's bottom-anchored shrink into the scrollback and the visible
+//screen comes up blank — the "output vanished after a breakpoint"
+//report). The feed must adopt the real page geometry first.
+void TestTerminal::TestHiddenPageFeedKeepsOutput() {
+    QTabWidget tabs;
+    tabs.addTab(new QWidget, "other");
+    TerminalWidget* terminal = new TerminalWidget;
+    tabs.addTab(terminal, "terminal");   //never the current page yet
+    tabs.resize(320, 140);   //the real page is well below the placeholder
+    tabs.show();
+    QTest::qWaitForWindowExposed(&tabs);
+    terminal->feedUtf8("one\n");   //fed while hidden
+    terminal->feedUtf8("two\n");
+    terminal->feedUtf8("three\n");
+    //The hidden page adopted the rect the stack assigned to the
+    //CURRENT page — the exact mirror contract (any wrong-but-smaller
+    //rect would pass a plain upper bound).
+    QCOMPARE(terminal->size(), tabs.widget(0)->size());
+    QVERIFY(terminal->rows() != 24);
+    //First show: the relayout must find the grid already right, so the
+    //fed lines are still on the visible screen.
+    tabs.setCurrentIndex(1);
+    const std::string screen = terminal->screenText();
+    QVERIFY(screen.find("one") != std::string::npos);
+    QVERIFY(screen.find("three") != std::string::npos);
+}
+
+//nide's real embedding is two layout levels deep: page (its layout)
+//→ terminalHost (its layout) → terminal. A hidden widget receives no
+//resize event, so an inner layout never runs on its own — a sync that
+//only activates the PAGE's layout hands the rect to the host and stops
+//there, leaving the terminal on its constructed size and the fed
+//output wrapped at a fictional grid. The sync must propagate the rect
+//down every level of the chain.
+void TestTerminal::TestHiddenPageNestedHostKeepsOutput() {
+    QTabWidget tabs;
+    tabs.addTab(new QWidget, "other");
+    TerminalWidget* terminal = new TerminalWidget;
+    QWidget* host = new QWidget;
+    QVBoxLayout* hostLayout = new QVBoxLayout(host);
+    hostLayout->setContentsMargins(0, 0, 0, 0);
+    hostLayout->setSpacing(0);
+    hostLayout->addWidget(terminal);
+    QWidget* page = new QWidget;
+    QVBoxLayout* pageLayout = new QVBoxLayout(page);
+    pageLayout->setContentsMargins(0, 0, 0, 0);
+    pageLayout->setSpacing(0);
+    pageLayout->addWidget(host);
+    tabs.addTab(page, "terminal");   //never the current page yet
+    tabs.resize(320, 140);
+    tabs.show();
+    QTest::qWaitForWindowExposed(&tabs);
+    terminal->feedUtf8("one\n");   //fed while hidden, two levels deep
+    terminal->feedUtf8("two\n");
+    terminal->feedUtf8("three\n");
+    //The rect reached through BOTH layout levels: the terminal holds
+    //exactly the current page's assigned size.
+    QCOMPARE(terminal->size(), tabs.widget(0)->size());
+    QVERIFY(terminal->rows() != 24);
+    tabs.setCurrentIndex(1);
+    const std::string screen = terminal->screenText();
+    QVERIFY(screen.find("one") != std::string::npos);
+    QVERIFY(screen.find("three") != std::string::npos);
 }
 
 void TestTerminal::TestColumnsRowsFromSize() {
