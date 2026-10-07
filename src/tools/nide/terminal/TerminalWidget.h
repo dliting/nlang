@@ -16,8 +16,10 @@ preedit/commit is handled per mode.
 #include "LineEditor.h"
 #include "TerminalEmulator.h"
 
+class QContextMenuEvent;
 class QInputMethodEvent;
 class QKeyEvent;
+class QMenu;
 class QPainter;
 class QTimer;
 
@@ -106,9 +108,14 @@ public:
     //newlines to spaces and edits them in.
     void pasteText(const QString& text);
 
+    //The right-click menu, built fresh (never exec'd here): public so
+    //tests can inspect actions and enablement without the modal exec.
+    QMenu* buildContextMenu();
+
 public slots:
     void copySelection();
     void pasteClipboard();
+    void selectAll();
 
 signals:
     //Grid geometry changed after a relayout (columns, rows).
@@ -127,6 +134,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
 private slots:
     void blinkCursor();
@@ -142,6 +150,9 @@ private:
     //Defined in TerminalWidgetInput.cpp.
     void characterKey(QKeyEvent* event);
     void lineModeKey(QKeyEvent* event);
+    //The Windows Terminal copy/paste key family, consumed before the
+    //per-mode dispatch. Returns true when the key was handled.
+    bool handleClipboardKey(QKeyEvent* event);
     void commitLine();
     void restartCursorBlink();
     //Defined in TerminalWidget.cpp.

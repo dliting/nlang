@@ -1128,4 +1128,22 @@
         <translation>转到定义</translation>
     </message>
 </context>
+<context>
+    <name>nlang::terminal::TerminalWidget</name>
+    <message>
+        <location filename="../terminal/TerminalWidget.cpp" line="285"/>
+        <source>&amp;Copy</source>
+        <translation>复制(&amp;C)</translation>
+    </message>
+    <message>
+        <location filename="../terminal/TerminalWidget.cpp" line="288"/>
+        <source>&amp;Paste</source>
+        <translation>粘贴(&amp;P)</translation>
+    </message>
+    <message>
+        <location filename="../terminal/TerminalWidget.cpp" line="296"/>
+        <source>Select &amp;All</source>
+        <translation>全选(&amp;A)</translation>
+    </message>
+</context>
 </TS>

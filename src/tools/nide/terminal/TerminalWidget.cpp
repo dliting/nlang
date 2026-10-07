@@ -6,9 +6,12 @@ TerminalWidgetPaint.cpp.
 ---*/
 #include "TerminalWidget.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QContextMenuEvent>
 #include <QFontMetrics>
+#include <QMenu>
 #include <QLayout>
 #include <QMouseEvent>
 #include <QPainter>
@@ -271,6 +274,53 @@ void TerminalWidget::copySelection() {
     const QString text = selectedText();
     if (!text.isEmpty())
         QApplication::clipboard()->setText(text);
+}
+
+QMenu* TerminalWidget::buildContextMenu() {
+    //Built fresh at every open so enablement reflects the CURRENT
+    //selection, clipboard and mode; the menu is transient (exec'd and
+    //deleted in contextMenuEvent), and while it exists its action
+    //shortcuts are live — which is fine: it only exists modally.
+    QMenu* menu = new QMenu(this);
+    QAction* copyAction = menu->addAction(tr("&Copy"));
+    copyAction->setShortcut(QKeySequence::Copy);
+    copyAction->setEnabled(hasSelection());
+    QAction* pasteAction = menu->addAction(tr("&Paste"));
+    pasteAction->setShortcut(QKeySequence::Paste);
+    //Idle means no program and no debug session: pasteText is a silent
+    //no-op there, so an enabled Paste would be a dead button.
+    pasteAction->setEnabled(
+        m_mode != Mode::Idle
+        && !QApplication::clipboard()->text().isEmpty());
+    menu->addSeparator();
+    QAction* selectAllAction = menu->addAction(tr("Select &All"));
+    connect(copyAction, &QAction::triggered, this,
+            &TerminalWidget::copySelection);
+    connect(pasteAction, &QAction::triggered, this,
+            &TerminalWidget::pasteClipboard);
+    connect(selectAllAction, &QAction::triggered, this,
+            &TerminalWidget::selectAll);
+    return menu;
+}
+
+void TerminalWidget::contextMenuEvent(QContextMenuEvent* event) {
+    QMenu* menu = buildContextMenu();
+    menu->exec(event->globalPos());
+    delete menu;
+}
+
+void TerminalWidget::selectAll() {
+    //The whole visible screen, not the scrollback: jump back to the
+    //live view first — a selection stores display coordinates, and
+    //reading through a scroll offset would ask for negative screen
+    //rows.
+    m_scrollOffset = 0;
+    m_selecting = false;
+    m_selectionAnchorRow = 0;
+    m_selectionAnchorColumn = 0;
+    m_selectionExtentRow = rows() - 1;
+    m_selectionExtentColumn = columns() - 1;
+    update();
 }
 
 void TerminalWidget::clearSelection() {

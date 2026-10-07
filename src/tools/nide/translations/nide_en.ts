@@ -1128,4 +1128,22 @@
         <translation>Go to Definition</translation>
     </message>
 </context>
+<context>
+    <name>nlang::terminal::TerminalWidget</name>
+    <message>
+        <location filename="../terminal/TerminalWidget.cpp" line="285"/>
+        <source>&amp;Copy</source>
+        <translation>&amp;Copy</translation>
+    </message>
+    <message>
+        <location filename="../terminal/TerminalWidget.cpp" line="288"/>
+        <source>&amp;Paste</source>
+        <translation>&amp;Paste</translation>
+    </message>
+    <message>
+        <location filename="../terminal/TerminalWidget.cpp" line="296"/>
+        <source>Select &amp;All</source>
+        <translation>Select &amp;All</translation>
+    </message>
+</context>
 </TS>

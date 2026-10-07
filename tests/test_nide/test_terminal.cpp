@@ -14,6 +14,10 @@
 #include <QSignalSpy>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QAction>
+#include <QCoreApplication>
+#include <QMenu>
+#include <QWheelEvent>
 #include <cstdio>
 #include <string>
 
@@ -75,6 +79,12 @@ private slots:
     void TestEmptyLineEchoOnly();
     void TestPaste();
     void TestImeCommit();
+
+    //--- clipboard family / context menu / select all / zoom ---
+    void TestCtrlShiftCVariants();
+    void TestShiftInsertIntercepted();
+    void TestContextMenuActions();
+    void TestSelectAllViewport();
 
     //--- pty (real child processes) ---
     void TestPtyEchoHello();
@@ -678,6 +688,107 @@ void TestTerminal::TestImeCommit() {
     characterCommit.setCommitString(QStringLiteral("中"));
     QApplication::sendEvent(&characterWidget, &characterCommit);
     QCOMPARE(sink.bytes, std::string("\xE4\xB8\xAD"));
+}
+
+//--- clipboard family / context menu / select all / zoom -----------------------
+
+void TestTerminal::TestCtrlShiftCVariants() {
+    //Ctrl+Shift+C ALWAYS copies and never interrupts; so does
+    //Ctrl+Insert. Both are tested with and without a selection.
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Character);
+    QTest::keyClick(&widget, Qt::Key_C,
+                    Qt::ControlModifier | Qt::ShiftModifier);
+    QTest::keyClick(&widget, Qt::Key_Insert, Qt::ControlModifier);
+    QCOMPARE(sink.bytes, std::string(""));   //nothing went upstream
+    widget.feedBytes("hello world");
+    QTest::mousePress(&widget, Qt::LeftButton, Qt::NoModifier,
+                      widget.cellCenter(0, 0));
+    QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier,
+                        widget.cellCenter(4, 0));
+    QVERIFY(widget.hasSelection());
+    QTest::keyClick(&widget, Qt::Key_C,
+                    Qt::ControlModifier | Qt::ShiftModifier);
+    QTest::keyClick(&widget, Qt::Key_Insert, Qt::ControlModifier);
+    QCOMPARE(sink.bytes, std::string(""));
+    QCOMPARE(widget.selectedText(), QString("hello"));
+}
+
+void TestTerminal::TestShiftInsertIntercepted() {
+    //Shift+Insert must PASTE, never travel to the child as the INSERT
+    //key. The live clipboard is not controllable on this host (the
+    //clipboard manager keeps it locked), so assert the interception
+    //self-calibrated against what a raw INSERT key would encode.
+    TerminalWidget widget;
+    CaptureSink sink;
+    widget.setByteSink(sink.sink());
+    widget.setMode(TerminalWidget::Mode::Character);
+    QTest::keyClick(&widget, Qt::Key_Insert, Qt::ShiftModifier);
+    TerminalEmulator reference;
+    CaptureSink referenceSink;
+    reference.SetByteSink(referenceSink.sink());
+    reference.SendKey(VTERM_KEY_INS, VTERM_MOD_NONE);
+    if (!referenceSink.bytes.empty())
+        QVERIFY(sink.bytes.find(referenceSink.bytes)
+                == std::string::npos);
+}
+
+void TestTerminal::TestContextMenuActions() {
+    TerminalWidget widget;   //default mode: Idle
+    widget.feedBytes("hello");
+    QMenu* menu = widget.buildContextMenu();
+    const QList<QAction*> actions = menu->actions();
+    QCOMPARE(actions.size(), 4);   //Copy, Paste, separator, Select All
+    QCOMPARE(actions.at(0)->text(), QStringLiteral("&Copy"));
+    QCOMPARE(actions.at(1)->text(), QStringLiteral("&Paste"));
+    QCOMPARE(actions.at(3)->text(), QStringLiteral("Select &All"));
+    //Idle terminal: paste is disabled regardless of the clipboard
+    //(pasteText would be a silent no-op); copy needs a selection.
+    QVERIFY(!actions.at(0)->isEnabled());
+    QVERIFY(!actions.at(1)->isEnabled());
+    QVERIFY(actions.at(3)->isEnabled());
+    actions.at(3)->trigger();
+    QVERIFY(widget.hasSelection());
+    delete menu;   //live shortcut registered while the menu exists
+    //A selection flips Copy to enabled on the next open.
+    QMenu* withSelection = widget.buildContextMenu();
+    QVERIFY(withSelection->actions().at(0)->isEnabled());
+    delete withSelection;
+}
+
+void TestTerminal::TestSelectAllViewport() {
+    TerminalWidget widget;
+    widget.feedUtf8("one\n");
+    widget.feedUtf8("two\n");
+    widget.feedUtf8("three");   //no trailing newline: the last content
+                                //line is text, not a blank cursor row
+    widget.selectAll();
+    QVERIFY(widget.hasSelection());
+    //The selection spans every screen row (the emulator default grid;
+    //rows beyond the fed text read back as empty lines).
+    const QStringList lines =
+        widget.selectedText().split(QLatin1Char('\n'));
+    QCOMPARE(lines.size(), widget.rows());
+    QCOMPARE(lines.first(), QString("one"));
+    QCOMPARE(lines.at(2), QString("three"));
+    QVERIFY(lines.last().isEmpty());
+    //Select All jumps back to the live screen first: after scrolling
+    //into the scrollback the selection reads the CURRENT screen (L39),
+    //never the scrolled view (L00 is scrollback).
+    TerminalWidget scrolled;
+    for (int i = 0; i < 40; ++i) {
+        char line[16];
+        std::snprintf(line, sizeof(line), "L%02d\r\n", i);
+        scrolled.feedBytes(line);
+    }
+    QWheelEvent back(scrolled.rect().center(), QPointF(), 240,
+                     Qt::NoButton, Qt::NoModifier, Qt::Vertical);
+    QCoreApplication::sendEvent(&scrolled, &back);
+    scrolled.selectAll();
+    QVERIFY(scrolled.selectedText().contains(QString("L39")));
+    QVERIFY(!scrolled.selectedText().contains(QString("L00")));
 }
 
 //--- pty (real child processes) ------------------------------------------------

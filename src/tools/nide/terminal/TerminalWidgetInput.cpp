@@ -69,26 +69,52 @@ QString TerminalWidget::pendingLine() const {
     return out;
 }
 
+bool TerminalWidget::handleClipboardKey(QKeyEvent* event) {
+    //The Windows Terminal copy/paste family, ahead of the mode
+    //dispatch so the bindings hold in every mode. Ctrl+Shift+C must be
+    //tested BEFORE plain Ctrl+C (that branch would otherwise eat the
+    //chord as the dual-meaning copy/interrupt key); the Insert pairs
+    //are intercepted here so they never reach MapQtKey, which would
+    //encode them as the INSERT key for the child.
+    const int key = event->key();
+    const bool ctrl =
+        (event->modifiers() & Qt::ControlModifier) != 0;
+    const bool shift =
+        (event->modifiers() & Qt::ShiftModifier) != 0;
+    if (ctrl && shift && key == Qt::Key_C) {
+        copySelection();   //always copy; without a selection a no-op
+        return true;
+    }
+    if (ctrl && key == Qt::Key_C) {
+        if (hasSelection()) {
+            copySelection();   //copy wins over interrupt
+        } else if (m_mode == Mode::Character) {
+            //No selection: the terminal interrupt, sent as a raw C0
+            //byte (neovim terminal.c precedent).
+            m_emulator.SendChar(0x03, VTERM_MOD_NONE);
+            restartCursorBlink();
+        }
+        return true;
+    }
+    if (ctrl && key == Qt::Key_V) {   //covers Ctrl+Shift+V as well
+        pasteClipboard();
+        return true;
+    }
+    if (ctrl && !shift && key == Qt::Key_Insert) {
+        copySelection();
+        return true;
+    }
+    if (shift && !ctrl && key == Qt::Key_Insert) {
+        pasteClipboard();
+        return true;
+    }
+    return false;
+}
+
 void TerminalWidget::keyPressEvent(QKeyEvent* event) {
-    //Ctrl+C / Ctrl+V take precedence over both modes.
-    if (event->modifiers() & Qt::ControlModifier) {
-        if (event->key() == Qt::Key_C) {
-            if (hasSelection()) {
-                copySelection();   //copy wins over interrupt
-            } else if (m_mode == Mode::Character) {
-                //No selection: the terminal interrupt, sent as a raw
-                //C0 byte (neovim terminal.c precedent).
-                m_emulator.SendChar(0x03, VTERM_MOD_NONE);
-                restartCursorBlink();
-            }
-            event->accept();
-            return;
-        }
-        if (event->key() == Qt::Key_V) {
-            pasteClipboard();
-            event->accept();
-            return;
-        }
+    if (handleClipboardKey(event)) {
+        event->accept();
+        return;
     }
     switch (m_mode) {
     case Mode::Character:
