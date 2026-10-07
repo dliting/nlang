@@ -8,11 +8,11 @@
 2. Double-click main.n in the Solution tree on the left to open it in
    the editor.
 3. Choose Build → Build Project, then Run → Start (Ctrl+F5); the
-   program runs directly in the embedded system terminal on the Input &
-   Output page of the output window. F5 instead starts a debug
+   program runs directly in the embedded system terminal on the
+   Terminal page of the output window. F5 instead starts a debug
    session — see [Debugging in nide](debugging.md).
 
-The Input & Output page is an embedded system terminal: the program
+The Terminal page is an embedded system terminal: the program
 runs in it directly over a pseudo terminal (PTY) — on Windows, a
 ConPTY (Windows pseudo console) — so what you see matches running it
 in a system terminal by hand, colors and other terminal escape
@@ -20,16 +20,22 @@ sequences included. While the program runs, just type to interact:
 keystrokes go to the program verbatim and the program side does the
 echoing; when the program waits for input, `> ` heads the line (the
 same program run by hand in a system terminal does this too); after it
-exits, the keyboard is no longer sent. In the terminal:
-Ctrl+C copies when a selection exists, otherwise sends the interrupt
-signal to the program; Ctrl+V pastes (multi-line text is flattened to
-one line); drag selects, and a selection copies; the wheel scrolls
-back through the history. Known limits: the scrollback keeps at most
-10000 lines, and ligature fonts do not get their ligatures.
+exits, the keyboard is no longer sent. In the terminal: the
+right-click menu offers Copy, Paste, and Select All (Select All
+covers the visible screen, not the scrollback); Copy — Ctrl+C when a
+selection exists / Ctrl+Shift+C / Ctrl+Insert, where Ctrl+C with no
+selection sends the interrupt signal to the program; Paste — Ctrl+V /
+Ctrl+Shift+V / Shift+Insert (multi-line text is flattened to one
+line); drag selects, and a selection copies; the wheel scrolls back
+through the history; Ctrl+wheel zooms the terminal font (one point
+per notch, independent of the editor font size, persisted across
+sessions, also settable in Tools → Options). Known limits: the
+scrollback keeps at most 10000 lines, and ligature fonts do not get
+their ligatures.
 
 ### Configuring nide
 
-Tools → Options opens the settings dialog with four settings:
+Tools → Options opens the settings dialog with five settings:
 
 - **Language**: follow the system language / 中文 / English. A change
   **takes effect after restarting nide** (a restart notice pops up
@@ -51,6 +57,11 @@ Tools → Options opens the settings dialog with four settings:
   code editor. Applies immediately on OK; Ctrl+wheel inside an editor
   zooms the same setting (one point per notch), and the size persists
   across sessions.
+- **Terminal font size**: the font size in points (6–48) of the
+  terminal page, independent of the editor font size. Applies
+  immediately on OK; Ctrl+wheel inside the terminal zooms the same
+  setting (one point per notch), and the size persists across
+  sessions.
 
 ### Recent
 

@@ -137,6 +137,16 @@ All notable changes to NLang are documented here. The format follows
 - nide editor: the editor's context menu, and a new Edit menu, carry
   Go to Definition (F12); both entries are enabled only while the
   cursor sits on a jump target and follow the cursor as it moves.
+- nide: the bottom panel tab is renamed from "Input & Output" to
+  "Terminal", matching what the embedded terminal is.
+- nide: the terminal gains the full Windows Terminal copy/paste family
+  — a right-click menu (Copy / Paste / Select All, Select All covers
+  the visible screen) plus Ctrl+Shift+C, Ctrl+Shift+V, Ctrl+Insert
+  and Shift+Insert alongside the existing Ctrl+C / Ctrl+V.
+- nide: Ctrl+wheel in the terminal zooms its font, persisted as its
+  own setting (`ide/terminalFontPt`, 6–48) and separate from the
+  editor font size; Tools > Options grows a "Terminal font size"
+  field.
 
 ### Changed
 - Manual: the Standard Library chapter is now a two-level section with

@@ -20,7 +20,7 @@ code; `io.print` writes one line of text to standard output.
 2. Choose Build → Build Project; compiler diagnostics appear on the
    Compile Output page of the output window.
 3. Choose Run → Start (Ctrl+F5); the program output appears on the
-   Input & Output page and should show `hello, NLang`.
+   Terminal page and should show `hello, NLang`.
 
 A project is optional: a standalone `.n` file opened via File → Open
 builds and runs too. nide places its build output under

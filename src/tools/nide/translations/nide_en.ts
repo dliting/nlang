@@ -20,8 +20,8 @@
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="183"/>
-        <source>输入输出</source>
-        <translation>Input &amp;&amp; Output</translation>
+        <source>终端</source>
+        <translation>Terminal</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="380"/>

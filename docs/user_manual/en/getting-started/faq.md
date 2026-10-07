@@ -91,8 +91,8 @@ See also: [Language Specification / Expressions](../language-spec/expressions.md
 
 ### Debugging: how do I feed `io.readLine` / `finally` doesn't run on stop / breakpoints drift?
 
-Standard input for both running and debugging lives in the terminal on
-the Input & Output page: while a run is live, just type to interact;
+Standard input for both running and debugging lives in the Terminal
+page: while a run is live, just type to interact;
 while a debug session is live, type a line and press Enter, and it is
 delivered to the program's next read
 (see [Debugging in nide](debugging.md)). Stopping a debug session is a

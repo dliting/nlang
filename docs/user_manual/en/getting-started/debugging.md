@@ -82,10 +82,10 @@ The Debug page of the output window concentrates the session state:
   expanded one level (its fields).
 
 Program output and the call-stack backtrace on error appear on the
-Input & Output page. Breakpoints are remembered by file path, survive
+Terminal page. Breakpoints are remembered by file path, survive
 nide restarts, and follow a file automatically when it is renamed.
 
-The program's standard input lives in the same page's terminal: while
+The program's standard input lives on the same page: while
 a session is live, the terminal switches to local line editing — `> `
 heads the pending input line (drawn locally by the IDE), and a typed
 line, prompt included, is echoed to the terminal history and handed
