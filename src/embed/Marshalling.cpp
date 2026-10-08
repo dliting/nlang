@@ -74,6 +74,19 @@ static void RequireKind(Value::Kind actual, Value::Kind expected,
             + rowName);
 }
 
+//64 位整行（long/ulong）：Int/Long 皆收（宽化安全）；ulong 行另拒负值
+static void EncodeLongRow(const Value& v, const char* rowName,
+                          bool rejectNegative, uint8_t cell[8]) {
+    if (v.kind() != Value::Kind::Int && v.kind() != Value::Kind::Long)
+        throw BadValue(std::string("host kind does not match declared ")
+            + rowName);
+    const int64_t bits = ScalarBits(v);
+    if (rejectNegative && bits < 0)
+        throw BadValue("value " + std::to_string(bits)
+            + " does not fit declared " + rowName);
+    WriteCell(cell, bits, 8);
+}
+
 void EncodeScalarCell(const Value& v, uint16_t declaredKind, uint8_t outCell[8]) {
     switch (declaredKind) {
     case RTK_Byte:   EncodeSigned(v, kInt8Min, kInt8Max, "byte", outCell); break;
@@ -82,23 +95,8 @@ void EncodeScalarCell(const Value& v, uint16_t declaredKind, uint8_t outCell[8])
     case RTK_UShort: EncodeUnsigned(v, kUint16Max, "ushort", outCell); break;
     case RTK_Int32:  EncodeSigned(v, kInt32Min, kInt32Max, "int", outCell); break;
     case RTK_UInt32: EncodeUnsigned(v, kUint32Max, "uint", outCell); break;
-    case RTK_Long: {
-        //64 位行收 Int 或 Long（宽化安全）
-        if (v.kind() != Value::Kind::Int && v.kind() != Value::Kind::Long)
-            throw BadValue("host kind does not match declared long");
-        WriteCell(outCell, ScalarBits(v), 8);
-        break;
-    }
-    case RTK_ULong: {
-        if (v.kind() != Value::Kind::Int && v.kind() != Value::Kind::Long)
-            throw BadValue("host kind does not match declared ulong");
-        const int64_t bits = ScalarBits(v);
-        if (bits < 0)
-            throw BadValue("value " + std::to_string(bits)
-                + " does not fit declared ulong");
-        WriteCell(outCell, bits, 8);
-        break;
-    }
+    case RTK_Long:  EncodeLongRow(v, "long", false, outCell); break;
+    case RTK_ULong: EncodeLongRow(v, "ulong", true, outCell); break;
     case RTK_Float: {
         RequireKind(v.kind(), Value::Kind::Float, "float");
         const float f = v.asFloat();
