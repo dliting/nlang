@@ -7,6 +7,7 @@ add_library(nlang_embed
     Value.cpp
     Marshalling.cpp
     InterpreterImpl.cpp
+    HostFunctionTable.cpp
 )
 target_include_directories(nlang_embed
     PUBLIC

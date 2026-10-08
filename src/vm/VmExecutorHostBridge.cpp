@@ -151,6 +151,13 @@ int32_t VmExecutor::MintHostString(const std::string& content) {
     return MintNewString(content);
 }
 
+//Extension point ⑤'s raise door: a host C++ failure becomes a catchable
+//script Exception. Backtrace/message population lives in the private
+//raiser — this wrapper only makes it reachable from the adapter.
+void VmExecutor::RaiseHostException(const std::string& msg) {
+    RaiseNlangExceptionBase(msg);
+}
+
 int32_t VmExecutor::BoxHostScalar(uint8_t typeTag, int64_t bits) {
     return AllocBoxedValue(typeTag, bits);
 }

@@ -1,0 +1,63 @@
+//Host-function fixture: native declarations satisfied by the embed
+//host's registered functions (keys "hostfns.<name>"). The dispatch hook
+//answers before the DLL/native path, so no nlang_hostfns module exists.
+native int now();
+native string shouted(string text);
+native int willFail();
+native int reenter();
+native int callBoom();
+native int madeUp();
+
+int useNow() {
+    return now() + 1;
+}
+
+int useReenter() {
+    return reenter();
+}
+
+string useShouted() {
+    return shouted("abc");
+}
+
+int catchHostFailure() {
+    try {
+        willFail();
+        return 0;
+    } catch (Exception e) {
+        return e.message.length();
+    }
+}
+
+int fail() {
+    throw new Exception("hf-boom");
+}
+
+//callBoom's host implementation throws a saved nlang::Exception (one
+//captured earlier from a standalone call of fail()); it carries the
+//heap instance, so the hook rethrows the SAME exception — this catch
+//sees "hf-boom" (length 7).
+int catchRethrown() {
+    try {
+        callBoom();
+        return 0;
+    } catch (Exception e) {
+        return e.message.length();
+    }
+}
+
+//madeUp's host implementation throws a host-made nlang::Exception (no
+//heap instance); the hook re-raises it as a script Exception — this
+//catch sees "made" (length 4).
+int catchMade() {
+    try {
+        madeUp();
+        return 0;
+    } catch (Exception e) {
+        return e.message.length();
+    }
+}
+
+int main() {
+    return 0;
+}

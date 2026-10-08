@@ -3,6 +3,7 @@
 #include "nlang/vm/NativeHost.h"
 #include "BytecodeReader.h"
 #include "IDebugHooks.h"
+#include "IHostFunctions.h"
 #include "IHostIo.h"
 #include "TokenView.h"
 #include "VmExecutorNativeHost.h"
@@ -55,6 +56,13 @@ public:
     //Machine mode / IDE front ends: install a host I/O sink. null
     //(default) = the executor keeps its stdout/stdin behavior.
     void SetHostIo(IHostIo* io) { m_pHostIo = io; }
+
+    //Extension point ⑤ (spec 2026-10-08 §8): host-function dispatch
+    //hook. CallNative asks it first; null (default) = unchanged
+    //behavior (m_natives, then the lazy DLL path).
+    void SetHostFunctions(IHostFunctions* hostFunctions) {
+        m_pHostFunctions = hostFunctions;
+    }
 
     //Extension point ① (spec 2026-10-08 §8): one-time run-state
     //initialization for a linked module — the Execute() entry sequence
@@ -153,6 +161,12 @@ public:
     //Backtrace captured from the last Execute() call. Empty if execution
     //succeeded without throwing.
     const std::string& Backtrace() const { return m_lastBacktrace; }
+
+    //Extension point ⑤: raise a script-visible base Exception carrying
+    //msg (message + backtrace populated by the private raiser). The
+    //embed adapter translates host C++ failures into this — the one
+    //public door to the private RaiseNlangExceptionBase family.
+    [[noreturn]] void RaiseHostException(const std::string& msg);
 
     //Non-mutating string read: flattens into a local buffer, never touches
     //the node (safe for const observers). Public because the intrinsic
@@ -596,6 +610,10 @@ private:
     //Host I/O sink (null = write stdout / read stdin as before).
     IHostIo* m_pHostIo = nullptr;
 
+    //Extension point ⑤: owned by the embed adapter (HostFunctionTable);
+    //never null-deref'd — CallNative tests before asking.
+    IHostFunctions* m_pHostFunctions = nullptr;
+
     //Input side: the source is the host seam when a host is installed,
     //else the portable stdin reader; TokenView owns the shared cursor.
     std::unique_ptr<LineSource> m_upInputSource;
@@ -721,8 +739,8 @@ private:
 
     //Phase 11: argument/range/parse errors of stdlib intrinsics raise the
     //BASE Exception (no dedicated argument-exception subclass exists).
-    //Defined in IntrinsicsString.cpp, the one family TU that still raises
-    //intrinsically and its only user.
+    //Defined in IntrinsicsString.cpp; users are that family TU and the
+    //public host bridge wrapper RaiseHostException.
     [[noreturn]] void RaiseNlangExceptionBase(const std::string& msg);
 
     //Phase 9d: returns true if the heap object at heapIdx is an instance of

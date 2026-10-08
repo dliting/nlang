@@ -2,6 +2,7 @@
 //functions, proxies, I/O — all through the public header against real
 //ncc-built fixtures (no mocks).
 #include "nlang/embed/NLang.h"
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -24,6 +25,9 @@ static int g_pass = 0, g_fail = 0;
 
 #ifndef EMBED_VALUES_NCU
 #error "EMBED_VALUES_NCU must be defined by the build"
+#endif
+#ifndef EMBED_HOSTFNS_NCU
+#error "EMBED_HOSTFNS_NCU must be defined by the build"
 #endif
 
 static void TestRunReturnsMainExitCode() {
@@ -183,6 +187,125 @@ static void TestFailedCallLeavesInterpreterUsable() {
     PASS();
 }
 
+static void TestHostFunctionDispatch() {
+    TEST(TestHostFunctionDispatch);
+    Interpreter itp;
+    itp.registerHostFunction("hostfns", "now",
+        [](const std::vector<Value>& args) {
+            return Value(int32_t(41));
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    Value r = itp.call("hostfns.useNow", {});
+    CHECK(r.asInt() == 42, "useNow() == now()+1 == 42");
+    PASS();
+}
+
+static void TestHostFunctionStringArgs() {
+    TEST(TestHostFunctionStringArgs);
+    Interpreter itp;
+    itp.registerHostFunction("hostfns", "shouted",
+        [](const std::vector<Value>& args) {
+            std::string s = args.at(0).asString();
+            for (auto& c : s)
+                c = static_cast<char>(
+                    std::toupper(static_cast<unsigned char>(c)));
+            return Value(s + "!");
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    Value r = itp.call("hostfns.useShouted", {});
+    CHECK(r.asString() == "ABC!", "string args/return both ways");
+    PASS();
+}
+
+static void TestHostExceptionBecomesScriptException() {
+    TEST(TestHostExceptionBecomesScriptException);
+    Interpreter itp;
+    itp.registerHostFunction("hostfns", "willFail",
+        [](const std::vector<Value>& args) -> Value {
+            throw std::runtime_error("host-side failure");
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    //catchHostFailure catches and returns message length (>0)
+    Value r = itp.call("hostfns.catchHostFailure", {});
+    CHECK(r.asInt() > 0,
+        "host C++ exception surfaced as catchable Exception");
+    PASS();
+}
+
+static void TestHostFunctionArgMarshalByDeclaration() {
+    TEST(TestHostFunctionArgMarshalByDeclaration);
+    Interpreter itp;
+    int64_t observed = 0;
+    itp.registerHostFunction("hostfns", "shouted",
+        [&](const std::vector<Value>& args) -> Value {
+            observed = args.at(0).kind() == Value::Kind::String ? 1 : 0;
+            return Value(std::string("x"));
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    (void)itp.call("hostfns.useShouted", {});
+    CHECK(observed == 1, "declared string formal arrives as Kind::String");
+    PASS();
+}
+
+static void TestReentryThrowsBadValue() {
+    TEST(TestReentryThrowsBadValue);
+    Interpreter itp;
+    //reenter() calls back into the SAME interpreter from inside a
+    //HostFn; the running guard must fire as BadValue — a host usage
+    //error thrown before any function resolution, passing raw through
+    //the translation chain (BadValue never becomes a script exception)
+    Interpreter* pItp = &itp;
+    itp.registerHostFunction("hostfns", "reenter",
+        [pItp](const std::vector<Value>& args) {
+            return pItp->call("hostfns.useNow", {});
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    CHECK_THROWS(BadValue, (void)itp.call("hostfns.useReenter", {}),
+        "re-entering call() from inside a HostFn must throw BadValue");
+    PASS();
+}
+
+static void TestScriptExceptionRethrownFromHostFn() {
+    TEST(TestScriptExceptionRethrownFromHostFn);
+    Interpreter itp;
+    itp.load(EMBED_HOSTFNS_NCU);
+    //②翻译链的可达场景＝跨调用重抛：宿主先在一次独立 call() 里捕获
+    //脚本异常（Exception 携堆实例，heapIdx>0），再从 HostFn 抛出——
+    //钩子按同实例重抛（NLangThrow），脚本 catch 看到原始异常对象。
+    //（HostFn 内嵌套 call() 不在此列：再入守卫先抛 BadValue 穿透。）
+    Exception saved("", "", "");
+    try {
+        (void)itp.call("hostfns.fail", {});
+    } catch (const Exception& e) {
+        saved = e;
+    }
+    CHECK(saved.message().find("hf-boom") != std::string::npos,
+        "the earlier call surfaced the script exception");
+    itp.registerHostFunction("hostfns", "callBoom",
+        [saved](const std::vector<Value>& args) -> Value {
+            throw saved;
+        });
+    Value r = itp.call("hostfns.catchRethrown", {});
+    CHECK(r.asInt() == 7,
+        "rethrown script exception keeps its identity (message 7 chars)");
+    PASS();
+}
+
+static void TestHostMadeExceptionSurfaces() {
+    TEST(TestHostMadeExceptionSurfaces);
+    Interpreter itp;
+    //③翻译链：宿主手造 nlang::Exception（无堆实例）→铸成脚本 Exception
+    itp.registerHostFunction("hostfns", "madeUp",
+        [](const std::vector<Value>& args) -> Value {
+            throw Exception("made", "", "Exception");
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    Value r = itp.call("hostfns.catchMade", {});
+    CHECK(r.asInt() == 4,
+        "host-made Exception surfaces as catchable script Exception");
+    PASS();
+}
+
 int main() {
     TestRunReturnsMainExitCode();
     TestRunTwiceThrowsBadValue();
@@ -197,6 +320,13 @@ int main() {
     TestCallRejections();
     TestCallBeforeLoadThrows();
     TestFailedCallLeavesInterpreterUsable();
+    TestHostFunctionDispatch();
+    TestHostFunctionStringArgs();
+    TestHostExceptionBecomesScriptException();
+    TestHostFunctionArgMarshalByDeclaration();
+    TestReentryThrowsBadValue();
+    TestScriptExceptionRethrownFromHostFn();
+    TestHostMadeExceptionSurfaces();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

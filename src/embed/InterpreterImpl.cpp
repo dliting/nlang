@@ -2,6 +2,7 @@
     InterpreterImpl.cpp — 生命周期/装载/执行/调用解析。
 ---*/
 #include "InterpreterImpl.h"
+#include "CallMarshalling.h"
 #include "Marshalling.h"
 #include <nlang/runtime/Runtime.h>
 #include <algorithm>
@@ -35,6 +36,10 @@ void shutdown() {
 
 Interpreter::Interpreter() : m_upImpl(std::make_unique<Impl>()) {
     initialize();
+    //⑤双向接线：表用 executor 编组/抛异常，executor 的 CallNative
+    //先问表（宿主注册优先于 DLL native）。
+    m_upImpl->hostFunctions.AttachExecutor(&m_upImpl->executor);
+    m_upImpl->executor.SetHostFunctions(&m_upImpl->hostFunctions);
 }
 Interpreter::~Interpreter() = default;
 
@@ -52,6 +57,12 @@ int Interpreter::run() { return m_upImpl->Run(); }
 Value Interpreter::call(const char* funcName,
                         const std::vector<Value>& args) {
     return m_upImpl->Call(funcName, args);
+}
+void Interpreter::registerHostFunction(const char* ns, const char* name,
+                                       HostFn fn) {
+    //任意时序：表在适配层，不随装载/初始化清空
+    m_upImpl->hostFunctions.Register(std::string(ns) + "." + name,
+                                      std::move(fn));
 }
 void Interpreter::setOutputHandler(WriteFn out, WriteFn err) {
     //Task 10 接线（IHostIo 转发器）；本任务不实现
@@ -258,35 +269,13 @@ int Interpreter::Impl::ResolveCallTarget(const char* funcName,
     return candidates.front();
 }
 
-//实参编组（声明 kind 驱动）：string 形收取宿主 String（铸运行时柄，
-//值语义）或 Null（柄 0）；标量行经 EncodeScalarCell 做 kind/值域严格
-//校验（String/Null/参考值在标量行一律 BadValue）。其余参考形参
-//（List/Dict/类实例）的桥接属 Task 9——当前在标量行默认分支被拒。
+//实参编组：委托共享单元编组（与宿主函数直派同一声明驱动规则）。
 std::vector<uint8_t> Interpreter::Impl::EncodeArgs(
         const CompiledFunction& f, const std::vector<Value>& args) {
     std::vector<uint8_t> cells(args.size() * kFrameSlotBytes, 0);
-    for (size_t i = 0; i < args.size(); ++i) {
-        const Value& v = args[i];
-        uint8_t* cell = cells.data() + i * kFrameSlotBytes;
-        const uint16_t declaredKind = f.paramTypeDescs.size() > i
-                ? f.paramTypeDescs[i].type.kind
-                : static_cast<uint16_t>(RTK_Int32);
-        if (declaredKind == RTK_String) {
-            if (v.kind() == Value::Kind::String) {
-                const int32_t handle =
-                    executor.MintHostString(v.asString());
-                std::memcpy(cell, &handle, sizeof(handle));
-            } else if (v.kind() != Value::Kind::Null) {
-                throw BadValue(
-                    "string formal needs a String or Null host value");
-            }
-        } else if (v.kind() == Value::Kind::Null) {
-            //null 引用仅对引用形参有定义；标量行拒绝
-            throw BadValue("null host value needs a reference formal");
-        } else {
-            embed::EncodeScalarCell(v, declaredKind, cell);
-        }
-    }
+    for (size_t i = 0; i < args.size(); ++i)
+        embed::ValueIntoCell(executor, args[i], embed::DeclaredParamKind(f, i),
+                             cells.data() + i * kFrameSlotBytes);
     return cells;
 }
 
@@ -294,17 +283,9 @@ std::vector<uint8_t> Interpreter::Impl::EncodeArgs(
 Value Interpreter::Impl::DecodeResult(
         const CompiledFunction& f,
         const uint8_t resultCell[kFrameSlotBytes]) const {
-    switch (f.returnTypeKind) {
-    case RTK_Void:
+    if (f.returnTypeKind == RTK_Void)
         return Value();
-    case RTK_String: {
-        int32_t handle = 0;
-        std::memcpy(&handle, resultCell, sizeof(handle));
-        return Value(executor.StrValCopy(handle));
-    }
-    default:
-        return embed::DecodeScalarCell(resultCell, f.returnTypeKind);
-    }
+    return embed::ValueFromCell(executor, f.returnTypeKind, resultCell);
 }
 
 }  // namespace nlang

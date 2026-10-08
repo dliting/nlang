@@ -20,6 +20,13 @@ void VmExecutor::RegisterNative(const std::string& name, NativeFn fn)
 void VmExecutor::CallNative(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
+    //Extension point ⑤: the host dispatch hook answers first — host
+    //registrations win over same-named DLL natives and never trigger a
+    //DLL load attempt (that is why this precedes EnsureNativeAvailable).
+    if (m_pHostFunctions
+            && m_pHostFunctions->Call(callee, locals + callParamBase,
+                                      callee.paramCount, pResult))
+        return;
     EnsureNativeAvailable(callee.name);
     auto it = m_natives.find(callee.name);
     if (it == m_natives.end())
