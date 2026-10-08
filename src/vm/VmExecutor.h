@@ -56,6 +56,13 @@ public:
     //(default) = the executor keeps its stdout/stdin behavior.
     void SetHostIo(IHostIo* io) { m_pHostIo = io; }
 
+    //Extension point ① (spec 2026-10-08 §8): one-time run-state
+    //initialization for a linked module — the Execute() entry sequence
+    //extracted. Execute() still calls this per run (behavior unchanged);
+    //embedding calls it once at load() so the heap and host proxies
+    //survive across run()/call().
+    void InitializeForRun(const CompiledModule& module);
+
     //Testing knobs (white-box GC pressure): clamp both thresholds so any
     //untraced handle turns stale almost immediately, and observe the live
     //string-object population for bounded-memory assertions.

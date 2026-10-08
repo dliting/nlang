@@ -82,23 +82,29 @@ void VmExecutor::InitStructHeap() {
     m_callStack.clear();
 }
 
-int VmExecutor::Execute(const CompiledModule& module) {
+void VmExecutor::InitializeForRun(const CompiledModule& module) {
     //Reset per-run state up front: if the executor is reused (e.g. a
     //future REPL), an early throw below must not expose stale frames
-    //or backtrace from a previous Execute() call.
+    //or backtrace from a previous run.
     m_currModule = &module;
     ResetPerRunState(module);
+    InitStringStore(module);
+    InitStructHeap();
+}
+
+int VmExecutor::Execute(const CompiledModule& module) {
+    InitializeForRun(module);
 
     //Only the root module's entryPoint is meaningful; imported modules
     //carry -1 (and merged function-table indices would shift anyway), so
-    //there is deliberately no by-name fallback here.
+    //there is deliberately no by-name fallback here. (Order note: this
+    //check used to sit between the reset and the store init; after the
+    //extraction it runs after the full init — not externally observable,
+    //as the throw happens before any observable side effect.)
     int mainIdx = module.entryPoint;
     if (mainIdx < 0
         || mainIdx >= static_cast<int32_t>(module.functions.size()))
         throw std::runtime_error("NLang VM: module has no entry point");
-
-    InitStringStore(module);
-    InitStructHeap();
 
     const CompiledFunction& mainFunc = module.functions[mainIdx];
     std::vector<uint8_t> locals(mainFunc.localsSize, 0);
