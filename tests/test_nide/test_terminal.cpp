@@ -65,6 +65,7 @@ private slots:
     void TestWideCharCursorBlockSpansCell();
     void TestLineModePromptPainted();
     void TestLineModePromptEcho();
+    void TestLightThemeBackgroundAndText();
 
     //--- input modes / IME ---
     void TestLineEditorScalars();
@@ -108,14 +109,15 @@ void TestTerminal::TestPlainTextCells() {
 void TestTerminal::TestSgrColorsAndAttributes() {
     TerminalEmulator emulator;
     emulator.Feed("\x1b[31mR\x1b[0m\x1b[1;4;7mB\x1b[0mN");
-    //SGR 31 = palette index 1 (Campbell red 0xC50F1F), converted to RGB.
-    QCOMPARE(emulator.CellAt(0, 0).foreground, 0xC50F1Fu);
+    //SGR 31 = palette index 1 (light-scheme red 0xCD3131), converted to
+    //RGB.
+    QCOMPARE(emulator.CellAt(0, 0).foreground, 0xCD3131u);
     const TermCell bold = emulator.CellAt(0, 1);
     QVERIFY(bold.bold);
     QCOMPARE(bold.underline, int(VTERM_UNDERLINE_SINGLE));
     QVERIFY(bold.reverse);
-    //After SGR 0 everything is back to the palette defaults.
-    QCOMPARE(emulator.CellAt(0, 2).foreground, 0xCCCCCCu);
+    //After SGR 0 everything is back to the palette defaults (black).
+    QCOMPARE(emulator.CellAt(0, 2).foreground, 0x000000u);
     QVERIFY(!emulator.CellAt(0, 2).bold);
 }
 
@@ -172,7 +174,7 @@ void TestTerminal::TestResetClears() {
     QCOMPARE(emulator.scrollback().size(), size_t(0));
     //The palette survives reset (Reset re-injects it).
     emulator.Feed("\x1b[31mR");
-    QCOMPARE(emulator.CellAt(0, 0).foreground, 0xC50F1Fu);
+    QCOMPARE(emulator.CellAt(0, 0).foreground, 0xCD3131u);
 }
 
 //vterm_state_reset homes the real cursor to (0,0) WITHOUT a movecursor
@@ -431,7 +433,7 @@ void TestTerminal::TestBlankCellReadsAsSpace() {
 static int InkAroundCentre(const QImage& shot, const TerminalWidget& widget,
                            int column, int row) {
     const QPoint centre = widget.cellCenter(column, row);
-    const QColor background(0x0C, 0x0C, 0x0C);   //kDefaultBackground
+    const QColor background(0xFF, 0xFF, 0xFF);   //kDefaultBackground
     const int halfBandW = widget.cellWidth() / 4;
     const int halfBandH = widget.cellHeight() / 4;
     int ink = 0;
@@ -439,6 +441,32 @@ static int InkAroundCentre(const QImage& shot, const TerminalWidget& widget,
         for (int y = centre.y() - halfBandH; y <= centre.y() + halfBandH; ++y)
             if (shot.pixelColor(x, y) != background)
                 ++ink;
+    return ink;
+}
+
+//Counts dark pixels (all three channels below kDarkChannelMax) in a small
+//window around a cell centre: the ink probe for the light-theme test. The
+//old light-grey 0xCCCCCC foreground would leave no dark pixel at all, so this
+//probe only goes green once the text is actually black.
+static int DarkInkAroundCentre(const QImage& shot,
+                               const TerminalWidget& widget,
+                               int column, int row) {
+    //A channel strictly below this reads as dark ink; black text (0x00)
+    //lands well under it, and the old light-grey foreground (0xCC) does not.
+    constexpr int kDarkChannelMax = 0x80;
+    const QPoint centre = widget.cellCenter(column, row);
+    const int halfBandW = widget.cellWidth() / 4;
+    const int halfBandH = widget.cellHeight() / 4;
+    int ink = 0;
+    for (int x = centre.x() - halfBandW; x <= centre.x() + halfBandW; ++x)
+        for (int y = centre.y() - halfBandH; y <= centre.y() + halfBandH; ++y) {
+            const QRgb pixel = shot.pixel(x, y);
+            const int r = (pixel >> 16) & 0xFF;
+            const int g = (pixel >> 8) & 0xFF;
+            const int b = pixel & 0xFF;
+            if (r < kDarkChannelMax && g < kDarkChannelMax && b < kDarkChannelMax)
+                ++ink;
+        }
     return ink;
 }
 
@@ -515,6 +543,28 @@ void TestTerminal::TestLineModePromptEcho() {
     QVERIFY(widget.screenText().find("> Bob") != std::string::npos);
     //The committed content itself stays prompt-free.
     QCOMPARE(spy.at(0).at(0).toString(), QString("Bob"));
+}
+
+//The terminal is black-on-white to match the rest of nide's light windows:
+//the background is pure white and the default text is black. Both halves are
+//checked so a partial flip (white bg but grey text, or black bg but black
+//text) cannot slip through: a far corner must be pure white (the old
+//near-black 0x0C0C0C would fail this), and the glyph must carry dark ink
+//(the old light-grey 0xCCCCCC foreground would leave no dark pixel).
+void TestTerminal::TestLightThemeBackgroundAndText() {
+    TerminalWidget widget;
+    widget.show();
+    QTest::qWaitForWindowExposed(&widget);
+    widget.feedBytes("Hi");
+    const QImage shot = widget.grab().toImage();
+    //A corner well clear of any glyph (the text "Hi" sits at the top-left,
+    //so the bottom-right is blank) must be pure white. Compare only the
+    //RGB channels: pixel() returns 0xAARRGGBB, so an opaque white pixel
+    //reads 0xFFFFFFFF (alpha FF) and would mismatch a bare 0xFFFFFF.
+    const QRgb corner = shot.pixel(shot.width() - 3, shot.height() - 3);
+    QCOMPARE((corner & 0x00FFFFFFu), 0x00FFFFFFu);
+    QVERIFY2(DarkInkAroundCentre(shot, widget, 0, 0) > 3,
+             "foreground text must be dark ink on the light background");
 }
 
 //--- input modes / IME -------------------------------------------------------

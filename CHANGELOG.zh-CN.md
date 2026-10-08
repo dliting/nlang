@@ -6,6 +6,13 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.1]
+
+### 变更
+- nide：终端采用浅色主题，与 nide 其余浅色窗口一致——白底黑字、浅蓝色
+  选择高亮，以及浅色 16 色 ANSI 调色板（VSCode Light Modern），保证
+  外部彩色程序在白底上仍可辨识。
+
 ## [0.8.0] - 2026-10-08
 
 ### 新增

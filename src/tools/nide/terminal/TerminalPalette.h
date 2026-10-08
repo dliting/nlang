@@ -1,9 +1,10 @@
 /*---
-TerminalPalette.h — the fixed 16-colour Campbell palette (Windows
-Terminal's default dark scheme) injected into every VTerm instance, so
+TerminalPalette.h — the fixed 16-colour VSCode Light Modern palette
+(Windows Terminal's light scheme) injected into every VTerm instance, so
 indexed colours always resolve the same way and the widget never does
 palette lookups. RGB direct colours from SGR 38;2 travel alongside
-untouched.
+untouched. The light theme keeps the terminal consistent with the rest of
+nide's light windows: white background, black default text.
 ---*/
 #pragma once
 #include <vterm.h>
@@ -13,16 +14,16 @@ namespace terminal {
 
 inline constexpr int kPaletteColorCount = 16;
 
-//Campbell palette, indices 0-7 dim then 8-15 bright.
+//VSCode Light Modern palette, indices 0-7 dim then 8-15 bright.
 inline constexpr unsigned int kPaletteColors[kPaletteColorCount] = {
-    0x0C0C0C, 0xC50F1F, 0x13A10E, 0xC19C00,
-    0x0037DA, 0x881798, 0x3A96DD, 0xCCCCCC,
-    0x767676, 0xE74856, 0x16C60C, 0xF9F1A5,
-    0x3B78FF, 0xB4009E, 0x61D6D6, 0xF2F2F2,
+    0x000000, 0xCD3131, 0x00BC00, 0x949800,
+    0x0451A5, 0xBC05BC, 0x0598BC, 0x555555,
+    0x666666, 0xCD3131, 0x14CE14, 0xB5BA00,
+    0x0451A5, 0xBC05BC, 0x0598BC, 0xA5A5A5,
 };
 
-inline constexpr unsigned int kDefaultForeground = 0xCCCCCC;
-inline constexpr unsigned int kDefaultBackground = 0x0C0C0C;
+inline constexpr unsigned int kDefaultForeground = 0x000000;
+inline constexpr unsigned int kDefaultBackground = 0xFFFFFF;
 
 inline void SetTerminalColor(VTermColor* out, unsigned int rgb) {
     vterm_color_rgb(out,

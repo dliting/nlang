@@ -6,6 +6,15 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.1]
+
+### Changed
+- nide: the terminal adopts a light theme to match the rest of nide's light
+  windows — white background with black default text, a soft light-blue
+  selection highlight, and a light 16-colour ANSI palette (VSCode Light
+  Modern) so externally-coloured programs stay legible on the white
+  background.
+
 ## [0.8.0] - 2026-10-08
 
 ### Added

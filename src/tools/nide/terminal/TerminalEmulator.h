@@ -30,8 +30,8 @@ struct TermCell {
     bool bold = false;
     int underline = 0;      //VTERM_UNDERLINE_* value
     bool reverse = false;
-    unsigned int foreground = 0xCCCCCC;
-    unsigned int background = 0x0C0C0C;
+    unsigned int foreground = 0x000000;
+    unsigned int background = 0xFFFFFF;
 };
 
 //A scrollback line, one entry per column.

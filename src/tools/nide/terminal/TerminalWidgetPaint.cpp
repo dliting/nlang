@@ -19,7 +19,9 @@ QColor ToColor(unsigned int rgb) {
                   static_cast<int>(rgb & 0xFF));
 }
 
-constexpr unsigned int kSelectionBackground = 0x264F78;
+//Light-theme selection highlight: a soft blue that keeps black text
+//legible (the old dark 0x264F78 had low contrast with black-on-white text).
+constexpr unsigned int kSelectionBackground = 0xADD6FF;
 
 } // namespace
 
