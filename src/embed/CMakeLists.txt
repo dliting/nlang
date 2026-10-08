@@ -5,6 +5,7 @@
 #final binaries, without propagating VM usage requirements to hosts.
 add_library(nlang_embed
     Value.cpp
+    Marshalling.cpp
 )
 target_include_directories(nlang_embed
     PUBLIC

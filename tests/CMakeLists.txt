@@ -1445,6 +1445,14 @@ endforeach()
 add_executable(test_embed
     test_embed/test_embed.cpp
 )
+#Marshalling.h is a src/embed internal header: the marshalling layer has
+#no public-API observability without a VM, so this test reaches it
+#directly (test_nculinker PRIVATE-includes src/vm the same way).
+target_include_directories(test_embed
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/embed
+        ${PROJECT_SOURCE_DIR}/include
+)
 target_link_libraries(test_embed
     PRIVATE
         nlang_embed
