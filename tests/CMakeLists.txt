@@ -1441,3 +1441,13 @@ foreach(t IN ITEMS
     add_dependencies(${t} nlang_stdlib_package)
 endforeach()
 
+# --- Embedding API tests (spec: 2026-10-08-nlang-embedded-host-api) ---
+add_executable(test_embed
+    test_embed/test_embed.cpp
+)
+target_link_libraries(test_embed
+    PRIVATE
+        nlang_embed
+)
+add_test(NAME embed_value_tests COMMAND test_embed)
+
