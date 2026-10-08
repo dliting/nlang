@@ -1489,3 +1489,15 @@ target_compile_definitions(test_embed_vm
 add_dependencies(test_embed_vm nlang_embed_fixtures)
 add_test(NAME embed_vm_tests COMMAND test_embed_vm)
 
+add_executable(test_embed_api
+    test_embed/test_embed_api.cpp
+)
+target_link_libraries(test_embed_api
+    PRIVATE
+        nlang_embed
+)
+target_compile_definitions(test_embed_api
+    PRIVATE EMBED_VALUES_NCU="${embed_fixture_dir}/values_demo.ncu")
+add_dependencies(test_embed_api nlang_embed_fixtures)
+add_test(NAME embed_api_tests COMMAND test_embed_api)
+

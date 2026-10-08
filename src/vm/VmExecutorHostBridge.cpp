@@ -399,4 +399,19 @@ bool VmExecutor::HostFieldNameToIndex(int32_t heapIdx,
     return false;
 }
 
+std::string VmExecutor::HostClassName(int32_t heapIdx) const {
+    if (heapIdx < 0
+            || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        throw std::runtime_error(
+            "NLang VM: host class name on bad heap idx");
+    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    if (slot.empty() || m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
+        throw std::runtime_error(
+            "NLang VM: host class name on non-class slot");
+    const uint16_t idx = static_cast<uint16_t>(slot[0]);
+    if (idx >= m_currModule->classes.size())
+        throw std::runtime_error("NLang VM: class idx out of range");
+    return m_currModule->classes[idx].name;
+}
+
 }  // namespace nlang

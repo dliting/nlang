@@ -117,6 +117,10 @@ public:
                           const uint8_t cell[8]);
     bool HostFieldNameToIndex(int32_t heapIdx, const std::string& fieldName,
                               uint16_t& indexOut) const;
+    //Class instances only: the declaring CompiledClass's name (slot[0]
+    //class idx → classes[]). Used by the adapter to translate thrown
+    //exceptions ("Exception", "IOException", ...).
+    std::string HostClassName(int32_t heapIdx) const;
 
     //Testing knobs (white-box GC pressure): clamp both thresholds so any
     //untraced handle turns stale almost immediately, and observe the live

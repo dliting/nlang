@@ -122,22 +122,6 @@ private:
     std::shared_ptr<detail::RefValue> m_ref;
 };
 
-//未捕获的 NLang 异常（脚本侧错误）。
-class Exception : public std::exception {
-public:
-    Exception(std::string message, std::string backtrace,
-              std::string exceptionClass);
-    const char* what() const noexcept override;
-    std::string message()        const;
-    std::string backtrace()      const;   //栈回溯文本
-    std::string exceptionClass() const;   // "Exception"/"IOException"/...
-private:
-    friend class InterpreterImpl;      //构造（翻译 NLangThrow）
-    friend class HostFunctionTable;    //读 m_heapIdx 决定原样重抛（Task 7）
-    std::string m_message, m_backtrace, m_class;
-    int32_t m_heapIdx = 0;   //>0＝可原样重抛的 NLang 异常实例（⑤双向语义）
-};
-
 //宿主用法错误：类型错配、生命周期误用（二次 load/run、load 后
 //addImportDir、再入）、marshalling 不匹配（kind/值域）。
 class BadValue : public std::logic_error {
@@ -175,6 +159,25 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> m_upImpl;
+};
+
+//未捕获的 NLang 异常（脚本侧错误）。定义在 Interpreter 之后、友元指名
+//外围类：写 m_heapIdx 的是嵌套 Interpreter::Impl 的成员（翻译
+//NLangThrow），嵌套类经外围类的友元资格获得访问（嵌套类成员与外围类
+//成员同权，[class.access.nest]）；指名私有嵌套类型本身则不可行。
+class Exception : public std::exception {
+public:
+    Exception(std::string message, std::string backtrace,
+              std::string exceptionClass);
+    const char* what() const noexcept override;
+    std::string message()        const;
+    std::string backtrace()      const;   //栈回溯文本
+    std::string exceptionClass() const;   // "Exception"/"IOException"/...
+private:
+    friend class Interpreter;         //经嵌套 Impl 成员构造（翻译 NLangThrow，置 heapIdx）
+    friend class HostFunctionTable;   //读 m_heapIdx 决定原样重抛（Task 7）
+    std::string m_message, m_backtrace, m_class;
+    int32_t m_heapIdx = 0;   //>0＝可原样重抛的 NLang 异常实例（⑤双向语义）
 };
 
 void initialize();  // 幂等，包 Runtime::StaticInit
