@@ -6,7 +6,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.8.1]
+## [0.8.1] - 2026-10-08
 
 ### 变更
 - nide：终端采用浅色主题，与 nide 其余浅色窗口一致——白底黑字、浅蓝色

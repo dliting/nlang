@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.8.1]
+## [0.8.1] - 2026-10-08
 
 ### Changed
 - nide: the terminal adopts a light theme to match the rest of nide's light
