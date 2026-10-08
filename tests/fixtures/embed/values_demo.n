@@ -21,6 +21,11 @@ int boom() {
     throw new Exception("embedded-boom");
 }
 
+int withOut(int a, out int b) {
+    b = a * 2;
+    return a;
+}
+
 void logNothing() {
     int pad = 0;
 }

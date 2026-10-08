@@ -103,6 +103,22 @@ Exception Interpreter::Impl::TranslateNLangThrow(
 
 //--- Impl ------------------------------------------------------------------
 
+//Re-entry guard as RAII: every exit path from run()/call() — including
+//the BadValue throws from the resolver/marshaller, which inherit
+//logic_error and therefore bypass the runtime_error/NLangThrow catch
+//chains — must reset `running`. The pre-RAII version left the flag set
+//after a failed call() and every later call on the same Interpreter
+//failed with a bogus "re-entering" BadValue.
+namespace {
+class RunningGuard {
+public:
+    explicit RunningGuard(bool& flag) : m_flag(flag) { m_flag = true; }
+    ~RunningGuard() { m_flag = false; }
+private:
+    bool& m_flag;
+};
+}   // namespace
+
 void Interpreter::Impl::Load(const std::filesystem::path& artifact) {
     if (loaded)
         throw BadValue("load() may be called once per Interpreter");
@@ -130,7 +146,7 @@ int Interpreter::Impl::Run() {
         throw BadValue("run() may be called once per Interpreter");
     if (running)
         throw BadValue("re-entering the interpreter is not supported");
-    running = true;
+    RunningGuard guard(running);
     int exitCode = 0;
     try {
         uint8_t resultCell[kFrameSlotBytes] = {};
@@ -139,81 +155,136 @@ int Interpreter::Impl::Run() {
             resultCell);
         std::memcpy(&exitCode, resultCell, sizeof(exitCode));
     } catch (const NLangThrow& t) {
-        running = false;
         throw TranslateNLangThrow(executor, t);
     } catch (std::runtime_error& e) {
-        running = false;
         if (IsEnvironmentFailure(e.what()))
             throw LoadError(e.what());
         throw;
     }
-    running = false;
     ran = true;
     return exitCode;
 }
 
-//call() 最小实现（Task 6 完整化：重载 kind 消歧、out 拒绝、参考值）。
-//本任务覆盖：守卫、按名查找（数量可吸收）、标量/字符串编组、
-//标量/字符串/void 结果解码、NLangThrow/环境失败翻译。
 Value Interpreter::Impl::Call(const char* funcName,
                               const std::vector<Value>& args) {
     if (!loaded)
         throw BadValue("call() before load()");
     if (running)
         throw BadValue("re-entering the interpreter is not supported");
-    running = true;
+    RunningGuard guard(running);
     try {
-        int target = -1;
-        for (size_t i = 0; i < module.functions.size(); ++i) {
-            const CompiledFunction& f = module.functions[i];
-            if (f.name == funcName && args.size() <= f.paramCount) {
-                target = static_cast<int>(i);
-                break;
-            }
-        }
-        if (target < 0)
-            throw BadValue(std::string("no function ") + funcName);
+        const int target = ResolveCallTarget(funcName, args);
         const CompiledFunction& f =
             module.functions[static_cast<size_t>(target)];
-
         std::vector<uint8_t> cells = EncodeArgs(f, args);
         uint8_t resultCell[kFrameSlotBytes] = {};
         executor.CallFunctionByIdx(static_cast<uint16_t>(target),
                                    cells.data(),
                                    static_cast<uint32_t>(args.size()),
                                    resultCell);
-        Value result = DecodeResult(f, resultCell);
-        running = false;
-        return result;
+        return DecodeResult(f, resultCell);
     } catch (const NLangThrow& t) {
-        running = false;
         throw TranslateNLangThrow(executor, t);
     } catch (std::runtime_error& e) {
-        running = false;
         if (IsEnvironmentFailure(e.what()))
             throw LoadError(e.what());
         throw;
     }
 }
 
-//实参编组：String 铸运行时字符串柄（值语义，宿主侧字符串拷入），
-//Null 即引用柄 0，其余按形参声明 kind 编码（无描述表时按 Int32）。
+//缺席形参（超出实参个数的形参）须全部有可常量重建的默认值。
+//RTK_Void＝无默认；RTK_Unfoldable＝有默认表达式但不可折叠重建
+//（生产方 VmBackend.cpp:143/:184 盖章）——嵌入入口无法重建，
+//spec §13 定为 BadValue，在此前置拒绝而非放行到防御性 runtime_error。
+namespace {
+bool MissingParamsHaveUsableDefaults(const CompiledFunction& f,
+                                     size_t argc) {
+    for (uint32_t i = static_cast<uint32_t>(argc); i < f.paramCount; ++i) {
+        if (i >= f.defaultValues.size())
+            return false;
+        const uint16_t tag = f.defaultValues[i].tag;
+        if (tag == RTK_Void || tag == RTK_Unfoldable)
+            return false;
+    }
+    return true;
+}
+}   // namespace
+
+//键规则即防线：模块链接后的自由函数键是「TU 词干.名」，类方法不走
+//本入口（宿主方法调用属未来增量），故不另查 classes[].methodIndices。
+//intrinsics 无独立可调体（CallFunctionByIdx 亦拒之），扫描时跳过。
+int Interpreter::Impl::ResolveCallTarget(const char* funcName,
+                                         const std::vector<Value>& args) {
+    if (!std::strchr(funcName, '.'))
+        throw BadValue(std::string(funcName) +
+            ": call() keys are package-qualified (unit-stem.name)");
+    std::vector<int> candidates;
+    for (size_t i = 0; i < module.functions.size(); ++i) {
+        const CompiledFunction& f = module.functions[i];
+        if (f.name != funcName || f.intrinsicId != INTR_None)
+            continue;
+        if (args.size() <= f.paramCount
+                && MissingParamsHaveUsableDefaults(f, args.size()))
+            candidates.push_back(static_cast<int>(i));
+    }
+    if (candidates.empty())
+        throw BadValue(std::string("no overload of ") + funcName
+            + " accepts " + std::to_string(args.size()) + " argument(s)");
+    if (candidates.size() > 1) {
+        //多候选淘汰：试探编组（EncodeScalarCell 的 kind/值域检查抛
+        //BadValue 者出局）；淘汰后仍多则歧义。
+        std::vector<int> survivors;
+        for (int idx : candidates) {
+            try {
+                EncodeArgs(module.functions[static_cast<size_t>(idx)],
+                           args);
+                survivors.push_back(idx);
+            } catch (const BadValue&) {
+            }
+        }
+        candidates = std::move(survivors);
+        if (candidates.empty())
+            throw BadValue(std::string("no overload of ") + funcName
+                + " accepts these argument kinds");
+        if (candidates.size() > 1)
+            throw BadValue(std::string("ambiguous call to ") + funcName);
+    }
+    const CompiledFunction& f =
+        module.functions[static_cast<size_t>(candidates.front())];
+    for (const ParamTypeDesc& p : f.paramTypeDescs)
+        if (p.flags & PTDF_Out)
+            throw BadValue(std::string(funcName)
+                + " has out-parameters; the Value model cannot carry them");
+    return candidates.front();
+}
+
+//实参编组（声明 kind 驱动）：string 形收取宿主 String（铸运行时柄，
+//值语义）或 Null（柄 0）；标量行经 EncodeScalarCell 做 kind/值域严格
+//校验（String/Null/参考值在标量行一律 BadValue）。其余参考形参
+//（List/Dict/类实例）的桥接属 Task 9——当前在标量行默认分支被拒。
 std::vector<uint8_t> Interpreter::Impl::EncodeArgs(
         const CompiledFunction& f, const std::vector<Value>& args) {
     std::vector<uint8_t> cells(args.size() * kFrameSlotBytes, 0);
     for (size_t i = 0; i < args.size(); ++i) {
         const Value& v = args[i];
         uint8_t* cell = cells.data() + i * kFrameSlotBytes;
-        if (v.kind() == Value::Kind::String) {
-            const int32_t handle = executor.MintHostString(v.asString());
-            std::memcpy(cell, &handle, sizeof(handle));
+        const uint16_t declaredKind = f.paramTypeDescs.size() > i
+                ? f.paramTypeDescs[i].type.kind
+                : static_cast<uint16_t>(RTK_Int32);
+        if (declaredKind == RTK_String) {
+            if (v.kind() == Value::Kind::String) {
+                const int32_t handle =
+                    executor.MintHostString(v.asString());
+                std::memcpy(cell, &handle, sizeof(handle));
+            } else if (v.kind() != Value::Kind::Null) {
+                throw BadValue(
+                    "string formal needs a String or Null host value");
+            }
         } else if (v.kind() == Value::Kind::Null) {
-            //null reference = handle 0（cells 已零初始化）
+            //null 引用仅对引用形参有定义；标量行拒绝
+            throw BadValue("null host value needs a reference formal");
         } else {
-            embed::EncodeScalarCell(v, f.paramTypeDescs.size() > i
-                    ? f.paramTypeDescs[i].type.kind
-                    : static_cast<uint16_t>(RTK_Int32),
-                cell);
+            embed::EncodeScalarCell(v, declaredKind, cell);
         }
     }
     return cells;

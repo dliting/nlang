@@ -23,6 +23,12 @@ struct Interpreter::Impl {
     int Run();
     Value Call(const char* funcName, const std::vector<Value>& args);
 
+    //call() 目标解析：包限定键校验 → 同名候选（数量可吸收、缺席形参
+    //有可用默认）→ 多候选时 kind 试探编组淘汰 → 拒绝项（out 形参）。
+    //全部失败路径抛 BadValue（含零候选/歧义）。
+    int ResolveCallTarget(const char* funcName,
+                          const std::vector<Value>& args);
+
     //call() 的编组两翼：实参 → 帧单元格（字符串铸柄/null=柄 0/标量按
     //形参 kind）；返回单元格 → Value（void→Null/string→拷出/其余标量）。
     std::vector<uint8_t> EncodeArgs(const CompiledFunction& f,
