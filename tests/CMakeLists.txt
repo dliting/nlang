@@ -1459,3 +1459,33 @@ target_link_libraries(test_embed
 )
 add_test(NAME embed_value_tests COMMAND test_embed)
 
+#Embedding fixtures: real ncc output (build-time, mylib pattern). Pure
+#computation — no stdlib import, so no nlang_stdlib_package edge needed
+#here; io_demo (Task on I/O) adds its own.
+set(embed_fixture_dir ${CMAKE_BINARY_DIR}/embed_fixtures)
+add_custom_target(nlang_embed_fixtures ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${embed_fixture_dir}
+    COMMAND $<TARGET_FILE:ncc> build
+        ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/values_demo.n
+        -o ${embed_fixture_dir}/values_demo.ncu
+    DEPENDS ncc
+    VERBATIM)
+
+add_executable(test_embed_vm
+    test_embed/test_embed_vm.cpp
+)
+target_include_directories(test_embed_vm
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_embed_vm
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+target_compile_definitions(test_embed_vm
+    PRIVATE EMBED_VALUES_NCU="${embed_fixture_dir}/values_demo.ncu")
+add_dependencies(test_embed_vm nlang_embed_fixtures)
+add_test(NAME embed_vm_tests COMMAND test_embed_vm)
+

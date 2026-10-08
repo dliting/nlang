@@ -1,0 +1,30 @@
+//Embedding test fixture: free functions exercised through the by-name
+//entry and Interpreter::call(). Qualified keys are "values_demo.<name>"
+//(the declaring TU stem).
+int add(int a, int b) {
+    return a + b;
+}
+
+string greet(string name) {
+    return "hello, " + name;
+}
+
+int withDefaults(int a, int b = 5, int c = 9) {
+    return a * 100 + b * 10 + c;
+}
+
+int usesDefaults(int a) {
+    return withDefaults(a, 5, 9);
+}
+
+int boom() {
+    throw new Exception("embedded-boom");
+}
+
+void logNothing() {
+    int pad = 0;
+}
+
+int main() {
+    return 7;
+}

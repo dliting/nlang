@@ -63,6 +63,61 @@ public:
     //survive across run()/call().
     void InitializeForRun(const CompiledModule& module);
 
+    //Extension point ② (spec §8): invoke a free function without a
+    //compiler-generated call site. argCells: argc marshalled 8-byte
+    //cells (argc <= callee.paramCount); formals beyond argc fill from
+    //callee.defaultValues — a non-constant (Unfoldable) default throws.
+    //resultCell: 8 bytes out, caller reads per the declared return kind.
+    //Throws std::runtime_error on unknown name; NLangThrow propagates
+    //with the backtrace captured.
+    void CallByName(const std::string& qualifiedName,
+                    const uint8_t* argCells, uint32_t argc,
+                    uint8_t* resultCell);
+    //Index form: the adapter resolves overloads itself and passes the
+    //functions[] index (CallByName is a FindFunction + this).
+    void CallFunctionByIdx(uint16_t funcIndex, const uint8_t* argCells,
+                           uint32_t argc, uint8_t* resultCell);
+
+    //Host value bridge (extension point ② surface): the minimal
+    //minting/allocation/typed-access primitives the embedding adapter
+    //needs. Thin public wrappers over existing internal machinery —
+    //no new semantics.
+    int32_t MintHostString(const std::string& content);
+    int32_t BoxHostScalar(uint8_t typeTag, int64_t bits);
+    int32_t AllocHostList();
+    int32_t AllocHostDict();
+    void HostListPushBack(int32_t listHeapIdx, int32_t elemHeapIdx);
+    void HostDictUpsert(int32_t dictHeapIdx, int32_t keyHeapIdx,
+                        int32_t valHeapIdx);
+    bool HostKeysEqual(int32_t aHeapIdx, int32_t bHeapIdx);
+    uint32_t HostArrayLength(int32_t heapIdx) const;
+    void HostArrayGetCell(int32_t heapIdx, uint32_t index,
+                          uint8_t outCell[8]) const;
+    void HostArraySetCell(int32_t heapIdx, uint32_t index,
+                          const uint8_t cell[8]);
+    uint32_t HostListSize(int32_t heapIdx) const;
+    int32_t HostListGet(int32_t heapIdx, uint32_t index) const;
+    bool HostDictEntryGet(int32_t heapIdx, uint32_t index,
+                          int32_t& keyOut, int32_t& valOut) const;
+    uint32_t HostDictSize(int32_t heapIdx) const;
+    bool HostBoxedRead(int32_t boxHeapIdx, uint8_t& tagOut,
+                       int64_t& bitsOut) const;
+    //Object/struct field cell access per the DECLARED field kind. The
+    //descriptor is resolved from the heap slot's runtime kind — class
+    //instances: slot[0]=classIdx into classes[]; struct instances:
+    //m_slotStructIdx into structs[] (a separate table). Stride is
+    //uniform 2 cells/field: class field i at cell 1+2i, struct field i
+    //at 2i (pinned: VmExecutorDebug.cpp FormatDebugClassInstance/
+    //FormatDebugStructInstance/FormatDebugField). 8-byte kinds
+    //(RTK_Long/RTK_ULong/RTK_Double) span the cell pair [base,base+1].
+    //Get returns the declared RTK so the caller decodes per declaration.
+    uint8_t HostFieldCellGet(int32_t heapIdx, uint16_t fieldIndex,
+                             uint8_t outCell[8]) const;
+    void HostFieldCellSet(int32_t heapIdx, uint16_t fieldIndex,
+                          const uint8_t cell[8]);
+    bool HostFieldNameToIndex(int32_t heapIdx, const std::string& fieldName,
+                              uint16_t& indexOut) const;
+
     //Testing knobs (white-box GC pressure): clamp both thresholds so any
     //untraced handle turns stale almost immediately, and observe the live
     //string-object population for bounded-memory assertions.
@@ -110,6 +165,27 @@ private:
 
     void ExecuteFunction(const CompiledFunction& func,
         uint8_t* pResult, uint8_t* locals);
+
+    //Host-bridge internals (definitions in VmExecutorHostBridge.cpp):
+    //FillDefaults stages the Option-B defaults for a by-name call's
+    //missing formals (what a compiler call site would have staged).
+    void FillDefaults(const CompiledFunction& callee,
+                      uint8_t* frameCells, uint32_t argc);
+    void FillOneDefault(const CompiledFunction& callee,
+                        const DefaultValueDesc& d, uint8_t* cell);
+
+    //private（ResolveHostField 的描述符视图）：CompiledStruct/
+    //CompiledClass 是无继承关系的两个类型，字段成员仅名字相同
+    //（fieldCount/fieldNames/fieldTypeKinds，且后者同为
+    //vector<uint16_t>，CompiledModule.h:148-161/:384-400）——视图持各
+    //表指针，单一代码路径服务两表。
+    struct HostFieldDesc {
+        const std::vector<std::string>* fieldNames;
+        const std::vector<uint16_t>* fieldTypeKinds;
+        uint16_t fieldCount;
+    };
+    HostFieldDesc ResolveHostField(int32_t heapIdx, uint16_t fieldIndex,
+                                   size_t& baseOut) const;
 
     //Opcode case-body helpers (2026-09-26 maintainability split):
     //the dispatch switch in VmExecutorOps.cpp routes every opcode
