@@ -6,7 +6,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.7.9] - Unreleased
+## [0.8.0] - 2026-10-08
 
 ### 新增
 - 包：`.n` 文件的包名就是它相对匹配搜索根的路径（`-I <根>` 下

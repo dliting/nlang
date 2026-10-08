@@ -21,7 +21,7 @@ from pygments.token import (Comment, Keyword, Name, Number, Operator,
 #are imported directly by the hook's consumers (never via import *).
 __all__ = ["NLangLexer"]
 
-#Full nlang.l keyword table (post-merge, 0.7.9): 39 keywords +
+#Full nlang.l keyword table (post-merge, 0.8.0): 39 keywords +
 #17 builtin-type words (NLANG_TYPES below: the scanner's 14 type
 #keywords plus the docs-side generic names Dict/Func/List) + 3 constants
 #(NLANG_CONSTANTS below) = the scanner's 56 reserved words. "state" has

@@ -1281,7 +1281,7 @@ stream_double_arg_string_reject compile_error expects a double argument
 src_utf8_bom 5
 src_not_utf8 compile_error not valid UTF-8
 
-# 0.7.9: a method call result is not a store target. Both forms used to
+# 0.8.0: a method call result is not a store target. Both forms used to
 # parse and resolve cleanly, then silently emit no code.
 store_call_result_assign compile_error cannot assign to the result of a method call
 store_call_result_compound compile_error cannot assign to the result of a method call

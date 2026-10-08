@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.9] - Unreleased
+## [0.8.0] - 2026-10-08
 
 ### Added
 - Packages: a `.n` file's package is its path relative to the matched
