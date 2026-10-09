@@ -1519,3 +1519,16 @@ target_compile_definitions(test_embed_api
 add_dependencies(test_embed_api nlang_embed_fixtures nlang_stdlib_native_for_tests)
 add_test(NAME embed_api_tests COMMAND test_embed_api)
 
+#Embedding example smoke: run a stdlib-importing script through
+#examples/embed_host and assert the redirected output (Task 11).
+if(Python3_FOUND)
+    add_test(NAME embed_host_smoke
+        COMMAND ${Python3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tests/e2e/run_embed_host.py
+            $<TARGET_FILE:embed_host>
+            $<TARGET_FILE:ncc>
+            ${NLANG_TEST_STDLIB_DIR}/stdlib.npkg
+            $<TARGET_FILE:nlang_io>)
+    set_tests_properties(embed_host_smoke PROPERTIES TIMEOUT 120)
+endif()
+

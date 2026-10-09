@@ -156,6 +156,9 @@ add_subdirectory(src/langservice)
 add_subdirectory(src/compiler)
 add_subdirectory(src/vm)
 add_subdirectory(src/embed)
+#C++ example hosts link nlang_embed; the .n examples ship via the
+#install(DIRECTORY examples/) rule further down.
+add_subdirectory(examples)
 add_subdirectory(src/3rdparty/tinyxml2)
 add_subdirectory(src/tools/ncc)
 add_subdirectory(src/tools/nvm)
