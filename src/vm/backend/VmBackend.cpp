@@ -124,6 +124,26 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     bool isMethod = func.Parent()
         && (func.Parent()->Kind() == NK_ClassDecl
             || func.Parent()->Kind() == NK_EnumDecl);
+    //Frame-layout locals (this + one per formal) with the true runtime
+    //kinds. The native path emits no bytecode, so this is metadata-only —
+    //the GC never scans a native function's frame (CallNative stages its
+    //args into its own buffer). The kind-裁决 chain's frame-layout fallback
+    //reads the param kind from these slots when the v1.12 descriptor
+    //degrades the type (Func signatures, interface types, depth-cap
+    //containers), so a reference cell must carry the reference kind, not
+    //the int32 placeholder. Mirrors AllocParamsAndDefaults (the non-native
+    //path).
+    if (isMethod) {
+        //Phase 12: an enum method's `this` is the enum VALUE (int32), not
+        //a heap reference — RTK_Class here would make GC root scanning
+        //treat the integer as a heap index (plan 12b round-1 MAJOR 2/3).
+        uint8_t thisKind =
+            (func.Parent()->Kind() == NK_EnumDecl) ? RTK_Int32 : RTK_Class;
+        AllocLocal("__this", kFrameSlotBytes, thisKind, true);
+    }
+    for (auto& param : func.Params())
+        AllocLocal(param.Name(), kFrameSlotBytes,
+                   RuntimeTypeKind(param.EvalDataType()), true);
     compiledFunc.paramCount = static_cast<uint16_t>(
         func.Params().size() + (isMethod ? 1 : 0));
     compiledFunc.localsSize = compiledFunc.paramCount * kFrameSlotBytes;

@@ -276,6 +276,23 @@ static void TestHostFunctionArgMarshalByDeclaration() {
     PASS();
 }
 
+static void TestHostFunctionFuncParamKind() {
+    TEST(TestHostFunctionFuncParamKind);
+    Interpreter itp;
+    itp.registerHostFunction("hostfns", "takeFunc",
+        [](const std::vector<Value>& args) -> Value {
+            //The Func argument must arrive as Kind::Func (reference arm),
+            //not Kind::Int (scalar arm from the int32 placeholder when the
+            //v1.12 descriptor degrades the Func signature).
+            return Value(int32_t(
+                args.at(0).kind() == Value::Kind::Func ? 1 : 0));
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    Value r = itp.call("hostfns.useTakeFunc", {});
+    CHECK(r.asInt() == 1, "Func arg to native arrives as Kind::Func");
+    PASS();
+}
+
 static void TestReentryThrowsBadValue() {
     TEST(TestReentryThrowsBadValue);
     Interpreter itp;
@@ -563,6 +580,7 @@ int main() {
     TestHostFunctionStringArgs();
     TestHostExceptionBecomesScriptException();
     TestHostFunctionArgMarshalByDeclaration();
+    TestHostFunctionFuncParamKind();
     TestReentryThrowsBadValue();
     TestScriptExceptionRethrownFromHostFn();
     TestHostMadeExceptionSurfaces();

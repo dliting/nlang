@@ -7,6 +7,7 @@ native int willFail();
 native int reenter();
 native int callBoom();
 native int madeUp();
+native int takeFunc(Func<int,int> f);
 
 int useNow() {
     return now() + 1;
@@ -56,6 +57,17 @@ int catchMade() {
     } catch (Exception e) {
         return e.message.length();
     }
+}
+
+//triple is a plain NLang function; passing it as a value exercises the
+//Func reference arm of the HostFn marshalling (kind 裁决 via the frame
+//layout, since the v1.12 descriptor degrades a Func signature).
+int triple(int x) {
+    return x * 3;
+}
+
+int useTakeFunc() {
+    return takeFunc(triple);
 }
 
 int main() {

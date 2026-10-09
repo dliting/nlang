@@ -30,11 +30,19 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     CollectSignatureTypeDescs(func, compiledFunc);
 
     if (func.ContainFlags(NF_Native)) {
-        //Multi-segment refusal already happened in the whole-tree
-        //pre-check (RejectMultiSegmentNatives below) — every native the
-        //build accepted reaches the record with its signature
-        //descriptors.
+        //Multi-segment refusal already happened in the whole-tree pre-check
+        //(RejectMultiSegmentNatives) — every native the build accepted
+        //reaches the record with its signature descriptors. A FuncContext
+        //lets FillNativeFunctionRecord call AllocLocal (frame-layout locals
+        //for the kind-裁决 chain); null the emitter so AllocLocal reads a
+        //defined null (not the previous function's destroyed emitter).
+        FuncContext ctx;
+        ctx.func = &compiledFunc;
+        ctx.nextOffset = 0;
+        m_currFunc = &ctx;
+        m_pCurrEmitter = nullptr;
         FillNativeFunctionRecord(func, compiledFunc);
+        m_currFunc = nullptr;
         m_compiledModule.functions[funcIdx] = std::move(compiledFunc);
         return;
     }
