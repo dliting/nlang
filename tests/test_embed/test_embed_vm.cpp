@@ -5,6 +5,7 @@
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"
+#include "HostFunctionTable.h"
 #include <nlang/runtime/Runtime.h>
 #include <cstdlib>
 #include <cstring>
@@ -137,6 +138,45 @@ static void TestCallByNameTwiceHeapSurvives() {
     PASS();
 }
 
+//Dispatch-boundary guard: a native-method callee must never marshal
+//through the host table. A method frame carries `this` in slot 0 —
+//paramCount counts it while paramTypeDescs/defaultValues exclude it
+//(CompiledModule.h sizing contract) — so ArgsFromCells would pair every
+//cell with the wrong declared kind. Public registration keys always
+//carry a separator dot (registerHostFunction) while method dispatch
+//names are bare, which keeps method callees out of the table only as an
+//unstated intersection of two distant facts; this test drives the
+//internal table directly with a bare key to pin the explicit guard.
+static void TestHostTableRejectsNativeMethod() {
+    TEST(TestHostTableRejectsNativeMethod);
+    VmExecutor& e = LoadedExecutor();
+    HostFunctionTable table;
+    table.AttachExecutor(&e);
+    bool hostFnCalled = false;
+    table.Register("bump",
+        [&](const std::vector<Value>&) -> Value {
+            hostFnCalled = true;
+            return Value(int32_t(1));
+        });
+    e.SetHostFunctions(&table);
+    bool threw = false;
+    try {
+        uint8_t result[8] = {};
+        e.CallByName("values_demo.callNativeMethod", nullptr, 0, result);
+    } catch (const BadValue& bv) {
+        threw = true;
+        const std::string msg(bv.what());
+        CHECK(msg.find("bump") != std::string::npos,
+            "guard message names the method");
+        CHECK(msg.find("native method") != std::string::npos,
+            "guard message says what was rejected");
+    }
+    e.SetHostFunctions(nullptr);
+    CHECK(threw, "method callee through the host table throws BadValue");
+    CHECK(!hostFnCalled, "guard fires before the host function body");
+    PASS();
+}
+
 //Extension point ③: a host-held string handle stays a live GC root
 //across collections triggered by real bytecode. The stress thresholds
 //are clamped to 4 and never restored, so this test must stay LAST in
@@ -172,6 +212,7 @@ int main() {
     TestCallByNameStringRoundTrip();
     TestCallByNameSurfacesNLangThrow();
     TestCallByNameTwiceHeapSurvives();
+    TestHostTableRejectsNativeMethod();
     TestHostRootProtectsAcrossGc();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

@@ -54,6 +54,19 @@ int applyFunc(Func<int, int> f, int x) {
     return f(x);
 }
 
+//Native-method fixture: callNativeMethod instantiates the class and calls
+//its native method, so a VM-level test can attach a host table registered
+//under the bare method name (the only key form a method callee can match)
+//and pin the dispatch-boundary guard in HostFunctionTable::Call.
+class NativeOps {
+    public native int bump(int x);
+}
+
+int callNativeMethod() {
+    NativeOps ops = new NativeOps();
+    return ops.bump(1);
+}
+
 void logNothing() {
     int pad = 0;
 }

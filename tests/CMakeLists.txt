@@ -1493,12 +1493,14 @@ add_executable(test_embed_vm
 target_include_directories(test_embed_vm
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/embed
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_embed_vm
     PRIVATE
         nlang_vm
         nlang_runtime
+        nlang_embed
 )
 target_compile_definitions(test_embed_vm
     PRIVATE EMBED_VALUES_NCU="${embed_fixture_dir}/values_demo.ncu")
