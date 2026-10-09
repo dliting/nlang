@@ -2,14 +2,14 @@
 //assignment, parameter, and return positions without losing its target.
 int bar(int x) { return x * 2; }
 
-Func<int, int> pick() { return bar; }
+func<int, int> pick() { return bar; }
 
-int apply(Func<int, int> f, int v) { return f(v); }
+int apply(func<int, int> f, int v) { return f(v); }
 
 int main() {
-    Func<int, int> g = bar;    // local decl RHS
+    func<int, int> g = bar;    // local decl RHS
     g = pick();                // assignment RHS (return value)
-    Func<int, int> h = g;      // Func-to-Func copy
+    func<int, int> h = g;      // Func-to-Func copy
     if (apply(g, 3) == 6 && h(4) == 8) {
         return 0;
     }

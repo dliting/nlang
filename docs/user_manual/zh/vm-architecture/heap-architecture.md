@@ -72,9 +72,9 @@ slot[1] = 值位（int32 / float 位模式 / string 对象句柄）
 
 ```cpp
 struct GenericInstKey {
-    std::string baseName;            // "List" / "Dict" / "Func"
+    std::string baseName;            // "List" / "Dict" / "func"
     std::vector<SnField*> typeArgs;  // resolved type-argument fields
-    std::vector<uint8> outFlags;     // out-marked params (Func)
+    std::vector<uint8> outFlags;     // out-marked params (func)
     std::vector<uint8> arrayFlags;   // array-typed type args
 };
 ```

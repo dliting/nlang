@@ -3,6 +3,6 @@
 int dbl(int x) { return x * 2; }
 
 int main() {
-    Func<int, int> f = dbl;
+    func<int, int> f = dbl;
     return f == 5;
 }

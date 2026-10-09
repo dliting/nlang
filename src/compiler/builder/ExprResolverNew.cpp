@@ -144,12 +144,13 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	}
 
 	auto pClassDecl = static_cast<SnClassDecl*>(pClassField);
-	//Phase 13: Func types are structural — values come only from function
+	//Phase 13: func types are structural — values come only from function
 	//or method references, so there is no by-name construction.
-	if (IsGenericClassDecl(pClassDecl) && pClassDecl->BaseName() == "Func")
+	if (IsGenericClassDecl(pClassDecl)
+		&& pClassDecl->BaseName() == kBuiltinFuncTypeName)
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
-			"Func types cannot be constructed by name; bind a function "
+			"func types cannot be constructed by name; bind a function "
 			"or method reference");
 		return;
 	}

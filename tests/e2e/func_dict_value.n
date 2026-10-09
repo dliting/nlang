@@ -8,8 +8,8 @@ class C {
 int main() {
     C c = new C();
     c.k = 7;
-    Dict<string, Func<int, int>> d = new Dict<string, Func<int, int>>();
+    Dict<string, func<int, int>> d = new Dict<string, func<int, int>>();
     d["add"] = c.add;
-    Func<int, int> f = d["add"];
+    func<int, int> f = d["add"];
     return f(3);
 }

@@ -67,8 +67,8 @@ int main() {
 Error: imported function 'g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
 ```
 
-`.ncu`类型描述符只承载数据类型——被导入函数的非常量折叠默认值、以及跨模块函数值引用（`Func`签名在描述符文法之外）都在消费侧被拒；函数值形态报`function "pick" does not match the signature of
-"Func<Int32, Int32>"`。详见 → [默认参数](default-parameters.md)与[已知限制](known-limitations.md)「被导入函数的默认参数」「跨模块函数值被拒绝而非搬运」条。
+`.ncu`类型描述符只承载数据类型——被导入函数的非常量折叠默认值、以及跨模块函数值引用（`func`签名在描述符文法之外）都在消费侧被拒；函数值形态报`function "pick" does not match the signature of
+"func<Int32, Int32>"`。详见 → [默认参数](default-parameters.md)与[已知限制](known-limitations.md)「被导入函数的默认参数」「跨模块函数值被拒绝而非搬运」条。
 
 ### 声明与控制流
 

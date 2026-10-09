@@ -8,6 +8,6 @@ class C {
 
 int main() {
     C c = new C();
-    Func<int, int, int> f = c.foo;
+    func<int, int, int> f = c.foo;
     return 0;
 }

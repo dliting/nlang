@@ -83,14 +83,6 @@ std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
 	return {};
 }
 
-//Returns true if name is a recognized built-in generic class.
-//Phase 8e-3: "List" (arity 1). Phase 8e-4: "Dict" (arity 2).
-//Phase 13: "Func" (variadic, at least the return type).
-bool IsBuiltinGenericClassName(const std::string& name)
-{
-	return name == "List" || name == "Dict" || name == "Func";
-}
-
 //Returns true if class decl is a synthetic generic instantiation
 //(e.g., List<int>). Used to dispatch member calls in Access(SnMemberExpr&).
 bool IsGenericClassDecl(SnClassDecl* pClass)
@@ -114,13 +106,13 @@ SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	if (it != s_genericInstances.end())
 		return it->second;
 
-	//Built-in generic + arity check. List/Dict have fixed arity; Func is
+	//Built-in generic + arity check. List/Dict have fixed arity; func is
 	//variadic: first argument is the return type, the rest are params.
-	bool isFunc = baseName == "Func";
-	size_t expectedArity = (baseName == "Dict") ? 2 : 1;
+	bool isFunc = baseName == kBuiltinFuncTypeName;
+	size_t expectedArity = (baseName == kBuiltinDictTypeName) ? 2 : 1;
 	size_t minArity = isFunc ? 1 : expectedArity;
 	size_t maxArity = isFunc ? static_cast<size_t>(-1) : expectedArity;
-	if (!IsBuiltinGenericClassName(baseName)
+	if (!IsBuiltinGenericTypeName(baseName)
 		|| typeArgs.size() < minArity || typeArgs.size() > maxArity)
 		return nullptr;
 

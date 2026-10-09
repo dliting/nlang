@@ -5,7 +5,7 @@ import io;
 int bar(int x) { return x; }
 
 int main() {
-    Func<int, int> f = bar;
+    func<int, int> f = bar;
     io.print(f);
     return 0;
 }

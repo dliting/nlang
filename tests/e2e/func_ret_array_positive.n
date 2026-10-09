@@ -9,7 +9,7 @@ string[] mk(int x) {
     return a;
 }
 int main() {
-    Func<string[], int> f = mk;
+    func<string[], int> f = mk;
     string[] r = f(1);
     io.print(r[0] + r[1]);           // pq
     io.print(r.length());          // 2 — method-style on the local

@@ -9,6 +9,7 @@ and ParseOne in lockstep with the struct comment in TypeDesc.h.
 //RTK_* kind constants (also the TypeDesc field-width contract).
 #include "nlang/vm/CompiledModule.h"
 #include <nlang/compiler/SnArrayTypeToken.h>
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <stdexcept>
 
@@ -205,7 +206,7 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 				//instantiation node is ownerless and its backing class is
 				//registered once under "List"/"Dict".
 				const auto& args = pClass->GenericTypeArgs();
-				if (pClass->BaseName() == "List" && args.size() == 1)
+				if (pClass->BaseName() == kBuiltinListTypeName && args.size() == 1)
 				{
 					if (depth >= kMaxTypeDescDepth)
 					{
@@ -216,7 +217,7 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 					td.elems.push_back(BuildTypeDesc(args[0], slots, depth + 1));
 					return td;
 				}
-				if (pClass->BaseName() == "Dict" && args.size() == 2)
+				if (pClass->BaseName() == kBuiltinDictTypeName && args.size() == 2)
 				{
 					if (depth >= kMaxTypeDescDepth)
 					{

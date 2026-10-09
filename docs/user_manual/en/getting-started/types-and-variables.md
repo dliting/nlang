@@ -113,7 +113,7 @@ int main() {
 Output `13`; exit code 13. `using Name = Type;` gives a type a second
 name; the alias expands textually at each use site, so `Ints xs = ...` is
 exactly `int[] xs = ...`. Aliases work over primitive, array, generic, and
-`Func<...>` type forms.
+`func<...>` type forms.
 
 See also: [Language Specification / Declarations](../language-spec/declarations.md).
 

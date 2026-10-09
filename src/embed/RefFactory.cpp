@@ -5,6 +5,7 @@
 ---*/
 #include "RefValue.h"
 #include "CallMarshalling.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <cstring>
 #include <string>
 
@@ -166,9 +167,9 @@ Value RefFactory::FromHeapHandle(VmExecutor& exec, int32_t heapIdx) {
         //擦除式 List/Dict 实例与用户类实例同为 class 槽——运行时类名
         //甄别宿主 Kind（CompiledClass 名与语言类型名一致）
         const std::string name = exec.HostClassName(heapIdx);
-        if (name == "List")
+        if (name == kBuiltinListTypeName)
             return MakeRooted(exec, heapIdx, Value::Kind::List);
-        if (name == "Dict")
+        if (name == kBuiltinDictTypeName)
             return MakeRooted(exec, heapIdx, Value::Kind::Dict);
         return MakeRooted(exec, heapIdx, Value::Kind::Object);
     }

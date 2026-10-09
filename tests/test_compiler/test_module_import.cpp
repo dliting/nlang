@@ -19,7 +19,7 @@ on every merged TU member (top-level and container members).
 //test_vm reaching into src/vm).
 #include "builder/ModuleRegistry.h"
 //Execute-level coverage (review C1): qualifying a call that returns a
-//Func<...> must not be emitted as a bound method reference, so the tests
+//func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
 #include <nlang/vm/CompiledModule.h>
 #include "ModuleLoader.h"
@@ -1097,10 +1097,10 @@ private slots:
 
     //--- Executed qualified paths (review I2) --------------------------
     //The qualified-path tests above are compile-only; the C1 review bug
-    //(a module-qualified call returning Func<...> was emitted as a bound
+    //(a module-qualified call returning func<...> was emitted as a bound
     //method reference and crashed at runtime) compiled cleanly, so these
     //siblings load the built .ncu and run main(). T1-T3 cover the three
-    //shapes (int return / Func return / void statement form); T4-T7 pin
+    //shapes (int return / func return / void statement form); T4-T7 pin
     //the m12 shadowing rule and the diagnostic contracts.
 
     //T1: an int-returning qualified call executes and its value flows
@@ -1116,7 +1116,7 @@ private slots:
         QVERIFY2(run.exitValue == 3, "main must return help()'s value");
     }
 
-    //T2 (review C1): a qualified call whose callee returns Func<int,int,int>
+    //T2 (review C1): a qualified call whose callee returns func<int,int,int>
     //(params first, return last -> (int,int)->int) is a CALL in value
     //position. The Phase 13 bound-reference arm in VmBackend only fits
     //value-position references (Inner is an identifier), so this used to
@@ -1127,17 +1127,17 @@ private slots:
         GateProjectOptions opts;
         opts.szHelperBody =
             "int sub(int a, int b) { return a - b; }\n"
-            "Func<int, int, int> pick() { return sub; }\n";
+            "func<int, int, int> pick() { return sub; }\n";
         opts.szMainBody =
             "import utils.helper;\n"
             "int main()\n"
             "{\n"
-            "    Func<int, int, int> f = utils.helper.pick();\n"
+            "    func<int, int, int> f = utils.helper.pick();\n"
             "    return f(2, 3) + 5;\n"
             "}\n";
         auto run = runGateProject(opts);
         QVERIFY2(run.ok, runFailureText(run,
-            "qualified Func-returning call must build and execute")
+            "qualified func-returning call must build and execute")
             .c_str());
         QVERIFY2(run.runtimeError.empty(),
             "a qualified call must be emitted as a call, not a bound "

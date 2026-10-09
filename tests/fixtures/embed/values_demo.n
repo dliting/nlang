@@ -46,11 +46,11 @@ int twice(int x) {
     return x * 2;
 }
 
-Func<int, int> makeFunc() {
+func<int, int> makeFunc() {
     return twice;
 }
 
-int applyFunc(Func<int, int> f, int x) {
+int applyFunc(func<int, int> f, int x) {
     return f(x);
 }
 

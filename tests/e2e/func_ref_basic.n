@@ -1,9 +1,9 @@
 //Phase 13 Step 1: free function reference — full chain. `bar` binds to
-//the Func<int,int> parameter at the argument injection site; the callee
+//the func<int,int> parameter at the argument injection site; the callee
 //invokes it through the plain call shape f(v).
 int bar(int x) { return x + 1; }
 
-int apply(Func<int, int> f, int v) { return f(v); }
+int apply(func<int, int> f, int v) { return f(v); }
 
 int main() {
     int r = apply(bar, 10);

@@ -134,9 +134,10 @@ SnField *ExprResolveAccessor::ResolveInitListElemType(SnField *pTargetField,
         auto *pGen = static_cast<SnClassDecl*>(pTargetField);
         const auto& baseName = pGen->BaseName();
         if (!pGen->IsGenericInstantiation()
-            || (baseName != "List" && baseName != "Dict"))
+            || (baseName != kBuiltinListTypeName
+                && baseName != kBuiltinDictTypeName))
             return nullptr;
-        const size_t elemIdx = (baseName == "List") ? 0 : 1;
+        const size_t elemIdx = (baseName == kBuiltinListTypeName) ? 0 : 1;
         auto elemArgs = GetGenericTypeArgs(pGen);
         if (elemArgs.size() > elemIdx)
             return elemArgs[elemIdx];
@@ -305,7 +306,8 @@ bool ExprResolveAccessor::RejectNonStringDictInitKeys(SnInitListExpr &sn,
     if (pTargetField->Kind() != NK_ClassDecl)
         return false;
     auto *pGen = static_cast<SnClassDecl *>(pTargetField);
-    if (!pGen->IsGenericInstantiation() || pGen->BaseName() != "Dict")
+    if (!pGen->IsGenericInstantiation()
+        || pGen->BaseName() != kBuiltinDictTypeName)
         return false;
     auto typeArgs = GetGenericTypeArgs(pGen);
     if (typeArgs.empty() || !typeArgs[0]

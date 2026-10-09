@@ -3,6 +3,7 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 
 namespace nlang
 {
@@ -170,8 +171,10 @@ void StatementResolveAccessor::CheckForeachSource(SnForeachStmt &sn)
 	const bool isContainer = pSrcType
 		&& pSrcType->Kind() == NK_ClassDecl
 		&& static_cast<SnClassDecl*>(pSrcType)->IsGenericInstantiation()
-		&& (static_cast<SnClassDecl*>(pSrcType)->BaseName() == "List"
-			|| static_cast<SnClassDecl*>(pSrcType)->BaseName() == "Dict");
+		&& (static_cast<SnClassDecl*>(pSrcType)->BaseName()
+			== kBuiltinListTypeName
+			|| static_cast<SnClassDecl*>(pSrcType)->BaseName()
+			== kBuiltinDictTypeName);
 	//0.7.5 char bridge: a string source iterates Unicode scalar values
 	//(code points) via UTF-8 decoding; the loop variable is char.
 	const bool isString = pSrcType && pSrcType->Kind() == NK_String;
@@ -209,7 +212,8 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 	{
 		auto* pGen = static_cast<SnClassDecl*>(pSrcType);
 		if (pGen->IsGenericInstantiation()
-			&& (pGen->BaseName() == "List" || pGen->BaseName() == "Dict")
+			&& (pGen->BaseName() == kBuiltinListTypeName
+				|| pGen->BaseName() == kBuiltinDictTypeName)
 			&& !pGen->GenericTypeArgs().empty())
 		{
 			pElemField = pGen->GenericTypeArgs()[0];

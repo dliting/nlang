@@ -3,6 +3,7 @@
 #include "BuildEnvironment.h"
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include "TranslationUnit.h"
 #include "ModuleRegistry.h"
 #include <set>
@@ -260,9 +261,12 @@ public:
 			//Names that resolution would route somewhere else than the
 			//alias: same-unit declarations, built-in types and classes,
 			//built-in generics, reserved stdlib namespaces.
+			//0.8.3: "Func" dropped — func is a keyword, so it can no
+			//longer be spelled as a type alias name; List/Dict stay
+			//(plain identifiers, spellable as alias names).
 			if ((unit.Root() && unit.Root()->FindField(sName))
 				|| treeRoot.FindField(sName)
-				|| sName == "List" || sName == "Dict" || sName == "Func"
+				|| sName == kBuiltinListTypeName || sName == kBuiltinDictTypeName
 				|| IsBuiltinClassName(sName)
 				|| m_Accessor.m_Env.IsLibraryPackage(sName))
 			{

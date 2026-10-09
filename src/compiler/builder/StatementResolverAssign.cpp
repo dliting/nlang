@@ -3,6 +3,7 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 
 namespace nlang
 {
@@ -330,7 +331,7 @@ bool StatementResolveAccessor::TryBindSubscriptStoreFuncRef(
 			auto* pDictDecl = static_cast<SnClassDecl*>(
 				pArrField->EvalDataType());
 			if (pDictDecl->IsGenericInstantiation()
-				&& pDictDecl->BaseName() == "Dict")
+				&& pDictDecl->BaseName() == kBuiltinDictTypeName)
 			{
 				auto typeArgs = GetGenericTypeArgs(pDictDecl);
 				if (typeArgs.size() > 1)
@@ -412,12 +413,13 @@ void StatementResolveAccessor::ApplyContainerStoreCasts(
 	{
 		auto* pGen = static_cast<SnClassDecl*>(pBaseType);
 		auto typeArgs = GetGenericTypeArgs(pGen);
-		if (pGen->BaseName() == "Dict" && typeArgs.size() > 1)
+		if (pGen->BaseName() == kBuiltinDictTypeName && typeArgs.size() > 1)
 		{
 			pElemType = typeArgs[1];
 			pKeyType = typeArgs[0];
 		}
-		else if (pGen->BaseName() == "List" && !typeArgs.empty())
+		else if (pGen->BaseName() == kBuiltinListTypeName
+			&& !typeArgs.empty())
 			pElemType = typeArgs[0];
 	}
 	//Dict subscript sugar `d[k] = v` lowers to set(k, v): the KEY

@@ -282,9 +282,9 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 	const auto& baseName = pClass->BaseName();
 	const auto& typeArgs = pClass->GenericTypeArgs();
 	SnField* elem = nullptr;
-	if (baseName == "List" && !typeArgs.empty())
+	if (baseName == kBuiltinListTypeName && !typeArgs.empty())
 		elem = typeArgs[0];
-	else if (baseName == "Dict" && typeArgs.size() > 1)
+	else if (baseName == kBuiltinDictTypeName && typeArgs.size() > 1)
 	{
 		elem = typeArgs[1];
 		//0.7.5: the read sugar `d[k]` lowers to get(k), whose boxing

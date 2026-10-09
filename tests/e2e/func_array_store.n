@@ -10,8 +10,8 @@ class C {
 int main() {
     C c = new C();
     c.k = 100;
-    Func<int, int>[] arr = [dbl, c.add];
-    Func<int, int> a0 = arr[0];
-    Func<int, int> a1 = arr[1];
+    func<int, int>[] arr = [dbl, c.add];
+    func<int, int> a0 = arr[0];
+    func<int, int> a1 = arr[1];
     return a0(5) + a1(5);
 }

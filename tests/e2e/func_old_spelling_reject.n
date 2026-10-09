@@ -1,0 +1,6 @@
+//compile_error: the old capitalized spelling is no longer a type —
+//Func is a plain identifier now (free for user type names).
+int main() {
+    Func<int, int> f = null;
+    return 0;
+}

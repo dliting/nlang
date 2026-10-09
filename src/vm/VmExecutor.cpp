@@ -1,5 +1,6 @@
 #include "VmExecutor.h"
 #include "NativeLibraryLoader.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <cstring>
 #include <cstdio>
 #include <exception>
@@ -23,13 +24,13 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     //Phase 8e-3: reset List<T> side table and cache the class index.
     m_listStore.clear();
     m_listFreeList.clear();
-    int listIdx = module.FindClass("List");
+    int listIdx = module.FindClass(kBuiltinListTypeName);
     m_listClassIdx = (listIdx >= 0) ? static_cast<int16_t>(listIdx) : -1;
 
     //Phase 8e-4: reset Dict<K,V> side table and cache the class index.
     m_dictStore.clear();
     m_dictFreeList.clear();
-    int dictIdx = module.FindClass("Dict");
+    int dictIdx = module.FindClass(kBuiltinDictTypeName);
     m_dictClassIdx = (dictIdx >= 0) ? static_cast<int16_t>(dictIdx) : -1;
 
     //Phase 9d: cache Exception hierarchy class indices. These are required

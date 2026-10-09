@@ -16,6 +16,7 @@
 
 #include "nlang.tab.h"
 #include "ScriptScanner.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <cassert>
 #include <cerrno>
 #include <cmath>
@@ -230,6 +231,15 @@ LineComment	\/\/[^\n]*
 "float"     { return KT_Float; }
 "for"       { return KT_For; }
 "foreach"   { return KT_Foreach; }
+"func"      {
+                /* 0.8.3: keyword form of the function type. Same
+                 * pending-open flag as the List/Dict identifier rule
+                 * so `func<...>` opens a type-argument list (the '<'
+                 * rule consumes the flag; ">>" splits rely on the
+                 * depth staying balanced). */
+                scanner.PendingGenericOpen(true);
+                return KT_Func;
+            }
 "if"        { return KT_If; }
 "implements" { return KT_Implements; }
 "import"    { return KT_Import; }
@@ -323,16 +333,18 @@ LineComment	\/\/[^\n]*
 
 {Name}      {
                 SET_TEXT(yytext);
-                /* Flag List/Dict/Func so a following '<' opens a
+                /* Flag List/Dict so a following '<' opens a
                  * type-argument list (see the '<' rule). Every identifier
                  * rewrites this flag, so it can only reach a '<' across
                  * blanks/comments — a comparison `List < 3` against a
                  * variable shadowing the type name is misread (documented
                  * limitation). */
+                /*Flex action code runs in the global namespace, so the
+                 *built-in name constants are qualified with nlang::
+                 *(they live in the runtime namespace). */
                 scanner.PendingGenericOpen(
-                    strcmp(yytext, "List") == 0
-                    || strcmp(yytext, "Dict") == 0
-                    || strcmp(yytext, "Func") == 0);
+                    strcmp(yytext, nlang::kBuiltinListTypeName) == 0
+                    || strcmp(yytext, nlang::kBuiltinDictTypeName) == 0);
                 return TT_Identifier;
             }
 

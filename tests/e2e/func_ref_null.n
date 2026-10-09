@@ -3,6 +3,6 @@
 int bar(int x) { return x; }
 
 int main() {
-    Func<int, int> f = null;
+    func<int, int> f = null;
     return f(1);
 }

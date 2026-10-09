@@ -2,6 +2,6 @@
 import math;
 int[] mk() { return new int[2]; }
 int main() {
-    Func<int[]> f = mk;
+    func<int[]> f = mk;
     return math.sqrt(f());
 }

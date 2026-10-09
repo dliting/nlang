@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -42,8 +43,8 @@ void VmBackend::EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
         sub.Array()->EvalDataType());
     const auto& baseName = pGenClass->BaseName();
     const auto& typeArgs = pGenClass->GenericTypeArgs();
-    bool isList = (baseName == "List" && !typeArgs.empty());
-    bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
+    bool isList = (baseName == kBuiltinListTypeName && !typeArgs.empty());
+    bool isDict = (baseName == kBuiltinDictTypeName && typeArgs.size() > 1);
     EvalAreaClaim claim(*this, 3);
     uint16_t claimBase = claim.base();
     //Array-typed slots are interned tokens — raw handles, no box

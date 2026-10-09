@@ -15,19 +15,19 @@ class SubCounter : Counter {
 int dbl(int x) { return x * 2; }
 
 int runFree() {
-    Func<int, int> f = dbl;
+    func<int, int> f = dbl;
     return f(5);
 }
 
 int runBound() {
     Counter c = new Counter();
     c.n = 10;
-    Func<int, int> f = c.foo;
+    func<int, int> f = c.foo;
     return f(1);
 }
 
 int runVirtual() {
     Counter c = new SubCounter();
-    Func<int, int> f = c.tw;
+    func<int, int> f = c.tw;
     return f(10);
 }

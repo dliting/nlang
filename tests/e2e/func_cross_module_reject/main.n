@@ -4,6 +4,6 @@
 import lib;
 
 int main() {
-    Func<int, int> f = dbl;
+    func<int, int> f = dbl;
     return f(1);
 }

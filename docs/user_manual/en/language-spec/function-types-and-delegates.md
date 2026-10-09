@@ -1,17 +1,18 @@
 # Function Types & Delegates
 
 
-`Func<R, P1, P2, ...>` is a built-in generic type describing **function
-values**. The first type argument is always the **return type** (may be
-`void`); the remaining arguments are the parameter types in declaration
-order, each optionally prefixed with `out`:
+Function types are introduced by the `func` keyword:
+`func<Return, Params...>` describes **function values**. The first type
+argument is always the **return type** (may be `void`); the remaining
+arguments are the parameter types in declaration order, each optionally
+prefixed with `out`:
 
 ```nlang
-Func<int>                 // int f()
-Func<void>                // void f()
-Func<int, int>            // int f(int)
-Func<void, out int>       // void f(out int)
-Func<int, int, out int>   // int f(int, out int)
+func<int>                  // int f()
+func<void>                 // void f()
+func<int, int>             // int f(int)
+func<void, out int>        // void f(out int)
+func<int, int, out int>    // int f(int, out int)
 ```
 
 Signature matching is **exact** — no co-/contravariance, no default
@@ -33,7 +34,7 @@ arrays and containers, passed around, and invoked later:
   **runtime class at each call** (late binding).
 
 ```nlang
-using BinOp = Func<int, int>;
+using BinOp = func<int, int>;
 
 class Counter {
     int n;
@@ -67,11 +68,11 @@ with no expected function type is a compile error naming the reference.
 
 Two call shapes:
 
-- **Bare identifier** — `f(x)`. A Func-typed local/parameter/field
+- **Bare identifier** — `f(x)`. A `func`-typed local/parameter/field
   **shadows** any same-named function.
-- **Member field** — `obj.cb(x)` where `cb` is a Func-typed field.
+- **Member field** — `obj.cb(x)` where `cb` is a `func`-typed field.
 
-Arguments are staged per the Func type's signature; `out` parameters
+Arguments are staged per the `func` type's signature; `out` parameters
 write back to the caller's locals after the call, transparently
 handling the receiver shift for bound methods. Named arguments on
 delegate invocations are rejected.
@@ -81,7 +82,7 @@ delegate invocations are rejected.
 - `f == g` / `f != g` compare **handle content** (target + receiver +
   form): two references to the same function are equal. `f == null`
   and `f != null` are valid. Ordering comparisons (`< <= > >=`) and
-  comparisons with non-Func operands are compile errors.
+  comparisons with non-`func` operands are compile errors.
 - `f = null` stores the empty handle; **invoking it throws a null-
   pointer exception** at run time. Binding a reference on a **null
   receiver** (`Counter c = null; register(c.tw);`) throws at bind time.
@@ -89,36 +90,36 @@ delegate invocations are rejected.
   formatting render `"func <name>"` (static handles — including bound
   non-virtual method references) or `"method <name>"` (virtual-dispatch
   handles).
-- **Known inconsistency**: `List<Func>.contains` / `indexOf` compare
+- **Known inconsistency**: `List<func<...>>.contains` / `indexOf` compare
   elements by **identity** (each reference is a distinct heap record),
   not by `==` content equality.
 
 ### Restrictions (compile-time)
 
 - Referencing a function/method whose signature does not exactly match
-  the expected Func type.
+  the expected `func` type.
 - Referencing functions or methods with **default parameters** —
   defaults are filled only on the direct-call path.
 - **Enum methods** — the receiver is an int value, not a heap object.
 - **Native methods** in any reachable form: declared `native`, an
   override under a virtual base, or an implementation of an interface
   member (native calls have no callee frame for the receiver).
-- **Virtual/interface references whose Func type has `out` parameters**
+- **Virtual/interface references whose `func` type has `out` parameters**
   — runtime dispatch could disagree with the compiled out mask.
-- **`out` in the return position** (`Func<out int, ...>`) — rejected
-  with the compile error "out is only allowed on Func<...>
+- **`out` in the return position** (`func<out int, ...>`) — rejected
+  with the compile error "out is only allowed on func<...>
   parameters.".
-- **`new Func<...>(...)`** — constructing from a name is not supported;
+- **`new func<...>(...)`** — constructing from a name is not supported;
   bind a reference instead.
-- **`Dict<Func<...>, V>`** — Func as a Dict key (see identity note above).
+- **`Dict<func<...>, V>`** — `func` as a Dict key (see identity note above).
 - **Boxing into `Object`** (`Object o = f`) — via the generic
   incompatible-type diagnostic.
-- **`void` or `out` type arguments outside `Func`** (`List<void>`,
+- **`void` or `out` type arguments outside `func`** (`List<void>`,
   `List<out int>`, `new List<out int>`).
 - **Cross-module**: referencing an imported function, or passing a
   function reference **to** an imported function (parameter signatures
   are not serialized in `.ncu`).
 - Function values as `switch` discriminants (no case family matches).
 - Function values cannot cross the serialization application programming interface (API) — `writeStruct` /
-  `writeObject` on a struct/class holding a Func field is a run-time
+  `writeObject` on a struct/class holding a `func` field is a run-time
   error.

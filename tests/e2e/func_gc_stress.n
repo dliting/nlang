@@ -10,15 +10,15 @@ class Counter {
     public int twice(int x) { return x * 2 + n; }
 }
 
-class Holder { Func<int, int> cb; }
+class Holder { func<int, int> cb; }
 
 class P { int v; }
 
 int main() {
     Counter c = new Counter();
-    List<Func<int, int>> l = [c.twice];
-    Func<void> b = c.bump;
-    Func<int, int>[] arr = [c.twice];
+    List<func<int, int>> l = [c.twice];
+    func<void> b = c.bump;
+    func<int, int>[] arr = [c.twice];
     Holder h = new Holder();
     h.cb = c.twice;
     for (int i = 0; i < 3000; i = i + 1) {
@@ -28,8 +28,8 @@ int main() {
     b();
     b();
     int total = 0;
-    foreach (Func<int, int> g in l) { total = g(5); }
-    Func<int, int> fromArr = arr[0];
+    foreach (func<int, int> g in l) { total = g(5); }
+    func<int, int> fromArr = arr[0];
     if (fromArr(5) != total) return 1;
     if (h.cb(5) != total) return 2;
     return total + c.n;

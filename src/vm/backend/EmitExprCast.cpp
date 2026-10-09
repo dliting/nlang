@@ -4,6 +4,7 @@
 ---*/
 #include "VmBackend.h"
 #include "EmitPrimOps.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -378,8 +379,8 @@ void VmBackend::EmitContainerSubscriptGet(SnSubscriptExpr& sub,
         sub.Array()->EvalDataType());
     const auto& baseName = pGenClass->BaseName();
     const auto& typeArgs = pGenClass->GenericTypeArgs();
-    bool isList = (baseName == "List" && !typeArgs.empty());
-    bool isDict = (baseName == "Dict" && typeArgs.size() > 1);
+    bool isList = (baseName == kBuiltinListTypeName && !typeArgs.empty());
+    bool isDict = (baseName == kBuiltinDictTypeName && typeArgs.size() > 1);
     //Array-typed slots are interned tokens — raw
     //handles, no box/unbox (BoxingTagFor default).
     //Dict keys box when primitive; List's index is int.

@@ -6,7 +6,7 @@
 int printer(string s) { return 3; }
 
 int main() {
-    Func<int, string> d = printer;
+    func<int, string> d = printer;
     int[] a = new int[2];
     return d(a);
 }

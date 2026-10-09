@@ -146,7 +146,7 @@ corresponding CHANGELOG release section.
 
 ### Cross-module function values / complex defaults / named arguments rejected?
 
-The `.ncu` type descriptors carry only data types — not `Func`
+The `.ncu` type descriptors carry only data types — not `func`
 signatures or parameter names — so these cross-module shapes are
 rejected at the consumer's compile time: referencing an imported
 function as a function value, passing a function reference to an

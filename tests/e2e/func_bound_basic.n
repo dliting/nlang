@@ -2,14 +2,14 @@
 //state accumulates across calls through the delegate. User acceptance
 //example: foobar(c.foo) leaves n=1, then g(1)=3 and g(1)=4 (exit 7).
 import io;
-using BinOp = Func<int, int>;
+using BinOp = func<int, int>;
 
 class Counter {
     int n;
     public int foo(int x) { n = n + 1; return n + x; }
 }
 
-void foobar(Func<int, int> f) {
+void foobar(func<int, int> f) {
     io.print(f(10));
 }
 

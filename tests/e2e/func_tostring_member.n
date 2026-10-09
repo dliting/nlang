@@ -4,7 +4,7 @@
 int bar(int x) { return x; }
 
 int main() {
-    Func<int, int> f = bar;
+    func<int, int> f = bar;
     if (f.toString() == "func func_tostring_member.bar") {
         return 0;
     }

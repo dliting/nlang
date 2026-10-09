@@ -41,7 +41,7 @@ branches on `slot[1]`:
   (the resolver already rejects the compilable shapes).
 
 Out-argument writeback (`OP_CallDelegateOut`) reverses the shift:
-outMask bit *i* marks USER parameter *i* in Func-signature order; the
+outMask bit *i* marks USER parameter *i* in `func`-signature order; the
 write-back reads frame slot `i+1` for bound handles (slot `i` for free
 functions) and stores to `callParamBase + i`.
 

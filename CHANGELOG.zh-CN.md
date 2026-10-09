@@ -12,6 +12,9 @@
 - **数组length改为方法**：`arr.length`（属性形态）现在是编译错误；
   应写`arr.length()`，与`string.length()`及内建容器形态一致。带参
   调用会被以专门消息拒绝。
+- **`func`成为关键字**：函数类型写作`func<返回, 参数...>`。旧的大写
+  拼写`Func<...>`是编译错误（`Func`释放为普通标识符）；`func`不能
+  再用作标识符。`List`/`Dict`保持其PascalCase类名。
 
 ## [0.8.2] - Unreleased
 

@@ -12,13 +12,13 @@ class M {
 int main() {
     M m = new M();
     m.v = 9;
-    Func<int, int> f = m.get;
+    func<int, int> f = m.get;
     f(1);
     f = null;
     for (int i = 0; i < 3000; i = i + 1) {
         Big b = new Big();
         b.a = i;
     }
-    Func<int, int> g = m.get;
+    func<int, int> g = m.get;
     return g(0);
 }

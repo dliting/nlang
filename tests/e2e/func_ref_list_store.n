@@ -1,4 +1,4 @@
-//Phase 13 Step 1: function values live in List<Func<...>> — the
+//Phase 13 Step 1: function values live in List<func<...>> — the
 //init-list entry is the bare-name injection site; the container
 //formatter renders the element as "func <name>" (Phase 5 D13: the
 //name is the qualified table key); foreach invokes every stored
@@ -6,10 +6,10 @@
 int bar(int x) { return x + 1; }
 
 int main() {
-    List<Func<int, int>> l = [bar];
-    Func<int, int> f = l.get(0);
+    List<func<int, int>> l = [bar];
+    func<int, int> f = l.get(0);
     int total = 0;
-    foreach (Func<int, int> g in l) { total = total + g(4); }
+    foreach (func<int, int> g in l) { total = total + g(4); }
     if (f(4) == 5 && total == 5
             && l.toString() == "[func func_ref_list_store.bar]") {
         return 0;

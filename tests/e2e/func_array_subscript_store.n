@@ -12,15 +12,15 @@ class C {
 }
 
 int main() {
-    Func<int, int>[] arr = new Func<int, int>[2];
+    func<int, int>[] arr = new func<int, int>[2];
     arr[0] = dbl;
     arr[1] = inc;
-    Func<int, int> f = arr[0];
+    func<int, int> f = arr[0];
     int a = f(5);
     C c = new C();
     c.k = 10;
     arr[1] = c.add;
-    Func<int, int> g = arr[1];
+    func<int, int> g = arr[1];
     int b = g(5);
     //dbl(5)=10, member-bound add(5)=15.
     return a + b;

@@ -6,7 +6,7 @@ import io;
 using Row = List<int>;                  // alias referenced by another alias
 using Grid = Dict<string, Row>;         // alias to a nested generic
 using Ints = int[];                     // alias to an array type
-using BinOp = Func<int, int>;           // alias to a Func type
+using BinOp = func<int, int>;           // alias to a Func type
 
 int sum(Row r) {                        // alias in a parameter position
     int total = 0;
@@ -36,7 +36,7 @@ int main() {
     io.print(ys[0] + xs.length());    // 20 + 3 = 23 (array length is
                                         // a method-style member)
 
-    // BinOp (alias to Func) combines with the delegates tour:
+    // BinOp (alias to func) combines with the delegates tour:
     //   int one(int x) { return x + 1; }
     //   BinOp f = one;                  // binds via the alias
     return 0;

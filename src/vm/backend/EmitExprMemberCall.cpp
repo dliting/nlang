@@ -3,6 +3,7 @@
     从 EmitExprMember.cpp 拆出；字符串/toString 族拆至 EmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -273,10 +274,10 @@ void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
     //BoxingTagFor's default ({0,false}, not primitive)
     //already flows it as a raw handle, class-style, so
     //boxing stays reserved for true primitives.
-    if (baseName == "List") {
+    if (baseName == kBuiltinListTypeName) {
         PlanListMethodBoxing(typeArgs, methodName, argPlans,
                              returnsBoxed, returnTag);
-    } else if (baseName == "Dict") {
+    } else if (baseName == kBuiltinDictTypeName) {
         PlanDictMethodBoxing(typeArgs, methodName, argPlans,
                              returnsBoxed, returnTag);
     }

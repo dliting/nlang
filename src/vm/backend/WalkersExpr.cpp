@@ -5,6 +5,7 @@
     walker 与共享谓词提升为 VmBackend 静态成员，见 VmBackend.h）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <unordered_set>
@@ -43,8 +44,8 @@ bool VmBackend::IsContainerSubscript(SnExpression& baseExpr) {
     if (!pGenClass->IsGenericInstantiation()) return false;
     const auto& baseName = pGenClass->BaseName();
     const auto& typeArgs = pGenClass->GenericTypeArgs();
-    if (baseName == "List") return !typeArgs.empty();
-    if (baseName == "Dict") return typeArgs.size() > 1;
+    if (baseName == kBuiltinListTypeName) return !typeArgs.empty();
+    if (baseName == kBuiltinDictTypeName) return typeArgs.size() > 1;
     return false;
 }
 
@@ -290,8 +291,8 @@ uint16_t VmBackend::InitListExprPeakDepth(SnExpression& expr,
     if (pTarget && pTarget->Kind() == NK_ClassDecl) {
         auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
         const std::string& baseName = pClassDecl->BaseName();
-        if (baseName == "Dict") claimSize = 3;
-        else if (baseName == "List") claimSize = 2;
+        if (baseName == kBuiltinDictTypeName) claimSize = 3;
+        else if (baseName == kBuiltinListTypeName) claimSize = 2;
     }
     uint16_t maxChild = 0;
     for (auto& entry : init.Entries()) {

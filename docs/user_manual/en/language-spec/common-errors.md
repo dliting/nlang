@@ -85,10 +85,10 @@ Error: imported function 'g' has a non-constant-foldable default for parameter 0
 
 The `.ncu` type descriptor carries only data types — an imported
 function's non-constant-foldable default, and a cross-module function
-value reference (a `Func` signature is beyond the descriptor syntax),
+value reference (a `func` signature is beyond the descriptor syntax),
 are both rejected on the consumer side; the function-value
 form reports `function "pick" does not match the signature of
-"Func<Int32, Int32>"`.
+"func<Int32, Int32>"`.
 See → [Default Parameters](default-parameters.md) and [Known
 Limitations](known-limitations.md), the "Default parameters on imported
 functions" and "Cross-module function values are rejected, not

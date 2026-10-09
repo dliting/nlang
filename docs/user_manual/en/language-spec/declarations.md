@@ -101,7 +101,7 @@ type expression, usable everywhere a type is expected:
 ```nlang
 using Grid = Dict<string, List<int[]>>;
 using Ints = int[];
-using BinOp = Func<int, int>;
+using BinOp = func<int, int>;
 
 Grid g;                  // identical to the full type
 List<Grid> lg;           // inside generic arguments
@@ -120,7 +120,7 @@ int apply(BinOp f) { ... }   // parameters and returns
   **earlier in the file** (textual order); a forward alias reference is
   a compile error.
 - An alias name must not collide with classes, functions, other
-  aliases, built-in type names (`List`, `Dict`, `Func`, `int`, ...),
+  aliases, built-in type names (`List`, `Dict`, `func`, `int`, ...),
   or an indexed library package name (`math`, `io`, `fs`, or a
   third-party package found on the search path) in the same
   translation unit.
@@ -130,7 +130,7 @@ int apply(BinOp f) { ... }   // parameters and returns
 **Restrictions:**
 - The right-hand side must be a **primitive type name** (`int`, `float`,
   `string`, etc.), an **array type** (`int[]`), a **generic instantiation**
-  (`List<int>`), or a **function type** (`Func<int, int>`). A bare
+  (`List<int>`), or a **function type** (`func<int, int>`). A bare
   **class/struct/enum type name** (`using X = Counter;`) is not a valid
   target — it fails as a parser syntax error. **Member paths**
   (`using X = ns.Inner;`) are also not supported — the grammar's type

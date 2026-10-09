@@ -39,7 +39,7 @@ See also: [Language Specification / Functions](../language-spec/functions.md).
 ```nlang
 import io;
 
-using Op = Func<int, int>;
+using Op = func<int, int>;
 
 int doubleIt(int x) { return x * 2; }
 int apply(Op f, int x) { return f(x); }
@@ -53,9 +53,10 @@ int main() {
 ```
 
 Output: none; exit code 42. A function can be passed around as a value:
-`Func<Ret, Args...>` names a function type, and a free function or a bound
-method (`c.foo`) binds to it. Function values are stored in variables,
-fields, and collections (`List<Func<int, int>>`, `Func<int, int>[]`).
+the `func` keyword (`func<Ret, Args...>`) names a function type, and a
+free function or a bound method (`c.foo`) binds to it. Function values
+are stored in variables, fields, and collections (`List<func<int, int>>`,
+`func<int, int>[]`).
 
 See also: [Language Specification / Function Types and Delegates](../language-spec/function-types-and-delegates.md).
 

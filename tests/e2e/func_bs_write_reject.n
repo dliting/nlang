@@ -4,7 +4,7 @@
 int dbl(int x) { return x * 2; }
 
 struct Boxed {
-    Func<int, int> f;
+    func<int, int> f;
 }
 
 int main() {

@@ -5,14 +5,14 @@ class P { int v; }
 int dbl(int x) { return x * 2; }
 
 int main() {
-    Func<int, int> g = dbl;
-    List<Func<int, int>> l = [dbl];
+    func<int, int> g = dbl;
+    List<func<int, int>> l = [dbl];
     int sink = 0;
     for (int i = 0; i < 3000; i = i + 1) {
         P p = new P();
         p.v = i;
         sink = sink + 1;
     }
-    foreach (Func<int, int> f in l) { sink = f(21); }
+    foreach (func<int, int> f in l) { sink = f(21); }
     return sink + g(1);
 }

@@ -1,0 +1,5 @@
+//compile_error: func is a keyword — it cannot be used as an identifier.
+int main() {
+    int func = 3;
+    return func;
+}

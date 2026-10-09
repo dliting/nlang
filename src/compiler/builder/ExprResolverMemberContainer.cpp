@@ -10,6 +10,7 @@
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include "ModuleRegistry.h"
 #include <algorithm>
 #include <map>
@@ -23,17 +24,17 @@ namespace nlang
 static bool IsGenericContainerMethod(const std::string &baseName,
 	const std::string &name)
 {
-	if (baseName == "List") {
+	if (baseName == kBuiltinListTypeName) {
 		return (name == "add" || name == "get" || name == "set"
 			|| name == "length" || name == "removeAt" || name == "indexOf"
 			|| name == "contains" || name == "clear"
 				|| name == "toString");
-	} else if (baseName == "Dict") {
+	} else if (baseName == kBuiltinDictTypeName) {
 		return (name == "set" || name == "get"
 			|| name == "containsKey" || name == "remove"
 			|| name == "clear" || name == "count"
 			|| name == "keys" || name == "toString");
-	} else if (baseName == "Func") {
+	} else if (baseName == kBuiltinFuncTypeName) {
 		//Phase 13: function handles expose toString only.
 		return (name == "toString");
 	}
@@ -60,9 +61,9 @@ bool ExprResolveAccessor::CheckContainerMethodArity(SnInvokeExpr &invoke,
 	static const std::map<std::string, size_t> kFuncMethodArities = {
 		{"toString", 0},
 	};
-	const auto& arities = (baseName == "List")
+	const auto& arities = (baseName == kBuiltinListTypeName)
 		? kListMethodArities
-		: (baseName == "Dict") ? kDictMethodArities
+		: (baseName == kBuiltinDictTypeName) ? kDictMethodArities
 			: kFuncMethodArities;
 	auto arityIt = arities.find(name);
 	if (arityIt != arities.end() && ArgCountOf(invoke) != arityIt->second)
@@ -93,20 +94,20 @@ static int ContainerElemSlotFor(const std::string &baseName,
 {
 	int elemSlot = -1;
 	valArg = 0;
-	if (baseName == "List"
+	if (baseName == kBuiltinListTypeName
 		&& (name == "add" || name == "indexOf"
 			|| name == "contains"))
 		elemSlot = 0;
-	else if (baseName == "List" && name == "set")
+	else if (baseName == kBuiltinListTypeName && name == "set")
 	{
 		elemSlot = 0;
 		valArg = 1;
 	}
-	else if (baseName == "Dict"
+	else if (baseName == kBuiltinDictTypeName
 		&& (name == "get" || name == "containsKey"
 			|| name == "remove"))
 		elemSlot = 0;
-	else if (baseName == "Dict" && name == "set")
+	else if (baseName == kBuiltinDictTypeName && name == "set")
 	{
 		elemSlot = 1;
 		valArg = 1;
@@ -185,7 +186,7 @@ bool ExprResolveAccessor::BindContainerArgPositions(SnInvokeExpr &invoke,
 				rpWrapValue = pValue;
 			}
 		}
-		else if (baseName == "Dict" && name == "set"
+		else if (baseName == kBuiltinDictTypeName && name == "set"
 			&& argIdx == 0 && typeArgs[0]
 			&& pValue->IsResolved()
 			&& pValue->EvalDataType())
@@ -238,20 +239,20 @@ SnField *ExprResolveAccessor::ComputeContainerMethodResult(
 	const std::string &name)
 {
 	SnField* pResultField = nullptr;
-	if (baseName == "List" && name == "get") {
+	if (baseName == kBuiltinListTypeName && name == "get") {
 		//Return type = T (typeArgs[0]).
 		if (!typeArgs.empty() && typeArgs[0]) {
 			snMember.EvalDataType(typeArgs[0]);
 			pResultField = typeArgs[0];
 		}
-	} else if (baseName == "Dict" && name == "get") {
+	} else if (baseName == kBuiltinDictTypeName && name == "get") {
 		//Return type = V (typeArgs[1]).
 		if (typeArgs.size() > 1 && typeArgs[1]) {
 			snMember.EvalDataType(typeArgs[1]);
 			pResultField = typeArgs[1];
 		}
-	} else if ((baseName == "List" && name == "contains")
-		|| (baseName == "Dict" && name == "containsKey")
+	} else if ((baseName == kBuiltinListTypeName && name == "contains")
+		|| (baseName == kBuiltinDictTypeName && name == "containsKey")
 	) {
 		//0.7.5: membership predicates return bool (the intrinsics
 		//already wrote 0/1 into the int32 carrier slot).
@@ -259,23 +260,23 @@ SnField *ExprResolveAccessor::ComputeContainerMethodResult(
 		snMember.EvalDataType(pBool);
 		pResultField = pBool;
 	} else if (
-		(baseName == "List"
+		(baseName == kBuiltinListTypeName
 			&& (name == "length" || name == "indexOf"))
-		|| (baseName == "Dict"
+		|| (baseName == kBuiltinDictTypeName
 			&& (name == "remove" || name == "count"))
 	) {
 		auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
 		snMember.EvalDataType(pInt);
 		pResultField = pInt;
-	} else if (baseName == "Dict" && name == "keys") {
+	} else if (baseName == kBuiltinDictTypeName && name == "keys") {
 		//Phase 8e-5: Dict.Keys() returns List<K> (K = typeArgs[0]),
 		//synthesized so foreach lowering and codegen's boxing plan see
 		//the right element type. 0.7.3 B: an array-typed K flows as the
 		//interned token — pointer identity keeps List<int[]> distinct.
 		if (!typeArgs.empty() && typeArgs[0]) {
 			std::vector<SnField*> listArgs{ typeArgs[0] };
-			auto* pListClass = GetGenericClassDecl("List", listArgs,
-				{}, invoke.Location());
+			auto* pListClass = GetGenericClassDecl(kBuiltinListTypeName,
+				listArgs, {}, invoke.Location());
 			if (pListClass) {
 				//SnClassDecl IS-A SnField, so it can serve as EvalDataType.
 				snMember.EvalDataType(pListClass);

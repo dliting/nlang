@@ -108,7 +108,7 @@
 - **No lambda expressions / closures**: only references
   to named functions and methods exist. Bound method references carry
   receiver state and cover the common callback scenarios.
-- **`List<Func>.contains` / `indexOf` use identity comparison**: two
+- **`List<func<...>>.contains` / `indexOf` use identity comparison**: two
   references to the same function are distinct heap records, so a
   freshly created reference never `contains`-matches a stored one.
   Documented inconsistency with `==` (content equality).
@@ -116,5 +116,5 @@
   referencing an imported function, or passing a function reference to
   an imported function, is a compile error (function signatures stay
   outside the `.ncu` type-descriptor grammar, which carries data types
-  only). Lifting this requires extending the grammar to `Func`
+  only). Lifting this requires extending the grammar to `func`
   signatures.

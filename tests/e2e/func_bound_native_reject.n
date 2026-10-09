@@ -16,7 +16,7 @@ class D : B {
     public native int natV();
 }
 
-void foobar(Func<int> f) { }
+void foobar(func<int> f) { }
 
 int main() {
     C c = new C();

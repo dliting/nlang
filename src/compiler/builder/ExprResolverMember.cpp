@@ -54,8 +54,8 @@ bool ExprResolveAccessor::TryResolveExceptionField(SnMemberExpr &snMember,
 		//backtrace is List<string> — synthesize the generic instantiation.
 		auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
 		std::vector<SnField*> listArgs{ pStr };
-		pResultField = GetGenericClassDecl("List", listArgs, {},
-			pInnerExpr->Location());
+		pResultField = GetGenericClassDecl(kBuiltinListTypeName, listArgs,
+			{}, pInnerExpr->Location());
 	}
 	if (!pResultField)
 		return false;

@@ -71,21 +71,21 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 static bool RejectInvalidTypeArg(BuildEnvironment &env, SnFieldExpr *pTA,
 	const std::string &baseName, bool bFirstArg)
 {
-	//Phase 13: void and out are Func-only type-argument features.
-	//void may only occupy Func's first (return) type slot; out may
-	//only mark Func parameter slots (any position after the first).
+	//Phase 13: void and out are func-only type-argument features.
+	//void may only occupy func's first (return) type slot; out may
+	//only mark func parameter slots (any position after the first).
 	bool isVoidArg = pTA->Field()->Kind() == NK_Void;
 	bool isOutArg = pTA->ContainFlags(NF_Out);
-	if (isVoidArg && !(baseName == "Func" && bFirstArg))
+	if (isVoidArg && !(baseName == kBuiltinFuncTypeName && bFirstArg))
 	{
 		env.Log(CLL_Error, pTA->Location(),
-			"void is only allowed as the return slot of Func<...>.");
+			"void is only allowed as the return slot of func<...>.");
 		return true;
 	}
-	if (isOutArg && !(baseName == "Func" && !bFirstArg))
+	if (isOutArg && !(baseName == kBuiltinFuncTypeName && !bFirstArg))
 	{
 		env.Log(CLL_Error, pTA->Location(),
-			"out is only allowed on Func<...> parameters.");
+			"out is only allowed on func<...> parameters.");
 		return true;
 	}
 	//Array redesign B: a jagged type argument has no VM layout — the
@@ -147,7 +147,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	auto *pBase = genType.Base();
 	assert(pBase);
 	std::string baseName = pBase->ToString();
-	if (!IsBuiltinGenericClassName(baseName))
+	if (!IsBuiltinGenericTypeName(baseName))
 	{
 		m_Env.Log(CLL_Error, genType.Location(),
 			"\"%s\" is not a built-in generic type.", baseName.c_str());
@@ -164,7 +164,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	//same function would store as two entries. Reject at the single
 	//instantiation point; both declaration types and new-expression
 	//types flow through here.
-	if (baseName == "Dict" && !typeArgs.empty()
+	if (baseName == kBuiltinDictTypeName && !typeArgs.empty()
 		&& IsFuncTypeDecl(typeArgs[0]))
 	{
 		m_Env.Log(CLL_Error, genType.Location(),

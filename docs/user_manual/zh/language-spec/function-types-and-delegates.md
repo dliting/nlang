@@ -1,14 +1,14 @@
 # 函数类型与委托
 
 
-`Func<R, P1, P2, ...>`是描述**函数值**的内建泛型类型。第一个类型实参恒为**返回类型**（可为`void`）；其余实参按声明顺序是参数类型，每个可选地以`out`前缀：
+函数类型由`func`关键字引入：`func<返回, 参数...>`描述**函数值**。第一个类型实参恒为**返回类型**（可为`void`）；其余实参按声明顺序是参数类型，每个可选地以`out`前缀：
 
 ```nlang
-Func<int>                 // int f()
-Func<void>                // void f()
-Func<int, int>            // int f(int)
-Func<void, out int>       // void f(out int)
-Func<int, int, out int>   // int f(int, out int)
+func<int>                  // int f()
+func<void>                 // void f()
+func<int, int>             // int f(int)
+func<void, out int>        // void f(out int)
+func<int, int, out int>    // int f(int, out int)
 ```
 
 签名匹配是**精确的**——没有协变/逆变，没有默认值填充。
@@ -22,7 +22,7 @@ Func<int, int, out int>   // int f(int, out int)
 - **虚 / 接口方法引用**（`c.tw`、`ifaceVar.run`）——句柄持有方法名，在每次调用时于接收者的**运行期类**上解析覆写链（晚期绑定）。
 
 ```nlang
-using BinOp = Func<int, int>;
+using BinOp = func<int, int>;
 
 class Counter {
     int n;
@@ -52,30 +52,30 @@ int main() {
 
 两种调用形状：
 
-- **裸标识符**——`f(x)`。Func类型的局部变量/参数/字段**遮蔽**任何同名函数。
-- **成员字段**——`obj.cb(x)`，其中`cb`是Func类型的字段。
+- **裸标识符**——`f(x)`。`func`类型的局部变量/参数/字段**遮蔽**任何同名函数。
+- **成员字段**——`obj.cb(x)`，其中`cb`是`func`类型的字段。
 
-实参按Func类型的签名暂存；`out`参数在调用后写回调用者的局部变量，并透明处理绑定方法的接收者位移。委托调用不支持具名实参。
+实参按`func`类型的签名暂存；`out`参数在调用后写回调用者的局部变量，并透明处理绑定方法的接收者位移。委托调用不支持具名实参。
 
 ### 相等、null、toString
 
-- `f == g` / `f != g`比较**句柄内容**（目标 + 接收者 + 形式）：指向同一函数的两个引用相等。`f == null`与`f != null`合法。排序比较（`< <= > >=`）以及与非Func操作数的比较是编译错误。
+- `f == g` / `f != g`比较**句柄内容**（目标 + 接收者 + 形式）：指向同一函数的两个引用相等。`f == null`与`f != null`合法。排序比较（`< <= > >=`）以及与`func`之外操作数的比较是编译错误。
 - `f = null`存入空句柄；**调用它在运行期抛出空指针异常**。在**null接收者**上绑定引用（`Counter c = null; register(c.tw);`）在绑定时刻抛错。
 - `f.toString()`、`f as string`、`"" + f`、`io.print(f)`与容器格式化产生的字符串形式为`"func <name>"`（静态句柄——含绑定的非虚方法引用）或`"method <name>"`（虚分派句柄）。
-- **已知不一致**：`List<Func>.contains` / `indexOf`按**恒等**比较元素（每个引用都是独立的堆记录），不按`==`的内容相等。
+- **已知不一致**：`List<func<...>>.contains` / `indexOf`按**恒等**比较元素（每个引用都是独立的堆记录），不按`==`的内容相等。
 
 ### 限制（编译期）
 
-- 引用签名与期望Func类型不精确匹配的函数/方法。
+- 引用签名与期望`func`类型不精确匹配的函数/方法。
 - 引用带**默认参数**的函数或方法——默认值只在直接调用路径上填充。
 - **枚举方法**——接收者是int值，不是堆对象。
 - **native方法**的任何可达形式：声明为`native`、虚基类下的覆写、或接口成员的实现（native调用没有供接收者使用的被调方栈帧）。
-- **Func类型带`out`参数的虚/接口引用**——运行期分派可能与编译的out掩码不一致。
-- **返回位置的`out`**（`Func<out int, ...>`）——报出明确的编译错误"out is only allowed on Func<...> parameters."并拒绝。
-- **`new Func<...>(...)`**——不支持以名称构造；请绑定引用。
-- **`Dict<Func<...>, V>`**——Func作Dict键（见上文恒等说明）。
+- **`func`类型带`out`参数的虚/接口引用**——运行期分派可能与编译的out掩码不一致。
+- **返回位置的`out`**（`func<out int, ...>`）——报出明确的编译错误"out is only allowed on func<...> parameters."并拒绝。
+- **`new func<...>(...)`**——不支持以名称构造；请绑定引用。
+- **`Dict<func<...>, V>`**——`func`作Dict键（见上文恒等说明）。
 - **装箱成`Object`**（`Object o = f`）——经泛型的不兼容类型诊断拒绝。
-- **`Func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`、`new List<out int>`）。
+- **`func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`、`new List<out int>`）。
 - **跨模块**：引用被导入的函数，或把函数引用传**给**被导入的函数（`.ncu`不序列化参数签名）。
 - 函数值作`switch`判别式（没有case家族能匹配）。
-- 函数值不能穿过序列化应用程序编程接口（API，application programming interface）——对持有Func字段的struct/class调`writeStruct` / `writeObject`是运行期错误。
+- 函数值不能穿过序列化应用程序编程接口（API，application programming interface）——对持有`func`字段的struct/class调`writeStruct` / `writeObject`是运行期错误。

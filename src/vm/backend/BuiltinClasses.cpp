@@ -4,6 +4,7 @@
     行序即注册序，类/函数索引由它派生，golden 对拍覆盖）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <iterator>
 #include <utility>
 
@@ -178,10 +179,12 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"FileStream", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         true, INTR_FS_Ctor, 3,
         s_FileStreamMethods, std::size(s_FileStreamMethods), BIDX_None},
-    {"List",       BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+    {kBuiltinListTypeName, BSR_ImplicitObject,
+        s_HandleFields, std::size(s_HandleFields),
         true, INTR_List_Ctor, 1,
         s_ListMethods, std::size(s_ListMethods), BIDX_List},
-    {"Dict",       BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+    {kBuiltinDictTypeName, BSR_ImplicitObject,
+        s_HandleFields, std::size(s_HandleFields),
         true, INTR_Dict_Ctor, 1,
         s_DictMethods, std::size(s_DictMethods), BIDX_Dict},
     //Exception family: registered after List/Dict so the backtrace field

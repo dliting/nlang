@@ -4,6 +4,7 @@
     从 EmitExprNew.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -47,11 +48,11 @@ void VmBackend::Access(SnInitListExpr& expr) {
     if (pTarget->Kind() == NK_ClassDecl) {
         auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
         const std::string& baseName = pClassDecl->BaseName();
-        if (baseName == "List") {
+        if (baseName == kBuiltinListTypeName) {
             EmitInitListListForm(initList, *pClassDecl, emitter, resultOffset);
             return;
         }
-        if (baseName == "Dict") {
+        if (baseName == kBuiltinDictTypeName) {
             //---- Dict<K,V> form ----
             EmitInitListDictForm(initList, *pClassDecl, emitter, resultOffset);
             return;
@@ -174,7 +175,7 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset) {
-    int classIdx = m_compiledModule.FindClass("List");
+    int classIdx = m_compiledModule.FindClass(kBuiltinListTypeName);
     if (classIdx < 0) {
         //Round-12: List is a built-in class — always registered. (The
         //bare literal is the erasure key: builtins carry no owner tag.)
@@ -229,7 +230,7 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset) {
-    int classIdx = m_compiledModule.FindClass("Dict");
+    int classIdx = m_compiledModule.FindClass(kBuiltinDictTypeName);
     if (classIdx < 0) {
         //Round-12: Dict is a built-in class — always registered. (The
         //bare literal is the erasure key: builtins carry no owner tag.)

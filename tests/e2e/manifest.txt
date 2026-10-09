@@ -981,7 +981,7 @@ alias_struct_field 6
 alias_iface_method 5
 alias_subscript 12
 
-# --- Phase 13 Step 1: Func type + free function references ---
+# --- Phase 13 Step 1: func type + free function references ---
 func_ref_basic 0
 func_ref_store 0
 func_ref_native 77
@@ -1288,3 +1288,8 @@ src_not_utf8 compile_error not valid UTF-8
 # parse and resolve cleanly, then silently emit no code.
 store_call_result_assign compile_error cannot assign to the result of a method call
 store_call_result_compound compile_error cannot assign to the result of a method call
+
+# 0.8.3: the function type is written with the func keyword.
+func_keyword_basic 42
+func_keyword_ident_reject compile_error
+func_old_spelling_reject compile_error is not a built-in generic type

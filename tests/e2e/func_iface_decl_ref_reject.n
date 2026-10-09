@@ -5,6 +5,6 @@ interface Op {
 }
 
 int main() {
-    Func<int, int> f = Op;
+    func<int, int> f = Op;
     return 0;
 }

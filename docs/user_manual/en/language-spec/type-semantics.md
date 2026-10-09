@@ -22,7 +22,7 @@ to the page that explains that type in detail.
 | `List<T>`   | reference          | copy reference   | pass reference    | return reference    | store reference     |
 | `Dict<K,V>` | reference          | copy reference   | pass reference    | return reference    | store reference     |
 | `Object`    | reference (boxed)  | copy reference   | pass reference    | return reference    | store reference     |
-| `Func`      | value (func ref)   | copy             | copy              | copy                | copy                |
+| `func`      | value (func ref)   | copy             | copy              | copy                | copy                |
 
 ### Per-type notes
 
@@ -52,7 +52,7 @@ to the page that explains that type in detail.
   the container reference. See [Built-in Generic Classes](builtin-generic-classes.md).
 - **`Object`** — reference type that may hold a boxed primitive or a class
   reference; assignment copies the reference. See [Object & Boxing](object.md).
-- **`Func`** — a first-class value: the function reference is copied by
+- **`func`** — a first-class value: the function reference is copied by
   value. See [Functions](functions.md).
 
 ### Numeric conversion matrix
@@ -112,7 +112,7 @@ float rank wins. bool and char take no part in arithmetic. See
 The split is value vs. reference:
 
 - **Value types** (the 12 scalar primitives, `enum`, `string`, `struct`,
-  `Func`) are copied on assignment. Two variables hold independent data;
+  `func`) are copied on assignment. Two variables hold independent data;
   mutating one never affects the other. (`string` is a value type even
   though it is an object, because the object is immutable.)
 - **Reference types** (`class`, `interface`, array, `List`, `Dict`, `Object`)

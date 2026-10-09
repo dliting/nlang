@@ -1,6 +1,7 @@
 #pragma once
 #include "SnExpressions.h"
 #include "SyntaxNodeVisitor.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/Flagable.h>
 #include <functional>
 #include <vector>
@@ -125,9 +126,6 @@ std::string JoinDots(const std::vector<std::string>& segs);
 std::vector<std::string> OuterIdentifierChain(
 	const SnMemberExpr& snMember);
 const char* StdLibKindName(uint8_t rtk);
-//True for the recognized built-in generic base names (List/Dict/Func).
-//Definition in ExprResolverGenerics.cpp.
-bool IsBuiltinGenericClassName(const std::string& name);
 bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,

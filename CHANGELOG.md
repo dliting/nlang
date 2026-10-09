@@ -13,6 +13,11 @@ All notable changes to NLang are documented here. The format follows
   compile error; write `arr.length()`, consistent with `string.length()`
   and the built-in containers. Calling it with arguments is rejected
   with a dedicated message.
+- **`func` is now a keyword**: the function type is written
+  `func<Return, Params...>`. The old capitalized `Func<...>` spelling
+  is a compile error (`Func` is freed as a plain identifier); `func`
+  cannot be used as an identifier. `List`/`Dict` keep their PascalCase
+  class names.
 
 ## [0.8.2] - Unreleased
 

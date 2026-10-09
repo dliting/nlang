@@ -21,12 +21,13 @@ def _tokens(code):
 
 
 def test_keywords_and_types_color_distinctly():
-    toks = dict(_tokens("import class int double foreach List"))
+    toks = dict(_tokens("import class int double foreach func List"))
     assert toks["import"] is Keyword
     assert toks["class"] is Keyword
     assert toks["int"] is Keyword.Type
     assert toks["double"] is Keyword.Type  # 0.7.5
     assert toks["foreach"] is Keyword
+    assert toks["func"] is Keyword  # 0.8.3
     assert toks["List"] is Keyword.Type
 
 
@@ -80,13 +81,17 @@ def test_keyword_list_matches_scanner_surface():
     #flex source itself, so a keyword added or removed in nlang.l turns
     #this red instead of silently diverging from the lexer's sets.
     scanner = frozenset(re.findall(
-        r'"([A-Za-z]+)"\s*\{\s*return KT_\w+;',
+        r'"([A-Za-z]+)"\s*\{[^}]*?return KT_\w+;',
         _SCANNER.read_text(encoding="utf-8")))
-    #List/Dict/Func are docs-side builtin types, not scanner words; the
+    #The body match spans multi-line rule bodies ("func"'s carries a
+    #comment plus a PendingGenericOpen call, so the old `\{\s*return`
+    #shape cannot see it — a single capture group only, two would make
+    #findall yield tuples and both frozensets below compare unequal).
+    #List/Dict are docs-side builtin types, not scanner words; the
     #exact pin turns red both when a stray word joins NLANG_TYPES and
-    #when the scanner adopts one of the three.
+    #when the scanner adopts one of the two.
     docs_types = NLANG_TYPES - scanner
-    assert frozenset({"List", "Dict", "Func"}) == docs_types
+    assert frozenset({"List", "Dict"}) == docs_types
     assert scanner == ((NLANG_KEYWORDS | NLANG_TYPES | NLANG_CONSTANTS)
                        - docs_types)
 

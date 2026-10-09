@@ -8,6 +8,7 @@
 
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdio>
 #include <cstring>
@@ -309,8 +310,8 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
     switch (m_slotKinds[static_cast<size_t>(heapIdx)]) {
     case RTK_Class: {
         int32_t classIdx = slot[0];
-        if (classIdx == m_listClassIdx) return "List";
-        if (classIdx == m_dictClassIdx) return "Dict";
+        if (classIdx == m_listClassIdx) return kBuiltinListTypeName;
+        if (classIdx == m_dictClassIdx) return kBuiltinDictTypeName;
         if (m_currModule
             && classIdx >= 0
             && static_cast<size_t>(classIdx) < m_currModule->classes.size())

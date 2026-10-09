@@ -10,7 +10,7 @@ class C {
     }
 }
 
-void foobar(Func<int, int> f) { }
+void foobar(func<int, int> f) { }
 
 int main() {
     C c = new C();

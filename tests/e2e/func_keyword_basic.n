@@ -1,0 +1,10 @@
+//Positive: the func keyword form is the function type — declaration,
+//assignment, and invocation are equivalent to the old Func spelling.
+int bar(int v) { return v * 2; }
+
+int apply(func<int, int> f, int v) { return f(v); }
+
+int main() {
+    func<int, int> g = bar;
+    return apply(g, 21);
+}

@@ -6,7 +6,7 @@ class B {
     public virtual void grab(out int r) { r = 1; }
 }
 
-void apply(Func<void, out int> f) { }
+void apply(func<void, out int> f) { }
 
 int main() {
     B b = new B();

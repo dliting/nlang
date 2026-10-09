@@ -4,12 +4,12 @@
 //handle works end to end.
 int bar(int x) { return x + 1; }
 
-Func<int, int> pick() { return bar; }
+func<int, int> pick() { return bar; }
 
-int apply(Func<int, int> f, int x) { return f(x); }
+int apply(func<int, int> f, int x) { return f(x); }
 
 int main() {
-    Func<Func<int, int>> g = pick;
-    Func<int, int> h = g();
+    func<func<int, int>> g = pick;
+    func<int, int> h = g();
     return apply(h, 1);
 }

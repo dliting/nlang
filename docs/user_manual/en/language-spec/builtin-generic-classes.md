@@ -80,7 +80,7 @@ and `<`) is misread as a generic open.
 boundaries — imported functions carry
 their true formal and return types recursively (`List<int[]>`, `Dict`
 instantiations, nested arrays), so call-site type checking matches
-same-module calls. Function (`Func`) signatures remain outside the
+same-module calls. Function (`func`) signatures remain outside the
 descriptor grammar (see Known Limitations).
 
 ### `Dict<K,V>`

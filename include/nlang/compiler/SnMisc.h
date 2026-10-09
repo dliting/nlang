@@ -6,6 +6,7 @@ This file define the interface of miscellaneous syntax node types.
 #pragma once
 #include "SnExpressions.h"
 #include "SnData.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnMisc.h>
 #include <memory>
 
@@ -308,12 +309,12 @@ public:
 	{ return m_bIsGenericInst ? m_baseName : Name(); }
 	void SetBaseName(const std::string& name) { m_baseName = name; }
 
-	//Phase 13: true for synthetic Func<...> instantiations (first-class
+	//Phase 13: true for synthetic func<...> instantiations (first-class
 	//function values). Shared by CastInfo (function handles do not
 	//participate in class upcasting), the resolver (delegate binding)
 	//and the VM backend (RTK_Func dispatch).
 	bool IsFuncType() const
-	{ return m_bIsGenericInst && m_baseName == "Func"; }
+	{ return m_bIsGenericInst && m_baseName == kBuiltinFuncTypeName; }
 
 private:
 	SnFieldExpr *m_pSuper;

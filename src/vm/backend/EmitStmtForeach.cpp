@@ -4,6 +4,7 @@
 ---*/
 #include "VmBackend.h"
 #include "EmitPrimOps.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -92,10 +93,10 @@ static ForeachIterableKind ClassifyForeachIterable(
         if (pClass->IsGenericInstantiation()) {
             const auto& baseName = pClass->BaseName();
             const auto& typeArgs = pClass->GenericTypeArgs();
-            if (baseName == "List") {
+            if (baseName == kBuiltinListTypeName) {
                 k.isList = true;
                 k.elemType = typeArgs.empty() ? nullptr : typeArgs[0];
-            } else if (baseName == "Dict") {
+            } else if (baseName == kBuiltinDictTypeName) {
                 k.isDict = true;
                 k.elemType = typeArgs.empty() ? nullptr : typeArgs[0];
             }

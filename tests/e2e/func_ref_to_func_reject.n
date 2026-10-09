@@ -2,12 +2,12 @@
 //RETURNING a Func type naturally carries a Func-typed EvalDataType (its
 //return type) — that must not be misread as an already-bound reference.
 //pick itself is a zero-param function, so it does not match
-//Func<int, int>.
+//func<int, int>.
 int bar(int x) { return x + 1; }
 
-Func<int, int> pick() { return bar; }
+func<int, int> pick() { return bar; }
 
 int main() {
-    Func<int, int> f = pick;
+    func<int, int> f = pick;
     return 0;
 }

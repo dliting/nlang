@@ -3,6 +3,6 @@
 int bar(int x, int y = 5) { return x + y; }
 
 int main() {
-    Func<int, int, int> f = bar;
+    func<int, int, int> f = bar;
     return 0;
 }

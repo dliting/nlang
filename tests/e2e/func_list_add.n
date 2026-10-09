@@ -5,9 +5,9 @@
 int dbl(int x) { return x * 2; }
 
 int main() {
-    List<Func<int, int>> l = [dbl];
+    List<func<int, int>> l = [dbl];
     l.add(dbl);
     int total = 0;
-    foreach (Func<int, int> f in l) { total = total + f(3); }
+    foreach (func<int, int> f in l) { total = total + f(3); }
     return total;
 }

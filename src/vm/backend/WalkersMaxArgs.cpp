@@ -4,6 +4,7 @@
     从 WalkersStmt.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <unordered_set>
@@ -301,8 +302,8 @@ void VmBackend::MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs) {
     if (pTarget && pTarget->Kind() == NK_ClassDecl) {
         auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
         const std::string& bn = pClassDecl->BaseName();
-        if (bn == "Dict" && 3 > maxArgs) maxArgs = 3;
-        else if (bn == "List" && 2 > maxArgs) maxArgs = 2;
+        if (bn == kBuiltinDictTypeName && 3 > maxArgs) maxArgs = 3;
+        else if (bn == kBuiltinListTypeName && 2 > maxArgs) maxArgs = 2;
     }
     for (auto& entry : init.Entries())
         if (entry.pValue) MaxArgsWalkExpr(*entry.pValue, maxArgs);

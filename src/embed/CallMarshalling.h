@@ -12,6 +12,7 @@
 #include "RefValue.h"
 #include "VmExecutor.h"
 #include "nlang/embed/NLang.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -170,10 +171,10 @@ inline Value ValueFromCell(VmExecutor& executor, uint16_t declaredKind,
         //经 Guarded 翻译；NLangThrow 先行重抛）
         return Guarded([&]() {
             const std::string name = executor.HostClassName(handle);
-            if (name == "List")
+            if (name == kBuiltinListTypeName)
                 return detail::RefFactory::MakeRooted(executor, handle,
                                                       Value::Kind::List);
-            if (name == "Dict")
+            if (name == kBuiltinDictTypeName)
                 return detail::RefFactory::MakeRooted(executor, handle,
                                                       Value::Kind::Dict);
             return detail::RefFactory::MakeRooted(executor, handle,

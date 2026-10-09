@@ -12,7 +12,7 @@ class NativeOp implements Op {
     public native int run(int x);
 }
 
-void apply(Func<int, int> f) { }
+void apply(func<int, int> f) { }
 
 int main() {
     Op o = new NativeOp();

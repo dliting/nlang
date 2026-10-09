@@ -3,7 +3,7 @@
 // handles living in containers and fields.
 
 import io;
-using BinOp = Func<int, int>;    // type alias over a Func type
+using BinOp = func<int, int>;    // type alias over a Func type
 
 int bar(int x) { return x + 1; } // free function
 
@@ -19,16 +19,16 @@ class Big : Counter {
     int tw(int x) { return x * 100; }             // override
 }
 
-class Button {                  // the classic callback shape: a Func field
-    Func<int, int> onClick;
+class Button {                  // the classic callback shape: a func field
+    func<int, int> onClick;
 }
 
-void apply(BinOp f) {           // Func-typed parameter
+void apply(BinOp f) {           // func-typed parameter
     io.print(f(10));            // io.print converts the int result
 }
 
-// out delegate: the Func type carries the out-ness in its signature
-void split(int value, Func<void, int, out int> f) {
+// out delegate: the func type carries the out-ness in its signature
+void split(int value, func<void, int, out int> f) {
     int whole = 0;
     f(value, out whole);
     io.print(whole);
@@ -57,8 +57,8 @@ int main() {
     foreach (BinOp op in ops) { total = total + op(3); }
     io.print(total);            // 4 + 7 + 300 = 311 (n becomes 4)
 
-    Func<int, int>[] arr = [bar, c.foo];
-    Func<int, int> fromArr = arr[1];
+    func<int, int>[] arr = [bar, c.foo];
+    func<int, int> fromArr = arr[1];
     io.print(fromArr(0));       // 5 — n becomes 5
 
     Dict<string, BinOp> table = new Dict<string, BinOp>();

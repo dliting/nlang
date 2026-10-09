@@ -4,7 +4,7 @@
 void grab(out int r) { r = 7; }
 
 int main() {
-    Func<void, out int> f = grab;
+    func<void, out int> f = grab;
     int box = 0;
     f(out box);
     return box;

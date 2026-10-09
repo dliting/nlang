@@ -9,7 +9,7 @@ class Box {
 int main() {
     Box b = new Box();
     b.v = 40;
-    Func<void, out int> f = b.fill;
+    func<void, out int> f = b.fill;
     int r = 0;
     f(out r);
     return r;

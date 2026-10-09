@@ -7,6 +7,7 @@
 #include "SnStatements.h"
 #include "BuildEnvironment.h"
 #include "nlang/vm/CompiledModule.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnTypes.h>
 #include <string>
 #include <vector>
@@ -229,7 +230,8 @@ private:
 					auto *pArgs = new std::vector<SnFieldExpr*>();
 					pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
 					return new SnGenericTypeExpr(
-						new SnIdentifierExpr(new std::string("List"), loc),
+						new SnIdentifierExpr(
+							new std::string(kBuiltinListTypeName), loc),
 						pArgs, loc);
 				}
 				break;
@@ -240,7 +242,8 @@ private:
 					pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
 					pArgs->push_back(SynthTypeExprFromDesc(td.elems[1], cm, loc));
 					return new SnGenericTypeExpr(
-						new SnIdentifierExpr(new std::string("Dict"), loc),
+						new SnIdentifierExpr(
+							new std::string(kBuiltinDictTypeName), loc),
 						pArgs, loc);
 				}
 				break;

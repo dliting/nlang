@@ -5,7 +5,7 @@
 int bar(int x) { return x; }
 
 int main() {
-    Func<int, int> f = bar;
+    func<int, int> f = bar;
     string a = f as string;
     string b = "" + f;
     if (a == "func func_tostring_cast.bar"

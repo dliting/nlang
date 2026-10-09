@@ -9,7 +9,7 @@ enum Color {
     }
 }
 
-void foobar(Func<int> f) { }
+void foobar(func<int> f) { }
 
 int main() {
     Color c = Color.Green;

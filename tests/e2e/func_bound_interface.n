@@ -12,7 +12,7 @@ class Doubler implements Op {
     public int run(int x) { return x * 2; }
 }
 
-int apply(Func<int, int> f, int v) { return f(v); }
+int apply(func<int, int> f, int v) { return f(v); }
 
 int main() {
     Op o = new Doubler();

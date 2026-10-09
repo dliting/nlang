@@ -6,7 +6,7 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-%expect 26
+%expect 27
 
 %code requires {
 
@@ -41,6 +41,7 @@ struct ImportSpec;
 #include <vector>
 #include "SnExpressions.h"
 #include "SyntaxTree.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnData.h>
 using namespace nlang;
 
@@ -151,6 +152,17 @@ static SnExpression* BuildStringExpr(
 		result = new SnBinaryExpr(SnBinaryExpr::OP_Add, result, parts[k], loc);
 	}
 	return result;
+}
+
+//0.8.3: the func keyword's generic spellings share one builder — the
+//keyword is not an identifier token, so the base-name node is minted
+//from kBuiltinFuncTypeName; the resolver's generic dispatch matches on
+//that base name (IsBuiltinGenericTypeName).
+static SnGenericTypeExpr* MakeFuncType(
+	std::vector<SnFieldExpr*> *pArgs, const ISourceLocation &loc)
+{
+	auto* pBase = new SnIdentifierExpr(new std::string(kBuiltinFuncTypeName), loc);
+	return new SnGenericTypeExpr(new SnNameExpr(pBase, loc), pArgs, loc);
 }
 
 //Phase 4b: flatten a MemberExpr point-chain (a.b.c) into identifier
@@ -361,6 +373,7 @@ static bool CollectQualifiedSegments(
 %token KT_Float
 %token KT_For
 %token KT_Foreach
+%token KT_Func
 %token KT_If
 %token KT_Implements
 %token KT_Import
@@ -1238,25 +1251,26 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-10-04, bison 3.8.2): 26
+//Accepted-conflict ledger (re-measured 2026-10-10, bison 3.8.2): 27
 //shift/reduce, 0 reduce/reduce, in four families, every one resolved by
 //bison's default to the intended reading. The count is pinned by the
-//`%expect 26` in the prologue, so bison is SILENT on a clean tree — any
+//`%expect 27` in the prologue, so bison is SILENT on a clean tree — any
 //grammar edit that moves the count now fails the build with
-//`error: shift/reduce conflicts: N found, 26 expected` instead of
+//`error: shift/reduce conflicts: N found, 27 expected` instead of
 //leaving a notice in a log nobody reads. Bump `%expect` in the same
 //commit as the edit, never in a commit of its own.
-//- states 157/193/199 (1 each): the '<' shapes — an explicit generic
+//- states 160/198/205 (1 each): the '<' shapes — an explicit generic
 //  type head (`List<int> l;`), `new C<T>(...)`, and the void-return
-//  Func spellings. Reduce-first keeps the declaration reading.
-//- state 263 (19): ClassMember's NodeFlag-singular vs NodeFlags-plural
+//  func spellings. Reduce-first keeps the declaration reading.
+//- state 273 (20): ClassMember's NodeFlag-singular vs NodeFlags-plural
 //  productions overlap on the flag/type first tokens — both derivations
 //  parse the same member; shift keeps reading flags. The family spans
 //  every type keyword, so the 0.7.5 primitive set (bool/char/byte/
-//  short/long, the unsigned variants, double) widened it from 9 to 19.
-//- state 299 (2): catch/finally after a nested `try` statement — the
+//  short/long, the unsigned variants, double) widened it from 9 to 19,
+//  and the 0.8.3 func keyword added the 20th.
+//- state 312 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- states 82/83 (1 each, added with TypeName): ':' / `as` followed by a
+//- states 84/85 (1 each, added with TypeName): ':' / `as` followed by a
 //  dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
@@ -1274,10 +1288,10 @@ NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 Type:	NameExpr		{ $$ = $1; } |
 				QualifiedType	{ $$ = $1; } |
 				NameExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr($1, $3, @1); } |
-				//Phase 13: void in the first type-arg slot (Func's return
+				//Phase 13: void in the first type-arg slot (func's return
 				//slot). KT_Void never derives Type, so the void spellings
 				//need their own sister productions; the void node must be a
-				//real type argument so `Func<void,int>` and `Func<int>`
+				//real type argument so `func<void,int>` and `func<int>`
 				//produce different GenericInstKeys.
 				NameExpr '<' KT_Void '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
@@ -1288,6 +1302,22 @@ Type:	NameExpr		{ $$ = $1; } |
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$5->insert($5->begin(), pVoid);
 						$$ = new SnGenericTypeExpr($1, $5, @1);
+					} |
+				//0.8.3: func is a keyword; its generic spellings mirror
+//the NameExpr ones above but start from KT_Func and mint
+//the base-name node from kBuiltinFuncTypeName.
+				KT_Func '<' TypeList '>'	{
+						$$ = MakeFuncType($3, @1);
+					} |
+				KT_Func '<' KT_Void '>'	{
+						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+						$$ = MakeFuncType(
+							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+					} |
+				KT_Func '<' KT_Void ',' TypeList '>'	{
+						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+						$5->insert($5->begin(), pVoid);
+						$$ = MakeFuncType($5, @1);
 					} |
 				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } ;
 
@@ -1359,12 +1389,28 @@ HeadType:	IdentifierExpr {
 				$$ = pQ;
 				delete $1;
 			} |
+			//0.8.3: func is a keyword; its generic spellings mirror
+//the IdentifierExpr ones above but start from KT_Func and
+//mint the base-name node from the literal "func".
+			KT_Func '<' TypeList '>' {
+				$$ = MakeFuncType($3, @1);
+			} |
+			KT_Func '<' KT_Void '>' {
+				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+				$$ = MakeFuncType(
+					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+			} |
+			KT_Func '<' KT_Void ',' TypeList '>' {
+				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+				$5->insert($5->begin(), pVoid);
+				$$ = MakeFuncType($5, @1);
+			} |
 			HeadType OT_Brackets {
 				$$ = new SnArrayTypeExpr($1, @2);
 			} ;
 
 //A single type argument inside `<...>`: a plain type, or an
-//out-marked type (only legal as a Func parameter slot, checked at
+//out-marked type (only legal as a func parameter slot, checked at
 //instantiation). The out marker lives as an NF_Out node flag on
 //the type node so it survives into GenericInstKey comparisons.
 TypeArg:	Type {
@@ -1474,6 +1520,13 @@ NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 					auto* pId = new SnIdentifierExpr($2, @2);
 					auto* pName = new SnNameExpr(pId, @2);
 					$$ = new SnNewExpr(new SnGenericTypeExpr(pName, $4, @2), $7, @1);
+				} |
+				//0.8.3: `new func<...>()` keeps its dedicated resolver reject
+//(func types have no by-name constructor; bind a reference).
+//Without this arm the keyword spelling would die as a bare
+//syntax error before the resolver could explain.
+				KT_New KT_Func '<' TypeList '>' '(' ConcreteParamList ')' {
+					$$ = new SnNewExpr(MakeFuncType($4, @2), $7, @1);
 				} |
 				//Phase 8e-6: explicit collection init `new Foo{...}` /
 				//`new List<int>{...}`. Initializes a fresh instance with
