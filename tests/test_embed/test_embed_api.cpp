@@ -325,6 +325,12 @@ static void TestHostMadeExceptionSurfaces() {
 #ifndef EMBED_CONTAINERS_NCU
 #error "EMBED_CONTAINERS_NCU must be defined by the build"
 #endif
+#ifndef EMBED_IO_NCU
+#error "EMBED_IO_NCU must be defined by the build"
+#endif
+#ifndef NLANG_TEST_STDLIB_DIR
+#error "NLANG_TEST_STDLIB_DIR must be defined by the build"
+#endif
 
 static void TestListProxyRoundTrip() {
     TEST(TestListProxyRoundTrip);
@@ -448,6 +454,34 @@ static void TestProxyRemoveAndClear() {
     PASS();
 }
 
+static void TestOutputHandlerSeparatesStreams() {
+    TEST(TestOutputHandlerSeparatesStreams);
+    Interpreter itp;
+    std::string outText, errText;
+    itp.setOutputHandler(
+        [&](const char* t) { outText += t; },
+        [&](const char* t) { errText += t; });
+    itp.addImportDir(NLANG_TEST_STDLIB_DIR);
+    itp.load(EMBED_IO_NCU);
+    (void)itp.call("io_demo.emitBoth", {});
+    CHECK(outText.find("to-out") != std::string::npos, "out routed");
+    CHECK(errText.find("to-err") != std::string::npos, "err routed");
+    CHECK(outText.find("to-err") == std::string::npos, "no leak into out");
+    CHECK(errText.find("to-out") == std::string::npos, "no leak into err");
+    PASS();
+}
+
+static void TestInputDefaultsToNoChannel() {
+    TEST(TestInputDefaultsToNoChannel);
+    Interpreter itp;
+    itp.setOutputHandler([](const char*) {}, [](const char*) {});
+    itp.addImportDir(NLANG_TEST_STDLIB_DIR);
+    itp.load(EMBED_IO_NCU);
+    Value r = itp.call("io_demo.readWhenNoChannel", {});
+    CHECK(r.asInt() == 1, "io.readLine raises catchable IOException");
+    PASS();
+}
+
 int main() {
     TestRunReturnsMainExitCode();
     TestRunTwiceThrowsBadValue();
@@ -477,6 +511,8 @@ int main() {
     TestBuildersMaterializePerCrossing();
     TestHeldProxySurvivesGc();
     TestProxyRemoveAndClear();
+    TestOutputHandlerSeparatesStreams();
+    TestInputDefaultsToNoChannel();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

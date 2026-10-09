@@ -34,6 +34,41 @@ void shutdown() {
 
 //--- Interpreter 公共面 ---------------------------------------------------
 
+namespace {
+
+//④输出转发器：out/err 两通道分离（IHostIo::OnError 覆写）。输入侧不
+//覆写——基类默认即 NoChannel（装了 handler 的输入语义：首读抛
+//IOException，executor 侧锁存 HasMore false）。回调不得抛（IHostIo
+//契约：执行线程上逃逸会打进 executor）——吞并异常为静默丢弃。
+class HostIoForwarder final : public IHostIo {
+public:
+    HostIoForwarder(WriteFn out, WriteFn err)
+        : m_out(std::move(out)), m_err(std::move(err)) {}
+
+    void OnOutput(std::string_view text) override {
+        Dispatch(m_out, text);
+    }
+    void OnError(std::string_view text) override {
+        Dispatch(m_err, text);
+    }
+
+private:
+    static void Dispatch(const WriteFn& fn, std::string_view text) {
+        if (!fn)
+            return;
+        try {
+            fn(std::string(text).c_str());
+        } catch (...) {
+            //静默丢弃——见类注释（不得抛契约）
+        }
+    }
+
+    WriteFn m_out;
+    WriteFn m_err;
+};
+
+}   // namespace
+
 Interpreter::Interpreter() : m_upImpl(std::make_unique<Impl>()) {
     initialize();
     //⑤双向接线：表用 executor 编组/抛异常，executor 的 CallNative
@@ -65,7 +100,16 @@ void Interpreter::registerHostFunction(const char* ns, const char* name,
                                       std::move(fn));
 }
 void Interpreter::setOutputHandler(WriteFn out, WriteFn err) {
-    //Task 10 接线（IHostIo 转发器）；本任务不实现
+    //④输出重定向：两回调皆空＝卸装（回到真实 stdio）；否则装分离通道
+    //转发器。转发器由 Impl 持有（SetHostIo 存裸指针，地址须稳定）。
+    if (!out && !err) {
+        m_upImpl->ioForwarder.reset();
+        m_upImpl->executor.SetHostIo(nullptr);
+        return;
+    }
+    m_upImpl->ioForwarder =
+        std::make_unique<HostIoForwarder>(std::move(out), std::move(err));
+    m_upImpl->executor.SetHostIo(m_upImpl->ioForwarder.get());
 }
 //builder 语义（spec §6）：宿主侧暂存元素，每次 call 跨越物化为全新
 //堆实例（无缓存）；builder 不入 GC 根表。

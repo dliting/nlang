@@ -124,9 +124,9 @@ void VmExecutor::NativeWriteError(NativeHost* self, const char* text) {
     VmExecutor* e = Wrap(self)->executor;
     const char* out = text ? text : "";
     if (e->m_pHostIo) {
-        //A debug session has one merged output view — diagnostics
-        //interleave with stdout there by design.
-        e->m_pHostIo->OnOutput(out);
+        //Separate error channel (extension point ④): hosts with a
+        //merged view keep it via IHostIo::OnError's OnOutput default.
+        e->m_pHostIo->OnError(out);
     } else {
         std::fwrite(out, 1, std::strlen(out), stderr);
         std::fflush(stderr);

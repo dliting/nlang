@@ -1,0 +1,23 @@
+//I/O fixture for the embed tests (keys "io_demo.<name>"). Depends on the
+//stdlib io module — the only embed fixture that does (runtime closure:
+//addImportDir to the build-tree stdlib + nlang_io.dll beside the test exe).
+import io;
+
+int emitBoth() {
+    io.print("to-out");
+    io.eprint("to-err");
+    return 0;
+}
+
+int readWhenNoChannel() {
+    try {
+        string line = io.readLine();
+        return -1;   //got a line somehow — not our path
+    } catch (IOException e) {
+        return 1;   //NoChannel default: first read raises IOException
+    }
+}
+
+int main() {
+    return 0;
+}

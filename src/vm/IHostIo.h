@@ -27,6 +27,11 @@ public:
     //Must not throw: it runs on the execution thread, and an escaping
     //exception would surface inside the executor.
     virtual void OnOutput(std::string_view text) = 0;
+    //Extension point ④: the program's separate error channel. The
+    //default forwards to OnOutput — hosts with one merged output view
+    //(nide's terminal) keep their behavior; the embedding adapter
+    //overrides to split the streams. Must not throw (same rule).
+    virtual void OnError(std::string_view text) { OnOutput(text); }
     //The program's input channel while it is parked in an input read —
     //blocking is allowed. Fill `line` (newline already stripped) and
     //answer Line; Eof = input exhausted; NoChannel = this host supplies

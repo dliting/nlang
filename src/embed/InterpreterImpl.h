@@ -5,6 +5,7 @@
 #pragma once
 #include "nlang/embed/NLang.h"
 #include "HostFunctionTable.h"
+#include "IHostIo.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"
@@ -15,6 +16,7 @@ namespace nlang {
 struct Interpreter::Impl {
     VmExecutor executor;
     HostFunctionTable hostFunctions;   //⑤宿主函数表（executor 双向接线）
+    std::unique_ptr<IHostIo> ioForwarder;   //④输出转发器（装设时稳定地址）
     CompiledModule module;
     bool loaded = false;
     bool ran = false;
