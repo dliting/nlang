@@ -322,6 +322,132 @@ static void TestHostMadeExceptionSurfaces() {
     PASS();
 }
 
+#ifndef EMBED_CONTAINERS_NCU
+#error "EMBED_CONTAINERS_NCU must be defined by the build"
+#endif
+
+static void TestListProxyRoundTrip() {
+    TEST(TestListProxyRoundTrip);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value v = itp.call("containers_demo.makeList", {});
+    ListProxy list = v.asList();
+    CHECK(list.size() == 3, "list size");
+    CHECK(list.get(0).asInt() == 10, "list[0]");
+    CHECK(list.get(2).asInt() == 30, "list[2]");
+    list.set(1, Value(int32_t(99)));
+    list.add(Value(int32_t(40)));
+    Value sum = itp.call("containers_demo.sumList", {v});
+    CHECK(sum.asInt() == 10 + 99 + 30 + 40, "host edits visible to NLang");
+    PASS();
+}
+
+static void TestDictProxy() {
+    TEST(TestDictProxy);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value v = itp.call("containers_demo.makeDict", {});
+    DictProxy d = v.asDict();
+    CHECK(d.containsKey("a") && d.get("a").asInt() == 1, "dict get");
+    d.set("hostkey", Value(int32_t(77)));
+    CHECK(d.containsKey("hostkey"), "dict set");
+    Value r = itp.call("containers_demo.readAfterHostEdit", {v});
+    CHECK(r.asInt() == 77, "dict write visible to NLang");
+    std::vector<Value> keys = d.keys();
+    CHECK(keys.size() == 3, "keys count");
+    PASS();
+}
+
+static void TestArrayAndObjectProxies() {
+    TEST(TestArrayAndObjectProxies);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value a = itp.call("containers_demo.makeArray", {});
+    ArrayProxy arr = a.asArray();
+    CHECK(arr.size() == 3, "array size");
+    CHECK(arr.get(1).asInt() == 8, "array[1]");
+    arr.set(1, Value(int32_t(88)));
+    CHECK(arr.get(1).asInt() == 88, "array set/get");
+    Value p = itp.call("containers_demo.makePoint", {});
+    ObjectProxy obj = p.asObject();
+    CHECK(obj.getField("x").asInt() == 3, "object field x");
+    obj.setField("y", Value(int32_t(44)));
+    CHECK(obj.getField("y").asInt() == 44, "object field set/get");
+    PASS();
+}
+
+static void TestArrayProxyBoundsAndKindGuards() {
+    TEST(TestArrayProxyBoundsAndKindGuards);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value a = itp.call("containers_demo.makeArray", {});
+    ArrayProxy arr = a.asArray();
+    CHECK_THROWS(BadValue, arr.get(3), "out-of-bounds get → BadValue");
+    CHECK_THROWS(BadValue, arr.get(-1), "negative index → BadValue");
+    CHECK_THROWS(BadValue, arr.set(0, Value(std::string("x"))),
+        "kind-incompatible set → BadValue");
+    CHECK_THROWS(BadValue, Value(int32_t(1)).asArray(),
+        "asArray on Int → BadValue");
+    PASS();
+}
+
+static void TestBuildersMaterializePerCrossing() {
+    TEST(TestBuildersMaterializePerCrossing);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value b = itp.newList();
+    ListProxy bl = b.asList();
+    bl.add(Value(int32_t(1)));
+    bl.add(Value(int32_t(2)));
+    Value s1 = itp.call("containers_demo.sumList", {b});
+    CHECK(s1.asInt() == 3, "builder crossing materializes");
+    Value s2 = itp.call("containers_demo.sumList", {b});
+    CHECK(s2.asInt() == 3, "second crossing works (fresh object)");
+    //builder 与物化物独立：再 add 不影响已递交的
+    bl.add(Value(int32_t(100)));
+    Value s3 = itp.call("containers_demo.sumList", {b});
+    CHECK(s3.asInt() == 103, "builder edits re-materialize on next crossing");
+    PASS();
+}
+
+static void TestHeldProxySurvivesGc() {
+    TEST(TestHeldProxySurvivesGc);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value v = itp.call("containers_demo.makeList", {});
+    ListProxy list = v.asList();
+    //Loop back-edges are GC safepoints and both default thresholds are
+    //1024, so 20000 concat rounds ≈ 19x the string threshold → multiple
+    //real collections at DEFAULT settings. Without extension point 3 the
+    //list is swept by SweepPhase and the reads below hit a dead slot.
+    (void)itp.call("containers_demo.churnStrings",
+        {Value(int32_t(20000))});
+    CHECK(list.size() == 3 && list.get(0).asInt() == 10,
+        "host-held proxy survives real collections (GC root)");
+    PASS();
+}
+
+static void TestProxyRemoveAndClear() {
+    TEST(TestProxyRemoveAndClear);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value lv = itp.call("containers_demo.makeList", {});
+    ListProxy list = lv.asList();
+    list.removeAt(1);
+    CHECK(list.size() == 2 && list.get(1).asInt() == 30,
+        "list removeAt shifts elements");
+    list.clear();
+    CHECK(list.size() == 0, "list clear empties");
+    Value dv = itp.call("containers_demo.makeDict", {});
+    DictProxy d = dv.asDict();
+    d.remove("a");
+    CHECK(!d.containsKey("a") && d.get("b").asInt() == 2,
+        "dict remove drops only the matched key");
+    d.clear();
+    CHECK(d.keys().empty(), "dict clear empties");
+    PASS();
+}
+
 int main() {
     TestRunReturnsMainExitCode();
     TestRunTwiceThrowsBadValue();
@@ -344,6 +470,13 @@ int main() {
     TestReentryThrowsBadValue();
     TestScriptExceptionRethrownFromHostFn();
     TestHostMadeExceptionSurfaces();
+    TestListProxyRoundTrip();
+    TestDictProxy();
+    TestArrayAndObjectProxies();
+    TestArrayProxyBoundsAndKindGuards();
+    TestBuildersMaterializePerCrossing();
+    TestHeldProxySurvivesGc();
+    TestProxyRemoveAndClear();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

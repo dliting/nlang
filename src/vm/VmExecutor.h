@@ -130,6 +130,21 @@ public:
     //exceptions ("Exception", "IOException", ...).
     std::string HostClassName(int32_t heapIdx) const;
 
+    //Proxy-surface mutators and probes (Task 9; impl in
+    //VmExecutorHostProxyBridge.cpp). Same contract as the accessors
+    //above: thin wrappers, std::runtime_error on bad indices/handles.
+    void HostListSet(int32_t listHeapIdx, uint32_t index,
+                     int32_t elemHeapIdx);
+    void HostListRemoveAt(int32_t listHeapIdx, uint32_t index);
+    void HostListClear(int32_t listHeapIdx);
+    void HostDictRemove(int32_t dictHeapIdx, int32_t keyHeapIdx);
+    void HostDictClear(int32_t dictHeapIdx);
+    //Array element kind from the array-type table ([1]=arrayTypeIdx).
+    uint8_t HostArrayElemKind(int32_t heapIdx) const;
+    //Slot runtime kind (m_slotKinds) — boxed/class discrimination for
+    //element decode (class instances are 3+ cells, size alone lies).
+    uint8_t HostSlotKind(int32_t heapIdx) const;
+
     //Testing knobs (white-box GC pressure): clamp both thresholds so any
     //untraced handle turns stale almost immediately, and observe the live
     //string-object population for bounded-memory assertions.

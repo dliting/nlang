@@ -1,0 +1,59 @@
+//Container fixture for the proxy tests (keys "containers_demo.<name>").
+List<int> makeList() {
+    List<int> l = new List<int>();
+    l.add(10);
+    l.add(20);
+    l.add(30);
+    return l;
+}
+
+Dict<string, int> makeDict() {
+    Dict<string, int> d = new Dict<string, int>();
+    d.set("a", 1);
+    d.set("b", 2);
+    return d;
+}
+
+int[] makeArray() {
+    int[] a = new int[3];
+    a[0] = 7;
+    a[1] = 8;
+    a[2] = 9;
+    return a;
+}
+
+class Point {
+    int x;
+    int y;
+}
+
+Point makePoint() {
+    Point p = new Point();
+    p.x = 3;
+    p.y = 4;
+    return p;
+}
+
+int sumList(List<int> l) {
+    int total = 0;
+    foreach (int v in l) {
+        total = total + v;
+    }
+    return total;
+}
+
+int readAfterHostEdit(Dict<string, int> d) {
+    return d.get("hostkey");
+}
+
+int churnStrings(int rounds) {
+    string s = "seed";
+    for (int i = 0; i < rounds; i = i + 1) {
+        s = s + "x";
+    }
+    return s.length();
+}
+
+int main() {
+    return 0;
+}

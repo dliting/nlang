@@ -15,7 +15,7 @@
 
 namespace nlang {
 
-namespace detail { struct RefValue; }
+namespace detail { struct RefValue; class RefFactory; }
 
 class ArrayProxy;
 class ListProxy;
@@ -56,7 +56,7 @@ public:
     //asStruct()/asFunc() 与字段遍历保留为未来增量（非破坏）。
 
 private:
-    friend class InterpreterImpl;   //构造参考值的唯一入口在适配层内
+    friend class detail::RefFactory;   //参考值构造/装箱的唯一入口（适配层内）
     Kind m_kind = Kind::Null;
     int64_t m_scalarBits = 0;       //Int/Long/Bool/Char（Char=Unicode 标量）
     double m_double = 0.0;          //Float/Double
@@ -66,7 +66,9 @@ private:
 
 //读写代理（spec §6 表）。持 shared_ptr<detail::RefValue>——与源 Value
 //共享同一记录（浅拷贝别名，双向可见）；builder 值的代理写宿主侧存储。
-//索引一律 int32_t：负值 → BadValue（不静默回绕成大无符号数）。
+//代理与源 Value 的有效期受所属 Interpreter 约束（内部反引用 executor，
+//不得跨 Interpreter 析构存续）。索引一律 int32_t：负值 → BadValue
+//（不静默回绕成大无符号数）。
 class ArrayProxy {
 public:
     uint32_t size() const;                 // 定长（数组非动态容量）

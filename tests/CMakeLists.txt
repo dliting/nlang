@@ -1471,6 +1471,9 @@ add_custom_target(nlang_embed_fixtures ALL
     COMMAND $<TARGET_FILE:ncc> build
         ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/hostfns.n
         -o ${embed_fixture_dir}/hostfns.ncu
+    COMMAND $<TARGET_FILE:ncc> build
+        ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/containers_demo.n
+        -o ${embed_fixture_dir}/containers_demo.ncu
     DEPENDS ncc
     VERBATIM)
 
@@ -1502,7 +1505,8 @@ target_link_libraries(test_embed_api
 target_compile_definitions(test_embed_api
     PRIVATE
         EMBED_VALUES_NCU="${embed_fixture_dir}/values_demo.ncu"
-        EMBED_HOSTFNS_NCU="${embed_fixture_dir}/hostfns.ncu")
+        EMBED_HOSTFNS_NCU="${embed_fixture_dir}/hostfns.ncu"
+        EMBED_CONTAINERS_NCU="${embed_fixture_dir}/containers_demo.ncu")
 add_dependencies(test_embed_api nlang_embed_fixtures)
 add_test(NAME embed_api_tests COMMAND test_embed_api)
 

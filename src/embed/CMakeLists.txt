@@ -8,6 +8,8 @@ add_library(nlang_embed
     Marshalling.cpp
     InterpreterImpl.cpp
     HostFunctionTable.cpp
+    RefFactory.cpp
+    Proxies.cpp
 )
 target_include_directories(nlang_embed
     PUBLIC

@@ -67,8 +67,16 @@ void Interpreter::registerHostFunction(const char* ns, const char* name,
 void Interpreter::setOutputHandler(WriteFn out, WriteFn err) {
     //Task 10 接线（IHostIo 转发器）；本任务不实现
 }
-Value Interpreter::newList() { return Value(); }   //Task 9 实现
-Value Interpreter::newDict() { return Value(); }   //Task 9 实现
+//builder 语义（spec §6）：宿主侧暂存元素，每次 call 跨越物化为全新
+//堆实例（无缓存）；builder 不入 GC 根表。
+Value Interpreter::newList() {
+    return detail::RefFactory::MakeBuilder(m_upImpl->executor,
+                                           Value::Kind::List);
+}
+Value Interpreter::newDict() {
+    return detail::RefFactory::MakeBuilder(m_upImpl->executor,
+                                           Value::Kind::Dict);
+}
 
 //--- NLangThrow 翻译 ------------------------------------------------------
 
@@ -269,20 +277,22 @@ int Interpreter::Impl::ResolveCallTarget(const char* funcName,
     return candidates.front();
 }
 
-//实参编组：委托共享单元编组（与宿主函数直派同一声明驱动规则）。
+//实参编组：委托共享单元编组（与宿主函数直派同一声明驱动规则；
+//完整 TypeDesc 供 builder 物化的元素校验与容器错配检查）。
 std::vector<uint8_t> Interpreter::Impl::EncodeArgs(
         const CompiledFunction& f, const std::vector<Value>& args) {
     std::vector<uint8_t> cells(args.size() * kFrameSlotBytes, 0);
     for (size_t i = 0; i < args.size(); ++i)
         embed::ValueIntoCell(executor, args[i], embed::DeclaredParamKind(f, i),
-                             cells.data() + i * kFrameSlotBytes);
+                             cells.data() + i * kFrameSlotBytes,
+                             embed::DeclaredParamType(f, i));
     return cells;
 }
 
-//结果解码：void→Null、string→宿主拷贝（值语义）、其余按返回 kind。
+//结果解码：void→Null、string→宿主拷贝（值语义）、参考→有根代理。
 Value Interpreter::Impl::DecodeResult(
         const CompiledFunction& f,
-        const uint8_t resultCell[kFrameSlotBytes]) const {
+        const uint8_t resultCell[kFrameSlotBytes]) {
     if (f.returnTypeKind == RTK_Void)
         return Value();
     return embed::ValueFromCell(executor, f.returnTypeKind, resultCell);

@@ -1,28 +1,16 @@
 /*---
     Value.cpp — 宿主值标量实现＋异常实现。
+    参考值内部状态与工厂声明在 RefValue.h（Proxies.cpp 定义工厂）。
 ---*/
-#include "nlang/embed/NLang.h"
+#include "RefValue.h"
 #include <cstring>
 #include <new>
 #include <utility>
 
 namespace nlang {
-namespace detail {
-
-//参考值的内部状态：解释器反引用＋堆句柄＋GC 根登记。Task 8 起充填；
-//本任务先立定义，使 Value 的 shared_ptr<RefValue> 可完整析构。
-struct RefValue {
-    void* executor = nullptr;   // VmExecutor*（公共头不见内部类型）
-    int32_t heapIdx = 0;
-    //builder 宿主侧存储（newList/newDict，spec §6）
-    std::vector<Value> builderElements;
-    bool isBuilder = false;
-};
-
-}  // namespace detail
 
 //诊断用 Kind 名（BadValue 消息；公共头不暴露——纯实现细节）
-static const char* KindName(Value::Kind k) {
+const char* KindName(Value::Kind k) {
     switch (k) {
     case Value::Kind::Null: return "Null";   case Value::Kind::Int: return "Int";
     case Value::Kind::Long: return "Long";   case Value::Kind::Float: return "Float";
@@ -50,8 +38,8 @@ Value::Value(const char* v)
 
 Value::Kind Value::kind() const { return m_kind; }
 
-static void CheckKind(Value::Kind actual, Value::Kind expected,
-                      const char* accessor) {
+void CheckKind(Value::Kind actual, Value::Kind expected,
+               const char* accessor) {
     if (actual != expected)
         throw BadValue(std::string(accessor) + ": value is "
             + KindName(actual) + ", not " + KindName(expected));

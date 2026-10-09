@@ -32,11 +32,12 @@ struct Interpreter::Impl {
                           const std::vector<Value>& args);
 
     //call() 的编组两翼：实参 → 帧单元格（字符串铸柄/null=柄 0/标量按
-    //形参 kind）；返回单元格 → Value（void→Null/string→拷出/其余标量）。
+    //形参 kind/参考透传或物化）；返回单元格 → Value（void→Null/string
+    //→拷出/参考→有根代理——登记 GC 根，故非 const）。
     std::vector<uint8_t> EncodeArgs(const CompiledFunction& f,
                                     const std::vector<Value>& args);
     Value DecodeResult(const CompiledFunction& f,
-                       const uint8_t resultCell[kFrameSlotBytes]) const;
+                       const uint8_t resultCell[kFrameSlotBytes]);
 
     //call/run 共享：NLangThrow → nlang::Exception（读实例的 message
     //字段与类名；backtrace 取 executor.Backtrace()）。Impl 的成员——
