@@ -6,6 +6,13 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.3] - Unreleased
+
+### 变更
+- **数组length改为方法**：`arr.length`（属性形态）现在是编译错误；
+  应写`arr.length()`，与`string.length()`及内建容器形态一致。带参
+  调用会被以专门消息拒绝。
+
 ## [0.8.2] - Unreleased
 
 ### 新增

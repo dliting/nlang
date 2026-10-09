@@ -6,6 +6,14 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.3] - Unreleased
+
+### Changed
+- **Array length is now a method**: `arr.length` (property form) is a
+  compile error; write `arr.length()`, consistent with `string.length()`
+  and the built-in containers. Calling it with arguments is rejected
+  with a dedicated message.
+
 ## [0.8.2] - Unreleased
 
 ### Added

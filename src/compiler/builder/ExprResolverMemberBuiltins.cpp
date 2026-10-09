@@ -241,23 +241,45 @@ bool ExprResolveAccessor::TryResolveTableStringMethod(SnMemberExpr &snMember,
 	return true;
 }
 
-//Builtin array.length property. Array redesign B: the receiver
-//check widens from identifier-shape to the array-valued property
-//(any bound shape — identifier, member like li.get(0), or call
-//result like mk()/lib.mk(3)).
-bool ExprResolveAccessor::TryResolveArrayLengthProperty(
+//Builtin array length() method. The receiver check widens from
+//identifier-shape to the array-valued property (any bound shape —
+//identifier, member like li.get(0), or call result like mk()).
+//Three shapes: a zero-argument call resolves; a call with arguments
+//and the old property spelling report dedicated errors (consumed as
+//error, so no later phase re-reports them).
+bool ExprResolveAccessor::TryResolveArrayLengthMethod(
 	SnMemberExpr &snMember, SnExpression *pOuterExpr,
 	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
 {
-	if (pOuterExpr->IsArrayValued()
-		&& pInnerExpr->Kind() == NK_IdentifierExpr
-		&& static_cast<SnIdentifierExpr*>(pInnerExpr)->Name()
-			== "length")
+	if (!pOuterExpr->IsArrayValued())
+		return false;
+	if (pInnerExpr->Kind() == NK_InvokeExpr)
 	{
+		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
+		if (invoke.CalleeName() != "length")
+			return false;
+		if (invoke.Params().begin() != invoke.Params().end())
+		{
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"array.length() takes no arguments.");
+			m_pContext = pSavedContext;
+			return true;
+		}
+		//Mirror of the string length/getHashCode arm: same flag set and
+		//int verdict (TryResolveStringBuiltinMethod above).
 		pInnerExpr->AddFlags(NF_Resolved);
 		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
 		snMember.AddFlags(NF_Resolved);
 		BindArrayTypeToken(snMember);
+		m_pContext = pSavedContext;
+		return true;
+	}
+	if (pInnerExpr->Kind() == NK_IdentifierExpr
+		&& static_cast<SnIdentifierExpr*>(pInnerExpr)->Name()
+			== "length")
+	{
+		m_Env.Log(CLL_Error, pInnerExpr->Location(),
+			"'length' on an array is a method; call it as '.length()'.");
 		m_pContext = pSavedContext;
 		return true;
 	}

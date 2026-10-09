@@ -198,6 +198,12 @@ bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
 		&& pOuterExpr->IsArrayValued())
 	{
 		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerForGate);
+		//length() is the array's one builtin method — it always falls
+		//through to the builtin dispatch in Access(), which owns the
+		//arity check (a dedicated "takes no arguments" message) instead
+		//of this generic reject.
+		if (invoke.CalleeName() == "length")
+			return false;
 		if (invoke.CalleeName() != "toString"
 			|| !(pOuterExpr->IsArrayValued()
 				&& IsPlainLvalueShape(*pOuterExpr)))
@@ -267,7 +273,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	//(each phase logs its own rejections).
 	if (TryResolveStringBuiltinMethod(snMember, pInnerExpr, pSavedContext))
 		return;
-	if (TryResolveArrayLengthProperty(snMember, pOuterExpr, pInnerExpr,
+	if (TryResolveArrayLengthMethod(snMember, pOuterExpr, pInnerExpr,
 		pSavedContext))
 		return;
 	if (TryResolveStreamBuiltinMethod(snMember, pInnerExpr, pSavedContext))

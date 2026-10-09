@@ -320,7 +320,7 @@ private:
 	void BindTableStringMethodResult(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const StringMethodEntry *pMethod);
-	bool TryResolveArrayLengthProperty(SnMemberExpr &snMember,
+	bool TryResolveArrayLengthMethod(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);
 	SnField *ResolveStreamSpecialTypeArg(SnInvokeExpr &invoke,

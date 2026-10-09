@@ -1,0 +1,17 @@
+//Positive: a List<T[]> class field carries the declaration flag —
+//reading its element and calling length() resolves through the array
+//builtin.
+import io;
+class Box {
+    public List<int[]> rows;
+    public void probe() {
+        io.print(rows.get(0).length());
+    }
+}
+int main() {
+    Box b = new Box();
+    b.rows = new List<int[]>();
+    b.rows.add(new int[1]);
+    b.probe();
+    return 0;
+}

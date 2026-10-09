@@ -30,7 +30,7 @@ language:
   recursively). Reading an element into a struct variable (`Point p = arr[i]`)
   deep-copies it; writing through a subscript (`arr[i].x = v`, `arr[i] = p`)
   stores into the array's own element. Zero-length struct arrays
-  (`new Point[0]`) are legal — `.length` is 0 and no elements are materialized.
+  (`new Point[0]`) are legal — `.length()` is 0 and no elements are materialized.
 
 **Shallow copy of class references within structs**: when a struct contains a
 class-typed field, the class reference (heap index) is copied as-is during

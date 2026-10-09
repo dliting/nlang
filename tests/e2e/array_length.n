@@ -1,4 +1,4 @@
 int main() {
     int[] arr = new int[7];
-    return arr.length;
+    return arr.length();
 }

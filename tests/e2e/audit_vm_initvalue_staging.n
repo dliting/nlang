@@ -25,11 +25,11 @@ int main() {
 
     // new T[size], struct-arg binary in the size expression
     int[] b = new int[1 + use(make(1))];
-    if (b.length != 2) r += 4;
+    if (b.length() != 2) r += 4;
 
     // new T[size], plain size (control)
     int[] b2 = new int[1 + 2];
-    if (b2.length != 3) r += 8;
+    if (b2.length() != 3) r += 8;
 
     // struct-init entry, struct-arg binary (explicit new form — bare
     // `{...}` decl-init is not valid grammar)

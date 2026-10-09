@@ -17,5 +17,5 @@ int main() {
     l[0][1] = "zz";                  // sugar chain store
     io.print(l.get(0)[1]);           // zz — get()+subscript read
     io.print(s.toString());          // ["hi", "zz"] — local array toString
-    return s.length;                 // 2
+    return s.length();                 // 2
 }

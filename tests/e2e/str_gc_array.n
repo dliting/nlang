@@ -12,6 +12,6 @@ int main() {
     if (a[0] != "alpha") return 1;
     if (a[1] != "beta-1") return 2;
     if (a[2] != "gamma") return 3;
-    if (a.length != 3) return 4;
+    if (a.length() != 3) return 4;
     return 0;
 }

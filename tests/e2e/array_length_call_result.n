@@ -1,0 +1,12 @@
+//Positive: a user method call returning T[] is array-valued through
+//the member wrapper (obj.mk()) — length() resolves like on a bare
+//array-returning function call.
+import io;
+class M {
+    public string[] mk() { return new string[2]; }
+}
+int main() {
+    M m = new M();
+    io.print(m.mk().length());
+    return 0;
+}

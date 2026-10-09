@@ -22,7 +22,7 @@ struct类型的数组在行为上是例外：每个元素是值类型，所以`n
 
 ### 长度
 
-`a.length`是**字段**（不是方法）——与`string.length()`（方法，返回字节数）对比。见[字符串](string.md)。
+`a.length()`是方法（零参数、返回`int`），与`string.length()`、`List.length()`形态一致。见[字符串](string.md)。
 
 ### 下标读写
 
@@ -32,7 +32,7 @@ struct类型的数组在行为上是例外：每个元素是值类型，所以`n
 int[] a = new int[3];
 a[0] = 9;
 a[1] = a[0] + 1;
-int x = a[a.length - 1];
+int x = a[a.length() - 1];
 ```
 
 复合下标赋值（`arr[i] += 1`）不支持——请写`arr[i] = arr[i] + 1`。见[复合赋值](compound-assignment.md)。

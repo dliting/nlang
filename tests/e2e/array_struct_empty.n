@@ -7,5 +7,5 @@ struct Point {
 //handle the empty case.
 int main() {
     Point[] arr = new Point[0];
-    return arr.length;
+    return arr.length();
 }

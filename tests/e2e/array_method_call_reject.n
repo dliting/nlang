@@ -1,0 +1,8 @@
+//compile_error: length() aside, methods cannot be called on an array;
+//index an element first.
+import io;
+int main() {
+    int[] a = new int[2];
+    io.print(a.contains(1));
+    return 0;
+}

@@ -103,8 +103,8 @@ using Ints = int[];
 
 int main() {
     Ints xs = [10, 20, 30];
-    io.print(xs[0] + xs.length);  // 10 + 3 = 13
-    if (xs.length == 3)
+    io.print(xs[0] + xs.length());  // 10 + 3 = 13
+    if (xs.length() == 3)
         return 13;
     return 1;
 }

@@ -264,10 +264,10 @@ private:
     void EmitClassFieldLoad(SnClassDecl& classDecl,
                             const std::string& fieldName,
                             BytecodeEmitter& emitter, uint16_t resultOffset);
-    //Array .length builtin property.
-    bool EmitMemberArrayLengthProperty(SnMemberExpr& member,
-                                       BytecodeEmitter& emitter,
-                                       uint16_t resultOffset);
+    //Array length() builtin method.
+    bool EmitMemberArrayLengthMethod(SnMemberExpr& member,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t resultOffset);
     //Bound method reference in value position (c.foo) — Func handle.
     void EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
                                  BytecodeEmitter& emitter,

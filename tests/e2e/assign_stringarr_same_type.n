@@ -3,7 +3,7 @@
 int main() {
 	string[] sa = ["a", "b"];
 	string[] sb = sa;
-	if (sb.length != 2)
+	if (sb.length() != 2)
 		return 1;
 	if (sb[0] != "a")
 		return 2;

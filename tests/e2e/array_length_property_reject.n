@@ -1,0 +1,8 @@
+//compile_error: the old property spelling — array length is now a
+//method call.
+import io;
+int main() {
+    int[] a = new int[2];
+    io.print(a.length);
+    return 0;
+}

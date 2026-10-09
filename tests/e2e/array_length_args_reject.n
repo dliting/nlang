@@ -1,0 +1,8 @@
+//compile_error: length() is the array's one builtin method — it takes
+//no arguments.
+import io;
+int main() {
+    int[] a = new int[2];
+    io.print(a.length(1));
+    return 0;
+}

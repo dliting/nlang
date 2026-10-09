@@ -1,0 +1,10 @@
+//Positive: a container element read out of List<T[]> keeps its array
+//value through the member wrapper — length() resolves to the array
+//builtin on l.get(0).
+import io;
+int main() {
+    List<string[]> l = new List<string[]>();
+    l.add(new string[1]);
+    io.print(l.get(0).length());
+    return 0;
+}

@@ -1,0 +1,11 @@
+//Positive: the Dict VALUE side is the element slot get() returns
+//(type arg 1) — length() on it resolves through the array builtin.
+import io;
+int main() {
+    Dict<string, int[]> d = new Dict<string, int[]>();
+    int[] a = new int[1];
+    a[0] = 7;
+    d.set("k", a);
+    io.print(d.get("k").length());   // array builtin via get()
+    return 0;
+}

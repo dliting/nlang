@@ -1,6 +1,7 @@
-//Review MAJOR-1 (string side, pre-existing silent hole closed by the
-//same gate): a string[] receiver masquerades as NK_String and enters
-//the string-builtin block — words.length() silently measured garbage.
+//Array-branch priority pin: a string[] receiver's .length() resolves
+//through the ARRAY builtin (the receiver context is the array token,
+//not NK_String, so the string-builtin block declines) — the call
+//measures the array (2 elements), never a string.
 int main() {
     string[] words = new string[2];
     words[0] = "abc";

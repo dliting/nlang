@@ -18,7 +18,7 @@ struct是具**深拷贝**语义的**值类型**，贯穿整个语言：
 - **赋值 / 拷贝**（`Point q = p;`）按值复制整个结构体，包括嵌套struct字段，因此源与拷贝相互独立。
 - **参数传递 / 返回**：深拷贝进被调方的局部栈帧，再深拷贝回调用方的结果槽位。被调方操作的是自己那份副本。
 - **作为class字段**：class持有一份独立的深拷贝。`obj.s = s1`会把`s1`深拷贝进该class的字段槽位。
-- **作为数组元素**：`new Point[n]`会急切地为每个元素物化一个全新、独立的struct实例（含嵌套struct字段，递归进行）。把元素读入struct变量（`Point p = arr[i]`）时深拷贝；经下标写入（`arr[i].x = v`、`arr[i] = p`）则存入数组自己的元素。零长度struct数组（`new Point[0]`）合法——`.length`为0，不物化任何元素。
+- **作为数组元素**：`new Point[n]`会急切地为每个元素物化一个全新、独立的struct实例（含嵌套struct字段，递归进行）。把元素读入struct变量（`Point p = arr[i]`）时深拷贝；经下标写入（`arr[i].x = v`、`arr[i] = p`）则存入数组自己的元素。零长度struct数组（`new Point[0]`）合法——`.length()`为0，不物化任何元素。
 
 **struct内class引用的浅拷贝**：struct含class类型字段时，struct拷贝会原样复制该class引用（堆索引）。原件与副本指向堆上同一个class对象。这与C#对引用类型struct字段的行为一致。
 

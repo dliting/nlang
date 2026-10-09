@@ -145,15 +145,13 @@ private slots:
 
 void TestArrayProperty::identifierAndMemberShapes()
 {
-    //No member `.length` here: its receiver widening is Task 3 scope —
-    //`s.f.length` does not compile until then.
     auto out = compileOne(
         "struct S { int[] f; }\n"
         "int main() {\n"
         "    int[] a = new int[2];\n"
         "    S s;\n"
         "    int[] t = s.f;\n"
-        "    int n = a.length;\n"
+        "    int n = a.length();\n"
         "    return n;\n"
         "}\n");
     QVERIFY(out.ok);
@@ -183,7 +181,7 @@ void TestArrayProperty::valueShapes()
         "    li.add(new int[1]);\n"
         "    int[] e = li.get(0);\n"
         "    int[] e2 = li[0];\n"
-        "    return e.length + e2.length + x;\n"
+        "    return e.length() + e2.length() + x;\n"
         "}\n");
     QVERIFY(out.ok);
     const auto& root = out.builder->TreeRootView();

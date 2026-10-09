@@ -31,8 +31,8 @@ semantics". The full value-vs-reference summary is on
 
 ### Length
 
-`a.length` is a **field** (not a method) — contrast `string.length()`, which
-is a method (returns the byte count). See [String](string.md).
+`a.length()` is a **method** (no arguments, returns `int`), consistent with
+`string.length()` and the built-in containers. See [String](string.md).
 
 ### Subscript read/write
 
@@ -43,7 +43,7 @@ nested):
 int[] a = new int[3];
 a[0] = 9;
 a[1] = a[0] + 1;
-int x = a[a.length - 1];
+int x = a[a.length() - 1];
 ```
 
 Compound subscript assignment (`arr[i] += 1`) is not supported — write

@@ -1,0 +1,10 @@
+//Positive: subscript-sugar variant — l[0] on List<T[]> is the same
+//array-valued shape as l.get(0); length() binds on the array builtin
+//either way.
+import io;
+int main() {
+    List<string[]> l = new List<string[]>();
+    l.add(new string[1]);
+    io.print(l[0].length());
+    return 0;
+}

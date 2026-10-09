@@ -1,0 +1,16 @@
+//Positive: a List<T[]> formal parameter carries the declaration flag
+//(ResolveDataTypes records tree declarations) — reading its element and
+//calling length() resolves through the array builtin.
+import io;
+class Box {
+    public void probe(List<string[]> p) {
+        io.print(p.get(0).length());
+    }
+}
+int main() {
+    List<string[]> p = new List<string[]>();
+    p.add(new string[1]);
+    Box b = new Box();
+    b.probe(p);
+    return 0;
+}

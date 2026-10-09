@@ -12,6 +12,6 @@ int main() {
     Func<string[], int> f = mk;
     string[] r = f(1);
     io.print(r[0] + r[1]);           // pq
-    io.print(r.length);              // 2 — property-style on the local
+    io.print(r.length());              // 2 — method-style on the local
     return 0;
 }

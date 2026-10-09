@@ -191,7 +191,7 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
 }
 
 //Builtin phase: non-class receiver toString() dispatch, then the array
-//.length property. Returns true when either emitted the expression.
+//length() method. Returns true when either emitted the expression.
 bool VmBackend::EmitMemberBuiltinDispatch(SnMemberExpr& member,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
@@ -208,7 +208,7 @@ bool VmBackend::EmitMemberBuiltinDispatch(SnMemberExpr& member,
             //via OP_CallMethod).
         }
     }
-    if (EmitMemberArrayLengthProperty(member, emitter, resultOffset))
+    if (EmitMemberArrayLengthMethod(member, emitter, resultOffset))
         return true;
     return false;
 }
@@ -334,25 +334,28 @@ bool VmBackend::EmitMemberSubscriptElementRead(SnMemberExpr& member,
     return false;
 }
 
-//Array.length builtin property (e.g. arr.length).
-//Array redesign B: the receiver check is the array-valued
-//property on the outer expression (stamped at resolver binding
-//tails — any shape: identifier, member like li.get(0), or call
-//result like mk()/lib.mk(3)); the emission itself is
-//shape-agnostic (EmitExpression handles any receiver form).
-//MUST be checked BEFORE the struct/class dispatch below: for
-//struct-element arrays (`Point[] b`), EvalDataType returns the
-//ELEMENT type (NK_StructDecl), so the struct branch would match
-//first, fail FindFieldOffset("length"), and silently emit only
-//the receiver. Same dispatch-order hazard as the array toString
-//path above.
-//Returns true when the property was emitted.
-bool VmBackend::EmitMemberArrayLengthProperty(SnMemberExpr& member,
-                                              BytecodeEmitter& emitter,
-                                              uint16_t resultOffset) {
+//Array length() builtin method (e.g. arr.length()). The receiver
+//check is the array-valued property on the outer expression (stamped
+//at resolver binding tails — any shape: identifier, member like
+//li.get(0), or call result like mk()/lib.mk(3)); the emission itself
+//is shape-agnostic (EmitExpression handles any receiver form). The
+//resolver consumed the call shape (TryResolveArrayLengthMethod); the
+//zero-argument check here is defensive depth. Checked BEFORE the
+//struct/class dispatch in EmitMemberTypedReceiverDispatch as defense
+//in depth: array values carry the interned array token in
+//EvalDataType (IsArrayValued is that derived check), so the
+//struct/class branches do not match array receivers today — the
+//order just guarantees a future typed-receiver change cannot
+//silently swallow the builtin.
+//Returns true when the method call was emitted.
+bool VmBackend::EmitMemberArrayLengthMethod(SnMemberExpr& member,
+                                            BytecodeEmitter& emitter,
+                                            uint16_t resultOffset) {
     auto* inner = member.Inner();
-    if (!(inner && inner->Kind() == NK_IdentifierExpr
-        && static_cast<SnIdentifierExpr*>(inner)->Name() == "length"
+    if (!(inner && inner->Kind() == NK_InvokeExpr
+        && static_cast<SnInvokeExpr*>(inner)->CalleeName() == "length"
+        && static_cast<SnInvokeExpr*>(inner)->Params().begin()
+            == static_cast<SnInvokeExpr*>(inner)->Params().end()
         && member.Outer()->IsArrayValued()))
         return false;
     EmitExpression(*member.Outer(), emitter, resultOffset);
