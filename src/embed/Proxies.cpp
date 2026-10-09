@@ -52,6 +52,26 @@ bool BuilderKeyEquals(const Value& a, const Value& b) {
     }
 }
 
+//builder 字典键的标量/字符串约束（参考键无恒等外表示，堆内比较属 vm
+//桥 HostKeysEqual 的职责）。set 入口前置拒绝，避免「首个参考键可入、
+//同种参考键再入即抛」的部分支持不一致（BuilderKeyEquals 只在比对两个
+//同种参考键时才抛）。
+void ValidateBuilderKey(const Value& key) {
+    switch (key.kind()) {
+    case Value::Kind::Null:
+    case Value::Kind::Int:
+    case Value::Kind::Long:
+    case Value::Kind::Float:
+    case Value::Kind::Double:
+    case Value::Kind::Bool:
+    case Value::Kind::Char:
+    case Value::Kind::String:
+        return;
+    default:
+        throw BadValue("builder dict keys must be scalar or string values");
+    }
+}
+
 //builder 对存储中键的配对位（-1＝缺席）。存储按 [k0,v0,k1,v1,...]
 //成对展开（RefValue.h 不变量）。
 int64_t FindBuilderPair(const std::shared_ptr<detail::RefValue>& ref,
@@ -243,6 +263,7 @@ void DictProxy::set(const Value& key, const Value& v) {
             m_ref->builderElements[static_cast<size_t>(pair) + 1] = v;
             return;
         }
+        ValidateBuilderKey(key);
         m_ref->builderElements.push_back(key);
         m_ref->builderElements.push_back(v);
         return;

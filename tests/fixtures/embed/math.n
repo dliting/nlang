@@ -1,0 +1,14 @@
+//Unregistered-native fixture (unit stem "math"): declares a native in the
+//math namespace that nlang_math.dll does not export. Calling it reaches the
+//"native function not registered" path — spec §5 says a missing native
+//binding maps to LoadError, not a raw runtime_error (the embed layer's
+//environment-failure discriminator must recognize this message).
+native double nonexistent(double x);
+
+int callNonexistent() {
+    return nonexistent(1.0) as int;
+}
+
+int main() {
+    return 0;
+}

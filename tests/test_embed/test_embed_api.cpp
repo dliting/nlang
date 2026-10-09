@@ -358,6 +358,9 @@ static void TestHostMadeExceptionSurfaces() {
 #ifndef EMBED_IO_NCU
 #error "EMBED_IO_NCU must be defined by the build"
 #endif
+#ifndef EMBED_MATH_NCU
+#error "EMBED_MATH_NCU must be defined by the build"
+#endif
 #ifndef NLANG_TEST_STDLIB_DIR
 #error "NLANG_TEST_STDLIB_DIR must be defined by the build"
 #endif
@@ -449,6 +452,25 @@ static void TestBuildersMaterializePerCrossing() {
     bd.set("hostkey", Value(int32_t(77)));
     Value dr = itp.call("containers_demo.readAfterHostEdit", {db});
     CHECK(dr.asInt() == 77, "dict builder crossing materializes");
+    PASS();
+}
+
+//builder 字典键的标量/字符串约束（spec §6）：参考键无恒等外表示，堆内
+//比较属 vm 桥 HostKeysEqual 的职责。set 入口前置拒绝——首个参考键即抛，
+//而非旧行为的「首个可入、同种参考键再入才抛」的部分支持不一致。
+static void TestBuilderDictRejectsReferenceKeys() {
+    TEST(TestBuilderDictRejectsReferenceKeys);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value db = itp.newDict();
+    DictProxy bd = db.asDict();
+    Value obj = itp.call("containers_demo.makePoint", {});
+    CHECK_THROWS(BadValue, bd.set(obj, Value(int32_t(1))),
+        "builder dict reference key rejected at set entry");
+    //标量键不受影响（前置拒绝仅约束参考键）
+    bd.set("hostkey", Value(int32_t(77)));
+    CHECK(bd.containsKey("hostkey"),
+        "scalar key still accepted after reference-key rejection");
     PASS();
 }
 
@@ -546,6 +568,24 @@ static void TestInputDefaultsToNoChannel() {
     PASS();
 }
 
+//spec §5: a missing native binding (a declared native the loaded module
+//does not export) maps to LoadError, not a raw runtime_error. The fixture's
+//unit stem "math" makes its native "math.nonexistent"; nlang_math.dll loads
+//(it is copied beside the test exe by nlang_stdlib_native_for_tests) but
+//does not export that name, so the call reaches the executor's
+//"native function not registered" throw — the message the environment-
+//failure discriminator must recognize (a regression guard for the
+//NLang-VM-prefixed message the prefix test used to miss).
+static void TestUnregisteredNativeThrowsLoadError() {
+    TEST(TestUnregisteredNativeThrowsLoadError);
+    Interpreter itp;
+    itp.addImportDir(NLANG_TEST_STDLIB_DIR);
+    itp.load(EMBED_MATH_NCU);
+    CHECK_THROWS(LoadError, itp.call("math.callNonexistent", {}),
+        "missing native binding must throw LoadError");
+    PASS();
+}
+
 //shutdown() 落位（公共面覆盖对账补的缺口）：必须放 main() 最后——
 //它拆除运行时全局状态，之后的用例走再入循环钉「关停不毒化后续
 //初始化」的生命周期契约。
@@ -589,11 +629,13 @@ int main() {
     TestArrayAndObjectProxies();
     TestArrayProxyBoundsAndKindGuards();
     TestBuildersMaterializePerCrossing();
+    TestBuilderDictRejectsReferenceKeys();
     TestHeldProxySurvivesGc();
     TestProxyRemoveAndClear();
     TestStructAndFuncKindsRoundTrip();
     TestOutputHandlerSeparatesStreams();
     TestInputDefaultsToNoChannel();
+    TestUnregisteredNativeThrowsLoadError();
     TestShutdownReinitializes();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

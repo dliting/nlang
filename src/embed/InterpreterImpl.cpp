@@ -125,14 +125,20 @@ Value Interpreter::newDict() {
 //--- NLangThrow 翻译 ------------------------------------------------------
 
 bool IsEnvironmentFailure(const std::string& m) {
-    static const char* kPrefixes[] = {
+    //Substring (not prefix) match: the native-binding family spans two
+    //throw sites with different message framing — the loader's
+    //"cannot find/failed to load native module" and the executor's
+    //NLang-VM-prefixed "native function not registered" — so a prefix test
+    //would miss the executor's message. The phrases are distinctive
+    //enough that a mid-string hit is unambiguous.
+    static const char* kMarkers[] = {
         "cannot find native module '",
         "failed to load native module '",
         "native module '",
         "native function not registered: ",
     };
-    for (const char* p : kPrefixes)
-        if (m.rfind(p, 0) == 0)
+    for (const char* p : kMarkers)
+        if (m.find(p) != std::string::npos)
             return true;
     return false;
 }

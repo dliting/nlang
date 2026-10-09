@@ -1477,6 +1477,9 @@ add_custom_target(nlang_embed_fixtures ALL
     COMMAND $<TARGET_FILE:ncc> build
         ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/io_demo.n
         -o ${embed_fixture_dir}/io_demo.ncu
+    COMMAND $<TARGET_FILE:ncc> build
+        ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/math.n
+        -o ${embed_fixture_dir}/math.ncu
     DEPENDS ncc
     VERBATIM)
 #io_demo imports the stdlib io module: ncc resolves it against the
@@ -1515,6 +1518,7 @@ target_compile_definitions(test_embed_api
         EMBED_HOSTFNS_NCU="${embed_fixture_dir}/hostfns.ncu"
         EMBED_CONTAINERS_NCU="${embed_fixture_dir}/containers_demo.ncu"
         EMBED_IO_NCU="${embed_fixture_dir}/io_demo.ncu"
+        EMBED_MATH_NCU="${embed_fixture_dir}/math.ncu"
         NLANG_TEST_STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}")
 add_dependencies(test_embed_api nlang_embed_fixtures nlang_stdlib_native_for_tests)
 add_test(NAME embed_api_tests COMMAND test_embed_api)
