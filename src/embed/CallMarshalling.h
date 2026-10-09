@@ -3,7 +3,9 @@
     声明 kind 驱动：string 形收取 String（铸柄，值语义）/Null（柄 0）；
     标量行经 EncodeScalarCell 严格校验（kind/值域）；参考形参（含
     List/Dict 描述符 kind）走 RefFactory——堆句柄透传或 builder 物化
-    （每次跨越新对象，元素按声明 TypeDesc 校验）。
+    （每次跨越新对象，元素按声明 TypeDesc 校验）。形参 kind 的裁决链：
+    描述符可表达者以描述符为准，NonSerialized 哨兵（Func 签名等）回退
+    到帧布局 locals 表（GC 同源），int32 占位是最后防线。
 ---*/
 #pragma once
 #include "Marshalling.h"
@@ -16,11 +18,33 @@
 
 namespace nlang::embed {
 
-//Formal i's declared kind; modules predating the descriptor table fall
-//back to int32 (the historical placeholder kind).
+//Formal i's param local — the frame-layout slot the marshalled cell
+//lands in (params occupy offsets 0, 8, 16, ... of the flat frame).
+inline const LocalDescriptor* ParamLocalSlot(const CompiledFunction& f,
+                                             size_t i) {
+    const uint16_t cellOffset = static_cast<uint16_t>(i * kFrameSlotBytes);
+    for (const LocalDescriptor& ld : f.locals)
+        if (ld.isParam && ld.offset == cellOffset)
+            return &ld;
+    return nullptr;
+}
+
+//Formal i's declared kind. The v1.12 descriptor is authoritative, but its
+//not-expressible sentinel (Func signatures, interface types, depth-cap
+//containers) defers to the frame layout — the same locals table the GC
+//scans — which carries the true runtime kind of the cell the value lands
+//in. Modules predating the descriptor table fall back to int32 (the
+//historical placeholder kind).
 inline uint16_t DeclaredParamKind(const CompiledFunction& f, size_t i) {
-    return f.paramTypeDescs.size() > i ? f.paramTypeDescs[i].type.kind
-                                       : static_cast<uint16_t>(RTK_Int32);
+    if (f.paramTypeDescs.size() > i) {
+        const uint16_t kind = f.paramTypeDescs[i].type.kind;
+        if (kind != RTK_NonSerialized)
+            return kind;
+        const LocalDescriptor* slot = ParamLocalSlot(f, i);
+        return slot ? slot->typeKind
+                    : static_cast<uint16_t>(RTK_Int32);
+    }
+    return static_cast<uint16_t>(RTK_Int32);
 }
 
 //Formal i's full descriptor — the element-kind source when the formal is
@@ -39,9 +63,52 @@ inline bool IsReferenceKind(uint16_t k) {
 
 //One host Value → one 8-byte frame cell (declaration-driven).
 //declaredType (when present) supplies container element kinds for builder
-//materialization and the container/reference mismatch check.
+//materialization and refines the reference-kind check.
 //Null into a string formal writes nothing — callers hand in a zeroed cell
 //so the null handle 0 reads back as a null reference.
+//Reference-formal arm of ValueIntoCell: builder materialization, null,
+//or rooted-handle passthrough — with the kind-consistency check at the
+//marshalling boundary (not left to a misleading downstream slot guard).
+inline int32_t RefHandleForFormal(VmExecutor& executor, const Value& v,
+                                  uint16_t declaredKind,
+                                  const TypeDesc* declaredType) {
+    if (detail::RefFactory::IsBuilder(v)) {
+        //Builder 只物化进容器形参（RTK_List/RTK_Dict，元素校验在
+        //Materialize 内）与宽 RTK_Class。Materialize 把 NonSerialized
+        //描述符视作无约束，而 Func/Struct/Array 形参的 kind 恰恰来自
+        //帧布局回退、只在此处可见——必须在编组边界拒收。
+        if (declaredKind != RTK_List && declaredKind != RTK_Dict
+                && declaredKind != RTK_Class)
+            throw BadValue(
+                "builder value cannot cross into a non-container formal");
+        return detail::RefFactory::Materialize(executor, v, declaredType);
+    }
+    if (v.kind() == Value::Kind::Null)
+        return 0;   //null 引用＝句柄 0
+    if (!detail::RefFactory::IsRef(v))
+        throw BadValue("reference formal needs a reference, builder, "
+                       "or Null host value");
+    //RTK_Class 是 Object 式宽形参，容器/用户类两可不检；容器描述符
+    //（可表达时）比帧布局回退的 RTK_Class 更具体，作为期望 kind 优先。
+    const uint8_t expected =
+        (declaredType
+             && (declaredType->kind == RTK_List
+                 || declaredType->kind == RTK_Dict))
+            ? declaredType->kind
+            : static_cast<uint8_t>(declaredKind);
+    const Value::Kind vk = v.kind();
+    const bool matches =
+        expected == RTK_Class
+        || (expected == RTK_List && vk == Value::Kind::List)
+        || (expected == RTK_Dict && vk == Value::Kind::Dict)
+        || (expected == RTK_Struct && vk == Value::Kind::Struct)
+        || (expected == RTK_Array && vk == Value::Kind::Array)
+        || (expected == RTK_Func && vk == Value::Kind::Func);
+    if (!matches)
+        throw BadValue("reference formal and host reference kind mismatch");
+    return detail::RefFactory::HeapIdxOf(v);
+}
+
 inline void ValueIntoCell(VmExecutor& executor, const Value& v,
                           uint16_t declaredKind, uint8_t cell[8],
                           const TypeDesc* declaredType = nullptr) {
@@ -55,26 +122,8 @@ inline void ValueIntoCell(VmExecutor& executor, const Value& v,
         return;
     }
     if (IsReferenceKind(declaredKind)) {
-        int32_t handle = 0;
-        if (detail::RefFactory::IsBuilder(v)) {
-            handle = detail::RefFactory::Materialize(executor, v, declaredType);
-        } else if (v.kind() == Value::Kind::Null) {
-            handle = 0;   //null 引用＝句柄 0
-        } else if (detail::RefFactory::IsRef(v)) {
-            handle = detail::RefFactory::HeapIdxOf(v);
-            //容器描述符与宿主参考 kind 错配（RTK_Class 是 Object 式宽形参，
-            //容器/用户类两可，不在此列）
-            if (declaredType
-                    && ((declaredType->kind == RTK_List
-                            && v.kind() != Value::Kind::List)
-                        || (declaredType->kind == RTK_Dict
-                            && v.kind() != Value::Kind::Dict)))
-                throw BadValue(
-                    "container formal and host reference kind mismatch");
-        } else {
-            throw BadValue("reference formal needs a reference, builder, "
-                           "or Null host value");
-        }
+        const int32_t handle =
+            RefHandleForFormal(executor, v, declaredKind, declaredType);
         std::memcpy(cell, &handle, sizeof(handle));
         return;
     }

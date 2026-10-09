@@ -178,6 +178,19 @@ static void TestCallRejections() {
     CHECK_THROWS(BadValue,
         (void)itp.call("add", {Value(int32_t(1)), Value(int32_t(2))}),
         "unqualified name → BadValue");
+    //Func 形参的 kind 裁决链回归钉（描述符 NonSerialized 回退帧布局后
+    //打开的路径）：错配的参考值与 builder 都必须在编组边界被拒，而非
+    //把错型值塞进帧里、留给下游 CallDelegate 的槽守卫报误导性 NPE。
+    Value pair = itp.call("values_demo.makePair",
+        {Value(int32_t(1)), Value(int32_t(2))});
+    CHECK_THROWS(BadValue,
+        (void)itp.call("values_demo.applyFunc",
+            {pair, Value(int32_t(21))}),
+        "struct value into a Func formal → BadValue (reference kind mismatch)");
+    CHECK_THROWS(BadValue,
+        (void)itp.call("values_demo.applyFunc",
+            {itp.newList(), Value(int32_t(21))}),
+        "list builder into a Func formal → BadValue (non-container formal)");
     PASS();
 }
 
@@ -413,6 +426,12 @@ static void TestBuildersMaterializePerCrossing() {
     bl.add(Value(int32_t(100)));
     Value s3 = itp.call("containers_demo.sumList", {b});
     CHECK(s3.asInt() == 103, "builder edits re-materialize on next crossing");
+    //Dict builder 对称覆盖（newDict 与 newList 同一 builder 语义）
+    Value db = itp.newDict();
+    DictProxy bd = db.asDict();
+    bd.set("hostkey", Value(int32_t(77)));
+    Value dr = itp.call("containers_demo.readAfterHostEdit", {db});
+    CHECK(dr.asInt() == 77, "dict builder crossing materializes");
     PASS();
 }
 
@@ -454,6 +473,27 @@ static void TestProxyRemoveAndClear() {
     PASS();
 }
 
+static void TestStructAndFuncKindsRoundTrip() {
+    TEST(TestStructAndFuncKindsRoundTrip);
+    Interpreter itp;
+    itp.load(EMBED_VALUES_NCU);
+    Value pair = itp.call("values_demo.makePair",
+        {Value(int32_t(3)), Value(int32_t(4))});
+    CHECK(pair.kind() == Value::Kind::Struct,
+        "struct result decodes to Kind::Struct");
+    Value total = itp.call("values_demo.sumPair", {pair});
+    CHECK(total.asInt() == 7,
+        "struct value passes back through and fields survive");
+    Value fn = itp.call("values_demo.makeFunc", {});
+    CHECK(fn.kind() == Value::Kind::Func,
+        "function result decodes to Kind::Func");
+    Value doubled = itp.call("values_demo.applyFunc",
+        {fn, Value(int32_t(21))});
+    CHECK(doubled.asInt() == 42,
+        "function value passes back through and calls");
+    PASS();
+}
+
 static void TestOutputHandlerSeparatesStreams() {
     TEST(TestOutputHandlerSeparatesStreams);
     Interpreter itp;
@@ -468,6 +508,13 @@ static void TestOutputHandlerSeparatesStreams() {
     CHECK(errText.find("to-err") != std::string::npos, "err routed");
     CHECK(outText.find("to-err") == std::string::npos, "no leak into out");
     CHECK(errText.find("to-out") == std::string::npos, "no leak into err");
+    //Both empty callbacks uninstall the handlers: a second emit must not
+    //reach the captured buffers (the forwarder is detached from the VM).
+    const size_t outLen = outText.size(), errLen = errText.size();
+    itp.setOutputHandler(WriteFn(), WriteFn());
+    (void)itp.call("io_demo.emitBoth", {});
+    CHECK(outText.size() == outLen && errText.size() == errLen,
+        "both-empty setOutputHandler uninstalls the forwarder");
     PASS();
 }
 
@@ -479,6 +526,21 @@ static void TestInputDefaultsToNoChannel() {
     itp.load(EMBED_IO_NCU);
     Value r = itp.call("io_demo.readWhenNoChannel", {});
     CHECK(r.asInt() == 1, "io.readLine raises catchable IOException");
+    PASS();
+}
+
+//shutdown() 落位（公共面覆盖对账补的缺口）：必须放 main() 最后——
+//它拆除运行时全局状态，之后的用例走再入循环钉「关停不毒化后续
+//初始化」的生命周期契约。
+static void TestShutdownReinitializes() {
+    TEST(TestShutdownReinitializes);
+    shutdown();
+    initialize();
+    Interpreter itp;
+    itp.load(EMBED_VALUES_NCU);
+    Value r = itp.call("values_demo.add",
+        {Value(int32_t(20)), Value(int32_t(22))});
+    CHECK(r.asInt() == 42, "interpreter works after shutdown + initialize");
     PASS();
 }
 
@@ -511,8 +573,10 @@ int main() {
     TestBuildersMaterializePerCrossing();
     TestHeldProxySurvivesGc();
     TestProxyRemoveAndClear();
+    TestStructAndFuncKindsRoundTrip();
     TestOutputHandlerSeparatesStreams();
     TestInputDefaultsToNoChannel();
+    TestShutdownReinitializes();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

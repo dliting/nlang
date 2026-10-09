@@ -373,8 +373,10 @@ struct CompiledFunction {
     //implicit this slot, mirroring defaultValues' sizing) and the return
     //type. Empty / NonSerialized entries are "not expressible in the
     //descriptor grammar"; stub reconstruction degrades to the int32
-    //placeholder for those. Intrinsics/builtins carry none (their records
-    //are minted without the AST capture pass and never become stubs).
+    //placeholder for those, while embed call marshalling defers to the
+    //frame-layout locals table (CallMarshalling.h DeclaredParamKind).
+    //Intrinsics/builtins carry none (their records are minted without
+    //the AST capture pass and never become stubs).
     std::vector<ParamTypeDesc> paramTypeDescs;
     TypeDesc returnTypeDesc;
 };

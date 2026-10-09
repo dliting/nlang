@@ -26,6 +26,34 @@ int withOut(int a, out int b) {
     return a;
 }
 
+struct Pair {
+    int a;
+    int b;
+}
+
+Pair makePair(int a, int b) {
+    Pair p;
+    p.a = a;
+    p.b = b;
+    return p;
+}
+
+int sumPair(Pair p) {
+    return p.a + p.b;
+}
+
+int twice(int x) {
+    return x * 2;
+}
+
+Func<int, int> makeFunc() {
+    return twice;
+}
+
+int applyFunc(Func<int, int> f, int x) {
+    return f(x);
+}
+
 void logNothing() {
     int pad = 0;
 }
