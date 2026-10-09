@@ -1,6 +1,6 @@
 # 集成NLang
 
-把NLang嵌入自己的程序，当前的官方集成面是子进程驱动：你的程序调用`ncc`编译、调用`nvm`执行，通过标准输入输出与脚本交互。本页面向集成方：要带哪些文件、怎么部署、怎么驱动、怎么调试。
+把NLang嵌入自己的程序有两条官方集成路径：子进程驱动——你的程序调用`ncc`编译、调用`nvm`执行，通过标准输入输出与脚本交互；进程内嵌入——宿主C++程序链接`nlang_embed`库（见[嵌入NLang](embedding-api.md)）。本页覆盖子进程驱动：要带哪些文件、怎么部署、怎么驱动、怎么调试。
 
 一个最小的目标程序长这样（本页反复用到它）：
 
@@ -19,7 +19,7 @@ int main()
 | 形态 | 状态 | 说明 |
 |---|---|---|
 | 子进程驱动 | 现支持 | 宿主程序起`ncc`/`nvm`子进程，以退出码与标准流通信 |
-| 进程内宿主应用程序编程接口（API，application programming interface） | 当前不提供 | 以C/C++库形式链接VM |
+| 进程内宿主应用程序编程接口（API，application programming interface） | 现支持 | 宿主C++程序链接`nlang_embed`库在自身进程装载执行，见[嵌入NLang](embedding-api.md) |
 
 ## 2. 依赖清单
 
@@ -57,7 +57,3 @@ int main()
 ## 6. 调试集成
 
 无人值守调试用`ndb --machine`行协议：协议事件（含`error`错误事件）走stdout，stderr只承载崩溃报告与`--verbose`搜索路径列表，宿主逐行解析即可驱动断点与单步。协议细节见[调试](../getting-started/debugging.md)与[ndb](../cli-tools/ndb.md)。
-
-## 7. 展望
-
-以C/C++库形式在进程内链接VM属于后续开发内容；在那之前，集成一律走子进程驱动。

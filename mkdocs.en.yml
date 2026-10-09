@@ -90,6 +90,7 @@ nav:
   - Libraries and Integration:
       - Developing Libraries: libraries/developing-libraries.md
       - Integrating NLang: libraries/integrating-nlang.md
+      - Embedding NLang: libraries/embedding-api.md
   - VM Architecture:
       - Overview: vm-architecture/overview.md
       - Core:

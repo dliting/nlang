@@ -236,6 +236,16 @@ New to NLang? The `docs/user_manual/en/getting-started/` chapters walk the langu
 CLI and the IDE one topic per page (they are also reachable from the nide
 Help menu); `examples/README.md` indexes every runnable example.
 
+## Embedding
+
+Host C++ programs link the `nlang_embed` library and drive the engine in
+process through `nlang::Interpreter`: load a `.ncu`/`.npkg`, run `main`,
+call module functions by name, exchange typed values (containers and
+objects included), register `native` host functions, and redirect
+`io.print`/`io.eprint` to host callbacks. A minimal host ships in
+`examples/embed_host/`; the full chapter is
+`docs/user_manual/en/libraries/embedding-api.md`.
+
 ## IDE (nide)
 
 ```bash

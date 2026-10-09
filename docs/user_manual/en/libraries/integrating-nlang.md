@@ -1,6 +1,6 @@
 # Integrating NLang
 
-The official integration surface today is subprocess driving: your program invokes `ncc` to compile and `nvm` to execute, and talks to the script through the standard streams. This page is for integrators: which files to carry, how to deploy, how to drive and how to debug.
+NLang integrates into your program along two official paths: subprocess driving — your program invokes `ncc` to compile and `nvm` to execute, talking to the script through the standard streams; and in-process embedding — a host C++ program links the `nlang_embed` library (see [Embedding NLang](embedding-api.md)). This page covers subprocess driving: which files to carry, how to deploy, how to drive and how to debug.
 
 A minimal target program used throughout this page:
 
@@ -19,7 +19,7 @@ int main()
 | Shape | Status | Notes |
 |---|---|---|
 | Subprocess driving | supported today | the host spawns `ncc`/`nvm` and communicates via exit codes and standard streams |
-| In-process host application programming interface (API) | not provided today | linking the VM as a C/C++ library |
+| In-process host application programming interface (API) | supported today | a host C++ program links the `nlang_embed` library and runs artifacts inside its own process; see [Embedding NLang](embedding-api.md) |
 
 ## 2. What to ship
 
@@ -57,7 +57,3 @@ The minimum is `nvm.exe`, `stdlib\stdlib.npkg` and `nlang_io.dll`, plus the prog
 ## 6. Debug integration
 
 Unattended debugging uses the `ndb --machine` line protocol: protocol events (including the `error` event) go to stdout, while stderr carries only crash reports and the `--verbose` search-path listing; the host parses line by line to drive breakpoints and stepping. Details in [Debugging](../getting-started/debugging.md) and [ndb](../cli-tools/ndb.md).
-
-## 7. Outlook
-
-Linking the VM in-process as a C/C++ library is future work; until it lands, integration goes through subprocesses.

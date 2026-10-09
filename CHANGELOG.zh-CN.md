@@ -6,6 +6,15 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.0] - Unreleased
+
+### 新增
+- **C++ 宿主嵌入 API**（`nlang::Interpreter`）：在进程内装载并运行
+  编译产物 `.ncu`/`.npkg`，注册可被脚本调用的宿主函数，通过读写
+  代理交换类型化的值（附垃圾回收器根保证），把脚本异常以 C++
+  异常的形式抛给宿主，并重定向脚本输出。手册新增「嵌入 NLang」
+  章；最小宿主示例见 `examples/embed_host`。
+
 ## [0.8.1] - 2026-10-08
 
 ### 变更

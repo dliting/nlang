@@ -6,6 +6,16 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - Unreleased
+
+### Added
+- **C++ host embedding API** (`nlang::Interpreter`): load and run compiled
+  `.ncu`/`.npkg` artifacts in-process, register host functions callable
+  from scripts, exchange typed values through read/write proxies with
+  garbage-collector root guarantees, catch script exceptions as C++
+  exceptions, and redirect script output. New manual chapter "Embedding
+  NLang"; see `examples/embed_host` for a minimal host.
+
 ## [0.8.1] - 2026-10-08
 
 ### Changed

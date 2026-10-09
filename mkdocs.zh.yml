@@ -90,6 +90,7 @@ nav:
   - 库与集成:
       - 开发第三方库: libraries/developing-libraries.md
       - 集成NLang: libraries/integrating-nlang.md
+      - 嵌入NLang: libraries/embedding-api.md
   - VM架构:
       - 概览: vm-architecture/overview.md
       - 核心:

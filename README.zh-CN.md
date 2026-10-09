@@ -217,6 +217,15 @@ PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.
 语言、命令行与 IDE（也可从 nide 帮助菜单到达）；
 `examples/README.md` 索引了全部可运行示例。
 
+## 嵌入
+
+宿主 C++ 程序链接 `nlang_embed` 库，经由 `nlang::Interpreter` 在进程内
+驱动引擎：装载 `.ncu`/`.npkg`，运行 `main`，按名调用模块函数，交换
+类型化的值（含容器与对象），注册 `native` 宿主函数，并把
+`io.print`/`io.eprint` 重定向到宿主回调。最小宿主示例随包分发
+（`examples/embed_host/`），完整章节见
+`docs/user_manual/zh/libraries/embedding-api.md`。
+
 ## IDE（nide）
 
 ```bash
