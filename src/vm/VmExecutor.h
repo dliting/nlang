@@ -168,6 +168,14 @@ public:
     //public door to the private RaiseNlangExceptionBase family.
     [[noreturn]] void RaiseHostException(const std::string& msg);
 
+    //Extension point ③ (spec 2026-10-08 §8): host-held handles are GC
+    //roots while registered — the embed adapter pushes a root when a
+    //reference Value is created and pops when its last shared copy
+    //dies. kind routes the marking: RTK_String values are string-store
+    //handles, everything else is a heap idx.
+    void PushHostRoot(uint8_t kind, int32_t value);
+    void PopHostRoot(uint8_t kind, int32_t value);
+
     //Non-mutating string read: flattens into a local buffer, never touches
     //the node (safe for const observers). Public because the intrinsic
     //family TUs read string arguments through file-local static helpers
@@ -613,6 +621,12 @@ private:
     //Extension point ⑤: owned by the embed adapter (HostFunctionTable);
     //never null-deref'd — CallNative tests before asking.
     IHostFunctions* m_pHostFunctions = nullptr;
+
+    //Extension point ③: host-registered roots as (kind, value) pairs —
+    //see PushHostRoot. Small by construction (host-held references);
+    //linear pop is fine.
+    struct HostRoot { uint8_t kind; int32_t value; };
+    std::vector<HostRoot> m_hostRoots;
 
     //Input side: the source is the host seam when a host is installed,
     //else the portable stdin reader; TokenView owns the shared cursor.

@@ -59,6 +59,19 @@ void VmExecutor::MarkPhase() {
         MarkFrameLocals(frame, worklist);
         MarkFrameResult(frame, worklist);
     }
+    //Extension point ③: host-registered roots (host-held reference
+    //Values). Same string/heap split as the frame scans — RTK_String
+    //values are string-store handles routed to MarkString (its own
+    //validation), everything else is a heap idx under the mark guard.
+    for (const HostRoot& root : m_hostRoots) {
+        if (root.kind == RTK_String) {
+            MarkString(root.value);
+        } else if (root.value > 0
+                && static_cast<size_t>(root.value) < m_slotKinds.size()
+                && !m_markBits[root.value]) {
+            PushMarked(root.value, worklist);
+        }
+    }
     //Iteratively trace references until worklist is empty.
     while (!worklist.empty()) {
         int32_t idx = worklist.back();

@@ -107,6 +107,22 @@ static void TestCallScalarsAndString() {
     PASS();
 }
 
+static void TestStringResultIsDecodeCopy() {
+    TEST(TestStringResultIsDecodeCopy);
+    Interpreter itp;
+    itp.load(EMBED_VALUES_NCU);
+    Value g = itp.call("values_demo.greet", {Value("held")});
+    //The returned Value owns its bytes (StrValCopy at decode): holding it
+    //across further VM work cannot pull them out from under the host.
+    for (int i = 0; i < 32; ++i) {
+        (void)itp.call("values_demo.add",
+            {Value(int32_t(1)), Value(int32_t(2))});
+    }
+    CHECK(g.kind() == Value::Kind::String && g.asString() == "hello, held",
+        "string result reads unchanged after later calls");
+    PASS();
+}
+
 static void TestCallFillsDefaults() {
     TEST(TestCallFillsDefaults);
     Interpreter itp;
@@ -314,6 +330,7 @@ int main() {
     TestAddImportDirAfterLoadThrows();
     TestUncaughtScriptThrowSurfacesException();
     TestCallScalarsAndString();
+    TestStringResultIsDecodeCopy();
     TestCallFillsDefaults();
     TestCallVoidFunctionReturnsNull();
     TestCallBeforeRunAndAfter();

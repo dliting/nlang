@@ -7,6 +7,7 @@
 //ArrayElemCells/kFrameSlotBytes/INTR_None 都在公共头（已核验：
 //CompiledModule.h:113/127/170），VmExecutor.h 已可见，无需额外 include。
 #include <cstring>
+#include <iterator>
 #include <stdexcept>
 
 namespace nlang {
@@ -156,6 +157,24 @@ int32_t VmExecutor::MintHostString(const std::string& content) {
 //raiser — this wrapper only makes it reachable from the adapter.
 void VmExecutor::RaiseHostException(const std::string& msg) {
     RaiseNlangExceptionBase(msg);
+}
+
+//Extension point ③: registration half. The embed adapter pushes a root
+//when a reference Value is created and pops when its last shared copy
+//dies; MarkPhase reads the registry during collection.
+void VmExecutor::PushHostRoot(uint8_t kind, int32_t value) {
+    m_hostRoots.push_back(HostRoot{kind, value});
+}
+
+//Reverse scan erases the most recently pushed matching pair — LIFO keeps
+//nested push/pop of equal values balanced (Value copy + destroy order).
+void VmExecutor::PopHostRoot(uint8_t kind, int32_t value) {
+    for (auto it = m_hostRoots.rbegin(); it != m_hostRoots.rend(); ++it) {
+        if (it->kind == kind && it->value == value) {
+            m_hostRoots.erase(std::next(it).base());
+            return;
+        }
+    }
 }
 
 int32_t VmExecutor::BoxHostScalar(uint8_t typeTag, int64_t bits) {

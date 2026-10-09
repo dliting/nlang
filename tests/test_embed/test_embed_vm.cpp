@@ -137,6 +137,34 @@ static void TestCallByNameTwiceHeapSurvives() {
     PASS();
 }
 
+//Extension point ③: a host-held string handle stays a live GC root
+//across collections triggered by real bytecode. The stress thresholds
+//are clamped to 4 and never restored, so this test must stay LAST in
+//main().
+static void TestHostRootProtectsAcrossGc() {
+    TEST(TestHostRootProtectsAcrossGc);
+    VmExecutor& e = LoadedExecutor();
+    e.SetGcStressThresholds(4);
+    const int32_t handle = e.MintHostString("rooted-survivor");
+    e.PushHostRoot(RTK_String, handle);
+    //Churn: each greet mints fresh cons nodes, pushing the string store
+    //past the clamped threshold — CheckGCSafepoint at ExecuteFunction
+    //entry collects. The churn arg stays reachable through the callee
+    //frame (staged into locals before entry); the survivor is reachable
+    //only via the host root — unregistered, the sweep reclaims it and
+    //StrValCopy then reads "" (dead handles decode empty).
+    uint8_t churnArgs[1][8] = {};
+    const int32_t churn = e.MintHostString("churn");
+    std::memcpy(churnArgs[0], &churn, sizeof(churn));
+    uint8_t result[8] = {};
+    for (int i = 0; i < 16; ++i)
+        e.CallByName("values_demo.greet", &churnArgs[0][0], 1, result);
+    CHECK(e.StrValCopy(handle) == "rooted-survivor",
+        "host-rooted string survives GC collections");
+    e.PopHostRoot(RTK_String, handle);
+    PASS();
+}
+
 int main() {
     Runtime::StaticInit();
     TestCallByNameScalars();
@@ -144,6 +172,7 @@ int main() {
     TestCallByNameStringRoundTrip();
     TestCallByNameSurfacesNLangThrow();
     TestCallByNameTwiceHeapSurvives();
+    TestHostRootProtectsAcrossGc();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }
