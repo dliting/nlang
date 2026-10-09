@@ -10,7 +10,7 @@ int main() {
         total = total + e;
     }
     io.print(names[0] + " + " + names[1]);
-    io.print(evens.length());           // 4 — arrays expose length as a method
+    io.print(evens.length());         // 4 — arrays expose length as a method
     if (total == 20)
         return 8;
     return 1;

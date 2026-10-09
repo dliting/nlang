@@ -1,5 +1,5 @@
 /*---
-    ExprResolverMemberBuiltins.cpp — 内建按名方法族阶段：string 方法 / 数组 .length / 流方法。
+    ExprResolverMemberBuiltins.cpp — 内建按名方法族阶段：string 方法 / 数组 length() 方法 / 流方法。
     从 ExprResolver.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"

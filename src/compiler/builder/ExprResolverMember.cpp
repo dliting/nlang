@@ -174,21 +174,24 @@ void ExprResolveAccessor::SwitchContextToReceiver(SnMemberExpr &snMember)
 	}
 }
 
-//Array-valued receivers expose no methods — the gate gives the
+//Array-valued receivers expose no user methods — the gate gives the
 //named, actionable rejection ("index an element first") instead of
 //the generic resolution failure a token-typed receiver produces.
+//Two builtin exemptions fall through below (see the inline checks):
+//length() — the array's one builtin method, any arity (the builtin
+//dispatch owns the arity error) — and toString for lvalue receivers
+//(identifier / member field): the non-class toString dispatch below
+//detects exactly those shapes via the IsArrayType() field check.
+//Call-result array values (l.get(0), obj.mk(), l[0], delegate calls)
+//route nowhere in that dispatch — their string conversion is the cast
+//table's array→string coercion in expression positions, not a method
+//call.
 //(Pre-token this was worse: the element masquerade bound the
 //ELEMENT type's method table — string[] receivers entered the
 //string-builtin block, enum/class receivers bound user methods —
 //and codegen passed the array's heap index as the receiver; verified
 //enum[].rank() returned heapIdx+10. Phase 12 review MAJOR-1, trap-12
 //family instance #7.)
-//toString is exempt ONLY for lvalue receivers (identifier / member
-//field): the non-class toString dispatch below detects exactly those
-//shapes via the IsArrayType() field check. Call-result array values
-//(l.get(0), obj.mk(), l[0], delegate calls) route nowhere in that
-//dispatch — their string conversion is the cast table's array→string
-//coercion in expression positions, not a method call.
 bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
 	SnMemberExpr &snMember, SnExpression *pOuterExpr,
 	SyntaxNode *pSavedContext)

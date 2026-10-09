@@ -33,7 +33,7 @@ int main() {
 
     Ints xs = [10, 20, 30];             // alias to int[] takes an init list
     Ints ys = [xs[1], xs[2]];           // ...and composes with element reads
-    io.print(ys[0] + xs.length());        // 20 + 3 = 23 (array length is
+    io.print(ys[0] + xs.length());    // 20 + 3 = 23 (array length is
                                         // a method-style member)
 
     // BinOp (alias to Func) combines with the delegates tour:
