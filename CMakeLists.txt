@@ -328,7 +328,7 @@ endif()
 # together in bin/, because nide invokes ncc/nvm from its own directory.
 # Build packages from the IDE tree (NLANG_BUILD_IDE=ON, which contains all
 # tools) with:  cpack -C Release -B <release_dir>
-install(TARGETS ncc nvm ndisasm ndb RUNTIME DESTINATION bin)
+install(TARGETS ncc nvm ndisasm ndb embed_host RUNTIME DESTINATION bin)
 
 # Standard library declarations, installed at the top level next to bin/ so
 # FindStdLibDir (which walks up from the executable's directory) resolves them

@@ -60,6 +60,7 @@ NCU_MINOR = int(_minor_m.group(1))
 
 BIN_FILES = [
     'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe', 'ndb.exe',
+    'embed_host.exe',
     'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll',
     # QtWebEngine runtime for the embedded help browser (the closure
     # defined beside find_package(Qt5) in the root CMakeLists).
@@ -256,6 +257,18 @@ def main():
             fail(f'ndb --version failed: rc={r.returncode}, '
                  f'stdout={r.stdout[:200]!r}')
         print('ndb: OK (packaged ndb reports its version)')
+
+        # --- embed_host usage smoke: host demo ships and reports usage ---
+        # embed_host with no argument prints its usage line and exits 2
+        # (the host demo's no-arg contract, examples/embed_host/main.cpp);
+        # a packaged binary that cannot even reach that path is broken.
+        embed_host = os.path.join(bin_dir, 'embed_host.exe')
+        r = subprocess.run([embed_host], capture_output=True,
+                           timeout=TIMEOUT_SEC, cwd=smoke_cwd)
+        if r.returncode != 2 or b'usage: embed_host' not in r.stderr:
+            fail(f'embed_host usage smoke failed: rc={r.returncode}, '
+                 f'stderr={r.stderr[:200]!r}')
+        print('embed_host: OK (packaged host demo reports its usage)')
 
         # --- Docs-site audit: same checker the build gates on -------------
         # Catches broken internal links / #fragments and page-vs-nav drift
