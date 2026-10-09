@@ -6,7 +6,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.9.0] - Unreleased
+## [0.8.2] - Unreleased
 
 ### 新增
 - **C++ 宿主嵌入 API**（`nlang::Interpreter`）：在进程内装载并运行
