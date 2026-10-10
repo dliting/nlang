@@ -24,6 +24,11 @@
         <translation>Terminal</translation>
     </message>
     <message>
+        <location filename="../ui/MainWindow.ui" line="208"/>
+        <source>运行错误</source>
+        <translation>Run Errors</translation>
+    </message>
+    <message>
         <location filename="../ui/MainWindow.ui" line="380"/>
         <source>编辑(&amp;E)</source>
         <translation>&amp;Edit</translation>

@@ -53,9 +53,11 @@ target_include_directories(nide_editor
 )
 
 # Compile-log browser library -- parses ncc output lines so a double
-# click can jump to the error site (path resolution via ProjectNode).
+# click can jump to the error site (path resolution via ProjectNode);
+# the run-error browser (v0.8.5) shares the parse-and-navigate shape.
 add_library(nide_compilelog
     CompileLogBrowser.cpp
+    RunErrorBrowser.cpp
 )
 
 target_link_libraries(nide_compilelog

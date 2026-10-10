@@ -7,6 +7,7 @@
 #include "BreakpointStore.h"
 #include "CodeEditor.h"
 #include "CompileLogBrowser.h"
+#include "RunErrorBrowser.h"
 #include "DebugClient.h"
 #include "FileEditor.h"
 #include "ProjectModel.h"
@@ -99,6 +100,8 @@ void MainWindow::wireSignals() {
             this, &MainWindow::showTabContextMenu);
     connect(m_ui->txtCompileOut, &CompileLogBrowser::lineSelected, this,
             &MainWindow::onCompileLogItemSelected);
+    connect(m_ui->txtRunErrors, &RunErrorBrowser::itemSelected, this,
+            &MainWindow::onRunErrorItemSelected);
 
     //Embedded terminal: pty output feeds the emulator (queued from the
     //reader thread), Finished drives the exit line + menu state, the

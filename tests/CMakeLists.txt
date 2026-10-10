@@ -994,6 +994,27 @@ if(NLANG_BUILD_IDE)
     set_tests_properties(compilelogbrowser_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
 
+    # Run-error browser unit tests (v0.8.5): same harness shape as the
+    # compile-log browser tests.
+    add_executable(test_runerrorbrowser
+        test_nide/test_runerrorbrowser.cpp
+    )
+    target_link_libraries(test_runerrorbrowser
+        PRIVATE
+            nide_compilelog
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_runerrorbrowser POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Gui>
+                $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_runerrorbrowser>)
+    endif()
+    nlang_add_qtest(runerrorbrowser_tests test_runerrorbrowser)
+    set_tests_properties(runerrorbrowser_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+
     # Dialog unit tests (Phase 10 Step 6). Widget tests driving modal
     # exec() loops via zero-timeout timers; same QApplication/QPA
     # harness as the editor tests.

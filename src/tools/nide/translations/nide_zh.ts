@@ -24,6 +24,11 @@
         <translation>终端</translation>
     </message>
     <message>
+        <location filename="../ui/MainWindow.ui" line="208"/>
+        <source>运行错误</source>
+        <translation>运行错误</translation>
+    </message>
+    <message>
         <location filename="../ui/MainWindow.ui" line="380"/>
         <source>编辑(&amp;E)</source>
         <translation>编辑(&amp;E)</translation>

@@ -34,6 +34,9 @@ namespace {
 //(milliseconds), only there so a pathological waiter can't wedge the
 //GUI thread forever.
 constexpr int kKillDrainTimeoutMs = 3000;
+//v0.8.5: rolling tail cap (BYTES) for the exit-time error scan — the
+//final Runtime error + backtrace always lives at the end of the output.
+constexpr int kRunTailMaxBytes = 64 * 1024;
 } // namespace
 
 //--- build / run ---
@@ -248,6 +251,11 @@ bool MainWindow::beginTerminalRun(const QString& program,
     //into the fresh session's screen.
     killPtySync();
     m_pTerminal->resetTerminal();
+    //v0.8.5: fresh run-error page state — no tail from the previous
+    //run, and the base dir anchors relative backtrace paths.
+    m_runOutputTail.clear();
+    m_runBaseDir = workingDirectory;
+    m_ui->txtRunErrors->setRunOutput(QString());
     //Character mode: keystrokes pass through to the child's console
     //(echo comes from the child's conhost, not from us).
     m_pTerminal->setMode(terminal::TerminalWidget::Mode::Character);
@@ -306,14 +314,35 @@ void MainWindow::killPtySync() {
 
 void MainWindow::onPtyOutput(const QByteArray& bytes) {
     m_pTerminal->feedBytes(bytes);
+    //Rolling TAIL BYTES for the exit-time scan. Never decode per chunk:
+    //a PTY chunk boundary can split a multi-byte UTF-8 sequence. Drop
+    //whole lines (by '\n' BYTE) from the front so a scan never sees a
+    //half line.
+    m_runOutputTail += bytes;
+    while (m_runOutputTail.size() > kRunTailMaxBytes) {
+        const int nl = m_runOutputTail.indexOf('\n');
+        if (nl < 0) {
+            m_runOutputTail.remove(0, m_runOutputTail.size()
+                - kRunTailMaxBytes);
+            break;
+        }
+        m_runOutputTail.remove(0, nl + 1);
+    }
 }
 
 void MainWindow::onPtyFinished(int exitCode, bool crashed) {
     m_ptyFinishPending = false;   //delivered: no drain is owed anymore
-    m_pTerminal->feedUtf8(
+    const QString exitLine =
         (crashed ? tr("The process crashed.")
                  : tr("Program exited with code %1.").arg(exitCode))
-        + QLatin1Char('\n'));
+        + QLatin1Char('\n');
+    m_pTerminal->feedUtf8(exitLine);
+    //v0.8.5: exit-time scan — fill the run-error list from the tail
+    //(empty list when the run printed no error shapes). The single
+    //fromUtf8 here decodes the whole tail at once, so a chunk-split
+    //multi-byte sequence still decodes correctly.
+    m_runOutputTail += exitLine.toUtf8();
+    m_ui->txtRunErrors->setRunOutput(QString::fromUtf8(m_runOutputTail));
     m_pTerminal->setMode(terminal::TerminalWidget::Mode::Idle);
     updateMenuState();  // Idle again: Stop off, Start per selection
 }
@@ -353,6 +382,23 @@ void MainWindow::onCompileLogItemSelected(const CompileLogItemInfo& info) {
         return;
     locateSource(info.filePath, static_cast<int>(info.line),
                  static_cast<int>(info.column));
+    m_ui->statusBar->showMessage(info.message);
+}
+
+//--- run-error navigation (v0.8.5) ---
+
+//Double-click in the run-error list — resolve the site against the run
+//working dir (project dir, or the standalone module's dir) and jump.
+//Rows without a site (message rows, `?` lines) only surface text.
+void MainWindow::onRunErrorItemSelected(const RunErrorItemInfo& info) {
+    if (info.line == 0 || info.filePath.isEmpty()) {
+        m_ui->statusBar->showMessage(info.message);
+        return;
+    }
+    QString path = info.filePath;
+    if (QFileInfo(path).isRelative())
+        path = QDir(m_runBaseDir).filePath(path);
+    locateSource(path, info.line, 1);
     m_ui->statusBar->showMessage(info.message);
 }
 

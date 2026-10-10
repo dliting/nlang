@@ -26,6 +26,7 @@ class QTreeWidgetItem;
 namespace nlang {
 
 struct CompileLogItemInfo;
+struct RunErrorItemInfo;
 class CodeEditor;
 class DebugClient;
 class FileNode;
@@ -183,6 +184,7 @@ private slots:
     void onSolutionSelectionChanged();
     void onFileRenameRequested(FileNode* file, const QString& newName);
     void onCompileLogItemSelected(const CompileLogItemInfo& info);
+    void onRunErrorItemSelected(const RunErrorItemInfo& info);
     void onBreakpointGutterClicked(int line);
 
     //--- debug session (DebugClient signals, connected per session) ---
@@ -463,6 +465,10 @@ private:
     std::unique_ptr<DebugClient> m_debugClient;
     bool m_debugStopRequested = false;  //stop was user-initiated
     QString m_debugBaseDir;  //anchors project-relative stopped files
+    //v0.8.5: run-error page backing — the run working dir resolves
+    //relative backtrace paths; the tail bytes feed the exit-time scan.
+    QString m_runBaseDir;
+    QByteArray m_runOutputTail;
     //Wire id per accepted breakpoint (the receipt's (file, line) -> id).
     std::map<std::pair<QString, int>, int> m_breakpointIds;
     //Toggles made while Running, replayed at the next frozen window.

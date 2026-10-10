@@ -203,6 +203,35 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
              </item>
             </layout>
            </widget>
+           <widget class="QWidget" name="tabRunErrors">
+            <attribute name="title">
+             <string>运行错误</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="verticalLayoutRunErrors">
+             <property name="spacing">
+              <number>0</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="RunErrorBrowser" name="txtRunErrors">
+               <property name="lineWrapMode">
+                <enum>QTextEdit::NoWrap</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
            <widget class="QWidget" name="tabDebug">
             <attribute name="title">
              <string>调试</string>
@@ -953,6 +982,11 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
    <class>CompileLogBrowser</class>
    <extends>QTextBrowser</extends>
    <header>CompileLogBrowser.h</header>
+  </customwidget>
+  <customwidget>
+   <class>RunErrorBrowser</class>
+   <extends>QTextBrowser</extends>
+   <header>RunErrorBrowser.h</header>
   </customwidget>
  </customwidgets>
  <resources/>
