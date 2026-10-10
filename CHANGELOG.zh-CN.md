@@ -6,7 +6,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.8.4] - Unreleased
+## [0.8.4] - 2026-10-10
 
 ### 新增
 - **下标复合赋值**：`arr[i] += v`、`li[i] += v`、`d[k] += v`（及
@@ -23,7 +23,7 @@
   `s.toString().length()`，协议 `equals`/`getHashCode`/`toString`
   结果、流读取方法结果）此前在 Release 版 `ncc` 中崩溃。
 
-## [0.8.3] - Unreleased
+## [0.8.3] - 2026-10-10
 
 ### 变更
 - **数组length改为方法**：`arr.length`（属性形态）现在是编译错误；
@@ -33,7 +33,7 @@
   拼写`Func<...>`是编译错误（`Func`释放为普通标识符）；`func`不能
   再用作标识符。`List`/`Dict`保持其PascalCase类名。
 
-## [0.8.2] - Unreleased
+## [0.8.2] - 2026-10-10
 
 ### 新增
 - **C++ 宿主嵌入 API**（`nlang::Interpreter`）：在进程内装载并运行

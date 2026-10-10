@@ -6,7 +6,7 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.8.4] - Unreleased
+## [0.8.4] - 2026-10-10
 
 ### Added
 
@@ -24,7 +24,7 @@ All notable changes to NLang are documented here. The format follows
   protocol `equals`/`getHashCode`/`toString` results, stream reader
   results) crashed `ncc` in Release builds.
 
-## [0.8.3] - Unreleased
+## [0.8.3] - 2026-10-10
 
 ### Changed
 - **Array length is now a method**: `arr.length` (property form) is a
@@ -37,7 +37,7 @@ All notable changes to NLang are documented here. The format follows
   cannot be used as an identifier. `List`/`Dict` keep their PascalCase
   class names.
 
-## [0.8.2] - Unreleased
+## [0.8.2] - 2026-10-10
 
 ### Added
 - **C++ host embedding API** (`nlang::Interpreter`): load and run compiled
