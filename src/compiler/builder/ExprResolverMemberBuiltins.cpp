@@ -247,8 +247,7 @@ bool ExprResolveAccessor::TryResolveTableStringMethod(SnMemberExpr &snMember,
 //Three shapes: a zero-argument call resolves; a call with arguments
 //and the old property spelling report dedicated errors (the member
 //resolves to the error verdict here, so the dedicated message is
-//always the first diagnostic; the statement type check may still add
-//a generic "Incompatible type" follow-up after it).
+//always the first diagnostic).
 bool ExprResolveAccessor::TryResolveArrayLengthMethod(
 	SnMemberExpr &snMember, SnExpression *pOuterExpr,
 	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)

@@ -85,7 +85,7 @@ bool VmBackend::EmitCastEnumToString(SnCastExpr& cast, NodeKind srcKind,
     return false;
 }
 
-//Cast arm: Func → string renders the handle via OP_Func_to_str.
+//Cast arm: func → string renders the handle via OP_Func_to_str.
 void VmBackend::EmitCastFuncToString(BytecodeEmitter& emitter,
                                      uint16_t resultOffset) {
     EmitPResultRefresh(emitter, resultOffset);
@@ -137,7 +137,7 @@ bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
                                  resultOffset))
             return true;
     }
-    //Phase 13: Func → string renders the handle ("func <name>")
+    //Phase 13: func → string renders the handle ("func <name>")
     //via OP_Func_to_str. MUST precede the class→string branch —
     //a handle's slot[0] is a function index, and the virtual
     //toString dispatch would read it as a class index.

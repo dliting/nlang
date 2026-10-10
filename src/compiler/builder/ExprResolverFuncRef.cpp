@@ -319,7 +319,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 //RETURN type leaking through ResolveFieldExprAs), so all bind sites use
 //the strict IsUnboundFuncRef below. This loose form survives only for
 //the end-of-build sweep (ModuleBuilder::SweepPendingFuncRefs): a ref a
-//Func-accepting consumer already handled via MakeFunc (e.g. io.print of
+//func-accepting consumer already handled via MakeFunc (e.g. io.print of
 //a func-returning function's bare name) must not be re-flagged there.
 bool IsPendingFuncRef(SyntaxNode &expr)
 {

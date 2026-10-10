@@ -160,7 +160,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 		return;
 
 	//Phase 13 Step 2: Dict keyed by a func type — DictKeysEqual is
-	//identity for Func records (no interning), so two references to the
+	//identity for func records (no interning), so two references to the
 	//same function would store as two entries. Reject at the single
 	//instantiation point; both declaration types and new-expression
 	//types flow through here.

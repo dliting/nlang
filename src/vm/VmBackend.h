@@ -268,7 +268,7 @@ private:
     bool EmitMemberArrayLengthMethod(SnMemberExpr& member,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset);
-    //Bound method reference in value position (c.foo) — Func handle.
+    //Bound method reference in value position (c.foo) — func handle.
     void EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
                                  BytecodeEmitter& emitter,
                                  uint16_t resultOffset);

@@ -444,7 +444,7 @@ void VmExecutor::CallDelegateBound(const CompiledFunction& callee,
 //    ABI; natives read straight from the caller's cells);
 //  - bound method: the captured receiver occupies callee slot 0 and the
 //    caller's args (staged WITHOUT this) shift right by one.
-//outMask bit i marks USER parameter i (Func-signature order); the
+//outMask bit i marks USER parameter i (func-signature order); the
 //write-back reads frame slot i+shift and stores to callParamBase+i,
 //reversing the bound-method shift.
 void VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,

@@ -154,7 +154,7 @@ void VmBackend::EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
     NodeKind numKind = BinNumericKindOf(
         evalType ? evalType->Kind() : NK_Int32);
     bool isString = numKind == NK_String;
-    //Phase 13: Func operands compare by handle content, not by heap
+    //Phase 13: func operands compare by handle content, not by heap
     //index (no interning) — keyed on the LEFT operand like the other
     //flags; mixed non-null operands are resolver-rejected.
     bool isFunc = evalType && evalType->Kind() == NK_ClassDecl
@@ -278,7 +278,7 @@ void VmBackend::EmitBinaryRelationalOp(SnBinaryExpr& bin, NodeKind numKind,
     EmitCmp(emitter, numKind, cmpOp, resultOffset, rightSlot);
 }
 
-//Equality arm bodies: Func handles compare by handle content
+//Equality arm bodies: func handles compare by handle content
 //(OP_*_func), strings by bytes, primitives by OP_Cmp Eq/Ne.
 void VmBackend::EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
                                      bool isString, bool isFunc,

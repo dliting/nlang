@@ -1,7 +1,7 @@
 //Phase 13 Step 2: cross-module negative — main.n must reject passing a
-//function reference as an argument to an imported function. Func
+//function reference as an argument to an imported function. func
 //signatures stay outside the .ncu type-descriptor grammar (it carries
-//data types only), so the stub cannot represent the Func formal.
+//data types only), so the stub cannot represent the func formal.
 int apply(func<int, int> f) {
     return f(1);
 }

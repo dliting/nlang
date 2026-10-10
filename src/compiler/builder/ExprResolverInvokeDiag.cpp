@@ -27,7 +27,7 @@ void ExprResolveAccessor::LogAmbiguousCall(SnInvokeExpr &invoke)
 }
 
 //Phase 13 (Step 2, cross-module): an imported stub synthesizes its
-//parameter types from the return kind, so a Func argument can never
+//parameter types from the return kind, so a func argument can never
 //match — name the real reason before any generic message. True = the
 //named diagnostic fired (caller skips the generic text).
 bool ExprResolveAccessor::MaybeLogImportedFuncRef(SnInvokeExpr &invoke,

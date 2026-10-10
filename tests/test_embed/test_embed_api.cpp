@@ -186,11 +186,11 @@ static void TestCallRejections() {
     CHECK_THROWS(BadValue,
         (void)itp.call("values_demo.applyFunc",
             {pair, Value(int32_t(21))}),
-        "struct value into a Func formal → BadValue (reference kind mismatch)");
+        "struct value into a func formal → BadValue (reference kind mismatch)");
     CHECK_THROWS(BadValue,
         (void)itp.call("values_demo.applyFunc",
             {itp.newList(), Value(int32_t(21))}),
-        "list builder into a Func formal → BadValue (non-container formal)");
+        "list builder into a func formal → BadValue (non-container formal)");
     PASS();
 }
 
@@ -281,7 +281,7 @@ static void TestHostFunctionFuncParamKind() {
     Interpreter itp;
     itp.registerHostFunction("hostfns", "takeFunc",
         [](const std::vector<Value>& args) -> Value {
-            //The Func argument must arrive as Kind::Func (reference arm),
+            //The func argument must arrive as Kind::Func (reference arm),
             //not Kind::Int (scalar arm from the int32 placeholder when the
             //v1.12 descriptor degrades the func signature).
             return Value(int32_t(
@@ -289,7 +289,7 @@ static void TestHostFunctionFuncParamKind() {
         });
     itp.load(EMBED_HOSTFNS_NCU);
     Value r = itp.call("hostfns.useTakeFunc", {});
-    CHECK(r.asInt() == 1, "Func arg to native arrives as Kind::Func");
+    CHECK(r.asInt() == 1, "func arg to native arrives as Kind::Func");
     PASS();
 }
 

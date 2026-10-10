@@ -229,7 +229,7 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 					td.elems.push_back(BuildTypeDesc(args[1], slots, depth + 1));
 					return td;
 				}
-				//Any other instantiation is unexpected (Func took the
+				//Any other instantiation is unexpected (func took the
 				//exit above) — fall through to the plain-class path.
 			}
 			td.kind = RTK_Class;

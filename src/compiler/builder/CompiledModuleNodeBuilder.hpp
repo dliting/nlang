@@ -322,7 +322,7 @@ private:
 	{
 		//Return type. RTK_Void → no return type (SnFunction::HasReturn() == false).
 		//v1.12: the serialized descriptor supplies the true type; the
-		//NonSerialized sentinel (Func/interface returns) degrades to the
+		//NonSerialized sentinel (func/interface returns) degrades to the
 		//int32 placeholder.
 		SnFieldExpr *pRetType = nullptr;
 		if (cf.returnTypeKind != RTK_Void)

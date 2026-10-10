@@ -760,6 +760,34 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(array_property_tests test_array_property)
 
+    # Statement-level diagnostic behavior unit tests (0.8.3 func batch):
+    # pin that local-decl initializer errors are reported ONCE — the
+    # decomposition inserts an AssignStmt mid-walk and the paragraph
+    # walk revisits it, so every error exit of Access(SnAssignStmt) must
+    # flag NF_Resolved. Each case asserts the diagnostic COUNT (the e2e
+    # manifest only does substring-existence, which cannot catch a
+    # double-report regression).
+    add_executable(test_statement_diag
+        test_compiler/test_statement_diag.cpp
+    )
+    #nlang_vm is required at link time (nlang_compiler references the VM
+    #backend/module-loader symbols in the build path) — same shape as
+    #test_array_property.
+    target_link_libraries(test_statement_diag
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_statement_diag POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_statement_diag>)
+    endif()
+    nlang_add_qtest(statement_diag_tests test_statement_diag)
+
     add_executable(test_projectmodel
         test_nide/test_projectmodel.cpp
     )

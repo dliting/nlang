@@ -76,7 +76,7 @@ inline int32_t RefHandleForFormal(VmExecutor& executor, const Value& v,
     if (detail::RefFactory::IsBuilder(v)) {
         //Builder 只物化进容器形参（RTK_List/RTK_Dict，元素校验在
         //Materialize 内）与宽 RTK_Class。Materialize 把 NonSerialized
-        //描述符视作无约束，而 Func/Struct/Array 形参的 kind 恰恰来自
+        //描述符视作无约束，而 func/struct/array 形参的 kind 恰恰来自
         //帧布局回退、只在此处可见——必须在编组边界拒收。
         if (declaredKind != RTK_List && declaredKind != RTK_Dict
                 && declaredKind != RTK_Class)
