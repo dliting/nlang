@@ -974,6 +974,11 @@
         <translation>Program exited with code %1.</translation>
     </message>
     <message>
+        <location filename="../MainWindowBuildRun.cpp" line="415"/>
+        <source>File not available: %1</source>
+        <translation>File not available: %1</translation>
+    </message>
+    <message>
         <location filename="../MainWindowHelp.cpp" line="80"/>
         <source>About NLang IDE</source>
         <translation>About NLang IDE</translation>

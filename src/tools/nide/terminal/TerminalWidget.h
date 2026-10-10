@@ -15,6 +15,7 @@ preedit/commit is handled per mode.
 
 #include "LineEditor.h"
 #include "TerminalEmulator.h"
+#include "TerminalLink.h"
 
 class QContextMenuEvent;
 class QInputMethodEvent;
@@ -116,6 +117,15 @@ public:
     //tests can inspect actions and enablement without the modal exec.
     QMenu* buildContextMenu();
 
+    //v0.8.5: the source link at (displayRow, column) with its grid
+    //column span (inclusive; null out-params allowed). Invalid link
+    //when none. Public for tests.
+    SourceLink linkAtCell(int displayRow, int column,
+                          int* firstColumn = nullptr,
+                          int* lastColumn = nullptr) const;
+    //v0.8.5: a Ctrl+hover link is active (underline pass hint).
+    bool hasHoverLink() const { return m_hoverRow >= 0; }
+
 public slots:
     void copySelection();
     void pasteClipboard();
@@ -129,6 +139,9 @@ signals:
     void fontSizeZoomRequested(int direction);
     //Line mode: Enter on a non-empty pending line.
     void lineCommitted(const QString& line);
+    //v0.8.5: Ctrl+click landed on a source link (file:line) — the
+    //owner resolves the path and opens the site.
+    void sourceLinkActivated(const QString& filePath, int line);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -142,6 +155,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private slots:
     void blinkCursor();
@@ -180,6 +194,8 @@ private:
     //pixels (span widens the rect only; the origin stride stays one
     //cell). All paint geometry must go through it.
     QRect cellRunRect(int column, int row, int spanCells = 1) const;
+    //Defined in TerminalWidgetMouse.cpp.
+    void emitHoverUnderline(int displayRow, int firstColumn, int lastColumn);
     //The cursor's block at (column, row), widened to the cell's span
     //(empty outside the grid). Shared by the paint pass, the blink
     //repaint and the previous-position damage rect.
@@ -205,6 +221,10 @@ private:
     int m_selectionAnchorColumn = -1;
     int m_selectionExtentRow = -1;
     int m_selectionExtentColumn = -1;
+    //v0.8.5: Ctrl+hover link (display row + inclusive grid span).
+    int m_hoverRow = -1;
+    int m_hoverFirstColumn = -1;
+    int m_hoverLastColumn = -1;
 };
 
 } // namespace terminal

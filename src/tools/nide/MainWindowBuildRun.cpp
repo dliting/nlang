@@ -402,6 +402,22 @@ void MainWindow::onRunErrorItemSelected(const RunErrorItemInfo& info) {
     m_ui->statusBar->showMessage(info.message);
 }
 
+//v0.8.5: Ctrl+click on a terminal source link. Absolute paths locate
+//directly (backtrace files are compiled-in); a missing file (another
+//machine's build path) surfaces on the status bar instead of silently
+//doing nothing.
+void MainWindow::onTerminalSourceLink(const QString& filePath, int line) {
+    QString path = filePath;
+    if (QFileInfo(path).isRelative())
+        path = QDir(m_runBaseDir).filePath(path);
+    if (!QFileInfo::exists(path)) {
+        m_ui->statusBar->showMessage(
+            tr("File not available: %1").arg(path));
+        return;
+    }
+    locateSource(path, line, 1);
+}
+
 void MainWindow::locateSource(const QString& filePath, int line,
                               int column) {
     editExistingFile(filePath);

@@ -133,6 +133,13 @@ void TerminalWidget::drawCell(QPainter& painter, int displayRow,
         const int y = cellRect.bottom() - 2;
         painter.drawLine(cellRect.left(), y, cellRect.right(), y);
     }
+    //v0.8.5: Ctrl+hover underline for the source-link span.
+    if (displayRow == m_hoverRow
+        && column >= m_hoverFirstColumn && column <= m_hoverLastColumn) {
+        const int y = cellRect.bottom() - 2;
+        painter.setPen(ToColor(foreground));
+        painter.drawLine(cellRect.left(), y, cellRect.right(), y);
+    }
 }
 
 void TerminalWidget::drawCursorBlock(QPainter& painter) {

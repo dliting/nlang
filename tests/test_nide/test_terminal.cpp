@@ -6,6 +6,7 @@
 
 #include "terminal/TerminalEmulator.h"
 #include "terminal/TerminalWidget.h"
+#include "terminal/TerminalLink.h"
 #include "terminal/LineEditor.h"
 #include "terminal/PtyProcess.h"
 
@@ -66,6 +67,11 @@ private slots:
     void TestLineModePromptPainted();
     void TestLineModePromptEcho();
     void TestLightThemeBackgroundAndText();
+
+    //--- source links (v0.8.5) ---
+    void TestSourceLinkParsing();
+    void TestLinkAtCellSpan();
+    void TestCtrlClickEmitsSourceLink();
 
     //--- input modes / IME ---
     void TestLineEditorScalars();
@@ -565,6 +571,81 @@ void TestTerminal::TestLightThemeBackgroundAndText() {
     QCOMPARE((corner & 0x00FFFFFFu), 0x00FFFFFFu);
     QVERIFY2(DarkInkAroundCentre(shot, widget, 0, 0) > 3,
              "foreground text must be dark ink on the light background");
+}
+
+//--- source links (v0.8.5) ---------------------------------------------------
+
+//v0.8.5: source links — pure parsing shapes.
+void TestTerminal::TestSourceLinkParsing() {
+    const auto links = FindSourceLinks(
+        QStringLiteral("  at main (E:/x/a.n:3)"));
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.at(0).filePath, QStringLiteral("E:/x/a.n"));
+    QCOMPARE(links.at(0).line, 3);
+
+    const auto qmark = FindSourceLinks(
+        QStringLiteral("  at f (lib.n:?)"));
+    QCOMPARE(qmark.size(), 1);
+    QCOMPARE(qmark.at(0).line, 0);
+
+    QCOMPARE(FindSourceLinks(
+        QStringLiteral("hello world")).size(), 0);
+    QCOMPARE(FindSourceLinks(
+        QStringLiteral("Program exited with code 42.")).size(), 0);
+}
+
+//v0.8.5: linkAtCell maps the hit column onto the parsed span.
+void TestTerminal::TestLinkAtCellSpan() {
+    TerminalWidget widget;
+    widget.resize(400, 200);
+    widget.show();
+    widget.feedUtf8(QStringLiteral("  at main (E:/x/a.n:3)\r\n"));
+    int first = -1, last = -1;
+    //Row 0, a column inside the path token: the widget's own columnAt
+    //is private — probe cells until a link comes back, then assert the
+    //span is contiguous and narrow.
+    int hitColumn = -1;
+    for (int col = 0; col < widget.columns(); ++col) {
+        const auto link = widget.linkAtCell(0, col, &first, &last);
+        if (link.isValid()) { hitColumn = col; break; }
+    }
+    QVERIFY(hitColumn >= 0);
+    QVERIFY(first >= 0 && last > first);
+    //A column beyond the span misses.
+    const auto miss = widget.linkAtCell(0, widget.columns() - 1,
+                                        &first, &last);
+    QVERIFY(!miss.isValid());
+}
+
+//v0.8.5: Ctrl+click emits the link; plain click still selects.
+void TestTerminal::TestCtrlClickEmitsSourceLink() {
+    TerminalWidget widget;
+    widget.resize(400, 200);
+    widget.show();
+    widget.feedUtf8(QStringLiteral("  at main (E:/x/a.n:3)\r\n"));
+    QSignalSpy spy(&widget, &TerminalWidget::sourceLinkActivated);
+    //Click a column inside the token: locate it the same way the span
+    //test does (probe from column 0 outward), then click that column.
+    int hitColumn = -1;
+    for (int col = 0; col < widget.columns(); ++col) {
+        if (widget.linkAtCell(0, col).isValid()) { hitColumn = col; break; }
+    }
+    QVERIFY(hitColumn >= 0);
+    QTest::mousePress(&widget, Qt::LeftButton, Qt::ControlModifier,
+                      widget.cellCenter(hitColumn, 0));
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("E:/x/a.n"));
+    QCOMPARE(spy.at(0).at(1).toInt(), 3);
+    //Plain press+release (no Ctrl) selects instead: no emission.
+    //hasSelection() requires anchor != extent — a bare press on one
+    //cell leaves extent==anchor and reads false, so the release must
+    //land on a DIFFERENT cell.
+    QTest::mousePress(&widget, Qt::LeftButton, Qt::NoModifier,
+                      widget.cellCenter(hitColumn, 0));
+    QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier,
+                        widget.cellCenter(hitColumn + 4, 0));
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(widget.hasSelection());
 }
 
 //--- input modes / IME -------------------------------------------------------

@@ -185,6 +185,7 @@ private slots:
     void onFileRenameRequested(FileNode* file, const QString& newName);
     void onCompileLogItemSelected(const CompileLogItemInfo& info);
     void onRunErrorItemSelected(const RunErrorItemInfo& info);
+    void onTerminalSourceLink(const QString& filePath, int line);
     void onBreakpointGutterClicked(int line);
 
     //--- debug session (DebugClient signals, connected per session) ---

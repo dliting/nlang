@@ -118,6 +118,9 @@ void MainWindow::wireSignals() {
     connect(m_pTerminal,
             &terminal::TerminalWidget::fontSizeZoomRequested, this,
             &MainWindow::onTerminalFontZoom);
+    connect(m_pTerminal,
+            &terminal::TerminalWidget::sourceLinkActivated, this,
+            &MainWindow::onTerminalSourceLink);
 }
 
 void MainWindow::applyToolbarIconSize(const QString& size) {

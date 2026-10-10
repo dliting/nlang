@@ -363,45 +363,9 @@ bool TerminalWidget::isSelected(int displayRow, int column) const {
         && column >= firstColumn && column <= lastColumn;
 }
 
-void TerminalWidget::mousePressEvent(QMouseEvent* event) {
-    if (event->button() != Qt::LeftButton) {
-        QWidget::mousePressEvent(event);
-        return;
-    }
-    m_selecting = true;
-    m_selectionAnchorRow = rowAt(event->pos().y());
-    m_selectionAnchorColumn = columnAt(event->pos().x());
-    m_selectionExtentRow = m_selectionAnchorRow;
-    m_selectionExtentColumn = m_selectionAnchorColumn;
-    update();
-    event->accept();
-}
-
-void TerminalWidget::mouseMoveEvent(QMouseEvent* event) {
-    if (!m_selecting) {
-        QWidget::mouseMoveEvent(event);
-        return;
-    }
-    m_selectionExtentRow = rowAt(event->pos().y());
-    m_selectionExtentColumn = columnAt(event->pos().x());
-    update();
-    event->accept();
-}
-
-void TerminalWidget::mouseReleaseEvent(QMouseEvent* event) {
-    if (event->button() != Qt::LeftButton || !m_selecting) {
-        QWidget::mouseReleaseEvent(event);
-        return;
-    }
-    m_selectionExtentRow = rowAt(event->pos().y());
-    m_selectionExtentColumn = columnAt(event->pos().x());
-    m_selecting = false;
-    if (m_selectionAnchorRow == m_selectionExtentRow
-        && m_selectionAnchorColumn == m_selectionExtentColumn)
-        clearSelection();   //a click, not a selection
-    update();
-    event->accept();
-}
+//Mouse interaction (selection, Ctrl+click source links, hover
+//underline) lives in TerminalWidgetMouse.cpp — split for the
+//source-size guard.
 
 void TerminalWidget::wheelEvent(QWheelEvent* event) {
     if (event->modifiers() & Qt::ControlModifier) {
