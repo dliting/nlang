@@ -102,11 +102,11 @@ static void TestCallByNameSurfacesNLangThrow() {
         e.CallByName("values_demo.boom", nullptr, 0, result);
     } catch (const NLangThrow& t) {
         threw = true;
-        //Ground truth: a user `throw` raises NLangThrow with the literal
-        //"user throw" (VmExecutorOpsObjects.cpp OpThrow) — the script
-        //message lives on the heap object (Exception: cell[1]=message
-        //handle). The adapter layer (Task 5) reads it via the field
-        //bridge, exactly like this assertion does.
+        //Ground truth: a user `throw` raises NLangThrow carrying the heap
+        //idx; the message lives on the heap object (Exception:
+        //cell[1]=message handle) — since v0.8.5 what() also reads it via
+        //ThrownMessageOf. The adapter layer (Task 5) reads it via the
+        //field bridge, exactly like this assertion does.
         CHECK(t.heapIdx > 0, "NLangThrow carries the exception heap idx");
         uint16_t msgField = 0;
         CHECK(e.HostFieldNameToIndex(t.heapIdx, "message", msgField),

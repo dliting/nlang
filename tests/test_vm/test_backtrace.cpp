@@ -58,7 +58,80 @@ static void TestBacktraceCarriesRealSourceFile() {
     PASS();
 }
 
+//未捕获用户 throw 的顶层消息＝异常自身 message（旧实现恒 "user throw"）。
+static void TestThrowMessagePassthrough() {
+    TEST(TestThrowMessagePassthrough);
+    {
+        BuildOutcome bo = buildSource("bt_throw_msg",
+            "int main() {\n"
+            "    throw new Exception(\"boom\");\n"
+            "}\n");
+        REQUIRE(bo.ok);
+        CompiledModule mod = loadBuilt("bt_throw_msg");
+        VmExecutor exec;
+        std::string what;
+        try {
+            exec.Execute(mod);
+        } catch (const std::exception& e) {
+            what = e.what();
+        }
+        CHECK(what == "boom", "top-level message is the exception's own");
+    }
+    PASS();
+}
+
+//空消息兜底＝异常类叶名（类名恒可得），不再输出字面 "user throw"。
+static void TestThrowEmptyMessageFallsBackToClassName() {
+    TEST(TestThrowEmptyMessageFallsBackToClassName);
+    {
+        BuildOutcome bo = buildSource("bt_throw_empty",
+            "int main() {\n"
+            "    throw new Exception(\"\");\n"
+            "}\n");
+        REQUIRE(bo.ok);
+        CompiledModule mod = loadBuilt("bt_throw_empty");
+        VmExecutor exec;
+        std::string what;
+        try {
+            exec.Execute(mod);
+        } catch (const std::exception& e) {
+            what = e.what();
+        }
+        CHECK(what == "Exception", "empty message falls back to the leaf class name");
+    }
+    PASS();
+}
+
+//catch 后裸 rethrow 保留原消息。
+static void TestRethrowKeepsMessage() {
+    TEST(TestRethrowKeepsMessage);
+    {
+        BuildOutcome bo = buildSource("bt_rethrow_msg",
+            "int main() {\n"
+            "    try {\n"
+            "        throw new Exception(\"rethrown\");\n"
+            "    } catch (Exception e) {\n"
+            "        throw;\n"
+            "    }\n"
+            "}\n");
+        REQUIRE(bo.ok);
+        CompiledModule mod = loadBuilt("bt_rethrow_msg");
+        VmExecutor exec;
+        std::string what;
+        try {
+            exec.Execute(mod);
+        } catch (const std::exception& e) {
+            what = e.what();
+        }
+        CHECK(what == "rethrown", "rethrow keeps the original message");
+    }
+    PASS();
+}
+
 void run_backtrace_tests() {
     TestFormatBacktraceFrameShapes();
     TestBacktraceCarriesRealSourceFile();
+    TestThrowMessagePassthrough();
+    TestThrowEmptyMessageFallsBackToClassName();
+    TestRethrowKeepsMessage();
 }

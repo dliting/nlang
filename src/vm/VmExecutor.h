@@ -776,6 +776,14 @@ private:
     //supplies the human-readable message (used for what() / debugging).
     [[noreturn]] void RaiseNlangException(int16_t classIdx, const std::string& msg);
 
+    //v0.8.5: the message an NLangThrow carries for a thrown exception
+    //object. cell[1] holds the message string handle (the ctor intrinsic
+    //and RaiseNlangException share the layout); an empty message falls
+    //back to the class leaf name (a bare `throw new Exception()`-shaped
+    //object still names itself). Anything unreadable (non-class object,
+    //stale handle) keeps the caller's legacy text.
+    std::string ThrownMessageOf(int32_t heapIdx, const char* fallback) const;
+
     //Phase 11: argument/range/parse errors of stdlib intrinsics raise the
     //BASE Exception (no dedicated argument-exception subclass exists).
     //Defined in IntrinsicsString.cpp; users are that family TU and the

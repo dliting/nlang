@@ -297,6 +297,32 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
     //Result: same heap idx, unchanged.
 }
 
+//v0.8.5: see the header. Reads the exception object's own message so
+//the top-level report names the actual failure (the old fixed texts
+//"user throw"/"rethrow" hid it).
+std::string VmExecutor::ThrownMessageOf(int32_t heapIdx,
+                                        const char* fallback) const {
+    if (heapIdx <= 0
+        || static_cast<size_t>(heapIdx) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
+        return fallback;
+    const StructSlot& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    const int32_t msgHandle = slot.size() > 1 ? slot[1] : 0;
+    std::string msg;
+    if (IsLiveStringHandle(msgHandle))
+        FlattenInto(msg, msgHandle);
+    if (!msg.empty())
+        return msg;
+    //Empty message: name the exception class (leaf spelling — the
+    //user-facing rendering rule shared with toString/checkcast).
+    const int32_t classIdx = slot[0];
+    if (m_currModule != nullptr && classIdx >= 0
+        && static_cast<size_t>(classIdx) < m_currModule->classes.size())
+        return LeafNameOfKey(
+            m_currModule->classes[static_cast<size_t>(classIdx)].name);
+    return fallback;
+}
+
 void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
     //Phase 9d: user `throw <expr>;` — read heap idx from src slot,
     //raise NLangThrow carrying the heap idx. Catch block above will
@@ -308,7 +334,7 @@ void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
     //starts (user throws do not pass through
     //RaiseNlangException — same checkpoint, shared helper).
     FireOnThrow();
-    throw NLangThrow(heapIdx, "user throw");
+    throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, "user throw"));
 }
 
 void VmExecutor::OpRethrow() {
@@ -323,7 +349,7 @@ void VmExecutor::OpRethrow() {
     //Debugger checkpoint at the rethrow site (same contract as
     //OP_Throw / RaiseNlangException).
     FireOnThrow();
-    throw NLangThrow(h, "rethrow");
+    throw NLangThrow(h, ThrownMessageOf(h, "rethrow"));
 }
 
 void VmExecutor::OpPopHandler() {

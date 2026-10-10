@@ -374,9 +374,10 @@ void TestDebugClient::uncaughtThrowEndsWithTheErrorEvent() {
     QCOMPARE(hello.count(), 1);
     QCOMPARE(errorSpy.count(), 1);
     //The report survives the wire with its embedded newlines decoded:
-    //"user throw\n  at main (throw.n:2)".
+    //"boom\n  at main (<abs path>throw.n:2)" — the thrown exception's
+    //own message (v0.8.5; the old fixed text "user throw" is gone).
     const QString report = errorSpy.first().at(0).toString();
-    QVERIFY(report.contains(QLatin1String("user throw")));
+    QVERIFY(report.contains(QLatin1String("boom")));
     QVERIFY(report.contains(QLatin1Char('\n')));
     QCOMPARE(exited.count(), 0);
 }
