@@ -317,9 +317,10 @@ LineComment	\/\/[^\n]*
             /* single-char angle brackets with generic-depth tracking */
 "<"         {
                 /* '<' opens a type-argument list only when it directly
-                 * follows a built-in generic name (List/Dict), flagged
-                 * by the identifier rule below. Any other '<' is a
-                 * comparison and leaves the depth alone. */
+                 * follows a built-in generic name (List/Dict via the
+                 * identifier rule below; func via its keyword rule).
+                 * Any other '<' is a comparison and leaves the depth
+                 * alone. */
                 if (scanner.TakePendingGenericOpen())
                     scanner.IncGenericDepth();
                 return '<';

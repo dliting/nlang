@@ -56,7 +56,7 @@ static constexpr size_t kMaxParamDescCount = 256;
 //  every scalar kind (RTK_Int32/RTK_Float plus RTK_Byte..RTK_Char) /
 //  RTK_String / RTK_Boxed / RTK_Func / RTK_NonSerialized : kind byte only
 //RTK_NonSerialized is the "type present but not expressible" sentinel
-//(interface types, Func<...> signatures, defensive lookup misses) —
+//(interface types, func<...> signatures, defensive lookup misses) —
 //consumers degrade to the int32 placeholder for those, matching the
 //pre-v1.12 stub behavior.
 struct TypeDesc
@@ -112,7 +112,7 @@ struct TypeLeafSlots
 
 //Build the descriptor for one resolved type (a declaration field or an
 //interned array token; never a raw syntactic expression). Kinds without
-//a table slot (interfaces, Func signatures, containers nested at
+//a table slot (interfaces, func signatures, containers nested at
 //kMaxTypeDescDepth) degrade to RTK_NonSerialized; struct/class leaves
 //resolve through slots. Defined in TypeDesc.cpp — vm-internal, may
 //include compiler headers.

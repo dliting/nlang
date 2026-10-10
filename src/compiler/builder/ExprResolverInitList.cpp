@@ -118,7 +118,7 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
 
 //Phase 13: the element type init-list entries bind against — the array
 //element type, or the value slot of a generic container
-//(`List<Func<int,int>> l = [bar];`). 0.7.5: restricted to the built-in
+//(`List<func<int,int>> l = [bar];`). 0.7.5: restricted to the built-in
 //List/Dict instantiations and returned as T for List / V for Dict
 //(entries are key:value; keys are literal strings, values are V — the
 //old elemArgs[0] made Dict values bind against K). Null = the target

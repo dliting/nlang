@@ -54,7 +54,7 @@ bool ExprResolveAccessor::MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
 }
 
 //Phase 13: a still-pending function reference among the arguments had
-//no matching Func-typed formal — sweep it with the named diagnostic
+//no matching func-typed formal — sweep it with the named diagnostic
 //(the generic incompatibility text would not say why). True = the named
 //diagnostic fired.
 bool ExprResolveAccessor::MaybeLogPendingFuncRef(SnInvokeExpr &invoke)

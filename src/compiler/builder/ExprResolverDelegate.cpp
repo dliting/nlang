@@ -50,7 +50,7 @@ bool ExprResolveAccessor::AdmitsDelegateArgType(SnField *pArgType,
 }
 
 //Per-argument gate of BindDelegateInvoke: out-marker agreement with the
-//Func slot, pending function-reference rebinding against the slot type,
+//func slot, pending function-reference rebinding against the slot type,
 //and the conversion-free admission for value arguments. False = the
 //argument failed (its diagnostic is logged); the caller accumulates the
 //verdict and keeps scanning, so every bad argument is reported.
@@ -68,7 +68,7 @@ bool ExprResolveAccessor::CheckDelegateArgument(SnExpression &arg,
 			i + 1, bWantOut ? "requires" : "does not accept");
 		bOK = false;
 	}
-	//Pending bare function references bind against the Func's own
+	//Pending bare function references bind against the func's own
 	//parameter slot type; Step 2 adds the receiver-bound member form.
 	if (IsUnboundFuncRef(*pValue))
 	{
@@ -100,7 +100,7 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 		pDelegateField->EvalDataType());
 	const auto typeArgs = GetGenericTypeArgs(pFuncDecl);
 	const auto &outFlags = GetGenericOutFlags(pFuncDecl);
-	//The Func signature has no parameter names — by-name dispatch is
+	//The func signature has no parameter names — by-name dispatch is
 	//impossible.
 	if (HasNamedArgument(invoke))
 	{
@@ -130,7 +130,7 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	//Field() carries the delegate value — codegen detects the delegate
 	//shape structurally (a resolved invoke whose Field() is not an
 	//SnFunction), so no dedicated flag exists. EvalDataType follows the
-	//Func's return slot — nullptr for void, the established void-invoke
+	//func's return slot — nullptr for void, the established void-invoke
 	//convention. Set directly (like the generic-method path) rather than
 	//through ResolveFieldExprAs, whose PostResolveCheck expects a type
 	//field here.

@@ -85,6 +85,7 @@ private:
 	void RejectMethodCallStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
 	bool FinishInitListAssign(SnAssignStmt &sn);
+	void FinishAssignTypeCheck(SnAssignStmt &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnSubscriptAssignStmt &sn);

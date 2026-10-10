@@ -1,4 +1,4 @@
-//Phase 13 Step 2: Dict keyed by a Func type is rejected — DictKeysEqual
+//Phase 13 Step 2: Dict keyed by a func type is rejected — DictKeysEqual
 //is identity for non-boxed/class/struct keys, so two references to the
 //same function would store as two entries.
 int dbl(int x) { return x * 2; }

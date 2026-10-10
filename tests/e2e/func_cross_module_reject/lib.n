@@ -1,5 +1,5 @@
 //Phase 13 Step 2: cross-module negative — main.n references dbl by its
 //bare name, which the module-visibility rule rejects: imported members
 //must be qualified. (The separate Func-signature limitation — stubs
-//cannot carry Func types — is pinned by func_cross_module_arg_reject.)
+//cannot carry func types — is pinned by func_cross_module_arg_reject.)
 int dbl(int x) { return x * 2; }

@@ -316,7 +316,7 @@ void ModuleBuilder::ResolveStatements()
 
 //Phase 13: sweep function references still pending after statement
 //resolution. A pending reference resolved to a function declaration but
-//never met a consumer supplying an expected Func type (e.g. an argument
+//never met a consumer supplying an expected func type (e.g. an argument
 //position of a call that failed to bind). Left alone it would reach
 //codegen as a bare identifier with no codegen binding.
 void ModuleBuilder::SweepPendingFuncRefs()

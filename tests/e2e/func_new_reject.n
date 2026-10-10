@@ -1,4 +1,4 @@
-//Phase 13 Step 1: Func types have no by-name constructor — bind a
+//Phase 13 Step 1: func types have no by-name constructor — bind a
 //function or method reference instead.
 int main() {
     func<int, int> f = new func<int, int>();

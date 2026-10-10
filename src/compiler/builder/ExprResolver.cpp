@@ -99,7 +99,7 @@ const char* StdLibKindName(uint8_t rtk)
 	}
 }
 
-//Phase 13: true when the field is a synthetic Func<...> instantiation.
+//Phase 13: true when the field is a synthetic func<...> instantiation.
 bool IsFuncTypeDecl(SnField *pType)
 {
 	return pType && pType->Kind() == NK_ClassDecl
@@ -126,7 +126,7 @@ bool IsPlainLvalueShape(const SnExpression& expr) {
 //token from ResolveFieldExprAs already: identifiers and plain members
 //bind the declaration's token, user-method invokes bind the return
 //type's token, and container element flows (List<T[]>.get, li[0],
-//Func<R[],...> invokes) read the instantiation's type-args slots —
+//func<R[],...> invokes) read the instantiation's type-args slots —
 //which carry tokens natively because generic type arguments resolve
 //through the same Access(SnArrayTypeExpr&) intern channel. Minting
 //over any of those would wrap a token in a token (the double-wrap bug

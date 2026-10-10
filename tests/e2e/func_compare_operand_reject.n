@@ -1,5 +1,5 @@
 //Phase 13 Step 2: mixed comparison — a function value against an int
-//literal is rejected; only Func==Func and Func==null are defined.
+//literal is rejected; only func==func and func==null are defined.
 int dbl(int x) { return x * 2; }
 
 int main() {

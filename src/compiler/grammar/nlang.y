@@ -1304,8 +1304,8 @@ Type:	NameExpr		{ $$ = $1; } |
 						$$ = new SnGenericTypeExpr($1, $5, @1);
 					} |
 				//0.8.3: func is a keyword; its generic spellings mirror
-//the NameExpr ones above but start from KT_Func and mint
-//the base-name node from kBuiltinFuncTypeName.
+				//the NameExpr ones above but start from KT_Func and mint
+				//the base-name node from kBuiltinFuncTypeName.
 				KT_Func '<' TypeList '>'	{
 						$$ = MakeFuncType($3, @1);
 					} |
@@ -1390,8 +1390,8 @@ HeadType:	IdentifierExpr {
 				delete $1;
 			} |
 			//0.8.3: func is a keyword; its generic spellings mirror
-//the IdentifierExpr ones above but start from KT_Func and
-//mint the base-name node from the literal "func".
+			//the IdentifierExpr ones above but start from KT_Func and
+			//mint the base-name node from kBuiltinFuncTypeName.
 			KT_Func '<' TypeList '>' {
 				$$ = MakeFuncType($3, @1);
 			} |
@@ -1522,9 +1522,9 @@ NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
 					$$ = new SnNewExpr(new SnGenericTypeExpr(pName, $4, @2), $7, @1);
 				} |
 				//0.8.3: `new func<...>()` keeps its dedicated resolver reject
-//(func types have no by-name constructor; bind a reference).
-//Without this arm the keyword spelling would die as a bare
-//syntax error before the resolver could explain.
+				//(func types have no by-name constructor; bind a reference).
+				//Without this arm the keyword spelling would die as a bare
+				//syntax error before the resolver could explain.
 				KT_New KT_Func '<' TypeList '>' '(' ConcreteParamList ')' {
 					$$ = new SnNewExpr(MakeFuncType($4, @2), $7, @1);
 				} |

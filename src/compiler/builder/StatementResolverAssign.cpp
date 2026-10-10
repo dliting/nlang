@@ -81,27 +81,44 @@ void StatementResolveAccessor::Access(SnAssignStmt &sn)
 	if (FinishInitListAssign(sn))
 		return;
 
+	FinishAssignTypeCheck(sn);
+}
+
+//Shared tail of Access(SnAssignStmt): target-type check, assignment-
+//position function-reference binding, and the cast-fixup choke point.
+//Every exit flags the statement NF_Resolved: a local-decl initializer is
+//decomposed into an AssignStmt inserted mid-walk and resolved
+//immediately, so the paragraph walk revisits it — an unflagged statement
+//would re-resolve and log every diagnostic twice.
+void StatementResolveAccessor::FinishAssignTypeCheck(SnAssignStmt &sn)
+{
 	SnField* pTargetType = nullptr;
 	if (!TryGetAssignTargetType(*sn.Left(), pTargetType))
+	{
+		sn.AddFlags(NF_Resolved);
 		return;
+	}
 	//Phase 13: an assignment-position function reference binds
 	//against the LHS type. Local-decl decomposition, plain assignment
 	//and field stores all flow through here (TryBindStatementFuncRef).
 	if (!TryBindStatementFuncRef(*sn.Right(), pTargetType))
+	{
+		sn.AddFlags(NF_Resolved);
 		return;
+	}
 	SnField* pSourceType = nullptr;
 	if (!TryGetAssignSourceType(*sn.Right(), pTargetType, pSourceType))
+	{
+		sn.AddFlags(NF_Resolved);
 		return;
+	}
 	//0.7.3 B: an array-valued RHS and an array target both carry
 	//the interned token, so the cast choke point adjudicates —
 	//same token = Same, different tokens = the named array reject
 	//in FixupExprType, scalar targets = the generic reject, string
 	//targets = Auto toString coercion. Local-decl initializers
 	//decompose into SnAssignStmt, so declarations flow through the
-	//same choke point. FixupExprType's false return leaves the
-	//statement un-wrapped; NF_Resolved is set below so the
-	//paragraph walk's revisit of the decomposed local-decl
-	//statement doesn't log twice.
+	//same choke point.
 	auto castInfo = GetCastInfo(pSourceType, pTargetType);
 	auto iExpr = sn.Children().find(sn.m_pRight);
 	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
@@ -280,8 +297,10 @@ bool StatementResolveAccessor::FinishInitListAssign(SnAssignStmt &sn)
 {
 	if (sn.Right()->Kind() != NK_InitListExpr)
 		return false;
-	if (sn.Right()->IsResolved())
-		sn.AddFlags(NF_Resolved);
+	//Error or success, this statement is finished — the paragraph walk
+	//revisits decomposed local-decl assigns (see Access(SnAssignStmt)),
+	//and a revisit would re-log the init list's diagnostics.
+	sn.AddFlags(NF_Resolved);
 	return true;
 }
 

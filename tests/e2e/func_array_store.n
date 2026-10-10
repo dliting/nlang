@@ -1,4 +1,4 @@
-//Phase 13 Step 2: bound handles live in arrays of Func — element type
+//Phase 13 Step 2: bound handles live in arrays of func — element type
 //injection at the array-declaration RHS, retrieval and invocation.
 int dbl(int x) { return x * 2; }
 

@@ -1,5 +1,5 @@
 //Phase 13 Step 1 (review round-1 F5): the func<->int ordering form is
-//locked separately — in a mixed file the earlier func<->Func form
+//locked separately — in a mixed file the earlier func<->func form
 //would mask it (compilation stops at the first error).
 int bar(int x) { return x; }
 

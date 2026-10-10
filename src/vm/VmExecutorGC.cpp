@@ -33,7 +33,7 @@ namespace {
 //Single source for the container trace arms' kind set (was four
 //hand-expanded literals: List/Dict x mark/push). At kind granularity the
 //mark set and the worklist push set coincide — every traced kind has
-//children for the dispatch below to walk (Func's receiver, array
+//children for the dispatch below to walk (func's receiver, array
 //elements, boxed payload, class/struct fields).
 inline bool IsChildBearingHeapKind(uint8_t kind) {
     return kind == RTK_Class || kind == RTK_Struct || kind == RTK_Boxed

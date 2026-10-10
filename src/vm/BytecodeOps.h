@@ -113,7 +113,7 @@ enum class OpCode : uint8_t {
     OP_CallMethodDirectOut, // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
                             // same for non-virtual method calls (this = slot 0)
 
-    // === Phase 13: first-class function values (Func<...>) ===
+    // === Phase 13: first-class function values (func<...>) ===
     OP_MakeFunc,        // uint16 funcIdx — allocate a static function handle
                         // {funcIdx, this=0, form=0}, write heap idx to pResult
     OP_CallDelegate,    // uint16 calleeLocal, uint16 callParamBase — invoke the

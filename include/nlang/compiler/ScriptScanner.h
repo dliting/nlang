@@ -121,8 +121,9 @@ public:
 	}
 
 	//Current type-argument nesting depth. Incremented by '<' right after
-	//a built-in generic name (List/Dict), decremented by each '>'. While
-	//positive, ">>" is split into two '>' tokens so nested generics like
+	//a built-in generic name (List/Dict by the identifier rule; func by
+	//its keyword rule), decremented by each '>'. While positive, ">>" is
+	//split into two '>' tokens so nested generics like
 	//`List<List<int>>` parse (C#-style scanner split).
 	int GenericDepth() const
 	{
@@ -140,8 +141,9 @@ public:
 			--m_nGenericDepth;
 	}
 
-	//True when the previous token was the identifier "List"/"Dict".
-	//Consumed (and cleared) by the '<' rule; set by the identifier rule.
+	//True when the previous token was the identifier "List"/"Dict" or
+	//the func keyword. Consumed (and cleared) by the '<' rule; set by
+	//the identifier rule and the func keyword rule.
 	void PendingGenericOpen(bool bPending)
 	{
 		m_bPendingGenericOpen = bPending;

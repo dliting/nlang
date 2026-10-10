@@ -25,7 +25,7 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     if (k == NK_EnumDecl) return RTK_Int32;
     if (k == NK_StructDecl) return RTK_Struct;
     if (k == NK_ClassDecl) {
-        //Phase 13: synthetic Func<...> declarations are function-handle
+        //Phase 13: synthetic func<...> declarations are function-handle
         //values (RTK_Func), not classes. Every kind-keyed consumer (local
         //descriptors, field kinds, GC gates) dispatches on this, so the
         //fallthrough to RTK_Class must not swallow them.

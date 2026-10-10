@@ -36,7 +36,7 @@ class NLANG_COMPILER_API SnExpression: public SyntaxNode
 	friend class ExprResolveAccessor;
 	friend class StatementGenerateAccessor;
 	//Phase 13: binds a pending bare function reference to an expected
-	//Func type — free function shared by the expression and statement
+	//func type — free function shared by the expression and statement
 	//resolvers (needs the protected EvalDataType setter).
 	friend bool BindFuncRefToExpected(BuildEnvironment &env,
 		SnIdentifierExpr &idExpr, SnField *pExpected);
@@ -369,7 +369,7 @@ public:
 
 	SnFunction *Callee() const
 	{
-		//Phase 13: a delegate invoke binds Field() to the Func-typed
+		//Phase 13: a delegate invoke binds Field() to the func-typed
 		//value declaration, not an SnFunction — miscasting it made
 		//Release builds read garbage through Params(). Null-safe on
 		//purpose: callers (codegen + both frame walkers) dispatch on a

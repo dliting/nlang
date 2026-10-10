@@ -257,7 +257,7 @@ void VmBackend::MaxArgsMemberExpr(SnExpression& expr, uint16_t& maxArgs) {
     MaxArgsWalkExpr(*member.Outer(), maxArgs, false);
     //If Inner is InvokeExpr, pass method-context flag so
     //slot 0 is reserved for `this` — EXCEPT delegate invokes
-    //(a Func-typed field): their args are staged without this
+    //(a func-typed field): their args are staged without this
     //and the invoke branch adds the callee scratch instead
     //(mirror ExprPeakDepth's MemberExpr branch).
     if (member.Inner()

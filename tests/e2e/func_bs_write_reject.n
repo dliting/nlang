@@ -1,4 +1,4 @@
-//Phase 13 Step 2: serializing a struct with a Func field must fail
+//Phase 13 Step 2: serializing a struct with a func field must fail
 //cleanly at RUNTIME (named throw, exit 1) — a silent skip would look
 //successful and lose the field on read-back.
 int dbl(int x) { return x * 2; }

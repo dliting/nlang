@@ -1,5 +1,5 @@
 //Phase 13 Step 1: `new func<void, int>()` is a SYNTAX error — the void
-//return slot exists only in the Func type grammar (bare base name
+//return slot exists only in the func type grammar (bare base name
 //followed by KT_Void), not in TypeList, which the NewExpr production
 //consumes.
 int main() {

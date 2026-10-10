@@ -24,9 +24,9 @@ namespace nlang
 
 //Phase 13: distance contribution of a pending function-reference binding
 //(bare identifier or receiver-bound member form): 0 when the formal is a
-//Func type whose signature matches the referenced function exactly, -1
+//func type whose signature matches the referenced function exactly, -1
 //otherwise. The exact-match-only rule also closes the legacy hole where
-//the bare name's RETURN type let it bind approximately to non-Func
+//the bare name's RETURN type let it bind approximately to non-func
 //formals.
 static int FuncRefBindingDistance(const FormalBinding &b)
 {

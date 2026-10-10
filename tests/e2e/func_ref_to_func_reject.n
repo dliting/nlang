@@ -1,5 +1,5 @@
 //Phase 13 Step 1 (review round-1 F1): a bare reference to a function
-//RETURNING a Func type naturally carries a Func-typed EvalDataType (its
+//RETURNING a func type naturally carries a func-typed EvalDataType (its
 //return type) — that must not be misread as an already-bound reference.
 //pick itself is a zero-param function, so it does not match
 //func<int, int>.

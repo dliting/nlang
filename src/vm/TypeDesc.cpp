@@ -195,7 +195,7 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 			auto* pClass = static_cast<SnClassDecl*>(pType);
 			if (pClass->IsFuncType())
 			{
-				//Func signatures are outside the v1.12 descriptor grammar
+				//func signatures are outside the v1.12 descriptor grammar
 				//— consumers keep the placeholder rejection.
 				td.kind = RTK_NonSerialized;
 				return td;

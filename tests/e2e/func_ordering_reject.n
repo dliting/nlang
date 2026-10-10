@@ -1,5 +1,5 @@
 //Phase 13 Step 1: ordering comparisons on function handles are rejected
-//with a named diagnostic (both func<->Func and func<->int forms).
+//with a named diagnostic (both func<->func and func<->int forms).
 int bar(int x) { return x; }
 int baz(int x) { return x; }
 

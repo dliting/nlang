@@ -362,7 +362,7 @@ void VmBackend::Access(SnInvokeExpr& expr) {
                      &outSpills);
 
         //Phase 13: delegate invoke — the resolver bound the callee name to
-        //a Func-typed value (local/param, or an implicit this-field)
+        //a func-typed value (local/param, or an implicit this-field)
         //instead of a function declaration (Callee() null, Field() set).
         //Args are already staged at callParamBase by the positional emit
         //above; materialize the handle into a scratch evalArea slot (the

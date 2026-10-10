@@ -166,7 +166,7 @@ void TypeCastInfo::CalcCastKind()
 			return;
 		}
 		//Phase 13: function handles do not participate in class upcasting.
-		//The synthetic Func<...> declaration is an SnClassDecl, so without
+		//The synthetic func<...> declaration is an SnClassDecl, so without
 		//this guard `Object o = f` would take the Object special case below
 		//as a TCK_Same no-op and box the handle into an untracked slot.
 		if (static_cast<const SnClassDecl*>(m_pSource)->IsFuncType()

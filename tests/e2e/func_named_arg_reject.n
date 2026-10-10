@@ -1,5 +1,5 @@
 //Phase 13 Step 1: named arguments on a delegate invocation are rejected
-//— the Func signature channel has no parameter names.
+//— the func signature channel has no parameter names.
 int bar(int x) { return x; }
 
 int main() {

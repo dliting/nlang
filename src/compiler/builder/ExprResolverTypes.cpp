@@ -64,7 +64,7 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 //and fails. Built-in generic names exist only in Type position with
 //type arguments; bare "List" is not a valid type.
 //Per-argument reject gate of the generic type-argument loop below:
-//void and out are Func-only features (void only in the first / return
+//void and out are func-only features (void only in the first / return
 //slot, out only on parameter slots), and a jagged argument has no VM
 //layout (the same gate as declaration sites, spec §5.5). True =
 //rejected with the named diagnostic.
@@ -159,7 +159,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
 		return;
 
-	//Phase 13 Step 2: Dict keyed by a Func type — DictKeysEqual is
+	//Phase 13 Step 2: Dict keyed by a func type — DictKeysEqual is
 	//identity for Func records (no interning), so two references to the
 	//same function would store as two entries. Reject at the single
 	//instantiation point; both declaration types and new-expression

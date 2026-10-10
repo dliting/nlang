@@ -204,7 +204,7 @@ public:
 
 /*
 The void type, the type of "no value".
-It only appears in the return slot of Func<...> (e.g. Func<void, int>).
+It only appears in the return slot of func<...> (e.g. func<void, int>).
 No value of this type ever exists, so the value operations are no-ops.
 */
 class NLANG_RUNTIME_API RnVoid : public RnBuiltinDataType

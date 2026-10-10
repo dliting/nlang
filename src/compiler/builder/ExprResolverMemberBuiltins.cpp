@@ -245,8 +245,10 @@ bool ExprResolveAccessor::TryResolveTableStringMethod(SnMemberExpr &snMember,
 //identifier-shape to the array-valued property (any bound shape —
 //identifier, member like li.get(0), or call result like mk()).
 //Three shapes: a zero-argument call resolves; a call with arguments
-//and the old property spelling report dedicated errors (consumed as
-//error, so no later phase re-reports them).
+//and the old property spelling report dedicated errors (the member
+//resolves to the error verdict here, so the dedicated message is
+//always the first diagnostic; the statement type check may still add
+//a generic "Incompatible type" follow-up after it).
 bool ExprResolveAccessor::TryResolveArrayLengthMethod(
 	SnMemberExpr &snMember, SnExpression *pOuterExpr,
 	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)

@@ -222,7 +222,7 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
         const std::function<void(uint16_t)>& applyBox) {
     //Unresolved invoke — fall back to legacy positional emit.
     //Phase 13 Step 2: out arguments in this path are delegate calls
-    //binding to a Func signature (the resolver already checked the
+    //binding to a func signature (the resolver already checked the
     //out markers). The callee fills the slot and the executor's
     //outMask write-back refreshes it — emit nothing here, just
     //record the spill so the post-call write-back reaches the

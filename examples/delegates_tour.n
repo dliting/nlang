@@ -3,7 +3,7 @@
 // handles living in containers and fields.
 
 import io;
-using BinOp = func<int, int>;    // type alias over a Func type
+using BinOp = func<int, int>;    // type alias over a func type
 
 int bar(int x) { return x + 1; } // free function
 

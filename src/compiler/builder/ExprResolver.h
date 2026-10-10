@@ -51,13 +51,13 @@ int ArrayTypeDepth(const SnFieldExpr* pType);
 
 /*
 Phase 13: bind a pending bare-function reference (see IsUnboundFuncRef)
-to the expected Func<...> type of the injection site. Validates the
+to the expected func<...> type of the injection site. Validates the
 exact signature, then rebinds the identifier: EvalDataType becomes the
-Func declaration — codegen detects the bound state structurally (a
+func declaration — codegen detects the bound state structurally (a
 value-position identifier whose Field() is an SnFunction) and emits
 OP_MakeFunc. The 24 node-flag bits are fully allocated, so pending and
 bound states are structural, not flag-based.
-\return false after logging a named diagnostic (non-Func expected type,
+\return false after logging a named diagnostic (non-func expected type,
 method without receiver, default parameters, imported stub, signature
 mismatch) — the caller should stop resolving the statement.
 Shared by ExprResolver (argument positions) and StatementResolver
@@ -68,14 +68,14 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 
 /*
 Phase 13 Step 2: bind a pending bound-method reference (receiver.name in
-a value position, see IsUnboundMemberFuncRef) to the expected Func<...>
+a value position, see IsUnboundMemberFuncRef) to the expected func<...>
 type of the injection site. Selects the handle form exactly like the
 direct-call codegen does (virtual / interface-declared methods dispatch
 by name at runtime, everything else binds a static function index), with
 named rejects for enum receivers, native methods (including native
 overrides found by a subclass scan for by-name bindings) and out-carrying
 signatures on by-name bindings. On success the member and its inner
-identifier carry the Func declaration — codegen detects the bound state
+identifier carry the func declaration — codegen detects the bound state
 structurally, like the bare-name form.
 \return false after logging a named diagnostic — the caller should stop
 resolving the statement.
@@ -85,17 +85,17 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 
 /*
 Phase 13: loose pending predicate — true while a bare function
-reference carries a non-Func EvalDataType (its function's return type).
+reference carries a non-func EvalDataType (its function's return type).
 Consumed ONLY by the ModuleBuilder TU-end sweep, which reports any
 reference that never met an expected type; the bind sites (argument /
 assignment / return / subscript / init-list positions) use the strict
 IsUnboundFuncRef below (review round-1 F1 split — see the .cpp comments
-for why a Func-typed EvalDataType alone does not prove a binding).
+for why a func-typed EvalDataType alone does not prove a binding).
 */
 bool IsPendingFuncRef(SyntaxNode &expr);
 //Phase 13 (review round-1 F1): strict bind-site predicate — true unless
-//the reference's own signature satisfies the Func type it carries (a
-//Func-typed RETURN type leaking through ResolveFieldExprAs is NOT a
+//the reference's own signature satisfies the func type it carries (a
+//func-typed RETURN type leaking through ResolveFieldExprAs is NOT a
 //binding). All bind sites use this form; IsPendingFuncRef above is the
 //loose form kept for the end-of-build sweep only.
 bool IsUnboundFuncRef(SyntaxNode &expr);
@@ -109,7 +109,7 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr);
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
-//Phase 13: out-flag side table of a Func instantiation (parallel to
+//Phase 13: out-flag side table of a func instantiation (parallel to
 //GetGenericTypeArgs; map access semantics, default-empty on miss).
 //Definition in ExprResolverGenerics.cpp.
 const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
@@ -140,7 +140,7 @@ const ISourceLocation& DeclLocation(const ISourceLocation* pLoc,
 	ScriptLocation& fallback);
 bool IsFuncTypeDecl(SnField *pType);
 bool IsBarePoolScope(const SyntaxNode &scope);
-//2026-09-26 second split: builtin-class minting and the Func signature
+//2026-09-26 second split: builtin-class minting and the func signature
 //match are consumed from the Values/New and Cast TUs respectively.
 SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 	const ISourceLocation* pLoc);
@@ -549,18 +549,18 @@ private:
 
 	/*
 	Phase 13: locate the delegate target of a bare invoke — a non-function
-	field (local / param / class field) whose value type is a Func<...>
-	instantiation. Returns nullptr when the callee name is not a Func
+	field (local / param / class field) whose value type is a func<...>
+	instantiation. Returns nullptr when the callee name is not a func
 	value (the normal free-function/method paths take over). Shadowing
-	rule: name lookup finds the Func value before any same-named function.
+	rule: name lookup finds the func value before any same-named function.
 	*/
 	SnField *FindDelegateTarget(SnInvokeExpr &invoke);
 
 	/*
-	Phase 13: bind an invoke to a Func-typed field's signature (delegate
+	Phase 13: bind an invoke to a func-typed field's signature (delegate
 	call). Validates arity, out agreement and argument types, rebinds
-	pending function-reference arguments against the Func's parameter
-	slots, then resolves the invoke with the Func's return type as
+	pending function-reference arguments against the func's parameter
+	slots, then resolves the invoke with the func's return type as
 	EvalDataType (nullptr for a void return — the established
 	void-invoke convention). Every path consumes the invoke: errors are
 	logged here, success resolves it.

@@ -4,7 +4,7 @@
     标量行经 EncodeScalarCell 严格校验（kind/值域）；参考形参（含
     List/Dict 描述符 kind）走 RefFactory——堆句柄透传或 builder 物化
     （每次跨越新对象，元素按声明 TypeDesc 校验）。形参 kind 的裁决链：
-    描述符可表达者以描述符为准，NonSerialized 哨兵（Func 签名等）回退
+    描述符可表达者以描述符为准，NonSerialized 哨兵（func 签名等）回退
     到帧布局 locals 表（GC 同源），int32 占位是最后防线。
 ---*/
 #pragma once
@@ -31,7 +31,7 @@ inline const LocalDescriptor* ParamLocalSlot(const CompiledFunction& f,
 }
 
 //Formal i's declared kind. The v1.12 descriptor is authoritative, but its
-//not-expressible sentinel (Func signatures, interface types, depth-cap
+//not-expressible sentinel (func signatures, interface types, depth-cap
 //containers) defers to the frame layout — the same locals table the GC
 //scans — which carries the true runtime kind of the cell the value lands
 //in. Modules predating the descriptor table fall back to int32 (the

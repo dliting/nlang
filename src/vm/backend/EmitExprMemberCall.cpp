@@ -21,14 +21,14 @@ namespace nlang {
 
 //Phase 13 Step 2: bound method reference (c.foo / o.run in a
 //value position) — the resolver bound the member's EvalDataType
-//to the Func declaration while Field() stayed the SnFunction
+//to the func declaration while Field() stayed the SnFunction
 //(mirrors the bare-name OP_MakeFunc arm). VALUE POSITION ONLY:
 //the inner node must be an identifier (c.foo). A call shape
-//(c.foo(), inner == invoke) resolves to the same Func-typed
+//(c.foo(), inner == invoke) resolves to the same func-typed
 //member but must fall through to the invoke emission below —
 //binding it here would emit a bound-reference opcode over a
 //receiver that no expression ever produced (review C1: a
-//module-qualified Func-returning call crashed with "null
+//module-qualified func-returning call crashed with "null
 //receiver in method reference"). Receiver-first: emit the
 //receiver to resultOffset, refresh pResult, then the bind
 //opcode reads the receiver from pResult and writes the handle
@@ -163,11 +163,11 @@ void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
     //Phase 13: function-handle toString() — the only built-in
-    //method on a Func<...> receiver. The receiver is already
+    //method on a func<...> receiver. The receiver is already
     //at resultOffset (loaded by the class-receiver prologue
     //above). Must precede the boxing-plan and method-table
     //machinery: a handle is a VM primitive (like an array),
-    //Func has no backing CompiledClass.
+    //func has no backing CompiledClass.
     if (classDecl.IsFuncType()
         && invoke.CalleeName() == "toString") {
         EmitPResultRefresh(emitter, resultOffset);
@@ -186,7 +186,7 @@ void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
 }
 
 //Phase 13 Step 2: delegate member invoke (obj.cb(x)) —
-//the resolver bound the callee name to a Func-typed FIELD
+//the resolver bound the callee name to a func-typed FIELD
 //of this class (the invoke's Field() is that field, not
 //an SnFunction; D13). The receiver is already at
 //resultOffset with the null check done. Unlike a method

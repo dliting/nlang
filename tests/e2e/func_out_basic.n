@@ -1,4 +1,4 @@
-//Phase 13 Step 2: delegate call with out write-back — the Func
+//Phase 13 Step 2: delegate call with out write-back — the func
 //signature carries the out marker and the callee writes the caller's
 //slot through OP_CallDelegateOut.
 void grab(out int r) { r = 7; }

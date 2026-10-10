@@ -20,13 +20,13 @@ namespace nlang
 {
 
 //Phase 13: exact-signature comparison between a function declaration and
-//a Func<...> instantiation (no variance). Return slot: a nullptr return
+//a func<...> instantiation (no variance). Return slot: a nullptr return
 //type matches a void type argument. Parameter slots: declared type field
 //pointer identity plus out-flag agreement — the same discipline that
-//keeps Func<void,int> and Func<void,out int> distinct in GenericInstKey.
+//keeps func<void,int> and func<void,out int> distinct in GenericInstKey.
 //0.7.3 B: array-ness needs no separate comparison — an array-typed
 //return/param carries the interned token, and pointer identity against
-//the type argument (itself a token for Func<int[]>) rules the pairing.
+//the type argument (itself a token for func<int[]>) rules the pairing.
 bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 {
 	const auto &typeArgs = GetGenericTypeArgs(pFuncDecl);
@@ -57,7 +57,7 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 }
 
 //Rejection gates of BindFuncRefToExpected: the expected type must be a
-//Func instantiation, the callee a free function (not a method), a local
+//func instantiation, the callee a free function (not a method), a local
 //declaration (imported stubs serialize no parameter signatures) and one
 //without default parameters. True = rejected with the named diagnostic.
 static bool RejectFuncRefTarget(BuildEnvironment &env,
@@ -84,8 +84,8 @@ static bool RejectFuncRefTarget(BuildEnvironment &env,
 		return true;
 	}
 	//Imported stubs carry v1.12 type descriptors for their formals, but
-	//Func signatures are outside the descriptor grammar — an imported
-	//callee cannot be matched against an expected Func type yet.
+	//func signatures are outside the descriptor grammar — an imported
+	//callee cannot be matched against an expected func type yet.
 	if (pFunc->ContainFlags(NF_Imported))
 	{
 		env.Log(CLL_Error, idExpr.Location(),
@@ -123,7 +123,7 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 			idExpr.Name().c_str(), pFuncDecl->Name().c_str());
 		return false;
 	}
-	//Bound state is structural: EvalDataType becomes the Func declaration
+	//Bound state is structural: EvalDataType becomes the func declaration
 	//(codegen detects Field()->Kind() == NK_Function in a value position
 	//and emits OP_MakeFunc). No dedicated node flag exists — the 24 flag
 	//bits are fully allocated.
@@ -200,7 +200,7 @@ static bool HasNativeMethodOverride(SnFunction &method)
 }
 
 //Form gates of BindMemberFuncRefToExpected: the expected type must be a
-//Func instantiation, and an enum receiver is rejected outright — enum
+//func instantiation, and an enum receiver is rejected outright — enum
 //values are ints, and slot[1] of a handle (a heap index) cannot carry
 //the receiver. True = rejected with the named diagnostic.
 static bool RejectMemberFuncRefForm(BuildEnvironment &env,
@@ -242,7 +242,7 @@ static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 			"no callee frame for the receiver.", inner.Name().c_str());
 		return true;
 	}
-	//The out mask is compiled from the Func type, but a by-name handle
+	//The out mask is compiled from the func type, but a by-name handle
 	//resolves the target at runtime — an overriding method's layout may
 	//disagree. Same rationale as the existing virtual-direct-call reject.
 	if (bDispatchesByName)
@@ -302,9 +302,9 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 		return false;
 	}
 	//Bound state is structural (same as the bare-name form): the member
-	//carries the Func declaration while Field() stays the SnFunction;
+	//carries the func declaration while Field() stays the SnFunction;
 	//codegen emits receiver + OP_MakeBoundFunc/OP_MakeVFunc. The inner
-	//identifier carries the Func type too — the end-of-build sweep (loose
+	//identifier carries the func type too — the end-of-build sweep (loose
 	//predicate) would otherwise flag every bound member reference through
 	//it.
 	snMember.EvalDataType(pFuncDecl);
@@ -313,14 +313,14 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 }
 
 //Phase 13: loose pending predicate — true while a bare function
-//reference carries a non-Func EvalDataType (its function's return
-//type). Review round-1 F1 split this into two predicates: a Func-typed
-//EvalDataType does NOT prove a binding (it may be the function's Func
+//reference carries a non-func EvalDataType (its function's return
+//type). Review round-1 F1 split this into two predicates: a func-typed
+//EvalDataType does NOT prove a binding (it may be the function's func
 //RETURN type leaking through ResolveFieldExprAs), so all bind sites use
 //the strict IsUnboundFuncRef below. This loose form survives only for
 //the end-of-build sweep (ModuleBuilder::SweepPendingFuncRefs): a ref a
 //Func-accepting consumer already handled via MakeFunc (e.g. io.print of
-//a Func-returning function's bare name) must not be re-flagged there.
+//a func-returning function's bare name) must not be re-flagged there.
 bool IsPendingFuncRef(SyntaxNode &expr)
 {
 	if (expr.Kind() != NK_IdentifierExpr)
@@ -331,9 +331,9 @@ bool IsPendingFuncRef(SyntaxNode &expr)
 }
 
 //Phase 13 (review round-1 F1): strict bind-site predicate. A bare name
-//is bound only when its OWN signature satisfies the Func type it
-//carries. Without this, `Func<int,int> f = pick;` (where pick RETURNS
-//Func<int,int> but takes no parameters) was misread as an already-bound
+//is bound only when its OWN signature satisfies the func type it
+//carries. Without this, `func<int,int> f = pick;` (where pick RETURNS
+//func<int,int> but takes no parameters) was misread as an already-bound
 //reference and silently compiled into a wrong-signature handle.
 //Binding is idempotent when the expected type matches, and a genuine
 //mismatch gets BindFuncRefToExpected's named diagnostic.
@@ -355,8 +355,8 @@ bool IsUnboundFuncRef(SyntaxNode &expr)
 //Phase 13 Step 2: strict bind-site predicate for receiver-bound method
 //references — `receiver.name` in a value position whose inner name
 //resolved to a method of a class/interface/enum. Unbound while the
-//member's own signature does not satisfy the Func type it carries (the
-//same round-1 F1 discipline as IsUnboundFuncRef: a Func RETURN type
+//member's own signature does not satisfy the func type it carries (the
+//same round-1 F1 discipline as IsUnboundFuncRef: a func RETURN type
 //leaking through the member tail is not a binding). Struct methods and
 //module functions never match — they stay on their existing channels.
 bool IsUnboundMemberFuncRef(SyntaxNode &expr)

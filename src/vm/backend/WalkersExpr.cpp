@@ -57,7 +57,7 @@ bool VmBackend::IsContainerSubscript(SnExpression& baseExpr) {
 //(called with slotBase=1 from the MemberExpr handler) would overflow
 //into user variable space.
 //Phase 13: a delegate invoke is a resolved invoke whose Field() carries
-//a Func-typed value (local/param/field) rather than an SnFunction. Shared
+//a func-typed value (local/param/field) rather than an SnFunction. Shared
 //by codegen and both frame-size walkers so their claim shapes stay in
 //lockstep (walker symmetry, 6th instance).
 bool VmBackend::IsDelegateInvoke(const SnInvokeExpr& invoke)

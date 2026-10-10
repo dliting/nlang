@@ -1,7 +1,7 @@
 //Phase 13 Step 2: bound method stored in a class FIELD — this.cb =
 //this.handler binds at assign; obj.cb(x) invokes through the field;
 //a bare cb(1) inside a method body resolves through implicit this
-//(the Func-typed-field resolution branch).
+//(the func-typed-field resolution branch).
 class Reg {
     func<int, int> cb;
 

@@ -99,10 +99,10 @@ void ExprResolveAccessor::FinishResolvedMember(SnMemberExpr &snMember,
 	SnFieldExpr *pInnerExpr)
 {
 	//Phase 13 Step 2: a delegate member invoke (obj.cb(x)) resolved
-	//the invoke against the FIELD's Func signature — the member's type
+	//the invoke against the FIELD's func signature — the member's type
 	//is the invoke's own return type. ResolveFieldExprAs would instead
 	//re-type the member as the delegate VALUE's declared type
-	//(Func<...>), masking the call result at every consumer.
+	//(func<...>), masking the call result at every consumer.
 	if (pInnerExpr->Kind() == NK_InvokeExpr
 		&& pInnerExpr->Field()
 		&& pInnerExpr->Field()->Kind() != NK_Function)

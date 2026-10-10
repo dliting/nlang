@@ -178,7 +178,7 @@ static void TestCallRejections() {
     CHECK_THROWS(BadValue,
         (void)itp.call("add", {Value(int32_t(1)), Value(int32_t(2))}),
         "unqualified name → BadValue");
-    //Func 形参的 kind 裁决链回归钉（描述符 NonSerialized 回退帧布局后
+    //func 形参的 kind 裁决链回归钉（描述符 NonSerialized 回退帧布局后
     //打开的路径）：错配的参考值与 builder 都必须在编组边界被拒，而非
     //把错型值塞进帧里、留给下游 CallDelegate 的槽守卫报误导性 NPE。
     Value pair = itp.call("values_demo.makePair",
@@ -283,7 +283,7 @@ static void TestHostFunctionFuncParamKind() {
         [](const std::vector<Value>& args) -> Value {
             //The Func argument must arrive as Kind::Func (reference arm),
             //not Kind::Int (scalar arm from the int32 placeholder when the
-            //v1.12 descriptor degrades the Func signature).
+            //v1.12 descriptor degrades the func signature).
             return Value(int32_t(
                 args.at(0).kind() == Value::Kind::Func ? 1 : 0));
         });

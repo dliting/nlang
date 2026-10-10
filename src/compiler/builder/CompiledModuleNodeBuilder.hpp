@@ -192,7 +192,7 @@ private:
 	//the root, where this builder placed the imported struct/class stubs;
 	//the List/Dict base names go through the built-in generic
 	//instantiation path; builtin scalar kinds arrive pre-bound via the
-	//NodeKind ctor). NonSerialized (interface/Func types, defensive
+	//NodeKind ctor). NonSerialized (interface/func types, defensive
 	//misses) degrades to the int32 placeholder.
 	SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 		const CompiledModule &cm, const ISourceLocation &loc)

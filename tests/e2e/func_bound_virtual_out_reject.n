@@ -1,6 +1,6 @@
 //Phase 13 Step 2: binding a VIRTUAL method whose signature has out is
 //rejected — MakeVFunc resolves the target by name at runtime, so the
-//out mask compiled from the Func type may not match the overriding
+//out mask compiled from the func type may not match the overriding
 //method's parameter layout.
 class B {
     public virtual void grab(out int r) { r = 1; }

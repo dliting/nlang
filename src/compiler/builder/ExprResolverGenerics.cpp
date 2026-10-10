@@ -1,4 +1,4 @@
-/*--- ExprResolverGenerics.cpp — 内建泛型类实例化机器（List/Dict/Func 合成声明缓存）。
+/*--- ExprResolverGenerics.cpp — 内建泛型类实例化机器（List/Dict/func 合成声明缓存）。
     从 ExprResolverTypes.cpp 抽取（合并期可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
@@ -33,7 +33,7 @@ struct GenericInstKey {
 	std::vector<SnField*> typeArgs;
 	//Phase 13: out markers live on the type-arg expression nodes (NF_Out),
 	//not on the canonical fields, so the key needs a parallel flag vector —
-	//without it Func<void,int> and Func<void,out int> collapse into one
+	//without it func<void,int> and func<void,out int> collapse into one
 	//declaration and the first instantiation silently wins.
 	//0.7.3 B: array-ness needs no flag vector anymore — an array-typed
 	//argument IS the interned SnArrayTypeToken in typeArgs, so pointer
@@ -59,13 +59,13 @@ static std::map<GenericInstKey, SnClassDecl*> s_genericInstances;
 static std::map<SnClassDecl*, std::vector<SnField*>> s_genericTypeArgs;
 
 //Phase 13: parallel out-flag side table (same key discipline as
-//s_genericTypeArgs). Func's delegate-binding channel reads the signature
+//s_genericTypeArgs). func's delegate-binding channel reads the signature
 //(return type + out-marked params) from these two tables.
 static std::map<SnClassDecl*, std::vector<uint8>> s_genericOutFlags;
 
 //Phase 13: out-flag side-table accessor (same key discipline as
 //GetGenericTypeArgs; map operator[] default-inserts on miss, matching
-//the historical direct map access at the Func bind sites).
+//the historical direct map access at the func bind sites).
 const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass)
 {
 	return s_genericOutFlags[pClass];
@@ -92,7 +92,7 @@ bool IsGenericClassDecl(SnClassDecl* pClass)
 
 //Mints (or fetches) a synthetic SnClassDecl for the given generic
 //instantiation. Phase 8e-3: List<T> (arity 1). Phase 8e-4: Dict<K,V> (arity 2).
-//Phase 13: Func<R, P...> (variadic, >= 1). outFlags are normalized here
+//Phase 13: func<R, P...> (variadic, >= 1). outFlags are normalized here
 //so callers that infer instantiations (List element inference) can pass
 //an empty vector while declaration-path keys stay distinct.
 SnClassDecl* GetGenericClassDecl(const std::string& baseName,

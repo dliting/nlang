@@ -19,9 +19,9 @@
 namespace nlang
 {
 
-//Phase 13: delegate call — the callee name resolves to a Func-typed
+//Phase 13: delegate call — the callee name resolves to a func-typed
 //value (local / param / class field) rather than a function. Name
-//lookup order puts the Func value first (Python-style shadowing of a
+//lookup order puts the func value first (Python-style shadowing of a
 //same-named function); every path inside consumes the invoke.
 bool ExprResolveAccessor::TryBindDelegateCall(SnInvokeExpr &snInvoke)
 {
@@ -384,7 +384,7 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	std::vector<FormalBinding> &bindings)
 {
 	//Phase 13: argument-position function references bind against the
-	//formal Func types of the chosen overload (ComputeBindingDistance
+	//formal func types of the chosen overload (ComputeBindingDistance
 	//already required an exact signature match for candidacy). Step 2
 	//adds the receiver-bound member form (c.foo).
 	if (match == FFR_ExactMatch || match == FFR_ApproximateMatch)

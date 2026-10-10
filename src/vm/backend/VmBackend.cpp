@@ -129,7 +129,7 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     //the GC never scans a native function's frame (CallNative stages its
     //args into its own buffer). The kind-裁决 chain's frame-layout fallback
     //reads the param kind from these slots when the v1.12 descriptor
-    //degrades the type (Func signatures, interface types, depth-cap
+    //degrades the type (func signatures, interface types, depth-cap
     //containers), so a reference cell must carry the reference kind, not
     //the int32 placeholder. Mirrors AllocParamsAndDefaults (the non-native
     //path).

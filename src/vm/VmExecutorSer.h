@@ -79,7 +79,7 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
             //Phase 13: handles reference module functions/objects and
             //are not serializable bytes.
             throw std::runtime_error(
-                "NLang VM: WriteStruct does not support Func fields");
+                "NLang VM: WriteStruct does not support func fields");
         }
         else
         {
@@ -168,10 +168,10 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
         }
         else if (ftk == RTK_Func)
         {
-            //Phase 13: no writer can emit a Func field (the write side
+            //Phase 13: no writer can emit a func field (the write side
             //throws), so reaching this arm means a corrupted stream.
             throw std::runtime_error(
-                "NLang VM: ReadStruct does not support Func fields");
+                "NLang VM: ReadStruct does not support func fields");
         }
         else
         {
@@ -283,7 +283,7 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
             //Phase 13: handles reference module functions/objects and
             //are not serializable bytes.
             throw std::runtime_error(
-                "NLang VM: WriteStruct does not support Func fields");
+                "NLang VM: WriteStruct does not support func fields");
         }
         else
         {
@@ -421,10 +421,10 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
         }
         else if (ftk == RTK_Func)
         {
-            //Phase 13: no writer can emit a Func field (the write side
+            //Phase 13: no writer can emit a func field (the write side
             //throws), so reaching this arm means a corrupted stream.
             throw std::runtime_error(
-                "NLang VM: ReadStruct does not support Func fields");
+                "NLang VM: ReadStruct does not support func fields");
         }
         else
         {

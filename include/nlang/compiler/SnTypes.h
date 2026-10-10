@@ -107,7 +107,7 @@ public:
 };
 
 //The syntax node of the void type. Void only appears as the return slot
-//of Func<...> (Phase 13); no value of this type exists.
+//of func<...> (Phase 13); no value of this type exists.
 class NLANG_COMPILER_API SnVoid : public SnBuiltinDataTypeT<RnVoid, SnVoid>
 {
 public:

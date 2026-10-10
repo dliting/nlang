@@ -9,7 +9,7 @@ int apply(func<int, int> f, int v) { return f(v); }
 int main() {
     func<int, int> g = bar;    // local decl RHS
     g = pick();                // assignment RHS (return value)
-    func<int, int> h = g;      // Func-to-Func copy
+    func<int, int> h = g;      // func-to-func copy
     if (apply(g, 3) == 6 && h(4) == 8) {
         return 0;
     }
