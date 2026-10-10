@@ -6,6 +6,7 @@
 #include "DebugSessionController.h"
 #include "MachineFrontEnd.h"
 #include "TestNatives.h"
+#include "Disassembler.h"
 #include "CrashReporter.h"
 #include "nlang/common/LibrarySearchPath.h"
 #include "nlang/langservice/SymbolIndex.h"
@@ -99,6 +100,13 @@ static int RunMachine(const char* modulePath,
         //reports on stderr (the diagnostics channel).
         module = LoadLinkedProgram(executor, modulePath, cliDirs,
             verbose ? &std::cerr : nullptr);
+        //v0.8.5: a stripped artifact (--no-debug-info) cannot host
+        //breakpoints or stepping; say so once instead of failing
+        //silently. stderr in both modes (machine stdout is protocol).
+        if (!ModuleHasDebugAnchors(module))
+            std::cerr << "warning: module '" << module.name
+                      << "' has no debug info; breakpoints and stepping "
+                         "unavailable\n";
         DebugSessionController controller(module, front);
         front.SetController(&controller);
         executor.SetDebugHooks(&controller);
@@ -223,6 +231,12 @@ int main(int argc, char* argv[]) {
     try {
         module = LoadLinkedProgram(executor, argv[moduleIndex], cliDirs,
             verbose ? &std::cout : nullptr);
+        //v0.8.5: stripped-artifact warning (same contract as machine
+        //mode above).
+        if (!ModuleHasDebugAnchors(module))
+            std::cerr << "warning: module '" << module.name
+                      << "' has no debug info; breakpoints and stepping "
+                         "unavailable\n";
         //Debug session: the controller owns breakpoints/step state; the
         //CLI session is its terminal adapter. Initial stop at the first
         //statement (gdb `start` behavior); the interactive loop runs

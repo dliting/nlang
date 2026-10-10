@@ -43,6 +43,8 @@ static void PrintUsage() {
               << "  -I <dir>                    Add directory to import search path\n"
               << "  --verbose, -v               Print the import search path, then proceed\n"
               << "  --no-warn                   Suppress compile warnings (e.g. lossy conversion)\n"
+              << "  --no-debug-info            Strip per-statement debug info (no line numbers,\n"
+              << "                                breakpoints or stepping in the artifact)\n"
               << "  ncc --version               Print the compiler version\n";
 }
 
@@ -175,6 +177,7 @@ int main(int argc, char* argv[]) {
     // ncc -p <project.nproj> [-I <dir>...] (compile + run)
     bool compileOnly = (command == "build");
     bool noWarn = false;
+    bool stripDebugInfo = false;
     bool verbose = false;
     std::string sourceFile;
     std::string projectFile;
@@ -221,6 +224,9 @@ int main(int argc, char* argv[]) {
             importDirs.push_back(arg.substr(2));
         else if (arg == "--no-warn")
             noWarn = true;   // 0.7.5: suppress precision-loss warnings
+        else if (arg == "--no-debug-info")
+            //v0.8.5: strip statement anchors from the artifact.
+            stripDebugInfo = true;
         else if (arg == "--verbose" || arg == "-v")
             //Print the resolved import search path, then proceed.
             verbose = true;
@@ -313,6 +319,7 @@ int main(int argc, char* argv[]) {
 
     //0.7.5: --no-warn — suppress the precision-loss warning family.
     params.m_bNoWarn = noWarn;
+    params.m_bStripDebugInfo = stripDebugInfo;
 
     //Locate the standard library declarations (stdlib/*.n) relative to this
     //executable; they are the authority for stdlib function signatures.

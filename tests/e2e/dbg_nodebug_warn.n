@@ -1,0 +1,7 @@
+//v0.8.5: ndb on a --no-debug-info artifact — no anchors means no
+//initial stop (the statement checkpoint IS the anchor opcode); ndb
+//warns that breakpoints and stepping are unavailable, then the
+//program runs to completion.
+int main() {
+    return 42;
+}

@@ -63,6 +63,11 @@ struct BuildParams
 	//0.7.5: suppress precision-loss warnings (--no-warn). Errors are
 	//never suppressed — only the lossy-conversion warning family.
 	bool m_bNoWarn = false;
+	//v0.8.5: strip per-statement debug anchors (ncc --no-debug-info).
+	//The artifact keeps sourceFile metadata but loses line numbers:
+	//backtraces print (file:?), breakpoints and statement stepping
+	//cannot bind (OP_DebugInfo is the debugger's statement checkpoint).
+	bool m_bStripDebugInfo = false;
 };
 
 //Enumerate flags of module building.

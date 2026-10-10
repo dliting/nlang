@@ -127,4 +127,14 @@ std::vector<LinePcEntry> BuildLinePcMap(const CompiledFunction& func) {
     return map;
 }
 
+bool ModuleHasDebugAnchors(const CompiledModule& module) {
+    for (const CompiledFunction& func : module.functions) {
+        if (func.bytecode.empty())
+            continue;   //native/stub — never carries anchors
+        if (!BuildLinePcMap(func).empty())
+            return true;
+    }
+    return false;
+}
+
 } // namespace nlang

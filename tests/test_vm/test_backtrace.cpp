@@ -187,6 +187,53 @@ static void TestUserConstructedInvalidCast() {
     PASS();
 }
 
+//--no-debug-info：锚点计数 0；默认构建与现状一致（非空）。
+static void TestStripDebugInfoRemovesAnchors() {
+    TEST(TestStripDebugInfoRemovesAnchors);
+    {
+        const char* src =
+            "int main() {\n"
+            "    int[] a = new int[1];\n"
+            "    return a[5];\n"
+            "}\n";
+        const auto dir = scratchDir();
+        const auto nPath = dir / "bt_strip.n";
+        const auto modPath = dir / "bt_strip.ncu";
+        std::filesystem::remove(modPath);
+        {
+            std::ofstream out(nPath, std::ios::binary);
+            out << src;
+        }
+        //Mirror buildSource (test_debugger_common.cpp) with the flag
+        //set — same param shape, logger, and BuildArtifacts path.
+        BuildParams params;
+        params.m_SourceFiles.push_back(nPath.string());
+        params.m_sOutputModule = "bt_strip";
+        params.m_sOutputDir = dir.string();
+        params.m_sTempDir = dir.string();
+        params.m_sStdLibDir = STDLIB_DIR;
+        params.m_bStripDebugInfo = true;   //the flag under test
+        ListCompileLogger logger;
+        ModuleBuilder builder(params, logger);
+        REQUIRE(builder.BuildArtifacts()
+            && std::filesystem::exists(modPath));
+        CompiledModule mod = ModuleLoader::Load(modPath.string());
+        bool anyAnchor = false;
+        for (const auto& fn : mod.functions)
+            if (!BuildLinePcMap(fn).empty()) { anyAnchor = true; break; }
+        CHECK(!anyAnchor, "stripped artifact carries no statement anchors");
+
+        BuildOutcome plain = buildSource("bt_plain", src);
+        REQUIRE(plain.ok);
+        CompiledModule modPlain = loadBuilt("bt_plain");
+        bool plainAnchor = false;
+        for (const auto& fn : modPlain.functions)
+            if (!BuildLinePcMap(fn).empty()) { plainAnchor = true; break; }
+        CHECK(plainAnchor, "default build keeps its statement anchors");
+    }
+    PASS();
+}
+
 void run_backtrace_tests() {
     TestFormatBacktraceFrameShapes();
     TestBacktraceCarriesRealSourceFile();
@@ -195,4 +242,5 @@ void run_backtrace_tests() {
     TestRethrowKeepsMessage();
     TestInvalidCastIsCatchable();
     TestUserConstructedInvalidCast();
+    TestStripDebugInfoRemovesAnchors();
 }

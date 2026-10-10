@@ -1321,3 +1321,7 @@ bt_real_file 1
 throw_message_throws 1
 # --- v0.8.5: a failed `as` cast raises catchable InvalidCastException ---
 invalid_cast_caught 42
+# --- v0.8.5: --no-debug-info strips line numbers from backtraces ---
+no_debug_info_throws 1
+# --- v0.8.5: ndb warns when the artifact has no debug anchors ---
+dbg_nodebug_warn 42 Program exited with code 42

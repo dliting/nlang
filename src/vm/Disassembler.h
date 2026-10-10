@@ -56,4 +56,10 @@ struct LinePcEntry {
 };
 std::vector<LinePcEntry> BuildLinePcMap(const CompiledFunction& func);
 
+//v0.8.5: true when any function carries at least one OP_DebugInfo
+//anchor. A --no-debug-info artifact reports false — ndb warns that
+//breakpoints and stepping cannot bind (instead of failing silently
+//at the first `b` command).
+bool ModuleHasDebugAnchors(const CompiledModule& module);
+
 } // namespace nlang

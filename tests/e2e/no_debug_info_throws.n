@@ -1,0 +1,7 @@
+//v0.8.5: --no-debug-info artifact — no statement anchors, so the
+//uncaught error's backtrace prints (file:?) with no line numbers
+//(the file itself is still named: sourceFile metadata is kept).
+int main() {
+    int[] a = new int[1];
+    return a[5];
+}

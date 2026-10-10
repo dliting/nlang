@@ -4,6 +4,7 @@
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
@@ -19,6 +20,13 @@ namespace nlang {
 
 void VmBackend::EmitStatementAnchor(SnStatement& stmt, BytecodeEmitter& emitter)
 {
+    //v0.8.5: --no-debug-info strips every statement anchor (3 bytes
+    //each). OP_DebugInfo is both the line tracker and the debugger's
+    //statement checkpoint, so a stripped module also loses breakpoint
+    //binding and statement stepping — ndb warns when it loads one.
+    //Null env (no BuildEnvironment injected): default to keeping them.
+    if (m_pEnv && m_pEnv->Params().m_bStripDebugInfo)
+        return;
     if (auto* pLoc = stmt.Location()) {
         if (auto* pScript = dynamic_cast<const ScriptLocation*>(pLoc)) {
             uint16_t line = static_cast<uint16_t>(
