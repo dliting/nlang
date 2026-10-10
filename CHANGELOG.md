@@ -8,8 +8,14 @@ All notable changes to NLang are documented here. The format follows
 
 ## [0.8.4] - Unreleased
 
+### Added
+
 - Compound assignment on bare-subscript left-values: `arr[i] += v`, `li[i] += v`, `d[k] += v` (and `-=`/`*=`/`/=`/`%=`), member-base (`h.a[i] += v`) and nested (`m[i][j] += v`) forms, with single-evaluation of base and index.
 - Compound assignment in the `for` update clause: `for (...; i += 1)`.
+- Manual: the Object & Boxing page gains a class-hierarchy overview
+  (the built-in classes sit under `Object` too) and a `toString`
+  cross-reference; the built-in generics page gains an Object-elements
+  (heterogeneous containers) subsection.
 
 ### Fixed
 - **Chained method calls on built-in method results no longer crash the

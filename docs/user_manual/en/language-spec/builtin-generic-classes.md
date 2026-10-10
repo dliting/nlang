@@ -53,6 +53,31 @@ with `get`/subscript keep their array type, and
 `contains` compare by handle identity. Jagged arguments
 (`List<int[][]>`) are rejected like other jagged declarations.
 
+**Object elements (heterogeneous containers)**: with `T` written as `Object`,
+the container holds a mix of value types — primitives and `string` box
+implicitly at `add`/`set`, and class instances store their references
+directly:
+
+```nlang
+int main() {
+    List<Object> bag = new List<Object>();
+    bag.add(42);                     // int boxed in
+    bag.add("hi");                   // string alongside
+    int back = bag.get(0) as int;    // 42
+    if (back == 42 && bag.contains(42)) {
+        return 42;
+    }
+    return 1;
+}
+```
+
+An element pulled out with `get`/subscript has static type `Object`: to use
+it as an `int` (or another concrete type) you must unbox explicitly with
+`as int`; the runtime checks the stored type and throws on a mismatch.
+`contains` and `indexOf` compare boxed primitive elements by value — not
+by reference identity. The same applies to `Dict<K,V>` with `V` (or `K`)
+written as `Object`.
+
 **Null List reference**: a `List<T>` field or variable that has not been
 assigned `new List<T>()` holds null. Calling any method on null throws
 `null reference in CallMethod` — the same null pointer exception (NPE)

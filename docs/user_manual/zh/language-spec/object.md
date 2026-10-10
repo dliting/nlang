@@ -3,6 +3,8 @@
 
 `Object`是class层次结构的隐式根。凡未显式继承其他类的class都隐式继承`Object`。Object由编译器合成——没有源码级的`class Object { ... }`声明，用户也不写`class Foo : Object`（该语法被拒绝）。
 
+`Object`是唯一没有父类的class。内建class同样位于`Object`之下：`List`、`Dict`、`ByteStream`、`FileStream`、`Exception`及其全部内建子类（`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`IOException`）与用户class共用同一个层次，因此任何class实例都可以赋给`Object`变量。不参与class层次的类型：基本类型、`string`与enum赋给`Object`时经装箱进入（enum按其整数值，见下节）；数组、struct与interface不是class，数组与struct的值也没有赋给`Object`的通道。
+
 `Object`是**引用类型**：`Object`类型的值是一个引用，可指向class对象*或*装箱基本类型。赋值与传参拷贝引用。见[类型语义](type-semantics.md)。
 
 ### `equals`与`getHashCode`
@@ -28,6 +30,8 @@ class Point {
 }
 ```
 
+Object还提供第三个虚方法`string toString()`：默认输出`类名@堆位置`（如`Point@1a`），用户类按与`equals`/`getHashCode`相同的方式同名覆写；`as string`转换与字符串位置（拼接、string形参）的隐式转换都调用它。见[类型强制转换](type-casts.md)。
+
 **string的值语义**：string虽是基本类型，但`string.getHashCode()`与`string.equals(string)`调用被内建化为*值*语义（哈希用`std::hash`，equals用内容比较）。这使string无需包装类即可用作`Dict`键。见[字符串](string.md)。
 
 **`==`运算符不受`equals`影响**：Object.equals是可选实现（opt-in）的方法。class引用上的`==`运算符直接比较堆索引。`equals`单独存在的原因，是允许用户类以值相等覆写它，而不破坏更大代码库中恒等相等测试。
@@ -47,6 +51,8 @@ Object s = "hi";         // string 装箱
 int TakesObject(Object o) { return o.getHashCode(); }
 int x = TakesObject(42); // 42 在调用点装箱
 ```
+
+NLang没有`Integer`、`Double`这类命名包装class：装箱只在值进入`Object`位置的那一刻隐式发生，`int`局部变量与算术运算始终保持裸值。enum值赋给`Object`时按其整数值装箱，`as int`取回该整数值。
 
 运行期表示是带标签的装箱槽位（slot[0] = 类型标签，slot[1] = 值位）。装箱槽位不持有引用，垃圾回收（GC，garbage collection）标记阶段显式跳过它们。
 

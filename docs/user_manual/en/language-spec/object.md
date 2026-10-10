@@ -7,6 +7,16 @@ Object is synthesized by the compiler — there is no source-level
 `class Object { ... }` declaration, and users do not write `class Foo : Object`
 (that syntax is rejected).
 
+`Object` is the only class without a parent. The built-in classes sit under
+it as well: `List`, `Dict`, `ByteStream`, `FileStream`, `Exception` and all
+of its built-in subclasses (`NullPointerException`, `DivByZeroException`,
+`IndexOutOfBoundsException`, `AssertionException`, `IOException`) share the
+one hierarchy with user classes, so any class instance can be assigned to
+an `Object` variable. Types outside the class hierarchy: primitives,
+`string` and enums enter `Object` through boxing (an enum by its integer
+value, see the next section); arrays, structs and interfaces are not
+classes, and array and struct values have no path into an `Object` target.
+
 `Object` is a **reference type**: a value of type `Object` is a reference that
 may point at a class object *or* a boxed primitive. Assignment and passing
 copy the reference. See [Type Semantics](type-semantics.md).
@@ -42,6 +52,13 @@ class Point {
 }
 ```
 
+Object also provides a third virtual method, `string toString()`: the
+default form renders `ClassName@heapLocation` (e.g. `Point@1a`), user
+classes override it by name exactly like `equals`/`getHashCode`, and both
+the `as string` conversion and the implicit conversion at string positions
+(concatenation, string parameters) call it. See
+[Type Casts](type-casts.md).
+
 **String value semantics**: although string is a primitive, calls to
 `string.getHashCode()` and `string.equals(string)` are intrinsified to use
 *value* semantics (`std::hash` for hash, content comparison for `equals`).
@@ -69,6 +86,11 @@ Object s = "hi";         // string boxed
 int TakesObject(Object o) { return o.getHashCode(); }
 int x = TakesObject(42); // 42 boxed at the call site
 ```
+
+NLang has no named wrapper classes such as `Integer` or `Double`: boxing
+happens implicitly only at the moment a value enters an `Object` position —
+an `int` local or arithmetic stays a raw value. An enum value assigned to
+`Object` boxes by its integer value; `as int` reads that integer back.
 
 The runtime representation is a tagged boxed slot (slot[0] = type tag,
 slot[1] = value bits). Boxed slots hold no references and are explicitly

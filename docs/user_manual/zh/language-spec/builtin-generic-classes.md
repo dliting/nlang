@@ -39,6 +39,23 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 **数组类型实参**：`T`可以是数组类型——`List<int[]>`把`int[]`值作为裸的、GC可追踪的句柄存储；上文的基本类型装箱规则不适用于数组类型的元素。经`get`/下标取出的元素保留其数组类型，`foreach (int[] row in grid)`可直接迭代它们。`indexOf`/
 `contains`按句柄恒等比较。锯齿实参（`List<int[][]>`）与其他锯齿声明一样被拒绝。
 
+**Object元素（异构容器）**：`T`写`Object`时，容器可以混装不同类型的值——基本类型与`string`在`add`/`set`时隐式装箱，class实例直接存引用：
+
+```nlang
+int main() {
+    List<Object> bag = new List<Object>();
+    bag.add(42);                     // int装箱存入
+    bag.add("hi");                   // string混装
+    int back = bag.get(0) as int;    // 42
+    if (back == 42 && bag.contains(42)) {
+        return 42;
+    }
+    return 1;
+}
+```
+
+经`get`/下标取出的元素类型是`Object`：要当作`int`等具体类型使用，必须`as int`显式拆箱；运行期校验实际存放的类型，不符时抛出异常。`contains`与`indexOf`按值比较装箱的基本类型元素——不是引用恒等。`Dict<K,V>`的`V`（或`K`）为`Object`时同理。
+
 **null List引用**：未赋值`new List<T>()`的`List<T>`字段或变量持有null。对null调用任何方法抛出`null reference in CallMethod`——与其他class引用相同的空指针异常（NPE，null pointer exception）语义。
 
 **集合初始化器**：支持`[1, 2, 3]`字面量语法（数组与`List<T>`的裸方括号形式）。见[集合初始化器](collection-initializers.md)。
