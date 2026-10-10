@@ -135,6 +135,15 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 	//Phase 9a: reject compound assignment to a const local.
 	RejectConstStoreTarget(*sn.Left(), sn.Location());
 	RejectMethodCallStoreTarget(*sn.Left(), sn.Location());
+	//0.8.4: a string base (s[0] += v) has no store semantics — the
+	//same gate as the plain subscript store (RejectStringBase).
+	if (sn.Left()->Kind() == NK_SubscriptExpr)
+	{
+		auto& sub = static_cast<SnSubscriptExpr&>(*sn.Left());
+		if (sub.Array()
+			&& RejectStringBase(*sub.Array(), sn.Location()))
+			return;
+	}
 	sn.Right()->Accept(*m_pVisitor);
 
 	//Type check: RHS must be compatible with LHS type.
@@ -173,7 +182,7 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 		m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
 	if (sn.Value() && !sn.Value()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
-	if (RejectStringBase(sn))
+	if (RejectStringBase(*sn.Array(), sn.Location()))
 		return;
 	if (sn.Value() && (IsUnboundFuncRef(*sn.Value())
 		|| IsUnboundMemberFuncRef(*sn.Value())))
@@ -222,9 +231,11 @@ bool StatementResolveAccessor::TryBindStatementFuncRef(SnExpression &expr,
 }
 
 //Assignment target type: an identifier LHS reads its bound field; a
-//member Lvalue has already resolved its type onto the node. (Both
-//callers — plain and compound assign — only ever receive identifier or
-//member LHS shapes; subscript stores parse as SnSubscriptAssignStmt.)
+//member or subscript Lvalue has already resolved its type onto the node
+//(a subscript Lvalue's EvalDataType is the element type — the resolver
+//peels any array token at the subscript, 0.8.4). (Plain assign receives
+//only identifier or member LHS shapes; subscript stores parse as
+//SnSubscriptAssignStmt.)
 //False = the target has no type yet (an unresolved identifier), and the
 //caller must stop before deriving a source type.
 bool StatementResolveAccessor::TryGetAssignTargetType(SnExpression &left,
@@ -237,7 +248,8 @@ bool StatementResolveAccessor::TryGetAssignTargetType(SnExpression &left,
 			return false;
 		pTargetType = pLeftField->EvalDataType();
 	}
-	else if (left.Kind() == NK_MemberExpr)
+	else if (left.Kind() == NK_MemberExpr
+		|| left.Kind() == NK_SubscriptExpr)
 		pTargetType = left.EvalDataType();
 	return true;
 }
@@ -365,14 +377,16 @@ bool StatementResolveAccessor::TryBindSubscriptStoreFuncRef(
 //base has no subscript store semantics. Before this arm the store fell
 //through the container path with a null element type (strings are not
 //generic instantiations) and failed only at runtime ("null array
-//access").
-bool StatementResolveAccessor::RejectStringBase(SnSubscriptAssignStmt &sn)
+//access"). 0.8.4: shared with the compound-assign subscript LHS
+//(`s[0] += v`) — the same base has no store semantics there.
+bool StatementResolveAccessor::RejectStringBase(SnExpression &base,
+	const ISourceLocation *pLoc)
 {
-	if (sn.Array() && sn.Array()->IsResolved()
-		&& sn.Array()->EvalDataType()
-		&& sn.Array()->EvalDataType()->Kind() == NK_String)
+	if (base.IsResolved()
+		&& base.EvalDataType()
+		&& base.EvalDataType()->Kind() == NK_String)
 	{
-		m_Env.Log(CLL_Error, sn.Location(),
+		m_Env.Log(CLL_Error, pLoc,
 			"string does not support subscript access.");
 		return true;
 	}

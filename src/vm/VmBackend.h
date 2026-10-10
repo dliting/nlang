@@ -552,8 +552,15 @@ private:
         SnMemberExpr& memberExpr, uint16_t fieldOff,
         BytecodeEmitter& emitter);
 
-    //Compound assign (EmitStmtDecl.cpp): read-modify-write on the bare
-    //local / implicit this-field / member field targets. op is the
+    //Phase 8e-4: RTK_* tag for boxing a primitive-T argument, plus an
+    //isPrimitive flag (needed because RTK_Int32 == 0 — same collision as
+    //the Phase 8e-3 C1 fix). Shared by List<T>/Dict<K,V> codegen and the
+    //0.8.4 compound-subscript path. Defined here (before the compound
+    //declarations that name it) rather than at its former later spot.
+    struct BoxingTagResult { uint8_t tag; bool isPrimitive; };
+
+    //Compound assign (EmitStmtCompound.cpp): read-modify-write on the
+    //bare local / implicit this-field / member field targets. op is the
     //underlying binary operator; int avoids requiring SnBinaryExpr's
     //full definition here (same as EmitCompoundOp).
     void EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
@@ -562,6 +569,33 @@ private:
         SnField* field, int fieldOff, int op, BytecodeEmitter& emitter);
     void EmitCompoundAssignMemberField(SnCompoundAssignStmt& ca,
         SnMemberExpr& memberExpr, int op, BytecodeEmitter& emitter);
+    //0.8.4: bare-subscript LHS (arr[i] += v, li[i] -= v, d[k] *= v) —
+    //read-modify-write with base and index each evaluated exactly once
+    //(JLS 15.26.1), parked in an EvalAreaClaim(4) [base, index, old, rhs].
+    void EmitCompoundAssignSubscript(SnCompoundAssignStmt& ca,
+        SnSubscriptExpr& sub, int op, BytecodeEmitter& emitter);
+    //0.8.4: container-subscript compound assign (li[i] op= v, d[k] op= v) —
+    //sugar over get()/set() on the already-parked [base, index, result]
+    //claim slots, so base and index are not re-emitted.
+    void EmitCompoundSubscriptContainer(SnCompoundAssignStmt& ca,
+        SnSubscriptExpr& sub, SnField* elemType, int op,
+        uint16_t claimBase, uint16_t indexSlot, uint16_t oldValSlot,
+        uint16_t rhsSlot, BytecodeEmitter& emitter);
+    //0.8.4: array-subscript compound assign (arr[i] op= v) — direct
+    //element ops over the parked claim slots, no call frames.
+    void EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
+        SnSubscriptExpr& sub, SnField* elemType, int op,
+        uint16_t claimBase, uint16_t indexSlot, uint16_t oldValSlot,
+        uint16_t rhsSlot, BytecodeEmitter& emitter);
+    //0.8.4: get() call over the parked [base, index] claim slots
+    //(mirrors EmitContainerGetCall without re-emitting base/index).
+    void EmitSubscriptGetFromClaim(uint16_t claimBase,
+        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        BytecodeEmitter& emitter);
+    //0.8.4: set() call over the parked [base, index, result] claim slots.
+    void EmitSubscriptSetFromClaim(uint16_t claimBase,
+        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        BytecodeEmitter& emitter);
 
     //Foreach (EmitStmtForeach.cpp): the user loop variable plus the
     //three uniquified hidden locals of the index-based expansion
@@ -894,10 +928,6 @@ private:
     //ExtractDefaultValue arms: direct literal, and OP_Neg over a literal.
     void ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv);
     void ExtractNegatedLiteralDefault(SnBinaryExpr* bin, DefaultValueDesc& dv);
-    //Phase 8e-4: RTK_* tag for boxing a primitive-T argument, plus an
-    //isPrimitive flag (needed because RTK_Int32 == 0 — same collision as
-    //the Phase 8e-3 C1 fix). Shared by List<T> and Dict<K,V> codegen.
-    struct BoxingTagResult { uint8_t tag; bool isPrimitive; };
     static BoxingTagResult BoxingTagFor(SnField* pT);
     //Emit one operand into its claim slot, boxing it in place when
     //the plan says primitive (the OP_Box sequence needs a pResult

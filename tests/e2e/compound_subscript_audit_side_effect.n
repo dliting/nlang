@@ -1,0 +1,19 @@
+//0.8.4 audit: the index expression must be evaluated exactly once —
+//a side-effecting index (counter bump) called twice would double
+//count and shift the parked base.
+class Ctr {
+	public int n;
+	public int Ctr() { n = 0; return 0; }
+	public int bump() { n += 1; return n; }
+}
+int main() {
+	Ctr c = new Ctr();
+	int[] a = [5, 6, 7];
+	a[c.bump()] += 10;
+	List<int> li = new List<int>();
+	li.add(1);
+	li.add(2);
+	li.add(3);
+	li[c.bump()] += 20;
+	return c.n * 100 + a[1] + li[2];
+}

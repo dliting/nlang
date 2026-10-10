@@ -756,6 +756,8 @@ AssignStmt: IdentifierExpr '=' Expression ';' {
 /*
 Compound assignment statement (e.g. x += 1).
 Phase 9a: left-value is evaluated only once.
+0.8.4: bare-subscript lvalues (arr[i] += v) — SubscriptExpr left,
+base and index each evaluated exactly once (read-modify-write).
 */
 CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
@@ -785,6 +787,21 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1);
 				} |
 				MemberExpr OT_MODS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
+				} |
+				SubscriptExpr OT_INCS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
+				} |
+				SubscriptExpr OT_DECS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1);
+				} |
+				SubscriptExpr OT_MULS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1);
+				} |
+				SubscriptExpr OT_DIVS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1);
+				} |
+				SubscriptExpr OT_MODS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} ;
 
@@ -910,6 +927,21 @@ FiniFor:	{
 				} |
 				IdentifierExpr '=' Expression {
 					$$ = new SnAssignStmt($1, $3, @1);
+				} |
+				IdentifierExpr OT_INCS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
+				} |
+				IdentifierExpr OT_DECS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Sub, $1, $3, @1);
+				} |
+				IdentifierExpr OT_MULS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mul, $1, $3, @1);
+				} |
+				IdentifierExpr OT_DIVS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Div, $1, $3, @1);
+				} |
+				IdentifierExpr OT_MODS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} ;
 
 /*

@@ -1,0 +1,7 @@
+//0.8.4: a missing Dict key read through compound assign throws
+//(same as reading d[k] on a missing key).
+int main() {
+	Dict<int, int> d = new Dict<int, int>();
+	d[1] += 1;
+	return 0;
+}

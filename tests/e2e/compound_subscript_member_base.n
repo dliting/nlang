@@ -1,0 +1,11 @@
+//0.8.4: compound through a member-base subscript (class field int[]).
+class H {
+	int[] a;
+	public int H() { a = [1, 2]; return 0; }
+}
+int main() {
+	H h = new H();
+	h.a[0] += 10;
+	h.a[1] -= 2;
+	return h.a[0] + h.a[1];
+}

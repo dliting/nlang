@@ -1,0 +1,6 @@
+void f() { }
+int main() {
+	int[] a = new int[1];
+	a[0] += f();
+	return 0;
+}

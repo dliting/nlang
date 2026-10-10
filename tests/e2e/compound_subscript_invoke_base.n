@@ -1,0 +1,13 @@
+//0.8.4: compound through a call-result base (store through the
+//returned array; the base call is evaluated once — counted).
+class Box {
+	public int[] a;
+	public int calls;
+	public int Box() { a = [1, 2, 3]; calls = 0; return 0; }
+	public int[] get() { calls += 1; return a; }
+}
+int main() {
+	Box b = new Box();
+	b.get()[0] += 10;
+	return b.calls * 100 + b.a[0];
+}

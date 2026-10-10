@@ -1,0 +1,7 @@
+//0.8.4: string[] element compound — += only.
+int main() {
+	string[] s = ["ab", "cd"];
+	s[0] += "x";
+	s[1] += "yz";
+	return s[0].length() + s[1].length();
+}

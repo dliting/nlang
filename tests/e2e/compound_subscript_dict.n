@@ -1,0 +1,9 @@
+//0.8.4: compound assignment on Dict<int,int> elements.
+int main() {
+	Dict<int, int> d = new Dict<int, int>();
+	d[1] = 10;
+	d[2] = 20;
+	d[1] += 5;
+	d[2] *= 2;
+	return d[1] + d[2];
+}

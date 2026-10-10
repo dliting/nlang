@@ -1,0 +1,8 @@
+//0.8.4: const local array base — element store through a const
+//reference is allowed (consistent with plain a[i] = v; the const
+//flag is on the reference, not the element).
+int main() {
+	const int[] a = [1, 2];
+	a[0] += 5;
+	return a[0];
+}

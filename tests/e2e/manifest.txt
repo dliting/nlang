@@ -1293,3 +1293,22 @@ store_call_result_compound compile_error cannot assign to the result of a method
 func_keyword_basic 42
 func_keyword_ident_reject compile_error
 func_old_spelling_reject compile_error is not a built-in generic type
+
+# 0.8.4: compound assignment on bare-subscript lvalues and the
+# for update clause.
+compound_subscript_array 101
+compound_subscript_array_float 1
+compound_subscript_array_string 7
+compound_subscript_list 1
+compound_subscript_dict 55
+compound_subscript_dict_missing_throws 1
+compound_subscript_member_base 11
+compound_subscript_nested 62
+compound_subscript_invoke_base 111
+compound_subscript_audit_side_effect 239
+compound_subscript_const_base 6
+compound_subscript_fini_for 55
+compound_subscript_string_base_error compile_error string does not support subscript access
+compound_subscript_string_elem_op_error compile_error operator not supported on string
+compound_subscript_struct_elem_error compile_error Incompatible type
+compound_subscript_void_error compile_error cannot assign the result of void function

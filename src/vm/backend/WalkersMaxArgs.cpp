@@ -170,6 +170,16 @@ void VmBackend::MaxArgsCompoundAssignStmt(SnStatement& stmt, uint16_t& maxArgs) 
     //Walk Left() receiver too — `mk().x += 1` hides a call
     //needing callParamBase slots (C1-family asymmetry).
     auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
+    //0.8.4: a bare subscript LHS on a container base (li[i] += v)
+    //lowers to get() + set(); the set() bulk-copies 3 slots
+    //([this, index, value]) into callParamBase — reserve them.
+    //MaxArgsSubscriptExpr already walks base/index and reserves 2
+    //for the read path's get().
+    if (ca.Left() && ca.Left()->Kind() == NK_SubscriptExpr
+        && IsContainerSubscript(
+            *static_cast<SnSubscriptExpr&>(*ca.Left()).Array())
+        && maxArgs < 3)
+        maxArgs = 3;
     if (ca.Left()) MaxArgsWalkExpr(*ca.Left(), maxArgs);
     if (ca.Right()) MaxArgsWalkExpr(*ca.Right(), maxArgs);
 }

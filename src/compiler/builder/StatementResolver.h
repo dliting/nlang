@@ -88,7 +88,7 @@ private:
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
-	bool RejectStringBase(SnSubscriptAssignStmt &sn);
+	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);
 	void ApplyContainerStoreCasts(SnSubscriptAssignStmt &sn);
 	void CheckForeachSource(SnForeachStmt &sn);

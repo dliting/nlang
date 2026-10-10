@@ -46,6 +46,7 @@ add_library(nlang_vm
     backend/EmitExprMemberString.cpp
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp
+    backend/EmitStmtCompound.cpp
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp
     backend/EmitStmtForeach.cpp

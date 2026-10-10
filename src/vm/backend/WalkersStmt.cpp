@@ -269,6 +269,23 @@ uint16_t VmBackend::ThrowStmtPeakDepth(SnStatement& stmt,
 uint16_t VmBackend::CompoundAssignStmtPeakDepth(SnStatement& stmt,
     const std::unordered_set<SnFunction*>& visited) {
     auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
+    //0.8.4: a bare subscript LHS (arr[i] += v) parks base/index/old/RHS
+    //in an EvalAreaClaim(4). Base and index are emitted directly into
+    //the claim slots (no read-path claim of their own — the get()/
+    //set() calls ride callParamBase, and the array path is direct
+    //element ops), so walk them separately rather than through
+    //ExprPeakDepth(*Left()), which would add the read path's own
+    //claim(2) on top.
+    if (ca.Left() && ca.Left()->Kind() == NK_SubscriptExpr) {
+        auto& sub = static_cast<SnSubscriptExpr&>(*ca.Left());
+        uint16_t b = ExprPeakDepth(*sub.Array(), visited);
+        uint16_t i = ExprPeakDepth(*sub.Index(), visited);
+        uint16_t r = ca.Right()
+            ? ExprPeakDepth(*ca.Right(), visited) : 0;
+        uint16_t m = b > i ? b : i;
+        if (r > m) m = r;
+        return 4 + m;
+    }
     //Member targets (`obj.f += v` and implicit `this.f += v`) park
     //receiver/old-value/RHS in an EvalAreaClaim(3); the walker cannot
     //distinguish the implicit-this shape (Left is a bare identifier

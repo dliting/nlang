@@ -1,0 +1,18 @@
+//0.8.4: compound assignment on List<int>/List<float> elements
+//(staged get()/set() with boxing).
+int main() {
+	List<int> li = new List<int>();
+	li.add(10);
+	li.add(13);
+	li[0] += 5;
+	li[1] -= 7;
+	li[0] *= 2;
+	li[1] /= 4;
+	li[0] %= 8;
+	List<float> lf = new List<float>();
+	lf.add(10.0);
+	lf[0] += 2.5;
+	if (li[0] + li[1] == 7 && lf[0] > 12.4 && lf[0] < 12.6)
+		return 1;
+	return 99;
+}

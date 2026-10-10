@@ -1,0 +1,10 @@
+//0.8.4: compound assignment on a bare array-element lvalue.
+int main() {
+	int[] a = [10, 20, 30, 50, 7];
+	a[0] += 5;
+	a[1] -= 5;
+	a[2] *= 2;
+	a[3] /= 5;
+	a[4] %= 3;
+	return a[0] + a[1] + a[2] + a[3] + a[4];
+}
