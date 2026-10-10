@@ -6,6 +6,11 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.4] - Unreleased
+
+- Compound assignment on bare-subscript left-values: `arr[i] += v`, `li[i] += v`, `d[k] += v` (and `-=`/`*=`/`/=`/`%=`), member-base (`h.a[i] += v`) and nested (`m[i][j] += v`) forms, with single-evaluation of base and index.
+- Compound assignment in the `for` update clause: `for (...; i += 1)`.
+
 ## [0.8.3] - Unreleased
 
 ### Changed

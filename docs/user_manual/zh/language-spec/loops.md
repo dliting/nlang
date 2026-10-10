@@ -19,7 +19,7 @@ for (init; cond; fini) { body }
 
 ```nlang
 int sum = 0;
-for (int i = 1; i <= 10; i = i + 1) {
+for (int i = 1; i <= 10; i += 1) {
     sum = sum + i;
 }
 // sum == 55；循环后 `i` 仍在作用域内（函数作用域）
@@ -27,7 +27,7 @@ for (int i = 1; i <= 10; i = i + 1) {
 
 ```nlang
 int count = 0;
-for (int j = 0; j < 20; j = j + 1) {
+for (int j = 0; j < 20; j += 1) {
     if (j == 5) { break; }        // 退出循环（步进段被跳过）
     if (j % 2 == 1) { continue; } // 步进段运行，然后进入下一轮
     count = count + 1;

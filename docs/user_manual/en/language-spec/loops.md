@@ -28,7 +28,7 @@ within it (block scope).
 
 ```nlang
 int sum = 0;
-for (int i = 1; i <= 10; i = i + 1) {
+for (int i = 1; i <= 10; i += 1) {
     sum = sum + i;
 }
 // sum == 55; `i` is still in scope after the loop (function-scoped)
@@ -36,7 +36,7 @@ for (int i = 1; i <= 10; i = i + 1) {
 
 ```nlang
 int count = 0;
-for (int j = 0; j < 20; j = j + 1) {
+for (int j = 0; j < 20; j += 1) {
     if (j == 5) { break; }        // exits the loop (step clause skipped)
     if (j % 2 == 1) { continue; } // step clause runs, then next iteration
     count = count + 1;

@@ -35,7 +35,7 @@ a[1] = a[0] + 1;
 int x = a[a.length() - 1];
 ```
 
-复合下标赋值（`arr[i] += 1`）不支持——请写`arr[i] = arr[i] + 1`。见[复合赋值](compound-assignment.md)。
+下标左值的复合赋值（`arr[i] += 1`）受[复合赋值](compound-assignment.md)同一规则约束（元素为string时仅`+=`）。
 
 ### 越界
 

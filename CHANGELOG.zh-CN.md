@@ -6,6 +6,14 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.4] - Unreleased
+
+### 新增
+- **下标复合赋值**：`arr[i] += v`、`li[i] += v`、`d[k] += v`（及
+  `-=`/`*=`/`/=`/`%=`）、成员基（`h.a[i] += v`）与嵌套（`m[i][j] +=
+  v`）形态，基与索引只求值一次。
+- **`for` 步进段复合赋值**：`for (...; i += 1)`。
+
 ## [0.8.3] - Unreleased
 
 ### 变更

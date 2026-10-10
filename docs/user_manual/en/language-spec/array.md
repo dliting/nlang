@@ -46,8 +46,9 @@ a[1] = a[0] + 1;
 int x = a[a.length() - 1];
 ```
 
-Compound subscript assignment (`arr[i] += 1`) is not supported — write
-`arr[i] = arr[i] + 1`. See [Compound Assignment](compound-assignment.md).
+Compound assignment on a subscript left-value (`arr[i] += 1`) follows the
+same rules as [Compound Assignment](compound-assignment.md) (for string
+elements, only `+=`).
 
 ### Out of bounds
 

@@ -200,5 +200,5 @@ arr[0] = new List<int>();
 arr[0][1];              // container subscript through an array element
 ```
 
-Compound subscript assignment (`li[0] += 1`) is intentionally not
-supported (same policy as arrays); write `li[0] = li[0] + 1`.
+Compound subscript assignment (`li[0] += 1`) follows the same policy as
+arrays; see [Compound Assignment](compound-assignment.md).
