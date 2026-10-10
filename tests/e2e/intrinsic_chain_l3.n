@@ -1,0 +1,16 @@
+//#11 L3: chained method calls on intrinsic-by-name results.
+//Regression fixture for the #11 compiler crash: before the fix, the
+//intrinsic arms set EvalDataType but not m_pField, and a chained member's
+//IsDataExpr() dereferenced the null field (ncc 0xC0000005 in Release).
+//Each chain below exercises one intrinsic result as the receiver of the
+//next method call.
+import io;
+int main() {
+    int[] a = new int[3];
+    a[0] = 1; a[1] = 2; a[2] = 3;
+    string s = "hello";
+    io.print(a.length().toString());            // 3  -- array length -> int -> toString
+    io.print(s.toString().length().toString()); // 5  -- string toString -> string -> length
+    io.print(s.length() + a.length());          // 8  -- intrinsic ints in arithmetic
+    return s.length() + a.length();            // 8
+}

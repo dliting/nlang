@@ -14,6 +14,12 @@
   v`）形态，基与索引只求值一次。
 - **`for` 步进段复合赋值**：`for (...; i += 1)`。
 
+### 修复
+- **内建方法结果上的链式调用不再使编译器崩溃**：把按名内建分派的
+  结果再作为接收者调用方法（如 `a.length().toString()`、
+  `s.toString().length()`，协议 `equals`/`getHashCode`/`toString`
+  结果、流读取方法结果）此前在 Release 版 `ncc` 中崩溃。
+
 ## [0.8.3] - Unreleased
 
 ### 变更

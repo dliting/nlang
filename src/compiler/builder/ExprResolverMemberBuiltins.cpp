@@ -35,38 +35,42 @@ bool ExprResolveAccessor::TryResolveStringBuiltinMethod(
 	//(identical resolution, one arm).
 	if ((name == "length" || name == "getHashCode")
 		&& invoke.Params().begin() == invoke.Params().end())
-	{
-		pInnerExpr->AddFlags(NF_Resolved);
-		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		m_pContext = pSavedContext;
-		return true;
-	}
+		return BindIntrinsicStringResult(snMember, pInnerExpr, NK_Int32,
+			pSavedContext);
 	if (name == "equals")
 		return ResolveStringEqualsMethod(snMember, pInnerExpr, invoke,
 			pSavedContext);
 	if (const StringMethodEntry* pMethod = FindStringMethod(name))
 		return TryResolveTableStringMethod(snMember, pInnerExpr, invoke,
 			name, pSavedContext);
-	//Phase 8e-9b: string.toString() — identity. Resolver folds the call
-	//to a no-op (callee=null, EvalDataType=String). Codegen emits nothing
-	//and the inner string idx flows through unchanged.
+	//Phase 8e-9b: string.toString() — identity. Codegen emits nothing and
+	//the inner string idx flows through unchanged (VmBackend detects a
+	//string receiver + toString name and emits nothing for the fold).
 	if (name == "toString" && invoke.Params().begin() == invoke.Params().end())
-	{
-		pInnerExpr->AddFlags(NF_Resolved);
-		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		//Mark the invoke as folded so codegen skips it. Use NF_Resolved flag
-		//on the inner expression (already set above) and leave callee as-is;
-		//VmBackend detects string receiver + toString name and emits nothing.
-		m_pContext = pSavedContext;
-		return true;
-	}
+		return BindIntrinsicStringResult(snMember, pInnerExpr, NK_String,
+			pSavedContext);
 	//Not consumed: m_pContext stays on the receiver context — the next
 	//phases' guards read it (an early restore here would misdispatch them).
 	return false;
+}
+
+//Shared resolve tail for the intrinsified zero-argument string arms
+//(length/getHashCode, toString): bind the built-in result type as BOTH
+//EvalDataType and m_pField so a chained member (a.length().toString(),
+//s.substring(1).toUpper()) survives IsDataExpr() — see
+//BindTableStringMethodResult.
+bool ExprResolveAccessor::BindIntrinsicStringResult(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr, NodeKind resultKind,
+	SyntaxNode *pSavedContext)
+{
+	pInnerExpr->AddFlags(NF_Resolved);
+	auto* pResult = SnBuiltinDataType::InstanceOf(resultKind);
+	snMember.EvalDataType(pResult);
+	snMember.m_pField = pResult;
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
 }
 
 //string.Equals(other) — value semantics, args resolve in the caller's scope.
@@ -93,7 +97,11 @@ bool ExprResolveAccessor::ResolveStringEqualsMethod(SnMemberExpr &snMember,
 	RemoveFlags(ERF_SearchInParentOnly);
 	ResolveExpressionList(invoke.Params());
 	pInnerExpr->AddFlags(NF_Resolved);
-	snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+	//Bind m_pField (not just EvalDataType) so a chained member survives
+	//IsDataExpr() — see BindTableStringMethodResult.
+	auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
+	snMember.EvalDataType(pInt);
+	snMember.m_pField = pInt;
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);
 	m_pContext = pSavedContext;
@@ -267,9 +275,13 @@ bool ExprResolveAccessor::TryResolveArrayLengthMethod(
 			return true;
 		}
 		//Mirror of the string length/getHashCode arm: same flag set and
-		//int verdict (TryResolveStringBuiltinMethod above).
+		//int verdict (TryResolveStringBuiltinMethod above), plus the m_pField
+		//bind so a chained member (a.length().toString()) survives
+		//IsDataExpr().
 		pInnerExpr->AddFlags(NF_Resolved);
-		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+		auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
+		snMember.EvalDataType(pInt);
+		snMember.m_pField = pInt;
 		snMember.AddFlags(NF_Resolved);
 		BindArrayTypeToken(snMember);
 		m_pContext = pSavedContext;

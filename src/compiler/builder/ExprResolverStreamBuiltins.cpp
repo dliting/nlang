@@ -163,7 +163,10 @@ bool ExprResolveAccessor::TryResolveStreamBuiltinMethod(
 			NK_StructDecl, "ReadStruct", pSavedContext);
 		if (!pFound)
 			return true;
+		//Bind m_pField (not just EvalDataType) so a chained member
+		//survives IsDataExpr() — see BindTableStringMethodResult.
 		snMember.EvalDataType(pFound);
+		snMember.m_pField = pFound;
 	}
 	else if (name == "readObject")
 	{
@@ -173,7 +176,10 @@ bool ExprResolveAccessor::TryResolveStreamBuiltinMethod(
 			NK_ClassDecl, "ReadObject", pSavedContext);
 		if (!pFound)
 			return true;
+		//Bind m_pField (not just EvalDataType) so a chained member
+		//survives IsDataExpr() — see BindTableStringMethodResult.
 		snMember.EvalDataType(pFound);
+		snMember.m_pField = pFound;
 	}
 	if (!isStreamMethod)
 		return false;
@@ -358,9 +364,14 @@ void ExprResolveAccessor::ResolveStreamMethodTail(SnMemberExpr &snMember,
 		&& name != "writeString" && name != "reset" && name != "close"
 		&& name != "writeStruct" && name != "writeObject")
 	{
-		//ReadStruct/ReadObject already set EvalDataType above; others use retKind.
+		//ReadStruct/ReadObject already bound EvalDataType and m_pField
+		//above; others use retKind for both.
 		if (name != "readStruct" && name != "readObject")
-			snMember.EvalDataType(SnBuiltinDataType::InstanceOf(retKind));
+		{
+			auto* pRet = SnBuiltinDataType::InstanceOf(retKind);
+			snMember.EvalDataType(pRet);
+			snMember.m_pField = pRet;
+		}
 	}
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);

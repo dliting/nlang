@@ -46,7 +46,11 @@ bool ExprResolveAccessor::TryResolveUserClassEqualsOrGetHashCode(
 	RemoveFlags(ERF_SearchInParentOnly);
 	ResolveExpressionList(invoke.Params());
 	pInnerExpr->AddFlags(NF_Resolved);
-	snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+	//Bind m_pField (not just EvalDataType) so a chained member survives
+	//IsDataExpr() — see BindTableStringMethodResult.
+	auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
+	snMember.EvalDataType(pInt);
+	snMember.m_pField = pInt;
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);
 	m_pContext = pSavedContext;
@@ -88,7 +92,12 @@ bool ExprResolveAccessor::TryResolveObjectProtocolMethod(
 		RemoveFlags(ERF_SearchInParentOnly);
 		ResolveExpressionList(invoke.Params());
 		pInnerExpr->AddFlags(NF_Resolved);
-		snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+		//Bind m_pField (not just EvalDataType) so a chained member
+		//(obj.toString().length()) survives IsDataExpr() — see
+		//BindTableStringMethodResult.
+		auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
+		snMember.EvalDataType(pStr);
+		snMember.m_pField = pStr;
 		snMember.AddFlags(NF_Resolved);
 		BindArrayTypeToken(snMember);
 		m_pContext = pSavedContext;
@@ -157,9 +166,10 @@ bool ExprResolveAccessor::IsNonClassToStringReceiver(SnMemberExpr &snMember)
 //These types have no method table; the resolver accepts the call by setting
 //EvalDataType=String + NF_Resolved. Codegen dispatches based on the
 //outer expression's EvalDataType (enum→OP_Enum_to_str, scalar→OP_Prim_to_str,
-//array→OP_Array_to_str). No m_pField hack needed — the type information
-//flows through the existing outer->EvalDataType() channel, same as struct/
-//class/interface field access in codegen.
+//array→OP_Array_to_str). m_pField is bound to the same String type so a
+//chained member (a.length().toString().length()) survives IsDataExpr();
+//the type information otherwise flows through outer->EvalDataType(), same as
+//struct/class/interface field access in codegen.
 bool ExprResolveAccessor::TryResolveNonClassToString(SnMemberExpr &snMember,
 	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
 {
@@ -175,7 +185,12 @@ bool ExprResolveAccessor::TryResolveNonClassToString(SnMemberExpr &snMember,
 	RemoveFlags(ERF_SearchInParentOnly);
 	ResolveExpressionList(invoke.Params());
 	pInnerExpr->AddFlags(NF_Resolved);
-	snMember.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+	//Bind m_pField (not just EvalDataType) so a chained member
+	//(a.length().toString().length()) survives IsDataExpr() — see
+	//BindTableStringMethodResult.
+	auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
+	snMember.EvalDataType(pStr);
+	snMember.m_pField = pStr;
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);
 	m_pContext = pSavedContext;

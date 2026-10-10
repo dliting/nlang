@@ -305,6 +305,9 @@ private:
 		SnExpression *pOuterExpr, SyntaxNode *pSavedContext);
 	bool TryResolveStringBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	bool BindIntrinsicStringResult(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, NodeKind resultKind,
+		SyntaxNode *pSavedContext);
 	bool ResolveStringEqualsMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		SyntaxNode *pSavedContext);

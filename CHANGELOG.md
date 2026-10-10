@@ -11,6 +11,13 @@ All notable changes to NLang are documented here. The format follows
 - Compound assignment on bare-subscript left-values: `arr[i] += v`, `li[i] += v`, `d[k] += v` (and `-=`/`*=`/`/=`/`%=`), member-base (`h.a[i] += v`) and nested (`m[i][j] += v`) forms, with single-evaluation of base and index.
 - Compound assignment in the `for` update clause: `for (...; i += 1)`.
 
+### Fixed
+- **Chained method calls on built-in method results no longer crash the
+  compiler**: using an intrinsically dispatched result as the receiver of
+  another method call (`a.length().toString()`, `s.toString().length()`,
+  protocol `equals`/`getHashCode`/`toString` results, stream reader
+  results) crashed `ncc` in Release builds.
+
 ## [0.8.3] - Unreleased
 
 ### Changed

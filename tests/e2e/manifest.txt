@@ -1312,3 +1312,6 @@ compound_subscript_string_base_error compile_error string does not support subsc
 compound_subscript_string_elem_op_error compile_error operator not supported on string
 compound_subscript_struct_elem_error compile_error Incompatible type
 compound_subscript_void_error compile_error cannot assign the result of void function
+
+# --- #11 L3: intrinsic-by-name chained methods ---
+intrinsic_chain_l3 8
