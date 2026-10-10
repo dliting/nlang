@@ -37,6 +37,7 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             //backtrace before popping. Innermost frame runs first.
             if (std::uncaught_exceptions() > 0 && !stack.empty()) {
                 unwind.push_back({func ? func->name : std::string("<unknown>"),
+                                  func ? func->sourceFile : std::string(),
                                   stack.back().currentLine});
             }
             stack.pop_back();

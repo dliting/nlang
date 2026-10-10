@@ -1315,3 +1315,5 @@ compound_subscript_void_error compile_error cannot assign the result of void fun
 
 # --- #11 L3: intrinsic-by-name chained methods ---
 intrinsic_chain_l3 8
+# --- v0.8.5: runtime backtraces carry the real compiled source file ---
+bt_real_file 1

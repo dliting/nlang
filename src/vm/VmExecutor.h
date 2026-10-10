@@ -30,6 +30,16 @@ struct NLangThrow : public std::runtime_error {
         : std::runtime_error(msg), heapIdx(h) {}
 };
 
+//v0.8.5: single source for one backtrace frame's text, shared by
+//FormatBacktrace and RaiseNlangException's Exception.backtrace
+//build (both used to fabricate "<module>.n" for every frame).
+//file is the frame function's compiled translation unit (absolute path);
+//empty falls back to the legacy "<module>.n" spelling (theoretical:
+//synthetic stubs). line 0 prints "?" (the existing convention).
+std::string FormatBacktraceFrame(const std::string& funcName,
+    const std::string& file, uint16_t line,
+    const std::string& fallbackModule);
+
 //Phase 13: slot[2] of a function-handle record — selects the dispatch
 //strategy in OP_CallDelegate. Slot contents differ by form: [0] holds a
 //functions[] index for static handles, a string-constant index (method
@@ -783,6 +793,7 @@ private:
     //because innermost frame's destructor runs first during stack unwinding.
     struct UnwindFrame {
         std::string funcName;
+        std::string sourceFile;   //v0.8.5: the frame function's compiled translation unit
         uint16_t currentLine;
     };
     std::vector<UnwindFrame> m_unwindFrames;

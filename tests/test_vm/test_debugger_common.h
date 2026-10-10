@@ -94,3 +94,7 @@ void run_debugger_sourcecache_tests();
 void run_debugger_hostio_tests();
 void run_debugger_machine_tests();
 void run_debugger_loop_tests();
+
+//v0.8.5: runtime error reporting (backtrace file paths, throw messages,
+//InvalidCastException, --no-debug-info anchors) — test_backtrace.cpp.
+void run_backtrace_tests();

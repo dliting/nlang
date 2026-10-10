@@ -1,0 +1,7 @@
+//v0.8.5: backtrace real-file pin — the throwing frame lives in THIS
+//translation unit; the run's backtrace must name lib.n (the compiled-in
+//source path), not the entry module's fabricated spelling.
+int boom() {
+    int[] a = new int[1];
+    return a[5];
+}

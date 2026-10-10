@@ -322,6 +322,24 @@ def main():
                             failed += 1
                             errors.append(f"  {name}: stdout missing {expected_stdout!r}")
                             continue
+                    #v0.8.5: <name>.run.stderr for directory fixtures —
+                    #same substring + '!'-negation shape as the
+                    #single-file path, reading the fixture dir.
+                    run_stderr_path = os.path.join(
+                        test_dir, f"{name}.run.stderr")
+                    if os.path.isfile(run_stderr_path):
+                        with open(run_stderr_path, encoding='utf-8') as sf:
+                            want = sf.read().strip()
+                        negate = want.startswith('!')
+                        want = want.lstrip('!').strip()
+                        if (want in stderr_text) == negate:
+                            print(f"FAIL {name} (run stderr expectation mismatch)")
+                            failed += 1
+                            errors.append(
+                                f"  {name}: expected run stderr "
+                                f"{'NOT containing' if negate else 'containing'} "
+                                f"{want!r}; stderr: {stderr_text[:300]}")
+                            continue
                     print(f"PASS {name} (exit={actual})")
                     passed += 1
                 else:

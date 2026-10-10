@@ -134,20 +134,28 @@ int VmExecutor::Execute(const CompiledModule& module) {
 std::string VmExecutor::FormatBacktrace() const {
     std::string out;
     std::string moduleName = m_currModule ? m_currModule->name : "<module>";
-    char buf[256];
     //m_unwindFrames is innermost-first (innermost's destructor ran first).
-    for (const auto& f : m_unwindFrames) {
-        if (f.currentLine != 0) {
-            std::snprintf(buf, sizeof(buf), "  at %s (%s.n:%u)\n",
-                f.funcName.c_str(), moduleName.c_str(),
-                static_cast<unsigned>(f.currentLine));
-        } else {
-            std::snprintf(buf, sizeof(buf), "  at %s (%s.n:?)\n",
-                f.funcName.c_str(), moduleName.c_str());
-        }
-        out += buf;
-    }
+    //v0.8.5: each frame names ITS compiled translation unit, not the
+    //current module (single-file builds only looked right by accident).
+    for (const auto& f : m_unwindFrames)
+        out += "  at "
+            + FormatBacktraceFrame(f.funcName, f.sourceFile, f.currentLine,
+                                   moduleName)
+            + "\n";
     return out;
+}
+
+//v0.8.5: see the header. std::string concatenation, not snprintf: paths
+//on Windows exceed no buffer and need no truncation policy.
+std::string FormatBacktraceFrame(const std::string& funcName,
+    const std::string& file, uint16_t line,
+    const std::string& fallbackModule) {
+    //Legacy spelling: "<module>.n" — the fallback owns the suffix so
+    //callers pass the bare module name.
+    const std::string loc = !file.empty() ? file : fallbackModule + ".n";
+    return funcName + " (" + loc + ":"
+        + (line != 0 ? std::to_string(static_cast<unsigned>(line))
+                     : std::string("?")) + ")";
 }
 //Phase 9d: build a fresh Exception instance of the requested subclass,
 //populate message + backtrace, then throw NLangThrow to unwind to the
@@ -179,22 +187,17 @@ std::string VmExecutor::FormatBacktrace() const {
         //Populate the backtrace: walk m_callStack innermost-first.
         std::string moduleName = m_currModule ? m_currModule->name : "<module>";
         for (auto it = m_callStack.rbegin(); it != m_callStack.rend(); ++it) {
-            char buf[256];
-            if (it->currentLine != 0) {
-                std::snprintf(buf, sizeof(buf), "%s (%s.n:%u)",
-                    it->func ? it->func->name.c_str() : "<unknown>",
-                    moduleName.c_str(),
-                    static_cast<unsigned>(it->currentLine));
-            } else {
-                std::snprintf(buf, sizeof(buf), "%s (%s.n:?)",
-                    it->func ? it->func->name.c_str() : "<unknown>",
-                    moduleName.c_str());
-            }
-            //Frame text as before ("func (file.n:line)"); box the string so
-            //the List element is a real RTK_Boxed record — the old raw pool
-            //index made e.backtrace.get(i) raise "unbox on null/invalid
-            //reference".
-            int32_t frameHandle = MintNewString(buf);
+            //v0.8.5: real per-frame source file (same helper/format as
+            //FormatBacktrace — the two surfaces must not drift). The
+            //mint/box/store tail is the existing code, unchanged.
+            const std::string frame = FormatBacktraceFrame(
+                it->func ? it->func->name : std::string("<unknown>"),
+                it->func ? it->func->sourceFile : std::string(),
+                it->currentLine, moduleName);
+            //Box the string so the List element is a real RTK_Boxed
+            //record — the old raw pool index made e.backtrace.get(i)
+            //raise "unbox on null/invalid reference".
+            int32_t frameHandle = MintNewString(frame);
             int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
             m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
         }

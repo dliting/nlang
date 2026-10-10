@@ -1,0 +1,7 @@
+import lib;
+
+//v0.8.5: drives lib.boom; the uncaught IndexOutOfBoundsException's
+//backtrace names lib.n for the lib frame (see lib.n).
+int main() {
+    return lib.boom();
+}
