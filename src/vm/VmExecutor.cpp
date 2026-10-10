@@ -48,6 +48,7 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     cacheExcClass("IndexOutOfBoundsException", &m_oobExcClassIdx);
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
     cacheExcClass("IOException",              &m_ioExcClassIdx);
+    cacheExcClass("InvalidCastException",     &m_invalidCastExcClassIdx);
 }
 
 //String objectization: eagerly materialize every module string constant

@@ -289,7 +289,10 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
         //User-visible failure message: leaf names. The class table keys
         //are package-qualified link identities; the leaf-name spelling
         //for user-facing rendering is the shared rule (CompiledModule.h).
-        throw std::runtime_error(std::string(
+        //v0.8.5: raise the catchable built-in InvalidCastException (NLang
+        //catch reads e.message); the malformed-state guards above stay
+        //std::runtime_error by design.
+        RaiseNlangException(m_invalidCastExcClassIdx, std::string(
             "NLang VM: invalid cast - expected `")
             + LeafNameOfKey(tgt.name) + "`, got `"
             + LeafNameOfKey(act.name) + "`");

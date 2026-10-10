@@ -1319,3 +1319,5 @@ intrinsic_chain_l3 8
 bt_real_file 1
 # --- v0.8.5: an uncaught throw reports the exception's own message ---
 throw_message_throws 1
+# --- v0.8.5: a failed `as` cast raises catchable InvalidCastException ---
+invalid_cast_caught 42

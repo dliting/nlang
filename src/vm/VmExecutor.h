@@ -758,6 +758,7 @@ private:
     int16_t m_exceptionClassIdx = -1;
     int16_t m_nullPtrExcClassIdx = -1;
     int16_t m_divZeroExcClassIdx = -1;
+    int16_t m_invalidCastExcClassIdx = -1;  //v0.8.5: InvalidCastException
     int16_t m_oobExcClassIdx = -1;
     int16_t m_assertExcClassIdx = -1;
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException

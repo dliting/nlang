@@ -27,6 +27,7 @@ static SnClassDecl* s_pDivZeroExcClass = nullptr;
 static SnClassDecl* s_pOobExcClass = nullptr;
 static SnClassDecl* s_pAssertExcClass = nullptr;
 static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
+static SnClassDecl* s_pInvalidCastExcClass = nullptr;  //v0.8.5: InvalidCastException
 
 //On-demand minted decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
@@ -68,6 +69,7 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		: (name == "IndexOutOfBoundsException") ? s_pOobExcClass
 		: (name == "AssertionException") ? s_pAssertExcClass
 		: (name == "IOException") ? s_pIoExcClass
+		: (name == "InvalidCastException") ? s_pInvalidCastExcClass
 		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above
 	if (!rpRef)
 	{

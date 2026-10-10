@@ -1,0 +1,26 @@
+//v0.8.5: an invalid `as` downcast raises InvalidCastException — a NLang
+//catch handles it and reads the message (previously a bare VM error
+//that escaped every handler).
+class Point {
+    public int x;
+}
+class Other {
+    public int z;
+}
+
+int main() {
+    Point p = new Point();
+    Object o = p;
+    int code = 0;
+    try {
+        Other x = o as Other;  // throws InvalidCastException
+        code = 1;
+    } catch (Exception e) {
+        if (e.message.contains("invalid cast")) {
+            code = 42;
+        } else {
+            code = 2;
+        }
+    }
+    return code;
+}

@@ -136,6 +136,7 @@ void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_oobExcClassIdx = -1;
     m_assertExcClassIdx = -1;
     m_ioExcClassIdx = -1;
+    m_invalidCastExcClassIdx = -1;
     m_defaultEmitting.clear();
 }
 

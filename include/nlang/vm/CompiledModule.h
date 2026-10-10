@@ -251,9 +251,9 @@ static constexpr uint16_t INTR_Dict_Keys        = 60;
 static constexpr uint16_t INTR_List_toString    = 62;
 static constexpr uint16_t INTR_Dict_toString    = 63;
 
-//Phase 9d: Exception class ctor intrinsics. All 5 Exception-family ctors
+//Phase 9d: Exception class ctor intrinsics. All 6 Exception-family ctors
 //share the same intrinsic dispatch (single ExecuteIntrinsic case handles
-//all 5 IDs); the distinct IDs exist so that user `new MyException("msg")`
+//all 6 IDs); the distinct IDs exist so that user `new MyException("msg")`
 //resolves to the correct ctor stub for type-checking. Subclass ctors set
 //message + allocate an empty List<string> for backtrace, identical to base.
 static constexpr uint16_t INTR_Exception_Ctor                = 64;
@@ -262,6 +262,8 @@ static constexpr uint16_t INTR_DivByZeroException_Ctor       = 66;
 static constexpr uint16_t INTR_IndexOutOfBoundsException_Ctor = 67;
 static constexpr uint16_t INTR_AssertionException_Ctor       = 68;
 static constexpr uint16_t INTR_IOException_Ctor              = 69;
+//v0.8.5: sixth Exception ctor; 128 = next fresh id (policy below).
+static constexpr uint16_t INTR_InvalidCastException_Ctor     = 128;
 
 //Phase 11 stdlib namespace ids: the math (70-94), io (113-119) and fs
 //(120-127) blocks retired with the built-in standard library (io's range

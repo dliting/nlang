@@ -128,10 +128,71 @@ static void TestRethrowKeepsMessage() {
     PASS();
 }
 
+//非法 as 强转抛 InvalidCastException——NLang catch 可捕获、message 可读。
+static void TestInvalidCastIsCatchable() {
+    TEST(TestInvalidCastIsCatchable);
+    {
+        BuildOutcome bo = buildSource("bt_cast_exc",
+            "class Point {\n"
+            "    public int x;\n"
+            "}\n"
+            "class Other {\n"
+            "    public int z;\n"
+            "}\n"
+            "int main() {\n"
+            "    Point p = new Point();\n"
+            "    Object o = p;\n"
+            "    int code = 0;\n"
+            "    try {\n"
+            "        Other t = o as Other;\n"
+            "        code = 1;\n"
+            "    } catch (Exception e) {\n"
+            "        if (e.message.contains(\"invalid cast\")) {\n"
+            "            code = 42;\n"
+            "        } else {\n"
+            "            code = 2;\n"
+            "        }\n"
+            "    }\n"
+            "    return code;\n"
+            "}\n");
+        REQUIRE(bo.ok);
+        CompiledModule mod = loadBuilt("bt_cast_exc");
+        VmExecutor exec;
+        CHECK(exec.Execute(mod) == 42,
+              "catch handles the failed cast and reads its message");
+    }
+    PASS();
+}
+
+//用户可直接构造 InvalidCastException 并 throw。
+static void TestUserConstructedInvalidCast() {
+    TEST(TestUserConstructedInvalidCast);
+    {
+        BuildOutcome bo = buildSource("bt_cast_user",
+            "int main() {\n"
+            "    InvalidCastException e = new InvalidCastException(\"custom\");\n"
+            "    throw e;\n"
+            "}\n");
+        REQUIRE(bo.ok);
+        CompiledModule mod = loadBuilt("bt_cast_user");
+        VmExecutor exec;
+        std::string what;
+        try {
+            exec.Execute(mod);
+        } catch (const std::exception& e) {
+            what = e.what();
+        }
+        CHECK(what == "custom", "user-constructed InvalidCastException throws");
+    }
+    PASS();
+}
+
 void run_backtrace_tests() {
     TestFormatBacktraceFrameShapes();
     TestBacktraceCarriesRealSourceFile();
     TestThrowMessagePassthrough();
     TestThrowEmptyMessageFallsBackToClassName();
     TestRethrowKeepsMessage();
+    TestInvalidCastIsCatchable();
+    TestUserConstructedInvalidCast();
 }

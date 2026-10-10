@@ -50,6 +50,7 @@ enum BuiltinSuperRef : int8_t {
 enum BuiltinIdxMember : uint8_t {
     BIDX_None, BIDX_Object, BIDX_List, BIDX_Dict, BIDX_Exception,
     BIDX_NullPtrExc, BIDX_DivZeroExc, BIDX_OobExc, BIDX_AssertExc, BIDX_IoExc,
+    BIDX_InvalidCastExc,
 };
 
 struct BuiltinClassDecl {
@@ -208,6 +209,9 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"IOException",               BSR_ExceptionBase, s_ExceptionFields,
         std::size(s_ExceptionFields), true, INTR_IOException_Ctor, 2,
         nullptr, 0, BIDX_IoExc},
+    {"InvalidCastException",      BSR_ExceptionBase, s_ExceptionFields,
+        std::size(s_ExceptionFields), true, INTR_InvalidCastException_Ctor, 2,
+        nullptr, 0, BIDX_InvalidCastExc},
 };
 
 //One BuiltinField row → the CompiledClass field arrays.
@@ -272,6 +276,7 @@ void VmBackend::RegisterBuiltinClasses() {
             case BIDX_OobExc:     m_oobExcClassIdx     = static_cast<int16_t>(classIdx); break;
             case BIDX_AssertExc:  m_assertExcClassIdx  = static_cast<int16_t>(classIdx); break;
             case BIDX_IoExc:      m_ioExcClassIdx      = static_cast<int16_t>(classIdx); break;
+            case BIDX_InvalidCastExc: m_invalidCastExcClassIdx = static_cast<int16_t>(classIdx); break;
             default: break;  //BIDX_None — ByteStream/FileStream
         }
     }

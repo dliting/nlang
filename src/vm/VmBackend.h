@@ -1166,6 +1166,7 @@ private:
     int16_t m_oobExcClassIdx = -1;      //Phase 9d: IndexOutOfBoundsException
     int16_t m_assertExcClassIdx = -1;   //Phase 9d: AssertionException
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
+    int16_t m_invalidCastExcClassIdx = -1;  //v0.8.5: InvalidCastException
 
     //Borrowed library declaration index (SetLibraryIndex); null until
     //ModuleBuilder injects it. Codegen reads stdlib signatures from it.
