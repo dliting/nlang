@@ -60,7 +60,8 @@ inline bool IsBuiltinExceptionName(const std::string& name) {
     return name == "Exception" || name == "NullPointerException"
         || name == "DivByZeroException"
         || name == "IndexOutOfBoundsException"
-        || name == "AssertionException" || name == "IOException";
+        || name == "AssertionException" || name == "IOException"
+        || name == "InvalidCastException";
 }
 
 class VmBackend : public ICodeBackend {
