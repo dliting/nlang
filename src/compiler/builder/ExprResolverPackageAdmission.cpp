@@ -239,7 +239,7 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 		IsIoCoercingTrioCall(modulePath, invoke.CalleeName());
 	if (bCoercingTrio && !AdmitCoercingTrioArgs(invoke))
 	{
-		FinishModuleQualifiedMember(snMember);
+		FinishConsumedMember(snMember);
 		return false;
 	}
 	auto res = MatchInvokeAgainst(invoke, candidates, pCallee, bindings,
@@ -255,7 +255,7 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 		LogInvokeFailure(invoke, res, pCallee,
 			res == FFR_Incompatible && !bAmbiguous
 				&& AnyNameMatchedImported(candidates), candidates);
-		FinishModuleQualifiedMember(snMember);
+		FinishConsumedMember(snMember);
 		return false;
 	}
 	//Admission policy, strict arm: veto the generic binder's →string
@@ -263,12 +263,12 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 	if (!bCoercingTrio
 		&& RejectPackageStringCoercion(invoke, bindings, modulePath))
 	{
-		FinishModuleQualifiedMember(snMember);
+		FinishConsumedMember(snMember);
 		return false;
 	}
 	if (!BindQualifiedInvoke(snMember, invoke, *pCallee, res, bindings))
 	{
-		FinishModuleQualifiedMember(snMember);
+		FinishConsumedMember(snMember);
 		return false;
 	}
 	return true;

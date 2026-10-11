@@ -1,0 +1,9 @@
+// Void-support gap, module-qualified spelling: member access on a
+// void call result must fail compilation cleanly, not crash ncc.
+import shapes;
+
+int main()
+{
+    int t = shapes.MakeNoise("x").tag;
+    return t;
+}

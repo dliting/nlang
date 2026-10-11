@@ -1,0 +1,8 @@
+class Point {
+    public int x;
+    public int Point(int a, int b) { this.x = a; return 0; }
+}
+
+public void MakeNoise(string s) {
+    int dummy = 1;
+}

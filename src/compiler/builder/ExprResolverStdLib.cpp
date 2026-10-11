@@ -22,16 +22,17 @@
 namespace nlang
 {
 
-//Mark the member resolved and bind the array token — the shared
-//close-out of every module-qualified path (diagnosed failures and the
-//success tail alike), so no later phase re-reports the chain.
-//Diagnosed failures reach here with the callee never bound, yet the
-//resolved flag makes an enclosing member access trust the chain:
-//SnFieldExpr::IsDataExpr() dereferences the null field and crashes
-//ncc (0xC0000005). Wire the Object decl as the failure sentinel — the
-//same producer-side binding the qualified ctor path applies — so the
-//enclosing chain degrades to a plain member-not-found instead.
-void ExprResolveAccessor::FinishModuleQualifiedMember(
+//Close out a member whose resolution is decided: sentinel-bind an
+//unwired callee, then mark resolved so no later phase re-reports the
+//chain. Shared tail of every module-qualified path (diagnosed
+//failures and the success tail alike) and of the void-receiver guard
+//in Access. A diagnosed failure reaches here with the callee never
+//bound, yet the resolved flag makes an enclosing member access trust
+//the chain: SnFieldExpr::IsDataExpr() dereferences the null field and
+//crashes ncc (0xC0000005) — hence the Object sentinel (its
+//NF_Type|NF_Field keeps IsDataField false, so an enclosing chain
+//degrades to a plain member-not-found).
+void ExprResolveAccessor::FinishConsumedMember(
 	SnMemberExpr &snMember)
 {
 	if (!snMember.m_pField)
@@ -116,7 +117,7 @@ bool ExprResolveAccessor::RejectUnimportedModuleCall(
 			modulePath.c_str(), modulePath.c_str(),
 			parentPrefix.c_str());
 	}
-	FinishModuleQualifiedMember(snMember);
+	FinishConsumedMember(snMember);
 	return true;
 }
 
@@ -130,12 +131,12 @@ bool ExprResolveAccessor::TryResolveModuleQualifiedArgs(
 {
 	if (!ResolveExpressionList(invoke.Params()))
 	{
-		FinishModuleQualifiedMember(snMember);
+		FinishConsumedMember(snMember);
 		return false;
 	}
 	if (!ValidateInvokeSyntax(invoke))
 	{
-		FinishModuleQualifiedMember(snMember);
+		FinishConsumedMember(snMember);
 		return false;
 	}
 	return true;
@@ -165,7 +166,7 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 	if (!ResolveModuleQualifiedCallee(snMember, invoke, modulePath))
 		return true;
 
-	FinishModuleQualifiedMember(snMember);
+	FinishConsumedMember(snMember);
 	return true;
 }
 
@@ -228,7 +229,7 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 		m_Env.Log(CLL_Error, snMember.Location(),
 			"Type '%s' is not a member of package '%s'.",
 			typeName.c_str(), modulePath.c_str());
-		FinishModuleQualifiedMember(snMember);
+		FinishConsumedMember(snMember);
 		return true;
 	}
 	if (pType->Kind() != NK_EnumDecl)
@@ -242,7 +243,7 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()),
 		pMember);
 	ResolveFieldExprAs(snMember, pMember);
-	FinishModuleQualifiedMember(snMember);
+	FinishConsumedMember(snMember);
 	return true;
 }
 

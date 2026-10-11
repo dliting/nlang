@@ -292,7 +292,7 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 //Module-qualified `shapes.Point(args)` without new: the module table has
 //no function of the name and the type table does. Member wiring mirrors
 //BindQualifiedInvoke (direct field/type slots; the caller's
-//FinishModuleQualifiedMember adds the resolved flags).
+//FinishConsumedMember adds the resolved flags).
 bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const std::string &modulePath)
 {
@@ -307,7 +307,7 @@ bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		//runs first: an imported class named List is legal and must
 		//construct. Consuming with the logged error mirrors
 		//RejectUnimportedModuleCall — the caller's
-		//FinishModuleQualifiedMember flags the member and the error keeps
+		//FinishConsumedMember flags the member and the error keeps
 		//codegen out.
 		if (IsBuiltinGenericTypeName(invoke.CalleeName()))
 		{

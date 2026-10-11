@@ -301,6 +301,8 @@ private:
 	bool TryResolveMemberHead(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr);
 	void SwitchContextToReceiver(SnMemberExpr &snMember);
+	bool RejectVoidReceiverMemberAccess(SnMemberExpr &snMember,
+		SyntaxNode *pSavedContext);
 	bool RejectArrayReceiverMethodCall(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SyntaxNode *pSavedContext);
 	bool TryResolveStringBuiltinMethod(SnMemberExpr &snMember,
@@ -840,7 +842,7 @@ private:
 	bool RejectPackageStringCoercion(SnInvokeExpr &invoke,
 		const std::vector<FormalBinding> &bindings,
 		const std::string &modulePath);
-	void FinishModuleQualifiedMember(SnMemberExpr &snMember);
+	void FinishConsumedMember(SnMemberExpr &snMember);
 
 	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the
 	//enum-constant chain). The de-shelled tree has no namespace node for

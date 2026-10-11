@@ -1,0 +1,10 @@
+// Void-support gap: member access on a void call result must fail
+// compilation with a named diagnostic, not crash ncc.
+void GetV() {
+    int dummy = 0;
+}
+
+int main() {
+    int t = GetV().tag;
+    return t;
+}

@@ -222,6 +222,24 @@ bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
 	return false;
 }
 
+//Void-support: a receiver that resolved to a call result with no
+//type leaves no context to search — the dispatches in Access would
+//dereference the null. Name the void result (the assign arm's wording
+//family) and consume the member so the chain cannot re-report. True =
+//rejected (already diagnosed).
+bool ExprResolveAccessor::RejectVoidReceiverMemberAccess(
+	SnMemberExpr &snMember, SyntaxNode *pSavedContext)
+{
+	if (m_pContext)
+		return false;
+	m_Env.Log(CLL_Error, snMember.Location(),
+		"cannot access a member of the result of void function \"%s\".",
+		snMember.Outer()->ToString().c_str());
+	FinishConsumedMember(snMember);
+	m_pContext = pSavedContext;
+	return true;
+}
+
 //Chain-head resolution: the library namespace interception, the module-table
 //fallback, and the outer expression's own resolution. Returns true when
 //the member is consumed (resolved or diagnosed).
@@ -264,6 +282,8 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	auto pSavedContext = m_pContext;
 	SwitchContextToReceiver(snMember);
 
+	if (RejectVoidReceiverMemberAccess(snMember, pSavedContext))
+		return;
 	if (RejectArrayReceiverMethodCall(snMember, pOuterExpr, pSavedContext))
 		return;
 

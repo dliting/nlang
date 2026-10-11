@@ -1350,6 +1350,17 @@ set_tests_properties(proj_qual_fail_chain_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "does not exist"
     FAIL_REGULAR_EXPRESSION "internal crash")
 
+#Void-support gap: member access on a void call result (the bare
+#spelling is the e2e void_result_member entry; both route through the
+#same guard in Access(SnMemberExpr&)).
+add_test(NAME proj_void_result_member_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_void_result_member/proj_void_result_member.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_void_result_member.npkg)
+set_tests_properties(proj_void_result_member_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "cannot access a member of the result of void"
+    FAIL_REGULAR_EXPRESSION "internal crash")
+
 #D7: a same-directory function is reachable bare AND qualified; the
 #fixture self-checks both forms agree (7) before printing.
 add_test(NAME proj_same_dir_compile
