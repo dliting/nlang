@@ -25,9 +25,22 @@ namespace nlang
 //Mark the member resolved and bind the array token — the shared
 //close-out of every module-qualified path (diagnosed failures and the
 //success tail alike), so no later phase re-reports the chain.
+//Diagnosed failures reach here with the callee never bound, yet the
+//resolved flag makes an enclosing member access trust the chain:
+//SnFieldExpr::IsDataExpr() dereferences the null field and crashes
+//ncc (0xC0000005). Wire the Object decl as the failure sentinel — the
+//same producer-side binding the qualified ctor path applies — so the
+//enclosing chain degrades to a plain member-not-found instead.
 void ExprResolveAccessor::FinishModuleQualifiedMember(
 	SnMemberExpr &snMember)
 {
+	if (!snMember.m_pField)
+	{
+		auto *pObjectDecl = GetBuiltinClassDecl("Object",
+			snMember.Location());
+		snMember.m_pField = pObjectDecl;
+		snMember.EvalDataType(pObjectDecl);
+	}
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);
 }

@@ -1,0 +1,11 @@
+// 0.9.0 review follow-up: the qualified generic-name hint must leave
+// ncc in a clean compile failure even when an enclosing member access
+// follows the consumed call (the crash family the sentinel binding
+// closes).
+import shapes;
+
+int main()
+{
+    int t = shapes.List().tag;
+    return t;
+}

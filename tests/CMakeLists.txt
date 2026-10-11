@@ -1328,6 +1328,28 @@ set_tests_properties(proj_qualified_ctor_run PROPERTIES
     DEPENDS proj_qualified_ctor_compile
     PASS_REGULAR_EXPRESSION "6")
 
+#0.9.0 review follow-up: a diagnosed module-qualified failure (the
+#generic-name hint, function-not-found) marks the member resolved; an
+#enclosing member access must degrade to a clean compile failure, not
+#an ncc crash. PASS pins the primary diagnostic (also printed before
+#the crash), FAIL the crash banner — the pair separates the clean
+#failure from the 0xC0000005 exit the null-field deref produced.
+add_test(NAME proj_qual_generic_hint_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_qual_generic_hint/proj_qual_generic_hint.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_qual_generic_hint.npkg)
+set_tests_properties(proj_qual_generic_hint_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "cannot be constructed by bare name"
+    FAIL_REGULAR_EXPRESSION "internal crash")
+
+add_test(NAME proj_qual_fail_chain_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_qual_fail_chain/proj_qual_fail_chain.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_qual_fail_chain.npkg)
+set_tests_properties(proj_qual_fail_chain_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "does not exist"
+    FAIL_REGULAR_EXPRESSION "internal crash")
+
 #D7: a same-directory function is reachable bare AND qualified; the
 #fixture self-checks both forms agree (7) before printing.
 add_test(NAME proj_same_dir_compile

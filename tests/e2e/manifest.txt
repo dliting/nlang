@@ -1328,3 +1328,4 @@ dbg_nodebug_warn 42 Program exited with code 42
 
 # --- 0.9.0: constructor call without `new` (expression position) ---
 expr_ctor_invoke 7
+expr_ctor_generic_hint compile_error cannot be constructed by bare name

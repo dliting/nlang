@@ -1,0 +1,10 @@
+// Pre-0.9.0 crash family: a diagnosed module-qualified call failure
+// (function-not-found) marks the member resolved; an enclosing member
+// access must degrade to a clean compile failure, not an ncc crash.
+import shapes;
+
+int main()
+{
+    int t = shapes.Nope().tag;
+    return t;
+}

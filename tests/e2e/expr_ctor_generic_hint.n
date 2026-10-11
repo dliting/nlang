@@ -1,0 +1,6 @@
+// 0.9.0: List/Dict exist only as typed instantiations — the bare
+// generic name gets the named reject, not the function-not-found text.
+int main() {
+    List<int> l = List();
+    return 0;
+}
