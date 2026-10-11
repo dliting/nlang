@@ -35,7 +35,11 @@ conversion are supported:
   primitive; all 12 scalars can be unboxed. Throws if `o` is null or the
   boxed type tag doesn't match.
 - **Class downcast**: `o as SubClass` — verify the runtime class of `o` is
-  `SubClass` or a subclass thereof. Throws on mismatch. `o as Object` is a
+  `SubClass` or a subclass thereof. A mismatch raises
+  `InvalidCastException` — catchable with `catch`, its `message` reading
+  `NLang VM: invalid cast - expected X, got Y` (X/Y the target/actual
+  class leaf names); uncaught, the process exits with a non-zero code.
+  `o as Object` is a
   no-op (allowed for symmetry).
 
 `as` is reserved for pairs the matrix does not admit — using `as` on a

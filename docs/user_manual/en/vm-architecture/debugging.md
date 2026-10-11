@@ -22,6 +22,9 @@ front ends" model).
 
 Installing hooks (`VmExecutor::SetDebugHooks`) is optional; with no
 front end installed the checkpoints cost one null test per statement.
+The anchor instruction is emitted by `ncc` by default; a module
+compiled with `--no-debug-info` carries no anchors — breakpoints and
+statement-level stepping are unavailable on it (`ndb` warns at load).
 
 ## Stop semantics
 

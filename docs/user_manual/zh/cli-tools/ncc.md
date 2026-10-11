@@ -19,10 +19,11 @@ ncc把源码编译为字节码产物，可选立即执行。它是日常开发�
 | `-o <path>` | 形态1-4 | 输出路径——单文件形态给`.ncu`、项目形态给`.npkg`；重复给报错 |
 | `-p <nproj>` | 项目形态 | 不可与源文件位置参数同用；重复给报错 |
 | `--no-warn` | 形态1-4 | 抑制编译警告（如隐式int→float的精度损失） |
+| `--no-debug-info` | 形态1-4 | 产出不含语句调试锚点的模块：产物更小，但回溯无行号、断点与单步不可用（见[在nide中调试](../getting-started/debugging.md)） |
 | `-I <dir>`（或`-I<dir>`连写） | 形态1-5 | 库搜索路径，可多次给：编译期查找被import的`.n`与外部`.ncu`/`.npkg`，运行期定位闭包成员与native动态库 |
 | `--verbose` / `-v` | 形态1-5 | 打印解析后的导入搜索路径——每行一个目录，括注来源层——随后照常执行（列表形态与nvm相同） |
 
-形态5（`ncc run`）不接受`--no-warn`，与`-o`、`-p`一样按多余参数报错。错误与诊断信息打到stderr，`Compiled successfully:`成功行打到stdout。常见错误形态：
+形态5（`ncc run`）不接受`--no-warn`与`--no-debug-info`，与`-o`、`-p`一样按多余参数报错。错误与诊断信息打到stderr，`Compiled successfully:`成功行打到stdout。常见错误形态：
 
 ```text
 Error: option -o given more than once.

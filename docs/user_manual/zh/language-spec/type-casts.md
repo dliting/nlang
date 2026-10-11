@@ -14,7 +14,7 @@ expr as TypeName
 - **标量收窄与跨符号**（按位截断，C# unchecked同构）：`d as int`（double→int）、`d as float`（double→float）、`l as int`（long→int）、`s as ubyte`（反向跨符号）——一切隐式矩阵不放行的标量对都可用`as`明示。显式即用户明示，**不产生有损转换警告**。
 - **数值↔char**：`c as int`取码点；`65 as char`显式构造char，运行期校验标量值合法性（代理区或超过U+10FFFF抛运行期错误`value is not a valid Unicode scalar value`）。
 - **拆箱**：`o as int` / `o as long` / `o as string`等——解开一个装箱基本类型，全部12个标量都可拆。若`o`为null或装箱类型标签不匹配则抛出。
-- **类向下强转**：`o as SubClass`——校验`o`的运行期类是`SubClass`或其子类。不匹配则抛出。`o as Object`是无操作（为对称性允许）。
+- **类向下强转**：`o as SubClass`——校验`o`的运行期类是`SubClass`或其子类。不匹配则抛`InvalidCastException`——可被`catch`捕获，`message`形如`NLang VM: invalid cast - expected X, got Y`（X/Y为目标/实际类叶名）；未捕获时进程以非零码退出。`o as Object`是无操作（为对称性允许）。
 
 `as`只用于矩阵不放行的转换对——对**已经隐式合法**的转换使用`as`也是编译错误（`` `as` cannot perform implicit conversion `UByte` → `Int32` ``）：`ubyte`到`int`本来就隐式加宽，写`b as int`是冗余，直接`int x = b;`即可。隐式矩阵见[类型语义](type-semantics.md)。
 

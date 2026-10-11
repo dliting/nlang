@@ -6,6 +6,27 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.5] - Unreleased
+
+### 新增
+- **可选剥离调试信息**：`ncc --no-debug-info`编译不含逐语句调试锚点的
+  模块——产物更小，代价是回溯无行号（`(文件:?)`）且断点/单步不可用
+  （`ndb`装载这类模块时打警告）。
+- **`InvalidCastException`**：失败的`as`类向下强转现在抛内建
+  `InvalidCastException`——NLang侧可`catch`，`message`可读（此前是无
+  法被任何处理器捕获的裸VM错误）；也可用`new
+  InvalidCastException("...")`构造。
+- **nide运行错误导航**：终端内Ctrl+点击`(文件:行)`引用直接打开该
+  位置（Ctrl+悬停显示下划线）；新增「运行错误」页签汇总结束运行的
+  错误与回溯行，双击跳转。
+
+### 变更
+- 运行期回溯与`Exception.backtrace`现在携带每帧编译时的真实源码路
+  径，不再是编造的`<模块>.n`（多文件项目此前每一帧都显示同一个错误
+  文件）。
+- 未捕获的用户`throw`在顶层报告异常自身的消息（空消息回退到异常类
+  名），而不是固定文本`user throw`。
+
 ## [0.8.4] - 2026-10-10
 
 ### 新增

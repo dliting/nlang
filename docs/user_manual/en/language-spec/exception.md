@@ -13,6 +13,7 @@ hierarchy. All exceptions are instances of `Exception` or its subclasses.
 | `DivByZeroException` | `Exception` | Integer division/modulo by zero |
 | `IndexOutOfBoundsException` | `Exception` | Array/List index out of bounds |
 | `AssertionException` | `Exception` | `assert(false)` |
+| `InvalidCastException` | `Exception` | A failed `as` downcast (the actual type is not on the target's super-chain) |
 
 ### `try` / `catch`
 
@@ -111,6 +112,10 @@ try {
     // caught
 }
 ```
+
+A failed `as` class downcast likewise raises `InvalidCastException` —
+catchable with `catch`, its `message` carrying the expected/actual
+class leaf names (see [Type Casts](type-casts.md)).
 
 **Uncaught exceptions** propagate up the call stack. If no handler is found,
 the program terminates with exit code 1.

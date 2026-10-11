@@ -6,6 +6,33 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.5] - Unreleased
+
+### Added
+
+- **Optional debug info stripping**: `ncc --no-debug-info` compiles
+  without per-statement debug anchors — smaller artifacts at the cost
+  of line numbers in backtraces (`(file:?)`) and unavailable
+  breakpoints/stepping (`ndb` warns when it loads such a module).
+- **`InvalidCastException`**: a failed `as` downcast now raises the
+  built-in `InvalidCastException` — catchable from NLang with a
+  readable `message` (previously a bare VM error no handler could
+  catch); also constructible with `new InvalidCastException("...")`.
+- **nide run-error navigation**: the terminal Ctrl+clicks a
+  `(file:line)` reference to open the site (Ctrl+hover underlines);
+  a new "运行错误/Run Errors" tab lists the finished run's error and
+  backtrace rows, double-click to jump.
+
+### Changed
+
+- Runtime backtraces and `Exception.backtrace` now carry each frame's
+  real compiled source path instead of a fabricated `<module>.n`
+  (multi-file projects previously showed one wrong file for every
+  frame).
+- An uncaught user `throw` reports the exception's own message at top
+  level (empty messages fall back to the exception class name)
+  instead of the fixed text `user throw`.
+
 ## [0.8.4] - 2026-10-10
 
 ### Added

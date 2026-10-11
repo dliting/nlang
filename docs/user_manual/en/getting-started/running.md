@@ -33,6 +33,14 @@ font size, persisted across sessions, also settable in Tools →
 Options). Known limits: the scrollback keeps at most 10000 lines, and
 ligature fonts do not get their ligatures.
 
+A `file:line` reference in the backtrace is directly locatable:
+Ctrl+hover in the terminal underlines the link, and Ctrl+click opens
+the site in the editor (a plain click is still text selection). After
+the program exits, the Run Errors page of the output window collects
+the run's message and backtrace rows; double-click a row to jump to
+its source location. An unavailable path is reported on the status
+bar.
+
 ### Configuring nide
 
 Tools → Options opens the settings dialog with five settings:

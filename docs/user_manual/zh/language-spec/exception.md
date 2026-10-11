@@ -12,6 +12,7 @@ NLang支持带Java/C#风格类层次的结构化异常处理。所有异常都�
 | `DivByZeroException`          | `Exception` | 整数除/取模零 |
 | `IndexOutOfBoundsException`  | `Exception` | 数组/列表索引越界 |
 | `AssertionException`          | `Exception` | `assert(false)` |
+| `InvalidCastException`        | `Exception` | `as`强转失败（实际类型不在目标类型的超类链上） |
 
 ### `try` / `catch`
 
@@ -99,6 +100,8 @@ try {
     // 被捕获
 }
 ```
+
+非法的`as`类向下强转同样抛`InvalidCastException`，可被`catch`捕获，`message`含期望/实际类叶名（见[类型强制转换](type-casts.md)）。
 
 **未捕获异常**沿调用栈向上传播。若找不到处理器，程序以退出码1终止。
 

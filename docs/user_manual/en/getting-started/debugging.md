@@ -82,7 +82,10 @@ The Debug page of the output window concentrates the session state:
   expanded one level (its fields).
 
 Program output and the call-stack backtrace on error appear on the
-Terminal page. Breakpoints are remembered by file path, survive
+Terminal page — a frame reads `at <function> (<source file>:<line>)`,
+its line number coming from the statement anchors; frames of imported
+units show the absolute path from the machine that built them.
+Breakpoints are remembered by file path, survive
 nide restarts, and follow a file automatically when it is renamed.
 
 The program's standard input lives on the same page: while
@@ -108,6 +111,18 @@ following the terminal cursor.
 The anchor lines of `while`/`for`/`do-while` hit breakpoints and steps
 on every iteration, so even an empty loop body can be observed round by
 round.
+
+### Stripping debug info (`--no-debug-info`)
+
+By default `ncc` emits a debug anchor before every statement (carrying
+its source line) — backtrace line numbers, breakpoint binding, and
+statement-level stepping all rest on the anchors. `ncc build
+--no-debug-info` produces a module without them: a smaller artifact,
+but backtraces lose their line numbers (frames print `(file:?)`),
+breakpoints cannot bind, and statement-level stepping is gone; `ndb`
+warns when it loads such a module. The remaining metadata — including
+`sourceFile` — is kept, so function names and source paths still appear
+in backtraces.
 
 ### Known limitations
 
