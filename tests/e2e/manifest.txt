@@ -1330,3 +1330,5 @@ dbg_nodebug_warn 42 Program exited with code 42
 expr_ctor_invoke 7
 expr_ctor_generic_hint compile_error cannot be constructed by bare name
 void_result_member compile_error cannot access a member of the result of void
+# --- 0.9.0: anchored brace initializer without `new` ---
+expr_anchored_brace 12

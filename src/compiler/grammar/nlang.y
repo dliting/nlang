@@ -1478,6 +1478,16 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//`new Type{...}` because bare `{...}` would LALR-conflict
 				//with Paragraph (block statement).
 				'[' InitListElements ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
+				//0.9.0: anchored brace init `Vec{x: 1, y: 2}`. Same node
+				//shape as the `new Vec{...}` arm: the identifier reads as
+				//a type name at resolve time. No LALR conflict: a legal
+				//program never places '{' after a completed expression.
+				TT_Identifier '{' InitEntries '}' {
+					auto* pId = new SnIdentifierExpr($1, @1);
+					auto* pName = new SnNameExpr(pId, @1);
+					$$ = new SnInitListExpr(pName, *$3, false, @1);
+					delete $3;
+				} |
 				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
 				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |
 				Expression '*' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Mul, $1, $3, @1); } |
