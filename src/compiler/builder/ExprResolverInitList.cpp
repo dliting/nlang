@@ -20,6 +20,50 @@
 namespace nlang
 {
 
+//0.9.0: the bare `{...}` node of an expression whose target type is not
+//set yet — the shared entry point of target-type inference (deferred
+//call arguments, nested entries, statement-side propagation). See
+//ExprResolver.h.
+SnInitListExpr *UntypedInitListOf(SnExpression &expr)
+{
+	if (expr.Kind() != NK_InitListExpr || expr.IsResolved())
+		return nullptr;
+	auto &initList = static_cast<SnInitListExpr&>(expr);
+	if (initList.ExplicitType() || initList.InferredTarget())
+		return nullptr;
+	return &initList;
+}
+
+//0.9.0: the target shapes a collection initializer lowers to — array
+//tokens, structs, List/Dict instantiations and non-builtin user
+//classes (exactly what the init-list resolver and its emitter write).
+//Scalars, string, func types, builtin classes, interfaces and enums
+//would resolve the list but leave the target slot unstaged (the
+//pre-0.9.0 `[1]` hole). Shared with the bare-brace argument admission
+//(AdmitsInitListArg in ExprResolverBinding.cpp).
+bool IsInitListTargetShape(SnField *pType)
+{
+    if (!pType)
+        return false;
+    switch (pType->Kind())
+    {
+    case NK_ArrayTypeToken:
+    case NK_StructDecl:
+        return true;
+    case NK_ClassDecl:
+        break;
+    default:
+        return false;
+    }
+    auto *pClass = static_cast<SnClassDecl*>(pType);
+    if (IsFuncTypeDecl(pType))
+        return false;
+    if (pClass->IsGenericInstantiation())
+        return pClass->BaseName() == kBuiltinListTypeName
+            || pClass->BaseName() == kBuiltinDictTypeName;
+    return !pClass->IsBuiltinClass();
+}
+
 //Target determination of the collection initializer (Phase 8e-6):
 //- Explicit form `new Type{...}`: ExplicitType() carries the type
 //  expression. Resolve it like a normal type, its resolved Field is the
@@ -66,6 +110,21 @@ bool ExprResolveAccessor::ResolveInitListTarget(SnInitListExpr &sn,
         "Collection initializer requires an explicit type or an LHS "
         "context to infer the target type.");
     return false;
+}
+
+//0.9.0: target-shape gate of Access(SnInitListExpr&) — only collection
+//targets lower; anything else is a clean reject before the resolver
+//flags the node. Array targets skip the element-shape test (the target
+//IS the collection). True = rejected.
+bool ExprResolveAccessor::RejectNonCollectionInitTarget(SnInitListExpr &sn,
+    SnField *pTargetField, bool bIsArray)
+{
+    if (bIsArray || IsInitListTargetShape(pTargetField))
+        return false;
+    m_Env.Log(CLL_Error, sn.Location(),
+        "cannot initialize \"%s\" from a collection initializer.",
+        pTargetField->ToString().c_str());
+    return true;
 }
 
 //Class init lists lower to `new C()` + per-field stores; the implicit
@@ -320,6 +379,27 @@ bool ExprResolveAccessor::RejectNonStringDictInitKeys(SnInitListExpr &sn,
     return true;
 }
 
+//0.9.0: nested bare brace entries inherit the slot type they store into
+//— the element type for array/List/Dict targets, or the addressed
+//field's declared type for struct/class targets (InitListEntryFieldType).
+void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
+    SnField *pTargetField, SnField *pElemType, bool bIsArray)
+{
+    const auto &entries = sn.Entries();
+    for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
+    {
+        auto *pValue = entries[nIdx].pValue;
+        auto *pNested = pValue ? UntypedInitListOf(*pValue) : nullptr;
+        if (!pNested)
+            continue;
+        SnField *pNestedTarget = pElemType;
+        if (!pNestedTarget && !bIsArray)
+            pNestedTarget = InitListEntryFieldType(*pTargetField, sn, nIdx);
+        if (pNestedTarget)
+            pNested->InferredTarget(pNestedTarget);
+    }
+}
+
 //Phase 8e-6: Collection initializer resolver — target determination,
 //class-form checks, entry resolution, func-ref binding and the
 //entry-type gates, in that order. Entry values are resolved via
@@ -335,6 +415,10 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
     if (!ResolveInitListTarget(sn, pTargetField, bIsArray))
         return;
 
+    //0.9.0: the target must be a shape the lowering can write.
+    if (RejectNonCollectionInitTarget(sn, pTargetField, bIsArray))
+        return;
+
     sn.EvalDataType(pTargetField);
     sn.TargetIsArray(bIsArray);
     sn.AddFlags(NF_Resolved);
@@ -342,6 +426,11 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
     if (!bIsArray && pTargetField->Kind() == NK_ClassDecl)
         CheckClassInitListForm(sn,
             static_cast<SnClassDecl*>(pTargetField));
+
+    //0.9.0: nested bare brace entries infer their target from the slot
+    //they store into, before the entry walk resolves them.
+    SnField *pElemType = ResolveInitListElemType(pTargetField, bIsArray);
+    PropagateNestedInitListTargets(sn, pTargetField, pElemType, bIsArray);
 
     for (auto &entry : sn.Entries())
     {
@@ -352,7 +441,6 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
     if (!bIsArray && RejectNonStringDictInitKeys(sn, pTargetField))
         return;
 
-    SnField *pElemType = ResolveInitListElemType(pTargetField, bIsArray);
     if (pElemType)
         BindInitListFuncRefs(sn, pElemType);
     //0.7.5: every entry must cross at its slot's declared width — the

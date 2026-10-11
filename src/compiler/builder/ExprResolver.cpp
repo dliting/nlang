@@ -153,7 +153,8 @@ void ExprResolveAccessor::BindArrayTypeToken(SnExpression& expr) {
 		expr.EvalDataType(m_Env.InternArrayTypeToken(pElem));
 }
 
-bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
+bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs,
+	const std::vector<SnExpression*> *pDeferredArgs)
 {
 	bool bOK = true;
 	for (auto &expr : exprs)
@@ -161,7 +162,12 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs)
 		//Skip already-resolved expressions: literals come pre-resolved
 		//from parse time, and Access(SnMemberExpr) pre-resolves method
 		//invoke args in the caller scope before the callee lookup runs
-		//in the receiver-class scope.
+		//in the receiver-class scope. Deferred bare brace arguments skip
+		//until the callee lookup hands them their formal type.
+		if (pDeferredArgs
+			&& std::find(pDeferredArgs->begin(), pDeferredArgs->end(),
+				&expr) != pDeferredArgs->end())
+			continue;
 		if (!expr.IsResolved())
 			expr.Accept(*m_pVisitor);
 		if (!expr.IsResolved() && bOK)

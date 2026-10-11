@@ -1342,3 +1342,6 @@ err_creation_lhs compile_error cannot assign to an array creation
 err_creation_lhs_compound compile_error cannot assign to an array creation
 alias_generic_creation_twin 9
 err_alias_generic_value compile_error Incompatible type "subscript"
+expr_bare_brace_arg 19
+err_scalar_brace_init compile_error from a collection initializer
+err_scalar_bracket_init compile_error from a collection initializer

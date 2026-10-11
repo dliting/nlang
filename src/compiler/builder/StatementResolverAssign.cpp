@@ -37,18 +37,31 @@ void StatementResolveAccessor::Access(SnReturnStmt &sn)
 		return;
 	}
 
+	//0.9.0: a bare brace return value takes the declared return type as
+	//its target — the same identity FinishReturnExpr reads.
+	if (auto *pInitList = UntypedInitListOf(*pResultExpr))
+		pInitList->InferredTarget(pOuterFunc->EvalDataType());
+
 	pResultExpr->Accept(*m_pVisitor);
+	FinishReturnExpr(*pOuterFunc, sn);
+}
 
-	//Phase 13: a return-position function reference binds against the
-	//function's declared return type (TryBindStatementFuncRef).
+//Shared tail of Access(SnReturnStmt&): the return-position function
+//reference binding (Phase 13, TryBindStatementFuncRef) and the cast-
+//fixup choke point against the declared return type. Returns false when
+//the binding failed (its diagnostic is logged) — the caller just stops.
+bool StatementResolveAccessor::FinishReturnExpr(SnFunction &outerFunc,
+	SnReturnStmt &sn)
+{
+	auto pResultExpr = sn.Result();
 	if (!TryBindStatementFuncRef(*pResultExpr,
-		pOuterFunc->EvalDataType()))
-		return;
+		outerFunc.EvalDataType()))
+		return false;
 
-	if (!pReturnType->IsResolved())
-		return;
+	if (!outerFunc.ReturnType()->IsResolved())
+		return false;
 	auto pSourceType = pResultExpr->EvalDataType();
-	auto pTargetType = pOuterFunc->EvalDataType();
+	auto pTargetType = outerFunc.EvalDataType();
 	//0.7.3 B: array results and array return types both carry the
 	//interned token, so the cast choke point adjudicates — same
 	//token = Same (pass-through), different tokens = the named
@@ -58,6 +71,7 @@ void StatementResolveAccessor::Access(SnReturnStmt &sn)
 	auto iExpr = sn.Children().find(sn.m_pResult);
 	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
 		sn.m_pResult = &static_cast<SnCastExpr &>(*iExpr);
+	return true;
 }
 
 void StatementResolveAccessor::Access(SnAssignStmt &sn)
@@ -165,6 +179,34 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 	sn.AddFlags(NF_Resolved);
 }
 
+//0.9.0: the element type a subscript store writes into — the array
+//element for array-valued bases (the interned token peeled), or the
+//container's value slot (List → type-args[0], Dict → type-args[1]).
+//Null = the base carries no derivable element type.
+static SnField* SubscriptStoreElemType(SnExpression *pBase)
+{
+	if (!pBase)
+		return nullptr;
+	auto* pBaseType = pBase->EvalDataType();
+	if (!pBaseType)
+		return nullptr;
+	if (pBaseType->Kind() == NK_ArrayTypeToken)
+		return static_cast<SnArrayTypeToken*>(
+			pBaseType)->ElemTypeOf();
+	if (pBaseType->Kind() == NK_ClassDecl)
+	{
+		auto* pGen = static_cast<SnClassDecl*>(pBaseType);
+		auto typeArgs = GetGenericTypeArgs(pGen);
+		if (pGen->BaseName() == kBuiltinDictTypeName
+			&& typeArgs.size() > 1)
+			return typeArgs[1];
+		if (pGen->BaseName() == kBuiltinListTypeName
+			&& !typeArgs.empty())
+			return typeArgs[0];
+	}
+	return nullptr;
+}
+
 void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 {
 	if (sn.IsResolved())
@@ -174,6 +216,12 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 		m_ExprResolver.Resolve(*sn.Array(), *sn.Array()->Parent(), *m_pCurrType, ERF_None);
 	if (sn.Index() && !sn.Index()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
+	//0.9.0: a bare brace stored value takes the base's element type as
+	//its target (the array element, or the container's value slot). The
+	//base is resolved by now, so the element type is derivable.
+	if (auto *pInitList = sn.Value()
+		? UntypedInitListOf(*sn.Value()) : nullptr)
+		pInitList->InferredTarget(SubscriptStoreElemType(sn.Array()));
 	if (sn.Value() && !sn.Value()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
 	//0.9.0: a creation twin (`int[3] = v`) has a TYPE base — rejected
@@ -201,8 +249,18 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 	{
 		ApplyContainerStoreCasts(sn);
 	}
-	//Void-support: reject a resolved void call as the stored value —
+	//Void-support: a resolved void call as the stored value is rejected —
 	//codegen would store a stale pResult.
+	LogVoidSubscriptStoreValue(sn);
+	sn.AddFlags(NF_Resolved);
+}
+
+//The void-store diagnostic of Access(SnSubscriptAssignStmt&). Logs only
+//— the statement still finishes (a resolved value with no type is
+//already an error; the flags keep the paragraph walk from re-reporting).
+void StatementResolveAccessor::LogVoidSubscriptStoreValue(
+	SnSubscriptAssignStmt &sn)
+{
 	if (sn.Value() && sn.Value()->IsResolved()
 		&& !sn.Value()->EvalDataType())
 	{
@@ -210,7 +268,6 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 			"cannot assign the result of void function \"%s\".",
 			sn.Value()->ToString().c_str());
 	}
-	sn.AddFlags(NF_Resolved);
 }
 
 //Phase 13: a return/assignment-position function reference binds against
@@ -283,19 +340,27 @@ bool StatementResolveAccessor::FinishInitListAssign(SnAssignStmt &sn)
 
 //Init lists set their own type and don't go through the cast-info path,
 //so an untyped `[]`/`{...}` RHS inherits the LHS field as its target.
+//0.9.0: member stores (`b.m = {...}`) read the resolved field the same
+//way — the left walk has already bound the member's inner identifier.
 void StatementResolveAccessor::PropagateInitListTarget(SnAssignStmt &sn)
 {
-	if (sn.Right()->Kind() != NK_InitListExpr)
-		return;
-	auto& initList = static_cast<SnInitListExpr&>(*sn.Right());
-	if (initList.ExplicitType() || initList.InferredTarget())
+	auto *pInitList = UntypedInitListOf(*sn.Right());
+	if (!pInitList)
 		return;
 	SnField* pLeftField = nullptr;
 	if (sn.Left()->Kind() == NK_IdentifierExpr)
 		pLeftField = static_cast<SnIdentifierExpr&>(
 			*sn.Left()).Field();
+	else if (sn.Left()->Kind() == NK_MemberExpr)
+	{
+		auto* pInner = static_cast<SnMemberExpr&>(
+			*sn.Left()).Inner();
+		if (pInner && pInner->Kind() == NK_IdentifierExpr)
+			pLeftField = static_cast<SnIdentifierExpr*>(
+				pInner)->Field();
+	}
 	if (pLeftField)
-		initList.InferredTarget(pLeftField);
+		pInitList->InferredTarget(pLeftField);
 }
 
 //Phase 13 (subscript store): a function reference stored into an array

@@ -95,11 +95,18 @@ private:
 		const ISourceLocation *pLoc);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
+	//Shared tail of Access(SnReturnStmt&): the return-position func-ref
+	//binding and the cast fixup against the declared return type. False
+	//when the binding failed (diagnostic logged).
+	bool FinishReturnExpr(SnFunction &outerFunc, SnReturnStmt &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);
 	void ApplyContainerStoreCasts(SnSubscriptAssignStmt &sn);
+	//Void-store diagnostic of Access(SnSubscriptAssignStmt&). Logs only —
+	//the statement still finishes.
+	void LogVoidSubscriptStoreValue(SnSubscriptAssignStmt &sn);
 	void CheckForeachSource(SnForeachStmt &sn);
 	void MatchForeachElemType(SnForeachStmt &sn, SnField *pVarField);
 	void ResolveForInitDecl(SnForStmt &sn);

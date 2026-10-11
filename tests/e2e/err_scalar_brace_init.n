@@ -1,0 +1,7 @@
+// 0.9.0: a bare brace initializer needs a collection target (D11) — a
+// scalar target cannot be initialized from {...}; the emitter would
+// leave the variable's slot unstaged.
+int main() {
+    int x = {1};
+    return x;
+}

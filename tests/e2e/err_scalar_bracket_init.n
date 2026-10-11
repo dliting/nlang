@@ -1,0 +1,8 @@
+// 0.9.0: a bare bracket initializer needs a collection target — a
+// scalar target cannot be initialized from [...]; the emitter would
+// leave the variable's slot unstaged (pre-0.9.0 silent hole, now a
+// clean compile error).
+int main() {
+    int x = [1];
+    return x;
+}

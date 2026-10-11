@@ -139,6 +139,20 @@ SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 const ISourceLocation& DeclLocation(const ISourceLocation* pLoc,
 	ScriptLocation& fallback);
 bool IsFuncTypeDecl(SnField *pType);
+//0.9.0: the bare `{...}` node of an expression whose target type is not
+//set yet — the shared entry point of target-type inference (deferred
+//call arguments, nested entries, statement-side propagation). Null when
+//the expression is not a brace list awaiting a target. Definition in
+//ExprResolverInitList.cpp.
+SnInitListExpr *UntypedInitListOf(SnExpression &expr);
+//0.9.0: the target shapes a collection initializer lowers to — array
+//tokens, structs, List/Dict instantiations, non-builtin user classes.
+//Scalars / string / func types / builtin classes / interfaces / enums
+//are false (the emitter would leave the target slot unstaged). Single
+//authority shared by the init-list target gate and the bare-brace
+//argument admission (ExprResolverBinding.cpp). Definition in
+//ExprResolverInitList.cpp.
+bool IsInitListTargetShape(SnField *pType);
 bool IsBarePoolScope(const SyntaxNode &scope);
 //2026-09-26 second split: builtin-class minting and the func signature
 //match are consumed from the Values/New and Cast TUs respectively.
@@ -246,7 +260,25 @@ private:
 	{
 	}
 
-	bool ResolveExpressionList(SnExpressionList &exprs);
+	//Resolve every expression in the list, skipping already-resolved ones
+	//and anything in pDeferredArgs — the bare brace arguments that wait
+	//for the callee's formal type (0.9.0). Null skips nothing.
+	bool ResolveExpressionList(SnExpressionList &exprs,
+		const std::vector<SnExpression*> *pDeferredArgs = nullptr);
+
+	//0.9.0: argument prologue of Access(SnInvokeExpr&) — collects the
+	//deferred bare brace arguments into the out vector, resolves every
+	//other argument, and validates the call syntax. False = the call is
+	//consumed as failed (the sweep already reported the brace args).
+	bool ResolveInvokeArguments(SnInvokeExpr &snInvoke,
+		std::vector<SnExpression*> &deferredBraceArgs);
+
+	//Chosen-callee admission gates of Access(SnInvokeExpr&) — the Phase
+	//9e out-on-dispatched veto and the Phase 12 bare-method reject.
+	//False = rejected (diagnostic logged, brace-arg sweep run).
+	bool AdmitChosenCallee(SnInvokeExpr &snInvoke, SnFunction *pCallee,
+		const std::vector<FormalBinding> &bindings,
+		const std::vector<SnExpression*> &deferredBraceArgs);
 
 	//0.7.3 B: token binder at the binding tails. The array-valued
 	//property is derived from the interned SnArrayTypeToken carried in
@@ -527,12 +559,15 @@ private:
 	/*
 	The failure tail of Access(SnInvokeExpr) — the 0.9.0 ctor fallback
 	(TryResolveCtorInvoke) ahead of the shared diagnostics. Split out of
-	Access for the 50-line function budget.
+	Access for the 50-line function budget. deferredBraceArgs gates the
+	ctor route (count-only binding has no target for a brace argument)
+	and receives the missing-target sweep on the way out.
 	*/
 	void ResolveFailedInvoke(SnInvokeExpr &snInvoke, FindFuncResult res,
 		SnFunction *pCallee, bool bNameMatchedImported,
 		bool bVisibilityHintLogged,
-		const std::vector<SnFunction*> &candidates);
+		const std::vector<SnFunction*> &candidates,
+		const std::vector<SnExpression*> &deferredBraceArgs);
 
 	/*
 	Per-argument detail for an incompatible call, shared by the bare and
@@ -635,6 +670,14 @@ private:
 		std::vector<FormalBinding> &bindings);
 
 	/*
+	0.9.0 (D11): resolve the deferred bare brace arguments once the
+	overload is chosen — each formal's declared type becomes the init
+	list's target. False when an argument failed (its diagnostic is
+	logged); the invoke stays unresolved, mirroring the func-ref path.
+	*/
+	bool ResolveDeferredBraceArgs(std::vector<FormalBinding> &bindings);
+
+	/*
 	Calculate the type "distance" from source type to target type.
 	\return
 	1) If the source type can be implicitly covert to target type:
@@ -670,14 +713,16 @@ private:
 
 	/*
 	2026-09-27 decomposition of the cast/binding resolution family
-	(ExprResolverCast.cpp) — the reject/skip gates of FixupExprType, the
-	named-arg arm of FixupParamTypesWithBindings and the named array
-	diagnostic arm of ComputeBindingDistance. ConstantFitGate (0.7.5)
-	runs the Java/C# constant-fit rule inside RejectIncompatibleCast;
-	its verdicts leave the cast info untouched (NotApplicable), promote
-	an in-range constant narrowing to TCK_Auto (Promoted) or log the
-	out-of-range error (Rejected). The fit/lossy predicates themselves
-	live in ExprResolverCastFit.hpp (pure functions, no resolver state).
+	(ExprResolverCast.cpp) — the reject/skip gates of FixupExprType and
+	the named-arg arm of FixupParamTypesWithBindings. ConstantFitGate
+	(0.7.5) runs the Java/C# constant-fit rule inside
+	RejectIncompatibleCast; its verdicts leave the cast info untouched
+	(NotApplicable), promote an in-range constant narrowing to TCK_Auto
+	(Promoted) or log the out-of-range error (Rejected). The fit/lossy
+	predicates themselves live in ExprResolverCastFit.hpp (pure
+	functions, no resolver state). 2026-10-12: ComputeBindingDistance and
+	its binding-distance helpers (LogArrayBindingReject included) moved
+	to ExprResolverBinding.cpp at the source-size guard.
 	*/
 	enum ConstantFitGateResult
 	{
@@ -771,6 +816,17 @@ private:
 	*/
 	bool ResolveInitListTarget(SnInitListExpr &sn,
 		SnField* &pTargetField, bool &bIsArray);
+	//0.9.0: target-shape gate of Access(SnInitListExpr&) — only
+	//collection targets lower (IsInitListTargetShape); array targets
+	//skip the element-shape test. True = rejected (diagnostic logged,
+	//node left unresolved).
+	bool RejectNonCollectionInitTarget(SnInitListExpr &sn,
+		SnField *pTargetField, bool bIsArray);
+	//0.9.0: nested bare brace entries inherit the slot type they store
+	//into — the element type for array/List/Dict targets, or the
+	//addressed field's declared type for struct/class targets.
+	void PropagateNestedInitListTargets(SnInitListExpr &sn,
+		SnField *pTargetField, SnField *pElemType, bool bIsArray);
 	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
 	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
 	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);

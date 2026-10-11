@@ -1,0 +1,22 @@
+// 0.9.0: bare `{...}` at value positions with target-type inference.
+class Box {
+    public Dict<string, int> m;
+}
+
+int take(Dict<string, int> d) { return d["a"]; }
+
+Dict<string, int> make() { return {"b": 4}; }
+
+int main() {
+    int r = take({"a": 1});
+    r = r + make()["b"];
+    Dict<string, int> d = {};
+    d = {"c": 2};
+    r = r + d["c"];
+    List<Dict<string, int>> arr = [{"d": 3}];
+    r = r + arr[0]["d"];
+    Box b = Box();
+    b.m = {"z": 9};
+    r = r + b.m["z"];
+    return r;
+}

@@ -298,7 +298,7 @@ static bool CollectQualifiedSegments(
 %type <v_pFormalParamList>		FormalParamList
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr NewExpr NewArrayExpr SubscriptExpr
 %type <v_pExpressionList>		ConcreteParamList
-%type <v_pExpression>			ConcreteParam
+%type <v_pExpression>			ConcreteParam BracedInitExpr
 %type <v_pInitEntryList>		InitListElements InitListElementList InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
 %type <v_pFunction>				Function FunctionHeader
@@ -707,6 +707,11 @@ Statement:	';' {
 ReturnStmt: KT_Return Expression ';' {
 					$$ = new SnReturnStmt($2, @1);
 				} |
+				//0.9.0: bare brace return — the enclosing function's return
+				//type is the init list's target (resolver-side inference).
+				KT_Return BracedInitExpr ';' {
+					$$ = new SnReturnStmt($2, @1);
+				} |
 				//Void support: bare `return;` for early exit from void functions.
 				KT_Return ';' {
 					$$ = new SnReturnStmt(nullptr, @1);
@@ -738,6 +743,13 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $3});
 					} |
+					//0.9.0: bare brace declaration initializer — decomposed
+					//into the same AssignStmt as the Expression arm, and the
+					//declared type becomes the init list's target.
+					TT_Identifier '=' BracedInitExpr {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, $3});
+					} |
 					TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr});
@@ -749,7 +761,15 @@ Assignment statement.
 AssignStmt: IdentifierExpr '=' Expression ';' {
 					$$ = new SnAssignStmt($1, $3, @1);
 				} |
+				//0.9.0: bare brace assignment RHS — the LHS's type is the
+				//init list's target (resolver-side inference).
+				IdentifierExpr '=' BracedInitExpr ';' {
+					$$ = new SnAssignStmt($1, $3, @1);
+				} |
 				MemberExpr '=' Expression ';' {
+					$$ = new SnAssignStmt($1, $3, @1);
+				} |
+				MemberExpr '=' BracedInitExpr ';' {
 					$$ = new SnAssignStmt($1, $3, @1);
 				} ;
 
@@ -869,6 +889,11 @@ SuperCallStmt: KT_Super '(' ConcreteParamList ')' ';' {
 Array subscript assignment statement (e.g. arr[i] = value).
 */
 SubscriptAssignStmt: Expression '[' Expression ']' '=' Expression ';' {
+					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
+				} |
+				//0.9.0: bare brace stored value — the base's element type is
+				//the init list's target (resolver-side inference).
+				Expression '[' Expression ']' '=' BracedInitExpr ';' {
 					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
 				} ;
 
@@ -1607,6 +1632,18 @@ SubscriptExpr:	Expression '[' Expression ']' {
 					$$ = new SnSubscriptExpr($1, $3, @1);
 				} ;
 
+//0.9.0: bare `{...}` initializer for the value positions wired below
+//(declaration/assignment RHS, subscript store, call argument, return,
+//nested list element). Deliberately NOT an Expression arm: a statement-
+//head `{` is the Paragraph block, and hanging the brace off Expression
+//reintroduces the LALR conflict that restriction bought (see the
+//Expression `[...]` arm). The node carries no type — the resolver's
+//target-type inference (InferredTarget) binds it from context.
+BracedInitExpr:	'{' InitEntries '}' {
+					$$ = new SnInitListExpr(nullptr, *$2, false, @1);
+					delete $2;
+				} ;
+
 //Phase 8e-6: collection initializer element lists.
 //InitListElements is the comma-separated value list for the array form `[...]`.
 //InitEntries is the comma-separated key:value list for the brace form `{...}`.
@@ -1627,7 +1664,24 @@ InitListElementList:	Expression {
 						pVec->push_back(std::move(e));
 						$$ = pVec;
 					} |
+					//0.9.0: nested bare brace element (`[{"d": 3}]`) — the
+					//outer slot's element type is the nested list's target.
+					BracedInitExpr {
+						auto* pVec = new std::vector<nlang::InitEntry>();
+						nlang::InitEntry e;
+						e.keyKind = nlang::InitEntry::KeyKind::None;
+						e.pValue = $1;
+						pVec->push_back(std::move(e));
+						$$ = pVec;
+					} |
 					InitListElementList ',' Expression {
+						nlang::InitEntry e;
+						e.keyKind = nlang::InitEntry::KeyKind::None;
+						e.pValue = $3;
+						$1->push_back(std::move(e));
+						$$ = $1;
+					} |
+					InitListElementList ',' BracedInitExpr {
 						nlang::InitEntry e;
 						e.keyKind = nlang::InitEntry::KeyKind::None;
 						e.pValue = $3;
@@ -1712,6 +1766,11 @@ ConcreteParam:	TT_Identifier '=' Expression {
 					KT_Out TT_Identifier {
 						auto* pId = new SnIdentifierExpr($2, @2);
 						$$ = new SnOutArgExpr(pId, @1);
+					} |
+					//0.9.0: bare brace argument — resolution defers until an
+					//overload is chosen; the formal's type is the target.
+					BracedInitExpr {
+						$$ = $1;
 					} |
 					Expression {
 						$$ = $1;

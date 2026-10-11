@@ -77,8 +77,10 @@ add_library(nlang_compiler
     builder/ExprResolverInitList.cpp
     builder/ExprResolverInvoke.cpp
     builder/ExprResolverInvokeDiag.cpp
+    builder/ExprResolverInvokeMatch.cpp
     builder/ExprResolverDelegate.cpp
     builder/ExprResolverCast.cpp
+    builder/ExprResolverBinding.cpp
     builder/ExprResolverCastFit.cpp
     builder/StatementResolver.cpp
     builder/StatementResolverDecls.cpp
