@@ -137,12 +137,17 @@ bool IsPlainLvalueShape(const SnExpression& expr) {
 void ExprResolveAccessor::BindArrayTypeToken(SnExpression& expr) {
 	if (!expr.IsResolved())
 		return;
-	if (expr.Kind() != NK_NewArrayExpr)
+	//Creation shapes only: `new T[n]` and the 0.9.0 twin `T[n]`
+	//(annotated with NewArrayElem). Every other shape resolves through
+	//a declaration channel that already carries the token.
+	const bool isCreation = expr.Kind() == NK_NewArrayExpr
+		|| (expr.Kind() == NK_SubscriptExpr
+			&& static_cast<SnSubscriptExpr&>(expr).NewArrayElem() != nullptr);
+	if (!isCreation)
 		return;
-	//`new T[n]`: the resolve tail stored the element field in
-	//EvalDataType — mint the token over it. A type alias may already
-	//have spliced an array type in (its Field() IS a token); never
-	//wrap a token in another token.
+	//The creation resolve tail stored the element field in
+	//EvalDataType — mint the token over it. The never-wrap check stays:
+	//an element field that is already a token must not be wrapped again.
 	auto* pElem = expr.EvalDataType();
 	if (pElem && pElem->Kind() != NK_ArrayTypeToken)
 		expr.EvalDataType(m_Env.InternArrayTypeToken(pElem));

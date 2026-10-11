@@ -71,6 +71,7 @@ add_library(nlang_compiler
     builder/ExprResolverBuiltinClasses.cpp
     builder/ExprResolverFuncRef.cpp
     builder/ExprResolverValues.cpp
+    builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp
     builder/ExprResolverNew.cpp
     builder/ExprResolverInitList.cpp
@@ -85,6 +86,7 @@ add_library(nlang_compiler
     builder/StatementResolverAssign.cpp
     builder/StatementResolverFlow.cpp
     builder/StatementResolverSwitchTry.cpp
+    builder/StatementResolverStoreGates.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
 )

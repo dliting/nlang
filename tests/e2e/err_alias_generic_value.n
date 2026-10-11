@@ -1,0 +1,7 @@
+// 0.9.0: a generic-instantiation alias creation is not an int value.
+using IL = List<int>;
+
+int main() {
+    int x = IL[2];
+    return x;
+}

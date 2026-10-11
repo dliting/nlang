@@ -250,7 +250,11 @@ SnClassDecl *ExprResolveAccessor::ProbeCtorClass(const std::string &name,
 		Flags());
 	if (pField && pField->Kind() == NK_ClassDecl)
 		return static_cast<SnClassDecl *>(pField);
-	return nullptr;
+	//0.9.0: `P(args)` with `using P = Point;` — the invoke callee sits in
+	//expression position, where the alias pre-pass never expands; probe
+	//the TU alias table last. Silent on a miss: the caller owns the
+	//generic failure text.
+	return ProbeAliasClass(name, pLoc);
 }
 
 //Bare `Foo(args)` without new: bind the invoke as a constructor call.

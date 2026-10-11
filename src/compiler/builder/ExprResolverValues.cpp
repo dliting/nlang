@@ -312,22 +312,47 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 }
 
 //0.9.0: consume the subscript as a sized array creation (`int[n]` /
-//`Foo[n]`, the new-free twin of `new T[n]`) when the base identifier
-//resolved as a TYPE (primitive keyword, or a class/struct/enum/
-//interface declaration). A local shadowing the type name binds the
-//VALUE first (FindField order), keeping the plain subscript reading.
-//True = consumed. The index child doubles as the size expression; the
-//element type is stored first, then the array token is interned over
-//it — the same tail as Access(SnNewArrayExpr&); never wrap a token
-//(an array alias binds its token directly).
+//`Foo[n]`, the new-free twin of `new T[n]`) when the base resolved as a
+//TYPE (primitive keyword, or a class/struct/enum/interface declaration —
+//directly, or through an alias spliced in by ResolveArrayBase). A local
+//shadowing the type name binds the VALUE first (FindField order),
+//keeping the plain subscript reading. True = consumed. The index child
+//doubles as the size expression; the element type is stored first, then
+//BindArrayTypeToken mints the array token over it — the same tail as
+//Access(SnNewArrayExpr&). An array alias base (`using Ints = int[];`
+//then `Ints[2]`) is rejected exactly like `new Ints[2]`.
 bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 {
 	auto &arrayExpr = *sn.Array();
-	if (arrayExpr.Kind() != NK_IdentifierExpr)
+	if (!arrayExpr.IsResolved())
 		return false;
-	auto *pElemField = static_cast<SnIdentifierExpr&>(arrayExpr).Field();
+	//Only a TYPE EXPRESSION can head a creation: the bare identifier and
+	//the splice products of an alias base (name / array / generic — the
+	//complete CloneTypeNode product set; the generic form binds the minted
+	//instantiation through Access(SnGenericTypeExpr&), the same binding
+	//`new List<int>[n]` takes). A value expression whose Field() happens
+	//to be type-ish (`ks.get(0)[1]` binds the element token) must keep
+	//the plain subscript reading.
+	switch (arrayExpr.Kind())
+	{
+	case NK_IdentifierExpr:
+	case NK_NameExpr:
+	case NK_ArrayTypeExpr:
+	case NK_GenericTypeExpr:
+		break;
+	default:
+		return false;
+	}
+	auto *pBaseFieldExpr = static_cast<SnFieldExpr *>(&arrayExpr);
+	auto *pElemField = pBaseFieldExpr->Field();
 	if (!pElemField || !pElemField->IsTypeField())
 		return false;
+	if (pBaseFieldExpr->IsArrayType())
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Multi-dimensional arrays are not supported.");
+		return true;
+	}
 	//Resolve the size expression.
 	sn.Index()->Accept(*m_pVisitor);
 	if (!sn.Index()->IsResolved())
@@ -335,8 +360,7 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 	sn.NewArrayElem(pElemField);
 	sn.EvalDataType(pElemField);
 	sn.AddFlags(NF_Resolved);
-	if (pElemField->Kind() != NK_ArrayTypeToken)
-		sn.EvalDataType(m_Env.InternArrayTypeToken(pElemField));
+	BindArrayTypeToken(sn);
 	return true;
 }
 
@@ -344,10 +368,8 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 {
 	assert(!sn.IsResolved());
 
-	//Resolve array expression.
-	auto& arrayExpr = *sn.Array();
-	arrayExpr.Accept(*m_pVisitor);
-	if (!arrayExpr.IsResolved())
+	//Resolve array expression (the 0.9.0 alias splice included).
+	if (!ResolveArrayBase(sn))
 		return;
 
 	//0.9.0: `Type[size]` creation twin — see TrySizedArrayCreation.
@@ -362,7 +384,7 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 
 	//Look up arr.length-style access is handled by MemberExpr.
 	//For now, the result type of subscript is the element type.
-	auto* arrayType = arrayExpr.EvalDataType();
+	auto* arrayType = sn.Array()->EvalDataType();
 	if (ResolveStringSubscript(sn, arrayType))
 		return;
 	if (TryResolveContainerSubscript(sn, arrayType))

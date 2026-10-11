@@ -1,0 +1,6 @@
+// 0.9.0: a creation twin is a value, not a location — the store form is
+// rejected with a named diagnostic instead of a codegen internal error.
+int main() {
+    int[3] = 5;
+    return 0;
+}

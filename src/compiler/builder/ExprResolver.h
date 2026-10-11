@@ -795,6 +795,20 @@ private:
 	//child doubles as the size expression. True = consumed.
 	bool TrySizedArrayCreation(SnSubscriptExpr &sn);
 
+	//0.9.0: expression-position alias support for the creation twins —
+	//the pre-pass expands type positions only, so `P[n]` / `P(args)`
+	//reach the resolver as bare identifiers. The subscript-base resolve
+	//with the alias splice, the chain-following TU alias lookup (null =
+	//the name addresses no alias), the splice itself, and the silent
+	//class probe behind an alias for the ctor-invoke twin. All defined
+	//in ExprResolverAlias.cpp.
+	bool ResolveArrayBase(SnSubscriptExpr &sn);
+	SnFieldExpr *FindAliasTarget(const ISourceLocation *pLoc,
+		const std::string &name);
+	void TrySpliceAliasType(SnIdentifierExpr &idExpr);
+	SnClassDecl *ProbeAliasClass(const std::string &name,
+		const ISourceLocation *pLoc);
+
 	/*
 	2026-09-27 decomposition of the type-node resolution family
 	(ExprResolverTypes.cpp) — the type-argument collection of

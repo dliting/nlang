@@ -1,6 +1,7 @@
 /*---
     StatementResolverAssign.cpp — 赋值类语句解析：return/赋值/复合赋值/下标赋值的类型检查与收敛。
-    从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
+    从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）；
+    赋值目标守卫族已抽至 StatementResolverStoreGates.cpp（0.9.0）。
 ---*/
 #include "StatementResolver.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
@@ -135,15 +136,8 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 	//Phase 9a: reject compound assignment to a const local.
 	RejectConstStoreTarget(*sn.Left(), sn.Location());
 	RejectMethodCallStoreTarget(*sn.Left(), sn.Location());
-	//0.8.4: a string base (s[0] += v) has no store semantics — the
-	//same gate as the plain subscript store (RejectStringBase).
-	if (sn.Left()->Kind() == NK_SubscriptExpr)
-	{
-		auto& sub = static_cast<SnSubscriptExpr&>(*sn.Left());
-		if (sub.Array()
-			&& RejectStringBase(*sub.Array(), sn.Location()))
-			return;
-	}
+	if (RejectCompoundSubscriptTarget(*sn.Left(), sn.Location()))
+		return;
 	sn.Right()->Accept(*m_pVisitor);
 
 	//Type check: RHS must be compatible with LHS type.
@@ -182,6 +176,10 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 		m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
 	if (sn.Value() && !sn.Value()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
+	//0.9.0: a creation twin (`int[3] = v`) has a TYPE base — rejected
+	//before the plain-subscript gates read it as a location.
+	if (RejectCreationStoreTarget(*sn.Array(), sn.Location()))
+		return;
 	if (RejectStringBase(*sn.Array(), sn.Location()))
 		return;
 	if (sn.Value() && (IsUnboundFuncRef(*sn.Value())
@@ -270,39 +268,6 @@ bool StatementResolveAccessor::TryGetAssignSourceType(SnExpression &right,
 	return pTargetType && pSourceType;
 }
 
-//Phase 9a: reject assignment to a const local (identifier targets only;
-//the const-init decomposition sets NF_Const AFTER resolving the
-//initializer AssignStmt, so initializer writes correctly pass).
-void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
-	const ISourceLocation *pLoc)
-{
-	if (left.Kind() != NK_IdentifierExpr)
-		return;
-	auto* pLeftField = static_cast<SnIdentifierExpr&>(left).Field();
-	if (pLeftField && pLeftField->ContainFlags(NF_Const))
-		m_Env.Log(CLL_Error, pLoc,
-			"cannot assign to const local \"%s\".",
-			pLeftField->Name().c_str());
-}
-
-//A method call LHS (`obj.f() = v`, `obj.f() += v`) parses as a store
-//statement — the grammar's MemberExpr admits `Expression '.' InvokeExpr`
-//because that is also how every method call is spelled — but the call
-//result is a value, not a location. Without this gate the statement
-//resolves quietly (the method's return type reads as the target type)
-//and codegen's field-store paths silently emit nothing for it.
-void StatementResolveAccessor::RejectMethodCallStoreTarget(
-	SnExpression &left, const ISourceLocation *pLoc)
-{
-	if (left.Kind() != NK_MemberExpr)
-		return;
-	if (static_cast<SnMemberExpr&>(left).Inner()->Kind()
-		== NK_IdentifierExpr)
-		return;
-	m_Env.Log(CLL_Error, pLoc,
-		"cannot assign to the result of a method call.");
-}
-
 //Init lists set their own EvalDataType and don't go through the
 //cast-info path — flag them resolved and skip cast fixup entirely.
 bool StatementResolveAccessor::FinishInitListAssign(SnAssignStmt &sn)
@@ -371,26 +336,6 @@ bool StatementResolveAccessor::TryBindSubscriptStoreFuncRef(
 		}
 	}
 	return TryBindStatementFuncRef(*sn.Value(), pElemType);
-}
-
-//0.7.3 B D3: write-path twin of the read arm in ExprResolver — a string
-//base has no subscript store semantics. Before this arm the store fell
-//through the container path with a null element type (strings are not
-//generic instantiations) and failed only at runtime ("null array
-//access"). 0.8.4: shared with the compound-assign subscript LHS
-//(`s[0] += v`) — the same base has no store semantics there.
-bool StatementResolveAccessor::RejectStringBase(SnExpression &base,
-	const ISourceLocation *pLoc)
-{
-	if (base.IsResolved()
-		&& base.EvalDataType()
-		&& base.EvalDataType()->Kind() == NK_String)
-	{
-		m_Env.Log(CLL_Error, pLoc,
-			"string does not support subscript access.");
-		return true;
-	}
-	return false;
 }
 
 //Element-type gate for array-valued bases: coerce the stored value to

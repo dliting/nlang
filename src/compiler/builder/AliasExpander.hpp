@@ -81,30 +81,11 @@ public:
 		m_pUnit = nullptr;
 	}
 
-private:
-	//Diagnose a target that names an alias which is not yet registered:
-	//either a forward reference to a later alias or an alias cycle. The
-	//message reuses the regular unknown-type text so the diagnostic reads
-	//exactly like a use site that cannot be resolved.
-	void CheckRegistrationOrder(SnUsing &usingNode,
-		const std::set<std::string> &roster, TranslationUnit &unit,
-		bool &bErrored)
-	{
-		auto *pRootId = RootIdentifier(*usingNode.AliasType());
-		if (!pRootId || pRootId->Field())
-			return;  //no root name, or a pre-resolved built-in type
-		const auto &sName = pRootId->Name();
-		if (roster.count(sName) != 0 && unit.FindAlias(sName) == nullptr)
-		{
-			m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
-				sName.c_str());
-			bErrored = true;
-		}
-	}
-
 	//Peel array/generic wrappers down to the root identifier of a type
 	//expression (e.g. Dict<string,int[]> -> "Dict"). Null for shapes the
 	//grammar does not produce in alias targets (defensive).
+	//Public: the 0.9.0 expression-position alias support in the resolver
+	//(creation twins) peels alias targets with the same helper.
 	static SnIdentifierExpr *RootIdentifier(SnFieldExpr &typeExpr)
 	{
 		auto *pCur = &typeExpr;
@@ -131,73 +112,13 @@ private:
 		}
 	}
 
-	//The identifier name inside a name expression, or an empty string for
-	//non-identifier inners (the grammar only produces identifier inners).
-	static std::string NameOf(SnNameExpr &nameExpr)
-	{
-		auto *pInner = nameExpr.Expr();
-		if (!pInner || pInner->Kind() != NK_IdentifierExpr)
-			return std::string();
-		return static_cast<SnIdentifierExpr*>(pInner)->Name();
-	}
-
-	//Expand the alias references among the direct children of one node.
-	void ExpandChildren(SyntaxNode *pParent, std::set<std::string> &visitedNames)
-	{
-		//Since the Phase 13 Step 0.5 container unification every
-		//contained member is a regular child — including the former
-		//out-of-list slots (new-array element type/size, subscript
-		//base/index, local-decl init expressions) that this walk used to
-		//special-case — so one loop covers them all. Snapshot first:
-		//ReplaceChildNode splices the children list while the loop runs
-		//(the replaced node is deleted in place).
-		std::vector<SyntaxNode*> children;
-		for (auto &child : pParent->Children())
-			children.push_back(static_cast<SyntaxNode*>(&child));
-		for (auto *pChild : children)
-			ExpandSlot(pParent, pChild, visitedNames);
-	}
-
-	//Try to expand one child node as an alias reference; otherwise just
-	//recurse into it.
-	void ExpandSlot(SyntaxNode *pParent, SyntaxNode *pChild,
-		std::set<std::string> &visitedNames)
-	{
-		if (pChild->Kind() == NK_NameExpr)
-		{
-			auto &nameNode = static_cast<SnNameExpr&>(*pChild);
-			const auto sName = NameOf(nameNode);
-			auto *pTarget = sName.empty() ? nullptr : m_pUnit->FindAlias(sName);
-			if (pTarget)
-			{
-				//Alias cycles terminate here: a name repeated on the current
-				//expansion path is left as a plain name expression and fails
-				//at resolve time with the regular unknown-type diagnostic.
-				if (visitedNames.count(sName) != 0)
-					return;
-				auto *pClone = CloneTypeNode(*pTarget, nameNode);
-				if (pClone)
-				{
-					visitedNames.insert(sName);
-					pParent->ReplaceChildNode(pChild, pClone);
-					//Chained aliases: the CLONE itself may name another
-					//alias (e.g. `using A = B;` with `using B = int;`),
-					//so it goes through the same slot check, not just a
-					//descend into its children.
-					ExpandSlot(pParent, pClone, visitedNames);
-					visitedNames.erase(sName);
-					return;
-				}
-			}
-		}
-		ExpandChildren(pChild, visitedNames);
-	}
-
 	//Deep-clone a type expression (identifier / name / array / generic).
 	//Node flags and source locations are copied along: built-in identifiers
 	//carry NF_Resolved, and Usings() resolves through Location()->TransUnit().
 	//Null only for grammar-impossible shapes (defensive — the caller then
 	//leaves the original name expression untouched).
+	//Public: the 0.9.0 expression-position alias support in the resolver
+	//splices clones with the same machinery as this pre-pass.
 	static SnFieldExpr *CloneTypeNode(SnFieldExpr &src, SyntaxNode &useSite)
 	{
 		const ISourceLocation &loc = LocationOf(src, useSite);
@@ -265,6 +186,89 @@ private:
 		default:
 			return nullptr;
 		}
+	}
+
+private:
+	//Diagnose a target that names an alias which is not yet registered:
+	//either a forward reference to a later alias or an alias cycle. The
+	//message reuses the regular unknown-type text so the diagnostic reads
+	//exactly like a use site that cannot be resolved.
+	void CheckRegistrationOrder(SnUsing &usingNode,
+		const std::set<std::string> &roster, TranslationUnit &unit,
+		bool &bErrored)
+	{
+		auto *pRootId = RootIdentifier(*usingNode.AliasType());
+		if (!pRootId || pRootId->Field())
+			return;  //no root name, or a pre-resolved built-in type
+		const auto &sName = pRootId->Name();
+		if (roster.count(sName) != 0 && unit.FindAlias(sName) == nullptr)
+		{
+			m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
+				sName.c_str());
+			bErrored = true;
+		}
+	}
+
+	//The identifier name inside a name expression, or an empty string for
+	//non-identifier inners (the grammar only produces identifier inners).
+	static std::string NameOf(SnNameExpr &nameExpr)
+	{
+		auto *pInner = nameExpr.Expr();
+		if (!pInner || pInner->Kind() != NK_IdentifierExpr)
+			return std::string();
+		return static_cast<SnIdentifierExpr*>(pInner)->Name();
+	}
+
+	//Expand the alias references among the direct children of one node.
+	void ExpandChildren(SyntaxNode *pParent, std::set<std::string> &visitedNames)
+	{
+		//Since the Phase 13 Step 0.5 container unification every
+		//contained member is a regular child — including the former
+		//out-of-list slots (new-array element type/size, subscript
+		//base/index, local-decl init expressions) that this walk used to
+		//special-case — so one loop covers them all. Snapshot first:
+		//ReplaceChildNode splices the children list while the loop runs
+		//(the replaced node is deleted in place).
+		std::vector<SyntaxNode*> children;
+		for (auto &child : pParent->Children())
+			children.push_back(static_cast<SyntaxNode*>(&child));
+		for (auto *pChild : children)
+			ExpandSlot(pParent, pChild, visitedNames);
+	}
+
+	//Try to expand one child node as an alias reference; otherwise just
+	//recurse into it.
+	void ExpandSlot(SyntaxNode *pParent, SyntaxNode *pChild,
+		std::set<std::string> &visitedNames)
+	{
+		if (pChild->Kind() == NK_NameExpr)
+		{
+			auto &nameNode = static_cast<SnNameExpr&>(*pChild);
+			const auto sName = NameOf(nameNode);
+			auto *pTarget = sName.empty() ? nullptr : m_pUnit->FindAlias(sName);
+			if (pTarget)
+			{
+				//Alias cycles terminate here: a name repeated on the current
+				//expansion path is left as a plain name expression and fails
+				//at resolve time with the regular unknown-type diagnostic.
+				if (visitedNames.count(sName) != 0)
+					return;
+				auto *pClone = CloneTypeNode(*pTarget, nameNode);
+				if (pClone)
+				{
+					visitedNames.insert(sName);
+					pParent->ReplaceChildNode(pChild, pClone);
+					//Chained aliases: the CLONE itself may name another
+					//alias (e.g. `using A = B;` with `using B = int;`),
+					//so it goes through the same slot check, not just a
+					//descend into its children.
+					ExpandSlot(pParent, pClone, visitedNames);
+					visitedNames.erase(sName);
+					return;
+				}
+			}
+		}
+		ExpandChildren(pChild, visitedNames);
 	}
 
 	static const ISourceLocation &LocationOf(SyntaxNode &node,

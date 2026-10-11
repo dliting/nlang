@@ -1,0 +1,6 @@
+// 0.9.0: compound assignment to a creation twin hits the same
+// store-target reject as the plain form.
+int main() {
+    int[2] += 1;
+    return 0;
+}

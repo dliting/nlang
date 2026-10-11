@@ -84,6 +84,15 @@ private:
 		const ISourceLocation *pLoc);
 	void RejectMethodCallStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
+	//0.9.0: the subscript-store statement has no SnSubscriptExpr node to
+	//carry the creation annotation, so its TYPE base (`int[3] = v`) is
+	//recognized here. True = rejected (the caller stops).
+	bool RejectCreationStoreTarget(SnExpression &base,
+		const ISourceLocation *pLoc);
+	//0.8.4/0.9.0: the compound-assign subscript LHS gates (string base,
+	//creation twin via the NewArrayElem annotation). True = rejected.
+	bool RejectCompoundSubscriptTarget(SnExpression &left,
+		const ISourceLocation *pLoc);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
