@@ -18,36 +18,21 @@
 namespace nlang {
 
 void VmBackend::Access(SnNewExpr& expr) {
-    BytecodeEmitter& emitter = *m_pCurrEmitter;
-    uint16_t resultOffset = m_resultOffset;
     auto& newExpr = static_cast<SnNewExpr&>(expr);
-    const int classIdxInt = ResolveNewExprClassIdx(newExpr);  //null-checked
-    auto& classDecl = *newExpr.ClassDecl();
-    const uint16_t classIdx = static_cast<uint16_t>(classIdxInt);
-    //Per-unit: own/builtin records carry the ctor index in the table;
-    //a cross-unit placeholder discovers its ctor in the AST (CtorSlotFor).
-    uint16_t ctorIdx = CtorSlotFor(classDecl, classIdx);
-    uint16_t allocSlot = resultOffset;
-    if (ctorIdx != 0xFFFF) {
-        EmitCtorInvocation(newExpr, emitter, classIdx, ctorIdx,
-                           resultOffset);
-        return;
-    }
-
-    emitter.Emit(OpCode::OP_New);
-    emitter.EmitUint16(allocSlot);
-    emitter.EmitUint16(classIdx);
-    return;
+    EmitNewObject(newExpr.ClassDecl(), newExpr.Args(), newExpr.ClassName(),
+                  m_resultOffset);
 }
 
-//Resolve a new-expression's target class to its module index. Both failure
-//modes below are internal invariant breaks (Round-12).
-int VmBackend::ResolveNewExprClassIdx(SnNewExpr& newExpr) {
-    auto* pClassDecl = newExpr.ClassDecl();
+//Shared new-object emission: `new Foo(args)` and the 0.9.0 ctor-invoke
+//twin (`Foo(args)` without new) land here. Both failure modes are
+//internal invariant breaks (Round-12) — codegen only runs when the
+//front-end saw no errors.
+void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
+                              SnExpressionList& ctorArgs,
+                              SnExpression* pSkipArg, uint16_t resultOffset) {
     if (!pClassDecl) {
         //Round-12: the resolver failed to bind a class declaration to
-        //this new-expression. Codegen only runs when the front-end saw
-        //no errors, so this is an internal invariant break.
+        //this construction.
         throw std::runtime_error(
             "NLang backend: new expression without a bound class declaration");
     }
@@ -56,30 +41,39 @@ int VmBackend::ResolveNewExprClassIdx(SnNewExpr& newExpr) {
     //KeyOf keeps the erased builtin key ("List") for a generic
     //instantiation and the bare name for ownerless builtins, so the
     //own branch of the slot helper covers every ownerless shape.
-    return static_cast<int>(ClassSlotFor(*pClassDecl));
+    //Own/builtin records carry the ctor index in the table; a cross-unit
+    //placeholder discovers its ctor in the AST (CtorSlotFor).
+    const uint16_t classIdx =
+        static_cast<uint16_t>(ClassSlotFor(*pClassDecl));
+    const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
+    if (ctorIdx != 0xFFFF) {
+        EmitCtorInvocation(ctorArgs, pSkipArg, *m_pCurrEmitter, classIdx,
+                           ctorIdx, resultOffset);
+        return;
+    }
+
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    emitter.Emit(OpCode::OP_New);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(classIdx);
 }
 
-//Count a new-expression's positional ctor args. Args() is a view over ALL
-//children and its LAST element is the AddChild'ed class-name node (SnNewExpr
-//ctor appends it after the ctor args) — skip it by identity. The resolver
-//rejects named/out args and validates arity, so every remaining entry is a
-//positional value expression.
-int VmBackend::CountNewExprCtorArgs(SnNewExpr& newExpr) {
+//The class has a ctor — claim {this, args...} in evalArea, emit the args
+//there, OP_New into resultOffset, bulk-copy the claim to callParamBase,
+//then OP_CallMethodDirect on the ctor. pSkipArg is the class-name child
+//the NewExpr arg view carries (skipped by identity; null for the invoke
+//twin). The resolver rejects named/out args and validates arity, so every
+//remaining entry is a positional value expression.
+void VmBackend::EmitCtorInvocation(SnExpressionList& ctorArgs,
+                                   SnExpression* pSkipArg,
+                                   BytecodeEmitter& emitter, uint16_t classIdx,
+                                   uint16_t ctorIdx, uint16_t resultOffset) {
     size_t argCount = 0;
-    for (auto& param : newExpr.Args()) {
-        if (&param == newExpr.ClassName()) continue;
+    for (auto& param : ctorArgs) {
+        if (&param == pSkipArg) continue;
         ++argCount;
     }
-    return static_cast<int>(argCount);
-}
-
-//NewExpr arm: the class has a ctor — claim {this, args...} in evalArea,
-//emit the args there, OP_New into resultOffset, bulk-copy the claim to
-//callParamBase, then OP_CallMethodDirect on the ctor.
-void VmBackend::EmitCtorInvocation(SnNewExpr& newExpr, BytecodeEmitter& emitter,
-                                   uint16_t classIdx, uint16_t ctorIdx,
-                                   uint16_t resultOffset) {
-    uint16_t n = static_cast<uint16_t>(1 + CountNewExprCtorArgs(newExpr));  //this + args
+    const uint16_t n = static_cast<uint16_t>(1 + argCount);  //this + args
 
     EvalAreaClaim claim(*this, n);
     uint16_t claimBase = claim.base();
@@ -88,8 +82,8 @@ void VmBackend::EmitCtorInvocation(SnNewExpr& newExpr, BytecodeEmitter& emitter,
     //slices — they bulk-copy to callParamBase but that's fine;
     //our this/args live in evalArea, not callParamBase.
     uint16_t paramIdx = 1;
-    for (auto& param : newExpr.Args()) {
-        if (&param == newExpr.ClassName()) continue;
+    for (auto& param : ctorArgs) {
+        if (&param == pSkipArg) continue;
         uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
         EmitExpression(param, emitter, paramOffset);
         ++paramIdx;

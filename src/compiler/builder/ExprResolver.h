@@ -523,6 +523,16 @@ private:
 		const std::vector<SnFunction*> &candidates);
 
 	/*
+	The failure tail of Access(SnInvokeExpr) — the 0.9.0 ctor fallback
+	(TryResolveCtorInvoke) ahead of the shared diagnostics. Split out of
+	Access for the 50-line function budget.
+	*/
+	void ResolveFailedInvoke(SnInvokeExpr &snInvoke, FindFuncResult res,
+		SnFunction *pCallee, bool bNameMatchedImported,
+		bool bVisibilityHintLogged,
+		const std::vector<SnFunction*> &candidates);
+
+	/*
 	Per-argument detail for an incompatible call, shared by the bare and
 	module-qualified paths: among the name-matched candidates, pick the
 	first whose arguments route (correct arity / out markers) and log each
@@ -722,9 +732,33 @@ private:
 	and the allocation binding of Access(SnNewArrayExpr&).
 	*/
 	size_t CountPositionalCtorArgs(SnNewExpr &sn);
+	size_t CountPositionalCtorArgs(SnInvokeExpr &sn);
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
 	bool FindCtorArity(SnClassDecl *pClassDecl, size_t &ctorArity);
 	void CheckNewExprCtorArity(SnNewExpr &sn, SnClassDecl *pClassDecl);
+	void CheckCtorArgCount(const ISourceLocation *pLoc,
+		SnClassDecl *pClassDecl, size_t argCount);
+
+	/*
+	0.9.0 (Phase A): constructor calls without `new`. TryResolveCtorInvoke
+	(bare `Foo(args)`) runs ONLY in the invoke-resolution failure branch —
+	the function-overload lookup has already failed, so functions keep
+	priority and existing calls cannot regress; a foreign same-name
+	function keeps the visibility hint as the complete diagnosis.
+	TryResolveQualifiedCtorInvoke (`shapes.Point(args)`) is the
+	module-qualified twin, hooked into the module-qualified call path
+	after its function lookup failed with no name-matched candidate.
+	Both return true when the invoke is consumed (resolved as a ctor call,
+	or rejected with a named diagnostic); false falls through to the
+	caller's generic failure. ProbeCtorClass resolves a bare name to a
+	class the way Access(SnNewExpr&) resolves its class name, but as a
+	silent probe — a miss must not add a second diagnostic.
+	*/
+	bool TryResolveCtorInvoke(SnInvokeExpr &snInvoke);
+	bool TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, const std::string &modulePath);
+	SnClassDecl *ProbeCtorClass(const std::string &name,
+		const ISourceLocation *pLoc);
 
 	/*
 	2026-09-29 split of the collection-initializer resolution family

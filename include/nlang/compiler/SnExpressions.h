@@ -28,6 +28,7 @@ namespace nlang
 
 //The abstract expression syntax node.
 class BuildEnvironment;
+class SnClassDecl;
 class SnIdentifierExpr;
 class SnMemberExpr;
 
@@ -388,10 +389,18 @@ public:
 	const std::vector<FormalBinding>& Bindings() const { return m_Bindings; }
 	void SetBindings(std::vector<FormalBinding>&& v) { m_Bindings = std::move(v); }
 	bool HasBindings() const { return !m_Bindings.empty(); }
+
+	//0.9.0: set when the invoked name resolves to a class constructor
+	//(Foo(args) without new; also the module-qualified shapes.Point(args)
+	//form). Null for ordinary calls. Codegen routes to the shared
+	//new-object emission; the frame walkers mirror the NewExpr arm.
+	SnClassDecl *CtorClass() const { return m_pCtorClass; }
+	void CtorClass(SnClassDecl *pCtorClass) { m_pCtorClass = pCtorClass; }
 private:
 	std::unique_ptr<std::string> m_upCalleeName;
 	SnExpressionList* m_pParams;
 	std::vector<FormalBinding> m_Bindings;
+	SnClassDecl *m_pCtorClass = nullptr;
 };
 
 /*

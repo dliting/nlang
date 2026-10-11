@@ -1,0 +1,10 @@
+import io;
+import shapes;
+
+int main()
+{
+    shapes.Point p = shapes.Point(2, 3);
+    if (p.x + p.y != 5) { return 9; }
+    io.print(shapes.Point(1, 6).y);
+    return 0;
+}

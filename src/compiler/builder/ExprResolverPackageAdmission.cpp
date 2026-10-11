@@ -246,6 +246,12 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 		bAmbiguous);
 	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
 	{
+		//0.9.0: a member name that is one of the module's CLASSES (no
+		//function carries the name) is a qualified constructor call —
+		//functions keep priority (the match above ran first).
+		if (res == FFR_FuncNameNotFound
+			&& TryResolveQualifiedCtorInvoke(snMember, invoke, modulePath))
+			return true;   //ctor bound; the caller finishes the member
 		LogInvokeFailure(invoke, res, pCallee,
 			res == FFR_Incompatible && !bAmbiguous
 				&& AnyNameMatchedImported(candidates), candidates);

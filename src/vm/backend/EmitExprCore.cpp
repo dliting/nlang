@@ -350,6 +350,17 @@ void VmBackend::Access(SnInvokeExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
         auto& invoke = static_cast<SnInvokeExpr&>(expr);
+
+        //0.9.0: a ctor-carrying invoke (`Foo(args)` without new) shares
+        //the NewExpr emission; dispatched first — the delegate predicate
+        //in the dispatch tail would misread the bound class as a func
+        //value.
+        if (invoke.CtorClass()) {
+            EmitNewObject(invoke.CtorClass(), invoke.Params(), nullptr,
+                          resultOffset);
+            return;
+        }
+
         auto* callee = invoke.Callee();
 
         //Phase 9c: binding-aware argument emission. Handles positional,
@@ -361,37 +372,45 @@ void VmBackend::Access(SnInvokeExpr& expr) {
                      /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
                      &outSpills);
 
-        //Phase 13: delegate invoke — the resolver bound the callee name to
-        //a func-typed value (local/param, or an implicit this-field)
-        //instead of a function declaration (Callee() null, Field() set).
-        //Args are already staged at callParamBase by the positional emit
-        //above; materialize the handle into a scratch evalArea slot (the
-        //field form must not disturb callParamBase) and dispatch.
-        if (IsDelegateInvoke(invoke)) {
-            EmitDelegateInvoke(invoke, emitter, resultOffset, outSpills);
-            return;
-        }
+        EmitInvokeDispatch(invoke, callee, emitter, resultOffset, outSpills);
+}
 
-        // Find function index
-        if (!callee) {
-            //Round-11: an invoke reaching here with no resolvable callee
-            //means the resolver marked it resolved without binding (the
-            //string equals() arg bug did exactly this — the arg's nested
-            //call was silently skipped and equals compared stale memory).
-            //Codegen only runs when the front-end saw no errors, so this
-            //is an internal inconsistency: fail the build instead of
-            //emitting wrong code.
-            throw std::runtime_error(
-                "NLang backend: invoke reached codegen unresolved: "
-                + invoke.CalleeName());
-        }
-        //Per-unit: cross-unit callees slot as import placeholders
-        //(FunctionSlotFor); own ones resolve through m_funcIndexMap.
-        EmitFreeFunctionCall(
-            static_cast<int>(FunctionSlotFor(*callee)),
-            emitter, resultOffset, outSpills);
-        emitter.Emit(OpCode::OP_ParaEnd);
+//Staged-invoke dispatch tail (split out of Access for the 50-line
+//function budget).
+void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset,
+                                   const std::vector<OutSpill>& outSpills) {
+    //Phase 13: delegate invoke — the resolver bound the callee name to
+    //a func-typed value (local/param, or an implicit this-field)
+    //instead of a function declaration (Callee() null, Field() set).
+    //Args are already staged at callParamBase by the positional emit
+    //above; materialize the handle into a scratch evalArea slot (the
+    //field form must not disturb callParamBase) and dispatch.
+    if (IsDelegateInvoke(invoke)) {
+        EmitDelegateInvoke(invoke, emitter, resultOffset, outSpills);
         return;
+    }
+
+    // Find function index
+    if (!callee) {
+        //Round-11: an invoke reaching here with no resolvable callee
+        //means the resolver marked it resolved without binding (the
+        //string equals() arg bug did exactly this — the arg's nested
+        //call was silently skipped and equals compared stale memory).
+        //Codegen only runs when the front-end saw no errors, so this
+        //is an internal inconsistency: fail the build instead of
+        //emitting wrong code.
+        throw std::runtime_error(
+            "NLang backend: invoke reached codegen unresolved: "
+            + invoke.CalleeName());
+    }
+    //Per-unit: cross-unit callees slot as import placeholders
+    //(FunctionSlotFor); own ones resolve through m_funcIndexMap.
+    EmitFreeFunctionCall(
+        static_cast<int>(FunctionSlotFor(*callee)),
+        emitter, resultOffset, outSpills);
+    emitter.Emit(OpCode::OP_ParaEnd);
 }
 
     //Phase 9e: out arguments are consumed by the binding path in

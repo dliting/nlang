@@ -206,6 +206,11 @@ void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs)
 void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     bool isMethodContext) {
     auto& invoke = static_cast<SnInvokeExpr&>(expr);
+    //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
+    if (invoke.CtorClass()) {
+        MaxArgsCtorInvoke(invoke, maxArgs);
+        return;
+    }
     auto* callee = invoke.Callee();
     size_t formalCount = callee ? callee->Params().size() : 0;
     if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
@@ -243,6 +248,17 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     }
     if (claimSize > maxArgs) maxArgs = claimSize;
     //Also walk the invoke's own params for nested calls.
+    for (auto& param : invoke.Params())
+        MaxArgsWalkExpr(param, maxArgs);
+}
+
+//0.9.0: a ctor-carrying invoke bulk-copies {this, args...} into
+//callParamBase exactly like the NewExpr arm (MaxArgsNewExpr).
+void VmBackend::MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs) {
+    size_t argCount = 0;
+    for (auto& param : invoke.Params()) ++argCount;
+    uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
+    if (claimSize > maxArgs) maxArgs = claimSize;
     for (auto& param : invoke.Params())
         MaxArgsWalkExpr(param, maxArgs);
 }

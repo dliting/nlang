@@ -397,6 +397,10 @@ private:
     //NK_InvokeExpr: call claim + arg/default-expression depth.
     static uint16_t InvokeExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited, bool isMethodContext);
+    //0.9.0: the ctor-invoke arm — NewExpr claim shape {this, args...},
+    //no default-param depth (walker symmetry with NewExprPeakDepth).
+    static uint16_t CtorInvokePeakDepth(SnInvokeExpr& invoke,
+        const std::unordered_set<SnFunction*>& visited);
     //NK_BinaryExpr (also unary: Right()==nullptr).
     static uint16_t BinaryExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
@@ -489,6 +493,9 @@ private:
     //NK_InvokeExpr: the call's own claim, then nested calls in its args.
     static void MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
         bool isMethodContext);
+    //0.9.0: the ctor-invoke arm — bulk-copies {this, args...} into
+    //callParamBase like MaxArgsNewExpr (walker symmetry).
+    static void MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs);
     //NK_SubscriptExpr: container get() reserves 2 slots.
     static void MaxArgsSubscriptExpr(SnExpression& expr, uint16_t& maxArgs);
     //NK_MemberExpr: method-context flag for a method-call inner.
@@ -976,6 +983,11 @@ private:
     void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                               uint16_t resultOffset,
                               const std::vector<OutSpill>& outSpills);
+    //The staged-invoke dispatch tail: delegate handle or the
+    //Round-11-guarded free-function call.
+    void EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
+                            BytecodeEmitter& emitter, uint16_t resultOffset,
+                            const std::vector<OutSpill>& outSpills);
 
     //SnCastExpr arms: boxing, the to-string special cases (enum detection,
     //func/class/array), and the numeric/primitive-string conversions.
@@ -1046,14 +1058,18 @@ private:
                               bool isString, bool isFunc, BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
 
-    //SnNewExpr arms: Round-12 class-resolution guards, positional ctor-arg
-    //count, and the ctor-invocation emission ({this, args} claim → OP_New
-    //→ OP_CallMethodDirect).
-    int ResolveNewExprClassIdx(SnNewExpr& newExpr);
-    static int CountNewExprCtorArgs(SnNewExpr& newExpr);
-    void EmitCtorInvocation(SnNewExpr& newExpr, BytecodeEmitter& emitter,
-                            uint16_t classIdx, uint16_t ctorIdx,
-                            uint16_t resultOffset);
+    //New-object emission, shared by the SnNewExpr arm and the 0.9.0
+    //ctor-invoke twin (`Foo(args)` without new, invoke.CtorClass()):
+    //Round-12 class-resolution guard, class-slot resolution, and the
+    //ctor invocation ({this, args} claim → OP_New → OP_CallMethodDirect)
+    //or the plain alloc when the class has no ctor. pSkipArg drops the
+    //class-name child the NewExpr arg view carries (null for invokes —
+    //Params() has no such child).
+    void EmitNewObject(SnClassDecl* pClassDecl, SnExpressionList& ctorArgs,
+                       SnExpression* pSkipArg, uint16_t resultOffset);
+    void EmitCtorInvocation(SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                            BytecodeEmitter& emitter, uint16_t classIdx,
+                            uint16_t ctorIdx, uint16_t resultOffset);
 
     //SnInitListExpr arms: one per target shape (array / List<T> /
     //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the

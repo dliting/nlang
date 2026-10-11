@@ -110,12 +110,27 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		return;
 	}
 
-	//Module import visibility (F20/M4): the "not visible here" hint is
-	//the complete diagnosis — appending the generic failure text would
-	//only blur it.
-	if (!bVisibilityHintLogged)
-		LogInvokeFailure(snInvoke, res, pCallee, bNameMatchedImported,
-			candidates);
+	ResolveFailedInvoke(snInvoke, res, pCallee, bNameMatchedImported,
+		bVisibilityHintLogged, candidates);
+}
+
+//The failure tail of Access(SnInvokeExpr). 0.9.0: an unresolved call
+//whose name addresses a class is a constructor call — functions keep
+//priority (the overload lookup already failed), and a foreign same-name
+//function keeps the visibility hint as the complete diagnosis.
+//Module import visibility (F20/M4): the "not visible here" hint is the
+//complete diagnosis — appending the generic failure text would only
+//blur it.
+void ExprResolveAccessor::ResolveFailedInvoke(SnInvokeExpr &snInvoke,
+	FindFuncResult res, SnFunction *pCallee, bool bNameMatchedImported,
+	bool bVisibilityHintLogged, const std::vector<SnFunction*> &candidates)
+{
+	if (bVisibilityHintLogged)
+		return;
+	if (res == FFR_FuncNameNotFound && TryResolveCtorInvoke(snInvoke))
+		return;
+	LogInvokeFailure(snInvoke, res, pCallee, bNameMatchedImported,
+		candidates);
 }
 
 //Phase 9c: validate caller-side argument syntax (candidate-independent).

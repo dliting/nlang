@@ -1314,6 +1314,20 @@ set_tests_properties(proj_import_visibility_run PROPERTIES
     DEPENDS proj_import_visibility_compile
     PASS_REGULAR_EXPRESSION "3")
 
+#0.9.0 Phase A: qualified constructor call without `new`
+#(shapes.Point(2, 3)). The fixture self-checks the field sum (5) BEFORE
+#printing, so the regex cannot pass on a wrong value (the match
+#overrides the exit code).
+add_test(NAME proj_qualified_ctor_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_qualified_ctor/proj_qualified_ctor.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_qualified_ctor.npkg)
+add_test(NAME proj_qualified_ctor_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_qualified_ctor.npkg)
+set_tests_properties(proj_qualified_ctor_run PROPERTIES
+    DEPENDS proj_qualified_ctor_compile
+    PASS_REGULAR_EXPRESSION "6")
+
 #D7: a same-directory function is reachable bare AND qualified; the
 #fixture self-checks both forms agree (7) before printing.
 add_test(NAME proj_same_dir_compile

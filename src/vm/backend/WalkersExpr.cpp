@@ -118,6 +118,9 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
 uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited, bool isMethodContext) {
     auto& invoke = static_cast<SnInvokeExpr&>(expr);
+    //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
+    if (invoke.CtorClass())
+        return CtorInvokePeakDepth(invoke, visited);
     auto* callee = invoke.Callee();
     size_t formalCount = callee ? callee->Params().size() : 0;
     if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
@@ -159,6 +162,21 @@ uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
 
     return static_cast<uint16_t>(claimSize) +
         (argDepth > defaultDepth ? argDepth : defaultDepth);
+}
+
+//0.9.0: a ctor-carrying invoke emits through the NewExpr path — claim
+//{this, args...}, no default-param depth (walker symmetry with
+//NewExprPeakDepth).
+uint16_t VmBackend::CtorInvokePeakDepth(SnInvokeExpr& invoke,
+    const std::unordered_set<SnFunction*>& visited) {
+    size_t argCount = 0;
+    uint16_t argDepth = 0;
+    for (auto& param : invoke.Params()) {
+        ++argCount;
+        uint16_t ad = ExprPeakDepth(param, visited, false);
+        if (ad > argDepth) argDepth = ad;
+    }
+    return static_cast<uint16_t>(1 + argCount) + argDepth;
 }
 
 //NK_BinaryExpr arm of ExprPeakDepth.
