@@ -1030,6 +1030,13 @@ private:
     void EmitStringByteAt(SnSubscriptExpr& sub, BytecodeEmitter& emitter,
                           uint16_t resultOffset);
 
+    //Plain array element read (OP_LoadElement on a 2-slot claim) — the
+    //fall-through arm of Access(SnSubscriptExpr&) after the creation,
+    //string, and container shapes dispatch away.
+    void EmitArraySubscriptRead(SnSubscriptExpr& sub,
+                                BytecodeEmitter& emitter,
+                                uint16_t resultOffset);
+
     //SnBinaryExpr arms: unary, short-circuit And/Or, and the binary tail
     //(operand staging + opcode dispatch into the arithmetic/relational/
     //equality family emitters).
@@ -1070,6 +1077,13 @@ private:
     void EmitCtorInvocation(SnExpressionList& ctorArgs, SnExpression* pSkipArg,
                             BytecodeEmitter& emitter, uint16_t classIdx,
                             uint16_t ctorIdx, uint16_t resultOffset);
+
+    //New-array emission, shared by the SnNewArrayExpr arm and the 0.9.0
+    //type-subscript twin (`int[n]` / `Foo[n]`, subscript.NewArrayElem()):
+    //registers the element type (idempotent) and stages the size in an
+    //evalArea claim before OP_AllocArray.
+    void EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
+                      uint16_t resultOffset);
 
     //SnInitListExpr arms: one per target shape (array / List<T> /
     //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the

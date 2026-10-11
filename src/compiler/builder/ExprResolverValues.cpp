@@ -311,6 +311,35 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 	return true;
 }
 
+//0.9.0: consume the subscript as a sized array creation (`int[n]` /
+//`Foo[n]`, the new-free twin of `new T[n]`) when the base identifier
+//resolved as a TYPE (primitive keyword, or a class/struct/enum/
+//interface declaration). A local shadowing the type name binds the
+//VALUE first (FindField order), keeping the plain subscript reading.
+//True = consumed. The index child doubles as the size expression; the
+//element type is stored first, then the array token is interned over
+//it — the same tail as Access(SnNewArrayExpr&); never wrap a token
+//(an array alias binds its token directly).
+bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
+{
+	auto &arrayExpr = *sn.Array();
+	if (arrayExpr.Kind() != NK_IdentifierExpr)
+		return false;
+	auto *pElemField = static_cast<SnIdentifierExpr&>(arrayExpr).Field();
+	if (!pElemField || !pElemField->IsTypeField())
+		return false;
+	//Resolve the size expression.
+	sn.Index()->Accept(*m_pVisitor);
+	if (!sn.Index()->IsResolved())
+		return true;  //consumed: the size diagnostic already fired
+	sn.NewArrayElem(pElemField);
+	sn.EvalDataType(pElemField);
+	sn.AddFlags(NF_Resolved);
+	if (pElemField->Kind() != NK_ArrayTypeToken)
+		sn.EvalDataType(m_Env.InternArrayTypeToken(pElemField));
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 {
 	assert(!sn.IsResolved());
@@ -319,6 +348,10 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	auto& arrayExpr = *sn.Array();
 	arrayExpr.Accept(*m_pVisitor);
 	if (!arrayExpr.IsResolved())
+		return;
+
+	//0.9.0: `Type[size]` creation twin — see TrySizedArrayCreation.
+	if (TrySizedArrayCreation(sn))
 		return;
 
 	//Resolve index expression.

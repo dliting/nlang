@@ -1,0 +1,9 @@
+// 0.9.0: sized array creation in expression position.
+int main() {
+    int n = 5;
+    int[] a = int[n];
+    a[4] = 40;
+    string[] s = string[2];
+    if (a[0] != 0) { return 9; }
+    return a[4] + s.length();
+}

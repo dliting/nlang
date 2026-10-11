@@ -790,6 +790,11 @@ private:
 	bool TryResolveContainerSubscript(SnSubscriptExpr &sn,
 		SnField *pBaseType);
 
+	//0.9.0: consume the subscript as a sized array creation (`int[n]` /
+	//`Foo[n]`) when the base identifier resolved as a TYPE; the index
+	//child doubles as the size expression. True = consumed.
+	bool TrySizedArrayCreation(SnSubscriptExpr &sn);
+
 	/*
 	2026-09-27 decomposition of the type-node resolution family
 	(ExprResolverTypes.cpp) — the type-argument collection of

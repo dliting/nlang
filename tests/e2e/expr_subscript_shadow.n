@@ -1,0 +1,13 @@
+// 0.9.0: a local named like the class keeps the subscript (value) reading.
+class Point {
+    public int x;
+    public int Point(int a) { this.x = a; return 0; }
+}
+
+int main() {
+    Point[] pts = Point[3];
+    pts[0] = Point(11);
+    int[] Point = int[2];
+    Point[1] = 5;
+    return pts[0].x + Point[1];
+}

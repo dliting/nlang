@@ -450,6 +450,13 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
         auto& sub = static_cast<SnSubscriptExpr&>(expr);
+        //0.9.0: a type-base subscript is the sized array creation twin
+        //(`int[n]` / `Foo[n]`); it emits through the shared new-array
+        //path — the base names a type and evaluates to nothing.
+        if (sub.NewArrayElem()) {
+            EmitNewArray(sub.NewArrayElem(), *sub.Index(), resultOffset);
+            return;
+        }
         //0.7.5 string subscript: byte read on a string base.
         if (sub.Array()->IsResolved() && sub.Array()->EvalDataType()
             && sub.Array()->EvalDataType()->Kind() == NK_String) {
@@ -463,33 +470,31 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
             EmitContainerSubscriptGet(sub, emitter, resultOffset);
             return;
         }
-        //Phase 10 audit round-3: park receiver AND index in an exclusive
-        //EvalAreaClaim(2), mirroring the container get() shape. The old
-        //chain (receiver → resultOffset, index → PickTempSlot(resultOffset))
-        //broke at nesting depth 5 — PickTempSlot wraps tempSlot4 back to
-        //tempSlot, so `a[b[c[d[e[0]]]]]` clobbered an outer parked value —
-        //and parked the receiver in resultOffset, clobberable whenever a
-        //non-temp exclude slot fell through to the same temp. Claim slots
-        //stack per nesting level, so read depth is now unbounded. Same
-        //instruction count as the old shape; only the slot numbers change.
-        EvalAreaClaim claim(*this, 2);
-        uint16_t claimBase = claim.base();
-        EmitExpression(*sub.Array(), emitter, claimBase);
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(claimBase);
-        uint16_t indexSlot = claimBase + kFrameSlotBytes;
-        EmitExpression(*sub.Index(), emitter, indexSlot);
-        emitter.Emit(OpCode::OP_LoadElement);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(claimBase);
-        emitter.EmitUint16(indexSlot);
-        //Phase 9d-3: no defensive CopyStruct for struct element types here.
-        //Value copies belong at assignment/store boundaries (AssignStmt and
-        //SubscriptAssign both emit their own OP_CopyStruct). Copying on read
-        //broke write-through receivers — `arr[i].f = v` stored into a
-        //discarded copy — and caused a redundant double copy for
-        //`Point p = arr[i]`.
-        return;
+        EmitArraySubscriptRead(sub, emitter, resultOffset);
+}
+
+//Plain array element read (OP_LoadElement): parks receiver AND index in
+//an exclusive EvalAreaClaim(2), mirroring the container get() shape
+//(Phase 10 audit round-3 — the old chain parked the receiver in
+//resultOffset and wrapped PickTempSlot at nesting depth 5). Claim slots
+//stack per nesting level, so read depth is unbounded. No defensive
+//CopyStruct for struct element types (Phase 9d-3): value copies belong
+//at assignment/store boundaries; copying on read broke write-through
+//receivers — `arr[i].f = v` stored into a discarded copy.
+void VmBackend::EmitArraySubscriptRead(SnSubscriptExpr& sub,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset) {
+    EvalAreaClaim claim(*this, 2);
+    uint16_t claimBase = claim.base();
+    EmitExpression(*sub.Array(), emitter, claimBase);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(claimBase);
+    uint16_t indexSlot = claimBase + kFrameSlotBytes;
+    EmitExpression(*sub.Index(), emitter, indexSlot);
+    emitter.Emit(OpCode::OP_LoadElement);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(claimBase);
+    emitter.EmitUint16(indexSlot);
 }
 
 } //namespace nlang

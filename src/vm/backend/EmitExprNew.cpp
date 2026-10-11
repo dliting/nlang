@@ -117,25 +117,30 @@ void VmBackend::EmitCtorInvocation(SnExpressionList& ctorArgs,
 
     // This expression - reads the implicit first parameter
 void VmBackend::Access(SnNewArrayExpr& expr) {
-    BytecodeEmitter& emitter = *m_pCurrEmitter;
-    uint16_t resultOffset = m_resultOffset;
     auto& newArr = static_cast<SnNewArrayExpr&>(expr);
-        //Register the array type (idempotent)
-        uint16_t arrayTypeIdx = RegisterArrayType(
-            newArr.ElementType()->Field());
-        //Size staging: EvalAreaClaim, never a temp. A temp staging slot
-        //lets a nested binary (`1 + use(make(1))`) park its LEFT operand
-        //there while a struct-by-value argument deep-copies through
-        //tempSlot (EmitBinding CopyStruct scratch) — silently corrupting
-        //the parked value. Claim slots are exclusive to this expression.
-        //ExprPeakDepth's NewArrayExpr case tracks the claim=1.
-        EvalAreaClaim sizeClaim(*this, 1);
-        uint16_t sizeSlot = sizeClaim.base();
-        EmitExpression(*newArr.Size(), emitter, sizeSlot);
-        emitter.Emit(OpCode::OP_AllocArray);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(arrayTypeIdx);
-        emitter.EmitUint16(sizeSlot);
-        return;
+    EmitNewArray(newArr.ElementType()->Field(), *newArr.Size(),
+                 m_resultOffset);
+}
+
+//Shared new-array emission: `new T[size]` and the 0.9.0 type-subscript
+//twin (`T[size]` in expression position) land here.
+void VmBackend::EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
+                             uint16_t resultOffset) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    //Register the array type (idempotent)
+    uint16_t arrayTypeIdx = RegisterArrayType(pElemType);
+    //Size staging: EvalAreaClaim, never a temp. A temp staging slot
+    //lets a nested binary (`1 + use(make(1))`) park its LEFT operand
+    //there while a struct-by-value argument deep-copies through
+    //tempSlot (EmitBinding CopyStruct scratch) — silently corrupting
+    //the parked value. Claim slots are exclusive to this expression.
+    //ExprPeakDepth's NewArrayExpr case tracks the claim=1.
+    EvalAreaClaim sizeClaim(*this, 1);
+    uint16_t sizeSlot = sizeClaim.base();
+    EmitExpression(sizeExpr, emitter, sizeSlot);
+    emitter.Emit(OpCode::OP_AllocArray);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(arrayTypeIdx);
+    emitter.EmitUint16(sizeSlot);
 }
 } //namespace nlang

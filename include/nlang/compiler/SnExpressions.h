@@ -814,6 +814,8 @@ public:
 };
 
 //Array subscript access expression (e.g. arr[i]).
+//0.9.0: the node doubles as a sized array creation (`int[n]` / `Foo[n]`)
+//when the base identifier resolves as a TYPE — see NewArrayElem().
 class NLANG_COMPILER_API SnSubscriptExpr : public SnCompoundFieldExpr
 {
 	typedef SnCompoundFieldExpr Super_;
@@ -831,6 +833,12 @@ public:
 	//discipline ReplaceChildNode routes through ResetChild).
 	void Index(SnExpression *pIndex) { m_pIndex = pIndex; }
 
+	//0.9.0: set when the base identifier resolves as a TYPE rather than a
+	//value (`int[n]` / `Foo[n]` creation). Non-owning element type field;
+	//the index child doubles as the size expression.
+	SnField *NewArrayElem() const { return m_pNewArrayElem; }
+	void NewArrayElem(SnField *p) { m_pNewArrayElem = p; }
+
 	bool IsDataExpr() const override { return true; }
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
@@ -839,6 +847,7 @@ public:
 private:
 	SnExpression *m_pArray;
 	SnExpression *m_pIndex;
+	SnField *m_pNewArrayElem = nullptr;
 };
 
 //Array allocation expression (e.g. new int[10]).

@@ -206,6 +206,11 @@ uint16_t VmBackend::BinaryExprPeakDepth(SnExpression& expr,
 uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited) {
     auto& sub = static_cast<SnSubscriptExpr&>(expr);
+    //0.9.0: a sized-array creation twin emits through the new-array
+    //path — the size stages in an evalArea claim(1) and the base names
+    //a type (no emission). Walker symmetry with NewArrayExprPeakDepth.
+    if (sub.NewArrayElem())
+        return 1 + ExprPeakDepth(*sub.Index(), visited);
     uint16_t a = ExprPeakDepth(*sub.Array(), visited);
     uint16_t i = ExprPeakDepth(*sub.Index(), visited);
     //Both shapes claim 2 evalArea slots (receiver + index): container
