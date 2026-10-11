@@ -17,6 +17,7 @@ private slots:
     void initTestCase();
     void parseRunLineShapes();
     void setRunOutputPopulatesAndNavigates();
+    void setRunOutputAcceptsCrlfLines();
 };
 
 void TestRunErrorBrowser::initTestCase() {
@@ -94,6 +95,42 @@ void TestRunErrorBrowser::setRunOutputPopulatesAndNavigates() {
     //Empty text clears back to the single initial block.
     browser.setRunOutput(QString());
     QCOMPARE(browser.document()->blockCount(), 1);
+}
+
+void TestRunErrorBrowser::setRunOutputAcceptsCrlfLines() {
+    //ConPTY delivers every line break as CRLF: after the '\n' split
+    //each line still ends with '\r', which the '$'-anchored patterns
+    //must not choke on (the real tail comes from raw PTY bytes).
+    RunErrorBrowser browser;
+    browser.resize(400, 120);
+    QSignalSpy spy(&browser, &RunErrorBrowser::itemSelected);
+    browser.setRunOutput(QStringLiteral(
+        "Runtime error: boom\r\n"
+        "Backtrace:\r\n"
+        "  at main (E:/x/main.n:9)\r\n"));
+    QTextDocument* doc = browser.document();
+    QCOMPARE(doc->blockCount(), 2);   //message row + one frame row
+    doc->adjustSize();
+
+    //Block 0 = the message row, carrying no trailing '\r'.
+    QTextCursor cursor(doc->findBlockByNumber(0));
+    browser.setTextCursor(cursor);
+    QTest::mouseDClick(browser.viewport(), Qt::LeftButton,
+                       Qt::NoModifier, browser.cursorRect(cursor).center());
+    QCOMPARE(spy.count(), 1);
+    RunErrorItemInfo fired = spy.at(0).at(0).value<RunErrorItemInfo>();
+    QCOMPARE(fired.message, QStringLiteral("Runtime error: boom"));
+    QVERIFY(fired.filePath.isEmpty());
+
+    //Block 1 = the frame row, navigable to its site.
+    cursor = QTextCursor(doc->findBlockByNumber(1));
+    browser.setTextCursor(cursor);
+    QTest::mouseDClick(browser.viewport(), Qt::LeftButton,
+                       Qt::NoModifier, browser.cursorRect(cursor).center());
+    QCOMPARE(spy.count(), 2);
+    fired = spy.at(1).at(0).value<RunErrorItemInfo>();
+    QCOMPARE(fired.filePath, QStringLiteral("E:/x/main.n"));
+    QCOMPARE(fired.line, 9);
 }
 
 QTEST_MAIN(TestRunErrorBrowser)

@@ -123,8 +123,6 @@ public:
     SourceLink linkAtCell(int displayRow, int column,
                           int* firstColumn = nullptr,
                           int* lastColumn = nullptr) const;
-    //v0.8.5: a Ctrl+hover link is active (underline pass hint).
-    bool hasHoverLink() const { return m_hoverRow >= 0; }
 
 public slots:
     void copySelection();

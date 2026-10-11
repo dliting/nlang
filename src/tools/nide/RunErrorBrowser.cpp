@@ -26,7 +26,11 @@ RunErrorBrowser::RunErrorBrowser(QWidget* parent)
 void RunErrorBrowser::setRunOutput(const QString& text) {
     clear();
     m_items.clear();
-    for (const QString& line : text.split(QLatin1Char('\n'))) {
+    for (QString line : text.split(QLatin1Char('\n'))) {
+        //ConPTY delivers CRLF: drop the '\r' so the '$'-anchored
+        //patterns and the kept row text stay newline-convention-free.
+        if (line.endsWith(QLatin1Char('\r')))
+            line.chop(1);
         RunErrorItemInfo info;
         if (!parseRunLine(line, info))
             continue;

@@ -398,6 +398,13 @@ void MainWindow::onRunErrorItemSelected(const RunErrorItemInfo& info) {
     QString path = info.filePath;
     if (QFileInfo(path).isRelative())
         path = QDir(m_runBaseDir).filePath(path);
+    //Same unavailable-path contract as the terminal Ctrl+click link:
+    //the status bar, not a modal from the editor-open path.
+    if (!QFileInfo::exists(path)) {
+        m_ui->statusBar->showMessage(
+            tr("File not available: %1").arg(path));
+        return;
+    }
     locateSource(path, info.line, 1);
     m_ui->statusBar->showMessage(info.message);
 }
