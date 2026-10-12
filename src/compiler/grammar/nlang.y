@@ -1551,7 +1551,15 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				'-' Expression %prec P_Minus	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1); } |
 				'+' Expression %prec P_Minus	{ $$ = $2; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
-				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } ;
+				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } |
+				//0.9.0: `func<...>(...)` at value positions keeps the anchored
+				//resolver reject (func types have no by-name constructor; bind
+				//a reference) - the diagnostic experience inherited from the
+				//removed `new func<...>()` spelling. KT_Func is a keyword, so
+				//this arm cannot collide with the generic-name parses.
+				KT_Func '<' TypeList '>' '(' ConcreteParamList ')' {
+					$$ = new SnNewExpr(MakeFuncType($3, @1), $6, @1);
+				} ;
 
 ParenthesesExpr: '(' Expression ')' { $$ = $2; } ;
 

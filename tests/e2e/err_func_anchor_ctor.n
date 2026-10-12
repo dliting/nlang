@@ -1,0 +1,5 @@
+// 0.9.0: func<...>(...) keeps the anchored explanatory error (D7).
+int main() {
+    func<int, int> f = func<int, int>(1);
+    return 0;
+}

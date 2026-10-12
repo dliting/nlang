@@ -1,0 +1,5 @@
+// 0.9.0: bare generic name construction is rejected with a hint.
+int main() {
+    List<int> l = List();
+    return 0;
+}

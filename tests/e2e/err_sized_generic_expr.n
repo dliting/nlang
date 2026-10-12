@@ -1,0 +1,7 @@
+// 0.9.0: sized generic array stays declaration-only (D6); in expression
+// position this parses as the comparison (List < int) > [2] and the
+// resolver rejects the bare generic type name as a value.
+int main() {
+    List<int> a = List<int>[2];
+    return 0;
+}
