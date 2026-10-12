@@ -4,6 +4,6 @@ struct Point {
 }
 
 int main() {
-    Point p = new Point{x:5, y:3};
+    Point p = Point{x:5, y:3};
     return p.x - p.y;
 }

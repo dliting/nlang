@@ -3,7 +3,7 @@
 //element slot is wrapped int→float (previously the raw int bits were
 //stored and read back as a denormal, 1.4013e-45).
 int main() {
-    List<float> lf = new List<float>();
+    List<float> lf = {};
     lf.add(1);
     if (lf.get(0) != 1.0)
         return 1;

@@ -1,6 +1,6 @@
 // Phase 9b-pre: Dict toString with int keys (not just string keys).
 int main() {
-    Dict<int, int> d = new Dict<int, int>();
+    Dict<int, int> d = {};
     d.set(10, 100);
     d.set(20, 200);
     string s = d.toString();

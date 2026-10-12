@@ -1,6 +1,6 @@
 int main() {
     try {
-        throw new Exception("hello");
+        throw Exception("hello");
     } catch (Exception e) {
         return 7;
     }

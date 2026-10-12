@@ -4,13 +4,13 @@
 // tempSlot4 → tempSlot at depth 5, clobbering a parked value.
 int main() {
     int r = 0;
-    int[] a = new int[2];
-    int[] b = new int[2];
-    int[] c = new int[2];
-    int[] d = new int[2];
-    int[] e = new int[2];
-    int[] f = new int[2];
-    int[] g = new int[2];
+    int[] a = int[2];
+    int[] b = int[2];
+    int[] c = int[2];
+    int[] d = int[2];
+    int[] e = int[2];
+    int[] f = int[2];
+    int[] g = int[2];
 
     // depth 5 read
     e[0] = 1;

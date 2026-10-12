@@ -1,8 +1,8 @@
-// array_initlist.n — fixed arrays: [..] initializer, new T[n], foreach.
+// array_initlist.n — fixed arrays: [..] initializer, T[n], foreach.
 import io;
 int main() {
     int[] evens = [2, 4, 6, 8];
-    string[] names = new string[2];
+    string[] names = string[2];
     names[0] = "ncc";
     names[1] = "nvm";
     int total = 0;

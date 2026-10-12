@@ -9,12 +9,12 @@ int main() {
     string s = null;
     if (s != null) return 1;
     if (!(s == null)) return 2;
-    P p = new P{x:1};
+    P p = P{x:1};
     if (p == null) return 3;
     if (!(p != null)) return 4;
     P q = p;
     if (!(p == q)) return 5;   // same instance: identity
-    P r = new P{x:1};
+    P r = P{x:1};
     if (p == r) return 6;      // distinct instances
     Color c = Color.Red;
     if (!(c == Color.Red)) return 7;

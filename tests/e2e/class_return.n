@@ -1,6 +1,6 @@
 class Pair { public int a; public int b; }
 Pair makePair(int x, int y) {
-	Pair p = new Pair();
+	Pair p = Pair();
 	p.a = x;
 	p.b = y;
 	return p;

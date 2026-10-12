@@ -34,7 +34,7 @@ try {
 ### `throw`
 
 ```nlang
-throw new Exception("error message");   // 抛出一个新异常
+throw Exception("error message");   // 抛出一个新异常
 throw;                                   // 重新抛出当前异常（仅在 catch 内）
 ```
 
@@ -76,7 +76,7 @@ try {
 class MyException : Exception {
     int code;
 }
-MyException e = new MyException();
+MyException e = MyException();
 e.message = "custom";   // 可写
 e.code = 42;
 ```
@@ -94,7 +94,7 @@ try {
 }
 
 try {
-    List<int> lst = new List<int>();
+    List<int> lst = {};
     return lst.get(999);      // 抛出 IndexOutOfBoundsException
 } catch (IndexOutOfBoundsException e) {
     // 被捕获

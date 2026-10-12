@@ -5,7 +5,7 @@ class Foo {
     public int x;
 }
 int main() {
-    Foo[] a = new Foo[2];
+    Foo[] a = Foo[2];
     a[0] = null;
     if (a[0] != null)
         return 1;

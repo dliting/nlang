@@ -31,7 +31,7 @@ int catchHostFailure() {
 }
 
 int fail() {
-    throw new Exception("hf-boom");
+    throw Exception("hf-boom");
 }
 
 //callBoom's host implementation throws a saved nlang::Exception (one

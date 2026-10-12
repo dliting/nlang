@@ -1,7 +1,7 @@
 class Holder { public int v; }
 
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     bs.writeObject(null);
     bs.reset();
     Holder h = bs.readObject("Holder");

@@ -19,9 +19,9 @@ class D : B {
 void foobar(func<int> f) { }
 
 int main() {
-    C c = new C();
+    C c = C();
     foobar(c.natA);
-    B b = new D();
+    B b = D();
     foobar(b.natV);
     return 0;
 }

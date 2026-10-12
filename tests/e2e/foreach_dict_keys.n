@@ -1,5 +1,5 @@
 int main() {
-    Dict<string, int> d = new Dict<string, int>();
+    Dict<string, int> d = {};
     d.set("a", 1);
     d.set("b", 2);
     d.set("c", 3);

@@ -1,6 +1,6 @@
 class C { public int a; }
 int main() {
-    C c = new C();
+    C c = C();
     assert(c);
     return 0;
 }

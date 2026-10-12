@@ -1,7 +1,6 @@
 //List<int[][]> declaration — a jagged generic type argument has no VM
-//layout and must be rejected at the declaration, not only at new-expr
-//sites.
+//layout and must be rejected at the declaration, not only at creation sites.
 int main() {
-	List<int[][]> xs = new List<int[][]>();
+	List<int[][]> xs = {};
 	return 0;
 }

@@ -3,7 +3,7 @@
 //not NK_String, so the string-builtin block declines) — the call
 //measures the array (2 elements), never a string.
 int main() {
-    string[] words = new string[2];
+    string[] words = string[2];
     words[0] = "abc";
     return words.length();
 }

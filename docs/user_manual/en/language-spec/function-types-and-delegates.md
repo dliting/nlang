@@ -48,10 +48,10 @@ int bar(int x) { return x + 1; }
 void apply(BinOp f) { io.print(f(10)); }
 
 int main() {
-    Counter c = new Counter();
+    Counter c = Counter();
     apply(bar);       // 11    free function
     apply(c.foo);     // 11    bound: n becomes 1, 1 + 10
-    Counter b = new Big();
+    Counter b = Big();
     apply(b.tw);      // 1000  virtual: runtime class Big wins
     BinOp g = c.foo;
     return g(1) + g(1);   // state persists: 3 + 4 = 7

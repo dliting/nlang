@@ -2,7 +2,7 @@
 //rejected: the return coercion is TCK_Same in degraded form, so the
 //raw handle would pass through as an int.
 int[] mk() {
-    return new int[3];
+    return int[3];
 }
 int steal() {
     int[] ia = mk();

@@ -163,16 +163,16 @@ static void test_gc_list_arm_traces_array()
     try {
         rc = runOne(
             "int[] mkArr(int v) {\n"
-            "    int[] a = new int[2];\n"
+            "    int[] a = int[2];\n"
             "    a[0] = v;\n"
             "    a[1] = v + 1;\n"
             "    return a;\n"
             "}\n"
             "int churn() {\n"
-            "    List<int[]> keep = new List<int[]>();\n"
+            "    List<int[]> keep = {};\n"
             "    keep.add(mkArr(40));\n"
             "    for (int i = 0; i < 3000; i = i + 1) {\n"
-            "        List<int[]> tmp = new List<int[]>();\n"
+            "        List<int[]> tmp = {};\n"
             "        tmp.add(mkArr(i));\n"
             "    }\n"
             "    return keep.get(0)[0] + keep.get(0)[1];\n"
@@ -196,16 +196,16 @@ static void test_gc_dict_arm_traces_array()
     try {
         rc = runOne(
             "int[] mkArr(int v) {\n"
-            "    int[] a = new int[2];\n"
+            "    int[] a = int[2];\n"
             "    a[0] = v;\n"
             "    a[1] = v + 1;\n"
             "    return a;\n"
             "}\n"
             "int churn() {\n"
-            "    Dict<string,int[]> keep = new Dict<string,int[]>();\n"
+            "    Dict<string,int[]> keep = {};\n"
             "    keep.set(\"k\", mkArr(5));\n"
             "    for (int i = 0; i < 3000; i = i + 1) {\n"
-            "        Dict<string,int[]> tmp = new Dict<string,int[]>();\n"
+            "        Dict<string,int[]> tmp = {};\n"
             "        tmp.set(\"x\", mkArr(i));\n"
             "    }\n"
             "    return keep.get(\"k\")[0] + keep.get(\"k\")[1];\n"
@@ -229,20 +229,22 @@ static void test_generic_array_flags_split_keys()
     TEST(generic_array_flags_split_keys);
     auto out = compileOne(
         "int main() {\n"
-        "    List<int> p = new List<int>();\n"
-        "    List<int[]> q = new List<int[]>();\n"
-        "    q.add(new int[2]);\n"
+        "    List<int> p = {};\n"
+        "    List<int[]> q = {};\n"
+        "    q.add(int[2]);\n"
         "    return 0;\n"
         "}\n");
     CHECK(out.ok, "build failed: "
         + (out.logger ? joinErrors(*out.logger) : std::string("?")));
     const auto& root = out.builder->TreeRootView();
     auto exprs = collectGenericTypeExprs(root);
-    CHECK(exprs.size() == 4, "expected 4 generic type exprs (2 decl + "
-        "2 new), got " + std::to_string(exprs.size()));
+    //0.9.0: creation is brace literals, so only the two decls carry
+    //generic type exprs.
+    CHECK(exprs.size() == 2, "expected 2 generic type exprs (2 decls), "
+        "got " + std::to_string(exprs.size()));
 
-    //Group by instantiation pointer: List<int> appears twice (decl+new)
-    //and List<int[]> twice — identity is the existing cache invariant.
+    //Group by instantiation pointer: List<int> once (decl) and
+    //List<int[]> once — identity is the existing cache invariant.
     std::set<SnClassDecl*> distinct;
     for (auto* pExpr : exprs)
         distinct.insert(instantiationOf(*pExpr));
@@ -286,7 +288,7 @@ static void test_dict_keys_recast_carries_token()
     TEST(dict_keys_recast_carries_token);
     auto out = compileOne(
         "int main() {\n"
-        "    Dict<int[],int> d = new Dict<int[],int>();\n"
+        "    Dict<int[],int> d = {};\n"
         "    List<int[]> ks = d.keys();\n"
         "    return 0;\n"
         "}\n");
@@ -294,8 +296,10 @@ static void test_dict_keys_recast_carries_token()
         + (out.logger ? joinErrors(*out.logger) : std::string("?")));
     const auto& root = out.builder->TreeRootView();
     auto exprs = collectGenericTypeExprs(root);
-    CHECK(exprs.size() == 3, "expected 3 generic type exprs (Dict decl "
-        "+ Dict new + List decl), got " + std::to_string(exprs.size()));
+    //0.9.0: the creation is an empty brace literal — only the Dict decl
+    //and the List decl carry generic type exprs.
+    CHECK(exprs.size() == 2, "expected 2 generic type exprs (Dict decl "
+        "+ List decl), got " + std::to_string(exprs.size()));
     //The keys() member call's EvalDataType is the re-cast List<K>.
     SnClassDecl* pKeys = nullptr;
     std::function<void(const SyntaxNode&)> findKeys =
@@ -313,8 +317,8 @@ static void test_dict_keys_recast_carries_token()
         };
     findKeys(root);
     CHECK(pKeys, "keys() call resolved to a synthetic List class");
-    //The Dict instantiation shares one cache entry between decl and new;
-    //either Dict expr yields the same synthetic class.
+    //The Dict decl's instantiation carries the array-typed key slot; the
+    //keys() re-cast must share its interned token.
     SnClassDecl* pDict = nullptr;
     for (auto* pExpr : exprs) {
         if (!pExpr->TypeArgs().empty()

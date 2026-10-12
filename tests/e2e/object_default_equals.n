@@ -4,8 +4,8 @@ class Point {
 }
 
 int main() {
-    Point p1 = new Point();
-    Point p2 = new Point();
+    Point p1 = Point();
+    Point p2 = Point();
     int selfRef = p1.equals(p1);
     int diffRef = p1.equals(p2);
     return selfRef + diffRef;

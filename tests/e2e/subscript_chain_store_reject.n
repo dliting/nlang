@@ -5,10 +5,10 @@ class C {
     public int x;
 }
 int main() {
-    int[] a = new int[2];
-    List<int[]> li = new List<int[]>();
+    int[] a = int[2];
+    List<int[]> li = {};
     li.add(a);
-    C c = new C{};
+    C c = C{};
     li[0][0] = c;
     return 0;
 }

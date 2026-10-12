@@ -15,6 +15,6 @@ class Point {
 }
 
 int main() {
-    Point p = new Point(2, 5);
+    Point p = Point(2, 5);
     return p.manhattan();
 }

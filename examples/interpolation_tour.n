@@ -18,7 +18,7 @@ int main() {
     int year = 2026;
     io.print("hello, ${who}");     // hello, nlang
     io.print("year: ${year}");     // year: 2026
-    Money price = new Money(4990);
+    Money price = Money(4990);
     io.print("costs " + price);    // costs 4990c
     string banner = "${who} ${year}";
     if (banner == "nlang 2026")

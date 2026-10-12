@@ -2,7 +2,7 @@
 //form (both sides are int), so the cast table cannot see it — the
 //guard must key on the array-valued property, not the cast kind.
 int main() {
-    int[] ia = new int[3];
+    int[] ia = int[3];
     int x = ia;
     return 0;
 }

@@ -2,7 +2,7 @@
 //the element-type cast wrap instead of storing the raw int bits (which
 //read back as a denormal float, 1.4013e-45).
 int main() {
-    List<float> lf = new List<float>();
+    List<float> lf = {};
     lf.add(0.0);
     lf[0] = 1;
     if (lf.get(0) != 1.0)

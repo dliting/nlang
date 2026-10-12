@@ -7,7 +7,7 @@ class Dog : Animal {
     public string getName() { return this.name; }
 }
 int main() {
-    Dog d = new Dog();
+    Dog d = Dog();
     d.age = 5;
     d.name = "Rex";
     return d.getAge() + d.getName().length();

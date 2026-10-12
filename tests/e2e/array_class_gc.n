@@ -4,15 +4,15 @@ class Node {
 }
 
 int main() {
-    Node[] arr = new Node[3];
+    Node[] arr = Node[3];
     int i = 0;
     while (i < 3) {
-        Node n = new Node();
+        Node n = Node();
         n.value = i + 1;
         // Allocate garbage between assignments to trigger GC pressure.
         int j = 0;
         while (j < 5) {
-            Node junk = new Node();
+            Node junk = Node();
             j = j + 1;
         }
         arr[i] = n;

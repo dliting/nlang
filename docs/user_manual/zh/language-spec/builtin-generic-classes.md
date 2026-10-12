@@ -6,14 +6,14 @@
 `List<T>`是可增长、有序、可按索引访问的集合。它是**内建泛型类**——编译器只识别`List`与`Dict`；用户自定义的`class Foo<T>`不支持。
 
 ```nlang
-List<int> nums = new List<int>();
+List<int> nums = {};
 nums.add(1);
 nums.add(2);
 nums.add(3);
 int sum = nums.get(0) + nums.get(1) + nums.get(2);    // 6
 int n = nums.length();                                 // 3
 
-List<string> names = new List<string>();
+List<string> names = {};
 names.add("alice");
 names.add("bob");
 int total = (names.get(0) + names.get(1)).length();    // 8
@@ -43,7 +43,7 @@ int total = (names.get(0) + names.get(1)).length();    // 8
 
 ```nlang
 int main() {
-    List<Object> bag = new List<Object>();
+    List<Object> bag = {};
     bag.add(42);                     // int装箱存入
     bag.add("hi");                   // string混装
     int back = bag.get(0) as int;    // 42
@@ -71,14 +71,14 @@ int main() {
 `Dict<K,V>`是把`K`类型的键映射到`V`类型值的关联数组。与`List<T>`一样，它是**内建泛型类**——编译器只识别`List`与`Dict`；用户自定义泛型不支持。
 
 ```nlang
-Dict<string,int> scores = new Dict<string,int>();
+Dict<string,int> scores = {};
 scores.set("alice", 90);
 scores.set("bob",   85);
 int a = scores.get("alice");          // 90
 bool hasBob = scores.containsKey("bob"); // true
 int n = scores.count();                 // 2
 
-Dict<int,int> squares = new Dict<int,int>();
+Dict<int,int> squares = {};
 squares.set(3, 9);
 squares.set(4, 16);
 squares.set(3, 99);                     // 覆写 9 → 99
@@ -123,13 +123,13 @@ int removed = squares.remove(4);        // 1
 两种容器都支持下标语法，纯粹是`get` / `set`内建函数之上的语法糖（零新指令）：
 
 ```nlang
-List<int> li = new List<int>();
+List<int> li = {};
 li.add(2);
 li.add(5);
 int v = li[1];          // == li.get(1)      -> 5
 li[0] = 9;              // == li.set(0, 9)
 
-Dict<string, int> d = new Dict<string, int>();
+Dict<string, int> d = {};
 d["a"] = 3;             // == d.set("a", 3)
 int x = d["a"];         // == d.get("a")     -> 3
 ```
@@ -146,8 +146,8 @@ List<Point> pts = ...;
 pts[0].x = 9;           // 经下标接收者的成员写
 int s = pts[0].x + pts[0].y;
 
-List<int>[] arr = new List<int>[2];   // 泛型实例化的数组
-arr[0] = new List<int>();
+List<int>[] arr = List<int>[2];   // 泛型实例化的数组
+arr[0] = {};
 arr[0][1];              // 穿过数组元素的容器下标
 ```
 

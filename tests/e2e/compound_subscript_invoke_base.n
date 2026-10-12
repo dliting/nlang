@@ -7,7 +7,7 @@ class Box {
 	public int[] get() { calls += 1; return a; }
 }
 int main() {
-	Box b = new Box();
+	Box b = Box();
 	b.get()[0] += 10;
 	return b.calls * 100 + b.a[0];
 }

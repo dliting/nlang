@@ -3,7 +3,7 @@
 //is silently dropped).
 import io;
 int main() {
-    int[] a = new int[2]; a[0] = 1; a[1] = 2;
+    int[] a = int[2]; a[0] = 1; a[1] = 2;
     int total = 0;
     for (int[] x = a; x.length() > 0; ) {
         total = total + x[0];

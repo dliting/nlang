@@ -5,7 +5,7 @@ import io;
 int lenOne(string s) { return s.length(); }
 int firstLen(string[] a) { return a[0].length(); }
 int main() {
-    string[] arr = new string[2];
+    string[] arr = string[2];
     arr[0] = "hello"; arr[1] = "world";
     func<int,string> f1 = lenOne;
     func<int,string[]> f2 = firstLen;

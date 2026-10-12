@@ -17,38 +17,38 @@ struct Point {
 int main() {
     int r = 0;
     int i = 1;
-    int[] q = new int[2];
+    int[] q = int[2];
     q[0] = 1;
 
     // subscript-get in the index — pre-fix crash
-    int[] c1 = new int[4];
+    int[] c1 = int[4];
     c1[q[0]] = 9;
     if (c1[1] != 9) r += 1;
 
     // binary arithmetic in the index — pre-fix wrong element
-    int[] c2 = new int[4];
+    int[] c2 = int[4];
     c2[i + 1] = 9;
     if (c2[2] != 9) r += 2;
     if (c2[1] != 0) r += 4;
 
     // call in the index (control — result lands via pResult, temps untouched)
-    int[] c3 = new int[4];
+    int[] c3 = int[4];
     c3[helper(0, 0, 2)] = 9;
     if (c3[2] != 9) r += 8;
 
     // subscript-get in the value (control — value emits before base parks)
-    int[] c4 = new int[4];
+    int[] c4 = int[4];
     c4[1] = q[0];
     if (c4[1] != 1) r += 16;
 
     // plain store (control)
-    int[] c5 = new int[4];
+    int[] c5 = int[4];
     c5[2] = 9;
     if (c5[2] != 9) r += 32;
 
     // struct element: deep-copy (CopyStruct) must follow the claim slot;
     // stresses value = subscript-get AND index = binary at once
-    Point[] pts = new Point[3];
+    Point[] pts = Point[3];
     pts[0].x = 4;
     pts[0].y = 5;
     pts[i + 1] = pts[0];

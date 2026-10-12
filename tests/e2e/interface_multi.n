@@ -25,7 +25,7 @@ int DoCount(ICountable c) {
 }
 
 int main() {
-    Bag b = new Bag();
+    Bag b = Bag();
     b.items = 42;
     return DoPrint(b) + DoCount(b);
 }

@@ -5,7 +5,7 @@ int mutate(Wrapper w) {
 	return w.ref.value;
 }
 int main() {
-	Node n = new Node();
+	Node n = Node();
 	n.value = 42;
 	Wrapper w;
 	w.ref = n;

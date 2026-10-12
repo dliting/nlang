@@ -1,5 +1,5 @@
 int main() {
-    List<int> x = new List<int>{1, 2, 3};
+    List<int> x = {1, 2, 3};
     int sum = 0;
     foreach (int v in x) {
         sum = sum + v;

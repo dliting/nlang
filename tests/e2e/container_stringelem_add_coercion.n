@@ -3,8 +3,8 @@
 //token→string Auto (same verdict as the subscript path, pinned by
 //container_stringelem_subscript_coercion).
 int main() {
-    List<string> ls = new List<string>();
-    int[] ia = new int[2];
+    List<string> ls = {};
+    int[] ia = int[2];
     ia[0] = 1;
     ia[1] = 2;
     ls.add(ia);

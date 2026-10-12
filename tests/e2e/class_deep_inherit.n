@@ -2,7 +2,7 @@ class A { public int x; }
 class B : A { public int y; }
 class C : B { public int z; }
 int main() {
-    C c = new C();
+    C c = C();
     c.x = 10;
     c.y = 20;
     c.z = 12;

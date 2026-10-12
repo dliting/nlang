@@ -10,7 +10,7 @@ import io;
 int main() {
     List<int> nums = [10, 20, 30];  // List 初始化器
     Dict<string, int> pop =
-        new Dict<string, int>{"cn": 14, "us": 3};
+        {"cn": 14, "us": 3};
     nums.add(40);
     pop["jp"] = 1;                  // 键值写入
     io.print(nums.length() + pop.count());   // 4 + 3

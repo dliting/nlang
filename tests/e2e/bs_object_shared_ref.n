@@ -2,10 +2,10 @@ class Holder { public int v; }
 class Pair { public Holder a; public Holder b; }
 
 int main() {
-    ByteStream bs = new ByteStream();
-    Holder h = new Holder();
+    ByteStream bs = ByteStream();
+    Holder h = Holder();
     h.v = 99;
-    Pair p = new Pair();
+    Pair p = Pair();
     p.a = h;
     p.b = h;
     bs.writeObject(p);

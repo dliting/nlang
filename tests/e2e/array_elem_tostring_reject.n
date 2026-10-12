@@ -5,15 +5,15 @@
 //rejected with the array-receiver diagnostic (assign to a local first).
 import io;
 class M {
-    public string[] mk() { string[] a = new string[1]; a[0] = "x"; return a; }
+    public string[] mk() { string[] a = string[1]; a[0] = "x"; return a; }
 }
 int main() {
-    List<string[]> l = new List<string[]>();
-    string[] a = new string[1];
+    List<string[]> l = {};
+    string[] a = string[1];
     a[0] = "x";
     l.add(a);
     io.print(l.get(0).toString());   // container-element receiver
-    M m = new M();
+    M m = M();
     io.print(m.mk().toString());     // method-return receiver
     return 0;
 }

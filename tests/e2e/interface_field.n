@@ -21,9 +21,9 @@ int GetArea(IShape s) {
 }
 
 int main() {
-    Square sq = new Square();
+    Square sq = Square();
     sq.side = 5;
-    Circle c = new Circle();
+    Circle c = Circle();
     c.radius = 2;
     return GetArea(sq) + GetArea(c);
 }

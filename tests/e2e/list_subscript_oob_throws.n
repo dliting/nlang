@@ -1,5 +1,5 @@
 //Subscript read on an empty list must throw index-out-of-bounds.
 int main() {
-	List<int> li = new List<int>();
+	List<int> li = {};
 	return li[0];
 }

@@ -5,10 +5,10 @@
 //known compiler bug, see backlog).
 import io;
 int main() {
-    List<int> plain = new List<int>();
+    List<int> plain = {};
     plain.add(7); plain.add(8);
-    int[] a = new int[2]; a[0] = 40; a[1] = 41;
-    List<int[]> arrs = new List<int[]>();
+    int[] a = int[2]; a[0] = 40; a[1] = 41;
+    List<int[]> arrs = {};
     arrs.add(a);
     io.print(plain.get(0).toString());       // 7
     int n = arrs.get(0).length();              // 2 -- chained-member carrier

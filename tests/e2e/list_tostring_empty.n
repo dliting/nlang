@@ -1,6 +1,6 @@
 // Phase 9b-pre: empty List toString yields "[]".
 int main() {
-    List<int> lst = new List<int>();
+    List<int> lst = {};
     string s = lst.toString();
     if (s == "[]") return 7;
     return 1;

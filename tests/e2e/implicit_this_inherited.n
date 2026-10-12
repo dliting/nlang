@@ -8,6 +8,6 @@ class B : A {
     }
 }
 int main() {
-    B b = new B();
+    B b = B();
     return b.setV(42);
 }

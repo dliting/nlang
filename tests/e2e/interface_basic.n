@@ -11,7 +11,7 @@ class Foo implements IPrintable {
 }
 
 int main() {
-    Foo f = new Foo();
+    Foo f = Foo();
     f.print();
     return f.value;
 }

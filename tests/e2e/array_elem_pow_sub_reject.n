@@ -5,8 +5,8 @@
 import io;
 import math;
 int main() {
-    List<float[]> l = new List<float[]>();
-    l.add(new float[1]);
+    List<float[]> l = {};
+    l.add(float[1]);
     io.print(math.pow(2.0, l[0]));
     return 0;
 }

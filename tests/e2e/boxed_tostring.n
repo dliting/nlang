@@ -6,7 +6,7 @@ import io;
 class C { public Object o; }
 int main() {
     Object a = 5;
-    C c = new C();
+    C c = C();
     c.o = 7;
     Object b = 2.5;
     Object s = "xy";

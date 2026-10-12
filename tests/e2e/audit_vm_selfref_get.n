@@ -28,7 +28,7 @@ int main() {
     if (k != 31) r += 4;
 
     // array twin control (fixed in round-3)
-    int[] arr = new int[3];
+    int[] arr = int[3];
     arr[0] = 7;
     arr[1] = 8;
     arr[2] = 9;

@@ -6,8 +6,8 @@
 // dispatch route and is rejected — assign to a local first.
 import io;
 int main() {
-    List<string[]> l = new List<string[]>();
-    string[] a = new string[2];
+    List<string[]> l = {};
+    string[] a = string[2];
     a[0] = "hi";
     a[1] = "yo";
     l.add(a);

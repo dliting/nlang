@@ -5,9 +5,9 @@ class C {
     public int v;
 }
 int main() {
-    List<int> li = new List<int>();
+    List<int> li = {};
     li.add(0);
-    C c = new C();
+    C c = C();
     li[0] = c;
     return 0;
 }

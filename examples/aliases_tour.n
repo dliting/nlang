@@ -15,8 +15,9 @@ int sum(Row r) {                        // alias in a parameter position
 }
 
 Grid makeGrid() {                       // alias in a return position
-    Grid g = new Grid();
-    g.set("evens", new Row());
+    Grid g = {};
+    Row evens0 = {};                    // empty Row via target inference
+    g.set("evens", evens0);
     List<int> evens = g.get("evens");
     evens.add(2);
     evens.add(4);
@@ -27,7 +28,7 @@ int main() {
     Grid g = makeGrid();
     io.print(sum(g.get("evens")));      // 6 — Grid/Row expand transparently
 
-    List<Grid> grids = new List<Grid>(); // alias inside another generic
+    List<Grid> grids = {}; // alias inside another generic
     grids.add(g);
     io.print(grids.get(0).get("evens").get(1));  // 4
 

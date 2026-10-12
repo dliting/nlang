@@ -1,5 +1,5 @@
 int main() {
-    List<int> lst = new List<int>();
+    List<int> lst = {};
     lst.add(3);
     lst.add(7);
     int total = 0;

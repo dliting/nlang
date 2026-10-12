@@ -4,7 +4,7 @@ using Exc = Exception;
 
 int main() {
     try {
-        throw new Exception("boom");
+        throw Exception("boom");
     } catch (Exc e) {
         return 5;
     }

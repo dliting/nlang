@@ -7,7 +7,7 @@ class Dog : Animal { public int teeth; }
 //derived instance can be stored in a base-typed local without an
 //explicit cast (the resolver checks "is-a" relationship).
 int main() {
-    Dog d = new Dog();
+    Dog d = Dog();
     d.legs = 4;
     d.teeth = 42;
     Animal a = d;

@@ -4,8 +4,8 @@ test_array_property.cpp - array-valued type property unit tests.
 In-process ModuleBuilder coverage of the array redesign B property:
 IsArrayValued() is stamped at resolver binding tails from the declared
 or bound type, so each expression SHAPE below (identifier, member
-field, new-array, array-returning call, container element read,
-container subscript, plain array subscript) carries the property that
+field, creation subscript, array-returning call, container element
+read, container subscript, plain array subscript) carries the property that
 the old shape-inference predicate computed post hoc.
 ---*/
 #include <QtTest/QtTest>
@@ -148,7 +148,7 @@ void TestArrayProperty::identifierAndMemberShapes()
     auto out = compileOne(
         "struct S { int[] f; }\n"
         "int main() {\n"
-        "    int[] a = new int[2];\n"
+        "    int[] a = int[2];\n"
         "    S s;\n"
         "    int[] t = s.f;\n"
         "    int n = a.length();\n"
@@ -173,35 +173,43 @@ void TestArrayProperty::identifierAndMemberShapes()
 void TestArrayProperty::valueShapes()
 {
     auto out = compileOne(
-        "int[] mk() { return new int[3]; }\n"
+        "int[] mk() { return int[3]; }\n"
         "int main() {\n"
-        "    int[] a = new int[3];\n"
+        "    int[] a = int[3];\n"
         "    int x = a[0] + mk()[0];\n"
-        "    List<int[]> li = new List<int[]>();\n"
-        "    li.add(new int[1]);\n"
+        "    List<int[]> li = {};\n"
+        "    li.add(int[1]);\n"
         "    int[] e = li.get(0);\n"
         "    int[] e2 = li[0];\n"
         "    return e.length() + e2.length() + x;\n"
         "}\n");
     QVERIFY(out.ok);
     const auto& root = out.builder->TreeRootView();
-    //new-array expressions are always array-valued. ToString() is the
-    //constant "new_array", so the nodes are located by kind here (the
-    //source has three: mk's body, main's decl, li.add's argument).
-    auto news = collectByKind(root, NK_NewArrayExpr, nullptr);
-    QVERIFY(!news.empty());
-    for (auto* pNew : news)
-        QVERIFY(pNew->IsArrayValued());
-    //subscript of a plain array: NOT array-valued (element type).
-    //a[0] comes first in pre-order (the x assignment precedes li[0]).
+    //0.9.0: creation is spelled `int[n]` / `Foo[n]`, so the node is a
+    //subscript with NewArrayElem() set (the index child doubles as the
+    //size) — ToString() stays the constant "subscript". The source has
+    //six subscripts in pre-order: three creations (mk's body, main's
+    //decl, li.add's argument) then three reads (a[0], mk()[0], the
+    //container sugar li[0]).
     auto subs = collectByKind(root, NK_SubscriptExpr, nullptr);
-    QVERIFY(subs.size() >= 3);   //a[0], mk()[0], li[0]
-    //plain-array subscript yields int: false
-    QVERIFY(!subs[0]->IsArrayValued());
-    //container sugar li[0] is array-valued: pre-order puts it third
-    //(ToString() is the constant "subscript", so position locates it —
-    //the source has exactly these three subscripts).
-    QVERIFY(subs[2]->IsArrayValued());
+    QVERIFY(subs.size() == 6);
+    int nCreation = 0;
+    for (auto* pSub : subs)
+    {
+        auto* pCreation = static_cast<SnSubscriptExpr*>(pSub);
+        if (!pCreation->NewArrayElem())
+            continue;
+        ++nCreation;
+        //creation expressions are always array-valued
+        QVERIFY(pCreation->IsArrayValued());
+    }
+    QVERIFY(nCreation == 3);
+    //plain-array subscript yields the element type: false (the two
+    //creations ahead of these in pre-order were checked above)
+    QVERIFY(!static_cast<SnSubscriptExpr*>(subs[2])->IsArrayValued());
+    QVERIFY(!static_cast<SnSubscriptExpr*>(subs[3])->IsArrayValued());
+    //container sugar li[0] is array-valued
+    QVERIFY(static_cast<SnSubscriptExpr*>(subs[5])->IsArrayValued());
     //array-returning call mk() is array-valued (the source's only bare
     //array-valued invoke; li.add rides the member shape, not this arm).
     auto mks = collectByKind(root, NK_InvokeExpr, "mk()");
@@ -258,7 +266,7 @@ void TestArrayProperty::writeStructArrayFieldThrows()
         "struct S { int[] f; }\n"
         "int main() {\n"
         "    S s;\n"
-        "    ByteStream bs = new ByteStream();\n"
+        "    ByteStream bs = ByteStream();\n"
         "    bs.writeStruct(s);\n"
         "    return 0;\n"
         "}\n");

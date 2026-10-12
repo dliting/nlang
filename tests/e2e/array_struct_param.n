@@ -12,7 +12,7 @@ int takeArr(Point[] p) {
 }
 
 int main() {
-    Point[] arr = new Point[1];
+    Point[] arr = Point[1];
     arr[0].x = 7;
     return takeArr(arr) - 2;
 }

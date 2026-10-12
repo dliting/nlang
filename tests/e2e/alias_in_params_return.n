@@ -2,7 +2,7 @@
 using Pair = Dict<string, int>;
 
 Pair make(string k, int v) {
-	Pair p = new Dict<string, int>();
+	Pair p = {};
 	p[k] = v;
 	return p;
 }

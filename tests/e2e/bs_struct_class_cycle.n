@@ -8,10 +8,10 @@ struct Wrapper {
 }
 
 int main() {
-    ByteStream bs = new ByteStream();
-    Node n1 = new Node();
+    ByteStream bs = ByteStream();
+    Node n1 = Node();
     n1.v = 1;
-    Node n2 = new Node();
+    Node n2 = Node();
     n2.v = 2;
     n1.next = n2;
     n2.next = n1;

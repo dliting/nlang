@@ -1,10 +1,10 @@
 //Positive guard: a container element read (`li.get(0)` on a
 //List<int[]>) coerces to string through the same runtime dispatch.
 int main() {
-    int[] a = new int[2];
+    int[] a = int[2];
     a[0] = 1;
     a[1] = 2;
-    List<int[]> li = new List<int[]>();
+    List<int[]> li = {};
     li.add(a);
     string s = li.get(0);
     if (s == "[1, 2]")

@@ -30,7 +30,7 @@ class Dog : Animal {
 }
 
 int main() {
-    Animal a = new Dog();           // base-class reference, virtual dispatch
+    Animal a = Dog();           // base-class reference, virtual dispatch
     io.print(a + " has " + a.legs() + " legs");
     if (a.legs() == 4)
         return 4;
@@ -63,7 +63,7 @@ int total(IShape s) {
 }
 
 int main() {
-    Square sq = new Square();
+    Square sq = Square();
     sq.side = 4;                  // set via the concrete type
     IShape shape = sq;             // upcast to the interface
     io.print(total(shape));        // 16

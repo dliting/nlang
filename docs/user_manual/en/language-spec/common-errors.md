@@ -124,7 +124,7 @@ class Counter {
 }
 
 int main() {
-    Counter c = new Counter();
+    Counter c = Counter();
     c.step() += 1;
     return c.n;
 }
@@ -143,7 +143,7 @@ as the left value; the full set of supported left values is in
 
 ```nlang
 int main() {
-    List<int> xs = new List<int>();
+    List<int> xs = {};
     switch (xs) {
         case 1:
             return 1;
@@ -291,7 +291,7 @@ numeric type is forbidden — use the `s.toInt()`/`toLong()`/
 
 ```nlang
 int main() {
-    Dict<int, int> d = new Dict<int, int>{"1": 2};
+    Dict<int, int> d = {"1": 2};
     return 0;
 }
 ```

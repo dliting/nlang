@@ -6,6 +6,6 @@ class A {
 }
 class B : A { public int B() { super(40, 2); return 0; } }
 int main() {
-    B b = new B();
+    B b = B();
     return b.x + b.y;
 }

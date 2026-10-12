@@ -10,7 +10,7 @@ class Rect : Shape {
 }
 int calc(Shape s) { return s.area(); }
 int main() {
-    Rect r = new Rect();
+    Rect r = Rect();
     r.w = 6;
     r.h = 7;
     return calc(r);

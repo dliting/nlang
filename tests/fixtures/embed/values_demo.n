@@ -18,7 +18,7 @@ int usesDefaults(int a) {
 }
 
 int boom() {
-    throw new Exception("embedded-boom");
+    throw Exception("embedded-boom");
 }
 
 int withOut(int a, out int b) {
@@ -63,7 +63,7 @@ class NativeOps {
 }
 
 int callNativeMethod() {
-    NativeOps ops = new NativeOps();
+    NativeOps ops = NativeOps();
     return ops.bump(1);
 }
 

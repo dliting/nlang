@@ -6,7 +6,7 @@
 //next method call.
 import io;
 int main() {
-    int[] a = new int[3];
+    int[] a = int[3];
     a[0] = 1; a[1] = 2; a[2] = 3;
     string s = "hello";
     io.print(a.length().toString());            // 3  -- array length -> int -> toString

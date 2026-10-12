@@ -3,7 +3,7 @@ int sumFirst(int[] arr) {
 }
 
 int main() {
-    int[] arr = new int[5];
+    int[] arr = int[5];
     arr[0] = 99;
     arr[1] = 1;
     return sumFirst(arr);

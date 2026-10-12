@@ -6,7 +6,7 @@ class C {
     public int get(int bias = twice(5)) { return this.v + bias; }
 }
 int main() {
-    C c = new C();
+    C c = C();
     c.v = 8;
     return c.get();
 }

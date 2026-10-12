@@ -9,7 +9,7 @@ int main() {
     P p;
     p.id = 5000000000;
     p.x = 42;
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     bs.writeStruct(p);
     bs.reset();
     P q = bs.readStruct("P");

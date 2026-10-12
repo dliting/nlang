@@ -2,8 +2,8 @@
 using Cell = Dict<string, int>;
 
 int main() {
-	List<Cell> l = new List<Cell>();
-	Cell c = new Dict<string, int>();
+	List<Cell> l = {};
+	Cell c = {};
 	c["k"] = 7;
 	l.add(c);
 	return l[0]["k"];

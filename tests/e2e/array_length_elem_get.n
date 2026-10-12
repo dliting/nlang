@@ -3,8 +3,8 @@
 //builtin on l.get(0).
 import io;
 int main() {
-    List<string[]> l = new List<string[]>();
-    l.add(new string[1]);
+    List<string[]> l = {};
+    l.add(string[1]);
     io.print(l.get(0).length());
     return 0;
 }

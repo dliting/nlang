@@ -1,7 +1,7 @@
 class Node { public int value; }
 struct Wrapper { Node ref; }
 int main() {
-	Node n = new Node();
+	Node n = Node();
 	n.value = 42;
 	Wrapper w;
 	w.ref = n;

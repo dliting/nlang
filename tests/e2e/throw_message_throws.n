@@ -1,5 +1,5 @@
 //v0.8.5: an uncaught user throw surfaces the exception's own message
 //(previously the top level printed the fixed text "user throw").
 int main() {
-    throw new Exception("boom");
+    throw Exception("boom");
 }

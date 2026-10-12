@@ -5,7 +5,7 @@ int main() {
     int g = 0;
     try {
         try {
-            throw new Exception("boom");
+            throw Exception("boom");
         } finally {
             g = g + 1;
         }

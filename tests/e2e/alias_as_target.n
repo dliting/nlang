@@ -2,7 +2,8 @@
 using Grid = Dict<string, int>;
 
 int main() {
-	Object o = new Dict<string, int>();
+	Dict<string, int> d = {};
+	Object o = d;
 	Grid g = o as Grid;
 	g["a"] = 3;
 	return g["a"];

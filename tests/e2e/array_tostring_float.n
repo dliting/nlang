@@ -1,6 +1,6 @@
 // Phase 9b-pre: array toString — float elements via %g formatting.
 int main() {
-    float[] arr = new float[2];
+    float[] arr = float[2];
     arr[0] = 1.5;
     arr[1] = 2.5;
     string s = arr.toString();

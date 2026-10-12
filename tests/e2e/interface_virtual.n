@@ -19,7 +19,7 @@ int CountTwice(ICounter c) {
 }
 
 int main() {
-    CounterTen a = new CounterTen();
-    CounterTwenty b = new CounterTwenty();
+    CounterTen a = CounterTen();
+    CounterTwenty b = CounterTwenty();
     return CountTwice(a) + CountTwice(b);
 }

@@ -3,7 +3,7 @@ class Point {
 }
 
 int main() {
-    List<Point> lst = new List<Point>();
+    List<Point> lst = {};
     Point p;
     lst.add(p);
     Point q = lst.get(0);

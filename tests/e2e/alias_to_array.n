@@ -3,7 +3,7 @@
 using Ints = int[];
 
 int main() {
-	Ints a = new int[3];
+	Ints a = int[3];
 	a[2] = 9;
 	return a[2];
 }

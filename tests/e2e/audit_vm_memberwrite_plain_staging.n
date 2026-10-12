@@ -36,7 +36,7 @@ int main() {
     int r = 0;
 
     // class receiver, call with binary arg in RHS — pre-fix crash
-    Box b = new Box{v: 0};
+    Box b = Box{v: 0};
     b.v = helper(1 + 2, 3);
     if (b.v != 303) r += 1;
 
@@ -44,7 +44,7 @@ int main() {
     Point p;
     p.x = 1;
     p.y = 2;
-    Box b2 = new Box{v: 0};
+    Box b2 = Box{v: 0};
     b2.v = takes(p);
     if (b2.v != 3) r += 2;
 
@@ -55,7 +55,7 @@ int main() {
     if (q.y != 507) r += 4;
 
     // container member-write, call with binary arg in the value — pre-fix crash
-    List<Box> lc = [new Box{v: 0}];
+    List<Box> lc = [Box{v: 0}];
     lc[0].v = helper(1 + 4, 9);
     if (lc.get(0).v != 509) r += 8;
 

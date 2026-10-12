@@ -11,8 +11,8 @@ struct Kennel {
 }
 
 int main() {
-    ByteStream bs = new ByteStream();
-    Dog d = new Dog();
+    ByteStream bs = ByteStream();
+    Dog d = Dog();
     d.legs = 4;
     d.teeth = 1;
     Kennel k;

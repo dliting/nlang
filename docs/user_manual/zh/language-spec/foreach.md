@@ -33,7 +33,7 @@ not match the element type" 失败。数组类型声明也可作为`for`初始�
 `break`和`continue`与`for`完全相同。循环变量是**函数作用域**（循环变量无块作用域，与`for`一致——见[循环](loops.md)）：
 
 ```nlang
-List<int> nums = new List<int>();
+List<int> nums = {};
 nums.add(10); nums.add(20); nums.add(30);
 int sum = 0;
 foreach (int x in nums) {
@@ -45,7 +45,7 @@ foreach (int x in nums) {
 **Dict迭代示例**：
 
 ```nlang
-Dict<string, int> ages = new Dict<string, int>();
+Dict<string, int> ages = {};
 ages.set("alice", 30);
 ages.set("bob",   25);
 int total = 0;

@@ -4,8 +4,8 @@
 //(pre-0.7.3 this was rejected at resolve time — assign to a local
 //first).
 int main() {
-	List<int[]> l = new List<int[]>();
-	int[] a = new int[2];
+	List<int[]> l = {};
+	int[] a = int[2];
 	a[0] = 10;
 	a[1] = 20;
 	l.add(a);

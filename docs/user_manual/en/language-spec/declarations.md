@@ -84,7 +84,7 @@ float y = 3.14;
 string s = "hello";
 Color c = Color.Red;       // enum
 Point pt;                   // struct (zero-initialized)
-Node n = new Node();        // class (heap-allocated)
+Node n = Node();        // class (heap-allocated)
 Node n2;                    // class (null)
 ```
 

@@ -5,7 +5,7 @@ class Counter {
 }
 
 int main() {
-    const Counter c = new Counter();
+    const Counter c = Counter();
     c.Inc();
     c.Inc();
     c.count = c.count + 10;

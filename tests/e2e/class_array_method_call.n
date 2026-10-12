@@ -10,6 +10,6 @@ class Point {
 }
 
 int main() {
-    Point[] ps = new Point[2];
+    Point[] ps = Point[2];
     return ps.helper();
 }

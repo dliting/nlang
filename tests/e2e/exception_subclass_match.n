@@ -1,6 +1,6 @@
 int main() {
     try {
-        throw new DivByZeroException("dbz");
+        throw DivByZeroException("dbz");
     } catch (Exception e) {
         return 1;
     }

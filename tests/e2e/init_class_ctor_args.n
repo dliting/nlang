@@ -1,4 +1,4 @@
-//Class init lists lower to `new C()` + per-field stores; a class whose
+//Class init lists lower to `C()` + per-field stores; a class whose
 //only ctor takes parameters cannot be initialized this way.
 class C {
     public int a;
@@ -6,6 +6,6 @@ class C {
 }
 
 int main() {
-    C c = new C{a:2};
+    C c = C{a:2};
     return c.a;
 }

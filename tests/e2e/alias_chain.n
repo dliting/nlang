@@ -4,7 +4,7 @@ using A = Dict<string, int>;
 using B = A;
 
 int main() {
-	B x = new Dict<string, int>();
+	B x = {};
 	x["k"] = 6;
 	return x["k"];
 }

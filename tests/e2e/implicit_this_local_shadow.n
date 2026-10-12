@@ -11,7 +11,7 @@ class Base {
     }
 }
 int main() {
-    Base b = new Base();
+    Base b = Base();
     b.v = 63;
     return b.readLocal() + b.readField();
 }

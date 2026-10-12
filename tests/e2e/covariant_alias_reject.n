@@ -4,7 +4,7 @@
 class Base { public int b; }
 class Derived : Base { public int d; }
 int main() {
-    Derived[] da = new Derived[2];
+    Derived[] da = Derived[2];
     Base[] ba = da;
     return 0;
 }

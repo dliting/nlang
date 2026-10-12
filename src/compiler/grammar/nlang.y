@@ -6,7 +6,7 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-%expect 27
+%expect 26
 
 %code requires {
 
@@ -296,7 +296,7 @@ static bool CollectQualifiedSegments(
 %type <v_pMemberList>			NamespaceMemberList
 %type <v_pFormalParam>			FormalParam
 %type <v_pFormalParamList>		FormalParamList
-%type <v_pExpression>			Expression ParenthesesExpr LiteralExpr NewExpr NewArrayExpr SubscriptExpr
+%type <v_pExpression>			Expression ParenthesesExpr LiteralExpr SubscriptExpr
 %type <v_pExpressionList>		ConcreteParamList
 %type <v_pExpression>			ConcreteParam BracedInitExpr
 %type <v_pInitEntryList>		InitListElements InitListElementList InitEntries InitEntryList
@@ -382,7 +382,6 @@ static bool CollectQualifiedSegments(
 %token KT_Interface
 %token KT_Long
 %token KT_Native
-%token KT_New
 %token KT_Null
 %token KT_Out
 %token KT_Private
@@ -1330,16 +1329,17 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-10-10, bison 3.8.2): 27
-//shift/reduce, 0 reduce/reduce, in four families, every one resolved by
+//Accepted-conflict ledger (re-measured 2026-10-13, bison 3.8.2): 26
+//shift/reduce, 0 reduce/reduce, in four families (0.9.0 removed the
+//`new` shapes, dropping the third '<' state), every one resolved by
 //bison's default to the intended reading. The count is pinned by the
-//`%expect 27` in the prologue, so bison is SILENT on a clean tree — any
+//`%expect 26` in the prologue, so bison is SILENT on a clean tree — any
 //grammar edit that moves the count now fails the build with
-//`error: shift/reduce conflicts: N found, 27 expected` instead of
+//`error: shift/reduce conflicts: N found, 26 expected` instead of
 //leaving a notice in a log nobody reads. Bump `%expect` in the same
 //commit as the edit, never in a commit of its own.
-//- states 160/198/205 (1 each): the '<' shapes — an explicit generic
-//  type head (`List<int> l;`), `new C<T>(...)`, and the void-return
+//- states 159/196 (1 each): the '<' shapes — an explicit generic
+//  type head (`List<int> l;`) and the void-return
 //  func spellings. Reduce-first keeps the declaration reading.
 //- state 273 (20): ClassMember's NodeFlag-singular vs NodeFlags-plural
 //  productions overlap on the flag/type first tokens — both derivations
@@ -1501,7 +1501,7 @@ TypeArg:	Type {
 					} ;
 
 //Comma-separated list of type arguments inside `<...>`. Used by
-//the generic Type rule above and the generic NewExpr variants.
+//the generic Type rule above and the anchored `func<...>(...)` arm.
 TypeList:	TypeArg {
 						$$ = new std::vector<nlang::SnFieldExpr*>{ $1 };
 					} |
@@ -1515,19 +1515,17 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				LiteralExpr		{ $$ = $1; } |
 				InvokeExpr		{ $$ = $1; } |
 				IdentifierExpr	{ $$ = $1; } |
-				NewExpr		{ $$ = $1; } |
-				NewArrayExpr		{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
 				KT_This		{ $$ = new SnThisExpr(@1); } |
 				KT_Null		{ auto* _nl = new SnLiteralExpr(*RnInt32::Instance(), 0, @1); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
 				//Phase 8e-6: bare `[...]` array/list literal. Only the bracket
-				//form is allowed bare; dict/struct `{...}` requires explicit
-				//`new Type{...}` because bare `{...}` would LALR-conflict
+				//form is allowed bare; dict/struct `{...}` requires an anchored
+				//type (`Vec{...}`) because bare `{...}` would LALR-conflict
 				//with Paragraph (block statement).
 				'[' InitListElements ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
-				//0.9.0: anchored brace init `Vec{x: 1, y: 2}`. Same node
-				//shape as the `new Vec{...}` arm: the identifier reads as
-				//a type name at resolve time. No LALR conflict: a legal
+				//0.9.0: anchored brace init `Vec{x: 1, y: 2}`. The identifier
+				//reads as a type name at resolve time.
+				//No LALR conflict: a legal
 				//program never places '{' after a completed expression.
 				TT_Identifier '{' InitEntries '}' {
 					auto* pId = new SnIdentifierExpr($1, @1);
@@ -1599,64 +1597,6 @@ IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 					KT_Bool		{ $$ = new SnIdentifierExpr(NK_Bool, @1);	} |
 					KT_Char		{ $$ = new SnIdentifierExpr(NK_Char, @1);	} ;
 
-NewExpr:	KT_New TT_Identifier '(' ConcreteParamList ')' {
-					auto* pId = new SnIdentifierExpr($2, @2);
-					$$ = new SnNewExpr(new SnNameExpr(pId, @2), $4, @1);
-				} |
-				//Qualified construction: new shapes.Point(...). After new the
-				//identifier is followed by '.', which distinguishes this from
-				//the plain/generic/init forms at the same LALR state.
-				KT_New QualifiedType '(' ConcreteParamList ')' {
-					$$ = new SnNewExpr($2, $4, @1);
-				} |
-				//Phase 8e-3: generic construction `new List<int>()`.
-				//Separate rule to avoid touching the plain `new Foo()` parse
-				//(which has its own LALR state). $2 is the base class name;
-				//$4 is the type-args list; $7 is the constructor args.
-				KT_New TT_Identifier '<' TypeList '>' '(' ConcreteParamList ')' {
-					auto* pId = new SnIdentifierExpr($2, @2);
-					auto* pName = new SnNameExpr(pId, @2);
-					$$ = new SnNewExpr(new SnGenericTypeExpr(pName, $4, @2), $7, @1);
-				} |
-				//0.8.3: `new func<...>()` keeps its dedicated resolver reject
-				//(func types have no by-name constructor; bind a reference).
-				//Without this arm the keyword spelling would die as a bare
-				//syntax error before the resolver could explain.
-				KT_New KT_Func '<' TypeList '>' '(' ConcreteParamList ')' {
-					$$ = new SnNewExpr(MakeFuncType($4, @2), $7, @1);
-				} |
-				//Phase 8e-6: explicit collection init `new Foo{...}` /
-				//`new List<int>{...}`. Initializes a fresh instance with
-				//the given entries (dict key:value pairs or struct fields).
-				KT_New TT_Identifier '{' InitEntries '}' {
-					auto* pId = new SnIdentifierExpr($2, @2);
-					auto* pName = new SnNameExpr(pId, @2);
-					$$ = new SnInitListExpr(pName, *$4, false, @1);
-					delete $4;
-				} |
-				KT_New TT_Identifier '<' TypeList '>' '{' InitEntries '}' {
-					auto* pId = new SnIdentifierExpr($2, @2);
-					auto* pName = new SnNameExpr(pId, @2);
-					$$ = new SnInitListExpr(
-						new SnGenericTypeExpr(pName, $4, @2), *$7, false, @1);
-					delete $7;
-				} ;
-
-NewArrayExpr:	KT_New Type '[' Expression ']' {
-					$$ = new SnNewArrayExpr($2, $4, @1);
-				} |
-				//Array of a generic-instantiated type: `new List<int>[2]`.
-				//Separate rule for the same reason as the generic NewExpr
-				//variants above: after `new Id '<' TypeList '>'` the LALR
-				//stack holds the NewExpr-shaped prefix (state 58 shifts '<'
-				//over the IdentifierExpr reduce), so the NameExpr-based
-				//Type path never reaches the plain rule's '['.
-				KT_New TT_Identifier '<' TypeList '>' '[' Expression ']' {
-					auto* pId = new SnIdentifierExpr($2, @2);
-					auto* pName = new SnNameExpr(pId, @2);
-					$$ = new SnNewArrayExpr(
-						new SnGenericTypeExpr(pName, $4, @2), $7, @1);
-				} ;
 
 SubscriptExpr:	Expression '[' Expression ']' {
 					$$ = new SnSubscriptExpr($1, $3, @1);
@@ -1752,7 +1692,7 @@ InitEntry:	TT_String ':' Expression {
 						pE->pValue = $3;
 						$$ = pE;
 					} |
-					//Value-only entry for `new List<T>{v1, v2, ...}` form.
+					//Value-only entry for the value-position brace/bracket forms.
 					//Resolver dispatches on target type: List → values, struct
 					//→ fields in declaration order, dict → error (dict requires
 					//string keys).

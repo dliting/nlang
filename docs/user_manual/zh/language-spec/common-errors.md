@@ -97,7 +97,7 @@ class Counter {
 }
 
 int main() {
-    Counter c = new Counter();
+    Counter c = Counter();
     c.step() += 1;
     return c.n;
 }
@@ -113,7 +113,7 @@ Error: cannot assign to the result of a method call.
 
 ```nlang
 int main() {
-    List<int> xs = new List<int>();
+    List<int> xs = {};
     switch (xs) {
         case 1:
             return 1;
@@ -242,7 +242,7 @@ Error: Invalid cast: `String as Int32` is not allowed.
 
 ```nlang
 int main() {
-    Dict<int, int> d = new Dict<int, int>{"1": 2};
+    Dict<int, int> d = {"1": 2};
     return 0;
 }
 ```

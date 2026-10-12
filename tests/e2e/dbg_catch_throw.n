@@ -1,7 +1,7 @@
 //e2e dbg_catch_throw: catch on freezes at the throw site.
 int main() {
     try {
-        throw new Exception("boom");
+        throw Exception("boom");
     } catch (Exception e) {
         return 3;
     }

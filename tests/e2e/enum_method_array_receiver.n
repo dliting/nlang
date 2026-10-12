@@ -10,6 +10,6 @@ enum Color {
 }
 
 int main() {
-    Color[] a = new Color[2];
+    Color[] a = Color[2];
     return a.rank();
 }

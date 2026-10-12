@@ -780,7 +780,7 @@ private:
     //v0.8.5: the message an NLangThrow carries for a thrown exception
     //object. cell[1] holds the message string handle (the ctor intrinsic
     //and RaiseNlangException share the layout); an empty message falls
-    //back to the class leaf name (a bare `throw new Exception()`-shaped
+    //back to the class leaf name (a bare `throw Exception()`-shaped
     //object still names itself). Anything unreadable (non-class object,
     //stale handle) keeps the caller's legacy text.
     std::string ThrownMessageOf(int32_t heapIdx, const char* fallback) const;

@@ -4,7 +4,7 @@
 //slot with a long tag.
 long helper(long a, long b) { return a + b; }
 int main() {
-    Dict<long, int> d = new Dict<long, int>();
+    Dict<long, int> d = {};
     d.set(5, 7);
     long r = helper(4294967295, 4294967295);
     int k = 5;

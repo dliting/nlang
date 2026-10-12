@@ -7,7 +7,7 @@ int main() {
 	//Phase 8e-9b: user-defined override of toString() is dispatched via
 	//OP_CallMethod by name "toString" (virtual dispatch). The Object
 	//intrinsic fallback is NOT used when an override exists.
-	P p = new P();
+	P p = P();
 	p.x = 3;
 	p.y = 4;
 	string s = p.toString();

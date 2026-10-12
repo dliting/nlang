@@ -1,9 +1,9 @@
 int main() {
     try {
         try {
-            throw new Exception("first");
+            throw Exception("first");
         } catch (Exception e) {
-            throw new NullPointerException("second");
+            throw NullPointerException("second");
         }
     } catch (NullPointerException e) {
         return 1;

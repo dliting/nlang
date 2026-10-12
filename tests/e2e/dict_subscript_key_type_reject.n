@@ -4,7 +4,7 @@
 //(which corrupted the key slot and crashed later lookups).
 int main() {
     Dict<int, int> d;
-    d = new Dict<int, int>();
+    d = {};
     d["a"] = 2;
     return 0;
 }

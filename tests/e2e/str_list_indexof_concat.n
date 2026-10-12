@@ -1,6 +1,6 @@
 //e2e
 int main() {
-    List<string> l = new List<string>();
+    List<string> l = {};
     l.add("hello");
     string a = "hel";
     string b = "lo";

@@ -1,6 +1,6 @@
-class Holder { public List<int> items; public int Holder() { this.items = new List<int>(); return 0; } }
+class Holder { public List<int> items; public int Holder() { this.items = {}; return 0; } }
 int main() {
-    Holder h = new Holder();
+    Holder h = Holder();
     h.items.add(10);
     h.items.add(20);
     h.items.add(30);

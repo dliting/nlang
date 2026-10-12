@@ -9,17 +9,17 @@ NLang支持C风格的集合字面量，用于数组、列表、字典以及聚�
 int[] arr = [1, 2, 3];
 string[] names = ["alice", "bob"];
 List<int> nums = [10, 20, 30];
-List<Point> pts = [new Point{x:1, y:2}, new Point{x:3, y:4}];
+List<Point> pts = [Point{x:1, y:2}, Point{x:3, y:4}];
 ```
 
 **显式形式`new Type{...}`** —— 适用于任意表达式位置（函数实参、返回值、独立表达式）。字典、struct、class初始化必须用它，因为裸`{...}`会与块语句语法冲突（`{...}`包围的语句组）：
 
 ```nlang
-Dict<string, int> d = new Dict<string, int>{"a":1, "b":2};
-Point p = new Point{x:1, y:2};
-List<int> lst = new List<int>{1, 2, 3};
-return new Point{x:0, y:0};
-foo(new Point{x:1, y:2}, new Point{x:3, y:4});
+Dict<string, int> d = {"a":1, "b":2};
+Point p = Point{x:1, y:2};
+List<int> lst = {1, 2, 3};
+return Point{x:0, y:0};
+foo(Point{x:1, y:2}, Point{x:3, y:4});
 ```
 
 **`{...}`内的条目形式：**

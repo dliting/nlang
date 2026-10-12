@@ -8,7 +8,7 @@ int main() {
     while (i < 3) {
         i = i + 1;
         try {
-            throw new DivByZeroException("dbz");
+            throw DivByZeroException("dbz");
         } catch (DivByZeroException e) {
             //continue exits the catch (and targets the while loop,
             //which is outside the catch body) — pop the handler.

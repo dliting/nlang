@@ -5,7 +5,7 @@
 // evalArea, immune to inner-call bulk-copies to callParamBase.
 int helper(int x, int y) { return x * 10 + y; }
 int main() {
-    Dict<string, int> d = new Dict<string, int>{ "a": helper(5, 3) };  // 53
+    Dict<string, int> d = { "a": helper(5, 3) };  // 53
     int v = d.get("a");
     if (v == 53) { return 7; }
     return 1;

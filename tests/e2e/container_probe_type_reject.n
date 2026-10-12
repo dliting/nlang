@@ -3,7 +3,7 @@
 //is a compile error, not a silently-never-matching (or garbage-reading)
 //comparison.
 int main() {
-    List<long> a = new List<long>();
+    List<long> a = {};
     a.add(1);
     if (a.contains("x"))
         return 1;

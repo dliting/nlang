@@ -8,11 +8,11 @@ struct Box {
 //redesign B).
 int main() {
     Box b;
-    b.a = new int[2];
+    b.a = int[2];
     b.a[0] = 7;
     int n = 0;
     while (n < 1500) {
-        int[] tmp = new int[2];
+        int[] tmp = int[2];
         tmp[0] = n;
         n = n + 1;
     }

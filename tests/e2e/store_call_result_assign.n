@@ -4,7 +4,7 @@ class Counter {
 }
 
 int main() {
-    Counter c = new Counter();
+    Counter c = Counter();
     c.step() = 1;
     return c.n;
 }

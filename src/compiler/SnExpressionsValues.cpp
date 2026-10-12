@@ -158,7 +158,7 @@ void SnNewExpr::Accept(ISyntaxNodeVisitor &v)
 std::string SnNewExpr::ToString() const
 {
 	std::stringstream ss;
-	ss << "new " << m_pClassName->ToString() << "()";
+	ss << m_pClassName->ToString() << "()";
 	return std::move(ss.str());
 }
 

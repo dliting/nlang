@@ -1,5 +1,5 @@
 // 0.9.0: an array alias has no sized-creation twin — the same
-// multi-dimension reject as the old `new Ints[2]` spelling names the fix.
+// multi-dimension reject as the old `Ints[2]` spelling names the fix.
 using Ints = int[];
 
 int main() {

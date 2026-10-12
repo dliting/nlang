@@ -27,7 +27,7 @@ static void TestBacktraceCarriesRealSourceFile() {
     {
         BuildOutcome bo = buildSource("bt_real_src",
             "int helper() {\n"       // 1
-            "    int[] a = new int[1];\n"  // 2
+            "    int[] a = int[1];\n"  // 2
             "    return a[5];\n"     // 3
             "}\n"                    // 4
             "int main() {\n"         // 5
@@ -64,7 +64,7 @@ static void TestThrowMessagePassthrough() {
     {
         BuildOutcome bo = buildSource("bt_throw_msg",
             "int main() {\n"
-            "    throw new Exception(\"boom\");\n"
+            "    throw Exception(\"boom\");\n"
             "}\n");
         REQUIRE(bo.ok);
         CompiledModule mod = loadBuilt("bt_throw_msg");
@@ -86,7 +86,7 @@ static void TestThrowEmptyMessageFallsBackToClassName() {
     {
         BuildOutcome bo = buildSource("bt_throw_empty",
             "int main() {\n"
-            "    throw new Exception(\"\");\n"
+            "    throw Exception(\"\");\n"
             "}\n");
         REQUIRE(bo.ok);
         CompiledModule mod = loadBuilt("bt_throw_empty");
@@ -109,7 +109,7 @@ static void TestRethrowKeepsMessage() {
         BuildOutcome bo = buildSource("bt_rethrow_msg",
             "int main() {\n"
             "    try {\n"
-            "        throw new Exception(\"rethrown\");\n"
+            "        throw Exception(\"rethrown\");\n"
             "    } catch (Exception e) {\n"
             "        throw;\n"
             "    }\n"
@@ -140,7 +140,7 @@ static void TestInvalidCastIsCatchable() {
             "    public int z;\n"
             "}\n"
             "int main() {\n"
-            "    Point p = new Point();\n"
+            "    Point p = Point();\n"
             "    Object o = p;\n"
             "    int code = 0;\n"
             "    try {\n"
@@ -170,7 +170,7 @@ static void TestUserConstructedInvalidCast() {
     {
         BuildOutcome bo = buildSource("bt_cast_user",
             "int main() {\n"
-            "    InvalidCastException e = new InvalidCastException(\"custom\");\n"
+            "    InvalidCastException e = InvalidCastException(\"custom\");\n"
             "    throw e;\n"
             "}\n");
         REQUIRE(bo.ok);
@@ -193,7 +193,7 @@ static void TestStripDebugInfoRemovesAnchors() {
     {
         const char* src =
             "int main() {\n"
-            "    int[] a = new int[1];\n"
+            "    int[] a = int[1];\n"
             "    return a[5];\n"
             "}\n";
         const auto dir = scratchDir();

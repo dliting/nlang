@@ -10,7 +10,7 @@ int f(Box b) {
     }
 }
 int main() {
-    Box b = new Box();
+    Box b = Box();
     int r = f(b);
     if (r == 5 && b.v == 1) { return 7; }
     return 1;

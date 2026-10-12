@@ -3,7 +3,7 @@ class Holder {
 }
 
 int main() {
-    Holder h = new Holder();
+    Holder h = Holder();
     int hc = h.getHashCode();
     if (hc > 0) {
         return 1;

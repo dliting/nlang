@@ -5,7 +5,7 @@ void Fill(out int x) {
     x = 5;
 }
 int main() {
-    int[] ia = new int[3];
+    int[] ia = int[3];
     Fill(out ia);
     return 0;
 }

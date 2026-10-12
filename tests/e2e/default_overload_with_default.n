@@ -10,7 +10,7 @@ class Derived : Base {
     public virtual int foo(int a = 20) { return a * 2; }
 }
 int main() {
-    Base b = new Derived();
+    Base b = Derived();
     //Static type Base → default is 10 (from Base.foo's signature).
     //Runtime dispatch → Derived.foo's body, with a=10. Result: 10*2 = 20.
     return b.foo();

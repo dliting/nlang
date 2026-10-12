@@ -8,8 +8,8 @@ class C {
 }
 
 int main() {
-    C[] arr = new C[1];
-    arr[0] = new C();
+    C[] arr = C[1];
+    arr[0] = C();
     string s = arr.toString();
     //Unreachable if the throw works. If the bug regresses (native
     //toString silently executes empty bytecode), s would be a fabricated

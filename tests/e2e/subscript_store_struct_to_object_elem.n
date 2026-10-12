@@ -5,7 +5,7 @@ struct Point {
     int x;
 }
 int main() {
-    Object[] a = new Object[2];
+    Object[] a = Object[2];
     Point p;
     p.x = 1;
     a[0] = p;

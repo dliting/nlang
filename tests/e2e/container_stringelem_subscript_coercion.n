@@ -3,8 +3,8 @@
 //table, whose token→string Auto coerces it (same verdict as the string[]
 //subscript path). The .add-method form is pinned separately in Task 11.
 int main() {
-    List<string> ls = new List<string>();
-    int[] ia = new int[2];
+    List<string> ls = {};
+    int[] ia = int[2];
     ia[0] = 1;
     ia[1] = 2;
     ls.add("x");

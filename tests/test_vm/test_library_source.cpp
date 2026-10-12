@@ -339,14 +339,14 @@ const char* kTypeLibSource =
     "}\n"
     "enum Color { Red = 0, Green = 1, Blue = 2 }\n"
     "Point makePoint(int x, int y) {\n"
-    "  return new Point(x, y);\n"
+    "  return Point(x, y);\n"
     "}\n";
 
 const char* kTypeProgram =
     "import io;\n"
     "import alib;\n"
     "int main() {\n"
-    "  alib.Point p = new alib.Point(2, 5);\n"
+    "  alib.Point p = alib.Point(2, 5);\n"
     "  if (p.manhattan() != 7) return 1;\n"
     "  if (p.x != 2) return 2;\n"
     "  alib.Point q = alib.makePoint(3, 4);\n"
@@ -398,7 +398,7 @@ const char* kInheritProgram =
     "  alib.Vec v;\n"
     "  v.a = 3; v.b = 4;\n"
     "  if (v.a + v.b != 7) return 1;\n"
-    "  alib.Dog d = new alib.Dog();\n"
+    "  alib.Dog d = alib.Dog();\n"
     "  alib.Animal a = d;\n"
     "  if (a.legs() != 4) return 2;\n"
     "  if (a.kind() != \"dog\") return 3;\n"
@@ -440,7 +440,7 @@ const char* kIfaceProgram =
     "import io;\n"
     "import alib;\n"
     "int main() {\n"
-    "  alib.Square s = new alib.Square(3);\n"
+    "  alib.Square s = alib.Square(3);\n"
     "  alib.IShape sh = s;\n"
     "  if (sh.area() != 9) return 1;\n"
     "  io.print(\"ok\");\n"
@@ -580,7 +580,7 @@ static void TestQualifiedBaseAndCast() {
           "  public int bump() { v = v + 10; return this.get(); }\n"
           "}\n"
           "int main() {\n"
-          "  D d = new D();\n"
+          "  D d = D();\n"
           "  alib.B b = d as alib.B;\n"
           "  io.print(b.get());\n"
           "  return d.bump() - 11;\n"
@@ -665,7 +665,7 @@ static void TestSameNameLibraryAndRootTypeIsolated() {
           "class Point { public int a; public int b; public int c;\n"
           "  public int id() { return a + b + c; } }\n"
           "int main() {\n"
-          "  alib.Point p = new alib.Point();\n"
+          "  alib.Point p = alib.Point();\n"
           "  p.x = 1; p.y = 2;\n"
           "  io.print(p.sum());\n"
           "  return p.sum() - 3;\n"
@@ -753,7 +753,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
         { "alib.n", "struct S { int a; }\n" },
         { "main.n", "import alib;\n"
           "int main() {\n"
-          "  ByteStream bs = new ByteStream();\n"
+          "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
           "  alib.S r = bs.readStruct(\"S\");\n"
           "  return r.a - 1;\n"
@@ -779,7 +779,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
         { "blib.n", "struct S { int b; }\n" },
         { "main.n", "import alib;\nimport blib;\n"
           "int main() {\n"
-          "  ByteStream bs = new ByteStream();\n"
+          "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
           "  alib.S r = bs.readStruct(\"S\");\n"
           "  return r.a - 1;\n"
@@ -791,7 +791,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
         { "blib.n", "struct S { int b; }\n" },
         { "main.n", "import alib;\nimport blib;\n"
           "int main() {\n"
-          "  ByteStream bs = new ByteStream();\n"
+          "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
           "  alib.S r = bs.readStruct(\"S\");\n"
           "  return r.a - 1;\n"
@@ -803,14 +803,14 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     auto dir3 = scenarioDir("stream_literal_none");
     writeFiles(dir3, { { "main.n",
         "int main() {\n"
-        "  ByteStream bs = new ByteStream();\n"
+        "  ByteStream bs = ByteStream();\n"
         "  return bs.readStruct(\"NoSuchType\");\n"
         "}\n" } });
     CHECK(!compileDir(dir3), "an unknown literal type name fails");
     auto dir3Log = scenarioDir("stream_literal_none_log");   //twin for the log
     writeFiles(dir3Log, { { "main.n",
         "int main() {\n"
-        "  ByteStream bs = new ByteStream();\n"
+        "  ByteStream bs = ByteStream();\n"
         "  return bs.readStruct(\"NoSuchType\");\n"
         "}\n" } });
     CHECK(compileLog(dir3Log).find("type not found: NoSuchType")
@@ -825,7 +825,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
         { "alib.n", "struct S { int a; }\n" },
         { "main.n", "import alib;\n"
           "int main() {\n"
-          "  ByteStream bs = new ByteStream();\n"
+          "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 4; bs.writeStruct(w); bs.reset();\n"
           "  alib.S r = bs.readStruct(\"alib.S\");\n"
           "  return r.a - 4;\n"
@@ -897,7 +897,7 @@ static void TestBuiltinAndUserTypeNameCoexist() {
         { "alib.n", "class Object { public int tag; }\n" },
         { "main.n", "import alib;\n"
           "int main() {\n"
-          "  alib.Object y = new alib.Object();\n"
+          "  alib.Object y = alib.Object();\n"
           "  y.tag = 2;\n"
           "  return y.tag - 2;\n"
           "}\n" } });
@@ -970,7 +970,7 @@ static void TestUserObjectDispatch() {
           "import io;\n"
           "import alib;\n"
           "int main() {\n"
-          "  alib.Object o = new alib.Object();\n"
+          "  alib.Object o = alib.Object();\n"
           "  o.tag = 5;\n"
           "  io.print(o.bumped());\n"
           "  io.print(o.toString());\n"

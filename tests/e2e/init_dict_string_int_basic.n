@@ -1,4 +1,4 @@
 int main() {
-    Dict<string, int> d = new Dict<string, int>{"a":1, "b":2};
+    Dict<string, int> d = {"a":1, "b":2};
     return d.get("a") + d.get("b");
 }

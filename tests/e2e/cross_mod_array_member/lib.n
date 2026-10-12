@@ -2,7 +2,7 @@
 // stub (SynthTypeExpr rebuilt return): subscript and .length() directly
 // on the cross-module call result, no local intermediate.
 int[] mk(int n) {
-    int[] a = new int[n];
+    int[] a = int[n];
     a[0] = 7;
     return a;
 }

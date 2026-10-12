@@ -7,7 +7,7 @@ int main() {
     while (i < 5) {
         i = i + 1;
         try {
-            throw new Exception("x");
+            throw Exception("x");
         } catch (Exception e) {
             int j = 0;
             while (j < 10) {

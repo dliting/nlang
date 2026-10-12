@@ -1,11 +1,11 @@
 int main() {
-    FileStream stream = new FileStream("_phase8_tmp/test_append.bin", "w");
+    FileStream stream = FileStream("_phase8_tmp/test_append.bin", "w");
     stream.writeInt(1);
     stream.close();
-    FileStream stream2 = new FileStream("_phase8_tmp/test_append.bin", "a");
+    FileStream stream2 = FileStream("_phase8_tmp/test_append.bin", "a");
     stream2.writeInt(2);
     stream2.close();
-    FileStream stream3 = new FileStream("_phase8_tmp/test_append.bin", "r");
+    FileStream stream3 = FileStream("_phase8_tmp/test_append.bin", "r");
     int a = stream3.readInt();
     int b = stream3.readInt();
     stream3.close();

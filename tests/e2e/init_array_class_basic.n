@@ -1,6 +1,6 @@
 class P { public int x; public int y; }
 
 int main() {
-    P[] arr = [new P{x:1, y:2}, new P{x:3, y:4}];
+    P[] arr = [P{x:1, y:2}, P{x:3, y:4}];
     return arr[1].y;
 }

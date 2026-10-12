@@ -48,8 +48,8 @@ import io;
 int risky(int mode) {
     try {
         if (mode == 1)
-            throw new Exception("manual");
-        int[] a = new int[2];
+            throw Exception("manual");
+        int[] a = int[2];
         return a[9];                // 越界 → IndexOutOfBoundsException
     } catch (IndexOutOfBoundsException e) {
         return 2;
@@ -62,7 +62,7 @@ int main() {
     if (risky(0) != 2)
         return 1;
     try {
-        throw new Exception("boom");
+        throw Exception("boom");
     } catch (Exception e) {
         io.print(e.message);
         return 5;

@@ -11,7 +11,7 @@ int main() {
 	//on a Derived instance should dispatch to Base.toString() (not
 	//Object intrinsic), because OP_CallMethod walks the class
 	//hierarchy and finds the override in Base.
-	Derived d = new Derived();
+	Derived d = Derived();
 	string s = d.toString();
 	if (s == "Base") return 7;
 	return 1;

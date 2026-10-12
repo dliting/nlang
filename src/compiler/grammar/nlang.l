@@ -248,7 +248,6 @@ LineComment	\/\/[^\n]*
 "interface" { return KT_Interface; }
 "long"      { return KT_Long; }
 "native"    { return KT_Native; }
-"new"       { return KT_New; }
 "null"      { return KT_Null; }
 "out"       { return KT_Out; }
 "private"   { return KT_Private; }

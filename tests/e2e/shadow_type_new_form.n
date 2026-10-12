@@ -7,7 +7,7 @@ struct Vec {
 }
 
 int main() {
-    Vec Vec = new Vec{x: 5, y: 6};
-    Vec w = new Vec{x: 7, y: 8};
+    Vec Vec = Vec{x: 5, y: 6};
+    Vec w = Vec{x: 7, y: 8};
     return Vec.x + w.x;
 }

@@ -9,6 +9,6 @@ class English implements IGreeter {
 }
 
 int main() {
-    IGreeter g = new English();
+    IGreeter g = English();
     return g.Greet();
 }

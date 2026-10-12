@@ -148,7 +148,7 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
         {
             m_Env.Log(CLL_Error,
                 entry.pValue ? entry.pValue->Location() : sn.Location(),
-                "class initializer \"new %s{...}\" requires "
+                "class initializer \"%s{...}\" requires "
                 "field:value entries; the positional form is "
                 "only valid for struct/array targets",
                 pClassDecl->Name().c_str());
@@ -164,7 +164,7 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
             if (arity > 0)
             {
                 m_Env.Log(CLL_Error, sn.Location(),
-                    "class initializer \"new %s{...}\" requires a "
+                    "class initializer \"%s{...}\" requires a "
                     "no-arg constructor; \"%s\" takes %zu "
                     "argument(s)",
                     pClassDecl->Name().c_str(),

@@ -16,9 +16,9 @@ but does not freeze the referenced object's state. Member mutation through a
 const local is allowed:
 
 ```nlang
-const Foo f = new Foo();
+const Foo f = Foo();
 f.x = 5;            // OK — f itself is not reassigned
-f = new Foo();      // ERROR — cannot reassign const local
+f = Foo();      // ERROR — cannot reassign const local
 const Point p = q;
 p.x = 5;            // OK — only p's binding is const
 ```

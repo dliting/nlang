@@ -7,7 +7,7 @@ class MyIoErr : IOException {
 }
 
 int main() {
-    MyIoErr e = new MyIoErr();
+    MyIoErr e = MyIoErr();
     e.code = 5;
     e.message = "disk full";
     try {

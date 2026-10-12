@@ -1,6 +1,6 @@
 // Phase 9b-pre: array toString — basic int array.
 int main() {
-    int[] arr = new int[3];
+    int[] arr = int[3];
     arr[0] = 1;
     arr[1] = 2;
     arr[2] = 3;

@@ -7,7 +7,7 @@ class Box {
 }
 
 int main() {
-    Box b = new Box();
+    Box b = Box();
     b.v = 40;
     func<void, out int> f = b.fill;
     int r = 0;

@@ -10,8 +10,8 @@ class C {
 int main() {
     Point p;
     p.x = 1;
-    C c = new C();
-    c.a = new Point[2];
+    C c = C();
+    c.a = Point[2];
     c.a[0] = p;
     c.a[0].x = 99;
     if (p.x != 1)

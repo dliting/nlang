@@ -6,6 +6,6 @@ class C {
 }
 
 int main() {
-	C c = new C{ 5 };
+	C c = C{ 5 };
 	return c.x;
 }

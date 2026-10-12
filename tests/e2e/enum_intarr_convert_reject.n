@@ -3,8 +3,8 @@
 //tokens differ by element type).
 enum Color { Red, Green, Blue }
 int main() {
-    Color[] ca = new Color[2];
-    int[] ia = new int[2];
+    Color[] ca = Color[2];
+    int[] ia = int[2];
     Color[] c2 = ia;
     int[] i2 = ca;
     return 0;

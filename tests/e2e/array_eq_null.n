@@ -2,7 +2,7 @@
 //sentinel comparison (the null literal is Int32-typed; the array side
 //keeps its handle).
 int main() {
-    int[] a = new int[2];
+    int[] a = int[2];
     int[] n = null;
     if (a != null && n == null && null == n && null != a) { return 6; }
     return 1;

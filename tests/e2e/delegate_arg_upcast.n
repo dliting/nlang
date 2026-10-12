@@ -14,5 +14,5 @@ int classify(Base b) { return b.kind(); }
 
 int main() {
     func<int, Base> d = classify;
-    return d(new Derived());
+    return d(Derived());
 }

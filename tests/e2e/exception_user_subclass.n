@@ -11,7 +11,7 @@ class MyException : Exception {
 
 int main() {
     try {
-        MyException e = new MyException("hello");
+        MyException e = MyException("hello");
         e.code = 42;
         throw e;
     } catch (MyException e) {

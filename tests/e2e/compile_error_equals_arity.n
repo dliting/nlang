@@ -8,7 +8,7 @@ class Box { int v; }
 int main() {
     string t = "abcd";
     int a = t.equals();        // zero args — string
-    Box b = new Box();
+    Box b = Box();
     int c = b.equals();        // zero args — class Object protocol
     int e = t.equals("a", "b"); // two args — string
     return 0;

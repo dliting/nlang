@@ -10,7 +10,7 @@ class P {
     public int P(int x, int y) { this.a = x; this.b = y; return 0; }
 }
 int main() {
-    P p = new P(helper(1, 2), helper(3, 4));
+    P p = P(helper(1, 2), helper(3, 4));
     //helper(1,2)=12, helper(3,4)=34, sum=46
     return p.a + p.b;
 }

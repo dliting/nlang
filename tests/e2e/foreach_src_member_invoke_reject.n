@@ -10,7 +10,7 @@ class Box {
 }
 
 int main() {
-	Box b = new Box();
+	Box b = Box();
 	int total = 0;
 	foreach (int x in b.mk()) {
 		total = total + x;

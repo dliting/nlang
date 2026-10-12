@@ -6,7 +6,7 @@ struct Point { int x; int y; }
 //without altering the EvalDataType chain (relevant if 8e-9b adds
 //Object.toString() on struct).
 int main() {
-    List<Point> pts = new List<Point>();
+    List<Point> pts = {};
     Point p;
     p.x = 3;
     p.y = 4;

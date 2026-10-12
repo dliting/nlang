@@ -12,7 +12,7 @@ int main() {
 	// - float → OP_Float_to_str
 	//All concatenations produce strings; the chain stays string-typed
 	//throughout via FixupExprType wrapping.
-	P p = new P();
+	P p = P();
 	p.x = 7;
 	string s = "a" + p + Color.Red + 5 + 2.5;
 	//"a" + "P(7)" + "Red" + "5" + "2.5"

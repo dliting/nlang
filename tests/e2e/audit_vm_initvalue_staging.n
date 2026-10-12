@@ -1,5 +1,5 @@
 // Phase 10 audit round-8: initializer VALUE staging must use EvalAreaClaim,
-// not temps. The four staging sites (array-init entries, new T[size] size,
+// not temps. The four staging sites (array-init entries, T[size] size,
 // struct-init entries, class-init entries) used PickTempSlot(resultOffset),
 // which falls through to tempSlot whenever the destination is not a temp.
 // A nested binary entry (`1 + use(make(5))`) then parked its LEFT operand in
@@ -23,29 +23,29 @@ int main() {
     int[] a2 = [1 + 2, 3 + 4];
     if (a2[0] != 3 || a2[1] != 7) r += 2;
 
-    // new T[size], struct-arg binary in the size expression
-    int[] b = new int[1 + use(make(1))];
+    // T[size], struct-arg binary in the size expression
+    int[] b = int[1 + use(make(1))];
     if (b.length() != 2) r += 4;
 
-    // new T[size], plain size (control)
-    int[] b2 = new int[1 + 2];
+    // T[size], plain size (control)
+    int[] b2 = int[1 + 2];
     if (b2.length() != 3) r += 8;
 
-    // struct-init entry, struct-arg binary (explicit new form — bare
+    // struct-init entry, struct-arg binary (explicit anchored form — bare
     // `{...}` decl-init is not valid grammar)
-    Box s = new Box{ v: 1 + use(make(5)) };
+    Box s = Box{ v: 1 + use(make(5)) };
     if (s.v != 6) r += 16;
 
     // struct-init plain entry (control)
-    Box s2 = new Box{ v: 1 + 2 };
+    Box s2 = Box{ v: 1 + 2 };
     if (s2.v != 3) r += 32;
 
     // class-init entry, struct-arg binary
-    CBox c = new CBox{ v: 1 + use(make(5)) };
+    CBox c = CBox{ v: 1 + use(make(5)) };
     if (c.v != 6) r += 64;
 
     // class-init plain entry (control)
-    CBox c2 = new CBox{ v: 1 + 2 };
+    CBox c2 = CBox{ v: 1 + 2 };
     if (c2.v != 3) r += 128;
 
     return r;

@@ -1003,7 +1003,7 @@ func_object_box_reject compile_error
 func_named_arg_reject compile_error
 func_switch_discriminant compile_error
 func_out_in_list_reject compile_error
-func_new_reject compile_error cannot be constructed by name
+err_new_removed compile_error Error: syntax error
 func_new_void_syntax compile_error
 func_void_in_list_reject compile_error
 func_ref_to_func_reject compile_error does not match the signature of

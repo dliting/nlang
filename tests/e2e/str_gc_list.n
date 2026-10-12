@@ -1,9 +1,9 @@
 //e2e
 int main() {
-    List<string> l = new List<string>();
+    List<string> l = {};
     l.add("first");
     l.add("second-" + 2);
-    Dict<string, string> d = new Dict<string, string>();
+    Dict<string, string> d = {};
     d.set("k", "v-important");
     int i = 0;
     while (i < 200) {

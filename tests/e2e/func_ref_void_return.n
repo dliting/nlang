@@ -6,7 +6,7 @@ void setter(Holder h) { h.v = 41; }
 
 int main() {
     func<void, Holder> f = setter;
-    Holder h = new Holder();
+    Holder h = Holder();
     f(h);
     return h.v;
 }

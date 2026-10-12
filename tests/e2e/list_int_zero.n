@@ -4,7 +4,7 @@ int main() {
 	//the old null-sentinel optimization (skip alloc for val==0) was
 	//incorrectly treating int 0 as null. This test verifies List<int>
 	//can store and retrieve 0.
-	List<int> nums = new List<int>();
+	List<int> nums = {};
 	nums.add(0);
 	nums.add(5);
 	int x = nums.get(0);

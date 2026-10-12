@@ -7,10 +7,10 @@ class Ctr {
 	public int bump() { n += 1; return n; }
 }
 int main() {
-	Ctr c = new Ctr();
+	Ctr c = Ctr();
 	int[] a = [5, 6, 7];
 	a[c.bump()] += 10;
-	List<int> li = new List<int>();
+	List<int> li = {};
 	li.add(1);
 	li.add(2);
 	li.add(3);

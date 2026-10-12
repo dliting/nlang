@@ -2,6 +2,6 @@
 //uncaught error's backtrace prints (file:?) with no line numbers
 //(the file itself is still named: sourceFile metadata is kept).
 int main() {
-    int[] a = new int[1];
+    int[] a = int[1];
     return a[5];
 }

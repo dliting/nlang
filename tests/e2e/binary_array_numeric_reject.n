@@ -2,6 +2,6 @@
 //rejected — the promotion wrapper sees TCK_None against the promoted
 //scalar target (there is no element-wise or decay semantics).
 int main() {
-    int[] a = new int[2];
+    int[] a = int[2];
     return a + 1;
 }

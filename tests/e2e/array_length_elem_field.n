@@ -9,9 +9,9 @@ class Box {
     }
 }
 int main() {
-    Box b = new Box();
-    b.rows = new List<int[]>();
-    b.rows.add(new int[1]);
+    Box b = Box();
+    b.rows = {};
+    b.rows.add(int[1]);
     b.probe();
     return 0;
 }

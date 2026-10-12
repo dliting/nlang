@@ -35,7 +35,7 @@ try {
 ### `throw`
 
 ```nlang
-throw new Exception("error message");   // throw a new exception
+throw Exception("error message");   // throw a new exception
 throw;                                   // re-throw current exception (only inside catch)
 ```
 
@@ -86,7 +86,7 @@ try {
 class MyException : Exception {
     int code;
 }
-MyException e = new MyException();
+MyException e = MyException();
 e.message = "custom";   // writable
 e.code = 42;
 ```
@@ -106,7 +106,7 @@ try {
 }
 
 try {
-    List<int> lst = new List<int>();
+    List<int> lst = {};
     return lst.get(999);      // throws IndexOutOfBoundsException
 } catch (IndexOutOfBoundsException e) {
     // caught

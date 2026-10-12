@@ -8,8 +8,8 @@ struct Pair {
 }
 
 int main() {
-    ByteStream bs = new ByteStream();
-    Holder h = new Holder();
+    ByteStream bs = ByteStream();
+    Holder h = Holder();
     h.v = 7;
     Pair p;
     p.a = h;

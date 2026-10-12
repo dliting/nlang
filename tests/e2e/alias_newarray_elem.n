@@ -1,5 +1,5 @@
 //Phase 13 Step 0 fix round coverage lock: alias as the element type of
-//"new Elem[...]". The element type slot is held outside the children
+//"Elem[...]". The element type slot is held outside the children
 //list; the alias pre-pass reaches it through the explicit NewArrayExpr
 //branch. Verified working before the fix; this test pins it.
 //(0.7.2: the original body stored a raw array handle into an element
@@ -8,7 +8,7 @@
 using Elem = int;
 
 int main() {
-    Elem[] outer = new Elem[2];
+    Elem[] outer = Elem[2];
     outer[1] = 7;
     return outer[1];
 }

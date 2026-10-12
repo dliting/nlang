@@ -2,7 +2,7 @@
 int main() {
     int g = 0;
     try {
-        throw new Exception("x");
+        throw Exception("x");
     } catch (Exception e) {
         g = g + 1;
     } finally {

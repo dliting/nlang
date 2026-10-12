@@ -1,7 +1,7 @@
 class Box {
     public int v;
     public Box wrap(int x) {
-        Box b = new Box();
+        Box b = Box();
         b.v = x;
         return b;
     }
@@ -13,6 +13,6 @@ class Box {
 //by e2e tests — verifies receiver-expression evaluation passes through
 //chained method calls without temp-slot aliasing.
 int main() {
-    Box b = new Box();
+    Box b = Box();
     return b.wrap(5).wrap(7).wrap(9).v;
 }

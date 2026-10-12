@@ -1,6 +1,6 @@
 class Point { public int x; public int y; }
 
 int main() {
-    Dict<string, Point> d = new Dict<string, Point>{"p":new Point{x:1, y:2}};
+    Dict<string, Point> d = {"p":Point{x:1, y:2}};
     return d.get("p").x;
 }

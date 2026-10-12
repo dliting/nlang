@@ -7,7 +7,7 @@ int main() {
     while (i < 10) {
         i = i + 1;
         try {
-            throw new DivByZeroException("dbz");
+            throw DivByZeroException("dbz");
         } catch (DivByZeroException e) {
             //break exits the while loop (which contains the try/catch),
             //so we must pop the handler before jumping.

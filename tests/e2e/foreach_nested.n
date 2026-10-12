@@ -4,20 +4,20 @@ int main() {
     //(Outer values must be non-zero — literal 0 collides with the null
     //heap-idx sentinel in OP_Box, a pre-existing List<int> limitation
     //unrelated to foreach.)
-    List<int> outer = new List<int>();
+    List<int> outer = {};
     outer.add(11);
     outer.add(22);
     outer.add(33);
 
-    List<int> row0 = new List<int>();
+    List<int> row0 = {};
     row0.add(10);
     row0.add(20);
     row0.add(30);
-    List<int> row1 = new List<int>();
+    List<int> row1 = {};
     row1.add(40);
     row1.add(50);
     row1.add(60);
-    List<int> row2 = new List<int>();
+    List<int> row2 = {};
     row2.add(70);
     row2.add(80);
     row2.add(90);

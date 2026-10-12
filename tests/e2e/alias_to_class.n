@@ -9,6 +9,6 @@ class Point {
 }
 
 int main() {
-	P p = new Point(2, 3);
+	P p = Point(2, 3);
 	return p.x + p.y;
 }

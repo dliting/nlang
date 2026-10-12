@@ -6,7 +6,7 @@ struct Point {
     int y;
 }
 Point[] mkArr() {
-    return new Point[2];
+    return Point[2];
 }
 int main() {
     mkArr()[0] = 5;

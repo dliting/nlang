@@ -10,7 +10,7 @@ class C {
 //dedicated test; behavior comes from AllocClassOnHeap initializing
 //all field slots to 0 (== null heap idx, == 0.0f bit pattern, == "").
 int main() {
-    C c = new C();
+    C c = C();
     if (c.x != 0) { return 100; }
     if (c.f > 0.001 || c.f < -0.001) { return 101; }
     if (c.name.length() != 0) { return 102; }

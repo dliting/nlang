@@ -32,11 +32,11 @@ class Square : Shape {
 }
 
 int main() {
-    Shape s = new Triangle();      // base-typed reference
+    Shape s = Triangle();      // base-typed reference
     io.print(s.toString() + " has " + s.sides() + " sides");
     if (s.sides() != 3)
         return 1;
-    s = new Square();
+    s = Square();
     io.print(s.toString() + " has " + s.sides() + " sides");
     if (s.sides() == 4)
         return 4;

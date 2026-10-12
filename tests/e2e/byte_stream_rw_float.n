@@ -1,5 +1,5 @@
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     bs.writeFloat(1.0f);
     bs.writeFloat(3.0f);
     bs.reset();

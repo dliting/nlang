@@ -1,9 +1,9 @@
-//foreach over a freshly constructed array: `new int[3]` is an array
+//foreach over a freshly constructed array: `int[3]` is an array
 //VALUE (NewArrayExpr). 0.7.3 B D10: accepted; the construction runs
 //once into the hidden iter slot (elements zero → total 0).
 int main() {
 	int total = 0;
-	foreach (int x in new int[3]) {
+	foreach (int x in int[3]) {
 		total = total + x;
 	}
 	return total;

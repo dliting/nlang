@@ -7,7 +7,7 @@ class Counter {
     public bool bump() { this.n = this.n + 1; return true; }
 }
 int main() {
-    Counter c = new Counter();
+    Counter c = Counter();
     c.n = 0;
     bool a = false;
     bool r1 = a && c.bump();   //skipped

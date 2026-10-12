@@ -1,7 +1,7 @@
 //func<int> g = mk where mk returns int[] must be a named rejection
 //(silent mis-bind today; the return type's array-ness degrades to the
 //element field, so the pointer-identity match cannot see it).
-int[] mk() { return new int[2]; }
+int[] mk() { return int[2]; }
 int main() {
     func<int> g = mk;
     return 0;

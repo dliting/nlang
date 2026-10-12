@@ -14,7 +14,7 @@ void foobar(func<int, int> f) {
 }
 
 int main() {
-    Counter c = new Counter();
+    Counter c = Counter();
     foobar(c.foo);
     BinOp g = c.foo;
     return g(1) + g(1);

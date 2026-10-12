@@ -13,7 +13,7 @@ class Container {
 }
 
 int main() {
-    Container c = new Container();
-    c.worker = new FastWorker();
+    Container c = Container();
+    c.worker = FastWorker();
     return c.worker.run();
 }

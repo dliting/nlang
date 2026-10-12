@@ -17,13 +17,13 @@ class Point {
 }
 
 int main() {
-    Point p1 = new Point();
+    Point p1 = Point();
     p1.x = 5;
     p1.y = 7;
-    Point p2 = new Point();
+    Point p2 = Point();
     p2.x = 5;
     p2.y = 7;
-    Point p3 = new Point();
+    Point p3 = Point();
     p3.x = 5;
     p3.y = 8;
     int a = p1.equals(p2);  // 1 — same x,y

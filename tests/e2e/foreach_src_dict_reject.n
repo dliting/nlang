@@ -2,7 +2,7 @@
 //`d.get("k")` on a Dict<string, int[]>. 0.7.3 B D10: accepted and
 //routed through the array path (was rejected at resolve time).
 int main() {
-	Dict<string, int[]> d = new Dict<string, int[]>();
+	Dict<string, int[]> d = {};
 	int[] v = [10, 20];
 	d.set("k", v);
 	int total = 0;

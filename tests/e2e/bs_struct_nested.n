@@ -2,7 +2,7 @@ struct Point { int x; int y; }
 struct Line { Point a; Point b; }
 
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     Line ln;
     ln.a.x = 5;
     ln.a.y = 6;

@@ -43,7 +43,7 @@ class Inner { public int x; }
 struct Wrapper { public Inner ref; }
 
 int main() {
-    Inner obj = new Inner();
+    Inner obj = Inner();
     obj.x = 10;
     Wrapper a;
     a.ref = obj;

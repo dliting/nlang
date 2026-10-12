@@ -6,7 +6,7 @@ int main() {
     //
     //Note: values must not include literal 0 — see list_int_zero_throws
     //for the null-sentinel bug that also affects Dict<int,int>.values.
-    Dict<int,int> d = new Dict<int,int>();
+    Dict<int,int> d = {};
     d.set(1, 10);
     d.set(2, 20);
     d.set(3, 30);

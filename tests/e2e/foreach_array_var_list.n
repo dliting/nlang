@@ -3,9 +3,9 @@
 //visitor's empty Access(SnArrayTypeExpr&)).
 import io;
 int main() {
-    int[] a = new int[2]; a[0] = 1; a[1] = 2;
-    int[] b = new int[2]; b[0] = 3; b[1] = 4;
-    List<int[]> li = new List<int[]>();
+    int[] a = int[2]; a[0] = 1; a[1] = 2;
+    int[] b = int[2]; b[0] = 3; b[1] = 4;
+    List<int[]> li = {};
     li.add(a); li.add(b);
     int sum = 0;
     foreach (int[] row in li) {

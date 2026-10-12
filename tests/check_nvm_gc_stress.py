@@ -16,7 +16,7 @@ MODULE_EXIT = 7
 SOURCE = """int main() {
 \t//gc-stress position guard: the module's own exit code must pass
 \t//through under a forced collection rhythm.
-\tint[] t = new int[4];
+\tint[] t = int[4];
 \treturn 7;
 }
 """

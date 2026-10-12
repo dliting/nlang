@@ -14,7 +14,7 @@ class Point {
 }
 
 int main() {
-    Point p = new Point();
+    Point p = Point();
     p.x = 10;
     return p.caller();
 }

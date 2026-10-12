@@ -1,7 +1,7 @@
 struct Person { string name; int age; }
 
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     Person p;
     p.name = "hello";
     p.age = 1;

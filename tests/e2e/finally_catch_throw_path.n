@@ -6,9 +6,9 @@ int main() {
     int code = 0;
     try {
         try {
-            throw new Exception("first");
+            throw Exception("first");
         } catch (Exception e) {
-            throw new Exception("second");
+            throw Exception("second");
         } finally {
             g = g + 1;
         }

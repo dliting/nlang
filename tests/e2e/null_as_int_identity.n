@@ -2,7 +2,7 @@
 //flag propagates, so storing it into an Object[] element skips boxing
 //and the element keeps its null identity.
 int main() {
-    Object[] arr = new Object[2];
+    Object[] arr = Object[2];
     arr[0] = null as int;
     if (arr[0] != null)
         return 1;

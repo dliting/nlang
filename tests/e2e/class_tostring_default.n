@@ -6,8 +6,8 @@ int main() {
 	//Two distinct heap instances must produce distinct strings (different
 	//heap idx → different hex suffix). Avoid depending on the exact idx
 	//value (heap idx is sensitive to GC / allocation order).
-	C a = new C();
-	C b = new C();
+	C a = C();
+	C b = C();
 	string s1 = a.toString();
 	string s2 = b.toString();
 	//Both share the "C@" prefix (length >= 2) but differ overall.

@@ -8,14 +8,14 @@ a **built-in generic class** — only `List` and `Dict` are recognized
 by the compiler; user-defined `class Foo<T>` is not supported.
 
 ```nlang
-List<int> nums = new List<int>();
+List<int> nums = {};
 nums.add(1);
 nums.add(2);
 nums.add(3);
 int sum = nums.get(0) + nums.get(1) + nums.get(2);    // 6
 int n = nums.length();                                 // 3
 
-List<string> names = new List<string>();
+List<string> names = {};
 names.add("alice");
 names.add("bob");
 int total = (names.get(0) + names.get(1)).length();    // 8
@@ -60,7 +60,7 @@ directly:
 
 ```nlang
 int main() {
-    List<Object> bag = new List<Object>();
+    List<Object> bag = {};
     bag.add(42);                     // int boxed in
     bag.add("hi");                   // string alongside
     int back = bag.get(0) as int;    // 42
@@ -116,14 +116,14 @@ of type `V`. Like `List<T>`, it is a **built-in generic class** — only
 are not supported.
 
 ```nlang
-Dict<string,int> scores = new Dict<string,int>();
+Dict<string,int> scores = {};
 scores.set("alice", 90);
 scores.set("bob",   85);
 int a = scores.get("alice");          // 90
 bool hasBob = scores.containsKey("bob"); // true
 int n = scores.count();                 // 2
 
-Dict<int,int> squares = new Dict<int,int>();
+Dict<int,int> squares = {};
 squares.set(3, 9);
 squares.set(4, 16);
 squares.set(3, 99);                     // overwrites 9 → 99
@@ -195,13 +195,13 @@ Both containers support subscript syntax as pure sugar over the
 `get` / `set` intrinsics (zero new opcodes):
 
 ```nlang
-List<int> li = new List<int>();
+List<int> li = {};
 li.add(2);
 li.add(5);
 int v = li[1];          // == li.get(1)      -> 5
 li[0] = 9;              // == li.set(0, 9)
 
-Dict<string, int> d = new Dict<string, int>();
+Dict<string, int> d = {};
 d["a"] = 3;             // == d.set("a", 3)
 int x = d["a"];         // == d.get("a")     -> 3
 ```
@@ -220,8 +220,8 @@ List<Point> pts = ...;
 pts[0].x = 9;           // member write through a subscript receiver
 int s = pts[0].x + pts[0].y;
 
-List<int>[] arr = new List<int>[2];   // arrays of generic instantiations
-arr[0] = new List<int>();
+List<int>[] arr = List<int>[2];   // arrays of generic instantiations
+arr[0] = {};
 arr[0][1];              // container subscript through an array element
 ```
 

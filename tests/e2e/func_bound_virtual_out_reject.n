@@ -9,7 +9,7 @@ class B {
 void apply(func<void, out int> f) { }
 
 int main() {
-    B b = new B();
+    B b = B();
     apply(b.grab);
     return 0;
 }

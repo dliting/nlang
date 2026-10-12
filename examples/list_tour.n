@@ -2,7 +2,7 @@
 import io;
 int main() {
     int[] basis = [1, 2, 3, 4];
-    List<int> squares = new List<int>();
+    List<int> squares = {};
     foreach (int i in basis) {
         squares.add(i * i);        // 1 4 9 16
     }

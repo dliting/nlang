@@ -12,7 +12,7 @@ class MyException : Exception {
 
 int main() {
     try {
-        throw new MyException("bad");
+        throw MyException("bad");
     } catch (MyException e) {
         if (e.message == "bad") { return e.code; }
         return 2;

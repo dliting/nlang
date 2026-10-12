@@ -207,7 +207,7 @@ void test_intern_reuse_short_strings()
     CHECK(loadSource("intern_reuse",
         "int main() {\n"
         "    string base = \"hello world\";\n"
-        "    string[] kept = new string[60];\n"
+        "    string[] kept = string[60];\n"
         "    int i = 0;\n"
         "    while (i < 60) {\n"
         "        kept[i] = base.substring(0, 5);   //same content, minted\n"

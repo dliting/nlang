@@ -11,6 +11,6 @@ int sumList(List<int> l) {
 }
 
 List<int> mkList(int base) {
-    List<int> l = new List<int>{base, base + 1, base + 2};
+    List<int> l = {base, base + 1, base + 2};
     return l;
 }

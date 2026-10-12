@@ -13,6 +13,6 @@ class C {
 void foobar(func<int, int> f) { }
 
 int main() {
-    C c = new C();
+    C c = C();
     return c.call();
 }

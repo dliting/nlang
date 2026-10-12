@@ -9,7 +9,7 @@ class Square : Shape {
 }
 int count(Shape s) { return s.sides(); }
 int main() {
-    Triangle t = new Triangle();
-    Square q = new Square();
+    Triangle t = Triangle();
+    Square q = Square();
     return count(t) + count(q) - 5;
 }

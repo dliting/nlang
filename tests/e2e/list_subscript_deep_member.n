@@ -5,8 +5,8 @@ struct Point {
 }
 
 int main() {
-	List<List<Point>> m = new List<List<Point>>();
-	List<Point> row = new List<Point>();
+	List<List<Point>> m = {};
+	List<Point> row = {};
 	Point p;
 	p.x = 5;
 	row.add(p);

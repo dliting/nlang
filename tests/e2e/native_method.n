@@ -8,8 +8,8 @@ class C {
 }
 
 int main() {
-    C a = new C{ v: 1 };
-    C b = new C{ v: 2 };
+    C a = C{ v: 1 };
+    C b = C{ v: 2 };
     if (a.natConst() != 77)
         return 1;
     return b.natConst();

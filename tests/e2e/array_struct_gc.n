@@ -10,12 +10,12 @@ struct Point {
 int main() {
     int n = 0;
     int sum = 0;
-    Point[] keep = new Point[3];
+    Point[] keep = Point[3];
     keep[0].x = 3;
     keep[1].x = 3;
     keep[2].x = 1;
     while (n < 1500) {
-        Point[] tmp = new Point[2];
+        Point[] tmp = Point[2];
         tmp[0].x = n;
         tmp[1].y = n;
         sum = sum + tmp[0].x;

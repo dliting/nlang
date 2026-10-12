@@ -7,7 +7,7 @@ class MyException : Exception {
 }
 
 int main() {
-    MyException e = new MyException();
+    MyException e = MyException();
     e.code = 5;
     e.message = "custom";
     try {

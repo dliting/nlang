@@ -3,7 +3,7 @@
 两个内建流类提供二进制序列化：`ByteStream`在内存缓冲区上读写，`FileStream`落到磁盘文件。方法面相同（FileStream没有`reset()`）。
 
 ```nlang
-ByteStream bs = new ByteStream();
+ByteStream bs = ByteStream();
 bs.writeInt(1);
 bs.writeDouble(0.5);
 bs.reset();                  // 回卷游标，保留缓冲区

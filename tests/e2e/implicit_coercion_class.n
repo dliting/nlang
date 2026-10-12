@@ -7,7 +7,7 @@ int main() {
 	//Phase 8e-9b: "x" + obj auto-coerces obj to string via virtual
 	//toString() dispatch. Mirrors Java/C# implicit coercion semantics.
 	//For a class with toString override, this yields the override output.
-	P p = new P();
+	P p = P();
 	p.x = 3;
 	p.y = 4;
 	string s = "x" + p;

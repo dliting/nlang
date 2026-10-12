@@ -8,7 +8,7 @@ struct Boxed {
 }
 
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     Boxed b;
     b.f = dbl;
     bs.writeStruct(b);

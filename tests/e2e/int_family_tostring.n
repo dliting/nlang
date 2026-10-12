@@ -8,10 +8,10 @@ int main() {
     Object big = 5000000000;   // boxed long
     uint uval = 3000000000;
     Object u = uval;           // boxed uint (cell bit 31 set)
-    long[] arr = new long[2];
+    long[] arr = long[2];
     arr[0] = 9223372036854775807;
     arr[1] = -1;
-    uint[] uarr = new uint[1];
+    uint[] uarr = uint[1];
     uarr[0] = 4000000000;
     string a = big.toString();
     string b = u.toString();

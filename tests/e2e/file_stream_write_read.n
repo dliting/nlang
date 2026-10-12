@@ -1,8 +1,8 @@
 int main() {
-    FileStream stream = new FileStream("_phase8_tmp/test_write_read.bin", "w");
+    FileStream stream = FileStream("_phase8_tmp/test_write_read.bin", "w");
     stream.writeInt(42);
     stream.close();
-    FileStream stream2 = new FileStream("_phase8_tmp/test_write_read.bin", "r");
+    FileStream stream2 = FileStream("_phase8_tmp/test_write_read.bin", "r");
     int v = stream2.readInt();
     stream2.close();
     return v;

@@ -5,9 +5,9 @@ int f(int mode) {
 	int trail = 0;
 	try {
 		if (mode == 1)
-			throw new Exception("boom");
+			throw Exception("boom");
 		if (mode == 2) {
-			int[] a = new int[1];
+			int[] a = int[1];
 			int z = a[5];
 			return 90;
 		}
@@ -31,16 +31,16 @@ int main() {
 	// nested try + rethrow
 	try {
 		try {
-			throw new Exception("inner");
+			throw Exception("inner");
 		} catch (Exception e) {
-			throw new Exception("outer");
+			throw Exception("outer");
 		}
 	} catch (Exception e2) {
 		if (e2.message != "outer") r += 8;
 	}
 	// array-of-struct write chain
 
-	P2[] arr = new P2[2];
+	P2[] arr = P2[2];
 	arr[0].a = 3;
 	arr[1].b = 4;
 	if (arr[0].a + arr[1].b != 7) r += 16;

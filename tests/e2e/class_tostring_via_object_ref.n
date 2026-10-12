@@ -9,7 +9,7 @@ int main() {
 	//rather than any static type. The class name in the rendering is
 	//the leaf of the package-qualified table key (user-visible renders
 	//name the type as source wrote it), so C renders as "C@<hex>".
-	C c = new C();
+	C c = C();
 	Object o = c;
 	string s = o.toString();
 	//"Object@..." would mean the STATIC type leaked into the render;

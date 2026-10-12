@@ -19,6 +19,6 @@ int MakeSound(IAnimal a) {
 }
 
 int main() {
-    Dog d = new Dog();
+    Dog d = Dog();
     return MakeSound(d);
 }

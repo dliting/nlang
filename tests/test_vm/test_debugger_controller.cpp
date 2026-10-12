@@ -248,8 +248,8 @@ void test_controller_funcbp_all_same_name()
         "    public int val() { return 5; }\n"  //5
         "}\n"                                   //6
         "int main() {\n"                        //7
-        "    Left l = new Left();\n"            //8
-        "    Right r = new Right();\n"          //9
+        "    Left l = Left();\n"            //8
+        "    Right r = Right();\n"          //9
         "    return l.val() + r.val();\n"       //10
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
@@ -388,7 +388,7 @@ void test_controller_multianchor_exception_copy()
         "    int a = 0;\n"                          //2
         "    try {\n"                               //3
         "        try {\n"                           //4
-        "            throw new Exception(\"x\");\n" //5
+        "            throw Exception(\"x\");\n" //5
         "        } finally {\n"                     //6
         "            a = a + 10;\n"                 //7
         "        }\n"                               //8
@@ -497,7 +497,7 @@ void test_controller_break_on_throw()
         "int main() {\n"                             //1
         "    int a = 1;\n"                           //2
         "    try {\n"                                //3
-        "        throw new Exception(\"boom\");\n"   //4
+        "        throw Exception(\"boom\");\n"   //4
         "    } catch (Exception e) {\n"              //5
         "        return 7;\n"                        //6
         "    }\n"                                    //7

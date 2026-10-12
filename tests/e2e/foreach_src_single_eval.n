@@ -12,7 +12,7 @@ class Counter {
 }
 
 int main() {
-	Counter c = new Counter();
+	Counter c = Counter();
 	int total = 0;
 	foreach (int x in c.mk()) {
 		total = total + x;

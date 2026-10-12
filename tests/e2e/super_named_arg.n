@@ -2,6 +2,6 @@
 class A { public int A(int x) { return 0; } }
 class B : A { public int B() { super(x = 1); return 0; } }
 int main() {
-    B b = new B();
+    B b = B();
     return 0;
 }

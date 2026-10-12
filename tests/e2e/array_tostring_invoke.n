@@ -2,7 +2,7 @@
 //via the runtime array-aware toString dispatch — the cast arm must key
 //on the array-valued property, not on identifier/member shapes.
 int[] mk() {
-    int[] a = new int[2];
+    int[] a = int[2];
     a[0] = 1;
     a[1] = 2;
     return a;

@@ -12,7 +12,7 @@ class Sub : Base {
 int apply(func<int, int> f, int v) { return f(v); }
 
 int main() {
-    Sub s = new Sub();
+    Sub s = Sub();
     Base b = s;
     return apply(b.tw, 10);
 }

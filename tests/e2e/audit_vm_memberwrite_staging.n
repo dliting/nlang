@@ -23,15 +23,15 @@ int main() {
     int r = 0;
     int i = 1;
     int k = 3;
-    int[] q = new int[2];
+    int[] q = int[2];
     q[0] = 4;
     q[1] = 2;
     //Heap-handle separator: allocate a distinct array first so pts/cls
     //handles can never coincide with small index values.
-    int[] first = new int[1];
+    int[] first = int[1];
 
     // subscript-get in the index — pre-fix crash
-    Point[] pts = new Point[5];
+    Point[] pts = Point[5];
     pts[q[0]].x = 7;
     if (pts[4].x != 7) r += 1;
 
@@ -52,8 +52,8 @@ int main() {
     if (pts[0].x != 3) r += 16;
 
     // class elements: same path plus the element null-check
-    Box[] cls = new Box[5];
-    cls[4] = new Box{v: 0};
+    Box[] cls = Box[5];
+    cls[4] = Box{v: 0};
     cls[i + k].v = 6;
     if (cls[4].v != 6) r += 32;
 
@@ -61,7 +61,7 @@ int main() {
     if (pts[4].x != 7) r += 64;
 
     // container member-write receiver (control — claim-based get() path)
-    List<Box> lc = [new Box{v: 1}];
+    List<Box> lc = [Box{v: 1}];
     lc[q[1] - 2].v = 8;
     if (lc.get(0).v != 8) r += 128;
 

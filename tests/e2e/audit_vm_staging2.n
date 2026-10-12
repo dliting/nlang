@@ -13,13 +13,13 @@ int main() {
     // bit 1: throw message built from a staged binary expression
     // (use(make(5)) yields 5 — no 1+ prefix here — so the message is "x5")
     try {
-        throw new Exception("x" + use(make(5)));
+        throw Exception("x" + use(make(5)));
     } catch (Exception e) {
         if (e.message != "x5") r += 1;
     }
 
     // bit 2: invoke-statement with a staged argument
-    List<int> li = new List<int>();
+    List<int> li = {};
     li.add(1 + use(make(5)));
     if (li.get(0) != 6) r += 2;
 

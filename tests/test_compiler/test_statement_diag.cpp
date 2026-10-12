@@ -122,7 +122,7 @@ private slots:
     void TestFuncCtorRejectReportedOnce() {
         auto out = compileOne(
             "int main() {\n"
-            "    func<int, int> f = new func<int, int>();\n"
+            "    func<int, int> f = func<int, int>();\n"
             "    return f(1);\n"
             "}\n");
         QVERIFY(!out.ok);

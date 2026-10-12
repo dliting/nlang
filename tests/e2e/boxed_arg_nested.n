@@ -4,7 +4,7 @@
 // nested free-function call.
 int helper(int x) { return x + 3; }
 int main() {
-    List<int> list = new List<int>();
+    List<int> list = {};
     list.add(helper(5));
     if (list.get(0) == 8) { return 7; }
     return 1;

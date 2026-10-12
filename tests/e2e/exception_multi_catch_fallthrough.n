@@ -1,6 +1,6 @@
 int main() {
     try {
-        throw new NullPointerException("npe");
+        throw NullPointerException("npe");
     } catch (DivByZeroException e) {
         return 5;
     } catch (NullPointerException e) {

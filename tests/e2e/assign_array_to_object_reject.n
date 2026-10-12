@@ -2,7 +2,7 @@
 //the array flows as its degraded element type (int), so a TCK_Box
 //wrap would box the raw handle bits as an int.
 int main() {
-    int[] ia = new int[3];
+    int[] ia = int[3];
     Object o = ia;
     return 0;
 }

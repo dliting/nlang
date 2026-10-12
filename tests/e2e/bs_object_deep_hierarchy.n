@@ -3,8 +3,8 @@ class B : A { public int y; }
 class C : B { public int z; }
 
 int main() {
-    ByteStream bs = new ByteStream();
-    C c = new C();
+    ByteStream bs = ByteStream();
+    C c = C();
     c.x = 1;
     c.y = 2;
     c.z = 3;

@@ -1,7 +1,7 @@
 int main() {
     try {
         try {
-            throw new Exception("inner");
+            throw Exception("inner");
         } catch (Exception e) {
             throw;
         }

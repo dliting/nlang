@@ -9,7 +9,7 @@
 int main() {
     int r = 0;
     List<int> li = [10, 20, 30, 40];
-    int[] arr = new int[4];
+    int[] arr = int[4];
     arr[0] = 10;
     arr[1] = 20;
     arr[2] = 30;
@@ -42,7 +42,7 @@ int main() {
     if (i2 != 41) r += 16;
 
     // array-init alias: `a2 = [a2[0], 7]` must read the OLD array
-    int[] a2 = new int[2];
+    int[] a2 = int[2];
     a2[0] = 9;
     a2 = [a2[0], 7];
     if (a2[0] != 9 || a2[1] != 7) r += 32;

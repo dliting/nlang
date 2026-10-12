@@ -26,8 +26,8 @@ obj.method(args)   // 方法调用
 ### 对象创建
 
 ```nlang
-Node n = new Node();
-Node n = new Node(42);
+Node n = Node();
+Node n = Node(42);
 ```
 
 `new`在堆上分配，并在存在构造函数时调用它。见[类](class.md)「构造函数」。数组创建是`new T[n]`——见[数组](array.md)。

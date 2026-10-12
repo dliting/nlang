@@ -10,7 +10,7 @@ import io;
 int main() {
     List<int> nums = [10, 20, 30];  // List initializer
     Dict<string, int> pop =
-        new Dict<string, int>{"cn": 14, "us": 3};
+        {"cn": 14, "us": 3};
     nums.add(40);
     pop["jp"] = 1;                  // write by key
     io.print(nums.length() + pop.count());   // 4 + 3

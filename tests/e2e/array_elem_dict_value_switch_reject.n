@@ -1,8 +1,8 @@
 //compile_error: the Dict VALUE side is also what subscript sugar returns
 //(type arg 1) — the switch discriminant gate must reject it.
 int main() {
-    Dict<string, int[]> d = new Dict<string, int[]>();
-    int[] a = new int[1];
+    Dict<string, int[]> d = {};
+    int[] a = int[1];
     a[0] = 7;
     d.set("k", a);
     switch (d["k"]) {

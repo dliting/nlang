@@ -10,7 +10,7 @@ int foo(out int x) {
 }
 
 int main() {
-    C obj = new C();
+    C obj = C();
     foo(out obj.f);
     return 0;
 }

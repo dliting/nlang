@@ -204,7 +204,7 @@ void TestClassCtorMethodCrossUnit() {
         { "main.n",
           "import alib;\n"
           "int main() {\n"
-          "  alib.Calc c = new alib.Calc(21);\n"
+          "  alib.Calc c = alib.Calc(21);\n"
           "  return c.twice();\n"
           "}\n" } });
     CapturingIo cap;
@@ -238,7 +238,7 @@ void TestSuperCtorCrossUnit() {
           "  }\n"
           "}\n"
           "int main() {\n"
-          "  D d = new D(40);\n"
+          "  D d = D(40);\n"
           "  return d.get();\n"
           "}\n" } });
     CapturingIo cap;
@@ -454,7 +454,7 @@ void TestForeignTypedFieldsCrossUnit() {
           "  public alib.Point p;\n"
           "  public int Holder() {\n"
           "    super();\n"
-          "    p = new alib.Point(30, 4);\n"
+          "    p = alib.Point(30, 4);\n"
           "    return 0;\n"
           "  }\n"
           "}\n"
@@ -462,7 +462,7 @@ void TestForeignTypedFieldsCrossUnit() {
           "  Pair q;\n"
           "  q.a.x = 4;\n"
           "  q.b.x = 2;\n"
-          "  Holder h = new Holder();\n"
+          "  Holder h = Holder();\n"
           "  if (h.p.px != 30) return 1;\n"
           "  if (h.p.py != 4) return 2;\n"
           "  if (h.extra() != 5) return 3;\n"
@@ -591,7 +591,7 @@ void TestForeignMethodsNotGhostCompiled() {
         { "main.n",
           "import alib;\n"
           "int main() {\n"
-          "  alib.Calc c = new alib.Calc(21);\n"
+          "  alib.Calc c = alib.Calc(21);\n"
           "  alib.Color col = alib.Color.Red;\n"
           "  return c.twice() + col.rank();\n"
           "}\n" } };   //42 + 7 = 49

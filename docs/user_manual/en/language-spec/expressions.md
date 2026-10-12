@@ -32,8 +32,8 @@ are constants, not members of a value (see [Enum](enum.md)).
 ### Object creation
 
 ```nlang
-Node n = new Node();
-Node n = new Node(42);
+Node n = Node();
+Node n = Node(42);
 ```
 
 `new` allocates on the heap and calls the constructor if present. See

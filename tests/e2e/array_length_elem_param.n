@@ -8,9 +8,9 @@ class Box {
     }
 }
 int main() {
-    List<string[]> p = new List<string[]>();
-    p.add(new string[1]);
-    Box b = new Box();
+    List<string[]> p = {};
+    p.add(string[1]);
+    Box b = Box();
     b.probe(p);
     return 0;
 }

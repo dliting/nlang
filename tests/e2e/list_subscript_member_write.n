@@ -6,7 +6,7 @@ struct Point {
 }
 
 int main() {
-	List<Point> pts = new List<Point>();
+	List<Point> pts = {};
 	Point p;
 	p.x = 3;
 	p.y = 4;

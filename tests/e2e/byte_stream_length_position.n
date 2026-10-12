@@ -1,5 +1,5 @@
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     bs.writeInt(42);
     bs.writeInt(7);
     int len1 = bs.length();

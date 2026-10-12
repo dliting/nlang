@@ -7,7 +7,7 @@ class Box {
 	public List<int> xs;
 	public int Box() {
 		a = [1, 2, 3, 4, 5];
-		xs = new List<int>();
+		xs = {};
 		xs.add(6);
 		xs.add(7);
 		return 0;
@@ -15,7 +15,7 @@ class Box {
 }
 
 int main() {
-	Box b = new Box();
+	Box b = Box();
 	int total = 0;
 	foreach (int x in b.a) {
 		total = total + x;

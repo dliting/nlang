@@ -3,7 +3,7 @@ using IL = List<int>;
 
 int main() {
     IL[] a = IL[2];
-    IL x = new List<int>();
+    IL x = {};
     x.add(9);
     a[1] = x;
     return a[1].get(0);

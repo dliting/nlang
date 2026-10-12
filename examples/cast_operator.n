@@ -13,7 +13,7 @@ int main() {
     io.print(units);
     Object boxed = units;          // box the int into an Object
     int back = boxed as int;       // `as` unbox recovers the value
-    Object o = new Config();
+    Object o = Config();
     Config c = o as Config;        // `as` reference downcast
     c.answer = 10;
     io.print(c.answer);

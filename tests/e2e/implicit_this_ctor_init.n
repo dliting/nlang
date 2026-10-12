@@ -7,6 +7,6 @@ class Base {
     }
 }
 int main() {
-    Base b = new Base(42);
+    Base b = Base(42);
     return b.v;
 }

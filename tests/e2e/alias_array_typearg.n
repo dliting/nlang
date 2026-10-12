@@ -4,8 +4,8 @@
 import io;
 using Ints = int[];
 int main() {
-	List<Ints> xs = new List<Ints>();
-	int[] a = new int[2]; a[0] = 5; a[1] = 6;
+	List<Ints> xs = {};
+	int[] a = int[2]; a[0] = 5; a[1] = 6;
 	xs.add(a);
 	int[] b = xs.get(0);
 	io.print((b[0] + b[1]).toString());   // 11

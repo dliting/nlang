@@ -2,7 +2,7 @@
 //method call.
 import io;
 int main() {
-    int[] a = new int[2];
+    int[] a = int[2];
     io.print(a.length);
     return 0;
 }

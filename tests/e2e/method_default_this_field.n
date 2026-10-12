@@ -7,7 +7,7 @@ class C {
     public int foo(int a = this.x) { return a; }
 }
 int main() {
-    C c1 = new C(); c1.x = 10;
-    C c2 = new C(); c2.x = 20;
+    C c1 = C(); c1.x = 10;
+    C c2 = C(); c2.x = 20;
     return c1.foo() + c2.foo();
 }

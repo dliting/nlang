@@ -447,7 +447,7 @@ void test_machine_method_locals_show_this()
         "}\n"                                  //14
         "\n"                                   //15
         "int main() {\n"                       //16
-        "    Point p = new Point(2, 5);\n"     //17
+        "    Point p = Point(2, 5);\n"     //17
         "    return p.manhattan();\n"          //18
         "}\n");                                //19
     CHECK(b.ok, "build should succeed: " + b.diagnostics);

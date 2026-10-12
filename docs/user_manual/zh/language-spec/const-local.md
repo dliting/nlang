@@ -11,9 +11,9 @@ const string Greeting = "hello";
 **const是浅的（Java-`final`风格）**：`const`防止重新绑定*名字*，但不冻结被引用对象的状态。通过const局部做成员变更是允许的：
 
 ```nlang
-const Foo f = new Foo();
+const Foo f = Foo();
 f.x = 5;            // OK —— f 本身未被重新赋值
-f = new Foo();      // 错误 —— 不能给 const 局部重新赋值
+f = Foo();      // 错误 —— 不能给 const 局部重新赋值
 const Point p = q;
 p.x = 5;            // OK —— 只有 p 的绑定是 const
 ```

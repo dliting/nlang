@@ -12,7 +12,7 @@ int main() {
     int i = 0;
     int sum = 0;
     while (i < 2000) {
-        Node n = new Node();
+        Node n = Node();
         n.value = i;
         sum = sum + n.value;
         i = i + 1;

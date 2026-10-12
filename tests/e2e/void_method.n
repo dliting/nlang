@@ -9,7 +9,7 @@ class Calc {
 }
 
 int main() {
-    Calc c = new Calc();
+    Calc c = Calc();
     int r = 0;
     c.divide(17, 5, out r);
     c.bump(r);

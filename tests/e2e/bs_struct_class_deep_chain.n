@@ -8,13 +8,13 @@ struct Wrapper {
 }
 
 int main() {
-    ByteStream bs = new ByteStream();
-    Node head = new Node();
+    ByteStream bs = ByteStream();
+    Node head = Node();
     head.v = 1;
     Node curr = head;
     int i = 1;
     while (i < 60) {
-        Node n = new Node();
+        Node n = Node();
         n.v = i + 1;
         curr.next = n;
         curr = n;

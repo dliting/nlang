@@ -6,7 +6,7 @@ class C {
     public int v;
 }
 int main() {
-    List<C> l = new List<C>();
+    List<C> l = {};
     l.add(null);
     l[0] = 5;
     return 0;

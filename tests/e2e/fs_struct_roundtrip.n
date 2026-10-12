@@ -1,13 +1,13 @@
 struct Point { int x; int y; }
 
 int main() {
-    FileStream stream = new FileStream("_phase8_tmp/struct_roundtrip.bin", "w");
+    FileStream stream = FileStream("_phase8_tmp/struct_roundtrip.bin", "w");
     Point p;
     p.x = 10;
     p.y = 20;
     stream.writeStruct(p);
     stream.close();
-    FileStream stream2 = new FileStream("_phase8_tmp/struct_roundtrip.bin", "r");
+    FileStream stream2 = FileStream("_phase8_tmp/struct_roundtrip.bin", "r");
     Point q = stream2.readStruct("Point");
     stream2.close();
     return q.x + q.y;

@@ -12,12 +12,12 @@ class WithDefault { int a; public int WithDefault(int a = 5) { this.a = a; } }
 class NoCtor { int a; }
 
 int main() {
-    WithParams p1 = new WithParams();       // missing required arg
-    WithParams p2 = new WithParams(1, 2);   // extra args
-    WithDefault d = new WithDefault();      // ctor defaults not applied
-    WithParams p3 = new WithParams(a = 1);  // named argument
+    WithParams p1 = WithParams();       // missing required arg
+    WithParams p2 = WithParams(1, 2);   // extra args
+    WithDefault d = WithDefault();      // ctor defaults not applied
+    WithParams p3 = WithParams(a = 1);  // named argument
     int x = 0;
-    WithParams p4 = new WithParams(out x);  // out argument
-    NoCtor n = new NoCtor(1);               // no ctor + args
+    WithParams p4 = WithParams(out x);  // out argument
+    NoCtor n = NoCtor(1);               // no ctor + args
     return 0;
 }

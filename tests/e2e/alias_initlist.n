@@ -1,5 +1,5 @@
 //Phase 13 Step 0 fix round: alias as the explicit type of an
-//initialization list ("new B{...}"). The splice used to leave
+//initialization list ("B{...}"). The splice used to leave
 //SnInitListExpr::m_pExplicitType dangling (missing ReplaceChildNode
 //override) and crash the compiler; the field must initialize to 41.
 using B = Box;
@@ -9,6 +9,6 @@ class Box {
 }
 
 int main() {
-    B b = new B{ v: 41 };
+    B b = B{ v: 41 };
     return b.v + 1;
 }

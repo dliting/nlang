@@ -1,6 +1,6 @@
 //List<T> subscript write: li[i] = v == li.set(i, v) sugar.
 int main() {
-	List<int> li = new List<int>();
+	List<int> li = {};
 	li.add(10);
 	li.add(20);
 	li[1] = 35;

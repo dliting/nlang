@@ -3,7 +3,7 @@
 // EvalAreaClaim releases correctly between iterations (cursor discipline).
 int helper(int x, int y) { return x * 10 + y; }
 int main() {
-    Dict<string, int> d = new Dict<string, int>{
+    Dict<string, int> d = {
         "a": helper(1, 2),  // 12
         "b": helper(3, 4),  // 34
         "c": helper(5, 6)   // 56

@@ -1,6 +1,6 @@
 // Phase 9b-pre: List<string> toString — string elements are quoted.
 int main() {
-    List<string> lst = new List<string>();
+    List<string> lst = {};
     lst.add("hello");
     lst.add("world");
     string s = lst.toString();

@@ -1,8 +1,8 @@
 //0.8.4: nested subscript compound over List<List<int>>
 //(jagged int[][] is rejected; List<List<T>> is the 2-D form).
 int main() {
-	List<List<int>> m = new List<List<int>>();
-	List<int> r0 = new List<int>();
+	List<List<int>> m = {};
+	List<int> r0 = {};
 	r0.add(100);
 	r0.add(1);
 	m.add(r0);

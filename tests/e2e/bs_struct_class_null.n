@@ -7,7 +7,7 @@ struct S {
 }
 
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     S s;
     bs.writeStruct(s);
     bs.reset();

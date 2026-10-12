@@ -4,6 +4,6 @@ struct Point {
 }
 
 int main() {
-    Point[] arr = [new Point{x:1, y:2}, new Point{x:3, y:4}];
+    Point[] arr = [Point{x:1, y:2}, Point{x:3, y:4}];
     return arr[0].x + arr[1].x;
 }

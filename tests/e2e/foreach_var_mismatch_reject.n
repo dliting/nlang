@@ -3,7 +3,7 @@
 //field-identity check alone would wave it through and the loop would
 //read a raw handle into an int slot.
 int main() {
-	List<int[]> xs = new List<int[]>();
+	List<int[]> xs = {};
 	foreach (int r in xs) {
 	}
 	return 0;

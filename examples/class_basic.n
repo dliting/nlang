@@ -20,7 +20,7 @@ class Point {
 }
 
 int main() {
-    Point p = new Point(2, 5);
+    Point p = Point(2, 5);
     io.print(p.manhattan());       // 7
     io.print(p.toString());        // Point(2, 5)
     string where = "at " + p;      // implicit toString in concatenation

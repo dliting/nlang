@@ -4,7 +4,7 @@
 // cross-element array conversion. Pre-v1.12 the int[] placeholder let
 // this compile and run on garbage.
 float[] mk(int n) {
-    float[] a = new float[n];
+    float[] a = float[n];
     a[0] = 1.5;
     if (n > 1) a[1] = 2.5;
     return a;

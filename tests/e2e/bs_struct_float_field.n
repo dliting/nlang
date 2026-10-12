@@ -1,7 +1,7 @@
 struct Vec { float x; float y; }
 
 int main() {
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     Vec v;
     v.x = 1.0;
     v.y = 3.0;

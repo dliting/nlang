@@ -3,7 +3,7 @@
 //stdlib arguments, method receivers) reject array-valued expressions.
 import io;
 string[] mk(int x) {
-    string[] a = new string[2];
+    string[] a = string[2];
     a[0] = "p";
     a[1] = "q";
     return a;

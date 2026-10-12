@@ -106,7 +106,7 @@ void test_view_frames_and_locals()
         "    return s;\n"                       //4
         "}\n"                                   //5
         "int main() {\n"                        //6
-        "    Point p = new Point{x: 6, y: 7};\n"//7
+        "    Point p = Point{x: 6, y: 7};\n"//7
         "    return inner(p);\n"                //8
         "}\n");                                 //9
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
@@ -292,7 +292,7 @@ void test_hooks_on_throw()
     BuildOutcome b = buildSource("hook_throw",
         "int main() {\n"                             //1
         "    try {\n"                                //2
-        "        throw new Exception(\"boom\");\n"   //3
+        "        throw Exception(\"boom\");\n"   //3
         "    } catch (Exception e) {\n"              //4
         "        return 7;\n"                        //5
         "    }\n"                                   //6
@@ -317,8 +317,8 @@ void test_view_value_kinds()
         "struct P { int x; int y; }\n"               //1
         "int main() {\n"                             //2
         "    string s = \"hi\";\n"                   //3
-        "    P p = new P{x: 1, y: 2};\n"             //4
-        "    int[] a = new int[2];\n"                //5
+        "    P p = P{x: 1, y: 2};\n"             //4
+        "    int[] a = int[2];\n"                //5
         "    a[0] = 7;\n"                            //6
         "    a[1] = 8;\n"                            //7
         "    return 0;\n"                            //8
@@ -357,7 +357,7 @@ void test_view_struct_array_field_local()
         "struct Box { int[] a; }\n"                  //1
         "int main() {\n"                             //2
         "    Box b;\n"                               //3
-        "    b.a = new int[2];\n"                    //4
+        "    b.a = int[2];\n"                    //4
         "    b.a[0] = 7;\n"                          //5
         "    b.a[1] = 8;\n"                          //6
         "    return 0;\n"                            //7

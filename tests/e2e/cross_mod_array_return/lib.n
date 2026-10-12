@@ -4,7 +4,7 @@
 // works (assign, subscript, .length() across the module boundary). Guards
 // against both the old masquerade (stub claimed int) and over-blocking.
 int[] mk(int n) {
-    int[] a = new int[n];
+    int[] a = int[n];
     a[0] = 7;
     a[n - 1] = 9;
     return a;

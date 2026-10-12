@@ -8,8 +8,8 @@ class Foo {
     public int Foo(int v) { this.n = v; return 0; }
 }
 int main() {
-    List<Foo> lst = new List<Foo>();
-    Foo a = new Foo(1);
+    List<Foo> lst = {};
+    Foo a = Foo(1);
     lst.add(a);
     string s = lst.toString();
     if (s == "[Foo@2]") return 7;

@@ -7,7 +7,7 @@ class Base {
     }
 }
 int main() {
-    Base b = new Base();
+    Base b = Base();
     b.setV(42);
     return b.v;
 }

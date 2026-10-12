@@ -13,6 +13,6 @@ class Box {
 }
 
 int main() {
-	Box b = new Box();
+	Box b = Box();
 	return b.sum();  //5
 }

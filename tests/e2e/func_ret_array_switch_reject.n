@@ -1,7 +1,7 @@
 //compile_error: delegate invoke returning T[] — the func return slot is
 //array-typed; the switch family gate must not see the masqueraded element
 //kind (array-valued property revisit condition from Phase 13 review r1-F10).
-string[] mk(int x) { return new string[2]; }
+string[] mk(int x) { return string[2]; }
 int main() {
     func<string[], int> f = mk;
     switch (f(1)) {

@@ -17,7 +17,7 @@ int main() {
 	if (f(1, 9, 8) != 198) r += 4;
 	if (f(1, c = 7) != 127) r += 8;
 	if (f(c = 5, a = 2) != 225) r += 16;
-	P p = new P();
+	P p = P();
 	if (p.g() != 1) r += 32;
 	if (p.g(9) != 9) r += 64;
 	return r;

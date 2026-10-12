@@ -3,8 +3,8 @@
 //either way.
 import io;
 int main() {
-    List<string[]> l = new List<string[]>();
-    l.add(new string[1]);
+    List<string[]> l = {};
+    l.add(string[1]);
     io.print(l[0].length());
     return 0;
 }

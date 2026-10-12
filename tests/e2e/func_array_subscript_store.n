@@ -12,12 +12,12 @@ class C {
 }
 
 int main() {
-    func<int, int>[] arr = new func<int, int>[2];
+    func<int, int> arr[2];
     arr[0] = dbl;
     arr[1] = inc;
     func<int, int> f = arr[0];
     int a = f(5);
-    C c = new C();
+    C c = C();
     c.k = 10;
     arr[1] = c.add;
     func<int, int> g = arr[1];

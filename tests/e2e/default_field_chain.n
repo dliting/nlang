@@ -5,7 +5,7 @@ class P {
     public int getX() { return this.x; }
     public int P() { this.x = 5; return 0; }
 }
-int foo(int a = (new P()).getX()) { return a; }
+int foo(int a = (P()).getX()) { return a; }
 int main() {
     return foo();   // expect 5
 }

@@ -30,7 +30,7 @@ class Dog : Animal {
 }
 
 int main() {
-    Animal a = new Dog();           // 基类引用，虚分派
+    Animal a = Dog();           // 基类引用，虚分派
     io.print(a + " has " + a.legs() + " legs");
     if (a.legs() == 4)
         return 4;
@@ -61,7 +61,7 @@ int total(IShape s) {
 }
 
 int main() {
-    Square sq = new Square();
+    Square sq = Square();
     sq.side = 4;                  // 通过具体类型设置
     IShape shape = sq;             // 向上转型为接口
     io.print(total(shape));        // 16

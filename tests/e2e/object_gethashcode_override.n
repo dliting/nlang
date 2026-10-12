@@ -7,7 +7,7 @@ class Point {
 }
 
 int main() {
-    Point p = new Point();
+    Point p = Point();
     p.x = 2;
     p.y = 3;
     int hc = p.getHashCode();

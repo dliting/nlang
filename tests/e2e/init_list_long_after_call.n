@@ -4,7 +4,7 @@
 long helper(long a, long b) { return a + b; }
 int main() {
     long r = helper(4294967295, 4294967295);
-    List<long> a = new List<long>{1};
+    List<long> a = {1};
     if (a.get(0) != 1) return 1;
     if (r != 8589934590) return 2;
     return 0;

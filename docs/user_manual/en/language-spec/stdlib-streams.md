@@ -5,7 +5,7 @@ and writes over an in-memory buffer, `FileStream` lands on a disk file. The
 method surface is identical (FileStream has no `reset()`).
 
 ```nlang
-ByteStream bs = new ByteStream();
+ByteStream bs = ByteStream();
 bs.writeInt(1);
 bs.writeDouble(0.5);
 bs.reset();                  // rewinds the cursor, keeps the buffer

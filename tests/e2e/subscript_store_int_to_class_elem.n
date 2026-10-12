@@ -4,7 +4,7 @@ class Foo {
     public int x;
 }
 int main() {
-    Foo[] a = new Foo[2];
+    Foo[] a = Foo[2];
     a[0] = 5;
     return 0;
 }

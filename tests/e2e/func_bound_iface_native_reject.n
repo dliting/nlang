@@ -15,7 +15,7 @@ class NativeOp implements Op {
 void apply(func<int, int> f) { }
 
 int main() {
-    Op o = new NativeOp();
+    Op o = NativeOp();
     apply(o.run);
     return 0;
 }

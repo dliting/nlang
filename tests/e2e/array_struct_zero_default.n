@@ -7,6 +7,6 @@ struct Point {
 //(value semantics, like nested struct fields). Fresh elements read
 //as zero-initialized without any explicit store.
 int main() {
-    Point[] arr = new Point[2];
+    Point[] arr = Point[2];
     return arr[0].x + arr[1].y;
 }

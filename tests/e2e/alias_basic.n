@@ -3,9 +3,9 @@
 using Grid = Dict<string, List<int[]>>;
 
 int main() {
-	Grid g = new Dict<string, List<int[]>>();
-	List<int[]> l = new List<int[]>();
-	int[] a = new int[2];
+	Grid g = {};
+	List<int[]> l = {};
+	int[] a = int[2];
 	a[1] = 5;
 	l.add(a);
 	g["a"] = l;

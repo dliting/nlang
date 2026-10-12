@@ -16,6 +16,6 @@ class Square : Quadrilateral {
 //to Square.area via classIdx lookup. Existing class_deep_inherit.n
 //covers field inheritance but not virtual method dispatch at depth.
 int main() {
-    Shape s = new Square();
+    Shape s = Square();
     return s.area() / 100;  //400 / 100 = 4
 }

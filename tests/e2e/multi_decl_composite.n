@@ -6,6 +6,6 @@ struct Point {
 }
 int main() {
     int[] a = [10, 20], b = [1, 2, 3];
-    Point p = new Point{3, 4}, q = p;
+    Point p = Point{3, 4}, q = p;
     return a[0] + b[2] + p.y + q.x;
 }

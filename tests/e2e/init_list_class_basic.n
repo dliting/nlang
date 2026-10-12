@@ -1,7 +1,7 @@
 class Point { public int x; public int y; }
 
 int main() {
-    List<Point> lst = [new Point{x:1, y:2}, new Point{x:3, y:4}];
+    List<Point> lst = [Point{x:1, y:2}, Point{x:3, y:4}];
     int sum = 0;
     foreach (Point p in lst) {
         sum = sum + p.x;

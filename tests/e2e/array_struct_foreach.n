@@ -5,7 +5,7 @@ struct Point {
 
 //Phase 9d-3: foreach over a struct array yields materialized elements.
 int main() {
-    Point[] arr = new Point[3];
+    Point[] arr = Point[3];
     arr[0].x = 1;
     arr[1].x = 2;
     arr[2].x = 3;

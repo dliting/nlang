@@ -3,8 +3,8 @@
 //accepted and routed through the array path (was rejected at resolve
 //time).
 int main() {
-	List<int[]> l = new List<int[]>();
-	int[] a = new int[2];
+	List<int[]> l = {};
+	int[] a = int[2];
 	a[0] = 10;
 	a[1] = 20;
 	l.add(a);

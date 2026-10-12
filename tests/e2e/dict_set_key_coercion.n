@@ -3,7 +3,7 @@
 //entry lands under "5" and lookups by the converted key succeed.
 int main() {
     Dict<string, int> d;
-    d = new Dict<string, int>();
+    d = {};
     d.set(5, 2);
     if (d.containsKey("5")) { return d.get("5"); }
     return 99;

@@ -1,7 +1,9 @@
-//Phase 13 Step 1: `new func<void, int>()` is a SYNTAX error — the void
-//return slot exists only in the func type grammar (bare base name
-//followed by KT_Void), not in TypeList, which the NewExpr production
-//consumes.
+//Phase 13 Step 1: a void return slot inside the func type ARGUMENTS is
+//a SYNTAX error — the void slot exists only in the func type grammar
+//(bare base name followed by KT_Void), not in TypeList, which every
+//`func<...>` value spelling consumes. (0.9.0: `new` is an ordinary
+//identifier, so this fixture also pins the old spelling as a plain
+//syntax error.)
 int main() {
     func<int, int> f = new func<void, int>();
     return 0;

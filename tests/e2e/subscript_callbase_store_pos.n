@@ -3,7 +3,7 @@
 //base (`mk()[0] = v`) compiles and executes through the same
 //element-type gate as the identifier base.
 int[] mk() {
-    int[] a = new int[1];
+    int[] a = int[1];
     a[0] = 3;
     return a;
 }

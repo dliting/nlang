@@ -1,5 +1,5 @@
 //0.9.0: direct-init declaration. `Point p(2, 3);` decomposes into the
-//same tree as `Point p = new Point(2, 3);` — the class type is already
+//same tree as `Point p = Point(2, 3);` — the class type is already
 //resolved at the declaration, the ctor args flow through the shared
 //new-expression resolve (class check, arity, argument resolution).
 class Point {

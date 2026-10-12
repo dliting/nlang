@@ -16,12 +16,12 @@ class Spanish implements Greeter {
 }
 
 int main() {
-    English e = new English();
+    English e = English();
     Greeter g = e;
     g.setTag(10);
     g.hello();
     // English via interface: tag = 10 + 1 = 11
-    Spanish s = new Spanish();
+    Spanish s = Spanish();
     Greeter h = s;
     h.hello();
     // Spanish via interface: tag = 0 + 2 = 2; 11 * 10 + 2 = 112

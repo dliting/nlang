@@ -165,7 +165,7 @@ void test_instruction_stride_exact_landing()
         "int twice(int v) { return v * 2; }\n"  //1
         "int main() {\n"                        //2
         "    int sum = 0;\n"                    //3
-        "    int[] xs = new int[3];\n"          //4
+        "    int[] xs = int[3];\n"          //4
         "    xs[0] = 1;\n"                      //5
         "    foreach (int x in xs) {\n"         //6
         "        sum = sum + x;\n"              //7

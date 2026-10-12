@@ -3,7 +3,7 @@
 //box for the null literal, so the stored handle is the raw null
 //sentinel and a later null comparison is true.
 int main() {
-    Object[] oa = new Object[1];
+    Object[] oa = Object[1];
     oa[0] = null as Object;
     if (oa[0] == null)
         return 7;

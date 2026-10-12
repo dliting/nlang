@@ -4,7 +4,7 @@
 void Take(int x) {
 }
 int main() {
-    int[] ia = new int[3];
+    int[] ia = int[3];
     Take(ia);
     return 0;
 }

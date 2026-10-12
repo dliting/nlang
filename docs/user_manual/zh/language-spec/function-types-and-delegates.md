@@ -36,10 +36,10 @@ int bar(int x) { return x + 1; }
 void apply(BinOp f) { io.print(f(10)); }
 
 int main() {
-    Counter c = new Counter();
+    Counter c = Counter();
     apply(bar);       // 11    自由函数
     apply(c.foo);     // 11    绑定：n 变为 1，1 + 10
-    Counter b = new Big();
+    Counter b = Big();
     apply(b.tw);      // 1000  虚分派：运行期类 Big 获胜
     BinOp g = c.foo;
     return g(1) + g(1);   // 状态保持：3 + 4 = 7

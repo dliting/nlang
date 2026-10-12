@@ -1,6 +1,6 @@
 // Phase 9b-pre: Dict<K,V> toString — basic insertion-ordered rendering.
 int main() {
-    Dict<string, int> d = new Dict<string, int>();
+    Dict<string, int> d = {};
     d.set("a", 1);
     d.set("b", 2);
     string s = d.toString();

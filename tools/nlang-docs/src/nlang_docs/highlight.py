@@ -24,7 +24,8 @@ __all__ = ["NLangLexer"]
 #Full nlang.l keyword table (0.8.3): 40 keywords + 16 builtin-type
 #words (NLANG_TYPES below: the scanner's 14 type keywords plus the
 #docs-side generic names Dict/List) + 3 constants (NLANG_CONSTANTS
-#below) = the scanner's 57 reserved words. "state" has no parser
+#below) = the scanner's 56 reserved words (0.9.0 removed "new":
+#it is an ordinary identifier now). "state" has no parser
 #production (%token only) but stays so lexer == scanner;
 #test_highlight anchors all three sets to the scanner source directly.
 #(Phase 5 removed the 40th keyword: "namespace" is an ordinary
@@ -34,7 +35,7 @@ __all__ = ["NLangLexer"]
 NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "
     "elseif enum finally for foreach func if implements import in "
-    "interface native new out private protected public return state "
+    "interface native out private protected public return state "
     "static struct super switch this throw try using virtual "
     "while".split())
 NLANG_TYPES = frozenset(

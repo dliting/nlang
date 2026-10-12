@@ -1,0 +1,6 @@
+// 0.9.0: `new` is an ordinary identifier — the old spelling is a
+// plain syntax error (D8).
+int main() {
+    int[] a = new int[3];
+    return a.length();
+}

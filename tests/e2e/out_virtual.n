@@ -8,7 +8,7 @@ class A {
 }
 
 int main() {
-    A a = new A();
+    A a = A();
     int y = 0;
     return a.foo(3, out y);
 }

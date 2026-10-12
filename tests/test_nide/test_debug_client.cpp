@@ -48,7 +48,7 @@ const char kSpinSource[] =
 //event (ndb exits 1, no exited event).
 const char kThrowSource[] =
     "int main() {\n"                       //1
-    "    throw new Exception(\"boom\");\n" //2
+    "    throw Exception(\"boom\");\n" //2
     "}\n";                                 //3
 
 //point.n: a class with a method, so a stop freezes a method frame
@@ -71,7 +71,7 @@ const char kPointSource[] =
     "}\n"                                   //14
     "\n"                                    //15
     "int main() {\n"                        //16
-    "    Point p = new Point(2, 5);\n"      //17
+    "    Point p = Point(2, 5);\n"      //17
     "    return p.manhattan();\n"           //18
     "}\n";                                  //19
 

@@ -1,7 +1,7 @@
 int main() {
-    List<List<List<int>>> l3 = new List<List<List<int>>>();
-    List<List<int>> l2 = new List<List<int>>();
-    List<int> inner = new List<int>();
+    List<List<List<int>>> l3 = {};
+    List<List<int>> l2 = {};
+    List<int> inner = {};
     inner.add(7);
     l2.add(inner);
     l3.add(l2);

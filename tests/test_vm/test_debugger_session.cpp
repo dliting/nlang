@@ -323,7 +323,7 @@ void test_session_catch_throw()
         "int main() {\n"                             //1
         "    int a = 1;\n"                           //2
         "    try {\n"                                //3
-        "        throw new Exception(\"boom\");\n"   //4
+        "        throw Exception(\"boom\");\n"   //4
         "    } catch (Exception e) {\n"              //5
         "        return 7;\n"                        //6
         "    }\n"                                    //7

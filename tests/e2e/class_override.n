@@ -5,6 +5,6 @@ class Child : Base {
 	public int calc() { return 2; }
 }
 int main() {
-	Child c = new Child();
+	Child c = Child();
 	return c.calc();
 }

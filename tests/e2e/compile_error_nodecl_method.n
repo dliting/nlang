@@ -9,6 +9,6 @@ class C {
 }
 
 int main() {
-    C c = new C();
+    C c = C();
     return c.m();
 }

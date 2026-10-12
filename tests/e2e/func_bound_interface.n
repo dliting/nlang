@@ -15,6 +15,6 @@ class Doubler implements Op {
 int apply(func<int, int> f, int v) { return f(v); }
 
 int main() {
-    Op o = new Doubler();
+    Op o = Doubler();
     return apply(o.run, 21);
 }

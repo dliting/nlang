@@ -120,7 +120,7 @@ void ExprResolveAccessor::CheckCtorArgCount(const ISourceLocation *pLoc,
 	{
 		if (argCount != 0)
 			m_Env.Log(CLL_Error, pLoc,
-				"class \"%s\" has no constructor; new %s() cannot take "
+				"class \"%s\" has no constructor; %s() cannot take "
 				"arguments",
 				pClassDecl->Name().c_str(), pClassDecl->Name().c_str());
 	}

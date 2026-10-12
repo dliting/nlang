@@ -13,6 +13,6 @@ int DoPrint(IPrintable p) {
 }
 
 int main() {
-    Foo f = new Foo();
+    Foo f = Foo();
     return DoPrint(f);
 }

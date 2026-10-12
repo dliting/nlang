@@ -4,7 +4,7 @@ class C {
     public int get(int a, int b = a + 10) { return a + b + this.v; }
 }
 int main() {
-    C c = new C();
+    C c = C();
     c.v = 100;
     return c.get(5);
 }

@@ -3,13 +3,13 @@
 //exactly like the zero-arg form.
 class M {
     public string[] mk(int i) {
-        string[] a = new string[1];
+        string[] a = string[1];
         a[0] = "x";
         return a;
     }
 }
 int main() {
-    M m = new M();
+    M m = M();
     switch (m.mk(1)) {
         case "a": return 1;
         default: return 2;

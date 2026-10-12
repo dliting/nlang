@@ -12,7 +12,7 @@ target lets the compiler infer the collection type. Works for arrays
 int[] arr = [1, 2, 3];
 string[] names = ["alice", "bob"];
 List<int> nums = [10, 20, 30];
-List<Point> pts = [new Point{x:1, y:2}, new Point{x:3, y:4}];
+List<Point> pts = [Point{x:1, y:2}, Point{x:3, y:4}];
 ```
 
 **Explicit form `new Type{...}`** — works in any expression position
@@ -21,11 +21,11 @@ struct, and class initialization because bare `{...}` would conflict with the
 block-statement grammar (a `{...}`-surrounded statement group):
 
 ```nlang
-Dict<string, int> d = new Dict<string, int>{"a":1, "b":2};
-Point p = new Point{x:1, y:2};
-List<int> lst = new List<int>{1, 2, 3};
-return new Point{x:0, y:0};
-foo(new Point{x:1, y:2}, new Point{x:3, y:4});
+Dict<string, int> d = {"a":1, "b":2};
+Point p = Point{x:1, y:2};
+List<int> lst = {1, 2, 3};
+return Point{x:0, y:0};
+foo(Point{x:1, y:2}, Point{x:3, y:4});
 ```
 
 **Entry forms inside `{...}`:**

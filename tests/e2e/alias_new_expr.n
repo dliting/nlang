@@ -1,10 +1,10 @@
-//Phase 13 Step 0: alias as the class name of a new-expression
-//(NewExpr must accept a generic type node in its class-name slot
-//after expansion).
+//Phase 13 Step 0: alias in the creation + member-access path
+//(creation must accept the alias, expand its generic type node, and
+//let the subscript/member ops bind through the expansion).
 using Grid = Dict<string, int>;
 
 int main() {
-	Grid g = new Grid();
+	Grid g = {};
 	g["a"] = 2;
 	return g["a"];
 }

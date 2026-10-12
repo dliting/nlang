@@ -5,8 +5,8 @@ class C {
     public Object[] a;
 }
 int main() {
-    C c = new C();
-    c.a = new Object[2];
+    C c = C();
+    c.a = Object[2];
     c.a[0] = null;
     if (c.a[0] != null)
         return 1;

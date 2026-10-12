@@ -6,7 +6,7 @@ import fs;
 
 int main() {
     // --- ByteStream ---
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     bs.writeLong(5000000000);      // literal tiers to long
     bs.writeLong(-1);              // int, widened in place to long
     bs.writeDouble(0.5);           // double literal
@@ -27,7 +27,7 @@ int main() {
     //(fresh stream: reset() rewinds the cursor but keeps the buffer,
     //so interleaving more writes after the read phase would append
     //behind the cursor)
-    ByteStream narrow = new ByteStream();
+    ByteStream narrow = ByteStream();
     byte by = 100;
     ushort us = 60000;
     narrow.writeLong(by);          // byte -> long widening
@@ -39,13 +39,13 @@ int main() {
     if (f != 60000) { return 8; }
 
     // --- FileStream through a temp file ---
-    FileStream fw = new FileStream("_phase8_tmp/test_long_double.bin", "w");
+    FileStream fw = FileStream("_phase8_tmp/test_long_double.bin", "w");
     fw.writeLong(9223372036854775807);
     fw.writeDouble(-0.25);
     fw.writeLong(42);              // int, widened in place
     fw.close();
     if (fs.size("_phase8_tmp/test_long_double.bin") != 24) { return 9; }
-    FileStream fr = new FileStream("_phase8_tmp/test_long_double.bin", "r");
+    FileStream fr = FileStream("_phase8_tmp/test_long_double.bin", "r");
     long g = fr.readLong();
     double h = fr.readDouble();
     long i = fr.readLong();

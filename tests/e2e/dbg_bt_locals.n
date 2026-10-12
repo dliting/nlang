@@ -8,7 +8,7 @@ int scale(Point p, int k) {
     return sx + p.y * k;
 }
 int main() {
-    Point p = new Point{x: 2, y: 3};
+    Point p = Point{x: 2, y: 3};
     int r = scale(p, 3);
     return 0;
 }

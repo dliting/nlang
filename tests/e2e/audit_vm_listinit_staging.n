@@ -35,7 +35,7 @@ int main() {
 	if (ls.get(0) != "n=9") r += 32;
 
 	// Dict entries stay correct (already EvalAreaClaim-based, control)
-	Dict<string, int> d = new Dict<string, int>{ "k": 1 + helper(0, 0, 2) };
+	Dict<string, int> d = { "k": 1 + helper(0, 0, 2) };
 	if (d.get("k") != 3) r += 64;
 
 	// plain local context (control — no List involved). Failure bits are

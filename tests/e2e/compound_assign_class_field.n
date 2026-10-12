@@ -5,7 +5,7 @@ class Counter {
 }
 
 int main() {
-	Counter c = new Counter();
+	Counter c = Counter();
 	c.count = 0;
 	c.increment();
 	c.increment();

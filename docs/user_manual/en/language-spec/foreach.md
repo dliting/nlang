@@ -54,7 +54,7 @@ reference the variable.
 `for` — see [Loops](loops.md)):
 
 ```nlang
-List<int> nums = new List<int>();
+List<int> nums = {};
 nums.add(10); nums.add(20); nums.add(30);
 int sum = 0;
 foreach (int x in nums) {
@@ -66,7 +66,7 @@ foreach (int x in nums) {
 **Dict iteration example**:
 
 ```nlang
-Dict<string, int> ages = new Dict<string, int>();
+Dict<string, int> ages = {};
 ages.set("alice", 30);
 ages.set("bob",   25);
 int total = 0;

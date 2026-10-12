@@ -8,8 +8,8 @@ struct Group {
 }
 
 int main() {
-    ByteStream bs = new ByteStream();
-    Person p = new Person();
+    ByteStream bs = ByteStream();
+    Person p = Person();
     p.name = "alice";
     p.age = 30;
     Group g;

@@ -56,7 +56,7 @@ float y = 3.14;
 string s = "hello";
 Color c = Color.Red;       // enum
 Point pt;                   // struct（零初始化）
-Node n = new Node();        // class（堆上分配）
+Node n = Node();        // class（堆上分配）
 Node n2;                    // class（null）
 ```
 

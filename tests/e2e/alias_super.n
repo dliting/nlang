@@ -12,6 +12,6 @@ class Triangle : Shape2 {
 }
 int count(Shape s) { return s.sides(); }
 int main() {
-    Triangle t = new Triangle();
+    Triangle t = Triangle();
     return count(t);
 }

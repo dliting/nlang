@@ -20,14 +20,14 @@ int runFree() {
 }
 
 int runBound() {
-    Counter c = new Counter();
+    Counter c = Counter();
     c.n = 10;
     func<int, int> f = c.foo;
     return f(1);
 }
 
 int runVirtual() {
-    Counter c = new SubCounter();
+    Counter c = SubCounter();
     func<int, int> f = c.tw;
     return f(10);
 }

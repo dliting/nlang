@@ -3,8 +3,8 @@ class Node {
 }
 
 int main() {
-    Node[] arr = new Node[3];
-    arr[0] = new Node();
+    Node[] arr = Node[3];
+    arr[0] = Node();
     arr[0].val = 42;
     return arr[0].val;
 }

@@ -7,7 +7,7 @@
 // wrong-arity shape in one file: the resolver reports each error before
 // the build fails.
 int main() {
-    List<int> li = new List<int>();
+    List<int> li = {};
     li.add();                    // List.add expects 1
     li.add(1, 2);                // List.add expects 1
     li.get();                    // List.get expects 1
@@ -19,7 +19,7 @@ int main() {
     li.clear(0);                 // List.clear expects 0
     string s = li.toString(1);   // List.toString expects 0
 
-    Dict<string, int> d = new Dict<string, int>();
+    Dict<string, int> d = {};
     d.set("a");                  // Dict.set expects 2
     d.get();                     // Dict.get expects 1
     d.containsKey();             // Dict.containsKey expects 1

@@ -199,7 +199,7 @@ void test_stdlib_array_arg_rejected()
     //e2e canary keeps the lvalue representative).
     BuildOutcome lvalue = buildSource("array_arg_lvalue",
         "int main() {\n"
-        "    int[] arr = new int[3];\n"
+        "    int[] arr = int[3];\n"
         "    float f = math.sqrt(arr);\n"
         "    return 0;\n"
         "}\n");
@@ -209,15 +209,15 @@ void test_stdlib_array_arg_rejected()
 
     BuildOutcome newArray = buildSource("array_arg_new",
         "int main() {\n"
-        "    float f = math.sqrt(new int[3]);\n"
+        "    float f = math.sqrt(int[3]);\n"
         "    return 0;\n"
         "}\n");
-    CHECK(!newArray.ok, "math.sqrt(new int[3]) must not compile");
+    CHECK(!newArray.ok, "math.sqrt(int[3]) must not compile");
     CHECK(newArray.diagnostics.find("Int32[]") != std::string::npos,
         "diagnostic should name the array problem");
 
     BuildOutcome callRet = buildSource("array_arg_call",
-        "int[] mk() { int[] a = new int[2]; return a; }\n"
+        "int[] mk() { int[] a = int[2]; return a; }\n"
         "int main() {\n"
         "    float f = math.sqrt(mk());\n"
         "    return 0;\n"
@@ -319,7 +319,7 @@ void test_io_print_accepts_primitives()
         "    string s = \"a\";\n"
         "    int n = 7;\n"
         "    float f = 0.5;\n"
-        "    int[] a = new int[2];\n"
+        "    int[] a = int[2];\n"
         "    io.print(s);\n"
         "    io.print(n);\n"
         "    io.print(f);\n"
@@ -348,7 +348,7 @@ void test_io_print_rejects_nonprintable()
     //case lives in test_io_print_accepts_primitives.
     BuildOutcome cls = buildSource("io_print_cls",
         "class P { int x; }\n"
-        "int main() { P p = new P{1}; io.print(p); return 0; }\n");
+        "int main() { P p = P{1}; io.print(p); return 0; }\n");
     CHECK(!cls.ok, "io.print(class) must not compile");
     CHECK(cls.diagnostics.find("toString") != std::string::npos,
         "diagnostic should point at .toString()");
@@ -508,7 +508,7 @@ void test_string_array_arg_rejected()
     //diagnostic ("String[]").
     BuildOutcome outcome = buildSource("str_arg_arr",
         "int main() {\n"
-        "    string[] a = new string[2];\n"
+        "    string[] a = string[2];\n"
         "    int r = \"x\".indexOf(a);\n"
         "    return 0;\n"
         "}\n");

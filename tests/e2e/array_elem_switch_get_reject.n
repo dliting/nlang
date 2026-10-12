@@ -2,8 +2,8 @@
 //the array-valued property must be stamped before the family gate
 //reads the masqueraded int kind.
 int main() {
-    List<int[]> l = new List<int[]>();
-    l.add(new int[2]);
+    List<int[]> l = {};
+    l.add(int[2]);
     switch (l.get(0)) {
         case 1: return 1;
         default: return 2;

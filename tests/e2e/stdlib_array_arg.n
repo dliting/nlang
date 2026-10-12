@@ -5,7 +5,7 @@
 // (Step 0 review MAJOR regression guard).
 import math;
 int main() {
-    int[] arr = new int[3];
+    int[] arr = int[3];
     float f = math.sqrt(arr);
     return 0;
 }

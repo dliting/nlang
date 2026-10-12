@@ -7,7 +7,7 @@ class Point {
 }
 
 int main() {
-    Point p = new Point();
+    Point p = Point();
     p.x = 1;
     Object o = p;          // implicit upcast
     Point q = o as Point;  // explicit downcast

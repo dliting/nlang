@@ -4,9 +4,9 @@
 Arrays are fixed-length, index-addressable sequences. The syntax is `T[]`.
 
 ```nlang
-int[] a = new int[3];    // fixed-length heap array, elements zero-initialized
+int[] a = int[3];    // fixed-length heap array, elements zero-initialized
 int[] b = [1, 2, 3];     // bare initializer (see Collection Initializers)
-int[] c = new int[0];    // empty array
+int[] c = int[0];    // empty array
 ```
 
 ### Reference semantics
@@ -40,7 +40,7 @@ semantics". The full value-vs-reference summary is on
 nested):
 
 ```nlang
-int[] a = new int[3];
+int[] a = int[3];
 a[0] = 9;
 a[1] = a[0] + 1;
 int x = a[a.length() - 1];

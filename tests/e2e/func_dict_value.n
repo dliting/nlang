@@ -6,9 +6,9 @@ class C {
 }
 
 int main() {
-    C c = new C();
+    C c = C();
     c.k = 7;
-    Dict<string, func<int, int>> d = new Dict<string, func<int, int>>();
+    Dict<string, func<int, int>> d = {};
     d["add"] = c.add;
     func<int, int> f = d["add"];
     return f(3);

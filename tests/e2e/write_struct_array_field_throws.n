@@ -4,7 +4,7 @@
 struct S { int[] f; }
 int main() {
     S s;
-    ByteStream bs = new ByteStream();
+    ByteStream bs = ByteStream();
     bs.writeStruct(s);
     return 0;
 }

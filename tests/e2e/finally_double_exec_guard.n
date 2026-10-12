@@ -4,10 +4,10 @@
 //an exception unwinds through.
 class Box { public int v; }
 int main() {
-    Box b = new Box();
+    Box b = Box();
     try {
         try {
-            throw new Exception("once");
+            throw Exception("once");
         } finally {
             b.v = b.v + 1;
         }
