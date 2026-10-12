@@ -1,0 +1,15 @@
+// A local named like its struct must not poison a second declaration of
+// the same type: type positions bind the type, value positions (Vec.x)
+// keep binding the local.
+struct Vec {
+    int x;
+    int y;
+}
+
+int main() {
+    Vec Vec;
+    Vec w;
+    Vec.x = 5;
+    w.x = 7;
+    return Vec.x + w.x;
+}

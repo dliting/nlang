@@ -972,7 +972,7 @@ alias_clash_builtin compile_error
 #Phase 13 Step 0 fix round (superpowers r1): crash repros + coverage locks.
 alias_foreach 6
 alias_initlist 42
-alias_param_checker compile_error is not a valid data type.
+alias_param_checker compile_error does not name a type.
 alias_catch 5
 alias_super 3
 alias_newarray_elem 7
@@ -1355,3 +1355,8 @@ decl_sized_sibling 6
 err_func_anchor_ctor compile_error func types cannot be constructed
 err_bare_generic_ctor compile_error cannot be constructed by bare name
 err_sized_generic_expr compile_error Cannot resolve the field: List.
+shadow_type_second_decl 12
+shadow_type_init_form 5
+shadow_type_init_two_decls 12
+shadow_type_new_form 12
+err_shadow_not_a_type compile_error does not name a type

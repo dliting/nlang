@@ -1,7 +1,8 @@
-//Phase 13 Step 0 fix round: the cloned alias target in a parameter
-//type slot must carry the same DataTypeChecker as the direct form, so
-//"int bar(F x)" reports the precise "not a valid data type" diagnostic
-//when F aliases a function name (foo) — exactly like "int bar(foo x)".
+//Phase 13 Step 0 fix round (amended 0.9.x): an alias whose target does
+//not name a type is rejected at the alias itself — the type-position
+//shadow guard re-walks past the function binding and reports the named
+//miss at the `using` line (formerly the cloned param slot reported
+//"not a valid data type" further downstream).
 using F = foo;
 
 int foo() {

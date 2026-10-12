@@ -54,7 +54,47 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	if (!pFieldExpr->IsResolved())
 		return;
 
+	//0.9.x shadow guard: every grammar site that builds an SnNameExpr is
+	//a TYPE position, so a value binding in the inner resolution must be
+	//exchanged for a type/namespace one before the final bind.
+	if (!IsTypeOrNamespaceBinding(pFieldExpr->Field())
+		&& !TryRebindShadowedTypeName(nameExpr, *pFieldExpr))
+	{
+		return;  //the named reject is already logged
+	}
+
 	ResolveFieldExprAs(nameExpr, pFieldExpr->Field());
+}
+
+//0.9.x: the shadow guard of Access(SnNameExpr&) — the inner identifier
+//resolved to a value binding (local, param, class field, function, enum
+//member). Re-walk the scope chain accepting type/namespace bindings only
+//(FindTypeNameInAncestor), then fall back to the builtin class names
+//exactly like the no-shadow path; on a hit the inner identifier is
+//rebound so the pair carries one consistent binding. Generic bases
+//(List/Dict) never get here: the generic resolver reads its base name
+//by string, so they are immune to shadowing at this node.
+//\return true when the name is now bound to a type/namespace; false
+//after logging the named miss.
+bool ExprResolveAccessor::TryRebindShadowedTypeName(SnNameExpr &nameExpr,
+	SnFieldExpr &fieldExpr)
+{
+	const auto& name = fieldExpr.ToString();
+	SnField *pField = FindTypeNameInAncestor(name, *m_pContext,
+		*m_pAccessor);
+	if (!pField && IsBuiltinClassName(name))
+	{
+		pField = GetBuiltinClassDecl(name, nameExpr.Location());
+	}
+	if (!pField)
+	{
+		m_Env.Log(CLL_Error, nameExpr.Location(),
+			"\"%s\" does not name a type.", name.c_str());
+		return false;
+	}
+	fieldExpr.RemoveFlags(NF_Resolved);
+	ResolveFieldExprAs(fieldExpr, pField);
+	return true;
 }
 
 //Phase 9c: SnNamedArgExpr resolver. The name is consumed by TryBindInvoke

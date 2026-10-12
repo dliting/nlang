@@ -1,0 +1,7 @@
+// A value binding that shadows a type position without any same-named
+// type in scope is a clean reject, not a silent misbinding.
+int main() {
+    int Vec = 1;
+    Vec w = 2;
+    return 0;
+}

@@ -154,6 +154,13 @@ SnInitListExpr *UntypedInitListOf(SnExpression &expr);
 //ExprResolverInitList.cpp.
 bool IsInitListTargetShape(SnField *pType);
 bool IsBarePoolScope(const SyntaxNode &scope);
+//0.9.x shadow guard: the binding kinds a TYPE-position name (SnNameExpr)
+//may take — type declarations (IsTypeField: the NF_Type|NF_Field family)
+//or a namespace (using heads; namespaces carry no NF_Type). Everything
+//else (locals, params, class fields, functions, enum members) is a value
+//binding that must not hijack a type position. Definition in
+//ExprResolverMemberFields.cpp.
+bool IsTypeOrNamespaceBinding(const SnField *pField);
 //2026-09-26 second split: builtin-class minting and the func signature
 //match are consumed from the Values/New and Cast TUs respectively.
 SnClassDecl* GetBuiltinClassDecl(const std::string& name,
@@ -427,6 +434,26 @@ private:
 	SnField *FindFieldInAncestor(const std::string &sName, SyntaxNode &parent,
 		const SnField &accessor, ExprResolveFlagSet flags,
 		std::function<bool(SnField &)> pFuncFilter = nullptr);
+
+	/*
+	0.9.x: the scope-chain walk behind the SnNameExpr shadow guard. Value
+	bindings are transparent (IsTypeOrNamespaceBinding decides); the first
+	type/namespace declaration along the chain wins. Mirrors
+	FindFieldInAncestor minus the bare-pool function filter (functions are
+	values, never type bindings, so the filter cannot apply here).
+	*/
+	SnField *FindTypeNameInAncestor(const std::string &sName,
+		SyntaxNode &parent, const SnField &accessor);
+
+	/*
+	0.9.x: the shadow guard of Access(SnNameExpr&) — exchange a value
+	binding found by the inner resolution for the type/namespace binding
+	the type position requires. True = bound (the inner identifier is
+	rebound too); false = the named miss is logged, the caller stops.
+	Definition in ExprResolverValues.cpp.
+	*/
+	bool TryRebindShadowedTypeName(SnNameExpr &nameExpr,
+		SnFieldExpr &fieldExpr);
 
 	SnField *FindFieldInUsings(std::string &sName, const UsingList &usings,
 		const SnField & accessor);

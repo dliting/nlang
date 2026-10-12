@@ -1,0 +1,13 @@
+// The pre-0.9 `new`-spelling twin of shadow_type_init_two_decls: the
+// class name after `new` is a type position too. (Migrated with the
+// rest of the `new` spellings in Task 9.)
+struct Vec {
+    int x;
+    int y;
+}
+
+int main() {
+    Vec Vec = new Vec{x: 5, y: 6};
+    Vec w = new Vec{x: 7, y: 8};
+    return Vec.x + w.x;
+}

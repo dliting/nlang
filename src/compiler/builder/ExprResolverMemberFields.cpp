@@ -84,6 +84,30 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 	return FindFieldInAncestor(sName, *pParent, accessor, flags, pFuncFilter);
 }
 
+//0.9.x shadow guard (see ExprResolver.h).
+bool IsTypeOrNamespaceBinding(const SnField *pField)
+{
+	return pField->IsTypeField() || pField->Kind() == NK_Namespace;
+}
+
+SnField *ExprResolveAccessor::FindTypeNameInAncestor(const std::string &sName,
+	SyntaxNode &parent, const SnField &accessor)
+{
+	//Per scope the virtual FindField returns the single same-named
+	//candidate (the DuplicateFieldChecker rejects same-scope duplicates),
+	//so skipping a value hit cannot hide a same-scope type.
+	SnField *pField = parent.FindField(sName);
+	if (pField && pField->AllowAccess(accessor)
+		&& IsTypeOrNamespaceBinding(pField))
+	{
+		return pField;
+	}
+	auto pParent = parent.Parent();
+	if (!pParent)
+		return nullptr;
+	return FindTypeNameInAncestor(sName, *pParent, accessor);
+}
+
 //Module import visibility (D1/D7): the owner-side half of the bare-pool
 //rule (scope side: IsBarePoolScope above). Ownerless symbols (root
 //built-ins, runtime tables) stay visible — the filter applies ONLY to

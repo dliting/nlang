@@ -1,0 +1,12 @@
+// The anchored brace form reads its explicit type name as a TYPE even
+// when a same-named local is already registered (the initializer
+// resolves after the declarator registers the local).
+struct Vec {
+    int x;
+    int y;
+}
+
+int main() {
+    Vec Vec = Vec{x: 5, y: 6};
+    return Vec.x;
+}

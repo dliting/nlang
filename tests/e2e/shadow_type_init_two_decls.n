@@ -1,0 +1,13 @@
+// Two shadowed declarations with anchored initializers: the second
+// declaration's type annotation resolves to the struct, and both member
+// reads stay in bounds.
+struct Vec {
+    int x;
+    int y;
+}
+
+int main() {
+    Vec Vec = Vec{x: 5, y: 6};
+    Vec w = Vec{x: 7, y: 8};
+    return Vec.x + w.x;
+}
