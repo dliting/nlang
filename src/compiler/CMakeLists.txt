@@ -84,6 +84,7 @@ add_library(nlang_compiler
     builder/ExprResolverCastFit.cpp
     builder/StatementResolver.cpp
     builder/StatementResolverDecls.cpp
+    builder/StatementResolverDeclCtor.cpp
     builder/StatementResolverTypes.cpp
     builder/StatementResolverAssign.cpp
     builder/StatementResolverFlow.cpp

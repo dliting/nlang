@@ -750,6 +750,14 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $3});
 					} |
+					//0.9.0: direct-init declaration `T name(args);` — the
+					//resolver decomposes it into the same tree as
+					//`T name = new T(args);`. Single declarator only: the
+					//ctor-arg payload attaches to this arm alone.
+					TT_Identifier '(' ConcreteParamList ')' {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, nullptr, $3, nullptr});
+					} |
 					TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr});

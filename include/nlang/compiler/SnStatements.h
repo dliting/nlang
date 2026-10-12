@@ -201,6 +201,13 @@ public:
 	{
 		std::string name;
 		SnExpression *pInitExpr;  //may be nullptr
+		//0.9.0 declarator payload (grammar-allocated; the ctor-arg
+		//expressions are regular children of the statement — dual
+		//storage like pInitExpr — and the resolver detaches them into
+		//a synthesized SnNewExpr, then deletes the emptied container;
+		//null on every path that reaches codegen).
+		PtrList<SnExpression> *pCtorArgs = nullptr;  //`T name(args);`
+		SnExpression *pArraySize = nullptr;          //Task 7
 	};
 
 	SnLocalDeclStmt(SnFieldExpr *pType,

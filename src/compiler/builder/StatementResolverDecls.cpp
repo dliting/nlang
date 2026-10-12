@@ -245,7 +245,9 @@ void StatementResolveAccessor::RejectConstWithoutInit(SnLocalDeclStmt &sn)
 		return;
 	for (auto &decl : sn.Decls())
 	{
-		if (!decl.pInitExpr)
+		//0.9.0: ctor args (and, from Task 7, an array size) count as
+		//initialized — `const Point p(2, 3);` is a legal const init.
+		if (!decl.pInitExpr && !decl.pCtorArgs && !decl.pArraySize)
 			m_Env.Log(CLL_Error, sn.Location(),
 				"const local must have an initializer.");
 	}
@@ -263,6 +265,9 @@ SnAssignStmt *StatementResolveAccessor::BuildLocalInitAssign(
 	return new SnAssignStmt(
 		pLeft, sn.DetachChild(decl.pInitExpr), *sn.Location());
 }
+
+//0.9.0: BuildCtorInitAssign — the `T name(args);` synthesis — lives in
+//StatementResolverDeclCtor.cpp (per-concern TU split, source-size guard).
 
 void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray)
@@ -283,7 +288,22 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 			pLocal->SetArrayType(true);
 		paragraph.AddLocal(decl.name, pLocal);
 
-		if (decl.pInitExpr)
+		if (decl.pCtorArgs)
+		{
+			//0.9.0: `T name(args)` decomposes into the same
+			//insert-and-resolve AssignStmt as the init-expression arm;
+			//Accept(SnAssignStmt&) drives Access(SnNewExpr&) (class
+			//check, arity, argument resolution) and the LHS/cast tail.
+			auto *pAssign = BuildCtorInitAssign(sn, decl);
+			delete decl.pCtorArgs;
+			decl.pCtorArgs = nullptr;
+			if (pAssign)
+			{
+				paragraph.InsertChild(iInsert, pAssign);
+				pAssign->Accept(*m_pVisitor);
+			}
+		}
+		else if (decl.pInitExpr)
 		{
 			auto *pAssign = BuildLocalInitAssign(sn, decl);
 			paragraph.InsertChild(iInsert, pAssign);

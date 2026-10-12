@@ -70,6 +70,10 @@ private:
 	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
 	SnAssignStmt *BuildLocalInitAssign(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl);
+	//0.9.0: build `name = new Type(args)` for a `Type name(args)`
+	//declarator. Null = rejected (generic instantiation).
+	SnAssignStmt *BuildCtorInitAssign(SnLocalDeclStmt &sn,
+		SnLocalDeclStmt::LocalDecl &decl);
 	void RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 		SnParagraph &paragraph, SnField *pTypeField, bool bIsArray);
 	void ResolveClassBases(SnClassDecl &sn);

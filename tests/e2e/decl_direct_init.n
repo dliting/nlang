@@ -1,0 +1,16 @@
+//0.9.0: direct-init declaration. `Point p(2, 3);` decomposes into the
+//same tree as `Point p = new Point(2, 3);` — the class type is already
+//resolved at the declaration, the ctor args flow through the shared
+//new-expression resolve (class check, arity, argument resolution).
+class Point {
+    public int x;
+    public int y;
+    public int Point(int a, int b) { this.x = a; this.y = b; return 0; }
+}
+
+int main() {
+    Point p(2, 3);
+    Point q(4, 5);
+    if (p.x + p.y != 5) { return 9; }
+    return q.y + 2;
+}
