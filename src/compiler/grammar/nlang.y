@@ -758,6 +758,20 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr, $3, nullptr});
 					} |
+					//0.9.0: C-style sized array declaration `T name[n];`
+					//(and the partial-init form `T name[n] = [e1, e2];`).
+					//The size rides the pArraySize payload slot; the resolver
+					//synthesizes `name = new T[n]` plus one subscript assign
+					//per initializer entry. First declarator only: the plain
+					//continuation arms after a comma carry no size.
+					TT_Identifier '[' Expression ']' {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, nullptr, nullptr, $3});
+					} |
+					TT_Identifier '[' Expression ']' '=' Expression {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, $6, nullptr, $3});
+					} |
 					TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr});

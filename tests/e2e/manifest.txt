@@ -1346,3 +1346,9 @@ expr_bare_brace_arg 19
 err_scalar_brace_init compile_error from a collection initializer
 err_scalar_bracket_init compile_error from a collection initializer
 decl_direct_init 7
+decl_array_sized 60
+decl_partial_init 19
+decl_generic_array 32
+err_multi_dim_decl compile_error Multi-dimensional arrays are not supported
+err_partial_init_overflow compile_error more than the declared size
+decl_sized_sibling 6

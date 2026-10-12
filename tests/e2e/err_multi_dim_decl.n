@@ -1,0 +1,5 @@
+// 0.9.0: array-of-array sized declaration stays rejected.
+int main() {
+    int[] a[3];
+    return 0;
+}

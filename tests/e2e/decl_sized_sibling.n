@@ -1,0 +1,7 @@
+// 0.9.0: unsized siblings of a sized declarator share the array type.
+int main() {
+    int a[3], b;
+    b = [1, 2];
+    a[0] = 4;
+    return b[1] + a[0];
+}

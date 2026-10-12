@@ -168,11 +168,14 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 			AddChild(decl.pInitExpr);
 	//0.9.0: ctor args of `T name(args)` follow the same dual-storage
 	//model — children until the resolver detaches them into the
-	//synthesized SnNewExpr.
+	//synthesized SnNewExpr. The pArraySize slot of `T name[n]` does too.
 	for (auto &decl : *m_upDecls)
 		if (decl.pCtorArgs)
 			for (auto *pArg : *decl.pCtorArgs)
 				AddChild(pArg);
+	for (auto &decl : *m_upDecls)
+		if (decl.pArraySize)
+			AddChild(decl.pArraySize);
 }
 
 //Phase 9a: const local variant.
@@ -190,6 +193,9 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 		if (decl.pCtorArgs)
 			for (auto *pArg : *decl.pCtorArgs)
 				AddChild(pArg);
+	for (auto &decl : *m_upDecls)
+		if (decl.pArraySize)
+			AddChild(decl.pArraySize);
 }
 
 std::string SnLocalDeclStmt::ToString() const
@@ -232,6 +238,13 @@ bool SnLocalDeclStmt::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 		if (decl.pInitExpr == pOld)
 		{
 			ResetChild(decl.pInitExpr, static_cast<SnExpression *>(pNew));
+			return true;
+		}
+		//0.9.0: the array-size slot is dual-storage too.
+		if (decl.pArraySize == pOld)
+		{
+			ResetChild(decl.pArraySize,
+				static_cast<SnExpression *>(pNew));
 			return true;
 		}
 		//0.9.0: ctor-arg slots are dual-storage too.

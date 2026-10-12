@@ -207,7 +207,10 @@ public:
 		//a synthesized SnNewExpr, then deletes the emptied container;
 		//null on every path that reaches codegen).
 		PtrList<SnExpression> *pCtorArgs = nullptr;  //`T name(args);`
-		SnExpression *pArraySize = nullptr;          //Task 7
+		//0.9.0: size expression of `T name[n];` — dual storage like
+		//pInitExpr; the resolver detaches it into a synthesized
+		//SnNewArrayExpr (an owning child, never deleted by hand).
+		SnExpression *pArraySize = nullptr;
 	};
 
 	SnLocalDeclStmt(SnFieldExpr *pType,

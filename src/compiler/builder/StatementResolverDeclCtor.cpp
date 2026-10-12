@@ -44,4 +44,23 @@ SnAssignStmt *StatementResolveAccessor::BuildCtorInitAssign(
 	return new SnAssignStmt(pLeft, pNew, *sn.Location());
 }
 
+//Consume a `Type name(args)` declarator: build the decomposition assign,
+//insert it at iInsert and resolve it. Accept(SnAssignStmt&) drives
+//Access(SnNewExpr&) (class check, arity, argument resolution) and the
+//LHS/cast tail. The emptied ctor-arg container is deleted either way so
+//the consumed slots never reach codegen.
+void StatementResolveAccessor::SynthesizeCtorInitDeclarator(
+	SnLocalDeclStmt &sn, SnLocalDeclStmt::LocalDecl &decl,
+	SnParagraph &paragraph, NodeIterator iInsert)
+{
+	auto *pAssign = BuildCtorInitAssign(sn, decl);
+	delete decl.pCtorArgs;
+	decl.pCtorArgs = nullptr;
+	if (pAssign)
+	{
+		paragraph.InsertChild(iInsert, pAssign);
+		pAssign->Accept(*m_pVisitor);
+	}
+}
+
 } //namespace nlang

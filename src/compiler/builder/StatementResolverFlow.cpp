@@ -74,13 +74,14 @@ void StatementResolveAccessor::ResolveForInitDecl(SnForStmt &sn)
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
 	auto bIsArray = decl.Type()->IsArrayType();
 	for (auto& d : decl.Decls()) {
-		//0.9.0: a direct-init declarator in for-init position would be
-		//silently dropped here (no InitExtras synthesis in this path) —
-		//reject loudly instead of compiling an unconstructed local.
-		if (d.pCtorArgs) {
+		//0.9.0: direct-init and sized-array declarators in for-init
+		//position would be silently dropped here (no InitExtras
+		//synthesis in this path) — reject loudly instead of compiling
+		//an unconstructed local.
+		if (d.pCtorArgs || d.pArraySize) {
 			m_Env.Log(CLL_Error, decl.Location(),
-				"direct-init declarations are not supported in a for "
-				"initializer; declare before the loop");
+				"direct-init and sized-array declarations are not "
+				"supported in a for initializer; declare before the loop");
 			continue;
 		}
 		auto *pLocal = new SnLocalVar(d.name, pTypeField,

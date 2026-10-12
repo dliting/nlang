@@ -74,8 +74,38 @@ private:
 	//declarator. Null = rejected (generic instantiation).
 	SnAssignStmt *BuildCtorInitAssign(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl);
+	//0.9.0: consume a `Type name(args)` declarator — build the
+	//decomposition assign (BuildCtorInitAssign), insert it at iInsert
+	//and resolve it; the emptied ctor-arg container is deleted either
+	//way so the consumed slots never reach codegen.
+	void SynthesizeCtorInitDeclarator(SnLocalDeclStmt &sn,
+		SnLocalDeclStmt::LocalDecl &decl, SnParagraph &paragraph,
+		NodeIterator iInsert);
+	//0.9.0: consume a sized declarator `Type name[n]` (+ optional
+	//`[...]` partial init) — build the creation assign plus one
+	//subscript assign per entry, insert at iInsert and resolve. The
+	//payload slots are dropped on both success and rejection.
+	void SynthesizeSizedArrayDeclarator(SnLocalDeclStmt &sn,
+		SnLocalDeclStmt::LocalDecl &decl, SnParagraph &paragraph,
+		NodeIterator iInsert, SnField *pSizedElemField);
+	//0.9.0: build the decomposition of a sized declarator
+	//`Type name[n]` (+ optional `[...]` partial init): one creation
+	//assign plus one subscript-store statement per initializer entry.
+	//Empty = rejected (nothing detached); non-empty = the payload slots
+	//of the declarator were consumed and must not be re-read.
+	std::vector<SnStatement *> BuildSizedArrayDeclAssigns(
+		SnLocalDeclStmt &sn, SnLocalDeclStmt::LocalDecl &decl,
+		SnField *pSizedElemField);
+	//0.9.0: sized-declarator type re-shape for `T name[n]` — re-binds
+	//the declaration type expression to the interned array token (VM
+	//slot kind, GC root scan and array-type registration all key on
+	//decl.Type()->Field()), rejects the jagged `int[] a[3]` spelling,
+	//and returns the captured element field for the creation synthesis
+	//(null = no sized declarator, or the declaration was rejected).
+	SnField *BindSizedArrayDeclType(SnLocalDeclStmt &sn);
 	void RegisterLocalDeclarators(SnLocalDeclStmt &sn,
-		SnParagraph &paragraph, SnField *pTypeField, bool bIsArray);
+		SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
+		SnField *pSizedElemField);
 	void ResolveClassBases(SnClassDecl &sn);
 	void PropagateVirtualOverrides(SnClassDecl &sn);
 	bool TryBindStatementFuncRef(SnExpression &expr,

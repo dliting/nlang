@@ -1,0 +1,7 @@
+// 0.9.0: sized array of generic element via declaration form (D6).
+int main() {
+    List<int> rows[2];
+    rows[0] = [1, 2];
+    rows[1] = [30];
+    return rows[0][1] + rows[1][0];
+}

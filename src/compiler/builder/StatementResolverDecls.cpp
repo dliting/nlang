@@ -270,7 +270,8 @@ SnAssignStmt *StatementResolveAccessor::BuildLocalInitAssign(
 //StatementResolverDeclCtor.cpp (per-concern TU split, source-size guard).
 
 void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
-	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray)
+	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
+	SnField *pSizedElemField)
 {
 	//Insert every decomposed AssignStmt before the ORIGINAL
 	//successor of sn. Recomputing find(&sn) + 1 inside the
@@ -284,25 +285,21 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	{
 		auto *pLocal = new SnLocalVar(decl.name, pTypeField,
 			*sn.Location());
-		if (bIsArray)
+		//0.9.0: a sized statement types EVERY declarator as an array
+		//(re-bind is statement-level, so is the flag) — bare [...]
+		//inference and member receivers key on it.
+		if (bIsArray || pSizedElemField)
 			pLocal->SetArrayType(true);
 		paragraph.AddLocal(decl.name, pLocal);
 
+		//Each payload shape delegates to its concern TU: the
+		//decomposition is built, inserted at iInsert and resolved
+		//there; the consumed slots never reach codegen.
 		if (decl.pCtorArgs)
-		{
-			//0.9.0: `T name(args)` decomposes into the same
-			//insert-and-resolve AssignStmt as the init-expression arm;
-			//Accept(SnAssignStmt&) drives Access(SnNewExpr&) (class
-			//check, arity, argument resolution) and the LHS/cast tail.
-			auto *pAssign = BuildCtorInitAssign(sn, decl);
-			delete decl.pCtorArgs;
-			decl.pCtorArgs = nullptr;
-			if (pAssign)
-			{
-				paragraph.InsertChild(iInsert, pAssign);
-				pAssign->Accept(*m_pVisitor);
-			}
-		}
+			SynthesizeCtorInitDeclarator(sn, decl, paragraph, iInsert);
+		else if (decl.pArraySize)
+			SynthesizeSizedArrayDeclarator(sn, decl, paragraph,
+				iInsert, pSizedElemField);
 		else if (decl.pInitExpr)
 		{
 			auto *pAssign = BuildLocalInitAssign(sn, decl);
@@ -335,6 +332,10 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 		m_Env.Log(CLL_Error, sn.Location(),
 			"jagged arrays (T[][]) are not supported");
 
+	//0.9.0: the sized-declarator type re-shape (token re-bind, jagged
+	//reject, element capture) lives in StatementResolverDeclArray.cpp.
+	auto *pSizedElemField = BindSizedArrayDeclType(sn);
+
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
 	if (!pParagraph)
 		return;
@@ -357,7 +358,8 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 	auto *pTypeField = sn.Type()->Field();
 	auto bIsArray = sn.Type()->IsArrayType();
 	RejectConstWithoutInit(sn);
-	RegisterLocalDeclarators(sn, *pParagraph, pTypeField, bIsArray);
+	RegisterLocalDeclarators(sn, *pParagraph, pTypeField, bIsArray,
+		pSizedElemField);
 }
 
 //D4/D5 declaration-side rejections for enum methods: toString is
