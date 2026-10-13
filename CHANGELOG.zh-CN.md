@@ -24,13 +24,15 @@
 ### 移除（破坏性）
 - **`new`关键字**：`new`现在是普通标识符。上列创建形态全面替代；
   旧拼写成为普通语法错误。
+- **变量名不得再复用可见类型名**：局部变量、形参、catch参数、
+  循环变量或class/struct字段与可见类型同名（`Vec Vec = ...;`）
+  现在是编译错误（`"Vec" names a type; it cannot be used as a
+  variable name.`）。此类声明此前会错误解析——误导性字段错误或
+  遮蔽成员访问使VM崩溃——现在改在声明处直接拒绝。内建类名
+  （`Object`、`Exception`等）与泛型名`List`/`Dict`同样受保护；
+  命名空间豁免（`io`、`math`、`fs`仍可作普通变量名）。
 
 ### 修复
-- **同名局部/形参/字段/函数不再劫持类型名**：`Vec Vec; Vec w;`
-  （被遮蔽类型的第二声明）此前报误导性字段错误或使VM崩溃
-  （`struct field access out of bounds`），`Vec Vec = Vec{x: 5, y: 6};`
-  这类锚定初始化也被错误拒绝。类型位现在绑定类型声明；真正的缺失
-  报`"X" does not name a type`。
 - **模块限定调用失败后链式取成员不再使编译器崩溃**：
   `shapes.Nope().tag`此前使`ncc`崩溃（访问违例），而非报告未解析
   的成员。

@@ -1,0 +1,12 @@
+// A foreach loop variable may not reuse a visible type name.
+struct Vec {
+    int x;
+}
+
+int main() {
+    Vec[] vs = Vec[2];
+    foreach (Vec Vec in vs) {
+        return 1;
+    }
+    return 0;
+}

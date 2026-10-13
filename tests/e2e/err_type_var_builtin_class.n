@@ -1,0 +1,7 @@
+// Builtin class names are type names too (IsBuiltinClassName arm);
+// List covers the builtin-generic arm on the same code path.
+int main() {
+    int Object = 1;
+    int List = 2;
+    return Object + List;
+}

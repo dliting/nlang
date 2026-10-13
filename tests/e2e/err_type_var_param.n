@@ -1,0 +1,12 @@
+// A formal parameter may not reuse a visible type name.
+struct Vec {
+    int x;
+}
+
+int f(Vec Vec) {
+    return Vec.x;
+}
+
+int main() {
+    return 0;
+}

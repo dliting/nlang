@@ -350,6 +350,10 @@ void StatementResolveAccessor::Access(SnCatchClause &sn)
 	//3. Register catch var (typed by catch type; assignable in body).
 	if (pParagraph && sn.CatchType()->IsResolved()
 		&& sn.CatchType()->Field()) {
+		//0.9.0 semantic restriction: the catch parameter may not reuse
+		//a visible type name.
+		RejectTypeNameVariable(sn.VarName(), *pParagraph, *m_pCurrType,
+			sn.Location());
 		auto *pLocal = new SnLocalVar(sn.VarName(),
 			sn.CatchType()->Field(), *sn.Location());
 		pParagraph->AddLocal(sn.VarName(), pLocal);

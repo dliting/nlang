@@ -1,0 +1,12 @@
+// A struct field may not reuse a visible type name.
+struct Vec {
+    int x;
+}
+
+struct Holder {
+    int Vec;
+}
+
+int main() {
+    return 0;
+}

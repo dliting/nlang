@@ -1,6 +1,7 @@
 #pragma once
 #include "SnExpressions.h"
 #include "SyntaxNodeVisitor.h"
+#include "BuiltinNames.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/Flagable.h>
 #include <functional>
@@ -441,9 +442,13 @@ private:
 	type/namespace declaration along the chain wins. Mirrors
 	FindFieldInAncestor minus the bare-pool function filter (functions are
 	values, never type bindings, so the filter cannot apply here).
+	0.9.0 semantic restriction: bIncludeNamespaces=false narrows the walk
+	to type declarations only (the variable-name gate must not reserve
+	the stdlib package names).
 	*/
 	SnField *FindTypeNameInAncestor(const std::string &sName,
-		SyntaxNode &parent, const SnField &accessor);
+		SyntaxNode &parent, const SnField &accessor,
+		bool bIncludeNamespaces = true);
 
 	/*
 	0.9.x: the shadow guard of Access(SnNameExpr&) — exchange a value
@@ -1011,6 +1016,26 @@ public:
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)
 	{
 		m_Accessor.ResolveFieldExprAs(expr, pField);
+	}
+
+	/*
+	0.9.0 semantic restriction: does `name` resolve to a TYPE at `scope`?
+	Types only — namespaces are deliberately excluded (the stdlib package
+	names io/math/fs are common variable names; a local shadowing a
+	namespace keeps working through the type-position guard). Mirrors the
+	type-position predicate (FindTypeNameInAncestor + builtin class names
+	+ builtin generic class names) so "spellable as a type here" and
+	"usable as a variable name here" are exact complements. Shared with
+	StatementResolver's variable-declaration gates.
+	*/
+	bool NamesVisibleType(const std::string &name, SyntaxNode &scope,
+		const SnField &accessor)
+	{
+		return IsBuiltinClassName(name)
+			|| name == kBuiltinListTypeName
+			|| name == kBuiltinDictTypeName
+			|| m_Accessor.FindTypeNameInAncestor(name, scope, accessor,
+				/*bIncludeNamespaces=*/false) != nullptr;
 	}
 private:
 

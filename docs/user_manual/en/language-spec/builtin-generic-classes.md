@@ -97,9 +97,7 @@ two `'>'` tokens while the depth is positive (C#-style scanner split),
 so `List<List<int>>` and `Dict<string, List<int>>` parse. Outside
 generic context `>>` remains a single token (not split) — right-shift has
 no grammar production, so `x >> 2` is a compile error (the shift operator
-itself is not implemented). Limitation: a comparison against a variable
-shadowing the type name (`List < 3`, only blanks/comments between name
-and `<`) is misread as a generic open.
+itself is not implemented).
 
 **Cross-module**: container generic signatures cross `.ncu` import
 boundaries — imported functions carry

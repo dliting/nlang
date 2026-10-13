@@ -1,6 +1,5 @@
-// A local named like its struct must not poison a second declaration of
-// the same type: type positions bind the type, value positions (Vec.x)
-// keep binding the local.
+// 0.9.0 semantic restriction: a local named like a visible class is a
+// compile error (the former allow-and-rebind behavior was retired).
 struct Vec {
     int x;
     int y;

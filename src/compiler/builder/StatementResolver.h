@@ -67,6 +67,12 @@ private:
 	bool TryAssignExplicitEnumValue(SnEnumMember &member, SnEnumDecl &sn,
 		int32_t &nextValue);
 	void RejectIllegalEnumMethod(SnFunction &method);
+	//0.9.0 semantic restriction: a variable declaration — local, formal
+	//parameter, catch parameter, loop variable, class/struct field — may
+	//not reuse the name of a type visible at that scope (see
+	//ExprResolver::NamesVisibleType). Logs only; the caller proceeds.
+	void RejectTypeNameVariable(const std::string &name, SyntaxNode &scope,
+		const SnField &accessor, const ISourceLocation *pLoc);
 	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
 	SnAssignStmt *BuildLocalInitAssign(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl);

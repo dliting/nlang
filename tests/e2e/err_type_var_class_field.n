@@ -1,0 +1,12 @@
+// A class field may not reuse a visible type name.
+struct Vec {
+    int x;
+}
+
+class Holder {
+    public int Vec;
+}
+
+int main() {
+    return 0;
+}

@@ -1,6 +1,6 @@
-// The pre-0.9 `new`-spelling twin of shadow_type_init_two_decls: the
-// class name after `new` is a type position too. (Migrated with the
-// rest of the `new` spellings in Task 9.)
+// The `new`-era spelling twin of shadow_type_init_two_decls (migrated
+// with the rest of the `new` spellings); under the 0.9.0 restriction
+// the shadowed declaration is rejected at the declaration site.
 struct Vec {
     int x;
     int y;

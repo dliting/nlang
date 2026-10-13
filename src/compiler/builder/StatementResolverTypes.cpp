@@ -7,11 +7,33 @@
 namespace nlang
 {
 
+//0.9.0 semantic restriction gate: a variable-style declaration — local,
+//formal parameter, catch parameter, loop variable, or class/struct
+//field — may not reuse the name of a type visible at that scope. The
+//test is the exact complement of the type-position predicate
+//(NamesVisibleType): a name spellable as a type here cannot name
+//a variable here. This removes at the root the resolution ambiguity
+//the TryRebindShadowedTypeName guard patches over; that guard stays
+//for the value kinds still allowed to collide (enum members,
+//functions in disjoint bare pools, namespaces).
+void StatementResolveAccessor::RejectTypeNameVariable(
+	const std::string &name, SyntaxNode &scope, const SnField &accessor,
+	const ISourceLocation *pLoc)
+{
+	if (m_ExprResolver.NamesVisibleType(name, scope, accessor))
+		m_Env.Log(CLL_Error, pLoc,
+			"\"%s\" names a type; it cannot be used as a variable name.",
+			name.c_str());
+}
+
 void StatementResolveAccessor::Access(SnStructDecl &sn)
 {
 	assert(m_pVisitor);
 	for (auto &field : sn.Members())
 	{
+		//0.9.0 semantic restriction: struct field names may not reuse
+		//visible type names.
+		RejectTypeNameVariable(field.Name(), sn, sn, field.Location());
 		field.Type()->Accept(*m_pVisitor);
 	}
 	sn.AddFlags(NF_Resolved);
@@ -97,7 +119,13 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 	for (auto &field : sn.Members())
 	{
 		if (field.Kind() == NK_ClassField)
+		{
+			//0.9.0 semantic restriction: class field names may not
+			//reuse visible type names.
+			RejectTypeNameVariable(field.Name(), sn, sn,
+				field.Location());
 			field.Accept(*m_pVisitor);
+		}
 	}
 	//Resolve method bodies. Phase 9d-2: track the enclosing class so
 	//super(...) statements can validate against it.

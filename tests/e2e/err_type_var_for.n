@@ -1,0 +1,11 @@
+// A for-init variable may not reuse a visible type name.
+struct Vec {
+    int x;
+}
+
+int main() {
+    for (int Vec = 0; false; Vec = 0) {
+        break;
+    }
+    return 0;
+}

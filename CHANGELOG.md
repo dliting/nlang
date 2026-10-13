@@ -31,16 +31,19 @@ All notable changes to NLang are documented here. The format follows
 - **The `new` keyword**: `new` is now an ordinary identifier. Every
   creation form above replaces it; the old spellings are plain syntax
   errors.
+- **Variables may no longer reuse visible type names**: a local,
+  parameter, catch parameter, loop variable, or class/struct field
+  named like a visible type (`Vec Vec = ...;`) is now a compile error
+  (`"Vec" names a type; it cannot be used as a variable name.`).
+  Such declarations previously misresolved — misleading field errors
+  or a VM crash on shadowed member access — so they are rejected at
+  the declaration site instead. Built-in class names (`Object`,
+  `Exception`, ...) and the generic names `List`/`Dict` are covered;
+  namespaces stay exempt (`io`, `math`, `fs` remain ordinary variable
+  names).
 
 ### Fixed
 
-- **A same-named local, parameter, field or function no longer hijacks
-  a type name**: `Vec Vec; Vec w;` (a second declaration of the
-  shadowed type) previously failed with a misleading field error or
-  crashed the VM (`struct field access out of bounds`), and anchored
-  inits like `Vec Vec = Vec{x: 5, y: 6};` were falsely rejected. Type
-  positions now bind type declarations; a genuine miss reports
-  `"X" does not name a type`.
 - **Chaining a member off a failed module-qualified call no longer
   crashes the compiler**: `shapes.Nope().tag` crashed `ncc` (access
   violation) instead of reporting the unresolved member.

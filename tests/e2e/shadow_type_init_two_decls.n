@@ -1,6 +1,5 @@
-// Two shadowed declarations with anchored initializers: the second
-// declaration's type annotation resolves to the struct, and both member
-// reads stay in bounds.
+// 0.9.0 semantic restriction: shadowed declarations with anchored
+// initializers are rejected at the declaration site.
 struct Vec {
     int x;
     int y;

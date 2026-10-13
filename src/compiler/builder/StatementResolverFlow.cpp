@@ -89,6 +89,10 @@ void StatementResolveAccessor::ResolveForInitDecl(SnForStmt &sn)
 		if (bIsArray)
 			pLocal->SetArrayType(true);
 		if (pParagraph) {
+			//0.9.0 semantic restriction: the for-init variable may not
+			//reuse a visible type name.
+			RejectTypeNameVariable(d.name, *pParagraph, *m_pCurrType,
+				decl.Location());
 			pParagraph->AddLocal(d.name, pLocal);
 		}
 		if (d.pInitExpr) {
@@ -278,6 +282,10 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 
 	//3. Register loop var in paragraph scope (function-scoped).
 	if (pVarField && pParagraph) {
+		//0.9.0 semantic restriction: the foreach loop variable may not
+		//reuse a visible type name.
+		RejectTypeNameVariable(sn.VarName(), *pParagraph, *m_pCurrType,
+			sn.Location());
 		auto *pLocal = new SnLocalVar(sn.VarName(), pVarField,
 			*sn.Location());
 		if (sn.VarType()->IsArrayType())

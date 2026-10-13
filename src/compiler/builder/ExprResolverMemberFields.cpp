@@ -91,21 +91,23 @@ bool IsTypeOrNamespaceBinding(const SnField *pField)
 }
 
 SnField *ExprResolveAccessor::FindTypeNameInAncestor(const std::string &sName,
-	SyntaxNode &parent, const SnField &accessor)
+	SyntaxNode &parent, const SnField &accessor, bool bIncludeNamespaces)
 {
 	//Per scope the virtual FindField returns the single same-named
 	//candidate (the DuplicateFieldChecker rejects same-scope duplicates),
 	//so skipping a value hit cannot hide a same-scope type.
 	SnField *pField = parent.FindField(sName);
 	if (pField && pField->AllowAccess(accessor)
-		&& IsTypeOrNamespaceBinding(pField))
+		&& (pField->IsTypeField()
+			|| (bIncludeNamespaces && pField->Kind() == NK_Namespace)))
 	{
 		return pField;
 	}
 	auto pParent = parent.Parent();
 	if (!pParent)
 		return nullptr;
-	return FindTypeNameInAncestor(sName, *pParent, accessor);
+	return FindTypeNameInAncestor(sName, *pParent, accessor,
+		bIncludeNamespaces);
 }
 
 //Module import visibility (D1/D7): the owner-side half of the bare-pool

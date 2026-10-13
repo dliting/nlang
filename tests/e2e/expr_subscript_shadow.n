@@ -1,4 +1,5 @@
-// 0.9.0: a local named like the class keeps the subscript (value) reading.
+// 0.9.0 semantic restriction: a local named like a visible class is a
+// compile error (the 0.9.x allow-and-rebind behavior was retired).
 class Point {
     public int x;
     public int Point(int a) { this.x = a; return 0; }

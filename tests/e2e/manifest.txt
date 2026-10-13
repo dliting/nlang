@@ -1334,7 +1334,7 @@ void_result_member compile_error cannot access a member of the result of void
 expr_anchored_brace 12
 # --- 0.9.0: sized array creation in expression position ---
 expr_sized_array 42
-expr_subscript_shadow 16
+expr_subscript_shadow compile_error cannot be used as a variable name
 # --- 0.9.0: alias creation twins and creation store-target rejects ---
 alias_creation_twin 22
 err_alias_array_twin compile_error Multi-dimensional arrays are not supported
@@ -1356,8 +1356,15 @@ err_func_anchor_ctor compile_error func types cannot be constructed
 err_init_list_diag_spelling compile_error init_list[2 entries]
 err_bare_generic_ctor compile_error cannot be constructed by bare name
 err_sized_generic_expr compile_error Cannot resolve the field: List.
-shadow_type_second_decl 12
-shadow_type_init_form 5
-shadow_type_init_two_decls 12
-shadow_type_new_form 12
+shadow_type_second_decl compile_error cannot be used as a variable name
+shadow_type_init_form compile_error cannot be used as a variable name
+shadow_type_init_two_decls compile_error cannot be used as a variable name
+shadow_type_new_form compile_error cannot be used as a variable name
 err_shadow_not_a_type compile_error does not name a type
+err_type_var_param compile_error cannot be used as a variable name
+err_type_var_struct_field compile_error cannot be used as a variable name
+err_type_var_class_field compile_error cannot be used as a variable name
+err_type_var_catch compile_error cannot be used as a variable name
+err_type_var_foreach compile_error cannot be used as a variable name
+err_type_var_for compile_error cannot be used as a variable name
+err_type_var_builtin_class compile_error cannot be used as a variable name
