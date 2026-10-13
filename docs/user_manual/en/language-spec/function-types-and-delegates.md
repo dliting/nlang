@@ -109,13 +109,13 @@ delegate invocations are rejected.
 - **`out` in the return position** (`func<out int, ...>`) — rejected
   with the compile error "out is only allowed on func<...>
   parameters.".
-- **`new func<...>(...)`** — constructing from a name is not supported;
+- **`func<...>(...)`** — constructing from a name is not supported;
   bind a reference instead.
 - **`Dict<func<...>, V>`** — `func` as a Dict key (see identity note above).
 - **Boxing into `Object`** (`Object o = f`) — via the generic
   incompatible-type diagnostic.
 - **`void` or `out` type arguments outside `func`** (`List<void>`,
-  `List<out int>`, `new List<out int>`).
+  `List<out int>`).
 - **Cross-module**: referencing an imported function, or passing a
   function reference **to** an imported function (parameter signatures
   are not serialized in `.ncu`).

@@ -10,7 +10,7 @@ has a type, and the compiler checks each operation against it.
 |---------------------------------------------------|------|
 | operators (`+ - * / %`, comparison, logical)      | [Operators](operators.md) |
 | casts (`as`, coercion to string)                  | [Type Casts](type-casts.md) |
-| collection initializers (`[...]`, `new Type{...}`) | [Collection Initializers](collection-initializers.md) |
+| collection initializers (`[...]`, `Type{...}`) | [Collection Initializers](collection-initializers.md) |
 
 String interpolation (`${...}`), escape sequences, and string comparison are
 string-literal features: see [String](string.md). Char literals (`'a'`,
@@ -36,6 +36,6 @@ Node n = Node();
 Node n = Node(42);
 ```
 
-`new` allocates on the heap and calls the constructor if present. See
-[Class](class.md) "Constructors". Array creation is `new T[n]` — see
+A constructor call allocates on the heap and calls the constructor if
+present. See [Class](class.md) "Constructors". Array creation is `T[n]` — see
 [Array](array.md).

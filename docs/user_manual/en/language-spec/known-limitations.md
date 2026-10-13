@@ -42,19 +42,48 @@
   variables, and as generic type arguments. The VM has no
   multi-dimensional array layout; declare flat arrays or use
   `List<List<T>>`-style containers instead.
-- **Bare `{...}` collection init**: dict/struct/class init requires the
-  explicit `new Type{...}` form (the bare `{...}` form conflicts with
-  block-statement grammar). See [Collection Initializers](collection-initializers.md).
-- **Bare `[]` empty init**: use `new List<T>{}`, `new Dict<K,V>{}`, or
-  `new int[0]` instead. The lexer tokenizes `[]` as a single token used
-  by the array-type suffix rule.
+- **Bare `{...}` at non-inference positions**: a bare brace literal
+  needs a typed target — as a method-call receiver (`{}.length()`) or a
+  named argument it does not infer; bind a typed local first. See
+  [Collection Initializers](collection-initializers.md).
+- **Bare `[]` empty init**: the empty literal is `{}` (`List<T> l = {};`,
+  `Dict<K,V> d = {};`, `int[] a = {};`); a sized empty array is
+  `int[0]`. The lexer tokenizes `[]` as a single token used by the
+  array-type suffix rule, so bare `[]` is not the empty form.
 - **Right-shift operator (`>>`, `<<`)**: not implemented (no grammar
   production, no opcode). `>>` outside generic context is a compile
   error; inside generic closing position it is split into `'>'` tokens
   (see Nested generics under `List<T>` in
   [Built-in Generic Classes](builtin-generic-classes.md)).
-- **Bare init list as function argument**: requires the `new Type{...}`
-  explicit form.
+- **Bare init list as a named argument**: positional arguments infer
+  their target from the parameter type; named arguments do not — use a
+  typed local or the anchored `Type{...}` form.
+- **Sized-array declaration: size arm on the first declarator only**:
+  `int a, b[3];` is a syntax error — declare `b` separately.
+- **Direct-init paren arm on the first declarator only**:
+  `Point a, b(2);` is a syntax error — declare `b` separately.
+- **Mixed declarators take the array type**: in `int a[3], b;` the
+  sibling `b` is a null `int[]` (array-typed), not an int.
+- **Partial initialization is the bracket form at the declaration**:
+  `int b[100] = [7, 8];` zero-fills the remainder; the brace form at a
+  sized declaration (`int b[100] = {7, 8};`) is a syntax error.
+- **Constructor calls do not apply default parameter values**:
+  `Point(5)` against `Point(int a, int b = 3)` reports an arity error.
+- **Generic instantiation has no anchored head**: `List<int>{60}` does
+  not parse — give the literal a typed declaration (see
+  [Collection Initializers](collection-initializers.md)).
+- **Nested bare braces in a brace literal do not parse**: use bracket
+  nesting (`[[1,2],[3,4]]`).
+- **Bare list in an array-return position is rejected**: `return [1, 2];`
+  from an `int[]` function is a type error (container returns infer).
+- **Generic-element fixed arrays are declaration-only**:
+  `List<int> a[2];` declares the array; there is no expression-position
+  creation twin.
+- **Bare same-class-name call inside a class body is not a constructor
+  call**: it reports a method-needs-receiver style error; construct via
+  `Point(2, 3)` in expression position.
+- **`using` alias declarations belong to the file prologue**: a `using`
+  placed after another top-level declaration is a syntax error.
 - **`List<struct>` value semantics**: adding the same struct variable
   to a List twice shares the underlying heap slot (reference semantics
   at the boxing layer). Use separate struct instances for distinct
@@ -65,7 +94,7 @@
   `matrix[i][0].x = v` (array-of-array-of-struct), the receiver's
   inner subscript index evaluation can clobber the RHS temp slot.
   Single-level `arr[i].field = v` works correctly.
-- **Eager materialization cost**: `new Point[n]` allocates n+1 heap
+- **Eager materialization cost**: `Point[n]` allocates n+1 heap
   slots at creation (array + one struct per element).
 - **Default parameters on imported functions**: cross-module imported
   functions support **constant-foldable** defaults only — int / float /
@@ -102,9 +131,6 @@
 - **`super()` chains only to the direct parent**: there is no syntax for
   invoking a grandparent constructor directly; each ctor forwards to its
   immediate parent.
-- **`new C(args)` when `C` has no constructor silently drops `args`**:
-  unlike an explicit `super(args)` (which errors), constructor arguments
-  at allocation sites are discarded when the class declares no ctor.
 - **No lambda expressions / closures**: only references
   to named functions and methods exist. Bound method references carry
   receiver state and cover the common callback scenarios.

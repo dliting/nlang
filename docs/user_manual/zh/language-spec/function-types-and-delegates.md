@@ -72,10 +72,10 @@ int main() {
 - **native方法**的任何可达形式：声明为`native`、虚基类下的覆写、或接口成员的实现（native调用没有供接收者使用的被调方栈帧）。
 - **`func`类型带`out`参数的虚/接口引用**——运行期分派可能与编译的out掩码不一致。
 - **返回位置的`out`**（`func<out int, ...>`）——报出明确的编译错误"out is only allowed on func<...> parameters."并拒绝。
-- **`new func<...>(...)`**——不支持以名称构造；请绑定引用。
+- **`func<...>(...)`**——不支持以名称构造；请绑定引用。
 - **`Dict<func<...>, V>`**——`func`作Dict键（见上文恒等说明）。
 - **装箱成`Object`**（`Object o = f`）——经泛型的不兼容类型诊断拒绝。
-- **`func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`、`new List<out int>`）。
+- **`func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`）。
 - **跨模块**：引用被导入的函数，或把函数引用传**给**被导入的函数（`.ncu`不序列化参数签名）。
 - 函数值作`switch`判别式（没有case家族能匹配）。
 - 函数值不能穿过序列化应用程序编程接口（API，application programming interface）——对持有`func`字段的struct/class调`writeStruct` / `writeObject`是运行期错误。

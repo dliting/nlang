@@ -15,7 +15,7 @@ Four key decisions with rationale documented in VmExecutor.h:
 **1. Safepoint-triggered, not allocation-point-triggered**
 
 At allocation points (OP_New/OP_AllocStruct), tempSlot and tempSlot2 may hold
-active heap references (e.g., `a.b.c = new Foo()` where tempSlot=a, tempSlot2=a.b).
+active heap references (e.g., `a.b.c = Foo()` where tempSlot=a, tempSlot2=a.b).
 Tracking these temporaries would require per-instruction offset maps in
 CompiledFunction, adding complexity.
 

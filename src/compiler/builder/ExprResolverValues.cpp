@@ -360,7 +360,7 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 //doubles as the size expression; the element type is stored first, then
 //BindArrayTypeToken mints the array token over it — the same tail as
 //Access(SnNewArrayExpr&). An array alias base (`using Ints = int[];`
-//then `Ints[2]`) is rejected exactly like `new Ints[2]`.
+//then `Ints[2]`) is rejected as a creation head.
 bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 {
 	auto &arrayExpr = *sn.Array();
@@ -369,8 +369,7 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 	//Only a TYPE EXPRESSION can head a creation: the bare identifier and
 	//the splice products of an alias base (name / array / generic — the
 	//complete CloneTypeNode product set; the generic form binds the minted
-	//instantiation through Access(SnGenericTypeExpr&), the same binding
-	//`new List<int>[n]` takes). A value expression whose Field() happens
+	//instantiation through Access(SnGenericTypeExpr&)). A value expression whose Field() happens
 	//to be type-ish (`ks.get(0)[1]` binds the element token) must keep
 	//the plain subscript reading.
 	switch (arrayExpr.Kind())

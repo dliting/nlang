@@ -100,8 +100,8 @@ bool ExprResolveAccessor::FindCtorArity(SnClassDecl *pClassDecl,
 	return false;
 }
 
-//Constructor-call arity check, shared by new Foo(args) and the 0.9.0
-//ctor-invoke forms. Round-14: constructor calls emit their args
+//Constructor-call arity check for the ctor-invoke forms (bare and
+//module-qualified). Round-14: constructor calls emit their args
 //positionally without FormalBindings (VmBackend's NewExpr handler), so —
 //like super(...) — named arguments cannot bind, defaults declared on
 //ctor params are not applied at the call site, and the arity must match

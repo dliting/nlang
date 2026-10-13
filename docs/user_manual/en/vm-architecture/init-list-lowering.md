@@ -1,13 +1,13 @@
 # Init List Lowering
 
 Collection initializers let developers populate an array or container
-with a single literal expression, such as `[1,2,3]` or `new Type{...}`.
+with a single literal expression, such as `[1,2,3]` or `Type{...}`.
 These literals have no runtime form of their own: the compiler lowers
 them into ordinary allocation and store instructions. This page
 describes the lowering path, how the target type is inferred, and how
 the container branches handle boxing.
 
-Collection initializers (`[1,2,3]`, `new Type{...}`) lower through a
+Collection initializers (`[1,2,3]`, `Type{...}`) lower through a
 single `NK_InitListExpr` handler in `VmBackend::EmitExpression`. The
 handler dispatches on the resolved `EvalDataType` plus the
 `TargetIsArray` flag set by the resolver.
@@ -27,7 +27,7 @@ lost).
 
 The resolver does not propagate expected types to child init lists
 (recursive type inference for `[[1,2],[3]]` is not supported).
-Children must use the explicit `new Type{...}` form to carry their
+Children must use the explicit `Type{...}` form to carry their
 own type.
 
 ### Codegen dispatch table

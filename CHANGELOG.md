@@ -6,6 +6,51 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.0]
+
+### Added
+
+- **Constructor calls without `new`**: `Point(2, 3)` constructs in any
+  expression position; the module-qualified `shapes.Point(2, 3)`
+  constructs imported classes.
+- **Anchored brace initializer**: `Point{x: 2, y: 3}` initializes a
+  named class or struct right at the spelling site.
+- **Sized array creation expressions**: `int[3]` / `Foo[n]` create
+  arrays in expression position.
+- **Direct-initialization declarations**: `Point p(2, 3);`.
+- **Fixed-length array declarations**: `int a[3];` (zero-filled),
+  `string s[n];` (runtime size), and partial initialization
+  `int b[100] = [7, 8];` (the remainder stays zero-filled).
+- **Bare collection literals with target-type inference**:
+  `int[] a = {1, 2};`, `l = [1, 2];`, `Dict<string, int> d = {"a": 1};`
+  — the element shape (`[...]` vs `{...}`) together with the typed
+  target picks the container; the empty container spells `{}`.
+
+### Removed (Breaking)
+
+- **The `new` keyword**: `new` is now an ordinary identifier. Every
+  creation form above replaces it; the old spellings are plain syntax
+  errors.
+
+### Fixed
+
+- **A same-named local, parameter, field or function no longer hijacks
+  a type name**: `Vec Vec; Vec w;` (a second declaration of the
+  shadowed type) previously failed with a misleading field error or
+  crashed the VM (`struct field access out of bounds`), and anchored
+  inits like `Vec Vec = Vec{x: 5, y: 6};` were falsely rejected. Type
+  positions now bind type declarations; a genuine miss reports
+  `"X" does not name a type`.
+- **Chaining a member off a failed module-qualified call no longer
+  crashes the compiler**: `shapes.Nope().tag` crashed `ncc` (access
+  violation) instead of reporting the unresolved member.
+- **Accessing a member of a void function's result no longer crashes
+  the compiler**: `GetV().tag` crashed `ncc`; it now reports that the
+  function returns void.
+- **Scalar targets reject collection initializers**: `int x = [1];`
+  (and the brace form) previously compiled silently and left the slot
+  unwritten; both now report a clean type error.
+
 ## [0.8.5] - 2026-10-11
 
 ### Added

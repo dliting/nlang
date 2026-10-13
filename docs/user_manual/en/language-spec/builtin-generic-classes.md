@@ -79,7 +79,7 @@ by reference identity. The same applies to `Dict<K,V>` with `V` (or `K`)
 written as `Object`.
 
 **Null List reference**: a `List<T>` field or variable that has not been
-assigned `new List<T>()` holds null. Calling any method on null throws
+assigned `List<T>()` holds null. Calling any method on null throws
 `null reference in CallMethod` — the same null pointer exception (NPE)
 semantics as other class refs.
 
@@ -166,7 +166,7 @@ additional roots.
   `int[2]` arrays with equal contents are different keys.
 
 **Null Dict reference**: a `Dict<K,V>` field or variable that has not
-been assigned `new Dict<K,V>()` holds null. Calling any method on null
+been assigned `Dict<K,V>()` holds null. Calling any method on null
 throws `NLang VM: Dict <method> on null instance`.
 
 **Linear-scan lookup (current limitation)**: every `set`/`get`/

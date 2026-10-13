@@ -18,7 +18,7 @@ int[] c = int[0];    // 空数组
 - **返回值**：返回引用。
 - **作为字段/元素**：以引用存储（见[结构体](struct.md)、[类](class.md)、[内建泛型类](builtin-generic-classes.md)的`List<int[]>`）。
 
-struct类型的数组在行为上是例外：每个元素是值类型，所以`new Point[n]`为每个元素物化一份独立的`Point`，读取元素时深拷贝。见[结构体](struct.md)「值语义」。完整的值vs引用摘要见[类型语义](type-semantics.md)。
+struct类型的数组在行为上是例外：每个元素是值类型，所以`Point[n]`为每个元素物化一份独立的`Point`，读取元素时深拷贝。见[结构体](struct.md)「值语义」。完整的值vs引用摘要见[类型语义](type-semantics.md)。
 
 ### 长度
 

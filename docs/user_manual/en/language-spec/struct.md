@@ -25,12 +25,12 @@ language:
   copy.
 - **As a class field**: the class owns an independent deep copy. Assigning
   `obj.s = s1` deep-copies `s1` into the class's field slot.
-- **As an array element**: `new Point[n]` eagerly materializes a fresh,
+- **As an array element**: `Point[n]` eagerly materializes a fresh,
   independent struct instance per element (including nested struct fields,
   recursively). Reading an element into a struct variable (`Point p = arr[i]`)
   deep-copies it; writing through a subscript (`arr[i].x = v`, `arr[i] = p`)
   stores into the array's own element. Zero-length struct arrays
-  (`new Point[0]`) are legal — `.length()` is 0 and no elements are materialized.
+  (`Point[0]`) are legal — `.length()` is 0 and no elements are materialized.
 
 **Shallow copy of class references within structs**: when a struct contains a
 class-typed field, the class reference (heap index) is copied as-is during
@@ -57,7 +57,7 @@ int main() {
 
 A field is read or written through the member expression `p.x`; a struct has no
 method body, so there is no `this` to bind one to. A named initializer
-(`new Point{x: 1, y: 2}`) sets the named fields; any field left out keeps its
+(`Point{x: 1, y: 2}`) sets the named fields; any field left out keeps its
 zero value. See [Collection Initializers](collection-initializers.md) for the
 full init-list rules.
 

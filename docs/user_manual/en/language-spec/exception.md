@@ -68,7 +68,7 @@ zero-initialized; a user ctor typically forwards the message via `super(msg)`
 Exception instances expose two readable/writable fields:
 
 - `message` (string) — the exception message. Set by the constructor
-  (`new Exception("msg")`) or by VM error sites. Writable by user code.
+  (`Exception("msg")`) or by VM error sites. Writable by user code.
 - `backtrace` (List&lt;string&gt;) — call stack snapshot at throw time for
   VM-thrown exceptions (`funcName.n:line` entries, innermost first).
   User-constructed exceptions start with an empty backtrace.

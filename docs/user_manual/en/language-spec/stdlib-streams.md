@@ -25,7 +25,7 @@ double d = bs.readDouble();
 | reset (ByteStream only) | — | rewinds the cursor, keeps the buffer |
 | close | — | releases the FileStream's file handle |
 
-**FileStream construction**: `new FileStream(path, mode)`, where mode is
+**FileStream construction**: `FileStream(path, mode)`, where mode is
 `"w"` (create/truncate), `"a"` (create/append) or `"r"` (read-only; a
 missing file throws a runtime error). An invalid mode throws a runtime
 error.

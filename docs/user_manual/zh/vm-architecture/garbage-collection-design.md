@@ -8,7 +8,7 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 **1. 由安全点触发，而非由分配点触发**
 
-在分配点（OP_New/OP_AllocStruct）处，tempSlot与tempSlot2可能正持有活跃堆引用（例如`a.b.c = new Foo()`，此时tempSlot=a、tempSlot2=a.b）。追踪这些临时值需要CompiledFunction里配备逐指令的偏移表，复杂度不划算。
+在分配点（OP_New/OP_AllocStruct）处，tempSlot与tempSlot2可能正持有活跃堆引用（例如`a.b.c = Foo()`，此时tempSlot=a、tempSlot2=a.b）。追踪这些临时值需要CompiledFunction里配备逐指令的偏移表，复杂度不划算。
 
 安全点（函数入口 + 循环回边）保证tempSlot/tempSlot2未持有活跃引用：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值，临时值会被消费掉。
 

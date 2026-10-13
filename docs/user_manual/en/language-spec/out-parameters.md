@@ -31,6 +31,6 @@ int q = divide(17, 5, out r);  // q=3, r=2
   fixed-slot writeback mechanism.
 - No `out` on virtual/interface dispatch calls (the concrete callee is
   unknown at compile time).
-- No `out` on constructor (`new`) or `super()` calls.
+- No `out` on constructor calls or `super()`.
 - At most 32 out parameters per call.
 - `out` is a reserved keyword.

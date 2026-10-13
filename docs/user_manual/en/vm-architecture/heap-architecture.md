@@ -207,7 +207,7 @@ recycled only after *this* List dies, so in practice no other List
 instance can hold a live reference into the slot — its contents are
 unreachable).
 
-**Codegen: NewExpr with constructor aliasing fix.** When `new T(args)`
+**Codegen: NewExpr with constructor aliasing fix.** When `T(args)`
 appears as a method-call argument, the naive emission (evaluate
 constructor args into callParamBase, then OP_New into resultOffset)
 clobbers the same callParamBase slot. The fix: after evaluating

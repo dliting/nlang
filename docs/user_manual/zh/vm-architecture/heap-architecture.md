@@ -125,7 +125,7 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 
 SweepPhase与之镜像：List实例被回收时，其`__handle`被压入`m_listFreeList`，供下一次`INTR_List_Ctor`复用。ListSlot本身不释放（句柄复用只发生在*这个* List死亡之后，实际上不可能再有来自其他List实例的存活引用——该槽位内容已不可达）。
 
-**代码生成：NewExpr的构造函数别名修复。**当`new T(args)`作为方法调用实参出现时，朴素的发射顺序（先把构造实参求值进callParamBase，再OP_New写入resultOffset）会覆盖同一个callParamBase槽位。修复：求值完构造实参后，把OP_New的结果分配到最后一个参数*之后*的槽位（`callParamBase + paramIdx * VALUE_SIZE`），再拷贝到resultOffset：
+**代码生成：NewExpr的构造函数别名修复。**当`T(args)`作为方法调用实参出现时，朴素的发射顺序（先把构造实参求值进callParamBase，再OP_New写入resultOffset）会覆盖同一个callParamBase槽位。修复：求值完构造实参后，把OP_New的结果分配到最后一个参数*之后*的槽位（`callParamBase + paramIdx * VALUE_SIZE`），再拷贝到resultOffset：
 
 ```text
 // args evaluated into callParamBase[1..N]

@@ -60,7 +60,7 @@ class MyException : Exception {
 
 异常实例暴露两个可读可写字段：
 
-- `message`（string）—— 异常消息。由构造函数（`new Exception("msg")`）或VM错误点设置。用户代码可写。
+- `message`（string）—— 异常消息。由构造函数（`Exception("msg")`）或VM错误点设置。用户代码可写。
 - `backtrace`（List&lt;string&gt;）—— VM抛出的异常的抛出时刻调用栈快照（`funcName.n:line`条目，最内层在前）。用户构造的异常初始backtrace为空。
 
 ```nlang

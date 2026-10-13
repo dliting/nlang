@@ -1,9 +1,9 @@
 # 集合初始化器
 
 
-NLang支持C风格的集合字面量，用于数组、列表、字典以及聚合（struct/class）初始化。两种语法形式：
+NLang支持集合字面量，用于数组、列表、字典以及聚合（struct/class）初始化。三种语法形式：
 
-**裸括号形式`[...]`** —— 仅当左值或赋值目标能让编译器推断出集合类型时才允许。适用于数组（`T[]`）和`List<T>`：
+**裸方括号形式`[...]`** —— 当目标类型能让编译器推断出集合时允许（声明初始化、赋值、位置实参、容器元素）。适用于数组（`T[]`）和`List<T>`：
 
 ```nlang
 int[] arr = [1, 2, 3];
@@ -12,41 +12,50 @@ List<int> nums = [10, 20, 30];
 List<Point> pts = [Point{x:1, y:2}, Point{x:3, y:4}];
 ```
 
-**显式形式`new Type{...}`** —— 适用于任意表达式位置（函数实参、返回值、独立表达式）。字典、struct、class初始化必须用它，因为裸`{...}`会与块语句语法冲突（`{...}`包围的语句组）：
+**裸花括号形式`{...}`** —— 由带类型目标决定读法：键值条目初始化字典与struct/class聚合，位置条目初始化列表与数组。适用推断位与`[...]`相同：
 
 ```nlang
 Dict<string, int> d = {"a":1, "b":2};
-Point p = Point{x:1, y:2};
 List<int> lst = {1, 2, 3};
+int[] a = {1, 2};
+take({7, 0});
+List<int> mk() { return {1, 2}; }
+```
+
+**锚定形式`Type{...}`** —— 具名class/struct头锚定字面量，因此适用于任意表达式位置（函数实参、返回值、独立表达式）：
+
+```nlang
+Point p = Point{x:1, y:2};
 return Point{x:0, y:0};
 foo(Point{x:1, y:2}, Point{x:3, y:4});
 ```
+
+泛型实例化头不能锚定——`List<int>{60}`无法解析；改为给字面量一个带类型目标（`List<int> l = {60};`）。
 
 **`{...}`内的条目形式：**
 
 - `字符串字面量 : 表达式` —— 字典条目（string键）
 - `标识符 : 表达式` —— struct/class字段（例如`x:1, y:2`）
-- `表达式`（无键）—— 列表元素（仅当Type是`List<T>`时合法）
+- `表达式`（无键）—— 列表或数组元素（仅当目标为`List<T>`或`T[]`时合法）
 
-**字典键必须是string字面量**：集合初始化器把每个键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`new Dict<int, int>{"1": 2}`报`the Dict collection initializer requires string keys; use set() with
-an explicit 'Int32' key`）；空初始化器`new Dict<int, int>{}`合法，随后用`set()`逐条填入。
+**字典键必须是string字面量**：集合初始化器把每个键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`Dict<int, int> d = {"1": 2}`报`the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key`）；空初始化器`Dict<int, int> d = {}`合法，随后用`set()`逐条填入。
 
-**类型消歧**：编译器用左值变量（或`new Type{...}`中的显式`Type`）来选择类型：
+**类型消歧**：编译器用带类型目标（声明的变量、形参类型、返回类型）或锚定类型名来选择种类：
 
 | 目标类型              | 形式              | 条目种类                          |
 |------------------------|-------------------|-----------------------------------|
-| `T[]`（数组）           | `[...]`            | 仅值                              |
-| `List<T>`               | `[...]`或`new List<T>{...}` | 仅值 |
-| `Dict<K,V>`              | `new Dict<K,V>{...}` | `key : value`（string键） |
-| struct                   | `new StructName{...}` | `field : value`（标识符键） |
-| class                    | `new ClassName{...}`  | `field : value`（标识符键） |
+| `T[]`（数组）           | `[...]`或`{...}`   | 仅值                              |
+| `List<T>`               | `[...]`或`{...}`   | 仅值                              |
+| `Dict<K,V>`              | `{...}`            | `key : value`（string键） |
+| struct                   | `{...}`或`StructName{...}` | `field : value`（标识符键） |
+| class                    | `{...}`或`ClassName{...}`  | `field : value`（标识符键） |
 
-**class初始化要求**：类必须有无参构造函数（显式或隐式）。codegen把`new C{f1:v1, ...}`降低为`new C()`后接逐字段`OP_StoreField`赋值。
+**class初始化要求**：类必须有无参构造函数（显式或隐式）。codegen把`C{f1:v1, ...}`降低为无参构造后接逐字段`OP_StoreField`赋值。
 
-**递归嵌套**：初始化列表可包含其他初始化列表。嵌套泛型元素类型（`List<List<int>>`、`Dict<K, List<V>>`）受支持（见[内建泛型类](builtin-generic-classes.md) `List<T>`下的嵌套泛型）。
+**递归嵌套**：初始化列表可包含其他初始化列表。内层使用方括号形式（`List<List<int>> ll = [[1,2],[3,4]];`）——花括号字面量内再嵌裸花括号无法解析（`{{1,2},{3,4}}`是语法错误）。嵌套泛型元素类型（`List<List<int>>`、`Dict<K, List<V>>`）受支持（见[内建泛型类](builtin-generic-classes.md) `List<T>`下的嵌套泛型）。
 
-**空集合**：裸`[]`不受支持（词法器把`[]`匹配为单个token，供数组类型后缀语法使用）。改用显式空形式：`new List<T>{}`、`new Dict<K,V>{}`，或数组用`new int[0]`（见[数组](array.md)）。
+**空集合**：空字面量对所有容器目标都写作`{}`——`List<int> l = {};`、`Dict<K,V> d = {};`、`int[] a = {};`。裸`[]`不是空形式（词法器把`[]`匹配为单个token，供数组类型后缀语法使用）；定长空数组写`int[0]`（见[数组](array.md)）。
 
-**函数实参消歧**：作为函数实参的裸`[...]`目前不受支持——因为没有重载解析，编译器无法推断目标类型，所以会产生编译错误。函数实参请用显式`new Type{...}`形式。
+**函数实参**：位置实参从形参类型推断目标（`Point`形参可写`take({7, 0})`）。命名实参不推断——先绑定一个带类型局部，或改用锚定形式。
 
 **初始化期间变更是未定义行为。**条目从左到右求值并按序赋值；在条目表达式内读部分构造的集合（例如`[1, foo(arr)]`中`foo`读`arr`）是未定义行为。抛异常的条目会留下部分构造的集合。

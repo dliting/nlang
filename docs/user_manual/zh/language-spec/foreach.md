@@ -14,7 +14,7 @@ foreach (Type var in iterable) { body }
 | `Dict<K,V>`    | **键**（Python风格）      | 内联`dict.keys()`然后`List<K>.get(i)` |
 | `string`       | **码点**（`char`）        | Unicode转换格式（UTF-8，Unicode Transformation Format）解码推进 |
 
-**源约束**：源表达式必须是数组、`List`、`Dict`或`string`——任何形态均可：lvalue、容器或数组值的调用结果（`List<int[]>`上的`li.get(0)`）、成员访问、`new int[n]`、字典下标。源只求值一次（绑定到一个隐藏迭代局部），所以有副作用的源只运行一次。其他任何源（`int`局部、非容器调用结果）是编译错误："the foreach source must be an array, List, Dict, or string"。
+**源约束**：源表达式必须是数组、`List`、`Dict`或`string`——任何形态均可：lvalue、容器或数组值的调用结果（`List<int[]>`上的`li.get(0)`）、成员访问、`int[n]`、字典下标。源只求值一次（绑定到一个隐藏迭代局部），所以有副作用的源只运行一次。其他任何源（`int`局部、非容器调用结果）是编译错误："the foreach source must be an array, List, Dict, or string"。
 
 **string源**：循环变量必须是`char`，每轮绑定一个完整码点（多字节字符不会被拆开）——这是string的码点迭代路径，与字节下标`s[i]`相对（见[字符串](string.md)「char桥接」）：
 

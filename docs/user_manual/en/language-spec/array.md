@@ -24,7 +24,7 @@ variables pointing at the same array observe the same element writes.
   [Built-in Generic Classes](builtin-generic-classes.md) for `List<int[]>`).
 
 A struct-typed array is the exception in behavior: each element is a value
-type, so `new Point[n]` materializes a fresh independent `Point` per element
+type, so `Point[n]` materializes a fresh independent `Point` per element
 and reading an element deep-copies it. See [Struct](struct.md) "Value
 semantics". The full value-vs-reference summary is on
 [Type Semantics](type-semantics.md).
