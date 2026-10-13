@@ -76,6 +76,10 @@
   nesting (`[[1,2],[3,4]]`).
 - **Bare list in an array-return position is rejected**: `return [1, 2];`
   from an `int[]` function is a type error (container returns infer).
+- **Bare collection literals are not foreach sources**: `foreach (int x in
+  [1, 2, 3])` fails type inference ("Collection initializer requires an
+  explicit type or an LHS context to infer the target type."); the brace
+  form is a syntax error. Bind the literal to a typed local first.
 - **Generic-element fixed arrays are declaration-only**:
   `List<int> a[2];` declares the array; there is no expression-position
   creation twin.

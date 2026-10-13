@@ -19,6 +19,7 @@
 - **泛型实例化没有锚定头**：`List<int>{60}`无法解析——请给字面量一个带类型声明（见[集合初始化器](collection-initializers.md)）。
 - **花括号字面量内嵌裸花括号无法解析**：请用方括号嵌套（`[[1,2],[3,4]]`）。
 - **数组return位裸表被拒绝**：`int[]`函数里`return [1, 2];`是类型错误（容器return可推断）。
+- **裸集合字面量不能作foreach源**：`foreach (int x in [1, 2, 3])`报推断错误（"Collection initializer requires an explicit type or an LHS context to infer the target type."）；花括号形态是语法错误。先把字面量绑定到带类型局部再迭代。
 - **泛型元素定长数组仅声明形态**：`List<int> a[2];`声明数组；没有表达式位的创建孪生。
 - **类体内裸调同类名不是构造调用**：会报「方法需要接收者」类错误；请在表达式位写`Point(2, 3)`构造。
 - **`using`别名声明属于文件序言区**：`using`放在其他顶层声明之后是语法错误。

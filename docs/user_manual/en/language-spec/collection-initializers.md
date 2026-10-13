@@ -89,9 +89,11 @@ token, used by the array-type suffix grammar); for a sized empty array
 write `int[0]` (see [Array](array.md)).
 
 **Function arguments:** a positional argument infers its target from
-the parameter type (`take({7, 0})` for a `Point` parameter). A named
-argument does not infer — bind a typed local first, or use the anchored
-form.
+the parameter type — positional entries work for struct, array, and
+`List<T>` parameters (`take({7, 0})` for a struct `Point` parameter);
+a class parameter takes `field:value` entries (see the table above). A
+named argument does not infer — bind a typed local first, or use the
+anchored form.
 
 **Mutation during init is UB.** Entries are evaluated left-to-right and
 assigned in order; reading the partially-constructed collection from within
