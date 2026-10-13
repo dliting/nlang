@@ -50,6 +50,9 @@ All notable changes to NLang are documented here. The format follows
 - **Scalar targets reject collection initializers**: `int x = [1];`
   (and the brace form) previously compiled silently and left the slot
   unwritten; both now report a clean type error.
+- **Init-list diagnostics use matched brackets**: the array-form value
+  in a type-mismatch diagnostic prints as `init_list[2 entries]` (the
+  closing bracket was previously misprinted as `}`).
 
 ## [0.8.5] - 2026-10-11
 

@@ -1353,6 +1353,7 @@ err_multi_dim_decl compile_error Multi-dimensional arrays are not supported
 err_partial_init_overflow compile_error more than the declared size
 decl_sized_sibling 6
 err_func_anchor_ctor compile_error func types cannot be constructed
+err_init_list_diag_spelling compile_error init_list[2 entries]
 err_bare_generic_ctor compile_error cannot be constructed by bare name
 err_sized_generic_expr compile_error Cannot resolve the field: List.
 shadow_type_second_decl 12

@@ -329,7 +329,7 @@ std::string SnInitListExpr::ToString() const
 	ss << m_entries.size() << " entries";
 	if (m_pExplicitType)
 		ss << ", explicit=" << m_pExplicitType->ToString();
-	ss << "}";
+	ss << (m_isArrayForm ? "]" : "}");
 	return std::move(ss.str());
 }
 
