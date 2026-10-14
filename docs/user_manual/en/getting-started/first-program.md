@@ -43,4 +43,12 @@ Run in the directory that holds the source (installer users use
   `echo %ERRORLEVEL%` in cmd or `$LASTEXITCODE` in PowerShell.
 - `ncc hello.n` compiles and immediately executes in one step; without
   `-o` the `.ncu` is written to the current working directory (see the
-  FAQ below).
+  [FAQ](faq.md)).
+
+Want to skip the `main()` boilerplate? nlang runs top-level statements
+directly — one line is enough (installer users: `bin\nlang`):
+
+    nlang -c "import io; io.print(\"hello, NLang\");"
+
+The full script-mode semantics are on the [nlang](../cli-tools/nlang.md)
+page.

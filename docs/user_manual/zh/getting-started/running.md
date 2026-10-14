@@ -35,11 +35,18 @@
 
 ### 2. 命令行
 
-在仓库根目录运行；安装包用户在安装根目录运行（ncc/nvm位于`bin\`下）：
+在仓库根目录运行；安装包用户在安装根目录运行（nlang/ncc/nvm位于`bin\`下）。
 
-    ncc build examples/hello.n -o hello.ncu   # 编译nvm hello.ncu                             # 运行（退出码42）
+最快的方式是nlang直接运行：进程内编译并执行，不在磁盘留下产物。含手写`main()`的普通程序（如`examples/`里的示例）也照常运行，详见[nlang](../cli-tools/nlang.md)：
 
-安装包内未设置PATH时使用`bin\ncc build ...`、`bin\nvm <name>.ncu`。
+    nlang examples/hello.n                    # 直接运行（退出码42）
+
+要留下可部署的产物，用编译→运行两步：
+
+    ncc build examples/hello.n -o hello.ncu   # 编译
+    nvm hello.ncu                             # 运行（退出码42）
+
+安装包内未设置PATH时使用`bin\nlang ...`、`bin\ncc build ...`、`bin\nvm <name>.ncu`。
 
 多文件项目用`-p`指定`.nproj`，`-o`指定输出位置（产物是`.npkg`程序包）：
 

@@ -4,9 +4,10 @@
 
 `main`'s return value is the process exit code: nvm (and the execution
 phase of `ncc run` and `ncc <file>`) ends the process by calling
-`ExitProcess` with that value. nlang has no handwritten `main()`: in
-script mode the top-level `return` is the exit code, because top-level
-statements are wrapped in a synthesized `main()` (see
+`ExitProcess` with that value. nlang scripts have no handwritten
+`main()`: the top-level `return` is the exit code, because top-level
+statements are wrapped in a synthesized `main()`. A program with its
+own `main()` runs under nlang unchanged (see
 [nlang](../cli-tools/nlang.md)). `ncc build` only compiles and never
 executes; on success its exit code is always 0.
 
@@ -37,7 +38,8 @@ distinct from program exit codes:
   backtrace to stderr; normal completion → `main`'s return value.
 - **nlang**: usage/argument errors, compilation failure, runtime errors
   (including uncaught exceptions) → 1 (same shape as nvm); normal
-  completion → the top-level `return` value; no top-level return → 0.
+  completion → the top-level `return` value (or the handwritten
+  `main()`'s return value); no top-level return → 0.
   **An empty script (no executable statements) exits 0.** This is
   deliberate and differs from nvm, which exits 1 for an artifact
   without an entry point: for an ad-hoc run, "nothing to do" is

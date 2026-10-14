@@ -24,6 +24,13 @@ the wide-character form, so content outside
 American Standard Code for Information Interchange (ASCII) — Chinese
 strings, for example — works directly.
 
+The quoting in the examples is for cmd and bash. In Windows
+PowerShell 5.1, keep the backslashes and switch the outer quotes to
+single quotes: `nlang -c 'import io; io.print(\"hello\");'`. In
+PowerShell 7, use single quotes and drop the backslashes:
+`nlang -c 'import io; io.print("hello");'`. Or skip quoting entirely:
+put the statements in a `.n` file and run `nlang <file>`.
+
 ## Flags
 
 | Flag | Description |
@@ -44,7 +51,10 @@ libraries when you need them (see the matching entry on the
 Top-level statements are wrapped in a synthesized `int main()`. The
 synthesized entry is indistinguishable from a handwritten `main()` in
 artifact and behavior, and the whole compile, link, and execute chain
-matches `ncc <file>`. Specifics:
+matches `ncc <file>`. Synthesis happens only when top-level statements
+exist: an ordinary program with a handwritten `main()` (the programs in
+`examples/`, for instance) runs under nlang exactly as `ncc <file>`
+runs it. Specifics:
 
 - **Exit code = the top-level return**: `return 42;` exits the process
   with 42; with no top-level return the exit code is 0. A bare
@@ -57,7 +67,9 @@ matches `ncc <file>`. Specifics:
   enums, and interfaces may interleave freely with top-level
   statements; all declarations register at load time (position
   independent) while statements execute in source order. `import` and
-  `using` must still lead the file.
+  `using` must still lead the file. Mixing top-level statements with a
+  handwritten `main()` in one file is rejected by the duplicate-name
+  check.
 - **Imported units execute no statements**: a library unit loads
   declarations only. A library carrying top-level statements fails at
   compile time (`contains top-level statements`) rather than being

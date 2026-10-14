@@ -23,9 +23,16 @@ int main() {
 
 在源码所在目录执行（安装包用户使用`bin\ncc`、`bin\nvm`）：
 
-    ncc build hello.n -o hello.ncu    # 编译nvm hello.ncu                     # 运行，退出码0
+    ncc build hello.n -o hello.ncu    # 编译
+    nvm hello.ncu                     # 运行，退出码0
 
 - `.ncu`是编译后的字节码单元映像，由nvm直接执行——部署时不必携带源码；它引用的库（如标准库）在运行期由工具链沿搜索路径自动定位。
 - 进程退出码就是`main`的返回值：cmd用`echo %ERRORLEVEL%`、PowerShell用`$LASTEXITCODE`查看。
-- `ncc hello.n`一步完成编译并立即执行；不带`-o`时`.ncu`写到当前工作目录（见下文「常见问题」）。
+- `ncc hello.n`一步完成编译并立即执行；不带`-o`时`.ncu`写到当前工作目录（见[常见问题](faq.md)）。
+
+想省掉`main()`样板？nlang直接运行顶层语句，一行就够（安装包用户用`bin\nlang`）：
+
+    nlang -c "import io; io.print(\"hello, NLang\");"
+
+脚本模式的完整语义见[nlang](../cli-tools/nlang.md)。
 

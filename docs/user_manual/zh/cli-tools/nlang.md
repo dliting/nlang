@@ -12,6 +12,8 @@ nlang不经`main()`样板直接运行NLang语句，用法与python解释器一�
 
 每次调用只做一件事：要么给脚本文件，要么给`-c`。两样都给、都没给，或者出现不认识的标志时，nlang打印用法并以退出码1结束。`-c`的文本原样写进一个临时`.n`文件（内嵌换行保留），按脚本执行，诊断里的行号就来自这个文件。命令行参数按宽字符解码，中文字符串这类非美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）内容可以直接使用。
 
+示例中的引号写法面向cmd与bash。Windows PowerShell 5.1里保留反斜杠，外层改用单引号：`nlang -c 'import io; io.print(\"hello\");'`。PowerShell 7里用单引号并去掉反斜杠：`nlang -c 'import io; io.print("hello");'`。或者把语句写进`.n`文件运行`nlang <文件>`，完全绕开引号问题。
+
 ## 标志
 
 | 标志 | 说明 |
@@ -24,11 +26,11 @@ nlang不经`main()`样板直接运行NLang语句，用法与python解释器一�
 
 ## 脚本模式语义
 
-顶层语句被包裹进一个合成的`int main()`。这个合成入口与手写`main()`在产物与行为上没有区别，整条编译、链接、执行链路与`ncc <文件>`一致。具体语义：
+顶层语句被包裹进一个合成的`int main()`。这个合成入口与手写`main()`在产物与行为上没有区别，整条编译、链接、执行链路与`ncc <文件>`一致。合成只发生在有顶层语句的文件里：没有顶层语句的普通程序（手写`main()`，如`examples/`里的示例）用nlang运行，行为与`ncc <文件>`相同。具体语义：
 
 - **退出码＝顶层return**：`return 42;`让进程以42退出；没有顶层return时退出0。裸`return;`是错误（缺少返回值）。
 - **空脚本退出0**：没有可执行语句的文件（空文件、只有声明或只有import）不会合成入口，nlang按成功处理，退出0。这与nvm不同：nvm运行无入口的产物时会退出1。
-- **声明与语句混排**：函数、class、struct、enum、interface可与顶层语句任意交错；全部声明在装载期注册（书写位置无关），语句按源文顺序执行。`import`与`using`仍须写在文件头。
+- **声明与语句混排**：函数、class、struct、enum、interface可与顶层语句任意交错；全部声明在装载期注册（书写位置无关），语句按源文顺序执行。`import`与`using`仍须写在文件头。顶层语句与手写`main()`写进同一文件会被重名检查拒绝。
 - **被import的单元不执行语句**：库单元只装载声明。含顶层语句的库在编译期就会报错（`contains top-level statements`）。这一点与python不同：python的模块体在import时会执行。
 - **顶层break/continue被拒绝**：顶层`break`要求外围有循环或switch，`continue`要求外围有循环，否则是编译错误。
 - **未捕获异常**：stderr打印`Runtime error: ...`与调用回溯，退出1。

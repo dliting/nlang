@@ -105,13 +105,22 @@ fields:
 ### 2. The command line
 
 Run from the repository root; installer users run from the installation
-root (ncc/nvm live under `bin\`):
+root (nlang/ncc/nvm live under `bin\`).
+
+The fastest way is nlang: it compiles and executes in process and
+leaves no artifact on disk. Ordinary programs with a handwritten
+`main()` (the programs in `examples/`, for instance) run unchanged —
+see [nlang](../cli-tools/nlang.md):
+
+    nlang examples/hello.n                    # run directly (exit code 42)
+
+To keep a deployable artifact, use the compile → run two-step:
 
     ncc build examples/hello.n -o hello.ncu   # compile
     nvm hello.ncu                             # run (exit code 42)
 
-If PATH is not set up inside the installation, use
-`bin\ncc build ...` and `bin\nvm <name>.ncu`.
+If PATH is not set up inside the installation, use `bin\nlang ...`,
+`bin\ncc build ...`, and `bin\nvm <name>.ncu`.
 
 Multi-file projects pass the `.nproj` with `-p` and the output location
 with `-o` (the artifact is a `.npkg` program archive):
