@@ -1,0 +1,8 @@
+// Standard-library import through the whole pipeline: io's signatures
+// are inlined at compile time, but its unit ships inside stdlib.npkg
+// and joins the link closure at load time (NcuLoader member
+// discovery). This pins that seam end to end: exit 3 plus the printed
+// line on stdout.
+import io;
+io.print("hello from io");
+return 3;

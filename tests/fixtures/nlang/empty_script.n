@@ -1,0 +1,6 @@
+// Script mode's empty-script shape: a unit with no top-level statements
+// gets no synthesized entry (the wrapper only exists when there is
+// something to run), and the runner maps "linked but no entry point" to
+// exit 0 — the tool-layer D3 mapping nvm does not have.
+//
+// This file is comments only: no declarations, no statements.

@@ -1,0 +1,7 @@
+// Non-ASCII statements for the -c path. "你好" is 6 UTF-8 bytes, so the
+// exit code pins the byte count: if the wide-argv decode mangled the
+// payload (ANSI round-trip), the byte count changes and the exit code
+// with it. A direct file run returns the same 6 — sources are read as
+// UTF-8 either way.
+string s = "你好";
+return s.length();

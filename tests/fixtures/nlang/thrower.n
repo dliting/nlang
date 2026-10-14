@@ -1,0 +1,4 @@
+// Uncaught top-level throw: the runner surfaces the exception's message
+// and backtrace on stderr and exits 1 — the same surface nvm gives the
+// compiled form of the same program.
+throw Exception("boom");

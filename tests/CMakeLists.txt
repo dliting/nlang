@@ -1179,7 +1179,12 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
             $<TARGET_FILE:ndb> ndb ${NLANG_VERSION})
+    add_test(NAME version_nlang
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
+            $<TARGET_FILE:nlang> nlang ${NLANG_VERSION})
     set_tests_properties(version_ncc version_nvm version_ndisasm version_ndb
+        version_nlang
         PROPERTIES TIMEOUT 60)
     # nvm flag-position guard: --gc-stress=N must parse from any
     # argument position, with the module exit code unchanged.
@@ -1188,6 +1193,18 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
     set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
+    # nlang script runner: the three behavior faces of the tool (script
+    # mode end to end incl. the D3 empty-script mapping, -c inline
+    # statements incl. the non-ASCII wide-argv path, and the CLI
+    # rejection surface). One checker, one ctest entry per face.
+    foreach(nlang_case IN ITEMS run_script c_inline cli_rejects)
+        add_test(NAME nlang_${nlang_case}
+            COMMAND ${PYTHON3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/check_nlang_tool.py
+                ${nlang_case} $<TARGET_FILE:nlang>)
+    endforeach()
+    set_tests_properties(nlang_run_script nlang_c_inline nlang_cli_rejects
+        PROPERTIES TIMEOUT 120)
     # .ncu byte-reproducibility guard: the same compiler and source must
     # yield identical module bytes on every run (regression net for the
     # uninitialized class-field access serialization bug).

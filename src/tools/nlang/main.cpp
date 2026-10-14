@@ -1,8 +1,9 @@
 /*---
     nlang -- run NLang scripts ad hoc, python-style (v0.9.1): top-level
     statements execute without an explicit main() (the compiler wraps
-    them in a synthesized entry). Compiles and executes in process; no
-    .ncu artifact is written.
+    them in a synthesized entry). Compiles and executes in process; the
+    entry unit rides a temp .ncu through the same loader/linker seam
+    "ncc <source.n>" uses, removed on exit (no artifact is left behind).
 ---*/
 #include "ScriptRunner.h"
 #include "CrashReporter.h"
@@ -158,6 +159,8 @@ bool ParseArgs(const std::vector<std::string>& args, CliOptions& out) {
 RunOutcome RunTarget(const CliOptions& opts) {
     if (opts.hasInline) {
         TempScriptFile temp(opts.inlineStmts);
+        if (temp.Path().empty())
+            return {};   //diagnostic already printed (no usable temp root)
         return RunScript(temp.Path(), opts.importDirs);
     }
     if (!std::filesystem::exists(opts.scriptPath)) {
