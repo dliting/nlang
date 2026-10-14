@@ -8,6 +8,21 @@
 namespace nlang
 {
 
+namespace {
+//Scope guard for the resolver loop/switch depth counters (v0.9.1:
+//top-level break/continue rejection). Constructed before descending
+//into a loop body; holds across every exit path of the statement walk.
+struct FlowDepthGuard {
+	int& m_breakable;
+	int& m_loop;
+	FlowDepthGuard(int& breakable, int& loop)
+		: m_breakable(breakable), m_loop(loop)
+	{ m_breakable += 1; m_loop += 1; }
+	~FlowDepthGuard() { m_breakable -= 1; m_loop -= 1; }
+};
+} //namespace
+
+
 //0.7.5 strict bool: conditions must be bool (carrier int32 0/1, so
 //OP_JumpIfNot bit patterns are unchanged). Historically int was
 //accepted and non-int kinds read as silent garbage (string = pool
@@ -42,12 +57,14 @@ void StatementResolveAccessor::Access(SnWhileStmt &sn)
 	assert(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
 	CheckBoolCondition(*sn.Cond(), "while");
+	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);
 	sn.Body()->Accept(*m_pVisitor);
 }
 
 void StatementResolveAccessor::Access(SnDoStmt &sn)
 {
 	assert(m_pVisitor);
+	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);
 	sn.Body()->Accept(*m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
 	CheckBoolCondition(*sn.Cond(), "do-while");
@@ -158,6 +175,7 @@ void StatementResolveAccessor::Access(SnForStmt &sn)
 
 	sn.Cond()->Accept(*m_pVisitor);
 	CheckBoolCondition(*sn.Cond(), "for");
+	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);
 	sn.Body()->Accept(*m_pVisitor);
 	if (sn.Fini())
 		sn.Fini()->Accept(*m_pVisitor);
@@ -294,11 +312,22 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 	}
 
 	//4. Descend into body.
+	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);
 	sn.Body()->Accept(*m_pVisitor);
 }
 
 void StatementResolveAccessor::Access(SnBreakStmt &sn)
 {
+	//v0.9.1: a break outside any loop or switch reaches codegen with an
+	//empty loop stack — its empty-guard returns early, so Release emits
+	//nothing and execution falls through (a silent no-op; Debug asserts).
+	//Reject cleanly at resolve time instead.
+	if (m_breakableDepth == 0)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"break statement outside of a loop or switch");
+		return;
+	}
 	//Phase 9d-2: control transfer out of a finally body is rejected
 	//(would swallow exceptions/control flow — Java allows it, MVP does not).
 	if (m_inFinallyBody)
@@ -308,6 +337,14 @@ void StatementResolveAccessor::Access(SnBreakStmt &sn)
 
 void StatementResolveAccessor::Access(SnContinueStmt &sn)
 {
+	//v0.9.1: mirror of the break depth gate — continue additionally
+	//requires a loop (a bare switch is breakable, not continuable).
+	if (m_loopDepth == 0)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"continue statement outside of a loop");
+		return;
+	}
 	if (m_inFinallyBody)
 		m_Env.Log(CLL_Error, sn.Location(),
 			"continue is not allowed inside a finally block");

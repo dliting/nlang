@@ -261,10 +261,15 @@ void StatementResolveAccessor::Access(SnSwitchStmt &sn)
 			m_Env.Log(CLL_Error, sn.Cond()->Location(),
 				"switch discriminant must be int, float, string, or enum");
 	}
+	//v0.9.1: case bodies are breakable scope (a bare break may leave the
+	//switch) but not loop scope (continue passes through to the enclosing
+	//loop) — bump only the breakable depth, mirroring m_inFinallyBody.
+	++m_breakableDepth;
 	for (auto* pCase : sn.Cases())
 		pCase->Accept(*m_pVisitor);
 	if (sn.Default())
 		sn.Default()->Accept(*m_pVisitor);
+	--m_breakableDepth;
 	CheckDuplicateCaseLabels(sn);
 }
 

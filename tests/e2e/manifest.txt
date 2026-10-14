@@ -1387,3 +1387,5 @@ err_script_bare_return compile_error Missing return value
 err_top_undefined compile_error The function "nope" does not exist
 err_top_const_reassign compile_error cannot assign to const local
 err_top_direct_init_member_arg compile_error syntax error
+err_top_break compile_error break statement outside
+err_top_continue compile_error continue statement outside

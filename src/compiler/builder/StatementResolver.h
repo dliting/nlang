@@ -216,6 +216,13 @@ private:
 	SnField *m_pCurrType;
 	SnClassDecl *m_pCurrClass = nullptr;
 	bool m_inFinallyBody = false;
+	//v0.9.1: nesting depth of breakable constructs (loops + switch,
+	//validates break) and of loops only (validates continue). Zero at
+	//function-body level — a top-level break/continue reaches codegen's
+	//empty loop stack, whose guard makes it a silent no-op in Release
+	//(assertion in Debug); reject here instead.
+	int m_breakableDepth = 0;
+	int m_loopDepth = 0;
 	ExprResolver m_ExprResolver;
 };
 
