@@ -6,7 +6,12 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-%expect 26
+/*v0.9.1: the grammar now carries 4 accepted reduce/reduce conflicts,
+and deterministic parsers cannot use %expect alongside any r/r
+conflict, so there is no %expect here. The counts are pinned by the
+accepted-conflict ledger below and re-measured by the direct bison
+gate on every grammar edit; the build passes -Wno-conflicts-sr and
+-Wno-conflicts-rr to stay silent.*/
 
 %code requires {
 
@@ -259,6 +264,8 @@ static bool CollectQualifiedSegments(
 	std::vector<nlang::SnLocalDeclStmt::LocalDecl> * v_pLocalDeclList;
     nlang::PtrList<nlang::SnField> *		v_pMemberList;
 	nlang::SnField *						v_pField;
+	nlang::SyntaxNode *						v_pSyntaxNode;
+	std::vector<nlang::SyntaxNode*>	*v_pSyntaxNodeVec;
 	nlang::NodeBits							v_NodeFlags;
 	nlang::FieldAccessType					v_AccessType;
 	std::vector<nlang::InitEntry>*			v_pInitEntryList;
@@ -281,7 +288,10 @@ static bool CollectQualifiedSegments(
 
 /*declare nonterminals */
 %type <v_AccessType>    		AccessType
-%type <v_NodeFlags>    			NodeFlags NodeFlag
+%type <v_AccessType>			AccessTypeNonEmpty
+%type <v_AccessType>			AccessTypeEmpty
+%type <v_NodeFlags>    			NodeFlag
+%type <v_NodeFlags>				NodeFlagsNonEmpty
 %type <v_pNameExpr>				NameExpr
 %type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName
 %type <v_pFieldExprVec>			TypeList
@@ -293,7 +303,8 @@ static bool CollectQualifiedSegments(
 %type <v_pImportList>			ImportList
 %type <v_pImportSpec>			ImportPath ImportTail
 %type <v_pField>				NamespaceMember
-%type <v_pMemberList>			NamespaceMemberList
+%type <v_pSyntaxNode>			TopItem
+%type <v_pSyntaxNodeVec>		TopMemberList
 %type <v_pFormalParam>			FormalParam
 %type <v_pFormalParamList>		FormalParamList
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr SubscriptExpr
@@ -301,8 +312,8 @@ static bool CollectQualifiedSegments(
 %type <v_pExpression>			ConcreteParam BracedInitExpr
 %type <v_pInitEntryList>		InitListElements InitListElementList InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
-%type <v_pFunction>				Function FunctionHeader
-%type <v_pParagraph>			Paragraph FunctionBody DefaultCase FunctionBodyOrSemi
+%type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader
+%type <v_pParagraph>			Paragraph DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
 %type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt SuperCallStmt FinallyClauseOpt
 %type <v_pForStmt>		ForStmt
@@ -482,10 +493,27 @@ extern int yylex \
 
 %%
 
-CompileUnit:	ImportList UsingList NamespaceMemberList {
+CompileUnit:	ImportList UsingList TopMemberList {
+						//v0.9.1 script mode: split top-level items into unit members (functions
+						//and type declarations) and script statements. The statement paragraph is
+						//later wrapped into a synthesized int main() by ModuleBuilder (D2).
 						TranslationUnit *pTransUnit = parser.TransUnit();
-						pTransUnit->Init($2, $3, @3);
+						PtrList<SnField>* pMembers = new PtrList<SnField>();
+						PtrList<SnStatement>* pStmts = new PtrList<SnStatement>();
+						for (nlang::SyntaxNode* pItem : *$3)
+						{
+							if (nlang::IsUnitMemberKind(pItem->Kind()))
+								pMembers->push_back(static_cast<SnField*>(pItem));
+							else
+								pStmts->push_back(static_cast<SnStatement*>(pItem));
+						}
+						pTransUnit->Init($2, pMembers, @3);
 						pTransUnit->SetImports($1);
+						if (!pStmts->empty())
+							pTransUnit->SetScriptParagraph(new SnParagraph(pStmts, @3));
+						else
+							delete pStmts;
+						delete $3;
 					} ;
 
 ImportList:	ImportList KT_Import ImportTail ';' {
@@ -546,21 +574,109 @@ Using:	KT_Using NameExpr ';' {
 			   $$ = new SnUsing($2, $4, @2);
 			} ;
 
-NamespaceMemberList:	NamespaceMemberList NamespaceMember {
-								$1->push_back($2);
-								$$ = $1;
-							} |
-							{
-								/*on empty */
-								$$ = new PtrList<SnField>();
-							} ;
+//v0.9.1 script mode: top-level list mixing declarations and script statements.
+TopMemberList:	TopMemberList TopItem {
+						if ($2 != nullptr)
+							$1->push_back($2);
+						$$ = $1;
+					} |
+					{
+						/*on empty */
+						$$ = new std::vector<nlang::SyntaxNode*>();
+					} ;
+
+TopItem:	NamespaceMember {
+						$$ = $1;
+					} |
+					Statement {
+						$$ = $1;
+					} |
+					TopBareFunc {
+						$$ = $1;
+					} |
+					TopModFunc {
+						$$ = $1;
+					} ;
+
+//v3H: the bare form must carry a body. A bodyless bare "T name();" would
+//be indistinguishable from a zero-argument construction at the shared paren
+//state, and the double-epsilon there must favor the function header (else
+//zero-parameter definitions die), so the declaration-only form moves behind
+//the explicit KT_Func marker (func Foo f();).
+TopBareFunc:	TopBareHeader Paragraph {
+						$1->Body($2);
+						$$ = $1;
+					} |
+					KT_Func TopBareHeader ';' {
+						$2->AddFlags(NF_Abstract);
+						$$ = $2;
+					} ;
+
+TopBareHeader:	HeadType TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $4, @1);
+					} |
+					KT_Void TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction(FA_Default, NF_NONE, nullptr, $2, $4, @1);
+					} ;
+
+//Modifier-led top-level function. The modifier slot never derives empty:
+//(A,empty) enters on a literal access keyword, (empty,F) on a flag keyword
+//(the AccessType epsilon reduces only on flag lookaheads, none of which
+//starts a statement), (A,F) on both.
+TopModFunc:	TopModHeader FunctionBodyOrSemi {
+						if ($2 == nullptr)
+							$1->AddFlags(NF_Abstract);
+						else
+							$1->Body($2);
+						$$ = $1;
+					} ;
+
+TopModHeader:	AccessTypeNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
+					} |
+					AccessTypeNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+					} |
+					AccessTypeEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
+					} |
+					AccessTypeEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
+					} |
+					AccessTypeNonEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
+					} |
+					AccessTypeNonEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
+						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
+					} ;
+
+//v0.9.1: epsilon-only access slot for the (empty,F) header arm. Keeps flag
+//keywords out of the classic AccessType follow set (they would collide
+//with AccessTypeNonEmpty as a same-string double derivation).
+AccessTypeEmpty:	{ $$ = FA_Default; } ;
+
+AccessTypeNonEmpty:	KT_Private { $$ = FA_Private; } |
+					KT_Protected { $$ = FA_Protected; } |
+					KT_Public { $$ = FA_Public; } ;
+
+NodeFlagsNonEmpty:	NodeFlagsNonEmpty NodeFlag {
+						const NodeBits toAdd = $2;
+						if (($1 & toAdd) != 0)
+						{
+							parser.Log(CLL_Error, @2, "Duplicate modifier \"%s\".",
+								NodeFlagInfo::NameOf(toAdd));
+							$$ = $1;
+						}
+						else
+							$$ = $1 | toAdd;
+					} |
+					NodeFlag {
+						$$ = $1;
+					} ;
 
 //File-top member table; the container is the file's own package (the
 //path-derived unit — Phase 5 removed the `namespace` shell syntax).
-NamespaceMember:	Function {
-							$$ = $1;
-						} |
-						EnumDecl {
+NamespaceMember:	EnumDecl {
 							$$ = $1;
 						} |
 						StructDecl {
@@ -572,26 +688,6 @@ NamespaceMember:	Function {
 						InterfaceDecl {
 							$$ = $1;
 						} ;
-
-Function:	FunctionHeader FunctionBody {
-					$1->Body($2);
-					$$ = $1;
-				} |
-				FunctionHeader ';' {
-					$1->AddFlags(NF_Abstract);
-					$$ = $1;
-				} ;
-
-FunctionHeader:	AccessType NodeFlags Type TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
-					}
-					| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
-					} ;
-
-FunctionBody:	Paragraph {
-						$$ = $1;
-					} ;
 
 FormalParamList:	FormalParamList ',' FormalParam {
 							if ($1->empty())
@@ -607,18 +703,36 @@ FormalParamList:	FormalParamList ',' FormalParam {
 						{
 							/*on empty */
 							$$ = new PtrList<SnFormalParam>();
+							//v0.9.1: this epsilon and ConcreteParamList's epsilon meet in
+							//the shared paren state (2 r/r). Rule order picks the winner:
+							//FormalParamList stays earlier in this file, so the function
+							//header wins and zero-parameter definitions parse (D6).
 						} ;
 
-FormalParam:	NodeFlags Type TT_Identifier '=' Expression {
+FormalParam:	NodeFlagsNonEmpty Type TT_Identifier '=' Expression {
 						$$ = new SnFormalParam($1, $2, $3, $5, @1);
 					} |
-					NodeFlags Type TT_Identifier {
+					NodeFlagsNonEmpty Type TT_Identifier {
 						$$ = new SnFormalParam($1, $2, $3, nullptr, @1);
 					} |
+					/*v0.9.1: bare arms. Type must open the production so a
+					 * dot-before-Type item lives in the shared paren state;
+					 * without it the epsilon suppression kills "int f(int x)".*/
+					Type TT_Identifier '=' Expression {
+						$$ = new SnFormalParam(NF_NONE, $1, $2, $4, @1);
+					} |
+					Type TT_Identifier {
+						$$ = new SnFormalParam(NF_NONE, $1, $2, nullptr, @1);
+					} |
 					/* Phase 9e: out parameter. No default-value form — an out
-					 * parameter is callee-assigned, a default is meaningless. */
-					NodeFlags KT_Out Type TT_Identifier {
+					 * parameter is callee-assigned, a default is meaningless.
+					 * v0.9.1: modifier-led or bare, mirroring the arms above. */
+					NodeFlagsNonEmpty KT_Out Type TT_Identifier {
 						$$ = new SnFormalParam($1, $3, $4, nullptr, @2);
+						$$->AddFlags(NF_Out);
+					} |
+					KT_Out Type TT_Identifier {
+						$$ = new SnFormalParam(NF_NONE, $2, $3, nullptr, @1);
 						$$->AddFlags(NF_Out);
 					} ;
 
@@ -1247,7 +1361,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 						func->Body($8);
 					$$ = func;
 				} |
-				AccessType NodeFlags Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+				AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @3);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
@@ -1272,7 +1386,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 						func->Body($8);
 					$$ = func;
 				}
-				| AccessType NodeFlags KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @3);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
@@ -1296,21 +1410,6 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 FunctionBodyOrSemi:	Paragraph { $$ = $1; } |
 				';' { $$ = nullptr; } ;
 
-NodeFlags:	NodeFlags NodeFlag {
-					const NodeBits toAdd = $2;
-					if (($1  &toAdd) != 0)
-					{
-						parser.Log(CLL_Error, @2, "Duplicate modifier \"%s\".",
-							NodeFlagInfo::NameOf(toAdd));
-						$$ = $1;
-					}
-					else
-						$$ = $1 | toAdd;
-				} |
-				{
-					//on empty
-					$$ = NF_NONE;
-				} %prec P_ClassMethod ;
 
 NodeFlag:	KT_Const 		{ $$ = NF_Const;    	} |
 				KT_Static       { $$ = NF_Static;       } |
@@ -1329,30 +1428,43 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-10-13, bison 3.8.2): 26
-//shift/reduce, 0 reduce/reduce, in four families (0.9.0 removed the
-//`new` shapes, dropping the third '<' state), every one resolved by
-//bison's default to the intended reading. The count is pinned by the
-//`%expect 26` in the prologue, so bison is SILENT on a clean tree — any
-//grammar edit that moves the count now fails the build with
-//`error: shift/reduce conflicts: N found, 26 expected` instead of
-//leaving a notice in a log nobody reads. Bump `%expect` in the same
-//commit as the edit, never in a commit of its own.
-//- states 159/196 (1 each): the '<' shapes — an explicit generic
-//  type head (`List<int> l;`) and the void-return
-//  func spellings. Reduce-first keeps the declaration reading.
-//- state 273 (20): ClassMember's NodeFlag-singular vs NodeFlags-plural
-//  productions overlap on the flag/type first tokens — both derivations
-//  parse the same member; shift keeps reading flags. The family spans
-//  every type keyword, so the 0.7.5 primitive set (bool/char/byte/
-//  short/long, the unsigned variants, double) widened it from 9 to 19,
-//  and the 0.8.3 func keyword added the 20th.
-//- state 312 (2): catch/finally after a nested `try` statement — the
+//Accepted-conflict ledger (re-measured 2026-10-14, bison 3.8.2, on the
+//v0.9.1 script-mode grammar): 23 shift/reduce, 4 reduce/reduce, every
+//one resolved by bison's default to the intended reading. Deterministic
+//parsers cannot use %expect alongside r/r conflicts, so no %expect pins
+//these numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr
+//to stay silent, and the counts are guarded by re-measuring (the
+//conflicts: lines of a `bison -v` .output) on every grammar edit —
+//compare against this ledger and never bump it silently.
+//- states 113/130 (1 each): the '<' shapes — an explicit generic type
+//  head (`List<int> l;`) and the void-return func spellings. Reduce-
+//  first keeps the declaration reading.
+//- state 266 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- states 84/85 (1 each, added with TypeName): ':' / `as` followed by a
-//  dotted type name — '.' shifts to continue the chain, the default
+//- states 287/288 (1 each, added with TypeName): ':' / `as` followed by
+//  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
+//- state 541 (16): ClassMember's NodeFlag-singular vs
+//  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
+//  tokens — both derivations parse the same member; shift keeps reading
+//  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
+//  arm, taking this family from 20 down to 16.
+//- state 12 (1, v0.9.1): `const` opening a top-level function vs the
+//  const statement — the AccessTypeEmpty epsilon loses the shift, so
+//  `const int x = 5;` lives and `const int f(){}` is rejected (a true
+//  LALR ambiguity; zero corpus hits, recorded as a known limitation).
+//- state 282 (2 r/r, v0.9.1): the empty-paren double epsilon —
+//  FormalParamList's and ConcreteParamList's empty productions both
+//  reduce on ')' and ','. Bison prefers the rule declared earlier in
+//  this file, so the function header wins and `int main(){}` parses;
+//  a bodyless bare `T name();` is therefore always a construction,
+//  never a declaration — forward declarations carry the explicit
+//  `func` marker for that reason.
+//- state 398 (2 r/r, v0.9.1): NameExpr vs Expression on '.'/'<' after
+//  a top-level direct-init first argument — NameExpr wins, so
+//  `T name(a.b);` fails cleanly on the type path; the workaround is
+//  `T name = T(a.b);`. Function bodies are unaffected.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
@@ -1721,6 +1833,9 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 						{
 							//on empty
 							$$ = new PtrList<SnExpression>();
+								//v0.9.1: must stay BELOW FormalParamList in this file —
+								//the two epsilons meet in the shared paren state; see
+								//the note there (D6).
 						} ;
 
 //Phase 9c: a concrete parameter is either a positional argument (any

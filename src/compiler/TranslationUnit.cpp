@@ -11,13 +11,15 @@ namespace nlang
 {
 
 TranslationUnit::TranslationUnit(const std::string& sFilePath):
-	m_sFilePath(sFilePath), m_pRoot(nullptr), m_upUsings(nullptr), m_upImports(nullptr)
+	m_sFilePath(sFilePath), m_pRoot(nullptr), m_pScriptParagraph(nullptr),
+	m_upUsings(nullptr), m_upImports(nullptr)
 {
 }
 
 TranslationUnit::~TranslationUnit()
 {
 	delete m_pRoot;
+	delete m_pScriptParagraph;
 	// m_upUsings is now unique_ptr - auto-deleted
 }
 
@@ -28,6 +30,12 @@ void TranslationUnit::Init(PtrList<SnUsing>* pUsings,
 	m_upUsings = std::make_unique<UsingList>(pUsings);
 	auto pName = new std::string(GLOBAL_NAMESPACE_NAME);
 	m_pRoot = new SnNamespace(pName, pFields, loc);
+}
+
+void TranslationUnit::SetScriptParagraph(SnParagraph *pScript)
+{
+	assert(!m_pScriptParagraph);
+	m_pScriptParagraph = pScript;
 }
 
 } //namespace nlang

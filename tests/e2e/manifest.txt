@@ -1368,3 +1368,4 @@ err_type_var_catch compile_error cannot be used as a variable name
 err_type_var_foreach compile_error cannot be used as a variable name
 err_type_var_for compile_error cannot be used as a variable name
 err_type_var_builtin_class compile_error cannot be used as a variable name
+err_top_bare_fwd_decl compile_error syntax error

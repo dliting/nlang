@@ -16,6 +16,7 @@ namespace nlang
 {
 
 class SnNamespace;
+class SnParagraph;
 class CompileLogger;
 
 //One `import` statement: a dotted module path with an optional
@@ -95,6 +96,28 @@ public:
 	}
 
 	/*
+	v0.9.1 script mode: the paragraph of top-level statements, parked here
+	by the CompileUnit grammar action. ModuleBuilder::PrepareUnits later
+	wraps it into a synthesized int main() and takes ownership through
+	DetachScriptParagraph().
+	*/
+	//@{
+	void SetScriptParagraph(SnParagraph *pScript);
+
+	SnParagraph *ScriptParagraph() const
+	{
+		return m_pScriptParagraph;
+	}
+
+	SnParagraph *DetachScriptParagraph()
+	{
+		SnParagraph *pScript = m_pScriptParagraph;
+		m_pScriptParagraph = nullptr;
+		return pScript;
+	}
+	//@}
+
+	/*
 	Phase 13: the type alias table (translation-unit scope). Populated by
 	the TU-level alias pre-pass from `using Name = Type;` directives before
 	translation units are merged; the table maps an alias name to the
@@ -119,6 +142,7 @@ private:
 	std::unique_ptr<UsingList> m_upUsings;
 	std::unique_ptr<std::vector<ImportSpec>> m_upImports;
 	SnNamespace *m_pRoot;
+	SnParagraph *m_pScriptParagraph;
 	std::unordered_map<std::string, SnFieldExpr*> m_aliasTable;
 	const std::string m_sFilePath;
 };

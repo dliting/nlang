@@ -133,6 +133,14 @@ inline bool CanBeFuncParentEx(NodeKind k)
 	return CanBeFuncParent(k) || k == NK_ClassDecl || k == NK_InterfaceDecl;
 }
 
+//CompileUnit split (v0.9.1 script mode): which top-level items are unit
+//members (functions and type declarations) rather than script statements.
+inline bool IsUnitMemberKind(NodeKind kind)
+{
+	return kind == NK_Function || kind == NK_EnumDecl || kind == NK_StructDecl
+		|| kind == NK_ClassDecl || kind == NK_InterfaceDecl;
+}
+
 //RnField searching flags.
 enum FieldSearchFlag
 {

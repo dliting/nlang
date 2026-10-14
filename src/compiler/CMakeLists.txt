@@ -14,7 +14,12 @@ endif()
 
 add_custom_command(
     OUTPUT ${GENERATED_DIR}/nlang.tab.cpp ${GENERATED_DIR}/nlang.tab.h
+    #v0.9.1: the grammar carries 4 accepted reduce/reduce conflicts, and
+    #deterministic parsers cannot use %expect alongside any r/r conflict,
+    #so the conflict notices are silenced here; the counts are pinned by
+    #the accepted-conflict ledger in nlang.y and its re-measurement gate.
     COMMAND ${BISON_EXE} -d --header=${GENERATED_DIR}/nlang.tab.h
+        -Wno-conflicts-sr -Wno-conflicts-rr
         -o ${GENERATED_DIR}/nlang.tab.cpp ${GRAMMAR_DIR}/nlang.y
     DEPENDS ${GRAMMAR_DIR}/nlang.y
     COMMENT "Generating Bison parser"
