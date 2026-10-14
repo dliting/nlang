@@ -6,6 +6,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.1]
+
+### 新增
+- **nlang——脚本运行器**：直接运行`.n`文件或内联语句，python风格
+  （`nlang script.n`、`nlang -c "..."`）——顶层语句被包裹进合成的
+  `main()`，退出码即顶层`return`，不在磁盘留下任何产物。
+
+### 变更
+- **顶层前置声明改用`func`前缀**：`func int f();`只声明不定义（供
+  native或外部实现使用）；裸形被拒绝。既有语料无须迁移。
+
 ## [0.9.0]
 
 ### 新增

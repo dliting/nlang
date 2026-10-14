@@ -29,6 +29,7 @@ nav:
       - 下一步阅读: getting-started/further-reading.md
   - 命令行工具:
       - 概览: cli-tools/overview.md
+      - nlang: cli-tools/nlang.md
       - ncc: cli-tools/ncc.md
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md

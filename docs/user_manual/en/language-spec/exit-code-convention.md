@@ -4,7 +4,10 @@
 
 `main`'s return value is the process exit code: nvm (and the execution
 phase of `ncc run` and `ncc <file>`) ends the process by calling
-`ExitProcess` with that value. `ncc build` only compiles and never
+`ExitProcess` with that value. nlang has no handwritten `main()`: in
+script mode the top-level `return` is the exit code, because top-level
+statements are wrapped in a synthesized `main()` (see
+[nlang](../cli-tools/nlang.md)). `ncc build` only compiles and never
 executes; on success its exit code is always 0.
 
 Windows preserves the full 32-bit exit code, but **different observers
@@ -22,8 +25,8 @@ view is intuitive.
 
 ## The tools' own 0/1 convention
 
-Failures of ncc and nvm themselves always exit 1, kept distinct from
-program exit codes:
+Failures of ncc, nvm, and nlang themselves always exit 1, kept
+distinct from program exit codes:
 
 - **ncc**: usage/argument errors, compilation failure (`Compilation
   failed.`), compiler internal errors (`Compiler internal error:`) → 1;
@@ -32,6 +35,13 @@ program exit codes:
 - **nvm**: module load failure, runtime error (including an uncaught
   NLang exception) → 1, printing `Runtime error: ...` and a call
   backtrace to stderr; normal completion → `main`'s return value.
+- **nlang**: usage/argument errors, compilation failure, runtime errors
+  (including uncaught exceptions) → 1 (same shape as nvm); normal
+  completion → the top-level `return` value; no top-level return → 0.
+  **An empty script (no executable statements) exits 0.** This is
+  deliberate and differs from nvm, which exits 1 for an artifact
+  without an entry point: for an ad-hoc run, "nothing to do" is
+  success.
 
 The idioms follow from this: 0 means success; use `return 1;` for a
 failed self-check (the Getting Started snippets' `if (condition) return

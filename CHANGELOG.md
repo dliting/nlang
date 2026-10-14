@@ -6,6 +6,22 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.1]
+
+### Added
+
+- **nlang — the script runner**: run `.n` files or inline statements
+  directly, python-style (`nlang script.n`, `nlang -c "..."`) —
+  top-level statements are wrapped in a synthesized `main()`, the exit
+  code is the top-level `return`, and no artifact is left on disk.
+
+### Changed
+
+- **Top-level forward declarations now use the `func` prefix**:
+  `func int f();` declares without defining (for native or external
+  implementations); the bare form is rejected. No existing corpus needs
+  migration.
+
 ## [0.9.0]
 
 ### Added

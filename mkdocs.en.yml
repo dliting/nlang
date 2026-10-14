@@ -29,6 +29,7 @@ nav:
       - Further Reading: getting-started/further-reading.md
   - Command-line Tools:
       - Overview: cli-tools/overview.md
+      - nlang: cli-tools/nlang.md
       - ncc: cli-tools/ncc.md
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md

@@ -36,6 +36,10 @@ no toolchain, no build:
    `.n` files build into a per-user temp area). `examples/README.md` indexes
    every example.
 
+   Prefer a terminal one-liner? Run
+   `bin\nlang -c "import io; io.print(\"hello\");"` —
+   no `main()` boilerplate, no artifacts left behind.
+
 The executables link the MSVC runtime dynamically — install the
 [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) if
 Visual Studio 2022 is not on the machine.
@@ -102,6 +106,16 @@ cmake --build build
   so the `#ifndef` guards skip the conflicting macros.
 
 ## Command-line Tools
+
+```text
+nlang <script.n> [-I <dir>...]                    Run a script directly
+nlang -c "<statements>" [-I <dir>...]             Run inline statements
+```
+
+nlang runs NLang the way a python interpreter does: top-level statements
+are wrapped in a synthesized `main()`, the exit code is the top-level
+`return`, and no artifact is left on disk
+(`docs/user_manual/en/cli-tools/nlang.md` has the full semantics).
 
 ```text
 ncc <source.n> [-o out.ncu] [-I <dir>...]         Compile and execute

@@ -32,6 +32,10 @@ NLang IDE：左侧解决方案树（项目与独立 `.n` 文件）、中部编�
    目录只读；独立 `.n` 文件的产物落在每用户临时区）。
    `examples/README.md` 索引了全部示例。
 
+   想在终端一行跑通？运行
+   `bin\nlang -c "import io; io.print(\"hello\");"`，
+   无需 `main()` 样板，也不在磁盘留下产物。
+
 可执行文件动态链接 MSVC 运行时——若机器上没有 Visual Studio 2022，
 请安装 [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
 
@@ -98,6 +102,15 @@ cmake --build build
   便会跳过冲突的宏。
 
 ## 命令行工具
+
+```text
+nlang <script.n> [-I <dir>...]                    直接运行脚本
+nlang -c "<statements>" [-I <dir>...]             运行内联语句
+```
+
+nlang 以 python 解释器的方式运行 NLang：顶层语句被包裹进合成的
+`main()`，退出码即顶层 `return`，不在磁盘留下任何产物
+（完整语义见 `docs/user_manual/zh/cli-tools/nlang.md`）。
 
 ```text
 ncc <source.n> [-o out.ncu] [-I <dir>...]         编译并执行

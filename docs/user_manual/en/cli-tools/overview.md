@@ -5,7 +5,7 @@ and disassemble — and fit scripted builds, automated testing, and
 headless environments; for a graphical workflow see nide
 ([Three Ways to Run](../getting-started/running.md)).
 
-Five tools ship in the installation's `bin\` directory, four of them
+Six tools ship in the installation's `bin\` directory, five of them
 command-line tools. If PATH is not set up, prefix commands with
 `bin\` (e.g. `bin\ncc build ...`).
 
@@ -13,6 +13,7 @@ command-line tools. If PATH is not set up, prefix commands with
 
 | Tool | Role | Reference |
 |---|---|---|
+| nlang | Run scripts directly (no `main()` boilerplate) | [nlang](nlang.md) |
 | ncc | Compile (with optional immediate execution) | [ncc](ncc.md) |
 | nvm | Run a compiled module | [nvm](nvm.md) |
 | ndb | Debug a compiled module | [ndb](ndb.md) |
@@ -24,13 +25,13 @@ flags, and behavior.
 
 ## Version Queries
 
-All four tools report their version with `--version`, in the form
+All five tools report their version with `--version`, in the form
 `ncc (NLang) <version>`; nide shows its version in Help → About, and
 the documentation site in its footer.
 
 ## Encoding Conventions
 
-The four command-line tools use Unicode Transformation Format (UTF-8) as the process encoding
+The five command-line tools use Unicode Transformation Format (UTF-8) as the process encoding
 (declared in the tools' embedded manifest, Windows 10 1903+):
 command-line arguments and file paths accept full Unicode,
 diagnostics are UTF-8 bytes, and at startup the attached console is

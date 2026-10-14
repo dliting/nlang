@@ -148,3 +148,23 @@
   outside the `.ncu` type-descriptor grammar, which carries data types
   only). Lifting this requires extending the grammar to `func`
   signatures.
+- **`const`-led top-level functions**: `const int f(){}` does not
+  parse, because the `const` entry goes down the same grammar path as
+  const statements: the prefix `const int f(` is indistinguishable
+  from `const int x =`. `const int x = 5;` works; there is currently no
+  legal spelling for a top-level const function (function bodies are
+  unaffected).
+- **Type-line hijack of the first direct-init argument at top level**:
+  when the first argument of `Point p(base.x);` / `Point p(a<b);`
+  starts with a qualified name or a generic form, the parser reads it
+  as a type and reports a clear syntax error. Workaround: assignment
+  initialization, `Point p = Point(base.x);` (function bodies are
+  unaffected).
+- **Top-level empty-parameter asymmetry**: `Foo f();` at top level
+  fails with a clear syntax error, because the empty-parameter form
+  must belong to a function definition: the parser has to choose
+  between an empty-param function head and a zero-argument direct
+  initialization. Workaround: construct with `Foo f = Foo();`,
+  forward-declare with `func Foo f();`. Inside a function body,
+  `Foo f();` is a zero-argument direct initialization and keeps
+  working.
