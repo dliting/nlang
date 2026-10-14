@@ -1,0 +1,6 @@
+// Library unit for the script-mode import fixture: functions only, no
+// top-level statements. NOT listed in any .nproj — a file compiled as a
+// project source never goes through the library-unit path, and the
+// script-mode library semantics (D14) would not be exercised. The
+// consumer (main.n) imports it by bare stem through -I.
+public int twice(int v) { return v * 2; }

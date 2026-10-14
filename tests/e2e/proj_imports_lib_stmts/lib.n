@@ -1,0 +1,6 @@
+// Library unit that violates library semantics (D14): top-level
+// statements in a file imported as a library. Compiling the consumer
+// must fail with "contains top-level statements" — declarations load,
+// statements do not execute on import.
+int leaked = 1;
+return leaked;

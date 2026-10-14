@@ -1,0 +1,8 @@
+// Script-mode project guard (one of two entry units): top-level
+// statements synthesize a main in module mod_a.a. Together with
+// mod_b/b.n the project has two synthesized entry points and must fail
+// backend entry disambiguation ("entry point is ambiguous") — the two
+// files live in different directories so the merged-namespace frontend
+// (same-bare-pool duplicate check) stays out of the way.
+int x = 1;
+return 10 + x;

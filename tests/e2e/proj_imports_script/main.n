@@ -1,0 +1,10 @@
+// Script mode with a library import (libdemo layout): lib's signatures
+// are inlined at compile time from the -I source directory, its code
+// joins the link closure at load time from the prebuilt lib.ncu next to
+// this unit. ctest has no exact-exit-code property, so the fixture
+// self-checks the value and maps it to 0/9 (the same self-check +
+// distinct-nonzero-exit shape libdemo_run uses; the exact
+// top-level-return exit-code mapping is pinned by check_nlang_tool.py).
+import lib;
+if (lib.twice(21) == 42) { return 0; }
+return 9;

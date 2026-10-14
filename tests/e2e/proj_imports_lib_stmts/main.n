@@ -1,0 +1,4 @@
+// Consumer of the statement-carrying library unit: the import itself
+// triggers the D14 rejection at compile time.
+import lib;
+return 0;

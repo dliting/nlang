@@ -627,6 +627,35 @@ target_link_libraries(test_ast_containment
 
 add_test(NAME ast_containment_tests COMMAND test_ast_containment)
 
+# Script-mode wrap unit tests (v0.9.1): entry synthesis driven in
+# process through the real build -> load -> link pipeline; entry
+# selection/signature asserted on the linked function table, the two
+# rejection paths on their diagnostic text.
+add_executable(test_script_wrap
+    test_compiler/test_script_wrap.cpp
+)
+
+target_include_directories(test_script_wrap
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_script_wrap
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+target_compile_definitions(test_script_wrap
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME script_wrap_tests COMMAND test_script_wrap)
+set_tests_properties(script_wrap_tests PROPERTIES TIMEOUT 180)
+
 # ncc .nproj loader unit tests (Phase 10 Step 0).
 add_executable(test_projectfile
     test_ncc/test_projectfile.cpp
@@ -1482,6 +1511,55 @@ add_test(NAME ncc_no_o_output_cwd
         -DCWD_DIR=${CMAKE_BINARY_DIR}/e2e_out/cwd_pin
         -P ${CMAKE_CURRENT_SOURCE_DIR}/ncc_no_o_output_cwd.cmake)
 
+#v0.9.1 script mode (project-form fixtures; same ctest-only shape as the
+#matrix above — the e2e runner gates only single-file and order.txt
+#layouts). Three behaviors: two entry-carrying script units in one
+#project fail backend entry disambiguation (the files sit in different
+#directories so the merged-namespace frontend stays out of the way); a
+#script importing a library runs it through the whole chain (lib
+#pre-built to e2e_out per the library-unit contract — signatures inline
+#from the source dir at compile time, code joins the closure at load
+#time; the fixture self-checks twice(21)==42 and maps to 0/9 like
+#libdemo_run, since ctest has no exact-exit-code property); a library
+#unit carrying top-level statements is rejected at the consumer's
+#compile (D14).
+add_test(NAME proj_two_scripts_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_two_scripts/proj_two_scripts.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_two_scripts.npkg)
+set_tests_properties(proj_two_scripts_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "entry point is ambiguous")
+
+add_test(NAME proj_imports_script_lib
+    COMMAND ncc build
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_imports_script/lib.n
+        #lib.ncu is the generic name the loader's module-name lookup
+        #forces (bare `import lib` resolves <dir>/lib.ncu; a renamed
+        #artifact breaks resolution). Sole producer in e2e_out today;
+        #a future fixture importing a bare "lib" would share it.
+        -o ${CMAKE_BINARY_DIR}/e2e_out/lib.ncu)
+
+add_test(NAME proj_imports_script_compile
+    COMMAND ncc build
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_imports_script/main.n
+        -I ${PROJECT_SOURCE_DIR}/tests/e2e/proj_imports_script
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_imports_script.ncu)
+set_tests_properties(proj_imports_script_compile PROPERTIES
+    DEPENDS proj_imports_script_lib)
+
+add_test(NAME proj_imports_script_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_imports_script.ncu)
+set_tests_properties(proj_imports_script_run PROPERTIES
+    DEPENDS proj_imports_script_compile)
+
+add_test(NAME proj_imports_lib_stmts_compile
+    COMMAND ncc build
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_imports_lib_stmts/main.n
+        -I ${PROJECT_SOURCE_DIR}/tests/e2e/proj_imports_lib_stmts
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_imports_lib_stmts.ncu)
+set_tests_properties(proj_imports_lib_stmts_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "contains top-level statements")
+
 #Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
 #real compile too. Keep each well under the 3-minute unit-test ceiling.
 set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
@@ -1491,6 +1569,9 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_pkg_run_compile proj_pkg_run_run
     proj_not_imported_compile proj_bare_cross_dir_compile
     duplicate_package_path_compile ncc_no_o_output_cwd
+    proj_two_scripts_compile proj_imports_script_lib
+    proj_imports_script_compile proj_imports_script_run
+    proj_imports_lib_stmts_compile
     PROPERTIES TIMEOUT 180)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------

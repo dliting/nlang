@@ -1,0 +1,5 @@
+// Script-mode project guard (second entry unit): top-level statements
+// synthesize a main in module mod_b.b, colliding with mod_a/a.n's
+// synthesized main at entry disambiguation.
+int y = 2;
+return 20 + y;
