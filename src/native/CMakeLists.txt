@@ -23,10 +23,10 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
 endforeach()
 
 # Deploy every module next to each host tool. The loader's default search path
-# is the host executable's directory. ncc/nvm/ndb always exist; nide only when
-# the IDE is built. This subdirectory is added AFTER the tools, so the tool
-# targets (and their output dirs) are known here.
-set(NLANG_NATIVE_HOST_TOOLS ncc nvm ndb)
+# is the host executable's directory. ncc/nvm/ndb/nlang always exist; nide
+# only when the IDE is built. This subdirectory is added AFTER the tools, so
+# the tool targets (and their output dirs) are known here.
+set(NLANG_NATIVE_HOST_TOOLS ncc nvm ndb nlang)
 if(TARGET nide)
     list(APPEND NLANG_NATIVE_HOST_TOOLS nide)
 endif()

@@ -164,6 +164,7 @@ add_subdirectory(src/tools/ncc)
 add_subdirectory(src/tools/nvm)
 add_subdirectory(src/tools/ndisasm)
 add_subdirectory(src/tools/ndb)
+add_subdirectory(src/tools/nlang)
 
 if(NLANG_BUILD_IDE)
     #libvterm is only consumed by nide (terminal emulation), so it sits
@@ -328,7 +329,7 @@ endif()
 # together in bin/, because nide invokes ncc/nvm from its own directory.
 # Build packages from the IDE tree (NLANG_BUILD_IDE=ON, which contains all
 # tools) with:  cpack -C Release -B <release_dir>
-install(TARGETS ncc nvm ndisasm ndb embed_host RUNTIME DESTINATION bin)
+install(TARGETS ncc nvm ndisasm ndb nlang embed_host RUNTIME DESTINATION bin)
 
 # Standard library declarations, installed at the top level next to bin/ so
 # FindStdLibDir (which walks up from the executable's directory) resolves them

@@ -60,7 +60,7 @@ NCU_MINOR = int(_minor_m.group(1))
 
 BIN_FILES = [
     'nide.exe', 'ncc.exe', 'nvm.exe', 'ndisasm.exe', 'ndb.exe',
-    'embed_host.exe',
+    'nlang.exe', 'embed_host.exe',
     'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll',
     # QtWebEngine runtime for the embedded help browser (the closure
     # defined beside find_package(Qt5) in the root CMakeLists).
@@ -269,6 +269,22 @@ def main():
             fail(f'embed_host usage smoke failed: rc={r.returncode}, '
                  f'stderr={r.stderr[:200]!r}')
         print('embed_host: OK (packaged host demo reports its usage)')
+
+        # --- nlang script-mode smoke: no explicit main, exit 42 -----------
+        # Script mode is the runner's defining feature: top-level
+        # statements wrapped in a synthesized entry. A script with no
+        # main() must run and exit with the script's return value.
+        nlang = os.path.join(bin_dir, 'nlang.exe')
+        smoke_script = os.path.join(smoke_cwd, 'nlang_smoke.n')
+        with open(smoke_script, 'w', encoding='utf-8', newline='\n') as fh:
+            fh.write('int six = 6;\nint seven = 7;\nreturn six * seven;\n')
+        r = subprocess.run([nlang, smoke_script], capture_output=True,
+                           timeout=TIMEOUT_SEC, cwd=smoke_cwd)
+        if r.returncode != SMOKE_EXIT_CODE:
+            fail(f'nlang script smoke failed: rc={r.returncode}, expected '
+                 f'{SMOKE_EXIT_CODE}: '
+                 f'{r.stderr.decode("utf-8", "replace")[:500]}')
+        print('nlang: OK (packaged nlang ran a no-main script)')
 
         # --- Docs-site audit: same checker the build gates on -------------
         # Catches broken internal links / #fragments and page-vs-nav drift
