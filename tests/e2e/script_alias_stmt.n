@@ -1,0 +1,4 @@
+using IntList = List<int>;
+
+IntList xs = [4, 5];
+return xs.length();

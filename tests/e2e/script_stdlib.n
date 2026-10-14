@@ -1,0 +1,7 @@
+import io;
+
+List<int> xs = [1, 2, 3];
+int total = 0;
+foreach (int v in xs) { total += v; }
+io.print("total=" + total.toString());
+return total;

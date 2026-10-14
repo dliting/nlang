@@ -1369,3 +1369,21 @@ err_type_var_foreach compile_error cannot be used as a variable name
 err_type_var_for compile_error cannot be used as a variable name
 err_type_var_builtin_class compile_error cannot be used as a variable name
 err_top_bare_fwd_decl compile_error syntax error
+script_basic 42
+script_return 42
+script_defs_and_calls 42
+script_stdio 3
+script_stdlib 6
+script_alias_stmt 2
+script_decls_only_missing 1
+script_noreturn 0
+script_top_forms 20
+script_bare_fn_ret 42
+script_pub_fn 42
+script_native_fn 7
+script_func_decl 3
+err_script_dup_main compile_error (line 1, char 1): Error: The field "Int32 main()" is conflicted
+err_script_bare_return compile_error Missing return value
+err_top_undefined compile_error The function "nope" does not exist
+err_top_const_reassign compile_error cannot assign to const local
+err_top_direct_init_member_arg compile_error syntax error

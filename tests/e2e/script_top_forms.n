@@ -1,0 +1,8 @@
+int acc = 0;
+if (acc == 0) { acc += 10; }
+int[] xs = [1, 2];
+foreach (int i in xs) { acc += i; }
+try { acc += 5; } catch (Exception e) { acc = 99; }
+{ acc += 1; }
+while (acc < 20) { acc += 1; }
+return acc;

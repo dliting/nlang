@@ -73,6 +73,7 @@ bool ModuleBuilder::PrepareUnits()
 		return false;
 	if (!RegisterUnits())
 		return false;
+	SynthesizeScriptEntries();
 	//Type alias pre-pass must run before the units are merged (alias scope
 	//is the translation unit; the merge clears unit roots).
 	ExpandTypeAliases();
@@ -186,6 +187,73 @@ void ModuleBuilder::ParseTransUnits()
 		m_upTransUnits->push_back(pTransUnit);
 		parser.ParseUnit(*pTransUnit, m_upEnv->ContainFlags(MBF_ParserDebug));
 	}
+}
+
+//v0.9.1 script mode: wrap each unit's top-level statement paragraph in a
+//synthesized int main(). Runs after RegisterUnits (library identity known,
+//D14) and before ExpandTypeAliases (alias expansion must reach the wrapped
+//body, D2).
+void ModuleBuilder::SynthesizeScriptEntries()
+{
+	for (auto pTransUnit : *m_upTransUnits)   // mirrors RegisterUnits
+	{
+		SnParagraph* pScript = pTransUnit->ScriptParagraph();
+		if (pScript == nullptr)
+			continue;
+		const std::string absPath = std::filesystem::absolute(
+			std::filesystem::path(pTransUnit->FilePath()))
+			.lexically_normal().string();
+		if (m_inlinedLibraryFiles.count(absPath) > 0)
+		{
+			// D14: imported units execute nothing; a silent skip would betray
+			// Python instincts, so reject cleanly.
+			std::string message = "imported unit \"" + absPath
+				+ "\" contains top-level statements";
+			m_upEnv->Log(CLL_Error, "%s", message.c_str());
+			continue;
+		}
+		// Non-library units synthesize UNCONDITIONALLY (D5): a user-written
+		// main() in the same file lands in the same bare pool (same owner,
+		// same directory -- DuplicateFieldChecker SameBarePool), so the
+		// synthesized second main triggers the existing "is conflicted"
+		// diagnostic. Skipping synthesis when a main already exists would
+		// instead leave ONE main and zero diagnostics -- silently dropping
+		// every top-level statement.
+		SnFunction* pMain =
+			BuildScriptEntry(pTransUnit->DetachScriptParagraph());
+		// Ownership of the paragraph moved TU -> SnFunction inside the
+		// builder; the function joins the unit root and reaches the tree
+		// root via the regular MergeTransUnits merge.
+		pTransUnit->Root()->Members().push_back(pMain);
+	}
+}
+
+//Build the synthesized entry around one paragraph (takes ownership of
+//pScript as the function body). Flags mirror the handwritten bare
+//"int main()" combination exactly -- the synthesized function must be
+//indistinguishable from a user-written one.
+SnFunction* ModuleBuilder::BuildScriptEntry(SnParagraph* pScript)
+{
+	//Location: the paragraph's own location carries a null TranslationUnit
+	//pointer (it propagates from the TopMemberList epsilon), which would
+	//strip the file attribution from every diagnostic, debugger frame and
+	//backtrace entry of the synthesized entry. The first statement's
+	//location is file-attributed; the grammar only parks non-empty
+	//paragraphs, so a first statement always exists.
+	const ISourceLocation *pEntryLoc = nullptr;
+	for (auto &stmt : pScript->Statements())
+	{
+		pEntryLoc = stmt.Location();
+		break;
+	}
+	assert(pEntryLoc);
+	SnNameExpr* pRet = new SnNameExpr(
+		new SnIdentifierExpr(NK_Int32, *pEntryLoc), *pEntryLoc);
+	SnFunction* pMain = new SnFunction(FA_Default, NF_NONE, pRet,
+		new std::string("main"), new PtrList<SnFormalParam>(),
+		*pEntryLoc);
+	pMain->Body(pScript);
+	return pMain;
 }
 
 void ModuleBuilder::ExpandTypeAliases()

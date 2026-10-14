@@ -1,0 +1,4 @@
+class Box { int v; public int Box(int s) { this.v = s; return 0; } public int get() { return v; } }
+Box maker() { return Box(2); }
+Box b = maker();
+return b.get() * 21;

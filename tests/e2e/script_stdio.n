@@ -1,0 +1,4 @@
+import io;
+
+io.print("hello from script");
+return 3;

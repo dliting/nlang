@@ -1,0 +1,2 @@
+int a = nope(3);
+return 1;

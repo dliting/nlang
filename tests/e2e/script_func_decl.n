@@ -1,0 +1,4 @@
+func int fwd();
+func void note();
+int base = 3;
+return base;

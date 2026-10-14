@@ -20,6 +20,9 @@ namespace nlang
 //Internal builder type (src/compiler/builder/ModuleRegistry.h); opaque
 //in this public header.
 class ModuleRegistry;
+//AST node types (SnData.h / SnStatements.h); pointer use below only.
+class SnFunction;
+class SnParagraph;
 //Internal stub-minting type (src/compiler/builder/
 // CompiledModuleNodeBuilder.hpp); reference use below only.
 class CompiledModuleNodeBuilder;
@@ -147,6 +150,15 @@ private:
 		const std::string& entryKey) const;
 	//Roughly parse the source files as translation units.
 	void ParseTransUnits();
+	//v0.9.1 script mode: wrap each non-library unit's top-level statement
+	//paragraph in a synthesized int main(). Runs after RegisterUnits
+	//(library identity known) and before ExpandTypeAliases (alias
+	//expansion must reach the wrapped body).
+	void SynthesizeScriptEntries();
+	//Build the synthesized entry function around one unit's paragraph
+	//(takes ownership of pScript as the function body). Mirrors the
+	//handwritten bare "int main()" form exactly.
+	SnFunction* BuildScriptEntry(SnParagraph* pScript);
 	//Phase 13: register `using N = T;` aliases and expand them at use
 	//sites. Runs per translation unit after parsing and before merging —
 	//alias scope is the translation unit, and the unit boundaries (and

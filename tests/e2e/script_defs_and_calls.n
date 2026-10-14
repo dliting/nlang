@@ -1,0 +1,4 @@
+int r = add(19, 23);
+return r;
+
+int add(int a, int b) { return a + b; }
