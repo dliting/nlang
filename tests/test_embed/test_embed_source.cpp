@@ -529,7 +529,9 @@ static void TestStdlibFromImportDir() {               //§6.9（D7＋native）
     const int rc = itp.runSource(
         "import math;\nimport io;\nio.print(math.absi(-5));");
     CHECK(rc == 0, "stdlib imports resolve, exit 0");
-    CHECK(sink.out.find("5") != std::string::npos, "math.abs output");
+    //Exact match: io.print appends one newline (probe-pinned bytes
+    //35 0a) — a bare find("5") would also hit "-5"/15/25 outputs.
+    CHECK(sink.out == "5\n", "math.absi output");
     PASS();
 }
 
