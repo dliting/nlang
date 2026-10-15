@@ -535,6 +535,56 @@ static void TestStdlibFromImportDir() {               //§6.9（D7＋native）
     PASS();
 }
 
+static void TestConvenienceRunScript() {              //§6.10
+    TEST(TestConvenienceRunScript);
+    ScriptOptions opts;
+    opts.importDirs.push_back(EMBED_DEPLOY_DIR);
+    OutputSink sink;
+    opts.out = [&sink](const char* text) { sink.out += text; };
+    CHECK(runScript("import io; io.print(2); return 7;", opts) == 7,
+        "runScript returns the exit code");
+    CHECK(sink.out.find("2") != std::string::npos, "redirected output");
+
+    ScratchDir dir;
+    const fs::path demo = dir.path / "once.n";
+    WriteText(demo, "return 9;");
+    CHECK(runScriptFile(demo) == 9, "runScriptFile, default opts");
+    PASS();
+}
+
+//§6.10 补（Task 3 质量审查 I-1 便捷层四象限的未覆盖半边）：单通道
+//装设——被装通道进宿主回调，未装通道走真实 stdio。forwarder 行为
+//本身已由 TestPartialOutputHandlerFallsBackToStderr（Task 4）钉死，
+//本测试钉便捷层的条件装设分支（err 有 out 无）。**main() 调用列表
+//置尾**（freopen 动过 fd 1）。计划原稿的裸 _dup/freopen 形态按套
+//件惯例改用 FdCapture RAII＋双读（作用域内先读一次＝逐写冲刷直接
+//检验，恢复后再读补钉整链路；预授权偏差）。
+static void TestConveniencePartialChannels() {
+    TEST(TestConveniencePartialChannels);
+    ScriptOptions opts;
+    opts.importDirs.push_back(EMBED_DEPLOY_DIR);
+    OutputSink sink;
+    opts.err = [&sink](const char* text) { sink.err += text; };
+    //只装 err：out 走真实 stdout——fd 1 换到临时文件捕获
+    ScratchDir dir;
+    const fs::path outFile = dir.path / "stdout.txt";
+    {
+        FdCapture capture(1, outFile);
+        CHECK(capture.ok(), "redirect stdout to file");
+        const int rc = runScript(
+            "import io; io.print(\"to-out\"); io.eprint(\"to-err\");",
+            opts);
+        CHECK(rc == 0, "script runs");
+        CHECK(ReadFileText(outFile).find("to-out") != std::string::npos,
+            "per-write flush lands bytes before channel restore");
+    }   //guard：先冲刷再恢复 fd 1
+    CHECK(sink.err.find("to-err") != std::string::npos,
+        "err channel delivered to host");
+    CHECK(ReadFileText(outFile).find("to-out") != std::string::npos,
+        "empty out channel falls back to real stdout");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -557,6 +607,8 @@ int main() {
     TestRetryAfterLoadFailure();
     TestHostFunctionInAdHocScript();
     TestStdlibFromImportDir();
+    TestConvenienceRunScript();
+    TestConveniencePartialChannels();   //置尾：本测试动过 fd 1
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }
