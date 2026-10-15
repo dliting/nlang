@@ -6,10 +6,13 @@
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/ModuleBuilder.h>
+#include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <io.h>
 #include <iostream>
 #include <string>
 
@@ -123,6 +126,22 @@ static void TestDiagnosticsSurviveBuilderDestruction() {
 }
 #endif
 
+//Unique scratch dir for runFile tests (counter-suffixed, RAII-cleaned).
+struct ScratchDir {
+    fs::path path;
+    ScratchDir() {
+        static std::atomic<unsigned> counter{0};
+        std::error_code ec;
+        path = fs::temp_directory_path(ec)
+            / ("nlang_embed_src_t_" + std::to_string(counter++));
+        fs::create_directories(path, ec);
+    }
+    ~ScratchDir() {
+        std::error_code ignored;
+        fs::remove_all(path, ignored);
+    }
+};
+
 //--- Interpreter source entry (spec §6) --------------------------------
 //§6.1（io.print，依赖 native 接线）在 Task 4 落地——本任务的用例全部
 //不依赖 native 解析，build-dev 与全新树行为一致。
@@ -212,6 +231,43 @@ static void TestV1LoadPathNativeWiring() {            //§6.13（D6 回归）
     PASS();
 }
 
+//§6.13 补（Task 3 质量审查 I-1）：部分装设的空通道回退真实 stdio
+//——「空＝该通道不重定向」承诺的就是默认 stdio 行为，而非丢弃。
+static void TestPartialOutputHandlerFallsBackToStderr() {
+    TEST(TestPartialOutputHandlerFallsBackToStderr);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink;   //只装 out：err 通道应走真实 stderr
+    itp.setOutputHandler(
+        [&sink](const char* text) { sink.out += text; }, nullptr);
+    //fd 2 换到临时文件，捕获「真实 stderr」的字节
+    const int savedFd = _dup(2);
+    CHECK(savedFd >= 0, "dup stderr");
+    ScratchDir dir;
+    const fs::path errFile = dir.path / "stderr.txt";
+    std::FILE* capture =
+        std::freopen(errFile.string().c_str(), "w", stderr);
+    CHECK(capture != nullptr, "redirect stderr to file");
+    const int rc = itp.runSource(
+        "import io; io.print(\"to-out\"); io.eprint(\"to-err\");");
+    std::fflush(stderr);
+    _dup2(savedFd, 2);      //先恢复 fd，再读文件
+    _close(savedFd);
+    CHECK(rc == 0, "script runs");
+    std::string captured;
+    {
+        std::ifstream in(errFile, std::ios::binary);
+        char buf[256];
+        while (in.read(buf, sizeof(buf)) || in.gcount() > 0)
+            captured.append(buf, static_cast<size_t>(in.gcount()));
+    }
+    CHECK(sink.out.find("to-out") != std::string::npos,
+        "out channel delivered to host");
+    CHECK(captured.find("to-err") != std::string::npos,
+        "empty err channel falls back to real stderr");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -223,6 +279,7 @@ int main() {
     TestEmptySourceThrowsLoadError();
     TestRunSourceBoilerplateFree();
     TestV1LoadPathNativeWiring();
+    TestPartialOutputHandlerFallsBackToStderr();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

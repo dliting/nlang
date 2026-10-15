@@ -6,6 +6,7 @@
 #include "Marshalling.h"
 #include <nlang/runtime/Runtime.h>
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -39,28 +40,37 @@ namespace {
 //④输出转发器：out/err 两通道分离（IHostIo::OnError 覆写）。输入侧不
 //覆写——基类默认即 NoChannel（装了 handler 的输入语义：首读抛
 //IOException，executor 侧锁存 HasMore false）。回调不得抛（IHostIo
-//契约：执行线程上逃逸会打进 executor）——吞并异常为静默丢弃。
+//契约：执行线程上逃逸会打进 executor）——抛出被吞并后该批字节回退
+//真实通道，不静默消失。空 fn 通道同样回退真实通道：「空＝该通道不
+//重定向」的公共注释语义＝保持默认 stdio 行为（质量审查 I-1）。
 class HostIoForwarder final : public IHostIo {
 public:
     HostIoForwarder(WriteFn out, WriteFn err)
         : m_out(std::move(out)), m_err(std::move(err)) {}
 
     void OnOutput(std::string_view text) override {
-        Dispatch(m_out, text);
+        if (!Dispatch(m_out, text))
+            WriteRealChannel(stdout, text);
     }
     void OnError(std::string_view text) override {
-        Dispatch(m_err, text);
+        if (!Dispatch(m_err, text))
+            WriteRealChannel(stderr, text);
     }
 
 private:
-    static void Dispatch(const WriteFn& fn, std::string_view text) {
+    //true＝已交付宿主；false＝空 fn 或回调抛出，调用方回退真实通道。
+    static bool Dispatch(const WriteFn& fn, std::string_view text) {
         if (!fn)
-            return;
+            return false;
         try {
             fn(std::string(text).c_str());
+            return true;
         } catch (...) {
-            //静默丢弃——见类注释（不得抛契约）
+            return false;   //不得抛契约——吞并，字节回退真实通道
         }
+    }
+    static void WriteRealChannel(std::FILE* stream, std::string_view text) {
+        std::fwrite(text.data(), 1, text.size(), stream);
     }
 
     WriteFn m_out;
@@ -217,7 +227,11 @@ int Interpreter::Impl::RunAdHoc(const SourceCompiler::Input& in) {
         const std::filesystem::path scriptDir =
             std::filesystem::absolute(in.scriptFile)
                 .lexically_normal().parent_path();
-        searchDirs.push_back(scriptDir.string());
+        //重试卫生（质量审查 M-2）：装载失败后 importDirs 已并入脚本
+        //目录——再走文件形态时避免重复累计。
+        if (std::find(searchDirs.begin(), searchDirs.end(),
+                scriptDir.string()) == searchDirs.end())
+            searchDirs.push_back(scriptDir.string());
     }
 
     //步骤 1-2：落源＋编译（临时目录 RAII；异常路径同样删除）。
