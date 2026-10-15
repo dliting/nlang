@@ -6,7 +6,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.9.1]
+## [0.9.1] - 2026-10-15
 
 ### 新增
 - **nlang——脚本运行器**：直接运行`.n`文件或内联语句，python风格
