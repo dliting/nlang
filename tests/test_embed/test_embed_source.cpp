@@ -2,6 +2,10 @@
 //runSource/runFile compile+execute ad-hoc scripts in-process, through
 //the public header, with real compilation and real execution (no mocks).
 #include "nlang/embed/NLang.h"
+#include <nlang/compiler/BuildEnvironment.h>
+#include <nlang/compiler/CastInfo.h>
+#include <nlang/compiler/Logger.h>
+#include <nlang/compiler/ModuleBuilder.h>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -80,12 +84,50 @@ static void TestSourceCompilerCollectsDiagnostics() {
     CHECK(threw, "compile failure throws LoadError");
     PASS();
 }
+
+//D9 contract: log items stay readable after the owning ModuleBuilder
+//died -- ListCompileLogger's collect-then-read contract. The location
+//clone must own the file name, not dangle a TU pointer into the
+//destroyed builder.
+static void TestDiagnosticsSurviveBuilderDestruction() {
+    TEST(TestDiagnosticsSurviveBuilderDestruction);
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path(ec) / "nlang_e_diag_pin";
+    CHECK(!ec, "temp directory locatable");
+    fs::create_directories(dir, ec);
+    const fs::path source = dir / "diag_pin.n";
+    {
+        std::ofstream out(source, std::ios::binary);
+        out << "int x = ;";
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back(source.string());
+    params.m_sProjectDir = dir.string();
+    params.m_sOutputModule = "diag_pin";
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_ImportDirs.clear();
+    TypeCastInfo::StaticInit();
+    ListCompileLogger logger;
+    {
+        ModuleBuilder builder(params, logger);
+        (void)builder.BuildArtifacts();
+    }   //builder died: the TUs it owned are freed
+    std::string text;
+    for (auto it = logger.cbegin(); it != logger.cend(); ++it)
+        text += (*it)->FullMessage();
+    CHECK(text.find("diag_pin.n") != std::string::npos,
+        "file name in diagnostics survives builder destruction");
+    fs::remove_all(dir, ec);
+    PASS();
+}
 #endif
 
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
     TestSourceCompilerCollectsDiagnostics();
+    TestDiagnosticsSurviveBuilderDestruction();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

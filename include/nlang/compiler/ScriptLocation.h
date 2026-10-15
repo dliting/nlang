@@ -27,6 +27,13 @@ public:
 	size_t m_nStartCol;  //start form 1
 	size_t m_nEndCol;
 	TranslationUnit* m_pTransUnit;
+	//File-name snapshot taken by Clone(): the TU above is owned by the
+	//ModuleBuilder and dies with it, while cloned log items must stay
+	//readable after collection (ListCompileLogger contract, embed spec
+	//D9). Empty on parser-minted locations -- the YYLLOC_DEFAULT macros
+	//copy the fields above one by one and never touch this member, so
+	//the parse stacks stay snapshot-free by construction.
+	std::string m_sFileName;
 };
 
 } //namespace nlang

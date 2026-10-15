@@ -135,25 +135,17 @@ SourceCompiler::Output SourceCompiler::Compile(
 
     ListCompileLogger logger;
     bool built = false;
-    //诊断须在 builder 存活期内字符串化：条目位置持有裸 TU 指针，
-    //TU 归 builder 所有（析构即释放），FullMessage 会解引用它——
-    //离开 try 作用域再收集＝读已释放内存，实测 file 头回读为空
-    //（诊断丢文件名，UB）。
-    std::string diagnostics;
     try {
         ModuleBuilder builder(params, logger);
         built = builder.BuildArtifacts();
-        if (!built || logger.Errors() > 0 || logger.Fatals() > 0)
-            diagnostics = JoinDiagnostics(logger);
     } catch (const std::exception& e) {
         throw LoadError(std::string("compiler internal error: ")
             + e.what());
     }
-    if (!built || logger.Errors() > 0 || logger.Fatals() > 0) {
-        std::string text = diagnostics;
-        text += "Compilation failed.";
-        throw LoadError(text);
-    }
+    //D9: cloned log items own a Clone-time file-name snapshot, so
+    //joining diagnostics after the builder died is safe.
+    if (!built || logger.Errors() > 0 || logger.Fatals() > 0)
+        throw LoadError(JoinDiagnostics(logger) + "Compilation failed.");
     return {m_runDir / (in.moduleName + ".ncu")};
 }
 
