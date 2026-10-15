@@ -153,6 +153,10 @@ struct ScratchDir {
         fs::remove_all(path, ignored);
     }
 };
+static void WriteText(const fs::path& p, const char* text) {
+    std::ofstream out(p, std::ios::binary);
+    out << text;
+}
 
 //Redirects one stdio channel (fd 1 or 2) to a file for the scope and
 //restores the original descriptor on every exit path (CHECK returns
@@ -328,6 +332,69 @@ static void TestPartialOutputHandlerFallsBackToStdout() {
     PASS();
 }
 
+static void TestRunFileRealPathNames() {              //§6.3
+    TEST(TestRunFileRealPathNames);
+    ScratchDir dir;
+    const fs::path demo = dir.path / "demo.n";
+    WriteText(demo, "import io; io.print(11); return 5;");
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink; InstallSink(itp, sink);
+    CHECK(itp.runFile(demo) == 5, "runFile returns top-level return");
+    CHECK(sink.out.find("11") != std::string::npos, "script output");
+    //诊断带真实文件名：坏文件 → LoadError 文本含 demo.n。
+    const fs::path bad = dir.path / "demo_bad.n";
+    WriteText(bad, "int x = ;");
+    Interpreter itp2;
+    bool threw = false;
+    try {
+        (void)itp2.runFile(bad);
+    } catch (const LoadError& e) {
+        threw = true;
+        CHECK(std::string(e.what()).find("demo_bad.n")
+              != std::string::npos, "real file name in diagnostics");
+    }
+    CHECK(threw, "compile failure in file form throws LoadError");
+    PASS();
+}
+
+static void TestRunFileLeavesNoArtifacts() {          //§6.11
+    TEST(TestRunFileLeavesNoArtifacts);
+    ScratchDir dir;
+    const fs::path demo = dir.path / "solo.n";
+    WriteText(demo, "return 0;");
+    Interpreter itp;
+    (void)itp.runFile(demo);
+    std::error_code ec;
+    const size_t entries =
+        std::distance(fs::directory_iterator(dir.path, ec),
+                      fs::directory_iterator());
+    CHECK(entries == 1, "script dir holds only the .n source");
+    PASS();
+}
+
+static void TestRunFileBadStemRejected() {            //§3 步骤 1
+    TEST(TestRunFileBadStemRejected);
+    ScratchDir dir;
+    const fs::path bad = dir.path / "my-tool.n";   //dash: invalid stem
+    WriteText(bad, "return 0;");
+    Interpreter itp;
+    bool threw = false;
+    try {
+        (void)itp.runFile(bad);
+    } catch (const LoadError& e) {
+        threw = true;
+        //明确文案来自 SourceCompiler 入口的 Module::IsValidName
+        //预校验（D8 审查 Low 2：Create 的 LogError 是裸 stderr、
+        //不进诊断收集，靠它则错误无理由文本）。
+        CHECK(std::string(e.what()).find("invalid module name")
+            != std::string::npos,
+            "explicit invalid-module-name message");
+    }
+    CHECK(threw, "non-identifier stem -> LoadError");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -341,6 +408,9 @@ int main() {
     TestV1LoadPathNativeWiring();
     TestPartialOutputHandlerFallsBackToStderr();
     TestPartialOutputHandlerFallsBackToStdout();
+    TestRunFileRealPathNames();
+    TestRunFileLeavesNoArtifacts();
+    TestRunFileBadStemRejected();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }
