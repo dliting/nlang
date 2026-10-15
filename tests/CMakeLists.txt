@@ -1720,6 +1720,50 @@ target_compile_definitions(test_embed_api
 add_dependencies(test_embed_api nlang_embed_fixtures nlang_stdlib_native_for_tests)
 add_test(NAME embed_api_tests COMMAND test_embed_api)
 
+#Embedding source-entry tests (spec: 2026-10-15-embedding-source-entry).
+#Deployed-stdlib fixture: one host-specified directory in the full
+#deployment shape -- stdlib declaration sources + stdlib.npkg + native
+#DLLs -- so import discovery, closure loading and native resolution all
+#resolve from addImportDir dirs (the ONE-list contract). Deliberately
+#NOT depending on nlang_stdlib_native_for_tests: that target copies
+#DLLs next to the test exes, which would mask the AddNativeSearchDir
+#wiring (the exe dir is always first in the native search list,
+#VmExecutorNativeHost.cpp:257). Fresh targeted builds are the genuine
+#probe; full builds still mask via the ALL copies -- documented blind
+#spot, spec §5.
+set(embed_deploy_dir ${CMAKE_BINARY_DIR}/embed_deploy)
+add_custom_target(nlang_embed_deploy ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${NLANG_TEST_STDLIB_DIR} ${embed_deploy_dir}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:nlang_io>
+                $<TARGET_FILE:nlang_math>
+                $<TARGET_FILE:nlang_fs>
+                ${embed_deploy_dir}
+    DEPENDS nlang_stdlib_package nlang_io nlang_math nlang_fs
+    VERBATIM)
+
+add_executable(test_embed_source
+    test_embed/test_embed_source.cpp
+)
+target_include_directories(test_embed_source
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/embed
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_embed_source
+    PRIVATE
+        nlang_embed
+)
+target_compile_definitions(test_embed_source
+    PRIVATE
+        EMBED_DEPLOY_DIR="${embed_deploy_dir}"
+        EMBED_FIXTURE_DIR="${embed_fixture_dir}"
+        EMBED_FIXTURE_SRC_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/embed"
+        EMBED_IO_NCU="${embed_fixture_dir}/io_demo.ncu")
+add_dependencies(test_embed_source nlang_embed_fixtures nlang_embed_deploy)
+add_test(NAME embed_source_tests COMMAND test_embed_source)
+
 #Embedding example smoke: run a stdlib-importing script through
 #examples/embed_host and assert the redirected output (Task 11).
 if(Python3_FOUND)
