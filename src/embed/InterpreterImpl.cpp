@@ -244,6 +244,13 @@ void Interpreter::Impl::Load(const std::filesystem::path& artifact) {
     NcuLoader::Options opts;
     opts.searchDirs = importDirs;
     opts.searchDirs.push_back(artifact.parent_path().string());
+    //Native 解析接线（spec 2026-10-15 D6）：VmExecutor 的 native 解
+    //析默认只搜 exe 目录——不接线则标准库放任意 addImportDir 目录
+    //时首个 native 调用报 cannot find native module；v1 测试此前能
+    //跑纯靠 DLL 恰被拷到测试 exe 旁的布局巧合。与装载搜索表同源
+    //（ONE-list，对齐工具 ScriptRunner.h:242-243）。
+    for (const auto& dir : opts.searchDirs)
+        executor.AddNativeSearchDir(dir);
     try {
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(artifact.string(), opts);

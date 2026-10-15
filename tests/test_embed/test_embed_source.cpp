@@ -181,6 +181,37 @@ static void TestEmptySourceThrowsLoadError() {        //§4 边界（钉死）
     PASS();
 }
 
+//§6.1 从 Task 3 移到这里：io.print 依赖 native 解析，接线在 Step 3
+//才落——放在 Task 3 会在 D6 之前留下一个必然失败的用例。
+static void TestRunSourceBoilerplateFree() {          //§6.1
+    TEST(TestRunSourceBoilerplateFree);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink; InstallSink(itp, sink);
+    const int rc = itp.runSource("import io; io.print(6*7);");
+    CHECK(rc == 0, "no top-level return -> exit 0");
+    CHECK(sink.out.find("42") != std::string::npos, "io.print output");
+    PASS();
+}
+
+static void TestV1LoadPathNativeWiring() {            //§6.13（D6 回归）
+    TEST(TestV1LoadPathNativeWiring);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    itp.load(EMBED_IO_NCU);       //io_demo imports the stdlib io module
+    OutputSink sink; InstallSink(itp, sink);
+    CHECK(itp.run() == 0, "v1 load+run still works");
+    //emitBoth uses io.print/io.eprint at runtime: closure (stdlib.npkg)
+    //and native (nlang_io.dll) must both resolve from the search dirs,
+    //not from beside the test exe.
+    Value r = itp.call("io_demo.emitBoth", {});
+    CHECK(r.kind() == Value::Kind::Int && r.asInt() == 0,
+        "io-using call resolves stdlib+natives from import dirs");
+    CHECK(sink.out.find("to-out") != std::string::npos, "out channel");
+    CHECK(sink.err.find("to-err") != std::string::npos, "err channel");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -190,6 +221,8 @@ int main() {
     TestCompileFailureLoadError();
     TestUncaughtThrowSurfacesException();
     TestEmptySourceThrowsLoadError();
+    TestRunSourceBoilerplateFree();
+    TestV1LoadPathNativeWiring();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }
