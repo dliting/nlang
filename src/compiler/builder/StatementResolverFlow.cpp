@@ -8,21 +8,6 @@
 namespace nlang
 {
 
-namespace {
-//Scope guard for the resolver loop/switch depth counters (v0.9.1:
-//top-level break/continue rejection). Constructed before descending
-//into a loop body; holds across every exit path of the statement walk.
-struct FlowDepthGuard {
-	int& m_breakable;
-	int& m_loop;
-	FlowDepthGuard(int& breakable, int& loop)
-		: m_breakable(breakable), m_loop(loop)
-	{ m_breakable += 1; m_loop += 1; }
-	~FlowDepthGuard() { m_breakable -= 1; m_loop -= 1; }
-};
-} //namespace
-
-
 //0.7.5 strict bool: conditions must be bool (carrier int32 0/1, so
 //OP_JumpIfNot bit patterns are unchanged). Historically int was
 //accepted and non-int kinds read as silent garbage (string = pool

@@ -263,13 +263,12 @@ void StatementResolveAccessor::Access(SnSwitchStmt &sn)
 	}
 	//v0.9.1: case bodies are breakable scope (a bare break may leave the
 	//switch) but not loop scope (continue passes through to the enclosing
-	//loop) — bump only the breakable depth, mirroring m_inFinallyBody.
-	++m_breakableDepth;
+	//loop) — guard only the breakable depth, not the loop depth.
+	FlowDepthGuard guard(m_breakableDepth);
 	for (auto* pCase : sn.Cases())
 		pCase->Accept(*m_pVisitor);
 	if (sn.Default())
 		sn.Default()->Accept(*m_pVisitor);
-	--m_breakableDepth;
 	CheckDuplicateCaseLabels(sn);
 }
 

@@ -223,6 +223,32 @@ private:
 	//(assertion in Debug); reject here instead.
 	int m_breakableDepth = 0;
 	int m_loopDepth = 0;
+	//v0.9.1 scope guard for the two depth counters above (top-level
+	//break/continue rejection). A loop bumps both depths (break +
+	//continue are valid); a switch bumps only the breakable depth
+	//(continue passes through to the enclosing loop). Nested here so
+	//every per-concern TU of this class shares one guard; holds across
+	//every exit path of the statement walk.
+	struct FlowDepthGuard
+	{
+		FlowDepthGuard(int& breakable, int& loop)
+			: m_breakable(breakable), m_pLoop(&loop)
+		{ m_breakable += 1; *m_pLoop += 1; }
+		explicit FlowDepthGuard(int& breakable)
+			: m_breakable(breakable), m_pLoop(nullptr)
+		{ m_breakable += 1; }
+		~FlowDepthGuard()
+		{
+			m_breakable -= 1;
+			if (m_pLoop)
+				*m_pLoop -= 1;
+		}
+		FlowDepthGuard(const FlowDepthGuard&) = delete;
+		FlowDepthGuard& operator=(const FlowDepthGuard&) = delete;
+	private:
+		int& m_breakable;
+		int* m_pLoop;
+	};
 	ExprResolver m_ExprResolver;
 };
 
