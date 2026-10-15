@@ -75,6 +75,18 @@ Module *ModuleManager::Create(const std::string &sModuleName)
 	return pModule;
 }
 
+Module *ModuleManager::CreateUnregistered(const std::string &sModuleName)
+{
+	if (!Module::IsValidName(sModuleName))
+	{
+		LogError("Create module failed, invalid module name: %s.",
+			sModuleName.c_str());
+		errno = EINVAL;
+		return 0;
+	}
+	return new Module(IdString(sModuleName));
+}
+
 Module *ModuleManager::Load(const std::string &sModuleName)
 {
 	auto it = m_upLoadedMap->find(sModuleName);
@@ -105,30 +117,6 @@ Module *ModuleManager::Load(const std::string &sModuleName)
 	}
 	
 	return pModule;
-}
-
-bool ModuleManager::Unload(Module *pModule)
-{
-	if (!pModule)
-	{
-		errno = EINVAL;
-		return false;
-	}
-	//Compile-flow scoped (the embed SourceCompiler deregisters its
-	//output module): the manager is the sole owner -- Create news the
-	//module straight into the map and nothing else in src/ reads
-	//Instance() -- so erase-then-delete leaves no outside holders.
-	for (auto it = m_upLoadedMap->begin(); it != m_upLoadedMap->end(); ++it)
-	{
-		if (it->second == pModule)
-		{
-			m_upLoadedMap->erase(it);
-			delete pModule;
-			return true;
-		}
-	}
-	errno = ENOENT;
-	return false;
 }
 
 void ModuleManager::LoadPath(const std::list<std::string> &paths)

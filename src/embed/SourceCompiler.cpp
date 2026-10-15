@@ -109,30 +109,6 @@ SourceCompiler::Output SourceCompiler::Compile(
     //所在目录，无 cwd 默认（规格 §4）。
     params.m_ImportDirs.assign(searchDirs.begin(), searchDirs.end());
 
-    //D8：CreateModule 把产物模块按名注册进进程级 ModuleManager
-    //（注册是 PrepareUnits 的第一步，先于解析——几乎所有编译失败
-    //都发生在注册之后、恰需本 guard；唯一未注册窗口＝guard 构造
-    //到 builder 进入之间的落源失败，guard 空转）。该注册无任何
-    //消费方（Instance() 在 src/ 的唯一调用点就是 CreateModule），
-    //但残留条目让后续同名编译 EEXIST——破坏 runSource 重试与同
-    //进程多次 ad-hoc 执行。快照式注销：只删本次编译创建的条目；
-    //EEXIST 时同名模块是外来注册（宿主直连 nlang_compiler 编过
-    //同名模块），不动别人的。
-    struct DeregisterOutputModule {
-        ModuleManager& manager;
-        const IdString name;
-        Module* const preexisting;
-        DeregisterOutputModule(ModuleManager& mgr,
-                               const std::string& moduleName)
-            : manager(mgr), name(moduleName),
-              preexisting(mgr.Find(name)) {}
-        ~DeregisterOutputModule() {
-            Module* pCurrent = manager.Find(name);
-            if (pCurrent && pCurrent != preexisting)
-                manager.Unload(pCurrent);
-        }
-    } deregisterOutput{ModuleManager::Instance(), in.moduleName};
-
     ListCompileLogger logger;
     bool built = false;
     try {

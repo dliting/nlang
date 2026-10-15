@@ -149,10 +149,19 @@ bool ModuleBuilder::RegisterUnits()
 bool ModuleBuilder::CreateModule()
 {
 	const std::string &sModuleName = m_upEnv->Params().m_sOutputModule;
-	ModuleManager &mm = ModuleManager::Instance();
-	Module *pModule = mm.Create(sModuleName);
-	if (!pModule)
+	//D8: compile the output module unregistered -- the process-wide
+	//ModuleManager table has no consumers, and its leftover entries
+	//made same-name recompilation in one process fail with EEXIST.
+	//Sole ownership: the BuildEnvironment (the module dies after the
+	//backend and AST registry, by member declaration order). One-shot
+	//per builder: every BuildArtifacts caller builds exactly once, so
+	//OwnModule never replaces a live module in practice.
+	std::unique_ptr<Module> upModule(
+		ModuleManager::CreateUnregistered(sModuleName));
+	if (!upModule)
 		return false;
+	Module *pModule = upModule.get();
+	m_upEnv->OwnModule(std::move(upModule));
 	m_upEnv->CurrModule(*pModule);
 
 	// Set up default VmBackend if none configured

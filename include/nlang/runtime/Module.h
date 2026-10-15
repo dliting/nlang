@@ -90,6 +90,16 @@ public:
 	Module *Create(const std::string &sModuleName);
 
 	/*
+	Create a module WITHOUT registering it in this manager.
+	Compile-flow factory: the process-wide registry above has no
+	consumers, and its leftover entries made same-name recompilation
+	in one process fail with EEXIST. Same name validation as Create().
+	Ownership passes to the caller.
+	\return null if failed and the errno would be set to EINVAL.
+	*/
+	static Module *CreateUnregistered(const std::string &sModuleName);
+
+	/*
 	Load a module from a input stream to memory structure.
 	If the module depends on other modules which are not loaded, those 
 	dependent ones will be loaded first recursively. All the modules being 

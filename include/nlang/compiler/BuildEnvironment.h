@@ -132,6 +132,15 @@ public:
 	//Set the current module been compiled.
 	void CurrModule(Module &module);
 
+	//D8: take sole ownership of the compiled output module. The
+	//ModuleManager::CreateUnregistered factory hands back a bare
+	//pointer; the module dies with this environment. One output
+	//module per environment -- a second call releases the first.
+	void OwnModule(std::unique_ptr<Module> pModule)
+	{
+		m_upModule = std::move(pModule);
+	}
+
 #ifdef NLANG_ENABLE_LLVM
 	//Get the current LLVM module been compiled.
 	llvm::Module *CurrMetaModule() const
@@ -178,6 +187,11 @@ private:
 	const BuildParams& m_Params;
 	CompileLogger& m_Logger;
 	Module* m_pCurrModule;
+	//D8: sole ownership of the output module. Declared before the
+	//backend/registry members so it is destroyed last of them -- the
+	//module outlives every compile-time consumer, as it did when the
+	//global ModuleManager owned it.
+	std::unique_ptr<Module> m_upModule;
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Module *m_pCurrMetaModule;
 #endif
