@@ -417,9 +417,10 @@ static void TestRunFileBadStemRejected() {            //§3 步骤 1
 //表。helper 只有源码、无预编译包——按装载架构（库代码走预编译
 //包，源码只供签名）装载报 not found，但「import 的编译期签名解析
 //成功＋装载失败信息把脚本目录列为首个搜索目录」共同钉住并入生
-//效：删并入逻辑则编译期即报 import 解析失败，两条断言全红（测试
-//形态偏离计划原案——原案断言 rc==42，经 ncc/nvm 探针证实不可达：
-//helper.n 源码不足以供装载，工具链同报 not found）。
+//效：删并入逻辑则编译期即报 import 解析失败，首断言实测转红（次
+//断言作冗余面，未单独突变验证）（测试形态偏离计划原案——原案断
+//言 rc==42，经 ncc/nvm 探针证实不可达：helper.n 源码不足以供装载，
+//工具链同报 not found）。
 static void TestRunFileScriptDirOnSearchPath() {
     TEST(TestRunFileScriptDirOnSearchPath);
     ScratchDir dir;
@@ -443,6 +444,55 @@ static void TestRunFileScriptDirOnSearchPath() {
     PASS();
 }
 
+static void TestCallAfterRunSource() {                //§6.4
+    TEST(TestCallAfterRunSource);
+    Interpreter itp;
+    (void)itp.runSource("int add(int a, int b) { return a+b; } return 0;");
+    Value r = itp.call("script.add",
+                       {Value(int32_t(2)), Value(int32_t(3))});
+    CHECK(r.kind() == Value::Kind::Int && r.asInt() == 5,
+        "call(\"script.add\") after runSource (package-qualified key)");
+    PASS();
+}
+
+static void TestSourceExclusivity() {                 //§6.5
+    TEST(TestSourceExclusivity);
+    Interpreter itp;
+    (void)itp.runSource("return 0;");
+    CHECK_THROWS(BadValue, itp.runSource("return 0;"),
+        "second runSource -> BadValue");
+    CHECK_THROWS(BadValue, itp.load(EMBED_IO_NCU),
+        "load() after runSource -> BadValue");
+    //runFile 的来源必须是 .n 源码——拿现成 .ncu 顶替会把「stem 校验
+    //拒绝」与「互斥拒绝」混进同一断言；临时写一个真源文件分开钉。
+    ScratchDir dir;
+    const fs::path soloScript = dir.path / "second.n";
+    WriteText(soloScript, "return 0;");
+    CHECK_THROWS(BadValue, itp.runFile(soloScript),
+        "runFile after runSource -> BadValue");
+    CHECK_THROWS(BadValue, itp.addImportDir("."),
+        "addImportDir after runSource -> BadValue");
+    PASS();
+}
+
+//§6.6 延伸（Task 3 质量审查 M-2 行为覆盖）：装载失败（编译成功但
+//无入口）同样不消耗唯一来源——换 runSource 立即可重试；同时跑过
+//Task 4 Step 6 的脚本目录去重路径（重试后搜索表不重复累计）。
+//纯函数定义不触发合成 main（v0.9.1：顶层**语句**段落才包裹；对照
+//e2e script_decls_only）——整文件只有声明即无入口。
+static void TestRetryAfterLoadFailure() {               //§6.6 延伸
+    TEST(TestRetryAfterLoadFailure);
+    Interpreter itp;
+    ScratchDir dir;
+    const fs::path noEntry = dir.path / "no_entry.n";
+    WriteText(noEntry, "int f() { return 0; }");
+    CHECK_THROWS(LoadError, (void)itp.runFile(noEntry),
+        "declarations-only script has no entry -> LoadError");
+    CHECK(itp.runSource("return 1;") == 1,
+        "source still available after load failure");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -460,6 +510,9 @@ int main() {
     TestRunFileLeavesNoArtifacts();
     TestRunFileBadStemRejected();
     TestRunFileScriptDirOnSearchPath();
+    TestCallAfterRunSource();
+    TestSourceExclusivity();
+    TestRetryAfterLoadFailure();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }
