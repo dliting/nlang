@@ -41,8 +41,9 @@ namespace {
 //覆写——基类默认即 NoChannel（装了 handler 的输入语义：首读抛
 //IOException，executor 侧锁存 HasMore false）。回调不得抛（IHostIo
 //契约：执行线程上逃逸会打进 executor）——抛出被吞并后该批字节回退
-//真实通道，不静默消失。空 fn 通道同样回退真实通道：「空＝该通道不
-//重定向」的公共注释语义＝保持默认 stdio 行为（质量审查 I-1）。
+//真实通道，不静默消失；回退＝整批重发——回调半写后抛出时宿主可能
+//已见部分字节。空 fn 通道同样回退真实通道：「空＝该通道不重定向」
+//的公共注释语义＝保持默认 stdio 行为（质量审查 I-1）。
 class HostIoForwarder final : public IHostIo {
 public:
     HostIoForwarder(WriteFn out, WriteFn err)
@@ -71,6 +72,10 @@ private:
     }
     static void WriteRealChannel(std::FILE* stream, std::string_view text) {
         std::fwrite(text.data(), 1, text.size(), stream);
+        //逐写冲刷（质量审查 I-1）：对齐无 host 默认路径的 fwrite＋fflush
+        //（VmExecutorNativeHost.cpp:118-119）——重定向的全缓冲 stdout 下，
+        //不冲刷则字节迟至进程退出才可见（io_native.cpp 的 prompt 保证）。
+        std::fflush(stream);
     }
 
     WriteFn m_out;
@@ -262,7 +267,8 @@ void Interpreter::Impl::Load(const std::filesystem::path& artifact) {
     //析默认只搜 exe 目录——不接线则标准库放任意 addImportDir 目录
     //时首个 native 调用报 cannot find native module；v1 测试此前能
     //跑纯靠 DLL 恰被拷到测试 exe 旁的布局巧合。与装载搜索表同源
-    //（ONE-list，对齐工具 ScriptRunner.h:242-243）。
+    //（ONE-list，对齐工具 ScriptRunner.h:242-243）。Load 失败重试会使
+    //executor 搜索表重复累计——无害（exe 目录居首、仅多余 stat），接受。
     for (const auto& dir : opts.searchDirs)
         executor.AddNativeSearchDir(dir);
     try {

@@ -45,6 +45,18 @@ static void InstallSink(Interpreter& itp, OutputSink& sink) {
         [&sink](const char* text) { sink.err += text; });
 }
 
+//Both real-channel fallback tests read the captured file through one
+//chunked loop; kReadChunk is the read granularity, not a protocol size.
+constexpr size_t kReadChunk = 256;
+static std::string ReadFileText(const fs::path& file) {
+    std::string text;
+    std::ifstream in(file, std::ios::binary);
+    char buf[kReadChunk];
+    while (in.read(buf, sizeof(buf)) || in.gcount() > 0)
+        text.append(buf, static_cast<size_t>(in.gcount()));
+    return text;
+}
+
 #ifndef EMBED_SOURCE_COMPILER_UNIT
 #define EMBED_SOURCE_COMPILER_UNIT
 #include "SourceCompiler.h"
@@ -142,8 +154,39 @@ struct ScratchDir {
     }
 };
 
+//Redirects one stdio channel (fd 1 or 2) to a file for the scope and
+//restores the original descriptor on every exit path (CHECK returns
+//included — a leaked redirect would corrupt later diagnostics; quality
+//review M-A). The destructor flushes BEFORE restoring so captured bytes
+//reach the file even when the channel was fully buffered.
+class FdCapture {
+public:
+    FdCapture(int fd, const fs::path& to)
+        : m_fd(fd), m_stream(fd == 1 ? stdout : stderr) {
+        m_savedFd = _dup(fd);
+        m_taken = m_savedFd >= 0
+            && std::freopen(to.string().c_str(), "w", m_stream) != nullptr;
+    }
+    ~FdCapture() {
+        if (m_savedFd < 0)
+            return;
+        if (m_taken)
+            std::fflush(m_stream);
+        _dup2(m_savedFd, m_fd);
+        _close(m_savedFd);
+    }
+    bool ok() const { return m_taken; }
+    FdCapture(const FdCapture&) = delete;
+    FdCapture& operator=(const FdCapture&) = delete;
+private:
+    int m_fd;
+    std::FILE* m_stream;
+    int m_savedFd = -1;
+    bool m_taken = false;
+};
+
 //--- Interpreter source entry (spec §6) --------------------------------
-//§6.1（io.print，依赖 native 接线）在 Task 4 落地——本任务的用例全部
+//§6.1（io.print，依赖 native 接线）在 Task 4 落地——Task 3 的用例均
 //不依赖 native 解析，build-dev 与全新树行为一致。
 
 static void TestRunSourceTopLevelReturn() {           //§6.2
@@ -240,31 +283,48 @@ static void TestPartialOutputHandlerFallsBackToStderr() {
     OutputSink sink;   //只装 out：err 通道应走真实 stderr
     itp.setOutputHandler(
         [&sink](const char* text) { sink.out += text; }, nullptr);
-    //fd 2 换到临时文件，捕获「真实 stderr」的字节
-    const int savedFd = _dup(2);
-    CHECK(savedFd >= 0, "dup stderr");
     ScratchDir dir;
     const fs::path errFile = dir.path / "stderr.txt";
-    std::FILE* capture =
-        std::freopen(errFile.string().c_str(), "w", stderr);
-    CHECK(capture != nullptr, "redirect stderr to file");
-    const int rc = itp.runSource(
-        "import io; io.print(\"to-out\"); io.eprint(\"to-err\");");
-    std::fflush(stderr);
-    _dup2(savedFd, 2);      //先恢复 fd，再读文件
-    _close(savedFd);
-    CHECK(rc == 0, "script runs");
-    std::string captured;
     {
-        std::ifstream in(errFile, std::ios::binary);
-        char buf[256];
-        while (in.read(buf, sizeof(buf)) || in.gcount() > 0)
-            captured.append(buf, static_cast<size_t>(in.gcount()));
-    }
+        //fd 2 换到临时文件，捕获「真实 stderr」的字节
+        FdCapture capture(2, errFile);
+        CHECK(capture.ok(), "redirect stderr to file");
+        const int rc = itp.runSource(
+            "import io; io.print(\"to-out\"); io.eprint(\"to-err\");");
+        CHECK(rc == 0, "script runs");
+    }   //guard：先冲刷再恢复 fd 2
     CHECK(sink.out.find("to-out") != std::string::npos,
         "out channel delivered to host");
-    CHECK(captured.find("to-err") != std::string::npos,
+    CHECK(ReadFileText(errFile).find("to-err") != std::string::npos,
         "empty err channel falls back to real stderr");
+    PASS();
+}
+
+//I-1 out 侧对偶（Task 4 质量审查）：空 out 通道走真实 stdout。作用域
+//内先读一次——逐写冲刷（WriteRealChannel 的 fflush）是「重定向的
+//全缓冲 stdout 下字节及时可见」的直接检验；恢复后再读补钉整链路。
+static void TestPartialOutputHandlerFallsBackToStdout() {
+    TEST(TestPartialOutputHandlerFallsBackToStdout);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink;   //只装 err：out 通道应走真实 stdout
+    itp.setOutputHandler(
+        nullptr, [&sink](const char* text) { sink.err += text; });
+    ScratchDir dir;
+    const fs::path outFile = dir.path / "stdout.txt";
+    {
+        FdCapture capture(1, outFile);
+        CHECK(capture.ok(), "redirect stdout to file");
+        const int rc = itp.runSource(
+            "import io; io.print(\"to-out\"); io.eprint(\"to-err\");");
+        CHECK(rc == 0, "script runs");
+        CHECK(ReadFileText(outFile).find("to-out") != std::string::npos,
+            "per-write flush lands bytes before channel restore");
+    }
+    CHECK(sink.err.find("to-err") != std::string::npos,
+        "err channel delivered to host");
+    CHECK(ReadFileText(outFile).find("to-out") != std::string::npos,
+        "empty out channel falls back to real stdout");
     PASS();
 }
 
@@ -280,6 +340,7 @@ int main() {
     TestRunSourceBoilerplateFree();
     TestV1LoadPathNativeWiring();
     TestPartialOutputHandlerFallsBackToStderr();
+    TestPartialOutputHandlerFallsBackToStdout();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }
