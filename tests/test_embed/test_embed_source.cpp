@@ -123,11 +123,73 @@ static void TestDiagnosticsSurviveBuilderDestruction() {
 }
 #endif
 
+//--- Interpreter source entry (spec §6) --------------------------------
+//§6.1（io.print，依赖 native 接线）在 Task 4 落地——本任务的用例全部
+//不依赖 native 解析，build-dev 与全新树行为一致。
+
+static void TestRunSourceTopLevelReturn() {           //§6.2
+    TEST(TestRunSourceTopLevelReturn);
+    Interpreter itp;
+    const int rc = itp.runSource("return 30;");
+    CHECK(rc == 30, "top-level return value is the exit code");
+    PASS();
+}
+
+static void TestCompileFailureLoadError() {           //§6.6 + §6.12
+    TEST(TestCompileFailureLoadError);
+    Interpreter itp;
+    bool threw = false;
+    try {
+        (void)itp.runSource("int x = ;");
+    } catch (const LoadError& e) {
+        threw = true;
+        const std::string text = e.what();
+        CHECK(text.find("script.n") != std::string::npos,
+            "synthesized file name (spec 12)");
+        CHECK(text.find("Compilation failed.") != std::string::npos,
+            "trailing marker");
+    }
+    CHECK(threw, "compile failure throws LoadError");
+    //失败后 call 不崩溃：无程序来源时按 v1 契约拒绝（spec §6.6）。
+    CHECK_THROWS(BadValue, (void)itp.call("script.anything", {}),
+        "call after compile failure -> BadValue, not a crash");
+    //编译失败不消耗唯一来源：同一 Interpreter 可重试（spec §2）。
+    CHECK(itp.runSource("return 1;") == 1, "retry after compile failure");
+    PASS();
+}
+
+static void TestUncaughtThrowSurfacesException() {    //§6.7
+    TEST(TestUncaughtThrowSurfacesException);
+    Interpreter itp;
+    bool threw = false;
+    try {
+        (void)itp.runSource("throw Exception(\"boom\");");
+    } catch (const Exception& e) {
+        threw = true;
+        CHECK(std::string(e.message()).find("boom") != std::string::npos,
+            "message carried");
+    }
+    CHECK(threw, "uncaught script throw surfaces as nlang::Exception");
+    PASS();
+}
+
+static void TestEmptySourceThrowsLoadError() {        //§4 边界（钉死）
+    TEST(TestEmptySourceThrowsLoadError);
+    Interpreter itp;
+    CHECK_THROWS(LoadError, (void)itp.runSource(""),
+        "empty source has no entry point -> LoadError");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
     TestSourceCompilerCollectsDiagnostics();
     TestDiagnosticsSurviveBuilderDestruction();
+    TestRunSourceTopLevelReturn();
+    TestCompileFailureLoadError();
+    TestUncaughtThrowSurfacesException();
+    TestEmptySourceThrowsLoadError();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

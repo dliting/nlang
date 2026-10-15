@@ -9,6 +9,7 @@
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"
+#include "SourceCompiler.h"
 #include <memory>
 
 namespace nlang {
@@ -25,6 +26,9 @@ struct Interpreter::Impl {
 
     void Load(const std::filesystem::path& artifact);
     int Run();
+    //ad-hoc 源码入口（spec 2026-10-15 §3 五步）的归一实现；源形态
+    //由 in 区分（字符串/文件二选一）。
+    int RunAdHoc(const SourceCompiler::Input& in);
     Value Call(const char* funcName, const std::vector<Value>& args);
 
     //call() 目标解析：包限定键校验 → 同名候选（数量可吸收、缺席形参

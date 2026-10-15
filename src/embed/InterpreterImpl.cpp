@@ -89,6 +89,18 @@ void Interpreter::addImportDir(const std::filesystem::path& d) {
     m_upImpl->importDirs.push_back(d.string());
 }
 int Interpreter::run() { return m_upImpl->Run(); }
+int Interpreter::runSource(const std::string& utf8Source) {
+    SourceCompiler::Input in;
+    in.utf8Source = utf8Source;
+    in.moduleName = "script";   //D3：合成名可读（诊断 script.n:1:9）
+    return m_upImpl->RunAdHoc(in);
+}
+int Interpreter::runFile(const std::filesystem::path& script) {
+    SourceCompiler::Input in;
+    in.scriptFile = script;
+    in.moduleName = script.stem().string();
+    return m_upImpl->RunAdHoc(in);
+}
 Value Interpreter::call(const char* funcName,
                         const std::vector<Value>& args) {
     return m_upImpl->Call(funcName, args);
@@ -187,6 +199,44 @@ private:
     bool& m_flag;
 };
 }   // namespace
+
+//ad-hoc 源码入口（spec 2026-10-15 §3 五步）。编译失败不消耗唯一
+//来源（loaded 仍 false，同 Load 失败路径）；装载成功后无论执行成
+//败，来源已定。
+int Interpreter::Impl::RunAdHoc(const SourceCompiler::Input& in) {
+    if (loaded)
+        throw BadValue(
+            "the program source may be defined once per Interpreter "
+            "(load()/runSource()/runFile())");
+
+    //生效搜索表＝宿主 addImportDir 列表＋（仅文件形态）脚本所在
+    //目录；absolute＋lexically_normal——诊断与装载解析不随 CWD 漂
+    //移（spec §3）。无 NLANG_PATH/exe 目录/cwd 默认（spec §4）。
+    std::vector<std::string> searchDirs = importDirs;
+    if (!in.scriptFile.empty()) {
+        const std::filesystem::path scriptDir =
+            std::filesystem::absolute(in.scriptFile)
+                .lexically_normal().parent_path();
+        searchDirs.push_back(scriptDir.string());
+    }
+
+    //步骤 1-2：落源＋编译（临时目录 RAII；异常路径同样删除）。
+    SourceCompiler compiler;
+    const SourceCompiler::Output out = compiler.Compile(in, searchDirs);
+
+    //步骤 3：装载。装载前把生效搜索表并入 importDirs（内部直推
+    //成员——loaded 仍 false，不触发公共 addImportDir 的迟到检查；
+    //与宿主已加目录重复无害）——编译/装载同一张表，杜绝「编译期
+    //命中脚本旁库、装载期解析到别处」的静默分叉。
+    importDirs = searchDirs;
+    Load(out.artifact);
+    //装载后模块已在内存，临时目录自此不再被引用（RAII 删除）。
+
+    //步骤 4（接线 native）在 Load 内：searchDirs 逐项
+    //executor.AddNativeSearchDir（v1 load() 路径同修，spec D6）。
+    //步骤 5：执行——RunningGuard/NLangThrow 翻译/退出码解码复用。
+    return Run();
+}
 
 void Interpreter::Impl::Load(const std::filesystem::path& artifact) {
     if (loaded)
@@ -346,6 +396,27 @@ Value Interpreter::Impl::DecodeResult(
     if (f.returnTypeKind == RTK_Void)
         return Value();
     return embed::ValueFromCell(executor, f.returnTypeKind, resultCell);
+}
+
+//--- 一次性便捷层（spec 2026-10-15 D4）----------------------------------
+
+int runScript(const std::string& utf8Source, const ScriptOptions& opts) {
+    Interpreter itp;
+    for (const auto& d : opts.importDirs)
+        itp.addImportDir(d);
+    if (opts.out || opts.err)
+        itp.setOutputHandler(opts.out, opts.err);
+    return itp.runSource(utf8Source);
+}
+
+int runScriptFile(const std::filesystem::path& script,
+                  const ScriptOptions& opts) {
+    Interpreter itp;
+    for (const auto& d : opts.importDirs)
+        itp.addImportDir(d);
+    if (opts.out || opts.err)
+        itp.setOutputHandler(opts.out, opts.err);
+    return itp.runFile(script);
 }
 
 }  // namespace nlang

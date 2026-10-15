@@ -151,6 +151,8 @@ public:
     void registerHostFunction(const char* ns, const char* name, HostFn fn);
 
     int   run();                // 调模块 main()，返回退出码；至多一次；未捕获异常抛 Exception
+    int   runSource(const std::string& utf8Source);       // 进程内编译＋执行源码字符串；与 load()/runFile() 互斥（程序来源仅一次）；编译失败不消耗来源，装载成功后来源已定
+    int   runFile(const std::filesystem::path& script);   // 同管线，脚本文件入口（诊断带真实文件名与行号）
     Value call(const char* funcName, const std::vector<Value>& args); // 通用基元
 
     Value newList();            // 宿主构造 List（builder 语义，spec §6）
@@ -162,6 +164,18 @@ private:
     struct Impl;
     std::unique_ptr<Impl> m_upImpl;
 };
+
+//一次性执行的便捷层（spec 2026-10-15）：构造 Interpreter→配置→执行
+//→返回退出码的最薄封装（D4）；宿主函数注册、跑后 call 等完整能力
+//请用 Interpreter——本层执行完实例即亡。
+struct ScriptOptions {
+    std::vector<std::filesystem::path> importDirs;  // 库搜索路径（含标准库目录，宿主指路；进程内嵌入不自动发现标准库）
+    WriteFn out;                                    // 输出重定向（可选；空＝该通道不重定向）
+    WriteFn err;
+};
+int runScript(const std::string& utf8Source, const ScriptOptions& opts = {});
+int runScriptFile(const std::filesystem::path& script,
+                  const ScriptOptions& opts = {});
 
 //未捕获的 NLang 异常（脚本侧错误）。定义在 Interpreter 之后、友元指名
 //外围类：写 m_heapIdx 的是嵌套 Interpreter::Impl 的成员（翻译
