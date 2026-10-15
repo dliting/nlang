@@ -470,14 +470,16 @@ static void TestSourceExclusivity() {                 //§6.5
     WriteText(soloScript, "return 0;");
     CHECK_THROWS(BadValue, itp.runFile(soloScript),
         "runFile after runSource -> BadValue");
+    //哑路径：互斥守卫在入库前拒绝，点号不参与解析。
     CHECK_THROWS(BadValue, itp.addImportDir("."),
         "addImportDir after runSource -> BadValue");
     PASS();
 }
 
 //§6.6 延伸（Task 3 质量审查 M-2 行为覆盖）：装载失败（编译成功但
-//无入口）同样不消耗唯一来源——换 runSource 立即可重试；同时跑过
-//Task 4 Step 6 的脚本目录去重路径（重试后搜索表不重复累计）。
+//无入口）同样不消耗唯一来源——换 runSource 立即可重试；文件形态
+//重试经过 Task 4 Step 6 的脚本目录去重分支（表内容无公共观测面，
+//覆盖强度＝经过该分支）。
 //纯函数定义不触发合成 main（v0.9.1：顶层**语句**段落才包裹；对照
 //e2e script_decls_only）——整文件只有声明即无入口。
 static void TestRetryAfterLoadFailure() {               //§6.6 延伸
@@ -488,6 +490,10 @@ static void TestRetryAfterLoadFailure() {               //§6.6 延伸
     WriteText(noEntry, "int f() { return 0; }");
     CHECK_THROWS(LoadError, (void)itp.runFile(noEntry),
         "declarations-only script has no entry -> LoadError");
+    //文件形态二次装载重试：真正经过脚本目录去重分支（find 命中→
+    //跳过；表内容无公共观测面，覆盖强度＝经过该分支）。
+    CHECK_THROWS(LoadError, (void)itp.runFile(noEntry),
+        "file-form retry after load failure");
     CHECK(itp.runSource("return 1;") == 1,
         "source still available after load failure");
     PASS();
