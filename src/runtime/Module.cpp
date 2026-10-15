@@ -107,6 +107,30 @@ Module *ModuleManager::Load(const std::string &sModuleName)
 	return pModule;
 }
 
+bool ModuleManager::Unload(Module *pModule)
+{
+	if (!pModule)
+	{
+		errno = EINVAL;
+		return false;
+	}
+	//Compile-flow scoped (the embed SourceCompiler deregisters its
+	//output module): the manager is the sole owner -- Create news the
+	//module straight into the map and nothing else in src/ reads
+	//Instance() -- so erase-then-delete leaves no outside holders.
+	for (auto it = m_upLoadedMap->begin(); it != m_upLoadedMap->end(); ++it)
+	{
+		if (it->second == pModule)
+		{
+			m_upLoadedMap->erase(it);
+			delete pModule;
+			return true;
+		}
+	}
+	errno = ENOENT;
+	return false;
+}
+
 void ModuleManager::LoadPath(const std::list<std::string> &paths)
 {
 	*m_upLoadPaths = paths;

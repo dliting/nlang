@@ -25,6 +25,11 @@
     "reason": "cast-decision table over source/target kind pairs"
   },
   {
+    "path": "src/embed/SourceCompiler.cpp",
+    "function": "SourceCompiler::Compile",
+    "reason": "sequential compile pipeline: source drop, params assembly, scoped build, diagnostics join"
+  },
+  {
     "path": "src/tools/ncc/main.cpp",
     "function": "main",
     "reason": "CLI entry point: sequential flag and phase handling"

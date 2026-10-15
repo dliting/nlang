@@ -10,6 +10,7 @@ add_library(nlang_embed
     HostFunctionTable.cpp
     RefFactory.cpp
     Proxies.cpp
+    SourceCompiler.cpp
 )
 target_include_directories(nlang_embed
     PUBLIC
@@ -21,4 +22,5 @@ target_link_libraries(nlang_embed
     PRIVATE
         nlang_vm
         nlang_runtime
+        nlang_compiler
 )

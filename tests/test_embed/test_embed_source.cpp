@@ -38,8 +38,54 @@ static void InstallSink(Interpreter& itp, OutputSink& sink) {
         [&sink](const char* text) { sink.err += text; });
 }
 
+#ifndef EMBED_SOURCE_COMPILER_UNIT
+#define EMBED_SOURCE_COMPILER_UNIT
+#include "SourceCompiler.h"
+
+//Direct unit tests for the compile step (src/embed internal header,
+//PRIVATE include -- same reach-through as test_embed/Marshalling.h).
+static void TestSourceCompilerProducesArtifact() {
+    TEST(TestSourceCompilerProducesArtifact);
+    SourceCompiler::Input in;
+    in.utf8Source = "return 0;";
+    in.moduleName = "script";
+    fs::path tempRoot;
+    {
+        SourceCompiler sc;
+        const SourceCompiler::Output out = sc.Compile(in, {});
+        CHECK(fs::exists(out.artifact), "entry .ncu written to temp dir");
+        tempRoot = out.artifact.parent_path();
+    }
+    CHECK(!fs::exists(tempRoot), "temp dir removed after destruction");
+    PASS();
+}
+
+static void TestSourceCompilerCollectsDiagnostics() {
+    TEST(TestSourceCompilerCollectsDiagnostics);
+    SourceCompiler::Input in;
+    in.utf8Source = "int x = ;";
+    in.moduleName = "script";
+    SourceCompiler sc;
+    bool threw = false;
+    try {
+        (void)sc.Compile(in, {});
+    } catch (const LoadError& e) {
+        threw = true;
+        const std::string text = e.what();
+        CHECK(text.find("Compilation failed.") != std::string::npos,
+            "trailing failure marker");
+        CHECK(text.find("script.n") != std::string::npos,
+            "synthesized file name in diagnostics");
+    }
+    CHECK(threw, "compile failure throws LoadError");
+    PASS();
+}
+#endif
+
 int main() {
     initialize();
+    TestSourceCompilerProducesArtifact();
+    TestSourceCompilerCollectsDiagnostics();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }
