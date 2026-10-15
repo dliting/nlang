@@ -254,6 +254,38 @@ Error: the Dict collection initializer requires string keys; use set() with an e
 集合初始化器把字典键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`用空初始化器构造后`set()`逐条填入。详见 →
 [集合初始化器](collection-initializers.md)。
 
+### struct没有构造函数
+
+```nlang
+struct Point { int x; int y; }
+int main() {
+    Point p = Point(2, 3);
+    return 0;
+}
+```
+
+```text
+Error: The function "Point" does not exist or is not accessible.
+```
+
+struct没有构造函数——`Point(2, 3)`被当作按名调用函数，解析落空。struct的创建形式是花括号条目：具名`Point{x: 2, y: 3}`或位置`Point{2, 3}`（见[结构体](struct.md)与[集合初始化器](collection-initializers.md)）。
+
+### 泛型花括号锚定
+
+```nlang
+int main() {
+    List<int> nums = List<int>{60};
+    return 0;
+}
+```
+
+```text
+Error: syntax error
+Error: Invalid statement.
+```
+
+泛型类型的锚定头（`List<int>{...}`）无法解析。给字面量一个带类型声明即可：`List<int> nums = [60];`。详见 → [已知限制](known-limitations.md)「泛型实例化没有锚定头」条与[集合初始化器](collection-initializers.md)。
+
 ### 类型别名
 
 ```nlang

@@ -306,6 +306,46 @@ non-string-keyed `Dict<K,V>` with the empty initializer, then fill
 entries with `set()`. See →
 [Collection Initializers](collection-initializers.md).
 
+### Structs have no constructors
+
+```nlang
+struct Point { int x; int y; }
+int main() {
+    Point p = Point(2, 3);
+    return 0;
+}
+```
+
+```text
+Error: The function "Point" does not exist or is not accessible.
+```
+
+Structs have no constructors — `Point(2, 3)` parses as a call to a
+function named `Point`, which fails to resolve. Create structs with
+braced entries instead: named `Point{x: 2, y: 3}` or positional
+`Point{2, 3}` (see [Struct](struct.md) and [Collection
+Initializers](collection-initializers.md)).
+
+### Generic braced anchors
+
+```nlang
+int main() {
+    List<int> nums = List<int>{60};
+    return 0;
+}
+```
+
+```text
+Error: syntax error
+Error: Invalid statement.
+```
+
+An anchored head on a generic type (`List<int>{...}`) does not parse.
+Give the literal a typed declaration instead: `List<int> nums = [60];`.
+See → [Known limitations](known-limitations.md), "Generic instantiation
+has no anchored head", and [Collection
+Initializers](collection-initializers.md).
+
 ### Type aliases
 
 ```nlang

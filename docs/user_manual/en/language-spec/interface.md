@@ -24,6 +24,22 @@ int TotalArea(IShape s) {
 }
 ```
 
+### Creating interface values
+
+```nlang
+Square sq = Square();
+IShape a = sq;         // upcast: the interface reference points at the instance
+IShape b = Square();   // a constructor call's result assigned to an interface variable
+IShape n = null;       // an interface reference can be null
+```
+
+An interface value has no standalone instance — it always points at an
+implementing class's object. Upcast assignment (from an instance
+variable or a constructor call) needs no cast syntax. `n == null` tests
+for null directly; accessing a member on a null interface reference
+(`n.Area()`) raises a `null reference error` with a backtrace at run
+time.
+
 ### What an interface supports
 
 - **Method signatures only** — no fields, no implementation.
@@ -34,9 +50,12 @@ int TotalArea(IShape s) {
   method through an interface reference dispatches to the implementing object's
   override (same mechanism as class virtual dispatch; see
   [Class](class.md) "Virtual methods and overrides").
-- **Polymorphic collections** — a `List<IShape>` may hold a mix of
-  `Square`/`Circle` objects. See
-  [Built-in Generic Classes](builtin-generic-classes.md).
+- **Polymorphic collections** — `List<IShape>` holds a mix of
+  implementing objects such as `Square` and `Circle`; iterating with
+  `foreach` and calling through the interface reference dispatches
+  virtually to each implementation (`Dict` accepts interface type
+  arguments in both the key and the value position). See [Built-in
+  Generic Classes](builtin-generic-classes.md).
 
 ### The `public` keyword is required
 

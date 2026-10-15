@@ -20,12 +20,23 @@ int TotalArea(IShape s) {
 }
 ```
 
+### 创建接口值
+
+```nlang
+Square sq = Square();
+IShape a = sq;         // 上转型：接口引用指向实现类对象
+IShape b = Square();   // 构造调用结果直接赋给接口变量
+IShape n = null;       // 接口引用可为null
+```
+
+接口值没有独立实例——总是指向实现类对象。上转型赋值（来自实例变量或构造调用）不需要任何强转写法。`n == null`直接判空；对null接口引用访问成员（`n.Area()`）在运行期抛`null reference error`并附回溯。
+
 ### 接口支持
 
 - **仅方法签名**——无字段、无实现。
 - **`class X implements IShape`**——类用`implements`关键字声明符合接口。`:`形式用于类继承，**不用于**接口符合；`class X : IShape`会被拒绝。
 - **对接口类型的局部变量/参数/字段虚分派**——经接口引用调用方法会分派到实现对象的覆写（与class虚分派同机制；见[类](class.md)「虚方法与覆写」）。
-- **多态集合**——`List<IShape>`可持有`Square`/`Circle`混合对象。见[内建泛型类](builtin-generic-classes.md)。
+- **多态集合**——`List<IShape>`可持有`Square`/`Circle`等混合实现类对象，`foreach`遍历经接口引用调用方法，虚分派到各自的实现（`Dict`的键位与值位同样接受接口类型实参）。见[内建泛型类](builtin-generic-classes.md)。
 
 ### 必须写`public`关键字
 

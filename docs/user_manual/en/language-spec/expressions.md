@@ -29,13 +29,15 @@ For class objects, `obj` must be non-null (runtime null check — see
 written through the member expression (see [Struct](struct.md)). Enum members
 are constants, not members of a value (see [Enum](enum.md)).
 
-### Object creation
+### Creation and initialization quick reference
 
-```nlang
-Node n = Node();
-Node n = Node(42);
-```
+| Type | Creation forms | Details |
+|---|---|---|
+| class | constructor call `Node(42)`; direct-init declaration `Node n(42);`; braced anchor `P{value: 42}` | [Class](class.md) "Creating instances" |
+| struct | named entries `Point{x: 1, y: 2}`; positional entries `Point{3, 7}`; bare declaration zero-initializes `Point p;` | [Struct](struct.md) |
+| enum | qualified member `Color.Red`; implicit int conversion `Color c = 1;` | [Enum](enum.md) |
+| arrays | expression position `int[3]`, `[1, 2, 3]`, `{1, 2}`; declaration position `int a[3];`, `int b[100] = [7, 8];` | [Array](array.md) |
+| interface | upcast `IShape s = sq;` — an interface value always refers to an implementing object | [Interface](interface.md) |
+| List/Dict | literals `[1, 2]`, `{"k": 1}`; empty `{}` | [Collection initializers](collection-initializers.md) |
 
-A constructor call allocates on the heap and calls the constructor if
-present. See [Class](class.md) "Constructors". Array creation is `T[n]` — see
-[Array](array.md).
+A constructor call `Node(42)` is an expression: it allocates on the heap, runs the constructor with the arguments, and returns a reference (see [Class](class.md) "Constructors"). Structs have no constructors — braced entries fill fields directly. Declaration-position forms (`T name(args);`, `T name[n];`, `T name[n] = [...]`) are allowed on the first declarator only, see [Known limitations](known-limitations.md).

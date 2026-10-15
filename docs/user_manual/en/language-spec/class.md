@@ -44,6 +44,38 @@ The full value-vs-reference summary is on [Type Semantics](type-semantics.md).
 Fields carry access modifiers `public` / `private` / `protected`. NLang's
 default access modifier is `private`.
 
+### Creating instances
+
+```nlang
+Node a = Node(42);        // constructor call: heap-allocates and runs the ctor
+Node b(42);               // direct-init declaration, equivalent to the line above
+Node c;                   // declaration only: c is null
+```
+
+- A **constructor call** `Node(42)` is an expression: it allocates the
+  object on the heap, runs the constructor with the arguments, and
+  returns the reference. Writing `P()` for a class without a constructor
+  is legal too — it just allocates and zero-initializes the fields. A
+  bare call of the class's own name inside the class body is not a
+  constructor call (see [Known Limitations](known-limitations.md)).
+- The **anchored brace form** `P{value: 42}` fills fields with
+  `field:value` entries: the class must have a parameterless
+  constructor (explicit or implicit) — this page's `Node`, whose
+  constructor takes `Node(int v)`, does not qualify; fields are
+  assigned by name after construction. See [Collection
+  Initializers](collection-initializers.md).
+- Constructor calls **do not apply default parameter values**: with
+  `Vec(int x, int y = 3)`, `Vec(5)` reports an argument count
+  error.
+- The declaration-site form `Node b(42);` is allowed only on the first
+  declarator (`Node a, b(42);` is a syntax error — the paren arm is not
+  in first position); the rules for sized
+  array declarations like `Node arr[3];` are in
+  [Known Limitations](known-limitations.md).
+- A declaration without an initializer (`Node c;`) yields null — see the
+  default value table in [Declarations](declarations.md) and Null check
+  below.
+
 ### Inheritance layout
 
 Object memory layout is
@@ -89,11 +121,18 @@ The type ID in the object's first layout slot is what virtual dispatch uses.
 **Override**: a subclass method that has the **same name and signature** as a
 parent virtual method overrides it — there is no `override` keyword (unlike C++'s
 `override` or Java's `@Override`); name-and-signature matching is decided by
-the compiler.
+the compiler. The signature must match exactly: a same-name method with a
+different parameter or return type produces **no diagnostic at all**, yet
+occupies the virtual-dispatch slot — the call site compiles against the parent
+signature and dispatches into the subclass method at run time. See [Known
+limitations](known-limitations.md), entry "An override with a mismatched
+signature produces no diagnostic".
 
 `Object`'s two virtual methods (`equals`/`getHashCode`) are overridden the same
 way — a subclass declares the method with the same name (see
-[Object & Boxing](object.md)). Interface virtual dispatch uses the same
+[Object & Boxing](object.md)); `==` comparison is unaffected by an `equals`
+override — class `==` is always identity, and value equality requires an
+explicit `equals` call. Interface virtual dispatch uses the same
 mechanism (see [Interface](interface.md)). Quick tour:
 [Classes and Inheritance](../getting-started/classes-and-inheritance.md).
 

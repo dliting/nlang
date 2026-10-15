@@ -68,7 +68,10 @@ Comparison results are always **`bool`** (`true` / `false`).
   equals code-point order, the ordering is also correct for non-American Standard Code for Information Interchange (ASCII)
   text: `"é" > "z"` is true. See [String](string.md) "Comparison".
 - **Class/reference equality** (`==`, `!=`) is identity (same heap
-  object). See [Class](class.md).
+  object). For value comparison, use the `equals` method and override it in
+  your own classes — `==` is unaffected by the override; see [Object &
+  Boxing](object.md) "`equals` and `getHashCode`" and [Class](class.md)
+  "Virtual methods and overrides".
 - **Arithmetic/concatenation with a null operand** is a compile error —
   null only has a value through the comparison-identity path above.
 

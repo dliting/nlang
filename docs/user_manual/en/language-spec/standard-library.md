@@ -33,8 +33,9 @@ io coercing trio (`write`/`print`/`eprint`), which accept string, arrays,
 all scalar primitives and function values
 (converted at the call site; a function value renders as `func <name>`,
 see [Function Types and Delegates](function-types-and-delegates.md));
-class and enum values need an explicit
-`.toString()` before printing (struct arguments are rejected outright —
+class objects and enum variables need an explicit
+`.toString()` before printing (an enum member constant prints its member
+name directly; struct arguments are rejected outright —
 structs have no `toString`).
 
 The detailed reference is one page per topic:

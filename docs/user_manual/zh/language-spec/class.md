@@ -38,6 +38,20 @@ class在整个语言中遵循**引用语义**：
 
 字段带访问修饰符`public` / `private` / `protected`。NLang的默认访问修饰符是`private`。
 
+### 创建实例
+
+```nlang
+Node a = Node(42);        // 构造调用：堆上分配并运行构造函数
+Node b(42);               // 直接初始化声明，与上一行等价
+Node c;                   // 只声明：c是null
+```
+
+- **构造调用**`Node(42)`是表达式：在堆上分配对象、按实参运行构造函数，返回引用。没有构造函数的类写`P()`同样合法——只分配并把字段零初始化。类体内裸调用同类名不是构造调用（见[已知限制](known-limitations.md)）。
+- **锚定花括号**`P{value: 42}`以`字段:值`条目填值：要求类有无参构造函数（显式或隐式）——本页`Node`带`Node(int v)`有参构造，不适用此形态；字段在构造之后按名赋值，见[集合初始化器](collection-initializers.md)。
+- 构造调用**不适用默认参数**：`Vec(int x, int y = 3)`下`Vec(5)`报实参数目错误。
+- 声明位形式`Node b(42);`只允许出现在首个声明符上（`Node a, b(42);`是语法错误——括号臂不在首位）；定长数组声明`Node arr[3];`的规则见[已知限制](known-limitations.md)。
+- 只声明不初始化（`Node c;`）得到null，见[声明](declarations.md)的默认值表与下文Null检查。
+
 ### 继承布局
 
 对象内存布局是`[类型ID, 祖先字段..., 父类字段..., 自身字段...]`。首格的类型ID标识运行期类，供虚分派使用。
@@ -65,9 +79,9 @@ class Dog : Animal {
 
 `virtual`关键字把方法标记为**虚方法**：经引用调用该方法时，运行期VM从对象的实际类型出发沿类层次上溯，**最派生实现优先**（动态分派）。对象布局首格的类型ID即供虚分派使用。
 
-**覆写**：子类声明与父类虚方法**同名同签名**的方法即构成覆写——没有`override`关键字（不同于C++的`override`或Java的`@Override`），名称与签名的匹配由编译器判定。
+**覆写**：子类声明与父类虚方法**同名同签名**的方法即构成覆写——没有`override`关键字（不同于C++的`override`或Java的`@Override`），名称与签名的匹配由编译器判定。签名必须严格一致：参数或返回类型不同的同名方法**不会得到任何诊断**，却会占据虚分派槽位，运行期按父类签名传参、分派进子类方法——见[已知限制](known-limitations.md)「覆写签名不匹配没有诊断」条。
 
-`Object`的两个虚方法（`equals`/`getHashCode`）同样以子类声明同名方法的方式覆写（见[Object与装箱](object.md)）。接口的虚分派同机制（见[接口](interface.md)）。速览：[类与继承](../getting-started/classes-and-inheritance.md)。
+`Object`的两个虚方法（`equals`/`getHashCode`）同样以子类声明同名方法的方式覆写（见[Object与装箱](object.md)）；`==`比较不受`equals`覆写影响——class的`==`恒为同一性，值相等须显式调用`equals`。接口的虚分派同机制（见[接口](interface.md)）。速览：[类与继承](../getting-started/classes-and-inheritance.md)。
 
 ### super()——构造函数链
 

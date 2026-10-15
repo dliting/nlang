@@ -18,10 +18,13 @@ runtime module. The language itself:
 
 - **Statically typed** — variables, parameters, and return values
   declare their types explicitly; there is no type inference;
-- **Object-oriented** — `class`/`extends`/interfaces/virtual dispatch,
+- **Object-oriented** — `class`/inheritance/interfaces/virtual dispatch,
   plus struct (value types) and enum;
 - **Built-in generic collections** — `List<T>`/`Dict<K,V>` with
   initializer syntax;
+- **Garbage-collected** — no `delete`; objects are reclaimed
+  automatically once unreachable, so you never free memory by hand (see
+  [Memory Management](../language-spec/memory-management.md));
 - **Modern scripting staples** — exception handling, string
   interpolation, `out` parameters, default parameters, and the
   `math`/`io`/`fs` standard libraries.

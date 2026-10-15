@@ -19,7 +19,9 @@ classes, and array and struct values have no path into an `Object` target.
 
 `Object` is a **reference type**: a value of type `Object` is a reference that
 may point at a class object *or* a boxed primitive. Assignment and passing
-copy the reference. See [Type Semantics](type-semantics.md).
+copy the reference. Declaring without an initializer (`Object o;`) yields
+null — like every class type (see the default-value table in
+[Declarations](declarations.md)). See [Type Semantics](type-semantics.md).
 
 ### `equals` and `getHashCode`
 

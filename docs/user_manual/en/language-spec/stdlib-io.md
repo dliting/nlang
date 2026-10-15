@@ -25,6 +25,15 @@ lands on the same console line; `eprint` mirrors `print` on stderr for
 diagnostics that stay separable from normal output. Inside a debug session
 the two streams merge into the session's single output view.
 
+The three functions accept string, arrays, and every scalar primitive
+directly; function values format as `func <name>`. Class objects are
+**not** in the argument surface — call `.toString()` before printing
+(`io.print(obj.toString())`); enum variables need `.toString()` too,
+with one exception: an enum member constant prints directly —
+`io.print(Color.Red)` prints the member name. Struct arguments are
+rejected outright (structs have no `toString`). Full rules in the
+[standard library overview](standard-library.md).
+
 **input prompt on an interactive console**: when the program is about to
 block on an input read and both stdin and stdout are consoles, the runtime
 prints a `"> "` prompt before waiting — the REPL convention (Python,

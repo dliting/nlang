@@ -25,3 +25,19 @@ int main() {
 
 详见 → [语言规格/内建泛型类](../language-spec/builtin-generic-classes.md)。
 
+### 数组
+
+```nlang
+import io;
+
+int main() {
+    int[] sizes = [10, 20, 30];  // 定长数组，列表初始化
+    sizes[1] = 25;
+    io.print(sizes.length());
+    return sizes[2];
+}
+```
+
+输出`3`，退出码30。数组的长度在创建时固定，元素按下标读写；`int[3]`是定长创建的另一种写法（先建后填）。选型一句话：尺寸固定、元素按值使用，用数组；要动态增删，用`List<T>`。
+
+详见 → [语言规格/数组](../language-spec/array.md)。

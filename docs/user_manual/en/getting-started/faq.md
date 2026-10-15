@@ -133,6 +133,37 @@ Limitations](../language-spec/known-limitations.md), the "Array values
 in scalar contexts" item. See [Common Error
 Messages](../language-spec/common-errors.md) for the full error text.
 
+### What happens to an uninitialized variable?
+
+It is legal and warning-free — every type has a definite default value:
+numbers are 0, `bool` is false, `char` is code point 0, enums hold
+underlying value 0 (the first member for auto-incremented enums),
+structs zero-initialize every field, and string plus the
+other reference types (class, interface, arrays, containers, `func`)
+are null. A null default compares directly with `== null`; using it
+without the check throws a `null reference error` at run time. The full
+table is in [Language Specification /
+Declarations](../language-spec/declarations.md), "Default values".
+
+### Why does `Point(2, 3)` report a missing function?
+
+Structs have no constructors — `Point(2, 3)` parses as a call to a
+function named `Point` and fails to resolve (`The function "Point" does
+not exist or is not accessible.`). Create structs with braced entries:
+`Point{x: 2, y: 3}`, or positional `Point{2, 3}` in declaration order.
+See the "Structs have no constructors" entry in [Language Specification
+/ Common Error Messages](../language-spec/common-errors.md).
+
+### Array or `List` — which one?
+
+Fixed size with value elements — use an array
+(`int[] sizes = [10, 20, 30];`, length fixed after creation); dynamic
+growth — use `List<T>` (`add`/`removeAt`, grows as needed). Quick tour
+in [Containers](containers.md); full semantics in [Language
+Specification / Array](../language-spec/array.md) and [Language
+Specification / Built-in Generic
+Classes](../language-spec/builtin-generic-classes.md).
+
 ### `.ncu` version outdated, telling you to recompile?
 
 The `.ncu` minimum format version only ever rises: a module produced by an

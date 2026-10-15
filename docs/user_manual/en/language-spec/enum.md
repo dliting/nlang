@@ -9,7 +9,34 @@ enum Color { Red, Green, Blue }
 enum Direction { North = 0, East = 90, South = 180, West = 270 }
 ```
 
-Members can be explicit or auto-incremented.
+Members can be explicit or auto-incremented (starting from 0).
+
+### Creating enum values
+
+```nlang
+Color c = Color.Green;     // qualified member name
+Color d = 1;               // int converts to enum implicitly
+int n = c;                 // enum yields its underlying value, here 1
+Color e;                   // no initializer: underlying value 0
+```
+
+- Declare with the **qualified member name** `Color.Green`.
+- int-to-enum is allowed implicitly too (`Color d = 1;`); the explicit
+  form is `1 as Color`. Whether the underlying value lands on a member
+  is **not checked at compile time** — an out-of-range value only raises
+  a run-time error when `toString()` looks up the name (see Output
+  below).
+- enum-to-int yields the underlying value implicitly (see
+  [Type Semantics](type-semantics.md)).
+- A declaration without an initializer (`Color e;`) gets the underlying
+  value 0 — for an auto-incremented enum that is exactly the first
+  member; an enum with explicitly assigned non-zero values may default
+  to 0, which lands on no member (see the default value table in
+  [Declarations](declarations.md)).
+- Printing an enum variable requires `.toString()` first — `io.print`
+  does not accept an enum variable argument directly; a member constant
+  is the exception: `io.print(Color.Red)` prints the member name `Red`
+  (see the printing rules in [Standard Library](standard-library.md)).
 
 ### Value semantics
 
@@ -20,7 +47,7 @@ An enum is a **value type** backed by int32:
 - **Comparison**: compared by integer value — `==`/`!=` and the relational
   operators all compare the underlying int32 (see [Operators](operators.md)).
 - **No object identity**: an enum value has no heap identity. `Color.Red` is
-  the int32 value `1` (or whatever it was assigned); there is no object to
+  the int32 value `0` (or whatever it was assigned); there is no object to
   take a hash of or compare by reference. `switch` over an enum matches on the
   int value (see [Switch](switch.md)).
 - **In aggregates**: a struct/class field of enum type is stored as int32

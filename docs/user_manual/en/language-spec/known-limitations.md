@@ -61,14 +61,17 @@
 - **Sized-array declaration: size arm on the first declarator only**:
   `int a, b[3];` is a syntax error — declare `b` separately.
 - **Direct-init paren arm on the first declarator only**:
-  `Point a, b(2);` is a syntax error — declare `b` separately.
+  `Vec a, b(2);` is a syntax error — declare `b` separately (`Vec` on
+  this page stands for a class-with-constructor example; the struct
+  `Point` is covered in [Struct](struct.md) — structs have no
+  constructors).
 - **Mixed declarators take the array type**: in `int a[3], b;` the
   sibling `b` is a null `int[]` (array-typed), not an int.
 - **Partial initialization is the bracket form at the declaration**:
   `int b[100] = [7, 8];` zero-fills the remainder; the brace form at a
   sized declaration (`int b[100] = {7, 8};`) is a syntax error.
 - **Constructor calls do not apply default parameter values**:
-  `Point(5)` against `Point(int a, int b = 3)` reports an arity error.
+  `Vec(5)` against `Vec(int a, int b = 3)` reports an arity error.
 - **Generic instantiation has no anchored head**: `List<int>{60}` does
   not parse — give the literal a typed declaration (see
   [Collection Initializers](collection-initializers.md)).
@@ -85,15 +88,13 @@
   creation twin.
 - **Bare same-class-name call inside a class body is not a constructor
   call**: it reports a method-needs-receiver style error; construct via
-  `Point(2, 3)` in expression position.
+  `Vec(2, 3)` in expression position.
 - **`using` alias declarations belong to the file prologue**: a `using`
   placed after another top-level declaration is a syntax error.
 - **`List<struct>` value semantics**: adding the same struct variable
   to a List twice shares the underlying heap slot (reference semantics
   at the boxing layer). Use separate struct instances for distinct
   elements.
-- **`Dict<K,V>` with interface type**: interface types are not
-  supported as generic type arguments. Use concrete class types.
 - **Nested-subscript receiver write**: in
   `matrix[i][0].x = v` (array-of-array-of-struct), the receiver's
   inner subscript index evaluation can clobber the RHS temp slot.
@@ -124,6 +125,16 @@
 - **Method inheritance of defaults**: derived class overrides do not
   inherit default values from the base class method. Each override
   declares its own defaults independently.
+- **An override with a mismatched signature produces no diagnostic**: a
+  subclass method sharing the parent virtual method's name but differing
+  in a parameter or return type triggers **no compile error or warning** —
+  the same-name method still occupies the virtual-dispatch slot: the call
+  site compiles and passes arguments against the parent signature, yet at
+  run time dispatch lands in the subclass method, reading arguments and
+  the return value as mismatched bits. An override must match name,
+  parameters, and return type exactly (see [Class](class.md) "Virtual
+  methods and overrides"); if you meant a new method, pick a new name; if
+  you meant an override, align the signature.
 - **Parameter count ceiling**: functions with more than 64 parameters
   (a sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — the call-argument staging area and
@@ -155,10 +166,10 @@
   legal spelling for a top-level const function (function bodies are
   unaffected).
 - **Type-line hijack of the first direct-init argument at top level**:
-  when the first argument of `Point p(base.x);` / `Point p(a<b);`
+  when the first argument of `Vec p(base.x);` / `Vec p(a<b);`
   starts with a qualified name or a generic form, the parser reads it
   as a type and reports a clear syntax error. Workaround: assignment
-  initialization, `Point p = Point(base.x);` (function bodies are
+  initialization, `Vec p = Vec(base.x);` (function bodies are
   unaffected).
 - **Top-level empty-parameter asymmetry**: `Foo f();` at top level
   fails with a clear syntax error, because the empty-parameter form

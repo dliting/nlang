@@ -3,11 +3,34 @@
 
 Arrays are fixed-length, index-addressable sequences. The syntax is `T[]`.
 
+### Creating arrays
+
 ```nlang
-int[] a = int[3];    // fixed-length heap array, elements zero-initialized
-int[] b = [1, 2, 3];     // bare initializer (see Collection Initializers)
-int[] c = int[0];    // empty array
+int[] a = int[3];         // expression position: fixed length, elements zero-initialized
+int[] b = [1, 2, 3];      // bare bracket literal
+int[] c = {1, 2};         // bare brace literal
+int[] e = int[0];         // empty array
+
+int d[3];                 // declaration position, fixed length: zero-filled
+int f[100] = [7, 8];      // declaration position, partial init: rest zero-filled
 ```
+
+- **Expression position**: `int[3]` creates a fixed-length heap array with
+  zero-initialized elements; `[1, 2, 3]` and `{1, 2}` are collection
+  literals — inference and disambiguation rules are in
+  [Collection Initializers](collection-initializers.md).
+- **Declaration position**: `int d[3];` declares a fixed-length array
+  directly, zero-filled; with an initializer, elements not listed are
+  zero-filled (`int f[100] = [7, 8];` fills only the first two). A size is
+  allowed only on the **first declarator** — `int a, b[3];` is a syntax
+  error; type inheritance for mixed declarators is covered in
+  [Known Limitations](known-limitations.md).
+- Declaring without an initializer (`int[] g;`) yields a null reference —
+  see the default value table in [Declarations](declarations.md).
+- The element type can be a struct (`Point[3]` materializes an independent
+  value per element, see [Struct](struct.md)) or a class (references are
+  stored). Arrays of arrays (jagged form) are not supported — see
+  [Known Limitations](known-limitations.md).
 
 ### Reference semantics
 

@@ -24,7 +24,7 @@ and how it behaves in expressions and statements.
 | `List<T>`   | built-in generic — reference  | [Built-in Generic Classes](builtin-generic-classes.md) |
 | `Dict<K,V>` | built-in generic — reference  | [Built-in Generic Classes](builtin-generic-classes.md) |
 | `Object`    | reference — boxed             | [Object & Boxing](object.md) |
-| `func<...>` | first-class function value    | [Functions](functions.md) |
+| `func<...>` | first-class function value    | [Function types & delegates](function-types-and-delegates.md) |
 
 ### Where to look
 

@@ -90,7 +90,9 @@ int main() {
 Output `7`; exit code 34. A struct is a value type: declaring one
 zero-initializes its fields, and copying it (`Point q = p;`) copies the
 whole struct — including any nested structs — so the copies are
-independent. Unlike a class, a struct has no methods.
+independent. Unlike a class, a struct has no methods. The line between
+value and reference semantics is drawn in [Language Specification /
+Type Semantics](../language-spec/type-semantics.md).
 
 See also: [Language Specification / Declarations](../language-spec/declarations.md).
 

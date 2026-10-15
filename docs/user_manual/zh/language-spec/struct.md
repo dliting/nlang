@@ -37,9 +37,21 @@ int main() {
 }
 ```
 
-### 字段
+### 创建与初始化
 
-字段通过成员表达式`p.x`读写；struct没有方法体，因此没有可绑定的`this`。具名初始化（`Point{x: 1, y: 2}`）设置具名字段；未列出的字段保持零值。完整初始化列表规则见[集合初始化器](collection-initializers.md)。
+struct**没有构造函数**——不能声明构造器，写`Point p = Point(2, 3);`会报`The function "Point" does not exist or is not accessible.`。初始化有三条路：
+
+```nlang
+Point a;                       // 零初始化：所有字段为0
+Point b = Point{x: 1, y: 2};   // 具名条目：按字段名填值
+Point c = Point{3, 7};         // 位置条目：按声明顺序填值
+```
+
+- **具名条目**`Point{x: 1, y: 2}`：按字段名赋值，未列出的字段保持零值。
+- **位置条目**`Point{3, 7}`：按字段声明顺序赋值；可以只给前几个——`Point{5}`只填`x`，其余字段零初始化。
+- struct数组`Point[3]`为每个元素急切物化全新实例，见上文值语义与[数组](array.md)。
+
+字段通过成员表达式`p.x`读写；struct没有方法体，因此没有可绑定的`this`。完整初始化列表规则（目标形状与消歧）见[集合初始化器](collection-initializers.md)。
 
 ### struct可以包含
 

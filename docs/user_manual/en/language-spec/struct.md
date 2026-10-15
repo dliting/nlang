@@ -53,13 +53,30 @@ int main() {
 }
 ```
 
-### Fields
+### Creating and initializing
+
+A struct **has no constructors** — you cannot declare one, and writing
+`Point p = Point(2, 3);` fails with `The function "Point" does not exist
+or is not accessible.`. Initialization takes one of three routes:
+
+```nlang
+Point a;                       // zero-initialized: every field is 0
+Point b = Point{x: 1, y: 2};   // named entries: fill fields by name
+Point c = Point{3, 7};         // positional entries: fill in declaration order
+```
+
+- **Named entries** `Point{x: 1, y: 2}`: assign by field name; fields
+  left out keep their zero value.
+- **Positional entries** `Point{3, 7}`: assign in field declaration
+  order; you may give only the first few — `Point{5}` fills `x` only and
+  zero-initializes the rest.
+- A struct array `Point[3]` eagerly materializes a fresh instance per
+  element — see reference semantics above and [Array](array.md).
 
 A field is read or written through the member expression `p.x`; a struct has no
-method body, so there is no `this` to bind one to. A named initializer
-(`Point{x: 1, y: 2}`) sets the named fields; any field left out keeps its
-zero value. See [Collection Initializers](collection-initializers.md) for the
-full init-list rules.
+method body, so there is no `this` to bind one to. See
+[Collection Initializers](collection-initializers.md) for the
+full init-list rules (target shapes and disambiguation).
 
 ### What a struct can contain
 

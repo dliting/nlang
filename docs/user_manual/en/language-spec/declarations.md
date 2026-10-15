@@ -84,12 +84,42 @@ float y = 3.14;
 string s = "hello";
 Color c = Color.Red;       // enum
 Point pt;                   // struct (zero-initialized)
-Node n = Node();        // class (heap-allocated)
+Node n = Node(7);        // class (heap-allocated)
 Node n2;                    // class (null)
 ```
 
 Struct variables are zero-initialized (all fields = 0). Class variables
-default to null. The type-specific declaration forms and their semantics
+default to null.
+
+### Default Values
+
+A declaration without an initializer gets the type's default value (no
+compiler warning is issued):
+
+| Type | Default |
+|---|---|
+| the 8 integer types (`byte`, `ubyte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`) | 0 |
+| `float`, `double` | 0 |
+| `bool` | false |
+| `char` | code point 0 |
+| `string` | null handle that reads as the empty string |
+| enum | underlying value 0 |
+| struct | all fields zero-initialized |
+| class, interface, `Object` | null |
+| arrays, `List`, `Dict` | null |
+| `func` | null |
+
+Reference types default to null: `== null` tests it directly, and using
+the value without a null check — calling a method, accessing a member,
+indexing, taking the length — raises a `null reference error` with a
+backtrace at run time. `string` is the one exception: a null handle
+reads as the empty string, so `.length()` is 0 and concatenation treats
+it as `""` (see [String](string.md)). An enum's default is the underlying
+value 0: with auto-incremented members that is exactly the first member —
+after `Color c;`, `c == Color.Red` holds; an enum with explicitly
+assigned non-zero values may default to 0, which lands on no member.
+
+The type-specific declaration forms and their semantics
 are on each type's page: [Enum](enum.md), [Struct](struct.md),
 [Class](class.md), [Interface](interface.md).
 

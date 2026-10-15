@@ -23,11 +23,17 @@ obj.method(args)   // 方法调用
 
 对class对象，`obj`必须非null（运行期null检查——见[类](class.md)「Null检查」）。struct没有方法；字段通过成员表达式读写（见[结构体](struct.md)）。enum成员是常量，不是值的成员（见[枚举](enum.md)）。
 
-### 对象创建
+### 创建与初始化
 
-```nlang
-Node n = Node();
-Node n = Node(42);
-```
+各类型的创建形态速查（详细语义在逐类型页）：
 
-构造调用在堆上分配，并在存在构造函数时调用它。见[类](class.md)「构造函数」。数组创建是`T[n]`——见[数组](array.md)。
+| 类型 | 创建形态 | 详见 |
+|---|---|---|
+| class | 构造调用`Node(42)`；直接初始化声明`Node n(42);`；锚定花括号`P{value: 42}` | [类](class.md)「创建实例」 |
+| struct | 具名条目`Point{x: 1, y: 2}`；位置条目`Point{3, 7}`；只声明零初始化`Point p;` | [结构体](struct.md) |
+| enum | 限定成员名`Color.Red`；int隐式转换`Color c = 1;` | [枚举](enum.md) |
+| 数组 | 表达式位`int[3]`、`[1, 2, 3]`、`{1, 2}`；声明位`int a[3];`、`int b[100] = [7, 8];` | [数组](array.md) |
+| interface | 上转型`IShape s = sq;`——接口值总是指向实现类对象 | [接口](interface.md) |
+| List/Dict | 字面量`[1, 2]`、`{"k": 1}`；空集合`{}` | [集合初始化器](collection-initializers.md) |
+
+构造调用`Node(42)`是表达式：在堆上分配对象、按实参运行构造函数，返回引用（见[类](class.md)「构造函数」）。struct没有构造函数——花括号条目直接按字段填值。声明位形态（`T name(args);`、`T name[n];`、`T name[n] = [...]`）只允许出现在首个声明符上，见[已知限制](known-limitations.md)。

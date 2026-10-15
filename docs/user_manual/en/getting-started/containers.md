@@ -26,3 +26,23 @@ and retrieves by key; both support subscript sugar and `foreach`
 iteration.
 
 See also: [Language Specification / Built-in Generic Classes](../language-spec/builtin-generic-classes.md).
+
+### Arrays
+
+```nlang
+import io;
+
+int main() {
+    int[] sizes = [10, 20, 30];  // fixed-length array, list-initialized
+    sizes[1] = 25;
+    io.print(sizes.length());
+    return sizes[2];
+}
+```
+
+Output `3`; exit code 30. An array's length is fixed at creation; elements
+are read and written by subscript. `int[3]` is the other fixed-length
+creation form (create first, fill after). In one sentence: fixed
+size with value elements — use an array; dynamic growth — use `List<T>`.
+
+See also: [Language Specification / Array](../language-spec/array.md).

@@ -8,7 +8,22 @@ enum Color { Red, Green, Blue }
 enum Direction { North = 0, East = 90, South = 180, West = 270 }
 ```
 
-成员可显式赋值，也可自动递增。
+成员可显式赋值，也可自动递增（从0起）。
+
+### 创建枚举值
+
+```nlang
+Color c = Color.Green;     // 限定成员名
+Color d = 1;               // int隐式转换到enum
+int n = c;                 // enum隐式取底座值，这里是1
+Color e;                   // 不初始化：底座值0（自增enum即首个成员）
+```
+
+- 声明时用**限定成员名**`Color.Green`。
+- int到enum也隐式允许（`Color d = 1;`），显式形式是`1 as Color`。底座值是否落在成员上**编译期不检查**——越界值只有在`toString()`查名字时才抛运行期错误（见下文「输出」）。
+- enum到int隐式取底座值（见[类型语义](type-semantics.md)）。
+- 只声明不初始化（`Color e;`）得到底座值0——自动递增的enum恰好是首个成员；显式赋非零值的enum默认0可能不落在任何成员上（见[声明](declarations.md)的默认值表）。
+- 打印enum变量须先`.toString()`——`io.print`不直接接收enum变量实参；成员常量例外，`io.print(Color.Red)`直接打印成员名`Red`（见[标准库](standard-library.md)的打印支持面）。
 
 ### 值语义
 
@@ -16,7 +31,7 @@ enum Direction { North = 0, East = 90, South = 180, West = 270 }
 
 - **赋值 / 传参 / 返回**：拷贝int32值。两个变量持有独立值；修改一个绝不影响另一个。
 - **比较**：按整数值比较——`==`/`!=`与关系运算符都比较底层int32（见[运算符](operators.md)）。
-- **无对象身份**：枚举值没有堆身份。`Color.Red`就是int32值`1`（或它被赋的值），没有可取哈希或按引用比较的对象。对枚举的`switch`按int值匹配（见[switch](switch.md)）。
+- **无对象身份**：枚举值没有堆身份。`Color.Red`就是int32值`0`（或它被赋的值），没有可取哈希或按引用比较的对象。对枚举的`switch`按int值匹配（见[switch](switch.md)）。
 - **在聚合内**：struct/class中enum类型的字段按int32存储（见[结构体](struct.md)、[类](class.md)）。
 
 ### 枚举方法

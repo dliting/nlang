@@ -59,6 +59,18 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 数组值只有两类合法去向——自身数组类型与全部`string`目标（`toString`等），其余标量上下文一律在编译期报出明确错误（`Incompatible type "a"`）。完整规则见[语言规格/已知限制](../language-spec/known-limitations.md)的「标量上下文中的数组值」条。完整错误消息见 →
 [常见错误消息](../language-spec/common-errors.md)。
 
+### 变量不初始化会怎样？
+
+合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码位0、enum是底座值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[语言规格/声明](../language-spec/declarations.md)的「默认值」。
+
+### `Point(2, 3)`为什么报函数不存在？
+
+`struct`没有构造函数——`Point(2, 3)`被当作按名调用函数而解析落空（`The function "Point" does not exist or is not accessible.`）。struct的创建形式是花括号条目：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「struct没有构造函数」条。
+
+### 数组和`List`用哪个？
+
+尺寸固定、元素按值使用，用数组（`int[] sizes = [10, 20, 30];`，创建后长度不变）；要动态增删，用`List<T>`（`add`/`removeAt`，可增长）。速览见[速览：容器](containers.md)，完整语义见[语言规格/数组](../language-spec/array.md)与[语言规格/内建泛型类](../language-spec/builtin-generic-classes.md)。
+
 ### `.ncu`版本过时，提示重新编译？
 
 `.ncu`格式的最低版本要求只升不降：旧ncc产出的模块会因版本过时被加载器拒绝（`Module version ... is outdated; recompile with current ncc`），须用当前工具链重新编译。各版本最低要求与语义变更见[VM架构/模块序列化](../vm-architecture/module-serialization.md)的「版本历史」，每次抬升的缘由在CHANGELOG对应版本节。

@@ -23,7 +23,7 @@ double d = bs.readDouble();
 | reset（仅ByteStream） | — | 回卷游标，保留缓冲区 |
 | close | — | 释放FileStream的文件句柄 |
 
-**FileStream构造**：`FileStream(path, mode)`，mode是`"w"`（创建/截断）、`"a"`（创建/追加）或`"r"`（只读；文件不存在抛运行期错误）。非法mode抛运行期错误。
+**FileStream构造**：`FileStream(path, mode)`，mode是`"w"`（创建/截断）、`"a"`（创建/追加）或`"r"`（只读；文件不存在抛运行期错误）。非法mode抛运行期错误。直接初始化声明同样合法：`FileStream fs("data.bin", "w");`（见[类](class.md)「创建实例」）。未赋值的流引用是null，对其调用方法在运行期抛`null reference error`（容器同语义，见[内建泛型类](builtin-generic-classes.md)）。
 
 **实参类型**：标量写入方法按转换矩阵逐实参审查——窄整型与`float`实参隐式加宽进入8字节槽（与`math.sqrt`实参同一规则）；`ulong`实参超出long值域，须显式`as long`；`char`与string实参对数值方法是编译错误。
 

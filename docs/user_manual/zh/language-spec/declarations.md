@@ -56,11 +56,32 @@ float y = 3.14;
 string s = "hello";
 Color c = Color.Red;       // enum
 Point pt;                   // struct（零初始化）
-Node n = Node();        // class（堆上分配）
+Node n = Node(7);        // class（堆上分配）
 Node n2;                    // class（null）
 ```
 
-struct变量零初始化（所有字段 = 0）。class变量默认为null。类型特定的声明形式及其语义在各类型页：[枚举](enum.md)、[结构体](struct.md)、[类](class.md)、[接口](interface.md)。
+struct变量零初始化（所有字段 = 0）。class变量默认为null。
+
+### 默认值
+
+声明不带初始化时，各类型的默认值如下（不产生任何编译告警）：
+
+| 类型 | 默认值 |
+|---|---|
+| 8个整型（`byte`、`ubyte`、`short`、`ushort`、`int`、`uint`、`long`、`ulong`） | 0 |
+| `float`、`double` | 0 |
+| `bool` | false |
+| `char` | 码位0 |
+| `string` | null句柄，读作空字符串 |
+| enum | 底座值0 |
+| struct | 所有字段零初始化 |
+| class、interface、`Object` | null |
+| 数组、`List`、`Dict` | null |
+| `func` | null |
+
+引用类型的默认值是null：`== null`可以直接判断；不判空就使用——调用方法、取成员、取下标、取长度——会在运行期抛出`null reference error`并附回溯。string是唯一的例外：null句柄读作空字符串，`.length()`得0、拼接时如同`""`（见[字符串](string.md)）。enum的默认值是底座值0：成员自动递增（从0起）时恰好是首个成员——`Color c;`之后`c == Color.Red`成立；显式赋非零值的enum，默认0可能不落在任何成员上。
+
+类型特定的声明形式及其语义在各类型页：[枚举](enum.md)、[结构体](struct.md)、[类](class.md)、[接口](interface.md)。
 
 ### 类型别名
 

@@ -13,7 +13,10 @@ int add(int a, int b) {
 
 - Parameters: int/float/string/enum passed by value, struct passed by value
   (deep copy), class passed by reference — see [Type Semantics](type-semantics.md).
-- Return type: int, float, string, enum, struct (deep copy), class (reference).
+- Return type: any type — structs return by deep copy, classes by
+  reference, everything else by value; arrays and containers work as return
+  types too (see [Array](array.md) and [Collection
+  initializers](collection-initializers.md)).
 - Recursion: supported, with a depth limit of 1000.
 
 ### Function feature pages

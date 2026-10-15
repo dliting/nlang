@@ -10,7 +10,7 @@ int add(int a, int b) {
 ```
 
 - 形参：int/float/string/enum按值传递，struct按值传递（深拷贝），class按引用传递——见[类型语义](type-semantics.md)。
-- 返回类型：int、float、string、enum、struct（深拷贝）、class（引用）。
+- 返回类型：任意类型——struct按深拷贝返回，class按引用返回，其余按值；数组与容器同样可作返回类型（见[数组](array.md)与[集合初始化器](collection-initializers.md)）。
 - 递归：支持，深度上限1000。
 
 ### 函数特性页面

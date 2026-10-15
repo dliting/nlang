@@ -46,8 +46,13 @@ parse; give the literal a typed target instead (`List<int> l = {60};`).
 
 - `string literal : Expression` — dict entry (string key)
 - `identifier : Expression` — struct/class field (e.g. `x:1, y:2`)
-- `Expression` (no key) — list or array element (only valid when the
-  target is `List<T>` or `T[]`)
+- `Expression` (no key) — list/array element, or a positional struct
+  entry: structs fill fields in declaration order, so `Point{3, 7}` is
+  `Point{x:3, y:7}`, and you may give only the first few fields (the
+  rest keep their zero values). Class targets do not accept positional
+  entries — `P{3, 7}` reports `class initializer "P{...}" requires
+  field:value entries; the positional form is only valid for
+  struct/array targets`.
 
 **Dict keys must be string literals**: the collection initializer emits
 each key as a string constant and boxes it by K's tag — this is only
@@ -67,7 +72,7 @@ anchored type name to pick the kind:
 | `T[]` (array)        | `[...]` or `{...}` | value-only |
 | `List<T>`            | `[...]` or `{...}` | value-only |
 | `Dict<K,V>`          | `{...}` | `key : value` (string key) |
-| struct               | `{...}` or `StructName{...}` | `field : value` (identifier key) |
+| struct               | `{...}` or `StructName{...}` | `field : value` (identifier key) or positional values (field declaration order) |
 | class                | `{...}` or `ClassName{...}` | `field : value` (identifier key) |
 
 **Class init requirements:** the class must have a no-arg constructor

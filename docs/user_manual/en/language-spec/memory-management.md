@@ -1,5 +1,10 @@
 # Memory Management
 
+NLang is a garbage-collected language: there is no `delete` and no free
+function to call — objects are reclaimed automatically by the garbage
+collector once unreachable. You never release memory manually. This page
+describes the heap layout and the collection mechanics.
+
 
 ### Heap Layout
 
