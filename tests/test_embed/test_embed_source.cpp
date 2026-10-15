@@ -543,11 +543,14 @@ static void TestConvenienceRunScript() {              //§6.10
     opts.out = [&sink](const char* text) { sink.out += text; };
     CHECK(runScript("import io; io.print(2); return 7;", opts) == 7,
         "runScript returns the exit code");
-    CHECK(sink.out.find("2") != std::string::npos, "redirected output");
+    //Exact match: one deterministic print; io.print newline pinned at
+    //35 0a by the Task 7 probe.
+    CHECK(sink.out == "2\n", "redirected output");
 
     ScratchDir dir;
     const fs::path demo = dir.path / "once.n";
     WriteText(demo, "return 9;");
+    //once.n 无 import：spec §4 无隐式搜索目录契约下的 default-opts 合法形态。
     CHECK(runScriptFile(demo) == 9, "runScriptFile, default opts");
     PASS();
 }
