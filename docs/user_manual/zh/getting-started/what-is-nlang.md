@@ -12,15 +12,16 @@ NLang是一门面向嵌入与自动化场景的静态类型脚本语言，也是
 - **垃圾回收**——没有`delete`，对象在不可达后自动回收，无需手动释放内存（见[内存管理](../language-spec/memory-management.md)）；
 - **现代脚本语言标配**——异常处理、字符串插值、`out`参数、默认参数、`math`/`io`/`fs`标准库。
 
-随包分发的五个工具：
+随包分发的六个工具：
 
 | 工具 | 角色 |
 |---|---|
+| nlang | 脚本直跑器：免`main()`样板直接运行`.n`脚本或`-c`内联语句，进程内编译执行，不在磁盘留下产物 |
 | ncc | 命令行编译器：把`.n`源文件编译成`.ncu`、把`.nproj`项目编译成`.npkg`，也可编译后立即执行 |
 | nvm | VM执行器：运行`.ncu`与`.npkg` |
 | ndb | 命令行调试器：断点、单步、调用栈（nide里的图形调试也由它驱动） |
 | ndisasm | 字节码反汇编器：查看`.ncu`/`.npkg`里的指令 |
 | nide | IDE：编辑、构建、运行，内嵌本帮助站 |
 
-五个工具的完整用法见[命令行工具](../cli-tools/overview.md)一章；nide的图形界面用法见[三种运行方式](running.md)与[在nide中调试](debugging.md)。
+六个工具的完整用法见[命令行工具](../cli-tools/overview.md)一章；nide的图形界面用法见[三种运行方式](running.md)与[在nide中调试](debugging.md)。
 

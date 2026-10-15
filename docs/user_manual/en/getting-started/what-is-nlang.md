@@ -29,17 +29,18 @@ runtime module. The language itself:
   interpolation, `out` parameters, default parameters, and the
   `math`/`io`/`fs` standard libraries.
 
-The five tools shipped with the package:
+The six tools shipped with the package:
 
 | Tool | Role |
 |---|---|
+| nlang | script runner: runs `.n` scripts or `-c` inline statements without the `main()` boilerplate — compiles and executes in-process, leaving no artifact on disk |
 | ncc | command-line compiler: compiles `.n` source files into `.ncu` and `.nproj` project files into `.npkg`, and can execute right after compiling |
 | nvm | VM runner: executes `.ncu` and `.npkg` |
 | ndb | command-line debugger: breakpoints, stepping, and the call stack (it also drives the graphical debugging in nide) |
 | ndisasm | bytecode disassembler: inspects the instructions inside a `.ncu`/`.npkg` |
 | nide | IDE: edit, build, and run, with this help site embedded |
 
-For the complete usage of the five tools, see the
+For the complete usage of the six tools, see the
 [Command-line Tools](../cli-tools/overview.md) chapter; for nide's
 graphical interface, see [Three Ways to Run](running.md) and
 [Debugging in nide](debugging.md).
