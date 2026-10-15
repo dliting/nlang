@@ -15,6 +15,9 @@
 #include <io.h>
 #include <iostream>
 #include <string>
+#ifdef _WIN32
+#include <windows.h>   //GetCurrentProcessId（ScratchDir 的 PID 前缀）
+#endif
 
 using namespace nlang;
 namespace fs = std::filesystem;
@@ -100,6 +103,11 @@ static void TestSourceCompilerCollectsDiagnostics() {
     PASS();
 }
 
+static void WriteText(const fs::path& p, const char* text) {
+    std::ofstream out(p, std::ios::binary);
+    out << text;
+}
+
 //D9 contract: log items stay readable after the owning ModuleBuilder
 //died -- ListCompileLogger's collect-then-read contract. The location
 //clone must own the file name, not dangle a TU pointer into the
@@ -111,10 +119,7 @@ static void TestDiagnosticsSurviveBuilderDestruction() {
     CHECK(!ec, "temp directory locatable");
     fs::create_directories(dir, ec);
     const fs::path source = dir / "diag_pin.n";
-    {
-        std::ofstream out(source, std::ios::binary);
-        out << "int x = ;";
-    }
+    WriteText(source, "int x = ;");
     BuildParams params;
     params.m_SourceFiles.push_back(source.string());
     params.m_sProjectDir = dir.string();
@@ -138,14 +143,25 @@ static void TestDiagnosticsSurviveBuilderDestruction() {
 }
 #endif
 
-//Unique scratch dir for runFile tests (counter-suffixed, RAII-cleaned).
+//Unique scratch dir for runFile tests (PID-then-counter suffix,
+//RAII-cleaned): the PID prefix aligns with the product's temp-run-dir
+//form (nlang_e_<pid>_) so a crashed run's leftover directory cannot be
+//silently reused, and concurrent runs cannot collide.
+static unsigned ProcessId() {
+#ifdef _WIN32
+    return static_cast<unsigned>(GetCurrentProcessId());
+#else
+    return static_cast<unsigned>(::getpid());
+#endif
+}
 struct ScratchDir {
     fs::path path;
     ScratchDir() {
         static std::atomic<unsigned> counter{0};
         std::error_code ec;
         path = fs::temp_directory_path(ec)
-            / ("nlang_embed_src_t_" + std::to_string(counter++));
+            / ("nlang_embed_src_t_" + std::to_string(ProcessId())
+               + "_" + std::to_string(counter++));
         fs::create_directories(path, ec);
     }
     ~ScratchDir() {
@@ -153,10 +169,6 @@ struct ScratchDir {
         fs::remove_all(path, ignored);
     }
 };
-static void WriteText(const fs::path& p, const char* text) {
-    std::ofstream out(p, std::ios::binary);
-    out << text;
-}
 
 //Redirects one stdio channel (fd 1 or 2) to a file for the scope and
 //restores the original descriptor on every exit path (CHECK returns
@@ -342,7 +354,8 @@ static void TestRunFileRealPathNames() {              //§6.3
     OutputSink sink; InstallSink(itp, sink);
     CHECK(itp.runFile(demo) == 5, "runFile returns top-level return");
     CHECK(sink.out.find("11") != std::string::npos, "script output");
-    //诊断带真实文件名：坏文件 → LoadError 文本含 demo.n。
+    //诊断带真实文件名：坏文件 → LoadError 文本含 demo.n＋其所在目录
+    //（仅 stem 断言会被「同 stem 拷进 temp 编译」的形态假绿，质量审查 M5）。
     const fs::path bad = dir.path / "demo_bad.n";
     WriteText(bad, "int x = ;");
     Interpreter itp2;
@@ -351,8 +364,11 @@ static void TestRunFileRealPathNames() {              //§6.3
         (void)itp2.runFile(bad);
     } catch (const LoadError& e) {
         threw = true;
-        CHECK(std::string(e.what()).find("demo_bad.n")
-              != std::string::npos, "real file name in diagnostics");
+        const std::string text = e.what();
+        CHECK(text.find("demo_bad.n") != std::string::npos,
+            "real file name in diagnostics");
+        CHECK(text.find(dir.path.string()) != std::string::npos,
+            "real directory in diagnostics");
     }
     CHECK(threw, "compile failure in file form throws LoadError");
     PASS();
@@ -364,7 +380,7 @@ static void TestRunFileLeavesNoArtifacts() {          //§6.11
     const fs::path demo = dir.path / "solo.n";
     WriteText(demo, "return 0;");
     Interpreter itp;
-    (void)itp.runFile(demo);
+    CHECK(itp.runFile(demo) == 0, "runFile returns 0");
     std::error_code ec;
     const size_t entries =
         std::distance(fs::directory_iterator(dir.path, ec),
@@ -384,14 +400,46 @@ static void TestRunFileBadStemRejected() {            //§3 步骤 1
         (void)itp.runFile(bad);
     } catch (const LoadError& e) {
         threw = true;
+        const std::string text = e.what();
         //明确文案来自 SourceCompiler 入口的 Module::IsValidName
         //预校验（D8 审查 Low 2：Create 的 LogError 是裸 stderr、
         //不进诊断收集，靠它则错误无理由文本）。
-        CHECK(std::string(e.what()).find("invalid module name")
-            != std::string::npos,
+        CHECK(text.find("invalid module name") != std::string::npos,
             "explicit invalid-module-name message");
+        CHECK(text.find("my-tool") != std::string::npos,
+            "offending stem named in the message");
     }
     CHECK(threw, "non-identifier stem -> LoadError");
+    PASS();
+}
+
+//§3 生效搜索表（质量审查 M3）：文件形态把脚本所在目录并入搜索
+//表。helper 只有源码、无预编译包——按装载架构（库代码走预编译
+//包，源码只供签名）装载报 not found，但「import 的编译期签名解析
+//成功＋装载失败信息把脚本目录列为首个搜索目录」共同钉住并入生
+//效：删并入逻辑则编译期即报 import 解析失败，两条断言全红（测试
+//形态偏离计划原案——原案断言 rc==42，经 ncc/nvm 探针证实不可达：
+//helper.n 源码不足以供装载，工具链同报 not found）。
+static void TestRunFileScriptDirOnSearchPath() {
+    TEST(TestRunFileScriptDirOnSearchPath);
+    ScratchDir dir;
+    WriteText(dir.path / "helper.n",
+        "int twice(int v) { return v*2; }");
+    WriteText(dir.path / "main_like.n",
+        "import helper; return twice(21);");
+    Interpreter itp;   //不 addImportDir——脚本目录是唯一搜索来源
+    bool threw = false;
+    try {
+        (void)itp.runFile(dir.path / "main_like.n");
+    } catch (const LoadError& e) {
+        threw = true;
+        const std::string text = e.what();
+        CHECK(text.find("module 'helper' not found") != std::string::npos,
+            "helper resolves signatures but has no prebuilt package");
+        CHECK(text.find(dir.path.string()) != std::string::npos,
+            "script's own directory is on the load search list");
+    }
+    CHECK(threw, "runFile reports the load failure");
     PASS();
 }
 
@@ -411,6 +459,7 @@ int main() {
     TestRunFileRealPathNames();
     TestRunFileLeavesNoArtifacts();
     TestRunFileBadStemRejected();
+    TestRunFileScriptDirOnSearchPath();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

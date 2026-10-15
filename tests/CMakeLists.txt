@@ -1763,6 +1763,9 @@ target_compile_definitions(test_embed_source
         EMBED_IO_NCU="${embed_fixture_dir}/io_demo.ncu")
 add_dependencies(test_embed_source nlang_embed_fixtures nlang_embed_deploy)
 add_test(NAME embed_source_tests COMMAND test_embed_source)
+#House rule: every test stays under a 3-minute ceiling (a hang must not
+#block the full gate for 25 minutes).
+set_tests_properties(embed_source_tests PROPERTIES TIMEOUT 180)
 
 #Embedding example smoke: run a stdlib-importing script through
 #examples/embed_host and assert the redirected output (Task 11).
