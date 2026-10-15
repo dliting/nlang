@@ -1,0 +1,9 @@
+//Host-function fixture, LIBRARY form: the same native declaration as
+//hostfns.n but without main(). The two test families interlock on one
+//unit otherwise — the v1 suite loads hostfns.ncu directly and load()
+//requires an entry point (so hostfns.n must keep main()), while the
+//ad-hoc import path forbids importing a main-defining module (Layer 6:
+//main is reserved for the root module). Importing tests use this
+//variant; the host satisfies now() via registerHostFunction
+//("hostfns_lib", "now").
+native int now();

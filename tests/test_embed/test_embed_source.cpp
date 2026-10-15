@@ -499,6 +499,40 @@ static void TestRetryAfterLoadFailure() {               //§6.6 延伸
     PASS();
 }
 
+static void TestHostFunctionInAdHocScript() {         //§6.8
+    TEST(TestHostFunctionInAdHocScript);
+    Interpreter itp;
+    itp.registerHostFunction("hostfns_lib", "now",
+        [](const std::vector<Value>&) { return Value(int32_t(41)); });
+    //Declarations for `import hostfns_lib` resolve from the PREBUILT
+    //hostfns_lib.ncu in the fixture dir (external .ncu import path — a
+    //deployed library ships the unit, not the source); the deploy dir
+    //supplies the stdlib half (io.n/stdlib.npkg/natives). hostfns_lib
+    //is the main-free variant of hostfns: the v1 load() entry contract
+    //pins main() into hostfns.ncu, while Layer 6 forbids importing a
+    //main-defining module — one unit cannot serve both families.
+    itp.addImportDir(EMBED_FIXTURE_DIR);
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink; InstallSink(itp, sink);
+    const int rc = itp.runSource(
+        "import io;\nimport hostfns_lib;\nio.print(hostfns_lib.now());");
+    CHECK(rc == 0, "host function + stdlib io in one ad-hoc script");
+    CHECK(sink.out.find("41") != std::string::npos, "host fn output");
+    PASS();
+}
+
+static void TestStdlibFromImportDir() {               //§6.9（D7＋native）
+    TEST(TestStdlibFromImportDir);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink; InstallSink(itp, sink);
+    const int rc = itp.runSource(
+        "import math;\nimport io;\nio.print(math.absi(-5));");
+    CHECK(rc == 0, "stdlib imports resolve, exit 0");
+    CHECK(sink.out.find("5") != std::string::npos, "math.abs output");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -519,6 +553,8 @@ int main() {
     TestCallAfterRunSource();
     TestSourceExclusivity();
     TestRetryAfterLoadFailure();
+    TestHostFunctionInAdHocScript();
+    TestStdlibFromImportDir();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

@@ -1666,6 +1666,12 @@ add_custom_target(nlang_embed_fixtures ALL
     COMMAND $<TARGET_FILE:ncc> build
         ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/hostfns.n
         -o ${embed_fixture_dir}/hostfns.ncu
+    #Library form of the host-function fixture (no main): importing
+    #tests use it — Layer 6 forbids importing a main-defining module,
+    #while the v1 load() entry contract keeps main() in hostfns.n.
+    COMMAND $<TARGET_FILE:ncc> build
+        ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/hostfns_lib.n
+        -o ${embed_fixture_dir}/hostfns_lib.ncu
     COMMAND $<TARGET_FILE:ncc> build
         ${PROJECT_SOURCE_DIR}/tests/fixtures/embed/containers_demo.n
         -o ${embed_fixture_dir}/containers_demo.ncu
