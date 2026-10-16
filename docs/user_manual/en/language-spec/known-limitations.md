@@ -125,16 +125,11 @@
 - **Method inheritance of defaults**: derived class overrides do not
   inherit default values from the base class method. Each override
   declares its own defaults independently.
-- **An override with a mismatched signature produces no diagnostic**: a
-  subclass method sharing the parent virtual method's name but differing
-  in a parameter or return type triggers **no compile error or warning** —
-  the same-name method still occupies the virtual-dispatch slot: the call
-  site compiles and passes arguments against the parent signature, yet at
-  run time dispatch lands in the subclass method, reading arguments and
-  the return value as mismatched bits. An override must match name,
-  parameters, and return type exactly (see [Class](class.md) "Virtual
-  methods and overrides"); if you meant a new method, pick a new name; if
-  you meant an override, align the signature.
+- **Cross-module base classes stay outside override-signature checking**:
+  class stubs of imported modules carry no members (with `.ncu`-only
+  imports), so subclass override-signature checking is idle in that
+  direction; when the imported module's source is present, the check
+  applies normally.
 - **Parameter count ceiling**: functions with more than 64 parameters
   (a sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — the call-argument staging area and
@@ -179,3 +174,15 @@
   forward-declare with `func Foo f();`. Inside a function body,
   `Foo f();` is a zero-argument direct initialization and keeps
   working.
+- **The `implements qualified-name.interface` form is not accepted by
+  the grammar** (e.g. `implements lib.IF`): `import` first, then use
+  the unqualified name.
+- **A class body cannot be empty**: `class B : A { }` is a syntax
+  error; declare at least one member.
+- **A same-name method family containing a virtual method rejects
+  overload calls** (the message is "the function does not exist");
+  only all-non-virtual same-name overloads are usable.
+- **Interface methods do not support default parameters, and an
+  implementing method's defaults do not participate in interface
+  dispatch** (a pre-existing semantic decision — override-signature
+  comparison ignores default values too).

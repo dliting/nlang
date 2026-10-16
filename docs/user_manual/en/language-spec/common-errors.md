@@ -139,6 +139,22 @@ A method call yields a value, not a location — both `c.step() = v` and
 as the left value; the full set of supported left values is in
 [Compound Assignment](compound-assignment.md).
 
+### The method "f" claims the virtual dispatch slot of ...
+
+A subclass method shares a name with an ancestor virtual method or an
+interface contract but has a different signature. Virtual dispatch works by
+name, so a signature mismatch reads arguments as wrong bits. Make the
+signature match the contract exactly (an override), or rename the method.
+See → [Class](class.md), "Virtual methods and overrides".
+
+### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
+
+An interface method declared with `implements` is missing or its signature
+mismatches. Provide an implementation with the exact signature in the class
+(or one of its parents); note that a same-name method must not coexist as an
+overload of an interface contract. See → [Interface](interface.md),
+"Implementation contract".
+
 ### switch and enum
 
 ```nlang

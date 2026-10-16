@@ -118,18 +118,23 @@ through a reference, the runtime walks the class hierarchy up from the object's
 actual type, and the **most-derived implementation wins** (dynamic dispatch).
 The type ID in the object's first layout slot is what virtual dispatch uses.
 
-**Override**: a subclass method that has the **same name and signature** as a
-parent virtual method overrides it — there is no `override` keyword (unlike C++'s
-`override` or Java's `@Override`); name-and-signature matching is decided by
-the compiler. The signature must match exactly: a same-name method with a
-different parameter or return type produces **no diagnostic at all**, yet
-occupies the virtual-dispatch slot — the call site compiles against the parent
-signature and dispatches into the subclass method at run time. See [Known
-limitations](known-limitations.md), entry "An override with a mismatched
-signature produces no diagnostic".
+A subclass method that shares an ancestor virtual method's name but differs in
+a parameter or return type is a compile error: virtual dispatch selects
+methods by name — the call site lays out arguments against the statically
+bound type's signature, and at run time the nearest derived same-name method
+is taken, so a signature mismatch reads arguments and the return value as
+wrong bits. Once a name is bound to a virtual-method contract (a same-name
+ancestor virtual method, or a same-name method of an interface the class
+`implements`), it **must not be overloaded** in the subclass: the subclass's
+set of same-name methods must map one-to-one onto the contract signature
+(exactly the same parameter types and count and return type — the `out`
+modifier must also match). Fix the signature to override; rename the method
+to keep a same-name method with a different signature. The `Object` protocol
+methods (`equals`/`getHashCode`/`toString`) follow the same rule; the
+canonical signatures are on [Object & Boxing](object.md).
 
-`Object`'s two virtual methods (`equals`/`getHashCode`) are overridden the same
-way — a subclass declares the method with the same name (see
+`Object`'s three virtual methods (`equals`/`getHashCode`/`toString`) are
+overridden the same way — a subclass declares the method with the same name (see
 [Object & Boxing](object.md)); `==` comparison is unaffected by an `equals`
 override — class `==` is always identity, and value equality requires an
 explicit `equals` call. Interface virtual dispatch uses the same

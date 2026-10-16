@@ -61,6 +61,15 @@ the `as string` conversion and the implicit conversion at string positions
 (concatenation, string parameters) call it. See
 [Type Casts](type-casts.md).
 
+The canonical signatures of the protocol methods (an override must match
+them exactly):
+
+| Method | Canonical signature |
+|--------|---------------------|
+| equals | `equals(Object): int` |
+| getHashCode | `getHashCode(): int` |
+| toString | `toString(): string` |
+
 **String value semantics**: although string is a primitive, calls to
 `string.getHashCode()` and `string.equals(string)` are intrinsified to use
 *value* semantics (`std::hash` for hash, content comparison for `equals`).

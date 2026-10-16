@@ -6,6 +6,25 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.4] - 2026-10-17
+
+### Changed
+
+- **Override-signature mismatches are now compile errors**: a subclass
+  method sharing a name with an ancestor virtual method or an interface
+  contract must match its signature exactly (param types and count,
+  return type, out-params). Virtual and interface dispatch select methods
+  by name only, so a mismatched same-name method used to receive the call
+  and read arguments bit-wrong with no diagnostic. Overloading a name that
+  is bound to a virtual or interface contract is likewise rejected.
+  The `Object` protocol signatures (`equals`/`getHashCode`/`toString`)
+  are enforced the same way.
+- **Interface implementation is now checked by signature at the class
+  declaration**: missing or mismatched implementations are reported
+  where the class declares `implements` (the interface error message
+  now includes the required signature), and each diagnostic is
+  emitted once (a duplicated `implements` list was fixed).
+
 ## [0.9.3] - 2026-10-16
 
 ### Fixed

@@ -87,6 +87,12 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 "Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[语言规格/语句](../language-spec/statements.md)的「条件类型」，参数数上限见[语言规格/已知限制](../language-spec/known-limitations.md)的「参数数上限」条。完整错误消息见 →
 [常见错误消息](../language-spec/common-errors.md)。
 
+### 为什么不能像Java/C++那样在子类重载父类虚方法？
+
+NLang的虚分派按方法名进行：调用点按静态绑定类型的签名布局实参，运行期取最近派生的同名方法——不比对签名。如果允许子类为虚方法名添加不同签名的重载，运行期会截走分派并按位错读实参。因此名字一旦绑定虚方法或接口契约，子类的同名方法必须与契约签名一一对应。想提供不同签名的方法，请使用不同的方法名。
+
+详见 → [语言规格/类](../language-spec/class.md)的「虚方法与覆写」。
+
 ### 成员链`s.length().toString()`让ncc崩溃？
 
 这是**已知的编译器缺陷**（当前ncc仍复现`ncc: internal crash

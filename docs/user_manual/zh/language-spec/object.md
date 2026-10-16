@@ -32,6 +32,14 @@ class Point {
 
 Object还提供第三个虚方法`string toString()`：默认输出`类名@堆位置`（如`Point@1a`），用户类按与`equals`/`getHashCode`相同的方式同名覆写；`as string`转换与字符串位置（拼接、string形参）的隐式转换都调用它。见[类型强制转换](type-casts.md)。
 
+协议方法的规范签名（覆写必须与之完全一致）：
+
+| 方法 | 规范签名 |
+|------|---------|
+| equals | `equals(Object): int` |
+| getHashCode | `getHashCode(): int` |
+| toString | `toString(): string` |
+
 **string的值语义**：string虽是基本类型，但`string.getHashCode()`与`string.equals(string)`调用被内建化为*值*语义（哈希用`std::hash`，equals用内容比较）。这使string无需包装类即可用作`Dict`键。见[字符串](string.md)。
 
 **`==`运算符不受`equals`影响**：Object.equals是可选实现（opt-in）的方法。class引用上的`==`运算符直接比较堆索引。`equals`单独存在的原因，是允许用户类以值相等覆写它，而不破坏更大代码库中恒等相等测试。

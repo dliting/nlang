@@ -79,9 +79,9 @@ class Dog : Animal {
 
 `virtual`关键字把方法标记为**虚方法**：经引用调用该方法时，运行期VM从对象的实际类型出发沿类层次上溯，**最派生实现优先**（动态分派）。对象布局首格的类型ID即供虚分派使用。
 
-**覆写**：子类声明与父类虚方法**同名同签名**的方法即构成覆写——没有`override`关键字（不同于C++的`override`或Java的`@Override`），名称与签名的匹配由编译器判定。签名必须严格一致：参数或返回类型不同的同名方法**不会得到任何诊断**，却会占据虚分派槽位，运行期按父类签名传参、分派进子类方法——见[已知限制](known-limitations.md)「覆写签名不匹配没有诊断」条。
+子类方法与祖先虚方法同名但参数或返回类型不同时，编译器报错：虚分派按方法名进行——调用点按静态绑定类型的签名布局实参，运行期取最近派生的同名方法，签名不一致会导致实参与返回值按位错读。因此名字一旦绑定虚方法契约（祖先同名虚方法，或`implements`接口的同名方法），该名字在子类就**不得重载**：子类的同名方法集必须与契约签名一一对应（完全相同的参数类型与个数、返回类型；`out`修饰亦须一致）。修正签名即可覆写；想保留不同签名的同名方法请改名。`Object`协议方法（`equals`/`getHashCode`/`toString`）遵循同一规则，规范签名见[Object与装箱](object.md)。
 
-`Object`的两个虚方法（`equals`/`getHashCode`）同样以子类声明同名方法的方式覆写（见[Object与装箱](object.md)）；`==`比较不受`equals`覆写影响——class的`==`恒为同一性，值相等须显式调用`equals`。接口的虚分派同机制（见[接口](interface.md)）。速览：[类与继承](../getting-started/classes-and-inheritance.md)。
+`Object`的三个虚方法（`equals`/`getHashCode`/`toString`）同样以子类声明同名方法的方式覆写（见[Object与装箱](object.md)）；`==`比较不受`equals`覆写影响——class的`==`恒为同一性，值相等须显式调用`equals`。接口的虚分派同机制（见[接口](interface.md)）。速览：[类与继承](../getting-started/classes-and-inheritance.md)。
 
 ### super()——构造函数链
 

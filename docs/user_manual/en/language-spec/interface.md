@@ -57,6 +57,20 @@ time.
   arguments in both the key and the value position). See [Built-in
   Generic Classes](builtin-generic-classes.md).
 
+### Implementation contract
+
+After a class declares `implements`, the compiler validates implementation
+completeness at the class declaration: every method of the interface must be
+implemented by the **dispatch-order-first** same-name method on the
+inheritance chain with an **exactly matching signature** (the same parameter
+types and count and return type — the `out` modifier must match too; any
+access level works, and non-virtual methods and implementations on the parent
+chain all count). A missing or mismatched implementation is a compile error,
+with a message like `The class "F" does not implement the method
+"val(Int32): Int32" required by interface "IF".`. A same-name method must not
+coexist as an overload of an interface contract (virtual dispatch is by name;
+an overload would steal the dispatch).
+
 ### The `public` keyword is required
 
 Interface methods are declared `public int m();`. NLang's default access

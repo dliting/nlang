@@ -109,6 +109,14 @@ Error: cannot assign to the result of a method call.
 
 方法调用结果是值，不是存储位置——`c.step() = v`与`c.step() += v`都报此错。要写字段，左值写`c.n`；支持的全部左值形态见[复合赋值](compound-assignment.md)。
 
+### The method "f" claims the virtual dispatch slot of ...
+
+子类方法与祖先虚方法或接口契约同名但签名不同。虚分派按名进行，签名不一致会按位错读实参。修正签名与契约完全一致（覆写），或给方法改名。详见 → [类](class.md)「虚方法与覆写」。
+
+### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
+
+implements声明的接口方法缺失或签名不符。在类（或其父类）中提供完全一致签名的实现；注意同名方法不得与接口契约重载并存。详见 → [接口](interface.md)「实现契约」。
+
 ### switch与enum
 
 ```nlang

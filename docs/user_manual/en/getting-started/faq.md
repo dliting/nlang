@@ -207,6 +207,21 @@ Specification / Known Limitations](../language-spec/known-limitations.md)
 ("Parameter count ceiling" item). See [Common Error
 Messages](../language-spec/common-errors.md) for the full error text.
 
+### Why can't a subclass overload a parent virtual method like Java/C++?
+
+Virtual dispatch in NLang works by method name: the call site lays out
+arguments against the statically bound type's signature, and at run time the
+nearest derived same-name method is taken — signatures are not compared. If
+a subclass could add an overload with a different signature for a virtual
+method's name, it would steal the dispatch at run time and read arguments as
+wrong bits. Once a name is bound to a virtual method or an interface
+contract, the subclass's same-name methods must map one-to-one onto the
+contract signature. To provide a method with a different signature, use a
+different method name.
+
+See also: [Language Specification / Class](../language-spec/class.md),
+"Virtual methods and overrides".
+
 ### Member chain `s.length().toString()` crashes ncc?
 
 This is a **known compiler defect** (the current ncc still reproduces
