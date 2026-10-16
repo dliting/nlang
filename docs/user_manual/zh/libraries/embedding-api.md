@@ -55,11 +55,12 @@ itp.setOutputHandler(
 int rc = itp.runSource("import io; io.print(6*7);");   //rc == 0
 ```
 
-要`import io`，先把标准库目录加入导入路径——进程内嵌入不读`NLANG_PATH`，也不搜索宿主可执行文件目录或当前目录；库声明、包与原生模块（`nlang_io.dll`等）都从`addImportDir`指定的目录解析。典型部署是把`stdlib`目录——`.n`声明、`stdlib.npkg`、原生动态链接库（DLL，dynamic-link library）——整个放到应用数据目录，启动时`addImportDir`一次。
+要`import io`，先把标准库目录加入导入路径——库声明与包的解析只走`addImportDir`给出的目录（进程内嵌入不读`NLANG_PATH`，也不搜索宿主可执行文件目录或当前目录）；原生模块（`nlang_io.dll`等）的解析同样走导入目录，但可执行文件所在目录恒居原生搜索表首位——残留该处的旧版DLL会遮蔽导入目录里的副本。典型部署是把`stdlib`目录——`.n`声明、`stdlib.npkg`、原生动态链接库（DLL，dynamic-link library）——整个放到应用数据目录，启动时`addImportDir`一次。
 
 执行完成后仍可`call`脚本声明的函数（键为`<模块名>.<函数名>`）：字符串源码的模块名固定为`script`；`runFile`的模块名是文件名词干，词干须为合法标识符——`my-script.n`这类含连字符的文件名会被拒绝。
 
 ```cpp
+nlang::Interpreter itp;   //每个实例只能定义一次程序来源
 (void)itp.runSource("int getTimeout() { return 30; } return 0;");
 nlang::Value t = itp.call("script.getTimeout", {});   //30
 ```

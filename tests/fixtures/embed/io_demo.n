@@ -1,8 +1,9 @@
 //I/O fixture for the embed tests (keys "io_demo.<name>"). Depends on the
 //stdlib io module — the only embed fixture that does. The closure is one
 //addImportDir: io.n declarations, stdlib.npkg and nlang_io.dll all
-//resolve from that directory (native modules follow the import-dir
-//search list, not the test exe's location).
+//resolve from that directory. (Native search dirs are append-only and
+//the exe dir is always first — see the CMake note on why this suite
+//must not copy DLLs beside the test exe.)
 import io;
 
 int emitBoth() {

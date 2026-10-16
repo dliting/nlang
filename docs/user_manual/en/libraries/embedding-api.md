@@ -55,11 +55,12 @@ itp.setOutputHandler(
 int rc = itp.runSource("import io; io.print(6*7);");   // rc == 0
 ```
 
-To `import io`, add the standard-library directory to the import path first: in-process embedding does not read `NLANG_PATH` and does not search the host executable's directory or the current directory. Library declarations, packages, and native modules (`nlang_io.dll`, ...) all resolve from the directories you pass to `addImportDir`. The typical deployment places the whole stdlib directory (`.n` declarations, `stdlib.npkg`, and native dynamic-link library (DLL) files) under your application data directory and points `addImportDir` at it once at startup.
+To `import io`, add the standard-library directory to the import path first: library declarations and packages resolve only through the directories you pass to `addImportDir` (in-process embedding reads no `NLANG_PATH` and searches neither the host executable's directory nor the current directory). Native modules (`nlang_io.dll`, ...) follow the import directories too, but the executable's own directory always sits first in the native search list — a stale DLL left there silently shadows the copy in your import directory. The typical deployment places the whole stdlib directory (`.n` declarations, `stdlib.npkg`, and native dynamic-link library (DLL) files) under your application data directory and points `addImportDir` at it once at startup.
 
 After execution you can still `call` functions the script declared (keys are `<module>.<function>`): the module name for string sources is fixed as `script`, and `runFile` uses the file-name stem — which must be a valid identifier, so hyphenated names like `my-script.n` are rejected.
 
 ```cpp
+nlang::Interpreter itp;   // each instance defines its source once
 (void)itp.runSource("int getTimeout() { return 30; } return 0;");
 nlang::Value t = itp.call("script.getTimeout", {});   // 30
 ```
