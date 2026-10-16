@@ -593,6 +593,21 @@ private slots:
             "claims the virtual dispatch slot of \"Object.toString"), 1);
     }
 
+    //Review-driven: an out param is a signature mismatch for the
+    //protocol's in-param slot (same identity predicate as the rest
+    //of the check family).
+    void TestEqualsOutParamRejected() {
+        auto out = compileOne(
+            "class P {\n"
+            "    int x;\n"
+            "    int equals(out Object o) { o = null; return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "claims the virtual dispatch slot of \"Object.equals"), 1);
+    }
+
     void TestGetHashCodeWrongReturnRejected() {
         auto out = compileOne(
             "class P {\n"

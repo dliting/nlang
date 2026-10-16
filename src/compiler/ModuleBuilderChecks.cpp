@@ -233,7 +233,12 @@ bool SignaturesIdentical(const SnFunction &a, const SnFunction &b)
 
 std::string FormatSignature(const std::string &name, const SnFunction &f)
 {
-	std::string sig = name + "(";
+	std::string sig;
+	//A static mismatch must not render identical to the instance
+	//signature it is compared against.
+	if (f.ContainFlags(NF_Static))
+		sig += "static ";
+	sig += name + "(";
 	bool first = true;
 	for (auto &param : f.Params())
 	{
@@ -312,6 +317,8 @@ struct ProtocolEntry
 
 const ProtocolEntry* FindProtocolEntry(const std::string &name)
 {
+	//rendered must agree with the row's paramCount/returnKind fields
+	//(two sources of truth for the same signature).
 	static const ProtocolEntry kTable[] = {
 		{ "equals", 1, NK_Int32, "equals(Object): Int32" },
 		{ "getHashCode", 0, NK_Int32, "getHashCode(): Int32" },
@@ -341,7 +348,8 @@ bool MatchesProtocolEntry(const SnFunction &f, const ProtocolEntry &e,
 		for (auto &param : f.Params())
 		{
 			auto *pType = param.Type() ? param.Type()->Field() : nullptr;
-			if (pType != pObjectClass || param.IsArrayType())
+			if (pType != pObjectClass || param.IsArrayType()
+				|| param.ContainFlags(NF_Out))
 				return false;
 		}
 	}
