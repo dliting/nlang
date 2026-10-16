@@ -360,6 +360,207 @@ private slots:
             "int main() { A a = B(); return a.f(1); }\n");
         QVERIFY(out.ok);
     }
+
+    //=== interface-side completeness (spec §3.1 step 2) ===
+
+    //r7: param mismatch, no call site — now a declaration-site error.
+    //The class-side bijection fires first and its "claims the virtual
+    //dispatch slot ... with a different signature" message carries the
+    //asserted substring; the interface-side check is skipped for the
+    //name via the rejected-names recovery.
+    void TestIfaceParamMismatchRejected() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class D implements IF {\n"
+            "    public int val(string s) { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "with a different signature"), 1);
+    }
+
+    //r8: return mismatch, no call site (message source: class side,
+    //same as r7).
+    void TestIfaceReturnMismatchRejected() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class D implements IF {\n"
+            "    public float val(int x) { return 1.5; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "with a different signature"), 1);
+    }
+
+    //u13: missing entirely — evolved existing message, once (r9 fixed).
+    void TestIfaceMissingReportedOnceWithSignature() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class F implements IF {\n"
+            "    int other() { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "does not implement the method \"val(Int32): Int32\""), 1);
+    }
+
+    //iv1: exact match exists but a first-declared sibling overload
+    //hijacks name dispatch — rejected at the sibling.
+    void TestIfaceSiblingOverloadHijackRejected() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class D implements IF {\n"
+            "    public int val(string s) { return 1; }\n"
+            "    public int val(int x) { return x; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "claims the virtual dispatch slot"), 1);
+    }
+
+    //u6/u8: same shape both declaration orders — order-independent
+    //rejection (the extra overload is the error either way).
+    void TestIfaceOverloadOrderIndependentA() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class D implements IF {\n"
+            "    public int val() { return 7; }\n"
+            "    public int val(int x) { return x; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+    }
+    void TestIfaceOverloadOrderIndependentB() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class D implements IF {\n"
+            "    public int val(int x) { return x; }\n"
+            "    public int val() { return 7; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+    }
+
+    //u10: two interfaces, same name, different signatures — one
+    //dispatch winner cannot satisfy both.
+    void TestTwoIfaceSameNameRejected() {
+        auto out = compileOne(
+            "interface IF1 {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "interface IF2 {\n"
+            "    public int val(string s);\n"
+            "}\n"
+            "class D implements IF1, IF2 {\n"
+            "    public int val(int x) { return x; }\n"
+            "    public int val(string s) { return 2; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "with a different signature"), 1);
+    }
+
+    //u7: inherited name found in Base (non-virtual) + own shadow —
+    //the class-side bijection rejects D.val(string) against the
+    //interface contract (the "with a different signature" tail of the
+    //claims message is what the count asserts; the interface-side
+    //variant is suppressed by the rejected-names recovery).
+    void TestIfaceInheritedImplShadowRejected() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class Base {\n"
+            "    public int val(int x) { return x; }\n"
+            "}\n"
+            "class D : Base implements IF {\n"
+            "    public int val(string s) { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "with a different signature"), 1);
+    }
+
+    //u1: NON-virtual implementing method is a valid implementation.
+    void TestIfaceNonVirtualImplLegal() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class D implements IF {\n"
+            "    public int val(int x) { return x; }\n"
+            "}\n"
+            "int main() { IF d = D(); return d.val(42); }\n");
+        QVERIFY(out.ok);
+    }
+
+    //u2: parent-provided implementation satisfies the subclass.
+    void TestIfaceParentImplLegal() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class Base implements IF {\n"
+            "    public int val(int x) { return x; }\n"
+            "}\n"
+            "class D : Base {\n"
+            "    int other() { return 1; }\n"
+            "}\n"
+            "int main() { IF d = D(); return d.val(42); }\n");
+        QVERIFY(out.ok);
+    }
+
+    //u4: grandparent-provided implementation (B/D carry a dummy
+    //member each — an empty class body is a parse error, p9d).
+    void TestIfaceGrandparentImplLegal() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class A implements IF {\n"
+            "    public int val(int x) { return x + 2; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int dummyB() { return 0; }\n"
+            "}\n"
+            "class D : B {\n"
+            "    int dummyD() { return 0; }\n"
+            "}\n"
+            "int main() { IF d = D(); return d.val(42); }\n");
+        QVERIFY(out.ok);
+    }
+
+    //u3/iv3: private implementing method is valid (access checked
+    //against the interface's public declaration, not the impl).
+    void TestIfacePrivateImplLegal() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class D implements IF {\n"
+            "    private int val(int x) { return x + 1; }\n"
+            "}\n"
+            "int main() { IF d = D(); return d.val(42); }\n");
+        QVERIFY(out.ok);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestMethodContracts)
