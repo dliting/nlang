@@ -8,6 +8,7 @@ This file define the interface of miscellaneous syntax node types.
 #include "SnData.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnMisc.h>
+#include <algorithm>
 #include <memory>
 
 namespace nlang
@@ -275,7 +276,15 @@ public:
 	const std::vector<SnFieldExpr*> &ImplementsNames() const { return m_implementsNames; }
 	void AddImplementsName(SnFieldExpr *pName);
 	const std::vector<SnInterfaceDecl*> &ImplementsList() const { return m_implements; }
-	void AddImplements(SnInterfaceDecl *pInterface) { m_implements.push_back(pInterface); }
+	//Idempotent by pointer: ResolveClassBases runs twice per class
+	//(pre-pass + document order) and re-appends every resolved name —
+	//the duplicate entries made each interface diagnostic fire twice.
+	void AddImplements(SnInterfaceDecl *pInterface)
+	{
+		if (std::find(m_implements.begin(), m_implements.end(), pInterface)
+			== m_implements.end())
+			m_implements.push_back(pInterface);
+	}
 
 	//Count data fields (ClassField only, not Function members).
 	size_t FieldCount() const;

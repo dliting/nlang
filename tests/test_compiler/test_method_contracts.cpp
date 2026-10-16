@@ -79,6 +79,8 @@ CompileOutcome compileOne(const char* szBody)
 
 int countErrorsContaining(const CompileOutcome& out, const char* szNeedle)
 {
+    if (!out.logger)
+        return 0;
     int hits = 0;
     for (const auto& text : out.logger->errorsText())
         if (text.find(szNeedle) != std::string::npos)
@@ -153,6 +155,23 @@ private slots:
         for (auto& param : pPlain->Params()) pPlainType = param.Type();
         QVERIFY(pAliasType && pPlainType);
         QCOMPARE(pAliasType->Field(), pPlainType->Field());
+    }
+
+    //r9: ResolveClassBases runs twice per class (pre-pass + document
+    //order); AddImplements must not append the same interface twice or
+    //every interface diagnostic is emitted in duplicate.
+    void TestInterfaceDiagReportedOnce() {
+        auto out = compileOne(
+            "interface IF {\n"
+            "    public int val(int x);\n"
+            "}\n"
+            "class F implements IF {\n"
+            "    int other() { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "does not implement the method"), 1);
     }
 };
 
