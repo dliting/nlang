@@ -79,7 +79,7 @@ bool MatchesProtocolEntry(const SnFunction &f, const ProtocolEntry &e,
 //Object protocol (spec D4): these three names carry the implicit
 //Object contract in every user class. Check against every own
 //same-name method; a mismatch rejects the whole name (subclasses
-//skip it — same recovery as the bijection below).
+//skip it — same recovery as the bijection in ModuleBuilderMethodContracts.cpp).
 bool CheckObjectProtocol(SnClassDecl &cls, const std::string &name,
 	const std::vector<SnFunction*> &funcs, BuildEnvironment &env)
 {
