@@ -48,6 +48,8 @@ add_library(nlang_compiler
     ModuleBuilder.cpp
     ModuleBuilderImports.cpp
     ModuleBuilderChecks.cpp
+    ModuleBuilderMethodContracts.cpp
+    ModuleBuilderObjectProtocol.cpp
     ModuleBuilderUnits.cpp
     Logger.cpp
     CastInfo.cpp
