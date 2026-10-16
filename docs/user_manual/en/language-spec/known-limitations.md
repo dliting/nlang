@@ -180,16 +180,18 @@
 - **A class body cannot be empty**: `class B : A { }` is a syntax
   error; declare at least one member.
 - **In a same-name method family that contains a virtual method, an
-  overload call can silently bind to the wrong method**: resolution walks
-  declaration order and takes the first method whose parameter can accept
-  the argument — exact matches are no longer preferred. If the argument
-  implicitly converts to an earlier-declared method's parameter (e.g. an
-  `int` argument into a `string` parameter), the call lands on that
-  method; the argument is then read as wrong bits, with no diagnostic. In
-  the family {`int f(string)`, `int f(int)` (virtual)}, `f(5)` invokes
-  `f(string)`; an all-virtual family is affected the same way
-  ({`virtual int f(string)`, `virtual int f(int)`} also routes `f(5)` to
-  `f(string)`); declaring `f(int)` first makes both calls correct.
+  overload call can silently bind to the wrong method**: an exact match on
+  a non-virtual member still takes precedence regardless of declaration
+  order; when the exactly matching member is virtual, the call lands on
+  the first declaration-order method whose parameter can accept the
+  argument — if the argument implicitly converts to an earlier-declared
+  method's parameter (e.g. an `int` argument into a `string` parameter),
+  the exactly matching virtual method is bypassed and the argument is read
+  as wrong bits, with no diagnostic. In the family {`int f(string)`,
+  `int f(int)` (virtual)}, `f(5)` invokes `f(string)`; an all-virtual
+  family is affected the same way ({`virtual int f(string)`,
+  `virtual int f(int)`} also routes `f(5)` to `f(string)`); declaring
+  `f(int)` first — or making it non-virtual — makes both calls correct.
   All-non-virtual families resolve by exact signature regardless of
   declaration order. Avoid mixing other signatures into a name that has a
   virtual method — use a different name instead (consistent with the
