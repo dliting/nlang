@@ -4,10 +4,21 @@
 # sources for compile-time signature resolution AND stdlib.npkg for the
 # load-time closure (NcuLoader search dirs), so tests resolve stdlib
 # exactly like production instead of half source-tree, half nowhere.
-# The dependency block at the end of this file packs the package (and
-# refreshes the copy) before any of these targets build, so targeted
-# test builds work on a fresh build tree too.
+# Each such test calls nlang_stdlib_test() at its definition site,
+# ordering it after the package producer so targeted builds work on a
+# fresh build tree too.
 set(NLANG_TEST_STDLIB_DIR ${CMAKE_BINARY_DIR}/stdlib)
+
+# Tests that compile or load against NLANG_TEST_STDLIB_DIR call this
+# helper right after their target definition: it orders the build after
+# nlang_stdlib_package, the producer of the dir's sources and
+# stdlib.npkg, so a targeted build of just the test still sees a
+# populated dir on a fresh tree (full builds always pack first). Kept as
+# a per-test call at the definition site -- the former centralized list
+# at the end of this file kept drifting when new tests were added.
+function(nlang_stdlib_test target)
+    add_dependencies(${target} nlang_stdlib_package)
+endfunction()
 
 add_executable(test_vm
     test_vm/test_vm.cpp
@@ -139,6 +150,7 @@ target_link_libraries(test_native_host
     PRIVATE
         nlang_vm nlang_compiler nlang_runtime nlang_langservice
 )
+nlang_stdlib_test(test_native_host)
 target_compile_definitions(test_native_host
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -189,6 +201,7 @@ target_link_libraries(test_thirdparty
     PRIVATE
         nlang_vm nlang_compiler nlang_runtime nlang_langservice
 )
+nlang_stdlib_test(test_thirdparty)
 target_compile_definitions(test_thirdparty
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -221,6 +234,7 @@ target_link_libraries(test_library_source
     PRIVATE
         nlang_vm nlang_compiler nlang_runtime nlang_langservice
 )
+nlang_stdlib_test(test_library_source)
 target_compile_definitions(test_library_source
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -243,6 +257,7 @@ target_link_libraries(test_perunit
     PRIVATE
         nlang_vm nlang_compiler nlang_runtime nlang_langservice
 )
+nlang_stdlib_test(test_perunit)
 target_compile_definitions(test_perunit
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -416,6 +431,7 @@ target_link_libraries(test_stdlib
         nlang_runtime
         nlang_langservice
 )
+nlang_stdlib_test(test_stdlib)
 target_compile_definitions(test_stdlib
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -482,6 +498,7 @@ target_link_libraries(test_library_index
         nlang_compiler
         nlang_runtime
 )
+nlang_stdlib_test(test_library_index)
 target_compile_definitions(test_library_index
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -531,6 +548,7 @@ target_link_libraries(test_primops
         nlang_compiler
         nlang_runtime
 )
+nlang_stdlib_test(test_primops)
 target_compile_definitions(test_primops
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -573,6 +591,7 @@ target_link_libraries(test_debugger
         nlang_compiler
         nlang_runtime
 )
+nlang_stdlib_test(test_debugger)
 target_compile_definitions(test_debugger
     PRIVATE
         STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -712,6 +731,7 @@ if(NLANG_BUILD_IDE)
             nlang_vm
             Qt5::Test
     )
+    nlang_stdlib_test(test_import_parse)
     target_compile_definitions(test_import_parse
         PRIVATE
             STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -747,6 +767,7 @@ if(NLANG_BUILD_IDE)
             nlang_vm
             Qt5::Test
     )
+    nlang_stdlib_test(test_module_import)
     target_compile_definitions(test_module_import
         PRIVATE
             STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -1256,6 +1277,7 @@ if(Python3_FOUND)
         PRIVATE
             nlang_langservice
     )
+    nlang_stdlib_test(test_langservice)
     target_compile_definitions(test_langservice
         PRIVATE
             STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
@@ -1623,18 +1645,6 @@ add_custom_target(nlang_stdlib_native_for_tests ALL
     VERBATIM)
 add_dependencies(nlang_stdlib_native_for_tests nlang_math nlang_io nlang_fs)
 
-# STDLIB_DIR (NLANG_TEST_STDLIB_DIR, see the top of this file) is the
-# build-tree stdlib copy: its sources and stdlib.npkg are produced by
-# nlang_stdlib_package. Every test that compiles or loads against that
-# dir depends on the package target, so a targeted build of just these
-# tests still sees a populated dir (a missed entry here only bites
-# targeted builds on a fresh tree; full builds always pack first).
-foreach(t IN ITEMS
-        test_native_host test_thirdparty test_library_source test_perunit
-        test_stdlib test_library_index test_debugger test_import_parse
-        test_module_import test_langservice test_primops)
-    add_dependencies(${t} nlang_stdlib_package)
-endforeach()
 
 # --- Embedding API tests (spec: 2026-10-08-nlang-embedded-host-api) ---
 add_executable(test_embed
