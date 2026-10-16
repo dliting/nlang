@@ -6,6 +6,21 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.2] - 2026-10-16
+
+### Added
+
+- **Embedding source entries**: `Interpreter::runSource`/`runFile` compile
+  and execute ad-hoc scripts in-process (no `main()` boilerplate; temp
+  artifacts are cleaned up automatically), plus the one-shot convenience
+  functions `runScript`/`runScriptFile`.
+
+### Changed
+
+- **`Interpreter::load` resolves native modules through the
+  `addImportDir` search list**: the standard library can live in any
+  import directory, no longer required next to the host executable.
+
 ## [0.9.1] - 2026-10-15
 
 ### Added

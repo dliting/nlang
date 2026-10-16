@@ -256,9 +256,11 @@ Host C++ programs link the `nlang_embed` library and drive the engine in
 process through `nlang::Interpreter`: load a `.ncu`/`.npkg`, run `main`,
 call module functions by name, exchange typed values (containers and
 objects included), register `native` host functions, and redirect
-`io.print`/`io.eprint` to host callbacks. A minimal host ships in
-`examples/embed_host/`; the full chapter is
-`docs/user_manual/en/libraries/embedding-api.md`.
+`io.print`/`io.eprint` to host callbacks. Scripts can also run straight
+from source: `runSource`/`runFile` compile and execute ad-hoc scripts
+in-process (no `main()` boilerplate), and `runScript` wraps the whole
+flow for one-shot use. A minimal host ships in `examples/embed_host/`;
+the full chapter is `docs/user_manual/en/libraries/embedding-api.md`.
 
 ## IDE (nide)
 

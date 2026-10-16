@@ -235,8 +235,10 @@ PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.
 宿主 C++ 程序链接 `nlang_embed` 库，经由 `nlang::Interpreter` 在进程内
 驱动引擎：装载 `.ncu`/`.npkg`，运行 `main`，按名调用模块函数，交换
 类型化的值（含容器与对象），注册 `native` 宿主函数，并把
-`io.print`/`io.eprint` 重定向到宿主回调。最小宿主示例随包分发
-（`examples/embed_host/`），完整章节见
+`io.print`/`io.eprint` 重定向到宿主回调。脚本也可以直接从源码运行：
+`runSource`/`runFile` 进程内编译并执行 ad-hoc 脚本（免写 `main()`
+样板），`runScript` 则把整套流程封装成一次性调用。最小宿主示例随包
+分发（`examples/embed_host/`），完整章节见
 `docs/user_manual/zh/libraries/embedding-api.md`。
 
 ## IDE（nide）

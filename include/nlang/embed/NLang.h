@@ -158,7 +158,7 @@ public:
     Value newList();            // 宿主构造 List（builder 语义，spec §6）
     Value newDict();            // 宿主构造 Dict（builder 语义，spec §6）
 
-    void setOutputHandler(WriteFn out, WriteFn err);   // 只重定向输出通道
+    void setOutputHandler(WriteFn out, WriteFn err);   // 只重定向输出通道；两个回调都为空＝卸装，回到真实标准流
 
 private:
     struct Impl;
@@ -170,7 +170,7 @@ private:
 //请用 Interpreter——本层执行完实例即亡。
 struct ScriptOptions {
     std::vector<std::filesystem::path> importDirs;  // 库搜索路径（含标准库目录，宿主指路；进程内嵌入不自动发现标准库）
-    WriteFn out;                                    // 输出重定向（可选；空＝该通道不重定向）
+    WriteFn out;                                    // 输出重定向（可选；空＝该通道走真实标准流）
     WriteFn err;
 };
 int runScript(const std::string& utf8Source, const ScriptOptions& opts = {});

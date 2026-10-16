@@ -1,6 +1,6 @@
 # 嵌入NLang
 
-除了[集成NLang](integrating-nlang.md)所述的子进程驱动，NLang还提供进程内宿主应用程序编程接口（API，application programming interface）：宿主C++程序链接`nlang_embed`库，在自己的进程里装载并执行编译产物，与脚本交换类型化的值。本页覆盖最小宿主、生命周期、宿主函数、值交换、错误处理与输入输出重定向；完整可运行示例见安装目录`examples\embed_host\`。
+除了[集成NLang](integrating-nlang.md)所述的子进程驱动，NLang还提供进程内宿主应用程序编程接口（API，application programming interface）：宿主C++程序链接`nlang_embed`库，在自己的进程里装载并执行编译产物，与脚本交换类型化的值。本页覆盖最小宿主、生命周期、宿主函数、值交换、错误处理与输入输出重定向；完整可运行示例见安装目录`examples\embed_host\`。子进程方式的入门概览见[将NLang嵌入到其他程序中](../getting-started/embedding-nlang.md)。
 
 ## 1. 依赖与构建
 
@@ -43,19 +43,53 @@ int main(int argc, char* argv[]) {
 
 先用`ncc`把脚本编译成`.ncu`（或打进`.npkg`），宿主再装载运行；`run()`返回脚本`main`的退出码。
 
-## 3. 生命周期
+## 3. 从源码执行（ad-hoc脚本）
+
+除装载编译产物外，解释器还可以直接执行源码：`runSource`接收源码字符串，`runFile`接收脚本文件路径，都在进程内完成编译和执行并返回退出码（顶层`return`的值即退出码；无`return`时为0）。脚本免写`main()`样板——顶层语句自动包裹进合成入口，与`nlang`命令行工具同一语义。
+
+```cpp
+nlang::Interpreter itp;
+itp.addImportDir("path/to/stdlib");   //进程内嵌入不自动发现标准库
+itp.setOutputHandler(
+    [](const char* s) { std::printf("%s", s); }, nullptr);
+int rc = itp.runSource("import io; io.print(6*7);");   //rc == 0
+```
+
+要`import io`，先把标准库目录加入导入路径——进程内嵌入不读`NLANG_PATH`，也不搜索宿主可执行文件目录或当前目录；库声明、包与原生模块（`nlang_io.dll`等）都从`addImportDir`指定的目录解析。典型部署是把`stdlib`目录——`.n`声明、`stdlib.npkg`、原生动态链接库（DLL，dynamic-link library）——整个放到应用数据目录，启动时`addImportDir`一次。
+
+执行完成后仍可`call`脚本声明的函数（键为`<模块名>.<函数名>`）：字符串源码的模块名固定为`script`；`runFile`的模块名是文件名词干，词干须为合法标识符——`my-script.n`这类含连字符的文件名会被拒绝。
+
+```cpp
+(void)itp.runSource("int getTimeout() { return 30; } return 0;");
+nlang::Value t = itp.call("script.getTimeout", {});   //30
+```
+
+每个`Interpreter`的程序来源只能定义一次（`load`/`runSource`/`runFile`三选一）；编译失败不消耗这次机会，可以修正源码后重试。再跑一段脚本就再建一个`Interpreter`——实例之间不共享状态。宿主函数注册与输出重定向须在`runSource`/`runFile`之前完成。
+
+只需跑一段代码时，还有一对便捷函数：
+
+```cpp
+nlang::ScriptOptions opts;
+opts.importDirs.push_back("path/to/stdlib");
+int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
+```
+
+`runScript`/`runScriptFile`内部新建解释器、执行、销毁，不保留状态；需要宿主函数或跑后`call`时请用完整的`Interpreter`流程。顶层`return`建议取0-255（Windows进程退出码按8位截断）。
+
+## 4. 生命周期
 
 | 调用 | 次数与时机 | 说明 |
 |---|---|---|
 | `initialize()` | 每进程至少一次，幂等 | 初始化运行时；`shutdown()`经`atexit`自动注册，宿主通常不必显式调用 |
-| `addImportDir(d)` | 任意次，均须在`load()`之前 | 追加`import`的链接期搜索目录（如`stdlib`所在目录） |
-| `load(artifact)` | 每实例恰一次 | 装载`.ncu`/`.npkg`并解析闭包；失败抛`LoadError` |
+| `addImportDir(d)` | 任意次，均须在装载程序来源之前 | 追加`import`的链接期搜索目录（如`stdlib`所在目录） |
+| `load(artifact)` | 每实例恰一次，与`runSource()`/`runFile()`三选一 | 装载`.ncu`/`.npkg`并解析闭包；失败抛`LoadError` |
+| `runSource(src)`/`runFile(path)` | 每实例恰一次，与`load()`三选一 | 进程内编译＋执行源码脚本（见第3节）；失败抛`LoadError`，编译失败不消耗程序来源 |
 | `run()` | 至多一次 | 调脚本`main`，返回退出码；未捕获的脚本异常抛`Exception` |
-| `call(name, args)` | 任意次（`load()`后、`run()`前后皆可） | 按「单元词干.函数名」键调用模块级函数 |
+| `call(name, args)` | 任意次（装载后、`run()`前后皆可） | 按「单元词干.函数名」键调用模块级函数 |
 
 同一个`Interpreter`实例内不得重入：宿主函数回调里再调同一实例的`run()`/`call()`会抛`BadValue`。
 
-## 4. 宿主函数
+## 5. 宿主函数
 
 脚本侧以`native`声明外部函数，宿主侧注册实现：
 
@@ -77,7 +111,7 @@ int main() {
 
 键规则：`registerHostFunction`的命名空间参数须等于声明文件名词干（上例`host`）。回调收到的实参按脚本侧声明的类型编组（声明`string`收到`Kind::String`）；回调抛出的C++异常会变成脚本里可`catch`的`Exception`，脚本抛出的`Exception`经回调重抛时保持原实例。
 
-## 5. 值交换
+## 6. 值交换
 
 `nlang::Value`按`kind()`分档：`Null`、`Int`、`Long`、`Float`、`Double`、`Bool`、`Char`、`String`与引用类`Array`、`List`、`Dict`、`Object`、`Struct`、`Func`。
 
@@ -94,7 +128,7 @@ list.set(0, nlang::Value(int32_t(9)));       //脚本侧立即可见
 nlang::Value sum = itp.call("mymod.sumList", {v});
 ```
 
-## 6. 错误处理
+## 7. 错误处理
 
 | 异常类 | 含义 | 捕获建议 |
 |---|---|---|
@@ -102,7 +136,7 @@ nlang::Value sum = itp.call("mymod.sumList", {v});
 | `nlang::BadValue` | 宿主用法错误：kind错配、索引越界、重入、生命周期误用 | 属宿主缺陷，修宿主代码而非捕获绕过 |
 | `nlang::LoadError` | 装载与环境失败：坏路径、坏产物、native模块缺失 | 捕获后向使用者报告环境问题 |
 
-## 7. 输入输出重定向
+## 8. 输入输出重定向
 
 `setOutputHandler(out, err)`把脚本的`io.print`与`io.eprint`分别转发到两个回调（文本按Unicode转换格式（UTF-8，Unicode Transformation Format）字节到达）；两个回调都为空即卸装，回到真实的标准流。回调在执行线程上触发，不得抛异常。输入侧默认无通道：脚本首次`io.readLine`抛出可捕获的`IOException`；宿主注入输入属于后续开发内容。
 

@@ -6,6 +6,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.2] - 2026-10-16
+
+### 新增
+- **嵌入API源码入口**：`Interpreter::runSource`/`runFile`进程内编译＋执行
+  ad-hoc脚本（免写`main()`样板，临时产物自动清理），另有一次性便捷函数
+  `runScript`/`runScriptFile`。
+
+### 变更
+- **`Interpreter::load`按`addImportDir`搜索表解析原生模块**：标准库可放
+  任意导入目录，不再要求与宿主可执行文件同目录。
+
 ## [0.9.1] - 2026-10-15
 
 ### 新增
