@@ -839,6 +839,27 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(statement_diag_tests test_statement_diag)
 
+    #Override-signature / interface-contract diagnostics (P1): asserts
+    #diagnostic COUNTS (the e2e manifest only does substring existence)
+    #and the alias type-node identity fact the signature predicate sits on.
+    add_executable(test_method_contracts
+        test_compiler/test_method_contracts.cpp
+    )
+    target_link_libraries(test_method_contracts
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_method_contracts POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_method_contracts>)
+    endif()
+    nlang_add_qtest(method_contracts_tests test_method_contracts)
+
     add_executable(test_projectmodel
         test_nide/test_projectmodel.cpp
     )
