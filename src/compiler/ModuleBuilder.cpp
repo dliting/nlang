@@ -388,7 +388,7 @@ void ModuleBuilder::ResolveStatements()
 
 	CheckStructCircularRefs();
 	CheckClassCircularInheritance();
-	CheckInterfaceImplementation();
+	CheckMethodContracts();
 }
 
 //Phase 13: sweep function references still pending after statement

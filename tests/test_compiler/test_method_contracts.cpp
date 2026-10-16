@@ -173,6 +173,193 @@ private slots:
         QCOMPARE(countErrorsContaining(
             out, "does not implement the method"), 1);
     }
+
+    //=== class-side bijection (spec §2.1) ===
+
+    //p5: return-type mismatch vs ancestor virtual (the original probe
+    //shape: silent compile + bit-wrong runtime read).
+    void TestOverrideReturnMismatchRejected() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual float f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int f(int x) { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //p6: param-type mismatch.
+    void TestOverrideParamTypeMismatchRejected() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int f(string s) { return 2; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //p7: param-count mismatch.
+    void TestOverrideParamCountMismatchRejected() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int f(int x, int y) { return 3; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //m2: mid-chain mismatch errors at the mid class exactly once; the
+    //grandchild's correct override is NOT flagged (error recovery:
+    //per-name skip below a rejected name).
+    void TestMidChainMismatchNoCascade() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int f(string s) { return 2; }\n"
+            "}\n"
+            "class C : B {\n"
+            "    int f(int x) { return x + 10; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //ov1: exact override PLUS an extension overload — the overload
+    //hijacks name dispatch (order-dependent), the whole shape rejects.
+    void TestOverridePlusOverloadRejected() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int f(int x) { return x; }\n"
+            "    int f(string s) { return 5; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //ov3: the same shape with the extension overload declared FIRST —
+    //order must not change the verdict.
+    void TestOverrideOverloadReversedOrderRejected() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int f(string s) { return 5; }\n"
+            "    int f(int x) { return x; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //po1: parent's same-name set holds virtual + non-virtual; only the
+    //VIRTUAL signature is contract; the child's extra overload rejects.
+    void TestParentMixedSameNameSet() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "    int f(string s) { return 1; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    int f(int x) { return x; }\n"
+            "    int f(string s, int n) { return 2; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //s1c: a STATIC same-name method cannot match an instance contract.
+    void TestStaticShadowRejected() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    static int f(int x) { return x; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
+    //Legal: exact override. (Members called from main are declared
+    //public: class members default to private, and external calls are
+    //the point of the dispatch-shape check.)
+    void TestExactOverrideLegal() {
+        auto out = compileOne(
+            "class A {\n"
+            "    public virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    public int f(int x) { return x + 1; }\n"
+            "}\n"
+            "int main() { A a = B(); return a.f(1); }\n");
+        QVERIFY(out.ok);
+    }
+
+    //Legal (p8): same-class overload with NO contract on the name.
+    void TestPlainOverloadNoContractLegal() {
+        auto out = compileOne(
+            "class C {\n"
+            "    public int g(int x) { return x; }\n"
+            "    public int g(string s) { return 7; }\n"
+            "}\n"
+            "int main() { C c; return c.g(\"x\"); }\n");
+        QVERIFY(out.ok);
+    }
+
+    //Legal: hiding a NON-virtual ancestor method (index dispatch).
+    void TestNonVirtualHideLegal() {
+        auto out = compileOne(
+            "class A {\n"
+            "    public int h(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    public int h(string s) { return 9; }\n"
+            "}\n"
+            "int main() { B b; return b.h(\"x\"); }\n");
+        QVERIFY(out.ok);
+    }
+
+    //Legal (r3): parent declared AFTER the child.
+    void TestParentDeclaredLaterLegal() {
+        auto out = compileOne(
+            "class B : A {\n"
+            "    public int f(int x) { return x + 1; }\n"
+            "}\n"
+            "class A {\n"
+            "    public virtual int f(int x) { return x; }\n"
+            "}\n"
+            "int main() { A a = B(); return a.f(1); }\n");
+        QVERIFY(out.ok);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestMethodContracts)

@@ -195,10 +195,12 @@ private:
 		//Check for circular class inheritance.
 		void CheckClassCircularInheritance();
 
-	//Verify each class declaring "implements IFoo" provides all methods
-	//declared in IFoo (matching name, params, return type). Reports errors
-	//for missing methods.
-	void CheckInterfaceImplementation();
+	//Method-contract checking: reject any same-name override whose
+	//signature differs from the ancestor virtual / interface method it
+	//claims (name-based dispatch would read arguments bit-wrong), and
+	//verify each class declaring "implements IFoo" provides all methods
+	//declared in IFoo with fully identical signatures.
+	void CheckMethodContracts();
 
 	bool ResolveNameExpr(SnNameExpr &, SnField *pContext,
 		const SnField &accessor);
