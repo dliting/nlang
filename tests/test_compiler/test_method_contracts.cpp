@@ -4,7 +4,7 @@
     断言「出现次数」（e2e 只做子串存在性断言，抓不住双报回归）。
     Task 1 首用例是别名指针同一性事实探针（spec §3.5）：别名形参与
     底层类型形参的 Type()->Field() 必须同一节点，否则签名恒等谓词
-    需要别名展开（事实带回计划修订，实现暂停）。
+    需要别名展开（探针已确立指针同一性，签名恒等谓词无需别名展开）。
 ---*/
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
@@ -443,6 +443,8 @@ private slots:
             "}\n"
             "int main() { return 0; }\n");
         QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "claims the virtual dispatch slot"), 1);
     }
     void TestIfaceOverloadOrderIndependentB() {
         auto out = compileOne(
@@ -455,6 +457,8 @@ private slots:
             "}\n"
             "int main() { return 0; }\n");
         QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "claims the virtual dispatch slot"), 1);
     }
 
     //u10: two interfaces, same name, different signatures — one
@@ -559,6 +563,76 @@ private slots:
             "    private int val(int x) { return x + 1; }\n"
             "}\n"
             "int main() { IF d = D(); return d.val(42); }\n");
+        QVERIFY(out.ok);
+    }
+
+    //=== Object protocol table (spec §2.3) ===
+
+    //eq2: equals with a wrong param type — today feeds a Point into a
+    //string param at runtime.
+    void TestEqualsWrongParamRejected() {
+        auto out = compileOne(
+            "class P {\n"
+            "    int x;\n"
+            "    int equals(string s) { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "claims the virtual dispatch slot of \"Object.equals"), 1);
+    }
+
+    void TestToStringOverloadRejected() {
+        auto out = compileOne(
+            "class P {\n"
+            "    string toString(int base) { return \"x\"; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "claims the virtual dispatch slot of \"Object.toString"), 1);
+    }
+
+    void TestGetHashCodeWrongReturnRejected() {
+        auto out = compileOne(
+            "class P {\n"
+            "    string getHashCode() { return \"x\"; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "claims the virtual dispatch slot of \"Object.getHashCode"), 1);
+    }
+
+    //eq1: correct getHashCode override stays legal.
+    void TestGetHashCodeOverrideLegal() {
+        auto out = compileOne(
+            "class P {\n"
+            "    int x;\n"
+            "    int getHashCode() { return 69; }\n"
+            "}\n"
+            "int main() { P p; return p.getHashCode() - 69; }\n");
+        QVERIFY(out.ok);
+    }
+
+    //eq3: equals(Object) is spellable and dispatches.
+    void TestEqualsObjectLegal() {
+        auto out = compileOne(
+            "class P {\n"
+            "    int x;\n"
+            "    int equals(Object other) { return 7; }\n"
+            "}\n"
+            "int main() { P p; return p.equals(p) - 7; }\n");
+        QVERIFY(out.ok);
+    }
+
+    //toString() override — the shape the whole stdlib leans on.
+    void TestToStringOverrideLegal() {
+        auto out = compileOne(
+            "class P {\n"
+            "    string toString() { return \"P\"; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
         QVERIFY(out.ok);
     }
 };
