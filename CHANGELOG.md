@@ -6,6 +6,17 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.3] - 2026-10-16
+
+### Fixed
+
+- **Leak and Debug assert on repeated in-process compiles**: builtin type
+  syntax nodes inherited a "do not delete with the tree" flag from the
+  runtime type information side, so every compile leaked the whole builtin
+  node family; a second compile in the same process (embedding hosts, the
+  IDE language service) hit a Debug assertion, while Release builds leaked
+  silently. The per-build syntax tree now owns and frees these nodes.
+
 ## [0.9.2] - 2026-10-16
 
 ### Added
