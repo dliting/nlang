@@ -6,7 +6,7 @@ Besides the subprocess driving described in [Integrating NLang](integrating-nlan
 
 - Header: `include\nlang\embed\NLang.h` (add the install directory's `include\` to the compiler's search path).
 - Library: `nlang_embed` (static; pulls in `nlang_vm`, `nlang_runtime` and the compiler front end).
-- When scripts use native standard-library namespaces, the matching `nlang_*.dll` files must sit next to the host executable (the loader's search rule matches `nvm`, see [Integrating NLang](integrating-nlang.md)).
+- When scripts use native standard-library namespaces, the matching `nlang_*.dll` files can sit next to the host executable or in one of the `addImportDir` directories (search order in section 3).
 
 With CMake:
 

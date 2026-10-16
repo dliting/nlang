@@ -6,7 +6,7 @@
 
 - 头文件：`include\nlang\embed\NLang.h`（链接时向编译器加安装目录的`include\`）。
 - 库：`nlang_embed`（静态库，连带`nlang_vm`、`nlang_runtime`与编译器前端）。
-- 脚本用到标准库的native命名空间时，相应`nlang_*.dll`须在宿主可执行文件旁（装载子系统的搜索规则与`nvm`相同，见[集成NLang](integrating-nlang.md)）。
+- 脚本用到标准库的native命名空间时，相应`nlang_*.dll`既可放宿主可执行文件旁，也可放`addImportDir`给出的导入目录（搜索顺序见第3节）。
 
 以CMake为例：
 
