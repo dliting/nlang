@@ -179,9 +179,21 @@
   the unqualified name.
 - **A class body cannot be empty**: `class B : A { }` is a syntax
   error; declare at least one member.
-- **A same-name method family containing a virtual method rejects
-  overload calls** (the message is "the function does not exist");
-  only all-non-virtual same-name overloads are usable.
+- **In a same-name method family that contains a virtual method, an
+  overload call can silently bind to the wrong method**: resolution walks
+  declaration order and takes the first method whose parameter can accept
+  the argument — exact matches are no longer preferred. If the argument
+  implicitly converts to an earlier-declared method's parameter (e.g. an
+  `int` argument into a `string` parameter), the call lands on that
+  method; the argument is then read as wrong bits, with no diagnostic. In
+  the family {`int f(string)`, `int f(int)` (virtual)}, `f(5)` invokes
+  `f(string)`; an all-virtual family is affected the same way
+  ({`virtual int f(string)`, `virtual int f(int)`} also routes `f(5)` to
+  `f(string)`); declaring `f(int)` first makes both calls correct.
+  All-non-virtual families resolve by exact signature regardless of
+  declaration order. Avoid mixing other signatures into a name that has a
+  virtual method — use a different name instead (consistent with the
+  virtual-method contract rule in [Class](class.md)).
 - **Interface methods do not support default parameters, and an
   implementing method's defaults do not participate in interface
   dispatch** (a pre-existing semantic decision — override-signature
