@@ -1,0 +1,7 @@
+interface IF {
+    public int val(int x);
+}
+class D implements IF {
+    public float val(int x) { return 1.5; }
+}
+int main() { return 0; }

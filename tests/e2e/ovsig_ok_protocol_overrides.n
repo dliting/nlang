@@ -1,0 +1,10 @@
+class P {
+    int x;
+    int getHashCode() { return 69; }
+    int equals(Object other) { return 7; }
+    string toString() { return "P"; }
+}
+int main() {
+    P p = P();
+    return p.getHashCode() - 69;
+}

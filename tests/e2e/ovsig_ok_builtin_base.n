@@ -1,0 +1,7 @@
+class Y : ByteStream {
+    int check() { return 3; }
+}
+int main() {
+    Y y;
+    return 0;
+}

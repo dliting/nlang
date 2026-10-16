@@ -1,0 +1,8 @@
+interface IF {
+    public int val(int x);
+}
+class D implements IF {
+    public int val(string s) { return 1; }
+    public int val(int x) { return x; }
+}
+int main() { return 0; }

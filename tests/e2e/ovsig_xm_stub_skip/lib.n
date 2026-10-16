@@ -1,0 +1,4 @@
+class Base {
+    virtual int f(int x) { return x; }
+}
+int libDummy() { return 0; }

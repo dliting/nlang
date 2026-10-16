@@ -1,0 +1,10 @@
+class A {
+    virtual int f(int x) { return x; }
+}
+class B : A {
+    int f(string s) { return 2; }
+}
+class C : B {
+    int f(int x) { return x + 10; }
+}
+int main() { return 0; }

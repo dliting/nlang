@@ -1,0 +1,7 @@
+interface IF {
+    public int val(int x);
+}
+class F implements IF {
+    int other() { return 1; }
+}
+int main() { return 0; }

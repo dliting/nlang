@@ -1,0 +1,11 @@
+interface IF1 {
+    public int val(int x);
+}
+interface IF2 {
+    public int val(string s);
+}
+class D implements IF1, IF2 {
+    public int val(int x) { return x; }
+    public int val(string s) { return 2; }
+}
+int main() { return 0; }

@@ -1,0 +1,10 @@
+class A {
+    public int h(int x) { return x; }
+}
+class B : A {
+    public int h(string s) { return 9; }
+}
+int main() {
+    B b = B();
+    return b.h("x");
+}

@@ -1389,3 +1389,32 @@ err_top_const_reassign compile_error cannot assign to const local
 err_top_direct_init_member_arg compile_error syntax error
 err_top_break compile_error break statement outside
 err_top_continue compile_error continue statement outside
+
+# --- 0.9.4: override-signature / interface-contract diagnostics (ovsig) ---
+ovsig_return_mismatch compile_error claims the virtual dispatch slot
+ovsig_param_type_mismatch compile_error claims the virtual dispatch slot
+ovsig_param_count_mismatch compile_error claims the virtual dispatch slot
+ovsig_midchain_mismatch compile_error claims the virtual dispatch slot
+ovsig_override_plus_overload compile_error claims the virtual dispatch slot
+ovsig_static_shadow compile_error claims the virtual dispatch slot
+ovsig_out_mismatch compile_error claims the virtual dispatch slot
+ovsig_iface_param_mismatch compile_error with a different signature
+ovsig_iface_return_mismatch compile_error with a different signature
+ovsig_iface_missing compile_error does not implement the method
+ovsig_iface_sibling_overload compile_error claims the virtual dispatch slot
+ovsig_iface_two_contracts compile_error with a different signature
+ovsig_iface_inherited_shadow compile_error with a different signature
+ovsig_equals_mismatch compile_error claims the virtual dispatch slot of "Object.equals
+ovsig_tostring_overload compile_error claims the virtual dispatch slot of "Object.toString
+ovsig_ok_exact_override 42
+ovsig_ok_class_overload 7
+ovsig_ok_nonvirtual_hide 9
+ovsig_ok_iface_impl 42
+ovsig_ok_iface_parent_impl 42
+ovsig_ok_iface_grandparent_impl 44
+ovsig_ok_iface_private_impl 43
+ovsig_ok_protocol_overrides 0
+ovsig_ok_default_params 6
+ovsig_ok_parent_later 42
+ovsig_ok_builtin_base 0
+ovsig_xm_stub_skip 30

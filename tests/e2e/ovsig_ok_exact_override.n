@@ -1,0 +1,10 @@
+class A {
+    public virtual int f(int x) { return x; }
+}
+class B : A {
+    public int f(int x) { return x + 1; }
+}
+int main() {
+    A a = B();
+    return a.f(41);
+}

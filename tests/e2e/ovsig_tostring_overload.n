@@ -1,0 +1,4 @@
+class P {
+    string toString(int base) { return "x"; }
+}
+int main() { return 0; }

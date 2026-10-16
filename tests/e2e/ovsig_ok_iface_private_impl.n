@@ -1,0 +1,10 @@
+interface IF {
+    public int val(int x);
+}
+class D implements IF {
+    private int val(int x) { return x + 1; }
+}
+int main() {
+    IF d = D();
+    return d.val(42);
+}

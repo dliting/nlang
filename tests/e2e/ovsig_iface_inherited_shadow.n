@@ -1,0 +1,10 @@
+interface IF {
+    public int val(int x);
+}
+class Base {
+    public int val(int x) { return x; }
+}
+class D : Base implements IF {
+    public int val(string s) { return 1; }
+}
+int main() { return 0; }

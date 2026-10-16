@@ -1,0 +1,7 @@
+class A {
+    virtual int f(int x) { return x; }
+}
+class B : A {
+    int f(int x, int y) { return 3; }
+}
+int main() { return 0; }

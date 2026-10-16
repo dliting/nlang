@@ -1,0 +1,13 @@
+interface IF {
+    public int val(int x);
+}
+class Base implements IF {
+    public int val(int x) { return x; }
+}
+class D : Base {
+    int dummyD() { return 0; }
+}
+int main() {
+    IF d = D();
+    return d.val(42);
+}
