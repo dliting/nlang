@@ -13,6 +13,15 @@ namespace nlang
 
 SnBuiltinDataType::SnBuiltinDataType(RnBuiltinDataType &rtti) : Super_(rtti)
 {
+	//The RTTI side carries NF_DontDelete because runtime-side built-ins are
+	//process-lifetime singletons. This syntax node is not: it hangs under
+	//the per-build AST root, so the tree owns it and SyntaxTree::Clear
+	//deletes it, which also resets the s_pInstance construction guard in
+	//~SnBuiltinDataTypeT. Keeping the copied flag would leak the node on
+	//every build, and a second build in the same process would then trip
+	//the guard's assert (Debug) or silently overwrite the singleton
+	//(Release).
+	RemoveFlags(NF_DontDelete);
 }
 
 std::string SnBuiltinDataType::ToString() const
