@@ -328,9 +328,7 @@ private:
 		if (cf.returnTypeKind != RTK_Void)
 			pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc);
 
-		//Synthesize paramCount SnFormalParam nodes with names "p0", "p1",
-		//... (stub param names are placeholders; named-arg binding is
-		//rejected for imported callees anyway). v1.12: each formal's true
+		//Synthesize paramCount SnFormalParam nodes. v1.12: each formal's true
 		//type and out flag come from the serialized descriptors (free
 		//functions carry exactly paramCount of them — methods never reach
 		//stub construction, the methodOrCtorIndices filter owns those).
@@ -341,9 +339,24 @@ private:
 		//value, whose inner_collection* constructor assumes ownership and
 		//deletes the source list.
 		auto *pParams = new PtrList<SnFormalParam>();
+		//Formal names from the producer's frame-layout locals table
+		//(ModuleSaver serializes every AllocLocal name with its isParam
+		//flag; for free functions those entries are exactly the params,
+		//in declaration order). Named-argument binding (BindNamedActual)
+		//matches actuals to formals by name, so the former "p0"/"p1"
+		//placeholders made every cross-module named call unbindable.
+		//Missing/misaligned entries fall back to the placeholders —
+		//stub construction never rejects a module over naming.
+		std::vector<std::string> formalNames;
+		for (const auto &ld : cf.locals)
+			if (ld.isParam)
+				formalNames.push_back(ld.name);
 		for (uint16_t i = 0; i < cf.paramCount; ++i)
 		{
-			auto paramName = new std::string("p" + std::to_string(i));
+			auto paramName = new std::string(
+				i < formalNames.size() && !formalNames[i].empty()
+					? formalNames[i]
+					: "p" + std::to_string(i));
 			NodeBits paramFlags = NF_NONE;
 			SnFieldExpr *pParamType;
 			if (i < cf.paramTypeDescs.size())

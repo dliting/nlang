@@ -1,0 +1,2 @@
+import lib;
+int main() { return lib.add(b = 3, a = 1); }

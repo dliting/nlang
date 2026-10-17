@@ -1,0 +1,2 @@
+import lib;
+int main() { return lib.wide(5, "x", factor = 3); }
