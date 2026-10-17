@@ -307,7 +307,7 @@ inline SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
 			" outside the cross-module subset; supported: "
 			"int/float/double/long/ulong/string/null literals, formal "
 			"parameter references, unary negation, calls to the "
-			"exporting module's functions, and + - * / % arithmetic "
+			"exporting module's free functions, and + - * / % "
 			"over those");
 	}
 	return SynthScalarDefault(dv, cm, loc);

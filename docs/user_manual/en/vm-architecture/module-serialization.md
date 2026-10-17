@@ -37,10 +37,11 @@ serialized as an index: the program package's entry record (in the
 `.npkg` header) or the bare unit's `<modulePath>.main` convention
 resolves it to a table index by qualified name at load time. The
 minimum format version only rises with the toolchain (currently 2.3;
-from 2.2 the function table carries formal names and `func`
-signatures, from 2.3 default-value expressions serialize with the
-image): the loader refuses any image below the current version, so
-older modules must be recompiled.
+from 2.2 the type descriptors carry `func` signatures, from 2.3
+default-value expressions serialize with the image — imported stubs
+bind the formal names the function records always carried): the
+loader refuses any image below the current version, so older modules
+must be recompiled.
 
 Each struct includes: name, fieldCount, fieldNames[], fieldTypeKinds[],
 fieldStructIndices[], fieldClassIndices[], fieldTypeDescs[].

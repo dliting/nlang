@@ -19,7 +19,7 @@ All notable changes to NLang are documented here. The format follows
   `func` signatures serialize in the type descriptor, `func<void, T>`
   included. Complex default parameters survive the wire through a
   serialized expression subset — references to earlier formals, calls
-  to the producing module's own functions, unary negation, and
+  to the producing module's own free functions, unary negation, and
   `+` `-` `*` `/` `%` arithmetic over those, plus string constants —
   still evaluated at each call site. Expressions outside the subset
   (casts, member access, calls nested as arguments) keep their
