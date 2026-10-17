@@ -1,0 +1,12 @@
+//P3: a ctor default may reference an earlier formal of the same ctor.
+//Vec(5) leaves y at x * 2 = 10, mirroring the method-default rule.
+class Vec {
+    public int a;
+    public int b;
+    public int Vec(int x, int y = x * 2) { this.a = x; this.b = y; return 0; }
+}
+
+int main() {
+    Vec v = Vec(5);
+    return v.b;         //10
+}

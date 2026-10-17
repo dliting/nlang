@@ -1,0 +1,13 @@
+//P3: a ctor default parameter applies at the construction call site.
+//Vec(5) omits y, so y takes its default 3 — same rule as function and
+//method defaults.
+class Vec {
+    public int a;
+    public int b;
+    public int Vec(int x, int y = 3) { this.a = x; this.b = y; return 0; }
+}
+
+int main() {
+    Vec v = Vec(5);
+    return v.a + v.b;   //5 + 3 = 8
+}

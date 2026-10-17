@@ -1,0 +1,18 @@
+//P3: a struct argument passed to a ctor arrives as a copy (the same
+//deep-copy tail function and method arguments already apply). The ctor
+//mutating its parameter must not be visible through the caller's struct.
+struct P {
+    int x;
+}
+
+class Holder {
+    public int v;
+    public int Holder(P p) { p.x = 99; this.v = p.x; return 0; }
+}
+
+int main() {
+    P p;
+    p.x = 1;
+    Holder h = Holder(p);
+    return p.x * 10;    //caller copy intact → 10 (aliasing would give 990)
+}

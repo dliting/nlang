@@ -1,0 +1,14 @@
+//P3: a ctor default expression may call a free function — evaluated at
+//the construction call site, once per construction.
+int helper() { return 6; }
+
+class Vec {
+    public int a;
+    public int b;
+    public int Vec(int x, int y = helper()) { this.a = x; this.b = y; return 0; }
+}
+
+int main() {
+    Vec v = Vec(5);
+    return v.a + v.b;   //5 + 6 = 11
+}

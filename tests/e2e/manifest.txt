@@ -707,6 +707,14 @@ super_bad_arity compile_error
 super_named_arg compile_error
 super_parent_no_ctor compile_error
 
+# --- P3: ctor default parameters at construction call sites ---
+ctor_default 8
+ctor_default_formal_ref 10
+ctor_default_nested 11
+ctor_struct_arg_copy 10
+super_default 12
+ctor_default_missing_required compile_error expects between 1 and 2 argument(s)
+
 # --- Implicit this.field (bare member access in methods) ---
 implicit_this_read 42
 implicit_this_write 42

@@ -1,0 +1,16 @@
+//P3: super(...) forwards through the parent ctor's default parameters.
+//super(5) omits y, so the Base default 7 applies: a + b = 5 + 7 = 12.
+class Base {
+    public int a;
+    public int b;
+    public int Base(int x, int y = 7) { this.a = x; this.b = y; return 0; }
+}
+
+class Derived : Base {
+    public int Derived() { super(5); return 0; }
+}
+
+int main() {
+    Derived d = Derived();
+    return d.a + d.b;   //12
+}
