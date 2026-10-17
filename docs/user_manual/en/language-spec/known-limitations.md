@@ -70,8 +70,6 @@
 - **Partial initialization is the bracket form at the declaration**:
   `int b[100] = [7, 8];` zero-fills the remainder; the brace form at a
   sized declaration (`int b[100] = {7, 8};`) is a syntax error.
-- **Constructor calls do not apply default parameter values**:
-  `Vec(5)` against `Vec(int a, int b = 3)` reports an arity error.
 - **Generic instantiation has no anchored head**: `List<int>{60}` does
   not parse — give the literal a typed declaration (see
   [Collection Initializers](collection-initializers.md)).

@@ -6,6 +6,33 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.6] - 2026-10-18
+
+### Changed
+
+- **Constructor and `super()` calls apply default parameter values** —
+  the last call form that ignored them. `Vec(5)` against
+  `Vec(int x, int y = 3)` leaves `y` at its default 3; `super(5)` in a
+  derived constructor fills the parent constructor's omitted trailing
+  formals the same way. Defaults evaluate at the call site under the
+  same rules as function and method calls: earlier formals are in
+  scope, and a default requiring the same defaults again is a
+  compile-time error.
+- **Constructor arity diagnostics became a range where defaults
+  exist**: a constructor without defaults keeps the exact-count
+  message (`constructor of "Vec" expects 2 argument(s), got 0`); one
+  with defaults reports the accepted span (`constructor of "Vec"`
+  `expects between 1 and 2 argument(s), got 0`). `super(...)`
+  diagnostics follow the same split.
+
+### Fixed
+
+- **Struct arguments to constructors are deep-copied**: the
+  construction lowering now routes through the shared binding emitter,
+  so a struct formal receives its own copy of the argument — mutating
+  the parameter inside the constructor no longer shows through at the
+  call site. Previously a struct argument was shared with the caller.
+
 ## [0.9.5] - 2026-10-17
 
 ### Changed

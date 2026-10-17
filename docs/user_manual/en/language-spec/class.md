@@ -64,9 +64,6 @@ Node c;                   // declaration only: c is null
   constructor takes `Node(int v)`, does not qualify; fields are
   assigned by name after construction. See [Collection
   Initializers](collection-initializers.md).
-- Constructor calls **do not apply default parameter values**: with
-  `Vec(int x, int y = 3)`, `Vec(5)` reports an argument count
-  error.
 - The declaration-site form `Node b(42);` is allowed only on the first
   declarator (`Node a, b(42);` is a syntax error — the paren arm is not
   in first position); the rules for sized
