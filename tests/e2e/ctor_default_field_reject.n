@@ -1,0 +1,16 @@
+//P3 review Important-2 (implicit form): a bare field name in a ctor
+//default is an implicit this-field reference and is rejected for the
+//same reason as an explicit `this` — the default evaluates at the call
+//site, outside the object under construction.
+class Vec {
+    public int a;
+    public int b;
+    public int Vec(int x, int y = a) {
+        this.a = x; this.b = y; return 0;
+    }
+}
+
+int main() {
+    Vec v = Vec(7);
+    return 0;
+}

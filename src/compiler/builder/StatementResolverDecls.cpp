@@ -36,6 +36,41 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 	return false;
 }
 
+//P3 review: walk an expression subtree looking for a `this` reference —
+//an explicit SnThisExpr, or a bare identifier that resolved to a class
+//field (the implicit this.field binding; NK_ClassField distinguishes it
+//from formals/locals, and bare names cannot reach another class's
+//fields). Same traversal contract as ReferencesFormal above.
+static bool ReferencesThis(SnExpression& expr)
+{
+	if (expr.Kind() == NK_ThisExpr)
+		return true;
+	if (expr.Kind() == NK_IdentifierExpr) {
+		auto& id = static_cast<SnIdentifierExpr&>(expr);
+		auto* pField = id.Field();
+		if (pField && pField->Kind() == NK_ClassField)
+			return true;
+	}
+	for (auto& child : expr.Children()) {
+		auto& synChild = static_cast<SyntaxNode&>(child);
+		if (!synChild.IsExpression())
+			continue;
+		if (ReferencesThis(static_cast<SnExpression&>(synChild)))
+			return true;
+	}
+	return false;
+}
+
+//P3 review: true when sn is a constructor — a member function of a class
+//whose name equals the class name (the same declaration-shape rule
+//FindCtorParamRange applies to class members).
+static bool IsConstructorFunction(SnFunction& sn)
+{
+	auto* pParent = sn.Parent();
+	return pParent && pParent->Kind() == NK_ClassDecl
+		&& sn.Name() == static_cast<SnClassDecl*>(pParent)->Name();
+}
+
 void StatementResolveAccessor::Access(SnFunction &sn)
 {
 	assert(m_pVisitor);
@@ -137,6 +172,12 @@ void StatementResolveAccessor::ResolveFunctionFormals(SnFunction &sn,
 		if (param->Value()->IsResolved())
 			CheckDefaultForwardRefs(formals, i);
 
+		//P3 review: a ctor default cannot touch `this` — imported stubs
+		//skip like CheckDefaultTypeCompat (the producer unit already
+		//validated its own defaults).
+		if (param->Value()->IsResolved() && !sn.IsImported())
+			CheckCtorDefaultThisRefs(sn, *param);
+
 		//Verify default's type is compatible with the formal's
 		//declared type. Literals may already be IsResolved() from
 		//parse time, so the check runs regardless of the resolve
@@ -174,6 +215,31 @@ void StatementResolveAccessor::CheckDefaultForwardRefs(
 			break;  //one error per default[i]
 		}
 	}
+}
+
+//P3 review: reject a ctor default that references `this` (explicitly, or
+//implicitly through a bare field). Defaults are emitted and evaluated at
+//the CALL SITE: a construction call stages them before the object exists
+//(thisSlot is UINT16_MAX there — NK_ThisExpr would fall back to the
+//caller's local 0), and a super() call binds the derived object whose
+//fields are not initialized yet. Either way the default reads the wrong
+//object or crashes, so the declaration is the rejection point. Method
+//and free-function defaults keep their existing behavior.
+void StatementResolveAccessor::CheckCtorDefaultThisRefs(SnFunction &sn,
+	SnFormalParam &param)
+{
+	if (!IsConstructorFunction(sn))
+		return;
+	if (!ReferencesThis(*param.Value()))
+		return;
+	m_Env.Log(CLL_Error,
+		param.Value()->Location(),
+		"default value for parameter \"%s\" of constructor \"%s\" "
+		"cannot reference 'this' (explicitly or through a bare "
+		"field); constructor defaults evaluate at the call site, "
+		"where no valid 'this' exists.",
+		param.Name().c_str(),
+		sn.Name().c_str());
 }
 
 //0.7.5: an explicit-only default must clear the same constant-fit bar

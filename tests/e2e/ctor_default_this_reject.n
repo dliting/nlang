@@ -1,0 +1,17 @@
+//P3 review Important-2 (explicit form): a ctor default cannot reference
+//`this`. Defaults evaluate at the call site, where the object under
+//construction does not exist yet — the reference used to fall back to
+//the caller's local 0 and silently read the caller's object (or crash
+//with a null reference from main).
+class Vec {
+    public int a;
+    public int b;
+    public int Vec(int x, int y = this.a) {
+        this.a = x; this.b = y; return 0;
+    }
+}
+
+int main() {
+    Vec v = Vec(7);
+    return 0;
+}

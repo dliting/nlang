@@ -58,6 +58,10 @@ private:
 	void CheckDefaultForwardRefs(std::vector<SnFormalParam*> &formals,
 		size_t i);
 	void CheckDefaultTypeCompat(SnFormalParam *param);
+	//P3 review: a ctor default cannot reference `this` (explicitly or
+	//through a bare field) — defaults evaluate at the call site, outside
+	//the object under construction. No-op for non-ctor functions.
+	void CheckCtorDefaultThisRefs(SnFunction &sn, SnFormalParam &param);
 	//0.7.5 constant-fit arm of the check above: an explicit-only
 	//default must be an in-range constant (assignment-side rule).
 	void CheckDefaultConstantFit(SnFormalParam *param,
