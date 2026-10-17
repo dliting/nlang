@@ -39,8 +39,8 @@ static void CollectStructs(SnNamespace &ns,
 }
 
 //Collect all class declarations directly under the root or nested in
-//function-parent members. Shared by the circular-inheritance, the
-//interface-implementation and the method-contract checks.
+//function-parent members. Shared by the circular-inheritance and the
+//method-contract checks.
 void CollectClasses(SnNamespace &root,
 	std::vector<SnClassDecl*> &classes)
 {

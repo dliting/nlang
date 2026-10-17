@@ -19,10 +19,11 @@ All notable changes to NLang are documented here. The format follows
   is bound to a virtual or interface contract is likewise rejected.
   The `Object` protocol signatures (`equals`/`getHashCode`/`toString`)
   are enforced the same way.
-- **Interface implementation is now checked by signature at the class
-  declaration**: missing or mismatched implementations are reported
-  where the class declares `implements` (the interface error message
-  now includes the required signature), and each diagnostic is
+- **Interface implementation is now checked by signature**: missing
+  implementations are reported at the class declaration; a mismatching
+  same-name method — the class's own or an inherited dispatch winner —
+  is reported at that method's declaration (the interface error
+  message now includes the required signature), and each diagnostic is
   emitted once (a duplicated `implements` list was fixed).
 
 ## [0.9.3] - 2026-10-16
