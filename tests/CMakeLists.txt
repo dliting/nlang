@@ -462,6 +462,33 @@ target_link_libraries(test_array_flags
 
 add_test(NAME array_flags_tests COMMAND test_array_flags)
 
+# v2.3 ExprDesc default-expression grammar drift guards (console suite).
+# Real compile -> .ncu write -> load round-trip decoded by an INDEPENDENT
+# hand-rolled reader (writer/reader co-drift cannot pass), the producer
+# fold/RTK_Unfoldable boundary, SynthDefaultExpr malformed-stream rejects
+# and the ExprDesc.h link-time remap (NcuLinker's corrupt-image gate).
+# src/compiler/builder covers CompiledModuleDefaultSupport.hpp (internal
+# header chain, shallow — see the test file header).
+add_executable(test_default_exprdesc
+    test_compiler/test_default_exprdesc.cpp
+)
+
+target_include_directories(test_default_exprdesc
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler/builder
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_default_exprdesc
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME default_exprdesc_tests COMMAND test_default_exprdesc)
+
 # 0.7.3 B: interned array type token unit tests (console suite). Drives
 # BuildEnvironment::InternArrayTypeToken hash-consing identity and the
 # GetCastInfo array matrix directly — the token has no tree writers yet.
