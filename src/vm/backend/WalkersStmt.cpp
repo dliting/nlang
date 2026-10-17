@@ -240,21 +240,28 @@ uint16_t VmBackend::TryStmtPeakDepth(SnStatement& stmt,
     return d;
 }
 
-//NK_SuperCallStmt arm of StmtPeakDepth.
+//NK_SuperCallStmt arm of StmtPeakDepth. Instance method: the parent
+//class comes from m_pCurrClass (set for the class being emitted).
 uint16_t VmBackend::SuperCallStmtPeakDepth(SnStatement& stmt,
     const std::unordered_set<SnFunction*>& visited) {
     auto& sc = static_cast<SnSuperCallStmt&>(stmt);
-    //Mirror the codegen's EvalAreaClaim(1 + args) — same claimSize
-    //pattern as NK_NewExpr in ExprPeakDepth. peakDepth without the
+    //Mirror the codegen's EvalAreaClaim(1 + totalFormals) — omitted
+    //trailing formals stage their defaults (P3), so the claim covers
+    //the parent ctor's full formal count. peakDepth without the
     //claimSize under-sizes evalArea and super-arg staging writes past
     //the frame (heap-buffer-overflow, deterministic in codegen).
-    uint16_t claimSize = static_cast<uint16_t>(1 + sc.Args().size());
+    SnFunction* pParentCtor = nullptr;
+    if (m_pCurrClass && m_pCurrClass->SuperClass())
+        pParentCtor = FindCtorFunction(m_pCurrClass->SuperClass());
+    const size_t totalFormals = pParentCtor
+        ? pParentCtor->Params().size() : sc.Args().size();
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     uint16_t d = 0;
     for (auto* arg : sc.Args()) {
         uint16_t ad = ExprPeakDepth(*arg, visited);
         if (ad > d) d = ad;
     }
-    return claimSize + d;
+    return claimSize + CtorDefaultExprDepth(pParentCtor, visited, d);
 }
 
 //NK_ThrowStmt arm of StmtPeakDepth.

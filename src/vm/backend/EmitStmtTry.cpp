@@ -15,6 +15,7 @@
 #include <cassert>
 #include <map>
 #include <unordered_set>
+#include <vector>
 
 namespace nlang {
 
@@ -213,11 +214,13 @@ void VmBackend::Access(SnThrowStmt& stmt) {
 }
 
     //Phase 9d-2: super(args); — forward to the direct parent constructor.
-    //Mirrors NK_NewExpr's ctor-call pattern: evalArea claim [0]=this,
-    //[1..N]=args, bulk copy to callParamBase, OP_CallMethodDirect on the
-    //parent's ctor (works for both user ctors and built-in Exception
-    //family stubs via the intrinsic shortcut). No parent ctor (0xFFFF) is
-    //a legal no-op — the resolver guarantees no args in that case.
+    //Mirrors the ctor-invocation pattern (EmitCtorInvocation): evalArea
+    //claim [0]=this, [1..N]=one FormalBinding per formal (caller args
+    //first, then the defaults of the omitted trailing formals — P3),
+    //bulk copy to callParamBase, OP_CallMethodDirect on the parent's
+    //ctor (works for both user ctors and built-in Exception family stubs
+    //via the intrinsic shortcut). No parent ctor (0xFFFF) is a legal
+    //no-op — the resolver guarantees no args in that case.
 void VmBackend::Access(SnSuperCallStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& sc = static_cast<SnSuperCallStmt&>(stmt);
@@ -233,30 +236,35 @@ void VmBackend::Access(SnSuperCallStmt& stmt) {
         if (ctorIdx == 0xFFFF)
             return;  //parent has no ctor; args were rejected by resolver
 
-        uint16_t n = static_cast<uint16_t>(1 + sc.Args().size());
+        //Defaults-aware bindings (P3): a built-in parent carries no AST
+        //ctor, so BuildCtorBindings returns the caller-arg count and
+        //leaves the bindings empty — EmitCtorCallBindings then falls
+        //back to the pre-P3 positional shape.
+        std::vector<SnExpression*> callerArgs;
+        for (auto* pArg : sc.Args())
+            callerArgs.push_back(pArg);
+        std::vector<FormalBinding> bindings;
+        SnFunction* pParentCtor = FindCtorFunction(pParent);
+        const size_t totalFormals = BuildCtorBindings(pParentCtor,
+                                                      callerArgs, bindings);
+        DefaultEmitGuard defGuard{*this, pParentCtor,
+                                  BindingsEmitDefaults(bindings)};
+
+        uint16_t n = static_cast<uint16_t>(1 + totalFormals);
         EvalAreaClaim claim(*this, n);
         uint16_t claimBase = claim.base();
 
-        //args → claim[1..N] (positional only; resolver rejected named).
-        uint16_t paramIdx = 1;
-        for (auto* pArg : sc.Args()) {
-            uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
-            EmitExpression(*pArg, emitter, paramOffset);
-            ++paramIdx;
-        }
-        //this (local 0 in a method) → claim[0].
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(0);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(claimBase);
+        //this (local 0 in a method) → claim[0], staged before the
+        //bindings (StageReceiverInClaim contract).
+        StageReceiverInClaim(1, 0, claimBase, emitter);
+
+        //Bindings → claim[1..N] (positional only; resolver rejected
+        //named). thisSlot=0: a parent-ctor default referencing `this`
+        //reads the object under construction, like a method default.
+        EmitCtorCallBindings(bindings, callerArgs, claimBase, emitter, 0);
 
         //Bulk-copy claim → callParamBase, then call the parent ctor.
-        for (uint16_t i = 0; i < n; ++i) {
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(m_currFunc->callParamBase + i * kFrameSlotBytes);
-        }
+        CopyClaimToCallParams(claimBase, n, emitter);
         emitter.Emit(OpCode::OP_CallMethodDirect);
         emitter.EmitUint16(ctorIdx);
         emitter.EmitUint16(m_currFunc->callParamBase);

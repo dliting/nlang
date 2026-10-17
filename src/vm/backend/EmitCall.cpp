@@ -264,6 +264,119 @@ void VmBackend::EmitLegacyPositionalArgs(const SnInvokeExpr& invoke,
     }
 }
 
+//Shared default-emission recursion guard (see VmBackend.h). RAII: erases
+//on every exit, normal or unwinding — a throw from a deeper emission runs
+//this destructor while propagating, so the set never leaks an entry even
+//on a failed build.
+VmBackend::DefaultEmitGuard::DefaultEmitGuard(VmBackend& backend,
+        SnFunction* pFn, bool armed)
+    : pBackend(&backend), pFn(pFn), armed(armed) {
+    if (armed && !pBackend->m_defaultEmitting.insert(pFn).second) {
+        throw std::runtime_error(
+            "recursive default parameter in call to '" + pFn->Name()
+            + "': the default expression requires the same default again");
+    }
+}
+
+VmBackend::DefaultEmitGuard::~DefaultEmitGuard() {
+    if (armed)
+        pBackend->m_defaultEmitting.erase(pFn);
+}
+
+//The AST constructor declaration of a class — the same Name() rule and
+//body/native filter CtorSlotFor's placeholder scan applies, so the
+//returned function is the one whose slot the invocation targets.
+SnFunction* VmBackend::FindCtorFunction(SnClassDecl* pClassDecl) {
+    if (!pClassDecl || pClassDecl->IsBuiltinClass()
+        || pClassDecl->IsImported())
+        return nullptr;
+    for (auto& member : pClassDecl->Members()) {
+        if (member.Kind() != NK_Function
+            || member.Name() != pClassDecl->Name())
+            continue;
+        auto& ctor = static_cast<SnFunction&>(member);
+        if (!ctor.Body() && !ctor.ContainFlags(NF_Native))
+            continue;
+        return &ctor;
+    }
+    return nullptr;
+}
+
+//Defaults-aware FormalBinding array for the ctor-invocation lowering
+//(see VmBackend.h). pCtorFn null (builtin/generic/imported) leaves the
+//bindings empty — the caller's argument count is the whole formal count.
+size_t VmBackend::BuildCtorBindings(SnFunction* pCtorFn,
+        const std::vector<SnExpression*>& callerArgs,
+        std::vector<FormalBinding>& bindings) {
+    if (!pCtorFn)
+        return callerArgs.size();
+    auto& params = pCtorFn->Params();
+    //Index the formal list once — ChildFieldList iterates, no random
+    //access, and ctor formals are capped at kMaxFuncParams anyway.
+    std::vector<SnFormalParam*> formals;
+    formals.reserve(params.size());
+    for (auto& param : params)
+        formals.push_back(&param);
+    bindings.reserve(formals.size());
+    size_t idx = 0;
+    for (auto* pArg : callerArgs) {
+        bindings.push_back({FormalBinding::B_Positional, pArg,
+                            formals[idx], false});
+        ++idx;
+    }
+    for (; idx < formals.size(); ++idx)
+        bindings.push_back({FormalBinding::B_Default, nullptr,
+                            formals[idx], false});
+    return formals.size();
+}
+
+//True when any binding stages a default expression (see VmBackend.h).
+bool VmBackend::BindingsEmitDefaults(
+        const std::vector<FormalBinding>& bindings) {
+    for (const auto& b : bindings)
+        if (b.kind == FormalBinding::B_Default) return true;
+    return false;
+}
+
+//One ctor-call binding set into claim[1..N] (see VmBackend.h).
+void VmBackend::EmitCtorCallBindings(
+        const std::vector<FormalBinding>& bindings,
+        const std::vector<SnExpression*>& callerArgs,
+        uint16_t claimBase, BytecodeEmitter& emitter, uint16_t thisSlot) {
+    if (bindings.empty()) {
+        for (size_t i = 0; i < callerArgs.size(); ++i) {
+            uint16_t paramOffset = claimBase
+                + static_cast<uint16_t>(i + 1) * kFrameSlotBytes;
+            EmitExpression(*callerArgs[i], emitter, paramOffset);
+        }
+        return;
+    }
+    for (size_t i = 0; i < bindings.size(); ++i) {
+        EmitBinding(bindings.data(), i, static_cast<uint16_t>(i + 1), 1,
+                    emitter, thisSlot, claimBase);
+    }
+}
+
+//Ctor-call tail after the bindings (see VmBackend.h).
+void VmBackend::EmitCtorCallTail(uint16_t allocSlot, uint16_t claimBase,
+        uint16_t slotCount, uint16_t classIdx, uint16_t ctorIdx,
+        BytecodeEmitter& emitter) {
+    emitter.Emit(OpCode::OP_New);
+    emitter.EmitUint16(allocSlot);
+    emitter.EmitUint16(classIdx);
+    //this (new object heap index) → claim[0].
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(allocSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(claimBase);
+    //Bulk-copy evalArea claim → callParamBase just before the call.
+    CopyClaimToCallParams(claimBase, slotCount, emitter);
+    emitter.Emit(OpCode::OP_CallMethodDirect);
+    emitter.EmitUint16(ctorIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
 //Resolved-binding arm of EmitCallArgs (Phase 9c): sanity ceiling, the
 //default-emission recursion guard, then per-binding emission.
 //Returns true when the kMaxFuncParams ceiling tripwire fired and the
@@ -282,27 +395,12 @@ bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
     //Recursion guard (round-9, finding 3): a default expression may
     //contain a call that itself needs this callee's defaults — the
     //expansion recurses forever and overflows the compile stack
-    //(0xC00000FD). Track functions whose defaults are mid-emission;
-    //re-entry is a source error. Plain body recursion never lands here
-    //(all arguments supplied → no default emission → no guard entry),
-    //and sibling calls using the same defaults are sequential, not
-    //nested, so both stay legal.
-    bool emitsDefaults = false;
-    for (const auto& b : bindings) {
-        if (b.kind == FormalBinding::B_Default) { emitsDefaults = true; break; }
-    }
-    if (emitsDefaults && !m_defaultEmitting.insert(pCallee).second) {
-        throw std::runtime_error(
-            "recursive default parameter in call to '" + pCallee->Name()
-            + "': the default expression requires the same default again");
-    }
-    //RAII: erases on every exit, normal or unwinding — a throw from a
-    //deeper emission runs this destructor while propagating, so the set
-    //never leaks an entry even on a failed build.
-    struct DefaultEmitGuard {
-        VmBackend* pB; SnFunction* pF; bool armed;
-        ~DefaultEmitGuard() { if (armed) pB->m_defaultEmitting.erase(pF); }
-    } defGuard{this, pCallee, emitsDefaults};
+    //(0xC00000FD). Plain body recursion never lands here (all arguments
+    //supplied → no default emission → no guard entry), and sibling calls
+    //using the same defaults are sequential, not nested, so both stay
+    //legal.
+    DefaultEmitGuard defGuard{*this, pCallee,
+                              BindingsEmitDefaults(bindings)};
 
     for (size_t i = 0; i < bindings.size(); ++i) {
         EmitOneFormalBinding(bindings.data(), i, slotBase, emitter,

@@ -14,6 +14,7 @@
 #include <cassert>
 #include <map>
 #include <unordered_set>
+#include <vector>
 
 namespace nlang {
 
@@ -47,8 +48,8 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
         static_cast<uint16_t>(ClassSlotFor(*pClassDecl));
     const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
     if (ctorIdx != 0xFFFF) {
-        EmitCtorInvocation(ctorArgs, pSkipArg, *m_pCurrEmitter, classIdx,
-                           ctorIdx, resultOffset);
+        EmitCtorInvocation(pClassDecl, ctorArgs, pSkipArg, *m_pCurrEmitter,
+                           classIdx, ctorIdx, resultOffset);
         return;
     }
 
@@ -58,60 +59,54 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
     emitter.EmitUint16(classIdx);
 }
 
-//The class has a ctor — claim {this, args...} in evalArea, emit the args
-//there, OP_New into resultOffset, bulk-copy the claim to callParamBase,
-//then OP_CallMethodDirect on the ctor. pSkipArg is the class-name child
-//the NewExpr arg view carries (skipped by identity; null for the invoke
-//twin). The resolver rejects named/out args and validates arity, so every
-//remaining entry is a positional value expression.
-void VmBackend::EmitCtorInvocation(SnExpressionList& ctorArgs,
+//The class has a ctor — claim {this, formals...} in evalArea, emit one
+//FormalBinding per formal (caller args first, then the defaults of the
+//omitted trailing formals — P3), OP_New into resultOffset, bulk-copy the
+//claim to callParamBase, then OP_CallMethodDirect on the ctor. pSkipArg
+//is the class-name child the NewExpr arg view carries (skipped by
+//identity; null for the invoke twin). The resolver rejects named/out
+//args and range-checks the count, so every supplied entry is a
+//positional value expression.
+void VmBackend::EmitCtorInvocation(SnClassDecl* pClassDecl,
+                                   SnExpressionList& ctorArgs,
                                    SnExpression* pSkipArg,
                                    BytecodeEmitter& emitter, uint16_t classIdx,
                                    uint16_t ctorIdx, uint16_t resultOffset) {
-    size_t argCount = 0;
+    std::vector<SnExpression*> callerArgs;
     for (auto& param : ctorArgs) {
         if (&param == pSkipArg) continue;
-        ++argCount;
+        callerArgs.push_back(&param);
     }
-    const uint16_t n = static_cast<uint16_t>(1 + argCount);  //this + args
+    //Defaults-aware bindings (P3): builtins/generics carry no AST ctor,
+    //so BuildCtorBindings returns the caller-arg count and leaves the
+    //bindings empty — EmitCtorCallBindings then falls back to the
+    //pre-P3 positional shape. No kMaxFuncParams re-check: the
+    //declaration-time cap already bounds a ctor's formal count.
+    std::vector<FormalBinding> bindings;
+    SnFunction* pCtorFn = FindCtorFunction(pClassDecl);
+    const size_t totalFormals = BuildCtorBindings(pCtorFn, callerArgs,
+                                                  bindings);
+    //Recursion guard shared with the function/method default emission
+    //(see BindingsEmitDefaults for the arm-only rule).
+    DefaultEmitGuard defGuard{*this, pCtorFn,
+                              BindingsEmitDefaults(bindings)};
+
+    const uint16_t n = static_cast<uint16_t>(1 + totalFormals);  //this + formals
 
     EvalAreaClaim claim(*this, n);
     uint16_t claimBase = claim.base();
 
-    //Emit args to claim[1..N]. Nested calls in args claim deeper
-    //slices — they bulk-copy to callParamBase but that's fine;
-    //our this/args live in evalArea, not callParamBase.
-    uint16_t paramIdx = 1;
-    for (auto& param : ctorArgs) {
-        if (&param == pSkipArg) continue;
-        uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
-        EmitExpression(param, emitter, paramOffset);
-        ++paramIdx;
-    }
-    //Allocate to resultOffset (no conflict with args — they're in evalArea).
-    uint16_t allocSlot = resultOffset;
-
-    emitter.Emit(OpCode::OP_New);
-    emitter.EmitUint16(allocSlot);
-    emitter.EmitUint16(classIdx);
-
-    //Copy this (new object heap index) to claim[0].
-    emitter.Emit(OpCode::OP_VarLocal);
-    emitter.EmitUint16(allocSlot);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(claimBase);
-
-    //Bulk-copy evalArea claim → callParamBase just before the call.
-    for (uint16_t i = 0; i < n; ++i) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->callParamBase + i * kFrameSlotBytes);
-    }
-    emitter.Emit(OpCode::OP_CallMethodDirect);
-    emitter.EmitUint16(ctorIdx);
-    emitter.EmitUint16(m_currFunc->callParamBase);
-    emitter.Emit(OpCode::OP_ParaEnd);
+    //Bindings → claim[1..N]. thisSlot is UINT16_MAX: the object under
+    //construction does not exist yet, so a ctor default must not
+    //reference `this`. Nested calls in bindings claim deeper slices —
+    //they bulk-copy to callParamBase but that's fine; our this/formals
+    //live in evalArea, not callParamBase.
+    EmitCtorCallBindings(bindings, callerArgs, claimBase, emitter,
+                         UINT16_MAX);
+    //Allocate to resultOffset (no conflict with bindings — they're in
+    //evalArea), stage the object as claim[0], and invoke the ctor.
+    EmitCtorCallTail(resultOffset, claimBase, n, classIdx, ctorIdx,
+                     emitter);
     //claim releases on scope exit.
 }
 

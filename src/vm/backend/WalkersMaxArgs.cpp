@@ -155,11 +155,19 @@ void VmBackend::MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs) {
     if (ts.FinallyBody()) MaxArgsWalkStmt(*ts.FinallyBody(), maxArgs);
 }
 
-//MaxArgs walker, NK_SuperCallStmt arm.
+//MaxArgs walker, NK_SuperCallStmt arm. Instance method: the parent
+//class comes from m_pCurrClass (set for the class being emitted).
 void VmBackend::MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs) {
-    //super(args) claims 1 (this) + argc slots at call time.
+    //super(args) claims 1 (this) + totalFormals slots at call time —
+    //omitted trailing formals stage their defaults (P3), so the claim
+    //covers the parent ctor's full formal count.
     auto& sc = static_cast<SnSuperCallStmt&>(stmt);
-    uint16_t claimSize = static_cast<uint16_t>(1 + sc.Args().size());
+    SnFunction* pParentCtor = nullptr;
+    if (m_pCurrClass && m_pCurrClass->SuperClass())
+        pParentCtor = FindCtorFunction(m_pCurrClass->SuperClass());
+    const size_t totalFormals = pParentCtor
+        ? pParentCtor->Params().size() : sc.Args().size();
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
     for (auto* arg : sc.Args())
         MaxArgsWalkExpr(*arg, maxArgs);
@@ -252,12 +260,17 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
         MaxArgsWalkExpr(param, maxArgs);
 }
 
-//0.9.0: a ctor-carrying invoke bulk-copies {this, args...} into
+//0.9.0: a ctor-carrying invoke bulk-copies {this, formals...} into
 //callParamBase exactly like the NewExpr arm (MaxArgsNewExpr).
 void VmBackend::MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs) {
     size_t argCount = 0;
     for (auto& param : invoke.Params()) ++argCount;
-    uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
+    //P3: omitted trailing formals stage their defaults, so the claim
+    //covers the ctor's full formal count.
+    SnFunction* pCtorFn = FindCtorFunction(invoke.CtorClass());
+    const size_t totalFormals = pCtorFn
+        ? pCtorFn->Params().size() : argCount;
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
     for (auto& param : invoke.Params())
         MaxArgsWalkExpr(param, maxArgs);
@@ -299,16 +312,20 @@ void VmBackend::MaxArgsMemberExpr(SnExpression& expr, uint16_t& maxArgs) {
 
 //MaxArgs walker, NK_NewExpr arm.
 void VmBackend::MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs) {
-    //claimSize for ctor call = 1 (this) + argCount. Skip the
-    //class-name child by identity (Args() view includes it —
-    //see the NewExpr codegen handler); mirror codegen exactly.
+    //claimSize for ctor call = 1 (this) + totalFormals — omitted
+    //trailing formals stage their defaults (P3), mirroring
+    //EmitCtorInvocation exactly. Skip the class-name child by identity
+    //(Args() view includes it — see the NewExpr codegen handler).
     auto& newExpr = static_cast<SnNewExpr&>(expr);
     size_t argCount = 0;
     for (auto& arg : newExpr.Args()) {
         if (&arg == newExpr.ClassName()) continue;
         ++argCount;
     }
-    uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
+    SnFunction* pCtorFn = FindCtorFunction(newExpr.ClassDecl());
+    const size_t totalFormals = pCtorFn
+        ? pCtorFn->Params().size() : argCount;
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
     for (auto& arg : newExpr.Args()) {
         if (&arg == newExpr.ClassName()) continue;

@@ -362,7 +362,7 @@ private:
     //              InvokeExpr of: claimSize + max(peakDepth of arg sub-exprs,
     //              peakDepth of callee default expressions).
     struct CallSlotStats { uint16_t maxArgs; uint16_t peakDepth; };
-    static CallSlotStats ComputeCallSlotStats(SnFunction& sn);
+    CallSlotStats ComputeCallSlotStats(SnFunction& sn);
 
     //GenerateFunction decomposition (2026-09-25): each phase stamps one
     //slice of the CompiledFunction record / frame layout, in call order.
@@ -394,15 +394,18 @@ private:
     static uint16_t ExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited,
         bool isMethodContext = false);
-    static uint16_t StmtPeakDepth(SnStatement& stmt,
+    //Instance method: the NK_SuperCallStmt arm reads m_pCurrClass to
+    //find the parent ctor's formal count (P3) — same shape as the
+    //MaxArgs walker family.
+    uint16_t StmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //ExprPeakDepth arms — one expression shape family each; the node-kind
     //dispatch stays in ExprPeakDepth.
     //NK_InvokeExpr: call claim + arg/default-expression depth.
     static uint16_t InvokeExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited, bool isMethodContext);
-    //0.9.0: the ctor-invoke arm — NewExpr claim shape {this, args...},
-    //no default-param depth (walker symmetry with NewExprPeakDepth).
+    //0.9.0: the ctor-invoke arm — NewExpr claim shape {this, formals...}
+    //plus default-expression depth (walker symmetry with NewExprPeakDepth).
     static uint16_t CtorInvokePeakDepth(SnInvokeExpr& invoke,
         const std::unordered_set<SnFunction*>& visited);
     //NK_BinaryExpr (also unary: Right()==nullptr).
@@ -415,99 +418,111 @@ private:
     //arg reservation included).
     static uint16_t MemberExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
-    //NK_NewExpr: {this, args...} claim + arg depth.
+    //NK_NewExpr: {this, formals...} claim + arg/default depth.
     static uint16_t NewExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
+    //Shared tail of the three ctor-call depth arms (NewExpr /
+    //ctor-invoke / super()): max(argDepth, parent-ctor default-
+    //expression depth) under the visited-set recursion guard.
+    static uint16_t CtorDefaultExprDepth(SnFunction* pCtorFn,
+        const std::unordered_set<SnFunction*>& visited,
+        uint16_t argDepth);
     //NK_NewArrayExpr: 1-slot size-expression claim.
     static uint16_t NewArrayExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
     //NK_InitListExpr: per-entry claim (Dict 3 / List 2 / other 1).
     static uint16_t InitListExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
-    //StmtPeakDepth arms — one statement shape each.
+    //StmtPeakDepth arms — one statement shape each. All instance
+    //methods (the super arm reads m_pCurrClass; recursive arms reach
+    //back into the instance dispatcher).
     //NK_Paragraph: max over child statements.
-    static uint16_t ParagraphPeakDepth(SnStatement& stmt,
+    uint16_t ParagraphPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_ReturnStmt: result-expression depth.
-    static uint16_t ReturnStmtPeakDepth(SnStatement& stmt,
+    uint16_t ReturnStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_AssignStmt: lvalue + RHS depth + member/identifier claim.
-    static uint16_t AssignStmtPeakDepth(SnStatement& stmt,
+    uint16_t AssignStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_IfStmt: condition claim + then/else branches.
-    static uint16_t IfStmtPeakDepth(SnStatement& stmt,
+    uint16_t IfStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_WhileStmt: condition claim + body.
-    static uint16_t WhileStmtPeakDepth(SnStatement& stmt,
+    uint16_t WhileStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_DoStmt: condition claim + body.
-    static uint16_t DoStmtPeakDepth(SnStatement& stmt,
+    uint16_t DoStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_ForStmt: init/InitExtras/cond/fini/body.
-    static uint16_t ForStmtPeakDepth(SnStatement& stmt,
+    uint16_t ForStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_SwitchStmt: condition + case labels + case/default bodies.
-    static uint16_t SwitchStmtPeakDepth(SnStatement& stmt,
+    uint16_t SwitchStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_ForeachStmt: iterable + body.
-    static uint16_t ForeachStmtPeakDepth(SnStatement& stmt,
+    uint16_t ForeachStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_AssertStmt: condition claim.
-    static uint16_t AssertStmtPeakDepth(SnStatement& stmt,
+    uint16_t AssertStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_TryStmt: try/catch/finally bodies.
-    static uint16_t TryStmtPeakDepth(SnStatement& stmt,
+    uint16_t TryStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
-    //NK_SuperCallStmt: {this, args...} claim + arg depth.
-    static uint16_t SuperCallStmtPeakDepth(SnStatement& stmt,
+    //NK_SuperCallStmt: {this, formals...} claim + arg/default depth.
+    //Instance method: the parent class comes from m_pCurrClass.
+    uint16_t SuperCallStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_ThrowStmt: thrown-expression claim + depth.
-    static uint16_t ThrowStmtPeakDepth(SnStatement& stmt,
+    uint16_t ThrowStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_CompoundAssignStmt: uniform 3-slot claim + receiver/RHS depth.
-    static uint16_t CompoundAssignStmtPeakDepth(SnStatement& stmt,
+    uint16_t CompoundAssignStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //NK_SubscriptAssignStmt: 3-slot claim + array/index/value depth.
-    static uint16_t SubscriptAssignStmtPeakDepth(SnStatement& stmt,
+    uint16_t SubscriptAssignStmtPeakDepth(SnStatement& stmt,
         const std::unordered_set<SnFunction*>& visited);
     //MaxArgs walker behind ComputeCallSlotStats (callParamBase sizing):
     //statement/expression recursion collecting the largest call claim
-    //into maxArgs; isMethodContext as in ExprPeakDepth.
-    static void MaxArgsWalkStmt(SnStatement& stmt, uint16_t& maxArgs);
-    static void MaxArgsWalkExpr(SnExpression& expr, uint16_t& maxArgs,
+    //into maxArgs; isMethodContext as in ExprPeakDepth. Instance
+    //methods (the super arm reads m_pCurrClass — same as the
+    //StmtPeakDepth family).
+    void MaxArgsWalkStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsWalkExpr(SnExpression& expr, uint16_t& maxArgs,
         bool isMethodContext = false);
     //MaxArgsWalkStmt arms.
     //NK_AssignStmt: Left() lvalue + RHS (subscript receivers).
-    static void MaxArgsAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
     //NK_ForStmt: init/InitExtras/cond/fini/body.
-    static void MaxArgsForStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsForStmt(SnStatement& stmt, uint16_t& maxArgs);
     //NK_SwitchStmt: condition + labels + case/default bodies.
-    static void MaxArgsSwitchStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsSwitchStmt(SnStatement& stmt, uint16_t& maxArgs);
     //NK_ForeachStmt: expansion prelude reserves 2 slots + iterable/body.
-    static void MaxArgsForeachStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsForeachStmt(SnStatement& stmt, uint16_t& maxArgs);
     //NK_TryStmt: try/catch/finally bodies.
-    static void MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs);
-    //NK_SuperCallStmt: 1 + argc claim + args.
-    static void MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs);
+    //NK_SuperCallStmt: 1 + totalFormals claim + args (parent ctor from
+    //m_pCurrClass).
+    void MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs);
     //NK_CompoundAssignStmt: Left() receiver + RHS.
-    static void MaxArgsCompoundAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsCompoundAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
     //NK_SubscriptAssignStmt: container set() reserves 3 slots + children.
-    static void MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
+    void MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs);
     //MaxArgsWalkExpr arms.
     //NK_InvokeExpr: the call's own claim, then nested calls in its args.
-    static void MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
+    void MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
         bool isMethodContext);
-    //0.9.0: the ctor-invoke arm — bulk-copies {this, args...} into
+    //0.9.0: the ctor-invoke arm — bulk-copies {this, formals...} into
     //callParamBase like MaxArgsNewExpr (walker symmetry).
-    static void MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs);
+    void MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs);
     //NK_SubscriptExpr: container get() reserves 2 slots.
-    static void MaxArgsSubscriptExpr(SnExpression& expr, uint16_t& maxArgs);
+    void MaxArgsSubscriptExpr(SnExpression& expr, uint16_t& maxArgs);
     //NK_MemberExpr: method-context flag for a method-call inner.
-    static void MaxArgsMemberExpr(SnExpression& expr, uint16_t& maxArgs);
-    //NK_NewExpr: ctor claim = 1 (this) + argCount.
-    static void MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs);
+    void MaxArgsMemberExpr(SnExpression& expr, uint16_t& maxArgs);
+    //NK_NewExpr: ctor claim = 1 (this) + totalFormals.
+    void MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs);
     //NK_InitListExpr: implicit Dict set(3) / List add(2) claims.
-    static void MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs);
+    void MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs);
     void EmitExpression(SnExpression& expr, BytecodeEmitter& emitter,
                         uint16_t resultOffset);
     void EmitStatement(SnStatement& stmt, BytecodeEmitter& emitter);
@@ -823,6 +838,59 @@ private:
                                std::vector<OutSpill>* pOutSpills,
                                const std::function<void(uint16_t)>& applyBox);
 
+    //RAII registration of "pFn's defaults are mid-emission", shared by the
+    //three default-emission sites (function/method bindings, ctor
+    //invocation, super forwarding). Re-entry of the same function means a
+    //recursive default — a default expression requiring the same defaults
+    //again — which would overflow the compile stack; the guard turns it
+    //into a compile-time error. armed=false registers nothing (and erases
+    //nothing: an unarmed entry must never drop an enclosing frame's
+    //in-progress registration for the same function).
+    struct DefaultEmitGuard {
+        VmBackend* pBackend; SnFunction* pFn; bool armed;
+        DefaultEmitGuard(VmBackend& backend, SnFunction* pFn, bool armed);
+        ~DefaultEmitGuard();
+    };
+
+    //The AST constructor declaration of a class (same Name() rule and
+    //body/native filter as CtorSlotFor's placeholder scan). Null for
+    //builtin/generic/imported classes — their ctors are intrinsic or
+    //external, so no default parameters exist to apply. Static: the
+    //frame-size walkers consume it too.
+    static SnFunction* FindCtorFunction(SnClassDecl* pClassDecl);
+
+    //Build the defaults-aware FormalBinding array shared by the ctor
+    //invocation and super() forwarding: the caller arguments bind the
+    //leading formals positionally, each omitted trailing formal stages
+    //its default expression. Returns the ctor's total formal count (the
+    //caller-arg count when pCtorFn is null — nothing to default there).
+    static size_t BuildCtorBindings(SnFunction* pCtorFn,
+        const std::vector<SnExpression*>& callerArgs,
+        std::vector<FormalBinding>& bindings);
+
+    //True when any binding stages a default expression — the shared
+    //DefaultEmitGuard arms only then (an all-supplied call must not
+    //claim the guard and reject a sibling default expansion).
+    static bool BindingsEmitDefaults(
+        const std::vector<FormalBinding>& bindings);
+
+    //Emit one ctor-call binding set into claim[1..N]: defaults-aware via
+    //EmitBinding when the AST ctor is known, legacy positional emission
+    //when bindings is empty (builtin/generic/imported target — their
+    //signatures never take user structs, so no deep-copy tail applies).
+    //Shared by the NewExpr/invoke lowering and super() (thisSlot
+    //UINT16_MAX vs local 0).
+    void EmitCtorCallBindings(const std::vector<FormalBinding>& bindings,
+        const std::vector<SnExpression*>& callerArgs, uint16_t claimBase,
+        BytecodeEmitter& emitter, uint16_t thisSlot);
+
+    //Ctor-call tail after the bindings: allocate the object into
+    //allocSlot (OP_New), stage it as claim[0] (= this), bulk-copy the
+    //claim to callParamBase, and invoke the ctor.
+    void EmitCtorCallTail(uint16_t allocSlot, uint16_t claimBase,
+        uint16_t slotCount, uint16_t classIdx, uint16_t ctorIdx,
+        BytecodeEmitter& emitter);
+
     //One iteration of the resolved-binding loop: emit + optional boxing
     //+ out-spill target record.
     void EmitOneFormalBinding(const FormalBinding* pBindings,
@@ -1099,7 +1167,14 @@ private:
     //Params() has no such child).
     void EmitNewObject(SnClassDecl* pClassDecl, SnExpressionList& ctorArgs,
                        SnExpression* pSkipArg, uint16_t resultOffset);
-    void EmitCtorInvocation(SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+    //Ctor call lowering: one FormalBinding per formal (caller args first,
+    //then the defaults of the omitted trailing formals) emitted through
+    //the shared EmitBinding — the same mixed-form loop as EmitCallArgs.
+    //pClassDecl feeds FindCtorFunction for the defaults; thisSlot is
+    //UINT16_MAX (the object under construction does not exist yet, so a
+    //ctor default must not reference `this`).
+    void EmitCtorInvocation(SnClassDecl* pClassDecl,
+                            SnExpressionList& ctorArgs, SnExpression* pSkipArg,
                             BytecodeEmitter& emitter, uint16_t classIdx,
                             uint16_t ctorIdx, uint16_t resultOffset);
 

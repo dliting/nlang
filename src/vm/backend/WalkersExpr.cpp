@@ -165,8 +165,8 @@ uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
 }
 
 //0.9.0: a ctor-carrying invoke emits through the NewExpr path — claim
-//{this, args...}, no default-param depth (walker symmetry with
-//NewExprPeakDepth).
+//{this, formals...} plus default-expression depth (P3, walker symmetry
+//with NewExprPeakDepth).
 uint16_t VmBackend::CtorInvokePeakDepth(SnInvokeExpr& invoke,
     const std::unordered_set<SnFunction*>& visited) {
     size_t argCount = 0;
@@ -176,7 +176,11 @@ uint16_t VmBackend::CtorInvokePeakDepth(SnInvokeExpr& invoke,
         uint16_t ad = ExprPeakDepth(param, visited, false);
         if (ad > argDepth) argDepth = ad;
     }
-    return static_cast<uint16_t>(1 + argCount) + argDepth;
+    SnFunction* pCtorFn = FindCtorFunction(invoke.CtorClass());
+    const size_t totalFormals = pCtorFn
+        ? pCtorFn->Params().size() : argCount;
+    return static_cast<uint16_t>(1 + totalFormals)
+        + CtorDefaultExprDepth(pCtorFn, visited, argDepth);
 }
 
 //NK_BinaryExpr arm of ExprPeakDepth.
@@ -261,10 +265,35 @@ uint16_t VmBackend::MemberExprPeakDepth(SnExpression& expr,
     return d > id ? d : id;
 }
 
+//Shared tail of the three ctor-call depth arms (NewExprPeakDepth /
+//CtorInvokePeakDepth / SuperCallStmtPeakDepth): return the deeper of
+//the caller-arg depth and the parent-ctor default-expression depth.
+//Mirrors InvokeExprPeakDepth's visited-set pattern — a default that
+//invokes the same ctor again would descend forever without the guard
+//(the codegen side rejects it via DefaultEmitGuard; here the walker
+//just stops descending). pCtorFn null (builtin/generic/imported) means
+//no defaults exist — argDepth passes through.
+uint16_t VmBackend::CtorDefaultExprDepth(SnFunction* pCtorFn,
+    const std::unordered_set<SnFunction*>& visited, uint16_t argDepth) {
+    if (!pCtorFn || visited.find(pCtorFn) != visited.end())
+        return argDepth;
+    auto visitedPlus = visited;
+    visitedPlus.insert(pCtorFn);
+    uint16_t defaultDepth = 0;
+    for (auto& formal : pCtorFn->Params()) {
+        if (formal.Value()) {
+            uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
+            if (d > defaultDepth) defaultDepth = d;
+        }
+    }
+    return argDepth > defaultDepth ? argDepth : defaultDepth;
+}
+
 //NK_NewExpr arm of ExprPeakDepth.
-//claimSize = 1 (this) + argCount, mirroring the codegen path which
-//claims an evalArea slice for {this, args...} then bulk-copies to
-//callParamBase before OP_CallMethodDirect. Conservative: claims even
+//claimSize = 1 (this) + totalFormals, mirroring the codegen path which
+//claims an evalArea slice for {this, formals...} then bulk-copies to
+//callParamBase before OP_CallMethodDirect (P3: omitted trailing formals
+//stage their defaults inside the same claim). Conservative: claims even
 //when no ctor exists (alloc-only NewExpr doesn't need the slice, but
 //over-reserving by 1 slot is safe and rare).
 uint16_t VmBackend::NewExprPeakDepth(SnExpression& expr,
@@ -275,7 +304,10 @@ uint16_t VmBackend::NewExprPeakDepth(SnExpression& expr,
         if (&arg == newExpr.ClassName()) continue;
         ++argCount;
     }
-    uint16_t claimSize = static_cast<uint16_t>(1 + argCount);
+    SnFunction* pCtorFn = FindCtorFunction(newExpr.ClassDecl());
+    const size_t totalFormals = pCtorFn
+        ? pCtorFn->Params().size() : argCount;
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     uint16_t d = 0;
     for (auto& arg : newExpr.Args()) {
         //Skip the class-name child (Args() view includes it — see the
@@ -284,7 +316,7 @@ uint16_t VmBackend::NewExprPeakDepth(SnExpression& expr,
         uint16_t ad = ExprPeakDepth(arg, visited, false);
         if (ad > d) d = ad;
     }
-    return claimSize + d;
+    return claimSize + CtorDefaultExprDepth(pCtorFn, visited, d);
 }
 
 //NK_NewArrayExpr arm of ExprPeakDepth.
