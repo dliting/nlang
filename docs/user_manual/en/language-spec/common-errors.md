@@ -169,6 +169,36 @@ interface method the anchor reads `"IF.val(Int32): Int32"` (next entry).
 Make the signature match the contract exactly (an override), or rename the
 method. See → [Class](class.md), "Virtual methods and overrides".
 
+### The method "f" claims the virtual dispatch slot of ... with a different signature ... Virtual dispatch is name-based
+
+```nlang
+class A {
+    public virtual int f(int x) { return 1; }
+    public int f(string s) { return 2; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The method "f" claims the virtual dispatch slot of "A.f(Int32): Int32" with a different signature "f(String): Int32". Virtual dispatch is name-based — rename the overloads, or make the family non-virtual.
+	See also the declaration of "A.f(Int32): Int32".
+```
+
+Two overloads of one method name in the **same class body**, where at
+least one is `virtual`. Virtual dispatch resolves by method name at
+runtime, so one name owns one dispatch slot per class; a second
+signature on that name could only ever run with bit-wrong argument
+reads. Rename the overloads so each signature gets its own name, or
+drop `virtual` from the whole family — fully non-virtual families
+overload normally. The rendered signatures use the internal type names
+(`Int32`, `String`, `Float`), and a `static` member mixed with an
+instance `virtual` member is rejected the same way (`static` counts as
+a signature difference). See → [Class](class.md), "Virtual methods and
+overrides".
+
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
 
 ```nlang

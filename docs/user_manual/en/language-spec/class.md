@@ -125,7 +125,11 @@ ancestor virtual method, or a same-name method of an interface the class
 `implements`), it **must not be overloaded** in the subclass: the subclass's
 set of same-name methods must map one-to-one onto the contract signature
 (exactly the same parameter types and count and return type — the `out`
-modifier must also match). Fix the signature to override; rename the method
+modifier must also match). The same holds **within one class**: a name
+that has a `virtual` member cannot be overloaded there at all — virtual
+dispatch selects by name, so the family must share one signature; make
+the whole family non-virtual to overload it. Fix the signature to
+override; rename the method
 to keep a same-name method with a different signature. The `Object` protocol
 methods (`equals`/`getHashCode`/`toString`) follow the same rule; the
 canonical signatures are on [Object & Boxing](object.md).

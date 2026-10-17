@@ -131,6 +131,26 @@ Error: The class "B" does not implement the method "f(Int32): Int32" required by
 
 子类方法与祖先虚方法或接口契约同名但签名不同。虚分派按名进行，签名不一致会按位错读实参。不符的声明处报主消息（末句即修正提示）并附一行`See also the declaration of ...`指向契约声明，类声明处再跟一条`required by its inheritance contract`；契约是接口方法时锚点写作`"IF.val(Int32): Int32"`（见下一条）。修正签名与契约完全一致（覆写），或给方法改名。详见 → [类](class.md)「虚方法与覆写」。
 
+### The method "f" claims the virtual dispatch slot of ... with a different signature ... Virtual dispatch is name-based
+
+```nlang
+class A {
+    public virtual int f(int x) { return 1; }
+    public int f(string s) { return 2; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The method "f" claims the virtual dispatch slot of "A.f(Int32): Int32" with a different signature "f(String): Int32". Virtual dispatch is name-based — rename the overloads, or make the family non-virtual.
+	See also the declaration of "A.f(Int32): Int32".
+```
+
+**同一个类体**内一个方法名的两个重载，其中至少一个带`virtual`。虚分派在运行期按方法名解析，一个名字在类内只占一个分派槽位；该名字上的第二个签名只可能以按位错读实参的方式运行。给各签名改出独立的名字，或让整个族都去掉`virtual`——完全非虚的族可正常重载。渲染签名用内部类型名（`Int32`、`String`、`Float`）；`static`成员与实例`virtual`成员混名同样被拒（`static`计入签名差异）。详见 → [类](class.md)「虚方法与覆写」。
+
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
 
 ```nlang

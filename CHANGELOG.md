@@ -6,6 +6,22 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.7] - 2026-10-18
+
+### Fixed
+
+- **Same-class overloads of a name that owns a virtual method are
+  rejected at the declaration site** (new compile-time diagnostic):
+  within one class, a method name that has a `virtual` member owns one
+  dispatch slot — virtual dispatch resolves by name at runtime, so a
+  mixed-signature family compiled silently and ran the wrong body with
+  bit-wrong argument reads (`{int f(string), virtual int f(int)}` routed
+  `f(5)` into `f(string)`). The compiler now reports every own member
+  whose signature differs from the family's first declaration; rename
+  the overloads or make the whole family non-virtual. Fully non-virtual
+  families overload exactly as before, and cross-class override
+  contracts are unchanged.
+
 ## [0.9.6] - 2026-10-18
 
 ### Changed
