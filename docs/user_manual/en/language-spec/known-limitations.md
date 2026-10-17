@@ -119,9 +119,16 @@
   (`p0`, `p1`, ...) because the `.ncu` format does not carry formal
   names. Use positional arguments only when calling imported
   functions.
-- **Default parameters on interface methods**: interface method
-  declarations (no body) do not have their defaults resolved. Callers
-  must supply all arguments.
+- **Default parameters on interface methods**: defaults on interface
+  method declarations are legal and resolve from the call site's static
+  type — an interface-typed call with an omitted argument is filled with
+  the interface declaration's default (even when the implementing method
+  declares a different one); an implementing method's defaults do not
+  participate in interface dispatch — when the interface declaration
+  carries no default, the call must supply all arguments. Override and
+  implement signature comparison ignores default values (a declaration
+  with a default and an implementation without one still satisfy the
+  contract).
 - **Method inheritance of defaults**: derived class overrides do not
   inherit default values from the base class method. Each override
   declares its own defaults independently.
@@ -196,7 +203,3 @@
   declaration order. Avoid mixing other signatures into a name that has a
   virtual method — use a different name instead (consistent with the
   virtual-method contract rule in [Class](class.md)).
-- **Interface methods do not support default parameters, and an
-  implementing method's defaults do not participate in interface
-  dispatch** (a pre-existing semantic decision — override-signature
-  comparison ignores default values too).

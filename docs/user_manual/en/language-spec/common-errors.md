@@ -141,19 +141,86 @@ as the left value; the full set of supported left values is in
 
 ### The method "f" claims the virtual dispatch slot of ...
 
+```nlang
+class A {
+    public virtual int f(int x) { return x; }
+}
+class B : A {
+    public int f(float x) { return 1; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The method "f" claims the virtual dispatch slot of "A.f(Int32): Int32" with a different signature "f(Float): Int32". Align the signature to override, or rename the method.
+	See also the declaration of "A.f(Int32): Int32".
+Error: The class "B" does not implement the method "f(Int32): Int32" required by its inheritance contract.
+```
+
 A subclass method shares a name with an ancestor virtual method or an
 interface contract but has a different signature. Virtual dispatch works by
-name, so a signature mismatch reads arguments as wrong bits. Make the
-signature match the contract exactly (an override), or rename the method.
-See → [Class](class.md), "Virtual methods and overrides".
+name, so a signature mismatch reads arguments as wrong bits. The
+mismatching declaration reports the primary message (its final sentence is
+the remediation hint) plus a `See also the declaration of ...` line
+pointing at the contract, and the class declaration adds a
+`required by its inheritance contract` line; when the contract is an
+interface method the anchor reads `"IF.val(Int32): Int32"` (next entry).
+Make the signature match the contract exactly (an override), or rename the
+method. See → [Class](class.md), "Virtual methods and overrides".
 
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
 
-An interface method declared with `implements` is missing or its signature
-mismatches. Provide an implementation with the exact signature in the class
-(or one of its parents); note that a same-name method must not coexist as an
-overload of an interface contract. See → [Interface](interface.md),
-"Implementation contract".
+```nlang
+interface IF {
+    public int val(int x);
+}
+class F implements IF {
+    public int other() { return 0; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The class "F" does not implement the method "val(Int32): Int32" required by interface "IF".
+```
+
+```nlang
+interface IF {
+    public int val(int x);
+}
+class F implements IF {
+    public int val(string s) { return 1; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The method "val" claims the virtual dispatch slot of "IF.val(Int32): Int32" with a different signature "val(String): Int32". Align the signature to override, or rename the method.
+	See also the declaration of "IF.val(Int32): Int32".
+Error: The class "F" does not implement the method "val(Int32): Int32" required by its inheritance contract.
+```
+
+An interface method that a class declares it implements via `implements`
+is missing or mismatched. When missing, the class declaration reports the
+interface-anchored message; when an implementation exists but its
+signature differs, the `claims the virtual dispatch slot` family fires
+(as in the previous entry, with the interface method as the anchor); if
+the mismatching implementation is inherited from a parent (not redeclared
+in the class), the variant
+`The class "C" does not implement the method "val(Int32): Int32" required by interface "IF" (found "val(String): Int32" with a different signature).`
+is reported instead. Provide an implementation with the exact signature
+in the class (or one of its parents); note that a same-name method must
+not coexist as an overload of an interface contract. See →
+[Interface](interface.md), "Implementation contract".
 
 ### switch and enum
 

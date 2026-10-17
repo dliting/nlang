@@ -111,11 +111,66 @@ Error: cannot assign to the result of a method call.
 
 ### The method "f" claims the virtual dispatch slot of ...
 
-子类方法与祖先虚方法或接口契约同名但签名不同。虚分派按名进行，签名不一致会按位错读实参。修正签名与契约完全一致（覆写），或给方法改名。详见 → [类](class.md)「虚方法与覆写」。
+```nlang
+class A {
+    public virtual int f(int x) { return x; }
+}
+class B : A {
+    public int f(float x) { return 1; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The method "f" claims the virtual dispatch slot of "A.f(Int32): Int32" with a different signature "f(Float): Int32". Align the signature to override, or rename the method.
+	See also the declaration of "A.f(Int32): Int32".
+Error: The class "B" does not implement the method "f(Int32): Int32" required by its inheritance contract.
+```
+
+子类方法与祖先虚方法或接口契约同名但签名不同。虚分派按名进行，签名不一致会按位错读实参。不符的声明处报主消息（末句即修正提示）并附一行`See also the declaration of ...`指向契约声明，类声明处再跟一条`required by its inheritance contract`；契约是接口方法时锚点写作`"IF.val(Int32): Int32"`（见下一条）。修正签名与契约完全一致（覆写），或给方法改名。详见 → [类](class.md)「虚方法与覆写」。
 
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
 
-implements声明的接口方法缺失或签名不符。在类（或其父类）中提供完全一致签名的实现；注意同名方法不得与接口契约重载并存。详见 → [接口](interface.md)「实现契约」。
+```nlang
+interface IF {
+    public int val(int x);
+}
+class F implements IF {
+    public int other() { return 0; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The class "F" does not implement the method "val(Int32): Int32" required by interface "IF".
+```
+
+```nlang
+interface IF {
+    public int val(int x);
+}
+class F implements IF {
+    public int val(string s) { return 1; }
+}
+
+int main() {
+    return 0;
+}
+```
+
+```text
+Error: The method "val" claims the virtual dispatch slot of "IF.val(Int32): Int32" with a different signature "val(String): Int32". Align the signature to override, or rename the method.
+	See also the declaration of "IF.val(Int32): Int32".
+Error: The class "F" does not implement the method "val(Int32): Int32" required by its inheritance contract.
+```
+
+类经`implements`声明实现的接口方法缺失或签名不符。缺失时类声明处报接口锚定的消息；实现存在但签名不符时，报`claims the virtual dispatch slot`族（同上一条，锚点为接口方法）；不符的实现继承自父类（类内未重声明）时改为报`The class "C" does not implement the method "val(Int32): Int32" required by interface "IF" (found "val(String): Int32" with a different signature).`。在类（或其父类）中提供完全一致签名的实现；注意同名方法不得与接口契约重载并存。详见 → [接口](interface.md)「实现契约」。
 
 ### switch与enum
 
