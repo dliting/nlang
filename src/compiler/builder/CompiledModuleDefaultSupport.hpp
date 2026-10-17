@@ -308,7 +308,7 @@ inline SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
 			"int/float/double/long/ulong/string/null literals, formal "
 			"parameter references, unary negation, calls to the "
 			"exporting module's free functions, and + - * / % "
-			"over those");
+			"arithmetic over those");
 	}
 	return SynthScalarDefault(dv, cm, loc);
 }
