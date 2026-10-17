@@ -93,11 +93,6 @@ NLang的虚分派按方法名进行：调用点按静态绑定类型的签名布
 
 详见 → [语言规格/类](../language-spec/class.md)的「虚方法与覆写」。
 
-### 成员链`s.length().toString()`让ncc崩溃？
-
-这是**已知的编译器缺陷**（当前ncc仍复现`ncc: internal crash
-(code 0xC0000005)`）——对`string`等成员链做`s.length().toString()`这类链式成员调用（在方法调用结果上再链一个成员访问）会在编译期段错误，而非报出明确的编译错误。规避：用中间局部变量承接（`int n = s.length(); string t = n.toString();`）。
-
 ### 帮助窗口提示「文档未找到」？
 
 帮助窗口在安装目录下（`docs\site\`所在目录）按当前语言树定位对应的`.html`；找不到时提示「The document '...' was not found next to the IDE

@@ -222,15 +222,6 @@ different method name.
 See also: [Language Specification / Class](../language-spec/class.md),
 "Virtual methods and overrides".
 
-### Member chain `s.length().toString()` crashes ncc?
-
-This is a **known compiler defect** (the current ncc still reproduces
-`ncc: internal crash (code 0xC0000005)`) — a chained member call such
-as `s.length().toString()` on a `string` chain (a member access on a
-method-call result) crashes the compiler at compile time rather than
-reporting an error. Work around it with an intermediate local
-(`int n = s.length(); string t = n.toString();`).
-
 ### The help window says "document not found"?
 
 The help window locates the matching `.html` next to the IDE
