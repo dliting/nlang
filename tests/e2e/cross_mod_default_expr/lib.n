@@ -19,3 +19,9 @@ int addNeg(int a, int b = -7) {
 int addLit(int a, int b = 7) {
     return a + b;
 }
+
+//String operands ride the producing module's constant pool through the
+//wire form and remap on the consumer side.
+int addStr(int a, string tag = "z" + "w") {
+    return a + tag.length();
+}

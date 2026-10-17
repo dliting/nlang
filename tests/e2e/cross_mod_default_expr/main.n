@@ -1,6 +1,9 @@
-//Defaults evaluate per call site on the consumer: 15 + 11 + (-6) + 8 = 28.
+//Defaults evaluate per call site on the consumer, each with its caller's
+//actuals: 15 + 21 + 11 + (-6) + 8 + 3 = 52 (addIdent twice, then call,
+//negation, literal, and a string-binary default).
 import lib;
 
 int main() {
-    return lib.addIdent(5) + lib.addCall(1) + lib.addNeg(1) + lib.addLit(1);
+    return lib.addIdent(5) + lib.addIdent(7) + lib.addCall(1)
+        + lib.addNeg(1) + lib.addLit(1) + lib.addStr(1);
 }
