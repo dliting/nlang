@@ -5,6 +5,7 @@
     三段共用的流级适配器（u16 长度前缀 + TypeDesc.cpp 的字节层解析）。
 ---*/
 #include "ModuleLoaderRecords.h"
+#include <nlang/vm/ExprDesc.h>
 #include <stdexcept>
 #include <vector>
 
@@ -79,6 +80,22 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
                     sizeof(dv.longValue));
             fs.read(reinterpret_cast<char*>(&dv.doubleValue),
                     sizeof(dv.doubleValue));
+            //v2.3: ExprDesc payload (see DefaultValueDesc::exprBytes).
+            //Unconditional u16 length; the content is byte-validated
+            //later by the linker remap and the consumer rebuild — here a
+            //bad length or truncated stream is rejected outright.
+            uint16_t exprLen = 0;
+            fs.read(reinterpret_cast<char*>(&exprLen), sizeof(exprLen));
+            if (!fs.good() || exprLen > kMaxExprDescBytes)
+                throw std::runtime_error(
+                    "Invalid module: bad default expression length");
+            dv.exprBytes.resize(exprLen);
+            if (exprLen > 0)
+                fs.read(reinterpret_cast<char*>(dv.exprBytes.data()),
+                        exprLen);
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: truncated default expression");
         }
 
         uint32_t bcSize;

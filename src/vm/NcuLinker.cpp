@@ -8,6 +8,7 @@
 #include "NcuLinker.h"
 #include "NcuLinkerRemap.h"
 #include "NcuLinkerSlots.h"
+#include <nlang/vm/ExprDesc.h>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -274,10 +275,19 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
         RemapTypeDesc(ptd.type, m.structs, m.classes);
     RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes);
     //defaultValues.stringIdx 是生产者侧字符串下标（CompiledModule.h 的
-    //DefaultValueDesc 契约），跨单元合并必须换算。
+    //DefaultValueDesc 契约），跨单元合并必须换算。v2.3 起表达式默认值
+    //（RTK_Expr）的 ED_Literal_String 臂同样持有生产者侧下标，走同一张
+    //映射表；字节流畸形则拒绝链接而非静默携带坏默认值。
     for (auto& dv : f.defaultValues)
+    {
         if (dv.tag == RTK_String)
             dv.stringIdx = Lookup(m.strings, dv.stringIdx);
+        if (!dv.exprBytes.empty()
+            && !ExprDescRemapStrings(dv.exprBytes,
+                [&m](uint32_t idx) { return Lookup(m.strings, idx); }))
+            throw std::runtime_error("nlink: function '" + f.name
+                + "': malformed default expression (corrupt image)");
+    }
 }
 
 static void FinalizeUnits(const std::vector<CompiledModule>& units,

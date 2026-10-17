@@ -940,6 +940,27 @@ private:
     //ExtractDefaultValue arms: direct literal, and OP_Neg over a literal.
     void ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv);
     void ExtractNegatedLiteralDefault(SnBinaryExpr* bin, DefaultValueDesc& dv);
+    //v2.3: encode a formal's default expression into the ExprDesc wire
+    //grammar (CompiledModule.h). True = dv carries RTK_Expr + exprBytes;
+    //false = outside the subset, caller keeps the RTK_Unfoldable stamp.
+    bool EncodeDefaultExpr(SnFunction& func, SnExpression* pExpr,
+                           DefaultValueDesc& dv);
+    //Recursive ExprDesc encoder. allowCall gates the call arm — nested
+    //calls in call arguments are out of the subset (spec decision D3).
+    bool EncodeExprDesc(SnExpression& expr,
+                        const std::vector<SnFormalParam*>& formals,
+                        std::vector<uint8_t>& out, bool allowCall, int depth);
+    //EncodeExprDesc arms: arithmetic (negation + five binaries) and the
+    //producing-module call.
+    bool EncodeBinaryDesc(SnBinaryExpr& bin,
+                          const std::vector<SnFormalParam*>& formals,
+                          std::vector<uint8_t>& out, bool allowCall,
+                          int depth);
+    bool EncodeCallDesc(SnInvokeExpr& invoke,
+                        const std::vector<SnFormalParam*>& formals,
+                        std::vector<uint8_t>& out, int depth);
+    //Literal arm: the same kind set ExtractLiteralDefault folds.
+    bool EncodeLiteralDesc(SnLiteralExpr& lit, std::vector<uint8_t>& out);
     static BoxingTagResult BoxingTagFor(SnField* pT);
     //Emit one operand into its claim slot, boxing it in place when
     //the plan says primitive (the OP_Box sequence needs a pResult

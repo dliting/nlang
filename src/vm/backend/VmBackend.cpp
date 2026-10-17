@@ -159,7 +159,8 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     //path) but loses the default after import.
     for (auto& param : func.Params()) {
         auto dv = ExtractDefaultValue(param.Value());
-        if (param.Value() && !dv.hasDefault())
+        if (param.Value() && !dv.hasDefault()
+            && !EncodeDefaultExpr(func, param.Value(), dv))
             dv.tag = RTK_Unfoldable;
         compiledFunc.defaultValues.push_back(dv);
     }
@@ -192,15 +193,17 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
         func.Params().size() + (isMethod ? 1 : 0));
 
     //Option B: extract constant-foldable default values for each formal.
-    //If a formal has a default expression but ExtractDefaultValue can't
-    //fold it (e.g. `b = helper()` or `b = a + 1`), stamp RTK_Unfoldable
-    //so the consumer side can emit a precise "cross-module default must
-    //be literal" error rather than silently treating it as "no default".
+    //A default the fold arms miss goes through the v2.3 ExprDesc encoder
+    //(formal references, producing-module calls, arithmetic over them);
+    //whatever remains outside that subset stamps RTK_Unfoldable so the
+    //consumer side can emit a precise "non-constant-foldable default"
+    //error rather than silently treating it as "no default".
     //In-module callers ignore compiledFunc.defaultValues entirely; they
     //use the AST default expression directly via StatementResolver.
     for (auto& param : func.Params()) {
         auto dv = ExtractDefaultValue(param.Value());
-        if (param.Value() && !dv.hasDefault())
+        if (param.Value() && !dv.hasDefault()
+            && !EncodeDefaultExpr(func, param.Value(), dv))
             dv.tag = RTK_Unfoldable;
         compiledFunc.defaultValues.push_back(dv);
     }

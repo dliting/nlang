@@ -1,0 +1,7 @@
+//Out-of-subset default (a cast expression): stays rejected on the .ncu
+//import path — the producer stamps RTK_Unfoldable and the consumer
+//reports the non-constant-foldable default. The lib module itself
+//compiles fine (the source-inline path accepts casts).
+int addCast(float a, int b = a as int) {
+    return b;
+}

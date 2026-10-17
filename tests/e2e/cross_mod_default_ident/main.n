@@ -1,0 +1,7 @@
+//The imported foo's default `b = a` rebuilds on the consumer and binds
+//per call site: foo(5) = 10.
+import lib;
+
+int main() {
+    return lib.foo(5);
+}

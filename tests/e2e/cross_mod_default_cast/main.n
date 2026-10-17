@@ -1,0 +1,7 @@
+//Negative: an imported default outside the ExprDesc subset (a cast)
+//is still rejected at consumer stub construction.
+import lib;
+
+int main() {
+    return lib.addCast(1.5f);
+}

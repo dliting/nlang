@@ -1,0 +1,21 @@
+//Cross-module complex default parameters (ExprDesc wire form). Each
+//default shape the manual names: a formal reference inside a binary
+//expression, a call to the producing module's own function, a negated
+//literal and a plain literal (regression).
+int addIdent(int a, int b = a * 2) {
+    return a + b;
+}
+
+int helper() { return 10; }
+
+int addCall(int a, int b = helper()) {
+    return a + b;
+}
+
+int addNeg(int a, int b = -7) {
+    return a + b;
+}
+
+int addLit(int a, int b = 7) {
+    return a + b;
+}

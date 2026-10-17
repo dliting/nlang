@@ -339,9 +339,10 @@ Value Interpreter::Impl::Call(const char* funcName,
 }
 
 //缺席形参（超出实参个数的形参）须全部有可常量重建的默认值。
-//RTK_Void＝无默认；RTK_Unfoldable＝有默认表达式但不可折叠重建
-//（生产方 VmBackend.cpp:143/:184 盖章）——嵌入入口无法重建，
-//spec §13 定为 BadValue，在此前置拒绝而非放行到防御性 runtime_error。
+//RTK_Void＝无默认；RTK_Unfoldable＝有默认表达式但超出 ExprDesc 子集；
+//RTK_Expr＝v2.3 表达式默认值（形参引用/产模块调用，须 VM 求值）——
+//嵌入入口按位置传参，无法求值表达式默认，三者一律前置拒绝（spec §13
+//定为 BadValue），不放行到防御性 runtime_error。
 namespace {
 bool MissingParamsHaveUsableDefaults(const CompiledFunction& f,
                                      size_t argc) {
@@ -349,7 +350,7 @@ bool MissingParamsHaveUsableDefaults(const CompiledFunction& f,
         if (i >= f.defaultValues.size())
             return false;
         const uint16_t tag = f.defaultValues[i].tag;
-        if (tag == RTK_Void || tag == RTK_Unfoldable)
+        if (tag == RTK_Void || tag == RTK_Unfoldable || tag == RTK_Expr)
             return false;
     }
     return true;

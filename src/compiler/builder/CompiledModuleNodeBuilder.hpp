@@ -1,4 +1,5 @@
 #pragma once
+#include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
 #include "SyntaxTree.h"
 #include "SnMisc.h"
@@ -278,66 +279,6 @@ private:
 		return new SnIdentifierExpr(NK_Int32, loc);
 	}
 
-	//Option B Step 4: reconstruct an SnLiteralExpr for a formal default from
-	//the serialized DefaultValueDesc. Returns nullptr when the formal has no
-	//default (tag == RTK_Void). For RTK_String, the producer's stringConstants
-	//index is resolved against cm.stringConstants and the content is embedded
-	//directly in the SnLiteralExpr — VmBackend's codegen will re-intern it
-	//into the consumer's stringConstants at call-site emission.
-	//
-	//The returned expression is NF_Imported (set by SnLiteralExpr's RTTI
-	//ctor) so resolver/codegen treat it as already-resolved.
-	SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
-		const CompiledModule &cm, const std::string &funcName,
-		uint16_t paramIdx, const ISourceLocation &loc)
-	{
-		switch (dv.tag)
-		{
-			case RTK_Null:
-			{
-				auto *lit = new SnLiteralExpr(*RnInt32::Instance(), 0, loc);
-				lit->AddFlags(NF_NullLiteral);
-				return lit;
-			}
-			case RTK_Int32:
-				return new SnLiteralExpr(*RnInt32::Instance(),
-					static_cast<int32_t>(dv.intValue), loc);
-			case RTK_Long:
-				return new SnLiteralExpr(*RnLong::Instance(),
-					static_cast<int64>(dv.longValue), loc);
-			case RTK_ULong:
-				return new SnLiteralExpr(*RnULong::Instance(),
-					static_cast<uint64>(dv.longValue), loc);
-			case RTK_Double:
-				return new SnLiteralExpr(*RnDouble::Instance(),
-					dv.doubleValue, loc);
-			case RTK_Float:
-				return new SnLiteralExpr(*RnFloat::Instance(),
-					dv.floatValue, loc);
-			case RTK_String:
-			{
-				if (dv.stringIdx >= cm.stringConstants.size())
-					return nullptr;  //malformed — skip default
-				const std::string &content = cm.stringConstants[dv.stringIdx];
-				return new SnLiteralExpr(*RnString::Instance(),
-					new std::string(content), loc);
-			}
-			case RTK_Unfoldable:
-				//Producer's original default was non-constant-foldable (e.g.
-				//`b = helper()` or `b = a + 1`). Cross-module callers can't
-				//reconstruct it; reject at consumer-side stub construction
-				//(LoadImports catches + logs as compile error).
-				throw std::runtime_error(
-					"imported function '" + funcName + "' has a "
-					"non-constant-foldable default for parameter " +
-					std::to_string(static_cast<unsigned long>(paramIdx)) +
-					"; cross-module defaults must be literal "
-					"(int/float/string/null/negative)");
-			default:
-				return nullptr;  //RTK_Void or unknown — no default
-		}
-	}
-
 	//Build a SnFunction stub for an imported CompiledFunction.
 	//The stub has no Body() — VmBackend.RegisterFunctions and
 	//GenerateAllBytecode already skip bodyless functions, and the
@@ -376,12 +317,19 @@ private:
 		for (const auto &ld : cf.locals)
 			if (ld.isParam)
 				formalNames.push_back(ld.name);
+		//Effective per-formal names (locals entries with the placeholder
+		//fallback), shared by the param nodes and the v2.3 ExprDesc
+		//formal-reference rebuild — a rebuilt `b = a * 2` must name the
+		//formals exactly as the stub's own params do.
+		std::vector<std::string> stubFormalNames(cf.paramCount);
+		for (uint16_t i = 0; i < cf.paramCount; ++i)
+			stubFormalNames[i] =
+				(i < formalNames.size() && !formalNames[i].empty())
+					? formalNames[i]
+					: "p" + std::to_string(i);
 		for (uint16_t i = 0; i < cf.paramCount; ++i)
 		{
-			auto paramName = new std::string(
-				i < formalNames.size() && !formalNames[i].empty()
-					? formalNames[i]
-					: "p" + std::to_string(i));
+			auto paramName = new std::string(stubFormalNames[i]);
 			NodeBits paramFlags = NF_NONE;
 			SnFieldExpr *pParamType;
 			if (i < cf.paramTypeDescs.size())
@@ -398,7 +346,7 @@ private:
 			SnExpression *pDefault = nullptr;
 			if (i < cf.defaultValues.size())
 				pDefault = SynthDefaultExpr(cf.defaultValues[i], cm,
-					cf.name, i, loc);
+					cf.name, i, stubFormalNames, loc);
 			auto *pParam = new SnFormalParam(paramFlags, pParamType, paramName,
 				pDefault, loc);
 			pParams->push_back(pParam);

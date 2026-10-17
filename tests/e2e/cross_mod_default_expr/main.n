@@ -1,0 +1,6 @@
+//Defaults evaluate per call site on the consumer: 15 + 11 + (-6) + 8 = 28.
+import lib;
+
+int main() {
+    return lib.addIdent(5) + lib.addCall(1) + lib.addNeg(1) + lib.addLit(1);
+}

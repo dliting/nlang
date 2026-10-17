@@ -1,7 +1,9 @@
 #pragma once
+#include "Intrinsics.h"
 #include "TypeDesc.h"
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdint>
+#include <cstring>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -81,7 +83,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //then return; see TypeDesc.h). A v2.1 module carries no func signatures:
 //stub formals degrade to int32 placeholders, so function values cannot
 //cross module borders. Refuse v2.1 and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 2;
+//v2.3 (cross-module complex defaults): every DefaultValueDesc record
+//gains a u16-length-prefixed ExprDesc payload (see exprBytes). A v2.2
+//module carries only literal defaults; expression defaults (formal
+//references, producing-module calls, arithmetic over them) cannot cross
+//module borders. Refuse v2.2 and older outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 3;
 
 //Runtime type kind constants for serialization (compile-time NK_* values
 //exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
@@ -96,6 +103,7 @@ static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=t
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
 static constexpr uint8_t RTK_Unfoldable = 0xFC;  //Option B: had default but not constant-foldable
+static constexpr uint8_t RTK_Expr   = 0xFB;  //v2.3: default is the ExprDesc tree in exprBytes
 static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
@@ -166,144 +174,6 @@ struct CompiledArrayType {
     uint16_t elemTypeIdx = 0xFFFF; // struct/class index (0xFFFF for primitives)
 };
 
-//Builtin intrinsic function IDs.
-//Used by CompiledFunction::intrinsicId to dispatch VM-side methods.
-static constexpr uint16_t INTR_None = 0xFFFF;
-
-//ByteStream intrinsics.
-static constexpr uint16_t INTR_BS_Ctor         = 0;
-static constexpr uint16_t INTR_BS_WriteInt     = 1;
-static constexpr uint16_t INTR_BS_ReadInt      = 2;
-static constexpr uint16_t INTR_BS_WriteFloat   = 3;
-static constexpr uint16_t INTR_BS_ReadFloat    = 4;
-static constexpr uint16_t INTR_BS_WriteString  = 5;
-static constexpr uint16_t INTR_BS_ReadString   = 6;
-static constexpr uint16_t INTR_BS_Length       = 7;
-static constexpr uint16_t INTR_BS_Position     = 8;
-static constexpr uint16_t INTR_BS_Reset        = 9;
-static constexpr uint16_t INTR_BS_Close        = 10;
-static constexpr uint16_t INTR_BS_WriteStruct = 11;
-static constexpr uint16_t INTR_BS_ReadStruct  = 12;
-static constexpr uint16_t INTR_BS_WriteObject = 13;
-static constexpr uint16_t INTR_BS_ReadObject  = 14;
-//0.7.5 Task 9: 64-bit scalar family (8-byte wire form, mirroring the
-//4-byte writeInt/readInt/writeFloat/readFloat quartet).
-static constexpr uint16_t INTR_BS_WriteLong   = 15;
-static constexpr uint16_t INTR_BS_ReadLong    = 16;
-static constexpr uint16_t INTR_BS_WriteDouble = 17;
-static constexpr uint16_t INTR_BS_ReadDouble  = 18;
-
-//FileStream intrinsics.
-static constexpr uint16_t INTR_FS_Ctor         = 20;
-static constexpr uint16_t INTR_FS_WriteInt     = 21;
-static constexpr uint16_t INTR_FS_ReadInt      = 22;
-static constexpr uint16_t INTR_FS_WriteFloat   = 23;
-static constexpr uint16_t INTR_FS_ReadFloat    = 24;
-static constexpr uint16_t INTR_FS_WriteString  = 25;
-static constexpr uint16_t INTR_FS_ReadString   = 26;
-static constexpr uint16_t INTR_FS_Length       = 27;
-static constexpr uint16_t INTR_FS_Position     = 28;
-static constexpr uint16_t INTR_FS_Close        = 29;
-static constexpr uint16_t INTR_FS_WriteStruct = 30;
-static constexpr uint16_t INTR_FS_ReadStruct  = 31;
-static constexpr uint16_t INTR_FS_WriteObject = 32;
-static constexpr uint16_t INTR_FS_ReadObject  = 33;
-//0.7.5 Task 9: 64-bit scalar family (34..37; 30..33 were already taken
-//by the struct/object serialization block above).
-static constexpr uint16_t INTR_FS_WriteLong   = 34;
-static constexpr uint16_t INTR_FS_ReadLong    = 35;
-static constexpr uint16_t INTR_FS_WriteDouble = 36;
-static constexpr uint16_t INTR_FS_ReadDouble  = 37;
-
-//Object/String intrinsic methods (Phase 8e-1).
-static constexpr uint16_t INTR_Object_Equals        = 40;
-static constexpr uint16_t INTR_Object_GetHashCode   = 41;
-static constexpr uint16_t INTR_String_Equals        = 42;
-static constexpr uint16_t INTR_String_GetHashCode   = 43;
-//Phase 8e-9b: Object.toString() default intrinsic. ID is 61 because List/Dict
-//intrinsics (44-60) were allocated before this phase. Registration order in
-//VmBackend remains "紧跟 GetHashCode" (semantic adjacency), only the numeric
-//ID is non-contiguous with the 8e-1 Object block.
-static constexpr uint16_t INTR_Object_toString      = 61;
-
-//List<T> intrinsic methods (Phase 8e-3, erasure-style — all elements stored as heap idxs).
-static constexpr uint16_t INTR_List_Ctor        = 44;
-static constexpr uint16_t INTR_List_Add         = 45;
-static constexpr uint16_t INTR_List_Get         = 46;
-static constexpr uint16_t INTR_List_Set         = 47;
-static constexpr uint16_t INTR_List_Length      = 48;
-static constexpr uint16_t INTR_List_RemoveAt    = 49;
-static constexpr uint16_t INTR_List_IndexOf     = 50;
-static constexpr uint16_t INTR_List_Contains    = 51;
-static constexpr uint16_t INTR_List_Clear       = 52;
-
-//Dict<K,V> intrinsic methods (Phase 8e-4, erasure-style — keys and values
-//stored as heap idxs in a side table, linear-scan lookup).
-static constexpr uint16_t INTR_Dict_Ctor        = 53;
-static constexpr uint16_t INTR_Dict_Set         = 54;
-static constexpr uint16_t INTR_Dict_Get         = 55;
-static constexpr uint16_t INTR_Dict_ContainsKey = 56;
-static constexpr uint16_t INTR_Dict_Remove      = 57;
-static constexpr uint16_t INTR_Dict_Clear       = 58;
-static constexpr uint16_t INTR_Dict_Count       = 59;
-//Phase 8e-5: Dict.Keys() — returns a new List<K> populated from dict entries' keys.
-static constexpr uint16_t INTR_Dict_Keys        = 60;
-//Phase 9b-pre: collection toString (Python-style "[a, b, c]" / "{k: v}").
-static constexpr uint16_t INTR_List_toString    = 62;
-static constexpr uint16_t INTR_Dict_toString    = 63;
-
-//Phase 9d: Exception class ctor intrinsics. All 6 Exception-family ctors
-//share the same intrinsic dispatch (single ExecuteIntrinsic case handles
-//all 6 IDs); the distinct IDs exist so that user `new MyException("msg")`
-//resolves to the correct ctor stub for type-checking. Subclass ctors set
-//message + allocate an empty List<string> for backtrace, identical to base.
-static constexpr uint16_t INTR_Exception_Ctor                = 64;
-static constexpr uint16_t INTR_NullPointerException_Ctor     = 65;
-static constexpr uint16_t INTR_DivByZeroException_Ctor       = 66;
-static constexpr uint16_t INTR_IndexOutOfBoundsException_Ctor = 67;
-static constexpr uint16_t INTR_AssertionException_Ctor       = 68;
-static constexpr uint16_t INTR_IOException_Ctor              = 69;
-//v0.8.5: sixth Exception ctor; 128 = next fresh id (policy below).
-static constexpr uint16_t INTR_InvalidCastException_Ctor     = 128;
-
-//Phase 11 stdlib namespace ids: the math (70-94), io (113-119) and fs
-//(120-127) blocks retired with the built-in standard library (io's range
-//follows its last allocation on the master line, 0.7.7). The freed ids
-//stay unallocated — intrinsic ids are only ever appended, never reused.
-//String methods (95-112 — 18 since the 0.7.5 char bridge) survive as
-//receiver-dispatched built-ins.
-
-//Phase 11 Step 3: built-in string methods (receiver-dispatched via
-//OP_CallIntrinsic — receiver string idx at callParamBase[0], args from
-//slot 1). Equals/GetHashCode keep their 8e-1 ids 42/43; only the
-//implementation moves to IntrinsicsString.cpp.
-static constexpr uint16_t INTR_String_Substring  = 95;
-static constexpr uint16_t INTR_String_IndexOf    = 96;
-static constexpr uint16_t INTR_String_StartsWith = 97;
-static constexpr uint16_t INTR_String_EndsWith   = 98;
-static constexpr uint16_t INTR_String_Contains   = 99;
-static constexpr uint16_t INTR_String_ToUpper    = 100;
-static constexpr uint16_t INTR_String_ToLower    = 101;
-static constexpr uint16_t INTR_String_Trim       = 102;
-static constexpr uint16_t INTR_String_Split      = 103;
-static constexpr uint16_t INTR_String_Replace    = 104;
-static constexpr uint16_t INTR_String_ToInt      = 105;
-static constexpr uint16_t INTR_String_ToFloat    = 106;
-//0.7.5 char bridge (Task 8): the six code-point / strict-parse methods.
-static constexpr uint16_t INTR_String_CharAt     = 107;
-static constexpr uint16_t INTR_String_CharCount  = 108;
-static constexpr uint16_t INTR_String_ToChar     = 109;
-static constexpr uint16_t INTR_String_ToLong     = 110;
-static constexpr uint16_t INTR_String_ToDouble   = 111;
-static constexpr uint16_t INTR_String_ToBool     = 112;
-static constexpr uint16_t kStringMethodIntrinsicFirst = 95;
-static constexpr uint16_t kStringMethodIntrinsicCount = 18;
-static_assert(INTR_String_Substring == kStringMethodIntrinsicFirst,
-    "string-method intrinsic block must start at its First constant");
-static_assert(INTR_String_ToBool
-        == kStringMethodIntrinsicFirst + kStringMethodIntrinsicCount - 1,
-    "string-method intrinsic block must be contiguous up to ToBool");
-
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:
 //  RTK_Null   — null literal for any reference type (class/string/array). No payload.
@@ -321,6 +191,14 @@ static_assert(INTR_String_ToBool
 //
 //Constant-foldable negative int literals (`-5`) are folded at write time into
 //a single RTK_Int32 with negative intValue — no separate tag needed.
+//
+//v2.3: defaults outside the constant-foldable subset ride RTK_Expr — the
+//wire carries a serialized ExprDesc tree in exprBytes (u16 length prefix;
+//grammar and reader in ExprDesc.h). The consumer rebuilds an unresolved
+//AST from it and lets
+//the normal declaration-side resolution pass bind it (formal references,
+//module-qualified calls). RTK_Unfoldable remains the reject stamp for
+//expressions outside the ExprDesc subset (casts, bool literals, …).
 struct DefaultValueDesc {
     uint8_t  tag = RTK_Void;
     uint32_t intValue = 0;     // RTK_Int32
@@ -329,6 +207,10 @@ struct DefaultValueDesc {
     //0.7.5: 8-byte scalar channels (RTK_Long/RTK_ULong/RTK_Double).
     int64_t  longValue = 0;
     double   doubleValue = 0.0;
+    //v2.3: non-empty only when tag == RTK_Expr. ED_Literal_String arms
+    //hold PRODUCER-side stringConstants indices — the import merge
+    //remaps them (NcuLinker::FinalizeFunction, like stringIdx above).
+    std::vector<uint8_t> exprBytes;
 
     bool hasDefault() const { return tag != RTK_Void; }
 };

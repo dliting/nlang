@@ -5,6 +5,7 @@
 ---*/
 #include "VmBackend.h"
 #include "EmitPrimOps.h"
+#include <nlang/vm/ExprDesc.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
@@ -158,6 +159,201 @@ DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr) {
     }
 
     return dv;  //non-literal, non-foldable
+}
+
+//--- v2.3 ExprDesc encoder (complex cross-module defaults) ----------------
+//Little-endian append helpers for the wire grammar in CompiledModule.h.
+namespace {
+void AppendBytes(std::vector<uint8_t>& out, const void* p, size_t n) {
+    const auto* b = static_cast<const uint8_t*>(p);
+    out.insert(out.end(), b, b + n);
+}
+void AppendU8(std::vector<uint8_t>& out, uint8_t v) { out.push_back(v); }
+void AppendU16(std::vector<uint8_t>& out, uint16_t v) {
+    AppendBytes(out, &v, sizeof(v));
+}
+void AppendU32(std::vector<uint8_t>& out, uint32_t v) {
+    AppendBytes(out, &v, sizeof(v));
+}
+void AppendI64(std::vector<uint8_t>& out, int64_t v) {
+    AppendBytes(out, &v, sizeof(v));
+}
+void AppendF32(std::vector<uint8_t>& out, float v) {
+    AppendBytes(out, &v, sizeof(v));
+}
+void AppendF64(std::vector<uint8_t>& out, double v) {
+    AppendBytes(out, &v, sizeof(v));
+}
+}  //namespace
+
+//Literal arm of the ExprDesc encoder. Mirrors the fold arms of
+//ExtractLiteralDefault (same kind set); bool/char/byte literals stay
+//outside the subset and return false.
+bool VmBackend::EncodeLiteralDesc(SnLiteralExpr& lit,
+                                  std::vector<uint8_t>& out) {
+    if (lit.ContainFlags(NF_NullLiteral)) {
+        AppendU8(out, RTK_Null);
+        return true;
+    }
+    auto* litType = lit.Value().Type();
+    if (litType == RnInt32::Instance()) {
+        AppendU8(out, RTK_Int32);
+        AppendU32(out, static_cast<uint32_t>(lit.Value().Data().m_Int));
+        return true;
+    }
+    if (litType == RnFloat::Instance()) {
+        AppendU8(out, RTK_Float);
+        AppendF32(out, lit.Value().Data().m_Float);
+        return true;
+    }
+    if (litType == RnDouble::Instance()) {
+        AppendU8(out, RTK_Double);
+        AppendF64(out, lit.Value().Data().m_Double);
+        return true;
+    }
+    if (litType == RnLong::Instance()) {
+        AppendU8(out, RTK_Long);
+        AppendI64(out, lit.Value().Data().m_Long);
+        return true;
+    }
+    if (litType == RnULong::Instance()) {
+        AppendU8(out, RTK_ULong);
+        AppendI64(out, static_cast<int64_t>(lit.Value().Data().m_ULong));
+        return true;
+    }
+    if (litType == RnString::Instance()) {
+        AppendU8(out, RTK_String);
+        auto* sPtr = lit.Value().Data().m_String;
+        AppendU32(out, AddStringConstant(sPtr ? *sPtr : std::string()));
+        return true;
+    }
+    return false;
+}
+
+//Arithmetic arm of the ExprDesc encoder: unary negation and the five
+//arithmetic binaries (see CompiledModule.h → ExprDesc.h for the grammar).
+bool VmBackend::EncodeBinaryDesc(SnBinaryExpr& bin,
+                                 const std::vector<SnFormalParam*>& formals,
+                                 std::vector<uint8_t>& out, bool allowCall,
+                                 int depth) {
+    //Unary negation (unary ctor leaves Right() null).
+    if (bin.Op() == SnBinaryExpr::OP_Neg && !bin.Right()) {
+        AppendU8(out, ED_Neg);
+        return EncodeExprDesc(*bin.Left(), formals, out, allowCall,
+                              depth + 1);
+    }
+    uint8_t opCode = 0;
+    switch (bin.Op()) {
+    case SnBinaryExpr::OP_Add: opCode = EDB_Add; break;
+    case SnBinaryExpr::OP_Sub: opCode = EDB_Sub; break;
+    case SnBinaryExpr::OP_Mul: opCode = EDB_Mul; break;
+    case SnBinaryExpr::OP_Div: opCode = EDB_Div; break;
+    case SnBinaryExpr::OP_Mod: opCode = EDB_Mod; break;
+    default: return false;  //comparisons/logical ops: out of subset
+    }
+    AppendU8(out, ED_Binary);
+    AppendU8(out, opCode);
+    if (!EncodeExprDesc(*bin.Left(), formals, out, allowCall, depth + 1))
+        return false;
+    return EncodeExprDesc(*bin.Right(), formals, out, allowCall,
+                          depth + 1);
+}
+
+//Call arm of the ExprDesc encoder: a producing-module free function,
+//fully applied (D4); args encode with allowCall=false (no nested calls,
+//D3). The consumer rebuilds a call qualified by THIS module's path.
+bool VmBackend::EncodeCallDesc(SnInvokeExpr& invoke,
+                               const std::vector<SnFormalParam*>& formals,
+                               std::vector<uint8_t>& out, int depth) {
+    auto* pCallee = invoke.Callee();
+    if (!pCallee || pCallee->IsImported()) return false;
+    //Free functions only — methods/enums ride the method path and
+    //their keys are enclosure-qualified.
+    auto* pParent = pCallee->Parent();
+    if (pParent && (pParent->Kind() == NK_ClassDecl
+                    || pParent->Kind() == NK_EnumDecl))
+        return false;
+    const std::string key = KeyOf(*pCallee);
+    const std::string prefix = m_compiledModule.modulePath + ".";
+    if (key.size() <= prefix.size()
+        || key.compare(0, prefix.size(), prefix) != 0)
+        return false;
+    size_t argCount = 0;
+    for (auto& arg : invoke.Params())
+        ++argCount;
+    if (argCount != pCallee->Params().size() || argCount > UINT8_MAX)
+        return false;
+    AppendU8(out, ED_Call);
+    AppendU16(out, static_cast<uint16_t>(key.size()));
+    AppendBytes(out, key.data(), key.size());
+    AppendU32(out, static_cast<uint32_t>(argCount));
+    AppendU8(out, static_cast<uint8_t>(argCount));
+    for (auto& arg : invoke.Params()) {
+        if (!EncodeExprDesc(arg, formals, out, false, depth + 1))
+            return false;
+    }
+    return true;
+}
+
+//Recursive ExprDesc encoder (see CompiledModule.h → ExprDesc.h for the
+//grammar). Returns false for anything outside the subset — the caller
+//discards the partial bytes and keeps the RTK_Unfoldable stamp (old
+//reject behavior).
+bool VmBackend::EncodeExprDesc(SnExpression& expr,
+                               const std::vector<SnFormalParam*>& formals,
+                               std::vector<uint8_t>& out, bool allowCall,
+                               int depth) {
+    if (depth > kMaxExprDescDepth) return false;
+    switch (expr.Kind()) {
+    case NK_LiteralExpr:
+        return EncodeLiteralDesc(static_cast<SnLiteralExpr&>(expr), out);
+
+    case NK_IdentifierExpr: {
+        auto* pField = static_cast<SnIdentifierExpr&>(expr).Field();
+        if (!pField) return false;
+        //Formal references only — a global/const default keeps the old
+        //reject. The declaration-time forward-ref check guarantees the
+        //bound formal precedes the default's own formal.
+        for (size_t i = 0; i < formals.size(); ++i) {
+            if (pField == formals[i]) {
+                AppendU8(out, ED_FormalRef);
+                AppendU8(out, static_cast<uint8_t>(i));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    case NK_BinaryExpr:
+        return EncodeBinaryDesc(static_cast<SnBinaryExpr&>(expr), formals,
+                                out, allowCall, depth);
+
+    case NK_InvokeExpr:
+        if (!allowCall) return false;  //nested calls: out of subset (D3)
+        return EncodeCallDesc(static_cast<SnInvokeExpr&>(expr), formals,
+                              out, depth);
+
+    default:
+        return false;  //casts, member access, init lists, …: old reject
+    }
+}
+
+//Top entry: encode func's default expression into an ExprDesc tree.
+//True = dv carries RTK_Expr + exprBytes; false = outside the subset and
+//dv stays without a default (caller stamps RTK_Unfoldable).
+bool VmBackend::EncodeDefaultExpr(SnFunction& func, SnExpression* pExpr,
+                                  DefaultValueDesc& dv) {
+    if (!pExpr) return false;
+    std::vector<SnFormalParam*> formals;
+    for (auto& param : func.Params())
+        formals.push_back(&param);
+    std::vector<uint8_t> bytes;
+    if (!EncodeExprDesc(*pExpr, formals, bytes, true, 0)
+        || bytes.size() > kMaxExprDescBytes)
+        return false;
+    dv.tag = RTK_Expr;
+    dv.exprBytes = std::move(bytes);
+    return true;
 }
 
 //Phase 8e-4: returns the RTK_* boxing tag for a generic type argument,

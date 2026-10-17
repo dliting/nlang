@@ -1,0 +1,5 @@
+//Cross-module default referencing an earlier formal directly. `b = a`
+//rides the ExprDesc wire form as a formal reference.
+int foo(int a, int b = a) {
+    return a + b;
+}

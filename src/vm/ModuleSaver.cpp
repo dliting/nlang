@@ -133,6 +133,16 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                      sizeof(dv.longValue));
             fs.write(reinterpret_cast<const char*>(&dv.doubleValue),
                      sizeof(dv.doubleValue));
+            //v2.3: ExprDesc payload for RTK_Expr defaults, u16-length-
+            //prefixed and always emitted (empty = no expression) so the
+            //record stays fixed-shape. The depth cap bounds an encoded
+            //tree far under 64 KiB, so the prefix cannot truncate.
+            uint16_t exprLen = static_cast<uint16_t>(dv.exprBytes.size());
+            fs.write(reinterpret_cast<const char*>(&exprLen),
+                     sizeof(exprLen));
+            if (exprLen > 0)
+                fs.write(reinterpret_cast<const char*>(dv.exprBytes.data()),
+                         exprLen);
         }
 
         uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());
