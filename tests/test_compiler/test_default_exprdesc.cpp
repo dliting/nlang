@@ -187,6 +187,15 @@ struct RawDecoder
                 off += 4;
                 return "(float)";
             }
+            case RTK_Long:
+            case RTK_ULong:
+            case RTK_Double:
+            {
+                if (off + 8 > bytes.size()) { ok = false; return "!wide"; }
+                off += 8;
+                return tag == RTK_Double ? "(double)"
+                    : (tag == RTK_Long ? "(long)" : "(ulong)");
+            }
             case RTK_String:
             {
                 uint32_t v = 0;
@@ -275,6 +284,9 @@ static void test_wire_shapes_compound()
         "int halved(int a, int b = a / 2) { return b; }\n"
         "int remainder(int a, int b = a % 3) { return b; }\n"
         "int negate(int a, int b = -a) { return b; }\n"
+        "float scaled(int a, float b = a * 1.5f) { return b; }\n"
+        "double precise(int a, double b = a * 2.5) { return b; }\n"
+        "long big(int a, long b = a * 5000000000) { return b; }\n"
         "int helper(int x) { return x + 3; }\n"
         "int callsHelper(int a, int b = helper(a)) { return b; }\n"
         "int main() { return addIdent(5); }\n",
@@ -300,6 +312,9 @@ static void test_wire_shapes_compound()
         {"halved", "(div (formal 0) (int 2))"},
         {"remainder", "(mod (formal 0) (int 3))"},
         {"negate", "(neg (formal 0))"},
+        {"scaled", "(mul (formal 0) (float))"},
+        {"precise", "(mul (formal 0) (double))"},
+        {"big", "(mul (formal 0) (long))"},
     };
     for (const Expectation& expect : kExpects)
     {
