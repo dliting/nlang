@@ -95,10 +95,6 @@
   to a List twice shares the underlying heap slot (reference semantics
   at the boxing layer). Use separate struct instances for distinct
   elements.
-- **Nested-subscript receiver write**: in
-  `matrix[i][0].x = v` (array-of-array-of-struct), the receiver's
-  inner subscript index evaluation can clobber the RHS temp slot.
-  Single-level `arr[i].field = v` works correctly.
 - **Eager materialization cost**: `Point[n]` allocates n+1 heap
   slots at creation (array + one struct per element).
 - **Default parameters on imported functions**: cross-module imported
