@@ -714,6 +714,9 @@ ctor_default_nested 11
 ctor_struct_arg_copy 10
 super_default 12
 ctor_default_missing_required compile_error expects between 1 and 2 argument(s)
+ctor_default_over_range compile_error expects between 1 and 2 argument(s)
+ctor_default_zero_args 0
+ctor_default_bigcall 7
 
 # --- Implicit this.field (bare member access in methods) ---
 implicit_this_read 42

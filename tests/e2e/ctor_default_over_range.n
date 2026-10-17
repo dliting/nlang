@@ -1,0 +1,14 @@
+//P3: with defaults present, a ctor arity error names the accepted range
+//on the over-range side too. Vec(int x, int y = 3) accepts 1 or 2
+//arguments; three is rejected with the same interval wording as the
+//zero-argument case (ctor_default_missing_required).
+class Vec {
+    public int a;
+    public int b;
+    public int Vec(int x, int y = 3) { this.a = x; this.b = y; return 0; }
+}
+
+int main() {
+    Vec v = Vec(1, 2, 3);
+    return 0;
+}

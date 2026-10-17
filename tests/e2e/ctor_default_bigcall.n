@@ -1,0 +1,21 @@
+//P3 review Critical-1: a nested call inside a ctor default needs its own
+//argument slots in the CALLER's callParamBase. g stages 9 arguments there
+//while the default for y evaluates; without the reservation the staging
+//overflows onto the ctor call's {this, x, y} claim and x arrives
+//corrupted (Vec(7) used to construct with a == 6, no diagnostic).
+int g(int a, int b, int c, int d, int e, int f, int h, int i, int j) {
+    return a + b + c + d + e + f + h + i + j;
+}
+
+class Vec {
+    public int a;
+    public int b;
+    public int Vec(int x, int y = g(1, 2, 3, 4, 5, 6, 7, 8, 9)) {
+        this.a = x; this.b = y; return 0;
+    }
+}
+
+int main() {
+    Vec v = Vec(7);
+    return v.a;         //7 (was 6 before the MaxArgs default descent)
+}

@@ -128,9 +128,10 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                               uint16_t claimBase)
 {
     const auto& b = pBindings[bindingIdx];
-    //claimBase is the evalArea claim slice base. Always provided by
-    //EmitCallArgs (the only caller). Bindings emit into the claim slice;
-    //a bulk-copy loop in EmitCallArgs then moves them to callParamBase.
+    //claimBase is the evalArea claim slice base, provided by the two
+    //callers (EmitCallArgs and EmitCtorCallBindings). Bindings emit into
+    //the claim slice; the caller's bulk-copy loop then moves them to
+    //callParamBase.
     uint16_t base = claimBase;
     uint16_t paramOffset = base + slotIdx * kFrameSlotBytes;
     auto* pFormalType = b.pFormal->EvalDataType();

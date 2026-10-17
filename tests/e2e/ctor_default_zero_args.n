@@ -1,0 +1,12 @@
+//P3: a ctor whose formals all carry defaults is callable with zero
+//arguments — the whole arity range down to 0 is legal when no required
+//formal remains.
+class W {
+    public int a;
+    public int W(int a = 5) { this.a = a; return 0; }
+}
+
+int main() {
+    W w = W();
+    return w.a - 5;     //0
+}

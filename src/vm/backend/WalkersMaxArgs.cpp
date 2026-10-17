@@ -155,6 +155,23 @@ void VmBackend::MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs) {
     if (ts.FinallyBody()) MaxArgsWalkStmt(*ts.FinallyBody(), maxArgs);
 }
 
+//MaxArgs-side counterpart of CtorDefaultExprDepth: the nested calls
+//inside a ctor's default expressions bulk-copy their own argument slots
+//into the CALLER's callParamBase while the default stages, so the
+//caller's maxArgs must cover them too (review Critical-1 — without the
+//descent the overflow lands on the ctor call's own {this, args...}
+//claim and silently corrupts the arguments). The subtrees go through
+//the same MaxArgs arms as an ordinary call site. The member-level guard
+//set breaks the cycle a self-referential default would cause: this
+//walker runs before DefaultEmitGuard rejects the recursion at codegen.
+void VmBackend::CtorDefaultMaxArgs(SnFunction* pCtorFn, uint16_t& maxArgs) {
+    if (!pCtorFn) return;
+    if (!m_ctorDefaultMaxArgsWalking.insert(pCtorFn).second) return;
+    for (auto& fp : pCtorFn->Params())
+        if (fp.Value()) MaxArgsWalkExpr(*fp.Value(), maxArgs);
+    m_ctorDefaultMaxArgsWalking.erase(pCtorFn);
+}
+
 //MaxArgs walker, NK_SuperCallStmt arm. Instance method: the parent
 //class comes from m_pCurrClass (set for the class being emitted).
 void VmBackend::MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs) {
@@ -169,6 +186,7 @@ void VmBackend::MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs) {
         ? pParentCtor->Params().size() : sc.Args().size();
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
+    CtorDefaultMaxArgs(pParentCtor, maxArgs);
     for (auto* arg : sc.Args())
         MaxArgsWalkExpr(*arg, maxArgs);
 }
@@ -272,6 +290,7 @@ void VmBackend::MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs) {
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
+    CtorDefaultMaxArgs(pCtorFn, maxArgs);
     for (auto& param : invoke.Params())
         MaxArgsWalkExpr(param, maxArgs);
 }
@@ -327,6 +346,7 @@ void VmBackend::MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs) {
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
+    CtorDefaultMaxArgs(pCtorFn, maxArgs);
     for (auto& arg : newExpr.Args()) {
         if (&arg == newExpr.ClassName()) continue;
         MaxArgsWalkExpr(arg, maxArgs);
