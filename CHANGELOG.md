@@ -24,6 +24,14 @@ All notable changes to NLang are documented here. The format follows
   with defaults reports the accepted span (`constructor of "Vec"`
   `expects between 1 and 2 argument(s), got 0`). `super(...)`
   diagnostics follow the same split.
+- **Constructor defaults cannot reference `this`** (new compile-time
+  diagnostic): an explicit `this.a` or an implicit bare field name in
+  a constructor's default expression is rejected at the declaration.
+  Defaults evaluate at the call site — a construction call stages them
+  before the object exists, and `super()` binds the object under
+  construction whose fields are not initialized yet — so the reference
+  could only ever read the wrong object or crash. Method and
+  free-function defaults are unaffected.
 
 ### Fixed
 
