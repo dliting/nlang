@@ -1,0 +1,10 @@
+//0.9.7 regression: pure non-virtual conversion family keeps integral-
+//preference ranking (long beats float for an int argument).
+class C {
+    public int h(float x) { return 1; }
+    public int h(long x) { return 2; }
+}
+int main() {
+    C c = C();
+    return c.h(5);
+}

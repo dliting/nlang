@@ -1,0 +1,10 @@
+//0.9.7: a name owning a virtual method owns one dispatch slot —
+//same-class overloading with a different signature must not compile.
+class A {
+    public int f(string s) { return 1; }
+    public virtual int f(int x) { return 2; }
+}
+int main() {
+    A a = A();
+    return a.f(5);
+}

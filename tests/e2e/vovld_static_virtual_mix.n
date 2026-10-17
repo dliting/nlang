@@ -1,0 +1,10 @@
+//0.9.7: static + instance virtual sharing a name in one class — the
+//static arm is rejected through the same signature-identity predicate
+//(static-ness counts as a signature difference).
+class A {
+    public virtual int f(int x) { return 1; }
+    public static int f(string s) { return 2; }
+}
+int main() {
+    return 0;
+}

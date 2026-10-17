@@ -1,0 +1,12 @@
+//0.9.7 regression: ancestor non-virtual + same-signature virtual child
+//slot — child's own family is uniform; stays legal and dispatches right.
+class A {
+    public int f(int x) { return x; }
+}
+class B : A {
+    public virtual int f(int x) { return x * 2; }
+}
+int main() {
+    B b = B();
+    return b.f(5);
+}

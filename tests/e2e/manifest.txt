@@ -1443,3 +1443,11 @@ ovsig_ok_default_params 6
 ovsig_ok_parent_later 42
 ovsig_ok_builtin_base 0
 ovsig_xm_stub_skip 30
+
+# --- 0.9.7: same-class virtual-name overload uniformity (vovld) ---
+vovld_mixed_virtual_second compile_error claims the virtual dispatch slot
+vovld_two_virtuals compile_error claims the virtual dispatch slot
+vovld_virtual_first compile_error claims the virtual dispatch slot
+vovld_static_virtual_mix compile_error claims the virtual dispatch slot
+vovld_ok_conversion_ranking 2
+vovld_ok_nonvirtual_parent_virtual_child 10

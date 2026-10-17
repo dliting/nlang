@@ -1,0 +1,10 @@
+//0.9.7: virtual first + non-virtual overload — the family still shares
+//one name-keyed dispatch slot; luck is not a contract.
+class A {
+    public virtual int f(int x) { return 1; }
+    public int f(string s) { return 2; }
+}
+int main() {
+    A a = A();
+    return a.f("s");
+}

@@ -1,0 +1,9 @@
+//0.9.7: both members virtual, different signatures — one slot, reject.
+class D {
+    public virtual int k(string s) { return 1; }
+    public virtual int k(int x) { return 2; }
+}
+int main() {
+    D d = D();
+    return d.k(5);
+}
