@@ -259,6 +259,50 @@ bool ReportUnmatchedContractSignatures(SnClassDecl &cls,
 	return nameRejected;
 }
 
+//0.9.7 spec §2.1: within one class a name that owns a virtual method
+//owns exactly one dispatch slot — runtime dispatch is name-keyed
+//(FindMethodByName returns the first same-name declaration), so a
+//mixed-signature family misdispatches silently. Own members must be
+//signature-identical to the first declaration (the dispatch winner).
+//Same-render pairs (virtuality/out-only differences) never reach here:
+//the earlier field-conflict check rejects them first.
+bool CheckVirtualNameUniformity(SnClassDecl &cls,
+	const std::string &name,
+	const std::vector<SnFunction*> &funcs,
+	BuildEnvironment &env)
+{
+	bool anyVirtual = false;
+	for (auto *pOwn : funcs)
+		if (pOwn->ContainFlags(NF_Virtual))
+		{
+			anyVirtual = true;
+			break;
+		}
+	if (!anyVirtual)
+		return false;
+	SnFunction *pWinner = funcs[0];
+	bool rejected = false;
+	for (size_t i = 1; i < funcs.size(); ++i)
+	{
+		if (SignaturesIdentical(*pWinner, *funcs[i]))
+			continue;
+		env.Log(CLL_Error, funcs[i]->Location(),
+			"The method \"%s\" claims the virtual dispatch slot of "
+			"\"%s.%s\" with a different signature \"%s\". Virtual "
+			"dispatch is name-based — rename the overloads, or make "
+			"the family non-virtual.",
+			name.c_str(), cls.Name().c_str(),
+			FormatSignature(name, *pWinner).c_str(),
+			FormatSignature(name, *funcs[i]).c_str());
+		env.Log(CLL_More, pWinner->Location(),
+			"See also the declaration of \"%s.%s\".",
+			cls.Name().c_str(),
+			FormatSignature(name, *pWinner).c_str());
+		rejected = true;
+	}
+	return rejected;
+}
+
 } //namespace
 
 //Render a method signature for diagnostics; shared with the Object-
@@ -288,13 +332,57 @@ std::string FormatSignature(const std::string &name, const SnFunction &f)
 	return sig;
 }
 
+//Per-name body of CheckOverrideSignatures: same-class uniformity, the
+//Object protocol, then the ancestor/interface bijection. Every rejection
+//records the name so subclasses skip it (topmost-first error recovery).
+static void CheckMethodNameContracts(SnClassDecl &cls,
+	const std::vector<const SnInterfaceDecl*> &ifaces,
+	const std::string &name,
+	const std::vector<SnFunction*> &funcs,
+	BuildEnvironment &env,
+	std::set<std::string> &rejectedNames)
+{
+	if (rejectedNames.count(name))
+		return;
+
+	//0.9.7: same-class uniformity fires before the ancestor/
+	//interface bijection — it is the more local violation, and
+	//rejecting the name here stops the contract pass from double-
+	//reporting the same shape.
+	if (CheckVirtualNameUniformity(cls, name, funcs, env))
+	{
+		rejectedNames.insert(name);
+		return;
+	}
+
+	//Contract set, deduped by signature (anchor = first declaration).
+	std::vector<const SnFunction*> contract;
+	std::vector<std::string> owners;
+	CollectContractSet(cls, ifaces, name, contract, owners);
+	DedupContractSignatures(contract, owners);
+
+	//Object protocol (spec D4): a mismatch rejects the whole name.
+	if (CheckObjectProtocol(cls, name, funcs, env))
+	{
+		rejectedNames.insert(name);
+		return;
+	}
+
+	if (contract.empty())
+		return;
+
+	std::vector<bool> taken(contract.size(), false);
+	bool nameRejected = MatchOwnMethodsToContract(name, funcs, contract, owners, taken, env);
+	if (ReportUnmatchedContractSignatures(cls, name, contract, taken, env))
+		nameRejected = true;
+	if (nameRejected)
+		rejectedNames.insert(name);
+}
+
 //Step 1 — class-side bijection (spec §2.1): for every name the class
 //itself declares as a method, the set of its own same-name methods must
 //be in bijection with the contract set (ancestor same-name virtual
 //methods + same-name methods of every interface along the chain).
-//Processing is topmost-first per chain; once a name is rejected at some
-//class, all subclasses skip that name (error recovery — a mid-chain
-//mismatch must not cascade onto a correct grandchild override).
 static void CheckOverrideSignatures(SnClassDecl &cls,
 	BuildEnvironment &env,
 	std::set<std::string> &rejectedNames)
@@ -310,35 +398,8 @@ static void CheckOverrideSignatures(SnClassDecl &cls,
 			own[member.Name()].push_back(static_cast<SnFunction*>(&member));
 
 	for (auto &kv : own)
-	{
-		const std::string &name = kv.first;
-		auto &funcs = kv.second;
-		if (rejectedNames.count(name))
-			continue;
-
-		//Contract set, deduped by signature (anchor = first declaration).
-		std::vector<const SnFunction*> contract;
-		std::vector<std::string> owners;
-		CollectContractSet(cls, ifaces, name, contract, owners);
-		DedupContractSignatures(contract, owners);
-
-		//Object protocol (spec D4): a mismatch rejects the whole name.
-		if (CheckObjectProtocol(cls, name, funcs, env))
-		{
-			rejectedNames.insert(name);
-			continue;
-		}
-
-		if (contract.empty())
-			continue;
-
-		std::vector<bool> taken(contract.size(), false);
-		bool nameRejected = MatchOwnMethodsToContract(name, funcs, contract, owners, taken, env);
-		if (ReportUnmatchedContractSignatures(cls, name, contract, taken, env))
-			nameRejected = true;
-		if (nameRejected)
-			rejectedNames.insert(name);
-	}
+		CheckMethodNameContracts(cls, ifaces, kv.first, kv.second, env,
+			rejectedNames);
 }
 
 //Step 2 — interface completeness (upgrade of the former name-only
