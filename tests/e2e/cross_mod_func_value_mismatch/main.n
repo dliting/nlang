@@ -1,0 +1,9 @@
+//Cross-module negative — see lib.n. shift does not match func<int,int>
+//(string return); the call must be rejected with the named diagnostic.
+import lib;
+
+string shift(int x) { return "x"; }
+
+int main() {
+    return lib.apply(shift);
+}

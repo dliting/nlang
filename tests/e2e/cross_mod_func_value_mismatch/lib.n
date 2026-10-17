@@ -1,0 +1,4 @@
+//Cross-module negative: a function reference whose signature differs from
+//the imported callee's func formal must still be rejected — serialization
+//made the stub formal real, so the named signature check adjudicates.
+int apply(func<int, int> f) { return f(1); }

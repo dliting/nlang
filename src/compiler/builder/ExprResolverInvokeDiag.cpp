@@ -26,10 +26,11 @@ void ExprResolveAccessor::LogAmbiguousCall(SnInvokeExpr &invoke)
 		invoke.CalleeName().c_str());
 }
 
-//Phase 13 (Step 2, cross-module): an imported stub synthesizes its
-//parameter types from the return kind, so a func argument can never
-//match — name the real reason before any generic message. True = the
-//named diagnostic fired (caller skips the generic text).
+//Phase 13 (Step 2, cross-module): a name-matched imported call failed
+//while an argument is a function reference — since v2.2 the stub's func
+//formals carry real signatures, so the failure means no parameter
+//signature matched the reference. Name that before any generic message.
+//True = the named diagnostic fired (caller skips the generic text).
 bool ExprResolveAccessor::MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
 	bool bNameMatchedImported)
 {
@@ -45,8 +46,8 @@ bool ExprResolveAccessor::MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
 		{
 			m_Env.Log(CLL_Error, invoke.Location(),
 				"cannot pass a function reference to the imported "
-				"function \"%s\": parameter signatures are not "
-				"serialized.", invoke.CalleeName().c_str());
+				"function \"%s\": no parameter signature matches it.",
+				invoke.CalleeName().c_str());
 			return true;
 		}
 	}
@@ -73,9 +74,18 @@ bool ExprResolveAccessor::MaybeLogPendingFuncRef(SnInvokeExpr &invoke)
 		}
 		if (IsUnboundMemberFuncRef(*pValue))
 		{
+			//Wording follows the form: a module-qualified free function
+			//(the shared IsModuleOwnedFunction test) is a function
+			//reference; only a receiver-bound member is a method one.
+			auto *pRef = static_cast<SnIdentifierExpr*>(
+				static_cast<SnMemberExpr*>(pValue)->Inner())->Field();
+			const bool bModuleForm = pRef && IsModuleOwnedFunction(*pRef);
 			m_Env.Log(CLL_Error, pValue->Location(),
-				"bound method reference \"%s\" requires an expected "
-				"function type.",
+				bModuleForm
+					? "function reference \"%s\" requires an expected "
+					  "function type."
+					: "bound method reference \"%s\" requires an expected "
+					  "function type.",
 				pValue->ToString().c_str());
 			return true;
 		}

@@ -1,0 +1,7 @@
+//Cross-module positive: an imported function takes a func-typed parameter
+//and the consumer passes its OWN function as the argument. Formerly the
+//negative arg_reject case — func signatures serialize in the v2.2 TypeDesc
+//grammar, so the stub formal keeps its real type and the call binds.
+int apply(func<int, int> f) {
+    return f(1);
+}

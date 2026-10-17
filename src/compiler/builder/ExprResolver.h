@@ -106,6 +106,17 @@ bool IsUnboundFuncRef(SyntaxNode &expr);
 //IsUnboundFuncRef; the bind sites pair it with
 //BindMemberFuncRefToExpected above.
 bool IsUnboundMemberFuncRef(SyntaxNode &expr);
+//v2.2: a function owned by a namespace — or by nothing at all, for a
+//detached imported stub that never joined the consumer root — is a
+//module-qualified free function (lib.seven): referenced without a
+//receiver, so wording and codegen split on this form everywhere the
+//member func-reference channel branches (the VM side keeps its own
+//static copy in EmitExprMember.cpp: subsystem boundary).
+inline bool IsModuleOwnedFunction(const SnField &func)
+{
+	auto *pOwner = func.Parent();
+	return pOwner == nullptr || pOwner->Kind() == NK_Namespace;
+}
 //Phase 13 (review round-1 F7): type arguments of a generic instantiation
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site.
@@ -958,6 +969,14 @@ private:
 	//TryResolveModuleQualified; a chain whose tip is not a plain
 	//identifier declines and keeps the generic path.
 	bool TryResolveQualifiedTypeValue(SnMemberExpr &snMember);
+
+	//v2.2: module-qualified free-function VALUE reference (`lib.seven`):
+	//the tip names a function of an imported module and the chain
+	//resolves as a pending function reference in the member channel
+	//(bind sites shared with bound method references; signatures
+	//serialize since the func TypeDesc grammar). Non-function tips
+	//decline — the package-value path and the generic path keep them.
+	bool TryResolveModuleFuncValue(SnMemberExpr &snMember);
 
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;

@@ -8,13 +8,12 @@
 
 namespace nlang {
 
-//Container magic: 8 bytes, NUL-padded spelling of "NLANGCU". Single
-//source of truth for the writer, the reader and the packaging smoke
-//(tests/packaging/verify_package.py keeps its own byte copy — Python
-//cannot include this header).
+//Container magic: 8 bytes, NUL-padded spelling of "NLANGCU". Single source
+//of truth for the writer, the reader and the packaging smoke
+//(verify_package.py keeps its own byte copy — Python cannot include this header).
 inline constexpr char NCU_MAGIC[8] = {'N', 'L', 'A', 'N', 'G', 'C', 'U', '\0'};
-//Artifact extension. Name it once: the spelling has changed before and
-//may change again — never hard-code its length.
+//Artifact extension; the spelling has changed before — never hard-code
+//its length.
 inline constexpr const char *NCU_EXTENSION = ".ncu";
 //Package archive extension (the container, distinct from the unit).
 inline constexpr const char *NPKG_EXTENSION = ".npkg";
@@ -23,7 +22,7 @@ inline constexpr const char *NPKG_EXTENSION = ".npkg";
 //qualified linkage identity ("<unit>.<name>"). User-visible renders
 //(Object.toString, debugger value displays) name the type as source
 //wrote it — the leaf after the last dot. Frame/function displays stay
-//qualified: the unit prefix there is pinned debugger output.
+//qualified (that prefix is pinned debugger output).
 inline std::string LeafNameOfKey(const std::string &key)
 {
     const size_t lastDot = key.find_last_of('.');
@@ -31,8 +30,7 @@ inline std::string LeafNameOfKey(const std::string &key)
 }
 
 //.ncu format version. Single source of truth shared by the writer
-//(WriteCompiledModule in ModuleSaver.cpp) and the reader (ModuleLoader) —
-//bump both sides atomically by editing only these constants.
+//(ModuleSaver.cpp) and the reader (ModuleLoader); bump both atomically.
 inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //v1.7 (Phase 11): stdlib namespace intrinsics + reserved namespaces. No
 //field-layout change, but the later relational string opcodes share this
@@ -78,13 +76,16 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //v2.1 merges the master and dev lines: the 1.13/1.14 content changes
 //ride on the 2.0 layout. Every older module — any 1.x, and 2.0 images
 //from the pre-merge phase-6 line — is refused outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 1;
+//v2.2 (cross-module function values): the TypeDesc grammar gains
+//RTK_Func (u8 paramCount + paramCount+1 nested descriptors — params
+//then return; see TypeDesc.h). A v2.1 module carries no func signatures:
+//stub formals degrade to int32 placeholders, so function values cannot
+//cross module borders. Refuse v2.1 and older outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 2;
 
-//Runtime type kind constants for serialization.
-//Compile-time NK_* values exceed uint8_t range, so we map them.
-//The scalar codes (RTK_Int32/RTK_Float = 0/1 plus RTK_Byte..RTK_Char
-//= 10..19) live in nlang/runtime/PrimitiveTypes.h — the single source
-//shared by compiler and VM.
+//Runtime type kind constants for serialization (compile-time NK_* values
+//exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
+//RTK_Byte..RTK_Char = 10..19) live in PrimitiveTypes.h — single source.
 static constexpr uint8_t RTK_String = 2;
 static constexpr uint8_t RTK_Struct = 3;
 static constexpr uint8_t RTK_Class  = 4;

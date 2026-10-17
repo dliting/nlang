@@ -57,8 +57,7 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 }
 
 //Rejection gates of BindFuncRefToExpected: the expected type must be a
-//func instantiation, the callee a free function (not a method), a local
-//declaration (imported stubs serialize no parameter signatures) and one
+//func instantiation, the callee a free function (not a method) and one
 //without default parameters. True = rejected with the named diagnostic.
 static bool RejectFuncRefTarget(BuildEnvironment &env,
 	SnIdentifierExpr &idExpr, SnFunction *pFunc, SnField *pExpected)
@@ -80,17 +79,6 @@ static bool RejectFuncRefTarget(BuildEnvironment &env,
 	{
 		env.Log(CLL_Error, idExpr.Location(),
 			"cannot reference the method \"%s\" without a receiver.",
-			idExpr.Name().c_str());
-		return true;
-	}
-	//Imported stubs carry v1.12 type descriptors for their formals, but
-	//func signatures are outside the descriptor grammar — an imported
-	//callee cannot be matched against an expected func type yet.
-	if (pFunc->ContainFlags(NF_Imported))
-	{
-		env.Log(CLL_Error, idExpr.Location(),
-			"cannot reference the imported function \"%s\": parameter "
-			"signatures are not serialized.",
 			idExpr.Name().c_str());
 		return true;
 	}
@@ -199,6 +187,16 @@ static bool HasNativeMethodOverride(SnFunction &method)
 	return false;
 }
 
+//Module-qualified free-function reference (`lib.seven` in a value
+//position): the owner test is the shared IsModuleOwnedFunction
+//(ExprResolver.h). These bind through the same member channel as method
+//references but carry no receiver and always take the static OP_MakeFunc
+//form.
+static bool IsModuleFuncRefTarget(SnFunction *pFunc)
+{
+	return IsModuleOwnedFunction(*pFunc);
+}
+
 //Form gates of BindMemberFuncRefToExpected: the expected type must be a
 //func instantiation, and an enum receiver is rejected outright — enum
 //values are ints, and slot[1] of a handle (a heap index) cannot carry
@@ -210,8 +208,12 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 	if (!IsFuncTypeDecl(pExpected))
 	{
 		env.Log(CLL_Error, snMember.Location(),
-			"bound method reference \"%s\" requires an expected function "
-			"type.", inner.Name().c_str());
+			IsModuleFuncRefTarget(pMethod)
+				? "function reference \"%s\" requires an expected function "
+				  "type."
+				: "bound method reference \"%s\" requires an expected "
+				  "function type.",
+			inner.Name().c_str());
 		return true;
 	}
 	auto *pOwner = pMethod->Parent();
@@ -229,27 +231,32 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 //for by-name bindings, any native override in the dispatch domain) have
 //no callee frame for the receiver, by-name dispatch cannot bake an out
 //mask, and default parameters are filled only on the direct-call path.
-//True = rejected with the named diagnostic.
+//Module-form targets skip the receiver-frame and out-mask arms — a
+//namespace-level native free function is referenceable exactly like a
+//bare-name one (no receiver slot exists to misplace). True = rejected
+//with the named diagnostic.
 static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnFunction *pMethod,
 	SnField *pExpected, bool bDispatchesByName)
 {
-	if (pMethod->ContainFlags(NF_Native)
-		|| (bDispatchesByName && HasNativeMethodOverride(*pMethod)))
+	if (!IsModuleFuncRefTarget(pMethod))
 	{
-		env.Log(CLL_Error, snMember.Location(),
-			"cannot reference the native method \"%s\": native calls have "
-			"no callee frame for the receiver.", inner.Name().c_str());
-		return true;
-	}
-	//The out mask is compiled from the func type, but a by-name handle
-	//resolves the target at runtime — an overriding method's layout may
-	//disagree. Same rationale as the existing virtual-direct-call reject.
-	if (bDispatchesByName)
-	{
+		if (pMethod->ContainFlags(NF_Native)
+			|| (bDispatchesByName && HasNativeMethodOverride(*pMethod)))
+		{
+			env.Log(CLL_Error, snMember.Location(),
+				"cannot reference the native method \"%s\": native calls "
+				"have no callee frame for the receiver.",
+				inner.Name().c_str());
+			return true;
+		}
+		//The out mask is compiled from the func type, but a by-name
+		//handle resolves the target at runtime — an overriding method's
+		//layout may disagree. Same rationale as the virtual-direct-call
+		//reject.
 		const auto &outFlags =
 			GetGenericOutFlags(static_cast<SnClassDecl*>(pExpected));
-		for (size_t k = 1; k < outFlags.size(); ++k)
+		for (size_t k = 1; bDispatchesByName && k < outFlags.size(); ++k)
 		{
 			if (outFlags[k] != 0)
 			{
@@ -261,14 +268,18 @@ static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 		}
 	}
 	//Default parameters are filled only on the direct-call path (mirrors
-	//the free-function reject above).
+	//the free-function reject of the bare-name channel).
 	for (auto &param : pMethod->Params())
 	{
 		if (param.Value())
 		{
 			env.Log(CLL_Error, snMember.Location(),
-				"methods with default parameters cannot be referenced: "
-				"\"%s\".", inner.Name().c_str());
+				IsModuleFuncRefTarget(pMethod)
+					? "functions with default parameters cannot be "
+					  "referenced: \"%s\"."
+					: "methods with default parameters cannot be "
+					  "referenced: \"%s\".",
+				inner.Name().c_str());
 			return true;
 		}
 	}
@@ -286,8 +297,11 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 	//virtual methods and interface declarations dispatch by name at
 	//runtime (StatementResolver's implicit virtual propagation means an
 	//override of a parent virtual method carries NF_Virtual too).
-	bool bDispatchesByName = pMethod->ContainFlags(NF_Virtual)
-		|| (pOwner && pOwner->Kind() == NK_InterfaceDecl);
+	//Module-form targets have no receiver and always take the static
+	//handle — dispatch never resolves by name.
+	bool bDispatchesByName = !IsModuleFuncRefTarget(pMethod)
+		&& (pMethod->ContainFlags(NF_Virtual)
+			|| (pOwner && pOwner->Kind() == NK_InterfaceDecl));
 	if (RejectMemberFuncRefForm(env, snMember, inner, pExpected, pMethod))
 		return false;
 	if (RejectMemberFuncRefSignature(env, snMember, inner, pMethod,
@@ -297,16 +311,18 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 	if (!FuncRefMatchesDecl(*pMethod, pFuncDecl))
 	{
 		env.Log(CLL_Error, snMember.Location(),
-			"method \"%s\" does not match the signature of \"%s\".",
+			IsModuleFuncRefTarget(pMethod)
+				? "function \"%s\" does not match the signature of \"%s\"."
+				: "method \"%s\" does not match the signature of \"%s\".",
 			inner.Name().c_str(), pFuncDecl->Name().c_str());
 		return false;
 	}
 	//Bound state is structural (same as the bare-name form): the member
 	//carries the func declaration while Field() stays the SnFunction;
-	//codegen emits receiver + OP_MakeBoundFunc/OP_MakeVFunc. The inner
-	//identifier carries the func type too — the end-of-build sweep (loose
-	//predicate) would otherwise flag every bound member reference through
-	//it.
+	//codegen emits receiver + OP_MakeBoundFunc/OP_MakeVFunc for a method
+	//form, or a bare OP_MakeFunc for a module form. The inner identifier
+	//carries the func type too — the end-of-build sweep (loose predicate)
+	//would otherwise flag every bound member reference through it.
 	snMember.EvalDataType(pFuncDecl);
 	inner.EvalDataType(pFuncDecl);
 	return true;
@@ -357,8 +373,12 @@ bool IsUnboundFuncRef(SyntaxNode &expr)
 //resolved to a method of a class/interface/enum. Unbound while the
 //member's own signature does not satisfy the func type it carries (the
 //same round-1 F1 discipline as IsUnboundFuncRef: a func RETURN type
-//leaking through the member tail is not a binding). Struct methods and
-//module functions never match — they stay on their existing channels.
+//leaking through the member tail is not a binding). Struct methods stay
+//on their existing channels. Module-level free functions
+//(`lib.name` — namespace owner, or no parent at all for a detached
+//imported stub) join this channel since signatures serialize: the
+//bind sites and the overload-distance machinery are shared, only the
+//codegen arm differs (no receiver, static OP_MakeFunc).
 bool IsUnboundMemberFuncRef(SyntaxNode &expr)
 {
 	if (expr.Kind() != NK_MemberExpr)
@@ -371,9 +391,10 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr)
 	if (!pMethod || pMethod->Kind() != NK_Function)
 		return false;
 	auto *pOwner = pMethod->Parent();
-	if (!pOwner || (pOwner->Kind() != NK_ClassDecl
+	if (pOwner && !IsModuleOwnedFunction(*pMethod)
+		&& pOwner->Kind() != NK_ClassDecl
 		&& pOwner->Kind() != NK_InterfaceDecl
-		&& pOwner->Kind() != NK_EnumDecl))
+		&& pOwner->Kind() != NK_EnumDecl)
 		return false;
 	auto *pType = snMember.EvalDataType();
 	if (IsFuncTypeDecl(pType)

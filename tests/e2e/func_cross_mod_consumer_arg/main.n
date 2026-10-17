@@ -1,0 +1,9 @@
+//Cross-module positive — see lib.n. Exit 2 when the consumer-module
+//function dbl reaches apply's func formal as a working handle.
+import lib;
+
+int dbl(int x) { return x * 2; }
+
+int main() {
+    return lib.apply(dbl);
+}

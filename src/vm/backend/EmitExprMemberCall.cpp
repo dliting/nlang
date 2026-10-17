@@ -60,6 +60,18 @@ void VmBackend::EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
     emitter.EmitUint16(resultOffset);
 }
 
+//v2.2: module-qualified free-function reference (lib.seven in value
+//position) — the bare OP_MakeFunc form of the identifier arm (no
+//receiver); a cross-unit reference becomes an import placeholder the
+//load-time linker resolves. A method form never reaches here (the
+//dispatch splits the shapes before calling). The byte stream is exactly
+//the identifier arm's, so the body delegates to it.
+void VmBackend::EmitModuleFuncHandleRef(SnField& func,
+                                        BytecodeEmitter& emitter,
+                                        uint16_t resultOffset) {
+    EmitIdentifierFuncHandleRead(emitter, resultOffset, &func);
+}
+
 //Phase 12: user-defined enum method call (c.rank(),
 //Color.Blue.rank(), this.weight()). Detection is by the resolver
 //binding: invoke.Field() is the SnFunction whose parent is the

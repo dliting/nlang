@@ -141,6 +141,27 @@ void VmBackend::Access(SnMemberExpr& expr) {
                                resultOffset);
 }
 
+//Shared shape of a function reference in value position: a function
+//field whose inner node is the plain identifier and whose type is the
+//expected func declaration (c.foo / lib.seven).
+static bool IsValueFuncRefShape(SnField& field, SnMemberExpr& member) {
+    return field.Kind() == NK_Function
+        && member.Inner()
+        && member.Inner()->Kind() == NK_IdentifierExpr
+        && member.EvalDataType()
+        && member.EvalDataType()->Kind() == NK_ClassDecl
+        && static_cast<SnClassDecl*>(
+            member.EvalDataType())->IsFuncType();
+}
+
+//v2.2: module-qualified free-function reference (`lib.seven`): the
+//function is owned by a namespace — or by nothing at all for a detached
+//imported stub. These carry no receiver, unlike the bound-method form.
+static bool IsModuleFuncRefTarget(SnField& field) {
+    auto* owner = field.Parent();
+    return owner == nullptr || owner->Kind() == NK_Namespace;
+}
+
 //Access head phase: namespace-qualified stdlib call, enum member constant,
 //Phase 13 bound method reference, Phase 12 enum method call. Returns true
 //when one of these families emitted the expression.
@@ -173,16 +194,15 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
         emitter.EmitUint16(resultOffset);
         return true;
     }
-    //Phase 13 Step 2: bound method reference (c.foo in value position) —
-    //the full shape note travels with the emission in EmitMemberFuncHandleRef.
-    if (field && field->Kind() == NK_Function
-        && member.Inner()
-        && member.Inner()->Kind() == NK_IdentifierExpr
-        && member.EvalDataType()
-        && member.EvalDataType()->Kind() == NK_ClassDecl
-        && static_cast<SnClassDecl*>(
-            member.EvalDataType())->IsFuncType()) {
-        EmitMemberFuncHandleRef(member, field, emitter, resultOffset);
+    //Function references in value position: the module form first
+    //(lib.seven, v2.2 — receiver-less static OP_MakeFunc), then the
+    //bound-method form (c.foo, Phase 13 Step 2). The full shape notes
+    //travel with the emission helpers.
+    if (field && IsValueFuncRefShape(*field, member)) {
+        if (IsModuleFuncRefTarget(*field))
+            EmitModuleFuncHandleRef(*field, emitter, resultOffset);
+        else
+            EmitMemberFuncHandleRef(member, field, emitter, resultOffset);
         return true;
     }
     if (EmitMemberEnumMethodCall(member, emitter, resultOffset))

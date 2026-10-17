@@ -247,6 +247,62 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 	return true;
 }
 
+//v2.2: module-qualified free-function VALUE reference — `lib.seven`,
+//where the tip names a function of an imported module (the value form of
+//TryResolveModuleQualified's call form; signatures serialize since the
+//func TypeDesc grammar). The chain resolves into the same pending state
+//as a bound method reference, so every shared bind site (assign /
+//init-list / invoke-argument matching) lights up unchanged. True =
+//consumed (resolved or diagnosed); false = declined — the tip is no
+//function of the module and the package-value / generic paths keep the
+//chain.
+bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
+{
+	std::vector<std::string> segs = OuterIdentifierChain(snMember);
+	if (segs.empty() || !snMember.Inner()
+		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
+		return false;
+	segs.push_back(
+		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
+
+	//m12 priority: the leftmost local/field/type wins (as for calls).
+	if (ProbeNonFunctionField(segs.front())
+		|| IsBuiltinClassName(segs.front()))
+		return false;
+
+	const std::string funcName = segs.back();
+	std::string modulePath;
+	for (size_t i = 0; i + 1 < segs.size(); ++i)
+	{
+		if (!modulePath.empty())
+			modulePath += ".";
+		modulePath += segs[i];
+	}
+
+	//Candidates BEFORE the import gate: a chain whose middle segment is a
+	//function, not a module (io.print.nope), finds no functions here and
+	//declines — the package-value / generic paths keep it and report the
+	//real member diagnostic. Only a resolved function reference of a
+	//registered-but-unimported module reaches the import wording below.
+	auto candidates = m_Env.Registry().ModuleFunctions(modulePath, funcName);
+	if (candidates.empty())
+		return false;
+
+	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
+		return true;
+
+	//Bind tip + member exactly like FinishResolvedMember does — the
+	//pending state carries the function's return type until an expected
+	//func type binds the reference (TryBindStatementFuncRef, invoke
+	//argument matching). Overloads resolve like the bare-name form: the
+	//first declaration under the name.
+	auto *pFunc = candidates.front();
+	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()), pFunc);
+	ResolveFieldExprAs(snMember, pFunc);
+	FinishConsumedMember(snMember);
+	return true;
+}
+
 //Non-function probe for the m12 priority test: true when the name
 //resolves as a local / field / type in the current context. A FUNCTION
 //with the same name counts as a miss — function names must not shadow a

@@ -40,9 +40,39 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
 		AppendTypeDescBytes(out, td.elems[0]);
 		AppendTypeDescBytes(out, td.elems[1]);
 	}
+	else if (td.kind == RTK_Func)
+	{
+		//v2.2: u8 paramCount, then paramCount+1 nested descriptors
+		//(params in declaration order, return last).
+		if (td.elems.empty())
+			throw std::runtime_error(
+				"type descriptor arity violation: func without its "
+				"return descriptor");
+		out.push_back(static_cast<uint8_t>(td.elems.size() - 1));
+		for (const auto &elem : td.elems)
+			AppendTypeDescBytes(out, elem);
+	}
 }
 
 namespace {
+
+TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
+	size_t depth);
+
+//RTK_Func body: u8 paramCount, then the params and the return as nested
+//descriptors (mirror of AppendTypeDescBytes). The depth cap rides the
+//recursion like the container arms.
+void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
+	size_t& pos, size_t depth)
+{
+	if (pos >= size)
+		throw std::runtime_error(
+			"Invalid module: truncated type descriptor");
+	const uint8_t paramCount = pData[pos++];
+	for (uint8_t param = 0; param < paramCount; ++param)
+		td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+	td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+}
 
 TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	size_t depth)
@@ -72,9 +102,15 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
 			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
 			break;
+		case RTK_Func:
+			ParseFuncElems(td, pData, size, pos, depth);
+			break;
 		case RTK_String:
 		case RTK_Boxed:
-		case RTK_Func:
+		//Void leaf: legal only as the return slot of an RTK_Func
+		//descriptor — a top-level one degrades to the int32 placeholder
+		//on the consumer side.
+		case RTK_Void:
 		case RTK_NonSerialized:
 			break;
 		default:
@@ -195,9 +231,37 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 			auto* pClass = static_cast<SnClassDecl*>(pType);
 			if (pClass->IsFuncType())
 			{
-				//func signatures are outside the v1.12 descriptor grammar
-				//— consumers keep the placeholder rejection.
-				td.kind = RTK_NonSerialized;
+				//v2.2: func signatures serialize — the synthetic class
+				//carries the signature as its generic type args
+				//(args[0] = return, args[1..] = params). Wire order is
+				//params first, return last. Depth cap mirrors the
+				//container arms: a signature nested at the cap would
+				//write children one past it and the loader would reject
+				//the module ncc just wrote.
+				if (depth >= kMaxTypeDescDepth)
+				{
+					td.kind = RTK_NonSerialized;
+					return td;
+				}
+				const auto &args = pClass->GenericTypeArgs();
+				if (args.empty())
+				{
+					//Defensive: GetGenericClassDecl enforces arity >= 1,
+					//so a func decl without type args cannot come from
+					//the resolver.
+					td.kind = RTK_NonSerialized;
+					return td;
+				}
+				td.kind = RTK_Func;
+				for (size_t i = 1; i < args.size(); ++i)
+					td.elems.push_back(
+						BuildTypeDesc(args[i], slots, depth + 1));
+				//Void is expressible only as the func return slot —
+				//the grammar has no other void leaf position.
+				td.elems.push_back(
+					args[0]->Kind() == NK_Void
+						? TypeDesc{RTK_Void}
+						: BuildTypeDesc(args[0], slots, depth + 1));
 				return td;
 			}
 			if (pClass->IsGenericInstantiation())

@@ -1,0 +1,10 @@
+//Regression pin (v2.2 review): a chain whose middle segment is a FUNCTION
+//of a package (io.print) must keep the generic package-value diagnostic
+//when the tip is not a member — the module func-value interception
+//(candidates-before-import-gate) declines it instead of reporting a
+//bogus "Module 'io.print' is not imported".
+import io;
+
+int main() {
+    return io.print.nope;
+}

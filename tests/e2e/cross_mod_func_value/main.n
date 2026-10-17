@@ -1,0 +1,13 @@
+//Cross-module function values (positive): take a module-qualified function
+//reference as a value (lib.seven), pass an imported function to an
+//imported function's func-typed parameter (lib.apply(lib.inc)), and bind
+//a void-return signature (func<void, int> h = lib.log).
+//Exit 9 only when all three handle forms survive the .ncu stub path.
+import lib;
+
+int main() {
+    func<int, int> g = lib.seven;
+    func<void, int> h = lib.log;
+    h(1);
+    return g(1) + lib.apply(lib.inc);
+}

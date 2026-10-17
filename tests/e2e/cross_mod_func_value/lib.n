@@ -1,0 +1,9 @@
+//Cross-module function values (positive): the .ncu stub path serializes
+//func signatures (v2.2 TypeDesc grammar), so apply's func formal keeps its
+//real type and seven/inc/log are referenceable as module-qualified values.
+int seven(int x) { return 7; }
+int apply(func<int, int> f) { return f(1); }
+int inc(int x) { return x + 1; }
+//Void-return signatures serialize too (RTK_Void legal only as the func
+//return slot) — the reference must bind a func<void, int> expectation.
+void log(int x) { }

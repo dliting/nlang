@@ -190,10 +190,10 @@ private:
 	//source, so the consumer's normal ResolveDataTypes pass binds and
 	//interns it through the standard channels (named types resolve against
 	//the root, where this builder placed the imported struct/class stubs;
-	//the List/Dict base names go through the built-in generic
+	//the List/Dict/func base names go through the built-in generic
 	//instantiation path; builtin scalar kinds arrive pre-bound via the
-	//NodeKind ctor). NonSerialized (interface/func types, defensive
-	//misses) degrades to the int32 placeholder.
+	//NodeKind ctor). NonSerialized (interface types, defensive misses)
+	//degrades to the int32 placeholder.
 	SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 		const CompiledModule &cm, const ISourceLocation &loc)
 	{
@@ -244,6 +244,31 @@ private:
 					return new SnGenericTypeExpr(
 						new SnIdentifierExpr(
 							new std::string(kBuiltinDictTypeName), loc),
+						pArgs, loc);
+				}
+				break;
+			case RTK_Func:
+				//v2.2: wire order is params..., return — the func<R, P...>
+				//spelling takes the return first. The generic-expression
+				//shape routes through the resolver's synthetic-decl cache
+				//(GetGenericClassDecl), so the rebuilt type is pointer-
+				//identical to the consumer's own func<...> syntax — the
+				//identity FuncRefMatchesDecl's argument check relies on.
+				if (!td.elems.empty())
+				{
+					auto *pArgs = new std::vector<SnFieldExpr*>();
+					//Void serializes as the RTK_Void leaf; rebuild the
+					//same NK_Void node the parser mints for func<void,...>.
+					pArgs->push_back(td.elems.back().kind == RTK_Void
+						? static_cast<SnFieldExpr*>(
+							new SnIdentifierExpr(NK_Void, loc))
+						: SynthTypeExprFromDesc(td.elems.back(), cm, loc));
+					for (size_t i = 0; i + 1 < td.elems.size(); ++i)
+						pArgs->push_back(
+							SynthTypeExprFromDesc(td.elems[i], cm, loc));
+					return new SnGenericTypeExpr(
+						new SnIdentifierExpr(
+							new std::string(kBuiltinFuncTypeName), loc),
 						pArgs, loc);
 				}
 				break;

@@ -53,10 +53,18 @@ static constexpr size_t kMaxParamDescCount = 256;
 //  RTK_Array              : 1 nested element descriptor
 //  RTK_List               : 1 nested T descriptor
 //  RTK_Dict               : 2 nested K, V descriptors
+//  RTK_Func               : u8 paramCount, then paramCount+1 nested
+//                           descriptors (params in declaration order,
+//                           return last; the return is RTK_Void for a
+//                           void signature). Out markers inside a
+//                           signature (func<int, out int>) do not
+//                           serialize — such a signature rebuilds as
+//                           the unmarked func<int, int>, which rejects
+//                           marked references conservatively.
 //  every scalar kind (RTK_Int32/RTK_Float plus RTK_Byte..RTK_Char) /
-//  RTK_String / RTK_Boxed / RTK_Func / RTK_NonSerialized : kind byte only
+//  RTK_String / RTK_Boxed / RTK_Void / RTK_NonSerialized : kind byte only
 //RTK_NonSerialized is the "type present but not expressible" sentinel
-//(interface types, func<...> signatures, defensive lookup misses) —
+//(interface types, defensive lookup misses, depth-cap escapes) —
 //consumers degrade to the int32 placeholder for those, matching the
 //pre-v1.12 stub behavior.
 struct TypeDesc
@@ -112,10 +120,10 @@ struct TypeLeafSlots
 
 //Build the descriptor for one resolved type (a declaration field or an
 //interned array token; never a raw syntactic expression). Kinds without
-//a table slot (interfaces, func signatures, containers nested at
-//kMaxTypeDescDepth) degrade to RTK_NonSerialized; struct/class leaves
-//resolve through slots. Defined in TypeDesc.cpp — vm-internal, may
-//include compiler headers.
+//a wire form (interfaces) or nested past kMaxTypeDescDepth degrade to
+//RTK_NonSerialized; func signatures serialize as RTK_Func; struct/class
+//leaves resolve through slots. Defined in TypeDesc.cpp — vm-internal,
+//may include compiler headers.
 TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 	size_t depth = 0);
 

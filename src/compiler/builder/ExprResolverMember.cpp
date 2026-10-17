@@ -252,6 +252,11 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	//and a declined chain leaves normal resolution untouched.
 	if (TryResolveModuleQualified(snMember))
 		return true;
+	//v2.2: `lib.funcName` in a value position — the pending function
+	//reference (shared channel with bound method references). Non-function
+	//tips decline to the package-value path below.
+	if (TryResolveModuleFuncValue(snMember))
+		return true;
 	//Phase 5: the package-qualified value chain (`alib.Color.Green`) —
 	//same position, same consumption contract (declines leave the generic
 	//path untouched).

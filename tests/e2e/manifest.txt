@@ -1036,7 +1036,10 @@ func_enum_method_reject compile_error cannot reference the enum method
 func_iface_decl_ref_reject compile_error Incompatible type
 func_cross_module_reject compile_error
 func_dict_key_reject compile_error cannot be used as Dict keys
-func_cross_module_arg_reject compile_error parameter signatures are not serialized
+func_cross_mod_consumer_arg 2
+cross_mod_func_value 9
+cross_mod_func_value_mismatch compile_error no parameter signature matches
+io_func_chain_member_error compile_error is not a member of package
 func_bound_native_reject compile_error cannot reference the native method
 func_bound_iface_native_reject compile_error cannot reference the native method
 func_bound_defaults_reject compile_error default parameters cannot be referenced
