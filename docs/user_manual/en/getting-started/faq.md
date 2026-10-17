@@ -175,20 +175,6 @@ Serialization](../vm-architecture/module-serialization.md), the
 "Version history" section; the rationale for each rise is in the
 corresponding CHANGELOG release section.
 
-### Cross-module function values / complex defaults / named arguments rejected?
-
-The `.ncu` type descriptors carry only data types — not `func`
-signatures or parameter names — so these cross-module shapes are
-rejected at the consumer's compile time: referencing an imported
-function as a function value, passing a function reference to an
-imported function, a non-constant-foldable default parameter, and a
-named argument to an imported function (use positional arguments only).
-See [Language Specification / Known Limitations](../language-spec/known-limitations.md),
-the "Cross-module function values are rejected, not transported",
-"Default parameters on imported functions" and "Named arguments on
-imported functions" items. See [Common Error
-Messages](../language-spec/common-errors.md) for the full error text.
-
 ### Condition / `&&` / `||` / `!` says "must be bool"? More than 64 parameters?
 
 The condition of `if` / `while` / `do-while` / `for` / `assert` and the

@@ -65,12 +65,12 @@ importing it reports a "not imported" diagnostic — for example, calling
 Add 'import io;' at the top of this file.`. See →
 [Declarations](declarations.md) "Import Declaration".
 
-### Default parameters and function values
+### Default expressions on imported functions
 
 ```nlang
 // lib.n
 int helper() { return 1; }
-int g(int a = helper()) { return a; }
+int g(int a = helper() as int) { return a; }
 
 // main.n
 import lib;
@@ -80,19 +80,17 @@ int main() {
 ```
 
 ```text
-Error: imported function 'g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
+Error: imported function 'lib.g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
 ```
 
-The `.ncu` type descriptor carries only data types — an imported
-function's non-constant-foldable default, and a cross-module function
-value reference (a `func` signature is beyond the descriptor syntax),
-are both rejected on the consumer side; the function-value
-form reports `function "pick" does not match the signature of
-"func<Int32, Int32>"`.
-See → [Default Parameters](default-parameters.md) and [Known
-Limitations](known-limitations.md), the "Default parameters on imported
-functions" and "Cross-module function values are rejected, not
-transported" items.
+A default expression crosses the `.ncu` boundary only inside the
+serialized subset: literals (including string and null), references to
+earlier formal parameters, calls to the producing module's own free
+functions, unary negation, and `+` `-` `*` `/` `%` arithmetic over
+those — still evaluated at each call site. Casts, member access, and
+calls nested as arguments sit outside the subset; importing the
+function rejects them on the consumer side with the error above.
+See → [Default Parameters](default-parameters.md).
 
 ### Declarations and control flow
 

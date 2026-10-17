@@ -6,6 +6,42 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.5] - 2026-10-17
+
+### Changed
+
+- **The `.ncu` import path now matches the source-inline path** — three
+  cross-module limitations are gone. Imported functions accept named
+  arguments: stubs carry the real formal names, so named, positional,
+  and mixed argument lists work across module borders. Function values
+  cross module boundaries: bind `func<int,int> g = lib.seven;`, pass a
+  function reference to an imported function's func-typed parameter —
+  `func` signatures serialize in the type descriptor, `func<void, T>`
+  included. Complex default parameters survive the wire through a
+  serialized expression subset — references to earlier formals, calls
+  to the producing module's own functions, unary negation, and
+  `+` `-` `*` `/` `%` arithmetic over those, plus string constants —
+  still evaluated at each call site. Expressions outside the subset
+  (casts, member access, calls nested as arguments) keep their
+  consumer-side rejection.
+- **`.ncu` format version 2.3** (2.2 puts `func` signatures into the
+  type descriptors, 2.3 puts default-value expressions into the image):
+  the loader refuses images below the current version, so modules
+  compiled by an older ncc must be recompiled.
+- **The import-gate policy lives in one place**: the visibility rule
+  for cross-module references (stub-synthesized references bypass the
+  consumer gate, source references require the module in the gate) is
+  now `ModuleRegistry::ImportGateAllows` instead of being re-encoded
+  at each call site.
+
+### Fixed
+
+- **Moved `UniquePtrCollection` items leaked at destruction**: the move
+  constructor took over the items but not their deleter, so every item
+  moved into a destination container (`UniquePtrList`, `AutoPtrVector`)
+  leaked. The move operations now transfer the deleter along with the
+  items.
+
 ## [0.9.4] - 2026-10-17
 
 ### Changed

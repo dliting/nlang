@@ -97,24 +97,6 @@
   elements.
 - **Eager materialization cost**: `Point[n]` allocates n+1 heap
   slots at creation (array + one struct per element).
-- **Default parameters on imported functions**: cross-module imported
-  functions support **constant-foldable** defaults only — int / float /
-  string / null literals, plus single negation of numeric literals
-  (`-5`, `-3.14`). Complex defaults (identifier references like
-  `b = a`, function calls like `b = helper()`, casts, binary
-  expressions other than unary `-`, `this.field` references) are
-  rejected at the **consumer side** with a compile error. Producers
-  (the imported module) accept any default expression; the restriction
-  applies only when the consumer imports the function. Workaround for
-  complex cross-module defaults: write a wrapper in the producer
-  module that has only literal defaults, and have the consumer call
-  the wrapper.
-- **Named arguments on imported functions**: cross-module named
-  arguments (`foo(b = 5, a = 3)` where `foo` is imported) are not
-  supported. The consumer-side stub uses placeholder formal names
-  (`p0`, `p1`, ...) because the `.ncu` format does not carry formal
-  names. Use positional arguments only when calling imported
-  functions.
 - **Default parameters on interface methods**: defaults on interface
   method declarations are legal and resolve from the call site's static
   type — an interface-typed call with an omitted argument is filled with
@@ -133,6 +115,14 @@
   imports), so subclass override-signature checking is idle in that
   direction; when the imported module's source is present, the check
   applies normally.
+- **Members of imported classes are unreachable through `.ncu`
+  imports**: the class stub carries no members — field reads (`w.w`)
+  and method calls (plain non-virtual ones included, `w.doubled()`)
+  fail with not-found/resolution errors, and construction is not wired
+  up either (it reports a backend internal error). The class name is
+  still usable as a type: declaring a variable of it and receiving
+  instances returned by the producing module's own functions both
+  work; imports with the source present are unaffected.
 - **Parameter count ceiling**: functions with more than 64 parameters
   (a sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — the call-argument staging area and
@@ -151,12 +141,6 @@
   references to the same function are distinct heap records, so a
   freshly created reference never `contains`-matches a stored one.
   Documented inconsistency with `==` (content equality).
-- **Cross-module function values are rejected, not transported**:
-  referencing an imported function, or passing a function reference to
-  an imported function, is a compile error (function signatures stay
-  outside the `.ncu` type-descriptor grammar, which carries data types
-  only). Lifting this requires extending the grammar to `func`
-  signatures.
 - **`const`-led top-level functions**: `const int f(){}` does not
   parse, because the `const` entry goes down the same grammar path as
   const statements: the prefix `const int f(` is indistinguishable

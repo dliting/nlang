@@ -13,7 +13,7 @@ Compiled unit images are saved as `.ncu` files with this layout:
 ```text
 "NLANGCU "    magic (8 bytes, NUL-padded)
 uint16 majorVer = 2
-uint16 minorVer = 1
+uint16 minorVer = 3
 string modulePath        v2.0: this unit's dotted module path (package identity)
 string moduleName
 string entryKey          v2.0: the entry function's qualified name; empty = no entry
@@ -36,7 +36,10 @@ uniformly, and no opcode distinction is needed. The entry is no longer
 serialized as an index: the program package's entry record (in the
 `.npkg` header) or the bare unit's `<modulePath>.main` convention
 resolves it to a table index by qualified name at load time. The
-minimum format version is 2.0: the loader refuses every v1.x image outright, so
+minimum format version only rises with the toolchain (currently 2.3;
+from 2.2 the function table carries formal names and `func`
+signatures, from 2.3 default-value expressions serialize with the
+image): the loader refuses any image below the current version, so
 older modules must be recompiled.
 
 Each struct includes: name, fieldCount, fieldNames[], fieldTypeKinds[],

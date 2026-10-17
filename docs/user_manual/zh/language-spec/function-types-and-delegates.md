@@ -76,6 +76,5 @@ int main() {
 - **`Dict<func<...>, V>`**——`func`作Dict键（见上文恒等说明）。
 - **装箱成`Object`**（`Object o = f`）——经泛型的不兼容类型诊断拒绝。
 - **`func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`）。
-- **跨模块**：引用被导入的函数，或把函数引用传**给**被导入的函数（`.ncu`不序列化参数签名）。
 - 函数值作`switch`判别式（没有case家族能匹配）。
 - 函数值不能穿过序列化应用程序编程接口（API，application programming interface）——对持有`func`字段的struct/class调`writeStruct` / `writeObject`是运行期错误。

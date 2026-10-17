@@ -7,7 +7,7 @@
 ```text
 "NLANGCU "    magic (8 bytes, NUL-padded)
 uint16 majorVer = 2
-uint16 minorVer = 1
+uint16 minorVer = 3
 string modulePath        v2.0：本单元的点分模块路径（包身份）
 string moduleName
 string entryKey          v2.0：入口函数的限定名；空 = 本单元无入口
@@ -20,7 +20,7 @@ enumNames[] / enumKeys[] 并行的两张枚举表
 importSlots × 4          v2.0：function/class/struct/enum 四张导入槽表
 ```
 
-四张导入槽表各为一列「模块路径 + 名字 + 形参数」条目（函数表另带ownerClassKey，空 = 命名空间级函数）。自有条目占用各表前缀下标0..n-1，导入槽追加在其后（n..n+m）——跨单元调用的操作数与自有调用共用同一个下标空间，链接器对全部操作数统一重映射，无需区分操作码。入口不再序列化为索引：程序包的入口记录（`.npkg`头部）或裸单元的`<modulePath>.main`约定，在加载期按限定名解析成表下标。最低格式版本为2.0：加载器直接拒绝一切v1.x映像，旧模块必须重新编译。
+四张导入槽表各为一列「模块路径 + 名字 + 形参数」条目（函数表另带ownerClassKey，空 = 命名空间级函数）。自有条目占用各表前缀下标0..n-1，导入槽追加在其后（n..n+m）——跨单元调用的操作数与自有调用共用同一个下标空间，链接器对全部操作数统一重映射，无需区分操作码。入口不再序列化为索引：程序包的入口记录（`.npkg`头部）或裸单元的`<modulePath>.main`约定，在加载期按限定名解析成表下标。最低格式版本随工具链只升不降，当前为2.3（2.2起函数表携带形参名与`func`签名，2.3起默认值表达式随映像序列化）：加载器拒绝一切低于当前版本的映像，旧模块必须重新编译。
 
 每个struct包含：name、fieldCount、fieldNames[]、fieldTypeKinds[]、fieldStructIndices[]、fieldClassIndices[]、fieldTypeDescs[]。
 

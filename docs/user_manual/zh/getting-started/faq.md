@@ -75,11 +75,6 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 `.ncu`格式的最低版本要求只升不降：旧ncc产出的模块会因版本过时被加载器拒绝（`Module version ... is outdated; recompile with current ncc`），须用当前工具链重新编译。各版本最低要求与语义变更见[VM架构/模块序列化](../vm-architecture/module-serialization.md)的「版本历史」，每次抬升的缘由在CHANGELOG对应版本节。
 
-### 跨模块函数值 / 复杂默认参数 / 具名实参被拒？
-
-`.ncu`的类型描述符只承载数据类型，不携带`func`签名与形参名，因此以下跨模块形态被消费侧编译期拒绝：引用被导入函数作为函数值、给被导入函数传函数引用、非常量折叠的默认参数、以及被导入函数的具名实参（请只用位置实参）。详见[语言规格/已知限制](../language-spec/known-limitations.md)的「跨模块函数值被拒绝而非搬运」「被导入函数的默认参数」「被导入函数的具名实参」条。完整错误消息见 →
-[常见错误消息](../language-spec/common-errors.md)。
-
 ### 条件 / `&&` / `||` / `!`报「必须bool」？参数超64？
 
 `if` / `while` / `do-while` / `for` / `assert`的条件与`&&` / `||` /

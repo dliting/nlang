@@ -49,12 +49,12 @@ Error: Module 'nosuch' not found. Check the project Sources list or -I import pa
 `import`只开放限定名。未`import`就引用标准库包的成员（以及已知工程模块的成员）会报「未导入」——例如未`import io;`就调用`io.print`，报`Package 'io' is not imported. Add 'import io;' at the top of this
 file.`。详见 → [声明](declarations.md)「import声明」。
 
-### 默认参数与函数值
+### 被导入函数的默认表达式
 
 ```nlang
 // lib.n
 int helper() { return 1; }
-int g(int a = helper()) { return a; }
+int g(int a = helper() as int) { return a; }
 
 // main.n
 import lib;
@@ -64,11 +64,10 @@ int main() {
 ```
 
 ```text
-Error: imported function 'g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
+Error: imported function 'lib.g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
 ```
 
-`.ncu`类型描述符只承载数据类型——被导入函数的非常量折叠默认值、以及跨模块函数值引用（`func`签名在描述符文法之外）都在消费侧被拒；函数值形态报`function "pick" does not match the signature of
-"func<Int32, Int32>"`。详见 → [默认参数](default-parameters.md)与[已知限制](known-limitations.md)「被导入函数的默认参数」「跨模块函数值被拒绝而非搬运」条。
+默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。默认参数语义见 → [默认参数](default-parameters.md)。
 
 ### 声明与控制流
 
