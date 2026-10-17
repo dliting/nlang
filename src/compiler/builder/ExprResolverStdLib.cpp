@@ -93,13 +93,10 @@ bool ExprResolveAccessor::RejectUnimportedModuleCall(
 {
 	auto &reg = m_Env.Registry();
 	const uint32_t owner = reg.OwnerOfContext(*m_pContext);
-	//Stub-synthesized references (nearest owner an EXTERNAL registry
-	//entry — source nodes are never owned by one) name a module their
-	//producer legitimately references: no consumer-side import gate.
-	//Mirrors Access(SnQualifiedTypeExpr).
-	if (reg.IsExternal(owner))
-		return false;
-	if (reg.IsModuleImported(owner, modulePath))
+	//Single-point import-gate policy (ModuleRegistry::ImportGateAllows):
+	//stub-synthesized calls (external owner) bypass the consumer gate;
+	//source calls must have the module in this TU's gate.
+	if (reg.ImportGateAllows(owner, modulePath))
 		return false;
 	if (modulePath.find('.') == std::string::npos)
 	{

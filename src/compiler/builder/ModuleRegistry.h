@@ -113,6 +113,19 @@ public:
 	//NO_OWNER-safe (no m_modules[NO_OWNER] indexing).
 	bool IsModuleImported(uint32_t moduleIndex,
 		const std::string& dottedPath) const;
+	//The import-gate policy in one place: may the module at moduleIndex
+	//reference dottedPath? A node synthesized from an imported module's
+	//signature (its nearest owner is an EXTERNAL registry entry) was not
+	//authored by the consumer — its references were already validated
+	//when the producer compiled, so the consumer-side gate does not
+	//apply. Otherwise dottedPath must be listed in the TU's gate (exact
+	//or wildcard). NO_OWNER never passes (see IsModuleImported).
+	bool ImportGateAllows(uint32_t moduleIndex,
+		const std::string& dottedPath) const
+	{
+		return IsExternal(moduleIndex)
+			|| IsModuleImported(moduleIndex, dottedPath);
+	}
 	//Module import visibility (D1/D7): shared "same bare pool" core —
 	//bare-visible entities live in one pool per directory, so same-
 	//directory modules always collide and cross-directory ones never do.

@@ -95,6 +95,8 @@ bool ExprResolveAccessor::CollectInvokeCandidates(SnInvokeExpr &invoke,
 	auto &sFuncName = invoke.CalleeName();
 	//D1/D7: the bare pool only spans the current TU's directory; the
 	//candidate filter below is fed with the context owner computed once.
+	//This is the BARE-POOL owner filter (ShareBarePool), not the import
+	//gate — the gate policy lives in ModuleRegistry::ImportGateAllows.
 	const uint32_t curModule = m_Env.Registry().OwnerOfContext(*m_pContext);
 
 	SyntaxNode *pParent = m_pContext;

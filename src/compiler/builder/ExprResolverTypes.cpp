@@ -207,14 +207,10 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 	const std::string nsPath = qtype.NamespacePath();
 	auto &reg = m_Env.Registry();
 	const uint32_t curModule = reg.OwnerOfContext(qtype);
-	//The import gate protects references THIS TU's source wrote. A
-	//reference synthesized from an imported module's signature (its
-	//nearest owner is an EXTERNAL registry entry — source nodes are
-	//never owned by one) was not authored by the consumer: it names a
-	//type its own module legitimately owns, so it binds directly
-	//through the registry, no consumer-side import required.
-	if (!reg.IsExternal(curModule)
-		&& !reg.IsModuleImported(curModule, nsPath))
+	//Single-point import-gate policy (ModuleRegistry::ImportGateAllows):
+	//stub-synthesized references (external owner) bypass the consumer
+	//gate; source references must have the path in this TU's gate.
+	if (!reg.ImportGateAllows(curModule, nsPath))
 	{
 		RejectUnimportedQualifiedType(qtype, nsPath);
 		return;
@@ -293,6 +289,8 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	//the current TU's directory too — foreign root/namespace function
 	//candidates are skipped (ownerless symbols stay visible). curModule is
 	//computed once and shared by the filter and the visibility hint below.
+	//This is the BARE-POOL owner filter (IsBareVisible), not the import
+	//gate — the gate policy lives in ModuleRegistry::ImportGateAllows.
 	const uint32_t curModule = m_Env.Registry().OwnerOfContext(*m_pContext);
 	std::function<bool(SnField &)> bareFuncFilter =
 		[this, curModule](SnField &field) -> bool

@@ -100,7 +100,12 @@ SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 		for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
 		{
 			const std::string& path = reg.ModulePathOf(i);
-			if (i != curModule && !reg.IsModuleImported(curModule, path))
+			//Candidate enumeration through the single-point import-gate
+			//policy (ModuleRegistry::ImportGateAllows): an external owner
+			//(stub context) sees every module — its references were
+			//validated at the producer's own compile; the hits below still
+			//pin the type identity (kind + dedup + ambiguity check).
+			if (i != curModule && !reg.ImportGateAllows(curModule, path))
 				continue;
 			if (dotted && path != prefix)
 				continue;
