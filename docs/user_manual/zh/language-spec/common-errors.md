@@ -64,7 +64,7 @@ int main() {
 ```
 
 ```text
-Error: imported function 'lib.g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
+Error: imported function 'lib.g' has a default for parameter 0 outside the cross-module subset; supported: int/float/double/long/ulong/string/null literals, formal parameter references, unary negation, calls to the exporting module's functions, and + - * / % arithmetic over those
 ```
 
 默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。默认参数语义见 → [默认参数](default-parameters.md)。

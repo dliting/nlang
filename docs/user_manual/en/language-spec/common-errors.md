@@ -80,7 +80,7 @@ int main() {
 ```
 
 ```text
-Error: imported function 'lib.g' has a non-constant-foldable default for parameter 0; cross-module defaults must be literal (int/float/string/null/negative)
+Error: imported function 'lib.g' has a default for parameter 0 outside the cross-module subset; supported: int/float/double/long/ulong/string/null literals, formal parameter references, unary negation, calls to the exporting module's functions, and + - * / % arithmetic over those
 ```
 
 A default expression crosses the `.ncu` boundary only inside the

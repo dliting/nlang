@@ -171,9 +171,9 @@ older ncc is refused as outdated
 (`Module version ... is outdated; recompile with current ncc`) and
 must be recompiled with the current toolchain. Each version bump and its
 semantic change are on [VM Architecture / Module
-Serialization](../vm-architecture/module-serialization.md), the
-"Version history" section; the rationale for each rise is in the
-corresponding CHANGELOG release section.
+Serialization](../vm-architecture/module-serialization.md); the
+rationale for each rise is in the corresponding CHANGELOG release
+section.
 
 ### Condition / `&&` / `||` / `!` says "must be bool"? More than 64 parameters?
 

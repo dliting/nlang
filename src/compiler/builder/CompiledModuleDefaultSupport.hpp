@@ -301,11 +301,14 @@ inline SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
 		//reconstruct it; reject at consumer-side stub construction
 		//(LoadImports catches + logs as compile error).
 		throw std::runtime_error(
-			"imported function '" + funcName + "' has a "
-			"non-constant-foldable default for parameter " +
+			"imported function '" + funcName + "' has a default for "
+			"parameter " +
 			std::to_string(static_cast<unsigned long>(paramIdx)) +
-			"; cross-module defaults must be literal "
-			"(int/float/string/null/negative)");
+			" outside the cross-module subset; supported: "
+			"int/float/double/long/ulong/string/null literals, formal "
+			"parameter references, unary negation, calls to the "
+			"exporting module's functions, and + - * / % arithmetic "
+			"over those");
 	}
 	return SynthScalarDefault(dv, cm, loc);
 }

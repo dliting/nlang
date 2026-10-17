@@ -73,7 +73,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### `.ncu`版本过时，提示重新编译？
 
-`.ncu`格式的最低版本要求只升不降：旧ncc产出的模块会因版本过时被加载器拒绝（`Module version ... is outdated; recompile with current ncc`），须用当前工具链重新编译。各版本最低要求与语义变更见[VM架构/模块序列化](../vm-architecture/module-serialization.md)的「版本历史」，每次抬升的缘由在CHANGELOG对应版本节。
+`.ncu`格式的最低版本要求只升不降：旧ncc产出的模块会因版本过时被加载器拒绝（`Module version ... is outdated; recompile with current ncc`），须用当前工具链重新编译。各版本最低要求与语义变更见[VM架构/模块序列化](../vm-architecture/module-serialization.md)，每次抬升的缘由在CHANGELOG对应版本节。
 
 ### 条件 / `&&` / `||` / `!`报「必须bool」？参数超64？
 

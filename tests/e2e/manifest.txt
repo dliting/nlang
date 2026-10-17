@@ -640,7 +640,7 @@ cross_mod_default_override 28
 cross_mod_default_expr 52
 cross_mod_default_ident 10
 # Defaults outside the ExprDesc subset (casts etc.) stay rejected
-cross_mod_default_cast compile_error non-constant-foldable
+cross_mod_default_cast compile_error outside the cross-module subset
 # Cross-module named arguments: imported stubs carry real formal names
 cross_mod_named_args 4
 cross_mod_named_mixed 15
