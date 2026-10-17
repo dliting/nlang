@@ -264,8 +264,10 @@ bool ReportUnmatchedContractSignatures(SnClassDecl &cls,
 //(FindMethodByName returns the first same-name declaration), so a
 //mixed-signature family misdispatches silently. Own members must be
 //signature-identical to the first declaration (the dispatch winner).
-//Same-render pairs (virtuality/out-only differences) never reach here:
-//the earlier field-conflict check rejects them first.
+//Pairs that differ only in virtuality or in default values stay
+//silent here (the field-conflict check already rejected them); pairs
+//that differ in out flags or staticness additionally report here on
+//top of that earlier error.
 bool CheckVirtualNameUniformity(SnClassDecl &cls,
 	const std::string &name,
 	const std::vector<SnFunction*> &funcs,
