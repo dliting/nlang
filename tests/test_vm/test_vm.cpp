@@ -1,6 +1,7 @@
 #include "BytecodeEmitter.h"
 #include "BytecodeReader.h"
 #include "nlang/vm/CompiledModule.h"
+#include "nlang/runtime/AutoPointers.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
 #include <cassert>
@@ -327,6 +328,82 @@ void test_find_function() {
     PASS();
 }
 
+// --- UniquePtrCollection move semantics ---
+//Contract: move construction transfers BOTH the items and their deleter
+//(the destination must be able to destroy what it took over), leaving the
+//source empty; move assignment destroys the destination's current items,
+//then takes over the source's items and deleter. A counting deleter turns
+//a dropped deleter (leak) or a double destruction into a count mismatch.
+
+void test_autopointers_move_semantics() {
+    TEST(autopointers_move_semantics);
+
+    struct MoveSemanticsNode
+    {
+        explicit MoveSemanticsNode(int v) : value(v) {}
+        int value;
+    };
+
+    int destroyedCount = 0;
+    std::function<void(MoveSemanticsNode*)> countingDeleter =
+        [&destroyedCount](MoveSemanticsNode* pNode)
+        {
+            ++destroyedCount;
+            delete pNode;
+        };
+
+    //UniquePtrList: move construction.
+    {
+        UniquePtrList<MoveSemanticsNode> source(countingDeleter);
+        source.Add(new MoveSemanticsNode(1));
+        source.Add(new MoveSemanticsNode(2));
+
+        UniquePtrList<MoveSemanticsNode> moved(std::move(source));
+        CHECK(moved.size() == 2, "destination owns the moved items");
+        int itemSum = 0;
+        for (auto* pNode : moved)
+            itemSum += pNode->value;
+        CHECK(itemSum == 3, "moved items are intact");
+        CHECK(source.empty(), "source is left empty");
+    }
+    CHECK(destroyedCount == 2,
+        "transferred deleter destroys every moved item exactly once");
+
+    //AutoPtrVector: move construction (same contract, random access).
+    destroyedCount = 0;
+    {
+        AutoPtrVector<MoveSemanticsNode> source(countingDeleter);
+        source.Add(new MoveSemanticsNode(1));
+        source.Add(new MoveSemanticsNode(2));
+
+        AutoPtrVector<MoveSemanticsNode> moved(std::move(source));
+        CHECK(moved.size() == 2, "destination owns the moved items");
+        CHECK((*moved[0]).value == 1 && (*moved[1]).value == 2,
+            "moved items are intact");
+        CHECK(source.empty(), "source is left empty");
+    }
+    CHECK(destroyedCount == 2,
+        "transferred deleter destroys every moved item exactly once");
+
+    //UniquePtrList: move assignment replaces prior contents.
+    destroyedCount = 0;
+    {
+        UniquePtrList<MoveSemanticsNode> target(countingDeleter);
+        target.Add(new MoveSemanticsNode(10));
+
+        UniquePtrList<MoveSemanticsNode> source(countingDeleter);
+        source.Add(new MoveSemanticsNode(20));
+
+        target = std::move(source);
+        CHECK(target.size() == 1, "assignment takes over the source items");
+        CHECK(source.empty(), "source is left empty");
+        CHECK(destroyedCount == 1, "replaced item is destroyed on takeover");
+    }
+    CHECK(destroyedCount == 2, "moved item destroyed exactly once");
+
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -346,6 +423,13 @@ int main() {
 
     // CompiledModule
     test_find_function();
+
+    // AutoPointers move semantics (header-only)
+    try { test_autopointers_move_semantics(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
 
     // VmExecutor execution tests are retired — see the rationale at the
     // former section above. The e2e suite (real .n files, real execution)

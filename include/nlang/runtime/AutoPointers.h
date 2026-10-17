@@ -146,10 +146,12 @@ public:
 		}
 	}
 
-	//Move constructor.
-	UniquePtrCollection(collection &&other)
+	//Move constructor: takes over both the items and their deleter, so
+	//the destination can destroy what it received.
+	UniquePtrCollection(collection &&other) :
+		m_Items(std::move(other.m_Items)),
+		m_ItemDeleter(std::move(other.m_ItemDeleter))
 	{
-		MoveFrom(other);
 	}
 
 	//Declared as protected method to prevent explicit deletion.
@@ -158,10 +160,21 @@ public:
 		DeleteAll();
 	}
 
-	//Move assignment.
+	//Copying is disabled: two collections must never own one item.
+	UniquePtrCollection(const collection&) = delete;
+	collection& operator=(const collection&) = delete;
+
+	//Move assignment: destroys the current items first, then takes over
+	//the source's items and deleter.
 	collection & operator=(collection &&other)
 	{
-		MoveFrom(other);
+		if (&other != this)
+		{
+			DeleteAll();
+			m_Items.clear();
+			m_Items = std::move(other.m_Items);
+			m_ItemDeleter = std::move(other.m_ItemDeleter);
+		}
 		return *this;
 	}
 
@@ -234,12 +247,6 @@ protected:
 		m_Items.clear();
 	}
 
-	void MoveFrom(collection &rhs)
-	{
-		if (&rhs != this)
-			m_Items = std::move(rhs.m_Items);
-	}
-
 	inner_collection m_Items;
 private:
 	void DeleteAll()
@@ -270,9 +277,8 @@ public:
 	}
 
 	//Move constructor.
-	UniquePtrList(pointer_list &&rhs)
+	UniquePtrList(pointer_list &&rhs) : Super_(std::move(rhs))
 	{
-		Super_::MoveFrom(rhs);
 	}
 
 	//Construct from a STL list pointer and delete it.
@@ -284,7 +290,7 @@ public:
 
 	pointer_list& operator=(pointer_list &&rhs)
 	{
-		Super_::MoveFrom(rhs);
+		Super_::operator=(std::move(rhs));
 		return *this;
 	}
 protected:
@@ -316,15 +322,14 @@ public:
 	}
 
 	//Move constructor.
-	AutoPtrVector(pointer_vector &&rhs)
+	AutoPtrVector(pointer_vector &&rhs) : Super_(std::move(rhs))
 	{
-		Super_::MoveFrom(rhs);
 	}
 
 	//Move assignment.
 	pointer_vector & operator=(pointer_vector &&rhs)
 	{
-		Super_::MoveFrom(rhs);
+		Super_::operator=(std::move(rhs));
 		return *this;
 	}
 
