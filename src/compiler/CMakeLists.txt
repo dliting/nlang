@@ -98,6 +98,7 @@ add_library(nlang_compiler
     builder/StatementResolverAssign.cpp
     builder/StatementResolverFlow.cpp
     builder/StatementResolverSwitchTry.cpp
+    builder/StatementResolverSuper.cpp
     builder/StatementResolverStoreGates.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp

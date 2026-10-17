@@ -70,13 +70,17 @@ size_t ExprResolveAccessor::CountPositionalCtorArgs(SnInvokeExpr &sn)
 	return argCount;
 }
 
-//Expected ctor arity. User classes look up the ctor SnFunction; the
-//rest are intrinsic ctor stubs registered by VmBackend::RegisterBuiltin
-//Classes (arity excludes `this`). False = the class has no constructor.
-bool ExprResolveAccessor::FindCtorArity(SnClassDecl *pClassDecl,
-	size_t &ctorArity)
+//Expected ctor arity range. User classes look up the ctor SnFunction;
+//the rest are intrinsic ctor stubs registered by
+//VmBackend::RegisterBuiltinClasses (arity excludes `this`). requiredArity
+//counts the formals without a default expression, totalArity all of them;
+//both stay equal where defaults cannot exist (builtins/generics).
+//False = the class has no constructor.
+bool ExprResolveAccessor::FindCtorParamRange(SnClassDecl *pClassDecl,
+	size_t &requiredArity, size_t &totalArity)
 {
-	ctorArity = 0;
+	requiredArity = 0;
+	totalArity = 0;
 	if (IsGenericClassDecl(pClassDecl))
 		return true;  //List/Dict ctor stubs take only `this`
 	if (pClassDecl->IsBuiltinClass())
@@ -84,8 +88,9 @@ bool ExprResolveAccessor::FindCtorArity(SnClassDecl *pClassDecl,
 		//FileStream(this, path, mode) → 2; Exception family
 		//(this, message) → 1; Object/ByteStream → 0.
 		const auto& clsName = pClassDecl->Name();
-		if (clsName == "FileStream") ctorArity = 2;
-		else if (IsBuiltinExceptionClassName(clsName)) ctorArity = 1;
+		if (clsName == "FileStream") requiredArity = totalArity = 2;
+		else if (IsBuiltinExceptionClassName(clsName))
+			requiredArity = totalArity = 1;
 		return true;
 	}
 	for (auto& member : pClassDecl->Members())
@@ -93,7 +98,14 @@ bool ExprResolveAccessor::FindCtorArity(SnClassDecl *pClassDecl,
 		if (member.Kind() == NK_Function
 			&& member.Name() == pClassDecl->Name())
 		{
-			ctorArity = static_cast<SnFunction&>(member).Params().size();
+			auto& ctorFn = static_cast<SnFunction&>(member);
+			totalArity = ctorFn.Params().size();
+			requiredArity = totalArity;
+			for (auto& param : ctorFn.Params())
+			{
+				if (param.Value())
+					--requiredArity;
+			}
 			return true;
 		}
 	}
@@ -101,22 +113,23 @@ bool ExprResolveAccessor::FindCtorArity(SnClassDecl *pClassDecl,
 }
 
 //Constructor-call arity check for the ctor-invoke forms (bare and
-//module-qualified). Round-14: constructor calls emit their args
-//positionally without FormalBindings (VmBackend's NewExpr handler), so —
-//like super(...) — named arguments cannot bind, defaults declared on
-//ctor params are not applied at the call site, and the arity must match
-//exactly. Pre-fix a mismatched call compiled clean: missing args read
-//uninitialized callParam slots (a defaulted param arrived as garbage),
-//extras were silently dropped, named args hit codegen's unhandled-kind
-//internal error. Imported class stubs are skipped — their ctor lives
-//only in the merged CompiledClass, not in AST members.
+//module-qualified). Constructor calls stage their arguments positionally
+//(one FormalBinding per formal — caller args first, then the defaults of
+//the omitted trailing formals), so named and out arguments stay rejected
+//and the count is a range: a call may omit any trailing defaulted formal,
+//never a required one. Pre-fix a mismatched call compiled clean: missing
+//args read uninitialized callParam slots (a defaulted param arrived as
+//garbage), extras were silently dropped, named args hit codegen's
+//unhandled-kind internal error. Imported class stubs are skipped — their
+//ctor lives only in the merged CompiledClass, not in AST members.
 void ExprResolveAccessor::CheckCtorArgCount(const ISourceLocation *pLoc,
 	SnClassDecl *pClassDecl, size_t argCount)
 {
 	if (pClassDecl->IsImported())
 		return;
-	size_t ctorArity = 0;
-	if (!FindCtorArity(pClassDecl, ctorArity))
+	size_t requiredArity = 0;
+	size_t totalArity = 0;
+	if (!FindCtorParamRange(pClassDecl, requiredArity, totalArity))
 	{
 		if (argCount != 0)
 			m_Env.Log(CLL_Error, pLoc,
@@ -124,11 +137,22 @@ void ExprResolveAccessor::CheckCtorArgCount(const ISourceLocation *pLoc,
 				"arguments",
 				pClassDecl->Name().c_str(), pClassDecl->Name().c_str());
 	}
-	else if (argCount != ctorArity)
+	else if (argCount < requiredArity || argCount > totalArity)
 	{
-		m_Env.Log(CLL_Error, pLoc,
-			"constructor of \"%s\" expects %zu argument(s), got %zu",
-			pClassDecl->Name().c_str(), ctorArity, argCount);
+		if (requiredArity == totalArity)
+		{
+			m_Env.Log(CLL_Error, pLoc,
+				"constructor of \"%s\" expects %zu argument(s), got %zu",
+				pClassDecl->Name().c_str(), requiredArity, argCount);
+		}
+		else
+		{
+			m_Env.Log(CLL_Error, pLoc,
+				"constructor of \"%s\" expects between %zu and %zu "
+				"argument(s), got %zu",
+				pClassDecl->Name().c_str(), requiredArity, totalArity,
+				argCount);
+		}
 	}
 }
 

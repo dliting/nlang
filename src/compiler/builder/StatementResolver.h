@@ -156,7 +156,9 @@ private:
 		SwitchLabelKey& key);
 	static bool ExtractLiteralLabel(SnLiteralExpr& lit, SwitchLabelKey& key);
 	void ResolveSuperCallArgs(SnSuperCallStmt &sn);
-	bool FindParentCtorShape(SnClassDecl *pParent, size_t &parentArity);
+	bool FindParentCtorShape(SnClassDecl *pParent,
+		size_t &requiredArity, size_t &totalArity);
+	void CheckSuperCtorArity(SnSuperCallStmt &sn, SnClassDecl *pParent);
 
 public:
 

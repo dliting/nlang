@@ -1,5 +1,6 @@
 /*---
-    StatementResolverSwitchTry.cpp — switch/try 语句解析：标签族映射、重复标签检测与异常/super 调用。
+    StatementResolverSwitchTry.cpp — switch/try 语句解析：标签族映射、
+    重复标签检测与异常语句。super(...) 解析在 StatementResolverSuper.cpp。
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
@@ -404,95 +405,6 @@ void StatementResolveAccessor::Access(SnThrowStmt &sn)
 		}
 	}
 	sn.AddFlags(NF_Resolved);
-}
-
-//3. Resolve args; named arguments are rejected.
-void StatementResolveAccessor::ResolveSuperCallArgs(SnSuperCallStmt &sn)
-{
-	for (auto* pArg : sn.Args()) {
-		if (pArg->Kind() == NK_NamedArgExpr) {
-			m_Env.Log(CLL_Error, pArg->Location(),
-				"named arguments are not supported in super(...)");
-			continue;
-		}
-		if (pArg->Kind() == NK_OutArgExpr) {
-			//Phase 9e: super(...) forwards args positionally without
-			//FormalBindings — an out argument could never write back.
-			m_Env.Log(CLL_Error, pArg->Location(),
-				"out arguments are not supported in super(...)");
-			continue;
-		}
-		pArg->Accept(*m_pVisitor);
-	}
-}
-
-//4. Arity of the parent constructor; false when the parent has none.
-//Built-in Exception family ctor is (this, message) → 1 user arg.
-//Other built-ins are not subclassable; ExprResolver already rejects
-//those SuperNames.
-bool StatementResolveAccessor::FindParentCtorShape(SnClassDecl *pParent,
-	size_t &parentArity)
-{
-	if (pParent->IsBuiltinClass()) {
-		parentArity = 1;
-		return true;
-	}
-	for (auto& field : pParent->Members()) {
-		if (field.Kind() == NK_Function
-			&& field.Name() == pParent->Name()) {
-			parentArity = static_cast<SnFunction&>(field)
-				.Params().size();
-			return true;
-		}
-	}
-	return false;
-}
-
-//Phase 9d-2: super(args); — forwards ctor args to the direct parent
-//class constructor. Valid only inside a user constructor (a method of
-//a class whose name equals the function name). Args are positional
-//only; named arguments are rejected.
-void StatementResolveAccessor::Access(SnSuperCallStmt &sn)
-{
-	if (sn.IsResolved())
-		return;
-	assert(m_pVisitor);
-	sn.AddFlags(NF_Resolved);
-
-	//1. Must be inside a constructor of a user class.
-	if (!m_pCurrClass || !m_pCurrType
-		|| m_pCurrType->Kind() != NK_Function
-		|| m_pCurrType->Name() != m_pCurrClass->Name()) {
-		m_Env.Log(CLL_Error, sn.Location(),
-			"super(...) is only valid inside a constructor");
-		return;
-	}
-	//2. Direct parent must exist (Object and extension-less classes
-	//have no SuperClass).
-	auto pParent = m_pCurrClass->SuperClass();
-	if (!pParent) {
-		m_Env.Log(CLL_Error, sn.Location(),
-			"class \"%s\" has no parent class for super(...)",
-			m_pCurrClass->Name().c_str());
-		return;
-	}
-	ResolveSuperCallArgs(sn);
-	size_t parentArity = 0;
-	if (!FindParentCtorShape(pParent, parentArity)) {
-		if (!sn.Args().empty()) {
-			m_Env.Log(CLL_Error, sn.Location(),
-				"parent class \"%s\" has no constructor; super(...) "
-				"cannot take arguments",
-				pParent->Name().c_str());
-		}
-		//super(); with no parent ctor is a legal no-op.
-		return;
-	}
-	if (sn.Args().size() != parentArity) {
-		m_Env.Log(CLL_Error, sn.Location(),
-			"super(...) expects %zu argument(s), got %zu",
-			parentArity, sn.Args().size());
-	}
 }
 
 } //namespace nlang

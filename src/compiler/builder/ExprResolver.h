@@ -824,7 +824,8 @@ private:
 	size_t CountPositionalCtorArgs(SnNewExpr &sn);
 	size_t CountPositionalCtorArgs(SnInvokeExpr &sn);
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
-	bool FindCtorArity(SnClassDecl *pClassDecl, size_t &ctorArity);
+	bool FindCtorParamRange(SnClassDecl *pClassDecl,
+		size_t &requiredArity, size_t &totalArity);
 	void CheckNewExprCtorArity(SnNewExpr &sn, SnClassDecl *pClassDecl);
 	void CheckCtorArgCount(const ISourceLocation *pLoc,
 		SnClassDecl *pClassDecl, size_t argCount);
