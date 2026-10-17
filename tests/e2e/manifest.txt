@@ -642,7 +642,7 @@ cross_mod_default_ident_error compile_error
 cross_mod_named_args 4
 cross_mod_named_mixed 15
 # Duplicate named binding stays rejected against the imported signature
-cross_mod_named_dup compile_error
+cross_mod_named_dup compile_error duplicate named argument
 # --- 0.7.5: defaults clear the assignment-side constant-fit bar;
 # the fill emits an in-place PrimCast to the formal's kind ---
 default_fit_cast 115
