@@ -164,7 +164,9 @@ void VmBackend::MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs) {
 //since 0.9.8). The subtrees go through the same MaxArgs arms as an
 //ordinary call site. The member-level guard set breaks the cycle a
 //self-referential default would cause: this walker runs before
-//DefaultEmitGuard rejects the recursion at codegen.
+//DefaultEmitGuard rejects the recursion at codegen. The manual
+//insert/erase needs no RAII — the walk only reads the AST, so nothing
+//between the two can throw.
 void VmBackend::CalleeDefaultMaxArgs(SnFunction* pCalleeFn, uint16_t& maxArgs) {
     if (!pCalleeFn) return;
     if (!m_calleeDefaultMaxArgsWalking.insert(pCalleeFn).second) return;
@@ -230,7 +232,7 @@ void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs)
 }
 
 //Extra claim slots for a built-in string method with a staged trailing
-//argument (the 1-arg substring form): it bulk-copies 1+maxArgs slots
+//argument (the 1-arg substring form): such a call bulk-copies 1+maxArgs slots
 //into callParamBase — reserve the same count from the same table field
 //ExprPeakDepth/codegen consume, or the i=2 write lands on evalArea
 //slot 0 and clobbers a live parked operand (`a + s.substring(1)`
@@ -272,8 +274,7 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     //ExprPeakDepth (over-reservation, safe direction).
     if (!callee && IsDelegateInvoke(invoke))
         claimSize = static_cast<uint16_t>(claimSize + 1);
-    //Phase 11 Step 3 symmetry (review BLOCKER): see
-    //StringMethodTrailingReserve above.
+    //Phase 11 Step 3 symmetry: see StringMethodTrailingReserve above.
     if (!callee)
         claimSize = static_cast<uint16_t>(
             claimSize + StringMethodTrailingReserve(invoke, formalCount));
