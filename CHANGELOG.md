@@ -6,6 +6,22 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.9] - 2026-10-18
+
+### Added
+
+- **Shift operators `<<` and `>>`** — bitwise left and right shift for
+  every integer type. The left operand decides the result type (the
+  Java/C# rule): operands narrower than `int` promote unarily, so
+  `byte << 2` is an `int`; the count must convert to that type
+  implicitly, as in Java and C#. enum members ride their int32 carrier.
+  `>>` is arithmetic on signed rows (`-8 >> 1 == -4`) and logical on
+  unsigned rows; `<<` wraps in two's complement. A count outside
+  `[0, bit width)` throws a named runtime error (the division-by-zero
+  family) instead of C undefined behavior. Shifts also serialize into
+  cross-module default parameters, and the depth-0 `>>` of
+  nested-generic closes remains the shift token.
+
 ## [0.9.8] - 2026-10-18
 
 ### Fixed

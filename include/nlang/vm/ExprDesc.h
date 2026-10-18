@@ -29,12 +29,14 @@ inline constexpr uint8_t ED_FormalRef = 0x20;
 inline constexpr uint8_t ED_Neg       = 0x21;
 inline constexpr uint8_t ED_Binary    = 0x22;
 inline constexpr uint8_t ED_Call      = 0x23;
-//Binary op codes, in SnBinaryExpr::Operator order (+ - * / %).
+//Binary op codes, in SnBinaryExpr::Operator order (+ - * / % << >>).
 inline constexpr uint8_t EDB_Add = 0;
 inline constexpr uint8_t EDB_Sub = 1;
 inline constexpr uint8_t EDB_Mul = 2;
 inline constexpr uint8_t EDB_Div = 3;
 inline constexpr uint8_t EDB_Mod = 4;
+inline constexpr uint8_t EDB_Shl = 5;
+inline constexpr uint8_t EDB_Shr = 6;
 //Depth/size ceilings shared by the writer (out-of-subset fallback), the
 //link-time remap and the consumer rebuild (malformed-module reject).
 inline constexpr int kMaxExprDescDepth = 16;
@@ -130,7 +132,7 @@ inline bool ExprDescRemapStrings(std::vector<uint8_t> &bytes,
         case ED_Binary:
         {
             uint8_t op = 0;
-            if (!cur.U8(op) || op > EDB_Mod) return false;
+            if (!cur.U8(op) || op > EDB_Shr) return false;
             return ExprDescRemapStrings(bytes, lookup, depth + 1, cur)
                 && ExprDescRemapStrings(bytes, lookup, depth + 1, cur);
         }

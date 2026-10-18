@@ -1,0 +1,8 @@
+//Generic-close regression: nested generics keep the depth-split `>>`
+//lexer path working while the same file uses the shift operator in a
+//plain expression.
+int main() {
+    List<List<int>> l = [[7]];
+    int got = l.get(0).get(0) >> 1;
+    return got - 3;
+}

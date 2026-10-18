@@ -67,6 +67,8 @@ size_t InstructionStride(OpCode op) {
         case OpCode::OP_Mul:
         case OpCode::OP_Div:
         case OpCode::OP_Mod:
+        case OpCode::OP_Shl:
+        case OpCode::OP_Shr:
             return 1 + 1 + 2 + 2;  // uint8 kind + two uint16 slots (0.7.5)
         case OpCode::OP_JumpIfNot:
         case OpCode::OP_Concat_str:

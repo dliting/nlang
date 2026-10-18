@@ -192,6 +192,16 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
         EmitBinaryEqualityOp(bin, numKind, isString, isFunc, emitter,
                              resultOffset, rightSlot);
         break;
+    //0.9.9 shifts: resolver guarantees integer carrier rows and casts
+    //both operands to it, so the kind-immediate family applies as-is.
+    case SnBinaryExpr::OP_Shl:
+        EmitBinOp(emitter, OpCode::OP_Shl, numKind,
+                  resultOffset, rightSlot);
+        break;
+    case SnBinaryExpr::OP_Shr:
+        EmitBinOp(emitter, OpCode::OP_Shr, numKind,
+                  resultOffset, rightSlot);
+        break;
     default:
         throw std::runtime_error(
             "NLang backend: unsupported binary operator");

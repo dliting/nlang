@@ -38,6 +38,42 @@ implicitly converts to string) and `+` with a scalar operand concatenate
 the same way. `string - string` and the other arithmetic forms are
 compile errors. See [String](string.md).
 
+### Shift
+
+```nlang
+a << b    a >> b
+```
+
+Bitwise left and right shift. **The left operand decides the result
+type** (the Java/C# rule): integer left operands narrower than int are
+promoted unarily to int (`byte << 2` is an `int`). The count (right
+operand) follows the ordinary implicit-conversion rule into the result
+type (the [Type Semantics](type-semantics.md) table): an int count works
+on int and long carriers but not on uint or ulong, a long count only on
+long, and a constant count that fits the carrier works on any of them.
+Anything else is a compile error naming both the carrier and the count's
+type (`1 << longCount`). enum
+members ride their int32 carrier
+(`Color.Green << 1 == 2`). float, double, bool, char, and string
+operands are compile errors (`operator '<<' requires integer operands`);
+a null operand reports `null is not a valid shift operand`.
+
+`>>` on a signed row is an arithmetic shift (sign-extending,
+`-8 >> 1 == -4`); on an unsigned row it is logical (zero-fill). `<<`
+wraps in two's complement (`1 << 31` on int is `INT_MIN`). The count
+must lie in `[0, bit width)` — a negative count or one that reaches the
+type's width throws a runtime error (the division-by-zero family),
+neither C undefined behavior nor Java mask wrapping.
+
+Precedence sits between relational and additive: addition binds tighter
+than shift (`1 << 2 + 3` is `1 << 5`), shift tighter than relational
+(`1 << 2 < 8` compares `4 < 8`). There are no `<<=`/`>>=` compound
+assignment forms.
+
+Inside a generic argument list a `>>` still closes the nested type
+(`List<List<int>>`); only at expression depth does it act as the shift
+operator, so the two never conflict.
+
 ### Comparison
 
 ```nlang

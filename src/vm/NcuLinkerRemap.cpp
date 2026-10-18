@@ -114,6 +114,8 @@ size_t KindOperandStride(OpCode op) {
         case OpCode::OP_Mul:
         case OpCode::OP_Div:
         case OpCode::OP_Mod:
+        case OpCode::OP_Shl:
+        case OpCode::OP_Shr:
             return 1 + 1 + 2 + 2;  // uint8 kind + two uint16
         default:
             return 0;

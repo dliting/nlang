@@ -1,0 +1,9 @@
+//Pin the count < 0 branch of the run-time shift check: a negative count
+//is out of range (no reverse shifting), the same named error family as
+//the upper bound. Throw -> exit 1, same form as shift_count_error_throws.
+int main() {
+    int n = -1;
+    int r = 8 >> n;
+    if (r > 0) { return 7; }
+    return 0;
+}

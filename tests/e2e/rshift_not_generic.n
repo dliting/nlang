@@ -1,6 +1,10 @@
 int main() {
     List<int> lst = {};
     lst.add(1);
+    //Depth-0 `>>` lexes as the shift operator (OT_RSH), never as a
+    //generic close: 8 >> 2 = 2. Before 0.9.9 this pinned a compile
+    //error (the token existed with no production); now it pins the
+    //operator's value.
     int x = 8 >> 2;
     return x;
 }

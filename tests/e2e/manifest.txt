@@ -645,6 +645,8 @@ cross_mod_default_override 28
 # producing-module calls, negation; literals stay on the folded path
 cross_mod_default_expr 52
 cross_mod_default_ident 10
+# 0.9.9: shift expressions in cross-module defaults ride the ExprDesc subset
+cross_mod_default_shift 0
 # Defaults outside the ExprDesc subset (casts etc.) stay rejected
 cross_mod_default_cast compile_error outside the cross-module subset
 # Cross-module named arguments: imported stubs carry real formal names
@@ -745,10 +747,36 @@ nested_generic_dict 30
 nested_generic_deep 7
 # v1.12 depth cap: over-cap formal degrades on the wire, module still loads
 deep_generic_param_desc_degrade 6
-# depth-0 `>>` must stay OT_RSH (shift has no production → compile error)
-rshift_not_generic compile_error
+# depth-0 `>>` stays OT_RSH: since 0.9.9 that token IS the shift
+# operator, so this now pins the value (8 >> 2 == 2)
+rshift_not_generic 2
 # comparisons still work through the dedicated angle-bracket rules
 angle_bracket_compare 22
+
+# --- 0.9.9: << and >> shift operators ---
+# basics: both directions, nesting
+shift_basic 0
+# unary promotion of narrow left operand, long width, arithmetic vs
+# logical right shift, enum-on-int32 carrier
+shift_types 0
+# run-time count check: [0, width) or a named VM error
+shift_count_error_throws 1
+# the count < 0 branch: negative counts are out of range too
+shift_count_negative_throws 1
+# additive binds tighter than shift; shift tighter than relational
+shift_precedence 0
+# compile-time rejections
+shift_reject_float compile_error requires integer operands
+shift_reject_double compile_error requires integer operands
+shift_reject_char compile_error requires integer operands
+shift_reject_bool compile_error requires integer operands
+shift_reject_string compile_error requires integer operands
+shift_reject_null compile_error null is not a valid
+# the count must reach the carrier row implicitly (Java/C# rule)
+shift_reject_count_long compile_error count implicitly convertible to
+shift_reject_count_uint compile_error count implicitly convertible to
+# generic close `>>` still lexes apart from the shift operator
+shift_generic_regression 0
 
 # --- Phase 9e: out parameters ---
 out_basic 5

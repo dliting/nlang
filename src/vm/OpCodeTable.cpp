@@ -73,6 +73,8 @@ static const char* s_OpCodeNames[] = {
     "call_delegate_out",
     "str_byte_at",
     "str_foreach_step",
+    "shl",
+    "shr",
 };
 
 const char* OpCodeName(OpCode op) {

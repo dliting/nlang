@@ -1,0 +1,10 @@
+//Precedence pins: additive binds tighter than shift (1 << 2 + 3 is
+//1 << 5 == 32), and shift binds tighter than relational (1 << 2 < 8
+//compares 4 < 8).
+int main() {
+    int acc = 0;
+    acc = acc + (1 << 2 + 3) - 32;
+    bool rel = 1 << 2 < 8;
+    if (!rel) { acc = acc + 1; }
+    return acc;
+}

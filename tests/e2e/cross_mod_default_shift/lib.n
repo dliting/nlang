@@ -1,0 +1,5 @@
+//Cross-module default parameter: a shift expression must serialize
+//into the .ncu default-expression subset and rebuild in the consumer.
+int addShift(int a, int b = 1 << 4) {
+    return a + b;
+}

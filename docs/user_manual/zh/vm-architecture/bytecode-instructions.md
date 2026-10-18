@@ -29,6 +29,8 @@
 | OP_Mul_f32  | dst, src          |                          |
 | OP_Div_f32  | dst, src          |                          |
 | OP_Neg_f32  | dst               |                          |
+| OP_Shl      | kind, dst, src    | locals[dst] <<= 计数；计数必须在[0, 位宽)内，否则VM抛具名错误 |
+| OP_Shr      | kind, dst, src    | 同上；有符号行算术右移，无符号行逻辑右移 |
 
 ### 比较与逻辑
 

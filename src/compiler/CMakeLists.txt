@@ -80,6 +80,7 @@ add_library(nlang_compiler
     builder/ExprResolverValues.cpp
     builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp
+    builder/ExprResolverTypeGates.cpp
     builder/ExprResolverNew.cpp
     builder/ExprResolverInitList.cpp
     builder/ExprResolverInvoke.cpp

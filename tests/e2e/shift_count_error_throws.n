@@ -1,0 +1,10 @@
+//Lock the run-time count check at the boundary: the count must lie in
+//[0, width) — 32 itself is out of range for int32 (no masking, a named
+//error like division by zero). The throw -> exit 1 path is the
+//expected outcome (same form as float_div_zero_throws).
+int main() {
+    int n = 32;
+    int r = 1 << n;
+    if (r > 0) { return 7; }
+    return 0;
+}

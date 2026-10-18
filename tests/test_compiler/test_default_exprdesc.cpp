@@ -164,8 +164,9 @@ struct RawDecoder
 
     static const char* opName(uint8_t op)
     {
-        static const char* kNames[] = { "add", "sub", "mul", "div", "mod" };
-        return op <= EDB_Mod ? kNames[op] : "?op";
+        static const char* kNames[] =
+            { "add", "sub", "mul", "div", "mod", "shl", "shr" };
+        return op <= EDB_Shr ? kNames[op] : "?op";
     }
 
     std::string expr()
@@ -283,6 +284,8 @@ static void test_wire_shapes_compound()
         "int subbed(int a, int b = a - 1) { return b; }\n"
         "int halved(int a, int b = a / 2) { return b; }\n"
         "int remainder(int a, int b = a % 3) { return b; }\n"
+        "int shifted(int a, int b = a << 2) { return b; }\n"
+        "int dropped(int a, int b = a >> 1) { return b; }\n"
         "int negate(int a, int b = -a) { return b; }\n"
         "float scaled(int a, float b = a * 1.5f) { return b; }\n"
         "double precise(int a, double b = a * 2.5) { return b; }\n"
@@ -311,6 +314,8 @@ static void test_wire_shapes_compound()
         {"subbed", "(sub (formal 0) (int 1))"},
         {"halved", "(div (formal 0) (int 2))"},
         {"remainder", "(mod (formal 0) (int 3))"},
+        {"shifted", "(shl (formal 0) (int 2))"},
+        {"dropped", "(shr (formal 0) (int 1))"},
         {"negate", "(neg (formal 0))"},
         {"scaled", "(mul (formal 0) (float))"},
         {"precise", "(mul (formal 0) (double))"},
@@ -447,7 +452,7 @@ static void test_reader_rejects_malformed()
         {"truncated binary", {ED_Binary, EDB_Add, ED_FormalRef, 0},
             "truncated stream"},
         {"unknown tag", {0x7A}, "unknown node tag"},
-        {"bad binary operator", {ED_Binary, 0x05}, "bad binary operator"},
+        {"bad binary operator", {ED_Binary, 0x07}, "bad binary operator"},
         //A complete node followed by junk.
         {"trailing bytes",
             {ED_FormalRef, 0, RTK_Int32, 0, 0, 0, 0}, "trailing bytes"},
@@ -617,7 +622,7 @@ static void test_remap_strings()
     pushU32(badOp, 0);
     pushU32(badOp, 0);
     CHECK(!ExprDescRemapStrings(badOp, identity),
-        "binary operator above EDB_Mod is rejected");
+        "binary operator above EDB_Shr is rejected");
     std::vector<uint8_t> trailing{RTK_Null, RTK_Null};
     CHECK(!ExprDescRemapStrings(trailing, identity),
         "trailing bytes after the root node are rejected");

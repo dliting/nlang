@@ -1,0 +1,6 @@
+//Compile-time rejection: double operands are not integers.
+int main() {
+    double d = 3.0;
+    int r = 1 >> d;
+    return 0;
+}

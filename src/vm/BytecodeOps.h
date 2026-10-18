@@ -143,6 +143,12 @@ enum class OpCode : uint8_t {
                         // advance off by its UTF-8 length, write 1/0 continue
                         // flag to locals[cond] (0 = off at/past byte length)
 
+    // === 0.9.9 shift operators ===
+    OP_Shl,             // u8 kind, u16 dst, u16 src — locals[dst] <<= count;
+                        // count must lie in [0, 8*sizeof(T)) or a named error
+    OP_Shr,             // u8 kind, u16 dst, u16 src — same, arithmetic on
+                        // signed rows and logical on unsigned rows
+
     OP_Count
 };
 

@@ -1,0 +1,6 @@
+//Compile-time rejection: null has no integer row (same message family
+//as the arithmetic arm's null handling).
+int main() {
+    int r = null << 1;
+    return 0;
+}

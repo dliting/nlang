@@ -1,0 +1,6 @@
+//Compile-time rejection: floating-point operands are not integers.
+int main() {
+    float f = 1.5;
+    int r = f << 1;
+    return 0;
+}

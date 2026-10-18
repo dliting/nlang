@@ -133,6 +133,14 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             OpMod(reader, locals);
             break;
 
+        case OpCode::OP_Shl:
+            OpShl(reader, locals);
+            break;
+
+        case OpCode::OP_Shr:
+            OpShr(reader, locals);
+            break;
+
         case OpCode::OP_Neg:
             OpNeg(reader, locals);
             break;

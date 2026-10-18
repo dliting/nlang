@@ -12,6 +12,7 @@
 #include <nlang/runtime/RnTypes.h>
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace nlang {
 
@@ -51,6 +52,28 @@ struct ArithEntry
     static void NegImpl(PrimSlot d)
     { *reinterpret_cast<T*>(d) = -*reinterpret_cast<T*>(d); }
 
+    //0.9.9 shifts, integer rows only (kInt gates; float/bool/char rows
+    //compile to nullptr — the resolver rejects them compile-time).
+    //`<<` always routes through the unsigned carrier: unsigned
+    //wrap-around is exactly the two's-complement result the row must
+    //store back (1 << 31 on int32 = INT32_MIN), with no reliance on
+    //signed-shift corner behavior.
+    //`>>` deliberately keeps the plain operator so the ROW'S OWN
+    //signedness picks the flavor: arithmetic (sign-extending) on
+    //signed rows — MSVC documents signed right shift as arithmetic —
+    //and logical (zero-fill) on unsigned rows. Both flavors are pinned
+    //by e2e (shift_types.n: -8 >> 1 == -4, 4294967288u >> 1 ==
+    //2147483644), so a compiler flavor change cannot pass silently.
+    static void ShlImpl(PrimSlot d, PrimConst s)
+    {
+        using U = std::make_unsigned_t<T>;
+        T cnt = *reinterpret_cast<const T*>(s);
+        *reinterpret_cast<T*>(d) = static_cast<T>(
+            static_cast<U>(*reinterpret_cast<const T*>(d)) << cnt);
+    }
+    static void ShrImpl(PrimSlot d, PrimConst s)
+    { *reinterpret_cast<T*>(d) >>= *reinterpret_cast<const T*>(s); }
+
     static constexpr PrimBinFn Add = kNumeric ? &AddImpl : nullptr;
     static constexpr PrimBinFn Sub = kNumeric ? &SubImpl : nullptr;
     static constexpr PrimBinFn Mul = kNumeric ? &MulImpl : nullptr;
@@ -58,6 +81,9 @@ struct ArithEntry
     static constexpr PrimBinFn Mod =
         kNumeric ? (kFloat ? &ModFloat : &ModInt) : nullptr;
     static constexpr PrimNegFn  Neg = kNumeric ? &NegImpl : nullptr;
+    static constexpr bool kInt = (C == PC_SInt || C == PC_UInt);
+    static constexpr PrimBinFn Shl = kInt ? &ShlImpl : nullptr;
+    static constexpr PrimBinFn Shr = kInt ? &ShrImpl : nullptr;
 };
 
 #define ADD_ROW(Name, Kw, Width, Carrier, Cat, Rank) ArithEntry<SPR_##Name>::Add,
@@ -65,6 +91,8 @@ struct ArithEntry
 #define MUL_ROW(Name, Kw, Width, Carrier, Cat, Rank) ArithEntry<SPR_##Name>::Mul,
 #define DIV_ROW(Name, Kw, Width, Carrier, Cat, Rank) ArithEntry<SPR_##Name>::Div,
 #define MOD_ROW(Name, Kw, Width, Carrier, Cat, Rank) ArithEntry<SPR_##Name>::Mod,
+#define SHL_ROW(Name, Kw, Width, Carrier, Cat, Rank) ArithEntry<SPR_##Name>::Shl,
+#define SHR_ROW(Name, Kw, Width, Carrier, Cat, Rank) ArithEntry<SPR_##Name>::Shr,
 #define NEG_ROW(Name, Kw, Width, Carrier, Cat, Rank) ArithEntry<SPR_##Name>::Neg,
 
 const PrimBinFn kAddTable[] = { SCALAR_PRIMITIVE_DECL(ADD_ROW) };
@@ -72,6 +100,8 @@ const PrimBinFn kSubTable[] = { SCALAR_PRIMITIVE_DECL(SUB_ROW) };
 const PrimBinFn kMulTable[] = { SCALAR_PRIMITIVE_DECL(MUL_ROW) };
 const PrimBinFn kDivTable[] = { SCALAR_PRIMITIVE_DECL(DIV_ROW) };
 const PrimBinFn kModTable[] = { SCALAR_PRIMITIVE_DECL(MOD_ROW) };
+const PrimBinFn kShlTable[] = { SCALAR_PRIMITIVE_DECL(SHL_ROW) };
+const PrimBinFn kShrTable[] = { SCALAR_PRIMITIVE_DECL(SHR_ROW) };
 const PrimNegFn  kNegTable[] = { SCALAR_PRIMITIVE_DECL(NEG_ROW) };
 
 //Comparison per row/op. Ordered rows (integers/floats/char — the
@@ -185,6 +215,8 @@ PrimCastFn PrimCastCell(int srcRow, int dstRow)
 
 static_assert(sizeof(kAddTable) / sizeof(kAddTable[0]) == SPR_Count);
 static_assert(sizeof(kNegTable) / sizeof(kNegTable[0]) == SPR_Count);
+static_assert(sizeof(kShlTable) / sizeof(kShlTable[0]) == SPR_Count);
+static_assert(sizeof(kShrTable) / sizeof(kShrTable[0]) == SPR_Count);
 
 //--- Executor handlers -------------------------------------------------
 
@@ -289,6 +321,43 @@ void VmExecutor::OpMod(BytecodeReader& r, uint8_t* locals)
         RaiseNlangException(m_divZeroExcClassIdx,
             "NLang VM: modulo by zero");
     kModTable[i](locals + dst, locals + src);
+}
+
+//Count must lie in [0, 8*sizeof(T)): a negative or over-width count has
+//no defined bits to move (C leaves it UB, Java masks — we name the
+//error instead, the division-by-zero precedent). The count slot holds
+//the result carrier row (the resolver casts the right operand), so the
+//read and the width agree.
+void VmExecutor::CheckShiftCount(int row, const uint8_t* p)
+{
+    int64_t count = ReadScalarAsInt64(row, p);
+    if (count < 0 || count >= int64_t(kScalarPrims[row].slotWidth * 8))
+        RaiseNlangException(m_exceptionClassIdx,
+            "NLang VM: shift count out of range");
+}
+
+void VmExecutor::OpShl(BytecodeReader& r, uint8_t* locals)
+{
+    uint8_t kind = r.ReadByte();
+    uint16_t dst = r.ReadUint16(), src = r.ReadUint16();
+    int i = ScalarPrimIndexOfRtk(kind);
+    if (i < 0 || !kShlTable[i])
+        RaiseNlangException(m_exceptionClassIdx,
+            "NLang VM: shl on unsupported kind");
+    CheckShiftCount(i, locals + src);
+    kShlTable[i](locals + dst, locals + src);
+}
+
+void VmExecutor::OpShr(BytecodeReader& r, uint8_t* locals)
+{
+    uint8_t kind = r.ReadByte();
+    uint16_t dst = r.ReadUint16(), src = r.ReadUint16();
+    int i = ScalarPrimIndexOfRtk(kind);
+    if (i < 0 || !kShrTable[i])
+        RaiseNlangException(m_exceptionClassIdx,
+            "NLang VM: shr on unsupported kind");
+    CheckShiftCount(i, locals + src);
+    kShrTable[i](locals + dst, locals + src);
 }
 
 void VmExecutor::OpNeg(BytecodeReader& r, uint8_t* locals)

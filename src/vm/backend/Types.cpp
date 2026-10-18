@@ -249,6 +249,8 @@ bool VmBackend::EncodeBinaryDesc(SnBinaryExpr& bin,
     case SnBinaryExpr::OP_Mul: opCode = EDB_Mul; break;
     case SnBinaryExpr::OP_Div: opCode = EDB_Div; break;
     case SnBinaryExpr::OP_Mod: opCode = EDB_Mod; break;
+    case SnBinaryExpr::OP_Shl: opCode = EDB_Shl; break;
+    case SnBinaryExpr::OP_Shr: opCode = EDB_Shr; break;
     default: return false;  //comparisons/logical ops: out of subset
     }
     AppendU8(out, ED_Binary);

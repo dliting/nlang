@@ -1654,6 +1654,10 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				Expression OT_LE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LessEqual, $1, $3, @1); } |
 				Expression '>' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Greater, $1, $3, @1); } |
 				Expression OT_GE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_GreaterEqual, $1, $3, @1); } |
+				//0.9.9: shift operators; tokens and precedence existed since
+				//0.7.5 (between relational and additive), productions did not.
+				Expression OT_LSH Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Shl, $1, $3, @1); } |
+				Expression OT_RSH Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Shr, $1, $3, @1); } |
 				Expression OT_EQ Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Equal, $1, $3, @1); } |
 				Expression OT_NE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_NotEqual, $1, $3, @1); } |
 				Expression OT_AND Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1); } |

@@ -23,6 +23,20 @@ a + b    a - b    a * b    a / b    a % b
 
 `string + string`（仅OP_Add）是拼接；`"x" + 'y'`（char隐式转string）与`+`标量操作数同样拼接。`string - string`等是编译错误。见[字符串](string.md)。
 
+### 位移
+
+```nlang
+a << b    a >> b
+```
+
+按位左移与右移。**左操作数决定结果类型**（Java/C#规则）：窄于int的整型左操作数先单目提升为int（`byte << 2`是`int`）。右操作数（计数）按普通隐式转换规则进入结果类型（见[类型语义](type-semantics.md)）：int计数适用于int与long载体，但不适用于uint或ulong；long计数只适用于long；能装进载体的常量计数对任何载体都合法。其余情形是编译错误，诊断会点名载体与计数两者的类型（`1 << long计数`）。enum成员按其int32载体参与（`Color.Green << 1 == 2`）。float、double、bool、char、string操作数是编译错误（`operator '<<' requires integer operands`）；null操作数报`null is not a valid shift operand`。
+
+有符号行`>>`是算术右移（符号扩展，`-8 >> 1 == -4`）；无符号行是逻辑右移（零填充）。`<<`按二进制补码回绕（`1 << 31`在int上是`INT_MIN`）。计数必须在`[0, 位数)`内——负数或达到类型位宽的计数抛运行期错误（与除零同类），不做C的未定义行为，也不做Java的掩码回绕。
+
+优先级介于关系与加减之间：加法先于位移（`1 << 2 + 3`是`1 << 5`），位移先于关系（`1 << 2 < 8`比较的是`4 < 8`）。没有`<<=`/`>>=`复合赋值形式。
+
+泛型实参列表内的`>>`仍是嵌套类型的收尾（`List<List<int>>`）；只有出现在表达式位置时它才是位移运算符，两者不会冲突。
+
 ### 比较
 
 ```nlang

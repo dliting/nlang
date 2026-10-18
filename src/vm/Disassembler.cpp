@@ -273,6 +273,8 @@ static bool DisasmArithOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_Mul:
         case OpCode::OP_Div:
         case OpCode::OP_Mod:
+        case OpCode::OP_Shl:
+        case OpCode::OP_Shr:
             DisasmPrimBinOp(r, out, head);
             return true;
         //kind, cmpOp, lhs, rhs (comparison)

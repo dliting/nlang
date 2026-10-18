@@ -1,0 +1,7 @@
+//Same implicit-count gate across signedness: a uint count cannot reach
+//an int carrier implicitly (the bits reinterpret), same diagnostic.
+int main() {
+    uint u = 2 as uint;
+    int r = 8 >> u;
+    return r;
+}

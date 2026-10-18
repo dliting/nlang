@@ -1,0 +1,34 @@
+//Shift type rules: unary promotion of a narrow left operand (the
+//byte+byte -> int rule applied to the left operand alone), the 64-bit
+//long row, arithmetic right shift on signed values, logical right
+//shift on unsigned values, and the enum == int32 convention.
+enum Color { Red, Green, Blue }
+
+int main() {
+    int acc = 0;
+    //byte promotes to int before shifting.
+    byte b = 3;
+    int promoted = b << 2;
+    acc = acc + promoted - 12;
+    //long keeps its 64-bit width (2^40 >> 30 = 2^10; compare in the
+    //row's own type — folding the difference into int acc would need a
+    //narrowing).
+    long l = 1099511627776;
+    if ((l >> 30) != 1024) { acc = acc + 1; }
+    //an int variable count widens implicitly to the long carrier.
+    int bits = 2;
+    if ((l >> bits) != 274877906944) { acc = acc + 1; }
+    //<< wraps in two's complement: 1 << 31 is INT_MIN on int.
+    int w = 1 << 31;
+    if (w != -2147483648) { acc = acc + 1; }
+    //signed >> is arithmetic (sign-extending): -8 >> 1 == -4.
+    acc = acc + ((-8 >> 1) + 4);
+    //unsigned >> is logical (zero-fill): 4294967288 >> 1 == 2147483644.
+    //Decimal literals never type as uint (values above int max become
+    //long), so an explicit as uint produces the unsigned row.
+    uint u = 4294967288 as uint;
+    if ((u >> 1) != 2147483644) { acc = acc + 1; }
+    //enum rides the int32 carrier: Green << 1 == 2.
+    acc = acc + ((Color.Green << 1) - 2);
+    return acc;
+}

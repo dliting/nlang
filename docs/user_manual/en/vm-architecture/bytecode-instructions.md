@@ -33,6 +33,8 @@ and write the result register `pResult` and local variable slots. The
 | OP_Mul_f32  | dst, src          |                          |
 | OP_Div_f32  | dst, src          |                          |
 | OP_Neg_f32  | dst               |                          |
+| OP_Shl      | kind, dst, src    | locals[dst] <<= count; the count must lie in [0, bit width) or the VM raises a named error |
+| OP_Shr      | kind, dst, src    | Same, arithmetic on signed rows and logical on unsigned rows |
 
 ### Comparison & Logical
 

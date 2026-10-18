@@ -736,6 +736,7 @@ public:
 		OP_Equal, OP_NotEqual,
 		OP_LogicalAnd, OP_LogicalOr,
 		OP_Neg, OP_LogicalNot,
+		OP_Shl, OP_Shr,
 	};
 
 	static const NodeKind	s_Kind			= NK_BinaryExpr;

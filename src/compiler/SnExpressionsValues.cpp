@@ -12,6 +12,7 @@
 #include <nlang/runtime/RnData.h>
 #include <nlang/runtime/NodeContainers.h>
 #include <iosfwd>
+#include <iterator>
 #include <sstream>
 
 namespace nlang
@@ -120,7 +121,10 @@ std::string SnBinaryExpr::ToString() const
 		"==", "!=",
 		"&&", "||",
 		"-", "!",
+		"<<", ">>",
 	};
+	static_assert(std::size(opNames) == OP_Shr + 1,
+		"opNames is positional and must cover every Operator value");
 	std::stringstream ss;
 	if (m_pRight)
 		ss << m_pLeft->ToString() << " " << opNames[m_op]

@@ -813,6 +813,12 @@ private:
 		bool lNull, bool rNull);
 	bool CheckLogicalBoolOperands(SnBinaryExpr &sn);
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	//0.9.9: `<<`/`>>` — the left operand's row decides the result; the
+	//count must convert to that row implicitly (see
+	//ExprResolverBinary.cpp for the full rationale).
+	bool ResolveShiftBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	bool WrapShiftOperands(SnBinaryExpr &sn, SnField* T_result,
+		const char* opName);
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
 		SnBinaryExpr::Operator op);
 

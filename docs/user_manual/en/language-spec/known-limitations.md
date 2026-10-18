@@ -50,11 +50,6 @@
   `Dict<K,V> d = {};`, `int[] a = {};`); a sized empty array is
   `int[0]`. The lexer tokenizes `[]` as a single token used by the
   array-type suffix rule, so bare `[]` is not the empty form.
-- **Right-shift operator (`>>`, `<<`)**: not implemented (no grammar
-  production, no opcode). `>>` outside generic context is a compile
-  error; inside generic closing position it is split into `'>'` tokens
-  (see Nested generics under `List<T>` in
-  [Built-in Generic Classes](builtin-generic-classes.md)).
 - **Bare init list as a named argument**: positional arguments infer
   their target from the parameter type; named arguments do not — use a
   typed local or the anchored `Type{...}` form.

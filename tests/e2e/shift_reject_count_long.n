@@ -1,0 +1,8 @@
+//The count must convert to the result carrier implicitly (Java/C# rule):
+//a long count on an int carrier would silently truncate, so it is a
+//compile error with a shift-specific message — not the generic cast one.
+int main() {
+    long n = 4;
+    int r = 1 << n;
+    return r;
+}

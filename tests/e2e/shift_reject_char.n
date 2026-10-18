@@ -1,0 +1,7 @@
+//Compile-time rejection: char is a character row, not an integer row
+//for shift purposes (same family as arithmetic operands).
+int main() {
+    char c = 'a';
+    int r = c << 1;
+    return 0;
+}

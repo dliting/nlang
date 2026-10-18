@@ -272,6 +272,14 @@ private:
     void OpMul(BytecodeReader& reader, uint8_t* locals);
     void OpDiv(BytecodeReader& reader, uint8_t* locals);
     void OpMod(BytecodeReader& reader, uint8_t* locals);
+    //0.9.9 shifts: same kind-immediate encoding as the arithmetic family;
+    //the count slot carries the result carrier row (resolver casts the
+    //right operand), so the width check reads it with that row.
+    void OpShl(BytecodeReader& reader, uint8_t* locals);
+    void OpShr(BytecodeReader& reader, uint8_t* locals);
+    //Raises the named range error when the count slot (read with the
+    //carrier row) is negative or reaches the row's bit width.
+    void CheckShiftCount(int row, const uint8_t* p);
     void OpNeg(BytecodeReader& reader, uint8_t* locals);
     void OpCmp(BytecodeReader& reader, uint8_t* locals);
     void OpPrimCast(BytecodeReader& reader, uint8_t* pResult);

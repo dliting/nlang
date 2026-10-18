@@ -32,6 +32,17 @@ static bool IsCompareOp(SnBinaryExpr::Operator op)
 		|| op == SnBinaryExpr::OP_NotEqual;
 }
 
+//Registry test: an integer row (signed or unsigned category). bool and
+//char rows are their own categories, floats are excluded — this is the
+//shift family's operand gate (0.9.9).
+static bool IsIntegerPrimKind(NodeKind k)
+{
+	int i = ScalarPrimIndexOf(k);
+	return i >= 0
+		&& (kScalarPrims[i].category == PC_SInt
+			|| kScalarPrims[i].category == PC_UInt);
+}
+
 //Mixed string/non-string has no semantics ("a" < 5), in either operand
 //order. Null literals are exempt: KT_Null is Int32-typed, and
 //`s == null` / `c == null` are the established null checks — the null
@@ -217,110 +228,6 @@ bool ExprResolveAccessor::CheckCompareOperands(SnBinaryExpr &sn,
 	return true;
 }
 
-//0.7.5 strict bool: logical operands feed OP_JumpIfNot and now must be
-//bool — the same policy as statement conditions (CheckBoolCondition in
-//StatementResolverFlow.cpp; widened together). Comparisons produce
-//bool, so `a > 0 && b > 0` keeps working; raw int truthiness is a
-//compile error. False = rejected.
-bool ExprResolveAccessor::CheckLogicalBoolOperands(SnBinaryExpr &sn)
-{
-	auto bop = sn.Op();
-	const char* szOp = bop == SnBinaryExpr::OP_LogicalAnd
-		? "&&" : bop == SnBinaryExpr::OP_LogicalOr
-		? "||" : "!";
-	const char* szShape = sn.Right()
-		? "bool operands" : "a bool operand";
-	auto* pLT = sn.Left()->EvalDataType();
-	if (pLT && pLT->Kind() != NK_Bool)
-	{
-		m_Env.Log(CLL_Error, sn.Left()->Location(),
-			"operator '%s' requires %s, got \"%s\".",
-			szOp, szShape, pLT->ToString().c_str());
-		return false;
-	}
-	if (sn.Right())
-	{
-		auto* pRT = sn.Right()->EvalDataType();
-		if (pRT && pRT->Kind() != NK_Bool)
-		{
-			m_Env.Log(CLL_Error, sn.Right()->Location(),
-				"operator '%s' requires %s, got \"%s\".",
-				szOp, szShape, pRT->ToString().c_str());
-			return false;
-		}
-	}
-	return true;
-}
-
-//0.7.5 strict bool: ==/!= between two bools is the only comparison
-//bools support. Relational ordering on bool (< <= > >=) has no
-//semantics, and mixed bool/non-bool (true == 1, b == null) must not
-//silently compare the raw 0/1 carrier against an int — reject both.
-//True = rejected (diagnostic logged).
-bool ExprResolveAccessor::RejectBoolMisuse(SnBinaryExpr &sn,
-	SnBinaryExpr::Operator op, NodeKind lk, NodeKind rk)
-{
-	bool lBool = lk == NK_Bool;
-	bool rBool = rk == NK_Bool;
-	if (!lBool && !rBool)
-		return false;
-	bool bEq = op == SnBinaryExpr::OP_Equal
-		|| op == SnBinaryExpr::OP_NotEqual;
-	if (!bEq)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"bool values cannot be ordered; only == and != are "
-			"supported.");
-		return true;
-	}
-	if (!(lBool && rBool))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"a bool value can only be compared with a bool value.");
-		return true;
-	}
-	return false;
-}
-
-//0.7.5 char: a char is a Unicode scalar value, not a number — 'a'+1 has
-//no semantics and must not fall into the numeric ladder (whose legacy
-//int fallback would emit a misleading cast diagnostic). Comparing with
-//a number is equally rejected: convert explicitly with 'as int' first.
-//String operands are exempt ("x" + 'y' is a legal concat). True =
-//rejected (diagnostic logged).
-bool ExprResolveAccessor::RejectCharArithmetic(SnBinaryExpr &sn,
-	NodeKind lk, NodeKind rk)
-{
-	if (lk != NK_Char && rk != NK_Char)
-		return false;
-	if (lk == NK_String || rk == NK_String)
-		return false;
-	m_Env.Log(CLL_Error, sn.Location(),
-		"char values do not support arithmetic; convert with 'as int'.");
-	return true;
-}
-
-//0.7.5 char: char×char supports all six comparisons in code-point
-//order; a char mixed with anything else (number, bool, string, null)
-//is rejected — the comparison dispatch would otherwise silently pick a
-//numeric kind and mis-compare. Mirrors the bool gate shape. True =
-//rejected (diagnostic logged).
-bool ExprResolveAccessor::RejectCharMisuse(SnBinaryExpr &sn,
-	SnBinaryExpr::Operator op, NodeKind lk, NodeKind rk)
-{
-	bool lChar = lk == NK_Char;
-	bool rChar = rk == NK_Char;
-	if (!lChar && !rChar)
-		return false;
-	if (!(lChar && rChar))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"a char value can only be compared with a char value.");
-		return true;
-	}
-	return false;
-}
-
 //T_result selection for the arithmetic branch: string + OP_Add
 //(concat; Phase 8e-9a) beats the numeric family beats int. Null = op
 //not supported on a string operand, or no implicit common numeric type
@@ -423,6 +330,95 @@ bool ExprResolveAccessor::ResolveArithmeticBinary(SnBinaryExpr &sn,
 	return true;
 }
 
+//0.9.9 shift operators (`<<`, `>>`): the LEFT operand's row decides the
+//result (Java/C# rule — a narrower-than-int left row promotes to int
+//unarily). The count (right operand) must convert to the result carrier
+//IMPLICITLY (also the Java/C# rule): a wider or differently-signed count
+//row would silently truncate the count, so it is rejected with a
+//shift-specific diagnostic instead of the generic cast one. Counts are
+//range-checked at run time by the VM (like division by zero). enum
+//members masquerade as Int32 (SnEnumMember::EvalDataType), so they ride
+//the int32 row with no special case. False = rejected (diagnostic
+//logged).
+bool ExprResolveAccessor::ResolveShiftBinary(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op)
+{
+	if (sn.Left()->ContainFlags(NF_NullLiteral)
+		|| (sn.Right() && sn.Right()->ContainFlags(NF_NullLiteral)))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"null is not a valid shift operand.");
+		return false;
+	}
+	auto* L = sn.Left()->EvalDataType();
+	auto* R = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+	NodeKind lk = L ? L->Kind() : NK_Int32;
+	NodeKind rk = R ? R->Kind() : NK_Int32;
+	const char* opName = op == SnBinaryExpr::OP_Shl ? "<<" : ">>";
+	if (!IsIntegerPrimKind(lk) || !IsIntegerPrimKind(rk))
+	{
+		auto* bad = IsIntegerPrimKind(lk) ? R : L;
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s' requires integer operands, got \"%s\".",
+			opName, bad ? bad->ToString().c_str() : "?");
+		return false;
+	}
+	//unary promotion of the left row (registry rank <3 = narrower than
+	//the int/uint rank 3, the byte+byte rule applied to one operand).
+	int li = ScalarPrimIndexOf(lk);
+	if (kScalarPrims[li].rank < 3)
+		lk = NK_Int32;
+	SnField* T_result = SnBuiltinDataType::InstanceOf(lk);
+	sn.EvalDataType(T_result);
+
+	return WrapShiftOperands(sn, T_result, opName);
+}
+
+//Wrap both shift operands in place to the carrier row (the Phase 8e-8
+//pattern) so codegen sees uniform operand types matching the binary's
+//EvalDataType. The left row is the carrier or widens to it, so it always
+//passes FixupExprType's implicit gate; a count that cannot reach the
+//carrier implicitly (a wider or differently-signed row would silently
+//truncate the count) gets a shift-specific diagnostic. False = rejected
+//(diagnostic logged).
+bool ExprResolveAccessor::WrapShiftOperands(SnBinaryExpr &sn,
+	SnField* T_result, const char* opName)
+{
+	auto it = sn.Children().begin();
+	auto& leftExpr = static_cast<SnExpression&>(*it);
+	TypeCastInfo leftCI(leftExpr.EvalDataType(), T_result);
+	FixupExprType(it, leftCI);
+	if (!sn.Right())
+		return true;
+	++it;
+	auto& rightExpr = static_cast<SnExpression&>(*it);
+	auto* R = rightExpr.EvalDataType();
+	TypeCastInfo rightCI(R, T_result);
+	//FixupExprType's own gate order, with a shift-specific diagnostic:
+	//a constant count that fits the carrier is rescued by
+	//ConstantFitGate (u >> 1 keeps working); a constant that does not
+	//fit keeps ConstantFitGate's precise message; a non-constant count
+	//whose row cannot reach the carrier implicitly (wider or
+	//differently signed — it would silently truncate the count) is
+	//rejected with the shift message.
+	if (rightCI.Kind() != TCK_Same && rightCI.Kind() != TCK_Auto)
+	{
+		auto fit = ConstantFitGate(rightExpr, rightCI);
+		if (fit != ConstantFitGateResult::CFG_Promoted)
+		{
+			if (fit == ConstantFitGateResult::CFG_NotApplicable)
+				m_Env.Log(CLL_Error, sn.Location(),
+					"operator '%s' requires a count implicitly convertible "
+					"to \"%s\", got \"%s\".",
+					opName, T_result->ToString().c_str(),
+					R ? R->ToString().c_str() : "?");
+			return false;
+		}
+	}
+	FixupExprType(it, rightCI);
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 {
 	assert(!sn.IsResolved());
@@ -454,6 +450,11 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 		//int32 0/1 — OP_Cmp/OP_Eq_str/JumpIfNot bit patterns unchanged).
 		auto* boolType = SnBuiltinDataType::InstanceOf(NK_Bool);
 		sn.EvalDataType(boolType);
+	}
+	else if (op == SnBinaryExpr::OP_Shl || op == SnBinaryExpr::OP_Shr)
+	{
+		if (!ResolveShiftBinary(sn, op))
+			return;
 	}
 	else if (!ResolveArithmeticBinary(sn, op))
 		return;
