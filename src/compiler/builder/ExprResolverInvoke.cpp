@@ -50,6 +50,10 @@ bool ExprResolveAccessor::RejectBareMethodCall(SnInvokeExpr &snInvoke,
 {
 	if (!pCallee)
 		return false;
+	//0.9.10: a static callee has no receiver expectation — the bare form
+	//emits OP_CallFunc slotBase 0 against a frame with no __this slot.
+	if (pCallee->ContainFlags(NF_Static))
+		return false;
 	auto *pInvokeParent = snInvoke.Parent();
 	bool bIsMethodCallShape = pInvokeParent
 		&& pInvokeParent->Kind() == NK_MemberExpr
@@ -68,6 +72,36 @@ bool ExprResolveAccessor::RejectBareMethodCall(SnInvokeExpr &snInvoke,
 		return true;
 	}
 	return false;
+}
+
+//0.9.10: an instance method cannot be reached through the type name —
+//`Util.inst()` has no receiver value (before this gate the shape slipped
+//through the resolver and crashed the backend's receiver emission).
+//A bare enum name is the same shape (`Color.rank()`); the enum VALUE
+//receiver (`Color.Blue.rank()`) has a MemberExpr outer and is unaffected.
+//True = rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
+	SnFunction *pCallee)
+{
+	if (!pCallee || pCallee->ContainFlags(NF_Static))
+		return false;
+	auto *pInvokeParent = snInvoke.Parent();
+	if (!(pInvokeParent && pInvokeParent->Kind() == NK_MemberExpr
+		&& static_cast<SnMemberExpr*>(pInvokeParent)->Inner() == &snInvoke))
+		return false;
+	auto *pOuter = static_cast<SnMemberExpr*>(pInvokeParent)->Outer();
+	if (!(pOuter && pOuter->Kind() == NK_IdentifierExpr))
+		return false;
+	auto *pOuterField = static_cast<SnIdentifierExpr*>(pOuter)->Field();
+	if (!(pOuterField && (pOuterField->Kind() == NK_ClassDecl
+		|| pOuterField->Kind() == NK_InterfaceDecl
+		|| pOuterField->Kind() == NK_EnumDecl)))
+		return false;
+	m_Env.Log(CLL_Error, snInvoke.Location(),
+		"the instance method \"%s\" must be called through a receiver "
+		"object.",
+		pCallee->Name().c_str());
+	return true;
 }
 
 //0.9.0: the bare brace arguments of this call — untyped init lists whose
@@ -142,6 +176,11 @@ bool ExprResolveAccessor::AdmitChosenCallee(SnInvokeExpr &snInvoke,
 		return false;
 	}
 	if (RejectBareMethodCall(snInvoke, pCallee))
+	{
+		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		return false;
+	}
+	if (RejectTypeNameInstanceCall(snInvoke, pCallee))
 	{
 		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
 		return false;

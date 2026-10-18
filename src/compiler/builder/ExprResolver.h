@@ -338,6 +338,16 @@ private:
 	//module path sharing the name (silent when none does).
 	void MaybeLogModuleHint(const std::string &name);
 
+	//0.9.10: nearest enclosing function of the current resolution context —
+	//the static-method gates (this / implicit this) inspect its NF_Static
+	//flag. Null at namespace/module scope.
+	SnFunction *EnclosingFunction() const;
+
+	//0.9.10: a bare name that binds to a class field is the implicit
+	//this.field form — rejected inside a static method. True = rejected
+	//with its diagnostic.
+	bool RejectImplicitThisInStatic(SnIdentifierExpr &idExpr, SnField *pField);
+
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
 	/*
@@ -524,6 +534,8 @@ private:
 		bool &rbVisibilityHintLogged);
 	bool TryBindDelegateCall(SnInvokeExpr &snInvoke);
 	bool RejectBareMethodCall(SnInvokeExpr &snInvoke, SnFunction *pCallee);
+	bool RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
+		SnFunction *pCallee);
 	void LogAmbiguousCall(SnInvokeExpr &invoke);
 	bool MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
 		bool bNameMatchedImported);

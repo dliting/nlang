@@ -442,9 +442,30 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	BindArrayTypeToken(sn);
 }
 
+//0.9.10: nearest enclosing function of the current resolution context —
+//the static-method gates inspect its NF_Static flag.
+SnFunction *ExprResolveAccessor::EnclosingFunction() const
+{
+	for (auto *pContext = m_pContext; pContext;
+		pContext = pContext->Parent())
+		if (pContext->Kind() == NK_Function)
+			return static_cast<SnFunction*>(pContext);
+	return nullptr;
+}
+
 void ExprResolveAccessor::Access(SnThisExpr &sn)
 {
 	assert(!sn.IsResolved());
+
+	//0.9.10: a static method has no receiver — `this` (and the bare-field
+	//implicit form gated in Access(SnIdentifierExpr)) is meaningless there.
+	auto *pEnclosing = EnclosingFunction();
+	if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"this is not available in a static method.");
+		return;
+	}
 
 	auto pContext = m_pContext;
 	while (pContext)

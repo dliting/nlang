@@ -245,6 +245,10 @@ private:
     bool EmitMemberBuiltinDispatch(SnMemberExpr& member,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
+    //0.9.10: type-name-qualified static call (Util.twice(21), I.stat()).
+    bool EmitMemberStaticCall(SnMemberExpr& member,
+                              BytecodeEmitter& emitter,
+                              uint16_t resultOffset);
     bool EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
                                          SnField* outerType,
                                          BytecodeEmitter& emitter,

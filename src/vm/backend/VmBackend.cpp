@@ -171,9 +171,12 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
 void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                                        CompiledFunction& compiledFunc) {
     // If this is a class or enum method, allocate slot 0 for 'this'.
+    //0.9.10: a static method has no receiver — its frame starts at the
+    //first formal, matching the free-function layout it is called with.
     bool isMethod = func.Parent()
         && (func.Parent()->Kind() == NK_ClassDecl
-            || func.Parent()->Kind() == NK_EnumDecl);
+            || func.Parent()->Kind() == NK_EnumDecl)
+        && !func.ContainFlags(NF_Static);
     if (isMethod) {
         //Phase 12: an enum method's `this` is the enum VALUE (int32), not
         //a heap reference — RTK_Class here would make GC root scanning

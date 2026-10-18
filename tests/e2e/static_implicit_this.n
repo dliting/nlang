@@ -1,0 +1,9 @@
+//Compile-time rejection: the implicit this.field binding of a bare
+//field name is equally unavailable inside a static method.
+class U {
+    public int x;
+    public static int bad() { return x; }
+}
+int main() {
+    return 0;
+}

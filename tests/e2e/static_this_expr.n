@@ -1,0 +1,9 @@
+//Compile-time rejection: a static method has no receiver, so `this`
+//must not resolve inside one.
+class U {
+    public int x;
+    public static int bad() { return this.x; }
+}
+int main() {
+    return 0;
+}

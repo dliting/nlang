@@ -275,6 +275,23 @@ bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
 	return false;
 }
 
+//0.9.10: a bare identifier resolving to a class field carries the
+//implicit this.field meaning; a static method has no receiver, so the
+//binding is rejected here (the explicit `this` form is gated in
+//Access(SnThisExpr&)). True = rejected with its diagnostic.
+bool ExprResolveAccessor::RejectImplicitThisInStatic(SnIdentifierExpr &idExpr,
+	SnField *pField)
+{
+	if (!pField || pField->Kind() != NK_ClassField)
+		return false;
+	auto *pEnclosing = EnclosingFunction();
+	if (!pEnclosing || !pEnclosing->ContainFlags(NF_Static))
+		return false;
+	m_Env.Log(CLL_Error, idExpr.Location(),
+		"this is not available in a static method.");
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 {
 	if (idExpr.IsResolved())
@@ -314,6 +331,9 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 		TryResolveBuiltinNameFallback(idExpr, curModule);
 		return;
 	}
+
+	if (RejectImplicitThisInStatic(idExpr, pField))
+		return;
 
 	ResolveFieldExprAs(idExpr, pField);
 	BindArrayTypeToken(idExpr);

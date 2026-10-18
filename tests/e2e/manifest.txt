@@ -1510,3 +1510,8 @@ vovld_virtual_first compile_error claims the virtual dispatch slot
 vovld_static_virtual_mix compile_error dispatch is name-based
 vovld_ok_conversion_ranking 2
 vovld_ok_nonvirtual_parent_virtual_child 10
+class_static_calls 57
+interface_static_calls 50
+static_this_expr compile_error this is not available in a static method
+static_implicit_this compile_error this is not available in a static method
+type_name_instance_call compile_error must be called through a receiver object

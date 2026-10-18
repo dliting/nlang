@@ -1047,11 +1047,11 @@ private slots:
     //Spec section 6.2: a leftmost identifier resolving as a class keeps
     //the normal (class) path - the module fallback must not fire, even
     //with a module literally named after the class (utils2/MyClass.n,
-    //same method name m) inside the build. As-built limit: NLang has no
-    //static dispatch in the VM (see e2e void_multi_flag.n), so codegen
-    //rejects the class-name receiver AFTER resolution; the discriminating
-    //assertion is that no resolution diagnostic is logged (a fallback
-    //capture would either log one or bind the other module's m()).
+    //same method name m) inside the build. 0.9.10: type-name-qualified
+    //static calls compile and run, so the discriminating assertion is
+    //that the class path owns the chain end to end - the build succeeds
+    //and no module-table diagnostic is logged (a fallback capture would
+    //either log one or bind the other module's m()).
     void classStaticWinsOverModule()
     {
         GateProjectOptions opts;
@@ -1064,9 +1064,8 @@ private slots:
         auto res = buildGateProject(opts);
         QVERIFY2(res.builder != nullptr,
             "gate scaffold failed before the gate stage");
-        QVERIFY2(!res.ok,
-            "static-flagged calls stay rejected (no static dispatch in "
-            "the VM)");
+        QVERIFY2(res.ok,
+            "a type-name-qualified static call must compile (0.9.10)");
         QVERIFY2(res.errors.empty(),
             "the class path must own the chain at resolve time: no "
             "module-table diagnostic may appear");

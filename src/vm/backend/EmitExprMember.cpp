@@ -130,6 +130,12 @@ void VmBackend::Access(SnMemberExpr& expr) {
         return;
     if (EmitMemberBuiltinDispatch(member, emitter, resultOffset))
         return;
+    //0.9.10: type-name-qualified static call — the resolver bound the
+    //inner invoke to an NF_Static callee; no receiver value exists
+    //(evaluating the outer identifier would hit the no-codegen-binding
+    //throw), no null check, args stage from slot 0.
+    if (EmitMemberStaticCall(member, emitter, resultOffset))
+        return;
     auto* outerType = member.Outer()->EvalDataType();
     if (EmitMemberTypedReceiverDispatch(member, outerType, emitter,
                                         resultOffset))
