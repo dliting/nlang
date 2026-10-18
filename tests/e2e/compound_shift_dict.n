@@ -1,0 +1,12 @@
+//0.9.10: Dict-subscript compound shift (d[k] <<= v) — the container
+//read-modify-write path with the boxed key and the boxed primitive
+//value slot; the computed word rides the int carrier in and out.
+int main() {
+	Dict<string, int> d = {};
+	d["mask"] = 3;
+	d["mask"] <<= 4;
+	if (d["mask"] != 48) { return 1; }
+	d["mask"] >>= 1;
+	if (d["mask"] != 24) { return 2; }
+	return 0;
+}

@@ -139,6 +139,11 @@ private:
 		const ISourceLocation *pLoc);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
+	//0.9.10: the shift branch of Access(SnCompoundAssignStmt&) — the
+	//integer-operand gate plus the shared count gate (AdmitShiftCount)
+	//with the LHS's declared row as the carrier. Definition in
+	//StatementResolverCompound.cpp.
+	void FinishCompoundShift(SnCompoundAssignStmt &sn, SnField &targetType);
 	//Shared tail of Access(SnReturnStmt&): the return-position func-ref
 	//binding and the cast fixup against the declared return type. False
 	//when the binding failed (diagnostic logged).

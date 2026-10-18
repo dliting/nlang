@@ -1,0 +1,7 @@
+//String keeps the compound family's established rejection: only +=
+//(concat) is supported, so <<= hits the existing message unchanged.
+int main() {
+	string s = "a";
+	s <<= "x";
+	return 0;
+}

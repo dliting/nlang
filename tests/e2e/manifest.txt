@@ -778,6 +778,27 @@ shift_reject_count_uint compile_error count implicitly convertible to
 # generic close `>>` still lexes apart from the shift operator
 shift_generic_regression 0
 
+# --- 0.9.10: <<= and >>= compound shift assignment ---
+# int/uint/long carriers, arithmetic vs logical >>, array/List/member/
+# this-field shapes, constant count rescue
+compound_shift_semantics 0
+# the LHS's declared row IS the carrier (byte narrows back, no promotion)
+compound_shift_byte 0
+# shift compound in the for-update slot (FiniFor productions)
+compound_shift_fini_for 0
+# Dict-subscript compound shift: boxed key + boxed value slot round-trip
+compound_shift_dict 0
+# run-time count check rides the binary form's executors: negative
+# count, and count 8 out of the byte carrier's 8-bit range
+compound_shift_count_throws 1
+compound_shift_byte_width_throws 1
+# compile-time rejections (shared gate family with the binary form)
+compound_shift_reject_float compile_error requires integer operands
+compound_shift_reject_enum compile_error requires integer operands
+compound_shift_reject_count_long compile_error count implicitly convertible to
+compound_shift_reject_string compile_error not supported on string
+compound_shift_reject_byte_range compile_error out of range for
+
 # --- Phase 9e: out parameters ---
 out_basic 5
 out_two_params 37

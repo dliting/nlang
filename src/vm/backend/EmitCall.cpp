@@ -52,6 +52,11 @@ void VmBackend::EmitCompoundOp(int opInt,
     case SnBinaryExpr::OP_Mul: opc = OpCode::OP_Mul; break;
     case SnBinaryExpr::OP_Div: opc = OpCode::OP_Div; break;
     case SnBinaryExpr::OP_Mod: opc = OpCode::OP_Mod; break;
+    //0.9.10: shift compound assignment rides the binary form's executors
+    //(kind-immediate family) — the run-time count range check keys on the
+    //carrier row's width, so a byte carrier keeps its 8-bit bound.
+    case SnBinaryExpr::OP_Shl: opc = OpCode::OP_Shl; break;
+    case SnBinaryExpr::OP_Shr: opc = OpCode::OP_Shr; break;
     default: return;  //not an arithmetic op
     }
     //0.7.5: kind-immediate family — compound assigns carry the LHS

@@ -1,0 +1,10 @@
+//An enum-typed variable's declared row is not an integer primitive —
+//the compound shift rejects it (enum members ride int32 only as value
+//expressions, never as an assignment carrier).
+enum Color { Red, Green, Blue }
+
+int main() {
+	Color c = Color.Red;
+	c <<= 1;
+	return 0;
+}

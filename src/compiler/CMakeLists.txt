@@ -97,6 +97,7 @@ add_library(nlang_compiler
     builder/StatementResolverDeclArray.cpp
     builder/StatementResolverTypes.cpp
     builder/StatementResolverAssign.cpp
+    builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp
     builder/StatementResolverSwitchTry.cpp
     builder/StatementResolverSuper.cpp

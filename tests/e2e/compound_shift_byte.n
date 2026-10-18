@@ -1,0 +1,16 @@
+//Byte-carrier compound shift: the declared row IS the carrier (implicit
+//narrowing store-back, the byte b += 5 family rule) — no promotion to
+//int — so the wrap keeps the signed byte width (1 <<= 7 is -128, not
+//128) and a later read-back shift stays in the narrow row.
+int main() {
+	int acc = 0;
+	byte b = 3;
+	b <<= 2;
+	acc = acc + b - 12;
+	b >>= 3;
+	acc = acc + b - 1;
+	byte c = 1;
+	c <<= 7;
+	if (c != -128) { acc = acc + 1; }
+	return acc;
+}

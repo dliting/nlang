@@ -817,6 +817,14 @@ private:
 	//count must convert to that row implicitly (see
 	//ExprResolverBinary.cpp for the full rationale).
 	bool ResolveShiftBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	//0.9.10: the count-admission core of the shift family, shared by the
+	//binary form (WrapShiftOperands) and the compound form
+	//(StatementResolverAssign, through the ExprResolver forwarder below).
+	//`iCount` positions the count expression in its parent's child list
+	//(replaced in place by the carrier wrap, like FixupExprType). See
+	//ExprResolverBinary.cpp for the full rationale.
+	bool AdmitShiftCount(NodeIterator &iCount, SnField *pCarrier,
+		const ISourceLocation *pLoc, const char *opName);
 	bool WrapShiftOperands(SnBinaryExpr &sn, SnField* T_result,
 		const char* opName);
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
@@ -1037,6 +1045,15 @@ public:
 	bool FixupExprType(NodeIterator &iSrcExpr, TypeCastInfo &castInfo)
 	{
 		return m_Accessor.FixupExprType(iSrcExpr, castInfo);
+	}
+
+	//0.9.10: statement-side entry of the shared shift count gate (the
+	//compound `<<=`/`>>=` branch in StatementResolverAssign). Same
+	//contract as the accessor member of the same name.
+	bool AdmitShiftCount(NodeIterator &iCount, SnField *pCarrier,
+		const ISourceLocation *pLoc, const char *opName)
+	{
+		return m_Accessor.AdmitShiftCount(iCount, pCarrier, pLoc, opName);
 	}
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)

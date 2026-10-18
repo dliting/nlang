@@ -1,0 +1,8 @@
+//The shift compound form requires integer operands, like the binary
+//form — a float carrier is rejected with the shared message (previously
+//this statement compiled and did nothing).
+int main() {
+	float f = 1.5;
+	f <<= 1;
+	return 0;
+}

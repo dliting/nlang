@@ -118,6 +118,14 @@ inline bool PrimCategoryIsNumeric(ScalarPrimCategory c)
 }
 bool PrimKindIsNumeric(NodeKind kind);
 
+//Integer = signed or unsigned category (bool/char excluded) — the shift
+//family's operand gate, shared by the binary and compound forms.
+inline bool PrimCategoryIsInteger(ScalarPrimCategory c)
+{
+    return c == PC_SInt || c == PC_UInt;
+}
+bool PrimKindIsInteger(NodeKind kind);
+
 //Value-domain containment: does every value of category/rank A fit in
 //category/rank B? Shared by the cast-table derivation and numeric
 //promotion (CommonNumericType). The three cross-sign containments
