@@ -6,6 +6,28 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.7] - 2026-10-18
+
+### Changed
+
+- **Interface members now default to `public`** — a method declared as
+  `int m();` inside an `interface` is public without any modifier, matching
+  the contract reading of mainstream languages: an interface member is a
+  signature with no private calling context to hide it from. Writing
+  `public` explicitly remains valid (and redundant). Class, struct, and
+  enum members keep the `private` default.
+- **An explicit `private`/`protected` on an interface member is a
+  compile-time error** — `The interface member "m" must be public.` —
+  declared at the interface. Previously such a member was silently
+  treated as private and only failed at call sites, with the misleading
+  `The function "m" does not exist or is not accessible.` message.
+- **`const`/`static`/`native`/`virtual` on an interface member are
+  compile-time errors too** — completing the declaration invariant "an
+  interface member is a public abstract signature". A `static` member
+  used to compile in the interface and then poison the implementing
+  class with dispatch-slot diagnostics it could not satisfy; `const`,
+  `native`, and `virtual` were silently accepted with no meaning.
+
 ## [0.9.6] - 2026-10-18
 
 ### Changed

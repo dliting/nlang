@@ -168,6 +168,44 @@ bool StatementResolveAccessor::IsExceptionSubclass(SnField *t)
 
 void StatementResolveAccessor::Access(SnInterfaceDecl &sn)
 {
+	//An interface member is exactly a public abstract signature — the
+	//full declaration invariant is enforced here, at the single point
+	//every interface declaration passes through. FA_Default has already
+	//resolved to FA_Public by OnAddedToParent, so a non-public member
+	//carries an explicit private/protected modifier, and the only
+	//user-writable node flags (const/static/native/virtual) each break
+	//the signature contract in its own way. Rejecting at the declaration
+	//replaces the old failure modes: a silently-private member surfaced
+	//only at call sites as a misleading "does not exist or is not
+	//accessible" error, and a static member poisoned the implementing
+	//class with contract diagnostics about a slot it cannot claim.
+	for (auto &field : sn.Members())
+	{
+		if (field.AccessType() != FA_Public)
+			m_Env.Log(CLL_Error, field.Location(),
+				"The interface member \"%s\" must be public.",
+				field.Name().c_str());
+		if (field.ContainFlags(NF_Const))
+			m_Env.Log(CLL_Error, field.Location(),
+				"The interface member \"%s\" cannot be const: interfaces"
+				" declare no data to freeze.",
+				field.Name().c_str());
+		if (field.ContainFlags(NF_Static))
+			m_Env.Log(CLL_Error, field.Location(),
+				"The interface member \"%s\" cannot be static: interfaces"
+				" declare instance signatures only.",
+				field.Name().c_str());
+		if (field.ContainFlags(NF_Native))
+			m_Env.Log(CLL_Error, field.Location(),
+				"The interface member \"%s\" cannot be native: interfaces"
+				" declare signatures without implementation.",
+				field.Name().c_str());
+		if (field.ContainFlags(NF_Virtual))
+			m_Env.Log(CLL_Error, field.Location(),
+				"The interface member \"%s\" cannot be virtual: interface"
+				" methods dispatch by name already.",
+				field.Name().c_str());
+	}
 	//Interface method signatures are resolved like class methods but
 	//they have no bodies (the resolver tolerates an empty body when
 	//NF_Abstract is set). No super-class chain to walk.

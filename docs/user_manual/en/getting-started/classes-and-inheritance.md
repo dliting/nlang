@@ -52,7 +52,7 @@ See also: [Language Specification / Declarations](../language-spec/declarations.
 import io;
 
 interface IShape {
-    public int Area();
+    int Area();
 }
 
 class Square implements IShape {
@@ -78,8 +78,8 @@ int main() {
 Output `16`; exit code 16. An interface declares method signatures only
 (no fields, no bodies). A class conforms with `class X implements IShape`;
 a variable of the interface type holds any conforming object, and calls
-dispatch virtually to the runtime class. Interface methods must be marked
-`public` — the default access is `private`, so an unmarked method is
-parsed but not callable.
+dispatch virtually to the runtime class. Interface members default to
+`public` (the opposite of class members); any other modifier
+(`private`, `static`, ...) is rejected.
 
 See also: [Language Specification / Declarations](../language-spec/declarations.md).

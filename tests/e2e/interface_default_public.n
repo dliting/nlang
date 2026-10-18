@@ -1,0 +1,23 @@
+//Interface members with no access modifier default to public (unlike
+//class/struct/enum members, which default to private): an interface
+//member is a contract signature with no private calling context to
+//hide it from. Both members below are written bare and must be
+//callable through the interface reference.
+interface IGreeter {
+    int hello();
+    void bump(int by);
+}
+
+class En implements IGreeter {
+    public int count;
+    public int hello() { return this.count; }
+    public void bump(int by) { this.count = this.count + by; }
+}
+
+int main() {
+    En e = En();
+    IGreeter g = e;
+    g.bump(6);
+    g.bump(4);
+    return g.hello();   // 6 + 4 = 10
+}

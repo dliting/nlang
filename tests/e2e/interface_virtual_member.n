@@ -1,0 +1,7 @@
+//An interface member must be a public abstract signature: interface
+//methods already dispatch by name, so a virtual modifier is meaningless.
+interface IVal {
+    virtual int val(int x);
+}
+
+int main() { return 0; }

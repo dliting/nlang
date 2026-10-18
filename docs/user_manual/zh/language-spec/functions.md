@@ -26,7 +26,7 @@ int add(int a, int b) {
 
 ### `void`函数
 
-函数可以声明`void`作为返回类型——不返回值。适用于自由函数、类方法（任意修饰符组合，例如`public static void f()`）、以及接口成员（和所有接口成员一样，仍需`public`）。
+函数可以声明`void`作为返回类型——不返回值。适用于自由函数、类方法（任意修饰符组合，例如`public static void f()`）、以及接口成员（和所有接口成员一样，缺省为`public`）。
 
 ```nlang
 void log(int level) {

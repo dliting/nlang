@@ -34,8 +34,8 @@ int add(int a, int b) {
 
 A function may declare `void` as its return type — it returns no value. Works
 for free functions, class methods (any modifier combination, e.g.
-`public static void f()`), and interface members (which still require
-`public`, like all interface members).
+`public static void f()`), and interface members (which default to `public`
+like all interface members).
 
 ```nlang
 void log(int level) {

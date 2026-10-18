@@ -1,0 +1,8 @@
+//An interface member must be a public abstract signature: a static
+//member breaks the instance-signature contract (and used to poison the
+//implementing class with slot-claim diagnostics it could not satisfy).
+interface ICounter {
+    static int tick();
+}
+
+int main() { return 0; }

@@ -1,0 +1,7 @@
+//An interface member must be a public abstract signature: a native
+//modifier promises an implementation the interface cannot carry.
+interface IOp {
+    native int run(int x);
+}
+
+int main() { return 0; }

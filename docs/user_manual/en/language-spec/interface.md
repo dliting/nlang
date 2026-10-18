@@ -9,8 +9,8 @@ the implementing object (reference semantics, like a class — see
 
 ```nlang
 interface IShape {
-    public int Area();
-    public int Perimeter();
+    int Area();
+    int Perimeter();
 }
 
 class Square implements IShape {
@@ -71,11 +71,16 @@ with a message like `The class "F" does not implement the method
 coexist as an overload of an interface contract (virtual dispatch is by name;
 an overload would steal the dispatch).
 
-### The `public` keyword is required
+### Member modifiers
 
-Interface methods are declared `public int m();`. NLang's default access
-modifier is `private`; an interface method declared as `int m();` (no `public`)
-is parsed but treated as private and **not accessible** from call sites. The
-resulting error message — "The function X does not exist or is not accessible"
-— is misleading because the method does exist, just isn't public. Always write
-`public int m();` in interfaces.
+An interface member is exactly a **public abstract signature**. The default
+access modifier is `public`: `int m();` and `public int m();` are
+equivalent — the latter is redundant but legal — the opposite of
+class/struct/enum members, which default to `private`. Every other modifier
+on an interface member is a compile error: `private`/`protected` (with a
+message like `The interface member "m" must be public.`), `const`
+(interfaces declare no data to freeze), `static` (interfaces declare
+instance signatures only), `native` (signatures carry no implementation),
+and `virtual` (interface methods already dispatch by name). The
+implementing class's matching method may carry any access level (see the
+implementation contract above).
