@@ -58,6 +58,7 @@ void VmExecutor::MarkPhase() {
     for (auto& frame : m_callStack) {
         MarkFrameLocals(frame, worklist);
         MarkFrameResult(frame, worklist);
+        MarkFrameBand(frame, worklist);
     }
     //Extension point ③: host-registered roots (host-held reference
     //Values). Same string/heap split as the frame scans — RTK_String
@@ -114,6 +115,32 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
         if (val <= 0 || static_cast<size_t>(val) >= m_slotKinds.size())
             continue;
         if (!m_markBits[val])
+            PushMarked(val, worklist);
+    }
+}
+
+//Root scan: one frame's evalArea band, conservative. Named slots are
+//covered precisely by the locals scan above; the evalArea holds staged
+//call arguments and claim temporaries with no locals-table entry, so a
+//co-argument's safepoint could otherwise sweep them (the F2 gap:
+//f(g(), h()) lost g's object while h allocated). Value-test each cell
+//in BOTH domains — a true reference is valid in exactly its own domain
+//and a cross-domain hit can only over-mark (GC is non-moving), never
+//under-mark. Unwritten cells are zero from frame initialization and
+//fail both guards. Params are excluded: their kinds are declared.
+void VmExecutor::MarkFrameBand(const CallFrame& frame,
+                               std::vector<int32_t>& worklist) {
+    const size_t size = frame.localsBuf.size();
+    size_t off = static_cast<size_t>(frame.func->paramCount)
+        * kFrameSlotBytes;
+    for (; off + kFrameSlotBytes <= size; off += kFrameSlotBytes) {
+        int32_t val;
+        std::memcpy(&val, frame.localsBuf.data() + off, sizeof(val));
+        if (val <= 0)
+            continue;
+        if (static_cast<size_t>(val) < m_stringObjs.size())
+            MarkString(val);
+        if (static_cast<size_t>(val) < m_slotKinds.size() && !m_markBits[val])
             PushMarked(val, worklist);
     }
 }

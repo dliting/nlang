@@ -469,6 +469,13 @@ private:
     void PushMarked(int32_t idx, std::vector<int32_t>& worklist);
     void MarkFrameLocals(const CallFrame& frame, std::vector<int32_t>& worklist);
     void MarkFrameResult(const CallFrame& frame, std::vector<int32_t>& worklist);
+    //Conservative band scan of one frame's evalArea cells (beyond the
+    //param slots) — staged call arguments live there with no locals-table
+    //entry, so a co-argument's safepoint could otherwise sweep them (the
+    //F2 gap). Value-tests each cell in both the string-handle and
+    //heap-index domains: over-marking is safe (GC is non-moving), and
+    //frame zero-init rejects never-written cells.
+    void MarkFrameBand(const CallFrame& frame, std::vector<int32_t>& worklist);
     void MarkFuncReceiver(int32_t idx, std::vector<int32_t>& worklist);
     void MarkBoxedPayload(int32_t idx);
     void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
