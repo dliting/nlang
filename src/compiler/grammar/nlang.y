@@ -424,6 +424,8 @@ static bool CollectQualifiedSegments(
 %token OT_DEC
 %token OT_LSH
 %token OT_RSH
+%token OT_LSHS
+%token OT_RSHS
 %token OT_LE
 %token OT_GE
 %token OT_NE
@@ -929,6 +931,15 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				IdentifierExpr OT_MODS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} |
+				//0.9.10: shift compound assignment (<<=, >>=). The operator
+				//rides the same SnCompoundAssignStmt node; resolver gates and
+				//emission join the arithmetic family in later stages.
+				IdentifierExpr OT_LSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				IdentifierExpr OT_RSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
 				MemberExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -944,6 +955,12 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				MemberExpr OT_MODS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} |
+				MemberExpr OT_LSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				MemberExpr OT_RSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
 				SubscriptExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -958,6 +975,12 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				} |
 				SubscriptExpr OT_MODS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
+				} |
+				SubscriptExpr OT_LSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				SubscriptExpr OT_RSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} ;
 
 /*
@@ -1102,6 +1125,13 @@ FiniFor:	{
 				} |
 				IdentifierExpr OT_MODS Expression {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
+				} |
+				//0.9.10: shift compound forms in the for-update slot.
+				IdentifierExpr OT_LSHS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				IdentifierExpr OT_RSHS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} ;
 
 /*

@@ -278,6 +278,7 @@ LineComment	\/\/[^\n]*
 "++"        { return OT_INC; }
 "--"        { return OT_DEC; }
 "<<"        { return OT_LSH; }
+"<<="       { return OT_LSHS; }
 ">>"        {
                 /* C#-style split: while closing type-argument lists,
                  * ">>" must reach the parser as two '>' tokens so
@@ -297,6 +298,25 @@ LineComment	\/\/[^\n]*
                     return '>';
                 }
                 return OT_RSH;
+            }
+">>="       {
+                /* Same split as ">>" above: inside a type-argument list
+                 * the first '>' closes one level and the remaining
+                 * ">=" rescans through its own rule as OT_GE, so
+                 * closers like `List<List<int>>=` never lose the
+                 * depth balance. Outside generics the longest match
+                 * delivers the shift-assign token. yyless(1) consumes
+                 * one char here, so the same yycolumn compensation
+                 * applies. */
+                if (scanner.GenericDepth() > 0)
+                {
+                    int n = yyleng;
+                    yyless(1);
+                    yycolumn -= n - 1;
+                    scanner.DecGenericDepth();
+                    return '>';
+                }
+                return OT_RSHS;
             }
 "<="        { return OT_LE; }
 ">="        { return OT_GE; }
