@@ -1333,9 +1333,9 @@ NameList:	NameExpr {
 				} ;
 
 /*
-Interface type declaration. Members are method signatures only (no
-fields, no bodies). An interface establishes a contract that
-implementing classes must satisfy.
+Interface type declaration. Members are method signatures; only a
+static member may carry a body (resolver-enforced). An interface
+establishes a contract that implementing classes must satisfy.
 */
 InterfaceDecl:	KT_Interface TT_Identifier '{' InterfaceMemberList '}' {
 					$$ = new SnInterfaceDecl($2, $4, @1);
@@ -1353,24 +1353,40 @@ InterfaceMemberList:	InterfaceMemberList InterfaceMember {
 					$$->push_back($1);
 				} ;
 
-InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' ';' {
+//Interface members share ClassMember's FunctionBodyOrSemi shape: the
+//bodyless form still sets NF_Abstract, and a parsed body is kept for
+//the resolver to admit (static) or reject (instance) per the 0.9.10
+//declaration contract.
+InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
-					func->AddFlags(NF_Abstract);
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($8);
 					$$ = func;
 				} |
-				AccessType Type TT_Identifier '(' FormalParamList ')' ';' {
+				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
-					func->AddFlags(NF_Abstract);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
 					$$ = func;
 				}
-				| AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' ';' {
+				| AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
-					func->AddFlags(NF_Abstract);
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($8);
 					$$ = func;
 				}
-				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' ';' {
+				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
-					func->AddFlags(NF_Abstract);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
 					$$ = func;
 				} ;
 
