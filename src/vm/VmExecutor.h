@@ -865,8 +865,9 @@ private:
     bool IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx);
 
     //Frames captured during exception unwinding. Populated by
-    //RecordUnwindAndPopFrame as RunFrames walks frames innermost-first
-    //(Slice 2 retires the FrameGuard/uncaught_exceptions description).
+    //RecordUnwindAndPopFrame as RunFrames unwinds frames innermost-first;
+    //cleared when a catch handler takes the exception, so only the
+    //uncaught path yields observable text (FormatBacktrace renders it).
     struct UnwindFrame {
         std::string funcName;
         std::string sourceFile;   //v0.8.5: the frame function's compiled translation unit

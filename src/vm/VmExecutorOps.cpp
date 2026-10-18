@@ -29,10 +29,10 @@ void VmExecutor::RunFrames(size_t baseDepth)
             inflightExc = ex.heapIdx;
             inflight = std::current_exception();
         } catch (...) {
-            //Non-NLang error (unknown opcode, malformed module, ...): the
-            //recursive engine's FrameGuards appended one unwind record per
-            //frame as the C++ unwind passed through them; replicate for
-            //every frame of this window, innermost first, then propagate.
+            //Non-NLang error (unknown opcode, malformed module, ...):
+            //record one unwind entry per frame of this window, innermost
+            //first, so the uncaught-path backtrace covers these frames
+            //too, then propagate unchanged.
             while (m_callStack.size() > baseDepth)
                 RecordUnwindAndPopFrame();
             throw;
