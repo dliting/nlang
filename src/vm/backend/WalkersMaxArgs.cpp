@@ -156,20 +156,21 @@ void VmBackend::MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs) {
 }
 
 //MaxArgs-side counterpart of CtorDefaultExprDepth: the nested calls
-//inside a ctor's default expressions bulk-copy their own argument slots
-//into the CALLER's callParamBase while the default stages, so the
-//caller's maxArgs must cover them too (review Critical-1 — without the
-//descent the overflow lands on the ctor call's own {this, args...}
-//claim and silently corrupts the arguments). The subtrees go through
-//the same MaxArgs arms as an ordinary call site. The member-level guard
-//set breaks the cycle a self-referential default would cause: this
-//walker runs before DefaultEmitGuard rejects the recursion at codegen.
-void VmBackend::CtorDefaultMaxArgs(SnFunction* pCtorFn, uint16_t& maxArgs) {
-    if (!pCtorFn) return;
-    if (!m_ctorDefaultMaxArgsWalking.insert(pCtorFn).second) return;
-    for (auto& fp : pCtorFn->Params())
+//inside a callee's default expressions bulk-copy their own argument
+//slots into the CALLER's callParamBase while the default stages, so the
+//caller's maxArgs must cover them too (without the descent the overflow
+//lands on the enclosing call's own {this, args...} claim and silently
+//corrupts the arguments — ctor arms since 0.9.6, function/method arms
+//since 0.9.8). The subtrees go through the same MaxArgs arms as an
+//ordinary call site. The member-level guard set breaks the cycle a
+//self-referential default would cause: this walker runs before
+//DefaultEmitGuard rejects the recursion at codegen.
+void VmBackend::CalleeDefaultMaxArgs(SnFunction* pCalleeFn, uint16_t& maxArgs) {
+    if (!pCalleeFn) return;
+    if (!m_calleeDefaultMaxArgsWalking.insert(pCalleeFn).second) return;
+    for (auto& fp : pCalleeFn->Params())
         if (fp.Value()) MaxArgsWalkExpr(*fp.Value(), maxArgs);
-    m_ctorDefaultMaxArgsWalking.erase(pCtorFn);
+    m_calleeDefaultMaxArgsWalking.erase(pCalleeFn);
 }
 
 //MaxArgs walker, NK_SuperCallStmt arm. Instance method: the parent
@@ -186,7 +187,7 @@ void VmBackend::MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs) {
         ? pParentCtor->Params().size() : sc.Args().size();
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
-    CtorDefaultMaxArgs(pParentCtor, maxArgs);
+    CalleeDefaultMaxArgs(pParentCtor, maxArgs);
     for (auto* arg : sc.Args())
         MaxArgsWalkExpr(*arg, maxArgs);
 }
@@ -273,6 +274,12 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
                 claimSize + (pm->maxArgs - formalCount));
     }
     if (claimSize > maxArgs) maxArgs = claimSize;
+    //A default expression evaluates at this call site; any nested
+    //call inside it bulk-copies its own argument slots into the
+    //CALLER's callParamBase — reserve them (InvokeExprPeakDepth has
+    //descended the same subtrees since Phase 9c; this closes the
+    //callParamBase-side asymmetry, ctor arms use the same helper).
+    CalleeDefaultMaxArgs(callee, maxArgs);
     //Also walk the invoke's own params for nested calls.
     for (auto& param : invoke.Params())
         MaxArgsWalkExpr(param, maxArgs);
@@ -290,7 +297,7 @@ void VmBackend::MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs) {
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
-    CtorDefaultMaxArgs(pCtorFn, maxArgs);
+    CalleeDefaultMaxArgs(pCtorFn, maxArgs);
     for (auto& param : invoke.Params())
         MaxArgsWalkExpr(param, maxArgs);
 }
@@ -346,7 +353,7 @@ void VmBackend::MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs) {
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
-    CtorDefaultMaxArgs(pCtorFn, maxArgs);
+    CalleeDefaultMaxArgs(pCtorFn, maxArgs);
     for (auto& arg : newExpr.Args()) {
         if (&arg == newExpr.ClassName()) continue;
         MaxArgsWalkExpr(arg, maxArgs);

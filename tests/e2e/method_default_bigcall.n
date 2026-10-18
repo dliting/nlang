@@ -1,0 +1,22 @@
+//0.9.8: a nested call inside a METHOD default needs its own argument
+//slots in the CALLER's callParamBase while the default stages; without
+//the reservation the bulk-copy overflows onto the call's {this, x, y}
+//claim and corrupts the receiver (used to die with "struct field
+//store out of bounds"; the free-function twin silently computed a
+//wrong sum instead — same root cause, different clobbered slot).
+int g(int a, int b, int c, int d, int e, int f, int h, int i, int j) {
+    return a + b + c + d + e + f + h + i + j;
+}
+
+class M {
+    public int v;
+    public int m(int x, int y = g(1, 2, 3, 4, 5, 6, 7, 8, 9)) {
+        this.v = x + y; return 0;
+    }
+}
+
+int main() {
+    M o = M();
+    o.m(7);
+    return o.v - 52;  //45 + 7 = 52 => 0
+}

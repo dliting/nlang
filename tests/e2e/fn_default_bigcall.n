@@ -1,0 +1,15 @@
+//0.9.8: free-function twin of method_default_bigcall — the default's
+//nested call g(1..9) stages 9 slots into the caller's callParamBase;
+//the under-sized region silently corrupted the sum before the fix
+//(f(7) evaluated to 179, exit 127, no diagnostic).
+int g(int a, int b, int c, int d, int e, int f, int h, int i, int j) {
+    return a + b + c + d + e + f + h + i + j;
+}
+
+int f(int x, int y = g(1, 2, 3, 4, 5, 6, 7, 8, 9)) {
+    return x + y;
+}
+
+int main() {
+    return f(7) - 52;  //45 + 7 = 52 => 0
+}

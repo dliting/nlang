@@ -428,12 +428,13 @@ private:
         const std::unordered_set<SnFunction*>& visited,
         uint16_t argDepth);
     //MaxArgs-side counterpart of CtorDefaultExprDepth: reserve the
-    //nested-call demand inside a ctor's default expressions (a nested
+    //nested-call demand inside a callee's default expressions (a nested
     //call bulk-copies its argument slots into the CALLER's callParamBase
-    //while the default stages). Not static — the recursion guard is the
-    //member set below (the MaxArgs walker has no visited parameter to
-    //thread).
-    void CtorDefaultMaxArgs(SnFunction* pCtorFn, uint16_t& maxArgs);
+    //while the default stages). Serves all four call-emitting arms —
+    //function/method invokes plus the three ctor shapes. Not static —
+    //the recursion guard is the member set below (the MaxArgs walker
+    //has no visited parameter to thread).
+    void CalleeDefaultMaxArgs(SnFunction* pCalleeFn, uint16_t& maxArgs);
     //NK_NewArrayExpr: 1-slot size-expression claim.
     static uint16_t NewArrayExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
@@ -1322,11 +1323,11 @@ private:
     //overflow pre-fix); the emitter rejects it with a clean error.
     std::unordered_set<SnFunction*> m_defaultEmitting;
 
-    //Ctor default expressions currently walked by CtorDefaultMaxArgs
+    //Callee default expressions currently walked by CalleeDefaultMaxArgs
     //(recursion guard). The frame-size walker runs before DefaultEmitGuard
     //rejects a recursive default at codegen time, so without this set a
-    //self-referential ctor default would descend forever here.
-    std::unordered_set<SnFunction*> m_ctorDefaultMaxArgsWalking;
+    //self-referential default would descend forever here.
+    std::unordered_set<SnFunction*> m_calleeDefaultMaxArgsWalking;
 
     //Per-loop code generation context.
     struct LoopContext {

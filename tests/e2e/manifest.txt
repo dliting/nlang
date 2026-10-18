@@ -726,6 +726,9 @@ ctor_default_zero_args 0
 ctor_default_bigcall 7
 ctor_default_this_reject compile_error cannot reference 'this'
 ctor_default_field_reject compile_error cannot reference 'this'
+# --- 0.9.8: MaxArgs default descent for the function and method arms ---
+fn_default_bigcall 0
+method_default_bigcall 0
 
 # --- Implicit this.field (bare member access in methods) ---
 implicit_this_read 42
