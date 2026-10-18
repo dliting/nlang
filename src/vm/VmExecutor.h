@@ -8,6 +8,8 @@
 #include "TokenView.h"
 #include "VmExecutorNativeHost.h"
 #include "NativeLibraryLoader.h"
+#include "CallFrame.h"
+#include "VmScheduler.h"
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -51,9 +53,6 @@ enum FuncHandleForm : int32_t {
 
 class VmExecutor : public IVmDebugView {
 public:
-//Forward declaration: member signatures below take CallFrame by
-//reference; the full definition sits with the data members.
-    struct CallFrame;
     VmExecutor() = default;
     ~VmExecutor();
 
@@ -163,6 +162,24 @@ public:
         m_strGcThreshold = records;
     }
     size_t LiveStringObjectCount() const;   //live slots, immortal included
+
+    //Testing knobs (scheduler quota injection + observability, K1
+    //decision 5): clamp the back-edge trip budget, then observe the
+    //quota-fire/skip counters and the context registry after a run.
+    //Single-context runs must fire-and-skip forever — preemption
+    //requires another runnable context.
+    void SetSchedulerTripForTests(int backedges) {
+        m_schedTripLimit = backedges > 0 ? backedges : 1;
+        m_schedTripBudget = m_schedTripLimit;
+    }
+    int SchedulerQuotaFires() const { return m_quotaFires; }
+    int SchedulerPreemptSkips() const { return m_preemptSkips; }
+    size_t SchedulerContextCount() const {
+        return m_spScheduler->ContextCount();
+    }
+    const ExecutionContext* SchedulerContext(int id) const {
+        return m_spScheduler->Find(id);
+    }
 
     //IVmDebugView — definitions in VmExecutorDebug.cpp.
     size_t FrameCount() const override;
@@ -495,6 +512,40 @@ private:
     //Check if GC should run at a safepoint (function entry, loop back-edge).
     void CheckGCSafepoint();
 
+    //K1 decision 5: back-edge quota side-check (called beside the GC
+    //safepoint in OpJump). Budget exhaustion with another runnable
+    //context parks this one via ParkSignal(Preempted); alone, the
+    //budget reloads and execution continues — single-context programs
+    //are bit-identical.
+    void CheckSchedulerQuota();
+
+    //Single chokepoint for every suspension request (O2 audit): inside
+    //a nested evaluation window (toString / host CallByName) an
+    //instruction is mid-flight, so parking is impossible — reject with
+    //a catchable base exception instead of ParkSignal. All future
+    //producers (quota, thread intrinsics, timer, mutex, channel) must
+    //route through here.
+    [[noreturn]] void RequestPark(ParkSignal::Reason reason);
+
+    //K1 Slice 4: one context's root window — Execute's former run body
+    //(native entry dispatch, or root-frame push + run to completion).
+    void RunRootWindow(const CompiledFunction& entryFunc,
+                       uint8_t* resultCell);
+
+    //K1 Slice 4: the carrier loop — runs contexts off the scheduler's
+    //FIFO queue until main returns (or the queue drains); the root
+    //window's result lands in resultCell.
+    void RunCarrier(const CompiledFunction& mainFunc, uint8_t* resultCell);
+
+    //K1 decision 7: debug callbacks fire for the main context only
+    //(spawned contexts stay silent — full multi-context debugging is
+    //K4). Slice 4 runs main only, so behavior is unchanged.
+    bool DebugHooksActive() const {
+        return m_pDebugHooks != nullptr
+            && m_spScheduler->CurrentContextId()
+                == VmScheduler::kMainThreadId;
+    }
+
     //Execute a VM-side intrinsic function. Called from OP_CallMethod{,Direct}
     //when callee.intrinsicId != INTR_None.
     void ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
@@ -788,42 +839,29 @@ private:
     static constexpr uint8_t kStrFormDead = 0xFF;   //free-slot sentinel
 
     //Call frame stack — the frame machine's substrate and the GC root
-    //set. One CallFrame per active NLang function invocation.
-    struct CallFrame {
-        //Locals buffer owned by the frame. A per-frame vector: when
-        //m_callStack grows, the element move steals the buffer, so every
-        //frame's localsBuf.data() stays valid across pushes (raw pointers
-        //into a shared buffer would dangle on reallocation).
-        std::vector<uint8_t> localsBuf;
-        //Result cell threading. externalResult != null → results go to a
-        //caller-owned C++ cell (root Execute / toString / host bridge
-        //windows). Otherwise resultFrameIdx + resultDstOff name a slot in
-        //a frame of this stack — always the cell the CALLER'S frame uses
-        //(calls thread the same result cell down), resolved fresh by
-        //FrameResultCell.
-        uint8_t* externalResult = nullptr;
-        int32_t resultFrameIdx = -1;
-        uint16_t resultDstOff = 0;
-        const CompiledFunction* func = nullptr;
-        uint16_t pc = 0;            //resume point: next instruction offset
-        uint16_t opPc = 0;          //in-flight instruction offset (tryBlocks range test)
-        uint16_t currentLine = 0;   //updated by OP_DebugInfo; 0 = unknown
-        uint16_t currentPc = 0;     //ndb: pc of the current statement anchor
-        //Out-param writeback armed by the four out call ABIs: bit i marks
-        //USER parameter i; on normal return, frame slot (i + outShift)
-        //copies back to the caller's callParamBase + i (bound-method
-        // delegates shift by one for the receiver). Zero mask = plain call.
-        uint32_t outMask = 0;
-        uint16_t callParamBase = 0;
-        uint8_t outShift = 0;
-        //Phase 9d: per-frame stack of currently-caught exception heap idxs.
-        //Pushed when a catch handler is entered, popped by OP_PopHandler at
-        //catch-block exit. OP_Rethrow reads the top entry to re-raise. Per-
-        //frame (not executor-global) so a cross-function call cannot leak a
-        //parent's catch context into the callee.
-        std::vector<int32_t> handlerExcStack;
-    };
+    //set. One CallFrame per active NLang function invocation. The frame
+    //type itself lives in CallFrame.h (the scheduler's parked contexts
+    //own frame stacks by value; K1 Slice 4 extraction, zero changes).
     std::vector<CallFrame> m_callStack;
+
+    //K1 decision 5: the single-carrier scheduler. The running context's
+    //frames ARE m_callStack (a park steals them into the context — see
+    //VmScheduler.h's file header).
+    std::unique_ptr<VmScheduler> m_spScheduler =
+        std::make_unique<VmScheduler>();
+
+    //Back-edge quota state (K1 decision 5). Trip limit = configured
+    //budget (test knob survives ResetPerRunState); budget counts down
+    //per back-edge safepoint; fire/skip counters feed the white-box
+    //tests. Nested evaluation windows skip the quota entirely (a park
+    //there is impossible — see RequestPark).
+    int m_schedTripLimit = DEFAULT_SCHEDULER_TRIP_BACKEDGES;
+    int m_schedTripBudget = DEFAULT_SCHEDULER_TRIP_BACKEDGES;
+    int m_quotaFires = 0;
+    int m_preemptSkips = 0;
+    //>0 while a nested evaluation window (toString / host CallByName)
+    //is in flight — NestEvalGuard owns the count.
+    int m_nestDepth = 0;
 
     //Phase 9d: cached class indices for the built-in Exception hierarchy.
     //Initialized in Execute() via module.FindClass; -1 = not found (only

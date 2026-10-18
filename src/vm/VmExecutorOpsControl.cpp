@@ -58,9 +58,13 @@ void VmExecutor::OpAssign(BytecodeReader& reader, uint8_t* locals, uint8_t* pRes
 void VmExecutor::OpJump(BytecodeReader& reader) {
     uint16_t target = reader.ReadUint16();
     //Loop back-edge safepoint: if jumping backward, this is a loop
-    //iteration. Check GC here (tempSlot is consumed at this point).
-    if (target <= reader.CurrentOffset())
+    //iteration. Check GC here (tempSlot is consumed at this point); the
+    //scheduler quota rides the same site (K1 decision 5) — GC keeps its
+    //exact former position and ordering.
+    if (target <= reader.CurrentOffset()) {
         CheckGCSafepoint();
+        CheckSchedulerQuota();
+    }
     reader.Seek(target);
 }
 
@@ -97,7 +101,8 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
     //frozen at this statement; returning resumes in place.
     //Front ends must not let exceptions escape into the VM
     //(they would cross the NLang try/catch boundary).
-    if (m_pDebugHooks) {
+    //K1 decision 7: main context only (DebugHooksActive).
+    if (DebugHooksActive()) {
         DebugStopInfo stop;
         stop.pc = opPc;
         stop.line = line;
@@ -105,6 +110,40 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
         stop.depth = m_callStack.size();
         m_pDebugHooks->OnStatement(stop, *this);
     }
+}
+
+//K1 decision 5 — back-edge quota. Called only from the back-edge
+//safepoint beside CheckGCSafepoint (OpJump). Nested evaluation windows
+//are exempt: a park there is impossible (RequestPark would reject), so
+//counting their back-edges would only misattribute budget — and in a
+//multi-context run, exhaust the quota mid-instruction where preemption
+//cannot be honored.
+void VmExecutor::CheckSchedulerQuota() {
+    if (m_nestDepth > 0)
+        return;
+    if (--m_schedTripBudget > 0)
+        return;
+    m_schedTripBudget = m_schedTripLimit;
+    ++m_quotaFires;
+    if (!m_spScheduler->HasOtherRunnable()) {
+        //Alone on the carrier: reload and keep running. A single-context
+        //program stays bit-identical — no signal, no state change.
+        ++m_preemptSkips;
+        return;
+    }
+    RequestPark(ParkSignal::Reason::Preempted);
+}
+
+//O2-audit chokepoint — see VmExecutor.h. The quota path never reaches
+//here nested (CheckSchedulerQuota exempts it); the guard serves the
+//thread intrinsics from Slice 6 on (yield/sleep/join/recv called inside
+//a toString body or a host callback must fail loudly, not park).
+void VmExecutor::RequestPark(ParkSignal::Reason reason) {
+    if (m_nestDepth > 0)
+        throw std::runtime_error(
+            "NLang VM: cannot suspend inside a nested evaluation "
+            "(toString or host callback)");
+    throw ParkSignal(reason);
 }
 
 } // namespace nlang

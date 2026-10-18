@@ -12,6 +12,15 @@ VmExecutor::~VmExecutor() = default;
 //2026-09-26 maintainability split: Execute's per-run phases. Bodies are
 //verbatim extracts; Execute keeps the original operation order.
 void VmExecutor::ResetPerRunState(const CompiledModule& module) {
+    //K1 decision 5: scheduler state resets explicitly per run — the
+    //context registry, run queue, and timer list all clear (the
+    //embedding host may reuse one executor across runs). The trip
+    //LIMIT survives (SetSchedulerTripForTests semantics); the budget
+    //and counters reset.
+    m_spScheduler->Reset();
+    m_schedTripBudget = m_schedTripLimit;
+    m_quotaFires = 0;
+    m_preemptSkips = 0;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
     m_byteStreams.clear();
@@ -113,26 +122,66 @@ int VmExecutor::Execute(const CompiledModule& module) {
     //host-side int would be overflowed (ASan-confirmed stack corruption).
     //The 4-byte main return value sits in the low half.
     alignas(int64_t) uint8_t resultCell[kFrameSlotBytes] = {0};
+    RunCarrier(mainFunc, resultCell);
+    int32_t result;
+    std::memcpy(&result, resultCell, sizeof(result));
+    return result;
+}
+
+//K1 Slice 4: the carrier loop. Contexts come off the scheduler's FIFO
+//run queue; today only main (id 0) exists, so the loop body runs once
+//and is byte-for-byte the former run sequence. ParkSignal is the
+//park/preempt path — no producers until Slice 6, so the requeue branch
+//is dormant plumbing. main's exit ends the run (silently dropping
+//parked contexts is the K1 exit policy; Slice 6 formalizes it with
+//spawn).
+void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
+                            uint8_t* resultCell) {
+    m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
     try {
-        //Phase 9f: a pathological `native int main();` still dispatches
-        //through the host table — executing the declaration's empty
-        //bytecode would silently return 0. Native ABI reads args at
-        //base 0 of the given buffer; main takes none, but the zeroed
-        //staging cell keeps exact parity with the recursive engine.
-        if (mainFunc.isNative) {
-            std::vector<uint8_t> staged(mainFunc.localsSize, 0);
-            CallNative(mainFunc, 0, staged.data(), resultCell);
-        } else {
-            PushRootFrame(mainFunc, resultCell);
-            RunFrames(0);
+        for (;;) {
+            const int ctx = m_spScheduler->PopNextRunnable();
+            if (ctx < 0)
+                break;   //queue drained: run over
+            try {
+                RunRootWindow(mainFunc, resultCell);
+                int64_t result64;
+                std::memcpy(&result64, resultCell, sizeof(result64));
+                m_spScheduler->MarkFinished(ctx, result64);
+            } catch (ParkSignal&) {
+                //Not an error: frames stay untouched on m_callStack.
+                //Requeue = preempted; Slice 6 splits park reasons
+                //(timer/join/mutex/chan-recv park instead of requeue).
+                m_spScheduler->Requeue(ctx);
+                continue;
+            } catch (...) {
+                m_spScheduler->MarkFailed(ctx);
+                throw;   //the outer catch snapshots the backtrace
+            }
+            if (ctx == VmScheduler::kMainThreadId)
+                break;   //main returned: the run is over
         }
     } catch (const std::exception&) {
         m_lastBacktrace = FormatBacktrace();
         throw;
     }
-    int32_t result;
-    std::memcpy(&result, resultCell, sizeof(result));
-    return result;
+}
+
+//K1 Slice 4: one context's root window — Execute's former run body,
+//unchanged: native entries dispatch through the host table (a
+//pathological `native int main();` must not silently return 0 on the
+//declaration's empty bytecode; the zeroed staging cell keeps exact
+//parity with the recursive engine's ABI), byte-code entries push the
+//root frame and run to completion.
+void VmExecutor::RunRootWindow(const CompiledFunction& entryFunc,
+                               uint8_t* resultCell) {
+    if (entryFunc.isNative) {
+        std::vector<uint8_t> staged(entryFunc.localsSize, 0);
+        CallNative(entryFunc, 0, staged.data(), resultCell);
+    } else {
+        PushRootFrame(entryFunc, resultCell);
+        RunFrames(0);
+    }
 }
 
 std::string VmExecutor::FormatBacktrace() const {

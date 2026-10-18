@@ -293,6 +293,12 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
         uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
         if (paramBytes > 0 && paramBytes <= callee.localsSize)
             std::memcpy(staged, paramFrame, paramBytes);
+        //Nested evaluation window: suspension is impossible here (the
+        //window belongs to an in-flight outer instruction; a park could
+        //not resume instruction-granularly). NestEvalGuard arms the
+        //depth that RequestPark checks — the quota already skips
+        //nested windows; Slice 6+ intrinsics route through the guard.
+        NestEvalGuard nestedWindow(m_nestDepth);
         RunFrames(baseDepth);
     }
     int32_t strIdx;

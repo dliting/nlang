@@ -21,6 +21,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -47,9 +49,12 @@ static std::filesystem::path scratchDir()
     return dir;
 }
 
-//Compile + execute; returns main()'s value, or -1 when the build failed
-//(same harness shape as test_primops — real sources, real execution).
-static int runSource(const std::string& tag, const std::string& source)
+//Compile + link; the caller drives its own VmExecutor (scheduler knobs
+//must be set before Execute). Throws std::runtime_error with diagnostics
+//on build failure — a failure here is a test bug, not behavior under
+//test.
+static CompiledModule buildLinkedModule(const std::string& tag,
+                                        const std::string& source)
 {
     const auto dir = scratchDir();
     const auto nPath = dir / (tag + ".n");
@@ -74,23 +79,29 @@ static int runSource(const std::string& tag, const std::string& source)
     try {
         built = builder.BuildArtifacts();
     } catch (const std::exception& e) {
-        std::cerr << "build failed: " << e.what() << "\n";
-        return -1;
+        throw std::runtime_error(std::string("build failed: ") + e.what());
     }
     if (!built || !std::filesystem::exists(modPath)) {
+        std::string diag;
         for (auto it = logger.cbegin(); it != logger.cend(); ++it)
-            std::cerr << (*it)->Message() << "\n";
-        return -1;
+            diag += (*it)->Message() + "\n";
+        throw std::runtime_error("build failed:\n" + diag);
     }
-    //Load/link failures and run-time exceptions (recursion limit, uncaught
-    //NLang throws) propagate to the caller — pinning tests assert on both
-    //the throw and its message.
     NcuLoader::Options loaderOpts;
     loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
     NcuLoader::Result loaded =
         NcuLoader::LoadClosure(modPath.string(), loaderOpts);
-    CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
-                                         loaded.entryKey);
+    return NcuLinker::Link(std::move(loaded.units), loaded.entryKey);
+}
+
+//Compile + execute; returns main()'s value, or -1 when the build failed
+//(same harness shape as test_primops — real sources, real execution).
+static int runSource(const std::string& tag, const std::string& source)
+{
+    //Load/link failures and run-time exceptions (recursion limit, uncaught
+    //NLang throws) propagate to the caller — pinning tests assert on both
+    //the throw and its message.
+    CompiledModule mod = buildLinkedModule(tag, source);
     VmExecutor exec;
     return exec.Execute(mod);
 }
@@ -289,6 +300,162 @@ void test_frame_throw_across_frames_catch_continues()
     PASS();
 }
 
+// --- Slice 4 钉死测试（调度器骨架：配额不抢占单上下文 + 注册表生命周期）---
+
+//决策 5 的核心不变量：配额到期仅是「允许调度」，不是「必须调度」——
+//没有其他 Runnable 上下文时预算原样重装、执行继续，单上下文程序逐位
+//不变。注入微小配额（2）强制 500 次回边里产生数百次到期，断言每次
+//到期都走了「跳过」臂（skip 计数与 fire 计数全等），程序结果精确。
+void test_scheduler_quota_skips_single_context()
+{
+    TEST(scheduler_quota_skips_single_context);
+    CompiledModule mod = buildLinkedModule("sched_quota_alone",
+        "int main() {\n"
+        "    int sum = 0;\n"
+        "    int i = 0;\n"
+        "    while (i < 500) {\n"
+        "        sum = sum + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    if (sum != 124750) return 1;\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(2);
+    const int rc = exec.Execute(mod);
+    CHECK(rc == 0,
+          "single-context program completes correctly under a tiny quota");
+    CHECK(exec.SchedulerQuotaFires() > 0,
+          "the injected quota is genuinely exhausted at back-edges");
+    CHECK(exec.SchedulerPreemptSkips() == exec.SchedulerQuotaFires(),
+          "every quota fire is skipped: no other runnable context exists");
+    PASS();
+}
+
+//默认配额（DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000）长循环可到期，但
+//单上下文下同样只走跳过臂——钉死常量在真实执行路径上生效。
+void test_scheduler_default_quota_single_context()
+{
+    TEST(scheduler_default_quota_single_context);
+    CompiledModule mod = buildLinkedModule("sched_quota_default",
+        "int main() {\n"
+        "    int sum = 0;\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        sum = sum + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    if (sum != 12497500) return 1;\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    const int rc = exec.Execute(mod);
+    CHECK(rc == 0, "long single-context loop completes correctly");
+    CHECK(exec.SchedulerQuotaFires() > 0,
+          "the default 1000-trip budget is reached by a 5000-iteration loop");
+    CHECK(exec.SchedulerPreemptSkips() == exec.SchedulerQuotaFires(),
+          "default quota also never preempts a lone context");
+    PASS();
+}
+
+//注册表生命周期（决策 5 显式枚举清空，嵌入宿主复用执行器的前提）：
+//新执行器零上下文；一次运行恰注册 main（id 0）并迁移到 Finished 且
+//根帧返回值入库；同执行器二次运行后注册表仍是恰一个上下文——上一轮
+//的注册表/运行队列/定时器表被复位，无泄漏累积。
+void test_scheduler_registry_lifecycle()
+{
+    TEST(scheduler_registry_lifecycle);
+    CompiledModule mod = buildLinkedModule("sched_lifecycle",
+        "int main() { return 3; }\n");
+    VmExecutor exec;
+    CHECK(exec.SchedulerContextCount() == 0,
+          "a fresh executor owns no contexts");
+    CHECK(exec.Execute(mod) == 3, "first run executes");
+    CHECK(exec.SchedulerContextCount() == 1,
+          "exactly the main context is registered");
+    const ExecutionContext* mainCtx = exec.SchedulerContext(0);
+    CHECK(mainCtx != nullptr, "main context is findable by id");
+    CHECK(mainCtx->state == ContextState::Finished,
+          "main reaches Finished after a normal return");
+    CHECK(mainCtx->resultCell == 3,
+          "the root-frame return value is stored on the context");
+    CHECK(exec.Execute(mod) == 3,
+          "second run on the same executor (embedding-host reuse shape)");
+    CHECK(exec.SchedulerContextCount() == 1,
+          "per-run reset keeps the registry at exactly one context");
+    CHECK(exec.SchedulerContext(0) != nullptr
+          && exec.SchedulerContext(0)->state == ContextState::Finished,
+          "the re-run context is again main and Finished");
+    //失败路径：根帧异常逃逸走 catch(...) 臂 → MarkFailed。
+    CompiledModule boom = buildLinkedModule("sched_lifecycle_boom",
+        "int main() { throw Exception(\"boom\"); }\n");
+    VmExecutor execBoom;
+    bool threw = false;
+    try {
+        execBoom.Execute(boom);
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    CHECK(threw, "an uncaught throw still escapes Execute");
+    CHECK(execBoom.SchedulerContextCount() == 1,
+          "the failed run still owns exactly main");
+    CHECK(execBoom.SchedulerContext(0) != nullptr
+          && execBoom.SchedulerContext(0)->state == ContextState::Failed,
+          "the escaped exception marks the context Failed");
+    PASS();
+}
+
+//嵌套求值窗口（运行时 toString 派发）内的回边不消耗配额：窗口属于某条
+//外层指令的中途求值，那里无法安全停泊（RequestPark 会拒绝），若照常
+//计数，多上下文下普通容器格式化会被配额到期错误地升级为拒绝。窗口的
+//真实入口是数组→字符串强转的逐元素格式化（OP_Array_to_str →
+//FormatArray → InvokeVirtualToString → CallToStringOverride）——直接的
+//类→字符串强转编译为显式 toString() 调用（普通帧，非窗口），不在此列。
+//控制组（普通循环）证明同一旋钮在顶层回边真实计数；实验组把全部 60 次
+//回边放进 toString 体内，断言零到期。t.length()==62（60 x + 括号）同时
+//证明嵌套窗口确实执行了 60 次回边（非空转）。
+void test_scheduler_quota_skips_nested_windows()
+{
+    TEST(scheduler_quota_skips_nested_windows);
+    CompiledModule plain = buildLinkedModule("sched_nest_plain",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 60) { i = i + 1; }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor execPlain;
+    execPlain.SetSchedulerTripForTests(1);
+    CHECK(execPlain.Execute(plain) == 0, "control program runs");
+    CHECK(execPlain.SchedulerQuotaFires() > 0,
+          "control: top-level back-edges count toward the quota");
+    CompiledModule nested = buildLinkedModule("sched_nest_tostring",
+        "class Box {\n"
+        "    public string toString() {\n"
+        "        string s = \"\";\n"
+        "        int i = 0;\n"
+        "        while (i < 60) {\n"
+        "            s = s + \"x\";\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "        return s;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    string t = arr;\n"
+        "    if (t.length() != 62) return 1;\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor execNested;
+    execNested.SetSchedulerTripForTests(1);
+    CHECK(execNested.Execute(nested) == 0,
+          "array coercion runs the user toString through the nested window");
+    CHECK(execNested.SchedulerQuotaFires() == 0,
+          "back-edges inside the toString window never consume quota");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -316,6 +483,10 @@ int main()
         test_frame_out_writeback_delegate_free();
         test_frame_out_writeback_delegate_bound();
         test_frame_throw_across_frames_catch_continues();
+        test_scheduler_quota_skips_single_context();
+        test_scheduler_default_quota_single_context();
+        test_scheduler_registry_lifecycle();
+        test_scheduler_quota_skips_nested_windows();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

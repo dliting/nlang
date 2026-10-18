@@ -68,7 +68,8 @@ uint16_t VmExecutor::CurrentFuncIdx() const {
 }
 
 void VmExecutor::FireOnThrow() {
-    if (!m_pDebugHooks) return;
+    //K1 decision 7: main context only (spawned contexts stay silent).
+    if (!DebugHooksActive()) return;
     DebugStopInfo stop;
     if (!m_callStack.empty()) {
         stop.pc = m_callStack.back().currentPc;

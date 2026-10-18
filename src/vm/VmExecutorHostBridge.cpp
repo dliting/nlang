@@ -73,6 +73,10 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
                     static_cast<size_t>(argc) * kFrameSlotBytes);
     FillDefaults(callee, staged, argc);
     try {
+        //Nested evaluation window: suspension is impossible here (see
+        //CallToStringOverride's guard — same reasoning: the window
+        //belongs to a host-initiated call mid-instruction).
+        NestEvalGuard nestedWindow(m_nestDepth);
         RunFrames(baseDepth);
     } catch (...) {
         m_lastBacktrace = FormatBacktrace();

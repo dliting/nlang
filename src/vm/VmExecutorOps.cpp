@@ -28,6 +28,14 @@ void VmExecutor::RunFrames(size_t baseDepth)
             //payload the tryBlocks walk needs frame by frame).
             inflightExc = ex.heapIdx;
             inflight = std::current_exception();
+        } catch (ParkSignal&) {
+            //Suspension/preemption is not an error (K1 decision 2):
+            //frames stay untouched — no unwind records, no handler
+            //search — and the carrier loop routes by the signal's
+            //reason. Must precede the catch-all below, which would
+            //otherwise corrupt m_unwindFrames (the O2 audit's one
+            //mandatory ordering).
+            throw;
         } catch (...) {
             //Non-NLang error (unknown opcode, malformed module, ...):
             //record one unwind entry per frame of this window, innermost
