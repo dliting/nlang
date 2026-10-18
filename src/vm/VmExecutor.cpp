@@ -12,7 +12,6 @@ VmExecutor::~VmExecutor() = default;
 //2026-09-26 maintainability split: Execute's per-run phases. Bodies are
 //verbatim extracts; Execute keeps the original operation order.
 void VmExecutor::ResetPerRunState(const CompiledModule& module) {
-    m_recurseDepth = 0;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
     m_byteStreams.clear();
@@ -109,7 +108,6 @@ int VmExecutor::Execute(const CompiledModule& module) {
         throw std::runtime_error("NLang VM: module has no entry point");
 
     const CompiledFunction& mainFunc = module.functions[mainIdx];
-    std::vector<uint8_t> locals(mainFunc.localsSize, 0);
     //pResult contract is a full uniform frame cell (kFrameSlotBytes): the
     //callee's final OP_VarLocal return copy writes 8 bytes, so a narrow
     //host-side int would be overflowed (ASan-confirmed stack corruption).
@@ -118,11 +116,16 @@ int VmExecutor::Execute(const CompiledModule& module) {
     try {
         //Phase 9f: a pathological `native int main();` still dispatches
         //through the host table — executing the declaration's empty
-        //bytecode would silently return 0.
-        if (mainFunc.isNative)
-            CallNative(mainFunc, 0, locals.data(), resultCell);
-        else
-            ExecuteFunction(mainFunc, resultCell, locals.data());
+        //bytecode would silently return 0. Native ABI reads args at
+        //base 0 of the given buffer; main takes none, but the zeroed
+        //staging cell keeps exact parity with the recursive engine.
+        if (mainFunc.isNative) {
+            std::vector<uint8_t> staged(mainFunc.localsSize, 0);
+            CallNative(mainFunc, 0, staged.data(), resultCell);
+        } else {
+            PushRootFrame(mainFunc, resultCell);
+            RunFrames(0);
+        }
     } catch (const std::exception&) {
         m_lastBacktrace = FormatBacktrace();
         throw;

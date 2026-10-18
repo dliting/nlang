@@ -6,6 +6,7 @@ add_library(nlang_vm
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
     VmExecutorOps.cpp
+    VmExecutorFrames.cpp
     VmExecutorOpsArith.cpp
     VmExecutorOpsPrim.cpp
     VmExecutorOpsControl.cpp

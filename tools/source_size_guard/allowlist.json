@@ -106,7 +106,7 @@
   },
   {
     "path": "src/vm/VmExecutorOps.cpp",
-    "function": "VmExecutor::ExecuteFunction",
+    "function": "VmExecutor::DispatchFrames",
     "reason": "flat dispatch skeleton: the opcode switch routes each case to a short Op helper call"
   },
   {

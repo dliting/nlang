@@ -102,7 +102,7 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
             && ld.typeKind != RTK_String)
             continue;
         int32_t val;
-        std::memcpy(&val, frame.locals + ld.offset, sizeof(val));
+        std::memcpy(&val, frame.localsBuf.data() + ld.offset, sizeof(val));
         //String locals carry a string-store handle, not a heap index —
         //route before the heap-index guard below (a valid handle may
         //lie beyond the struct heap's size). MarkString does its own
@@ -118,15 +118,19 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
     }
 }
 
-//Root scan: one frame's pResult slot (same string-handle split as the
-//locals scan above).
+//Root scan: one frame's result cell (same string-handle split as the
+//locals scan above). FrameResultCell resolves the threading model
+//(external C++ cell for root/toString/host windows, caller-frame slot
+//for call-pushed frames); a null cell means the frame carries no
+//result destination (defensive — never armed today).
 void VmExecutor::MarkFrameResult(const CallFrame& frame,
                                  std::vector<int32_t>& worklist) {
-    if (!frame.pResult)
+    uint8_t* resultCell = FrameResultCell(frame);
+    if (!resultCell)
         return;
     uint8_t retKind = frame.func->returnTypeKind;
     int32_t val;
-    std::memcpy(&val, frame.pResult, sizeof(val));
+    std::memcpy(&val, resultCell, sizeof(val));
     //String return slot: same handle-not-heap-index split as locals.
     //Deliberately conservative (adjudicated over-mark, spec D6
     //note): a pResult-resident string is also reachable from the

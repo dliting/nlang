@@ -214,8 +214,41 @@ private:
     void InitStringStore(const CompiledModule& module);
     void InitStructHeap();
 
-    void ExecuteFunction(const CompiledFunction& func,
-        uint8_t* pResult, uint8_t* locals);
+    //Frame machine (concurrency K1): NLang calls push frames onto
+    //m_callStack and one iterative dispatch loop runs them — NLang
+    //recursion no longer consumes C++ stack. RunFrames(baseDepth) runs
+    //until the stack shrinks back to baseDepth (root window: 0; nested
+    //toString/host windows: the depth at their entry). Definitions in
+    //VmExecutorOps.cpp.
+    void RunFrames(size_t baseDepth);
+    void DispatchFrames(size_t baseDepth);   //inner loop; throws on error
+    //Bind a catch handler for the in-flight exception in this frame
+    //(tryBlocks walk at the throwing instruction's opPc). Returns false
+    //when no clause takes it — the caller unwinds one frame.
+    bool TryEnterCatchHandler(CallFrame& frame, int32_t excHeapIdx);
+    //Push/pop. PushCalleeFrame stages params from the caller's
+    //callParamBase cells and inherits the caller's result cell; the out
+    //variants arm the return writeback (bit i = user param i; source
+    //frame slot = i + outShift — bound-method delegates shift by 1).
+    //Returns the new top frame's locals pointer.
+    uint8_t* PushCalleeFrame(const CompiledFunction& callee,
+        uint16_t callParamBase, uint32_t outMask, uint8_t outShift);
+    uint8_t* PushBoundCalleeFrame(const CompiledFunction& callee,
+        int32_t thisIdx, uint16_t callParamBase, uint32_t outMask);
+    uint8_t* PushRootFrame(const CompiledFunction& func,
+        uint8_t* externalResult);           //root/toString/host windows
+    void PopFrameWithWriteback();           //out writeback, then pop
+    //Shared push core (boundThisIdx > 0 = bound staging), and the unwind
+    //bookkeeping both exception paths in RunFrames share.
+    uint8_t* PushFrameCore(const CompiledFunction& callee,
+        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
+        int32_t boundThisIdx);
+    void RecordUnwindAndPopFrame();
+    //The frame's result cell: the external C++ cell (root/toString/host
+    //windows) or a slot in another frame — resolved fresh, never cached
+    //across a push (m_callStack growth moves CallFrame objects; the
+    //per-frame localsBuf buffer itself is move-stable).
+    uint8_t* FrameResultCell(const CallFrame& frame);
 
     //Host-bridge internals (definitions in VmExecutorHostBridge.cpp):
     //FillDefaults stages the Option-B defaults for a by-name call's
@@ -291,18 +324,22 @@ private:
     //OpPrimCast's numeric->char code-point validation.
     int64_t ReadScalarAsInt64(int row, const uint8_t* p) const;
     void OpLogicalNot(BytecodeReader& reader, uint8_t* locals);
-    void OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    //Call family contract (frame machine): return true when a new frame
+    //was pushed — the dispatcher must re-fetch m_callStack.back() before
+    //the next instruction. False = handled inline (native/intrinsic/
+    //diagnostic throw).
+    bool OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);
-    void OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    void OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
     void OpFunc_to_str(uint8_t* pResult);
-    void OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    void OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    void OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    void OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
     void OpLoadField(BytecodeReader& reader, uint8_t* locals);
@@ -397,10 +434,10 @@ private:
     std::string InvokeVirtualToString(int32_t thisHeapIdx);
 
     //Execution half of InvokeVirtualToString for a resolved override:
-    //synthetic 4-byte this-only frame, intrinsic dispatch via
+    //synthetic this-only frame, intrinsic dispatch via
     //ExecuteIntrinsic, native records refused (no marshalling), plain
-    //methods through ExecuteFunction. Returns the interned result
-    //string (StrVal flattens a cons chain on first read).
+    //methods through a nested RunFrames window. Returns the interned
+    //result string (StrVal flattens a cons chain on first read).
     std::string CallToStringOverride(const CompiledFunction& callee,
         int32_t thisHeapIdx, int32_t classIdx);
 
@@ -505,8 +542,9 @@ private:
     //handles place the captured receiver at frame slot 0 and shift the
     //args by one), executes, and for outMask != 0 copies each marked
     //user-parameter slot back to the caller (reversing the shift for
-    //bound handles).
-    void ExecuteDelegateCall(const std::vector<int32_t>& handle,
+    //bound handles). Frame-machine contract: returns true when a callee
+    //frame was pushed.
+    bool ExecuteDelegateCall(const std::vector<int32_t>& handle,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
         uint32_t outMask);
 
@@ -517,7 +555,7 @@ private:
 
     //Free-function delegate ABI (identical to OP_CallFunc, natives
     //included); the out write-back copies slots unshifted.
-    void CallDelegateFree(const CompiledFunction& callee,
+    bool CallDelegateFree(const CompiledFunction& callee,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
         uint32_t outMask);
 
@@ -525,7 +563,7 @@ private:
     //slot 0, caller args shift right by one; the out write-back reads
     //frame slot i+1 and stages back to callParamBase+i, reversing the
     //shift.
-    void CallDelegateBound(const CompiledFunction& callee, int32_t thisIdx,
+    bool CallDelegateBound(const CompiledFunction& callee, int32_t thisIdx,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
         uint32_t outMask);
 
@@ -613,7 +651,6 @@ private:
     //DoS hardening for untrusted streams: cap string/class-name length so a
     //garbage or malicious length prefix (e.g. 2 GiB) cannot trigger OOM.
     static const size_t MAX_STRING_LENGTH = 16 * 1024 * 1024;  // 16 MiB
-    size_t m_recurseDepth = 0;
     const CompiledModule* m_currModule = nullptr;
     //String objectization: runtime strings are GC-managed immutable objects.
     //An RTK_String slot holds a 1-based handle into m_stringObjs (0 = null /
@@ -743,13 +780,35 @@ private:
     std::unordered_map<std::string, int32_t> m_shortStrTable;  //weak: content -> live handle
     static constexpr uint8_t kStrFormDead = 0xFF;   //free-slot sentinel
 
-    //Call frame stack for GC root set identification.
+    //Call frame stack — the frame machine's substrate and the GC root
+    //set. One CallFrame per active NLang function invocation.
     struct CallFrame {
-        uint8_t* locals;
-        uint8_t* pResult;
-        const CompiledFunction* func;
+        //Locals buffer owned by the frame. A per-frame vector: when
+        //m_callStack grows, the element move steals the buffer, so every
+        //frame's localsBuf.data() stays valid across pushes (raw pointers
+        //into a shared buffer would dangle on reallocation).
+        std::vector<uint8_t> localsBuf;
+        //Result cell threading. externalResult != null → results go to a
+        //caller-owned C++ cell (root Execute / toString / host bridge
+        //windows). Otherwise resultFrameIdx + resultDstOff name a slot in
+        //a frame of this stack — always the cell the CALLER'S frame uses
+        //(calls thread the same result cell down), resolved fresh by
+        //FrameResultCell.
+        uint8_t* externalResult = nullptr;
+        int32_t resultFrameIdx = -1;
+        uint16_t resultDstOff = 0;
+        const CompiledFunction* func = nullptr;
+        uint16_t pc = 0;            //resume point: next instruction offset
+        uint16_t opPc = 0;          //in-flight instruction offset (tryBlocks range test)
         uint16_t currentLine = 0;   //updated by OP_DebugInfo; 0 = unknown
         uint16_t currentPc = 0;     //ndb: pc of the current statement anchor
+        //Out-param writeback armed by the four out call ABIs: bit i marks
+        //USER parameter i; on normal return, frame slot (i + outShift)
+        //copies back to the caller's callParamBase + i (bound-method
+        // delegates shift by one for the receiver). Zero mask = plain call.
+        uint32_t outMask = 0;
+        uint16_t callParamBase = 0;
+        uint8_t outShift = 0;
         //Phase 9d: per-frame stack of currently-caught exception heap idxs.
         //Pushed when a catch handler is entered, popped by OP_PopHandler at
         //catch-block exit. OP_Rethrow reads the top entry to re-raise. Per-
@@ -805,9 +864,9 @@ private:
     //lookup to decide whether a catch clause can handle the thrown exception.
     bool IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx);
 
-    //Frames captured during exception unwinding. Populated by FrameGuard's
-    //destructor when std::uncaught_exceptions() > 0. Ordered innermost-first
-    //because innermost frame's destructor runs first during stack unwinding.
+    //Frames captured during exception unwinding. Populated by
+    //RecordUnwindAndPopFrame as RunFrames walks frames innermost-first
+    //(Slice 2 retires the FrameGuard/uncaught_exceptions description).
     struct UnwindFrame {
         std::string funcName;
         std::string sourceFile;   //v0.8.5: the frame function's compiled translation unit

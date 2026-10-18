@@ -63,13 +63,17 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
         CallNative(callee, 0, staged.data(), resultCell);
         return;
     }
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+    //Nested window: push onto the shared frame stack and run until the
+    //depth captured at entry. The catch-all preserves the by-name bridge
+    //contract: any escaping error carries the backtrace snapshot.
+    const size_t baseDepth = m_callStack.size();
+    uint8_t* staged = PushRootFrame(callee, resultCell);
     if (argc)
-        std::memcpy(calleeLocals.data(), argCells,
+        std::memcpy(staged, argCells,
                     static_cast<size_t>(argc) * kFrameSlotBytes);
-    FillDefaults(callee, calleeLocals.data(), argc);
+    FillDefaults(callee, staged, argc);
     try {
-        ExecuteFunction(callee, resultCell, calleeLocals.data());
+        RunFrames(baseDepth);
     } catch (...) {
         m_lastBacktrace = FormatBacktrace();
         throw;

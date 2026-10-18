@@ -128,7 +128,7 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(size_t depth) const {
         DebugLocalValue v;
         v.name = ld.name;
         v.kindName = DebugKindName(ld.typeKind);
-        v.display = FormatDebugLocalSlot(ld, frame.locals);
+        v.display = FormatDebugLocalSlot(ld, frame.localsBuf.data());
         out.push_back(std::move(v));
     }
     return out;

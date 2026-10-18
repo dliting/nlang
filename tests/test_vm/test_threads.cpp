@@ -82,19 +82,17 @@ static int runSource(const std::string& tag, const std::string& source)
             std::cerr << (*it)->Message() << "\n";
         return -1;
     }
-    try {
-        NcuLoader::Options loaderOpts;
-        loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
-        NcuLoader::Result loaded =
-            NcuLoader::LoadClosure(modPath.string(), loaderOpts);
-        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
-                                             loaded.entryKey);
-        VmExecutor exec;
-        return exec.Execute(mod);
-    } catch (const std::exception& e) {
-        std::cerr << "load/link failed: " << e.what() << "\n";
-        return -1;
-    }
+    //Load/link failures and run-time exceptions (recursion limit, uncaught
+    //NLang throws) propagate to the caller — pinning tests assert on both
+    //the throw and its message.
+    NcuLoader::Options loaderOpts;
+    loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+    NcuLoader::Result loaded =
+        NcuLoader::LoadClosure(modPath.string(), loaderOpts);
+    CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                         loaded.entryKey);
+    VmExecutor exec;
+    return exec.Execute(mod);
 }
 
 void test_harness_smoke()
@@ -124,6 +122,173 @@ void test_harness_smoke_exception_path()
     PASS();
 }
 
+// --- Slice 1 钉死测试（帧栈化前后行为等价预言）---
+
+//递归上限：报错文本与传播路径（std::runtime_error 穿出 Execute）不变。
+void test_frame_recursion_limit_message()
+{
+    TEST(frame_recursion_limit_message);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("frame_rec_limit",
+            "int f(int n) { return f(n + 1); }\n"
+            "int main() { return f(0); }\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "deep recursion throws");
+    CHECK(what.find("recursion limit exceeded") != std::string::npos,
+          "message names the recursion limit");
+    PASS();
+}
+
+//限内深递归：200 层压帧/弹帧往返正确。
+void test_frame_deep_recursion_succeeds()
+{
+    TEST(frame_deep_recursion_succeeds);
+    const int rc = runSource("frame_rec_sum",
+        "int sum(int n) {\n"
+        "    if (n <= 0) return 0;\n"
+        "    return n + sum(n - 1);\n"
+        "}\n"
+        "int main() { return sum(200); }\n");
+    CHECK(rc == 200 * 201 / 2, "200-deep recursion returns the exact sum");
+    PASS();
+}
+
+//递归边界逐位对齐（等价预言）：递归引擎以 m_recurseDepth 计数，全部
+//ExecuteFunction 调用（含 main 根）共用 RECURSE_LIMIT=1000 — 前 1000 个
+//帧成功、第 1001 个帧抛。帧机以 m_callStack.size() 计数，边界必须重合：
+//main 根 + 999 次 sum 调用（n∈[0,998]）= 1000 帧成功；sum(999) 需要
+//第 1001 帧，抛 "recursion limit exceeded"。
+void test_frame_recursion_boundary_exact()
+{
+    TEST(frame_recursion_boundary_exact);
+    //sum(998): 999 sum calls + main root = 1000 frames: succeeds.
+    const int okRc = runSource("frame_rec_b999",
+        "int sum(int n) {\n"
+        "    if (n <= 0) return 0;\n"
+        "    return n + sum(n - 1);\n"
+        "}\n"
+        "int main() { return sum(998); }\n");
+    CHECK(okRc == 998 * 999 / 2, "999 calls + main = 1000 frames, succeeds");
+    //sum(999): n∈[0,999] = 1000 calls + main = 1001st frame: throws.
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("frame_rec_b1000",
+            "int sum(int n) {\n"
+            "    if (n <= 0) return 0;\n"
+            "    return n + sum(n - 1);\n"
+            "}\n"
+            "int main() { return sum(999); }\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "1001st frame throws");
+    CHECK(what.find("recursion limit exceeded") != std::string::npos,
+          "boundary throw names the recursion limit");
+    PASS();
+}
+
+//out 写回四 ABI：自由函数（OP_CallFuncOut）。
+void test_frame_out_writeback_func()
+{
+    TEST(frame_out_writeback_func);
+    const int rc = runSource("frame_out_func",
+        "void grab(out int r) { r = 7; }\n"
+        "int main() {\n"
+        "    int box = 0;\n"
+        "    grab(out box);\n"
+        "    return box;\n"
+        "}\n");
+    CHECK(rc == 7, "free-function out param writes back to the caller slot");
+    PASS();
+}
+
+//out 写回四 ABI：直接方法调用（OP_CallMethodDirectOut，this 占 slot 0）。
+void test_frame_out_writeback_method_direct()
+{
+    TEST(frame_out_writeback_method_direct);
+    const int rc = runSource("frame_out_mdirect",
+        "class Box {\n"
+        "    int v;\n"
+        "    public void fill(out int r) { r = v + 5; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Box b = Box();\n"
+        "    b.v = 40;\n"
+        "    int r = 0;\n"
+        "    b.fill(out r);\n"
+        "    return r;\n"
+        "}\n");
+    CHECK(rc == 45, "direct-method out param writes back past `this` slot");
+    PASS();
+}
+
+//out 写回四 ABI：自由委托（CallDelegateFree，OP_CallDelegateOut）。
+void test_frame_out_writeback_delegate_free()
+{
+    TEST(frame_out_writeback_delegate_free);
+    const int rc = runSource("frame_out_deleg_free",
+        "void grab(out int r) { r = 7; }\n"
+        "int main() {\n"
+        "    func<void, out int> f = grab;\n"
+        "    int box = 0;\n"
+        "    f(out box);\n"
+        "    return box;\n"
+        "}\n");
+    CHECK(rc == 7, "free-delegate out param writes back");
+    PASS();
+}
+
+//out 写回四 ABI：绑定方法委托（CallDelegateBound——接收者占 slot 0，
+//用户参数右移一格，写回须逆向移位）。
+void test_frame_out_writeback_delegate_bound()
+{
+    TEST(frame_out_writeback_delegate_bound);
+    const int rc = runSource("frame_out_deleg_bound",
+        "class Box {\n"
+        "    int v;\n"
+        "    public void fill(out int r) { r = v + 5; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Box b = Box();\n"
+        "    b.v = 40;\n"
+        "    func<void, out int> f = b.fill;\n"
+        "    int r = 0;\n"
+        "    f(out r);\n"
+        "    return r;\n"
+        "}\n");
+    CHECK(rc == 45, "bound-delegate out write-back reverses the this shift");
+    PASS();
+}
+
+//跨帧异常：深层抛出、中层捕获，执行继续且后续调用帧正常。
+void test_frame_throw_across_frames_catch_continues()
+{
+    TEST(frame_throw_across_frames_catch_continues);
+    const int rc = runSource("frame_throw_across",
+        "int boom(int n) {\n"
+        "    if (n == 0) throw Exception(\"deep\");\n"
+        "    return boom(n - 1);\n"
+        "}\n"
+        "int after() { return 3; }\n"
+        "int main() {\n"
+        "    try {\n"
+        "        boom(5);\n"
+        "    } catch (Exception e) {\n"
+        "        if (e.message != \"deep\") return 9;\n"
+        "    }\n"
+        "    return after();\n"
+        "}\n");
+    CHECK(rc == 3, "catch across popped frames then a fresh call works");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -143,6 +308,14 @@ int main()
     try {
         test_harness_smoke();
         test_harness_smoke_exception_path();
+        test_frame_recursion_limit_message();
+        test_frame_deep_recursion_succeeds();
+        test_frame_recursion_boundary_exact();
+        test_frame_out_writeback_func();
+        test_frame_out_writeback_method_direct();
+        test_frame_out_writeback_delegate_free();
+        test_frame_out_writeback_delegate_bound();
+        test_frame_throw_across_frames_catch_continues();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

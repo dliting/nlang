@@ -9,7 +9,7 @@
 
 namespace nlang {
 
-void VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t funcIndex = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     if (funcIndex >= m_currModule->functions.size())
@@ -21,13 +21,12 @@ void VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pR
     //intrinsics) and writes its return into pResult.
     if (callee.isNative) {
         CallNative(callee, callParamBase, locals, pResult);
-        return;
+        return false;
     }
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
-    if (paramBytes > 0 && paramBytes <= callee.localsSize)
-        std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
-    ExecuteFunction(callee, pResult, calleeLocals.data());
+    //Resume point = the instruction AFTER this call's immediates.
+    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    PushCalleeFrame(callee, callParamBase, 0, 0);
+    return true;
 }
 
 void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
@@ -42,7 +41,7 @@ void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
-void VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t calleeLocal = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     int32_t handleIdx;
@@ -52,11 +51,12 @@ void VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t
         || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null function value in CallDelegate");
-    ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
-                        callParamBase, locals, pResult, 0);
+    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    return ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
+                               callParamBase, locals, pResult, 0);
 }
 
-void VmExecutor::OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t calleeLocal = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     uint32_t outMask = reader.ReadUint32();
@@ -67,8 +67,9 @@ void VmExecutor::OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint
         || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null function value in CallDelegate");
-    ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
-                        callParamBase, locals, pResult, outMask);
+    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    return ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
+                               callParamBase, locals, pResult, outMask);
 }
 
 void VmExecutor::OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult) {
@@ -112,7 +113,7 @@ void VmExecutor::OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult) {
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
-void VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t funcIndex = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     uint32_t outMask = reader.ReadUint32();
@@ -133,23 +134,12 @@ void VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t*
         throw std::runtime_error(
             "NLang VM: intrinsic function does not support out parameters: "
             + callee.name);
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
-    if (paramBytes > 0 && paramBytes <= callee.localsSize)
-        std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
-    ExecuteFunction(callee, pResult, calleeLocals.data());
-    for (uint32_t slot = 0; slot < 32; ++slot) {
-        if (!(outMask & (1u << slot)))
-            continue;
-        uint16_t off = static_cast<uint16_t>(slot * kFrameSlotBytes);
-        if (off + kFrameSlotBytes > callee.localsSize)
-            throw std::runtime_error("NLang VM: out parameter slot out of bounds");
-        std::memcpy(locals + callParamBase + off,
-                    calleeLocals.data() + off, kFrameSlotBytes);
-    }
+    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    PushCalleeFrame(callee, callParamBase, outMask, 0);
+    return true;
 }
 
-void VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t funcIndex = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     if (funcIndex >= m_currModule->functions.size())
@@ -157,22 +147,20 @@ void VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     const CompiledFunction& callee = m_currModule->functions[funcIndex];
     if (callee.intrinsicId != INTR_None) {
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
-        return;
+        return false;
     }
     //Phase 9f: native method — same table dispatch, `this` rides
     //at args[0] per the bytecode calling convention.
     if (callee.isNative) {
         CallNative(callee, callParamBase, locals, pResult);
-        return;
+        return false;
     }
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
-    if (paramBytes > 0 && paramBytes <= callee.localsSize)
-        std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
-    ExecuteFunction(callee, pResult, calleeLocals.data());
+    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    PushCalleeFrame(callee, callParamBase, 0, 0);
+    return true;
 }
 
-void VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
+bool VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
     uint8_t* pResult) {
     uint16_t funcIndex = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
@@ -195,23 +183,16 @@ void VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
         throw std::runtime_error(
             "NLang VM: native function does not support out parameters: "
             + callee.name);
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
-    if (paramBytes > 0 && paramBytes <= callee.localsSize)
-        std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
-    ExecuteFunction(callee, pResult, calleeLocals.data());
-    for (uint32_t slot = 0; slot < 32; ++slot) {
-        if (!(outMask & (1u << slot)))
-            continue;
-        uint16_t off = static_cast<uint16_t>(slot * kFrameSlotBytes);
-        if (off + kFrameSlotBytes > callee.localsSize)
-            throw std::runtime_error("NLang VM: out parameter slot out of bounds");
-        std::memcpy(locals + callParamBase + off,
-                    calleeLocals.data() + off, kFrameSlotBytes);
-    }
+    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    //Slot 0 is `this` on BOTH sides here (the caller's staging area
+    //carries the receiver too), so user param i sits at frame slot i
+    //and at callParamBase+i — the writeback is unshifted (contrast the
+    //bound-delegate ABI, which stages WITHOUT this and shifts by one).
+    PushCalleeFrame(callee, callParamBase, outMask, 0);
+    return true;
 }
 
-void VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     //Virtual method dispatch — name-based lookup.
     //
     //Note: the null-receiver check below throws *before* the
@@ -244,19 +225,17 @@ void VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     const CompiledFunction& callee = m_currModule->functions[static_cast<size_t>(funcIndex)];
     if (callee.intrinsicId != INTR_None) {
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
-        return;
+        return false;
     }
     //Phase 9f: native method found via virtual dispatch — same
     //table dispatch, `this` rides at args[0].
     if (callee.isNative) {
         CallNative(callee, callParamBase, locals, pResult);
-        return;
+        return false;
     }
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
-    if (paramBytes > 0 && paramBytes <= callee.localsSize)
-        std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
-    ExecuteFunction(callee, pResult, calleeLocals.data());
+    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    PushCalleeFrame(callee, callParamBase, 0, 0);
+    return true;
 }
 
 void VmExecutor::OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
@@ -360,7 +339,7 @@ int VmExecutor::ResolveDelegateTarget(const std::vector<int32_t>& handle) {
 //Free-function ABI — identical to OP_CallFunc: natives read their args
 //straight from the caller's callParamBase cells (out parameters are
 //impossible without a callee frame, so a nonzero mask is rejected).
-void VmExecutor::CallDelegateFree(const CompiledFunction& callee,
+bool VmExecutor::CallDelegateFree(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
     uint32_t outMask) {
     if (callee.isNative) {
@@ -369,27 +348,15 @@ void VmExecutor::CallDelegateFree(const CompiledFunction& callee,
                 "NLang VM: native function does not support out "
                 "parameters: " + callee.name);
         CallNative(callee, callParamBase, locals, pResult);
-        return;
+        return false;
     }
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
     uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
     if (paramBytes > callee.localsSize)
         throw std::runtime_error(
             "NLang VM: callee locals smaller than the parameter "
             "block in CallDelegate");
-    if (paramBytes > 0)
-        std::memcpy(calleeLocals.data(), locals + callParamBase, paramBytes);
-    ExecuteFunction(callee, pResult, calleeLocals.data());
-    for (uint32_t i = 0; i < 32; ++i) {
-        if (!(outMask & (1u << i)))
-            continue;
-        uint16_t off = static_cast<uint16_t>(i * kFrameSlotBytes);
-        if (off + kFrameSlotBytes > callee.localsSize)
-            throw std::runtime_error(
-                "NLang VM: out parameter slot out of bounds");
-        std::memcpy(locals + callParamBase + off,
-                    calleeLocals.data() + off, kFrameSlotBytes);
-    }
+    PushCalleeFrame(callee, callParamBase, outMask, 0);
+    return true;
 }
 
 //Bound-method ABI: the receiver rides at callee slot 0, args shift
@@ -398,7 +365,7 @@ void VmExecutor::CallDelegateFree(const CompiledFunction& callee,
 //time; these guards are the defense-in-depth backstop. The out
 //write-back reverses the shift: user param i lives at frame slot i+1
 //but stages back to callParamBase+i.
-void VmExecutor::CallDelegateBound(const CompiledFunction& callee,
+bool VmExecutor::CallDelegateBound(const CompiledFunction& callee,
     int32_t thisIdx, uint16_t callParamBase, uint8_t* locals,
     uint8_t* pResult, uint32_t outMask) {
     if (callee.isNative)
@@ -409,7 +376,6 @@ void VmExecutor::CallDelegateBound(const CompiledFunction& callee,
         throw std::runtime_error(
             "NLang VM: intrinsic method reached by delegate dispatch: "
             + callee.name);
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
     //paramCount includes `this` for methods, matching the
     //OP_CallMethodDirect frame layout.
     uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
@@ -417,23 +383,8 @@ void VmExecutor::CallDelegateBound(const CompiledFunction& callee,
         throw std::runtime_error(
             "NLang VM: callee locals smaller than the parameter "
             "block in CallDelegate");
-    std::memcpy(calleeLocals.data(), &thisIdx, sizeof(thisIdx));
-    uint16_t argBytes = paramBytes - kFrameSlotBytes;
-    if (argBytes > 0)
-        std::memcpy(calleeLocals.data() + kFrameSlotBytes,
-                    locals + callParamBase, argBytes);
-    ExecuteFunction(callee, pResult, calleeLocals.data());
-    for (uint32_t i = 0; i < 32; ++i) {
-        if (!(outMask & (1u << i)))
-            continue;
-        uint16_t srcOff = static_cast<uint16_t>((i + 1) * kFrameSlotBytes);
-        uint16_t dstOff = static_cast<uint16_t>(i * kFrameSlotBytes);
-        if (srcOff + kFrameSlotBytes > callee.localsSize)
-            throw std::runtime_error(
-                "NLang VM: out parameter slot out of bounds");
-        std::memcpy(locals + callParamBase + dstOff,
-                    calleeLocals.data() + srcOff, kFrameSlotBytes);
-    }
+    PushBoundCalleeFrame(callee, thisIdx, callParamBase, outMask);
+    return true;
 }
 
 //Phase 13 Step 2: shared OP_CallDelegate / OP_CallDelegateOut engine.
@@ -447,7 +398,7 @@ void VmExecutor::CallDelegateBound(const CompiledFunction& callee,
 //outMask bit i marks USER parameter i (func-signature order); the
 //write-back reads frame slot i+shift and stores to callParamBase+i,
 //reversing the bound-method shift.
-void VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,
+bool VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
     uint32_t outMask) {
     int32_t thisIdx = handle[1];
@@ -455,10 +406,10 @@ void VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,
     const CompiledFunction& callee
         = m_currModule->functions[static_cast<size_t>(funcIndex)];
     if (thisIdx == 0)
-        CallDelegateFree(callee, callParamBase, locals, pResult, outMask);
-    else
-        CallDelegateBound(callee, thisIdx, callParamBase, locals, pResult,
-                          outMask);
+        return CallDelegateFree(callee, callParamBase, locals, pResult,
+                                outMask);
+    return CallDelegateBound(callee, thisIdx, callParamBase, locals, pResult,
+                             outMask);
 }
 
 } // namespace nlang
