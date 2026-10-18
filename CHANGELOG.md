@@ -6,6 +6,20 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.8] - 2026-10-18
+
+### Fixed
+
+- **Nested calls inside a function or method default no longer corrupt
+  the call's arguments** — a default expression evaluates at the call
+  site, and a call nested inside it (e.g. `int m(int x, int y = g(1..9))`)
+  stages its own argument slots in the caller's frame; the frame was
+  sized without them, so the staging silently overwrote the enclosing
+  call's arguments. Method calls died with `struct field store out of
+  bounds`; free-function calls returned wrong results with no
+  diagnostic. The constructor arms of the same frame sizing were fixed
+  in 0.9.6; this closes the remaining two arms.
+
 ## [0.9.7] - 2026-10-18
 
 ### Changed
