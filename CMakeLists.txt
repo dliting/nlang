@@ -313,6 +313,12 @@ if(NLANG_BUILD_DOCS)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "nlang-docs: building + auditing bilingual docs site"
         VERBATIM)
+    # The snippet audit compiles guide programs with $<TARGET_FILE:ncc>,
+    # which resolves `import io` through the build-tree stdlib package.
+    # Without this edge a parallel build can schedule the audit while the
+    # (always-run) stdlib pack is still refreshing after an ncc rebuild,
+    # and every importing snippet fails with "Module 'io' not found".
+    add_dependencies(nlang_docs nlang_stdlib_package)
     # The package ships the generated site, not the markdown sources.
     install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/docs/site/
             DESTINATION docs/site)

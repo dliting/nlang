@@ -1,0 +1,11 @@
+//An explicit private/protected modifier on an interface member is a
+//declaration error: interface members are contract signatures and are
+//always public. Rejecting at the declaration replaces the misleading
+//call-site error ("does not exist or is not accessible") that a
+//silently-private member used to produce.
+interface ILock {
+    private int secret();
+    protected int hidden();
+}
+
+int main() { return 0; }

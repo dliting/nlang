@@ -36,7 +36,7 @@ class在整个语言中遵循**引用语义**：
 
 ### 字段与访问修饰符
 
-字段带访问修饰符`public` / `private` / `protected`。NLang的默认访问修饰符是`private`。
+字段带访问修饰符`public` / `private` / `protected`。类成员的默认访问修饰符是`private`；接口成员相反，默认`public`（见[接口](interface.md)）。
 
 ### 创建实例
 

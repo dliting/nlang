@@ -224,7 +224,11 @@ void SnField::OnAddedToParent(Node& parent)
 {
 	if (AccessType() != FA_Default)
 		return;
-	if (parent.Kind() == NK_Namespace)
+	//Interface members, like namespace members, default to public: an
+	//interface member is a contract signature with no private calling
+	//context to hide it from. All other parents (class/struct/enum
+	//bodies, paragraphs) keep the private default.
+	if (parent.Kind() == NK_Namespace || parent.Kind() == NK_InterfaceDecl)
 		AccessType(FA_Public);
 	else
 		AccessType(FA_Private);

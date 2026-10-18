@@ -1,0 +1,7 @@
+//An interface member must be a public abstract signature: a const
+//modifier targets data, and an interface declares none.
+interface IRate {
+    const int rate();
+}
+
+int main() { return 0; }

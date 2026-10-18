@@ -41,8 +41,9 @@ The full value-vs-reference summary is on [Type Semantics](type-semantics.md).
 
 ### Fields and access modifiers
 
-Fields carry access modifiers `public` / `private` / `protected`. NLang's
-default access modifier is `private`.
+Fields carry access modifiers `public` / `private` / `protected`. Class
+members default to `private`; interface members are the opposite and
+default to `public` (see [Interface](interface.md)).
 
 ### Creating instances
 

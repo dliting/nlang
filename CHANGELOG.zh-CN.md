@@ -8,6 +8,20 @@
 
 ## [0.9.7] - 2026-10-18
 
+### 变更
+- **接口成员缺省改为`public`**——`interface`内声明`int m();`（不带修饰符）
+  即为public，与主流语言对契约的读法一致：接口成员是签名，不存在可将其
+  隐藏的私有调用语境。显式写`public`仍然合法（冗余）。类、struct、enum
+  成员保持`private`缺省。
+- **接口成员上显式`private`/`protected`成为编译期错误**——
+  `The interface member "m" must be public.`——在接口声明处报出。此前这类
+  成员被静默按private处理，只在调用点以误导性的
+  `The function "m" does not exist or is not accessible.`消息失败。
+- **接口成员上的`const`/`static`/`native`/`virtual`同样是编译期错误**——
+  补全「接口成员是public抽象签名」的声明不变量。`static`成员此前能在
+  接口里编译通过，再把实现类拖入无法满足的分派槽诊断；`const`、`native`
+  与`virtual`被静默接受但没有任何意义。
+
 ### 修复
 - **同类内重载含`virtual`成员的方法名改为声明处拒绝**（新增编译期诊断）：类内一个名字只要有`virtual`成员就只占一个分派槽位——虚分派在运行期按名解析，混签名族此前静默编译并在运行期跑错函数体、按位错读实参（`{int f(string), virtual int f(int)}`中`f(5)`进了`f(string)`）。编译器现在对族内与首声明签名不同的每个成员报错；给重载改名，或让整个族都非虚。全非虚族的重载行为不变，跨类覆写契约不变。
 

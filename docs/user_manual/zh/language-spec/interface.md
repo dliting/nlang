@@ -5,8 +5,8 @@
 
 ```nlang
 interface IShape {
-    public int Area();
-    public int Perimeter();
+    int Area();
+    int Perimeter();
 }
 
 class Square implements IShape {
@@ -42,7 +42,6 @@ IShape n = null;       // 接口引用可为null
 
 类声明`implements`后，编译器在类声明处校验实现完整性：接口的每个方法必须由继承链上**分派序首位**的同名方法以**完全一致的签名**实现（参数类型与个数、返回类型；`out`修饰亦须一致；访问级别不限，非虚方法与父类链上的实现均有效）。缺失或签名不符都是编译错误，消息形如`The class "F" does not implement the method "val(Int32): Int32" required by interface "IF".`。同名方法不得与接口契约重载并存（虚分派按名进行，重载会截走分派）。
 
-### 必须写`public`关键字
+### 成员修饰符
 
-接口方法声明为`public int m();`。NLang的默认访问修饰符是`private`；声明成`int m();`（无`public`）的接口方法能通过解析，但按private对待，调用点**访问不到**。由此得到的错误消息——"The function X does not
-exist or is not accessible"——有误导性：方法存在，只是不公开。接口里请始终写`public int m();`。
+接口成员就是**public抽象签名**。缺省访问修饰符是`public`：`int m();`与`public int m();`等价，后者冗余但合法——这与类/struct/enum成员的`private`缺省相反。除此之外的修饰符在接口成员上一律是编译错误：`private`/`protected`（消息形如`The interface member "m" must be public.`）、`const`（接口不声明可冻结的数据）、`static`（接口只声明实例签名）、`native`（签名不带实现）、`virtual`（接口方法本就按名虚分派）。实现类的对应方法访问级别则不受限（见上文实现契约）。
