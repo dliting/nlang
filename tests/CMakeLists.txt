@@ -583,6 +583,30 @@ target_compile_definitions(test_primops
 
 add_test(NAME primops_tests COMMAND test_primops)
 
+# 并发 K1 单元测试（帧栈机/调度/挂起/根集）：真实 .n 源码编译 + 真实
+# 执行，harness 形态同 test_primops Layer 3，随切片增长。
+add_executable(test_threads
+    test_vm/test_threads.cpp
+)
+target_include_directories(test_threads
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_threads
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_threads)
+target_compile_definitions(test_threads
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME threads_tests COMMAND test_threads)
+
 # ndb debugger unit tests: .ncu v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,
