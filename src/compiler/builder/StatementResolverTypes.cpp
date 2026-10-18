@@ -166,49 +166,62 @@ bool StatementResolveAccessor::IsExceptionSubclass(SnField *t)
 	return false;
 }
 
+//Declaration contract of a single interface member (0.9.10): public by
+//default (FA_Default already resolved to FA_Public by OnAddedToParent,
+//so a non-public member carries an explicit private/protected modifier),
+//no const/native/virtual, and of the static/instance pair only the legal
+//shapes pass — a static member carries a body, an instance member does
+//not (D1). Rejecting at the declaration replaces the old failure mode
+//where a silently-private member surfaced only at call sites as a
+//misleading "does not exist or is not accessible" error.
+static void CheckInterfaceMemberContract(BuildEnvironment &env,
+	SnField &field)
+{
+	if (field.AccessType() != FA_Public)
+		env.Log(CLL_Error, field.Location(),
+			"The interface member \"%s\" must be public.",
+			field.Name().c_str());
+	if (field.ContainFlags(NF_Const))
+		env.Log(CLL_Error, field.Location(),
+			"The interface member \"%s\" cannot be const: interfaces"
+			" declare no data to freeze.",
+			field.Name().c_str());
+	//0.9.10 (D1): a static member is legal as an in-place shared
+	//implementation; only the bodyless static and the bodied
+	//instance forms break the contract now.
+	auto *fn = field.Kind() == NK_Function
+		? static_cast<SnFunction *>(&field) : nullptr;
+	if (fn && fn->ContainFlags(NF_Static) && !fn->Body())
+		env.Log(CLL_Error, field.Location(),
+			"The interface member \"%s\" is static but has no body: "
+			"static interface methods are implemented in place.",
+			field.Name().c_str());
+	if (fn && !fn->ContainFlags(NF_Static) && fn->Body())
+		env.Log(CLL_Error, field.Location(),
+			"The interface instance method \"%s\" cannot have a body: "
+			"use a static method for shared implementation.",
+			field.Name().c_str());
+	if (field.ContainFlags(NF_Native))
+		env.Log(CLL_Error, field.Location(),
+			"The interface member \"%s\" cannot be native: interfaces"
+			" declare signatures without implementation.",
+			field.Name().c_str());
+	if (field.ContainFlags(NF_Virtual))
+		env.Log(CLL_Error, field.Location(),
+			"The interface member \"%s\" cannot be virtual: interface"
+			" methods dispatch by name already.",
+			field.Name().c_str());
+}
+
 void StatementResolveAccessor::Access(SnInterfaceDecl &sn)
 {
-	//An interface member is exactly a public abstract signature — the
-	//full declaration invariant is enforced here, at the single point
-	//every interface declaration passes through. FA_Default has already
-	//resolved to FA_Public by OnAddedToParent, so a non-public member
-	//carries an explicit private/protected modifier, and the only
-	//user-writable node flags (const/static/native/virtual) each break
-	//the signature contract in its own way. Rejecting at the declaration
-	//replaces the old failure modes: a silently-private member surfaced
-	//only at call sites as a misleading "does not exist or is not
-	//accessible" error, and a static member poisoned the implementing
-	//class with contract diagnostics about a slot it cannot claim.
+	//Enforce the member contract at the single point every interface
+	//declaration passes through.
 	for (auto &field : sn.Members())
-	{
-		if (field.AccessType() != FA_Public)
-			m_Env.Log(CLL_Error, field.Location(),
-				"The interface member \"%s\" must be public.",
-				field.Name().c_str());
-		if (field.ContainFlags(NF_Const))
-			m_Env.Log(CLL_Error, field.Location(),
-				"The interface member \"%s\" cannot be const: interfaces"
-				" declare no data to freeze.",
-				field.Name().c_str());
-		if (field.ContainFlags(NF_Static))
-			m_Env.Log(CLL_Error, field.Location(),
-				"The interface member \"%s\" cannot be static: interfaces"
-				" declare instance signatures only.",
-				field.Name().c_str());
-		if (field.ContainFlags(NF_Native))
-			m_Env.Log(CLL_Error, field.Location(),
-				"The interface member \"%s\" cannot be native: interfaces"
-				" declare signatures without implementation.",
-				field.Name().c_str());
-		if (field.ContainFlags(NF_Virtual))
-			m_Env.Log(CLL_Error, field.Location(),
-				"The interface member \"%s\" cannot be virtual: interface"
-				" methods dispatch by name already.",
-				field.Name().c_str());
-	}
-	//Interface method signatures are resolved like class methods but
-	//they have no bodies (the resolver tolerates an empty body when
-	//NF_Abstract is set). No super-class chain to walk.
+		CheckInterfaceMemberContract(m_Env, field);
+	//Interface member signatures resolve like class methods; only the
+	//static members carry bodies (0.9.10), walked like any function
+	//body. No super-class chain to walk.
 	for (auto &field : sn.Members())
 	{
 		if (field.Kind() == NK_Function)

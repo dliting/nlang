@@ -261,7 +261,8 @@ interface_null 1
 interface_default_public 10
 interface_private_member compile_error The interface member "secret" must be public.
 interface_const_member compile_error The interface member "rate" cannot be const
-interface_static_member compile_error The interface member "tick" cannot be static
+interface_static_member compile_error The interface member "tick" is static but has no body
+interface_instance_body_member compile_error The interface instance method "hello" cannot have a body
 interface_native_member compile_error The interface member "run" cannot be native
 interface_virtual_member compile_error The interface member "val" cannot be virtual
 
