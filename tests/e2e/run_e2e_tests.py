@@ -376,6 +376,10 @@ def main():
                     ncc_extra = shlex.split(ff.read().strip(),
                                             comments=True)
             nmod_file = os.path.join(out_dir, f"{name}.ncu")
+            #A stale artifact from an earlier run would make a failing
+            #compile look successful; the rejection gate owns the slot.
+            if expected == "compile_error" and os.path.isfile(nmod_file):
+                os.remove(nmod_file)
             try:
                 compile_result = subprocess.run(
                     [ncc, 'build', test_file, '-o', nmod_file] + ncc_extra,
@@ -387,9 +391,13 @@ def main():
                 continue
 
             if not os.path.isfile(nmod_file):
-                # ncc may output .ncu in CWD; try looking there
+                # ncc may output .ncu in CWD; try looking there. Only a
+                # successful compile can have produced it — on a non-zero
+                # exit the file is a stale artifact from an earlier run
+                # (a manual red-light probe, for instance) and must not
+                # mask the expected rejection.
                 cwd_nmod = os.path.join(os.getcwd(), f"{name}.ncu")
-                if os.path.isfile(cwd_nmod):
+                if compile_result.returncode == 0 and os.path.isfile(cwd_nmod):
                     shutil.move(cwd_nmod, nmod_file)
                 elif expected == "compile_error":
                     #For compile_error tests an optional column 3 is the
