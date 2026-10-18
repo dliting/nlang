@@ -88,7 +88,11 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //module carries only literal defaults; expression defaults (formal
 //references, producing-module calls, arithmetic over them) cannot cross
 //module borders. Refuse v2.2 and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 3;
+//v2.4 (static members): every function record gains a static flag so
+//name-based dispatch can skip static members (they live in a separate
+//namespace from instance dispatch). A v2.3 module has no flag byte and
+//misparses every record after the native flag; refuse v2.3 and older.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
 
 //Runtime type kind constants for serialization (compile-time NK_* values
 //exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
@@ -244,6 +248,10 @@ struct CompiledFunction {
     //bytecode — OP_CallFunc dispatches by name through the host's
     //native table (VmExecutor::RegisterNative). Body-less by contract.
     bool isNative = false;
+    //0.9.10 (v2.4): static member. Static frames carry no __this slot,
+    //and name-based instance dispatch (FindMethodByName) must skip
+    //these records — static members are a separate namespace.
+    bool isStatic = false;
     //Option B: per-formal default values. Size == paramCount for free
     //functions and constructors; for methods, size == paramCount-1 (the
     //'this' slot has no default). Formals without defaults carry tag=RTK_Void.

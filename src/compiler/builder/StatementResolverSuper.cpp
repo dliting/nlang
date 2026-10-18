@@ -41,8 +41,12 @@ bool StatementResolveAccessor::FindParentCtorShape(SnClassDecl *pParent,
 		return true;
 	}
 	for (auto& field : pParent->Members()) {
+		//0.9.10 D2.4: a same-name static is not the constructor — the
+		//arity range must come from the instance ctor, regardless of
+		//declaration order.
 		if (field.Kind() == NK_Function
-			&& field.Name() == pParent->Name()) {
+			&& field.Name() == pParent->Name()
+			&& !field.ContainFlags(NF_Static)) {
 			auto& parentCtor = static_cast<SnFunction&>(field);
 			totalArity = parentCtor.Params().size();
 			requiredArity = totalArity;

@@ -19,12 +19,191 @@
 namespace nlang
 {
 
+namespace
+{
+
+bool MatchesReceiverForm(const SnFunction &func, InvokeReceiverForm form)
+{
+	if (form == InvokeReceiverForm::TypeName)
+		return func.ContainFlags(NF_Static);
+	if (form == InvokeReceiverForm::Value)
+		return !func.ContainFlags(NF_Static);
+	return true;
+}
+
+//0.9.10 D2.4: the member expr whose inner identifier is idExpr (the
+//receiver.name value shape), or null for every other position.
+SnMemberExpr *AsMemberInner(SnIdentifierExpr &idExpr)
+{
+	auto *pParent = idExpr.Parent();
+	if (pParent && pParent->Kind() == NK_MemberExpr
+		&& static_cast<SnMemberExpr*>(pParent)->Inner() == &idExpr)
+		return static_cast<SnMemberExpr*>(pParent);
+	return nullptr;
+}
+
+//A namespace qualifier is not a receiver — module-level function
+//references keep their own channel, unfiltered.
+bool OuterIsNamespaceQualifier(SnExpression *pOuter)
+{
+	if (pOuter && (pOuter->Kind() == NK_IdentifierExpr
+		|| pOuter->Kind() == NK_MemberExpr))
+	{
+		auto *pOuterField = static_cast<SnFieldExpr*>(pOuter)->Field();
+		return pOuterField && pOuterField->Kind() == NK_Namespace;
+	}
+	return false;
+}
+
+} //namespace
+
+//0.9.10 D2.4: a receiver expression that names a type (class /
+//interface / enum) — that form selects the static namespace.
+//Supported spelling is a bare identifier (spec D2.1); a
+//package-qualified type receiver (`lib.Util.f(...)`) does not resolve
+//and stays a documented limitation.
+bool ReceiverNamesType(SnExpression *pOuter)
+{
+	if (!pOuter)
+		return false;
+	if (pOuter->Kind() != NK_IdentifierExpr
+		&& pOuter->Kind() != NK_MemberExpr)
+		return false;
+	auto *pField = static_cast<SnFieldExpr*>(pOuter)->Field();
+	return pField && (pField->Kind() == NK_ClassDecl
+		|| pField->Kind() == NK_InterfaceDecl
+		|| pField->Kind() == NK_EnumDecl);
+}
+
+//0.9.10 D2.4: first same-name member of ONE namespace (static vs
+//instance) along the receiver's chain — the rebind and cross-namespace
+//diagnostic search. Class walk stops at imported stubs and builtins
+//(their members carry no NF_Static until Task 10 propagates it); the
+//enum and interface arms scan their own members only.
+SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
+	const std::string &name, bool bStatic)
+{
+	if (pContext && pContext->Kind() == NK_EnumDecl)
+	{
+		for (auto &method : static_cast<SnEnumDecl*>(pContext)->Methods())
+			if (method.Name() == name
+				&& method.ContainFlags(NF_Static) == bStatic)
+				return &method;
+		return nullptr;
+	}
+	if (pContext && pContext->Kind() == NK_InterfaceDecl)
+	{
+		for (auto &member : static_cast<SnInterfaceDecl*>(pContext)->Members())
+			if (member.Kind() == NK_Function && member.Name() == name
+				&& member.ContainFlags(NF_Static) == bStatic)
+				return static_cast<SnFunction*>(&member);
+		return nullptr;
+	}
+	if (!(pContext && pContext->Kind() == NK_ClassDecl))
+		return nullptr;
+	std::set<SnClassDecl*> seen;
+	for (auto *p = static_cast<SnClassDecl*>(pContext); p && !seen.count(p);
+		p = p->SuperClass())
+	{
+		seen.insert(p);
+		if (p->ContainFlags(NF_Imported) || p->IsBuiltinClass())
+			break;
+		for (auto &member : p->Members())
+			if (member.Kind() == NK_Function && member.Name() == name
+				&& member.ContainFlags(NF_Static) == bStatic)
+				return static_cast<SnFunction*>(&member);
+	}
+	return nullptr;
+}
+
+//0.9.10 D2.4: type-name receiver, method in a value position — never a
+//legal form: an instance method is the wrong namespace, and the static
+//value form is unsupported this version (plan Task 8 Step 3, recorded
+//in known-limitations). The static-namespace search picks the message
+//(it owns the name for a type-name receiver). Always rejects.
+bool ExprResolveAccessor::RejectTypeNameMethodValue(SnIdentifierExpr &idExpr)
+{
+	if (FindMethodInNamespace(m_pContext, idExpr.Name(), true))
+		m_Env.Log(CLL_Error, idExpr.Location(),
+			"cannot reference the static method \"%s\": static methods "
+			"must be called directly.",
+			idExpr.Name().c_str());
+	else
+		m_Env.Log(CLL_Error, idExpr.Location(),
+			"the instance method \"%s\" must be called through a receiver "
+			"object.",
+			idExpr.Name().c_str());
+	return false;
+}
+
+//0.9.10 D2.4: the member VALUE channel (receiver.name with no invoke)
+//gets the same namespace split as calls. Called from
+//Access(SnIdentifierExpr) once the plain search bound the inner name —
+//that search walks the receiver's whole chain (own members first), so
+//it is namespace-blind. Without the split, an own static shadows an
+//inherited instance method, and a static-only name binds as a
+//receiver-bearing handle (silent garbage at runtime).
+bool ExprResolveAccessor::ApplyReceiverNamespaceFilter(
+	SnIdentifierExpr &idExpr, SnField *&rpField)
+{
+	auto *pMember = AsMemberInner(idExpr);
+	if (!pMember || rpField->Kind() != NK_Function)
+		return true;
+	auto *pOuter = pMember->Outer();
+	if (OuterIsNamespaceQualifier(pOuter))
+		return true;
+	if (ReceiverNamesType(pOuter))
+		return RejectTypeNameMethodValue(idExpr);
+	if (!rpField->ContainFlags(NF_Static))
+		return true;
+	//Value receiver: the instance namespace is the only one it sees — a
+	//shadowing own static gives way to the inherited instance method
+	//(AllowAccess gates the rebind; FindMethodInNamespace does not).
+	auto *pInstance = FindMethodInNamespace(m_pContext, idExpr.Name(), false);
+	if (pInstance && pInstance->AllowAccess(*m_pAccessor))
+	{
+		rpField = pInstance;
+		return true;
+	}
+	m_Env.Log(CLL_Error, idExpr.Location(),
+		"the static method \"%s\" must be called through the type name.",
+		idExpr.Name().c_str());
+	return false;
+}
+
+//0.9.10 D2.4: classify the call site by receiver syntax. A bare call
+//(any position other than the inner invoke of a member access) keeps the
+//namespace-level lookup; a namespace qualifier is not a receiver object
+//either (TryResolveModuleQualified owns that path).
+InvokeReceiverForm ClassifyInvokeReceiver(const SnInvokeExpr &invoke)
+{
+	auto *pParent = invoke.Parent();
+	if (!(pParent && pParent->Kind() == NK_MemberExpr))
+		return InvokeReceiverForm::Bare;
+	auto *pMember = static_cast<SnMemberExpr*>(pParent);
+	if (pMember->Inner() != &invoke)
+		return InvokeReceiverForm::Bare;
+	auto *pOuter = pMember->Outer();
+	if (pOuter && (pOuter->Kind() == NK_IdentifierExpr
+		|| pOuter->Kind() == NK_MemberExpr))
+	{
+		auto *pField = static_cast<SnFieldExpr*>(pOuter)->Field();
+		if (pField && pField->Kind() == NK_Namespace)
+			return InvokeReceiverForm::Bare;
+	}
+	return ReceiverNamesType(pOuter)
+		? InvokeReceiverForm::TypeName : InvokeReceiverForm::Value;
+}
+
 //Search a single scope's NameDict for matching functions. Bare-pool
 //scopes (root / namespaces) additionally drop foreign owned functions
 //(D1/D7) — skipped entirely, so they never set bImportedMatch either.
+//Candidates are filtered by call form first: statics and instance
+//members live in separate namespaces (0.9.10 D2.4).
 void ExprResolveAccessor::SearchFuncScope(SnFunctionParentField &parent,
 	bool bBarePool, const std::string &sFuncName, uint32_t curModule,
-	std::vector<SnFunction*> &candidates, bool &rbImportedMatch)
+	InvokeReceiverForm form, std::vector<SnFunction*> &candidates,
+	bool &rbImportedMatch)
 {
 	auto range = parent.Members().NameDict().equal_range(sFuncName);
 	for (auto iField = range.first; iField != range.second; ++iField)
@@ -34,6 +213,8 @@ void ExprResolveAccessor::SearchFuncScope(SnFunctionParentField &parent,
 			continue;
 
 		auto pFunc = static_cast<SnFunction *>(pField);
+		if (!MatchesReceiverForm(*pFunc, form))
+			continue;
 		if (!pFunc->AllowAccess(*m_pAccessor))
 			continue;
 		if (bBarePool && !IsBareVisible(*pFunc, curModule))
@@ -50,13 +231,15 @@ void ExprResolveAccessor::SearchFuncScope(SnFunctionParentField &parent,
 //SearchFuncScope cannot be reused. Enums have no inheritance chain and
 //no bare-pool filtering (methods are owned by the enum itself).
 void ExprResolveAccessor::SearchEnumScope(SnEnumDecl &enumDecl,
-	const std::string &sFuncName, std::vector<SnFunction*> &candidates,
-	bool &rbImportedMatch)
+	const std::string &sFuncName, InvokeReceiverForm form,
+	std::vector<SnFunction*> &candidates, bool &rbImportedMatch)
 {
 	auto range = enumDecl.Methods().NameDict().equal_range(sFuncName);
 	for (auto iField = range.first; iField != range.second; ++iField)
 	{
 		auto *pFunc = static_cast<SnFunction *>(iField->second);
+		if (!MatchesReceiverForm(*pFunc, form))
+			continue;
 		if (!pFunc->AllowAccess(*m_pAccessor))
 			continue;
 		if (pFunc->ContainFlags(NF_Imported))
@@ -70,12 +253,13 @@ void ExprResolveAccessor::SearchEnumScope(SnEnumDecl &enumDecl,
 //scope, never a bare-pool scope.
 void ExprResolveAccessor::SearchSuperclassChain(SnClassDecl &classDecl,
 	const std::string &sFuncName, uint32_t curModule,
-	std::vector<SnFunction*> &candidates, bool &rbImportedMatch)
+	InvokeReceiverForm form, std::vector<SnFunction*> &candidates,
+	bool &rbImportedMatch)
 {
 	auto *pSuper = classDecl.SuperClass();
 	while (pSuper && candidates.empty())
 	{
-		SearchFuncScope(*pSuper, false, sFuncName, curModule,
+		SearchFuncScope(*pSuper, false, sFuncName, curModule, form,
 			candidates, rbImportedMatch);
 		pSuper = pSuper->SuperClass();
 	}
@@ -88,16 +272,20 @@ void ExprResolveAccessor::SearchSuperclassChain(SnClassDecl &classDecl,
 //does not fall through to namespace scope. Returns false when the pool
 //came up empty, with the F20 visibility hint already adjudicated
 //(rbVisibilityHintLogged set when it fired).
+//
+//D1/D7: the bare pool only spans the current TU's directory; the
+//candidate filter below is fed with the context owner computed once.
+//This is the BARE-POOL owner filter (ShareBarePool), not the import
+//gate — the gate policy lives in ModuleRegistry::ImportGateAllows.
+//0.9.10 D2.4: the receiver form selects which method namespace this
+//invoke may bind to (statics vs instance members).
 bool ExprResolveAccessor::CollectInvokeCandidates(SnInvokeExpr &invoke,
 	bool bSearchInAncestor, std::vector<SnFunction*> &candidates,
 	bool &rbImportedMatch, bool &rbVisibilityHintLogged)
 {
 	auto &sFuncName = invoke.CalleeName();
-	//D1/D7: the bare pool only spans the current TU's directory; the
-	//candidate filter below is fed with the context owner computed once.
-	//This is the BARE-POOL owner filter (ShareBarePool), not the import
-	//gate — the gate policy lives in ModuleRegistry::ImportGateAllows.
 	const uint32_t curModule = m_Env.Registry().OwnerOfContext(*m_pContext);
+	const InvokeReceiverForm form = ClassifyInvokeReceiver(invoke);
 
 	SyntaxNode *pParent = m_pContext;
 	while (pParent)
@@ -108,18 +296,18 @@ bool ExprResolveAccessor::CollectInvokeCandidates(SnInvokeExpr &invoke,
 			//Root and namespaces are the bare pool (IsBarePoolScope); class
 			//and interface scopes keep full visibility (D1/D7).
 			SearchFuncScope(*pParentType, IsBarePoolScope(*pParent),
-				sFuncName, curModule, candidates, rbImportedMatch);
+				sFuncName, curModule, form, candidates, rbImportedMatch);
 			if (pParent->Kind() == NK_ClassDecl && candidates.empty())
 				SearchSuperclassChain(
 					*static_cast<SnClassDecl*>(pParent), sFuncName,
-					curModule, candidates, rbImportedMatch);
+					curModule, form, candidates, rbImportedMatch);
 			if (!bSearchInAncestor)
 				break;
 		}
 		else if (pParent->Kind() == NK_EnumDecl)
 		{
 			SearchEnumScope(static_cast<SnEnumDecl&>(*pParent), sFuncName,
-				candidates, rbImportedMatch);
+				form, candidates, rbImportedMatch);
 			if (!bSearchInAncestor)
 				break;
 		}

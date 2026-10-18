@@ -34,6 +34,30 @@ enum ExprResolveFlag : uint8
 
 typedef uint8 ExprResolveFlagSet;
 
+//0.9.10 D2.4: call-form namespaces. A member call through a type name
+//only reaches static members; a member call through a value only reaches
+//instance members; a bare call is namespace-level.
+enum class InvokeReceiverForm
+{
+	Bare,
+	TypeName,
+	Value
+};
+InvokeReceiverForm ClassifyInvokeReceiver(const SnInvokeExpr &invoke);
+
+//0.9.10 D2.4: a receiver expression that names a type (class / interface /
+//enum) — that form selects the static namespace. Shared by the invoke and
+//member-value channels (definition in ExprResolverInvokeMatch.cpp).
+bool ReceiverNamesType(SnExpression *pOuter);
+
+//0.9.10 D2.4: first same-name member of ONE namespace (static vs instance)
+//along the receiver's chain — the rebind and cross-namespace diagnostic
+//search for the receiver-namespace split (definition in
+//ExprResolverInvokeMatch.cpp). No access check: the rebind caller gates
+//the result with AllowAccess, the diagnostic callers only pick a message.
+SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
+	const std::string &name, bool bStatic);
+
 //Array redesign B: pure SHAPE test — identifier, or member access whose
 //inner name is an identifier (the lvalue shapes whose Field() binding IS
 //the variable/field itself). Array-ness is the IsArrayValued() property
@@ -348,6 +372,21 @@ private:
 	//with its diagnostic.
 	bool RejectImplicitThisInStatic(SnIdentifierExpr &idExpr, SnField *pField);
 
+	//0.9.10 D2.4: the member VALUE channel (receiver.name with no invoke)
+	//shares the invoke path's receiver-namespace split. The plain identifier
+	//search is namespace-blind — it walks the receiver's whole chain, so an
+	//own static shadows an inherited instance method and a static-only name
+	//binds as a receiver-bearing handle (silent garbage at runtime). Called
+	//from Access(SnIdentifierExpr) with the receiver context active; rebinds
+	//rpField in place when the receiver form's own namespace holds the
+	//same-name member. False = rejected with its diagnostic.
+	bool ApplyReceiverNamespaceFilter(SnIdentifierExpr &idExpr,
+		SnField *&rpField);
+
+	//0.9.10 D2.4: type-name receiver + method value position — the
+	//always-reject arm of ApplyReceiverNamespaceFilter. False = rejected.
+	bool RejectTypeNameMethodValue(SnIdentifierExpr &idExpr);
+
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
 	/*
@@ -411,6 +450,11 @@ private:
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//0.9.10 D2.4: type-name receiver in the Object protocol arm with no
+	//same-name static — the call is an instance call with no receiver.
+	//Logs the diagnostic, restores the context, returns true.
+	bool RejectTypeNameProtocolCall(SnInvokeExpr &invoke,
+		const std::string &name, SyntaxNode *pSavedContext);
 	bool TryResolveUserClassEqualsOrGetHashCode(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const std::string &name, SyntaxNode *pSavedContext);
@@ -522,12 +566,14 @@ private:
 	*/
 	void SearchFuncScope(SnFunctionParentField &parent, bool bBarePool,
 		const std::string &sFuncName, uint32_t curModule,
-		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
+		InvokeReceiverForm form, std::vector<SnFunction*> &candidates,
+		bool &rbImportedMatch);
 	void SearchSuperclassChain(SnClassDecl &classDecl,
 		const std::string &sFuncName, uint32_t curModule,
-		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
+		InvokeReceiverForm form, std::vector<SnFunction*> &candidates,
+		bool &rbImportedMatch);
 	void SearchEnumScope(SnEnumDecl &enumDecl,
-		const std::string &sFuncName,
+		const std::string &sFuncName, InvokeReceiverForm form,
 		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
 	bool CollectInvokeCandidates(SnInvokeExpr &invoke, bool bSearchInAncestor,
 		std::vector<SnFunction*> &candidates, bool &rbImportedMatch,
@@ -536,6 +582,10 @@ private:
 	bool RejectBareMethodCall(SnInvokeExpr &snInvoke, SnFunction *pCallee);
 	bool RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
 		SnFunction *pCallee);
+	//0.9.10 D2.4: the namespace-filtered search found no callee, but the
+	//opposite namespace holds a same-name member on the receiver's chain —
+	//report the call-form mismatch instead of the generic not-found text.
+	bool RejectCrossNamespaceCall(SnInvokeExpr &snInvoke);
 	void LogAmbiguousCall(SnInvokeExpr &invoke);
 	bool MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
 		bool bNameMatchedImported);

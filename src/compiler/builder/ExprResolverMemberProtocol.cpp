@@ -19,6 +19,56 @@
 namespace nlang
 {
 
+namespace {
+
+//0.9.10: the receiver chain is a bare type name (`D.equals(x)`) rather
+//than a value — such a member call is a static call or nothing. Only
+//class receivers reach this protocol arm (the caller's context gate),
+//so the class-decl test is the complete receiver check.
+bool IsTypeNameReceiver(SnMemberExpr &snMember)
+{
+	auto *pOuter = snMember.Outer();
+	if (!pOuter || pOuter->Kind() != NK_IdentifierExpr)
+		return false;
+	auto *pField = static_cast<SnIdentifierExpr*>(pOuter)->Field();
+	return pField && pField->Kind() == NK_ClassDecl;
+}
+
+//0.9.10 D2.4 #8: an enum TYPE NAME as receiver (`Color.toString()`) is
+//not an enum value. The m_pContext arm in IsNonClassToStringReceiver
+//cannot tell the two apart — both land on the enum declaration — so the
+//receiver's bound field kind is the discriminator.
+bool IsEnumTypeNameReceiver(SnMemberExpr &snMember)
+{
+	auto *pOuter = snMember.Outer();
+	if (!pOuter || (pOuter->Kind() != NK_IdentifierExpr
+		&& pOuter->Kind() != NK_MemberExpr))
+		return false;
+	auto *pField = static_cast<SnFieldExpr*>(pOuter)->Field();
+	return pField && pField->Kind() == NK_EnumDecl;
+}
+
+//A same-name static anywhere on the class chain means the normal invoke
+//path owns the call (it selects the overload or reports its own arity
+//diagnostic).
+SnFunction *FindStaticMember(SnClassDecl *pClass, const std::string &name)
+{
+	std::set<SnClassDecl*> seen;
+	for (auto *p = pClass; p && !seen.count(p); p = p->SuperClass())
+	{
+		seen.insert(p);
+		if (p->ContainFlags(NF_Imported) || p->IsBuiltinClass())
+			break;
+		for (auto &member : p->Members())
+			if (member.Kind() == NK_Function && member.Name() == name
+				&& member.ContainFlags(NF_Static))
+				return static_cast<SnFunction*>(&member);
+	}
+	return nullptr;
+}
+
+} //namespace
+
 //Equals/getHashCode arm shared by user classes: validation then the
 //caller-scope resolve tail (int result).
 bool ExprResolveAccessor::TryResolveUserClassEqualsOrGetHashCode(
@@ -77,6 +127,14 @@ bool ExprResolveAccessor::TryResolveObjectProtocolMethod(
 	bool isUserClass = !pClassDecl->IsBuiltinClass();
 	bool isObjectClass = pClassDecl->IsBuiltinClass()
 		&& pClassDecl->Name() == "Object";
+	//0.9.10 D2.4: a type-name receiver (`D.equals(x)`) is a static
+	//call site; a same-name static hands it to the normal invoke path.
+	if (IsTypeNameReceiver(snMember))
+	{
+		if (FindStaticMember(pClassDecl, name))
+			return false;
+		return RejectTypeNameProtocolCall(invoke, name, pSavedContext);
+	}
 	if ((name == "equals" || name == "getHashCode") && isUserClass)
 		return TryResolveUserClassEqualsOrGetHashCode(snMember, pInnerExpr,
 			invoke, name, pSavedContext);
@@ -105,6 +163,17 @@ bool ExprResolveAccessor::TryResolveObjectProtocolMethod(
 	}
 	//Not consumed: keep the receiver context for the next phases' guards.
 	return false;
+}
+
+bool ExprResolveAccessor::RejectTypeNameProtocolCall(SnInvokeExpr &invoke,
+	const std::string &name, SyntaxNode *pSavedContext)
+{
+	m_Env.Log(CLL_Error, invoke.Location(),
+		"the instance method \"%s\" must be called through a receiver "
+		"object.",
+		name.c_str());
+	m_pContext = pSavedContext;
+	return true;
 }
 
 //Phase 8e-9b: non-class toString receiver detection — enum, int, float,
@@ -179,6 +248,11 @@ bool ExprResolveAccessor::TryResolveNonClassToString(SnMemberExpr &snMember,
 	if (!(invoke.CalleeName() == "toString"
 		&& invoke.Params().begin() == invoke.Params().end()))
 		return false;
+	//0.9.10 D2.4 #8: a type-name receiver is not an enum value — reject
+	//before the non-class arm mistakes the declaration for the receiver.
+	if (IsEnumTypeNameReceiver(snMember))
+		return RejectTypeNameProtocolCall(invoke, invoke.CalleeName(),
+			pSavedContext);
 	if (!IsNonClassToStringReceiver(snMember))
 		return false;
 	m_pContext = pSavedContext;

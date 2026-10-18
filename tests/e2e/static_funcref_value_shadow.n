@@ -1,0 +1,14 @@
+//0.9.10 D2.4: a value receiver sees the instance namespace only — B's
+//static f(string) must not shadow the inherited virtual f(int) in a
+//member value reference; the reference rebinds to the instance method.
+class A {
+	public virtual int f(int x) { return x + 1; }
+}
+class B : A {
+	public static int f(string s) { return s.length(); }
+}
+int main() {
+	B b = B();
+	func<int, int> h = b.f;
+	return h(5);
+}

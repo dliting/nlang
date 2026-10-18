@@ -268,7 +268,10 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
                 if (it != m_funcIndexMap.end()) {
                     uint16_t funcIdx = static_cast<uint16_t>(it->second);
                     cc.methodIndices.push_back(funcIdx);
-                    if (child.Name() == sn.Name())
+                    //0.9.10 D2.4: a same-name static method is not the
+                    //constructor (declaration order must not matter).
+                    if (child.Name() == sn.Name()
+                        && !child.ContainFlags(NF_Static))
                         cc.constructorIdx = funcIdx;
                 }
             }

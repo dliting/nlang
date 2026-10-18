@@ -1,0 +1,7 @@
+//0.9.10 D2.4 #8: an enum type name is not a value receiver. Before the
+//fix the non-class toString arm treated the declaration as an enum
+//value and codegen failed with an internal error.
+enum Color { Red, Green; }
+int main() {
+	return Color.toString().length();
+}

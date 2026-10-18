@@ -335,6 +335,9 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	if (RejectImplicitThisInStatic(idExpr, pField))
 		return;
 
+	if (!ApplyReceiverNamespaceFilter(idExpr, pField))
+		return;
+
 	ResolveFieldExprAs(idExpr, pField);
 	BindArrayTypeToken(idExpr);
 }

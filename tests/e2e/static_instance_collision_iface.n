@@ -1,0 +1,7 @@
+//0.9.10 D2.4: the same merged-space uniqueness rule applies to
+//interface declarations.
+interface BadIface {
+	int f(int x);
+	static int f(int x) { return x; }
+}
+int main() { return 0; }

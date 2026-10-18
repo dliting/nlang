@@ -59,6 +59,10 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
         uint8_t nativeFlag = 0;
         fs.read(reinterpret_cast<char*>(&nativeFlag), sizeof(nativeFlag));
         func.isNative = (nativeFlag != 0);
+        //0.9.10 v2.4: static-member flag (see ModuleSaver).
+        uint8_t staticFlag = 0;
+        fs.read(reinterpret_cast<char*>(&staticFlag), sizeof(staticFlag));
+        func.isStatic = (staticFlag != 0);
 
         //Option B v1.3: per-formal default-value descriptors.
         uint16_t defaultCount = 0;

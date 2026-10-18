@@ -50,6 +50,7 @@ add_library(nlang_compiler
     ModuleBuilderChecks.cpp
     ModuleBuilderMethodContracts.cpp
     ModuleBuilderObjectProtocol.cpp
+    ModuleBuilderStaticNamespace.cpp
     ModuleBuilderUnits.cpp
     Logger.cpp
     CastInfo.cpp

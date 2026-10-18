@@ -1,10 +1,9 @@
 //Multi-flag void method (AccessType NodeFlags KT_Void grammar variant):
 //`public static void` requires the NodeFlags production — a single-flag
-//rule alone would leave this shape a bare syntax error. 0.9.10: the
-//type-name form `Util.twice(...)` is supported; this test keeps the
-//instance-qualified spelling (allowed, the receiver value is unused) and
-//an out param for the observable effect instead of touching instance
-//state from a static method.
+//rule alone would leave this shape a bare syntax error. 0.9.10 call-form
+//namespaces: a static method is reachable only through the type name, so
+//the call is written `Util.twice(...)`; the out param keeps the effect
+//observable without touching instance state from a static method.
 class Util {
 	public static void twice(int v, out int r) {
 		r = v * 2;
@@ -13,7 +12,6 @@ class Util {
 
 int main() {
 	int r = 0;
-	Util u = Util();
-	u.twice(21, out r);
+	Util.twice(21, out r);
 	return r;
 }

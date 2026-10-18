@@ -1,0 +1,24 @@
+//0.9.10 D2.4/D2.5: static members live in a separate namespace from
+//instance dispatch. The interface's static quad() is not an implements
+//obligation (Impl never declares it), and Impl's own static twice(int)
+//coexists with the inherited instance twice(int) that fulfils the
+//contract. At runtime the by-name interface call must skip the static
+//member even though Impl declares it — otherwise it would be invoked
+//with `this` in the first parameter slot.
+interface IStat {
+	int twice(int x);
+	static int quad(int x) { return x * 4; }
+}
+class Base {
+	public int twice(int x) { return x * 2; }
+}
+class Impl : Base implements IStat {
+	public static int twice(int x) { return x * 3; }
+}
+int main() {
+	IStat v = Impl();
+	int a = v.twice(10);
+	int b = Impl.twice(10);
+	int c = IStat.quad(2);
+	return a + b + c;
+}

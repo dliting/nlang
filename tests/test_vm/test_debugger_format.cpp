@@ -115,10 +115,10 @@ void test_loader_rejects_v1_9()
     CHECK(bytes.size() >= 12, "module file should have a full header");
     //Guard the patch anchor: if a future header change moves the version
     //fields, the patch below would silently hit another field — fail
-    //loudly on layout drift instead (fresh build must be stamped 2.3).
+    //loudly on layout drift instead (fresh build must be stamped 2.4).
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == 0x04,
+        "fresh module should be stamped format 2.4");
     //v2.0: the downgrade is a MAJOR step (1.x predates package identity).
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -164,8 +164,8 @@ void test_loader_rejects_v1_10()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == 0x04,
+        "fresh module should be stamped format 2.4");
     //v2.0: the downgrade is a MAJOR step.
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -213,8 +213,8 @@ void test_loader_rejects_v1_11()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == 0x04,
+        "fresh module should be stamped format 2.4");
     //v2.0: the downgrade is a MAJOR step.
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -239,7 +239,7 @@ void test_loader_rejects_v1_11()
 
 //The minor-floor arm (ported from the pre-2.0 v1.12/v1.13 pins): keep
 //the major at 2 and patch the minorVer field (header offset 10,
-//little-endian u16) down to 0 -- below the 2.3 floor. The 2.2 minor
+//little-endian u16) down to 0 -- below the 2.4 floor. The 2.2 minor
 //carries the debugger declPc layout (two bytes of declaration PC per
 //local in every locals block); a 2.0 record would read every local
 //name length from the wrong offset. No migration path by design.
@@ -261,8 +261,8 @@ void test_loader_rejects_minor_below_floor()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == 0x04,
+        "fresh module should be stamped format 2.4");
     bytes[10] = 0x00;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v200.ncu";
@@ -308,8 +308,8 @@ void test_loader_accepts_ceiling_and_floor()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == 0x04,
+        "fresh module should be stamped format 2.4");
 
     //Above the ceiling: a v3.0 module — the reader must refuse it (it
     //would misparse every record after the first layout change).

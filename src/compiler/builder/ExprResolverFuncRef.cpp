@@ -178,9 +178,14 @@ static bool HasNativeMethodOverride(SnFunction &method)
 			continue;
 		for (auto &member : pClass->Members())
 		{
+			//0.9.10 D2.4: only an instance member with the same parameter
+			//list can occupy the dispatch slot — a same-name static or
+			//differently-shaped overload must not veto the binding.
 			if (member.Kind() == NK_Function
 				&& member.Name() == method.Name()
-				&& member.ContainFlags(NF_Native))
+				&& !member.ContainFlags(NF_Static)
+				&& member.ContainFlags(NF_Native)
+				&& static_cast<SnFunction&>(member).ConflictedWith(method))
 				return true;
 		}
 	}

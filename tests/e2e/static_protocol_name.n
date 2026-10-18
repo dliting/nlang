@@ -1,0 +1,11 @@
+//0.9.10 D2.4: a protocol-named static (equals with a different
+//parameter list) lives in the static namespace. The type-name call
+//binds the static overload; the receiver call still reaches the
+//implicit Object.equals protocol method (identity comparison).
+class Box {
+	public static int equals(int x) { return x * 10; }
+}
+int main() {
+	Box b = Box();
+	return b.equals(b) + Box.equals(7);
+}

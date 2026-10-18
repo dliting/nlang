@@ -1,0 +1,9 @@
+//0.9.10 D2.4: a type-name call is a static call site — with no
+//same-name static on the chain it is an instance protocol call
+//without a receiver object, not a silent implicit-equals intrinsic.
+class Box {
+	public int z;
+}
+int main() {
+	return Box.equals(1);
+}

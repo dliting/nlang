@@ -121,9 +121,12 @@ void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
 void VmBackend::FillNativeFunctionRecord(SnFunction& func,
                                          CompiledFunction& compiledFunc) {
     compiledFunc.isNative = true;
+    //0.9.10: static members have no receiver slot (see AllocParamsAndDefaults).
+    compiledFunc.isStatic = func.ContainFlags(NF_Static);
     bool isMethod = func.Parent()
         && (func.Parent()->Kind() == NK_ClassDecl
-            || func.Parent()->Kind() == NK_EnumDecl);
+            || func.Parent()->Kind() == NK_EnumDecl)
+        && !func.ContainFlags(NF_Static);
     //Frame-layout locals (this + one per formal) with the true runtime
     //kinds. The native path emits no bytecode, so this is metadata-only —
     //the GC never scans a native function's frame (CallNative stages its
@@ -170,6 +173,9 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
 //then collect the constant-foldable default values for serialization.
 void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                                        CompiledFunction& compiledFunc) {
+    //0.9.10: the serialized static flag drives name-based dispatch
+    //(FindMethodByName skips statics) and mirrors the frame layout below.
+    compiledFunc.isStatic = func.ContainFlags(NF_Static);
     // If this is a class or enum method, allocate slot 0 for 'this'.
     //0.9.10: a static method has no receiver — its frame starts at the
     //first formal, matching the free-function layout it is called with.

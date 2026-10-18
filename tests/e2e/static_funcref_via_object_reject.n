@@ -1,0 +1,12 @@
+//0.9.10 D2.4: a value receiver sees the instance namespace only — a
+//static-only name in a member value position is the wrong form (it
+//would bind a receiver-bearing handle to a receiver-less method and
+//run garbage).
+class B {
+	public static int f(int x) { return x * 2; }
+}
+int main() {
+	B b = B();
+	func<int, int> h = b.f;
+	return h(5);
+}

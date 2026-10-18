@@ -307,7 +307,11 @@ int VmExecutor::FindMethodByName(int classIdx,
         for (uint16_t idx : cc.methodIndices) {
             //Bare-name method dispatch (D8): method keys never carry a
             //package prefix, so the receiver alone identifies the table.
+            //0.9.10: static members are a separate namespace — a same-name
+            //static must never capture an instance dispatch (its frame has
+            //no __this slot, so the call would misread every argument).
             if (idx < m_currModule->functions.size()
+                && !m_currModule->functions[idx].isStatic
                 && m_currModule->functions[idx].name == methodName)
                 return static_cast<int>(idx);
         }

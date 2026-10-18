@@ -176,4 +176,32 @@ void ModuleBuilder::CheckClassCircularInheritance()
 	}
 }
 
+//Render a method signature for diagnostics; shared with the contracts,
+//Object-protocol and static-namespace TUs (declaration in
+//ModuleBuilderChecks.h).
+std::string FormatSignature(const std::string &name, const SnFunction &f)
+{
+	std::string sig;
+	//A static mismatch must not render identical to the instance
+	//signature it is compared against.
+	if (f.ContainFlags(NF_Static))
+		sig += "static ";
+	sig += name + "(";
+	bool first = true;
+	for (auto &param : f.Params())
+	{
+		if (!first)
+			sig += ", ";
+		first = false;
+		if (param.ContainFlags(NF_Out))
+			sig += "out ";
+		sig += (param.Type() && param.Type()->Field())
+			? param.Type()->Field()->ToString() : "?";
+	}
+	sig += "): ";
+	sig += (f.ReturnType() && f.ReturnType()->Field())
+		? f.ReturnType()->Field()->ToString() : "void";
+	return sig;
+}
+
 } //namespace nlang

@@ -301,6 +301,9 @@ SnFunction* VmBackend::FindCtorFunction(SnClassDecl* pClassDecl) {
             || member.Name() != pClassDecl->Name())
             continue;
         auto& ctor = static_cast<SnFunction&>(member);
+        //0.9.10 D2.4: a same-name static is not the constructor.
+        if (ctor.ContainFlags(NF_Static))
+            continue;
         if (!ctor.Body() && !ctor.ContainFlags(NF_Native))
             continue;
         return &ctor;

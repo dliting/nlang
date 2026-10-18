@@ -4,7 +4,8 @@ signature/interface) checking of ModuleBuilder: the class-side
 override-signature bijection (Step 1) and the interface completeness
 walk (Step 2). Split from ModuleBuilderChecks.cpp (2026-10-17
 maintainability refactor, zero behavior change); the Object protocol
-table lives in ModuleBuilderObjectProtocol.cpp.
+table lives in ModuleBuilderObjectProtocol.cpp, the static-family
+name rules in ModuleBuilderStaticNamespace.cpp (0.9.10).
 ---*/
 
 #include "ModuleBuilder.h"
@@ -47,10 +48,9 @@ bool TypeExprsIdentical(const SnFieldExpr *pA, const SnFieldExpr *pB)
 //deliberately NOT compared (spec D5/D6/D8).
 bool SignaturesIdentical(const SnFunction &a, const SnFunction &b)
 {
-	//A static method can never claim an instance dispatch slot (spec
-	//§2.1 static rule): both the class-side bijection and the interface
-	//winner comparison route a same-signature static method to the
-	//mismatch report through this check.
+	//0.9.10: contract candidates are instance-only (the static namespace
+	//is filtered out before matching), so this guard is a safety net: a
+	//static can never be mistaken for an instance signature.
 	if (a.ContainFlags(NF_Static) != b.ContainFlags(NF_Static))
 		return false;
 	if (a.Params().size() != b.Params().size())
@@ -99,7 +99,8 @@ void CollectChainImplements(const SnClassDecl &cls,
 
 //First same-name method in dispatch order: the class's own members in
 //declaration order, then up the superclass chain (FindMethodByName's
-//order — VmExecutorOpsCalls).
+//order — VmExecutorOpsCalls). 0.9.10: static members never occupy an
+//instance dispatch slot, matching the runtime lookup's skip.
 SnFunction* FindDispatchWinner(SnClassDecl &cls, const std::string &name)
 {
 	std::set<SnClassDecl*> seen;
@@ -110,7 +111,8 @@ SnFunction* FindDispatchWinner(SnClassDecl &cls, const std::string &name)
 		if (pChain->ContainFlags(NF_Imported) || pChain->IsBuiltinClass())
 			break;
 		for (auto &member : pChain->Members())
-			if (member.Kind() == NK_Function && member.Name() == name)
+			if (member.Kind() == NK_Function && member.Name() == name
+				&& !member.ContainFlags(NF_Static))
 				return static_cast<SnFunction*>(&member);
 	}
 	return nullptr;
@@ -135,7 +137,8 @@ void CollectContractSet(SnClassDecl &cls,
 			break;
 		for (auto &member : pSuper->Members())
 			if (member.Kind() == NK_Function && member.Name() == name
-				&& member.ContainFlags(NF_Virtual))
+				&& member.ContainFlags(NF_Virtual)
+				&& !member.ContainFlags(NF_Static))
 			{
 				contract.push_back(static_cast<SnFunction*>(&member));
 				owners.push_back(pSuper->Name());
@@ -143,9 +146,12 @@ void CollectContractSet(SnClassDecl &cls,
 	}
 	//Interface members iterate through the CONST Members() overload
 	//(ifaces holds const pointers) — cast to const SnFunction.
+	//0.9.10 (D2.5): static interface members are not implements
+	//obligations — they implement themselves in place.
 	for (auto *pIface : ifaces)
 		for (auto &member : pIface->Members())
-			if (member.Kind() == NK_Function && member.Name() == name)
+			if (member.Kind() == NK_Function && member.Name() == name
+				&& !member.ContainFlags(NF_Static))
 			{
 				contract.push_back(static_cast<const SnFunction*>(&member));
 				owners.push_back(pIface->Name());
@@ -188,8 +194,8 @@ void DedupContractSignatures(std::vector<const SnFunction*> &contract,
 //contract member is matched. Pick the diagnostic anchor for a
 //mismatching own method: the first contract entry with the same param
 //count (the signature the author most likely aimed at), else entry 0.
-//Static own methods never match (see SignaturesIdentical) and land in
-//the mismatch report.
+//Callers pass the instance family only (0.9.10): statics live in a
+//separate namespace and never enter this bijection.
 bool MatchOwnMethodsToContract(const std::string &name,
 	const std::vector<SnFunction*> &funcs,
 	const std::vector<const SnFunction*> &contract,
@@ -273,6 +279,8 @@ bool CheckVirtualNameUniformity(SnClassDecl &cls,
 	const std::vector<SnFunction*> &funcs,
 	BuildEnvironment &env)
 {
+	//Caller passes the instance family only (0.9.10): static members do
+	//not participate in virtual dispatch or its name-uniformity rule.
 	bool anyVirtual = false;
 	for (auto *pOwn : funcs)
 		if (pOwn->ContainFlags(NF_Virtual))
@@ -307,35 +315,37 @@ bool CheckVirtualNameUniformity(SnClassDecl &cls,
 
 } //namespace
 
-//Render a method signature for diagnostics; shared with the Object-
-//protocol TU (declaration in ModuleBuilderChecks.h).
-std::string FormatSignature(const std::string &name, const SnFunction &f)
+//Per-name instance-family checks: same-class virtual uniformity first
+//(the more local violation), then the ancestor/interface bijection.
+//An empty instance family means every same-name own method is static:
+//inherited instance methods stay in force, and CheckInterfaceContracts
+//validates interface completeness on its own.
+static bool CheckInstanceNameContracts(SnClassDecl &cls,
+	const std::vector<const SnInterfaceDecl*> &ifaces,
+	const std::string &name,
+	const std::vector<SnFunction*> &instanceFuncs,
+	BuildEnvironment &env)
 {
-	std::string sig;
-	//A static mismatch must not render identical to the instance
-	//signature it is compared against.
-	if (f.ContainFlags(NF_Static))
-		sig += "static ";
-	sig += name + "(";
-	bool first = true;
-	for (auto &param : f.Params())
-	{
-		if (!first)
-			sig += ", ";
-		first = false;
-		if (param.ContainFlags(NF_Out))
-			sig += "out ";
-		sig += (param.Type() && param.Type()->Field())
-			? param.Type()->Field()->ToString() : "?";
-	}
-	sig += "): ";
-	sig += (f.ReturnType() && f.ReturnType()->Field())
-		? f.ReturnType()->Field()->ToString() : "void";
-	return sig;
+	if (CheckVirtualNameUniformity(cls, name, instanceFuncs, env))
+		return true;
+	//Contract set, deduped by signature (anchor = first declaration).
+	//Ancestor virtuals and interface instance signatures only.
+	std::vector<const SnFunction*> contract;
+	std::vector<std::string> owners;
+	CollectContractSet(cls, ifaces, name, contract, owners);
+	DedupContractSignatures(contract, owners);
+	if (instanceFuncs.empty() || contract.empty())
+		return false;
+	std::vector<bool> taken(contract.size(), false);
+	bool nameRejected = MatchOwnMethodsToContract(name, instanceFuncs,
+		contract, owners, taken, env);
+	if (ReportUnmatchedContractSignatures(cls, name, contract, taken, env))
+		nameRejected = true;
+	return nameRejected;
 }
 
-//Per-name body of CheckOverrideSignatures: same-class uniformity, the
-//Object protocol, then the ancestor/interface bijection. Every rejection
+//Per-name body of CheckOverrideSignatures: static rules, then instance
+//uniformity and the ancestor/interface bijection. Every rejection
 //records the name so subclasses skip it (topmost-first error recovery).
 static void CheckMethodNameContracts(SnClassDecl &cls,
 	const std::vector<const SnInterfaceDecl*> &ifaces,
@@ -346,38 +356,14 @@ static void CheckMethodNameContracts(SnClassDecl &cls,
 {
 	if (rejectedNames.count(name))
 		return;
-
-	//0.9.7: same-class uniformity fires before the ancestor/
-	//interface bijection — it is the more local violation, and
-	//rejecting the name here stops the contract pass from double-
-	//reporting the same shape.
-	if (CheckVirtualNameUniformity(cls, name, funcs, env))
-	{
-		rejectedNames.insert(name);
-		return;
-	}
-
-	//Contract set, deduped by signature (anchor = first declaration).
-	std::vector<const SnFunction*> contract;
-	std::vector<std::string> owners;
-	CollectContractSet(cls, ifaces, name, contract, owners);
-	DedupContractSignatures(contract, owners);
-
-	//Object protocol (spec D4): a mismatch rejects the whole name.
-	if (CheckObjectProtocol(cls, name, funcs, env))
-	{
-		rejectedNames.insert(name);
-		return;
-	}
-
-	if (contract.empty())
-		return;
-
-	std::vector<bool> taken(contract.size(), false);
-	bool nameRejected = MatchOwnMethodsToContract(name, funcs, contract, owners, taken, env);
-	if (ReportUnmatchedContractSignatures(cls, name, contract, taken, env))
-		nameRejected = true;
-	if (nameRejected)
+	//0.9.10 D2.4: statics live in a separate namespace — split the
+	//families once and send each through its own rules.
+	std::vector<SnFunction*> instanceFuncs;
+	for (auto *pOwn : funcs)
+		if (!pOwn->ContainFlags(NF_Static))
+			instanceFuncs.push_back(pOwn);
+	if (CheckStaticNameRules(cls, name, funcs, env)
+		|| CheckInstanceNameContracts(cls, ifaces, name, instanceFuncs, env))
 		rejectedNames.insert(name);
 }
 
@@ -418,6 +404,10 @@ static void CheckInterfaceContracts(SnClassDecl &cls,
 		for (auto &member : pIface->Members())
 		{
 			if (member.Kind() != NK_Function)
+				continue;
+			//0.9.10 D2.5: static interface members implement themselves
+			//in place and impose no obligation on implementors.
+			if (member.ContainFlags(NF_Static))
 				continue;
 			if (rejectedNames.count(member.Name()))
 				continue;

@@ -139,6 +139,9 @@ uint16_t VmBackend::CtorSlotFor(SnClassDecl& decl, uint16_t classSlot) {
             || member.Name() != decl.Name())
             continue;
         auto& ctor = static_cast<SnFunction&>(member);
+        //0.9.10 D2.4: a same-name static is not the constructor.
+        if (ctor.ContainFlags(NF_Static))
+            continue;
         if (!ctor.Body() && !ctor.ContainFlags(NF_Native))
             continue;
         return static_cast<uint16_t>(FunctionSlotFor(ctor));

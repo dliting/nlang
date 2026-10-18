@@ -95,8 +95,11 @@ bool ExprResolveAccessor::FindCtorParamRange(SnClassDecl *pClassDecl,
 	}
 	for (auto& member : pClassDecl->Members())
 	{
+		//0.9.10 D2.4: a static method may share the class name — it lives
+		//in the static namespace and is never the constructor.
 		if (member.Kind() == NK_Function
-			&& member.Name() == pClassDecl->Name())
+			&& member.Name() == pClassDecl->Name()
+			&& !member.ContainFlags(NF_Static))
 		{
 			auto& ctorFn = static_cast<SnFunction&>(member);
 			totalArity = ctorFn.Params().size();

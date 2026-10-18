@@ -309,6 +309,34 @@ private slots:
             out, "claims the virtual dispatch slot"), 1);
     }
 
+    //0.9.10 D2.4 refresh: the same-name static/virtual pair is legal
+    //when the parameter lists differ (separate namespaces).
+    void TestStaticDifferentParamsLegal() {
+        auto out = compileOne(
+            "class A {\n"
+            "    virtual int f(int x) { return x; }\n"
+            "}\n"
+            "class B : A {\n"
+            "    static int f(string s) { return s.length(); }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+    }
+
+    //0.9.10 D2.4: a static with the Object protocol's parameter list
+    //claims the protocol dispatch slot (same rule as an inherited
+    //virtual); a different parameter list stays contract-orthogonal.
+    void TestStaticObjectProtocolRejected() {
+        auto out = compileOne(
+            "class A {\n"
+            "    public static int equals(Object o) { return 1; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "claims the virtual dispatch slot"), 1);
+    }
+
     //Legal: exact override. (Members called from main are declared
     //public: class members default to private, and external calls are
     //the point of the dispatch-shape check.)

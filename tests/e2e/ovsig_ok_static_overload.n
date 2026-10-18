@@ -1,0 +1,14 @@
+//0.9.10 D2.4 refresh of the 0.9.7 static-shadow rule: a static method
+//may share a name with an inherited virtual method when the parameter
+//lists differ (separate namespaces). Runtime name dispatch must skip
+//the static member so the virtual call still reaches A.f(int).
+class A {
+	public virtual int f(int x) { return x; }
+}
+class B : A {
+	public static int f(string s) { return s.length(); }
+}
+int main() {
+	A a = B();
+	return a.f(21) + B.f("hi");
+}

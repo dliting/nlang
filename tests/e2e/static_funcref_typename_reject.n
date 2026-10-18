@@ -1,0 +1,10 @@
+//0.9.10 D2.4: referencing a static method through the type name in a
+//value position is unsupported (no receiver exists to drop from the
+//handle) — the named rejection replaces the backend internal error.
+class B {
+	public static int f(int x) { return x * 2; }
+}
+int main() {
+	func<int, int> h = B.f;
+	return h(5);
+}

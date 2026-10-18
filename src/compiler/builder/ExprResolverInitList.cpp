@@ -157,8 +157,11 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
     }
     for (auto& field : pClassDecl->Members())
     {
+        //0.9.10 D2.4: a same-name static is not the constructor — skip it
+        //and keep looking (declaration order must not matter).
         if (field.Kind() == NK_Function
-            && field.Name() == pClassDecl->Name())
+            && field.Name() == pClassDecl->Name()
+            && !field.ContainFlags(NF_Static))
         {
             size_t arity = static_cast<SnFunction&>(field).Params().size();
             if (arity > 0)

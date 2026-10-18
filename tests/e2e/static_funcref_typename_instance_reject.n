@@ -1,0 +1,10 @@
+//0.9.10 D2.4: an instance method name through the type name in a value
+//position is the wrong namespace — the named rejection replaces the
+//backend internal error.
+class B {
+	public int f(int x) { return x * 2; }
+}
+int main() {
+	func<int, int> h = B.f;
+	return h(5);
+}

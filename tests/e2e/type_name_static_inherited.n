@@ -1,0 +1,12 @@
+//0.9.10 D2.4: a type-name receiver selects the static namespace along
+//the whole class chain. B's same-name instance method must not hide
+//the inherited static method.
+class A {
+	public static int f(int x) { return x * 9; }
+}
+class B : A {
+	public int f(int x) { return x; }
+}
+int main() {
+	return B.f(3);
+}

@@ -104,6 +104,30 @@ bool ExprResolveAccessor::RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
 	return true;
 }
 
+//0.9.10 D2.4: the namespace-filtered search found no callee, but the
+//other namespace holds a same-name member on the receiver's chain — the
+//call form is wrong, not the name. Keeps the pre-existing type-name
+//wording and mirrors it for a static reached through an object.
+bool ExprResolveAccessor::RejectCrossNamespaceCall(SnInvokeExpr &snInvoke)
+{
+	const InvokeReceiverForm form = ClassifyInvokeReceiver(snInvoke);
+	if (form == InvokeReceiverForm::Bare)
+		return false;
+	const bool bTypeName = form == InvokeReceiverForm::TypeName;
+	if (!FindMethodInNamespace(m_pContext, snInvoke.CalleeName(), !bTypeName))
+		return false;
+	if (bTypeName)
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"the instance method \"%s\" must be called through a receiver "
+			"object.",
+			snInvoke.CalleeName().c_str());
+	else
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"the static method \"%s\" must be called through the type name.",
+			snInvoke.CalleeName().c_str());
+	return true;
+}
+
 //0.9.0: the bare brace arguments of this call — untyped init lists whose
 //target type can only be the chosen overload's formal. Empty for every
 //other argument shape.
@@ -216,6 +240,12 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 
 	if (!AdmitChosenCallee(snInvoke, pCallee, bindings, deferredBraceArgs))
 		return;
+
+	if (res == FFR_FuncNameNotFound && RejectCrossNamespaceCall(snInvoke))
+	{
+		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		return;
+	}
 
 	if (res == FFR_ExactMatch || res == FFR_ApproximateMatch)
 	{

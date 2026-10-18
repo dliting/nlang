@@ -1,0 +1,10 @@
+//0.9.10 D2.4: a static method lives in the type-name namespace; an
+//object receiver cannot reach it (before the namespace split this
+//shape silently executed the static with a bogus receiver).
+class A {
+	public static int f(int x) { return x * 5; }
+}
+int main() {
+	A a = A();
+	return a.f(2);
+}

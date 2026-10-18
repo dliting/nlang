@@ -1,0 +1,13 @@
+//0.9.10 D2.4: a same-name static native with a different parameter
+//list does not veto a bound reference to the inherited virtual method.
+class A {
+	public virtual int f(int x) { return x + 1; }
+}
+class B : A {
+	public static native int f(string s);
+}
+int main() {
+	B b = B();
+	func<int, int> h = b.f;
+	return h(5);
+}

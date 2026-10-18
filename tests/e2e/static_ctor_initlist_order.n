@@ -1,0 +1,13 @@
+//0.9.10 D2.4: the class init-list no-arg-ctor check must skip a
+//same-name static. Here the static is declared first; the init list
+//still lowers to the real no-arg ctor, then stores the named field.
+class A {
+	public int x;
+	public int y;
+	public static int A(int v) { return v; }
+	public int A() { this.x = 3; this.y = 4; return 0; }
+}
+int main() {
+	A a = A{x:7};
+	return a.x * 10 + a.y;
+}

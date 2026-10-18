@@ -108,6 +108,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         uint8_t nativeFlag = func.isNative ? 1 : 0;
         fs.write(reinterpret_cast<const char*>(&nativeFlag),
                  sizeof(nativeFlag));
+        //0.9.10 v2.4: static-member flag — name-based instance dispatch
+        //skips these records; the frame layout differs too (no __this).
+        uint8_t staticFlag = func.isStatic ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&staticFlag),
+                 sizeof(staticFlag));
 
         //Option B v1.3: per-formal default-value descriptors. Always
         //emitted (count first) so reader can skip even when no defaults.

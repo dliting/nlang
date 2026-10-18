@@ -1,10 +1,12 @@
-//0.9.7: static + instance virtual sharing a name in one class — the
-//static arm is rejected through the same signature-identity predicate
-//(static-ness counts as a signature difference).
+//0.9.10 D2.4: a static method may share a name with an instance virtual
+//method when the parameter lists differ (separate namespaces). The
+//static is declared first so runtime name dispatch must skip it to
+//reach the virtual method.
 class A {
-    public virtual int f(int x) { return 1; }
-    public static int f(string s) { return 2; }
+    public static int f(string s) { return s.length(); }
+    public virtual int f(int x) { return x + 1; }
 }
 int main() {
-    return 0;
+    A a = A();
+    return a.f(41) + A.f("hi");
 }
