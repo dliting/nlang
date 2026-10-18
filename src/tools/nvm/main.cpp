@@ -55,6 +55,15 @@ void SetupConsoleUtf8() {
     }
     std::atexit(RestoreConsoleCodePages);
 }
+
+//ExitProcess skips the CRT's atexit table (that is the point — runtime
+//static destructors must not touch the exit code), so with a statically
+//linked CRT (the ASan build links one) buffered stdout is dropped on
+//the bypass. Flush first; MachineFrontEnd does the same at its exit.
+void ExitProcessFlushed(UINT code) {
+    std::fflush(stdout);
+    ExitProcess(code);
+}
 } // namespace
 #endif
 
@@ -197,7 +206,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Backtrace:\n" << bt;
         }
 #ifdef _WIN32
-        ExitProcess(static_cast<UINT>(result));
+        ExitProcessFlushed(static_cast<UINT>(result));
 #else
         return result;
 #endif
@@ -205,7 +214,7 @@ int main(int argc, char* argv[]) {
     //On Windows, static destructors from the runtime library can
     //corrupt the process exit code. ExitProcess() bypasses this.
 #ifdef _WIN32
-    ExitProcess(static_cast<UINT>(result));
+    ExitProcessFlushed(static_cast<UINT>(result));
 #else
     return result;
 #endif

@@ -29,6 +29,18 @@ namespace fs = std::filesystem;
 
 using namespace nlang;
 
+#ifdef _WIN32
+//ExitProcess skips the CRT's atexit table (that is the point — runtime
+//static destructors must not touch the exit code), so with a statically
+//linked CRT (the ASan build links one) buffered stdout is dropped on
+//the bypass — e.g. "Program exited with code N." never reaches a pipe.
+//Flush first; MachineFrontEnd does the same at its exit.
+static void ExitProcessFlushed(UINT code) {
+    std::fflush(stdout);
+    ExitProcess(code);
+}
+#endif
+
 //Assemble the unified, ordered search path for a debug run: CLI -I >
 //module dir > NLANG_PATH > exe dir/cwd (native DLLs may ship beside the
 //module or in -I dirs), plus the system stdlib directory last — package
@@ -217,7 +229,7 @@ int main(int argc, char* argv[]) {
     if (machine) {
         const int code = RunMachine(argv[moduleIndex], cliDirs, verbose);
 #ifdef _WIN32
-        ExitProcess(static_cast<UINT>(code));
+        ExitProcessFlushed(static_cast<UINT>(code));
 #else
         return code;
 #endif
@@ -254,7 +266,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Backtrace:\n" << bt;
         }
 #ifdef _WIN32
-        ExitProcess(static_cast<UINT>(result));
+        ExitProcessFlushed(static_cast<UINT>(result));
 #else
         return result;
 #endif
@@ -262,7 +274,7 @@ int main(int argc, char* argv[]) {
     //On Windows, static destructors from the runtime library can
     //corrupt the process exit code. ExitProcess() bypasses this.
 #ifdef _WIN32
-    ExitProcess(static_cast<UINT>(result));
+    ExitProcessFlushed(static_cast<UINT>(result));
 #else
     return result;
 #endif
