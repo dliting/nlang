@@ -229,6 +229,22 @@ void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs)
     MaxArgsWalkExpr(*sa.Value(), maxArgs);
 }
 
+//Extra claim slots for a built-in string method with a staged trailing
+//argument (the 1-arg substring form): it bulk-copies 1+maxArgs slots
+//into callParamBase — reserve the same count from the same table field
+//ExprPeakDepth/codegen consume, or the i=2 write lands on evalArea
+//slot 0 and clobbers a live parked operand (`a + s.substring(1)`
+//compared garbage). Name-based overreserve for a free function sharing
+//the name is the safe direction (frame bytes only).
+static uint16_t StringMethodTrailingReserve(const SnInvokeExpr& invoke,
+                                            size_t formalCount) {
+    const StringMethodEntry* pm = FindStringMethod(invoke.CalleeName());
+    if (pm && pm->trailingDefault == STD_ReceiverLength
+        && formalCount < pm->maxArgs)
+        return static_cast<uint16_t>(pm->maxArgs - formalCount);
+    return 0;
+}
+
 //MaxArgs walker, NK_InvokeExpr arm.
 void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     bool isMethodContext) {
@@ -256,23 +272,11 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     //ExprPeakDepth (over-reservation, safe direction).
     if (!callee && IsDelegateInvoke(invoke))
         claimSize = static_cast<uint16_t>(claimSize + 1);
-    //Phase 11 Step 3 symmetry (review BLOCKER): a built-in
-    // string method with a staged trailing argument (the
-    //1-arg substring form) bulk-copies 1+maxArgs slots into
-    //callParamBase — reserve the same count here from the
-    //same table field ExprPeakDepth/codegen consume, or the
-    //i=2 write lands on evalArea slot 0 and clobbers a live
-    //parked operand (`a + s.substring(1)` compared garbage).
-    //Name-based overreserve for a free function sharing the
-    //name is the safe direction (frame bytes only).
-    if (!callee) {
-        const StringMethodEntry* pm =
-            FindStringMethod(invoke.CalleeName());
-        if (pm && pm->trailingDefault == STD_ReceiverLength
-            && formalCount < pm->maxArgs)
-            claimSize = static_cast<uint16_t>(
-                claimSize + (pm->maxArgs - formalCount));
-    }
+    //Phase 11 Step 3 symmetry (review BLOCKER): see
+    //StringMethodTrailingReserve above.
+    if (!callee)
+        claimSize = static_cast<uint16_t>(
+            claimSize + StringMethodTrailingReserve(invoke, formalCount));
     if (claimSize > maxArgs) maxArgs = claimSize;
     //A default expression evaluates at this call site; any nested
     //call inside it bulk-copies its own argument slots into the
