@@ -3,11 +3,12 @@
       · thread.* 自由调用（129-133）：OP_CallFunc 内建臂派发，参数自
         callParamBase 槽 0 起（无 this）；
       · Mutex/Channel 方法（134-141）：接收者派发形态（槽 0 = this）。
-    Slice 5 接入 yield/id，Slice 6 接入 spawn/join；其余在切片 7-9 逐个
-    接入，此前统一「not implemented yet」基础异常（编译面已注册，行为
-    面未到）。
+    Slice 5 接入 yield/id，Slice 6 接入 spawn/join，Slice 7 接入 sleep；
+    其余在切片 8-9 逐个接入，此前统一「not implemented yet」基础异常
+    （编译面已注册，行为面未到）。
 ---*/
 #include "VmExecutor.h"
+#include <chrono>
 #include <cstring>
 #include <stdexcept>
 
@@ -41,10 +42,10 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
         return IntrinsicSpawn(callParamBase, locals, pResult);
     case INTR_Thread_Join:
         return IntrinsicJoin(callParamBase, locals);
-    //Registered but not yet implemented — each arrives in its slice
-    //(sleep Slice 7, Mutex Slice 8, Channel Slice 9).
     case INTR_Thread_Sleep:
-        ThrowThreadNotImplemented("thread.sleep");
+        return IntrinsicSleep(callParamBase, locals);
+    //Registered but not yet implemented — each arrives in its slice
+    //(Mutex Slice 8, Channel Slice 9).
     case INTR_Mutex_Ctor:
         ThrowThreadNotImplemented("Mutex constructor");
     case INTR_Mutex_Lock:
@@ -177,8 +178,33 @@ bool VmExecutor::IntrinsicJoin(uint16_t callParamBase, uint8_t* locals)
         return true;
     if (target->state == ContextState::Failed)
         ThrowJoinTargetFailure(target->failExcHeapIdx);
+    //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
+    //nested-window rejection must not leave a half-parked context.
+    EnsureSuspensionAllowed();
     m_spScheduler->ParkForJoin(selfId, targetId);
     RequestPark(ParkSignal::Reason::Join);   //[[noreturn]]
+}
+
+//thread.sleep(ms)。steady_clock 截止时刻经 ParkForTimer 登记（状态 +
+//定时器表），RequestPark 抛出信号、载体偷帧；恢复点由 OP_CallFunc 内建
+//臂的 pc 推进不变量保证（同 yield/join）。sleep(0) 是纯让出：立即到期
+//的定时器使载体先运行队列中的其他上下文。负时长是对语言面的误用——
+//基础异常拒绝（同 spawn 目标拒绝形态）。
+bool VmExecutor::IntrinsicSleep(uint16_t callParamBase, uint8_t* locals)
+{
+    //Argument 0: the millisecond count (int).
+    int32_t ms;
+    std::memcpy(&ms, locals + callParamBase, sizeof(ms));
+    if (ms < 0)
+        throw std::runtime_error(
+            "NLang VM: thread.sleep requires a non-negative duration");
+    //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
+    //nested-window rejection must not leave a half-parked context.
+    EnsureSuspensionAllowed();
+    const auto wakeAt = std::chrono::steady_clock::now()
+        + std::chrono::milliseconds(ms);
+    m_spScheduler->ParkForTimer(m_spScheduler->CurrentContextId(), wakeAt);
+    RequestPark(ParkSignal::Reason::Timer);   //[[noreturn]]
 }
 
 //Rethrow a failed join target's exception OBJECT (same heap idx — same

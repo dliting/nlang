@@ -539,6 +539,11 @@ private:
     //producers (quota, thread intrinsics, timer, mutex, channel) must
     //route through here.
     [[noreturn]] void RequestPark(ParkSignal::Reason reason);
+    //Pre-park gate (decision 2 spec (a)): park producers that mutate
+    //scheduler state BEFORE parking (join/sleep) must pass this first —
+    //the nested-window rejection throws and must not leave a half-parked
+    //context behind.
+    void EnsureSuspensionAllowed() const;
 
     //K1 Slice 4: one context's root window — Execute's former run body
     //(native entry dispatch, or root-frame push + run to completion).
@@ -623,6 +628,9 @@ private:
     bool IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
                         uint8_t* pResult);
     bool IntrinsicJoin(uint16_t callParamBase, uint8_t* locals);
+    //K1 Slice 7: park the current context on a steady_clock deadline;
+    // negative durations are rejected as a basic error.
+    bool IntrinsicSleep(uint16_t callParamBase, uint8_t* locals);
     //K1 Slice 6 spawn helpers: validate + resolve the delegate target
     //(no native/intrinsic bodies, zero-argument contract) and mint the
     //Thread object for a registered context (__handle = context id).

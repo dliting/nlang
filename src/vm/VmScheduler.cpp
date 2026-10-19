@@ -1,8 +1,10 @@
 /*---
-    VmScheduler.cpp — 单载体调度器实现（并发 K1 Slice 4 骨架）
-    迁移方法一览见 VmScheduler.h；本片无定时器/停泊路径。
+    VmScheduler.cpp — 单载体调度器实现（并发 K1）
+    Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 7 定时器（空队列时
+    载体睡至最近到期）。
 ---*/
 #include "VmScheduler.h"
+#include <thread>
 
 namespace nlang {
 
@@ -23,9 +25,23 @@ int VmScheduler::RegisterContext() {
     return id;
 }
 
+//空队列时的定时器臂：睡至最近到期（睡眠中的上下文不可运行，载体闲
+//等是唯一选择——单载体无他人可调度），迁移到期者后回到正常出队。全
+//部停泊均无定时器时本轮运行结束（-1）。循环而非单次睡眠：防御到期
+//条目全部陈旧的退化形态（K1 构造不出，见 ExpireDueTimers）。
 int VmScheduler::PopNextRunnable() {
-    if (m_runQueue.empty())
-        return -1;
+    for (;;) {
+        if (!m_runQueue.empty())
+            break;
+        if (m_timers.empty())
+            return -1;
+        auto nearest = m_timers.front().wakeAt;
+        for (const TimerEntry& t : m_timers)
+            if (t.wakeAt < nearest)
+                nearest = t.wakeAt;
+        std::this_thread::sleep_until(nearest);
+        ExpireDueTimers();
+    }
     const int id = m_runQueue.front();
     m_runQueue.pop_front();
     m_currentId = id;
@@ -83,6 +99,41 @@ void VmScheduler::WakeJoiners(int targetId, bool failed) {
             ctx.rethrowOnResume = true;
         m_runQueue.push_back(ctx.id);
     }
+}
+
+//sleep 停泊（Slice 7）：状态与唤醒时刻登记、入定时器表；当前上下文
+//让出载体。帧的搬运由载体在 ParkSignal 捕获处统一完成。
+void VmScheduler::ParkForTimer(int id,
+                               std::chrono::steady_clock::time_point wakeAt) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::ParkedTimer;
+    ctx->wakeAt = wakeAt;
+    m_timers.push_back(TimerEntry{id, wakeAt});
+    if (m_currentId == id)
+        m_currentId = -1;
+}
+
+//到期迁移（见头文件）。线性表规模 = 停泊中的 sleep 上下文数，K1 量级
+//下无需堆结构。陈旧条目（状态已非 ParkedTimer）必须丢弃：保留会使
+//PopNextRunnable 对一个已过的截止时间无限空转（活锁）。
+void VmScheduler::ExpireDueTimers() {
+    const auto now = std::chrono::steady_clock::now();
+    std::vector<TimerEntry> remaining;
+    remaining.reserve(m_timers.size());
+    for (const TimerEntry& t : m_timers) {
+        ExecutionContext* ctx = FindMutable(t.contextId);
+        if (!ctx || ctx->state != ContextState::ParkedTimer)
+            continue;   //stale — dropped, never re-armed
+        if (t.wakeAt <= now) {
+            ctx->state = ContextState::Runnable;
+            m_runQueue.push_back(ctx->id);
+        } else {
+            remaining.push_back(t);
+        }
+    }
+    m_timers = std::move(remaining);
 }
 
 const ExecutionContext* VmScheduler::Find(int id) const {

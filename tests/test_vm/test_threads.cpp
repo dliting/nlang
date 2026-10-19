@@ -1025,6 +1025,138 @@ void test_gc_keeps_parked_context_roots()
 //failed to build or threw at run time) counts as that test's failure,
 //not a suite abort — Slice 6 tests assert on successful runs, so a
 //regression must surface per-test.
+//Slice 7：sleep(0) = 让出。main 在 m 与 M 之间主动让出，唯一排队的
+//worker 得以在两者之间运行——纯顺序断言，不涉及时长。
+void test_sleep_zero_yields()
+{
+    TEST(sleep_zero_yields);
+    std::string out;
+    const int rc = runSourceCapturing("sp_sleep_zero",
+        "import io;\n"
+        "void worker() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    io.write(\"m\");\n"
+        "    thread.sleep(0);\n"
+        "    io.write(\"M\");\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "sleep(0) program completes");
+    CHECK(out == "mwM",
+        "sleep(0) yields to the queued worker (got: " + out + ")");
+    PASS();
+}
+
+//Slice 7：唤醒按截止时间排序而非 spawn 顺序——载体在运行队列清空后
+//睡至最近到期再迁移回 Runnable。30/10ms 间隔远大于定时器分辨率；只断
+//言顺序，不断言时长（计划的确定性规约）。
+void test_sleep_wakes_by_deadline()
+{
+    TEST(sleep_wakes_by_deadline);
+    std::string out;
+    const int rc = runSourceCapturing("sp_sleep_order",
+        "import io;\n"
+        "void slow() { thread.sleep(30); io.write(\"a\"); }\n"
+        "void fast() { thread.sleep(10); io.write(\"b\"); }\n"
+        "int main() {\n"
+        "    Thread t1 = thread.spawn(slow);\n"
+        "    Thread t2 = thread.spawn(fast);\n"
+        "    thread.join(t1);\n"
+        "    thread.join(t2);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "sleep program completes");
+    CHECK(out == "ba",
+        "earlier deadline wakes first regardless of spawn order (got: "
+        + out + ")");
+    PASS();
+}
+
+//Slice 7：负时长是对语言面的误用——基础异常拒绝（同 spawn 目标拒绝
+//形态），消息点名约束。
+void test_sleep_rejects_negative_duration()
+{
+    TEST(sleep_rejects_negative);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("sp_sleep_neg",
+            "int main() {\n"
+            "    thread.sleep(-1);\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "negative sleep duration must be an error");
+    CHECK(what.find("non-negative") != std::string::npos,
+        "message names the constraint (got: " + what + ")");
+    PASS();
+}
+
+//Slice 7 审查发现（决策 2 规约 (a)）：join/sleep 在变异调度器状态后、
+//RequestPark 前可能被嵌套窗口拒绝——镜像既有 yield 拒绝测试，钉死两个
+//新内在函数在同一窗口的拒绝面（拒绝消息一致；规约：完成或挂起二态，
+//不得半停泊）。规约本身的黑盒红灯在 Slice 10 嵌入「干净报错后执行器可
+//复用」落地时才可构造。
+void test_thread_ns_sleep_join_in_tostring_rejected()
+{
+    TEST(thread_ns_sleep_join_in_tostring_rejected);
+    bool sleepThrew = false, joinThrew = false;
+    std::string sleepWhat, joinWhat;
+    try {
+        runSource("thread_sleep_ts",
+            "class Box {\n"
+            "    public string toString() {\n"
+            "        thread.sleep(1);\n"
+            "        return \"b\";\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    Box[] arr = Box[1];\n"
+            "    arr[0] = Box();\n"
+            "    string t = arr;\n"
+            "    return t.length();\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        sleepThrew = true;
+        sleepWhat = e.what();
+    }
+    try {
+        runSource("thread_join_ts",
+            "class Box {\n"
+            "    public string toString() {\n"
+            "        Thread u = thread.spawn(worker);\n"
+            "        thread.join(u);\n"
+            "        return \"b\";\n"
+            "    }\n"
+            "}\n"
+            "void worker() { }\n"
+            "int main() {\n"
+            "    Box[] arr = Box[1];\n"
+            "    arr[0] = Box();\n"
+            "    string t = arr;\n"
+            "    return t.length();\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        joinThrew = true;
+        joinWhat = e.what();
+    }
+    CHECK(sleepThrew && joinThrew,
+        "sleep and join inside a nested evaluation window both throw");
+    CHECK(sleepWhat.find("cannot suspend inside a nested evaluation")
+              != std::string::npos
+          && joinWhat.find("cannot suspend inside a nested evaluation")
+              != std::string::npos,
+        "both rejections name the nested-evaluation rule (sleep: "
+        + sleepWhat + "; join: " + joinWhat + ")");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -1087,6 +1219,10 @@ int main()
         runGuarded(test_worker_thread_id_nonzero);
         runGuarded(test_main_return_drops_unfinished_worker);
         runGuarded(test_gc_keeps_parked_context_roots);
+        runGuarded(test_sleep_zero_yields);
+        runGuarded(test_sleep_wakes_by_deadline);
+        runGuarded(test_sleep_rejects_negative_duration);
+        runGuarded(test_thread_ns_sleep_join_in_tostring_rejected);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

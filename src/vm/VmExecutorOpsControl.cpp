@@ -145,11 +145,19 @@ void VmExecutor::CheckSchedulerQuota() {
 //here nested (CheckSchedulerQuota exempts it); the guard serves the
 //thread intrinsics from Slice 6 on (yield/sleep/join/recv called inside
 //a toString body or a host callback must fail loudly, not park).
-void VmExecutor::RequestPark(ParkSignal::Reason reason) {
+//K1 决策 2 实现规约 (a)：内在函数必须「完成或挂起」二态——禁止部分变
+//更调度器状态后再抛。会先变异状态的挂起（join/sleep 的 ParkFor* 登记）
+//必须在变异之前过本门；RequestPark 内保留同一检查作为零变异直挂路径
+//（yield）的唯一守卫与纵深防御。
+void VmExecutor::EnsureSuspensionAllowed() const {
     if (m_nestDepth > 0)
         throw std::runtime_error(
             "NLang VM: cannot suspend inside a nested evaluation "
             "(toString or host callback)");
+}
+
+void VmExecutor::RequestPark(ParkSignal::Reason reason) {
+    EnsureSuspensionAllowed();
     throw ParkSignal(reason);
 }
 

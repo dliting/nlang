@@ -5,9 +5,8 @@
     线程）执行：FIFO 运行队列逐上下文运行；回边配额
     （DEFAULT_SCHEDULER_TRIP_BACKEDGES）到期且另有 Runnable 上下文时经
     ParkSignal(Preempted) 抢占——FIFO + 定量配额 = 完全确定性调度。
-    本片（Slice 4）为骨架：仅 main 上下文存在、无挂起生产者；ParkSignal
-    管道（抛出/直通/载体捕获）与全部上下文字段已就位，spawn/sleep/
-    Mutex/Channel 在切片 6-9 逐个接入。
+    Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 7 sleep 定时器（空队
+    列时载体睡至最近到期）；Mutex/Channel 在切片 8-9 接入。
 
     帧的存放约定（「停泊即窃取」）：运行中上下文的帧就是 VmExecutor::
     m_callStack；挂起时整栈 move 进 ExecutionContext::frames，恢复时
@@ -90,8 +89,9 @@ public:
     //注册新上下文并入队尾；id 单调分配（main 恒为 0）。
     int RegisterContext();
 
-    //FIFO 弹出下一个待运行上下文并记为载体当前上下文；队列空返回 -1
-    //（本轮运行结束）。
+    //FIFO 弹出下一个待运行上下文并记为载体当前上下文。队列空时若仍有
+    //定时器，睡至最近到期并把到期上下文迁回运行队列后再出队；队列与
+    //定时器表皆空才返回 -1（本轮运行结束）。
     int PopNextRunnable();
 
     //队列中仍有待运行上下文（配额抢占的门槛：载体当前上下文已出队，
@@ -104,6 +104,11 @@ public:
     //join 停泊（Slice 6）：state → ParkedJoin，parkHandle 记目标；帧的
     //搬运由载体统一完成。目标未在运行队列之列——唤醒只经 WakeJoiners。
     void ParkForJoin(int id, int targetId);
+
+    //sleep 停泊（Slice 7）：state → ParkedTimer、记唤醒时刻并入定时器
+    //表；不入运行队列——到期由 PopNextRunnable 的空队列臂迁回 Runnable。
+    void ParkForTimer(int id,
+                      std::chrono::steady_clock::time_point wakeAt);
 
     //目标上下文终结（Finished/Failed）时唤醒其全部 joiner：回 Runnable
     //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标
@@ -122,6 +127,10 @@ public:
     ExecutionContext* FindMutable(int id);
 
 private:
+    //把 wakeAt 已到的 ParkedTimer 上下文迁回 Runnable 入队尾；状态已变
+    //的陈旧条目直接丢弃（K1 无取消路径，防御后续切片）。
+    void ExpireDueTimers();
+
     //上下文注册表。deque 是有意的：push_back 不搬移既有元素，&
     //ctx->resultCell（spawned 根帧的 externalResult）在后续 spawn 下
     //保持稳定——vector 会悬垂。
