@@ -667,7 +667,7 @@ void test_thread_mutex_channel_compile_ok()
             "    Mutex m = Mutex();\n"
             "    m.lock();\n"
             "    if (m.tryLock()) m.unlock();\n"
-            "    Channel c = Channel();\n"
+            "    Channel<int> c = {};\n"
             "    c.send(1);\n"
             "    c.close();\n"
             "    return 0;\n"
@@ -1388,6 +1388,252 @@ void test_mutex_relock_deadlock_surfaces()
     PASS();
 }
 
+//Slice 9：无界缓冲 FIFO。worker 依次发送三个值；main 依序接收——缓冲区
+//顺序即接收顺序。
+void test_channel_fifo_buffer_order()
+{
+    TEST(channel_fifo_buffer_order);
+    std::string out;
+    const int rc = runSourceCapturing("ch_fifo",
+        "import io;\n"
+        "class Sender {\n"
+        "    public Channel<string> ch;\n"
+        "    public void pump() {\n"
+        "        ch.send(\"a\");\n"
+        "        ch.send(\"b\");\n"
+        "        ch.send(\"c\");\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Sender s = Sender();\n"
+        "    s.ch = {};\n"
+        "    Thread t = thread.spawn(s.pump);\n"
+        "    thread.join(t);\n"
+        "    io.write(s.ch.recv());\n"
+        "    io.write(s.ch.recv());\n"
+        "    io.write(s.ch.recv());\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "fifo channel program completes");
+    CHECK(out == "abc", "buffer drains in FIFO order (got: " + out + ")");
+    PASS();
+}
+
+//Slice 9：空通道接收停泊。main 先接收（停泊），worker 的 send 追加并唤
+//醒、随后写 w；main 恢复写收到的值——"wa" 顺序证明停泊先于发送。
+void test_channel_recv_parks_until_send()
+{
+    TEST(channel_recv_parks_until_send);
+    std::string out;
+    const int rc = runSourceCapturing("ch_recv_park",
+        "import io;\n"
+        "class Peer {\n"
+        "    public Channel<string> ch;\n"
+        "    public void shout() {\n"
+        "        ch.send(\"a\");\n"
+        "        io.write(\"w\");\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Peer p = Peer();\n"
+        "    p.ch = {};\n"
+        "    Thread t = thread.spawn(p.shout);\n"
+        "    io.write(p.ch.recv());\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "recv-park program completes");
+    CHECK(out == "wa", "recv parked before send (got: " + out + ")");
+    PASS();
+}
+
+//Slice 9：close 语义。缓冲值先于 close 送入：接收先取缓冲值（close 不
+//丢已缓冲数据），缓冲耗尽后接收返回 null——类引用 T 直接 == null 可判
+//（string T 的接收走拆箱，null 经拆箱表现为异常，故用用户类）。
+void test_channel_close_drains_then_null()
+{
+    TEST(channel_close_drains_then_null);
+    std::string out;
+    const int rc = runSourceCapturing("ch_close",
+        "import io;\n"
+        "class Box {\n"
+        "    public string tag;\n"
+        "}\n"
+        "int main() {\n"
+        "    Channel<Box> c = {};\n"
+        "    Box b = Box();\n"
+        "    b.tag = \"v\";\n"
+        "    c.send(b);\n"
+        "    c.close();\n"
+        "    io.write(c.recv().tag);\n"
+        "    if (c.recv() == null) io.write(\"n\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "close program completes");
+    CHECK(out == "vn",
+        "buffered value drains, then null (got: " + out + ")");
+    PASS();
+}
+
+//Slice 9：已关闭通道再发送是对语言面的误用——基础异常，消息点名。
+void test_channel_send_after_close_rejected()
+{
+    TEST(channel_send_after_close_rejected);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("ch_send_closed",
+            "int main() {\n"
+            "    Channel<int> c = {};\n"
+            "    c.close();\n"
+            "    c.send(1);\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "send after close must be an error");
+    CHECK(what.find("closed") != std::string::npos,
+        "message names the rule (got: " + what + ")");
+    PASS();
+}
+
+//Slice 9：类型化往返。int 通道装箱发送/拆箱接收（接收值参与算术证拆
+//箱），string 通道引用直传——两条路径同一断言输出。
+void test_channel_typed_roundtrip()
+{
+    TEST(channel_typed_roundtrip);
+    std::string out;
+    const int rc = runSourceCapturing("ch_roundtrip",
+        "import io;\n"
+        "int main() {\n"
+        "    Channel<int> ci = {};\n"
+        "    ci.send(42);\n"
+        "    int v = ci.recv();\n"
+        "    int w = v + 1;\n"
+        "    io.write(w.toString());\n"
+        "    Channel<string> cs = {};\n"
+        "    cs.send(\"x\");\n"
+        "    io.write(cs.recv());\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "typed roundtrip program completes");
+    CHECK(out == "43x", "boxed int and direct string both intact (got: "
+        + out + ")");
+    PASS();
+}
+
+//Slice 9：缓冲元素的 GC 存活。发送发生在已返回的 fill 帧内——装箱记录
+//不残留任何活跃帧的保守带（callParam 区陈旧句柄会被过标，main 内直接发
+//送则突变不可检测），缓冲是唯一可达路径，MarkChannelElements 是唯一追
+//踪分支。main 的分配风暴以压力阈值触发多轮回收后逐个接收。追踪缺失则
+//装箱记录被清扫：句柄悬垂，拆箱报错或读越界。（突变验证：类追踪分支跳
+//过 MarkChannelElements 本测试必须转红。）
+void test_channel_buffered_survives_gc_storm()
+{
+    TEST(channel_buffered_survives_gc_storm);
+    CompiledModule mod = buildLinkedModule("ch_gc_storm",
+        "import io;\n"
+        "struct Cell {\n"
+        "    int v;\n"
+        "}\n"
+        "void fill(Channel<string> c) {\n"
+        "    c.send(\"a\");\n"
+        "    c.send(\"b\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Channel<string> c = {};\n"
+        "    fill(c);\n"
+        "    int i = 0;\n"
+        "    while (i < 200) {\n"
+        "        Cell storm;\n"
+        "        storm.v = i + 1000;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    io.write(c.recv());\n"
+        "    io.write(c.recv());\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0,
+          "buffered elements survive main's allocation storm");
+    CHECK(io.m_out == "ab", "both buffered strings intact (got: "
+          + io.m_out + ")");
+    PASS();
+}
+
+//Slice 9：裸 Channel 不再是合法类型——元素类型决定装箱与接收方拆箱，
+//裸形态缓冲区会混装裸值与堆引用（必然腐化）。Channel<T> 是唯一拼写。
+void test_channel_bare_name_rejected()
+{
+    TEST(channel_bare_name_rejected);
+    CHECK(buildFailsWith("ch_bare",
+        "int main() {\n"
+        "    Channel c = Channel();\n"
+        "    return 0;\n"
+        "}\n",
+        "Channel"),
+        "bare Channel is rejected (generic Channel<T> is the spelling)");
+    PASS();
+}
+
+//Slice 9：非空通道初始化器拒绝——值只能经 send() 进入（编译期钉死，
+//消息点名规则）。
+void test_channel_nonempty_init_rejected()
+{
+    TEST(channel_nonempty_init_rejected);
+    CHECK(buildFailsWith("ch_init_nonempty",
+        "int main() {\n"
+        "    Channel<int> c = {1};\n"
+        "    return 0;\n"
+        "}\n",
+        "must be empty"),
+        "non-empty channel initializer is rejected with the rule pinned");
+    PASS();
+}
+
+//Slice 9：嵌套求值窗口内的空通道接收——停泊门先于等待者登记（规约
+//(a)：拒绝必须可捕获且不留半停泊状态），同 sleep/join/lock 形态。
+void test_channel_recv_in_tostring_rejected()
+{
+    TEST(channel_recv_in_tostring_rejected);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("ch_recv_ts",
+            "class Box {\n"
+            "    public Channel<int> ch;\n"
+            "    public string toString() {\n"
+            "        ch.recv();\n"
+            "        return \"b\";\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    Box[] arr = Box[1];\n"
+            "    arr[0] = Box();\n"
+            "    arr[0].ch = {};\n"
+            "    string t = arr;\n"
+            "    return t.length();\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "an empty recv inside toString must be rejected");
+    CHECK(what.find("cannot suspend inside a nested evaluation")
+              != std::string::npos,
+          "rejection names the nested-evaluation rule (got: " + what + ")");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -1460,6 +1706,15 @@ int main()
         runGuarded(test_gc_keeps_mutex_parked_roots);
         runGuarded(test_mutex_unlock_without_hold_rejected);
         runGuarded(test_mutex_relock_deadlock_surfaces);
+        runGuarded(test_channel_fifo_buffer_order);
+        runGuarded(test_channel_recv_parks_until_send);
+        runGuarded(test_channel_close_drains_then_null);
+        runGuarded(test_channel_send_after_close_rejected);
+        runGuarded(test_channel_typed_roundtrip);
+        runGuarded(test_channel_buffered_survives_gc_storm);
+        runGuarded(test_channel_bare_name_rejected);
+        runGuarded(test_channel_nonempty_init_rejected);
+        runGuarded(test_channel_recv_in_tostring_rejected);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

@@ -42,23 +42,11 @@ void VmBackend::Access(SnInitListExpr& expr) {
         return;
     }
 
-    //---- List<T> form ----
-    //pTarget is the resolved SnClassDecl for List<T> (generic
-    //instantiation). Erasure: runtime class name is "List".
+    //---- Class-shaped forms dispatch on the base name ----
     if (pTarget->Kind() == NK_ClassDecl) {
-        auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
-        const std::string& baseName = pClassDecl->BaseName();
-        if (baseName == kBuiltinListTypeName) {
-            EmitInitListListForm(initList, *pClassDecl, emitter, resultOffset);
-            return;
-        }
-        if (baseName == kBuiltinDictTypeName) {
-            //---- Dict<K,V> form ----
-            EmitInitListDictForm(initList, *pClassDecl, emitter, resultOffset);
-            return;
-        }
-        //---- User class init form: new ClassName{field1:v1, ...} ----
-        EmitInitListClassForm(initList, *pClassDecl, emitter, resultOffset);
+        EmitInitListClassTarget(initList,
+                                *static_cast<SnClassDecl*>(pTarget),
+                                emitter, resultOffset);
         return;
     }
 
@@ -165,6 +153,32 @@ void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
         emitter.EmitUint16(m_currFunc->callParamBase);
         emitter.Emit(OpCode::OP_ParaEnd);
     }
+}
+
+//Class-shaped arm dispatcher: the List<T>/Dict<K,V>/Channel<T> generic
+//instantiations by base name (erasure — the runtime class is the bare
+//name); every other class-shaped target is the user class init form.
+void VmBackend::EmitInitListClassTarget(SnInitListExpr& initList,
+                                        SnClassDecl& classDecl,
+                                        BytecodeEmitter& emitter,
+                                        uint16_t resultOffset) {
+    const std::string& baseName = classDecl.BaseName();
+    if (baseName == kBuiltinListTypeName) {
+        EmitInitListListForm(initList, classDecl, emitter, resultOffset);
+        return;
+    }
+    if (baseName == kBuiltinDictTypeName) {
+        EmitInitListDictForm(initList, classDecl, emitter, resultOffset);
+        return;
+    }
+    if (baseName == kBuiltinChannelTypeName) {
+        //Channel<T> (K1 Slice 9): construction only — the resolver
+        //rejects any entry (values enter through send()).
+        EmitInitListChannelForm(initList, classDecl, emitter, resultOffset);
+        return;
+    }
+    //User class init form: new ClassName{field1:v1, ...}
+    EmitInitListClassForm(initList, classDecl, emitter, resultOffset);
 }
 
 //Arm: List<T> form — pTarget is the resolved SnClassDecl for List<T>
@@ -296,6 +310,26 @@ void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
     }
     EmitInitListMethodCallTail(claimBase, 3, setNameIdx, resultOffset,
                                emitter);
+}
+
+//Arm: Channel<T> form (K1 Slice 9) — allocate the erased "Channel"
+//instance and run its constructor (the side-table slot materializer).
+//The resolver guarantees an empty entry list, so there is no per-entry
+//emission (unlike the List/Dict forms).
+void VmBackend::EmitInitListChannelForm(SnInitListExpr& initList,
+                                        SnClassDecl& classDecl,
+                                        BytecodeEmitter& emitter,
+                                        uint16_t resultOffset) {
+    (void)initList;
+    int classIdx = m_compiledModule.FindClass(kBuiltinChannelTypeName);
+    if (classIdx < 0) {
+        //Round-12 shape: Channel is a built-in class — always registered
+        //(the bare literal is the erasure key).
+        throw std::runtime_error(
+            "NLang backend: Channel class not registered in module");
+    }
+    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+                              emitter, resultOffset);
 }
 
 //Arm: user class init form — allocate via OP_New, then per-field

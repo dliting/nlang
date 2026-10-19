@@ -119,6 +119,15 @@ public:
     //Runnable 入队尾。
     void WakeForMutex(int id);
 
+    //通道接收停泊（Slice 9）：state → ParkedChanRecv。等待者集合在执
+    //行器的 ChannelSlot 侧表（FIFO，各携带唤醒时写值的目标指针）——
+    //调度器不记 parkHandle，唤醒只经 WakeForChanRecv（send 的直接交付
+    //或 close 的全员唤醒触发）。
+    void ParkForChanRecv(int id);
+    //通道唤醒（Slice 9）：回 Runnable 入队尾（值已由执行器在调用本方
+    //法前写入停泊帧的结果槽）。
+    void WakeForChanRecv(int id);
+
     //目标上下文终结（Finished/Failed）时唤醒其全部 joiner：回 Runnable
     //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标
     //的 failExcHeapIdx）。多 joiner 皆唤醒（计划决策 6）。

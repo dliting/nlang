@@ -292,6 +292,9 @@ void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
     } else if (baseName == kBuiltinDictTypeName) {
         PlanDictMethodBoxing(typeArgs, methodName, argPlans,
                              returnsBoxed, returnTag);
+    } else if (baseName == kBuiltinChannelTypeName) {
+        PlanChannelMethodBoxing(typeArgs, methodName, argPlans,
+                                returnsBoxed, returnTag);
     }
 }
 
@@ -339,6 +342,26 @@ void VmBackend::PlanDictMethodBoxing(const std::vector<SnField*>& typeArgs,
     } else if (methodName == "containsKey"
         || methodName == "remove") {
         if (k.isPrimitive) argPlans[1] = {k.tag, true};
+    }
+}
+
+//Channel<T> boxing plan (K1 Slice 9): send(T) boxes T at paramIdx 1;
+//recv() → T unboxes on the return side. close takes nothing. Mirrors
+//the List plan — at runtime every element is a heap idx (boxed
+//primitive record or class reference).
+void VmBackend::PlanChannelMethodBoxing(
+                                     const std::vector<SnField*>& typeArgs,
+                                     const std::string& methodName,
+                                     std::map<uint16_t, ArgBoxPlan>& argPlans,
+                                     bool& returnsBoxed,
+                                     uint8_t& returnTag) {
+    auto t = BoxingTagFor(typeArgs.empty() ? nullptr : typeArgs[0]);
+    if (!t.isPrimitive)
+        return;
+    if (methodName == "send") {
+        argPlans[1] = {t.tag, true};
+    } else if (methodName == "recv") {
+        returnsBoxed = true; returnTag = t.tag;
     }
 }
 

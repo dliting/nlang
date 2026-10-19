@@ -48,6 +48,13 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     int mutexIdx = module.FindClass("Mutex");
     m_mutexClassIdx = (mutexIdx >= 0) ? static_cast<int16_t>(mutexIdx) : -1;
 
+    //K1 Slice 9: reset the Channel side table and cache the class index.
+    m_channelStore.clear();
+    m_channelFreeList.clear();
+    int channelIdx = module.FindClass(kBuiltinChannelTypeName);
+    m_channelClassIdx = (channelIdx >= 0)
+        ? static_cast<int16_t>(channelIdx) : -1;
+
     CacheBuiltinClassIndexes(module);
 }
 

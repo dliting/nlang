@@ -21,6 +21,7 @@ namespace nlang
 {
 
 //Phase 8e-3 / 8e-4: built-in generic List<T> / Dict<K,V> method name sets.
+//K1 Slice 9: Channel<T> (send/recv/close — the concurrency surface).
 static bool IsGenericContainerMethod(const std::string &baseName,
 	const std::string &name)
 {
@@ -34,6 +35,8 @@ static bool IsGenericContainerMethod(const std::string &baseName,
 			|| name == "containsKey" || name == "remove"
 			|| name == "clear" || name == "count"
 			|| name == "keys" || name == "toString");
+	} else if (baseName == kBuiltinChannelTypeName) {
+		return (name == "send" || name == "recv" || name == "close");
 	} else if (baseName == kBuiltinFuncTypeName) {
 		//Phase 13: function handles expose toString only.
 		return (name == "toString");
@@ -58,12 +61,16 @@ bool ExprResolveAccessor::CheckContainerMethodArity(SnInvokeExpr &invoke,
 		{"set", 2}, {"get", 1}, {"containsKey", 1}, {"remove", 1},
 		{"clear", 0}, {"count", 0}, {"keys", 0}, {"toString", 0},
 	};
+	static const std::map<std::string, size_t> kChannelMethodArities = {
+		{"send", 1}, {"recv", 0}, {"close", 0},
+	};
 	static const std::map<std::string, size_t> kFuncMethodArities = {
 		{"toString", 0},
 	};
 	const auto& arities = (baseName == kBuiltinListTypeName)
 		? kListMethodArities
 		: (baseName == kBuiltinDictTypeName) ? kDictMethodArities
+		: (baseName == kBuiltinChannelTypeName) ? kChannelMethodArities
 			: kFuncMethodArities;
 	auto arityIt = arities.find(name);
 	if (arityIt != arities.end() && ArgCountOf(invoke) != arityIt->second)
@@ -111,6 +118,12 @@ static int ContainerElemSlotFor(const std::string &baseName,
 	{
 		elemSlot = 1;
 		valArg = 1;
+	}
+	else if (baseName == kBuiltinChannelTypeName && name == "send")
+	{
+		//K1 Slice 9: send's value is the sole element-typed position
+		//(recv/close take nothing).
+		elemSlot = 0;
 	}
 	return elemSlot;
 }
@@ -250,6 +263,13 @@ SnField *ExprResolveAccessor::ComputeContainerMethodResult(
 		if (typeArgs.size() > 1 && typeArgs[1]) {
 			snMember.EvalDataType(typeArgs[1]);
 			pResultField = typeArgs[1];
+		}
+	} else if (baseName == kBuiltinChannelTypeName && name == "recv") {
+		//K1 Slice 9: recv returns T (typeArgs[0]). send/close return
+		//void — no branch, pResultField stays null.
+		if (!typeArgs.empty() && typeArgs[0]) {
+			snMember.EvalDataType(typeArgs[0]);
+			pResultField = typeArgs[0];
 		}
 	} else if ((baseName == kBuiltinListTypeName && name == "contains")
 		|| (baseName == kBuiltinDictTypeName && name == "containsKey")

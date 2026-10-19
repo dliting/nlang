@@ -60,7 +60,11 @@ bool IsInitListTargetShape(SnField *pType)
         return false;
     if (pClass->IsGenericInstantiation())
         return pClass->BaseName() == kBuiltinListTypeName
-            || pClass->BaseName() == kBuiltinDictTypeName;
+            || pClass->BaseName() == kBuiltinDictTypeName
+            //K1 Slice 9: `Channel<T> c = {};` constructs an empty
+            //channel (the only legal entry count — see the reject
+            //gate in Access(SnInitListExpr&)).
+            || pClass->BaseName() == kBuiltinChannelTypeName;
     return !pClass->IsBuiltinClass();
 }
 
@@ -379,6 +383,27 @@ bool ExprResolveAccessor::RejectNonStringDictInitKeys(SnInitListExpr &sn,
     return true;
 }
 
+//K1 Slice 9: gate of Access(SnInitListExpr&) — a channel initializer
+//must be empty. Values enter a channel through send() alone (the
+//synchronized surface); an initializer entry would be a second,
+//unsynchronized insertion path, and the lowering has no entry form for
+//it. True = rejected.
+bool ExprResolveAccessor::RejectNonEmptyChannelInit(SnInitListExpr &sn,
+    SnField *pTargetField)
+{
+    if (pTargetField->Kind() != NK_ClassDecl)
+        return false;
+    auto *pGen = static_cast<SnClassDecl *>(pTargetField);
+    if (!pGen->IsGenericInstantiation()
+        || pGen->BaseName() != kBuiltinChannelTypeName
+        || sn.Entries().empty())
+        return false;
+    m_Env.Log(CLL_Error, sn.Location(),
+        "a channel initializer must be empty; values enter through "
+        "send()");
+    return true;
+}
+
 //0.9.0: nested bare brace entries inherit the slot type they store into
 //— the element type for array/List/Dict targets, or the addressed
 //field's declared type for struct/class targets (InitListEntryFieldType).
@@ -417,6 +442,10 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 
     //0.9.0: the target must be a shape the lowering can write.
     if (RejectNonCollectionInitTarget(sn, pTargetField, bIsArray))
+        return;
+
+    //K1 Slice 9: channel construction is the empty initializer only.
+    if (RejectNonEmptyChannelInit(sn, pTargetField))
         return;
 
     sn.EvalDataType(pTargetField);

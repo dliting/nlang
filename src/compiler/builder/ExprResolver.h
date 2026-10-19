@@ -905,6 +905,10 @@ private:
 		const SnInitListExpr &sn, size_t entryIdx);
 	bool RejectNonStringDictInitKeys(SnInitListExpr &sn,
 		SnField *pTargetField);
+	//K1 Slice 9: channel initializers must be empty (send() is the only
+	//insertion path). True = rejected.
+	bool RejectNonEmptyChannelInit(SnInitListExpr &sn,
+		SnField *pTargetField);
 
 	/*
 	2026-09-27 decomposition of the value resolution family

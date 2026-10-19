@@ -4,8 +4,8 @@
         派发，参数自 callParamBase 槽 0 起（无 this）；
       · Mutex/Channel 方法（134-141）：接收者派发形态（槽 0 = this）。
     Slice 5 接入 yield/id，Slice 6 接入 spawn/join，Slice 7 接入 sleep，
-    Slice 8 接入 Mutex 全族；Channel 在切片 9 接入，此前统一
-    「not implemented yet」基础异常（编译面已注册，行为面未到）。
+    Slice 8 接入 Mutex 全族，Slice 9 接入 Channel 全族——K1 内在函数族
+    至此全部落地。
 ---*/
 #include "VmExecutor.h"
 #include <chrono>
@@ -13,14 +13,6 @@
 #include <stdexcept>
 
 namespace nlang {
-
-//Slices 7-9 land the real implementations; until then every
-//not-yet-arrived intrinsic reports its surface name and throws.
-[[noreturn]] static void ThrowThreadNotImplemented(const char* surface)
-{
-    throw std::runtime_error(
-        std::string("NLang VM: ") + surface + " is not implemented yet");
-}
 
 bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
@@ -54,16 +46,16 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
         return IntrinsicMutexUnlock(callParamBase, locals);
     case INTR_Mutex_TryLock:
         return IntrinsicMutexTryLock(callParamBase, locals, pResult);
-    //Registered but not yet implemented — each arrives in its slice
-    //(Channel Slice 9).
+    //Slice 9: the Channel family (see the bodies below the Mutex
+    //helpers — receiver-dispatched shape, slot 0 = the instance).
     case INTR_Channel_Ctor:
-        ThrowThreadNotImplemented("Channel constructor");
+        return IntrinsicChannelCtor(callParamBase, locals);
     case INTR_Channel_Send:
-        ThrowThreadNotImplemented("Channel.send");
+        return IntrinsicChannelSend(callParamBase, locals);
     case INTR_Channel_Recv:
-        ThrowThreadNotImplemented("Channel.recv");
+        return IntrinsicChannelRecv(callParamBase, locals, pResult);
     case INTR_Channel_Close:
-        ThrowThreadNotImplemented("Channel.close");
+        return IntrinsicChannelClose(callParamBase, locals);
     default:
         return false;   //not ours — ExecuteIntrinsic reaches the
                         //unknown-id throw
@@ -308,6 +300,133 @@ int32_t VmExecutor::AllocMutexHandle() {
     }
     m_mutexStore.emplace_back();
     return static_cast<int32_t>(m_mutexStore.size());
+}
+
+//Slice 9: Channel() 构造——物化侧表槽位并把句柄写进 __handle（同
+//Mutex 构造形态：接收者即 callParamBase 槽 0 的实例记录）。
+bool VmExecutor::IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals)
+{
+    int32_t thisIdx;
+    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
+    if (thisIdx <= 0
+        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null reference in Channel constructor");
+    m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset]
+        = AllocChannelHandle();
+    return true;
+}
+
+//send(v)：永不停泊（无界缓冲）。closed → 基础异常；有等待者 → 值直接
+//交付队首（缓冲必空——不变量）；否则入缓冲尾。值即擦除后的堆句柄（装箱
+//记录或类引用）。
+bool VmExecutor::IntrinsicChannelSend(uint16_t callParamBase, uint8_t* locals)
+{
+    ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
+    if (slot.closed)
+        throw std::runtime_error("NLang VM: send on closed channel");
+    int32_t value;
+    std::memcpy(&value, locals + callParamBase + kFrameSlotBytes,
+                sizeof(value));
+    if (!slot.waiters.empty()) {
+        DeliverToWaiter(slot.waiters.front(), value);
+        slot.waiters.pop_front();
+        return true;
+    }
+    slot.buffered.push_back(value);
+    return true;
+}
+
+//recv()：缓冲非空 → 弹头写 pResult；closed 且空 → 写 0（null 引用；T
+//为基元类型时由调用点拆箱报错——擦除机制在运行期无从合成带 T 标签的
+//零值装箱记录，且基元类型不可空，无值即诚实结局）；空且开放 → 停泊：
+//登记唤醒时写值的目标指针 pResult（停泊的调用不会重执行——pc 推进不
+//变量），send 的直接交付或 close 的全员唤醒经 DeliverToWaiter 写回。
+bool VmExecutor::IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
+                                      uint8_t* pResult)
+{
+    ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
+    if (!slot.buffered.empty()) {
+        const int32_t value = slot.buffered.front();
+        slot.buffered.pop_front();
+        std::memcpy(pResult, &value, sizeof(value));
+        return true;
+    }
+    if (slot.closed) {
+        const int32_t nullValue = 0;
+        std::memcpy(pResult, &nullValue, sizeof(nullValue));
+        return true;
+    }
+    //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
+    //nested-window rejection must not leave a half-parked context.
+    EnsureSuspensionAllowed();
+    const int selfId = m_spScheduler->CurrentContextId();
+    slot.waiters.push_back(ChannelWaiter{selfId, pResult});
+    m_spScheduler->ParkForChanRecv(selfId);
+    RequestPark(ParkSignal::Reason::ChanRecv);   //[[noreturn]]
+}
+
+//close()：幂等置位；首闭时唤醒全部等待者——缓冲值先排干再交 0（Go 语
+//义：已发送的值先于 null 被取走）。等待者必伴随空缓冲（不变量），排干
+//分支为防御形态。
+bool VmExecutor::IntrinsicChannelClose(uint16_t callParamBase, uint8_t* locals)
+{
+    ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
+    if (slot.closed)
+        return true;
+    slot.closed = true;
+    while (!slot.waiters.empty()) {
+        int32_t value = 0;
+        if (!slot.buffered.empty()) {
+            value = slot.buffered.front();
+            slot.buffered.pop_front();
+        }
+        DeliverToWaiter(slot.waiters.front(), value);
+        slot.waiters.pop_front();
+    }
+    return true;
+}
+
+//Slice 9 共享：解析接收者实例（callParamBase 槽 0）到侧表槽位（同
+//Mutex 形态）。
+VmExecutor::ChannelSlot& VmExecutor::ResolveChannelSlot(
+    uint16_t callParamBase, uint8_t* locals)
+{
+    int32_t thisIdx;
+    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
+    if (thisIdx <= 0
+        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null reference in Channel call");
+    const int32_t handle =
+        m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset];
+    if (handle <= 0 || static_cast<size_t>(handle) > m_channelStore.size())
+        throw std::runtime_error(
+            "NLang VM: Channel call on an uninitialized instance");
+    return m_channelStore[static_cast<size_t>(handle) - 1];
+}
+
+//Slice 9：分配通道侧表槽位（句柄 = 下标+1，0 保留给 null）。复用槽位
+//时整体重置——清扫回收只归还句柄，缓冲/等待者可能残留被丢弃通道的状
+//态（与互斥体同纪律）。
+int32_t VmExecutor::AllocChannelHandle() {
+    if (!m_channelFreeList.empty()) {
+        const int32_t handle = m_channelFreeList.back();
+        m_channelFreeList.pop_back();
+        m_channelStore[static_cast<size_t>(handle) - 1] = ChannelSlot();
+        return handle;
+    }
+    m_channelStore.emplace_back();
+    return static_cast<int32_t>(m_channelStore.size());
+}
+
+//唤醒时交付（send 直接交付与 close 全员唤醒共用）：先写值进停泊帧的
+//结果槽、再回 Runnable——被唤醒的上下文经载体出队执行，读到已写好的
+//返回值。
+void VmExecutor::DeliverToWaiter(ChannelWaiter& waiter, int32_t value)
+{
+    std::memcpy(waiter.resultPtr, &value, sizeof(value));
+    m_spScheduler->WakeForChanRecv(waiter.contextId);
 }
 
 //Rethrow a failed join target's exception OBJECT (same heap idx — same

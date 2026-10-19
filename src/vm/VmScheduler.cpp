@@ -157,6 +157,28 @@ void VmScheduler::WakeForMutex(int id) {
     m_runQueue.push_back(id);
 }
 
+//通道接收停泊（Slice 9）：仅状态迁移——等待者集合（含各等待者的结果
+//写回指针）在执行器的 ChannelSlot 侧表，唤醒由 send 的直接交付或
+//close 的全员唤醒显式触发（WakeForChanRecv）。
+void VmScheduler::ParkForChanRecv(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::ParkedChanRecv;
+    if (m_currentId == id)
+        m_currentId = -1;
+}
+
+//通道唤醒（Slice 9）：回 Runnable 入队尾。值已由执行器在调用本方法
+//之前写入停泊帧的结果槽（停泊的调用不会重执行——pc 推进不变量）。
+void VmScheduler::WakeForChanRecv(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::Runnable;
+    m_runQueue.push_back(id);
+}
+
 const ExecutionContext* VmScheduler::Find(int id) const {
     if (id < 0 || static_cast<size_t>(id) >= m_contexts.size())
         return nullptr;

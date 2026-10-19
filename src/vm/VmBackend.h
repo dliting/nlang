@@ -327,6 +327,12 @@ private:
                               const std::string& methodName,
                               std::map<uint16_t, ArgBoxPlan>& argPlans,
                               bool& returnsBoxed, uint8_t& returnTag);
+    //K1 Slice 9: Channel<T> (send boxes the value, recv unboxes the
+    //return).
+    void PlanChannelMethodBoxing(const std::vector<SnField*>& typeArgs,
+                                 const std::string& methodName,
+                                 std::map<uint16_t, ArgBoxPlan>& argPlans,
+                                 bool& returnsBoxed, uint8_t& returnTag);
     //Class method dispatch tail: virtual / direct / builtin + unbox,
     //assign, out spills, ParaEnd.
     void EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
@@ -1221,6 +1227,16 @@ private:
                               uint16_t resultOffset, BytecodeEmitter& emitter);
     void EmitInitListClassForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                                BytecodeEmitter& emitter, uint16_t resultOffset);
+    //K1 Slice 9: `Channel<T> c = {};` — construct only (no entries).
+    void EmitInitListChannelForm(SnInitListExpr& initList,
+                                 SnClassDecl& classDecl,
+                                 BytecodeEmitter& emitter, uint16_t resultOffset);
+    //Class-shaped dispatcher by base name (List/Dict/Channel erasure;
+    //default arm = user class init form).
+    void EmitInitListClassTarget(SnInitListExpr& initList,
+                                 SnClassDecl& classDecl,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset);
     void EmitInitListStructForm(SnInitListExpr& initList,
                                 SnStructDecl& structDecl,
                                 BytecodeEmitter& emitter, uint16_t resultOffset);

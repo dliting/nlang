@@ -1,6 +1,7 @@
 /*---
     VmExecutorGC.cpp — 垃圾回收（标记/清扫/释放）
-    从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）；
+    容器元素追踪臂在 VmExecutorGCContainers.cpp（2026-10-20 拆出）。
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -27,18 +28,6 @@ void VmExecutor::CollectGarbage() {
     //both stores (one mark phase fills both bit vectors).
     SweepStrings();
 }
-
-namespace {
-//Single source for the container trace arms' kind set (was four
-//hand-expanded literals: List/Dict x mark/push). At kind granularity the
-//mark set and the worklist push set coincide — every traced kind has
-//children for the dispatch below to walk (func's receiver, array
-//elements, boxed payload, class/struct fields).
-inline bool IsChildBearingHeapKind(uint8_t kind) {
-    return kind == RTK_Class || kind == RTK_Struct || kind == RTK_Boxed
-        || kind == RTK_Func || kind == RTK_Array;
-}
-} // namespace
 
 //2026-09-26 maintainability split: MarkPhase was a 233-line method; the
 //root scans and per-kind trace arms below are its decomposition (bodies
@@ -85,6 +74,7 @@ void VmExecutor::MarkPhase() {
             MarkClassFields(idx, worklist);
             MarkListElements(idx, worklist);
             MarkDictEntries(idx, worklist);
+            MarkChannelElements(idx, worklist);
         } else if (m_slotKinds[idx] == RTK_Struct) {
             MarkStructFields(idx, worklist);
         } else if (m_slotKinds[idx] == RTK_Array) {
@@ -263,52 +253,6 @@ void VmExecutor::MarkClassFields(int32_t idx,
     }
 }
 
-//Phase 8e-3: trace List<T> elements as additional GC roots.
-void VmExecutor::MarkListElements(int32_t idx,
-                                  std::vector<int32_t>& worklist) {
-    int32_t classIdx = m_structHeap[idx][0];
-    if (static_cast<int16_t>(classIdx) != m_listClassIdx)
-        return;
-    int32_t handle = m_structHeap[idx][kListHandleFieldOffset];
-    if (handle <= 0)
-        return;
-    size_t h = static_cast<size_t>(handle - 1);
-    if (h >= m_listStore.size())
-        return;
-    for (int32_t elem : m_listStore[h].elements) {
-        if (elem > 0
-            && static_cast<size_t>(elem) < m_slotKinds.size()
-            && !m_markBits[elem]) {
-            if (IsChildBearingHeapKind(m_slotKinds[elem]))
-                PushMarked(elem, worklist);
-        }
-    }
-}
-
-//Phase 8e-4: trace Dict<K,V> entries (both K and V are heap idxs).
-void VmExecutor::MarkDictEntries(int32_t idx,
-                                 std::vector<int32_t>& worklist) {
-    int32_t classIdx = m_structHeap[idx][0];
-    if (static_cast<int16_t>(classIdx) != m_dictClassIdx)
-        return;
-    int32_t handle = m_structHeap[idx][kListHandleFieldOffset];
-    if (handle <= 0)
-        return;
-    size_t h = static_cast<size_t>(handle - 1);
-    if (h >= m_dictStore.size())
-        return;
-    for (auto& kv : m_dictStore[h].entries) {
-        for (int32_t elem : {kv.first, kv.second}) {
-            if (elem > 0
-                && static_cast<size_t>(elem) < m_slotKinds.size()
-                && !m_markBits[elem]) {
-                if (IsChildBearingHeapKind(m_slotKinds[elem]))
-                    PushMarked(elem, worklist);
-            }
-        }
-    }
-}
-
 void VmExecutor::MarkStructFields(int32_t idx,
                                   std::vector<int32_t>& worklist) {
     uint16_t structIdx = m_slotStructIdx[idx];
@@ -414,6 +358,14 @@ void VmExecutor::SweepPhase() {
                     int32_t handle = m_structHeap[i][kListHandleFieldOffset];
                     if (handle > 0)
                         m_mutexFreeList.push_back(handle);
+                }
+                //K1 Slice 9: recycle Channel handle when an instance is
+                //freed (same parked-waiter hazard and exit-guard report
+                //as a dropped mutex).
+                if (static_cast<int16_t>(classIdx) == m_channelClassIdx) {
+                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+                    if (handle > 0)
+                        m_channelFreeList.push_back(handle);
                 }
                 FreeOwnedStructs(static_cast<int32_t>(i));
             }

@@ -5,9 +5,10 @@
     先过 m12 遮蔽探针（用户局部/字段/类型名为 thread 者胜），再对签名表匹配。
     发射走既有自由调用轨：外层标识符绑定命名空间单例（EmitMemberHeaderDispatch
     的命名空间臂要求），内层 invoke 绑定合成 SnFunction，OP_CallFunc 的内建臂派发。
-    ② Mutex/Channel 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
+    ② Mutex 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
     ＋流方法族尾态（调用方作用域实参解析、void 不留类型），发射走
-    OP_CallMethod-by-name 既有轨。
+    OP_CallMethod-by-name 既有轨。Channel<T> 方法走泛型容器方法族
+    （ExprResolverMemberContainer.cpp）。
 ---*/
 #include "ExprResolver.h"
 #include "ThreadNamespace.h"
@@ -272,12 +273,13 @@ bool ExprResolveAccessor::BindThreadNsCall(SnMemberExpr &snMember,
 	return true;
 }
 
-//--- 同步原语方法（Mutex/Channel） ------------------------------------------
+//--- 同步原语方法（Mutex） ------------------------------------------
 
 //Fixed call shapes of the K1 sync-primitive surface: SyncMethodShape
 //lives in ThreadNamespace.h (shared with the accessor declaration).
-//Channel.recv arrives in Slice 9 with its element-type decision — until
-//then it is simply not a member (the generic resolution failure names it).
+//Channel<T> methods (send/recv/close) are NOT here — they ride the
+//generic container-method family (ExprResolverMemberContainer.cpp),
+//where the element type argument drives boxing and recv's return type.
 static bool ClassifySyncPrimitiveMethod(const std::string& className,
 	const std::string& methodName, SyncMethodShape& rShape)
 {
@@ -294,29 +296,13 @@ static bool ClassifySyncPrimitiveMethod(const std::string& className,
 			return true;
 		}
 	}
-	else if (className == "Channel")
-	{
-		//send's value boxes like a List/Dict element (runtime path);
-		//arity alone is checked here.
-		if (methodName == "send")
-		{
-			rShape = {1, NK_Void};
-			return true;
-		}
-		if (methodName == "close")
-		{
-			rShape = {0, NK_Void};
-			return true;
-		}
-	}
 	return false;
 }
 
-//Mutex/Channel member calls. The synthesized SnClassDecl has no method
+//Mutex member calls. The synthesized SnClassDecl has no method
 //members, so resolution is by name against the shape table (the stream
 //family's arrangement); emission rides OP_CallMethod-by-name the same
-//way. Runs BEFORE TryResolveStreamBuiltinMethod — close() is also a
-//stream method name and would be captured there.
+//way.
 bool ExprResolveAccessor::TryResolveSyncPrimitiveMethod(
 	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
 	SyntaxNode *pSavedContext)
@@ -327,13 +313,13 @@ bool ExprResolveAccessor::TryResolveSyncPrimitiveMethod(
 		return false;
 	auto* pClass = static_cast<SnClassDecl*>(m_pContext);
 	const std::string className = pClass->Name();
-	if (className != "Mutex" && className != "Channel")
+	if (className != "Mutex")
 		return false;
 	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
 	SyncMethodShape shape;
 	if (!ClassifySyncPrimitiveMethod(className, invoke.CalleeName(),
 			shape))
-		return false;   //not ours (recv, or a user typo) — generic failure
+		return false;   //not ours (a user typo) — generic failure
 	return FinishSyncPrimitiveCall(snMember, invoke, pInnerExpr, shape,
 		pSavedContext);
 }

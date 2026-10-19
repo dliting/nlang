@@ -28,12 +28,14 @@ inline bool IsBuiltinExceptionClassName(const std::string& name)
 //singleton. Everything routes through this one function now.
 //Phase 5: the bare-name comparison stays — builtins carry no owner tag,
 //so their table keys stay bare; a user `pkg.Object` never matches here.
-//K1: the concurrency builtins Thread/Mutex/Channel join the set (the
-//lowercase `thread` NAMESPACE is a different surface — ThreadNamespace.h).
+//K1: the concurrency builtins Thread/Mutex join the set (the lowercase
+//`thread` NAMESPACE is a different surface — ThreadNamespace.h). K1
+//Slice 9: Channel left the set — it is generic-only (Channel<T>); the
+//element type decides boxing, so the bare name is not a type.
 inline bool IsBuiltinClassName(const std::string& name)
 {
 	return name == "ByteStream" || name == "FileStream" || name == "Object"
-		|| name == "Thread" || name == "Mutex" || name == "Channel"
+		|| name == "Thread" || name == "Mutex"
 		|| IsBuiltinExceptionClassName(name);
 }
 

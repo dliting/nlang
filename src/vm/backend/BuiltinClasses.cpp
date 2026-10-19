@@ -171,7 +171,10 @@ const BuiltinMethod s_DictMethods[] = {
 //K1 concurrency builtins. Thread carries the __handle field (the spawned
 //context id) but no ctor — thread.spawn mints instances — and no methods
 //in K1. Mutex/Channel take the same __handle shape as the containers
-//(index into the VM-side sync stores). Channel.recv arrives in Slice 9.
+//(index into the VM-side sync stores). Channel's methods are generic-
+//container surface (the element type is erased at runtime — every
+//element is a heap idx; recv's RTK_Int32 is the placeholder return kind,
+//the call site's boxing plan unboxes per T).
 const BuiltinMethod s_MutexMethods[] = {
     {"lock",    INTR_Mutex_Lock,    1, RTK_Void},
     {"unlock",  INTR_Mutex_Unlock,  1, RTK_Void},
@@ -179,7 +182,8 @@ const BuiltinMethod s_MutexMethods[] = {
 };
 
 const BuiltinMethod s_ChannelMethods[] = {
-    {"send",  INTR_Channel_Send,  2, RTK_Void},  //this + boxed value
+    {"send",  INTR_Channel_Send,  2, RTK_Void},   //this + boxed value
+    {"recv",  INTR_Channel_Recv,  1, RTK_Int32},  //this; returns T
     {"close", INTR_Channel_Close, 1, RTK_Void},
 };
 

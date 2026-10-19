@@ -512,6 +512,7 @@ private:
     void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
     void MarkListElements(int32_t idx, std::vector<int32_t>& worklist);
     void MarkDictEntries(int32_t idx, std::vector<int32_t>& worklist);
+    void MarkChannelElements(int32_t idx, std::vector<int32_t>& worklist);
     void MarkStructFields(int32_t idx, std::vector<int32_t>& worklist);
     void MarkArrayElements(int32_t idx, std::vector<int32_t>& worklist);
     void SweepPhase();
@@ -647,6 +648,28 @@ private:
     //reserved for null) and resolve a receiver instance to its slot.
     int32_t AllocMutexHandle();
     MutexSlot& ResolveMutexSlot(uint16_t callParamBase, uint8_t* locals);
+    //K1 Slice 9: Channel method intrinsics (IntrinsicsThread.cpp). send
+    //never parks (unbounded buffer — hands the value to the front waiter
+    //or appends); recv parks on an empty, open channel and its result is
+    //written at WAKE time through the saved destination pointer (the
+    //parked call is not re-executed on resume — the pc-advance
+    //invariant); close is idempotent and wakes every waiter (buffered
+    //values drain first; recv on a drained channel yields the zero
+    //value / null reference).
+    struct ChannelWaiter;  //defined beside the side-table members below
+    struct ChannelSlot;    //same
+    bool IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicChannelSend(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
+                              uint8_t* pResult);
+    bool IntrinsicChannelClose(uint16_t callParamBase, uint8_t* locals);
+    //Same side-table discipline as the Mutex helpers above.
+    int32_t AllocChannelHandle();
+    ChannelSlot& ResolveChannelSlot(uint16_t callParamBase,
+                                    uint8_t* locals);
+    //Wake-time value delivery shared by send and close: write through
+    //the waiter's saved destination, then make the context runnable.
+    void DeliverToWaiter(ChannelWaiter& waiter, int32_t value);
     //K1 Slice 6 spawn helpers: validate + resolve the delegate target
     //(no native/intrinsic bodies, zero-argument contract) and mint the
     //Thread object for a registered context (__handle = context id).
@@ -1091,9 +1114,33 @@ private:
     std::vector<int32_t>   m_mutexFreeList;  //recycled slots after GC sweep
     int16_t m_mutexClassIdx = -1;            //set when "Mutex" CompiledClass is located
 
+    //K1 Slice 9: Channel side table. buffered holds element values as
+    //heap idxs (boxed primitives or class refs) in FIFO order; waiters
+    //are parked recv calls — each carries the destination pointer its
+    //result must be written through at wake time (the parked call is
+    //not re-executed; the pointer targets a frame slot or the frame's
+    //evalArea band, both stable across the park/steal/restore moves —
+    //the localsBuf vector move transfers the heap allocation). Invariant:
+    //waiters exist only while the buffer is empty (recv parks solely on
+    //an empty open channel; send hands off to the front waiter directly
+    //instead of buffering). GC traces buffered through
+    //MarkChannelElements; waiters hold raw pointers, never heap idxs.
+    struct ChannelWaiter {
+        int contextId;
+        uint8_t* resultPtr;
+    };
+    struct ChannelSlot {
+        std::deque<int32_t> buffered;
+        std::deque<ChannelWaiter> waiters;
+        bool closed = false;
+    };
+    std::vector<ChannelSlot> m_channelStore;   //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>     m_channelFreeList;//recycled slots after GC sweep
+    int16_t m_channelClassIdx = -1;            //set when "Channel" CompiledClass is located
+
     //slot[0] of a container/sync-primitive instance heap entry holds
-    //classIdx; slot[1] holds __handle (List/Dict/Mutex share the layout).
-    //Used by GC trace/sweep and ReadListHandle.
+    //classIdx; slot[1] holds __handle (List/Dict/Mutex/Channel share the
+    //layout). Used by GC trace/sweep and ReadListHandle.
     static constexpr int kListHandleFieldOffset = 1;
     //A RTK_Boxed heap record has layout [typeTag, valueLo, valueHi]
     //(0.7.5: 3 cells; the hi cell carries the upper half of 8-byte rows

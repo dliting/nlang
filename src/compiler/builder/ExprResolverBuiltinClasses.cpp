@@ -30,9 +30,10 @@ static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
 static SnClassDecl* s_pInvalidCastExcClass = nullptr;  //v0.8.5: InvalidCastException
 //K1: concurrency built-ins. Type-system stand-ins — the real method/field
 //surface lives in VmBackend's s_BuiltinClassDecls rows (BuiltinClasses.cpp).
+//Channel needs no stand-in: it exists only as Channel<T>, a generic
+//instantiation minted by GetGenericClassDecl.
 static SnClassDecl* s_pThreadClass = nullptr;
 static SnClassDecl* s_pMutexClass = nullptr;
-static SnClassDecl* s_pChannelClass = nullptr;
 
 //On-demand minted decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
@@ -77,7 +78,6 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		: (name == "InvalidCastException") ? s_pInvalidCastExcClass
 		: (name == "Thread") ? s_pThreadClass
 		: (name == "Mutex") ? s_pMutexClass
-		: (name == "Channel") ? s_pChannelClass
 		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above
 	if (!rpRef)
 	{
