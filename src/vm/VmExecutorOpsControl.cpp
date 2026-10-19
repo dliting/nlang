@@ -63,6 +63,13 @@ void VmExecutor::OpJump(BytecodeReader& reader) {
     //exact former position and ordering.
     if (target <= reader.CurrentOffset()) {
         CheckGCSafepoint();
+        //The quota check below may park mid-instruction — park the
+        //resume point at the jump destination FIRST, or a resumed
+        //context would re-execute the whole iteration and hit the same
+        //exhausted quota forever (zero-progress ping-pong; the fresh
+        //worker root restarts at pc 0 outright). On the non-park path
+        //the value is inert — normal flow seeks via the reader.
+        m_callStack.back().pc = target;
         CheckSchedulerQuota();
     }
     reader.Seek(target);

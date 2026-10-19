@@ -48,13 +48,41 @@ void VmScheduler::MarkFinished(int id, int64_t result) {
         m_currentId = -1;
 }
 
-void VmScheduler::MarkFailed(int id) {
+void VmScheduler::MarkFailed(int id, int32_t failExcHeapIdx) {
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
     ctx->state = ContextState::Failed;
+    ctx->failExcHeapIdx = failExcHeapIdx;
     if (m_currentId == id)
         m_currentId = -1;
+}
+
+//join 停泊（Slice 6）：状态与目标登记；调用方（载体）随后把帧整栈搬
+//入 ctx->frames。不入运行队列——只有目标终结才唤醒。
+void VmScheduler::ParkForJoin(int id, int targetId) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::ParkedJoin;
+    ctx->parkHandle = targetId;
+    if (m_currentId == id)
+        m_currentId = -1;
+}
+
+//目标终结：全部 ParkedJoin 于该目标的上下文回 Runnable 入队尾；
+//failed 目标同时置 rethrowOnResume——joiner 恢复执行前重抛目标的
+//原异常对象（保留 raise 时的回溯）。
+void VmScheduler::WakeJoiners(int targetId, bool failed) {
+    for (auto& ctx : m_contexts) {
+        if (ctx.state != ContextState::ParkedJoin
+            || ctx.parkHandle != targetId)
+            continue;
+        ctx.state = ContextState::Runnable;
+        if (failed)
+            ctx.rethrowOnResume = true;
+        m_runQueue.push_back(ctx.id);
+    }
 }
 
 const ExecutionContext* VmScheduler::Find(int id) const {

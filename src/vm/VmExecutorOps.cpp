@@ -14,12 +14,26 @@ namespace nlang {
 //Frame machine core (see VmExecutor.h for the contract group). RunFrames
 //owns the exception machinery; DispatchFrames owns the instruction loop.
 
+//K1 Slice 6: a joiner resumed over a FAILED target throws the target's
+//original exception object HERE — inside RunFrames' handler-search try,
+//so the handler walk covers the just-restored frames with the join call
+//site's opPc (exactly as if join had thrown). No-op unless the carrier
+//armed the flag (ArmResumeRethrow); consumed at most once per resume.
+void VmExecutor::ConsumeResumeThrow() {
+    if (m_resumeThrowExcIdx == 0)
+        return;
+    const int32_t excIdx = m_resumeThrowExcIdx;
+    m_resumeThrowExcIdx = 0;
+    ThrowJoinTargetFailure(excIdx);
+}
+
 void VmExecutor::RunFrames(size_t baseDepth)
 {
     for (;;) {
         std::exception_ptr inflight;
         int32_t inflightExc = 0;
         try {
+            ConsumeResumeThrow();
             DispatchFrames(baseDepth);
             return;
         } catch (NLangThrow& ex) {

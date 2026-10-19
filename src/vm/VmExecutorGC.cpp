@@ -4,7 +4,6 @@
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
-#include <cstdio>
 #include <exception>
 
 namespace nlang {
@@ -60,6 +59,7 @@ void VmExecutor::MarkPhase() {
         MarkFrameResult(frame, worklist);
         MarkFrameBand(frame, worklist);
     }
+    MarkSchedulerRoots(worklist);
     //Extension point ③: host-registered roots (host-held reference
     //Values). Same string/heap split as the frame scans — RTK_String
     //values are string-store handles routed to MarkString (its own
@@ -89,6 +89,32 @@ void VmExecutor::MarkPhase() {
             MarkStructFields(idx, worklist);
         } else if (m_slotKinds[idx] == RTK_Array) {
             MarkArrayElements(idx, worklist);
+        }
+    }
+}
+
+//K1 Slice 6 root arm: parked/queued contexts are not in m_callStack
+//(the steal model) — their whole frame stacks are roots here, plus each
+//context's Thread object (join reads __handle) and a Failed context's
+//exception object (join rethrows it by heap idx; it must survive until
+//every joiner has thrown). Same three frame arms as the running stack;
+//MarkFrameResult is safe on parked frames (externalResult points at
+//the stable result cells).
+void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
+    for (size_t i = 0; i < m_spScheduler->ContextCount(); ++i) {
+        const ExecutionContext* ctx = m_spScheduler->Find(
+            static_cast<int>(i));
+        for (const CallFrame& parkedFrame : ctx->frames) {
+            MarkFrameLocals(parkedFrame, worklist);
+            MarkFrameResult(parkedFrame, worklist);
+            MarkFrameBand(parkedFrame, worklist);
+        }
+        const int32_t ctxRoots[2] = { ctx->threadObjHeapIdx,
+                                      ctx->failExcHeapIdx };
+        for (int32_t val : ctxRoots) {
+            if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
+                && !m_markBits[val])
+                PushMarked(val, worklist);
         }
     }
 }

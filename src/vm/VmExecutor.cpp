@@ -21,7 +21,7 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_schedTripBudget = m_schedTripLimit;
     m_quotaFires = 0;
     m_preemptSkips = 0;
-    m_pendingResume = false;
+    m_resumeThrowExcIdx = 0;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
     m_byteStreams.clear();
@@ -42,11 +42,15 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     int dictIdx = module.FindClass(kBuiltinDictTypeName);
     m_dictClassIdx = (dictIdx >= 0) ? static_cast<int16_t>(dictIdx) : -1;
 
-    //Phase 9d: cache Exception hierarchy class indices. These are required
-    //by RaiseNlangException to allocate the right subclass instance.
-    //All FindClass calls in this function use bare names deliberately:
-    //the builtin List/Dict/Exception family carries no owner tag, so its
-    //table keys stay bare even after phase 5 qualified user keys.
+    CacheBuiltinClassIndexes(module);
+}
+
+//Phase 9d: cache Exception hierarchy class indices. These are required
+//by RaiseNlangException to allocate the right subclass instance.
+//All FindClass calls here use bare names deliberately: the builtin
+//List/Dict/Exception family carries no owner tag, so its table keys
+//stay bare even after phase 5 qualified user keys.
+void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     auto cacheExcClass = [&](const char* name, int16_t* out) {
         int idx = module.FindClass(name);
         *out = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
@@ -58,6 +62,10 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
     cacheExcClass("IOException",              &m_ioExcClassIdx);
     cacheExcClass("InvalidCastException",     &m_invalidCastExcClassIdx);
+
+    //K1 Slice 6: cache the Thread class index (spawn mints instances).
+    int threadIdx = module.FindClass("Thread");
+    m_threadClassIdx = (threadIdx >= 0) ? static_cast<int16_t>(threadIdx) : -1;
 }
 
 //String objectization: eagerly materialize every module string constant
@@ -129,13 +137,13 @@ int VmExecutor::Execute(const CompiledModule& module) {
     return result;
 }
 
-//K1 Slice 4: the carrier loop. Contexts come off the scheduler's FIFO
-//run queue; today only main (id 0) exists, so the loop body runs once
-//and is byte-for-byte the former run sequence. ParkSignal is the
-//park/preempt path — no producers until Slice 6, so the requeue branch
-//is dormant plumbing. main's exit ends the run (silently dropping
-//parked contexts is the K1 exit policy; Slice 6 formalizes it with
-//spawn).
+//K1 Slice 6: the carrier loop. Contexts (main + spawned) come off the
+//scheduler's FIFO run queue. Frame ownership follows the steal model
+//(VmScheduler.h): a context's frames ARE m_callStack while it runs, and
+//move into ctx->frames on every park — so dispatching a context is
+//either a fresh main root (frames empty) or moving its frames back and
+//re-entering RunFrames at the parked pc. main's return ends the run
+//(unfinished contexts are dropped silently — the K1 exit policy).
 void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
                             uint8_t* resultCell) {
     m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
@@ -143,38 +151,110 @@ void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
         for (;;) {
             const int ctx = m_spScheduler->PopNextRunnable();
             if (ctx < 0)
-                break;   //queue drained: run over
-            //A parked context's frames are still on m_callStack at the
-            //advanced pc — re-enter the frame loop instead of pushing a
-            //fresh root (yield would otherwise re-run main from zero).
-            const bool resume = m_pendingResume;
-            m_pendingResume = false;
+                break;   //queue drained: run over (see the exit check)
+            ExecutionContext* info = m_spScheduler->FindMutable(ctx);
             try {
-                if (resume)
-                    RunFrames(0);
-                else
-                    RunRootWindow(mainFunc, resultCell);
-                int64_t result64;
-                std::memcpy(&result64, resultCell, sizeof(result64));
-                m_spScheduler->MarkFinished(ctx, result64);
-            } catch (ParkSignal&) {
-                //Not an error: frames stay untouched on m_callStack.
-                //Requeue = preempted; Slice 6 splits park reasons
-                //(timer/join/mutex/chan-recv park instead of requeue).
-                m_spScheduler->Requeue(ctx);
-                m_pendingResume = true;
+                RunContextWindow(ctx, info, mainFunc, resultCell);
+            } catch (ParkSignal& park) {
+                //Not an error: steal the whole frame stack into the
+                //context (the steal model). Preempted requeues; the other
+                //reasons already recorded their state+target at the park
+                //site (ParkForJoin et al.) and wait for their wake event.
+                info->frames = std::move(m_callStack);
+                if (park.reason == ParkSignal::Reason::Preempted)
+                    m_spScheduler->Requeue(ctx);
+                continue;
+            } catch (NLangThrow& ex) {
+                if (FailContextContained(ctx, ex.heapIdx))
+                    throw;   //main: outer catch snapshots the backtrace
                 continue;
             } catch (...) {
-                m_spScheduler->MarkFailed(ctx);
-                throw;   //the outer catch snapshots the backtrace
+                //Non-NLang errors (VM-internal) are fatal for the whole
+                //run regardless of context — propagate to the host.
+                m_spScheduler->MarkFailed(ctx, 0);
+                throw;
             }
             if (ctx == VmScheduler::kMainThreadId)
                 break;   //main returned: the run is over
         }
+        ThrowIfMainUnfinished();
     } catch (const std::exception&) {
         m_lastBacktrace = FormatBacktrace();
         throw;
     }
+}
+
+//K1 Slice 6: one context's turn on the carrier. Resume (a spawned
+//context's first dispatch included) moves its frames back onto
+//m_callStack — RunFrames re-enters at each frame's parked pc, after
+//the failed-join rethrow arm; a fresh main root goes through the root
+//window. On return, record the result and wake joiners.
+void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
+    const CompiledFunction& mainFunc, uint8_t* hostResultCell) {
+    if (!info->frames.empty()) {
+        m_callStack = std::move(info->frames);
+        info->frames.clear();
+        ArmResumeRethrow(info);
+        RunFrames(0);
+        //Result cell differs by context: main's root frame writes the
+        //host cell (fresh and resumed both — the pointer lives in the
+        //frame and survives the steal); spawned roots write their own.
+        if (ctx == VmScheduler::kMainThreadId) {
+            int64_t result64;
+            std::memcpy(&result64, hostResultCell, sizeof(result64));
+            m_spScheduler->MarkFinished(ctx, result64);
+        } else {
+            m_spScheduler->MarkFinished(ctx, info->resultCell);
+        }
+    } else {
+        RunRootWindow(mainFunc, hostResultCell);
+        int64_t result64;
+        std::memcpy(&result64, hostResultCell, sizeof(result64));
+        m_spScheduler->MarkFinished(ctx, result64);
+    }
+    m_spScheduler->WakeJoiners(ctx, /*failed=*/false);
+}
+
+//K1 Slice 6: a joiner woken over a FAILED target rethrows the target's
+//exception into its own frame stack before dispatch — m_resumeThrowExcIdx
+//consumed at RunFrames entry, inside the handler-search try (the join
+//call site's opPc matches, exactly as if join had thrown).
+void VmExecutor::ArmResumeRethrow(ExecutionContext* info) {
+    if (!info->rethrowOnResume)
+        return;
+    info->rethrowOnResume = false;
+    const ExecutionContext* target = m_spScheduler->Find(info->parkHandle);
+    info->parkHandle = 0;
+    //Only failure arms the flag; a missing/exceptionless target is a
+    //corrupt registry — refuse loudly, never silently no-op.
+    if (!target || target->failExcHeapIdx <= 0)
+        throw std::runtime_error(
+            "NLang VM: join target failed without an exception object");
+    m_resumeThrowExcIdx = target->failExcHeapIdx;
+}
+
+//K1 Slice 6: containment for an uncaught NLang exception escaping a
+//context root. Spawned contexts never reach the host with their
+//failure — Failed + wake joiners (with rethrow), dead frames' unwind
+//records dropped; the failure surfaces only through join.
+bool VmExecutor::FailContextContained(int ctx, int32_t excHeapIdx) {
+    m_spScheduler->MarkFailed(ctx, excHeapIdx);
+    if (ctx == VmScheduler::kMainThreadId)
+        return true;
+    m_unwindFrames.clear();   //dead context's records
+    m_spScheduler->WakeJoiners(ctx, /*failed=*/true);
+    return false;
+}
+
+//K1 Slice 6: exit check — the queue drained but main never returned,
+//so every surviving context sits parked (unreachable in K1: no cycle
+//of joins is constructible, a spawned context cannot reference its
+//spawner's Thread). Refuse loudly instead of returning garbage.
+void VmExecutor::ThrowIfMainUnfinished() const {
+    if (m_spScheduler->Find(VmScheduler::kMainThreadId)->state
+            != ContextState::Finished)
+        throw std::runtime_error(
+            "NLang VM: deadlock — no runnable contexts remain");
 }
 
 //K1 Slice 4: one context's root window — Execute's former run body,

@@ -16,6 +16,7 @@
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
+#include "IHostIo.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include <filesystem>
@@ -117,6 +118,30 @@ static int runSource(const std::string& tag, const std::string& source)
     CompiledModule mod = buildLinkedModule(tag, source);
     VmExecutor exec;
     return exec.Execute(mod);
+}
+
+//Slice 6 observation channel: spawned workers cannot return values in K1,
+//so tests capture program output through the host I/O seam (deterministic
+//order assertions — the plan's no-wall-clock rule). io.write/io.print
+//arrive here verbatim via OnOutput (write = no appended newline, the
+//form exact-string assertions want).
+class CaptureIo : public IHostIo {
+public:
+    void OnOutput(std::string_view text) override { m_out += text; }
+    std::string m_out;
+};
+
+//runSource + output capture. Run-time exceptions still propagate.
+static int runSourceCapturing(const std::string& tag,
+                              const std::string& source, std::string& rOut)
+{
+    CompiledModule mod = buildLinkedModule(tag, source);
+    VmExecutor exec;
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    const int rc = exec.Execute(mod);
+    rOut = io.m_out;
+    return rc;
 }
 
 void test_harness_smoke()
@@ -711,6 +736,304 @@ void test_thread_ns_cross_module()
     PASS();
 }
 
+// --- Slice 6 钉死测试（spawn + join + 退出策略）---
+
+//spawn→运行→join 全管道：worker 侧唯一可观察效应经宿主 I/O 捕获。
+//join 返回即证明 spawned 上下文真的执行了其根帧（Finished 只在根帧
+//返回后迁移）。
+void test_spawn_join_runs_worker()
+{
+    TEST(spawn_join_runs_worker);
+    std::string out;
+    const int rc = runSourceCapturing("sp_join_run",
+        "import io;\n"
+        "void worker() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "spawn + join program exits 0");
+    CHECK(out == "w", "the spawned context ran its root frame (got: "
+        + out + ")");
+    PASS();
+}
+
+//轮转顺序（决策 5：FIFO + 定量配额 = 确定性调度）。配额旋钮压到 1：
+//main 与 worker 的 while 各有每迭代恰一次回边，任一回边到期且另有
+//Runnable 上下文即抢占。交替自 main 起（spawn 后 main 仍在载体上），
+//逐字符精确钉死 "mwmwmw" —— 既证抢占真实发生，也证恢复点 pc 落在
+//回边之后（重复执行或跳过迭代都会破坏串）。
+void test_spawn_round_robin_under_quota()
+{
+    TEST(spawn_round_robin_under_quota);
+    CompiledModule mod = buildLinkedModule("sp_round_robin",
+        "import io;\n"
+        "void worker() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        io.write(\"w\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        io.write(\"m\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(1);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0, "round-robin program completes");
+    CHECK(io.m_out == "mwmwmw",
+          "quota 1 interleaves the two contexts exactly (got: "
+          + io.m_out + ")");
+    PASS();
+}
+
+//join 幂等：目标已 Finished 后再次 join 立即返回（不挂起、不报错）。
+void test_join_idempotent_after_finish()
+{
+    TEST(join_idempotent_after_finish);
+    std::string out;
+    const int rc = runSourceCapturing("sp_join_twice",
+        "import io;\n"
+        "void worker() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    thread.join(t);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "double join on a finished target returns");
+    CHECK(out == "w", "the worker body ran exactly once");
+    PASS();
+}
+
+//join 先于目标运行：目标还在运行队列（从未执行）时 join 挂起等待，
+//目标完成唤醒 joiner —— 停泊-唤醒的主通路（非抢占路径）。
+void test_join_before_target_runs()
+{
+    TEST(join_before_target_runs);
+    std::string out;
+    const int rc = runSourceCapturing("sp_join_early",
+        "import io;\n"
+        "void worker() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "join on a never-run target completes");
+    CHECK(out == "w", "the target ran to finish before join returned");
+    PASS();
+}
+
+//失败目标重抛原异常对象：worker 内未捕获的异常把上下文迁移到 Failed，
+//joiner 收到重抛；catch 子类形态（Boom）证明重抛的是原对象本身
+//（现场新造的基类 Exception 不满足子类匹配，会作为未捕获异常逃逸）。
+void test_join_failed_target_rethrows_original()
+{
+    TEST(join_failed_target_rethrows_original);
+    std::string out;
+    const int rc = runSourceCapturing("sp_join_fail",
+        "import io;\n"
+        "class Boom : Exception {\n"
+        "    public int Boom(string m) {\n"
+        "        super(m);\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n"
+        "void worker() { throw Boom(\"wboom\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    try {\n"
+        "        thread.join(t);\n"
+        "        return 4;\n"
+        "    } catch (Boom e) {\n"
+        "        if (e.message != \"wboom\") return 2;\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n",
+        out);
+    CHECK(rc == 0,
+          "join on a failed target rethrows the original exception object");
+    CHECK(out.empty(), "no output side effects leak from the failure");
+    PASS();
+}
+
+//绑定方法根帧：spawn 接收 func<void> 委托值，方法引用形态（接收者入
+//根帧槽 0）与自由函数形态（Slice 5 既有测试）走同一 spawn 入口。
+void test_spawn_bound_method_root()
+{
+    TEST(spawn_bound_method_root);
+    std::string out;
+    const int rc = runSourceCapturing("sp_bound_method",
+        "import io;\n"
+        "class Worker {\n"
+        "    int tag;\n"
+        "    public void run() {\n"
+        "        if (tag == 7) io.write(\"b\");\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Worker w = Worker();\n"
+        "    w.tag = 7;\n"
+        "    Thread t = thread.spawn(w.run);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "spawn of a bound method reference completes");
+    CHECK(out == "b",
+          "the bound root frame received its receiver (field read works)");
+    PASS();
+}
+
+//委托变量形态：spawn 参数先落在局部（func<void> 局部是停泊帧的 GC
+//根之一），再作为参数传入。
+void test_spawn_via_delegate_variable()
+{
+    TEST(spawn_via_delegate_variable);
+    std::string out;
+    const int rc = runSourceCapturing("sp_deleg_var",
+        "import io;\n"
+        "void worker() { io.write(\"d\"); }\n"
+        "int main() {\n"
+        "    func<void> f = worker;\n"
+        "    Thread t = thread.spawn(f);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "spawn of a delegate-valued local completes");
+    CHECK(out == "d", "the delegate's target ran");
+    PASS();
+}
+
+//每上下文 id：spawned 上下文内 thread.id() ≠ 0（main 恒 0 的对侧）。
+//可观察通道：id 为 0 时抛异常 → join 重抛 → main 的 catch 收到。
+void test_worker_thread_id_nonzero()
+{
+    TEST(worker_thread_id_nonzero);
+    std::string out;
+    const int rc = runSourceCapturing("sp_worker_id",
+        "import io;\n"
+        "void worker() {\n"
+        "    if (thread.id() == 0) throw Exception(\"main id in worker\");\n"
+        "    io.write(\"k\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "worker observed a non-main context id");
+    CHECK(out == "k", "the id check passed inside the worker");
+    PASS();
+}
+
+//退出策略：main 返回即结束，未完成的 spawned 上下文静默丢弃（隐式
+//join-all 会让一个睡眠者挂死所有退出——计划拍板的已知限制）。默认
+//配额下 main 从不让出：worker 排队未跑，main 直接返回。
+void test_main_return_drops_unfinished_worker()
+{
+    TEST(main_return_drops_unfinished_worker);
+    std::string out;
+    const int rc = runSourceCapturing("sp_drop_unfinished",
+        "import io;\n"
+        "void worker() { io.write(\"late\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    return 7;\n"
+        "}\n",
+        out);
+    CHECK(rc == 7, "main's return value is the run result");
+    CHECK(out.empty(), "the unfinished worker is dropped silently");
+    PASS();
+}
+
+//停泊上下文的 GC 根集（风险 5）：worker 循环让出，其帧（含结构体局部）
+//在整个分配风暴期间停泊在调度器内；main 以压力阈值分配触发多轮回收。
+//根臂缺失时结构体被清扫：槽位未复用则字段读越过 size 0 边界守卫当场抛
+//错；被风暴分配复用则读到风暴值（i + 1000，刻意永不为哨兵 42）——两条
+//路径都让 worker 抛出、join 重抛、本测试失败。有根臂则存活、"ok" 精确
+//输出。（突变验证：注释 MarkSchedulerRoots 调用本测试必须转红。）
+//结构三要求，缺一则空转（逐层突变验证实证）：①配额旋钮=1 强制交错——
+//默认配额下 main 的 200 次回边从不抢占，worker 在 join 前从未运行；
+//②worker 循环让出且圈数多于 main 迭代数——停泊窗口须横跨整个风暴，
+//单次让出的 worker 在首次回收（堆超阈值 8）前就结束，窗口内零回收；
+//③风暴值避开哨兵值——复用别名形只有值断言能捕获。
+void test_gc_keeps_parked_context_roots()
+{
+    TEST(gc_keeps_parked_context_roots);
+    CompiledModule mod = buildLinkedModule("sp_gc_roots",
+        "import io;\n"
+        "struct Cell {\n"
+        "    int v;\n"
+        "}\n"
+        "void worker() {\n"
+        "    Cell c;\n"
+        "    c.v = 42;\n"
+        "    int spins = 0;\n"
+        "    while (spins < 400) {\n"
+        "        thread.yield();\n"
+        "        spins = spins + 1;\n"
+        "    }\n"
+        "    if (c.v != 42) throw Exception(\"stale parked root\");\n"
+        "    io.write(\"ok\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    int i = 0;\n"
+        "    while (i < 200) {\n"
+        "        Cell g;\n"
+        "        g.v = i + 1000;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    //Quota 1 forces real interleaving: main's allocation storm runs WHILE
+    //the worker sits parked (yield) with its struct live in ctx->frames —
+    //the scenario this test exists for. At the default quota main's
+    //200-iteration loop never preempts, the worker first runs only after
+    //join, and the test would pass vacuously (mutation-verified).
+    exec.SetSchedulerTripForTests(1);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0,
+          "parked worker survives main's allocation storm");
+    CHECK(io.m_out == "ok",
+          "the parked frame's struct local stayed reachable");
+    PASS();
+}
+
+//Run one test function; an escaping exception (the test's own program
+//failed to build or threw at run time) counts as that test's failure,
+//not a suite abort — Slice 6 tests assert on successful runs, so a
+//regression must surface per-test.
+static void runGuarded(void (*fn)())
+{
+    try {
+        fn();
+    } catch (const std::exception& e) {
+        FAIL(std::string("exception: ") + e.what());
+    }
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -754,6 +1077,16 @@ int main()
         test_thread_package_name_reserved();
         test_thread_ns_user_name_shadows();
         test_thread_ns_cross_module();
+        runGuarded(test_spawn_join_runs_worker);
+        runGuarded(test_spawn_round_robin_under_quota);
+        runGuarded(test_join_idempotent_after_finish);
+        runGuarded(test_join_before_target_runs);
+        runGuarded(test_join_failed_target_rethrows_original);
+        runGuarded(test_spawn_bound_method_root);
+        runGuarded(test_spawn_via_delegate_variable);
+        runGuarded(test_worker_thread_id_nonzero);
+        runGuarded(test_main_return_drops_unfinished_worker);
+        runGuarded(test_gc_keeps_parked_context_roots);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

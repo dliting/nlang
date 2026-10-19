@@ -75,8 +75,9 @@ struct ExecutionContext {
     int64_t resultCell = 0;         //根帧返回值（main 退出码 / 后续取值）
 };
 
-//调度器本体（VmExecutor 经 unique_ptr 持有）。本片仅：注册（main）、
-//FIFO 出队、完成/失败迁移与观测；停泊/唤醒迁移随生产者切片接入。
+//调度器本体（VmExecutor 经 unique_ptr 持有）。注册（main/spawned）、
+//FIFO 出队、停泊/唤醒迁移与观测。帧的搬运（m_callStack ⇄ ctx->frames）
+//由执行器完成——调度器只管状态与队列。
 class VmScheduler {
 public:
     static constexpr int kMainThreadId = 0;
@@ -100,19 +101,31 @@ public:
     //抢占后重新入队尾（载体不再持有该上下文）。
     void Requeue(int id);
 
+    //join 停泊（Slice 6）：state → ParkedJoin，parkHandle 记目标；帧的
+    //搬运由载体统一完成。目标未在运行队列之列——唤醒只经 WakeJoiners。
+    void ParkForJoin(int id, int targetId);
+
+    //目标上下文终结（Finished/Failed）时唤醒其全部 joiner：回 Runnable
+    //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标
+    //的 failExcHeapIdx）。多 joiner 皆唤醒（计划决策 6）。
+    void WakeJoiners(int targetId, bool failed);
+
     void MarkFinished(int id, int64_t result);
-    void MarkFailed(int id);
+    void MarkFailed(int id, int32_t failExcHeapIdx);
 
     //观测（白盒测试注入断言）。
     size_t ContextCount() const { return m_contexts.size(); }
     const ExecutionContext* Find(int id) const;
     int CurrentContextId() const { return m_currentId; }
 
-private:
-    //非 const 观测的内部镜像（迁移方法用）。
+    //执行器侧的可变访问（帧搬运/根登记）；id 越界返回 nullptr。
     ExecutionContext* FindMutable(int id);
 
-    std::vector<ExecutionContext> m_contexts;   //id == 下标（单调分配）
+private:
+    //上下文注册表。deque 是有意的：push_back 不搬移既有元素，&
+    //ctx->resultCell（spawned 根帧的 externalResult）在后续 spawn 下
+    //保持稳定——vector 会悬垂。
+    std::deque<ExecutionContext> m_contexts;    //id == 下标（单调分配）
     std::deque<int> m_runQueue;                 //Runnable 且未被载体持有
     //定时器线性表（Slice 7 生产者接入；本片恒空，Reset 负责清空）。
     struct TimerEntry {

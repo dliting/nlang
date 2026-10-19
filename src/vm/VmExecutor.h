@@ -230,6 +230,10 @@ private:
     void ResetPerRunState(const CompiledModule& module);
     void InitStringStore(const CompiledModule& module);
     void InitStructHeap();
+    //K1 Slice 6: cache builtin class indexes (Exception family + Thread)
+    //from the freshly linked module — extracted from ResetPerRunState
+    //for the function size guard.
+    void CacheBuiltinClassIndexes(const CompiledModule& module);
 
     //Frame machine (concurrency K1): NLang calls push frames onto
     //m_callStack and one iterative dispatch loop runs them — NLang
@@ -238,6 +242,10 @@ private:
     //toString/host windows: the depth at their entry). Definitions in
     //VmExecutorOps.cpp.
     void RunFrames(size_t baseDepth);
+    //K1 Slice 6: at RunFrames entry, throw the armed join-target failure
+    //(a resumed joiner over a FAILED target) inside the handler-search
+    //try — no-op unless the carrier armed m_resumeThrowExcIdx.
+    void ConsumeResumeThrow();
     void DispatchFrames(size_t baseDepth);   //inner loop; throws on error
     //Bind a catch handler for the in-flight exception in this frame
     //(tryBlocks walk at the throwing instruction's opPc). Returns false
@@ -493,6 +501,11 @@ private:
     //heap-index domains: over-marking is safe (GC is non-moving), and
     //frame zero-init rejects never-written cells.
     void MarkFrameBand(const CallFrame& frame, std::vector<int32_t>& worklist);
+    //K1 Slice 6: scheduler root arm — parked/queued contexts' frames
+    //(not in m_callStack under the steal model) plus each context's
+    //Thread object and a Failed context's exception object (join rethrows
+    //it by heap idx). Same three frame arms as the running stack.
+    void MarkSchedulerRoots(std::vector<int32_t>& worklist);
     void MarkFuncReceiver(int32_t idx, std::vector<int32_t>& worklist);
     void MarkBoxedPayload(int32_t idx);
     void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
@@ -537,6 +550,30 @@ private:
     //window's result lands in resultCell.
     void RunCarrier(const CompiledFunction& mainFunc, uint8_t* resultCell);
 
+    //K1 Slice 6: one context's turn on the carrier — resume (frames
+    //return to m_callStack; a failed-join joiner rethrows before
+    //dispatch) or start main's fresh root window; on return, record the
+    //result and wake joiners. May throw anything RunFrames throws.
+    void RunContextWindow(int ctx, ExecutionContext* info,
+                          const CompiledFunction& mainFunc,
+                          uint8_t* hostResultCell);
+
+    //K1 Slice 6: arm m_resumeThrowExcIdx when this context was woken
+    //over a FAILED join target (rethrowOnResume). Refuses loudly on a
+    //missing/exceptionless target — never silently no-op.
+    void ArmResumeRethrow(ExecutionContext* info);
+
+    //K1 Slice 6: containment rule for an uncaught NLang exception
+    //escaping a context root. Spawned: Failed + wake joiners (failure
+    //reaches the host only through join; dead frames' unwind records
+    //drop). Main: rethrow to the host. Returns true for main.
+    bool FailContextContained(int ctx, int32_t excHeapIdx);
+
+    //K1 Slice 6: exit check — queue drained but main never returned
+    //(every survivor parked). Unreachable in K1 (no join cycle
+    //constructible); guards against silently returning garbage.
+    void ThrowIfMainUnfinished() const;
+
     //K1 decision 7: debug callbacks fire for the main context only
     //(spawned contexts stay silent — full multi-context debugging is
     //K4). Slice 4 runs main only, so behavior is unchanged.
@@ -578,6 +615,24 @@ private:
     //= this).
     bool ExecuteIntrinsicThread(uint16_t intrinsicId,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    //K1 Slice 6 spawn/join bodies (IntrinsicsThread.cpp), extracted from
+    //ExecuteIntrinsicThread for the file/function size guards. spawn
+    //resolves the func<void> handle, registers the context, builds its
+    //root frame (receiver at slot 0 for bound handles) and mints the
+    //Thread object; join parks or rethrows per the target's state.
+    bool IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
+                        uint8_t* pResult);
+    bool IntrinsicJoin(uint16_t callParamBase, uint8_t* locals);
+    //K1 Slice 6 spawn helpers: validate + resolve the delegate target
+    //(no native/intrinsic bodies, zero-argument contract) and mint the
+    //Thread object for a registered context (__handle = context id).
+    const CompiledFunction& ResolveSpawnTarget(
+        const std::vector<int32_t>& handle, int32_t& receiverIdx);
+    int32_t MintThreadObject(int ctxId);
+    //Rethrow a failed join target's original exception object (by heap
+    //idx — same object, same raise-time backtrace). Shared by the join
+    //intrinsic (target already Failed) and the resume path.
+    [[noreturn]] void ThrowJoinTargetFailure(int32_t excHeapIdx);
 
     //Phase 11 Step 3: allocate one boxed-value heap slot (layout per
     //OP_Box: slot[0]=tag, slot[1]=value bits). Shared by OP_Box and the
@@ -871,12 +926,15 @@ private:
     //>0 while a nested evaluation window (toString / host CallByName)
     //is in flight — NestEvalGuard owns the count.
     int m_nestDepth = 0;
-    //K1: the next queue pop is a RESUME, not a fresh root — a parked
-    //context's frames are still on m_callStack at the advanced pc, so
-    //the carrier must re-enter RunFrames instead of RunRootWindow.
-    //Slice 6 generalizes this to the steal model (frames move into
-    //ExecutionContext::frames per context).
-    bool m_pendingResume = false;
+    //K1 Slice 6: a pending exception object to throw at the next RunFrames
+    //entry (a joiner resumed after its FAILED target rethrows the target's
+    //original exception INTO the restored frame stack, so the joiner's own
+    //try/catch — and the uncaught path — see it exactly as if the join
+    //call had thrown). 0 = none; consumed at entry. Armed by the carrier
+    //only (top-level resume, nestDepth 0).
+    int32_t m_resumeThrowExcIdx = 0;
+    //K1 Slice 6: cached "Thread" class index (spawn mints instances).
+    int16_t m_threadClassIdx = -1;
 
     //Phase 9d: cached class indices for the built-in Exception hierarchy.
     //Initialized in Execute() via module.FindClass; -1 = not found (only
