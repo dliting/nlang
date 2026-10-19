@@ -407,6 +407,14 @@ void VmExecutor::SweepPhase() {
                     if (handle > 0)
                         m_dictFreeList.push_back(handle);
                 }
+                //K1 Slice 8: recycle Mutex handle when an instance is freed.
+                //A dropped-while-held mutex leaves its waiters parked
+                //forever — the carrier's exit guard reports that shape.
+                if (static_cast<int16_t>(classIdx) == m_mutexClassIdx) {
+                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+                    if (handle > 0)
+                        m_mutexFreeList.push_back(handle);
+                }
                 FreeOwnedStructs(static_cast<int32_t>(i));
             }
             if (m_slotKinds[i] == RTK_Struct)

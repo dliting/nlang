@@ -343,7 +343,7 @@ void test_frame_throw_across_frames_catch_continues()
 //决策 5 的核心不变量：配额到期仅是「允许调度」，不是「必须调度」——
 //没有其他 Runnable 上下文时预算原样重装、执行继续，单上下文程序逐位
 //不变。注入微小配额（2）强制 500 次回边里产生数百次到期，断言每次
-//到期都走了「跳过」臂（skip 计数与 fire 计数全等），程序结果精确。
+//到期都走了「跳过」分支（skip 计数与 fire 计数全等），程序结果精确。
 void test_scheduler_quota_skips_single_context()
 {
     TEST(scheduler_quota_skips_single_context);
@@ -371,7 +371,7 @@ void test_scheduler_quota_skips_single_context()
 }
 
 //默认配额（DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000）长循环可到期，但
-//单上下文下同样只走跳过臂——钉死常量在真实执行路径上生效。
+//单上下文下同样只走跳过分支——用测试固定常量在真实执行路径上生效。
 void test_scheduler_default_quota_single_context()
 {
     TEST(scheduler_default_quota_single_context);
@@ -424,7 +424,7 @@ void test_scheduler_registry_lifecycle()
     CHECK(exec.SchedulerContext(0) != nullptr
           && exec.SchedulerContext(0)->state == ContextState::Finished,
           "the re-run context is again main and Finished");
-    //失败路径：根帧异常逃逸走 catch(...) 臂 → MarkFailed。
+    //失败路径：根帧异常逃逸走 catch(...) 分支 → MarkFailed。
     CompiledModule boom = buildLinkedModule("sched_lifecycle_boom",
         "int main() { throw Exception(\"boom\"); }\n");
     VmExecutor execBoom;
@@ -713,7 +713,8 @@ void test_thread_ns_user_name_shadows()
 //跨模块：被导入模块中的 thread.id() 调用走序列化/链接轨道。两阶段构建
 //（一次构建塞两个源文件不是本 harness 的构建形态）：先单独编译 b 出
 //thread_xmod_b.ncu，再编译 import 它的 a（导入自盘上 .ncu 解析），闭包
-//装链接后执行——导入单元里的 OP_CallFunc 内建臂在链接产物上照常派发。
+//装链接后执行——导入单元里的 OP_CallFunc 内建函数分支在链接产物上照
+//常派发。
 void test_thread_ns_cross_module()
 {
     TEST(thread_ns_cross_module);
@@ -965,10 +966,11 @@ void test_main_return_drops_unfinished_worker()
 
 //停泊上下文的 GC 根集（风险 5）：worker 循环让出，其帧（含结构体局部）
 //在整个分配风暴期间停泊在调度器内；main 以压力阈值分配触发多轮回收。
-//根臂缺失时结构体被清扫：槽位未复用则字段读越过 size 0 边界守卫当场抛
-//错；被风暴分配复用则读到风暴值（i + 1000，刻意永不为哨兵 42）——两条
-//路径都让 worker 抛出、join 重抛、本测试失败。有根臂则存活、"ok" 精确
-//输出。（突变验证：注释 MarkSchedulerRoots 调用本测试必须转红。）
+//调度器根集处理缺失时结构体被清扫：槽位未复用则字段读越过 size 0 边
+//界守卫当场抛错；被风暴分配复用则读到风暴值（i + 1000，刻意永不为哨兵
+//42）——两条路径都让 worker 抛出、join 重抛、本测试失败。有根集处理则
+//存活、"ok" 精确输出。（突变验证：注释 MarkSchedulerRoots 调用本测试
+//必须转红。）
 //结构三要求，缺一则空转（逐层突变验证实证）：①配额旋钮=1 强制交错——
 //默认配额下 main 的 200 次回边从不抢占，worker 在 join 前从未运行；
 //②worker 循环让出且圈数多于 main 迭代数——停泊窗口须横跨整个风暴，
@@ -1157,6 +1159,235 @@ void test_thread_ns_sleep_join_in_tostring_rejected()
     PASS();
 }
 
+//Slice 8：互斥串行化（计划关键测试）。三个绑定方法 worker 在临界区内
+//让出——持有期间他人的 lock 停泊、unlock 移交；无互斥时让出必然交错读
+//写丢更新。断言精确终值。
+void test_mutex_serializes_critical_section()
+{
+    TEST(mutex_serializes_critical_section);
+    std::string out;
+    const int rc = runSourceCapturing("mx_serial",
+        "import io;\n"
+        "class Counter {\n"
+        "    public Mutex gate;\n"
+        "    public int n;\n"
+        "    public void bump() {\n"
+        "        gate.lock();\n"
+        "        n = n + 1;\n"
+        "        thread.yield();\n"
+        "        gate.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Counter c = Counter();\n"
+        "    c.gate = Mutex();\n"
+        "    Thread a = thread.spawn(c.bump);\n"
+        "    Thread b = thread.spawn(c.bump);\n"
+        "    Thread d = thread.spawn(c.bump);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(d);\n"
+        "    io.write(c.n.toString());\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "mutex program completes");
+    CHECK(out == "3", "three serialized increments (got: " + out + ")");
+    PASS();
+}
+
+//Slice 8：FIFO 唤醒顺序。三个 worker 按到达顺序停泊（B 先于 D），unlock
+//逐个向队首移交；临界区内各写一字母——输出恰为到达顺序。串行化测试杀
+//「不停泊」突变，本测试杀「LIFO/乱序唤醒」突变（终值仍为 3、顺序错）。
+void test_mutex_wakes_waiters_fifo()
+{
+    TEST(mutex_wakes_waiters_fifo);
+    std::string out;
+    const int rc = runSourceCapturing("mx_fifo",
+        "import io;\n"
+        "class Gate {\n"
+        "    public Mutex m;\n"
+        "    public void enterA() {\n"
+        "        m.lock();\n"
+        "        io.write(\"a\");\n"
+        "        thread.yield();\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "    public void enterB() {\n"
+        "        m.lock();\n"
+        "        io.write(\"b\");\n"
+        "        thread.yield();\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "    public void enterD() {\n"
+        "        m.lock();\n"
+        "        io.write(\"d\");\n"
+        "        thread.yield();\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Gate g = Gate();\n"
+        "    g.m = Mutex();\n"
+        "    Thread a = thread.spawn(g.enterA);\n"
+        "    Thread b = thread.spawn(g.enterB);\n"
+        "    Thread d = thread.spawn(g.enterD);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(d);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "fifo program completes");
+    CHECK(out == "abd",
+        "waiters enter in FIFO arrival order (got: " + out + ")");
+    PASS();
+}
+
+//Slice 8：tryLock 非停泊探测。worker 持锁睡 20ms；main 睡 5ms 后探测
+//（持有→false），join 后再探测（已释放→true）。截止时间定序，无墙钟
+//断言。
+void test_mutex_trylock_reports_held_state()
+{
+    TEST(mutex_trylock_reports_held_state);
+    std::string out;
+    const int rc = runSourceCapturing("mx_trylock",
+        "import io;\n"
+        "class Holder {\n"
+        "    public Mutex gate;\n"
+        "    public void hold() {\n"
+        "        gate.lock();\n"
+        "        thread.sleep(20);\n"
+        "        gate.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Holder h = Holder();\n"
+        "    h.gate = Mutex();\n"
+        "    Thread t = thread.spawn(h.hold);\n"
+        "    thread.sleep(5);\n"
+        "    if (!h.gate.tryLock()) io.write(\"1\");\n"
+        "    thread.join(t);\n"
+        "    if (h.gate.tryLock()) io.write(\"2\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "tryLock program completes");
+    CHECK(out == "12",
+        "held → false, released → true (got: " + out + ")");
+    PASS();
+}
+
+//Slice 8：未持有 unlock 是对语言面的误用——基础异常，消息点名。
+void test_mutex_unlock_without_hold_rejected()
+{
+    TEST(mutex_unlock_without_hold_rejected);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("mx_unlock_bare",
+            "int main() {\n"
+            "    Mutex m = Mutex();\n"
+            "    m.unlock();\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "unlock without holding must be an error");
+    CHECK(what.find("without holding") != std::string::npos,
+        "message names the rule (got: " + what + ")");
+    PASS();
+}
+
+//Slice 8：锁停泊帧的 GC 根集（Slice 6 形态的互斥变体）。worker 先建仅
+//由自己引用的结构体局部，再对 main 持有的互斥体加锁而停泊——互斥即交
+//错保证（无需配额旋钮）：停泊窗口必然横跨 main 的整个分配风暴。压力阈
+//值触发多轮回收；根集处理若以停泊状态为条件跳过 ParkedMutex 帧，局部
+//被清扫（越界守卫抛错或复用读到风暴值 i+1000≠42），worker 抛出、join
+//重抛、本测试失败；有根集处理则 "ok" 精确输出。（突变验证：
+//MarkSchedulerRoots 跳过 ParkedMutex 上下文本测试必须转红。）
+void test_gc_keeps_mutex_parked_roots()
+{
+    TEST(gc_keeps_mutex_parked_roots);
+    CompiledModule mod = buildLinkedModule("mx_gc_storm",
+        "import io;\n"
+        "struct Cell {\n"
+        "    int v;\n"
+        "}\n"
+        "class Gate {\n"
+        "    public Mutex m;\n"
+        "    public void worker() {\n"
+        "        Cell mine;\n"
+        "        mine.v = 42;\n"
+        "        m.lock();\n"
+        "        if (mine.v != 42) throw Exception(\"stale parked local\");\n"
+        "        m.unlock();\n"
+        "        io.write(\"ok\");\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Gate g = Gate();\n"
+        "    g.m = Mutex();\n"
+        "    g.m.lock();\n"
+        "    Thread t = thread.spawn(g.worker);\n"
+        "    thread.yield();\n"
+        "    int i = 0;\n"
+        "    while (i < 200) {\n"
+        "        Cell storm;\n"
+        "        storm.v = i + 1000;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    g.m.unlock();\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0,
+          "parked-on-mutex worker survives main's allocation storm");
+    CHECK(io.m_out == "ok",
+          "the parked frame's struct local stayed reachable");
+    PASS();
+}
+
+//Slice 8：不可重入——自重锁永久停泊；main join 该 worker 后运行队列与
+//定时器表皆空，载体的退出守卫（ThrowIfMainUnfinished）首次可构造触发：
+//「deadlock — no runnable contexts remain」。
+void test_mutex_relock_deadlock_surfaces()
+{
+    TEST(mutex_relock_deadlock_surfaces);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("mx_relock",
+            "class Gate {\n"
+            "    public Mutex m;\n"
+            "    public void relock() {\n"
+            "        m.lock();\n"
+            "        m.lock();\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    Gate g = Gate();\n"
+            "    g.m = Mutex();\n"
+            "    Thread t = thread.spawn(g.relock);\n"
+            "    thread.join(t);\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "a self-relock must surface as the carrier deadlock");
+    CHECK(what.find("deadlock") != std::string::npos,
+        "message names the deadlock guard (got: " + what + ")");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -1223,6 +1454,12 @@ int main()
         runGuarded(test_sleep_wakes_by_deadline);
         runGuarded(test_sleep_rejects_negative_duration);
         runGuarded(test_thread_ns_sleep_join_in_tostring_rejected);
+        runGuarded(test_mutex_serializes_critical_section);
+        runGuarded(test_mutex_wakes_waiters_fifo);
+        runGuarded(test_mutex_trylock_reports_held_state);
+        runGuarded(test_gc_keeps_mutex_parked_roots);
+        runGuarded(test_mutex_unlock_without_hold_rejected);
+        runGuarded(test_mutex_relock_deadlock_surfaces);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

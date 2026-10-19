@@ -1,7 +1,7 @@
 /*---
     VmScheduler.cpp — 单载体调度器实现（并发 K1）
     Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 7 定时器（空队列时
-    载体睡至最近到期）。
+    载体睡至最近到期）+ Slice 8 互斥停泊/唤醒。
 ---*/
 #include "VmScheduler.h"
 #include <thread>
@@ -25,7 +25,7 @@ int VmScheduler::RegisterContext() {
     return id;
 }
 
-//空队列时的定时器臂：睡至最近到期（睡眠中的上下文不可运行，载体闲
+//空队列时的定时器处理分支：睡至最近到期（睡眠中的上下文不可运行，载体闲
 //等是唯一选择——单载体无他人可调度），迁移到期者后回到正常出队。全
 //部停泊均无定时器时本轮运行结束（-1）。循环而非单次睡眠：防御到期
 //条目全部陈旧的退化形态（K1 构造不出，见 ExpireDueTimers）。
@@ -134,6 +134,27 @@ void VmScheduler::ExpireDueTimers() {
         }
     }
     m_timers = std::move(remaining);
+}
+
+//互斥停泊（Slice 8）：仅状态迁移——等待者集合在执行器的 MutexSlot 侧
+//表（FIFO），唤醒由 unlock 的所有权移交显式触发（WakeForMutex）。
+void VmScheduler::ParkForMutex(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::ParkedMutex;
+    if (m_currentId == id)
+        m_currentId = -1;
+}
+
+//互斥唤醒（Slice 8）：unlock 把所有权移交给队首等待者后调用——回
+//Runnable 入队尾。
+void VmScheduler::WakeForMutex(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::Runnable;
+    m_runQueue.push_back(id);
 }
 
 const ExecutionContext* VmScheduler::Find(int id) const {

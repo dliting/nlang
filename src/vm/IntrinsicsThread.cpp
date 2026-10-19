@@ -1,11 +1,11 @@
 /*---
     IntrinsicsThread.cpp — K1 并发内在函数族：
-      · thread.* 自由调用（129-133）：OP_CallFunc 内建臂派发，参数自
-        callParamBase 槽 0 起（无 this）；
+      · thread.* 自由调用（129-133）：经 OP_CallFunc 的内建函数分支
+        派发，参数自 callParamBase 槽 0 起（无 this）；
       · Mutex/Channel 方法（134-141）：接收者派发形态（槽 0 = this）。
-    Slice 5 接入 yield/id，Slice 6 接入 spawn/join，Slice 7 接入 sleep；
-    其余在切片 8-9 逐个接入，此前统一「not implemented yet」基础异常
-    （编译面已注册，行为面未到）。
+    Slice 5 接入 yield/id，Slice 6 接入 spawn/join，Slice 7 接入 sleep，
+    Slice 8 接入 Mutex 全族；Channel 在切片 9 接入，此前统一
+    「not implemented yet」基础异常（编译面已注册，行为面未到）。
 ---*/
 #include "VmExecutor.h"
 #include <chrono>
@@ -44,16 +44,18 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
         return IntrinsicJoin(callParamBase, locals);
     case INTR_Thread_Sleep:
         return IntrinsicSleep(callParamBase, locals);
-    //Registered but not yet implemented — each arrives in its slice
-    //(Mutex Slice 8, Channel Slice 9).
+    //Slice 8: the Mutex family (see the bodies below the join/sleep
+    //intrinsics — receiver-dispatch shape, slot 0 = the instance).
     case INTR_Mutex_Ctor:
-        ThrowThreadNotImplemented("Mutex constructor");
+        return IntrinsicMutexCtor(callParamBase, locals);
     case INTR_Mutex_Lock:
-        ThrowThreadNotImplemented("Mutex.lock");
+        return IntrinsicMutexLock(callParamBase, locals);
     case INTR_Mutex_Unlock:
-        ThrowThreadNotImplemented("Mutex.unlock");
+        return IntrinsicMutexUnlock(callParamBase, locals);
     case INTR_Mutex_TryLock:
-        ThrowThreadNotImplemented("Mutex.tryLock");
+        return IntrinsicMutexTryLock(callParamBase, locals, pResult);
+    //Registered but not yet implemented — each arrives in its slice
+    //(Channel Slice 9).
     case INTR_Channel_Ctor:
         ThrowThreadNotImplemented("Channel constructor");
     case INTR_Channel_Send:
@@ -187,9 +189,9 @@ bool VmExecutor::IntrinsicJoin(uint16_t callParamBase, uint8_t* locals)
 
 //thread.sleep(ms)。steady_clock 截止时刻经 ParkForTimer 登记（状态 +
 //定时器表），RequestPark 抛出信号、载体偷帧；恢复点由 OP_CallFunc 内建
-//臂的 pc 推进不变量保证（同 yield/join）。sleep(0) 是纯让出：立即到期
-//的定时器使载体先运行队列中的其他上下文。负时长是对语言面的误用——
-//基础异常拒绝（同 spawn 目标拒绝形态）。
+//函数处理分支的 pc 推进不变量保证（同 yield/join）。sleep(0) 是纯让出：
+//立即到期的定时器使载体先运行队列中的其他上下文。负时长是对语言面的
+//误用——基础异常拒绝（同 spawn 目标拒绝形态）。
 bool VmExecutor::IntrinsicSleep(uint16_t callParamBase, uint8_t* locals)
 {
     //Argument 0: the millisecond count (int).
@@ -205,6 +207,107 @@ bool VmExecutor::IntrinsicSleep(uint16_t callParamBase, uint8_t* locals)
         + std::chrono::milliseconds(ms);
     m_spScheduler->ParkForTimer(m_spScheduler->CurrentContextId(), wakeAt);
     RequestPark(ParkSignal::Reason::Timer);   //[[noreturn]]
+}
+
+//Slice 8: Mutex() 构造——物化侧表槽位并把句柄写进 __handle（同 List
+//构造形态：接收者即 callParamBase 槽 0 的实例记录）。
+bool VmExecutor::IntrinsicMutexCtor(uint16_t callParamBase, uint8_t* locals)
+{
+    int32_t thisIdx;
+    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
+    if (thisIdx <= 0
+        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null reference in Mutex constructor");
+    m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset]
+        = AllocMutexHandle();
+    return true;
+}
+
+//lock()：空闲即取（ownerId 记当前上下文）；被持（含自持——不可重入）
+//则 FIFO 停泊，unlock 移交。停泊经 ParkSignal(Mutex)；恢复点由调用
+//派发分支的 pc 推进不变量保证（同 yield/join/sleep）。
+bool VmExecutor::IntrinsicMutexLock(uint16_t callParamBase, uint8_t* locals)
+{
+    MutexSlot& slot = ResolveMutexSlot(callParamBase, locals);
+    const int selfId = m_spScheduler->CurrentContextId();
+    if (slot.ownerId < 0) {
+        slot.ownerId = selfId;
+        return true;
+    }
+    //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
+    //nested-window rejection must not leave a half-parked context.
+    EnsureSuspensionAllowed();
+    slot.waiters.push_back(selfId);
+    m_spScheduler->ParkForMutex(selfId);
+    RequestPark(ParkSignal::Reason::Mutex);   //[[noreturn]]
+}
+
+//tryLock()：空闲取之返 true，被持返 false——绝不停泊（唯一不挂起的探
+//测路径，可在嵌套求值窗口内安全调用）。
+bool VmExecutor::IntrinsicMutexTryLock(uint16_t callParamBase,
+                                       uint8_t* locals, uint8_t* pResult)
+{
+    MutexSlot& slot = ResolveMutexSlot(callParamBase, locals);
+    const bool acquired = slot.ownerId < 0;
+    if (acquired)
+        slot.ownerId = m_spScheduler->CurrentContextId();
+    int32_t r = acquired ? 1 : 0;
+    std::memcpy(pResult, &r, sizeof(r));
+    return true;
+}
+
+//unlock()：未持有 → 基础异常；有等待者 → 所有权移交队首并唤醒（FIFO，
+//移交与唤醒原子——不存在锁看似空闲的窗口）；无等待者 → 置空闲。
+bool VmExecutor::IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals)
+{
+    MutexSlot& slot = ResolveMutexSlot(callParamBase, locals);
+    const int selfId = m_spScheduler->CurrentContextId();
+    if (slot.ownerId != selfId)
+        throw std::runtime_error(
+            "NLang VM: Mutex.unlock without holding the lock");
+    if (slot.waiters.empty()) {
+        slot.ownerId = -1;
+        return true;
+    }
+    const int next = slot.waiters.front();
+    slot.waiters.pop_front();
+    slot.ownerId = next;
+    m_spScheduler->WakeForMutex(next);
+    return true;
+}
+
+//Slice 8 共享：解析接收者实例（callParamBase 槽 0）到侧表槽位。句柄即
+//__handle 字段（kListHandleFieldOffset，List/Dict 同布局）。
+VmExecutor::MutexSlot& VmExecutor::ResolveMutexSlot(
+    uint16_t callParamBase, uint8_t* locals)
+{
+    int32_t thisIdx;
+    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
+    if (thisIdx <= 0
+        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null reference in Mutex call");
+    const int32_t handle =
+        m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset];
+    if (handle <= 0 || static_cast<size_t>(handle) > m_mutexStore.size())
+        throw std::runtime_error(
+            "NLang VM: Mutex call on an uninitialized instance");
+    return m_mutexStore[static_cast<size_t>(handle) - 1];
+}
+
+//Slice 8：分配互斥体侧表槽位（句柄 = 下标+1，0 保留给 null）。复用槽
+//位时整体重置——清扫回收只归还句柄，owner/waiters 可能残留被丢弃锁
+//（持锁时实例死亡的程序缺陷形态）的状态。
+int32_t VmExecutor::AllocMutexHandle() {
+    if (!m_mutexFreeList.empty()) {
+        const int32_t handle = m_mutexFreeList.back();
+        m_mutexFreeList.pop_back();
+        m_mutexStore[static_cast<size_t>(handle) - 1] = MutexSlot();
+        return handle;
+    }
+    m_mutexStore.emplace_back();
+    return static_cast<int32_t>(m_mutexStore.size());
 }
 
 //Rethrow a failed join target's exception OBJECT (same heap idx — same

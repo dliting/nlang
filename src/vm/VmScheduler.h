@@ -6,7 +6,8 @@
     （DEFAULT_SCHEDULER_TRIP_BACKEDGES）到期且另有 Runnable 上下文时经
     ParkSignal(Preempted) 抢占——FIFO + 定量配额 = 完全确定性调度。
     Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 7 sleep 定时器（空队
-    列时载体睡至最近到期）；Mutex/Channel 在切片 8-9 接入。
+    列时载体睡至最近到期）+ Slice 8 互斥停泊/唤醒；Channel 在切片 9
+    接入。
 
     帧的存放约定（「停泊即窃取」）：运行中上下文的帧就是 VmExecutor::
     m_callStack；挂起时整栈 move 进 ExecutionContext::frames，恢复时
@@ -106,9 +107,17 @@ public:
     void ParkForJoin(int id, int targetId);
 
     //sleep 停泊（Slice 7）：state → ParkedTimer、记唤醒时刻并入定时器
-    //表；不入运行队列——到期由 PopNextRunnable 的空队列臂迁回 Runnable。
+    //表；不入运行队列——到期由 PopNextRunnable 的空队列处理分支迁回 Runnable。
     void ParkForTimer(int id,
                       std::chrono::steady_clock::time_point wakeAt);
+
+    //互斥停泊（Slice 8）：state → ParkedMutex。等待者集合在执行器的
+    //MutexSlot 侧表（FIFO）——调度器不记 parkHandle，唤醒只经
+    //WakeForMutex（unlock 的所有权移交触发）。
+    void ParkForMutex(int id);
+    //互斥唤醒（Slice 8）：unlock 把所有权移交给队首等待者后调用——回
+    //Runnable 入队尾。
+    void WakeForMutex(int id);
 
     //目标上下文终结（Finished/Failed）时唤醒其全部 joiner：回 Runnable
     //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标

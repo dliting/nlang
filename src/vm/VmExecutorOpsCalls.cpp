@@ -155,6 +155,9 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     if (funcIndex >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid function index in CallMethodDirect");
     const CompiledFunction& callee = m_currModule->functions[funcIndex];
+    //K1: pc must advance BEFORE ExecuteIntrinsic — a parking intrinsic
+    //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
+    //re-executing the call would re-park forever (OpCallFunc invariant).
     if (callee.intrinsicId != INTR_None) {
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
@@ -233,7 +236,11 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     if (funcIndex < 0)
         throw std::runtime_error("NLang VM: method not found: " + methodName);
     const CompiledFunction& callee = m_currModule->functions[static_cast<size_t>(funcIndex)];
+    //K1: pc must advance BEFORE ExecuteIntrinsic — a parking intrinsic
+    //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
+    //re-executing the call would re-park forever (OpCallFunc invariant).
     if (callee.intrinsicId != INTR_None) {
+        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }

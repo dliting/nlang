@@ -11,6 +11,7 @@
 #include "CallFrame.h"
 #include "VmScheduler.h"
 #include <cstdint>
+#include <deque>
 #include <fstream>
 #include <memory>
 #include <random>
@@ -631,6 +632,21 @@ private:
     //K1 Slice 7: park the current context on a steady_clock deadline;
     // negative durations are rejected as a basic error.
     bool IntrinsicSleep(uint16_t callParamBase, uint8_t* locals);
+    //K1 Slice 8: Mutex method intrinsics (IntrinsicsThread.cpp). lock
+    //parks on contention (FIFO waiters, non-reentrant — a self-relock
+    //parks and the carrier's exit guard reports the deadlock); tryLock
+    //never parks; unlock validates ownership and hands off to the front
+    //waiter.
+    struct MutexSlot;   //defined beside the side-table members below
+    bool IntrinsicMutexCtor(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicMutexLock(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicMutexTryLock(uint16_t callParamBase, uint8_t* locals,
+                               uint8_t* pResult);
+    //Slice 8 helpers: allocate a side-table slot (handle = index+1, 0
+    //reserved for null) and resolve a receiver instance to its slot.
+    int32_t AllocMutexHandle();
+    MutexSlot& ResolveMutexSlot(uint16_t callParamBase, uint8_t* locals);
     //K1 Slice 6 spawn helpers: validate + resolve the delegate target
     //(no native/intrinsic bodies, zero-argument contract) and mint the
     //Thread object for a registered context (__handle = context id).
@@ -1061,7 +1077,22 @@ private:
     std::vector<int32_t>  m_dictFreeList;    //recycled slots after GC sweep
     int16_t m_dictClassIdx = -1;             //set when "Dict" CompiledClass is located
 
-    //slot[0] of a List instance heap entry holds classIdx; slot[1] holds __handle.
+    //K1 Slice 8: Mutex side table. ownerId -1 = unlocked (context ids
+    //are ≥ 0 — main IS 0, so 0 cannot double as the free sentinel);
+    //waiters hold context ids in FIFO arrival order — unlock hands
+    //ownership to the front waiter (non-reentrant: a self-relock parks).
+    //Only context ids live here, never heap idxs, so GC does not trace
+    //this store.
+    struct MutexSlot {
+        int ownerId = -1;
+        std::deque<int> waiters;
+    };
+    std::vector<MutexSlot> m_mutexStore;     //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>   m_mutexFreeList;  //recycled slots after GC sweep
+    int16_t m_mutexClassIdx = -1;            //set when "Mutex" CompiledClass is located
+
+    //slot[0] of a container/sync-primitive instance heap entry holds
+    //classIdx; slot[1] holds __handle (List/Dict/Mutex share the layout).
     //Used by GC trace/sweep and ReadListHandle.
     static constexpr int kListHandleFieldOffset = 1;
     //A RTK_Boxed heap record has layout [typeTag, valueLo, valueHi]
