@@ -37,40 +37,73 @@ static FunctionSlotHit ResolveNamespacedFunction(
     return r;
 }
 
-//属主键分支（方法/构造器）：先按限定键在目标单元自有类区找属主类，
-//再类内消歧——名＝裸类名走 constructorIdx，否则 methodIndices 按裸名
-//（形参数为校验；类内无重载）。表键保持裸名，属主键只活在槽记录里。
+//属主类别措辞（诊断共用）：ownerKind 1=class、2=struct，其余按类型
+//泛称（属主键记录只可能是前两者）。
+static const char* OwnerKindWord(const CompiledModule::SymbolImport& imp) {
+    return imp.ownerKind == 2 ? "struct" : "class";
+}
+
+//按属主限定键在目标单元自有表区定位属主类型（ownerKind 分派 class/
+//struct——裸键本身无法区分 struct 构造器与同名 class 方法）。命中返回
+//true 并填 tc/ts（恰其一非空）。
+static bool FindOwnerType(const CompiledModule& tgt,
+    const CompiledModule::SymbolImport& imp,
+    const CompiledClass*& tc, const CompiledStruct*& ts) {
+    if (imp.ownerKind == 2) {
+        const size_t tgtStOwn = tgt.structs.size() - tgt.structImports.size();
+        for (size_t k = 0; k < tgtStOwn; ++k) {
+            if (tgt.structs[k].name == imp.ownerClassKey) {
+                ts = &tgt.structs[k];
+                return true;
+            }
+        }
+        return false;
+    }
+    const size_t tgtClsOwn = tgt.classes.size() - tgt.classImports.size();
+    for (size_t k = 0; k < tgtClsOwn; ++k) {
+        if (tgt.classes[k].name == imp.ownerClassKey) {
+            tc = &tgt.classes[k];
+            return true;
+        }
+    }
+    return false;
+}
+
+//属主键分支（方法/构造器）：先按限定键定位属主类型（FindOwnerType），
+//再类型内消歧。构造器按 ctorOrdinal 定址属主的 constructorIndices
+//（v2.6：重载构造器同名同参，名＋形参数无法单选），方法按裸名＋形参
+//数＋静态性（类内无重载；struct 无方法，非构造器属主键记录落空）。
+//表键保持裸名，属主键只活在槽记录里。
 static FunctionSlotHit ResolveOwnerKeyedFunction(
     const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
     FunctionSlotHit r;
     const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
-    const size_t tgtClsOwn = tgt.classes.size() - tgt.classImports.size();
-    int clsIdx = -1;
-    for (size_t k = 0; k < tgtClsOwn; ++k) {
-        if (tgt.classes[k].name == imp.ownerClassKey) {
-            clsIdx = static_cast<int>(k);
-            break;
-        }
-    }
-    if (clsIdx < 0)
+    //构造器记录：ctorOrdinal 是权威选择器（0xFFFF＝非构造器槽）。
+    const bool isCtorSlot = imp.ctorOrdinal != 0xFFFF;
+    const CompiledClass* tc = nullptr;
+    const CompiledStruct* ts = nullptr;
+    if (!FindOwnerType(tgt, imp, tc, ts))
         return r;
     r.ownerClassFound = true;
-    const CompiledClass& tc = tgt.classes[clsIdx];
-    const size_t dot = imp.ownerClassKey.rfind('.');
-    const std::string bareClassName = imp.ownerClassKey.substr(
-        dot == std::string::npos ? 0 : dot + 1);
-    //构造器：类自身的构造下标（形参数为校验）。0.9.10 v2.4: 构造器恒
-    //为实例侧，静态成员导入即使同名同参（Mix.Mix）也不得落进此分支。
-    if (imp.name == bareClassName && !imp.isStatic) {
-        const uint16_t ci = tc.constructorIdx;
-        if (ci != 0xFFFF && ci < tgtOwn
-            && tgt.functions[ci].paramCount == imp.paramCount) {
-            r.hit = static_cast<int>(ci);
-            r.hits = 1;
+    if (isCtorSlot) {
+        const std::vector<uint16_t>& ctors = tc
+            ? tc->constructorIndices : ts->constructorIndices;
+        //越界＝目标类型没有该序号的构造器（签名未命中，非闭包缺
+        //单元）；形参数再校验一次，防序号与签名漂移后错连。
+        if (imp.ctorOrdinal < ctors.size()) {
+            const uint16_t ci = ctors[imp.ctorOrdinal];
+            if (ci != 0xFFFF && ci < tgtOwn
+                && tgt.functions[ci].paramCount == imp.paramCount) {
+                r.hit = static_cast<int>(ci);
+                r.hits = 1;
+            }
         }
         return r;
     }
-    for (uint16_t mi : tc.methodIndices) {
+    //方法记录：struct 无方法，直接落空（诊断走"无该签名成员"措辞）。
+    if (!tc)
+        return r;
+    for (uint16_t mi : tc->methodIndices) {
         //0.9.10 v2.4: 静态性参与消歧（同名静态/实例方法对跨线缆后仍
         //是两个槽）。
         if (mi < tgtOwn && tgt.functions[mi].name == imp.name
@@ -93,7 +126,8 @@ static std::string DescribeFunctionImport(
         + (imp.isStatic ? " static" : "")
         + (imp.ownerClassKey.empty()
                ? std::string()
-               : " of class '" + imp.ownerClassKey + "'")
+               : std::string(" of ") + OwnerKindWord(imp)
+                     + " '" + imp.ownerClassKey + "'")
         + " from module '" + imp.modulePath + "'";
 }
 
@@ -105,7 +139,7 @@ static std::string FunctionMissLine(const CompiledModule& u,
                                     bool ownerClassFound) {
     if (!imp.ownerClassKey.empty() && ownerClassFound)
         return "unit '" + u.modulePath + "': import of " + what
-            + " fails: class '" + imp.ownerClassKey
+            + " fails: " + OwnerKindWord(imp) + " '" + imp.ownerClassKey
             + "' provides no member with that signature";
     return "unit '" + u.modulePath + "': imported " + what
         + " is not provided by any unit in the closure";
@@ -145,7 +179,8 @@ static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
                     + std::to_string(r.hits) + " matching records in "
                     + (imp.ownerClassKey.empty()
                            ? std::string("the owning unit")
-                           : "class '" + imp.ownerClassKey + "'"));
+                           : std::string(OwnerKindWord(imp))
+                                 + " '" + imp.ownerClassKey + "'"));
             else
                 maps[ui].functions[slot] =
                     maps[owner->second]

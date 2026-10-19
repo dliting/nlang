@@ -231,6 +231,11 @@ struct CompiledStruct {
     //these back for reconstruction; they exist so a consumer re-saving
     //the module emits correct descriptors.
     std::vector<TypeDesc> fieldTypeDescs;
+    //0.9.11 (v2.6): constructor function indices in declaration order —
+    //struct constructors are registered bare-name members, so the
+    //ordinal within this vector is the only stable cross-module selector
+    //(SymbolImport::ctorOrdinal). Empty = the struct has no constructor.
+    std::vector<uint16_t> constructorIndices;
     //0.9.11 D4: per-field compile-time defaults (v2.6), one entry per
     //field in declaration order (RTK_Void = no default, keeping the
     //vector dense and positionally aligned). Applied at every
@@ -277,9 +282,11 @@ struct CompiledFunction {
     //and name-based instance dispatch (FindMethodByName) must skip
     //these records — static members are a separate namespace.
     bool isStatic = false;
-    //Option B: per-formal default values. Size == paramCount for free
-    //functions and constructors; for methods, size == paramCount-1 (the
-    //'this' slot has no default). Formals without defaults carry tag=RTK_Void.
+    //Option B: per-formal default values. Free functions: size ==
+    //paramCount. Methods and constructors: paramCount counts the
+    //implicit __this slot (locals[0], isParam), so size == paramCount-1
+    //— one entry per written formal, never for 'this'. Formals without
+    //defaults carry tag=RTK_Void.
     std::vector<DefaultValueDesc> defaultValues;
     //Phase 9d: try/catch table. Empty for functions without try blocks.
     std::vector<TryBlock> tryBlocks;
@@ -316,7 +323,11 @@ struct CompiledClass {
     //classes carry none (no AST capture; no consumer).
     std::vector<TypeDesc> fieldTypeDescs;
     std::vector<uint16_t> methodIndices;         // method function indices (by declaration order)
-    uint16_t constructorIdx = 0xFFFF;           // constructor function index
+    //0.9.11 (v2.6): constructor function indices in declaration order —
+    //replaces the single constructorIdx (last-wins) record; the
+    //cross-unit ctorOrdinal is the index into this vector. Empty = the
+    //class has no constructor.
+    std::vector<uint16_t> constructorIndices;
     //0.9.10 (v2.4): the PUBLIC static method indices this class exports —
     //the only statics a consumer stub rebuilds (private statics stay
     //invisible across the module border, like private fields).
@@ -386,6 +397,17 @@ struct CompiledModule {
         //0.9.10 (v2.4): part of the linkage identity — a static and an
         //instance member of the same name and arity are distinct slots.
         bool isStatic = false;
+        //0.9.11 (v2.6): which table kind ownerClassKey addresses —
+        //0 = namespace-level (ownerClassKey empty), 1 = class member,
+        //2 = struct member. The linker dispatches its owner lookup on
+        //this (a bare key alone cannot tell a struct constructor from a
+        //same-named class method). Unused (0) on the type import lists.
+        uint8_t ownerKind = 0;
+        //0.9.11 (v2.6): constructor slots only — the index into the
+        //owner's constructorIndices (constructors share the owner's bare
+        //name, so name+paramCount cannot single one out once overloads
+        //exist). 0xFFFF = not a constructor slot.
+        uint16_t ctorOrdinal = 0xFFFF;
     };
     std::vector<SymbolImport> functionImports;   //slots after own functions
     std::vector<SymbolImport> classImports;      //slots after own classes

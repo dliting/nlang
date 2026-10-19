@@ -190,18 +190,25 @@ void test_module_import_slots_roundtrip() {
     own.paramCount = 0;
     mod.functions.push_back(std::move(own));
     //Placeholder slots: minimal records, nlink fills them at load. The
-    //first import is owner-keyed (a method of lib.Rec); the second is a
-    //namespace-level function (qualified key, empty owner class key).
+    //first import is owner-keyed (a method of class lib.Rec, v2.6
+    //ownerKind 1); the second is a namespace-level function (qualified
+    //key, empty owner class key); the third is a constructor import
+    //carrying ctorOrdinal 0 (paramCount includes the hidden this).
     CompiledFunction methodPlaceholder;
     methodPlaceholder.name = "add";
     methodPlaceholder.paramCount = 1;
     mod.functions.push_back(std::move(methodPlaceholder));
-    mod.functionImports.push_back({"lib", "add", 1, "lib.Rec"});
+    mod.functionImports.push_back({"lib", "add", 1, "lib.Rec", false, 1});
     CompiledFunction fnPlaceholder;
     fnPlaceholder.name = "lib.f";
     fnPlaceholder.paramCount = 1;
     mod.functions.push_back(std::move(fnPlaceholder));
     mod.functionImports.push_back({"lib", "lib.f", 1});
+    CompiledFunction ctorPlaceholder;
+    ctorPlaceholder.name = "Rec";
+    ctorPlaceholder.paramCount = 2;
+    mod.functions.push_back(std::move(ctorPlaceholder));
+    mod.functionImports.push_back({"lib", "Rec", 2, "lib.Rec", false, 1, 0});
 
     CompiledClass ownClass;
     ownClass.name = "app.Rec";
@@ -235,16 +242,31 @@ void test_module_import_slots_roundtrip() {
     //Header identity
     CHECK(loaded.modulePath == "app", "modulePath round-trip");
     //Four import sections round-trip field by field
-    CHECK(loaded.functionImports.size() == 2, "function import count");
+    CHECK(loaded.functionImports.size() == 3, "function import count");
     CHECK(loaded.functionImports[0].modulePath == "lib", "fn import modulePath");
     CHECK(loaded.functionImports[0].name == "add", "fn import name");
     CHECK(loaded.functionImports[0].paramCount == 1, "fn import paramCount");
     CHECK(loaded.functionImports[0].ownerClassKey == "lib.Rec",
           "fn import owner class key");
+    //v2.6: the owner kind + ctor ordinal ride the function import record.
+    CHECK(loaded.functionImports[0].ownerKind == 1,
+          "fn import owner kind (class member)");
+    CHECK(loaded.functionImports[0].ctorOrdinal == 0xFFFF,
+          "method import is not a ctor slot");
     CHECK(loaded.functionImports[1].modulePath == "lib", "fn import modulePath");
     CHECK(loaded.functionImports[1].name == "lib.f", "fn import name");
     CHECK(loaded.functionImports[1].ownerClassKey.empty(),
           "namespace-level import has an empty owner key");
+    CHECK(loaded.functionImports[1].ownerKind == 0,
+          "namespace-level import has owner kind 0");
+    CHECK(loaded.functionImports[2].modulePath == "lib", "ctor import modulePath");
+    CHECK(loaded.functionImports[2].name == "Rec", "ctor import name");
+    CHECK(loaded.functionImports[2].ownerClassKey == "lib.Rec",
+          "ctor import owner class key");
+    CHECK(loaded.functionImports[2].ownerKind == 1,
+          "ctor import owner kind (class member)");
+    CHECK(loaded.functionImports[2].ctorOrdinal == 0,
+          "ctor import carries the ctor ordinal");
     CHECK(loaded.classImports.size() == 1, "class import count");
     CHECK(loaded.classImports[0].modulePath == "gfx.color", "cls import modulePath");
     CHECK(loaded.classImports[0].name == "gfx.color.Rgb", "cls import name");
@@ -262,10 +284,12 @@ void test_module_import_slots_roundtrip() {
     CHECK(loaded.FindEnum("lib.Color") == 1, "FindEnum addresses the slot");
     CHECK(loaded.FindEnum("app.Color") == 0, "FindEnum addresses own key");
     //Placeholder records keep their slot positions
-    CHECK(loaded.functions.size() == 3, "function table size");
+    CHECK(loaded.functions.size() == 4, "function table size");
     CHECK(loaded.functions[1].name == "add", "method placeholder slot name");
     CHECK(loaded.functions[2].name == "lib.f", "fn placeholder slot name");
     CHECK(loaded.functions[2].paramCount == 1, "fn placeholder paramCount");
+    CHECK(loaded.functions[3].name == "Rec", "ctor placeholder slot name");
+    CHECK(loaded.functions[3].paramCount == 2, "ctor placeholder paramCount");
     CHECK(loaded.classes.size() == 2, "class table size");
     CHECK(loaded.classes[1].name == "gfx.color.Rgb", "cls placeholder name");
     CHECK(loaded.structs.size() == 1, "struct table size");

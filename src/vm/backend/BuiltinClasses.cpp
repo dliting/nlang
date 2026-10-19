@@ -226,7 +226,7 @@ void AppendBuiltinField(CompiledClass& cc, const BuiltinField& f,
 }
 
 //One BuiltinMethod row → a CompiledFunction stub appended to the module;
-//returns its function index for cc.methodIndices / cc.constructorIdx.
+//returns its function index for cc.methodIndices / cc.constructorIndices.
 //Ctor stubs reuse this with a synthesized row (class name + RTK_Void).
 uint16_t PushBuiltinMethodFunc(CompiledModule& module,
                                const BuiltinMethod& m) {
@@ -256,11 +256,13 @@ void VmBackend::RegisterBuiltinClasses() {
         for (size_t i = 0; i < decl.fieldCount; ++i)
             AppendBuiltinField(cc, decl.fields[i], m_listClassIdx);
         cc.fieldCount = static_cast<uint16_t>(decl.fieldCount);
-        cc.constructorIdx = 0xFFFF;  //no ctor (Object) unless pushed below
+        //0.9.11 (v2.6): plural record; a builtin declares at most one
+        //ctor, so the vector holds zero or one index (no ctor: Object).
         if (decl.hasCtor) {
-            cc.constructorIdx = PushBuiltinMethodFunc(m_compiledModule,
+            cc.constructorIndices.push_back(PushBuiltinMethodFunc(
+                m_compiledModule,
                 BuiltinMethod{decl.name, decl.ctorIntrinsicId,
-                              decl.ctorParamCount, RTK_Void});
+                              decl.ctorParamCount, RTK_Void}));
         }
         for (size_t i = 0; i < decl.methodCount; ++i)
             cc.methodIndices.push_back(PushBuiltinMethodFunc(

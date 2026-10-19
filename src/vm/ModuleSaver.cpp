@@ -272,10 +272,16 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                                                : TypeDesc{});
         }
 
-        //v2.6: per-field compile-time defaults, dense (one DefaultValueDesc
-        //per field, RTK_Void = no default). The count is written as
-        //fieldCount by construction — a stub-rebuilt struct without the
-        //vector still emits the full block of RTK_Void sentinels.
+        //v2.6: ctor indices in declaration order; the cross-module
+        //ctorOrdinal indexes this list (overloads share the bare name).
+        uint16_t ctorCount = static_cast<uint16_t>(
+            st.constructorIndices.size());
+        fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
+        for (auto idx : st.constructorIndices)
+            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+
+        //v2.6: dense per-field defaults (RTK_Void = none). The count is
+        //fieldCount by construction (stub structs emit RTK_Void blocks).
         uint16_t defCount = st.fieldCount;
         fs.write(reinterpret_cast<const char*>(&defCount), sizeof(defCount));
         for (size_t i = 0; i < st.fieldCount; ++i) {
@@ -345,9 +351,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                      sizeof(cc.methodIndices[i]));
         }
 
-        //Constructor index
-        fs.write(reinterpret_cast<const char*>(&cc.constructorIdx),
-                 sizeof(cc.constructorIdx));
+        //v2.6: ctor indices in declaration order; the cross-module
+        //ctorOrdinal indexes this list (replaces v2.5's single index).
+        uint16_t ctorCount = static_cast<uint16_t>(
+            cc.constructorIndices.size());
+        fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
+        for (auto idx : cc.constructorIndices)
+            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
 
         //0.9.10 v2.4: exported public static method indices (count +
         //entries). A v2.3 module lacks them entirely — refused by the
@@ -433,9 +443,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     //slot order (own entries occupy 0..n-1, imports n..n+m). Per entry:
     //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
     //function section additionally carries u16 ownerClassKeyLen + bytes
-    //(empty = namespace-level function; see SymbolImport) and the
+    //(empty = namespace-level function; see SymbolImport), the
     //0.9.10 v2.4 static flag byte (linkage identity: a static and an
-    //instance member of the same name and arity are distinct slots).
+    //instance member of the same name and arity are distinct slots), and
+    //the 0.9.11 v2.6 ownerKind byte + ctorOrdinal u16 (owner table kind
+    //and constructor ordinal — overloads share the bare name).
     auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>&
                                   imports, bool withOwnerKey)
     {
@@ -464,6 +476,14 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 uint8_t staticFlag = imp.isStatic ? 1 : 0;
                 fs.write(reinterpret_cast<const char*>(&staticFlag),
                          sizeof(staticFlag));
+                //v2.6: which table kind ownerClassKey addresses (0 =
+                //namespace-level, 1 = class member, 2 = struct member)
+                //plus the constructor ordinal within the owner's
+                //constructorIndices (0xFFFF = not a constructor slot).
+                fs.write(reinterpret_cast<const char*>(&imp.ownerKind),
+                         sizeof(imp.ownerKind));
+                fs.write(reinterpret_cast<const char*>(&imp.ctorOrdinal),
+                         sizeof(imp.ctorOrdinal));
             }
         }
     };

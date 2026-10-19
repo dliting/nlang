@@ -281,6 +281,22 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod)
                 st.fieldTypeDescs[j] = ReadTypeDesc(fs);
         }
 
+        //v2.6: constructor function indices in declaration order (see
+        //ModuleSaver). The v2.6 floor guarantees the block; the count cap
+        //is the usual corrupt-image guard.
+        uint16_t ctorCount = 0;
+        fs.read(reinterpret_cast<char*>(&ctorCount), sizeof(ctorCount));
+        if (!fs.good() || ctorCount > (1u << 12))
+            throw std::runtime_error(
+                "Invalid module: bad struct constructor count");
+        st.constructorIndices.resize(ctorCount);
+        for (uint16_t j = 0; j < ctorCount; ++j)
+            fs.read(reinterpret_cast<char*>(&st.constructorIndices[j]),
+                    sizeof(uint16_t));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated struct constructor indices");
+
         //v2.6: per-field compile-time defaults, dense (RTK_Void = no
         //default). The count must equal fieldCount — a mismatch means the
         //record was written by a different layout and every byte after
@@ -370,9 +386,20 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
                     sizeof(cc.methodIndices[j]));
         }
 
-        //Constructor index
-        fs.read(reinterpret_cast<char*>(&cc.constructorIdx),
-                sizeof(cc.constructorIdx));
+        //v2.6: constructor function indices in declaration order (see
+        //ModuleSaver) — replaces the single constructor index of v2.5.
+        uint16_t ctorCount = 0;
+        fs.read(reinterpret_cast<char*>(&ctorCount), sizeof(ctorCount));
+        if (!fs.good() || ctorCount > (1u << 12))
+            throw std::runtime_error(
+                "Invalid module: bad class constructor count");
+        cc.constructorIndices.resize(ctorCount);
+        for (uint16_t j = 0; j < ctorCount; ++j)
+            fs.read(reinterpret_cast<char*>(&cc.constructorIndices[j]),
+                    sizeof(uint16_t));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated class constructor indices");
 
         //0.9.10 v2.4: exported public static method indices (see
         //ModuleSaver). Count + entries, no gate — the v2.4 floor

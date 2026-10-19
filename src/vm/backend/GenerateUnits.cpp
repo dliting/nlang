@@ -96,6 +96,9 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         RegisterEnums(root);
         RegisterFunctions(root);
         PopulateClassMethods(root);
+        //0.9.11 D2: struct ctor indices ride the same function records,
+        //so the struct counterpart runs beside the class one.
+        PopulateStructMethods(root);
         //0.9.10 D5: after RegisterFunctions/PopulateClassMethods — the
         //interface table indexes the function records they created. Must
         //run before GenerateAllBytecode: body emission can append

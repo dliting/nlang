@@ -9,12 +9,21 @@
 
 namespace nlang {
 
+//The shared registration predicate (see VmBackend.h). Imported stubs
+//count: the compiler registers their import record without emitting a
+//body, so the old body/native filter would reject a .ncu ctor member and
+//desync the walker claim from the codegen claim.
+bool VmBackend::IsRegisteredCtor(const SnFunction& ctor) {
+    return ctor.IsImported() || ctor.Body() || ctor.ContainFlags(NF_Native);
+}
+
 //The AST constructor declaration of a class — the same Name() rule and
-//body/native filter CtorSlotFor's placeholder scan applies, so the
+//IsRegisteredCtor filter CtorSlotFor's placeholder scan applies, so the
 //returned function is the one whose slot the invocation targets.
+//0.9.11 v2.6: imported stub classes answer their rebuilt ctor member
+//(BuildCtorBindings reads its formals/defaults for the call).
 SnFunction* VmBackend::FindCtorFunction(SnClassDecl* pClassDecl) {
-    if (!pClassDecl || pClassDecl->IsBuiltinClass()
-        || pClassDecl->IsImported())
+    if (!pClassDecl || pClassDecl->IsBuiltinClass())
         return nullptr;
     for (auto& member : pClassDecl->Members()) {
         if (member.Kind() != NK_Function
@@ -24,20 +33,19 @@ SnFunction* VmBackend::FindCtorFunction(SnClassDecl* pClassDecl) {
         //0.9.10 D2.4: a same-name static is not the constructor.
         if (ctor.ContainFlags(NF_Static))
             continue;
-        if (!ctor.Body() && !ctor.ContainFlags(NF_Native))
+        if (!IsRegisteredCtor(ctor))
             continue;
         return &ctor;
     }
     return nullptr;
 }
 
-//0.9.11 D2: the AST-selected struct ctor when it is registered (body or
-//native flag — the filter RegisterFunctions/GenerateBytecodeRecursive
-//apply), else null. Mirrors FindCtorFunction's filter so an unregistered
-//ctor allocates without running; codegen and the frame walkers share the
-//predicate (walker symmetry, P3 discipline).
+//0.9.11 D2: the AST-selected struct ctor when it is registered
+//(IsRegisteredCtor), else null. Mirrors FindCtorFunction's filter so an
+//unregistered ctor allocates without running; codegen and the frame
+//walkers share the predicate (walker symmetry, P3 discipline).
 SnFunction* VmBackend::RegisteredCtor(SnFunction* pCtorFn) {
-    if (!pCtorFn || (!pCtorFn->Body() && !pCtorFn->ContainFlags(NF_Native)))
+    if (!pCtorFn || !IsRegisteredCtor(*pCtorFn))
         return nullptr;
     return pCtorFn;
 }

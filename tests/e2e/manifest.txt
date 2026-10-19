@@ -1599,3 +1599,5 @@ struct_field_init_basic 31
 struct_field_init_deepcopy 0
 struct_field_init_array 7
 struct_field_init_nested 7
+cross_mod_struct_ctor 12
+cross_mod_class_ctor 42

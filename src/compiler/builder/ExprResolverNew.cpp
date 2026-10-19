@@ -123,10 +123,12 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 //non-static member (a same-name static lives in the static namespace,
 //0.9.10 D2.4). Builtin and generic classes answer null — their ctor is an
 //intrinsic stub living only in the CompiledClass, reached through
-//FindCtorFunction at codegen; imported stubs answer null too (their AST
-//carries no ctor member — T5 wires the cross-module path). Until T6
-//replaces the first-scan with overload matching, codegen and the frame
-//walkers must use this AST-recorded selection, never a fresh scan.
+//FindCtorFunction at codegen. 0.9.11 v2.6: imported class/struct stubs
+//answer their rebuilt ctor member (CreateClassStub/CreateStructStub
+//rebuild the constructor members from the .ncu record), so cross-module
+//calls bind and arity-check like source peers. Until T6 replaces the
+//first-scan with overload matching, codegen and the frame walkers must
+//use this AST-recorded selection, never a fresh scan.
 SnFunction *ExprResolveAccessor::SelectCtorFunction(SnField *pTypeDecl)
 {
 	if (pTypeDecl->Kind() == NK_StructDecl)
@@ -158,14 +160,13 @@ SnFunction *ExprResolveAccessor::SelectCtorFunction(SnField *pTypeDecl)
 //never a required one. Pre-fix a mismatched call compiled clean: missing
 //args read uninitialized callParam slots (a defaulted param arrived as
 //garbage), extras were silently dropped, named args hit codegen's
-//unhandled-kind internal error. Imported type stubs are skipped — their
-//ctor lives only in the merged CompiledClass/CompiledStruct, not in AST
-//members.
+//unhandled-kind internal error. 0.9.11 v2.6: imported type stubs are no
+//longer skipped — their rebuilt ctor members give the same arity range
+//as source peers (the pre-v2.6 skip existed because the ctor lived only
+//in the merged table, invisible to the AST).
 void ExprResolveAccessor::CheckCtorArgCount(const ISourceLocation *pLoc,
 	SnField *pTypeDecl, size_t argCount)
 {
-	if (pTypeDecl->IsImported())
-		return;
 	const char *kindWord = pTypeDecl->Kind() == NK_StructDecl
 		? "struct" : "class";
 	size_t requiredArity = 0;

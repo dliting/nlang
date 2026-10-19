@@ -1,4 +1,5 @@
 #pragma once
+#include "CompiledModuleCtorStub.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
 #include "SyntaxTree.h"
@@ -90,21 +91,25 @@ public:
 
 		//Build a set of CompiledFunction indices that are actually class
 		//methods or constructors (referenced by some CompiledClass's
-		//methodIndices / constructorIdx). These must NOT be promoted to
-		//free-function stubs — they belong to their owning class and are
-		//already represented (via class merge) on the consumer side.
-		//Without this filter, List.add / Dict.set / etc. would be promoted
-		//to root as free functions, and the user's own free `add` would
-		//then be wrongly deduped against the imported List.add (R10-1
-		//collision).
+		//methodIndices / constructorIndices, or by some CompiledStruct's
+		//constructorIndices — 0.9.11 v2.6). These must NOT be promoted to
+		//free-function stubs — they belong to their owning type and are
+		//already represented (via class/struct stub members) on the
+		//consumer side. Without this filter, List.add / Dict.set / a struct
+		//ctor would be promoted to root as free functions, and the user's
+		//own free `add` would then be wrongly deduped against the imported
+		//List.add (R10-1 collision).
 		std::unordered_set<uint32_t> methodOrCtorIndices;
 		for (size_t ci = 0; ci < ownClasses; ++ci)
 		{
 			for (uint16_t mi : cm.classes[ci].methodIndices)
 				methodOrCtorIndices.insert(mi);
-			if (cm.classes[ci].constructorIdx != 0xFFFF)
-				methodOrCtorIndices.insert(cm.classes[ci].constructorIdx);
+			for (uint16_t ctorIdx : cm.classes[ci].constructorIndices)
+				methodOrCtorIndices.insert(ctorIdx);
 		}
+		for (size_t si = 0; si < ownStructs; ++si)
+			for (uint16_t ctorIdx : cm.structs[si].constructorIndices)
+				methodOrCtorIndices.insert(ctorIdx);
 		//0.9.10 D5: interface statics are likewise owned by their
 		//interface stub, never promoted to free functions.
 		for (const auto &iface : cm.interfaces)
@@ -140,7 +145,7 @@ public:
 		{
 			if (nameExistsInRoot(LeafNameOfKey(cm.structs[si].name)))
 				continue;  //R10-1
-			SnStructDecl *stub = CreateStructStub(cm.structs[si], loc);
+			SnStructDecl *stub = CreateStructStub(cm.structs[si], cm, loc);
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 		}
@@ -305,20 +310,29 @@ private:
 	}
 
 	//Build a SnStructDecl stub for an imported CompiledStruct.
-	//Members are placeholders — VmBackend.RegisterStructs skips imported
-	//stubs entirely (R3 + IsImported gating). Only the name matters for
-	//name-based lookup from user code (e.g. `importedStruct` field types).
+	//Fields stay wire-only — VmBackend.RegisterStructs skips imported
+	//stubs entirely (R3 + IsImported gating) and external struct FIELD
+	//access is out of scope. 0.9.11 v2.6: the CONSTRUCTORS are rebuilt
+	//(from constructorIndices, declaration order) — a cross-module
+	//`pkg.Vec(3,4)` needs member declarations to bind against; the call
+	//itself emits an imported function slot, never local bytecode.
 	SnStructDecl *CreateStructStub(const CompiledStruct &cs,
-		const ISourceLocation &loc)
+		const CompiledModule &cm, const ISourceLocation &loc)
 	{
-		//Members intentionally empty — type/field info stays in the
-		//loaded CompiledModule, which rides along to the load-time linker
-		//as a peer image. The AST stub only needs to exist as a
-		//name-resolution target.
+		//Field info stays in the loaded CompiledModule, which rides along
+		//to the load-time linker as a peer image.
 		//SnStructDecl takes UniquePtrList<SnField> by value; pass a raw
 		//PtrList* whose ownership is transferred via the implicit
 		//inner_collection* constructor.
 		auto *pMembers = new PtrList<SnField>();
+		for (auto idx : cs.constructorIndices)
+		{
+			//Out-of-range is a corrupt image — the loader validated the
+			//counts, the bound check keeps stub minting defensive.
+			if (idx < cm.functions.size())
+				pMembers->push_back(
+					CreateMethodStub(cm.functions[idx], cm, loc));
+		}
 		auto pName = new std::string(LeafNameOfKey(cs.name));
 		auto *pDecl = new SnStructDecl(pName, pMembers, loc);
 		pDecl->AddFlags(NF_Imported);   //R6-2
@@ -326,11 +340,16 @@ private:
 	}
 
 	//Build a SnClassDecl stub for an imported CompiledClass.
-	//Instance members (fields, instance methods, ctor) stay wire-only —
-	//VmBackend skips imported class registration and a stub cannot host a
-	//receiver anyway. 0.9.10 D5: the PUBLIC static members ARE rebuilt
-	//(from publicStaticMethodIndices) — a static call needs no receiver,
-	//only a declaration to bind against; private statics stay invisible.
+	//Instance fields/methods stay wire-only — VmBackend skips imported
+	//class registration and a stub cannot host a receiver anyway.
+	//0.9.10 D5: the PUBLIC static members ARE rebuilt (from
+	//publicStaticMethodIndices) — a static call needs no receiver, only a
+	//declaration to bind against; private statics stay invisible.
+	//0.9.11 v2.6: the CONSTRUCTORS are rebuilt too (from
+	//constructorIndices, declaration order) — `new pkg.Calc(21)` /
+	//`pkg.Calc(21)` bind against these member stubs; the call emits an
+	//imported function slot. Access is not carried on the wire, so every
+	//exported ctor stub is public at the consumer.
 	SnClassDecl *CreateClassStub(const CompiledClass &cc,
 		const CompiledModule &cm, const ISourceLocation &loc)
 	{
@@ -343,6 +362,12 @@ private:
 			if (idx < cm.functions.size())
 				pMembers->push_back(
 					CreateFunctionStub(cm.functions[idx], cm, loc));
+		}
+		for (auto idx : cc.constructorIndices)
+		{
+			if (idx < cm.functions.size())
+				pMembers->push_back(
+					CreateMethodStub(cm.functions[idx], cm, loc));
 		}
 		auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
 		pDecl->AddFlags(NF_Imported);   //R6-2

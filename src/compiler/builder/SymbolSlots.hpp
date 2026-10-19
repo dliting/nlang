@@ -32,16 +32,21 @@ inline std::string SymbolSlotModulePath(const ModuleRegistry &reg,
 	return reg.ModulePathOf(reg.OwnerOfContext(decl));
 }
 
-//函数槽：按 modulePath+属主类键+名+形参数+静态性去重后追加占位记录，
-//返回局部槽位。ownerClassKey 空＝命名空间级函数（name 为限定键）；非
-//空＝该类的方法或构造器（name 为裸名，构造器＝裸类名）——裸方法键跨
-//类同名同参合法并存，属主键是槽记录里唯一的消歧来源（表键保持裸名，
-//见设计 §2）。0.9.10 D5：静态性参与去重与导入记录——同名同参的静态/
-//实例成员对是两个不同的槽，静态记录的形参数不含 this 槽位。
+//函数槽：按 modulePath+属主类键+名+形参数+静态性+属主类别+构造器序号
+//去重后追加占位记录，返回局部槽位。ownerClassKey 空＝命名空间级函数
+//（name 为限定键）；非空＝该类的方法或构造器（name 为裸名，构造器＝裸
+//类名）——裸方法键跨类同名同参合法并存，属主键是槽记录里唯一的消歧来源
+//（表键保持裸名，见设计 §2）。0.9.10 D5：静态性参与去重与导入记录——
+//同名同参的静态/实例成员对是两个不同的槽，静态记录的形参数不含 this
+//槽位。0.9.11（v2.6）：ownerKind 区分属主表类别（0 命名空间/1 class/
+//2 struct，裸键本身无法区分 struct 构造器与同名 class 方法）；
+//ctorOrdinal 是构造器在属主 constructorIndices 中的序号——重载构造器
+//同名同参（如 Vec(int) 与 Vec(float)）仅靠名字+形参数无法区分。
 inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	const std::string &modulePath, const std::string &name,
 	uint32_t paramCount, const std::string &ownerClassKey = "",
-	bool isStatic = false)
+	bool isStatic = false, uint8_t ownerKind = 0,
+	uint16_t ctorOrdinal = 0xFFFF)
 {
 	const uint32_t ownCount = static_cast<uint32_t>(
 		mod.functions.size() - mod.functionImports.size());
@@ -51,7 +56,9 @@ inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 			&& mod.functions[i].paramCount == paramCount
 			&& mod.functions[i].isStatic == isStatic
 			&& mod.functionImports[i - ownCount].modulePath == modulePath
-			&& mod.functionImports[i - ownCount].ownerClassKey == ownerClassKey)
+			&& mod.functionImports[i - ownCount].ownerClassKey == ownerClassKey
+			&& mod.functionImports[i - ownCount].ownerKind == ownerKind
+			&& mod.functionImports[i - ownCount].ctorOrdinal == ctorOrdinal)
 			return i;
 	}
 	CompiledFunction placeholder;
@@ -61,7 +68,8 @@ inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	const uint32_t slot = static_cast<uint32_t>(mod.functions.size());
 	mod.functions.push_back(std::move(placeholder));
 	mod.functionImports.push_back(
-		{modulePath, name, paramCount, ownerClassKey, isStatic});
+		{modulePath, name, paramCount, ownerClassKey, isStatic,
+		 ownerKind, ctorOrdinal});
 	return slot;
 }
 

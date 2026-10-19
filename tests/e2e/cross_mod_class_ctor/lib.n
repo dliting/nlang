@@ -1,0 +1,13 @@
+//0.9.11 O2: producer module exporting a class with a constructor. The
+//constructor index rides the NCU v2.6 class record (constructorIndices).
+//The consumer constructs the imported class through the qualified call
+//form and uses the object only via imported functions — instance field
+//access across the module boundary stays out of scope.
+class Calc {
+	public int base;
+	public Calc(int b) { base = b; }
+}
+
+int twice(Calc c) {
+	return c.base * 2;
+}

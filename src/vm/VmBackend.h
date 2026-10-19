@@ -98,10 +98,14 @@ public:
     uint32_t EnumSlotFor(SnEnumDecl& decl);
 
     //Ctor slot for a class that already has its class slot: own/builtin
-    //records carry constructorIdx (PopulateClassMethods and the builtin
-    //writers); a cross-unit placeholder carries no metadata, so the ctor
-    //declaration is discovered in the AST (the Name()==class-name rule)
-    //and slotted through FunctionSlotFor. 0xFFFF = no ctor.
+    //records carry constructorIndices (PopulateClassMethods and the
+    //builtin writers; [0] = first declaration-order ctor, matching
+    //FindCtorFunction's first-scan); a cross-unit placeholder carries no
+    //metadata, so the ctor declaration is discovered in the AST (the
+    //Name()==class-name rule) and slotted through FunctionSlotFor —
+    //0.9.11 v2.6: the scan answers both source-peer classes and .ncu
+    //stub classes (CreateClassStub rebuilds the ctor members).
+    //0xFFFF = no ctor.
     uint16_t CtorSlotFor(SnClassDecl& decl, uint16_t classSlot);
 
     //Phase 6 per-unit build: one image per unit in unitIdxs (module
@@ -878,20 +882,47 @@ private:
         ~DefaultEmitGuard();
     };
 
+    //The registration predicate every ctor scan shares (0.9.11 v2.6):
+    //a ctor participates in the unit table when it has a body, carries
+    //the native flag, or is an imported stub — stub members are
+    //registered by construction (the import record IS the registration;
+    //no bytecode is emitted for them). Every consumer (CtorSlotFor's
+    //placeholder scan, FunctionSlotFor's ordinal scan, FindCtorFunction,
+    //RegisteredCtor, and the frame walkers through them) must use this
+    //one predicate: divergent filters split the walker claim (1) from
+    //the codegen claim (1+formals) and trip the observedPeakCursor
+    //tripwire far from the cause.
+    static bool IsRegisteredCtor(const SnFunction& ctor);
+
+    //v2.6 import-record owner metadata for a cross-unit callee
+    //(Slots.cpp): the owning class/
+    //struct's qualified key + table kind, and for a constructor its
+    //ordinal in the owner's declaration-order registered-ctor list.
+    //The defaults are the namespace-level shape (kind 0, ordinal
+    //0xFFFF = non-ctor member).
+    struct CtorOwnerMeta {
+        std::string ownerClassKey;
+        uint8_t ownerKind = 0;
+        uint16_t ctorOrdinal = 0xFFFF;
+    };
+    CtorOwnerMeta CrossUnitOwnerMeta(const SnFunction& callee) const;
+
     //The AST constructor declaration of a class (same Name() rule and
-    //body/native filter as CtorSlotFor's placeholder scan). Null for
-    //builtin/generic/imported classes — their ctors are intrinsic or
-    //external, so no default parameters exist to apply. Static: the
-    //frame-size walkers consume it too.
+    //IsRegisteredCtor filter as CtorSlotFor's placeholder scan). Null
+    //for builtin/generic classes — their ctors are intrinsic, so no
+    //default parameters exist to apply. 0.9.11 v2.6: imported stub
+    //classes answer their rebuilt ctor member (default-argument binding
+    //and the slot scan share one AST node). Static: the frame-size
+    //walkers consume it too.
     static SnFunction* FindCtorFunction(SnClassDecl* pClassDecl);
 
     //0.9.11 D2: the AST-selected constructor (SnNewExpr/SnInvokeExpr
-    //CtorFunction()) when it is registered — has a body or the native
-    //flag — else null. Mirrors FindCtorFunction's body/native filter for
-    //the struct path, where the resolver's selection replaces the member
-    //scan: a body-less non-native struct ctor allocates without running
-    //(the class path's CtorSlotFor 0xFFFF shape). Static: the frame-size
-    //walkers consume it too.
+    //CtorFunction()) when it is registered (IsRegisteredCtor) — else
+    //null. Mirrors FindCtorFunction's filter for the struct path, where
+    //the resolver's selection replaces the member scan: a body-less
+    //non-native struct ctor allocates without running (the class path's
+    //CtorSlotFor 0xFFFF shape). Static: the frame-size walkers consume
+    //it too.
     static SnFunction* RegisteredCtor(SnFunction* pCtorFn);
 
     //Build the defaults-aware FormalBinding array shared by the ctor
@@ -994,6 +1025,9 @@ private:
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
+    //0.9.11 D2: struct counterpart — fills CompiledStruct.constructorIndices
+    //in declaration order (structs declare constructors only).
+    void PopulateStructMethods(SnNamespace& root);
     //0.9.10 D5: per-unit interface statics table (name = qualified key,
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.

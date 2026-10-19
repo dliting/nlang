@@ -261,7 +261,7 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
         if (ccIdx < 0) return;
         auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
         cc.methodIndices.clear();
-        cc.constructorIdx = 0xFFFF;
+        cc.constructorIndices.clear();
         cc.publicStaticMethodIndices.clear();
         for (auto& child : sn.Members()) {
             if (child.Kind() == NK_Function) {
@@ -271,9 +271,12 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
                     cc.methodIndices.push_back(funcIdx);
                     //0.9.10 D2.4: a same-name static method is not the
                     //constructor (declaration order must not matter).
+                    //0.9.11 (v2.6): plural record in declaration order —
+                    //the ordinal within this vector is the cross-module
+                    //ctorOrdinal selector (overloads share the bare name).
                     if (child.Name() == sn.Name()
                         && !child.ContainFlags(NF_Static))
-                        cc.constructorIdx = funcIdx;
+                        cc.constructorIndices.push_back(funcIdx);
                     //0.9.10 D5: the public statics a consumer stub may
                     //rebuild — private statics stay invisible across the
                     //module border.
@@ -282,6 +285,34 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
                         cc.publicStaticMethodIndices.push_back(funcIdx);
                 }
             }
+        }
+    });
+}
+
+//0.9.11 D2: struct constructors are registered bare-name members (a
+//struct declares no general methods), so the declaration-order ordinal
+//within constructorIndices is the only stable cross-module selector
+//(SymbolImport::ctorOrdinal). Only registered functions — a body or a
+//native binding — own a function record; m_funcIndexMap is exactly that
+//set, so an unregistered ctor contributes nothing.
+void VmBackend::PopulateStructMethods(SnNamespace& root) {
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() != NK_StructDecl)
+            return;
+        //Per-unit: a struct stub has no AST members, and foreign units'
+        //structs keep their own image's metadata — neither contributes.
+        if (node.IsImported() || !IsOwnUnit(node))
+            return;
+        auto& sn = static_cast<SnStructDecl&>(node);
+        int csIdx = m_compiledModule.FindStruct(KeyOf(sn));
+        if (csIdx < 0) return;
+        auto& cs = m_compiledModule.structs[static_cast<size_t>(csIdx)];
+        cs.constructorIndices.clear();
+        for (auto& child : sn.Ctors()) {
+            auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
+            if (it != m_funcIndexMap.end())
+                cs.constructorIndices.push_back(
+                    static_cast<uint16_t>(it->second));
         }
     });
 }

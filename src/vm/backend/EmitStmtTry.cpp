@@ -228,8 +228,8 @@ void VmBackend::Access(SnSuperCallStmt& stmt) {
             return;  //resolver already reported; emit nothing
         auto* pParent = m_pCurrClass->SuperClass();
         //Per-unit: a cross-unit parent slots as an import placeholder
-        //(ClassSlotFor); its ctor is discovered in the AST (CtorSlotFor —
-        //placeholders carry no constructorIdx).
+        //(ClassSlotFor); CtorSlotFor discovers its ctor in the AST —
+        //0.9.11 v2.6 stub classes answer their rebuilt ctor members.
         uint16_t parentClassIdx = static_cast<uint16_t>(
             ClassSlotFor(*pParent));
         uint16_t ctorIdx = CtorSlotFor(*pParent, parentClassIdx);
