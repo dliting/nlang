@@ -1,0 +1,41 @@
+# Frame machine and scheduler
+
+The virtual machine's interpreter is a **frame-stack machine**: NLang function calls no longer rely on C++ recursion. Calls live on an explicit frame stack, and one iterative loop dispatches opcodes. This restructuring is the foundation of concurrency — suspending a running context requires freezing its entire call stack into data, and a recursive interpreter buries the call stack in the C++ stack, where that is impossible.
+
+## The frame machine
+
+Each NLang function call pushes a call frame; `OP_Return` pops it and writes back the result. The dispatch loop keeps interpreting the top frame's instructions, so NLang call depth no longer consumes C++ stack. The nesting-depth limit (1000 frames) keeps its semantics and becomes a frame count. Two bounded exceptions remain C++-recursive: the nested evaluation window for `toString` (depth limit 64) and the embedding host's `call()` entry point (which cannot nest further).
+
+A call frame (see the [stack frame layout](stack-frame-layout.md)) carries:
+
+- the local-variable buffer with receiver and parameter slots;
+- the return destination (the caller's slot offset, or an external cell provided by the host);
+- the resumption point (`pc`) and the source line;
+- the exception-handler state (the stack of currently entered `catch` handlers) — it belongs to the frame, so it naturally survives parking.
+
+## The suspension mechanism
+
+Parking introduces no new opcodes. When a thread intrinsic needs to yield, it throws a virtual-machine-private suspension signal (a C++ exception that never travels the NLang exception path). The loop layer catches it and moves the frame stack, untouched, into the context's parked record. Resuming means moving the frames back onto the call stack and continuing from each frame's recorded resumption point — local variables, handler state, and instruction position are all exactly as they were at the park.
+
+Implementations of the intrinsics follow a "complete or park" rule: an intrinsic either finishes its operation entirely, or parks before making any observable change. There is no half-done park.
+
+Preemption reuses the same mechanism: when the back-edge counter reaches its quota (the constant `DEFAULT_SCHEDULER_TRIP_BACKEDGES`) and another runnable context exists, a preemption signal is thrown and the carrier requeues the current context at the tail of the run queue. **A single-context program is therefore bit-for-bit unchanged** — the quota never fires when there is no one else to run.
+
+Nested evaluation windows (`toString` evaluation, the embedding host's `call()`) may not suspend: a suspension request there is converted into a catchable runtime error, ahead of every existing fallback handler. This keeps the window's calling convention (call returns a value) intact.
+
+## The scheduler
+
+The scheduler keeps one record per context: identifier, state (runnable; parked on a timer, a join, a mutex, or a channel receive; finished; failed), the parked frame stack, heap references for the `Thread` object and the failure exception, the wake-up time, and the completion result value.
+
+- **Run queue**: first-in-first-out. The carrier loop repeatedly takes the head context and runs it until it returns, parks, or is preempted.
+- **Timer list**: `thread.sleep` parkings are ordered by wake-up time; an idle carrier sleeps until the nearest deadline.
+- **Context lifecycle**: `thread.spawn` mints the target context's root frame at spawn time (the delegate's receiver goes into frame slot 0), so the garbage collector's precise root set covers the context from birth. A finishing context wakes all its joiners; an uncaught exception marks it failed with the exception object retained for `join` to rethrow — the failure never leaks to the host.
+- **Exit policy**: when the main context returns, the whole run ends and every other context is dropped silently. If the queue drains while main is still unfinished, the virtual machine reports a deadlock instead of spinning.
+
+## Where the garbage collector plugs in
+
+Parked frame stacks are part of the root set: beyond the precise scan (the local-variable declaration table and the result slot), the frame's evaluation staging area gets a conservative band scan. Mechanism and motivation are covered in the [garbage collector design](garbage-collection-design.md).
+
+## Debugger boundary
+
+Debug hooks (statement callbacks, breakpoints, throw triggers) fire **for the main context only**: execution of spawned contexts passes the hooks silently. The debug view (call stack, local-variable inspection) likewise reflects only the context stopped in the debug session. This is a known K1 boundary — multi-context debugging belongs to a later stage (see the [known limitations](../language-spec/known-limitations.md)).

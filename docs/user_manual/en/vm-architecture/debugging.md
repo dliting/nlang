@@ -28,10 +28,17 @@ statement-level stepping are unavailable on it (`ndb` warns at load).
 
 ## Stop semantics
 
-The callback runs with the program frozen (NLang function calls are
-C++ recursion, so the whole stack lives inside `OnStatement`). Not
-returning keeps it frozen; returning resumes in place. ndb's command
-loop runs inside the callback.
+The callback runs with the program frozen (the VM is a frame-stack
+machine: the whole NLang call stack lives in the interpreter loop as a
+sequence of call frames, so when `OnStatement` fires the entire stack is
+present). Not returning keeps it frozen; returning resumes in place.
+ndb's command loop runs inside the callback.
+
+Concurrency boundary: the hooks and the debug view cover the main
+context only — spawned virtual threads execute straight past the
+checkpoints, and `bt`/`locals` show main's frames alone. Multi-context
+debugging belongs to a later stage (see the
+[Frame Machine and Scheduler](frame-machine-and-scheduler.md) page).
 
 Statement granularity: one stop per statement. Two statements on the
 same line stop twice; a statement spanning lines stops once.
@@ -151,7 +158,9 @@ inspectable.
 No conditional breakpoints or watchpoints; empty-bodied `b func` never
 hits; function names render bare (no `Class.method` qualification); the
 exception object is not exposed as a pseudo-variable at the throw stop;
-no attach to running processes; native calls step through transparently;
+no attach to running processes; the debug session sees the main context
+only (spawned threads do not stop at breakpoints or statement steps);
+native calls step through transparently;
 throw stops anchor at the statement's pc approximation; pc values are
 16-bit bytecode offsets (the executor's existing `uint16_t opPc` — a
 function with >64 KiB of

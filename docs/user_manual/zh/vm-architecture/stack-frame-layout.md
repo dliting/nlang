@@ -7,7 +7,7 @@
 [this (methods)] [params...] [returnSlot] [tempSlot..tempSlot4] [callParamBase(N)] [evalArea(peakDepth)] [user locals...]
 ```
 
-所有槽位均为4字节（VALUE_SIZE）。栈帧是一块按偏移寻址的扁平字节数组；`LocalDescriptor`记录每个变量的偏移、大小与typeKind，供垃圾回收（GC，garbage collection）根扫描使用。
+所有槽位均为8字节（源码中的`kFrameSlotBytes`）。栈帧是一块按偏移寻址的扁平字节数组；`LocalDescriptor`记录每个变量的偏移、大小与typeKind，供垃圾回收（GC，garbage collection）根扫描使用。
 
 ### 临时槽位
 

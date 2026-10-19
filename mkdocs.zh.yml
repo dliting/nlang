@@ -73,6 +73,8 @@ nav:
           - out参数: language-spec/out-parameters.md
           - native函数: language-spec/native-functions.md
           - 函数类型与委托: language-spec/function-types-and-delegates.md
+      - 并发:
+          - 并发: language-spec/concurrency.md
       - 标准库:
           - 标准库: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
@@ -97,6 +99,7 @@ nav:
       - 核心:
           - 编译管线: vm-architecture/compilation-pipeline.md
           - 栈帧布局: vm-architecture/stack-frame-layout.md
+          - 帧机与调度器: vm-architecture/frame-machine-and-scheduler.md
           - 堆架构: vm-architecture/heap-architecture.md
           - 字节码指令: vm-architecture/bytecode-instructions.md
           - 垃圾回收设计: vm-architecture/garbage-collection-design.md

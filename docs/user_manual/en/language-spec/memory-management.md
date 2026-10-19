@@ -34,12 +34,19 @@ but share the same mark-sweep cycle:
    the pending return slot) declared with a reference kind —
    class, struct, array, or function record — are scanned; string locals
    and string return slots mark string objects by handle instead;
-   primitives never are. Class/struct string fields, string array
-   elements, boxed-string contents inside containers, and concatenation
-   node children are marked as string roots too. No conservative
-   byte-scanning (decoupled from stack frame physical layout). Marking
-   uses an iterative worklist (not recursive) to avoid stack overflow on
-   deep object chains.
+   primitives never are. Frame staging slots the declaration table cannot
+   see (nested-call arguments, the evaluation scratch area) get a
+   conservative band scan: a slot whose value falls in the valid
+   string-handle range or the valid heap-index range is marked as that
+   kind — the collector never moves objects, so a false positive merely
+   retains, it never reclaims wrongly. Class/struct string fields, string
+   array elements, boxed-string contents inside containers, and
+   concatenation node children are marked as string roots too; the parked
+   frame stacks of virtual threads, channel buffer elements, and
+   host-held references are roots as well (see the
+   [garbage collector design](../vm-architecture/garbage-collection-design.md)).
+   Marking uses an iterative worklist (not recursive) to avoid stack
+   overflow on deep object chains.
 3. **Sweep phase**: Unmarked reference records (class, struct, array,
    function) are freed. Class-owned struct fields (value semantics) are
    freed with their owning class. Class fields (reference semantics) are
@@ -55,8 +62,10 @@ but share the same mark-sweep cycle:
 comments in `VmExecutor.h`):
 - Safepoint-triggered, not allocation-point-triggered (avoids tracing
   temp slots in the mark phase)
-- Precise scan via the local-variable descriptor, not a conservative
-  byte scan (decouples GC from stack frame physical layout)
+- Precise scan of declared slots via the local-variable descriptor, plus
+  a conservative range test over the staging-slot band the declaration
+  table cannot see (GC therefore needs no byte-level knowledge of frame
+  layout, and staging values are never missed)
 - A struct-type index table parallel to the heap slots identifies
   struct types (structs have no type header; smaller change than adding
   one)

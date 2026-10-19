@@ -159,3 +159,32 @@
   the unqualified name.
 - **A class body cannot be empty**: `class B : A { }` is a syntax
   error; declare at least one member.
+- **Concurrency: main's return ends the program**: virtual threads still
+  parked or queued when `main` returns are dropped silently — there is no
+  implicit wait-for-all; establish completion order explicitly with
+  `thread.join`. If the run queue drains while main is still unfinished,
+  the VM reports a deadlock error. See [Concurrency](concurrency.md).
+- **Concurrency: one carrier, no parallelism**: all virtual threads
+  interleave on a single carrier — exactly one context runs at any
+  moment; multi-carrier parallelism belongs to a later stage.
+- **Concurrency: no `await`/`Future`**: `thread.join` is the only waiting
+  primitive; `thread.spawn` returns no result value (a spawned context's
+  return value cannot be retrieved — pass results through a channel or a
+  shared field).
+- **Concurrency: the debugger sees the main context only**: debug hooks
+  fire for main alone, and the call-stack and locals views reflect
+  main's frames; spawned threads execute straight past breakpoints and
+  statement steps.
+- **Concurrency: a spawned thread's failure surfaces only through
+  `join`**: uncaught exceptions propagate to neither the host nor main —
+  the failed context is contained, and joiners receive a rethrow of the
+  original exception object; with no joiner, the failure is silent.
+- **Concurrency: `Channel<T>` is unbounded, `Mutex` is non-reentrant**:
+  the channel buffer has no capacity limit (`send` never parks); the
+  mutex cannot be reentered — locking it again while holding it parks
+  until the deadlock report.
+- **Concurrency: no parking inside nested evaluation windows**: inside
+  `toString` evaluation and the embedding host's `call()` window,
+  `yield`/`sleep`/`join` on an unfinished target/`lock` on a contended
+  mutex/`recv` on an empty channel/`spawn` are all rejected with a
+  "cannot suspend" runtime error.

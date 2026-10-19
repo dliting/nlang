@@ -1,6 +1,6 @@
 # 垃圾回收设计
 
-NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者创建对象后无需手工释放。本页记录四个核心设计决策——安全点触发、精确扫描、并行数组、迭代式标记——以及完整的标记-清扫算法与数组字段的追踪规则。读懂这些决策就能知道VM会在哪些时刻回收、哪些槽位会被视为存活。
+NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者创建对象后无需手工释放。本页记录四个核心设计决策——安全点触发、精确扫描与保守带、并行数组、迭代式标记——以及完整的标记-清扫算法、停泊上下文的根集与数组字段的追踪规则。读懂这些决策就能知道VM会在哪些时刻回收、哪些槽位会被视为存活。
 
 ### 设计决策
 
@@ -10,13 +10,15 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 在分配点（OP_New/OP_AllocStruct）处，tempSlot与tempSlot2可能正持有活跃堆引用（例如`a.b.c = Foo()`，此时tempSlot=a、tempSlot2=a.b）。追踪这些临时值需要CompiledFunction里配备逐指令的偏移表，复杂度不划算。
 
-安全点（函数入口 + 循环回边）保证tempSlot/tempSlot2未持有活跃引用：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值，临时值会被消费掉。
+安全点（函数入口 + 循环回边）把回收放在边界清晰的位置：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值。历史上这个选择还依赖「回边处临时槽不持有活跃引用」的论证；引入保守带扫描（决策2）后，暂存槽在任何安全点都被覆盖，该论证不再承重——安全点触发保留的价值是标记工作的时机确定、成本可控。
 
-**2. 经LocalDescriptor精确扫描，而非保守字节扫描**
+**2. 精确扫描声明槽，保守带扫描暂存槽**
 
-保守扫描（检查每个4字节对齐的值是否为有效堆索引）把GC与物理栈帧布局（VALUE_SIZE、槽位对齐、tempSlot偏移）耦合在一起。布局一旦变化，GC会悄无声息地失效。
+对整帧做保守字节扫描（把每个对齐值当候选堆索引检查）曾是被否决的方案：它把GC与物理栈帧布局（槽位宽度、对齐、tempSlot偏移）耦合在一起，布局一旦变化，GC会悄无声息地失效。声明槽因此走精确路线——`LocalDescriptor.typeKind`识别引用槽位，`LocalDescriptor.offset`定位，基于语义信息而非物理布局，无论栈帧布局如何变化都保持正确。
 
-精确扫描用`LocalDescriptor.typeKind`识别引用槽位，用`LocalDescriptor.offset`定位。它基于语义信息而非物理布局，因此无论栈帧布局如何变化，GC都保持正确。
+但声明表覆盖不了帧内的暂存槽：嵌套调用的实参、求值暂存区里的中间结果没有任何局部描述符。`f(g(), h())`中g的返回值在h入帧（安全点）时只活在调用帧的求值暂存区里，精确扫描看不见它。补上这个洞的是**保守带扫描**：对参数区之后的帧尾带，每个8字节槽做双域值测试——值落在字符串句柄有效域则标记字符串对象，落在堆索引有效域则入工作列表。参数槽排除在外（它们有声明种类）；帧建立时零初始化，未写的槽值为0，两个域都不命中。GC不移动对象，因此跨域误命中只可能多标（对象暂留），绝不漏标。
+
+停泊上下文的帧可能冻结在指令中途，暂存值同样必须存活——保守带让停泊帧与运行帧用同一套三臂扫描（见「停泊上下文与调度器根集」），不需要为停泊形态另建一套根集机制。
 
 **3. 用m_slotStructIdx并行数组识别struct类型**
 
@@ -45,7 +47,7 @@ CollectGarbage():
 
 MarkPhase():
   clear all mark bits (heap and string stores)
-  for each CallFrame:
+  for each CallFrame (running stack):
     for each LocalDescriptor with typeKind in {RTK_Class, RTK_Struct, RTK_Array, RTK_Func}:
       read heap index from frame.locals + ld.offset
       if valid and not marked: set mark bit, push to worklist
@@ -57,10 +59,22 @@ MarkPhase():
       if valid and not marked: set mark bit, push to worklist
     if pResult return type is RTK_String:
       MarkString(handle)          //conservative over-mark, kept as defense
+    //conservative band: slots past the parameter area have no descriptor
+    //(staged call arguments, evalArea claims, temp slots)
+    for each 8-byte cell in [paramCount*8, localsSize):
+      if value in string-handle range: MarkString(value)
+      if value in heap-index range and not marked:
+        set mark bit, push to worklist
+  for each scheduler context:      //parked/queued contexts (steal model)
+    for each parked CallFrame: run the same three arms (locals, result, band)
+    if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
+  for each host-registered root:
+    string roots to MarkString, heap roots to worklist
   while worklist not empty:
     pop entry from worklist
     if class: for each field, push unmarked reference children;
-      string-typed fields (RTK_String) mark their string handle instead
+      string-typed fields (RTK_String) mark their string handle instead;
+      MarkChannelElements (buffered channel values are children)
     if struct: for each field, push unmarked reference children;
       string-typed fields mark their string handle instead
     if array: push unmarked element records whose elemKind is a reference kind;
@@ -90,6 +104,16 @@ SweepStrings():
 
 **字符串分支的阈值退避。**字符串仓的底层数组从不缩容（死槽原地复用），因此尺寸触发是电平触发的——首次越限后每个安全点都会触发回收，而每次回收都要标记整条存活的拼接链，追加总量退化为O(n²)（基准：5×10^4节点链6.6s、10^5节点链26.7s）。每次清扫后把阈值退避到存活数的2倍（`strThreshold = max(strThreshold, 2 * survivorCount)`），触发点随存活集合几何级推进：摊还后追加O(1)，内存上界为存活集合的2倍。
 
+### 停泊上下文与调度器根集
+
+帧栈机下，正在执行的上下文的帧就是调用栈本身；**停泊**（睡眠、等待join、竞争互斥体、空通道接收、被抢占）的上下文的整条帧栈保存在调度器里，不在调用栈上。收集时二者都是根：
+
+- 每个停泊上下文的每个帧跑与运行帧相同的三个扫描臂（声明局部、返回值槽、保守带）——停泊可能发生在指令中途，帧内暂存值与处理器状态都必须存活；
+- 上下文的`Thread`对象（`join`按其句柄识别目标）与失败上下文保留的异常对象（`join`要按原对象重抛）单独作为根；
+- 通道缓冲里的值经工作列表的class分支追踪（`Channel<T>`是带句柄字段的内建class，缓冲元素随对象标记）。
+
+`thread.spawn`在铸好根帧与`Thread`对象后即经过一次安全点检查，派生上下文的帧从诞生起就被根集覆盖。上下文与并发语义的总览见[并发](../language-spec/concurrency.md)与[帧机与调度器](frame-machine-and-scheduler.md)。
+
 ### 数组字段与元素追踪
 
 - **数组类型字段是声明出来的，不是推断出来的**：array型struct/
@@ -108,8 +132,9 @@ SweepStrings():
 OP_New / OP_AllocStruct → set m_gcPending = true
 String allocation (mint / concatenation node) → set m_gcPending = true
                             ↓
-Function entry (ExecuteFunction) → CheckGCSafepoint()
+Function entry (frame push) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()
+Thread intrinsic (spawn, after minting the context) → CheckGCSafepoint()
                             ↓
 CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
                    → CollectGarbage()

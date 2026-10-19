@@ -24,8 +24,12 @@ path and lets it register (lazy: the load triggers on the first call);
 only a further miss throws. On a hit the native is invoked directly with
 the caller's staged argument cells:
 
-- application binary interface (ABI): argument `i` is the raw 4-byte cell at `args[i*4]` — little-endian
-  `int32`/`float` bits or a heap index, identical to the intrinsic ABI.
+- application binary interface (ABI): argument `i` occupies the low 4
+  bytes of the 8-byte slot at `args[i*8]` — little-endian
+  `int32`/`float` bits or a heap index (a 4-byte payload in a
+  frame-width slot; see the
+  [Stack Frame Layout](../vm-architecture/stack-frame-layout.md)),
+  identical to the intrinsic ABI.
   The native writes its 4-byte return value into `ret` (may be null for
   `void` natives).
 - Resolution failures throw at the call site — never silent garbage: a
@@ -57,12 +61,13 @@ the caller's staged argument cells:
 - Class-member `native` methods work: dispatch reaches the native through
   the normal method path, with `this` riding at `args[0]` (the receiver's
   heap index) followed by the declared parameters — mirroring the bytecode
-  calling convention. A host native therefore reads user parameter `j` at
-  `args[(1+j)*4]` when bound as a method, but at `args[j*4]` when bound as
-  a free function. Registering one implementation under both shapes is a
+  calling convention. A host native therefore reads user parameter `j`
+  from the slot at `args[(1+j)*8]` when bound as a method, but from the
+  slot at `args[j*8]` when bound as a free function. Registering one
+  implementation under both shapes is a
   signature mismatch (see above).
-- String/struct/class argument marshalling beyond the raw 4-byte ABI is
-  not supported.
+- String/struct/class argument marshalling beyond the single-slot 4-byte
+  payload is not supported.
 - **Test host note**: the `ncc`, `nvm` and `ndb` binaries are test hosts —
   they register a small set of test natives (`natAdd`, `natConst`,
   `natFAdd`, `natPing`) keyed to specific package names; a same-named

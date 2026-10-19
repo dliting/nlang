@@ -73,6 +73,8 @@ nav:
           - Out Parameters: language-spec/out-parameters.md
           - Native Functions: language-spec/native-functions.md
           - Function Types & Delegates: language-spec/function-types-and-delegates.md
+      - Concurrency:
+          - Concurrency: language-spec/concurrency.md
       - Standard Library:
           - Standard Library: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
@@ -97,6 +99,7 @@ nav:
       - Core:
           - Compilation Pipeline: vm-architecture/compilation-pipeline.md
           - Stack Frame Layout: vm-architecture/stack-frame-layout.md
+          - Frame Machine and Scheduler: vm-architecture/frame-machine-and-scheduler.md
           - Heap Architecture: vm-architecture/heap-architecture.md
           - Bytecode Instructions: vm-architecture/bytecode-instructions.md
           - Garbage Collection Design: vm-architecture/garbage-collection-design.md

@@ -6,6 +6,56 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-10-20
+
+### Added
+
+- **Virtual threads with deterministic single-carrier scheduling** — the
+  interpreter is now a frame-stack machine: NLang calls are explicit
+  call frames driven by one iterative loop, no C++ recursion, so a
+  running context can park anywhere and its whole call stack freezes
+  intact (locals, `try`/`catch`/`finally` handler state, and the
+  instruction position survive verbatim; bare `throw;` works across a
+  park). A first-in-first-out scheduler rotates contexts on a single
+  carrier, with a back-edge quota that preempts only when another
+  context is runnable — single-context programs are unchanged — and
+  `sleep` parks wake in deadline order. When main parks and nothing
+  remains runnable, the VM reports a deadlock error instead of hanging;
+  when main returns, parked contexts are dropped silently.
+- **The `thread` namespace (no import needed; `thread` is a reserved
+  package name)** — `thread.spawn(f)` takes a zero-argument
+  `func<void>` delegate and returns a `Thread` object; `thread.join(t)`
+  suspends until the target finishes and rethrows the target's original
+  exception object if it failed (multiple joiners are all woken);
+  `thread.yield`, `thread.id` (main is 0), and `thread.sleep(ms)`
+  (`sleep(0)` yields; a negative duration is a runtime error).
+- **`Mutex` and `Channel<T>` builtins** — a non-reentrant mutex with
+  first-in-first-out waiters, `tryLock`, and a named runtime error on
+  unlocking a lock you do not hold; an unbounded message channel where
+  `send` never parks, an empty `recv` parks until a send or close, and
+  an idempotent `close` drains buffered values first — a drained,
+  closed channel delivers `null` to reference-typed elements (primitive
+  elements surface a runtime error instead, having no null
+  representation), with values boxed exactly like `List<T>`.
+- **Concurrency documentation** — a new Concurrency page in the
+  language specification and a Frame Machine and Scheduler page in the
+  VM architecture section (Chinese and English in lockstep), and the
+  garbage collector design page now documents the parked-context root
+  set.
+
+### Fixed
+
+- **Evaluation staging values can no longer be swept mid-call** — in
+  `f(g(), h())`, g's object lived only in the caller's evaluation
+  scratch area when h's frame push reached the safepoint; the precise
+  locals scan could not see it, and a collection there swept it. Every
+  frame now also gets a conservative band scan over the slots past the
+  parameter area (a two-domain value test; the collector never moves
+  objects, so a false hit can only over-mark). The same band covers
+  parked contexts' frozen frames.
+- **nvm and ndb no longer drop trailing output** — stdout is flushed
+  before process exit.
+
 ## [0.9.9] - 2026-10-18
 
 ### Added
