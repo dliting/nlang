@@ -3,10 +3,9 @@
 //construction with a default ctor).
 class MyException : Exception {
     int code;
-    public int MyException(string msg) {
+    public MyException(string msg) {
         super(msg);
         this.code = 1;
-        return 0;
     }
 }
 

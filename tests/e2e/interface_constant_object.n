@@ -3,7 +3,7 @@
 //the declared type gate rejects this before foldability is considered.
 class Box {
 	public int v;
-	public int Box(int v) { this.v = v; return 0; }
+	public Box(int v) { this.v = v;}
 }
 
 interface IBox {

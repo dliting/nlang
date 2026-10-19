@@ -61,18 +61,6 @@ static bool ReferencesThis(SnExpression& expr)
 	return false;
 }
 
-//P3 review: true when sn is a constructor — an instance member function
-//of a class whose name equals the class name (the same declaration-shape
-//rule FindCtorParamRange applies to class members). 0.9.10 D2.4: a
-//same-name static lives in the static namespace, never in the ctor slot.
-static bool IsConstructorFunction(SnFunction& sn)
-{
-	auto* pParent = sn.Parent();
-	return pParent && pParent->Kind() == NK_ClassDecl
-		&& !sn.ContainFlags(NF_Static)
-		&& sn.Name() == static_cast<SnClassDecl*>(pParent)->Name();
-}
-
 void StatementResolveAccessor::Access(SnFunction &sn)
 {
 	assert(m_pVisitor);
@@ -90,6 +78,8 @@ void StatementResolveAccessor::Access(SnFunction &sn)
 			sn.Params().size(),
 			kMaxFuncParams);
 	}
+
+	CheckCtorDeclarationContract(sn);
 
 	//Formals are collected into a vector because ParamList exposes
 	//begin/end iterators but no operator[]; the checks below index by

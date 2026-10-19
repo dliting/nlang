@@ -176,6 +176,15 @@ class_basic 42
 class_method 30
 class_param 30
 class_constructor 7
+class_ctor_no_rettype 7
+class_ctor_no_args 7
+err_ctor_typed_rettype compile_error constructor "C" must not declare a return type
+err_ctor_void_rettype compile_error constructor "C" must not declare 'void'; remove the return type
+err_ctor_static compile_error constructor "C" cannot be declared static, virtual, or const
+err_ctor_virtual compile_error constructor "C" cannot be declared static, virtual, or const
+err_ctor_const compile_error constructor "C" cannot be declared static, virtual, or const
+err_ctor_return_value compile_error constructor "C" cannot return a value
+err_member_no_rettype compile_error function "B" must declare a return type
 class_null 1
 class_nested 10
 class_return 7

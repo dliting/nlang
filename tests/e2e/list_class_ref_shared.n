@@ -1,4 +1,4 @@
-class Point { public int x; public int Point(int v) { this.x = v; return 0; } }
+class Point { public int x; public Point(int v) { this.x = v; } }
 
 int main() {
     List<Point> a = {};

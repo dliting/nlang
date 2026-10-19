@@ -10,9 +10,8 @@ import io;
 class Animal {
     public string name;
 
-    public int Animal(string name) {    // 构造器与类同名
+    public Animal(string name) {    // 构造器与类同名
         this.name = name;
-        return 0;
     }
 
     public virtual int legs() { return 0; }
@@ -21,9 +20,8 @@ class Animal {
 }
 
 class Dog : Animal {
-    public int Dog() {
+    public Dog() {
         super("dog");               // 调用基类构造器
-        return 0;
     }
 
     public int legs() { return 4; } // 覆写

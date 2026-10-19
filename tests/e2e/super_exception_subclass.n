@@ -2,10 +2,9 @@
 //built-in Exception parent ctor via super(msg).
 class MyException : Exception {
     public int code;
-    public int MyException(string msg) {
+    public MyException(string msg) {
         super(msg);
         this.code = 7;
-        return 0;
     }
 }
 int main() {

@@ -9,7 +9,7 @@ class Box {
 		}
 		return total;
 	}
-	public int Box() { a = [2, 3]; return 0; }
+	public Box() { a = [2, 3];}
 }
 
 int main() {

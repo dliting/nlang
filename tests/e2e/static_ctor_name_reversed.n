@@ -3,7 +3,7 @@
 class A {
 	public int x;
 	public static int A(string s) { return s.length(); }
-	public int A(int v, int w) { this.x = v + w; return 0; }
+	public A(int v, int w) { this.x = v + w;}
 }
 int main() {
 	A a = A(3, 4);

@@ -5,7 +5,7 @@ class A {
 	public int x;
 	public int y;
 	public static int A(int v) { return v; }
-	public int A() { this.x = 3; this.y = 4; return 0; }
+	public A() { this.x = 3; this.y = 4;}
 }
 int main() {
 	A a = A{x:7};

@@ -2,7 +2,7 @@
 //only ctor takes parameters cannot be initialized this way.
 class C {
     public int a;
-    public int C(int ax) { this.a = ax; return 0; }
+    public C(int ax) { this.a = ax;}
 }
 
 int main() {

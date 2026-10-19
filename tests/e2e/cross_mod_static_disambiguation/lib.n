@@ -7,5 +7,5 @@ class Mix {
 	public static int f(int x) { return x * 10; }
 	public int f() { return 999; }
 	public static int Mix(string s) { return s.length(); }
-	public int Mix() { return 555; }
+	public Mix() { }
 }

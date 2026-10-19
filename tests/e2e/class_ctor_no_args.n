@@ -1,0 +1,5 @@
+class Timer { public int ms; public Timer() { this.ms = 7; } }
+int main() {
+	Timer t = Timer();
+	return t.ms;
+}

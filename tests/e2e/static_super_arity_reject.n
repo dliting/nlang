@@ -4,10 +4,10 @@
 //crashed.
 class A {
 	public static int A() { return 5; }
-	public int A(int x) { return x; }
+	public A(int x) { }
 }
 class B : A {
-	public int B() { super(); return 0; }
+	public B() { super();}
 }
 int main() {
 	B b = B();

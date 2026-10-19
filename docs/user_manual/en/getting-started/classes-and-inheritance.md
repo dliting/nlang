@@ -10,9 +10,8 @@ import io;
 class Animal {
     public string name;
 
-    public int Animal(string name) {    // the constructor shares the class name
+    public Animal(string name) {    // the constructor shares the class name
         this.name = name;
-        return 0;
     }
 
     public virtual int legs() { return 0; }
@@ -21,9 +20,8 @@ class Animal {
 }
 
 class Dog : Animal {
-    public int Dog() {
+    public Dog() {
         super("dog");               // call the base constructor
-        return 0;
     }
 
     public int legs() { return 4; } // override

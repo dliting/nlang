@@ -46,10 +46,9 @@ throw;                                   // 重新抛出当前异常（仅在 ca
 ```nlang
 class MyException : Exception {
     int code;
-    public int MyException(string msg) {
+    public MyException(string msg) {
         super(msg);          // 转发到 Exception(message) 构造
         this.code = 42;
-        return 0;
     }
 }
 ```

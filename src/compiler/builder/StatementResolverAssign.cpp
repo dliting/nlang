@@ -33,8 +33,15 @@ void StatementResolveAccessor::Access(SnReturnStmt &sn)
 
 	if (!pReturnType)
 	{
-		m_Env.Log(CLL_Error, pResultExpr->Location(),
-			"No value should be returned here.");
+		//0.9.11 D1: constructors carry no return type; a value return
+		//gets the constructor-specific wording.
+		if (IsConstructorFunction(*pOuterFunc))
+			m_Env.Log(CLL_Error, pResultExpr->Location(),
+				"constructor \"%s\" cannot return a value",
+				pOuterFunc->Name().c_str());
+		else
+			m_Env.Log(CLL_Error, pResultExpr->Location(),
+				"No value should be returned here.");
 		return;
 	}
 

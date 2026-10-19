@@ -618,7 +618,7 @@ TopBareHeader:	HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $4, @1);
 					} |
 					KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction(FA_Default, NF_NONE, nullptr, $2, $4, @1);
+						$$ = new SnFunction(FA_Default, NF_NONE | NF_ExplicitVoid, nullptr, $2, $4, @1);
 					} ;
 
 //Modifier-led top-level function. The modifier slot never derives empty:
@@ -637,19 +637,19 @@ TopModHeader:	AccessTypeNonEmpty HeadType TT_Identifier '(' FormalParamList ')' 
 						$$ = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					} |
 					AccessTypeNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+						$$ = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					} |
 					AccessTypeEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
 					} |
 					AccessTypeEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
+						$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
 					} |
 					AccessTypeNonEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
 					} |
 					AccessTypeNonEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
+						$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
 					} ;
 
 //v0.9.1: epsilon-only access slot for the (empty,F) header arm. Keeps flag
@@ -1255,7 +1255,7 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 				$$ = func;
 			} |
 				AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-				auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+				auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 				if ($7 == nullptr)
 					func->AddFlags(NF_Abstract);
 				else
@@ -1374,7 +1374,7 @@ InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParam
 					$$ = func;
 				}
 				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
+					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1382,7 +1382,7 @@ InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParam
 					$$ = func;
 				}
 				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+					auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1435,7 +1435,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				} |
 
 				AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
+					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1443,7 +1443,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				}
 				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @3);
+					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1451,11 +1451,42 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				}
 				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+					auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
 						func->Body($7);
+					$$ = func;
+				} |
+
+				//0.9.11 D1: constructor spelling -- no return type. Whether a
+				//no-return member is a constructor is decided semantically
+				//(member name == class name); a non-matching name is rejected
+				//by the declaration contract. LALR: '(' after the identifier
+				//separates this shape from the typed productions (after a
+				//reduced Type the parser needs a name token, not '(').
+				AccessType NodeFlag TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @2);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
+					$$ = func;
+				} |
+				AccessType NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @3);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
+					$$ = func;
+				} |
+				AccessType TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, NF_NONE, nullptr, $2, $4, @2);
+					if ($6 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($6);
 					$$ = func;
 				} |
 

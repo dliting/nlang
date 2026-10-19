@@ -1,0 +1,4 @@
+class C { public virtual C() { } }
+int main() {
+	return 0;
+}

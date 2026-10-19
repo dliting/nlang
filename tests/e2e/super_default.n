@@ -3,11 +3,11 @@
 class Base {
     public int a;
     public int b;
-    public int Base(int x, int y = 7) { this.a = x; this.b = y; return 0; }
+    public Base(int x, int y = 7) { this.a = x; this.b = y;}
 }
 
 class Derived : Base {
-    public int Derived() { super(5); return 0; }
+    public Derived() { super(5);}
 }
 
 int main() {

@@ -3,7 +3,7 @@
 //order is irrelevant, and the static is reached as A.A(...).
 class A {
 	public int x;
-	public int A(int v, int w) { this.x = v + w; return 0; }
+	public A(int v, int w) { this.x = v + w;}
 	public static int A(string s) { return s.length(); }
 }
 int main() {

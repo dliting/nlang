@@ -3,7 +3,7 @@
 //must drill into the nested class field (array-level assertions stay
 //green in the push-miss half-state, spec r16).
 import io;
-class Point { int x; int y; public int Point(int a, int b) { x = a; y = b; return 0; } }
+class Point { int x; int y; public Point(int a, int b) { x = a; y = b; } }
 Point[] mkPts(int v) {
     Point[] pts = Point[2];
     pts[0] = Point(v, v + 1);

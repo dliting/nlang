@@ -6,7 +6,7 @@
 //tests already use.
 class MyException : Exception {
     int code;
-    public int MyException(string msg) { super(msg); }
+    public MyException(string msg) { super(msg); }
 }
 
 int main() {

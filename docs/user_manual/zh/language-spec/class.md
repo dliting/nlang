@@ -8,9 +8,8 @@ class Node {
     public int value;
     public Node next;
 
-    public int Node(int v) {
+    public Node(int v) {
         this.value = v;
-        return 0;
     }
 
     public int getValue() {
@@ -114,12 +113,11 @@ class Dog : Animal {
 ```nlang
 class Base {
     public int v;
-    public int Base(int x) { this.v = x; return 0; }
+    public Base(int x) { this.v = x; }
 }
 class Kid : Base {
-    public int Kid(int x) {
+    public Kid(int x) {
         super(x * 2);        // 调用 Base(int)
-        return 0;
     }
 }
 ```

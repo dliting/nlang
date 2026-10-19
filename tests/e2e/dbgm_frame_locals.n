@@ -3,10 +3,9 @@ class Point {
     int x;
     int y;
 
-    public int Point(int a, int b) {
+    public Point(int a, int b) {
         this.x = a;
         this.y = b;
-        return 0;
     }
 
     public int manhattan() {

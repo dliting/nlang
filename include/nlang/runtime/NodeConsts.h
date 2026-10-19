@@ -18,7 +18,15 @@ typedef uint64 NodeBits;
 
 #define NODE_KIND_BITS		8
 #define FIELD_ACCESS_BITS	2
-#define NODE_FLAG_BITS		24
+//0.9.11: 24 -> 26. The flag budget was exactly full (14 runtime flags in
+//bits 0..13 plus 10 compile-only flags, each a single bit at 14+offset —
+//the formula (NF_RT_END-1)<<(offset+1) shifts the single bit 13 of
+//NF_RT_END-1 — the last topping out at bit 23). Two more compile-only
+//flags (NF_ExplicitVoid, NF_ScriptEntry) need bits 24..25; NodeBits is
+//uint64 so the packed layout kind(8)+access(2)+flags(26)=36 still leaves
+//headroom. AST flags are never serialized, so widening has no on-disk
+//format impact.
+#define NODE_FLAG_BITS		26
 
 const size_t	NODE_KIND_LIMIT = 1 << NODE_KIND_BITS;
 

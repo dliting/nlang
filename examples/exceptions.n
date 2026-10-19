@@ -19,10 +19,9 @@ int risky(int mode) {
 class AppError : Exception {
     public int code;
 
-    public int AppError(string msg, int code) {
+    public AppError(string msg, int code) {
         super(msg);
         this.code = code;
-        return 0;
     }
 }
 

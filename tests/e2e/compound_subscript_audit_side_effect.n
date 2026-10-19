@@ -3,7 +3,7 @@
 //count and shift the parked base.
 class Ctr {
 	public int n;
-	public int Ctr() { n = 0; return 0; }
+	public Ctr() { n = 0;}
 	public int bump() { n += 1; return n; }
 }
 int main() {

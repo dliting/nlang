@@ -7,7 +7,7 @@ struct P {
 
 class Holder {
     public int v;
-    public int Holder(P p) { p.x = 99; this.v = p.x; return 0; }
+    public Holder(P p) { p.x = 99; this.v = p.x;}
 }
 
 int main() {
