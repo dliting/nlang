@@ -1634,6 +1634,275 @@ void test_channel_recv_in_tostring_rejected()
     PASS();
 }
 
+//Slice 11：try 体内停泊、恢复后 throw 的处理器平衡（风险 2）。main 在
+//try 体内 sleep 停泊（帧保留、pc 停在 try 区间内），worker 先醒写 w；
+//main 恢复后写 m 并 throw——处理器搜索按 tryBlocks pc 区间，恢复点仍在
+//try 体内，catch 必须接住。停泊若扰动处理器状态（合成 unwind/错位 pc），
+//本测试以未捕获异常失败。
+void test_park_in_try_throw_after_resume_caught()
+{
+    TEST(park_in_try_throw_after_resume_caught);
+    std::string out;
+    const int rc = runSourceCapturing("s11_try_park",
+        "import io;\n"
+        "void worker() { thread.sleep(5); io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    try {\n"
+        "        thread.sleep(20);\n"
+        "        io.write(\"m\");\n"
+        "        throw Exception(\"boom\");\n"
+        "    } catch (Exception e) {\n"
+        "        io.write(\"c\");\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "park-inside-try program completes");
+    CHECK(out == "wmc",
+        "throw after resume lands in the enclosing catch (got: " + out
+        + ")");
+    PASS();
+}
+
+//Slice 11：多帧深度停泊 + 跨帧处理器搜索。worker 的内层帧在空通道
+//recv 处停泊（帧栈深度 2 整体偷走），main 发送唤醒后在内层帧 throw——
+//内层无 tryBlocks，弹出后须在外层帧的 try 区间命中 catch。帧栈整体保留
+//与跨帧处理器走查缺一则失败。
+void test_worker_recv_park_throw_cross_frame_caught()
+{
+    TEST(worker_recv_park_throw_cross_frame_caught);
+    std::string out;
+    const int rc = runSourceCapturing("s11_xframe_park",
+        "import io;\n"
+        "class Peer {\n"
+        "    public Channel<int> ch;\n"
+        "    public int got;\n"
+        "    public void inner() {\n"
+        "        got = ch.recv();\n"
+        "        io.write(\"r\");\n"
+        "        throw Exception(\"late\");\n"
+        "    }\n"
+        "    public void outer() {\n"
+        "        try {\n"
+        "            this.inner();\n"
+        "        } catch (Exception e) {\n"
+        "            io.write(\"c\");\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Peer p = Peer();\n"
+        "    p.ch = {};\n"
+        "    Thread t = thread.spawn(p.outer);\n"
+        "    thread.yield();\n"
+        "    p.ch.send(5);\n"
+        "    thread.join(t);\n"
+        "    if (p.got == 5) io.write(\"g\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "cross-frame park program completes");
+    CHECK(out == "rcg",
+        "post-resume throw crosses frames into the outer catch and the "
+        "parked frame's writes survived (got: " + out + ")");
+    PASS();
+}
+
+//Slice 11：finally 在停泊后的正常路径执行（计划钉死项）。main 在
+//try 体内 sleep 停泊，恢复后 try 体完成——finally 入口一次、恰一次。
+//顺序：worker 5ms 先醒写 w，main 20ms 醒写 m，finally 写 f。
+void test_finally_runs_after_timer_park()
+{
+    TEST(finally_runs_after_timer_park);
+    std::string out;
+    const int rc = runSourceCapturing("s11_finally_park",
+        "import io;\n"
+        "void worker() { thread.sleep(5); io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    try {\n"
+        "        thread.sleep(20);\n"
+        "        io.write(\"m\");\n"
+        "    } finally {\n"
+        "        io.write(\"f\");\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "finally-after-park program completes");
+    CHECK(out == "wmf",
+        "finally runs exactly once after a parked try body (got: " + out
+        + ")");
+    PASS();
+}
+
+//Slice 11：worker 侧 finally——内层帧 recv 停泊（深度 2），唤醒后正常
+//完成，外层 finally 照常进入。与上一测试互为镜像（停泊在 spawned 上下
+//文的多帧中间）。
+void test_worker_finally_after_recv_park()
+{
+    TEST(worker_finally_after_recv_park);
+    std::string out;
+    const int rc = runSourceCapturing("s11_worker_finally",
+        "import io;\n"
+        "class Peer {\n"
+        "    public Channel<int> ch;\n"
+        "    public void outer() {\n"
+        "        try {\n"
+        "            this.inner();\n"
+        "        } finally {\n"
+        "            io.write(\"f\");\n"
+        "        }\n"
+        "    }\n"
+        "    public void inner() { ch.recv(); }\n"
+        "}\n"
+        "int main() {\n"
+        "    Peer p = Peer();\n"
+        "    p.ch = {};\n"
+        "    Thread t = thread.spawn(p.outer);\n"
+        "    thread.yield();\n"
+        "    p.ch.send(1);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "worker-finally program completes");
+    CHECK(out == "f",
+        "finally entered once after the parked inner frame resumed and "
+        "returned (got: " + out + ")");
+    PASS();
+}
+
+//Slice 11：已进入的 catch 处理器体内停泊＋恢复后 rethrow。sleep 停在
+//handler 体内（handlerExcStack 深度 1 随帧停泊），恢复后续跑 handler 余
+//下语句，裸 throw 重抛读帧内处理器栈顶——停泊若丢失处理器状态（平衡/
+//栈清空），重抛错误或落空；外层 catch 接住原异常则全链完好。
+void test_park_inside_catch_body()
+{
+    TEST(park_inside_catch_body);
+    std::string out;
+    const int rc = runSourceCapturing("s11_catch_park",
+        "import io;\n"
+        "int main() {\n"
+        "    try {\n"
+        "        try {\n"
+        "            throw Exception(\"b\");\n"
+        "        } catch (Exception e) {\n"
+        "            thread.sleep(5);\n"
+        "            io.write(\"c\");\n"
+        "            throw;\n"
+        "        }\n"
+        "    } catch (Exception e2) {\n"
+        "        io.write(\"e\");\n"
+        "    }\n"
+        "    io.write(\"k\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "park-inside-catch program completes");
+    CHECK(out == "cek",
+        "the entered handler continues after its own park and its "
+        "rethrow reaches the outer catch (got: " + out + ")");
+    PASS();
+}
+
+//Slice 11：混合风暴（计划关键测试）。两生产者各发 25 个值（基 0 与
+//100，含 0 值——装箱 0 必须与「无值」哨兵可区分），两消费者各收 25
+//个，经共享互斥体折叠进同一计数对象；四个上下文循环内都分配结构体
+//制造垃圾，压力阈值 8 触发多轮回收，配额 1 强制全部上下文交错停泊。
+//终值与次序无关（互斥保护）：consumed=50、checksum=300+2800=3100。
+//停泊根集（ParkedChanRecv/ParkedMutex/Preempted 帧）、通道缓冲元素、
+//互斥等待者、装箱往返任一环缺失即失败。
+void test_mixed_storm_channels_mutex_gc()
+{
+    TEST(mixed_storm_channels_mutex_gc);
+    CompiledModule mod = buildLinkedModule("s11_storm",
+        "import io;\n"
+        "struct Cell {\n"
+        "    int v;\n"
+        "}\n"
+        "class Totals {\n"
+        "    public int consumed;\n"
+        "    public int checksum;\n"
+        "}\n"
+        "class Producer {\n"
+        "    public Channel<int> ch;\n"
+        "    public int base;\n"
+        "    public void pump() {\n"
+        "        int i = 0;\n"
+        "        while (i < 25) {\n"
+        "            Cell c;\n"
+        "            c.v = base + i;\n"
+        "            ch.send(base + i);\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "class Consumer {\n"
+        "    public Channel<int> ch;\n"
+        "    public Mutex gate;\n"
+        "    public Totals board;\n"
+        "    public void drain() {\n"
+        "        int i = 0;\n"
+        "        while (i < 25) {\n"
+        "            int v = ch.recv();\n"
+        "            Cell c;\n"
+        "            c.v = v;\n"
+        "            gate.lock();\n"
+        "            board.consumed = board.consumed + 1;\n"
+        "            board.checksum = board.checksum + v;\n"
+        "            gate.unlock();\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Totals t = Totals();\n"
+        "    Mutex m = Mutex();\n"
+        "    Channel<int> a = {};\n"
+        "    Channel<int> b = {};\n"
+        "    Producer pa = Producer();\n"
+        "    pa.ch = a;\n"
+        "    pa.base = 0;\n"
+        "    Producer pb = Producer();\n"
+        "    pb.ch = b;\n"
+        "    pb.base = 100;\n"
+        "    Consumer ca = Consumer();\n"
+        "    ca.ch = a;\n"
+        "    ca.gate = m;\n"
+        "    ca.board = t;\n"
+        "    Consumer cb = Consumer();\n"
+        "    cb.ch = b;\n"
+        "    cb.gate = m;\n"
+        "    cb.board = t;\n"
+        "    Thread w1 = thread.spawn(pa.pump);\n"
+        "    Thread w2 = thread.spawn(pb.pump);\n"
+        "    Thread w3 = thread.spawn(ca.drain);\n"
+        "    Thread w4 = thread.spawn(cb.drain);\n"
+        "    thread.join(w1);\n"
+        "    thread.join(w2);\n"
+        "    thread.join(w3);\n"
+        "    thread.join(w4);\n"
+        "    io.write(t.consumed.toString());\n"
+        "    io.write(t.checksum.toString());\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    exec.SetSchedulerTripForTests(1);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0,
+          "the four-context storm completes");
+    CHECK(io.m_out == "503100",
+        "order-independent totals: 50 consumed, checksum 3100 (got: "
+        + io.m_out + ")");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -1715,6 +1984,12 @@ int main()
         runGuarded(test_channel_bare_name_rejected);
         runGuarded(test_channel_nonempty_init_rejected);
         runGuarded(test_channel_recv_in_tostring_rejected);
+        runGuarded(test_park_in_try_throw_after_resume_caught);
+        runGuarded(test_worker_recv_park_throw_cross_frame_caught);
+        runGuarded(test_finally_runs_after_timer_park);
+        runGuarded(test_worker_finally_after_recv_park);
+        runGuarded(test_park_inside_catch_body);
+        runGuarded(test_mixed_storm_channels_mutex_gc);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

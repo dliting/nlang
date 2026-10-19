@@ -1,0 +1,77 @@
+//K1 Slice 11 acceptance: producer-consumer over channels with a mutex-
+//guarded aggregate. Two producers each send 25 values on their own channel
+//(bases 0 and 100 — the value 0 must survive boxing as distinct from the
+//"no value" sentinel); two consumers drain their channel and fold results
+//into one shared totals object under a single mutex; joins establish
+//happens-before. The final totals are order-independent: 50 consumed,
+//checksum = sum(0..24) + sum(100..124) = 300 + 2800 = 3100.
+import io;
+
+class Totals {
+    public int consumed;
+    public int checksum;
+}
+
+class Producer {
+    public Channel<int> ch;
+    public int base;
+    public void pump() {
+        int i = 0;
+        while (i < 25) {
+            ch.send(base + i);
+            i = i + 1;
+        }
+    }
+}
+
+class Consumer {
+    public Channel<int> ch;
+    public Mutex gate;
+    public Totals board;
+    public void drain() {
+        int i = 0;
+        while (i < 25) {
+            int v = ch.recv();
+            gate.lock();
+            board.consumed = board.consumed + 1;
+            board.checksum = board.checksum + v;
+            gate.unlock();
+            i = i + 1;
+        }
+    }
+}
+
+int main() {
+    Totals t = Totals();
+    Mutex m = Mutex();
+    Channel<int> a = {};
+    Channel<int> b = {};
+    Producer pa = Producer();
+    pa.ch = a;
+    pa.base = 0;
+    Producer pb = Producer();
+    pb.ch = b;
+    pb.base = 100;
+    Consumer ca = Consumer();
+    ca.ch = a;
+    ca.gate = m;
+    ca.board = t;
+    Consumer cb = Consumer();
+    cb.ch = b;
+    cb.gate = m;
+    cb.board = t;
+    Thread w1 = thread.spawn(pa.pump);
+    Thread w2 = thread.spawn(pb.pump);
+    Thread w3 = thread.spawn(ca.drain);
+    Thread w4 = thread.spawn(cb.drain);
+    thread.join(w1);
+    thread.join(w2);
+    thread.join(w3);
+    thread.join(w4);
+    io.print("consumed=" + t.consumed.toString()
+        + " sum=" + t.checksum.toString());
+    if (t.consumed == 50 && t.checksum == 3100) {
+        return 0;
+    }
+    return 1;
+}

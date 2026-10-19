@@ -1488,3 +1488,6 @@ vovld_virtual_first compile_error claims the virtual dispatch slot
 vovld_static_virtual_mix compile_error dispatch is name-based
 vovld_ok_conversion_ranking 2
 vovld_ok_nonvirtual_parent_virtual_child 10
+
+# --- 0.10.0: concurrency acceptance (K1 threads) ---
+threads_producer_consumer 0 consumed=50 sum=3100
