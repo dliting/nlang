@@ -104,6 +104,7 @@ add_library(nlang_compiler
     builder/StatementResolverSwitchTry.cpp
     builder/StatementResolverSuper.cpp
     builder/StatementResolverStoreGates.cpp
+    builder/ClassFieldInitializerInjection.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
 )

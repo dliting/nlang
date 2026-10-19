@@ -168,6 +168,22 @@ private:
 	//virtual/const. Logs all diagnostics; never mutates the AST. Definition
 	//in StatementResolverDeclCtor.cpp.
 	void CheckStructCtorContract(SnStructDecl &owner, SnFunction &sn);
+	//0.9.11 D9: inject one `this.<field> = <cloned literal>;` per field
+	//initializer into one constructor, at the fixed anchor after a leading
+	//super() call (or at body start). A member (not a free helper) because
+	//Node::InsertChild is protected and reached through the SyntaxNode
+	//friendship. Definition in ClassFieldInitializerInjection.cpp.
+	void InjectIntoCtor(SnFunction &ctor,
+		const std::vector<SnClassField *> &initFields);
+	//0.9.11 D9: collect the class's user constructors (instance members
+	//named after the class); false = a generated constructor marks an
+	//already-injected class. Needs the private IsConstructorFunction.
+	bool CollectUserCtors(SnClassDecl &sn,
+		std::vector<SnFunction *> &ctors);
+	//0.9.11 D9: phase-1 check for one constructor (native/bodyless
+	//rejection, super-first rule with initializers present); emits the
+	//diagnostic and returns false on rejection.
+	bool ValidateCtorForFieldInit(SnFunction &ctor);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
@@ -195,6 +211,15 @@ public:
 	//extends/implements before any function body is visited, so an upcast in
 	//an earlier-merged consumer TU still sees the inheritance chain.
 	void ResolveClassBaseNow(SnClassDecl &sn) { ResolveClassBases(sn); }
+
+	//0.9.11 D9 pre-pass entry: apply one class's field initializers —
+	//validate every constructor (native/bodyless rejection, super-position
+	//rule), then inject fresh `this.<field> = <clone>;` statements or
+	//synthesize the public zero-arg constructor. Runs before the document-
+	//order traversal so a constructor call site written before the class
+	//declaration still sees the synthesized member. Definition in
+	//ClassFieldInitializerInjection.cpp.
+	void InjectClassFieldInitializers(SnClassDecl &sn);
 
 	void Access(SnNamespace &sn);
 	void Access(SnFunction &sn);
@@ -295,6 +320,14 @@ public:
 	//document-order traversal visits any function body (forward-reference
 	//fix for upcasts across the user/library TU merge order).
 	static void PreResolveClassBases(Node& node,
+		StatementResolveAccessor& accessor);
+
+	//Pre-pass (0.9.11 D9): inject class field-initializer assignments and
+	//synthesize zero-arg constructors before the document-order traversal,
+	//so a constructor call site written before the class declaration still
+	//sees the synthesized member (same forward-reference discipline as
+	//PreResolveClassBases; idempotent on already-injected classes).
+	static void PreInjectClassFieldInitializers(Node& node,
 		StatementResolveAccessor& accessor);
 
 	void Resolve(SnNamespace &root);
