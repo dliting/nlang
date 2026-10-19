@@ -6,6 +6,38 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.10] - 2026-10-19
+
+### Added
+
+- **Interface static methods** — an interface may declare `public static`
+  methods with bodies, called through the interface name
+  (`I.twice(21)`) or by bare name inside the interface. Statics stay
+  outside the `implements` contract and live in their own namespace: a
+  static and an instance method may share a name with different
+  parameter lists, while an exact same-signature collision is a compile
+  error. They cross module boundaries like the rest of the static
+  surface.
+- **Type-name-qualified static calls for classes** — `Util.twice(21)`
+  works for class statics, including statics inherited from a parent
+  class, with bare calls inside the class. The two call shapes are kept
+  apart: calling a static through an object and calling an instance
+  method through the type name are both compile errors.
+- **Interface static constants** — `static const Type Name = expr;` on
+  an interface folds at compile time and is read through the interface
+  name; the value serializes into imported modules like a default
+  parameter value.
+- **Compound shift assignment `<<=` / `>>=`** — the left value's
+  declared type is the carrier (no promotion, implicit store-back, the
+  `+=` family rules) and the count follows the binary shift's admission
+  rules with the same runtime range check.
+
+### Fixed
+
+- **Calling an instance method through a type name no longer crashes
+  silently** — the shape is now a compile error (`must be called
+  through a receiver object`), matching the static-via-object rejection.
+
 ## [0.9.9] - 2026-10-18
 
 ### Added

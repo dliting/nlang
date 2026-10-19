@@ -67,8 +67,18 @@ neither C undefined behavior nor Java mask wrapping.
 
 Precedence sits between relational and additive: addition binds tighter
 than shift (`1 << 2 + 3` is `1 << 5`), shift tighter than relational
-(`1 << 2 < 8` compares `4 < 8`). There are no `<<=`/`>>=` compound
-assignment forms.
+(`1 << 2 < 8` compares `4 < 8`).
+
+**Compound forms** `<<=` / `>>=` store back into the left value with
+its declared type as the carrier — no unilateral promotion to int
+(`byte b <<= 2` stays byte, so `1 <<= 7` wraps to -128 in the signed
+byte row) — and store implicitly like the `+=` family does. The count
+follows the binary form's admission rules (ordinary implicit conversion
+into the carrier, constant rescue, the `[0, bit width)` runtime check),
+so `b <<= 200` is a compile error and a negative variable count throws
+the named runtime error. Supported left values are the
+compound-assignment family (locals, fields, subscript elements); see
+[Compound Assignment](compound-assignment.md).
 
 Inside a generic argument list a `>>` still closes the nested type
 (`List<List<int>>`); only at expression depth does it act as the shift

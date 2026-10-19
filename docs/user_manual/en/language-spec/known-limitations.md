@@ -104,18 +104,25 @@
   inherit default values from the base class method. Each override
   declares its own defaults independently.
 - **Cross-module base classes stay outside override-signature checking**:
-  class stubs of imported modules carry no members (with `.ncu`-only
-  imports), so subclass override-signature checking is idle in that
-  direction; when the imported module's source is present, the check
-  applies normally.
-- **Members of imported classes are unreachable through `.ncu`
-  imports**: the class stub carries no members — field reads (`w.w`)
-  and method calls (plain non-virtual ones included, `w.doubled()`)
-  fail with not-found/resolution errors, and construction is not wired
-  up either (it reports a backend internal error). The class name is
-  still usable as a type: declaring a variable of it and receiving
-  instances returned by the producing module's own functions both
-  work; imports with the source present are unaffected.
+  class stubs of imported modules carry no instance members (with
+  `.ncu`-only imports), so subclass override-signature checking is idle
+  in that direction; when the imported module's source is present, the
+  check applies normally.
+- **Instance members of imported classes are unreachable through
+  `.ncu`-only imports**: the class stub carries no instance members —
+  field reads (`w.w`) and instance method calls (`w.doubled()`) fail
+  at compile time (not-found errors), and construction through the
+  stub (`Mix()`) reports a backend internal error. The stub does
+  carry the class's public static methods (callable through the type
+  name) and interface constants. The class name is still usable as a
+  type: declaring a variable of it and receiving instances returned
+  by the producing module's own functions both work.
+- **Mixed import layout (source alongside its `.ncu`)**: when the
+  producer's source is present in the import path, instance members
+  become usable — with one gap: if a class declares a static and an
+  instance method with the same name, the instance call is mislinked
+  at run time and returns garbage. Keep imports `.ncu`-only so
+  unsupported use fails loudly at compile time.
 - **Parameter count ceiling**: functions with more than 64 parameters
   (a sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — the call-argument staging area and

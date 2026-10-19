@@ -100,6 +100,9 @@ delegate invocations are rejected.
   the expected `func` type.
 - Referencing functions or methods with **default parameters** —
   defaults are filled only on the direct-call path.
+- **Static method references** — a static method cannot be referenced
+  as a function value: through the type name (`Util.twice` is rejected
+  with "cannot reference the static method"), or through an object.
 - **Enum methods** — the receiver is an int value, not a heap object.
 - **Native methods** in any reachable form: declared `native`, an
   override under a virtual base, or an implementation of an interface

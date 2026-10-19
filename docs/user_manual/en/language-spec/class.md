@@ -96,6 +96,46 @@ assignments, compound assignments (`v += 1`), and default-parameter
 expressions (`int add(int x, int y = v)`). A local variable or parameter with
 the same name shadows the field, matching Java/C# semantics.
 
+### Static methods
+
+```nlang
+class Util {
+    public static int twice(int x) { return x * 2; }
+    public static int quad(int x) { return twice(twice(x)); }  // bare call inside the class
+    public int inst() { return 1; }
+}
+class Base {
+    public static int bid() { return 7; }
+}
+class Sub : Base {
+    public int pad;
+}
+int main() {
+    return Util.twice(21) + Util.quad(2) + Sub.bid();  // 42 + 8 + 7
+}
+```
+
+A `static` method belongs to the class, not to any instance:
+
+- **Call it through the type name**: `Util.twice(21)` from outside the
+  class (the method must be `public` to be reachable). Calling a static
+  through an object is rejected (`must be called through the type
+  name`), and calling an instance method through the type name is
+  rejected too (`must be called through a receiver object`) — the two
+  call shapes are kept apart.
+- **Bare calls inside the class**: a static method calls sibling statics
+  by bare name (`quad` calls `twice`), and a non-static method calls a
+  static the same way.
+- **No `this`**: a static method has no receiver — `this` and the
+  implicit `this.field` binding of a bare field name are compile errors
+  (`this is not available in a static method`).
+- **Inheritance**: a subclass inherits the parent's statics;
+  `Sub.bid()` resolves up the chain.
+- **Separate namespace**: a static and an instance member may share a
+  name with different parameter lists; an exact same-signature collision
+  is a compile error. Statics never participate in virtual dispatch
+  (below).
+
 ### Virtual methods and overrides
 
 ```nlang

@@ -61,6 +61,33 @@ Node c;                   // 只声明：c是null
 
 **隐式`this.field`（裸成员访问）**：在方法或构造函数内，解析到外层类字段（含继承字段）的裸标识符是隐式`this.field`访问。读、赋值、复合赋值（`v += 1`）与默认参数表达式（`int add(int x, int y = v)`）都适用。同名局部变量或参数会遮蔽字段，与Java/C#语义一致。
 
+### 静态方法
+
+```nlang
+class Util {
+    public static int twice(int x) { return x * 2; }
+    public static int quad(int x) { return twice(twice(x)); }  // 类内裸调用
+    public int inst() { return 1; }
+}
+class Base {
+    public static int bid() { return 7; }
+}
+class Sub : Base {
+    public int pad;
+}
+int main() {
+    return Util.twice(21) + Util.quad(2) + Sub.bid();  // 42 + 8 + 7
+}
+```
+
+`static`方法属于类本身，不属于任何实例：
+
+- **经类型名调用**：类外写`Util.twice(21)`（方法须为`public`才可达）。经对象调用静态方法会被拒绝（`must be called through the type name`），经类型名调用实例方法同样被拒（`must be called through a receiver object`）——两种调用形态严格区分。
+- **类内裸调用**：静态方法按裸名互调（`quad`调用`twice`），实例方法内裸调静态方法同理。
+- **没有`this`**：静态方法没有接收者——`this`与裸字段名的隐式`this.field`绑定都是编译错误（`this is not available in a static method`）。
+- **继承**：子类继承父类的静态方法，`Sub.bid()`沿链上溯解析。
+- **独立名字空间**：静态与实例成员可同名并存（参数表不同）；签名完全相同则编译错误。静态成员从不参与虚分派（见下文）。
+
 ### 虚方法与覆写
 
 ```nlang
