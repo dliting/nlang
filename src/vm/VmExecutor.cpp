@@ -21,6 +21,7 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_schedTripBudget = m_schedTripLimit;
     m_quotaFires = 0;
     m_preemptSkips = 0;
+    m_pendingResume = false;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
     m_byteStreams.clear();
@@ -143,8 +144,16 @@ void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
             const int ctx = m_spScheduler->PopNextRunnable();
             if (ctx < 0)
                 break;   //queue drained: run over
+            //A parked context's frames are still on m_callStack at the
+            //advanced pc — re-enter the frame loop instead of pushing a
+            //fresh root (yield would otherwise re-run main from zero).
+            const bool resume = m_pendingResume;
+            m_pendingResume = false;
             try {
-                RunRootWindow(mainFunc, resultCell);
+                if (resume)
+                    RunFrames(0);
+                else
+                    RunRootWindow(mainFunc, resultCell);
                 int64_t result64;
                 std::memcpy(&result64, resultCell, sizeof(result64));
                 m_spScheduler->MarkFinished(ctx, result64);
@@ -153,6 +162,7 @@ void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
                 //Requeue = preempted; Slice 6 splits park reasons
                 //(timer/join/mutex/chan-recv park instead of requeue).
                 m_spScheduler->Requeue(ctx);
+                m_pendingResume = true;
                 continue;
             } catch (...) {
                 m_spScheduler->MarkFailed(ctx);

@@ -50,6 +50,12 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     if (ExecuteIntrinsicFileStream(intrinsicId, callParamBase, locals, pResult))
         return;
 
+    //K1 concurrency intrinsics (129-141): thread.* free calls and the
+    //Mutex/Channel methods — family delegation to IntrinsicsThread.cpp
+    //(same contract: false when the id is not ours).
+    if (ExecuteIntrinsicThread(intrinsicId, callParamBase, locals, pResult))
+        return;
+
     //Phase 8e-1: Object protocol intrinsics.
     //Object.Equals(this, other) → 0 or 1 (identity comparison on heap idx).
     //Object.GetHashCode(this) → heap idx as int32 (identity-based hash).

@@ -95,6 +95,9 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         RegisterArrayTypes(root);
         RegisterEnums(root);
         RegisterFunctions(root);
+        //K1: after RegisterFunctions — it clears m_funcIndexMap, whose
+        //entries the thread-namespace stubs below depend on surviving.
+        RegisterThreadNamespaceFunctions();
         PopulateClassMethods(root);
         GenerateAllBytecode(root);
         //Entry collection: the pre-check above already refused a unit

@@ -209,6 +209,15 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 			"or method reference");
 		return;
 	}
+	//K1: Thread instances come only from thread.spawn — the handle is
+	//minted by the scheduler, so by-name construction is meaningless.
+	//Mutex/Channel stay constructible (their handles own the resource).
+	if (pClassDecl->IsBuiltinClass() && pClassDecl->Name() == "Thread")
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Thread objects cannot be constructed; use thread.spawn(f)");
+		return;
+	}
 	sn.ClassDecl(pClassDecl);
 	sn.EvalDataType(pClassDecl);
 	sn.AddFlags(NF_Resolved);

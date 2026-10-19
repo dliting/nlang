@@ -570,6 +570,15 @@ private:
     bool ExecuteIntrinsicFileStream(uint16_t intrinsicId,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
+    //K1: thread.* free-call intrinsics and the Mutex/Channel method
+    //intrinsics (IntrinsicsThread.cpp). Same family contract: return
+    //false when the id is not ours. thread.* functions are called via
+    //OP_CallFunc — args start at callParamBase slot 0 (no `this`); the
+    //sync-primitive methods ride the receiver-dispatched shape (slot 0
+    //= this).
+    bool ExecuteIntrinsicThread(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+
     //Phase 11 Step 3: allocate one boxed-value heap slot (layout per
     //OP_Box: slot[0]=tag, slot[1]=value bits). Shared by OP_Box and the
     //string split / fs.listFiles intrinsics.
@@ -862,6 +871,12 @@ private:
     //>0 while a nested evaluation window (toString / host CallByName)
     //is in flight — NestEvalGuard owns the count.
     int m_nestDepth = 0;
+    //K1: the next queue pop is a RESUME, not a fresh root — a parked
+    //context's frames are still on m_callStack at the advanced pc, so
+    //the carrier must re-enter RunFrames instead of RunRootWindow.
+    //Slice 6 generalizes this to the steal model (frames move into
+    //ExecutionContext::frames per context).
+    bool m_pendingResume = false;
 
     //Phase 9d: cached class indices for the built-in Exception hierarchy.
     //Initialized in Execute() via module.FindClass; -1 = not found (only

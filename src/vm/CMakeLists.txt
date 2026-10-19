@@ -26,6 +26,7 @@ add_library(nlang_vm
     IntrinsicsString.cpp
     IntrinsicsByteStream.cpp
     IntrinsicsFileStream.cpp
+    IntrinsicsThread.cpp
     backend/VmBackend.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp

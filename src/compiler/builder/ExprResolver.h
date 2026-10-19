@@ -10,6 +10,11 @@
 namespace nlang
 {
 
+//K1 thread namespace (ThreadNamespace.h defines them; a reference
+//parameter needs no full type here).
+struct ThreadNsFuncEntry;
+struct SyncMethodShape;
+
 enum FindFuncResult
 {
 	//The function name is not found.
@@ -399,6 +404,20 @@ private:
 		uint8_t want);
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//K1: Mutex/Channel by-name methods — runs BEFORE the stream family
+	//(close is also a stream method name and would be captured there).
+	bool TryResolveSyncPrimitiveMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//TryResolveSyncPrimitiveMethod's post-classification tail: named/out
+	//veto, caller-scope argument resolution, arity check, type wiring.
+	bool FinishSyncPrimitiveCall(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, SnFieldExpr *pInnerExpr,
+		const SyncMethodShape &shape, SyntaxNode *pSavedContext);
+	//Access's builtin by-name method families, historical dispatch order
+	//(extracted for the 50-line function budget).
+	bool TryResolveBuiltinMethodFamilies(SnMemberExpr &snMember,
+		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
+		SyntaxNode *pSavedContext);
 	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	bool TryResolveUserClassEqualsOrGetHashCode(SnMemberExpr &snMember,
@@ -947,6 +966,17 @@ private:
 		SnInvokeExpr &invoke);
 	bool ResolveModuleQualifiedCallee(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::string &modulePath);
+	//K1: the built-in thread namespace rides the same chain shape —
+	//interception, signature-table matching, and the lazy type binding
+	//of the synthetic singletons' formals (ExprResolverThreadNs.cpp).
+	bool TryResolveThreadNamespace(SnMemberExpr &snMember);
+	//TryResolveThreadNamespace's match-and-bind tail (split for the
+	//50-line function budget): lazy formal rebind, one-candidate
+	//matching with the spawn-specific diagnostic, shared close-out.
+	bool BindThreadNsCall(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		const ThreadNsFuncEntry& entry);
+	void BindThreadNsFormalTypes(const ThreadNsFuncEntry& entry);
+	SnField* ThreadNsTypeNode(unsigned char kind);
 	//Post-match close-out half of ResolveModuleQualifiedCallee
 	//(out-argument veto, invoke binding, member callee/result wiring);
 	//split out of it for the 50-line function budget.

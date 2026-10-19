@@ -168,6 +168,21 @@ const BuiltinMethod s_DictMethods[] = {
     {"toString",    INTR_Dict_toString,    1, RTK_String},
 };
 
+//K1 concurrency builtins. Thread carries the __handle field (the spawned
+//context id) but no ctor — thread.spawn mints instances — and no methods
+//in K1. Mutex/Channel take the same __handle shape as the containers
+//(index into the VM-side sync stores). Channel.recv arrives in Slice 9.
+const BuiltinMethod s_MutexMethods[] = {
+    {"lock",    INTR_Mutex_Lock,    1, RTK_Void},
+    {"unlock",  INTR_Mutex_Unlock,  1, RTK_Void},
+    {"tryLock", INTR_Mutex_TryLock, 1, RTK_Bool},
+};
+
+const BuiltinMethod s_ChannelMethods[] = {
+    {"send",  INTR_Channel_Send,  2, RTK_Void},  //this + boxed value
+    {"close", INTR_Channel_Close, 1, RTK_Void},
+};
+
 //The builtin class registration table. Row order IS registration order —
 //class and function indices derive from it, so any reorder changes the
 //serialized .ncu (golden compare guards this).
@@ -212,6 +227,16 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"InvalidCastException",      BSR_ExceptionBase, s_ExceptionFields,
         std::size(s_ExceptionFields), true, INTR_InvalidCastException_Ctor, 2,
         nullptr, 0, BIDX_InvalidCastExc},
+    //K1 concurrency builtins — appended at the END (existing indices are
+    //stable; a reorder changes the serialized .ncu).
+    {"Thread",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        false, 0, 0, nullptr, 0, BIDX_None},
+    {"Mutex",   BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        true, INTR_Mutex_Ctor, 1,
+        s_MutexMethods, std::size(s_MutexMethods), BIDX_None},
+    {"Channel", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        true, INTR_Channel_Ctor, 1,
+        s_ChannelMethods, std::size(s_ChannelMethods), BIDX_None},
 };
 
 //One BuiltinField row → the CompiledClass field arrays.

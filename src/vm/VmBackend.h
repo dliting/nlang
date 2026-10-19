@@ -955,6 +955,9 @@ private:
     void WalkArrayTypeNode(SnField& n);
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
+    //K1: intrinsic stubs for thread.* free calls; AFTER RegisterFunctions
+    //(it clears m_funcIndexMap).
+    void RegisterThreadNamespaceFunctions();
     void PopulateClassMethods(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
     //GenerateAllBytecode close-out: scan the root for the entry function

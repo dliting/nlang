@@ -141,4 +141,24 @@ static_assert(INTR_String_ToBool
         == kStringMethodIntrinsicFirst + kStringMethodIntrinsicCount - 1,
     "string-method intrinsic block must be contiguous up to ToBool");
 
+//K1 (v0.10.0) concurrency intrinsics. thread namespace free functions
+//(129-133): module-level intrinsic stubs dispatched through the
+//OP_CallFunc intrinsic arm — no `this` slot, args start at
+//callParamBase. Mutex/Channel builtin class methods (134-141): the
+//usual receiver-dispatched shape (slot 0 = this). 128 was the last
+//fresh id before this block; ids are only ever appended, never reused.
+static constexpr uint16_t INTR_Thread_Spawn = 129;
+static constexpr uint16_t INTR_Thread_Join  = 130;
+static constexpr uint16_t INTR_Thread_Yield = 131;
+static constexpr uint16_t INTR_Thread_Id    = 132;
+static constexpr uint16_t INTR_Thread_Sleep = 133;
+static constexpr uint16_t INTR_Mutex_Ctor    = 134;
+static constexpr uint16_t INTR_Mutex_Lock    = 135;
+static constexpr uint16_t INTR_Mutex_Unlock  = 136;
+static constexpr uint16_t INTR_Mutex_TryLock = 137;
+static constexpr uint16_t INTR_Channel_Ctor  = 138;
+static constexpr uint16_t INTR_Channel_Send  = 139;
+static constexpr uint16_t INTR_Channel_Recv  = 140;
+static constexpr uint16_t INTR_Channel_Close = 141;
+
 }  // namespace nlang

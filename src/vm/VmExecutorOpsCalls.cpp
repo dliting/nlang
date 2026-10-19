@@ -23,6 +23,16 @@ bool VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pR
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
+    //K1: thread.* intrinsic stubs — same ABI as natives (args at
+    //callParamBase, return via pResult), dispatched to the intrinsic
+    //table. pc must advance BEFORE ExecuteIntrinsic: a parking intrinsic
+    //(yield) suspends mid-frame and resume re-enters at frame.pc, so
+    //re-executing this call would loop forever.
+    if (callee.intrinsicId != INTR_None) {
+        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+        ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
+        return false;
+    }
     //Resume point = the instruction AFTER this call's immediates.
     m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, 0, 0);

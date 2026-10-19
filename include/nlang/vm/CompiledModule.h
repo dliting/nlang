@@ -88,6 +88,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //module carries only literal defaults; expression defaults (formal
 //references, producing-module calls, arithmetic over them) cannot cross
 //module borders. Refuse v2.2 and older outright.
+//K1 (v0.10.0, concurrency): no format change. The thread.* module-level
+//intrinsic stubs (thread.spawn/join/yield/id/sleep) are minted per-unit
+//at registration time exactly like the other builtin stubs — they
+//serialize as ordinary function records (ModuleSaver writes the
+//intrinsicId) and dedup at link by (name, paramCount, intrinsicId).
+//NCU_FORMAT_MINOR stays 3.
 inline constexpr uint16_t NCU_FORMAT_MINOR = 3;
 
 //Runtime type kind constants for serialization (compile-time NK_* values

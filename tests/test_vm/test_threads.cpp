@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <list>
 #include <stdexcept>
 #include <string>
 
@@ -49,12 +50,12 @@ static std::filesystem::path scratchDir()
     return dir;
 }
 
-//Compile + link; the caller drives its own VmExecutor (scheduler knobs
-//must be set before Execute). Throws std::runtime_error with diagnostics
-//on build failure — a failure here is a test bug, not behavior under
-//test.
-static CompiledModule buildLinkedModule(const std::string& tag,
-                                        const std::string& source)
+//Compile one source file to its .ncu on disk; the load/link tail is the
+//caller's. Throws std::runtime_error with diagnostics on build failure —
+//a failure here is a test bug, not behavior under test.
+static std::filesystem::path compileUnitToDisk(
+    const std::string& tag, const std::string& source,
+    const std::list<std::string>& importDirs = {})
 {
     const auto dir = scratchDir();
     const auto nPath = dir / (tag + ".n");
@@ -68,6 +69,7 @@ static CompiledModule buildLinkedModule(const std::string& tag,
 
     BuildParams params;
     params.m_SourceFiles.push_back(nPath.string());
+    params.m_ImportDirs = importDirs;
     params.m_sOutputModule = tag;
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
@@ -87,8 +89,19 @@ static CompiledModule buildLinkedModule(const std::string& tag,
             diag += (*it)->Message() + "\n";
         throw std::runtime_error("build failed:\n" + diag);
     }
+    return modPath;
+}
+
+//Compile + link; the caller drives its own VmExecutor (scheduler knobs
+//must be set before Execute). Throws std::runtime_error with diagnostics
+//on build failure — a failure here is a test bug, not behavior under
+//test.
+static CompiledModule buildLinkedModule(const std::string& tag,
+                                        const std::string& source)
+{
+    const auto modPath = compileUnitToDisk(tag, source);
     NcuLoader::Options loaderOpts;
-    loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+    loaderOpts.searchDirs = {scratchDir().string(), STDLIB_DIR};
     NcuLoader::Result loaded =
         NcuLoader::LoadClosure(modPath.string(), loaderOpts);
     return NcuLinker::Link(std::move(loaded.units), loaded.entryKey);
@@ -456,6 +469,248 @@ void test_scheduler_quota_skips_nested_windows()
     PASS();
 }
 
+// --- Slice 5 语言面注册（thread 命名空间 + 三内建类）---
+
+//期望构建失败：捕获 buildLinkedModule 的诊断抛出并检查消息子串。
+static bool buildFailsWith(const std::string& tag, const std::string& source,
+                           const std::string& needle)
+{
+    try {
+        buildLinkedModule(tag, source);
+    } catch (const std::exception& e) {
+        return std::string(e.what()).find(needle) != std::string::npos;
+    }
+    return false;
+}
+
+//thread.id()：main 上下文恒为 0（Slice 5 真实实现）。
+void test_thread_ns_id_main()
+{
+    TEST(thread_ns_id_main);
+    const int rc = runSource("thread_id",
+        "int main() {\n"
+        "    if (thread.id() != 0) return 1;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(rc == 0, "thread.id() returns 0 on the main context");
+    PASS();
+}
+
+//thread.yield()：单上下文下 park→requeue→resume 全管道往返，程序语义
+//不变（每轮让与后继续，累加值精确）。
+void test_thread_ns_yield_single_context()
+{
+    TEST(thread_ns_yield_single_context);
+    const int rc = runSource("thread_yield",
+        "int main() {\n"
+        "    int s = 0;\n"
+        "    int i = 1;\n"
+        "    while (i <= 100) {\n"
+        "        thread.yield();\n"
+        "        s = s + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    if (s != 5050) return 1;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(rc == 0, "100 yields round-trip through the park pipeline");
+    PASS();
+}
+
+//toString 嵌套求值窗内 yield：可捕获的拒绝（不能在嵌套窗内挂起）。
+//形态与 Slice 4 的嵌套窗测试相同（数组协变触发运行期元素格式化）。
+void test_thread_ns_yield_in_tostring_rejected()
+{
+    TEST(thread_ns_yield_in_tostring_rejected);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("thread_yield_ts",
+            "class Box {\n"
+            "    public string toString() {\n"
+            "        thread.yield();\n"
+            "        return \"b\";\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    Box[] arr = Box[1];\n"
+            "    arr[0] = Box();\n"
+            "    string t = arr;\n"
+            "    return t.length();\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "yield inside a nested evaluation window throws");
+    CHECK(what.find("cannot suspend inside a nested evaluation")
+              != std::string::npos,
+          "rejection names the nested-evaluation rule");
+    PASS();
+}
+
+//未知 thread.foo()：编译期诊断点名成员。
+void test_thread_ns_unknown_member()
+{
+    TEST(thread_ns_unknown_member);
+    CHECK(buildFailsWith("thread_unknown",
+        "int main() {\n"
+        "    thread.nope();\n"
+        "    return 0;\n"
+        "}\n",
+        "thread.nope"),
+        "unknown thread namespace member is a compile error naming it");
+    PASS();
+}
+
+//spawn 参数形态：非函数值拒绝。
+void test_thread_ns_spawn_arg_not_func()
+{
+    TEST(thread_ns_spawn_arg_not_func);
+    CHECK(buildFailsWith("thread_sp_int",
+        "int main() {\n"
+        "    thread.spawn(42);\n"
+        "    return 0;\n"
+        "}\n",
+        "spawn"),
+        "spawn of a non-function value is a compile error");
+    PASS();
+}
+
+//spawn 参数形态：返回值非 void 的函数拒绝。
+void test_thread_ns_spawn_arg_nonvoid()
+{
+    TEST(thread_ns_spawn_arg_nonvoid);
+    CHECK(buildFailsWith("thread_sp_nv",
+        "int f() { return 1; }\n"
+        "int main() {\n"
+        "    thread.spawn(f);\n"
+        "    return 0;\n"
+        "}\n",
+        "spawn"),
+        "spawn of a non-void function is a compile error");
+    PASS();
+}
+
+//spawn 参数形态：带参函数拒绝。
+void test_thread_ns_spawn_arg_with_params()
+{
+    TEST(thread_ns_spawn_arg_with_params);
+    CHECK(buildFailsWith("thread_sp_wp",
+        "void g(int x) { }\n"
+        "int main() {\n"
+        "    thread.spawn(g);\n"
+        "    return 0;\n"
+        "}\n",
+        "spawn"),
+        "spawn of a parametered function is a compile error");
+    PASS();
+}
+
+//spawn/join 编译面：零参 void 委托 + Thread 类型 + join 调用全部通过
+//解析与发射（运行期实现属 Slice 6，此处只构建不执行）。
+void test_thread_ns_spawn_compile_ok()
+{
+    TEST(thread_ns_spawn_compile_ok);
+    bool built = true;
+    std::string diag;
+    try {
+        buildLinkedModule("thread_sp_ok",
+            "void worker() { }\n"
+            "int main() {\n"
+            "    Thread t = thread.spawn(worker);\n"
+            "    thread.join(t);\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        built = false;
+        diag = e.what();
+    }
+    CHECK(built, "spawn/join compile face resolves and emits: " + diag);
+    PASS();
+}
+
+//Mutex/Channel 编译面：内建类 + 方法族解析（运行期属 Slice 8/9）。
+void test_thread_mutex_channel_compile_ok()
+{
+    TEST(thread_mutex_channel_compile_ok);
+    bool built = true;
+    std::string diag;
+    try {
+        buildLinkedModule("thread_mc_ok",
+            "int main() {\n"
+            "    Mutex m = Mutex();\n"
+            "    m.lock();\n"
+            "    if (m.tryLock()) m.unlock();\n"
+            "    Channel c = Channel();\n"
+            "    c.send(1);\n"
+            "    c.close();\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        built = false;
+        diag = e.what();
+    }
+    CHECK(built, "Mutex/Channel builtin classes resolve their methods: "
+          + diag);
+    PASS();
+}
+
+//O1：包名 thread 保留 — 源文件 thread.n 派生模块路径 "thread"，编译期
+//拒绝且报错指路内建命名空间。
+void test_thread_package_name_reserved()
+{
+    TEST(thread_package_name_reserved);
+    CHECK(buildFailsWith("thread",
+        "int main() { return 0; }\n",
+        "reserved"),
+        "a package named 'thread' is rejected with a pointing message");
+    PASS();
+}
+
+//m12 遮蔽优先级：用户局部名 thread 胜过内建命名空间——thread.spawn 在
+//遮蔽下按普通成员链解析（对 int 报 spawn 不存在），内建面不劫持该链。
+//与模块限定回退同一探针（ProbeNonFunctionField）。
+void test_thread_ns_user_name_shadows()
+{
+    TEST(thread_ns_user_name_shadows);
+    CHECK(buildFailsWith("thread_shadow",
+        "int main() {\n"
+        "    int thread = 5;\n"
+        "    thread.spawn(1);\n"
+        "    return 0;\n"
+        "}\n",
+        "\"spawn\" does not exist"),
+        "a user local named thread shadows the namespace (m12 priority)");
+    PASS();
+}
+
+//跨模块：被导入模块中的 thread.id() 调用走序列化/链接轨道。两阶段构建
+//（一次构建塞两个源文件不是本 harness 的构建形态）：先单独编译 b 出
+//thread_xmod_b.ncu，再编译 import 它的 a（导入自盘上 .ncu 解析），闭包
+//装链接后执行——导入单元里的 OP_CallFunc 内建臂在链接产物上照常派发。
+void test_thread_ns_cross_module()
+{
+    TEST(thread_ns_cross_module);
+    const auto dir = scratchDir();
+    compileUnitToDisk("thread_xmod_b",
+        "int helper() { return thread.id(); }\n");
+    const auto aNcu = compileUnitToDisk("thread_xmod_a",
+        "import thread_xmod_b;\n"
+        "int main() { return thread_xmod_b.helper(); }\n",
+        {dir.string(), STDLIB_DIR});
+    NcuLoader::Options loaderOpts;
+    loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+    NcuLoader::Result loaded =
+        NcuLoader::LoadClosure(aNcu.string(), loaderOpts);
+    CompiledModule mod =
+        NcuLinker::Link(std::move(loaded.units), loaded.entryKey);
+    VmExecutor exec;
+    CHECK(exec.Execute(mod) == 0,
+          "thread.id() inside an imported module links and runs");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -487,6 +742,18 @@ int main()
         test_scheduler_default_quota_single_context();
         test_scheduler_registry_lifecycle();
         test_scheduler_quota_skips_nested_windows();
+        test_thread_ns_id_main();
+        test_thread_ns_yield_single_context();
+        test_thread_ns_yield_in_tostring_rejected();
+        test_thread_ns_unknown_member();
+        test_thread_ns_spawn_arg_not_func();
+        test_thread_ns_spawn_arg_nonvoid();
+        test_thread_ns_spawn_arg_with_params();
+        test_thread_ns_spawn_compile_ok();
+        test_thread_mutex_channel_compile_ok();
+        test_thread_package_name_reserved();
+        test_thread_ns_user_name_shadows();
+        test_thread_ns_cross_module();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;
