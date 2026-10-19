@@ -3,9 +3,8 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
-#include "ExprResolverCastFit.hpp"
+#include "FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnExpressions.h>
-#include <nlang/runtime/RnTypes.h>
 
 namespace nlang
 {
@@ -158,6 +157,12 @@ void StatementResolveAccessor::Access(SnClassField &sn)
 	assert(m_pVisitor);
 	if (sn.Type())
 		sn.Type()->Accept(*m_pVisitor);
+	//0.9.11 D4: the field's type expression resolved in the earlier
+	//ResolveDataTypes pass, so the initializer's constant surface is
+	//checkable here. Interface constants never reach this arm (the
+	//interface decl arm walks only functions); their contract checks
+	//the same surface through CheckInterfaceConstantContract.
+	CheckFieldInitializer(m_Env, sn);
 }
 
 //Phase 9d: walk the SuperClass chain of t (if any). Returns true if any
@@ -183,135 +188,9 @@ bool StatementResolveAccessor::IsExceptionSubclass(SnField *t)
 namespace
 {
 
-//The constant-initializer fold surface (0.9.10 D3.3) mirrors
-//VmBackend::ExtractDefaultValue exactly: a string/null/bool/char
-//literal, or a numeric literal and its unary negation. The mirror keeps
-//declaration-time acceptance and emission-time folding in lockstep.
-enum class ConstantFoldKind
-{
-	NotFoldable,
-	Null,
-	Bool,
-	Char,
-	Int32,
-	Long,
-	ULong,
-	Float,
-	Double,
-	String,
-};
-
-ConstantFoldKind ClassifyConstantInitializer(SnExpression *pExpr)
-{
-	if (!pExpr)
-		return ConstantFoldKind::NotFoldable;
-	if (pExpr->Kind() == NK_LiteralExpr)
-	{
-		auto &lit = static_cast<SnLiteralExpr &>(*pExpr);
-		if (lit.ContainFlags(NF_NullLiteral))
-			return ConstantFoldKind::Null;
-		if (lit.Value().Type() == RnString::Instance())
-			return ConstantFoldKind::String;
-		//Bool/char carriers are int32/uint32; TryGetConstantLiteral
-		//covers only the numeric rows, so classify them here.
-		if (lit.Value().Type()->Kind() == NK_Bool)
-			return ConstantFoldKind::Bool;
-		if (lit.Value().Type()->Kind() == NK_Char)
-			return ConstantFoldKind::Char;
-	}
-	ConstLiteralValue value;
-	if (!TryGetConstantLiteral(pExpr, value))
-		return ConstantFoldKind::NotFoldable;
-	switch (value.kind)
-	{
-		case NK_Int32:  return ConstantFoldKind::Int32;
-		case NK_Long:   return ConstantFoldKind::Long;
-		case NK_ULong:  return ConstantFoldKind::ULong;
-		case NK_Float:  return ConstantFoldKind::Float;
-		case NK_Double: return ConstantFoldKind::Double;
-		default:        return ConstantFoldKind::NotFoldable;
-	}
-}
-
-NodeKind FoldKindNodeKind(ConstantFoldKind kind)
-{
-	switch (kind)
-	{
-		case ConstantFoldKind::Bool:   return NK_Bool;
-		case ConstantFoldKind::Char:   return NK_Char;
-		case ConstantFoldKind::Int32:  return NK_Int32;
-		case ConstantFoldKind::Long:   return NK_Long;
-		case ConstantFoldKind::ULong:  return NK_ULong;
-		case ConstantFoldKind::Float:  return NK_Float;
-		case ConstantFoldKind::Double: return NK_Double;
-		case ConstantFoldKind::String: return NK_String;
-		default:                       return NK_Void;
-	}
-}
-
-//0.9.10 D3.3: the declared type must be a compile-time scalar or string;
-//object and array constants need shared runtime storage, which this
-//version deliberately excludes.
-bool IsConstantValueType(SnField *pType)
-{
-	if (!pType || pType->IsArrayType())
-		return false;
-	return pType->Kind() == NK_String
-		|| ScalarPrimIndexOf(pType->Kind()) >= 0;
-}
-
-//String/number domain split of one constant: the declared string slot
-//takes exactly a string literal, a scalar slot exactly a numeric one.
-//True = rejected with its diagnostic.
-bool RejectConstantDomainMismatch(BuildEnvironment &env,
-	SnClassField &field, SnField &declared, SnField &source,
-	ConstantFoldKind foldKind)
-{
-	if ((declared.Kind() == NK_String)
-		== (foldKind == ConstantFoldKind::String))
-		return false;
-	env.Log(CLL_Error, field.Initializer()->Location(),
-		"the initializer of constant \"%s\" has incompatible type "
-		"\"%s\"; expected \"%s\".",
-		field.Name().c_str(), source.ToString().c_str(),
-		declared.ToString().c_str());
-	return true;
-}
-
-//Assignment compatibility of a numeric constant: the normal cast table
-//plus the constant-fit exemption for explicit narrowings, so e.g.
-//`static const byte B = 5;` passes while `static const int A = 0.5;`
-//keeps the explicit-conversion diagnostic. True = rejected.
-bool RejectConstantNumericMismatch(BuildEnvironment &env,
-	SnClassField &field, SnField &declared, SnField &source)
-{
-	auto castInfo = GetCastInfo(&source, &declared);
-	if (castInfo.Kind() == TCK_Same || castInfo.Kind() == TCK_Auto)
-		return false;
-	ConstantFitOutcome fit;
-	const int ri = ScalarPrimIndexOf(declared.Kind());
-	if (ri >= 0 && castInfo.Kind() == TCK_Explicit)
-		fit = TryConstantFit(*field.Initializer(), kScalarPrims[ri]);
-	if (fit.verdict == CF_Fits)
-		return false;
-	if (fit.verdict == CF_OutOfRange)
-		env.Log(CLL_Error, field.Initializer()->Location(),
-			"the initializer of constant \"%s\": constant %s out of "
-			"range for '%s'",
-			field.Name().c_str(), fit.constantText,
-			kScalarPrims[ri].name);
-	else
-		env.Log(CLL_Error, field.Initializer()->Location(),
-			"the initializer of constant \"%s\" has incompatible type "
-			"\"%s\"; expected \"%s\".",
-			field.Name().c_str(), source.ToString().c_str(),
-			declared.ToString().c_str());
-	return true;
-}
-
-//0.9.10 D3.3: foldability and assignment compatibility of one constant
-//initializer, in declaration order: declared-type gate, fold gate, then
-//the value's domain and numeric fit.
+//0.9.10 D3.3: the declared-type gate of an interface constant; the
+//fold/domain/fit surface is shared with class field initializers
+//(FieldInitializerChecks.hpp).
 void CheckInterfaceConstantInitializer(BuildEnvironment &env,
 	SnClassField &field)
 {
@@ -326,30 +205,8 @@ void CheckInterfaceConstantInitializer(BuildEnvironment &env,
 			field.Name().c_str());
 		return;
 	}
-	const ConstantFoldKind foldKind
-		= ClassifyConstantInitializer(field.Initializer());
-	if (foldKind == ConstantFoldKind::NotFoldable)
-	{
-		env.Log(CLL_Error,
-			field.Initializer() ? field.Initializer()->Location()
-				: field.Location(),
-			"the initializer of constant \"%s\" must be a constant "
-			"expression.",
-			field.Name().c_str());
-		return;
-	}
-	//null binds every scalar/string slot as its zero sentinel, the same
-	//bridge ordinary declarations grant.
-	if (foldKind == ConstantFoldKind::Null)
-		return;
-	auto *pSourceType = SnBuiltinDataType::InstanceOf(
-		FoldKindNodeKind(foldKind));
-	if (RejectConstantDomainMismatch(env, field, *pDeclared,
-		*pSourceType, foldKind))
-		return;
-	if (pDeclared->Kind() == NK_String)
-		return;
-	RejectConstantNumericMismatch(env, field, *pDeclared, *pSourceType);
+	CheckConstantValueSurface(env, field, field.Initializer(),
+		*pDeclared, "constant");
 }
 
 //0.9.10 D3.7: a constant and a method of the same name in one interface

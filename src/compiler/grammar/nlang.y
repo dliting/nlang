@@ -1548,6 +1548,14 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 
 				AccessType Type TT_Identifier ';' {
 					$$ = new SnClassField($2, $3, $1, @1);
+				} |
+				
+				//0.9.11 D4: a class field initializer is a compile-time
+				//default. The grammar admits the shape; the constant-surface
+				//check (FieldInitializerChecks.hpp) runs at Access(SnClassField&)
+				//and the injection that applies the default runs later.
+				AccessType Type TT_Identifier '=' Expression ';' {
+					$$ = new SnClassField($2, $3, $1, @1, $5);
 				} ;
 
 FunctionBodyOrSemi:	Paragraph { $$ = $1; } |

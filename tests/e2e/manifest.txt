@@ -1583,3 +1583,5 @@ interface_constant_unfoldable_call compile_error must be a constant expression
 interface_constant_name_clash compile_error ambiguous with the method of the same name
 interface_constant_assign compile_error is a constant and cannot be assigned
 interface_constant_bare_name compile_error is an interface constant
+class_field_init_nonconst compile_error the initializer of field "x" must be a constant expression
+class_field_init_array compile_error cannot have an initializer: only scalar and string fields support compile-time defaults
