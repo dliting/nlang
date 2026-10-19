@@ -90,6 +90,16 @@ int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 
 Re-entering one `Interpreter` instance is not allowed: calling its `run()`/`call()` again from inside a host-function callback throws `BadValue`.
 
+### Concurrency and suspension
+
+`run()` executes through the scheduler carrier: `thread.sleep` wakes on its deadline, contexts spawned by `thread.spawn` get scheduled, and `thread.join` parks and waits — exactly as under the `nvm` command line. When `main` parks with no runnable context left (an empty-channel `recv` with no sender, for example), `run()` throws a catchable `std::runtime_error` (the message contains `deadlock`) instead of hanging.
+
+`call()` is a host-initiated nested evaluation window without a carrier turn of its own:
+
+- Intrinsics that would park are rejected with a `std::runtime_error` (message contains `cannot suspend`): `thread.yield`, `thread.sleep`, `thread.join` on an unfinished target, a contended `Mutex.lock`, and `Channel.recv` on an empty open channel.
+- `thread.spawn` is likewise rejected (message contains `spawn`) — no carrier exists to schedule the new context; host flows that need concurrency should enter through `run()`.
+- Non-parking forms work as usual: `Mutex.tryLock`, `Channel.send`, a buffered `recv`, and `join` on a finished target.
+
 ## 5. Host functions
 
 Scripts declare external functions as `native`; hosts register the implementation:
@@ -136,6 +146,7 @@ nlang::Value sum = itp.call("mymod.sumList", {v});
 | `nlang::Exception` | an uncaught script exception (script-side failure) | catch at the host boundary; read `message()`, `backtrace()`, `exceptionClass()` |
 | `nlang::BadValue` | host misuse: kind mismatches, index out of bounds, re-entry, lifetime errors | a host bug — fix the host code rather than catching around it |
 | `nlang::LoadError` | load and environment failures: bad path, bad artifact, missing native module | catch and report the environment problem to the user |
+| `std::runtime_error` | VM-internal errors and concurrency boundaries: deadlock reports, suspension or `thread.spawn` rejections inside a nested window | catch at the host boundary and report |
 
 ## 8. Input and output redirection
 

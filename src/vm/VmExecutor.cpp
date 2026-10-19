@@ -150,6 +150,15 @@ int VmExecutor::Execute(const CompiledModule& module) {
     return result;
 }
 
+//K1 Slice 10: see VmExecutor.h. The entryIdx trust level matches
+//Execute()'s (a linked module's entryPoint; intrinsics have no callable
+//body and grammar keeps main a plain function).
+void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
+    if (!m_currModule || entryIdx >= m_currModule->functions.size())
+        throw std::runtime_error("NLang VM: invalid entry index");
+    RunCarrier(m_currModule->functions[entryIdx], resultCell);
+}
+
 //K1 Slice 6: the carrier loop. Contexts (main + spawned) come off the
 //scheduler's FIFO run queue. Frame ownership follows the steal model
 //(VmScheduler.h): a context's frames ARE m_callStack while it runs, and
@@ -159,6 +168,8 @@ int VmExecutor::Execute(const CompiledModule& module) {
 //(unfinished contexts are dropped silently — the K1 exit policy).
 void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
                             uint8_t* resultCell) {
+    //Slice 10: the carrier is in flight for the whole run (spawn gate).
+    CarrierActiveGuard carrierActive(m_carrierActive);
     m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
     try {
         for (;;) {

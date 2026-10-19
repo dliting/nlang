@@ -6,8 +6,8 @@
     （DEFAULT_SCHEDULER_TRIP_BACKEDGES）到期且另有 Runnable 上下文时经
     ParkSignal(Preempted) 抢占——FIFO + 定量配额 = 完全确定性调度。
     Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 7 sleep 定时器（空队
-    列时载体睡至最近到期）+ Slice 8 互斥停泊/唤醒；Channel 在切片 9
-    接入。
+    列时载体睡至最近到期）+ Slice 8 互斥停泊/唤醒 + Slice 9 通道停泊/
+    唤醒 + Slice 10 载体在飞标志（无载体窗口内 spawn 拒绝）。
 
     帧的存放约定（「停泊即窃取」）：运行中上下文的帧就是 VmExecutor::
     m_callStack；挂起时整栈 move 进 ExecutionContext::frames，恢复时
@@ -47,6 +47,21 @@ public:
     NestEvalGuard& operator=(const NestEvalGuard&) = delete;
 private:
     int& m_depth;
+};
+
+//RAII：载体轮转在飞标志（Slice 10）。RunCarrier 进入置位、任何退出路
+//径（含异常）复位。thread.spawn 以此区分两种嵌套窗口：宿主回调（脚本
+//运行期间经宿主函数表再入——载体在飞，spawn 合法，返回后续由载体调
+//度）与嵌入宿主 call()（无载体轮转——新上下文永无调度者，当场拒绝而
+//非静默铸出永不执行的上下文）。
+class CarrierActiveGuard {
+public:
+    explicit CarrierActiveGuard(bool& flag) : m_flag(flag) { m_flag = true; }
+    ~CarrierActiveGuard() { m_flag = false; }
+    CarrierActiveGuard(const CarrierActiveGuard&) = delete;
+    CarrierActiveGuard& operator=(const CarrierActiveGuard&) = delete;
+private:
+    bool& m_flag;
 };
 
 enum class ContextState {

@@ -295,10 +295,15 @@ int Interpreter::Impl::Run() {
     RunningGuard guard(running);
     int exitCode = 0;
     try {
+        //K1 Slice 10: run through the scheduler carrier (NOT the
+        //CallFunctionByIdx nested window — suspensions would all reject).
+        //InitializeForRun already ran at load(); ExecuteLoadedEntry does
+        //not re-initialize, so host-held values and GC roots created
+        //between load() and run() survive. A main that parks with
+        //nothing left to run surfaces as the catchable deadlock error.
         uint8_t resultCell[kFrameSlotBytes] = {};
-        executor.CallFunctionByIdx(
-            static_cast<uint16_t>(module.entryPoint), nullptr, 0,
-            resultCell);
+        executor.ExecuteLoadedEntry(
+            static_cast<uint16_t>(module.entryPoint), resultCell);
         std::memcpy(&exitCode, resultCell, sizeof(exitCode));
     } catch (const NLangThrow& t) {
         throw TranslateNLangThrow(executor, t);

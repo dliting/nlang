@@ -5,7 +5,7 @@
       · Mutex/Channel 方法（134-141）：接收者派发形态（槽 0 = this）。
     Slice 5 接入 yield/id，Slice 6 接入 spawn/join，Slice 7 接入 sleep，
     Slice 8 接入 Mutex 全族，Slice 9 接入 Channel 全族——K1 内在函数族
-    至此全部落地。
+    至此全部落地；Slice 10 补 spawn 的载体在飞门（无载体窗口拒绝）。
 ---*/
 #include "VmExecutor.h"
 #include <chrono>
@@ -70,6 +70,17 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
 bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
                                 uint8_t* pResult)
 {
+    //K1 Slice 10: without the carrier in flight nothing ever schedules
+    //the new context. Two nested-window shapes differ: a host callback
+    //taken mid-run (carrier active — the loop picks the context up after
+    //the callback returns) and the embed call() window (no carrier —
+    //spawn would silently mint a never-run context whose Thread object
+    //looks alive while join always rejects). Refuse the second at the
+    //spawn site.
+    if (!m_carrierActive)
+        throw std::runtime_error(
+            "NLang VM: thread.spawn requires an active scheduler carrier "
+            "(a host call() window cannot schedule the new context)");
     //Argument 0: the func<void> delegate value (RTK_Func heap handle).
     int32_t handleIdx;
     std::memcpy(&handleIdx, locals + callParamBase, sizeof(handleIdx));

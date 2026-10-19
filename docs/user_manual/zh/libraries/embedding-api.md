@@ -90,6 +90,16 @@ int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 
 同一个`Interpreter`实例内不得重入：宿主函数回调里再调同一实例的`run()`/`call()`会抛`BadValue`。
 
+### 并发与挂起
+
+`run()`经调度器载体执行：脚本里的`thread.sleep`按截止时刻唤醒、`thread.spawn`派生的上下文得到调度、`thread.join`停泊等待——与`nvm`命令行运行完全一致。`main`停泊且再无可运行上下文时（例如空通道`recv`无发送者），`run()`抛可捕获的`std::runtime_error`（消息含`deadlock`），不会挂死。
+
+`call()`是宿主发起的嵌套求值窗口，没有自己的载体轮转：
+
+- 会挂起的内在函数一律拒绝，抛`std::runtime_error`（消息含`cannot suspend`）：`thread.yield`、`thread.sleep`、目标未完成的`thread.join`、竞争中的`Mutex.lock`、空通道`Channel.recv`。
+- `thread.spawn`同样拒绝（消息含`spawn`）——新上下文无载体可调度；需要并发的宿主流程请经`run()`进入。
+- 不挂起的形态照常可用：`Mutex.tryLock`、`Channel.send`、缓冲非空的`recv`、目标已完成的`join`。
+
 ## 5. 宿主函数
 
 脚本侧以`native`声明外部函数，宿主侧注册实现：
@@ -136,6 +146,7 @@ nlang::Value sum = itp.call("mymod.sumList", {v});
 | `nlang::Exception` | 未捕获的脚本异常（脚本侧错误） | 宿主边界捕获，读`message()`/`backtrace()`/`exceptionClass()` |
 | `nlang::BadValue` | 宿主用法错误：kind错配、索引越界、重入、生命周期误用 | 属宿主缺陷，修宿主代码而非捕获绕过 |
 | `nlang::LoadError` | 装载与环境失败：坏路径、坏产物、native模块缺失 | 捕获后向使用者报告环境问题 |
+| `std::runtime_error` | VM内部错误与并发边界：死锁报告、嵌套窗口内的挂起或`thread.spawn`拒绝 | 宿主边界捕获并报告 |
 
 ## 8. 输入输出重定向
 

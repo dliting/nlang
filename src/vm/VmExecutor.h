@@ -81,6 +81,16 @@ public:
     //survive across run()/call().
     void InitializeForRun(const CompiledModule& module);
 
+    //K1 Slice 10: embedding run() entry — execute a loaded module's
+    //function as the main context through the scheduler carrier WITHOUT
+    //re-initializing per-run state (InitializeForRun ran at load();
+    //re-running it would clear host-held values and GC roots created
+    //between load() and run()). Suspensions are serviced like any
+    //Execute() run: sleep wakes on its deadline, spawned contexts get
+    //scheduled, and a main that parks with nothing left to run surfaces
+    //as the catchable deadlock error. resultCell: 8 bytes out.
+    void ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell);
+
     //Extension point ② (spec §8): invoke a free function without a
     //compiler-generated call site. argCells: argc marshalled 8-byte
     //cells (argc <= callee.paramCount); formals beyond argc fill from
@@ -973,6 +983,13 @@ private:
     //>0 while a nested evaluation window (toString / host CallByName)
     //is in flight — NestEvalGuard owns the count.
     int m_nestDepth = 0;
+    //K1 Slice 10: true while RunCarrier is on the C++ stack — the
+    //carrier is in flight and will service spawned contexts. Distinguishes
+    //a host callback taken mid-run (spawn legal: the carrier picks the
+    //context up after the callback returns) from an embed call() window
+    //with no carrier (spawn would mint a context nobody ever schedules).
+    //CarrierActiveGuard owns the flag.
+    bool m_carrierActive = false;
     //K1 Slice 6: a pending exception object to throw at the next RunFrames
     //entry (a joiner resumed after its FAILED target rethrows the target's
     //original exception INTO the restored frame stack, so the joiner's own
