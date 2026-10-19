@@ -26,7 +26,7 @@ namespace nlang {
 //AllocStructOnHeap/AllocClassOnHeap in VmExecutor.
 int VmBackend::FindFieldOffset(SnStructDecl& structDecl, const std::string& fieldName) {
     uint16_t off = 0;
-    for (auto& sf : structDecl.Members()) {
+    for (auto& sf : structDecl.Fields()) {
         if (sf.Name() == fieldName)
             return off;
         off += kHeapFieldStrideBytes;

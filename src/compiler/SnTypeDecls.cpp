@@ -155,11 +155,22 @@ bool SnStructField::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 
 //--- SnStructDecl ---
 
-SnStructDecl::SnStructDecl(std::string *pName, UniquePtrList<SnStructField> upMembers,
+SnStructDecl::SnStructDecl(std::string *pName, UniquePtrList<SnField> upMembers,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, loc),
-	m_upMembers(CreateChildFields(upMembers, this))
+	m_upMembers(CreateChildList<MemberList>(upMembers, this)),
+	m_upFields(new FieldList(this)),
+	m_upCtors(new CtorList(this))
 {
+	//The merged MemberList already attached every child once (Node::AddChild
+	//takes an unattached node, so a node lives in exactly one child list);
+	//the kind views only index names into their own dictionaries.
+	for (auto &field : *m_upMembers) {
+		if (field.Kind() == NK_StructField)
+			m_upFields->index_field(static_cast<SnStructField*>(&field));
+		else if (field.Kind() == NK_Function)
+			m_upCtors->index_field(static_cast<SnFunction*>(&field));
+	}
 }
 
 SnStructDecl::~SnStructDecl()
@@ -173,7 +184,11 @@ SnField *SnStructDecl::EvalDataType() const
 
 SnField *SnStructDecl::FindField(const std::string& sName) const
 {
-	return m_upMembers->find(sName);
+	//Fields first, then constructors (see the class comment): the merged
+	//pool rejects a field/constructor name clash, but resolution stays
+	//deterministic while that error is being reported.
+	SnField *pField = m_upFields->find(sName);
+	return pField ? pField : m_upCtors->find(sName);
 }
 
 void SnStructDecl::Accept(ISyntaxNodeVisitor &v)

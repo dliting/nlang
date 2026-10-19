@@ -255,7 +255,7 @@ static bool CollectQualifiedSegments(
 	nlang::PtrList<nlang::SnFunction> *	v_pEnumMethodList;
 	nlang::SnStructDecl *				v_pStructDecl;
 	nlang::SnStructField *				v_pStructField;
-	nlang::PtrList<nlang::SnStructField> *	v_pStructFieldList;
+	nlang::PtrList<nlang::SnField> *	v_pStructFieldList;
 	nlang::SnClassDecl *				v_pClassDecl;
 	nlang::PtrList<nlang::SnField> *	v_pClassMemberList;
 	nlang::SnInterfaceDecl *			v_pInterfaceDecl;
@@ -1275,7 +1275,7 @@ StructFieldList:	StructFieldList StructField {
 					$$ = $1;
 				} |
 					StructField {
-					$$ = new PtrList<SnStructField>();
+					$$ = new PtrList<SnField>();
 					$$->push_back($1);
 				} ;
 

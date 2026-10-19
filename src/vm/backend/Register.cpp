@@ -204,7 +204,7 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     cs.name = KeyOf(sn);
     cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
     std::vector<SnField*> fieldTypes;
-    for (auto& field : sn.Members()) {
+    for (auto& field : sn.Fields()) {
         cs.fieldNames.push_back(field.Name());
         auto* fieldType = field.EvalDataType();
         //0.7.3 B: array fields bind EvalDataType to their interned

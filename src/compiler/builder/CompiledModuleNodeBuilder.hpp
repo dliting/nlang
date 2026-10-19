@@ -315,10 +315,10 @@ private:
 		//loaded CompiledModule, which rides along to the load-time linker
 		//as a peer image. The AST stub only needs to exist as a
 		//name-resolution target.
-		//SnStructDecl takes UniquePtrList<SnStructField> by value; pass a
-		//raw PtrList* whose ownership is transferred via the implicit
+		//SnStructDecl takes UniquePtrList<SnField> by value; pass a raw
+		//PtrList* whose ownership is transferred via the implicit
 		//inner_collection* constructor.
-		auto *pMembers = new PtrList<SnStructField>();
+		auto *pMembers = new PtrList<SnField>();
 		auto pName = new std::string(LeafNameOfKey(cs.name));
 		auto *pDecl = new SnStructDecl(pName, pMembers, loc);
 		pDecl->AddFlags(NF_Imported);   //R6-2

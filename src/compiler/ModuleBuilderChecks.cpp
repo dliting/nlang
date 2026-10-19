@@ -81,7 +81,7 @@ static std::unordered_map<SnStructDecl*, std::vector<SnStructDecl*>>
 {
 	std::unordered_map<SnStructDecl*, std::vector<SnStructDecl*>> deps;
 	for (auto *sd : structs) {
-		for (auto &field : sd->Members()) {
+		for (auto &field : sd->Fields()) {
 			auto *fieldType = field.EvalDataType();
 			if (fieldType && fieldType->Kind() == NK_StructDecl) {
 				deps[sd].push_back(static_cast<SnStructDecl*>(fieldType));

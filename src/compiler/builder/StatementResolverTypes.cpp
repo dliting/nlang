@@ -32,7 +32,7 @@ void StatementResolveAccessor::RejectTypeNameVariable(
 void StatementResolveAccessor::Access(SnStructDecl &sn)
 {
 	assert(m_pVisitor);
-	for (auto &field : sn.Members())
+	for (auto &field : sn.Fields())
 	{
 		//0.9.0 semantic restriction: struct field names may not reuse
 		//visible type names.

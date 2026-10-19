@@ -377,7 +377,7 @@ void VmBackend::EmitInitListStructEntries(SnInitListExpr& initList,
         int off = -1;
         if (entry.keyKind == InitEntry::KeyKind::Identifier) {
             off = FindFieldOffset(structDecl, entry.keyStr);
-        } else if (ordinal < structDecl.Members().size()) {
+        } else if (ordinal < structDecl.Fields().size()) {
             //Declaration-order positional entry: field ordinal i sits at
             //byte offset i * kHeapFieldStrideBytes under the uniform
             //2-cell heap field stride (Step A2).

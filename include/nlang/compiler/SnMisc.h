@@ -190,17 +190,28 @@ private:
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 
-	//A struct type declaration (e.g. struct Point { int x; int y; }).
-//Inherits SnCompoundField to hold SnStructField children and support FindField.
+//A struct type declaration (e.g. struct Point { int x; int y; }).
+//Inherits SnCompoundField to hold field/constructor children and support FindField.
 class NLANG_COMPILER_API SnStructDecl : public SnCompoundField
 {
 	typedef SnCompoundField Super_;
 public:
 	static const NodeKind	s_Kind			= NK_StructDecl;
 	static const NodeBits	s_DefaultFlags	= NF_Type | NF_Field | NF_Plain;
-	typedef ChildFieldList<SnStructField> MemberList;
+	/*
+	0.9.11 D2: fields and constructors share one child node list (the same
+	shape as SnEnumDecl). The merged MemberList owns the child-list
+	insertion and the full name dictionary — DuplicateFieldChecker checks
+	field and constructor names in one pool through NameDict() — while the
+	kind-filtered FieldList/CtorList views attach nothing and only index
+	names, so iteration and find() see exactly fields or exactly
+	constructors.
+	*/
+	typedef ChildFieldList<SnField> MemberList;
+	typedef ChildFieldList<SnStructField, KindFieldFilter<NK_StructField>> FieldList;
+	typedef ChildFieldList<SnFunction, KindFieldFilter<NK_Function>> CtorList;
 public:
-	SnStructDecl(std::string *pName, UniquePtrList<SnStructField> upMembers,
+	SnStructDecl(std::string *pName, UniquePtrList<SnField> upMembers,
 		const ISourceLocation &loc);
 
 	~SnStructDecl() override;
@@ -208,15 +219,26 @@ public:
 	MemberList &Members() { return *m_upMembers; }
 	const MemberList &Members() const { return *m_upMembers; }
 
-	size_t FieldCount() const { return m_upMembers->size(); }
+	FieldList &Fields() { return *m_upFields; }
+	const FieldList &Fields() const { return *m_upFields; }
+
+	CtorList &Ctors() { return *m_upCtors; }
+	const CtorList &Ctors() const { return *m_upCtors; }
+
+	size_t FieldCount() const { return m_upFields->size(); }
 
 	//Struct type IS the type — returns itself.
 	SnField *EvalDataType() const override;
+	//Fields first, then constructors: a field/constructor name clash is a
+	//duplicate-member error, but lookup must stay deterministic while the
+	//error is being reported (same order discipline as SnEnumDecl).
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
 private:
 	std::unique_ptr<MemberList> m_upMembers;
+	std::unique_ptr<FieldList> m_upFields;
+	std::unique_ptr<CtorList> m_upCtors;
 };
 
 //A class field declaration (e.g. "int x" in class Point { int x; int y; }).

@@ -290,7 +290,7 @@ SnField *ExprResolveAccessor::InitListEntryFieldType(SnField &targetDecl,
     {
         size_t idx = 0;
         for (auto &sf :
-            static_cast<SnStructDecl &>(targetDecl).Members())
+            static_cast<SnStructDecl &>(targetDecl).Fields())
         {
             if (entry.keyKind == InitEntry::KeyKind::Identifier)
             {
