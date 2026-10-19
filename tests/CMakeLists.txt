@@ -466,6 +466,36 @@ target_compile_definitions(test_struct_ctor
 
 add_test(NAME struct_ctor_tests COMMAND test_struct_ctor)
 
+# 0.9.11 D4 struct field initializer unit tests (console suite):
+# in-process compile+run pinning that field defaults apply at every
+# allocation (bare decl, array elements, nested fields), brace/ctor
+# stores override them, deep copy never re-applies them, and minted
+# string defaults survive GC pressure (test_struct_ctor's runSource
+# shape + test_strings' SetGcStressThresholds hook).
+add_executable(test_struct_field_init
+    test_vm/test_struct_field_init.cpp
+)
+
+target_include_directories(test_struct_field_init
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_struct_field_init
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_struct_field_init)
+target_compile_definitions(test_struct_field_init
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME struct_field_init_tests COMMAND test_struct_field_init)
+
 # Generic instance array-type-arg unit tests (console suite).
 # In-process ModuleBuilder compile of real .n sources, asserting the
 # key split (List<int> vs List<int[]> mint distinct classes) and the

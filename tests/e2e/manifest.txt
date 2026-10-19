@@ -1593,3 +1593,9 @@ class_field_init_basic 75
 class_field_init_brace_form 6
 class_field_init_super_first 7
 class_field_init_with_args 7
+err_struct_field_init_nonconst compile_error the initializer of field "x" must be a constant expression
+err_struct_field_init_array compile_error cannot have an initializer: only scalar and string fields support compile-time defaults
+struct_field_init_basic 31
+struct_field_init_deepcopy 0
+struct_field_init_array 7
+struct_field_init_nested 7

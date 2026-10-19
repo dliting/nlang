@@ -1,0 +1,15 @@
+//0.9.11 D4: deep copy replays stored values only — defaults are applied
+//at allocation, never re-applied over a field modified after allocation.
+struct Point {
+    int x = 3;
+}
+
+int main() {
+    Point p;
+    p.x = 100;
+    Point a = p;
+    if (a.x != 100) return 1;
+    a.x = 5;
+    if (p.x != 100) return 2;
+    return 0;
+}
