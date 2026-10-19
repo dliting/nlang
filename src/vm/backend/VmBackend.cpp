@@ -188,7 +188,8 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     //this, `native int f(int a, int b = 22)` works in-module (AST
     //path) but loses the default after import.
     for (auto& param : func.Params()) {
-        auto dv = ExtractDefaultValue(param.Value());
+        auto dv = ExtractDefaultValue(param.Value(),
+                                      RuntimeTypeKind(param.EvalDataType()));
         if (param.Value() && !dv.hasDefault()
             && !EncodeDefaultExpr(func, param.Value(), dv))
             dv.tag = RTK_Unfoldable;
@@ -227,7 +228,8 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
     //In-module callers ignore compiledFunc.defaultValues entirely; they
     //use the AST default expression directly via StatementResolver.
     for (auto& param : func.Params()) {
-        auto dv = ExtractDefaultValue(param.Value());
+        auto dv = ExtractDefaultValue(param.Value(),
+                                      RuntimeTypeKind(param.EvalDataType()));
         if (param.Value() && !dv.hasDefault()
             && !EncodeDefaultExpr(func, param.Value(), dv))
             dv.tag = RTK_Unfoldable;

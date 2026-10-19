@@ -283,7 +283,8 @@ static double FoldedFloatingValue(const DefaultValueDesc& dv) {
 //phase assigns it to the result slot).
 void VmBackend::EmitInterfaceConstantRead(SnClassField& field,
                                           BytecodeEmitter& emitter) {
-    DefaultValueDesc dv = ExtractDefaultValue(field.Initializer());
+    DefaultValueDesc dv = ExtractDefaultValue(
+        field.Initializer(), RuntimeTypeKind(field.EvalDataType()));
     if (dv.tag == RTK_Void) {
         //Declaration contract violation — an internal invariant break.
         throw std::runtime_error(

@@ -224,6 +224,12 @@ private:
                       uint8_t* frameCells, uint32_t argc);
     void FillOneDefault(const CompiledFunction& callee,
                         const DefaultValueDesc& d, uint8_t* cell);
+    //0.9.11 T4: the single folded-constant write site (definition in
+    //VmDefaultMaterializer.cpp) — an 8-byte cell (frame slot or heap
+    //field slot) takes the descriptor's value. False = no materializable
+    //value (RTK_Void sentinel; RTK_Expr/RTK_Unfoldable are function-
+    //default-only) and the caller decides.
+    bool MaterializeDefaultValue(const DefaultValueDesc& d, uint8_t* cell);
 
     //private（ResolveHostField 的描述符视图）：CompiledStruct/
     //CompiledClass 是无继承关系的两个类型，字段成员仅名字相同

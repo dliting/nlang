@@ -100,7 +100,14 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //length-prefixed TypeDesc, and a DefaultValueDesc folded value. A v2.4
 //module has no such block and misparses the bytes after the method
 //indices as the constant count; refuse v2.4 and older.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 5;
+//v2.6 (type-init modernization): every struct record gains a field-
+//defaults block after its type descriptors — a u16 count (== fieldCount)
+//plus one DefaultValueDesc per field (RTK_Void = no default). The same
+//version line also carries the constructor-index and import ownerKind/
+//ctorOrdinal segments; a v2.5 module has no defaults block and misparses
+//the bytes after the type descriptors as the next record; refuse v2.5
+//and older.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 6;
 
 //Runtime type kind constants for serialization (compile-time NK_* values
 //exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
@@ -166,26 +173,6 @@ struct LocalDescriptor {
     std::string name;
 };
 
-struct CompiledStruct {
-    std::string name;
-    uint16_t fieldCount = 0;
-    std::vector<std::string> fieldNames;
-    std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
-    std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
-    std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
-    //v1.12: per-field recursive type descriptors (empty entries = not
-    //expressible). Survive the import merge (indices remapped). Wire
-    //fidelity only — stubs keep their members empty, so nothing reads
-    //these back for reconstruction; they exist so a consumer re-saving
-    //the module emits correct descriptors.
-    std::vector<TypeDesc> fieldTypeDescs;
-};
-
-struct CompiledArrayType {
-    uint8_t  elemKind = 0;       // RTK_Int32/RTK_Float/RTK_String/RTK_Struct/RTK_Class
-    uint16_t elemTypeIdx = 0xFFFF; // struct/class index (0xFFFF for primitives)
-};
-
 //Option B: per-formal default-value descriptor for cross-module import.
 //Tag determines which payload field is meaningful:
 //  RTK_Null   — null literal for any reference type (class/string/array). No payload.
@@ -211,6 +198,10 @@ struct CompiledArrayType {
 //the normal declaration-side resolution pass bind it (formal references,
 //module-qualified calls). RTK_Unfoldable remains the reject stamp for
 //expressions outside the ExprDesc subset (casts, …).
+//
+//0.9.11 D4: struct field defaults (v2.6) ride the same descriptor — the
+//declaration-side check admits only the constant-foldable subset, so
+//field entries never carry RTK_Expr/RTK_Unfoldable tags.
 struct DefaultValueDesc {
     uint8_t  tag = RTK_Void;
     uint32_t intValue = 0;     // RTK_Int32 / RTK_Bool / RTK_Char
@@ -225,6 +216,32 @@ struct DefaultValueDesc {
     std::vector<uint8_t> exprBytes;
 
     bool hasDefault() const { return tag != RTK_Void; }
+};
+
+struct CompiledStruct {
+    std::string name;
+    uint16_t fieldCount = 0;
+    std::vector<std::string> fieldNames;
+    std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
+    std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
+    std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
+    //v1.12: per-field recursive type descriptors (empty entries = not
+    //expressible). Survive the import merge (indices remapped). Wire
+    //fidelity only — stubs keep their members empty, so nothing reads
+    //these back for reconstruction; they exist so a consumer re-saving
+    //the module emits correct descriptors.
+    std::vector<TypeDesc> fieldTypeDescs;
+    //0.9.11 D4: per-field compile-time defaults (v2.6), one entry per
+    //field in declaration order (RTK_Void = no default, keeping the
+    //vector dense and positionally aligned). Applied at every
+    //AllocStructOnHeap; RTK_String entries carry producer-pool indices
+    //that the import merge remaps.
+    std::vector<DefaultValueDesc> fieldDefaults;
+};
+
+struct CompiledArrayType {
+    uint8_t  elemKind = 0;       // RTK_Int32/RTK_Float/RTK_String/RTK_Struct/RTK_Class
+    uint16_t elemTypeIdx = 0xFFFF; // struct/class index (0xFFFF for primitives)
 };
 
 //Phase 9d: try/catch descriptor. One entry per catch clause. At throw time,

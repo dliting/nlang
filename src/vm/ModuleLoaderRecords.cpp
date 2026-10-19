@@ -280,6 +280,19 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod)
             for (uint16_t j = 0; j < st.fieldCount; ++j)
                 st.fieldTypeDescs[j] = ReadTypeDesc(fs);
         }
+
+        //v2.6: per-field compile-time defaults, dense (RTK_Void = no
+        //default). The count must equal fieldCount — a mismatch means the
+        //record was written by a different layout and every byte after
+        //this block would misparse, so refuse here.
+        uint16_t defCount = 0;
+        fs.read(reinterpret_cast<char*>(&defCount), sizeof(defCount));
+        if (!fs.good() || defCount != st.fieldCount)
+            throw std::runtime_error(
+                "Invalid module: bad struct field default count");
+        st.fieldDefaults.resize(defCount);
+        for (uint16_t j = 0; j < defCount; ++j)
+            st.fieldDefaults[j] = ReadDefaultValueDesc(fs);
     }
 }
 

@@ -37,6 +37,21 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
             m_structHeap[static_cast<size_t>(heapIdx)][i * 2] = innerIdx;
         }
     }
+    //0.9.11 D4: per-field compile-time defaults (v2.6 metadata) apply at
+    //every allocation — independent of constructors (which run only on
+    //explicit construction). RTK_Void entries keep the zero fill; brace
+    //initializers and constructor stores overwrite these afterwards.
+    //Field i sits at cell 2i of the uniform 2-cell stride. The loop runs
+    //after every nested allocation: MintNewString only grows the string
+    //table, so no reference taken here can dangle across it.
+    for (uint16_t i = 0; i < cs.fieldCount
+         && i < cs.fieldDefaults.size(); ++i) {
+        if (cs.fieldDefaults[i].tag == RTK_Void)
+            continue;
+        MaterializeDefaultValue(cs.fieldDefaults[i],
+            reinterpret_cast<uint8_t*>(
+                &m_structHeap[static_cast<size_t>(heapIdx)][i * 2]));
+    }
     return heapIdx;
 }
 

@@ -1054,7 +1054,12 @@ private:
     //Option B Step 3: extract a constant-foldable default expression into
     //a DefaultValueDesc for serialization. Returns tag=RTK_Void when the
     //expression isn't foldable (caller-side check rejects for IsImported).
-    DefaultValueDesc ExtractDefaultValue(SnExpression* pExpr);
+    //0.9.11 T4: declaredKind (the formal's or field's RuntimeTypeKind)
+    //re-stamps the folded literal into the declared slot's carrier — the
+    //raw-slot consumers (default-arg fill, struct field materialization)
+    //write the cell once and the slot is read back by its declared kind.
+    DefaultValueDesc ExtractDefaultValue(SnExpression* pExpr,
+                                         uint8_t declaredKind);
     //ExtractDefaultValue arms: direct literal, and OP_Neg over a literal.
     void ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv);
     void ExtractNegatedLiteralDefault(SnBinaryExpr* bin, DefaultValueDesc& dv);

@@ -48,7 +48,8 @@ void VmBackend::RegisterInterfaces(SnNamespace& root) {
             constant.name = field.Name();
             constant.type = BuildTypeDesc(field.EvalDataType(),
                 LeafSlotResolvers());
-            constant.value = ExtractDefaultValue(field.Initializer());
+            constant.value = ExtractDefaultValue(
+                field.Initializer(), RuntimeTypeKind(field.EvalDataType()));
             ci.constants.push_back(std::move(constant));
         }
         m_compiledModule.interfaces.push_back(std::move(ci));

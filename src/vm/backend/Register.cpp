@@ -219,6 +219,17 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
         cs.fieldStructIndices.push_back(0xFFFF);
         cs.fieldClassIndices.push_back(0xFFFF);
         fieldTypes.push_back(fieldType);
+        //0.9.11 D4: the field initializer folds through the same
+        //ExtractDefaultValue channel as function defaults (nullptr →
+        //RTK_Void sentinel; string literals intern into the producer's
+        //pool and the import merge remaps them). The declaration-side
+        //check (FieldInitializerChecks.hpp) admits only the constant-
+        //foldable subset, so no RTK_Expr/RTK_Unfoldable tag can appear
+        //here; the vector stays dense (one entry per field). ftk is the
+        //declared carrier the materializer reads the slot back by.
+        cs.fieldDefaults.push_back(
+            ExtractDefaultValue(field.Initializer(),
+                                static_cast<uint8_t>(ftk)));
     }
     m_compiledModule.structs.push_back(std::move(cs));
     m_structFieldTypes.push_back(std::move(fieldTypes));

@@ -271,6 +271,18 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 (i < st.fieldTypeDescs.size()) ? st.fieldTypeDescs[i]
                                                : TypeDesc{});
         }
+
+        //v2.6: per-field compile-time defaults, dense (one DefaultValueDesc
+        //per field, RTK_Void = no default). The count is written as
+        //fieldCount by construction — a stub-rebuilt struct without the
+        //vector still emits the full block of RTK_Void sentinels.
+        uint16_t defCount = st.fieldCount;
+        fs.write(reinterpret_cast<const char*>(&defCount), sizeof(defCount));
+        for (size_t i = 0; i < st.fieldCount; ++i) {
+            WriteDefaultValueDesc(fs,
+                (i < st.fieldDefaults.size()) ? st.fieldDefaults[i]
+                                              : DefaultValueDesc{});
+        }
     }
 
     // Class descriptors

@@ -187,12 +187,14 @@ inline void CheckConstantValueSurface(BuildEnvironment &env,
 		*pSourceType, subject);
 }
 
-//0.9.11 D4: a class field initializer is a compile-time default. Only
-//scalar and string slots carry one (the gate names the field form);
-//the fold/domain/fit surface is shared with interface constants. The
-//injection that applies the default runs later in the pipeline.
-inline void CheckFieldInitializer(BuildEnvironment &env,
-	SnClassField &field)
+//0.9.11 D4: a class or struct field initializer is a compile-time
+//default. Only scalar and string slots carry one (the gate names the
+//field form); the fold/domain/fit surface is shared with interface
+//constants. Class defaults are applied by constructor injection, struct
+//defaults by allocation-time materialization. The template covers both
+//field node types (identical Initializer()/EvalDataType() faces).
+template <typename FieldT>
+inline void CheckFieldInitializer(BuildEnvironment &env, FieldT &field)
 {
 	SnExpression *pInit = field.Initializer();
 	if (!pInit)

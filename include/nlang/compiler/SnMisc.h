@@ -171,12 +171,18 @@ public:
 	static const NodeKind	s_Kind			= NK_StructField;
 	static const NodeBits	s_DefaultFlags	= NF_Field | NF_Data;
 public:
+	//pInitializer is non-null for a field initializer (0.9.11 D4); plain
+	//declarations keep the initializer-less form. The initializer is a
+	//compile-time default applied at every struct allocation; it carries
+	//no layout semantics. Children() includes it so tree walks see the
+	//subtree (same shape as SnClassField).
 	SnStructField(SnFieldExpr *pType, std::string *pName,
-		const ISourceLocation &loc);
+		const ISourceLocation &loc, SnExpression *pInitializer = nullptr);
 
 	~SnStructField() override;
 
 	SnFieldExpr *Type() const { return m_pType; }
+	SnExpression *Initializer() const { return m_pInitializer; }
 
 	SnField *EvalDataType() const override;
 	bool IsArrayType() const override;
@@ -187,6 +193,7 @@ public:
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
+	SnExpression *m_pInitializer;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 

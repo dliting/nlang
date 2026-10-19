@@ -1290,6 +1290,19 @@ StructMember:	StructField {
 
 StructField:	Type TT_Identifier ';' {
 					$$ = new SnStructField($1, $2, @1);
+				} |
+
+				//0.9.11 D4: a struct field initializer is a compile-time
+				//default applied at every allocation. The grammar admits the
+				//shape; the constant-surface check (FieldInitializerChecks.hpp)
+				//runs in the Access(SnStructDecl&) field loop. LALR: the state
+				//reached after `Type TT_Identifier` inside a struct body has a
+				//core of StructField items only, distinct from the local-
+				//declaration state (whose Declarator items attach '=' to the
+				//declarator), so the states never merge and the '=' shift is
+				//unconflicted.
+				Type TT_Identifier '=' Expression ';' {
+					$$ = new SnStructField($1, $2, @1, $4);
 				} ;
 
 //0.9.11 D2: struct constructor spelling -- no return type, the same

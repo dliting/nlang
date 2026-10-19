@@ -37,6 +37,11 @@ void StatementResolveAccessor::Access(SnStructDecl &sn)
 		//visible type names.
 		RejectTypeNameVariable(field.Name(), sn, sn, field.Location());
 		field.Type()->Accept(*m_pVisitor);
+		//0.9.11 D4: the initializer's constant surface, checked once the
+		//type expression resolved (the same shared surface as class
+		//fields; the struct default itself is applied at allocation,
+		//not by constructor injection).
+		CheckFieldInitializer(m_Env, field);
 	}
 	//0.9.11 D2: struct constructors. The member contract rejects plain
 	//function members; the flag contract is shared with class through

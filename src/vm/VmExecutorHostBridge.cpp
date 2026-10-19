@@ -97,52 +97,17 @@ void VmExecutor::FillDefaults(const CompiledFunction& callee,
 //One formal's default staged into its frame cell.
 void VmExecutor::FillOneDefault(const CompiledFunction& callee,
                                 const DefaultValueDesc& d, uint8_t* cell) {
-    switch (d.tag) {
-    case RTK_Int32: {
-        //Producer fact (src/vm/backend/Types.cpp:62-107
-        //ExtractLiteralDefault): defaults only ever carry
-        //RTK_Int32/Long/ULong/Float/Double/Null/String. A 4-byte
-        //formal's default lands as RTK_Int32 regardless of declared
-        //width (byte/short/uint literals are RnInt32); bool/char/
-        //non-foldable defaults stay RTK_Void/Unfoldable and are
-        //rejected below — same limitation as the cross-module stub
-        //path. Value in the low 4 bytes; negative via uint32 cast.
-        const int32_t v = static_cast<int32_t>(d.intValue);
-        std::memcpy(cell, &v, sizeof(v));
-        break;
-    }
-    case RTK_Long:
-    case RTK_ULong:
-        std::memcpy(cell, &d.longValue, sizeof(d.longValue));
-        break;
-    case RTK_Float:
-        std::memcpy(cell, &d.floatValue, sizeof(d.floatValue));
-        break;
-    case RTK_Double:
-        std::memcpy(cell, &d.doubleValue, sizeof(d.doubleValue));
-        break;
-    case RTK_Null: {
-        const int32_t nullHandle = 0;
-        std::memcpy(cell, &nullHandle, sizeof(nullHandle));
-        break;
-    }
-    case RTK_String: {
-        //Post-link the index is remapped into this module's table;
-        //mint a runtime string so the value behaves like any other.
-        if (d.stringIdx >= m_currModule->stringConstants.size())
-            throw std::runtime_error(
-                "NLang VM: default string index out of range");
-        const int32_t handle =
-            MintNewString(m_currModule->stringConstants[d.stringIdx]);
-        std::memcpy(cell, &handle, sizeof(handle));
-        break;
-    }
-    case RTK_Void:
-    default:
-        throw std::runtime_error(
-            "NLang VM: missing argument without a constant default on "
-            + callee.name + " (embedding entry cannot rebuild it)");
-    }
+    //0.9.11 T4: the folded-value write moved into the shared
+    //MaterializeDefaultValue (VmDefaultMaterializer.cpp), the same site
+    //struct field defaults use at allocation. The embedding entry has no
+    //declaration to rebuild an expression default from, so every non-
+    //materializable tag (RTK_Void sentinel, RTK_Expr/RTK_Unfoldable)
+    //keeps the rejection below.
+    if (MaterializeDefaultValue(d, cell))
+        return;
+    throw std::runtime_error(
+        "NLang VM: missing argument without a constant default on "
+        + callee.name + " (embedding entry cannot rebuild it)");
 }
 
 //--- 宿主值桥 -------------------------------------------------------------
