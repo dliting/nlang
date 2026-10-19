@@ -960,6 +960,10 @@ private:
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
+    //0.9.10 D5: per-unit interface statics table (name = qualified key,
+    //static method indices into the function table). Defined in
+    //backend/RegisterInterfaces.cpp.
+    void RegisterInterfaces(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
     //GenerateAllBytecode close-out: scan the root for the entry function
     //and stamp m_compiledModule.entryPoint. Defined in Register.cpp (it

@@ -1,0 +1,7 @@
+//0.9.10 D5: consumer calls the inherited static through the derived
+//type name. Expected exit code 7.
+import lib;
+
+int main() {
+	return Sub.seven();
+}

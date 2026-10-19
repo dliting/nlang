@@ -334,6 +334,35 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         //Constructor index
         fs.write(reinterpret_cast<const char*>(&cc.constructorIdx),
                  sizeof(cc.constructorIdx));
+
+        //0.9.10 v2.4: exported public static method indices (count +
+        //entries). A v2.3 module lacks them entirely — refused by the
+        //version floor, so the reader always consumes this block.
+        uint16_t staticCount = static_cast<uint16_t>(
+            cc.publicStaticMethodIndices.size());
+        fs.write(reinterpret_cast<const char*>(&staticCount),
+                 sizeof(staticCount));
+        for (auto idx : cc.publicStaticMethodIndices)
+            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+    }
+
+    //0.9.10 v2.4: interface statics table. Format mirrors the class
+    //method block: u32 count, then per interface the u16-length-prefixed
+    //qualified key plus its static function indices.
+    uint32_t ifaceCount = static_cast<uint32_t>(mod.interfaces.size());
+    fs.write(reinterpret_cast<const char*>(&ifaceCount),
+             sizeof(ifaceCount));
+    for (auto& ci : mod.interfaces) {
+        uint16_t nameLen = static_cast<uint16_t>(ci.name.size());
+        fs.write(reinterpret_cast<const char*>(&nameLen),
+                 sizeof(nameLen));
+        fs.write(ci.name.c_str(), nameLen);
+        uint16_t staticCount = static_cast<uint16_t>(
+            ci.staticMethodIndices.size());
+        fs.write(reinterpret_cast<const char*>(&staticCount),
+                 sizeof(staticCount));
+        for (auto idx : ci.staticMethodIndices)
+            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
     }
 
     //Array type descriptors
@@ -376,7 +405,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     //slot order (own entries occupy 0..n-1, imports n..n+m). Per entry:
     //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
     //function section additionally carries u16 ownerClassKeyLen + bytes
-    //(empty = namespace-level function; see SymbolImport).
+    //(empty = namespace-level function; see SymbolImport) and the
+    //0.9.10 v2.4 static flag byte (linkage identity: a static and an
+    //instance member of the same name and arity are distinct slots).
     auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>&
                                   imports, bool withOwnerKey)
     {
@@ -402,6 +433,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 fs.write(reinterpret_cast<const char*>(&ownerLen),
                          sizeof(ownerLen));
                 fs.write(imp.ownerClassKey.c_str(), ownerLen);
+                uint8_t staticFlag = imp.isStatic ? 1 : 0;
+                fs.write(reinterpret_cast<const char*>(&staticFlag),
+                         sizeof(staticFlag));
             }
         }
     };

@@ -1,0 +1,7 @@
+//0.9.10 D5: consumer module calling the imported class's static method
+//through the type name. Expected exit code 12 (3 * 4).
+import lib;
+
+int main() {
+	return Util.quad(3);
+}

@@ -90,8 +90,11 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //module borders. Refuse v2.2 and older outright.
 //v2.4 (static members): every function record gains a static flag so
 //name-based dispatch can skip static members (they live in a separate
-//namespace from instance dispatch). A v2.3 module has no flag byte and
-//misparses every record after the native flag; refuse v2.3 and older.
+//namespace from instance dispatch). Class records gain the exported
+//public-static method indices, a per-unit interface table carries the
+//interface statics, and function import records gain the static flag
+//the linker matches on. A v2.3 module has no flag byte and misparses
+//every record after the native flag; refuse v2.3 and older.
 inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
 
 //Runtime type kind constants for serialization (compile-time NK_* values
@@ -292,6 +295,19 @@ struct CompiledClass {
     std::vector<TypeDesc> fieldTypeDescs;
     std::vector<uint16_t> methodIndices;         // method function indices (by declaration order)
     uint16_t constructorIdx = 0xFFFF;           // constructor function index
+    //0.9.10 (v2.4): the PUBLIC static method indices this class exports —
+    //the only statics a consumer stub rebuilds (private statics stay
+    //invisible across the module border, like private fields).
+    std::vector<uint16_t> publicStaticMethodIndices;
+};
+
+//0.9.10 (v2.4): per-unit interface table. Only interface statics cross
+//the module border (instance members need a receiver the consumer cannot
+//construct here); name is the interface's qualified key and the indices
+//point at its static function records.
+struct CompiledInterface {
+    std::string name;
+    std::vector<uint16_t> staticMethodIndices;
 };
 
 struct CompiledModule {
@@ -302,6 +318,8 @@ struct CompiledModule {
     std::vector<std::string> stringConstants;
     std::vector<CompiledStruct> structs;
     std::vector<CompiledClass> classes;
+    //0.9.10 (v2.4): interface statics, keyed like enumKeys (qualified).
+    std::vector<CompiledInterface> interfaces;
     std::vector<CompiledArrayType> arrayTypes;
     //Phase 8e-9b: per-enum value name tables. Outer index = enumDefIdx (in
     //declaration order across the module), inner index = enum int value.
@@ -332,6 +350,9 @@ struct CompiledModule {
         //runtime dispatch is by name — the owner key lives in the slot
         //record only (phase6 design section 2).
         std::string ownerClassKey;
+        //0.9.10 (v2.4): part of the linkage identity — a static and an
+        //instance member of the same name and arity are distinct slots.
+        bool isStatic = false;
     };
     std::vector<SymbolImport> functionImports;   //slots after own functions
     std::vector<SymbolImport> classImports;      //slots after own classes

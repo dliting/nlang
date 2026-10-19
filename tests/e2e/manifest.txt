@@ -907,6 +907,10 @@ delegate_result_arg_reject compile_error has type "Int32[]"
 cross_mod_stdlib_array_arg compile_error
 cross_mod_array_return 0
 cross_mod_array_member 0
+cross_mod_static_class 12
+cross_mod_interface_static 42
+cross_mod_static_disambiguation 32
+cross_mod_static_inherited 7
 call_result_get_positive 7
 call_result_length_positive 2
 stdlib_math_trig 0

@@ -1,0 +1,6 @@
+//0.9.10 D5: producer module exporting a class with a public static
+//method. The static flag must survive .ncu serialization and reach the
+//consumer as NF_Static on the class stub.
+class Util {
+	public static int quad(int x) { return x * 4; }
+}

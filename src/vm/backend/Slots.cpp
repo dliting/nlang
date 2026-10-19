@@ -38,23 +38,28 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     //same-named same-arity methods of one unit (phase6 design section 2).
     //Enum methods DO reach here — KeyOf gives them the enclosure-
     //qualified EnumMethodKey and they resolve through the namespace
-    //branch; interface members never do (no function record of their
-    //own). Arity follows the TABLE convention (formals + this for class
-    //and enum methods, mirroring AllocParamsAndDefaults): the import
-    //record must match the owning unit's registration or nlink's
-    //name+paramCount resolution reports a signature miss.
-    std::string ownerClassKey;
+    //branch; 0.9.10 D5: interface statics join them (enclosure-qualified
+    //key, resolved against the per-unit interface table's function
+    //records). Arity follows the TABLE convention (formals + this for
+    //class and enum instance methods, mirroring AllocParamsAndDefaults):
+    //the import record must match the owning unit's registration or
+    //nlink's name+paramCount+staticness resolution reports a signature
+    //miss. Statics take no this slot (their producer frame has none) and
+    //no owner key — staticness alone is the linkage disambiguator.
     const SyntaxNode* pParent = callee.Parent();
-    const bool isMethod = pParent
+    const bool isStatic = callee.ContainFlags(NF_Static);
+    const bool needsThis = pParent
         && (pParent->Kind() == NK_ClassDecl
-            || pParent->Kind() == NK_EnumDecl);
-    if (pParent && pParent->Kind() == NK_ClassDecl)
+            || pParent->Kind() == NK_EnumDecl)
+        && !isStatic;
+    std::string ownerClassKey;
+    if (pParent && pParent->Kind() == NK_ClassDecl && !isStatic)
         ownerClassKey = KeyOf(static_cast<const SnClassDecl&>(*pParent));
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(
-            callee.Params().size() + (isMethod ? 1 : 0)),
-        ownerClassKey);
+            callee.Params().size() + (needsThis ? 1 : 0)),
+        ownerClassKey, isStatic);
 }
 
 uint32_t VmBackend::ClassSlotFor(SnClassDecl& decl) {

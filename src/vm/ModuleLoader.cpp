@@ -102,6 +102,9 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     ReadFunctionRecords(fs, mod);
     ReadStructRecords(fs, mod);
     ReadClassRecords(fs, mod);
+    //0.9.10 v2.4: interface statics, written between the class and
+    //array-type sections.
+    ReadInterfaceRecords(fs, mod);
 
     //v1.12: descriptors reference struct/class indices of THIS module —
     //the function records were parsed before the tables, so bounds are
@@ -181,7 +184,8 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     //slot order — own entries occupy 0..n-1, imports n..n+m). Per entry:
     //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
     //function section additionally carries u16 ownerClassKeyLen + bytes
-    //(empty = namespace-level function; see SymbolImport).
+    //(empty = namespace-level function; see SymbolImport) and the
+    //0.9.10 v2.4 static flag byte (linkage identity, see SymbolImport).
     auto readImports = [&fs](std::vector<CompiledModule::SymbolImport>& imports,
                              bool withOwnerKey)
     {
@@ -220,6 +224,11 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                         "Invalid module: bad import owner key length");
                 imp.ownerClassKey.resize(ownerLen);
                 fs.read(imp.ownerClassKey.data(), ownerLen);
+                //0.9.10 v2.4: static flag (linkage identity).
+                uint8_t staticFlag = 0;
+                fs.read(reinterpret_cast<char*>(&staticFlag),
+                        sizeof(staticFlag));
+                imp.isStatic = (staticFlag != 0);
             }
         }
     };

@@ -21,4 +21,7 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod);
 //Parse the class descriptors section. Same failure contract.
 void ReadClassRecords(std::istream& fs, CompiledModule& mod);
 
+//0.9.10 v2.4: parse the interface statics section. Same failure contract.
+void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod);
+
 } // namespace nlang

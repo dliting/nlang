@@ -50,14 +50,17 @@ bool IsEnumTypeNameReceiver(SnMemberExpr &snMember)
 
 //A same-name static anywhere on the class chain means the normal invoke
 //path owns the call (it selects the overload or reports its own arity
-//diagnostic).
+//diagnostic). 0.9.10 D5: imported class stubs carry their exported
+//public statics, so the walk continues through them; builtins keep
+//stopping the walk (their Object-protocol members are intrinsic stubs,
+//never user statics).
 SnFunction *FindStaticMember(SnClassDecl *pClass, const std::string &name)
 {
 	std::set<SnClassDecl*> seen;
 	for (auto *p = pClass; p && !seen.count(p); p = p->SuperClass())
 	{
 		seen.insert(p);
-		if (p->ContainFlags(NF_Imported) || p->IsBuiltinClass())
+		if (p->IsBuiltinClass())
 			break;
 		for (auto &member : p->Members())
 			if (member.Kind() == NK_Function && member.Name() == name

@@ -331,7 +331,59 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
         //Constructor index
         fs.read(reinterpret_cast<char*>(&cc.constructorIdx),
                 sizeof(cc.constructorIdx));
+
+        //0.9.10 v2.4: exported public static method indices (see
+        //ModuleSaver). Count + entries, no gate — the v2.4 floor
+        //guarantees the block.
+        uint16_t staticCount = 0;
+        fs.read(reinterpret_cast<char*>(&staticCount),
+                sizeof(staticCount));
+        if (!fs.good() || staticCount > (1u << 12))
+            throw std::runtime_error(
+                "Invalid module: bad public static method count");
+        cc.publicStaticMethodIndices.resize(staticCount);
+        for (uint16_t j = 0; j < staticCount; ++j)
+            fs.read(reinterpret_cast<char*>(&cc.publicStaticMethodIndices[j]),
+                    sizeof(uint16_t));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated class static method indices");
     }
+}
+
+//0.9.10 v2.4: interface statics table — per interface a u16-length-
+//prefixed qualified key plus its static function indices. Mirrors the
+//class method block; the qualified key is the linkage identity (like
+//enumKeys).
+void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
+{
+    uint32_t ifaceCount = 0;
+    fs.read(reinterpret_cast<char*>(&ifaceCount), sizeof(ifaceCount));
+    if (!fs.good() || ifaceCount > (1u << 20))
+        throw std::runtime_error("Invalid module: bad interface count");
+    mod.interfaces.resize(ifaceCount);
+
+    for (uint32_t i = 0; i < ifaceCount; ++i) {
+        auto& ci = mod.interfaces[i];
+        uint16_t nameLen = 0;
+        fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+        if (!fs.good() || nameLen > (1u << 16))
+            throw std::runtime_error("Invalid module: bad interface name length");
+        ci.name.resize(nameLen);
+        fs.read(ci.name.data(), nameLen);
+
+        uint16_t staticCount = 0;
+        fs.read(reinterpret_cast<char*>(&staticCount), sizeof(staticCount));
+        if (!fs.good() || staticCount > (1u << 12))
+            throw std::runtime_error(
+                "Invalid module: bad interface static method count");
+        ci.staticMethodIndices.resize(staticCount);
+        for (uint16_t j = 0; j < staticCount; ++j)
+            fs.read(reinterpret_cast<char*>(&ci.staticMethodIndices[j]),
+                    sizeof(uint16_t));
+    }
+    if (!fs.good())
+        throw std::runtime_error("Invalid module: truncated interface table");
 }
 
 } // namespace nlang

@@ -30,6 +30,7 @@ add_library(nlang_vm
     backend/Slots.cpp
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
+    backend/RegisterInterfaces.cpp
     backend/BuiltinClasses.cpp
     backend/Types.cpp
     backend/EmitCall.cpp

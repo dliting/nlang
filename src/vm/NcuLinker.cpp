@@ -26,6 +26,7 @@ struct UnitPushes
 	std::vector<uint32_t> classes;
 	std::vector<uint32_t> structs;
 	std::vector<uint32_t> functions;
+	std::vector<uint32_t> interfaces;
 };
 
 //(name, paramCount, intrinsicId) → 合并下标。只有纯内建桩（无字节码、
@@ -179,6 +180,23 @@ static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
     }
 }
 
+//0.9.10 v2.4: interface statics, deduped by qualified key like classes.
+//No import slots exist for this table (statics never cross as types), so
+//every entry is an own entry; the first provider owns the metadata remap.
+static void MergeInterfaces(const CompiledModule& u, CompiledModule& merged,
+                            UnitPushes& p) {
+    for (uint32_t i = 0; i < u.interfaces.size(); ++i) {
+        bool existing = false;
+        for (const auto& ci : merged.interfaces)
+            if (ci.name == u.interfaces[i].name) { existing = true; break; }
+        if (existing)
+            continue;
+        merged.interfaces.push_back(u.interfaces[i]);
+        p.interfaces.push_back(
+            static_cast<uint32_t>(merged.interfaces.size() - 1));
+    }
+}
+
 static void MergeUnitTables(const std::vector<CompiledModule>& units,
                             CompiledModule& merged,
                             std::vector<NcuOperandMaps>& maps,
@@ -192,6 +210,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         MergeEnums(units[ui], merged, maps[ui]);
         MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
                        builtinStubs);
+        MergeInterfaces(units[ui], merged, pushes[ui]);
     }
 }
 
@@ -300,6 +319,11 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         RemapStructMetadata(merged, maps[ui], pushes[ui].structs);
         for (uint32_t idx : pushes[ui].functions)
             FinalizeFunction(merged.functions[idx], maps[ui]);
+        //0.9.10 v2.4: interface static indices are function-table
+        //indices — remap them like the class method block.
+        for (uint32_t idx : pushes[ui].interfaces)
+            for (auto& i : merged.interfaces[idx].staticMethodIndices)
+                i = static_cast<uint16_t>(Lookup(maps[ui].functions, i));
     }
 }
 

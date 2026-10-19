@@ -215,10 +215,17 @@ static void CheckInterfaceMemberContract(BuildEnvironment &env,
 
 void StatementResolveAccessor::Access(SnInterfaceDecl &sn)
 {
-	//Enforce the member contract at the single point every interface
-	//declaration passes through.
-	for (auto &field : sn.Members())
-		CheckInterfaceMemberContract(m_Env, field);
+	//0.9.10 D5: an imported stub carries wire-rebuilt static members
+	//that are bodyless by construction — the member contract is
+	//enforced at the producer's declaration. Only the signatures
+	//resolve here (call sites bind against them).
+	if (!sn.ContainFlags(NF_Imported))
+	{
+		//Enforce the member contract at the single point every own
+		//interface declaration passes through.
+		for (auto &field : sn.Members())
+			CheckInterfaceMemberContract(m_Env, field);
+	}
 	//Interface member signatures resolve like class methods; only the
 	//static members carry bodies (0.9.10), walked like any function
 	//body. No super-class chain to walk.

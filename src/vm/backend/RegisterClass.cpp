@@ -262,6 +262,7 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
         auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
         cc.methodIndices.clear();
         cc.constructorIdx = 0xFFFF;
+        cc.publicStaticMethodIndices.clear();
         for (auto& child : sn.Members()) {
             if (child.Kind() == NK_Function) {
                 auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
@@ -273,6 +274,12 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
                     if (child.Name() == sn.Name()
                         && !child.ContainFlags(NF_Static))
                         cc.constructorIdx = funcIdx;
+                    //0.9.10 D5: the public statics a consumer stub may
+                    //rebuild — private statics stay invisible across the
+                    //module border.
+                    else if (child.ContainFlags(NF_Static)
+                        && child.AccessType() == FA_Public)
+                        cc.publicStaticMethodIndices.push_back(funcIdx);
                 }
             }
         }

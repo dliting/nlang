@@ -77,9 +77,10 @@ bool ReceiverNamesType(SnExpression *pOuter)
 
 //0.9.10 D2.4: first same-name member of ONE namespace (static vs
 //instance) along the receiver's chain — the rebind and cross-namespace
-//diagnostic search. Class walk stops at imported stubs and builtins
-//(their members carry no NF_Static until Task 10 propagates it); the
-//enum and interface arms scan their own members only.
+//diagnostic search. 0.9.10 D5: imported class stubs carry their
+//exported public statics, so the walk continues through them; builtins
+//still stop the walk (their members are intrinsic stubs, never user
+//statics). The enum and interface arms scan their own members only.
 SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
 	const std::string &name, bool bStatic)
 {
@@ -106,7 +107,7 @@ SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
 		p = p->SuperClass())
 	{
 		seen.insert(p);
-		if (p->ContainFlags(NF_Imported) || p->IsBuiltinClass())
+		if (p->IsBuiltinClass())
 			break;
 		for (auto &member : p->Members())
 			if (member.Kind() == NK_Function && member.Name() == name

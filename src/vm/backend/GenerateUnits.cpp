@@ -96,6 +96,12 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         RegisterEnums(root);
         RegisterFunctions(root);
         PopulateClassMethods(root);
+        //0.9.10 D5: after RegisterFunctions/PopulateClassMethods — the
+        //interface table indexes the function records they created. Must
+        //run before GenerateAllBytecode: body emission can append
+        //placeholder function records, and the table's indices must stay
+        //in the own region.
+        RegisterInterfaces(root);
         GenerateAllBytecode(root);
         //Entry collection: the pre-check above already refused a unit
         //set with two executable mains, so at most one unit owns an

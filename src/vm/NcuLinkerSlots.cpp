@@ -25,8 +25,11 @@ static FunctionSlotHit ResolveNamespacedFunction(
     FunctionSlotHit r;
     const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
     for (uint32_t k = 0; k < tgtOwn; ++k) {
+        //0.9.10 v2.4: staticness is part of the linkage identity — an
+        //interface static and a same-shape free function are distinct.
         if (tgt.functions[k].name == imp.name
-            && tgt.functions[k].paramCount == imp.paramCount) {
+            && tgt.functions[k].paramCount == imp.paramCount
+            && tgt.functions[k].isStatic == imp.isStatic) {
             if (r.hit < 0) r.hit = static_cast<int>(k);
             ++r.hits;
         }
@@ -56,8 +59,9 @@ static FunctionSlotHit ResolveOwnerKeyedFunction(
     const size_t dot = imp.ownerClassKey.rfind('.');
     const std::string bareClassName = imp.ownerClassKey.substr(
         dot == std::string::npos ? 0 : dot + 1);
-    if (imp.name == bareClassName) {
-        //构造器：类自身的构造下标（形参数为校验）。
+    //构造器：类自身的构造下标（形参数为校验）。0.9.10 v2.4: 构造器恒
+    //为实例侧，静态成员导入即使同名同参（Mix.Mix）也不得落进此分支。
+    if (imp.name == bareClassName && !imp.isStatic) {
         const uint16_t ci = tc.constructorIdx;
         if (ci != 0xFFFF && ci < tgtOwn
             && tgt.functions[ci].paramCount == imp.paramCount) {
@@ -67,8 +71,11 @@ static FunctionSlotHit ResolveOwnerKeyedFunction(
         return r;
     }
     for (uint16_t mi : tc.methodIndices) {
+        //0.9.10 v2.4: 静态性参与消歧（同名静态/实例方法对跨线缆后仍
+        //是两个槽）。
         if (mi < tgtOwn && tgt.functions[mi].name == imp.name
-            && tgt.functions[mi].paramCount == imp.paramCount) {
+            && tgt.functions[mi].paramCount == imp.paramCount
+            && tgt.functions[mi].isStatic == imp.isStatic) {
             if (r.hit < 0) r.hit = static_cast<int>(mi);
             ++r.hits;
         }
@@ -80,8 +87,10 @@ static FunctionSlotHit ResolveOwnerKeyedFunction(
 //与来源模块。
 static std::string DescribeFunctionImport(
     const CompiledModule::SymbolImport& imp) {
+    //0.9.10 v2.4: staticness participates in slot identity — name it.
     return "function '" + imp.name
         + "' (paramCount " + std::to_string(imp.paramCount) + ")"
+        + (imp.isStatic ? " static" : "")
         + (imp.ownerClassKey.empty()
                ? std::string()
                : " of class '" + imp.ownerClassKey + "'")
